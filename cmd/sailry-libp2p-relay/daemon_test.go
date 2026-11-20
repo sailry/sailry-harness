@@ -137,6 +137,39 @@ func TestDaemonInstallRefusesOccupiedPort(t *testing.T) {
 	assertDaemonTestMissing(t, f.daemon.binaryPath, f.daemon.configPath, f.daemon.unitPath(), f.state)
 }
 
+func TestDaemonInstallRejectsPrivilegedPortBeforeCreatingAccount(t *testing.T) {
+	f := newDaemonFixture(t)
+	f.writeConfig(443)
+	err := f.daemon.manage(t.Context(), "install", []string{f.config}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "cannot bind privileged TCP port 443") || f.accountExists || !slices.Equal(f.calls, []string{"show"}) {
+		t.Fatalf("privileged port: %v, commands %v, account exists %t", err, f.calls, f.accountExists)
+	}
+	assertDaemonTestMissing(t, f.daemon.binaryPath, f.daemon.configPath, f.daemon.unitPath(), f.state)
+}
+
+func TestDaemonActiveRestartHonorsUnprivilegedPortStart(t *testing.T) {
+	f := newDaemonFixture(t)
+	if err := f.daemon.manage(t.Context(), "install", []string{f.config}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	f.config = f.daemon.configPath
+	f.writeConfig(443)
+	for _, test := range []struct{ first, wantErr string }{
+		{"0", ""}, {"443", ""}, {"444", "cannot bind privileged TCP port 443"}, {"invalid", "invalid proc/sys"},
+	} {
+		f.calls = nil
+		writeDaemonTestFile(t, filepath.Join(f.daemon.root, "proc/sys/net/ipv4/ip_unprivileged_port_start"), test.first+"\n", 0o644)
+		err := f.daemon.manage(t.Context(), "restart", nil, io.Discard)
+		if test.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) || !slices.Equal(f.calls, []string{"show"}) {
+				t.Fatalf("first port %s: %v, commands %v", test.first, err, f.calls)
+			}
+		} else if err != nil || !slices.Contains(f.calls, "restart") {
+			t.Fatalf("first port %s: %v, commands %v", test.first, err, f.calls)
+		}
+	}
+}
+
 func TestDaemonInstallRejectsWrongSystemdExecutable(t *testing.T) {
 	f := newDaemonFixture(t)
 	path := f.processExecutable()
@@ -200,6 +233,24 @@ func TestDaemonInstallRefusesUnknownStateAndFiles(t *testing.T) {
 			assertDaemonTestMissing(t, f.daemon.unitPath(), f.daemon.enablePath())
 		})
 	}
+}
+
+func TestDaemonUpdateRejectsMissingManagedIdentity(t *testing.T) {
+	f := newDaemonFixture(t)
+	if err := f.daemon.manage(t.Context(), "install", []string{f.config}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	key := filepath.Join(f.state, "link.key")
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	f.calls = nil
+	args := []string{f.daemon.sourceBinary, "--sha256", strings.Repeat("0", 64)}
+	err := f.daemon.manage(t.Context(), "update", args, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "managed relay identity is missing") || !slices.Equal(f.calls, []string{"show"}) {
+		t.Fatalf("update with missing identity: %v, commands %v", err, f.calls)
+	}
+	assertDaemonTestMissing(t, key, f.daemon.binaryPath+".previous")
 }
 
 func TestDaemonRefusesForeignEffectiveUnit(t *testing.T) {
@@ -296,6 +347,7 @@ func newDaemonFixture(t *testing.T) *daemonFixture {
 	if err := os.Symlink(f.daemon.binaryPath, f.processExecutable()); err != nil {
 		t.Fatal(err)
 	}
+	writeDaemonTestFile(t, filepath.Join(root, "proc/sys/net/ipv4/ip_unprivileged_port_start"), "1024\n", 0o644)
 	writeDaemonTestFile(t, f.daemon.sourceBinary, "relay executable", 0o755)
 	listener := listenDaemonTestPort(t)
 	port := listener.Addr().(*net.TCPAddr).Port

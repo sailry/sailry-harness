@@ -149,16 +149,10 @@ func (d *relayDaemon) manage(ctx context.Context, action string, args []string, 
 		return errors.New("managed relay identity is missing; refusing to generate a replacement")
 	}
 	if action == "update" {
-		return d.update(ctx, args, output)
+		return d.update(ctx, args, options, id, output)
 	}
-	switch state := properties["ActiveState"]; state {
-	case "active":
-	case "inactive", "failed":
-		if err := checkRelayDaemonPort(ctx, options); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("relay service is %s; wait for it to settle before %s", state, action)
+	if err := d.checkPort(ctx, options, properties["ActiveState"]); err != nil {
+		return err
 	}
 	return d.activate(ctx, action, options, id)
 }
@@ -230,7 +224,7 @@ func (d *relayDaemon) install(ctx context.Context, configSource string, output i
 			return fmt.Errorf("refusing to replace existing executable %s", d.binaryPath)
 		}
 	}
-	if err := checkRelayDaemonPort(ctx, options); err != nil {
+	if err := d.checkPort(ctx, options, properties["ActiveState"]); err != nil {
 		return err
 	}
 	account, err := d.account(ctx, false)
@@ -620,10 +614,36 @@ func createRelayDaemonState(path string, account relayDaemonAccount) error {
 	return nil
 }
 
-func checkRelayDaemonPort(ctx context.Context, options startOptions) error {
+func (d *relayDaemon) checkPort(ctx context.Context, options startOptions, state string) error {
+	switch state {
+	case "active", "inactive", "failed":
+	default:
+		return fmt.Errorf("relay service is %s; wait for it to settle", state)
+	}
 	addr := options.config.ListenAddr
 	if len(addr) != 2 || addr[1].Code() != ma.P_TCP || addr[1].Value() == "0" {
 		return errors.New("the managed relay needs a fixed TCP listen port")
+	}
+	port, err := strconv.Atoi(addr[1].Value())
+	if err != nil {
+		return err
+	}
+	// A successful bind by the root management process does not establish that
+	// the unprivileged unit can bind in this network namespace.
+	const sysctl = "proc/sys/net/ipv4/ip_unprivileged_port_start"
+	data, err := os.ReadFile(filepath.Join(d.root, sysctl))
+	if err != nil {
+		return fmt.Errorf("check unprivileged relay ports: %w", err)
+	}
+	first, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 16)
+	if err != nil {
+		return fmt.Errorf("invalid %s: %w", sysctl, err)
+	}
+	if port < int(first) {
+		return fmt.Errorf("%s cannot bind privileged TCP port %d; choose port %d or higher", relayDaemonUser, port, first)
+	}
+	if state == "active" {
+		return nil // The running service may already hold the listener.
 	}
 	network := "tcp4"
 	if addr[0].Code() == ma.P_IP6 {

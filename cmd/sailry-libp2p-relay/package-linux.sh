@@ -23,7 +23,12 @@ go build -trimpath -o "$stage/sailry-relay" ./cmd/sailry-libp2p-relay
 chmod 755 "$stage/sailry-relay"
 cp LICENSE NOTICE "$stage/"
 bash internal/node/host/deployment/licenses.sh "$GOOS/$GOARCH" --go-only "$stage/licenses" ./cmd/sailry-libp2p-relay
-COPYFILE_DISABLE=1 tar --no-acls --no-xattrs -czf "$scratch/$archive" -C "$stage" sailry-relay LICENSE NOTICE licenses
+case "$(tar --version)" in
+  *'GNU tar'*) owner=(--owner=0 --group=0) ;;
+  *bsdtar*) owner=(--uid 0 --gid 0) ;;
+  *) echo 'packaging requires GNU tar or bsdtar' >&2; exit 1 ;;
+esac
+COPYFILE_DISABLE=1 tar "${owner[@]}" --numeric-owner --no-acls --no-xattrs -czf "$scratch/$archive" -C "$stage" sailry-relay LICENSE NOTICE licenses
 (
   cd "$scratch"
   if command -v sha256sum >/dev/null; then

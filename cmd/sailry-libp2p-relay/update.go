@@ -23,17 +23,9 @@ import (
 const relayProgram = "github.com/sailry/sailry-harness/cmd/sailry-libp2p-relay"
 const maxLocalRelayBinary = 128 << 20
 
-func (d *relayDaemon) update(ctx context.Context, args []string, output io.Writer) error {
+func (d *relayDaemon) update(ctx context.Context, args []string, options startOptions, identity peer.ID, output io.Writer) error {
 	if len(args) != 0 && (len(args) != 3 || args[1] != "--sha256") {
 		return errors.New("usage: sailry-relay daemon update [<binary> --sha256 <digest>]")
-	}
-	options, _, err := readRelayConfig(d.configPath)
-	if err != nil {
-		return err
-	}
-	identity, err := readRelayPeerID(options.directory)
-	if err != nil {
-		return fmt.Errorf("read existing relay identity before update: %w", err)
 	}
 	stage, err := os.MkdirTemp(filepath.Dir(d.binaryPath), ".sailry-relay-update-")
 	if err != nil {
@@ -80,14 +72,8 @@ func (d *relayDaemon) update(ctx context.Context, args []string, output io.Write
 		return err
 	}
 	state := properties["ActiveState"]
-	switch state {
-	case "active":
-	case "inactive", "failed":
-		if err := checkRelayDaemonPort(ctx, options); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("relay service is %s; wait for it to settle before updating", state)
+	if err := d.checkPort(ctx, options, state); err != nil {
+		return err
 	}
 	restart := func(ctx context.Context) error {
 		if state == "failed" {
