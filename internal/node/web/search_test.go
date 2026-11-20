@@ -275,7 +275,10 @@ func TestHostedExaLifecycle(t *testing.T) {
 			if frame.Params["name"] != "web_search_exa" {
 				t.Error("incorrect hosted tool", frame.Params)
 			}
-			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "Title: Public source\nURL: https://example.com/\nPublished: N/A\nText: Fixture excerpt"}}}
+			if arguments, _ := frame.Params["arguments"].(map[string]any); arguments["query"] != "fixture" {
+				t.Error("hosted query carries filter operators", arguments)
+			}
+			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "Title: Public source\nURL: https://example.com/\nPublished: N/A\nText: Fixture excerpt\n\n---\n\nTitle: Other\nURL: https://other.test/\nPublished: N/A\nText: Out of scope"}}}
 		default:
 			t.Error("unexpected hosted request", frame.Method)
 			result = map[string]any{}
@@ -289,7 +292,7 @@ func TestHostedExaLifecycle(t *testing.T) {
 	config.KeyConfigured = false
 	settings.Providers[protocol.SearchDriverExa] = config
 	searcher.Configure(settings)
-	page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings}, protocol.SearchRequest{Query: "fixture", Limit: 5})
+	page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings}, protocol.SearchRequest{Query: "fixture", Limit: 5, IncludeDomains: []string{"example.com", "example.org"}})
 	mu.Lock()
 	defer mu.Unlock()
 	if err != nil || calls != 1 || len(page.Results) != 1 || page.Results[0].Snippet != "Fixture excerpt" || page.Results[0].Published != nil {
