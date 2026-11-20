@@ -499,9 +499,15 @@ func TestSearchBar(t *testing.T) {
 	}
 }
 
+func tallHistoryTurn(id string) conversation.Turn {
+	return conversation.Turn{ID: id, Reply: conversation.Reply{Status: conversation.Completed,
+		Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: strings.Repeat("Long historical paragraph.\n\n", 40)}},
+	}}
+}
+
 func TestOlderPageRequiresVisibleMarker(t *testing.T) {
 	s, r := conversation.New(), &recorder{}
-	turns := []conversation.Turn{{ID: "giant", User: strings.Repeat("Long historical turn.\n", 100), InputOnly: true}}
+	turns := []conversation.Turn{tallHistoryTurn("giant")}
 	sess := &conversation.Session{Older: 20}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
@@ -522,7 +528,7 @@ func TestOlderPageRequiresVisibleMarker(t *testing.T) {
 		t.Fatal("visible start of history did not request a page")
 	}
 	asked := r.older
-	turns = append([]conversation.Turn{{ID: "earlier", User: strings.Repeat("Earlier message.\n", 100), InputOnly: true}}, turns...)
+	turns = append([]conversation.Turn{tallHistoryTurn("earlier")}, turns...)
 	for range 4 {
 		tt.Frame()
 	}
@@ -534,7 +540,7 @@ func TestOlderPageRequiresVisibleMarker(t *testing.T) {
 
 func TestFailedHistoryRetriesOnScroll(t *testing.T) {
 	s, r := conversation.New(), &recorder{}
-	turns := []conversation.Turn{{ID: "giant", User: strings.Repeat("Long historical turn.\n", 100), InputOnly: true}}
+	turns := []conversation.Turn{tallHistoryTurn("giant")}
 	sess := &conversation.Session{Older: 20, OlderFailed: true}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
