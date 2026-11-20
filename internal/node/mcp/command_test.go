@@ -44,6 +44,29 @@ func TestStdioCommandUsesNodePath(t *testing.T) {
 	}
 }
 
+// A captured environment without PATH resolves through the Node process's.
+func TestStdioCommandFallsBackToProcessPath(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	const name = "mcp-fixture"
+	path := filepath.Join(bin, name)
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if err := os.WriteFile(path, []byte("fixture executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	command, err := stdioCommand(Launch{Command: name, Environment: []string{"HOME=" + t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, _ := os.Stat(path)
+	resolved, err := os.Stat(command.Path)
+	if err != nil || !os.SameFile(expected, resolved) {
+		t.Fatalf("resolved %q: %v", command.Path, err)
+	}
+}
+
 // A server that exits non-zero when its input closes is gone all the same:
 // its exit status is not a cleanup failure.
 func TestCommandCloseExitStatus(t *testing.T) {

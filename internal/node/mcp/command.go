@@ -37,6 +37,15 @@ func stdioCommand(launch Launch) (*exec.Cmd, error) {
 				search[name] = value
 			}
 		}
+		// A captured environment without a search path falls back to the
+		// Node process's own, as exec.LookPath did.
+		for _, name := range []string{"PATH", "PATHEXT"} {
+			if _, ok := search[name]; !ok {
+				if value, ok := os.LookupEnv(name); ok {
+					search[name] = value
+				}
+			}
+		}
 		path, err := program.Resolve(executable, search)
 		if err != nil {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "MCP executable was not found in the Node's PATH"}
