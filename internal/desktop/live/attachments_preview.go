@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"unicode/utf8"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
@@ -79,11 +80,19 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 				return
 			}
 			if err != nil {
-				loaded.State = conversation.PreviewFailed
-				if faultCode(err) == protocol.ErrorCodeRevisionConflict || faultCode(err) == protocol.ErrorCodeConflict {
-					loaded.State = conversation.PreviewChanged
-				}
+				// A preview that cannot load says why in a toast and leaves
+				// no empty tab or dialog behind.
 				r.downloadOutcome(c, err)
+				if preview != nil {
+					if r.localRuntime().filePreview == preview {
+						preview.cancel()
+						preview.open = false
+						r.localRuntime().filePreview = nil
+					}
+				} else {
+					r.forgetDocumentPreview(file.ID)
+				}
+				return
 			} else if content != nil {
 				r.attachments.previewHTML[file.ID] = content.Html
 			}
@@ -194,6 +203,11 @@ func (r *Runtime) readAttachmentPreview(ctx context.Context, descriptor attachme
 		return file, nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "file preview is not UTF-8 text")
 	}
 	file.Text = string(sink.data)
+	if htmlFile(descriptor.path) {
+		// A delivered page renders as a published document does; its
+		// source stays the text that Copy and the code fallback use.
+		return file, &protocol.ArtifactContent{Html: file.Text}, nil
+	}
 	return file, nil, nil
 }
 func (r *Runtime) readPublishedArtifact(ctx context.Context, descriptor attachmentDescriptor) (protocol.ArtifactContent, error) {
@@ -381,10 +395,22 @@ func (r *Runtime) renderArtifactPreview(c *ui.Context, file conversation.File) b
 	}
 	descriptor, ok := r.attachments.previews[file.ID]
 	html, loaded := r.attachments.previewHTML[file.ID]
-	if !ok || !loaded || descriptor.artifact == nil {
+	if !ok || !loaded {
 		return false
 	}
+	if descriptor.artifact == nil {
+		if !htmlFile(descriptor.path) {
+			return false
+		}
+		return r.pageView(c, file.ID, html)
+	}
 	return r.attachments.native.DocumentView(c, *descriptor.artifact, html)
+}
+
+// htmlFile reports a worktree page the preview renders.
+func htmlFile(name string) bool {
+	extension := strings.ToLower(filepath.Ext(name))
+	return extension == ".html" || extension == ".htm"
 }
 
 func (r *Runtime) artifactRuntime(id string) *Runtime {

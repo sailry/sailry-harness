@@ -37,12 +37,17 @@ func documentNavigation(address string) bool {
 // documentView renders a session document's HTML in its sandbox. It reports
 // false where no WebView can show it, and the caller keeps its fallback.
 func (r *Runtime) documentView(c *ui.Context, artifact protocol.ArtifactSummary, source string) bool {
+	return r.pageView(c, artifact.ID.String(), source)
+}
+
+// pageView renders HTML in the document sandbox under id, which keeps its
+// WebView across frames.
+func (r *Runtime) pageView(c *ui.Context, id, source string) bool {
 	root := r.localRuntime()
 	state := root.browser
 	if state == nil || !state.available {
 		return false
 	}
-	id := artifact.ID.String()
 	document := state.documents[id]
 	if document == nil || document.source != source {
 		// The WebView is made, or loads the new revision, before the next
