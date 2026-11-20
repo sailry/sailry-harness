@@ -106,7 +106,7 @@ func fileComponents(value string, allowRoot bool, access FileAccess, mutation bo
 		}
 	}
 	if access == RestrictedFiles && len(parts) >= 2 && managedFileDirectory(parts[0], parts[1]) {
-		return nil, fileFault(protocol.ErrorCodePermissionDenied, "managed worktrees require their own file scope")
+		return nil, fileFault(protocol.ErrorCodePermissionDenied, "managed worktrees require their own file scope; inspect them with Git tools and their worktree ID")
 	}
 	if mutation {
 		for _, part := range parts {
