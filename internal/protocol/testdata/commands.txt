@@ -212,6 +212,8 @@ read_backup_settings
 save_backup_settings
 list_backups
 export_backup
+export_configuration
+import_configuration
 download_backup
 upload_backup
 restore_backup_file

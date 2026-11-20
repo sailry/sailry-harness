@@ -108,8 +108,8 @@ func TestCommandKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := strings.Fields(string(data))
-	if len(want) != 357 {
-		t.Fatalf("command inventory contains %d entries, want the 362 of Rust less 7 removed plus 2 plugin version operations", len(want))
+	if len(want) != 359 {
+		t.Fatalf("command inventory contains %d entries, want the 362 of Rust less 7 removed plus 2 plugin version operations and 2 configuration transfers", len(want))
 	}
 	for _, removed := range []string{"put_credential", "revoke_credential", "set_defaults", "bind_connection_session", "validate_provider", "read_catalog_status", "read_file_checkpoint"} {
 		if slices.Contains(want, removed) {

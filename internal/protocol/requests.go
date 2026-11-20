@@ -162,6 +162,7 @@ func (command Command) Durable() bool {
 		"read_sandbox_settings",
 		"read_search_settings",
 		"read_backup_settings",
+		"export_configuration",
 		"list_backups",
 		"download_backup",
 		"upload_backup",
