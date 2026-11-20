@@ -55,6 +55,16 @@ func TestListSubagentsAcrossParentTurns(t *testing.T) {
 		if _, next, _, err := GuideChild(ctx, db, node, firstParent, guidance, guidance.Arguments, false, now); err != nil || next != nil {
 			return fmt.Errorf("running guidance should not create another invocation: %v", err)
 		}
+		// A model can merge two children's IDs; that session exists nowhere.
+		merged := protocol.NewSessionID()
+		stray, err := delegationFixtureCall(ctx, db, firstParent, "guide_agent", map[string]any{"session": merged, "message": "private guidance"}, now)
+		if err != nil {
+			return err
+		}
+		var missing *protocol.Fault
+		if _, _, _, err := GuideChild(ctx, db, node, firstParent, stray, stray.Arguments, false, now); !errors.As(err, &missing) || missing.Code != protocol.ErrorCodeNotFound {
+			return fmt.Errorf("unknown child session = %v, want not found", err)
+		}
 		if _, _, err = FinishTurn(ctx, db, firstParent, protocol.ConversationStatusCompleted, nil, now); err != nil {
 			return err
 		}

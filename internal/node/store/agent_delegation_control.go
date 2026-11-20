@@ -241,7 +241,12 @@ func ownedChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child
 	if err != nil {
 		return protocol.ConversationRun{}, err
 	}
-	if parentOrigin != nil || founding == nil || founding.Session != parentRun.Session {
+	if parentOrigin == nil && founding == nil {
+		// Usually a mistyped or merged session ID; name the recovery instead of
+		// suggesting the child exists elsewhere.
+		return protocol.ConversationRun{}, fault(protocol.ErrorCodeNotFound, "no subagent of this conversation has this session ID; list_subagents returns the exact IDs")
+	}
+	if parentOrigin != nil || founding.Session != parentRun.Session {
 		return protocol.ConversationRun{}, fault(protocol.ErrorCodePermissionDenied, "child belongs to another parent session")
 	}
 	var run protocol.ConversationRun
