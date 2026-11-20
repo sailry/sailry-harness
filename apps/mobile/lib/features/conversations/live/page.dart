@@ -377,7 +377,44 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     if (_scroll.hasClients &&
         _scroll.position.userScrollDirection != ScrollDirection.idle) {
       _returnOffset = null;
+      _loadOlderNearTop(retry: true);
     }
+  }
+
+  bool get _hasOlder =>
+      _page['next_before'] != null ||
+      (_snapshot['missing'] as List? ?? const []).isNotEmpty;
+
+  bool _loadingOlder = false;
+
+  /// Earlier history loads as the transcript nears its top, the end of the
+  /// reversed list, including while it is shorter than the viewport. A failed
+  /// load waits for the user to scroll again.
+  void _loadOlderNearTop({bool retry = false}) {
+    if (_loadingOlder ||
+        !_hasOlder ||
+        !_scroll.hasClients ||
+        _view.value['loading_older'] == true ||
+        _view.value['older_error'] != null && !retry) {
+      return;
+    }
+    final position = _scroll.position;
+    if (position.extentAfter > position.viewportDimension) return;
+    _loadingOlder = true;
+    unawaited(() async {
+      try {
+        await _updates?.loadOlder();
+      } catch (error) {
+        if (mounted) _failure(error);
+      } finally {
+        _loadingOlder = false;
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _loadOlderNearTop(),
+          );
+        }
+      }
+    }());
   }
 
   void _restoreScroll(bool following) {
@@ -691,6 +728,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
 
   @override
   Widget build(BuildContext context) {
+    // A transcript shorter than the viewport cannot be scrolled to load more.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadOlderNearTop();
+    });
     return ValueListenableBuilder(
       valueListenable: _view,
       builder: (context, view, _) {
@@ -934,22 +975,17 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                             as String? ??
                                         context.tr('conversationFailed'),
                                   ),
-                                if (_page['next_before'] != null ||
-                                    (_snapshot['missing'] as List? ?? const [])
-                                        .isNotEmpty)
-                                  TextButton(
-                                    key: const ValueKey('older'),
-                                    onPressed: view['loading_older'] == true
-                                        ? null
-                                        : () async {
-                                            try {
-                                              await _updates?.loadOlder();
-                                            } catch (error) {
-                                              _failure(error);
-                                            }
-                                          },
-                                    child: Text(
-                                      context.tr('conversationOlder'),
+                                if (_hasOlder && view['older_error'] == null)
+                                  const Padding(
+                                    key: ValueKey('older'),
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Center(
+                                      child: SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
                                     ),
                                   ),
                               ],
