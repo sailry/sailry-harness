@@ -49,6 +49,8 @@ type documentView struct {
 	writable bool
 	theme    string
 	dark     bool
+	// background is the color the view fills with until its page paints.
+	background string
 	// stop ends the relay of the page loaded last.
 	stop context.CancelFunc
 }
@@ -129,7 +131,9 @@ func (r *Runtime) documentView(c *ui.Context, source documentSource) bool {
 				}
 				return
 			}
-			view, err := state.window.NewWebView(mygo.WebViewOptions{Page: documentOptions()})
+			// The theme's background fills the view until the page paints,
+			// so a dark app shows no white flash as a document opens.
+			view, err := state.window.NewWebView(mygo.WebViewOptions{Page: documentOptions(), BackgroundColor: mount.Theme["background"]})
 			if err != nil {
 				state.available = false
 				root.Report(err)
@@ -217,6 +221,10 @@ func (r *Runtime) relayDocument(document *documentView) {
 // syncDocument tells a page what changed since it loaded: whether its forms
 // can submit, and the theme.
 func (r *Runtime) syncDocument(c *ui.Context, document *documentView) {
+	if background := documentTheme(theme.Of(c), c.Theme().FontSize)["background"]; background != document.background {
+		document.background = background
+		_ = document.view.SetBackgroundColor(background)
+	}
 	if document.source.content.View == nil {
 		return
 	}

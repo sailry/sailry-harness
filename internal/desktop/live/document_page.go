@@ -51,19 +51,22 @@ const documentShim = `(()=>{const host=window.parent;` +
 // navigate. Only the relay outside the frame hears what it posts. It names
 // its encoding, which a copy opened from disk has no other way to declare.
 func documentPage(frame string, plain bool, mount documentMount) string {
-	// A page without a renderer shows on the app's background in its light
-	// or dark scheme, as the renderer's pages follow the app's theme.
-	background, scheme := "transparent", "normal"
-	if plain {
-		background, scheme = "white", "light"
-		if value := mount.Theme["background"]; value != "" {
-			background = value
-		}
-		if mount.Dark {
-			scheme = "dark"
-		}
+	// The page shows on the app's background in its light or dark scheme
+	// while its frame loads, and a page without a renderer keeps it.
+	page, scheme := "white", "light"
+	if value := mount.Theme["background"]; value != "" {
+		page = value
 	}
-	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;color-scheme:` + scheme + `;background:` +
+	if mount.Dark {
+		scheme = "dark"
+	}
+	// A renderer's frame keeps its own scheme: an iframe whose scheme
+	// differs from its page's paints an opaque backdrop behind it.
+	background, inner := "transparent", "normal"
+	if plain {
+		background, inner = page, scheme
+	}
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html{background:` + page + `;color-scheme:` + scheme + `}html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;color-scheme:` + inner + `;background:` +
 		background + `}</style></head><body><iframe id="document" sandbox="allow-scripts" srcdoc="` + frame + `"></iframe><script>` + documentRelay + `</script></body></html>`
 }
 
