@@ -172,7 +172,13 @@ func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web
 		if err != nil {
 			return err
 		}
-		selection = plan.Settings.Providers[protocol.SearchDriverModel].Model
+		model := plan.Settings.Providers[protocol.SearchDriverModel]
+		// Only a search that can reach model search resolves its model; a
+		// driver test enables the driver it tests.
+		if request.Command.Kind == "fetch_web" || !model.Enabled && request.Command.Kind != "test_search_driver" {
+			return nil
+		}
+		selection = model.Model
 		// Without a chosen search model, model search follows the calling
 		// conversation's current model.
 		if selection == nil && request.Plugin != nil && request.Plugin.Session != nil {
