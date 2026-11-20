@@ -4,9 +4,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/connection_status.dart';
 import '../../../ui/theme.dart';
-import '../../resources/host/host_info_card.dart';
 import '../../resources/host/metric_history.dart';
-import '../task_row.dart';
 
 /// Connection line under the page title. One host shows its own state; several
 /// hosts show how many are online and the fastest connected route.
@@ -75,15 +73,6 @@ class HostStatusBar extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TweenAnimationBuilder<Color?>(
-                tween: ColorTween(end: statusDotColor(context, status)),
-                duration: duration,
-                builder: (context, color, _) => PulseDot(
-                  color: color!,
-                  pulse: status == HostStatus.connecting,
-                ),
-              ),
-              const SizedBox(width: 10),
               // The route and its latency, or the state while not online.
               // The host's name stays in the semantic label.
               AnimatedSwitcher(
