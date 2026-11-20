@@ -36,8 +36,14 @@ func workspaceFilesWindow(root *Runtime, project *workspaceProject, before func(
 		}
 		project.resourceFrame()
 		root.App.Panel.Sync(project.panel)
-		panel.Page(c, panel.Files, project.panel, func() {})
-		panel.PageDetails(c, panel.Files, project.panel)
+		ui.Row(c).FillWidth().FillHeight().Children(func() {
+			ui.Column(c.Key("document")).Grow(1).MinWidth(0).Children(func() {
+				panel.Page(c, panel.Files, project.panel, func() {})
+			})
+			ui.Column(c.Key("details")).Width(300).Children(func() {
+				panel.PageDetails(c, panel.Files, project.panel)
+			})
+		})
 		kit.ToastHost(c)
 	}, 1000, 700)
 	window.SetLocale("en")
