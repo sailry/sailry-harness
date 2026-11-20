@@ -3,6 +3,24 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.5](https://github.com/sailry/sailry-harness/releases/tag/v0.2.5) — 2026-11-20
+
+- Replace Iroh with libp2p for remote connections. Paired devices can move
+  from a relay to an authenticated LAN connection. Upgrade the controller and
+  Host together: existing Iroh addresses cannot dial libp2p peers. Pair again
+  to refresh addresses and use a libp2p relay if one is needed.
+- Keep queued messages editable while a turn runs. If its recipient is
+  stopping, leave the message in the tray instead of sending it as guidance.
+  Improve history loading, tool activity and terminal access on Desktop and Mobile.
+- Preview delivered files and HTML documents from their cards, switch document
+  versions without losing the current preview, and submit document form answers
+  once. Desktop Markdown documents now render Mermaid diagrams.
+- Export and import configuration from Data settings. Improve MCP startup and
+  recovery, web search fallback and managed worktree diagnostics.
+- Record which workspace operation failed without sending file contents or
+  paths. With error reporting enabled, distinguish expected queue races from
+  errors and retry transient delivery failures within a bounded retry budget.
+
 ## [0.2.4](https://github.com/sailry/sailry-harness/releases/tag/v0.2.4) — 2026-11-20
 
 - Page conversation turns with their consumed guidance, recover earlier pages
