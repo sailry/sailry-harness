@@ -48,7 +48,8 @@ const documentShim = `(()=>{const host=window.parent;` +
 
 // documentPage wraps a document's frame HTML in a frame of an opaque origin:
 // its scripts run, without a network, a parent to reach or a place to
-// navigate. Only the relay outside the frame hears what it posts.
+// navigate. Only the relay outside the frame hears what it posts. It names
+// its encoding, which a copy opened from disk has no other way to declare.
 func documentPage(frame string, plain bool, mount documentMount) string {
 	// A page without a renderer shows on the app's background in its light
 	// or dark scheme, as the renderer's pages follow the app's theme.
@@ -62,7 +63,7 @@ func documentPage(frame string, plain bool, mount documentMount) string {
 			scheme = "dark"
 		}
 	}
-	return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;color-scheme:` + scheme + `;background:` +
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;color-scheme:` + scheme + `;background:` +
 		background + `}</style></head><body><iframe id="document" sandbox="allow-scripts" srcdoc="` + frame + `"></iframe><script>` + documentRelay + `</script></body></html>`
 }
 
