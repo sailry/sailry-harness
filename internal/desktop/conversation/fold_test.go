@@ -10,7 +10,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-func TestEarlierReplySegmentFoldsWhileTurnContinues(t *testing.T) {
+// The reply before consumed guidance stays open while the turn continues.
+func TestEarlierReplySegmentStaysOpenWhileTurnContinues(t *testing.T) {
 	state := New()
 	turns := []Turn{{
 		ID: "turn",
@@ -36,16 +37,16 @@ func TestEarlierReplySegmentFoldsWhileTurnContinues(t *testing.T) {
 		turns[0].Reply.Status = status
 		tester.Frame()
 		button, ok := tester.AccessByRole(ui.RoleButton, completed)
-		if !ok || button.Expanded || tester.HasText("history.go") || !tester.HasText("Earlier answer") || !tester.HasText("active_test.go") {
-			t.Fatalf("%s: earlier work should be folded with the latest work visible: %q", StatusKey(status), tester.Texts())
+		if !ok || !button.Expanded || !tester.HasText("history.go") || !tester.HasText("Earlier answer") || !tester.HasText("active_test.go") {
+			t.Fatalf("%s: earlier work should stay open with the latest work visible: %q", StatusKey(status), tester.Texts())
 		}
 	}
 	if err := tester.Click(completed); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if !tester.HasText("history.go") {
-		t.Fatalf("opening the completed segment did not reveal earlier work: %q", tester.Texts())
+	if tester.HasText("history.go") || !tester.HasText("Earlier answer") {
+		t.Fatalf("folding the earlier segment did not hide only its work: %q", tester.Texts())
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A turn that did not complete opens every part of its work by default,
-// including the parts before consumed guidance; a completed one stays folded.
+// Parts before consumed guidance stay open; the latest part folds its work
+// once completed and opens it when the turn did not complete.
 func TestUnfinishedTurnOpensAllParts(t *testing.T) {
 	read := func(id, path string) Block {
 		return Block{Kind: ToolsBlock, Calls: []Call{{ID: id, Name: "read", Label: "Read file", Detail: path, Code: true, Output: &Output{Text: path}}}}
@@ -20,8 +20,8 @@ func TestUnfinishedTurnOpensAllParts(t *testing.T) {
 		tt.SetLocale("en")
 		tt.Frame()
 		open := status != Completed
-		if tt.HasText("a.go") != open || tt.HasText("b.go") != open {
-			t.Fatalf("status %d: work open %v, want %v: %q", status, tt.HasText("a.go"), open, tt.Texts())
+		if !tt.HasText("a.go") || !tt.HasText("said") || tt.HasText("b.go") != open {
+			t.Fatalf("status %d: earlier part %v, latest work %v, want %v: %q", status, tt.HasText("a.go"), tt.HasText("b.go"), open, tt.Texts())
 		}
 	}
 }
