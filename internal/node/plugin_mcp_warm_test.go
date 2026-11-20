@@ -19,9 +19,9 @@ import (
 // bundled packages.
 func TestMCPWarm(t *testing.T) {
 	const name = "mcp-warm"
-	var opened atomic.Int32
+	var opened, refuse atomic.Int32
 	options := &mcp.Options{Warm: true, Open: func(ctx context.Context, launch mcp.Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-		if launch.URL != "https://fixture.test/mcp" {
+		if launch.URL != "https://fixture.test/mcp" || refuse.Add(-1) >= 0 {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture MCP service is unavailable"}
 		}
 		opened.Add(1)
@@ -112,6 +112,27 @@ func TestMCPWarm(t *testing.T) {
 		defer subscription.Close()
 		connected(t, subscription, 0)
 		if opened.Load() != 3 {
+			t.Fatalf("server opened %d times", opened.Load())
+		}
+	})
+	t.Run("a server that failed to start is tried again at the next wake", func(t *testing.T) {
+		_ = subscription.Close()
+		if err := node.Stop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		refuse.Store(1)
+		subscription = start(t)
+		defer subscription.Close()
+		waiting, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+		defer cancel()
+		for refuse.Load() > 0 || read(t).Mcp[0].Runtime == nil || read(t).Mcp[0].Runtime.State != protocol.PluginMcpRuntimeStateFailed {
+			if _, err := subscription.Next(waiting); err != nil {
+				t.Fatalf("server did not fail: %v", err)
+			}
+		}
+		node.wakeMCP()
+		connected(t, subscription, 0)
+		if opened.Load() != 4 {
 			t.Fatalf("server opened %d times", opened.Load())
 		}
 	})

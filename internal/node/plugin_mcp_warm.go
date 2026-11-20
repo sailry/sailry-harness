@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -133,9 +134,10 @@ func warmFailureLevel(code protocol.ErrorCode) slog.Level {
 }
 
 // warmMCP connects the servers that became startable since the last pass.
-// warmed keeps, per package, the version, startable servers and accounts the
-// last pass saw, so a server is tried once for each of them and a failed one
-// is not retried until something about it changes.
+// warmed keeps, per server, the package version and accounts under which it
+// last connected, so a connected server is not tried again until something
+// about it changes. A failed server is forgotten: the next pass tries it again
+// instead of leaving it failed until the user binds its account again.
 func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 	var installed []protocol.PluginInfo
 	var connections []protocol.PluginConnectorConnection
@@ -152,6 +154,8 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 	}
 	current := map[string]struct{}{}
 	var servers sync.WaitGroup
+	var mu sync.Mutex
+	var failed []string
 	for _, listed := range installed {
 		if !listed.Summary.Enabled || listed.Summary.Compatibility.Kind != "compatible" || len(listed.Mcp) == 0 {
 			continue
@@ -176,13 +180,14 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 			}
 		}
 		slices.Sort(accounts)
-		current[reference.Name] = struct{}{}
-		signature := fmt.Sprint(reference, names, accounts)
-		if warmed[reference.Name] == signature {
-			continue
-		}
-		warmed[reference.Name] = signature
+		signature := fmt.Sprint(reference, accounts)
 		for _, name := range names {
+			key := reference.Name + "\x00" + name
+			current[key] = struct{}{}
+			if warmed[key] == signature {
+				continue
+			}
+			warmed[key] = signature
 			servers.Go(func() {
 				prepared, err := node.prepareMCPLaunch(ctx, info, settings, name, configuration.Servers[name])
 				if err == nil {
@@ -194,16 +199,24 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 					}
 				}
 				if err != nil && ctx.Err() == nil {
+					mu.Lock()
+					failed = append(failed, key)
+					mu.Unlock()
 					code := nodeFault(err).(*protocol.Fault).Code
 					slog.Log(ctx, warmFailureLevel(code), "MCP server did not start", "package", reference.Name, "server", name, "code", code)
+					logging.Emit(warmFailureLevel(code), slog.String("area", "plugins"), slog.String("phase", logging.Failed), slog.String("operation", "warm_mcp"),
+						slog.String("package", reference.Name), slog.String("server", name), slog.String("code", string(code)))
 				}
 			})
 		}
 	}
-	for name := range warmed {
-		if _, exists := current[name]; !exists {
-			delete(warmed, name)
+	servers.Wait()
+	for key := range warmed {
+		if _, exists := current[key]; !exists {
+			delete(warmed, key)
 		}
 	}
-	servers.Wait()
+	for _, key := range failed {
+		delete(warmed, key)
+	}
 }
