@@ -243,12 +243,24 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 	encoded, _ := json.Marshal(command)
 	key := string(encoded)
 	scope := "workspace-action/" + p.owner.ID.String()
+	trash, trashEntry := detail[protocol.CommandTrashEntryPayload](command.Data)
+	trashEntry = trashEntry && command.Kind == "trash_entry"
+	if trashEntry && !p.runtime.busy[scope+"\x00"+key] {
+		p.beginTrash(trash.Path)
+	}
 	// A Git action that is sent, not one already in flight, counts as running.
 	git := command.Kind == "run_git_action" && !p.runtime.busy[scope+"\x00"+key]
 	if git {
 		p.gitRunning++
 	}
 	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
+		if trashEntry {
+			delete(p.trashing, trash.Path)
+			p.pendingFiles = true
+			if err == nil && out.Kind == "entry_trashed" {
+				p.entryTrashed(trash.Path)
+			}
+		}
 		if git {
 			p.gitRunning--
 		}

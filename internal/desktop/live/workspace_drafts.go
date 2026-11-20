@@ -61,15 +61,26 @@ func (p *workspaceProject) settleChanged(relative string) {
 // reason than the file being gone leaves the record as it is; done, when
 // given, receives the failure.
 func (p *workspaceProject) checkDraft(reason, relative string, done func(*ui.Context, error)) {
+	key := "file-check/" + reason + "/" + relative
+	if p.loading[key] || p.trashBlocksRead(key) {
+		return
+	}
+	p.loading[key] = true
 	command := protocol.Command{Kind: "read_file", Data: protocol.CommandReadFilePayload{Worktree: p.owner.ID, Path: relative}}
 	p.runtime.executeScoped("workspace-read/"+p.owner.ID.String()+"/"+reason+"/"+relative, command, func(c *ui.Context, out protocol.Output, err error) {
+		delete(p.loading, key)
+		if p.staleReads[key] {
+			delete(p.staleReads, key)
+			return
+		}
 		_, loaded := p.files[relative]
 		if _, dirty := p.panel.FileDraft(relative); loaded && dirty {
 			if value, ok := detail[protocol.FileContent](out.Data); err == nil && ok {
+				p.entryFound(relative)
 				p.draftSource(relative, changedFile{content: value})
 			} else if faultCode(err) == protocol.ErrorCodeNotFound {
 				err = nil
-				p.draftSource(relative, changedFile{missing: true})
+				p.entryMissing(relative)
 			}
 		}
 		if done != nil {
@@ -97,6 +108,7 @@ func (p *workspaceProject) writeFile(relative, text string, expected *string) {
 		if !ok {
 			return
 		}
+		p.entryFound(relative)
 		source.Text, source.Revision, source.Size = text, &written.Revision, written.Size
 		p.files[relative] = source
 		p.clearChanged(relative)
