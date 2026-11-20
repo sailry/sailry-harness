@@ -559,11 +559,11 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	workKey := "work-" + key
 	workOpen, chosen := s.work[workKey]
 	if !chosen {
-		// A part answered before consumed guidance stays open, so the reply
-		// the user steered from remains readable. A run that ended without
-		// completing opens all of its work, so it shows where it stopped.
-		ended := r.Status == Cancelled || r.Status == Interrupted || r.Status == Failed
-		workOpen = !latest || partStatus != Completed || ended
+		// Every part's work stays open until the run completes, the parts
+		// before consumed guidance included, so the reply the user steered
+		// from remains readable; then all of them fold. A run that ended
+		// without completing keeps them open to show where it stopped.
+		workOpen = r.Status != Completed
 	}
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
