@@ -29,6 +29,7 @@ func TestFramePlain(t *testing.T) {
 			{"open stream", `{"kind":"open_stream","data":"01890f00-1234-7000-8000-000000000001"}`, "", func() any { return new(Call) }},
 			{"subscribe", `{"kind":"subscribe","data":{"kind":"node"}}`, "", func() any { return new(Call) }},
 			{"legacy endpoint", `{"kind":"endpoint","data":{"execution":true,"name":null,"platform":"linux"}}`, `{"kind":"endpoint","data":{"software_version":null,"protocol":null,"zstd":false,"execution":true,"name":null,"platform":"linux"}}`, func() any { return new(Reply) }},
+			{"endpoint with LAN listeners", `{"kind":"endpoint","data":{"software_version":null,"protocol":null,"zstd":false,"execution":true,"name":null,"platform":"linux","lan_listeners":["/ip4/192.168.1.2/tcp/43001"]}}`, "", func() any { return new(Reply) }},
 			{"stream opened", `{"kind":"stream_opened"}`, "", func() any { return new(Reply) }},
 			{"subscribed", `{"kind":"subscribed"}`, "", func() any { return new(Reply) }},
 			{"receipt", `{"kind":"receipt","data":{"id":"01890f00-1234-7000-8000-000000000001","durable":true}}`, "", func() any { return new(Reply) }},

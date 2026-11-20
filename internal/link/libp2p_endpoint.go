@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"log/slog"
+	"net"
 	"slices"
 	"sync"
 
@@ -19,18 +20,20 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/wlynxg/anet"
 
 	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type libp2pEndpoint struct {
-	host   host.Host
-	id     protocol.NodeID
-	ctx    context.Context
-	cancel context.CancelFunc
-	gater  libp2pRelayGater
-	notify network.NotifyBundle
+	host          host.Host
+	id            protocol.NodeID
+	ctx           context.Context
+	cancel        context.CancelFunc
+	gater         libp2pRelayGater
+	lanInterfaces func() ([]net.Addr, error)
+	notify        network.NotifyBundle
 
 	mu                sync.Mutex
 	connections       map[*libp2pConnection]struct{}
@@ -86,7 +89,8 @@ func newLibp2pEndpoint(ctx context.Context, secret [32]byte, bind string, relays
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	endpoint := &libp2pEndpoint{
-		id: protocol.NodeID(pub), ctx: lifetime, cancel: cancel,
+		lanInterfaces: anet.InterfaceAddrs,
+		id:            protocol.NodeID(pub), ctx: lifetime, cancel: cancel,
 		connections: make(map[*libp2pConnection]struct{}), incomingNodes: make(map[peer.ID]*libp2pConnection),
 		acceptReady: make(chan struct{}), reservations: make(map[*libp2pRelay]struct{}),
 		reservationsReady: make(chan struct{}), relayUpdate: make(chan struct{}, 1),
@@ -129,6 +133,11 @@ func newLibp2pEndpoint(ctx context.Context, secret [32]byte, bind string, relays
 	h.Network().Notify(&endpoint.notify)
 	h.SetStreamHandler(libp2pProtocol(libp2pNodeALPN), endpoint.receive)
 	h.SetStreamHandler(libp2pProtocol(libp2pPairALPN), endpoint.receive)
+	if err := endpoint.watchLANChanges(); err != nil {
+		cancel()
+		_ = h.Close()
+		return nil, err
+	}
 	endpoint.mu.Lock()
 	for _, spec := range specs {
 		endpoint.activeRelays = append(endpoint.activeRelays, endpoint.startRelayLocked(spec))
@@ -163,6 +172,8 @@ func (endpoint *libp2pEndpoint) Online(ctx context.Context) error {
 
 func (endpoint *libp2pEndpoint) NetworkChange(ctx context.Context) error {
 	endpoint.mu.Lock()
+	// Link.NetworkChanged already inspects each outgoing session for liveness.
+	endpoint.wakeLANLocked(true)
 	for _, relay := range endpoint.activeRelays {
 		relay.refresh()
 	}

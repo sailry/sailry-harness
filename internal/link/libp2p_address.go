@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -248,6 +249,27 @@ type libp2pRelayGater struct {
 	rules atomic.Pointer[libp2pRelayRules]
 	mu    sync.Mutex
 	dials map[*libp2pCircuitDial]struct{}
+	lan   map[peer.ID][]ma.Multiaddr
+}
+
+// Swarm merges peerstore addresses into DialPeer. Narrow direct candidates
+// for this peer while the LAN dial is outstanding; circuit admission and all
+// already established connections (including concurrent DCUtR) stay intact.
+func (gater *libp2pRelayGater) limitLANDial(id peer.ID, allowed []ma.Multiaddr) (func(), bool) {
+	gater.mu.Lock()
+	defer gater.mu.Unlock()
+	if _, busy := gater.lan[id]; busy || gater.rules.Load().reservationPeer(id) || len(allowed) == 0 {
+		return nil, false
+	}
+	if gater.lan == nil {
+		gater.lan = make(map[peer.ID][]ma.Multiaddr)
+	}
+	gater.lan[id] = allowed
+	return func() {
+		gater.mu.Lock()
+		delete(gater.lan, id)
+		gater.mu.Unlock()
+	}, true
 }
 
 type libp2pCircuitDial struct {
@@ -309,6 +331,12 @@ func (gater *libp2pRelayGater) InterceptSecured(dir network.Direction, id peer.I
 }
 
 func (gater *libp2pRelayGater) InterceptAddrDial(id peer.ID, addr ma.Multiaddr) bool {
+	gater.mu.Lock()
+	allowed, limited := gater.lan[id]
+	gater.mu.Unlock()
+	if limited && libp2pDirectAddr(addr, false) && !slices.ContainsFunc(allowed, addr.Equal) {
+		return false
+	}
 	rules := gater.rules.Load()
 	if rules.reservationPeer(id) {
 		for _, relay := range rules.reserving {

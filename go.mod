@@ -61,6 +61,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/studio-b12/gowebdav v0.13.0
 	github.com/tursodatabase/turso-go-platform-libs v0.8.3
+	github.com/wlynxg/anet v0.0.5
 	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yldm-tech/ai-logo/mygo v1.20.0
 	github.com/yuin/goldmark v1.8.7
@@ -242,7 +243,6 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/ulikunitz/xz v0.5.17 // indirect
-	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xuri/efp v0.0.3-0.20260924042702-217b81952dec // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect

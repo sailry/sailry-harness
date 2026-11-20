@@ -196,14 +196,36 @@ const (
 	ReplySnapshotPage  ReplyKind = "snapshot_page"
 )
 
+const MaxLANListeners = 8
+
+type lanListeners []string
+
+// This optional hint must not turn a large array into an unbounded allocation
+// or prevent an otherwise valid inspection from completing.
+func (listeners *lanListeners) DecodeJSON(decoder *protocol.Decoder) error {
+	var raw json.RawMessage
+	if err := decoder.Value(&raw); err != nil {
+		return err
+	}
+	*listeners = nil
+	if len(raw) <= 4096 {
+		var values []string
+		if json.Unmarshal(raw, &values) == nil && len(values) <= MaxLANListeners {
+			*listeners = values
+		}
+	}
+	return nil
+}
+
 type Endpoint struct {
-	SoftwareVersion *string `json:"software_version"`
-	Protocol        *uint16 `json:"protocol"`
-	Zstd            bool    `json:"zstd"`
-	Execution       bool    `json:"execution"`
-	Name            *string `json:"name"`
-	Platform        string  `json:"platform"`
-	HasNode         *bool   `json:"has_node,omitempty"`
+	SoftwareVersion *string      `json:"software_version"`
+	Protocol        *uint16      `json:"protocol"`
+	Zstd            bool         `json:"zstd"`
+	Execution       bool         `json:"execution"`
+	Name            *string      `json:"name"`
+	Platform        string       `json:"platform"`
+	HasNode         *bool        `json:"has_node,omitempty"`
+	LANListeners    lanListeners `json:"lan_listeners,omitempty"`
 }
 
 func (endpoint *Endpoint) UnmarshalJSON(data []byte) error {

@@ -1138,13 +1138,19 @@ historical directory imports do not become direct trust. The connection menu
 exposes host-only/controller-only choices and marks bidirectional access.
 
 Link authenticates each peer with its existing Ed25519 Node identity over
-libp2p. TCP and QUIC can connect directly; DCUtR attempts an upgrade from an
-authenticated Circuit Relay v2 path when suitable observed addresses exist. New
-streams prefer a direct path. Streams already on a relay are not replayed by the
-transport. No public data relay is selected automatically. The network directory
-loads bundled presets before refreshing from the remote catalog. Controllers
-resolve new shorthand relay inputs before saving them; Node settings and Link
-continue to use peer-addressed multiaddrs.
+libp2p. A paired peer can resume over Circuit Relay v2 while Link tries its
+current TCP or QUIC listener on the local network. This LAN attempt is separate
+from DCUtR, which can use suitable observed addresses across NATs. A failed
+attempt leaves the circuit usable. Once a direct connection is authenticated,
+new streams prefer it; streams already on the relay stay there and are not replayed.
+
+No public data relay is selected automatically. Direct and custom are local
+choices; the Node loads named relays only from
+`https://sailry.dev/catalogs/network-presets-libp2p.json`. A failed refresh keeps
+the last valid listing for that Node process, and a valid refresh replaces it.
+The website still serves `assets/catalogs/network-presets.json` for Iroh clients;
+the app does not embed it. Controllers resolve new shorthand relay inputs before
+saving them; Node settings and Link continue to use peer-addressed multiaddrs.
 
 The standalone `sailry-relay` runs the same Circuit Relay v2 service in `start`
 and legacy `serve`. `start` validates TCP/TOML configuration before opening the

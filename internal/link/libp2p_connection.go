@@ -44,6 +44,7 @@ type libp2pConnection struct {
 	closed  *peertransport.CloseReason
 	opened  bool
 	streams int
+	lanWake chan []string // nil requests fresh listeners over the circuit
 }
 
 var _ peertransport.Connection = (*libp2pConnection)(nil)
@@ -258,6 +259,10 @@ func (conn *libp2pConnection) OpenBi(ctx context.Context) (peertransport.Stream,
 	if conn.incoming {
 		return nil, invalidLink("incoming libp2p Link connections do not open streams")
 	}
+	return conn.openBi(ctx)
+}
+
+func (conn *libp2pConnection) openBi(ctx context.Context) (peertransport.Stream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -373,6 +378,9 @@ func (conn *libp2pConnection) refreshPathLocked() {
 	}
 	if conn.route != route {
 		conn.route = route
+		if route == "relay" {
+			conn.wakeLANLocked(nil)
+		}
 		close(conn.changed)
 		conn.changed = make(chan struct{})
 	}

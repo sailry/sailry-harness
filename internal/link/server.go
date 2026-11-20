@@ -110,6 +110,9 @@ func (link *Link) spawn(work func()) error {
 func (link *Link) serveConnection(connection peertransport.Connection, peer protocol.NodeID) {
 	ctx, cancel := context.WithCancel(link.ctx)
 	defer cancel()
+	if conn, ok := connection.(*libp2pConnection); ok {
+		link.watchLAN(conn.ctx, conn, nil)
+	}
 	streams := make(chan struct{}, maxStreams)
 	subscriptions := make(chan struct{}, maxStreams-8)
 	var compression atomic.Bool
@@ -196,6 +199,12 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 	case wire.CallInspect:
 		compression.Store(envelope.Zstd)
 		endpoint := link.endpointReply()
+		if ep, ok := link.endpoint.(*libp2pEndpoint); ok && relayInspectStream(stream) {
+			endpoint.LANListeners = ep.lanListeners()
+			if !link.isTrusted(peer) {
+				return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is no longer paired"})
+			}
+		}
 		if err := link.writeFrame(ctx, stream, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &endpoint}); err != nil {
 			return err
 		}

@@ -248,7 +248,15 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 			continue
 		}
 		checks.Go(func() {
-			if err := link.answers(ctx, connection.OpenBi); err != nil && ctx.Err() == nil {
+			reply, err := link.answers(ctx, connection.OpenBi)
+			if err == nil && reply.Endpoint != nil && len(reply.Endpoint.LANListeners) != 0 {
+				if conn, ok := connection.(*libp2pConnection); ok {
+					conn.endpoint.mu.Lock()
+					conn.wakeLANLocked(reply.Endpoint.LANListeners)
+					conn.endpoint.mu.Unlock()
+				}
+			}
+			if err != nil && ctx.Err() == nil {
 				expired := errors.Is(err, context.DeadlineExceeded)
 				if expired {
 					// Serialize physical path cleanup with replacement dials.
@@ -274,31 +282,37 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 
 // answers sends one inspection on a new stream and waits livenessTimeout for
 // a reply. Any reply frame, including a rejection, shows the peer is reachable.
-func (link *Link) answers(ctx context.Context, open func(context.Context) (contextStream, error)) (err error) {
+func (link *Link) answers(ctx context.Context, open func(context.Context) (contextStream, error)) (wire.Reply, error) {
 	scoped, cancel := link.operation(ctx, false)
 	defer cancel()
 	bounded, expire := link.timeoutContext(scoped, livenessTimeout)
 	defer expire()
-	stream, err := open(bounded)
-	if err == nil {
-		defer stream.Close()
+	reply, err := link.inspection(bounded, open)
+	if err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+		return wire.Reply{}, context.DeadlineExceeded
 	}
-	defer func() {
-		if err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
-			err = context.DeadlineExceeded
-		}
-	}()
+	return reply, err
+}
+
+func (link *Link) inspection(ctx context.Context, open func(context.Context) (contextStream, error)) (reply wire.Reply, err error) {
+	scoped, cancel := link.operation(ctx, true)
+	stream, err := open(scoped)
+	cancel()
 	if err != nil {
-		return linkNetwork(err)
+		return reply, linkNetwork(err)
 	}
-	if err := link.writeCall(bounded, stream, wire.Call{Kind: wire.CallInspect}, false); err != nil {
-		return err
+	defer stream.Close()
+	if err := link.writeCall(ctx, stream, wire.Call{Kind: wire.CallInspect}, false); err != nil {
+		return reply, err
 	}
 	if err := stream.CloseWrite(); err != nil {
-		return linkNetwork(err)
+		return reply, linkNetwork(err)
 	}
-	var reply wire.Reply
-	return link.readFrame(bounded, stream, &reply, false)
+	err = link.readFrame(ctx, stream, &reply, false)
+	if reply.Endpoint != nil && !relayInspectStream(stream) {
+		reply.Endpoint.LANListeners = nil
+	}
+	return reply, err
 }
 
 func (link *Link) Peers(ctx context.Context) ([]EndpointAddress, error) {
@@ -314,7 +328,7 @@ func (link *Link) Inspect(ctx context.Context, address EndpointAddress) (PeerInf
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	info, err := link.inspectConnection(ctx, connection)
+	info, _, err := link.inspectConnection(ctx, connection)
 	if err == nil && info.Name != nil {
 		err = link.RememberPeerName(ctx, address.ID, *info.Name)
 	}

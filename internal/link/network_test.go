@@ -1020,24 +1020,25 @@ func TestLivenessCheckBoundsOneInspection(t *testing.T) {
 		}
 		return context.WithCancel(ctx)
 	}
-	answering := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &wire.Endpoint{}}))
-	if err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return answering, nil }); err != nil {
-		t.Fatalf("answering peer = %v", err)
+	answering := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &wire.Endpoint{LANListeners: []string{"/ip4/192.168.1.42/tcp/1234"}}}))
+	reply, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return answering, nil })
+	if err != nil || reply.Endpoint == nil || len(reply.Endpoint.LANListeners) != 0 {
+		t.Fatalf("non-circuit inspection = %#v, %v", reply.Endpoint, err)
 	}
 	var call wire.Envelope
 	if err := wire.Read(bytes.NewReader(answering.written()), &call, false); err != nil || call.Call.Kind != wire.CallInspect || !answering.finished || !answering.closed {
 		t.Fatalf("liveness check sent %#v, %v; finished %v, closed %v", call.Call.Kind, err, answering.finished, answering.closed)
 	}
 	rejecting := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyRejected, Rejected: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "denied"}}))
-	if err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return rejecting, nil }); err != nil {
+	if _, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return rejecting, nil }); err != nil {
 		t.Fatalf("a rejection is still an answer: %v", err)
 	}
 	silent := silentStream{newFixtureStream(nil)}
-	err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
+	_, err = link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
 	if !errors.Is(err, context.DeadlineExceeded) || faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
 		t.Fatalf("silent peer = %v, closed %v", err, silent.closed)
 	}
-	unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, peertransport.ErrClosed })
+	_, unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, peertransport.ErrClosed })
 	if faultValue(unreachable).Code != protocol.ErrorCodeUnavailable {
 		t.Fatalf("closed connection = %v", unreachable)
 	}

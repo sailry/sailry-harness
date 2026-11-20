@@ -178,7 +178,7 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 	if err != nil || certified.RemoteID != address.ID || certified.ALPN != wire.NodeALPN {
 		return nil, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer identity could not be verified"}
 	}
-	info, err := link.inspectConnection(slotContext, connection)
+	info, listeners, err := link.inspectConnection(slotContext, connection)
 	if err != nil {
 		return nil, false, err
 	}
@@ -204,7 +204,7 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 			return nil, false, err
 		}
 	}
-	link.publishConnection(slot, target, connection, info, certified)
+	link.publishConnection(slot, target, connection, info, certified, listeners)
 	accepted = true
 	return connection, info.Zstd, nil
 }
@@ -258,7 +258,7 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	if err != nil || certified.RemoteID != address.ID || certified.ALPN != wire.NodeALPN {
 		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer identity could not be verified"}
 	}
-	info, err := link.inspectConnection(scoped, connection)
+	info, listeners, err := link.inspectConnection(scoped, connection)
 	if err != nil {
 		return err
 	}
@@ -291,13 +291,13 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 			return err
 		}
 	}
-	link.publishConnection(slot, address, connection, info, certified)
+	link.publishConnection(slot, address, connection, info, certified, listeners)
 	link.notifyPeers()
 	accepted = true
 	return nil
 }
 
-func (link *Link) publishConnection(slot *outgoingSlot, address EndpointAddress, connection peertransport.Connection, info PeerInfo, certified peertransport.ConnectionInfo) {
+func (link *Link) publishConnection(slot *outgoingSlot, address EndpointAddress, connection peertransport.Connection, info PeerInfo, certified peertransport.ConnectionInfo, listeners []string) {
 	ticks := link.ticks
 	if ticks == nil {
 		ticks = connectionTicks
@@ -314,6 +314,9 @@ func (link *Link) publishConnection(slot *outgoingSlot, address EndpointAddress,
 	if previous != nil && previous != connection {
 		_ = previous.Close(0, "peer address changed")
 	}
+	if conn, ok := connection.(*libp2pConnection); ok {
+		link.watchLAN(slot.ctx, conn, listeners)
+	}
 }
 
 func (link *Link) compatible(info PeerInfo) error {
@@ -321,46 +324,33 @@ func (link *Link) compatible(info PeerInfo) error {
 	return checkCompatibility(&local, &link.softwareVersion, info.Protocol, info.SoftwareVersion)
 }
 
-func (link *Link) inspectConnection(ctx context.Context, connection peertransport.Connection) (PeerInfo, error) {
+func (link *Link) inspectConnection(ctx context.Context, connection peertransport.Connection) (PeerInfo, []string, error) {
 	started := time.Now()
-	scoped, cancel := link.operation(ctx, true)
-	stream, err := connection.OpenBi(scoped)
-	cancel()
+	reply, err := link.inspection(ctx, connection.OpenBi)
 	if err != nil {
-		return PeerInfo{}, linkNetwork(err)
-	}
-	defer stream.Close()
-	if err := link.writeCall(ctx, stream, wire.Call{Kind: wire.CallInspect}, false); err != nil {
-		return PeerInfo{}, err
-	}
-	if err := stream.CloseWrite(); err != nil {
-		return PeerInfo{}, linkNetwork(err)
-	}
-	var reply wire.Reply
-	if err := link.readFrame(ctx, stream, &reply, false); err != nil {
-		return PeerInfo{}, err
+		return PeerInfo{}, nil, err
 	}
 	if reply.Kind == wire.ReplyRejected {
-		return PeerInfo{}, reply.Rejected
+		return PeerInfo{}, nil, reply.Rejected
 	}
 	if reply.Kind != wire.ReplyEndpoint || reply.Endpoint == nil {
-		return PeerInfo{}, invalidLink("endpoint inspection expected")
+		return PeerInfo{}, nil, invalidLink("endpoint inspection expected")
 	}
 	endpoint := reply.Endpoint
 	if endpoint.HasNode != nil {
 		certified, err := connection.Info(ctx)
 		if err != nil {
-			return PeerInfo{}, linkNetwork(err)
+			return PeerInfo{}, nil, linkNetwork(err)
 		}
 		if err := link.classifyPeer(ctx, certified.RemoteID, *endpoint.HasNode); err != nil {
-			return PeerInfo{}, err
+			return PeerInfo{}, nil, err
 		}
 	} else if endpoint.Protocol != nil && *endpoint.Protocol >= 2 {
-		return PeerInfo{}, invalidLink("device type is required")
+		return PeerInfo{}, nil, invalidLink("device type is required")
 	}
 	return PeerInfo{
 		Execution: endpoint.Execution, Name: endpoint.Name, Platform: endpoint.Platform,
 		SoftwareVersion: endpoint.SoftwareVersion, Protocol: endpoint.Protocol, Zstd: endpoint.Zstd,
 		Latency: time.Since(started), HasNode: endpoint.HasNode,
-	}, nil
+	}, endpoint.LANListeners, nil
 }
