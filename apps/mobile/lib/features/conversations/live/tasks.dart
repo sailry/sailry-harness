@@ -382,13 +382,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ),
           ),
         ),
-        if (statusHosts.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          HostStatusBar(
-            hosts: statusHosts,
-            onTap: () => showHostSheet(context, onPair: _pair),
-          ),
-        ],
         const SizedBox(height: 10),
         if (taskFilters.contains(_filter))
           TaskFilters(
@@ -407,6 +400,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     );
     return PageFrame(
       title: context.tr('brand'),
+      subtitle: statusHosts.isEmpty
+          ? null
+          : HostStatusBar(
+              hosts: statusHosts,
+              onTap: () => showHostSheet(context, onPair: _pair),
+            ),
       onRefresh: hosts.isEmpty ? null : _refresh,
       failure: !connected && !hasCatalog
           ? HostState(

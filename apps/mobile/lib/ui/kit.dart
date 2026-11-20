@@ -534,6 +534,7 @@ class FloatingNavigation extends StatelessWidget {
     const icons = ['chat', 'server', 'folder', 'settings'];
     const labels = ['chat', 'hosts', 'projects', 'settings'];
     final colors = Theme.of(context).colorScheme;
+    final brand = SailryTheme.brand(context);
     return SafeArea(
       top: false,
       minimum: const EdgeInsets.only(bottom: 23),
@@ -544,52 +545,69 @@ class FloatingNavigation extends StatelessWidget {
           radius: 32,
           padding: const EdgeInsets.all(5),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 46),
+            constraints: const BoxConstraints(minHeight: 52),
             child: Row(
               spacing: 3,
               children: List.generate(
                 labels.length,
                 (index) => Expanded(
-                  // The icons stand alone; each keeps its name for screen
-                  // readers and a long press.
+                  // Each tab names itself under its icon; the selected one
+                  // takes the brand color.
                   child: Semantics(
                     selected: selected == index,
                     label: context.tr(labels[index]),
                     excludeSemantics: true,
-                    child: Tooltip(
-                      message: context.tr(labels[index]),
-                      triggerMode: TooltipTriggerMode.longPress,
-                      child: TextButton(
-                        key: ValueKey('tab-$index'),
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 2,
-                            vertical: 5,
-                          ),
-                          visualDensity: VisualDensity.standard,
-                          alignment: Alignment.center,
-                          minimumSize: const Size(0, 46),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          backgroundColor: selected == index
-                              ? SailryTheme.navigationSelection(context)
-                              : Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.horizontal(
-                              left: Radius.circular(index == 0 ? 26 : 18),
-                              right: Radius.circular(
-                                index == labels.length - 1 ? 26 : 18,
-                              ),
+                    child: TextButton(
+                      key: ValueKey('tab-$index'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 2,
+                          vertical: 5,
+                        ),
+                        visualDensity: VisualDensity.standard,
+                        alignment: Alignment.center,
+                        minimumSize: const Size(0, 52),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: selected == index
+                            ? brand.selection
+                            : Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.horizontal(
+                            left: Radius.circular(index == 0 ? 26 : 18),
+                            right: Radius.circular(
+                              index == labels.length - 1 ? 26 : 18,
                             ),
                           ),
                         ),
-                        onPressed: () => onSelected(index),
-                        child: AppIcon(
-                          icons[index],
-                          size: 22,
-                          color: selected == index
-                              ? colors.onSurface
-                              : colors.onSurfaceVariant,
-                        ),
+                      ),
+                      onPressed: () => onSelected(index),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        spacing: 2,
+                        children: [
+                          AppIcon(
+                            icons[index],
+                            size: 20,
+                            color: selected == index
+                                ? brand.color
+                                : colors.onSurfaceVariant,
+                          ),
+                          Text(
+                            context.tr(labels[index]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.2,
+                              fontWeight: selected == index
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: selected == index
+                                  ? brand.color
+                                  : colors.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

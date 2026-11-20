@@ -70,8 +70,19 @@ abstract final class SailryTheme {
   }
 
   /// The brand of the theme in [context].
-  static SailryBrand brand(BuildContext context) =>
-      Theme.of(context).extension<SailryBrand>()!;
+  /// A theme built without Sailry's extensions takes the default brand.
+  static SailryBrand brand(BuildContext context) {
+    final theme = Theme.of(context);
+    final found = theme.extension<SailryBrand>();
+    if (found != null) return found;
+    final color = Brand.orange.color(theme.brightness);
+    return SailryBrand(
+      color: color,
+      selection: color.withValues(
+        alpha: theme.brightness == Brightness.dark ? .22 : .14,
+      ),
+    );
+  }
 
   /// A menu item's style when it is the current choice: the brand's tint
   /// and color, as a selected list row has.

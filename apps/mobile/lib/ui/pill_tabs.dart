@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 /// One tab of [PillTabs], with an optional dim count after its label.
 typedef PillTab<T> = ({T value, String label, int? count});
 
@@ -23,6 +25,7 @@ class PillTabs<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final brand = SailryTheme.brand(context);
     Widget tab(PillTab<T> item) {
       final active = item.value == selected;
       return Semantics(
@@ -33,15 +36,11 @@ class PillTabs<T> extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             minimumSize: const Size(0, 36),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            backgroundColor: active
-                ? colors.surfaceContainerHigh
-                : Colors.transparent,
+            backgroundColor: active ? brand.selection : Colors.transparent,
             disabledBackgroundColor: active
-                ? colors.surfaceContainerHigh
+                ? brand.selection
                 : Colors.transparent,
-            foregroundColor: active
-                ? colors.onSurface
-                : colors.onSurfaceVariant,
+            foregroundColor: active ? brand.color : colors.onSurfaceVariant,
             shape: const StadiumBorder(),
           ),
           onPressed: onSelected == null
@@ -66,7 +65,7 @@ class PillTabs<T> extends StatelessWidget {
             ),
             softWrap: false,
             style: TextStyle(
-              color: active ? colors.onSurface : colors.onSurfaceVariant,
+              color: active ? brand.color : colors.onSurfaceVariant,
               fontWeight: active ? FontWeight.w500 : null,
             ),
           ),

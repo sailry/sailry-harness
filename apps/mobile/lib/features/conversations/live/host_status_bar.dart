@@ -7,7 +7,7 @@ import '../../resources/host/host_info_card.dart';
 import '../../resources/host/metric_history.dart';
 import '../task_row.dart';
 
-/// Connection row below the project bar. One host shows its own state; several
+/// Connection line under the page title. One host shows its own state; several
 /// hosts show how many are online and the fastest connected route.
 class HostStatusBar extends StatelessWidget {
   const HostStatusBar({super.key, required this.hosts, required this.onTap});
@@ -65,101 +65,62 @@ class HostStatusBar extends StatelessWidget {
       button: true,
       label: [title, ?word, ?route, ?latency].join(', '),
       excludeSemantics: true,
-      child: Material(
-        color: colors.surfaceContainer,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: const ValueKey('host-status-bar'),
-          onTap: onTap,
-          child: SizedBox(
-            height: 34,
-            // The dot sits under the project badge and the title under the
-            // project name, so both bars read as one column.
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(17, 0, 14, 0),
-              child: Row(
-                children: [
-                  TweenAnimationBuilder<Color?>(
-                    tween: ColorTween(end: statusDotColor(context, status)),
-                    duration: duration,
-                    builder: (context, color, _) => PulseDot(
-                      color: color!,
-                      pulse: status == HostStatus.connecting,
-                    ),
-                  ),
-                  const SizedBox(width: 18),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: colors.onSurface,
-                            ),
-                          ),
-                        ),
-                        if (word != null) ...[
-                          const SizedBox(width: 8),
-                          AnimatedSwitcher(
-                            duration: duration,
-                            child: Text(
-                              word,
-                              key: ValueKey(word),
-                              style: muted,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedSwitcher(
-                    duration: duration,
-                    child: Row(
-                      key: ValueKey((route, latency)),
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (route != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colors.surface,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              route,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        if (latency != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            latency,
-                            style: muted.copyWith(
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
+      child: InkWell(
+        key: const ValueKey('host-status-bar'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<Color?>(
+                tween: ColorTween(end: statusDotColor(context, status)),
+                duration: duration,
+                builder: (context, color, _) => PulseDot(
+                  color: color!,
+                  pulse: status == HostStatus.connecting,
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: muted,
+                ),
+              ),
+              if (word != null && status != HostStatus.online) ...[
+                const SizedBox(width: 6),
+                AnimatedSwitcher(
+                  duration: duration,
+                  child: Text(word, key: ValueKey(word), style: muted),
+                ),
+              ],
+              AnimatedSwitcher(
+                duration: duration,
+                child: Row(
+                  key: ValueKey((route, latency)),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (route != null) ...[
+                      Text(' · ', style: muted),
+                      Text(route, style: muted),
+                    ],
+                    if (latency != null) ...[
+                      Text(' · ', style: muted),
+                      Text(
+                        latency,
+                        style: muted.copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),

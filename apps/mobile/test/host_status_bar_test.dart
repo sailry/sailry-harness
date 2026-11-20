@@ -69,7 +69,8 @@ void main() {
     testWidgets('connected host shows $name route and latency', (tester) async {
       await show(tester, [host('Studio', route: route, rtt: 23.4)]);
       expect(bar('Studio'), findsOneWidget);
-      expect(bar('Connected'), findsOneWidget);
+      // The green dot shows the state; screen readers still hear it.
+      expect(bar('Connected'), findsNothing);
       expect(bar(name), findsOneWidget);
       expect(bar('23 ms'), findsOneWidget);
       expect(label(tester), 'Studio, Connected, $name, 23 ms');
