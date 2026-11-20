@@ -631,13 +631,15 @@ func (d *relayDaemon) checkPort(ctx context.Context, options startOptions, state
 	// A successful bind by the root management process does not establish that
 	// the unprivileged unit can bind in this network namespace.
 	const sysctl = "proc/sys/net/ipv4/ip_unprivileged_port_start"
+	first := uint64(1024) // Traditional privileged-port boundary on kernels without this sysctl.
 	data, err := os.ReadFile(filepath.Join(d.root, sysctl))
-	if err != nil {
+	if err == nil {
+		first, err = strconv.ParseUint(strings.TrimSpace(string(data)), 10, 16)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", sysctl, err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("check unprivileged relay ports: %w", err)
-	}
-	first, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 16)
-	if err != nil {
-		return fmt.Errorf("invalid %s: %w", sysctl, err)
 	}
 	if port < int(first) {
 		return fmt.Errorf("%s cannot bind privileged TCP port %d; choose port %d or higher", relayDaemonUser, port, first)

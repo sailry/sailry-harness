@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/sailry/sailry-harness/internal/link"
 )
 
@@ -145,6 +146,33 @@ func TestDaemonInstallRejectsPrivilegedPortBeforeCreatingAccount(t *testing.T) {
 		t.Fatalf("privileged port: %v, commands %v, account exists %t", err, f.calls, f.accountExists)
 	}
 	assertDaemonTestMissing(t, f.daemon.binaryPath, f.daemon.configPath, f.daemon.unitPath(), f.state)
+}
+
+func TestDaemonCheckPortWithoutUnprivilegedPortStart(t *testing.T) {
+	d := relayDaemon{root: t.TempDir()}
+	var options startOptions
+	for _, port := range []int{4001, 1024} {
+		options.config.ListenAddr = ma.StringCast(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port))
+		if err := d.checkPort(t.Context(), options, "active"); err != nil {
+			t.Fatalf("port %d with missing sysctl: %v", port, err)
+		}
+	}
+	options.config.ListenAddr = ma.StringCast("/ip4/127.0.0.1/tcp/1023")
+	if err := d.checkPort(t.Context(), options, "active"); err == nil || !strings.Contains(err.Error(), "cannot bind privileged TCP port 1023") {
+		t.Fatalf("port 1023 with missing sysctl: %v", err)
+	}
+}
+
+func TestDaemonCheckPortPropagatesSysctlReadError(t *testing.T) {
+	d := relayDaemon{root: t.TempDir()}
+	if err := os.MkdirAll(filepath.Join(d.root, "proc/sys/net/ipv4/ip_unprivileged_port_start"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var options startOptions
+	options.config.ListenAddr = ma.StringCast("/ip4/127.0.0.1/tcp/4001")
+	if err := d.checkPort(t.Context(), options, "active"); !errors.Is(err, syscall.EISDIR) {
+		t.Fatalf("unreadable sysctl: got %v, want EISDIR", err)
+	}
 }
 
 func TestDaemonActiveRestartHonorsUnprivilegedPortStart(t *testing.T) {
