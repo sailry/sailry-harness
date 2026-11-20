@@ -317,6 +317,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
+	presented, err := node.presentTools(inv)
+	if err != nil {
+		return nil, err
+	}
+	managed = append(managed, presented...)
 	bound, err := node.pluginTools(ctx, inv, append(append(append(tools, connections...), browsers...), managedBrowsers...))
 	return append(append(bound, media...), managed...), err
 }

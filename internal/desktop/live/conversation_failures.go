@@ -123,6 +123,8 @@ func coreTool(name string) (label, icon string) {
 		return "tool_read_skill_resource", "book-open"
 	case "list_sessions":
 		return "tool_list_sessions", "bot"
+	case "present_files":
+		return "tool_present_files", "file-text"
 	case "read_session":
 		return "tool_read_session", "file-text"
 	case "search_session":

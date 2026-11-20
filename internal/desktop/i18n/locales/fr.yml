@@ -185,6 +185,7 @@ interaction_start: Exécuter
 live_read_busy: En attente de l’hôte
 tool_load_skill: Capacité de chargement
 tool_list_sessions: Rechercher des sessions
+tool_present_files: Remettre des fichiers
 tool_read_session: Lire la session
 tool_search_session: Rechercher dans la session
 tool_find_tools: Rechercher des outils

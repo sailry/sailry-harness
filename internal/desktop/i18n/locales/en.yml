@@ -185,6 +185,7 @@ interaction_start: Execute
 live_read_busy: Waiting for the host
 tool_load_skill: Load skill
 tool_list_sessions: Find sessions
+tool_present_files: Deliver files
 tool_read_session: Read session
 tool_search_session: Search session
 tool_find_tools: Find tools

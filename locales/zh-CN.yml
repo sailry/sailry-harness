@@ -2613,6 +2613,7 @@ tool_ssh_transfer: 传输 SSH 文件
 tool_load_skill: 加载技能
 tool_read_skill_resource: 读取技能资源
 tool_list_sessions: "查找会话"
+tool_present_files: "交付文件"
 tool_read_session: "读取会话"
 tool_search_session: "搜索会话"
 tool_find_tools: "查找工具"

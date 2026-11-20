@@ -185,6 +185,7 @@ interaction_start: Ausführen
 live_read_busy: Auf den Host warten
 tool_load_skill: Load Skill
 tool_list_sessions: Sitzungen suchen
+tool_present_files: Dateien übergeben
 tool_read_session: Sitzung lesen
 tool_search_session: Sitzung durchsuchen
 tool_find_tools: Werkzeuge suchen

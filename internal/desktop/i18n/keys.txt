@@ -193,6 +193,7 @@ interaction_start
 live_read_busy
 tool_load_skill
 tool_list_sessions
+tool_present_files
 tool_read_session
 tool_search_session
 tool_find_tools

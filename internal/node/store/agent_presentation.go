@@ -61,6 +61,8 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 		declared := false
 		if name == operations.UpdatePlanTool {
 			presentation, grouping, declared = protocol.ToolPresentationProgress, protocol.ToolGroupingStandalone, true
+		} else if name == operations.PresentFilesTool {
+			presentation, grouping, declared = protocol.ToolPresentationContent, protocol.ToolGroupingStandalone, true
 		} else {
 			for _, tool := range catalog.Tools {
 				if tool.Name == name && slices.Contains(capture.Plugins, tool.Owner) {

@@ -4,6 +4,9 @@ import "github.com/sailry/sailry-harness/internal/protocol"
 
 const UpdatePlanTool = "update_plan"
 
+// PresentFilesTool is the Node's file delivery; its results show as file cards.
+const PresentFilesTool = "present_files"
+
 var LegacyUpdatePlanTool = Alias("progress", UpdatePlanTool)
 
 func IsUpdatePlanTool(name string) bool {

@@ -185,6 +185,7 @@ interaction_start: 執行
 live_read_busy: 等待主機回應
 tool_load_skill: 載入技能
 tool_list_sessions: 尋找會話
+tool_present_files: 交付檔案
 tool_read_session: 讀取會話
 tool_search_session: 搜尋會話
 tool_find_tools: 尋找工具

@@ -185,6 +185,7 @@ interaction_start: 実行
 live_read_busy: ホストの応答待ち
 tool_load_skill: ロードスキル
 tool_list_sessions: セッションを探す
+tool_present_files: ファイルを渡す
 tool_read_session: セッションを読む
 tool_search_session: セッションを検索
 tool_find_tools: ツールを検索

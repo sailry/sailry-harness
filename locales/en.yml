@@ -122,6 +122,7 @@ tool_ssh_transfer: Transfer SSH file
 tool_load_skill: Load skill
 tool_read_skill_resource: Read skill resource
 tool_list_sessions: "Find sessions"
+tool_present_files: "Deliver files"
 tool_read_session: "Read session"
 tool_search_session: "Search session"
 tool_find_tools: "Find tools"

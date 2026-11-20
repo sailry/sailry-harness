@@ -661,6 +661,44 @@ func TestAgentManagementTools(t *testing.T) {
 		}
 	})
 
+	t.Run("presented files reach the conversation", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(root, "summary.docx"), []byte("docx"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		session, _, history := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+			t.Errorf("presenting a file asked the user: %+v", approval)
+			return "deny"
+		}, func(step int, _ map[string]string) [][3]string {
+			if step == 1 {
+				if !slices.Contains(script.offered[0], "present_files") {
+					t.Errorf("the turn offers %v", script.offered[0])
+				}
+				return [][3]string{{"present", "present_files", `{"paths":["summary.docx"]}`}}
+			}
+			return nil
+		})
+		expectCodes(t, history, map[string]protocol.ErrorCode{"present": ""})
+		var page protocol.ConversationAssetsPage
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			var err error
+			page, err = store.ListConversationAssets(t.Context(), db, session.ID, protocol.ConversationAssetsQuery{Limit: 16})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var paths []string
+		for _, group := range page.Groups {
+			for _, item := range group.Items {
+				if file, ok := item.Data.(*protocol.ConversationAssetsTargetFilePayload); ok {
+					paths = append(paths, file.Path)
+				}
+			}
+		}
+		if !slices.Equal(paths, []string{"summary.docx"}) {
+			t.Fatalf("the conversation assets are %+v", page.Groups)
+		}
+	})
+
 	t.Run("core commands work with the terminal package disabled", func(t *testing.T) {
 		setTerminalPackage := func(enabled bool) {
 			info := commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "commands"}}).Data.(protocol.PluginInfo)
