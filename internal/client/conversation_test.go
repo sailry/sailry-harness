@@ -457,3 +457,33 @@ func testConversationSearchAndContinuation(t *testing.T) {
 		t.Fatal("large turn continuation lost history or live metadata")
 	}
 }
+
+// A child whose delegation call is on an older unloaded page does not force a
+// reload; on a complete page the same frame remains invalid.
+func TestConversationChildFrameOutsideLoadedHistory(t *testing.T) {
+	s := conversationFixture()
+	before := s.Page.Runs[0].Turn
+	s.Page.NextBefore = &before
+	child := protocol.ConversationChild{
+		Run:    protocol.ConversationRun{Session: protocol.SessionID{2}, Turn: protocol.TurnID{2}, Sequence: 2, Revision: 1, Kind: "task", Status: "running"},
+		Origin: protocol.Delegation{Session: s.Page.Session, Turn: s.Page.Runs[0].Turn, Entry: "aged-call"},
+	}
+	p := NewConversationProjection(s.Node, s.Page.Session, 1)
+	if got, err := p.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: s}); got != Applied || err != nil {
+		t.Fatalf("apply snapshot: %v, %v", got, err)
+	}
+	if got, err := p.Apply(1, conversationFrame(*p.snapshot, "child", child)); got != Applied || err != nil {
+		t.Fatalf("aged child frame: %v, %v", got, err)
+	}
+	if state := p.Snapshot(); state.Sequence != s.Sequence+1 || len(state.Page.Children) != 0 {
+		t.Fatalf("aged child frame changed the loaded page: %+v", state.Page.Children)
+	}
+	s.Page.NextBefore = nil
+	complete := NewConversationProjection(s.Node, s.Page.Session, 1)
+	if got, err := complete.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: s}); got != Applied || err != nil {
+		t.Fatalf("apply snapshot: %v, %v", got, err)
+	}
+	if _, err := complete.Apply(1, conversationFrame(*complete.snapshot, "child", child)); err == nil {
+		t.Fatal("a child without its call on a complete page was accepted")
+	}
+}

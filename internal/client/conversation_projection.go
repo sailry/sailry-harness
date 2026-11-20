@@ -344,6 +344,11 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		if e != nil {
 			return Ignored, e
 		}
+		// A child whose delegation call is on an unloaded older page arrives
+		// with that page; its progress meanwhile must not force a reload.
+		if (page.NextBefore != nil || len(v.Missing) != 0) && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == x.Origin.Turn && e.ID == x.Origin.Entry }) {
+			break
+		}
 		if err := mergeConversationChild(page, x, false); err != nil {
 			return Ignored, err
 		}

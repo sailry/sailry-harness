@@ -825,7 +825,7 @@ func TestParentEndSettlesChildren(t *testing.T) {
 	}
 }
 
-func TestChildSettlementRefreshesAgedDelegation(t *testing.T) {
+func TestChildSettlementPublishesAgedDelegation(t *testing.T) {
 	f, parent := delegationFixture(t)
 	spawn := saveDelegationCall(t, f, parent, "child", false)
 	if result := f.r.spawnChild(parent, spawn, spawn.Arguments); result.Failure != nil {
@@ -882,19 +882,28 @@ func TestChildSettlementRefreshesAgedDelegation(t *testing.T) {
 	if err := f.r.finishQueued(f.ctx, []*delegatedChild{child}); err != nil {
 		t.Fatal(err)
 	}
+	// The aged child's settlement reaches subscribers that loaded its call
+	// without reloading the parent's conversation.
 	for {
 		update, err := stream.Next(f.ctx)
 		if err != nil {
-			t.Fatalf("aged delegation did not invalidate the parent feed: %v", err)
+			t.Fatalf("aged delegation was not published to the parent feed: %v", err)
 		}
 		if update.Kind == "reset_required" {
-			break
+			t.Fatal("an aged child's settlement reloaded the parent's conversation")
 		}
-		// The statistics requested at admission can arrive after subscribing.
 		frame, ok := update.Data.(*protocol.ConversationFrame)
-		if !ok || frame.Change.Kind != "statistics" {
-			t.Fatalf("unexpected update before invalidation: %+v", update)
+		if !ok {
+			t.Fatalf("unexpected update: %+v", update)
 		}
+		if frame.Change.Kind != "child" {
+			continue
+		}
+		published, ok := frame.Change.Data.(*protocol.ConversationChild)
+		if !ok || published.Run.Turn != child.turn || published.Run.Status != protocol.ConversationStatusCancelled {
+			t.Fatalf("unexpected child frame: %+v", frame.Change.Data)
+		}
+		break
 	}
 	resumed := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
 	t.Cleanup(func() { _ = resumed.Close() })

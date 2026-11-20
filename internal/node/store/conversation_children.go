@@ -9,6 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const conversationChildColumns = "SELECT a.body,d.body FROM agent_delegations d JOIN turns t ON t.id=d.turn JOIN agent_runs a ON a.turn=d.turn "
+
 func conversationChildren(ctx context.Context, db *sql.Conn, entries []protocol.ConversationEntry) ([]protocol.ConversationChild, error) {
 	calls := make([][2]string, 0, len(entries))
 	for _, entry := range entries {
@@ -18,7 +20,21 @@ func conversationChildren(ctx context.Context, db *sql.Conn, entries []protocol.
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT a.body,d.body FROM agent_delegations d JOIN turns t ON t.id=d.turn JOIN agent_runs a ON a.turn=d.turn JOIN json_each(?1) e ON d.parent_turn=json_extract(e.value,'$[0]') AND d.entry=json_extract(e.value,'$[1]') ORDER BY t.rowid", string(body))
+	return readConversationChildren(ctx, db, conversationChildColumns+"JOIN json_each(?1) e ON d.parent_turn=json_extract(e.value,'$[0]') AND d.entry=json_extract(e.value,'$[1]') ORDER BY t.rowid", string(body))
+}
+
+// ReadConversationChild reads one delegated run with its origin, independently
+// of whether its delegation call is on the parent's newest history page.
+func ReadConversationChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationChild, bool, error) {
+	selected, err := readConversationChildren(ctx, db, conversationChildColumns+"WHERE d.turn=?1", turn.String())
+	if err != nil || len(selected) == 0 {
+		return protocol.ConversationChild{}, false, err
+	}
+	return selected[0], true, nil
+}
+
+func readConversationChildren(ctx context.Context, db *sql.Conn, query string, arguments ...any) ([]protocol.ConversationChild, error) {
+	rows, err := db.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return nil, err
 	}

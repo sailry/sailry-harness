@@ -443,11 +443,23 @@ func (r *Runtime) RefreshCommitted(session protocol.SessionID, changedChildren .
 		return
 	}
 	for _, turn := range changedChildren {
-		if !slices.ContainsFunc(history.Page.Children, func(child protocol.ConversationChild) bool { return child.Run.Turn == turn }) {
-			// A child frame requires its canonical call in the receiver's
-			// page. An older call may still be loaded by existing subscribers.
-			r.feed.Invalidate(session)
+		if slices.ContainsFunc(history.Page.Children, func(child protocol.ConversationChild) bool { return child.Run.Turn == turn }) {
+			continue
+		}
+		// A long parent turn can push the delegation call off the newest page.
+		// Subscribers that loaded it apply the frame and others skip it, so a
+		// child's progress never reloads the parent's whole conversation.
+		var child protocol.ConversationChild
+		var found bool
+		if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+			var err error
+			child, found, err = store.ReadConversationChild(r.ctx, db, turn)
+			return err
+		}); err != nil {
 			return
+		}
+		if found {
+			history.Page.Children = append(history.Page.Children, child)
 		}
 	}
 	for _, run := range history.Page.Runs {
