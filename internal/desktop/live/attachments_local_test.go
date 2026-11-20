@@ -153,10 +153,10 @@ func TestAttachmentSourceProjection(t *testing.T) {
 		local := &Runtime{attachments: &attachmentState{previews: map[string]attachmentDescriptor{}}}
 		rendered := 0
 		remote := &Runtime{parent: local, attachments: &attachmentState{
-			previews:    map[string]attachmentDescriptor{file.ID: {artifact: &artifact}},
-			previewHTML: map[string]string{file.ID: "<p>Remote artifact</p>"},
-			native: NativeFileActions{DocumentView: func(_ *ui.Context, source protocol.ArtifactSummary, html string) bool {
-				if source != artifact || html != "<p>Remote artifact</p>" {
+			previews:       map[string]attachmentDescriptor{file.ID: {artifact: &artifact}},
+			previewContent: map[string]protocol.ArtifactContent{file.ID: {Artifact: artifact, LatestRevision: 3, Html: "<p>Remote artifact</p>"}},
+			native: NativeFileActions{DocumentView: func(_ *ui.Context, source documentSource) bool {
+				if source.content.Artifact != artifact || source.content.Html != "<p>Remote artifact</p>" || source.owner == nil || source.owner.parent == nil {
 					t.Error("artifact rendering lost the captured revision or content")
 				}
 				rendered++

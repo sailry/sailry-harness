@@ -58,7 +58,7 @@ func browserChrome(t *testing.T) {
 	}
 	defer r.Close()
 	r.browser = &browserState{available: true, tabs: map[string]*browserTab{}, serving: map[*Runtime]context.CancelFunc{r: func() {}},
-		documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+		documents: map[string]*documentView{}, sources: map[string]documentSource{}}
 	// The adapter's own actions, but for the ones that need a native page:
 	// those change the tab's state as the page's events would.
 	var navigated []string

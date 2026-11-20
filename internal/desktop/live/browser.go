@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"slices"
 	"strconv"
@@ -28,7 +29,10 @@ type browserState struct {
 	tabs      map[string]*browserTab
 	serving   map[*Runtime]context.CancelFunc
 	documents map[string]*documentView
-	sources   map[string]protocol.ArtifactContent
+	sources   map[string]documentSource
+	// drafts are the unsent form answers of document revisions, by form,
+	// kept while the app runs so a reloaded page restores them.
+	drafts map[documentDraftKey]map[string]json.RawMessage
 	// persistent is whether the open pages keep their website data.
 	persistent bool
 	// elements counts the elements picked for a conversation, for their names.
@@ -67,7 +71,8 @@ func (r *Runtime) SetWebViewWindow(window *mygo.Window) {
 		return
 	}
 	r.browser = &browserState{window: window, available: mygo.WebViewAvailable(), tabs: map[string]*browserTab{},
-		serving: map[*Runtime]context.CancelFunc{}, documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+		serving: map[*Runtime]context.CancelFunc{}, documents: map[string]*documentView{}, sources: map[string]documentSource{},
+		drafts: map[documentDraftKey]map[string]json.RawMessage{}}
 	r.browser.persistent = r.browserPersistent()
 	r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
 		Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) },
@@ -163,7 +168,7 @@ func (r *Runtime) browserFrame() {
 	}
 	for id, document := range state.documents {
 		if !document.shown {
-			document.view.Destroy()
+			document.close()
 			delete(state.documents, id)
 			continue
 		}

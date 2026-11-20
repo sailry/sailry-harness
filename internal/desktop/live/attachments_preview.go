@@ -100,7 +100,7 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 				return
 			}
 			if content != nil {
-				r.attachments.previewHTML[file.ID] = content.Html
+				r.attachments.previewContent[file.ID] = *content
 			}
 			if document := r.attachments.previewDocuments[file.ID]; document != nil && err == nil && content == nil {
 				version := fmt.Sprintf("%x", blake3.Sum256([]byte(loaded.Text)))
@@ -149,7 +149,7 @@ func (r *Runtime) forgetDocumentPreview(id string) {
 		document.cancel()
 	}
 	delete(r.attachments.previewDocuments, id)
-	delete(r.attachments.previewHTML, id)
+	delete(r.attachments.previewContent, id)
 	delete(r.attachments.previews, id)
 	r.attachments.previewGeneration[id]++
 	app := r.localRuntime().App
@@ -400,7 +400,7 @@ func (r *Runtime) renderArtifactPreview(c *ui.Context, file conversation.File) b
 		return false
 	}
 	descriptor, ok := r.attachments.previews[file.ID]
-	html, loaded := r.attachments.previewHTML[file.ID]
+	content, loaded := r.attachments.previewContent[file.ID]
 	if !ok || !loaded {
 		return false
 	}
@@ -408,9 +408,9 @@ func (r *Runtime) renderArtifactPreview(c *ui.Context, file conversation.File) b
 		if !htmlFile(descriptor.path) {
 			return false
 		}
-		return r.pageView(c, file.ID, html)
+		return r.documentView(c, documentSource{content: content, page: file.ID})
 	}
-	return r.attachments.native.DocumentView(c, *descriptor.artifact, html)
+	return r.attachments.native.DocumentView(c, documentSource{content: content, owner: r, conversation: descriptor.session})
 }
 
 // htmlFile reports a worktree page the preview renders.

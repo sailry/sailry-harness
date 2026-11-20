@@ -58,7 +58,7 @@ func panelTabs(t *testing.T) {
 	// The window's browser, as SetWebViewWindow makes it, without a native
 	// window: a tab has no page until an address is entered.
 	r.browser = &browserState{available: true, tabs: map[string]*browserTab{}, serving: map[*Runtime]context.CancelFunc{r: func() {}},
-		documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+		documents: map[string]*documentView{}, sources: map[string]documentSource{}}
 	r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
 		Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) }}
 	r.App.Mode = theme.Dark

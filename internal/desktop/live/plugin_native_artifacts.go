@@ -249,7 +249,7 @@ func (state *pluginNativeState) renderArtifact(view *ui.Context, element plugins
 	}
 	rendered := false
 	region := ui.Column(view).Fill().MinWidth(0).MinHeight(0).Disabled(suspended).Children(func() {
-		rendered = state.runtime.attachments.native.DocumentView(view, mounted.content.Artifact, mounted.content.Html)
+		rendered = state.runtime.attachments.native.DocumentView(view, documentSource{content: *mounted.content, owner: state.runtime, conversation: state.resource.session})
 	})
 	if !rendered {
 		return ui.Element{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "native artifact surface is unavailable")

@@ -29,8 +29,14 @@ func TestDocumentSandboxNoBridge(t *testing.T) {
 	}
 
 	source := `<p onclick="x">"></iframe><script>parent.location='/'</script>`
-	page := documentPage(source)
-	if strings.Count(page, "<iframe") != 1 || strings.Count(page, "<script") != 0 || !strings.Contains(page, `<iframe sandbox="allow-scripts" srcdoc="&lt;p onclick=&#34;x&#34;&gt;&#34;&gt;&lt;/iframe&gt;&lt;script&gt;`) {
+	frame, err := documentFrame(protocol.ArtifactContent{Artifact: protocol.DefaultArtifactSummary(), Html: source}, documentMount{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := documentPage(frame, true)
+	// The one script outside the frame is Desktop's relay.
+	if strings.Count(page, "<iframe") != 1 || strings.Count(page, "<script") != 1 || !strings.Contains(page, "<script>"+documentRelay+"</script>") ||
+		!strings.Contains(page, `<iframe id="document" sandbox="allow-scripts" srcdoc="&lt;p onclick=&#34;x&#34;&gt;&#34;&gt;&lt;/iframe&gt;&lt;script&gt;`) {
 		t.Fatalf("document escapes its frame: %s", page)
 	}
 	for _, grant := range []string{"allow-same-origin", "allow-top-navigation", "allow-popups", "allow-forms", "allow-modals", "allow-downloads"} {

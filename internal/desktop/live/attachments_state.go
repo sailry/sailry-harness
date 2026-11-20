@@ -22,7 +22,7 @@ type NativeFileActions struct {
 	CopyImage      func([]byte, string)
 	RevealLocal    func(string)
 	RenderDocument func(context.Context, protocol.ArtifactSummary, string, func([]byte, error))
-	DocumentView   func(*ui.Context, protocol.ArtifactSummary, string) bool
+	DocumentView   func(*ui.Context, documentSource) bool
 }
 type attachmentRecord struct {
 	cancel            context.CancelFunc
@@ -64,7 +64,7 @@ type attachmentState struct {
 	publications       map[string]*attachmentPublication
 	previews           map[string]attachmentDescriptor
 	previewGeneration  map[string]uint64
-	previewHTML        map[string]string
+	previewContent     map[string]protocol.ArtifactContent
 	previewDocuments   map[string]*documentImages
 	documents          map[string]*attachmentDocumentImage
 	slots              chan struct{}
@@ -81,7 +81,7 @@ type attachmentState struct {
 
 func (r *Runtime) initAttachments() {
 	ctx, cancel := context.WithCancel(r.ctx)
-	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewGeneration: map[string]uint64{}, previewHTML: map[string]string{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
+	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewGeneration: map[string]uint64{}, previewContent: map[string]protocol.ArtifactContent{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
 	if r.App != nil && r.App.Panel != nil {
 		r.bindArtifactCallbacks()
 	}

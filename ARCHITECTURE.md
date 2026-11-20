@@ -1020,7 +1020,17 @@ inventory identifies native generation by its workspace file, so publishing that
 file in the answer does not add another output.
 Session HTML uses a sandboxed MyGo WebView with no privileged bridge. The host
 inlines available document images as data URLs; the page receives neither a file
-base URL nor network access.
+base URL nor network access. For a controller read of a `document`, the Node
+attaches the captured package's `artifact_view` assets (model tool reads within a
+turn keep the fragment alone). Desktop composes the template, styles, pinned
+offline libraries and scripts into the opaque-origin frame. The frame posts
+strings to a relay in the wrapper page, which Desktop drains by evaluation; it
+can call nothing. Desktop accepts only form drafts, required and invalid notices,
+and submissions for the exact document, revision and conversation it rendered.
+It checks a submission against the fields the stored fragment declares and the
+Node's latest visible revision. It then sends the answers as an ordinary user
+message through the composer path, queued behind an active run. Drafts last while
+the app runs. Inherited and older revisions cannot submit.
 
 Desktop voice capture, speech recognition, voice reading and global selection
 shortcuts are controller-local. Mobile has no voice-input controls, recording

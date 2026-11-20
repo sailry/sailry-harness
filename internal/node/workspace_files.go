@@ -62,6 +62,15 @@ func (node *Node) readWorkspaceArtifact(ctx context.Context, request protocol.Re
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	// A controller, or a package surface it mounts, composes a document's
+	// page from its package's renderer. Tool reads within a turn keep the
+	// fragment alone, so a model never receives renderer code. Without its
+	// captured package a document renders as the plain fragment.
+	if (request.Plugin == nil || request.Plugin.Turn == nil) && capture.Content.Artifact.Kind == protocol.ArtifactKindDocument {
+		if view, err := node.plugins.manager.ReadArtifactView(ctx, capture.Content.Artifact.Package); err == nil {
+			capture.Content.View = view
+		}
+	}
 	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		current, err := store.CaptureArtifactRead(ctx, db, request)
 		if err != nil {

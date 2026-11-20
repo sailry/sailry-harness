@@ -2245,6 +2245,12 @@ project_remove_unknown: 移除結果未確認，請檢查專案和終端
 project_removed: 專案已移除
 task_completed: 已完成
 artifact_export_failed: 匯出失敗
+artifact_contents: 目錄
+artifact_close: 關閉
+artifact_form_reply: 回覆「%{title}」（版本 %{revision}，表單 %{form}） [%{id}]
+artifact_form_invalid: 表單無效
+artifact_form_required: 請填寫必填項
+artifact_form_stale: 方案已有新版本，請開啟新版後提交
 chat_compact_incomplete: 摘要未完整返回
 chat_compact_interrupted: 壓縮已中斷
 chat_compact_no_reduction: 摘要未縮短上下文

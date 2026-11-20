@@ -2245,6 +2245,12 @@ project_remove_unknown: Removal unconfirmed; check the project and its terminals
 project_removed: Project removed
 task_completed: Completed
 artifact_export_failed: Could not export
+artifact_contents: Contents
+artifact_close: Close
+artifact_form_reply: Reply to %{title} (version %{revision}, form %{form}) [%{id}]
+artifact_form_invalid: Invalid form
+artifact_form_required: Complete the required fields
+artifact_form_stale: A newer version is available; open it before submitting
 chat_compact_incomplete: Summary incomplete
 chat_compact_interrupted: Compaction interrupted
 chat_compact_no_reduction: Summary did not reduce context

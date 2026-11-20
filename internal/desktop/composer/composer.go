@@ -197,6 +197,15 @@ func (s *State) message(ctx *Context) Message {
 		draftText: s.Draft, draftHost: s.Host}
 }
 
+// Reply is text another surface of the conversation sends, such as a
+// document form's answers: the composer's model, mode and permission
+// without its draft, files or references.
+func (s *State) Reply(models []Model, text string) Message {
+	m := s.message(&Context{Models: models})
+	m.Text, m.Attachments, m.References, m.draftText, m.draftHost = text, nil, nil, "", ""
+	return m
+}
+
 // clear empties the draft once it was sent or queued.
 func (s *State) clear() {
 	s.Draft, s.Attachments, s.References = "", nil, nil

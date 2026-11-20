@@ -2257,6 +2257,12 @@ project_remove_unknown
 project_removed
 task_completed
 artifact_export_failed
+artifact_contents
+artifact_close
+artifact_form_reply
+artifact_form_invalid
+artifact_form_required
+artifact_form_stale
 chat_compact_incomplete
 chat_compact_interrupted
 chat_compact_no_reduction

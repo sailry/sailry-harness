@@ -2245,6 +2245,12 @@ project_remove_unknown: Удаление не подтверждено; пров
 project_removed: Проект удалён
 task_completed: Завершено
 artifact_export_failed: Не удалось экспортировать
+artifact_contents: Содержание
+artifact_close: Закрыть
+artifact_form_reply: Ответ на %{title} (версия %{revision}, форма %{form}) [%{id}]
+artifact_form_invalid: Недопустимая форма
+artifact_form_required: Заполните обязательные поля
+artifact_form_stale: Доступна новая версия; откройте её перед отправкой
 chat_compact_incomplete: Резюме неполное
 chat_compact_interrupted: Уплотнение прервано
 chat_compact_no_reduction: Резюме не уменьшает контекста

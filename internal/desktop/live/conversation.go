@@ -558,6 +558,8 @@ type conversationActions struct {
 	// restore is the submission a failed send offers to put back.
 	restore      *composer.Message
 	restoreDraft string // the composer's fingerprint when it was captured
+	// settled hears whether a send from another surface was admitted.
+	settled func(bool)
 }
 
 func (x *conversationActions) owned() bool {
@@ -667,6 +669,9 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 func (x *conversationActions) finishSubmission(output protocol.Output, draftSession, ok bool) {
 	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
 		delete(x.r.composerOutgoing, x.cv.ID)
+	}
+	if x.settled != nil {
+		x.settled(ok)
 	}
 	if !ok {
 		return

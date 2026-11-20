@@ -71,7 +71,7 @@ func TestDocumentHTMLKeepsImageSandbox(t *testing.T) {
 	if !strings.Contains(result, "<script>window.localOnly=true</script>") {
 		t.Fatal("image rewriting changed the sandboxed document's scripts")
 	}
-	if !strings.Contains(documentPage(result), "img-src data: blob:") {
+	if !strings.Contains(documentPage(result, true), "img-src data: blob:") {
 		t.Fatal("document image loading relaxed the sandbox policy")
 	}
 }

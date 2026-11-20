@@ -1000,7 +1000,7 @@ func TestComposerSendRouting(t *testing.T) {
 			// Browser tabs opened in this draft, in another draft and in no
 			// conversation: only the first follows the draft into its session.
 			r.browser = &browserState{available: true, tabs: map[string]*browserTab{}, serving: map[*Runtime]context.CancelFunc{r: func() {}},
-				documents: map[string]*documentView{}, sources: map[string]protocol.ArtifactContent{}}
+				documents: map[string]*documentView{}, sources: map[string]documentSource{}}
 			var browserTabs [3]*browserTab
 			for index := range browserTabs {
 				browserTabs[index] = r.browserTabFor(r.App.Panel.AddBrowser(false).ID)

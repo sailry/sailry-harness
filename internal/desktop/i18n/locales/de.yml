@@ -2245,6 +2245,12 @@ project_remove_unknown: Entfernen nicht bestätigt; Projekt und Terminals prüfe
 project_removed: Projekt entfernt
 task_completed: Abgeschlossen
 artifact_export_failed: Export fehlgeschlagen
+artifact_contents: Inhalt
+artifact_close: Schließen
+artifact_form_reply: Antwort auf %{title} (Version %{revision}, Formular %{form}) [%{id}]
+artifact_form_invalid: Ungültiges Formular
+artifact_form_required: Pflichtfelder ausfüllen
+artifact_form_stale: Eine neuere Version ist verfügbar; öffnen Sie diese vor dem Absenden
 chat_compact_incomplete: Die Zusammenfassung ist unvollständig
 chat_compact_interrupted: Die Verdichtung wurde unterbrochen
 chat_compact_no_reduction: Zusammenfassung reduzierte nicht den Kontext

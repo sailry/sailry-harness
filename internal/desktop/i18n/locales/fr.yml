@@ -2245,6 +2245,12 @@ project_remove_unknown: Retrait non confirmé ; vérifiez le projet et ses termi
 project_removed: Projet retiré
 task_completed: Achevée
 artifact_export_failed: Échec de l’export
+artifact_contents: Sommaire
+artifact_close: Fermer
+artifact_form_reply: Réponse à %{title} (version %{revision}, formulaire %{form}) [%{id}]
+artifact_form_invalid: Formulaire invalide
+artifact_form_required: Remplissez les champs obligatoires
+artifact_form_stale: Une version plus récente est disponible ; ouvrez-la avant d’envoyer
 chat_compact_incomplete: Résumé incomplet
 chat_compact_interrupted: Compactage interrompu
 chat_compact_no_reduction: Le résumé ne réduisait pas le contexte
