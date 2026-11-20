@@ -1814,6 +1814,8 @@ files_upload_changed
 files_upload_too_large
 files_upload_name
 files_upload_source
+files_upload_directory
+files_upload_special_source
 files_download_failed
 files_download_changed
 files_download_destination

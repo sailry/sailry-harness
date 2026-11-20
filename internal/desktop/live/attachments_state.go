@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -11,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -219,7 +221,20 @@ func (r *Runtime) attachmentOutcome(c *ui.Context, err error) {
 		kit.Notify(c, "", i18n.T(c, "files_upload_cancelled"))
 		return
 	}
-	r.reportKeys(c, err, key, "files_upload_changed", "chat_attachment_unknown")
+	if sourceError == nil || sourceError.reason == "" {
+		r.reportKeys(c, err, key, "files_upload_changed", "chat_attachment_unknown")
+		return
+	}
+	outcome, toastKey := outcomeKey(err, key, "files_upload_changed", "chat_attachment_unknown")
+	kit.Toast(c, outcome, i18n.T(c, toastKey))
+	attrs := []slog.Attr{slog.String("reason", sourceError.reason), slog.String("cause_code", "attachment_"+sourceError.reason)}
+	if sourceError.reason == "directory" || sourceError.reason == "special_source" {
+		attrs = append(attrs, slog.String("area", "desktop"), slog.String("operation", key),
+			slog.String("phase", logging.Failed), slog.String("code", string(faultCode(err))), slog.String("detail", err.Error()))
+		logging.Emit(slog.LevelWarn, attrs...)
+		return
+	}
+	kit.RecordFailure("desktop", key, outcome, err, attrs...)
 }
 func (r *Runtime) removeDraftAttachment(attachment *composer.Attachment, record *attachmentRecord) {
 	items := record.composer.Attachments

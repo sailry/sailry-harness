@@ -24,15 +24,15 @@ type localAttachmentSource struct {
 	revision, mime string
 }
 type attachmentSourceError struct {
-	key string
-	err error
+	key, reason string
+	err         error
 }
 
 func (err *attachmentSourceError) Error() string { return err.err.Error() }
 func (err *attachmentSourceError) Unwrap() error { return err.err }
 
-func sourceAttachmentFault(key string, code protocol.ErrorCode, message string) error {
-	return &attachmentSourceError{key: key, err: fileActionFault(code, message)}
+func sourceAttachmentFault(key, reason string, code protocol.ErrorCode, message string) error {
+	return &attachmentSourceError{key: key, reason: reason, err: fileActionFault(code, message)}
 }
 
 func fileActionFault(code protocol.ErrorCode, message string) error {
@@ -47,7 +47,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	defer func() {
 		var sourceError *attachmentSourceError
 		if err != nil && !errors.As(err, &sourceError) {
-			err = &attachmentSourceError{key: "files_upload_source", err: err}
+			err = &attachmentSourceError{key: "files_upload_source", reason: "read_failed", err: err}
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -55,7 +55,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	}
 	if path == "" {
 		if uint64(len(data)) > limit {
-			return out, sourceAttachmentFault("files_upload_too_large", protocol.ErrorCodeInvalidRequest, "attachment exceeds the size limit")
+			return out, sourceAttachmentFault("files_upload_too_large", "too_large", protocol.ErrorCodeInvalidRequest, "attachment exceeds the size limit")
 		}
 		out.reader = io.NopCloser(bytes.NewReader(data))
 		out.size = uint64(len(data))
@@ -67,7 +67,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 		return out, nil
 	}
 	if !filepath.IsAbs(path) {
-		return out, sourceAttachmentFault("files_upload_source", protocol.ErrorCodeInvalidRequest, "an absolute attachment source is required")
+		return out, sourceAttachmentFault("files_upload_source", "not_absolute", protocol.ErrorCodeInvalidRequest, "an absolute attachment source is required")
 	}
 	file, err := openLocalAttachment(path)
 	if err != nil {
@@ -83,11 +83,14 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 	if err != nil {
 		return out, err
 	}
+	if before.IsDir() {
+		return out, sourceAttachmentFault("files_upload_directory", "directory", protocol.ErrorCodeInvalidRequest, "directories cannot be attached")
+	}
 	if !before.Mode().IsRegular() {
-		return out, sourceAttachmentFault("files_upload_source", protocol.ErrorCodeInvalidRequest, "attachment source is not an ordinary file")
+		return out, sourceAttachmentFault("files_upload_special_source", "special_source", protocol.ErrorCodeInvalidRequest, "attachment source is not an ordinary file")
 	}
 	if uint64(before.Size()) > limit {
-		return out, sourceAttachmentFault("files_upload_too_large", protocol.ErrorCodeInvalidRequest, "attachment exceeds the size limit")
+		return out, sourceAttachmentFault("files_upload_too_large", "too_large", protocol.ErrorCodeInvalidRequest, "attachment exceeds the size limit")
 	}
 	hash := blake3.New(32, nil)
 	buffer := make([]byte, protocol.FILE_TRANSFER_CHUNK_BYTES)
@@ -100,7 +103,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 		if n > 0 {
 			total += int64(n)
 			if total > before.Size() {
-				return out, fileActionFault(protocol.ErrorCodeRevisionConflict, "attachment source changed")
+				return out, sourceAttachmentFault("files_upload_source", "changed", protocol.ErrorCodeRevisionConflict, "attachment source changed")
 			}
 			_, _ = hash.Write(buffer[:n])
 		}
@@ -116,7 +119,7 @@ func localSource(ctx context.Context, path string, data []byte, media string, ma
 		return out, err
 	}
 	if total != before.Size() || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
-		return out, fileActionFault(protocol.ErrorCodeRevisionConflict, "attachment source changed")
+		return out, sourceAttachmentFault("files_upload_source", "changed", protocol.ErrorCodeRevisionConflict, "attachment source changed")
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return out, err

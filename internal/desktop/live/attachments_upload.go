@@ -49,7 +49,7 @@ func (r *Runtime) uploadAttachment(x *conversationActions, a *composer.Attachmen
 	path, data, name, media := a.Path, slices.Clone(a.Data), a.Name, a.Mime
 	r.async(func() {
 		if name == "" {
-			r.finishAttachment(a, record, protocol.Output{}, sourceAttachmentFault("files_upload_name", protocol.ErrorCodeInvalidRequest, "attachment name is unavailable"), nil, protocol.AttachmentSpec{})
+			r.finishAttachment(a, record, protocol.Output{}, sourceAttachmentFault("files_upload_name", "name", protocol.ErrorCodeInvalidRequest, "attachment name is unavailable"), nil, protocol.AttachmentSpec{})
 			return
 		}
 		select {

@@ -1400,6 +1400,8 @@ files_upload_cancelled: 上传已取消
 files_upload_failed: 上传失败，请检查文件和连接后重试
 files_upload_changed: 来源已变更，请重新选择文件
 files_upload_source: 无法读取所选文件
+files_upload_directory: 请选择普通文件，文件夹不能作为附件
+files_upload_special_source: 仅支持将普通文件作为附件
 files_upload_conflict: 目标已变更，请重新上传
 files_upload_exists: 同名文件已存在，替换会覆盖其内容
 files_upload_replace: 替换

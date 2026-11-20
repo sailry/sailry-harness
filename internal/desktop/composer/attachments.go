@@ -41,8 +41,8 @@ func (s *State) add(c *ui.Context, list []*Attachment, actions Actions) {
 	}
 }
 
-// attachPaths attaches files and folders dropped on the surface or pasted.
-// Their names and kinds come from the paths; the backend reads them.
+// attachPaths stages paths dropped on the surface or pasted. Their names and
+// kinds come from the paths; the backend validates and reads supported files.
 func (s *State) attachPaths(c *ui.Context, paths []string, actions Actions) {
 	var list []*Attachment
 	for _, path := range paths {
@@ -60,12 +60,12 @@ var pastedImages = []struct {
 	{transfer.PNG, "png"}, {"image/jpeg", "jpg"}, {"image/gif", "gif"}, {"image/webp", "webp"},
 }
 
-// paste attaches what was copied into the draft (paste_attachments): the
-// copied files and folders by their paths, and a copied picture, named
-// Image N by its place among the draft's files, its thumbnail decoded from
-// it. Copied files come with their names as text, so they attach whatever
-// text the clipboard has; a picture attaches only when the clipboard has no
-// text, which is the draft's otherwise. It reports whether it took the paste.
+// paste attaches what was copied into the draft (paste_attachments): copied
+// file paths and a copied picture, named Image N by its place among the draft's
+// files, its thumbnail decoded from it. Copied files come with their names as
+// text, so they attach whatever text the clipboard has; a picture attaches only
+// when the clipboard has no text, which is the draft's otherwise. It reports
+// whether it took the paste.
 func (s *State) paste(c *ui.Context, text string, actions Actions) bool {
 	if s.attachmentsLocked() {
 		return false
