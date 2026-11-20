@@ -1,6 +1,8 @@
 package git
 
 import (
+	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,7 +19,101 @@ type WatchFilter struct {
 	metadata   []string
 	tracked    map[string]bool
 	names      []string // tracked paths in byte order, for directory lookups
-	matcher    gitignore.Matcher
+	matcher    *watchMatcher
+	reopen     bool
+	indexDirty bool
+}
+
+// A filter may outlive thousands of batches. Keep base rules and at most one
+// ancestor chain, never an inventory of ignore files elsewhere in the tree.
+type watchMatcher struct {
+	root, common string
+	base         []gitignore.Pattern
+	baseLoaded   bool
+	parent       string
+	cached       gitignore.Matcher
+}
+
+func appendIgnore(anchor *os.Root, name string, domain []string, patterns []gitignore.Pattern) ([]gitignore.Pattern, error) {
+	info, err := anchor.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) || err == nil && !info.Mode().IsRegular() {
+		return patterns, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	file, err := anchor.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "#") && strings.TrimSpace(line) != "" {
+			patterns = append(patterns, gitignore.ParsePattern(line, domain))
+		}
+	}
+	return patterns, scanner.Err()
+}
+
+func (m *watchMatcher) match(parts []string, isDir bool) (bool, error) {
+	parent := filepath.Join(m.root, filepath.Join(parts[:len(parts)-1]...))
+	if m.cached != nil && m.parent == parent {
+		return m.cached.Match(parts, isDir), nil
+	}
+	root, err := os.OpenRoot(m.root)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	if !m.baseLoaded {
+		fs := osfs.New(string(filepath.Separator))
+		system, _ := gitignore.LoadSystemPatterns(fs)
+		global, _ := gitignore.LoadGlobalPatterns(fs)
+		common, err := os.OpenRoot(m.common)
+		if err != nil {
+			return false, err
+		}
+		patterns, err := appendIgnore(common, filepath.Join("info", "exclude"), nil, append(system, global...))
+		common.Close()
+		if err != nil {
+			return false, err
+		}
+		m.base, err = appendIgnore(root, ".gitignore", nil, patterns)
+		if err != nil {
+			return false, err
+		}
+		m.baseLoaded = true
+	}
+	patterns := m.base[:len(m.base):len(m.base)]
+	for depth := 1; depth < len(parts); depth++ {
+		domain := parts[:depth]
+		if gitignore.NewMatcher(patterns).Match(domain, true) {
+			// Git does not read rules inside an excluded directory.
+			return true, nil
+		}
+		dir := filepath.Join(domain...)
+		info, err := root.Lstat(dir)
+		if errors.Is(err, os.ErrNotExist) || err == nil && !info.IsDir() {
+			break
+		}
+		if err != nil {
+			return false, err
+		}
+		patterns, err = appendIgnore(root, filepath.Join(dir, ".gitignore"), domain, patterns)
+		if err != nil {
+			return false, err
+		}
+	}
+	m.parent, m.cached = parent, gitignore.NewMatcher(patterns)
+	return m.cached.Match(parts, isDir), nil
+}
+
+// Inventory and staging must not admit an untracked file on unreadable rules.
+func (m *watchMatcher) Match(parts []string, isDir bool) bool {
+	ignored, err := m.match(parts, isDir)
+	return err != nil || ignored
 }
 
 func WatchRoots(root string) ([]string, error) {
@@ -59,11 +155,12 @@ func (f *WatchFilter) refresh() error {
 		return err
 	}
 	f.metadata = metadata
-	f.tracked = map[string]bool{}
+	f.tracked = nil
 	f.names = nil
 	f.repository = nil
 	f.matcher = nil
 	if len(metadata) == 0 {
+		f.reopen, f.indexDirty = false, false
 		return nil
 	}
 	r, err := open(f.root)
@@ -71,27 +168,24 @@ func (f *WatchFilter) refresh() error {
 		return err
 	}
 	f.repository = r
-	idx, err := r.Storer.Index()
+	f.matcher = &watchMatcher{root: f.root, common: metadata[len(metadata)-1]}
+	f.reopen, f.indexDirty = false, true
+	return nil
+}
+
+func (f *WatchFilter) loadIndex() error {
+	idx, err := f.repository.Storer.Index()
 	if err != nil {
 		return mapError(err)
 	}
+	f.tracked = make(map[string]bool, len(idx.Entries))
+	f.names = make([]string, 0, len(idx.Entries))
 	for _, entry := range idx.Entries {
 		f.tracked[entry.Name] = true
 		f.names = append(f.names, entry.Name)
 	}
 	sort.Strings(f.names)
-	worktree, err := r.Worktree()
-	if err != nil {
-		return mapError(err)
-	}
-	patterns, err := gitignore.ReadPatterns(worktree.Filesystem, nil)
-	if err != nil {
-		return mapError(err)
-	}
-	system, _ := gitignore.LoadSystemPatterns(osfs.New(string(filepath.Separator)))
-	global, _ := gitignore.LoadGlobalPatterns(osfs.New(string(filepath.Separator)))
-	patterns = append(append(system, global...), patterns...)
-	f.matcher = gitignore.NewMatcher(patterns)
+	f.indexDirty = false
 	return nil
 }
 func (f *WatchFilter) ReferencesChanged(paths []string) bool {
@@ -99,38 +193,55 @@ func (f *WatchFilter) ReferencesChanged(paths []string) bool {
 		return true
 	}
 	for _, path := range paths {
-		if path == f.root || path == filepath.Join(f.root, ".git") {
+		switch f.metadataPath(path) {
+		case "", "index", "info", "info/exclude":
+		default:
 			return true
-		}
-		for _, root := range f.metadata {
-			if !pathWithin(path, root) {
-				continue
-			}
-			relative, _ := filepath.Rel(root, path)
-			relative = filepath.ToSlash(relative)
-			if strings.HasSuffix(relative, ".lock") {
-				continue
-			}
-			if relative == "." || relative == "refs" || strings.HasPrefix(relative, "refs/") {
-				return true
-			}
-			switch relative {
-			case "HEAD", "packed-refs", "config", "config.worktree", "commondir", "shallow":
-				return true
-			}
 		}
 	}
 	return false
 }
 func (f *WatchFilter) Changed(paths []string) bool {
 	if len(paths) == 0 {
+		f.reopen = true
 		return true
 	}
+	// Process every invalidation before returning, including an index write
+	// or a changed ignore file delivered in the same batch as a ref update.
+	relevant := false
 	for _, path := range paths {
-		if f.metadataChange(path) || pathWithin(path, f.root) && filepath.Base(path) == ".gitignore" {
-			_ = f.refresh()
-			return true
+		switch f.metadataPath(path) {
+		case "":
+			if !pathWithin(path, f.root) || pathWithin(path, filepath.Join(f.root, ".sailry", "worktrees")) {
+				continue
+			}
+			ancestor := path
+			if filepath.Base(path) == ".gitignore" {
+				ancestor = filepath.Dir(path)
+				if f.matcher != nil && ancestor == f.root {
+					f.matcher.baseLoaded = false
+				}
+				relevant = true
+			}
+			// A directory rename may replace rules without naming .gitignore.
+			if f.matcher != nil && f.matcher.cached != nil && pathWithin(f.matcher.parent, ancestor) {
+				f.matcher.cached = nil
+			}
+		case ".", "commondir":
+			f.reopen, relevant = true, true
+		case "index":
+			f.indexDirty, relevant = true, true
+		case "config", "config.worktree", "info", "info/exclude":
+			if f.matcher != nil {
+				f.matcher.baseLoaded, f.matcher.cached = false, nil
+			}
+			relevant = true
+		default:
+			relevant = true
 		}
+	}
+	if relevant {
+		return true
 	}
 	for _, path := range paths {
 		if !pathWithin(path, f.root) {
@@ -154,6 +265,25 @@ func (f *WatchFilter) Changed(paths []string) bool {
 		if isMetadata {
 			continue
 		}
+		if f.reopen {
+			if err := f.refresh(); err != nil {
+				return true
+			}
+		}
+		if f.repository == nil {
+			continue
+		}
+		ignored, err := f.matcher.match(parts, false)
+		if err != nil || !ignored {
+			return true
+		}
+		// Only ignored paths need an index lookup: tracked files and their
+		// ancestors still change repository status regardless of ignore rules.
+		if f.indexDirty {
+			if err := f.loadIndex(); err != nil {
+				return true
+			}
+		}
 		if f.tracked[relative] {
 			return true
 		}
@@ -161,17 +291,20 @@ func (f *WatchFilter) Changed(paths []string) bool {
 		if i := sort.SearchStrings(f.names, relative+"/"); i < len(f.names) && strings.HasPrefix(f.names[i], relative+"/") {
 			return true
 		}
-		if f.repository != nil && (f.matcher == nil || !f.matcher.Match(parts, false)) {
-			return true
-		}
 	}
 	return false
 }
-func (f *WatchFilter) metadataChange(path string) bool {
-	if path == filepath.Join(f.root, ".git") {
-		return true
+func (f *WatchFilter) metadataPath(path string) string {
+	if path == f.root || path == filepath.Join(f.root, ".git") {
+		return "."
 	}
-	for _, root := range f.metadata {
+	roots := f.metadata
+	if f.reopen && len(roots) == 0 {
+		// A formerly plain directory may now be a repository. Its first
+		// notifications can arrive before a content event reopens it.
+		roots = []string{filepath.Join(f.root, ".git")}
+	}
+	for _, root := range roots {
 		if !pathWithin(path, root) {
 			continue
 		}
@@ -181,12 +314,12 @@ func (f *WatchFilter) metadataChange(path string) bool {
 			continue
 		}
 		if relative == "." || relative == "refs" || strings.HasPrefix(relative, "refs/") {
-			return true
+			return relative
 		}
 		switch relative {
-		case "HEAD", "index", "packed-refs", "config", "config.worktree", "commondir", "shallow", "info/exclude":
-			return true
+		case "HEAD", "index", "packed-refs", "config", "config.worktree", "commondir", "shallow", "info", "info/exclude":
+			return relative
 		}
 	}
-	return false
+	return ""
 }

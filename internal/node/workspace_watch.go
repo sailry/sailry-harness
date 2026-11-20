@@ -162,12 +162,12 @@ func (w *workspaceWatch) run() {
 			for index, event := range batch {
 				paths[index] = event.Path
 			}
-			w.notify(paths, nil, false)
+			w.notify(paths, nil)
 		case _, ok := <-w.native.Errors:
 			if !ok {
 				return
 			}
-			w.notify(nil, watchUnavailable(), false)
+			w.notify(nil, watchUnavailable())
 			return
 		}
 	}
@@ -179,7 +179,7 @@ func (w *workspaceWatch) stop() error {
 	<-w.done
 	return err
 }
-func (w *workspaceWatch) notify(paths []string, failure error, managed bool) {
+func (w *workspaceWatch) notify(paths []string, failure error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.failure != nil {
@@ -188,8 +188,8 @@ func (w *workspaceWatch) notify(paths []string, failure error, managed bool) {
 	if failure != nil {
 		w.failure = failure
 	}
-	references := managed || failure != nil || w.filter.ReferencesChanged(paths)
-	relevant := managed || failure != nil || w.filter.Changed(paths)
+	references := failure != nil || w.filter.ReferencesChanged(paths)
+	relevant := failure != nil || w.filter.Changed(paths)
 	if references {
 		w.references++
 	}
@@ -212,13 +212,18 @@ func (w *workspaceWatch) notify(paths []string, failure error, managed bool) {
 func (w *workspaceWatches) changed(root string, paths []string) {
 	w.mu.Lock()
 	active := w.roots[root]
+	if active != nil && !active.started {
+		// Opening has no observers yet. Its first subscription gets an
+		// initial update; do not race the installation of its filter.
+		active = nil
+	}
 	closed := w.closed
 	w.mu.Unlock()
 	if closed {
 		return
 	}
 	if active != nil {
-		active.notify(paths, nil, len(paths) == 0)
+		active.notify(paths, nil)
 	} else {
 		w.git.Invalidate(root)
 	}
@@ -231,7 +236,7 @@ func (w *workspaceWatches) remove(root string) {
 	started := active != nil && active.started
 	w.mu.Unlock()
 	if started {
-		active.notify(nil, watchUnavailable(), false)
+		active.notify(nil, watchUnavailable())
 		_ = active.stop()
 	}
 }
@@ -249,7 +254,7 @@ func (w *workspaceWatches) close() error {
 	w.mu.Unlock()
 	var result error
 	for _, active := range started {
-		active.notify(nil, watchUnavailable(), false)
+		active.notify(nil, watchUnavailable())
 		result = errors.Join(result, active.stop())
 	}
 	return result
