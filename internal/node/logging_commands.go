@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/codeindex"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -177,17 +178,23 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 		return nil
 	}
 	class, name := commandObservation(request.Command), request.Command.Kind
+	var sourceKind string
 	switch {
 	case name == "read_plugin_conversation_value":
 		name = "read_conversation_value"
 	case class == changing || class == traced || class == slow:
 	case request.Plugin != nil:
-		name = "plugin_command"
+		// Only classified reads and other known transient commands reach this
+		// branch. Keep their kind locally without changing remote grouping.
+		sourceKind, name = name, "plugin_command"
 	case class == workspaceRead:
 	default:
 		return nil
 	}
 	attrs := []slog.Attr{slog.String("command", name), slog.String("operation", name), slog.String("node", node.ID().String()), slog.String("caller", caller.String()), slog.String("request", request.ID.String())}
+	if sourceKind != "" {
+		attrs = append(attrs, slog.String("source_kind", sourceKind))
+	}
 	attrs = append(attrs, commandIdentifiers(request.Command.Data)...)
 	if plugin := request.Plugin; plugin != nil {
 		attrs = append(attrs, slog.String("package", plugin.Package.Name), slog.String("digest", plugin.Package.Digest), slog.Uint64("settings_revision", plugin.Package.SettingsRevision))
@@ -237,6 +244,13 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
+	switch kind {
+	case "search_code", "outline_code", "graph_code":
+		if codeindex.ReaderWaitExpired(fault) {
+			span.Set(slog.String("reason_code", "code_reader_wait"))
+			expected = true
+		}
+	}
 	if reason, race := store.QueueRejection(kind, fault); reason != "" {
 		span.Set(slog.String("reason_code", reason))
 		expected = race

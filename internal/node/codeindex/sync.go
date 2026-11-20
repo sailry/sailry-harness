@@ -224,18 +224,10 @@ type inputs struct {
 	ready    map[string]*Parsed
 }
 
-// read checks files in order while holding one shared parsing permit.
+// read checks files in order under the original batch deadline.
 func (s *Service) read(ctx context.Context, files *core.Files, paths []string, in inputs, deadline time.Time) ([]inspected, error) {
 	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	release, err := s.acquireReader(bounded)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, cancelled()
-		}
-		return nil, err
-	}
-	defer release()
 	results := make([]inspected, 0, len(paths))
 	for _, path := range paths {
 		if ctx.Err() != nil {
@@ -256,6 +248,11 @@ func (s *Service) read(ctx context.Context, files *core.Files, paths []string, i
 }
 
 func (s *Service) inspect(bounded context.Context, files *core.Files, path string, prior cached, previous core.FileStamp, ready *Parsed) inspected {
+	release, err := s.acquireReader(bounded)
+	if err != nil {
+		return inspected{err: err}
+	}
+	defer release()
 	var result inspected
 	if !IndexedSource(path) {
 		file, err := files.Open(path)
@@ -452,8 +449,8 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 			length = len(scan.ready)
 		}
 		batch := slices.Clone(scan.pending[:length])
-		// Shared permits bound all worktrees; no writer is held while parsing.
-		// Each permit covers a short ordered run, not one task per file.
+		// Workers check ordered runs without holding a writer. Each file
+		// competes for the same reader as live queries and other worktrees.
 		results := make([]inspected, len(batch))
 		var group sync.WaitGroup
 		for start := 0; start < len(batch); start += batchFiles / readers {

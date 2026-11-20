@@ -24,6 +24,16 @@ const (
 	queryHints = 32
 )
 
+var errScanBudget = errors.New("live code scan budget exhausted")
+
+const readerWaitMessage = "code query timed out waiting for a reader"
+
+// ReaderWaitExpired identifies only the live scan budget exhausted waiting for
+// a file reader, not the operation deadline or another busy fault.
+func ReaderWaitExpired(f *protocol.Fault) bool {
+	return f != nil && f.Code == protocol.ErrorCodeBusy && f.Details == nil && f.Message == readerWaitMessage
+}
+
 // liveFiles owns a bounded, query-local source selection. It does not open a
 // worktree database or start a watch.
 type liveFiles struct {
@@ -37,6 +47,7 @@ type liveFiles struct {
 	bytes    int64
 	rows     int
 	attempts int
+	started  bool
 }
 
 func (s *Service) liveFiles(ctx context.Context, id protocol.WorktreeID, root string, references bool) (context.Context, *liveFiles, func(), error) {
@@ -49,15 +60,8 @@ func (s *Service) liveFiles(ctx context.Context, id protocol.WorktreeID, root st
 		end()
 		return nil, nil, nil, err
 	}
-	bounded, cancel := context.WithTimeout(ctx, queryTime)
-	release, err := s.acquireReader(bounded)
-	if err != nil {
-		cancel()
-		_ = files.Close()
-		end()
-		return nil, nil, nil, err
-	}
-	close := func() { cancel(); _ = files.Close(); end(); release() }
+	bounded, cancel := context.WithTimeoutCause(ctx, queryTime, errScanBudget)
+	close := func() { cancel(); _ = files.Close(); end() }
 	parse := s.parser.ParseOutline
 	if references {
 		parse = s.parser.ParseIndexed
@@ -66,8 +70,22 @@ func (s *Service) liveFiles(ctx context.Context, id protocol.WorktreeID, root st
 }
 
 func (scan *liveFiles) read(path string, match *regexp.Regexp) (*Parsed, error) {
+	if err := scan.ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Bound the source buffer as well as the parser, but yield between files
+	// and before the transient index is built or queried.
+	release, err := scan.service.acquireReader(scan.ctx)
+	if err != nil {
+		if context.Cause(scan.ctx) == errScanBudget {
+			return nil, fault(protocol.ErrorCodeBusy, readerWaitMessage)
+		}
+		return nil, err
+	}
+	defer release()
+	scan.started = true
 	var parsed *Parsed
-	_, err := scan.service.inspectText(scan.files, scan.ctx, path, MaxFileBytes, core.FileStamp{}, func(source *string) error {
+	_, err = scan.service.inspectText(scan.files, scan.ctx, path, MaxFileBytes, core.FileStamp{}, func(source *string) error {
 		if source == nil {
 			file := Omitted(path, StatusTooLarge)
 			parsed = &file
@@ -111,6 +129,7 @@ func (scan *liveFiles) cut() {
 }
 
 func (scan *liveFiles) walk(scope string, match *regexp.Regexp) error {
+	var refusal *protocol.Fault
 	walked, err := scan.files.VisitFiles(scan.ctx, scope, nil, func(_ *os.Root, _, path string, metadata fs.FileInfo) (bool, error) {
 		if scan.seen[path] || !Candidate(path) || !IndexedSource(path) {
 			return true, nil
@@ -123,6 +142,12 @@ func (scan *liveFiles) walk(scope string, match *regexp.Regexp) error {
 		scan.bytes += cost
 		file, err := scan.read(path, match)
 		if err != nil {
+			if f, ok := err.(*protocol.Fault); !scan.started && ok && ReaderWaitExpired(f) {
+				// No source was inspected. The caller received no coverage,
+				// unlike a scan that exhausted its budget after making progress.
+				refusal = f
+				return false, nil
+			}
 			if scan.ctx.Err() != nil {
 				return false, scan.ctx.Err()
 			}
@@ -148,6 +173,9 @@ func (scan *liveFiles) walk(scope string, match *regexp.Regexp) error {
 	})
 	scan.report.visited += walked.Visited
 	scan.report.skipped += walked.Skipped
+	if refusal != nil {
+		return refusal
+	}
 	if scan.ctx.Err() != nil || walked.Partial {
 		scan.cut()
 	}
