@@ -577,7 +577,9 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	over := col.Hovered()
 	col.Children(func() {
 		// The header: the status, its time, and the work region's trigger.
-		if latest || parts.hasWork {
+		// Every part keeps it, so a reply answered before consumed guidance
+		// still reads as its own reply and its work can be folded.
+		{
 			ui.Column(c).Gap(8).Children(func() {
 				label := i18n.T(c, StatusKey(partStatus))
 				status := func() {
