@@ -386,6 +386,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       (_snapshot['missing'] as List? ?? const []).isNotEmpty;
 
   bool _loadingOlder = false;
+  bool _olderFailed = false;
 
   /// Earlier history loads as the transcript nears its top, the end of the
   /// reversed list, including while it is shorter than the viewport. A failed
@@ -395,16 +396,18 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         !_hasOlder ||
         !_scroll.hasClients ||
         _view.value['loading_older'] == true ||
-        _view.value['older_error'] != null && !retry) {
+        (_olderFailed || _view.value['older_error'] != null) && !retry) {
       return;
     }
     final position = _scroll.position;
     if (position.extentAfter > position.viewportDimension) return;
     _loadingOlder = true;
+    _olderFailed = false;
     unawaited(() async {
       try {
         await _updates?.loadOlder();
       } catch (error) {
+        _olderFailed = true;
         if (mounted) _failure(error);
       } finally {
         _loadingOlder = false;
@@ -975,7 +978,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                             as String? ??
                                         context.tr('conversationFailed'),
                                   ),
-                                if (_hasOlder && view['older_error'] == null)
+                                if (_hasOlder && view['loading_older'] == true)
                                   const Padding(
                                     key: ValueKey('older'),
                                     padding: EdgeInsets.symmetric(vertical: 12),
