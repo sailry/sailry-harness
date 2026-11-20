@@ -633,7 +633,7 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			done(output, err == nil)
 		}
 	})
-	if pending != nil && pending.transcript && command.Kind == "submit_turn" && request != (protocol.RequestID{}) {
+	if pending != nil && request != (protocol.RequestID{}) && (pending.transcript && command.Kind == "submit_turn" || !pending.transcript) {
 		pending.request = request
 	}
 }

@@ -343,3 +343,36 @@ func TestOutgoingPrerequisiteFailurePreservesNewDraft(t *testing.T) {
 		})
 	}
 }
+
+// A guiding or queued send leaves the sending row once the Node shows it as a
+// queue row or as a transcript entry, even before its command response.
+func TestOutgoingLandedBeforeResponse(t *testing.T) {
+	session, turn, request := protocol.SessionID{2}, protocol.TurnID{3}, protocol.RequestID{4}
+	snapshot := protocol.DefaultSnapshot()
+	controller := client.New(&conversationTestTransport{snapshot: snapshot})
+	defer controller.Close()
+	r := &Runtime{controller: controller, snapshotRead: true, snapshotCopy: snapshot}
+	pending := &conversationOutgoing{Queued: composer.Queued{Text: "day?", Guided: true}}
+	page := protocol.DefaultConversationPage()
+	page.Session = session
+	if r.outgoingLanded(pending, page) {
+		t.Fatal("an unsent message landed")
+	}
+	pending.request = request
+	if r.outgoingLanded(pending, page) {
+		t.Fatal("a message the Node has not shown landed")
+	}
+	page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "day?"}}
+	if !r.outgoingLanded(pending, page) {
+		t.Fatal("a queued row repeated the sending row")
+	}
+	page.Queue.Items = nil
+	r.snapshotCopy.Turns = []protocol.TurnSummary{{ID: turn, Session: session, Request: request}}
+	if r.outgoingLanded(pending, page) {
+		t.Fatal("a turn without its entry landed")
+	}
+	page.Entries = []protocol.ConversationEntry{{Turn: turn, ID: "guidance", Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "day?"}}}}
+	if !r.outgoingLanded(pending, page) {
+		t.Fatal("consumed guidance repeated the sending row")
+	}
+}

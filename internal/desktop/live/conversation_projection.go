@@ -586,9 +586,11 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
 		// A turn that started is in the transcript, not waiting any more.
+		// Guidance a run consumed has its user entry before the queue update
+		// that removes it arrives; it shows once, in the transcript.
 		if slices.ContainsFunc(page.Runs, func(r protocol.ConversationRun) bool {
 			return r.Turn == item.Turn && (r.Status == "running" || r.Status == "stopping")
-		}) {
+		}) || slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == item.Turn && e.Author == "user" }) {
 			continue
 		}
 		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}

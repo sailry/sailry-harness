@@ -142,13 +142,30 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 	x.settleGuidance()
 	x.reportHalt()
 	x.reportUsage()
-	if pending := r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
+	if pending := r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript && !r.outgoingLanded(pending, state.Page) {
 		outgoing := pending.Queued
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
 		}
 		ctx.Outgoing = &outgoing
 	}
+}
+
+// outgoingLanded reports a queued or guiding submission the Node already
+// admitted: its own row or transcript entry shows it, so the sending row would
+// repeat it until the command response arrives.
+func (r *Runtime) outgoingLanded(pending *conversationOutgoing, page protocol.ConversationPage) bool {
+	if pending.request == (protocol.RequestID{}) {
+		return false
+	}
+	if slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool {
+		return item.Request != nil && *item.Request == pending.request
+	}) {
+		return true
+	}
+	return slices.ContainsFunc(r.snapshot().Turns, func(turn protocol.TurnSummary) bool {
+		return turn.Request == pending.request && slices.ContainsFunc(page.Entries, func(entry protocol.ConversationEntry) bool { return entry.Turn == turn.ID && entry.Author == "user" })
+	})
 }
 
 // outgoing shows m in the queue tray until the Host answers its submission.

@@ -30,6 +30,15 @@ func TestConversationGuidanceKeepsRecordedPosition(t *testing.T) {
 	}
 	state := client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page,
 		Drafts: []protocol.ConversationDraft{{ID: "draft", Turn: owner, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Later answer"}}}}}}
+	// The queue update that removes the consumed guidance arrives after its
+	// entry: the stale row never shows beside the transcript's copy.
+	state.Snapshot.Page.Runs[1].Status = "queued"
+	state.Snapshot.Page.Queue.Items = []protocol.ConversationPending{{Turn: guide, Kind: "task", Preview: "Inserted constraint", Guidance: &owner}}
+	if _, _, _, queue := Conversation(state, "en"); len(queue) != 0 {
+		t.Fatalf("consumed guidance stayed queued: %+v", queue)
+	}
+	state.Snapshot.Page.Runs[1].Status = "completed"
+	state.Snapshot.Page.Queue.Items = nil
 	turns, _, _, _ := Conversation(state, "en")
 	if len(turns) != 1 || turns[0].ID != owner.String() || len(turns[0].Segments) != 2 {
 		t.Fatalf("guidance changed the task identity or lost its boundary: %+v", turns)
