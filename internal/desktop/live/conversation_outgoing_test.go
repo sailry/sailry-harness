@@ -132,21 +132,35 @@ func TestOutgoingMessageProjection(t *testing.T) {
 			t.Fatal("canonical handoff lost or duplicated the message", cv.Turns)
 		}
 	})
+	t.Run("a finishing run keeps the message in the transcript", func(t *testing.T) {
+		// A run the client had not yet seen end does not send an idle message
+		// to the tray and back.
+		actions.stageOutgoing(message)
+		r.composerOutgoing[cv.ID].request = request
+		r.snapshotCopy.Turns = nil
+		page.Entries = nil
+		page.Runs = []protocol.ConversationRun{{Session: session, Turn: other, Kind: "task", Status: "stopping"}, {Session: session, Turn: turn, Kind: "task", Status: "queued"}}
+		page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "Captured message"}}
+		project()
+		if !slices.ContainsFunc(cv.Turns, func(t conversation.Turn) bool { return t.User == message.Text }) || r.composerOutgoing[cv.ID] == nil || len(cv.Queue) != 0 {
+			t.Fatal("a finishing run moved the idle message to the tray", cv.Turns, cv.Queue)
+		}
+	})
 	t.Run("queued admission stays in the tray", func(t *testing.T) {
-		// Behind an active run, or in a paused queue, the turn waits.
+		// In a paused queue, or behind another item, the turn waits.
 		for _, paused := range []bool{false, true} {
 			actions.stageOutgoing(message)
 			r.composerOutgoing[cv.ID].request = request
 			r.snapshotCopy.Turns = nil
 			page.Entries = nil
 			page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Kind: "task", Status: "queued"}}
-			if !paused {
-				page.Runs = append(page.Runs, protocol.ConversationRun{Session: session, Turn: other, Kind: "task", Status: "running"})
-			}
 			page.Queue.Paused = paused
 			page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "Captured message"}}
+			if !paused {
+				page.Queue.Items = append([]protocol.ConversationPending{{Turn: protocol.TurnID{6}, Kind: "task", Preview: "Earlier"}}, page.Queue.Items...)
+			}
 			project()
-			if slices.ContainsFunc(cv.Turns, func(t conversation.Turn) bool { return t.User == message.Text }) || r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 {
+			if slices.ContainsFunc(cv.Turns, func(t conversation.Turn) bool { return t.User == message.Text }) || r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != len(page.Queue.Items) {
 				t.Fatal("queued admission became an active transcript message", paused, cv.Turns, cv.Queue)
 			}
 		}
