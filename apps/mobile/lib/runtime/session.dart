@@ -185,9 +185,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
         _addDemo();
         if (!selected) _selected = null;
       }
-      // A local demonstration never opens Link or a controller profile. A fresh
-      // installation can also reach pairing before any native transport starts.
-      if (!(demo && selected) && await _savedPeers(profilePath)) {
+      // The demo never uses Link or the controller profile, but it must not
+      // hide genuine peers: saved trust reconnects beside it. A fresh
+      // installation can reach pairing before any native transport starts.
+      if (await _savedPeers(profilePath)) {
         await _ensureController();
       }
       if (_closed) return;

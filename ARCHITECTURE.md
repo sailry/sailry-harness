@@ -1018,12 +1018,12 @@ ordinary host presentation. Flutter persists this choice separately from Link
 trust and supplies in-memory fixture projections through the Dart connection
 contract without opening a native controller, Node, model, tool or user file.
 Simulated conversations, file edits, Git actions and terminal input reset when the
-app closes. Fresh controllers defer native transport until ordinary pairing; a
-saved demo selection also defers it. Removing the demo restores existing genuine
-peers through the normal Client and Link path without changing their trust
-records. The demo remains selectable but never joins the live conversation or
-project catalog. Mobile keeps one host, project and worktree selection for its
-top-level pages. Changing hosts clears the project scope; choosing a project on
+app closes. Fresh controllers defer native transport until ordinary pairing.
+Saved genuine peers reconnect at startup through the normal Client and Link path
+and stay listed beside the demo, including when the demo is the saved selection;
+the demo never changes their trust records. The demo remains selectable but
+never joins the live conversation or project catalog. Mobile keeps one host,
+project and worktree selection for its top-level pages. Changing hosts clears the project scope; choosing a project on
 another host changes both together. Open conversation, file and terminal routes
 retain their captured owner. General resource pickers list registered project
 worktrees; explicit conversation routes retain access to their own scratch

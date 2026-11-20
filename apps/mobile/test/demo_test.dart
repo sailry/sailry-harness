@@ -141,7 +141,7 @@ void main() {
         initialize: () async => fail('Saved demo initialized native transport'),
       );
       await session.start(path: '/isolated/controller');
-      expect(peerReads, 0);
+      expect(peerReads, 1);
       final host = session.selectedHost!;
       expect(host.isDemo, isTrue);
       final removing = session.removeHost(host);
@@ -150,14 +150,13 @@ void main() {
       expect(preferences.values['hosts.demo.enabled'], isFalse);
       expect(preferences.values['hosts.demo.selected'], isFalse);
       expect(session.controller, isNull);
-      expect(peerReads, 1);
       await session.close();
       session.dispose();
     },
   );
 
   test(
-    'removing a restored demo reconnects existing trust without re-pairing',
+    'a selected saved demo restarts beside existing trust without re-pairing',
     () async {
       final preferences = _Preferences()
         ..values.addAll({
@@ -179,16 +178,31 @@ void main() {
         openController: (_, _) async => owner,
       );
       await session.start(path: '/isolated/controller');
-      expect(initialized, 0);
-      await session.removeHost(session.selectedHost!);
       expect(initialized, 1);
+      expect(session.selectedHost!.isDemo, isTrue);
+      expect(session.hosts.map((host) => host.id), [
+        DemoConnection.hostId,
+        'trusted-host',
+      ]);
+      expect(session.resourceHosts.single.isDemo, isTrue);
+      expect(preferences.values['hosts.demo.selected'], isTrue);
+
+      session.selectHost('trusted-host');
+      expect(session.resourceHosts.single.id, 'trusted-host');
+      expect(preferences.values['hosts.demo.selected'], isFalse);
+      session.selectHost(DemoConnection.hostId);
+
+      // A pending directory read must not hold up the local demo removal.
+      await owner.peersStarted.future;
+      await session.removeHost(session.selectedHost!);
+      expect(directory.isCompleted, isFalse);
+      expect(initialized, 1);
+      expect(session.hosts.single.id, 'trusted-host');
       expect(session.selectedHost!.id, 'trusted-host');
       expect(session.selectedHost!.isDemo, isFalse);
       expect(owner.pin, isNull);
       expect(owner.forgotten, isEmpty);
       expect(owner.addresses, hasLength(1));
-      await owner.peersStarted.future;
-      expect(directory.isCompleted, isFalse);
       directory.complete(owner.addresses);
       await session.refreshHosts();
       expect(session.selectedHost!.id, 'trusted-host');
