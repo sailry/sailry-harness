@@ -55,6 +55,7 @@ type Client struct {
 	watch                 *observation
 	closed                bool
 	conversationMu        sync.Mutex
+	conversationInventory uint64 // guarded by conversationMu; unique across watches on this Client
 	conversations         map[protocol.SessionID]*conversationWatch
 	conversationBookmarks []conversationBookmark
 	conversationOwners    sync.WaitGroup

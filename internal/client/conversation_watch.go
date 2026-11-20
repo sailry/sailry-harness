@@ -19,8 +19,11 @@ type ConversationState struct {
 	// StatisticsErr is the fault of the Node's last statistics refresh, until
 	// statistics or a snapshot arrive.
 	StatisticsErr error
-	entryEpoch    *byte
-	viewVersion   uint64
+	// InventoryVersion changes when the Node's canonical asset inventory may
+	// have changed. It is a local cache key, not the structural page revision.
+	InventoryVersion uint64 `json:"-"`
+	entryEpoch       *byte
+	viewVersion      uint64
 }
 
 type conversationWatch struct {
@@ -53,6 +56,7 @@ func (w *conversationWatch) discardHistory() {
 	w.projection.hidden, w.projection.revealed = nil, nil
 	w.extent = conversationExtent{}
 	w.state.OlderErr = nil
+	w.state.InventoryVersion = 0
 }
 
 // A second reconnect during automatic paging must recover the original range,
@@ -464,6 +468,10 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 	applied, err := w.projection.Apply(generation, update)
 	if err == nil && applied == Applied {
 		w.viewVersion++
+		if changesConversationInventory(update) {
+			c.conversationInventory++
+			w.state.InventoryVersion = c.conversationInventory
+		}
 		w.state.Loading = false
 		w.state.Connected = true
 		w.state.Err = nil
@@ -471,6 +479,19 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 		c.pruneConversationDetails()
 	}
 	return applied, err
+}
+
+// The inventory reads canonical records, including hidden ones outside the
+// fitted page. Only known non-inventory frames can reuse a previous read.
+func changesConversationInventory(update protocol.Update) bool {
+	if update.Kind == "conversation_frame" {
+		frame, _ := payload[protocol.ConversationFrame](update.Data) // already accepted by Apply
+		switch frame.Change.Kind {
+		case "delta", "statistics", "statistics_failed", "run", "queue", "approval", "question", "child", "background":
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) restoreConversation(ctx context.Context, w *conversationWatch, generation uint64, desired conversationExtent) {

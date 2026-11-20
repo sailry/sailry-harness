@@ -35,8 +35,8 @@ func TestSessionOverviewBackgroundRefresh(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				r, source, cv, id := cacheTestRuntime(t)
 				state := cacheTestFrame(t, r, cv, id)
-				read := &overviewRead{open: true, loaded: true, revision: state.Snapshot.Page.Revision, head: state.Snapshot.Sequence,
-					loadedRevision: state.Snapshot.Page.Revision, loadedHead: state.Snapshot.Sequence}
+				read := &overviewRead{open: true, loaded: true, revision: state.Snapshot.Page.Revision, inventory: state.InventoryVersion,
+					loadedRevision: state.Snapshot.Page.Revision, loadedInventory: state.InventoryVersion}
 				if populated {
 					read.groups = []protocol.ConversationAssetsGroup{overviewFixtureAsset(1, "existing.txt")}
 				}
@@ -54,8 +54,9 @@ func TestSessionOverviewBackgroundRefresh(t *testing.T) {
 						Session: id, Revision: read.revision, Groups: []protocol.ConversationAssetsGroup{overviewFixtureAsset(2, "generated.txt")},
 					}}}, true
 				}
-				// New text/history events advance the stream without replacing its revision.
+				// A canonical publication adds an output without replacing history.
 				state.Snapshot.Sequence++
+				state.InventoryVersion++
 				r.beginConversationFrame()
 				r.conversationVersion++
 				r.conversationCopies[id] = conversationCopy{state: state, ok: true, generation: r.conversationVersion}
@@ -85,14 +86,15 @@ func TestSessionOverviewForegroundReads(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				r, source, cv, id := cacheTestRuntime(t)
 				state := cacheTestFrame(t, r, cv, id)
-				read := &overviewRead{revision: state.Snapshot.Page.Revision, head: state.Snapshot.Sequence}
+				read := &overviewRead{revision: state.Snapshot.Page.Revision, inventory: state.InventoryVersion}
 				if kind != "initial" {
-					read.loaded, read.loadedRevision, read.loadedHead = true, read.revision, read.head
+					read.loaded, read.loadedRevision, read.loadedInventory = true, read.revision, read.inventory
 					read.groups = []protocol.ConversationAssetsGroup{overviewFixtureAsset(2, "existing.txt")}
 				}
 				if kind == "paging" {
 					before := uint64(2)
 					read.before = &before
+					read.loadedInventory-- // an older page cannot certify that the head is current
 				}
 				read.failed = kind == "retry"
 				r.overviews = map[protocol.SessionID]*overviewRead{id: read}
@@ -110,6 +112,15 @@ func TestSessionOverviewForegroundReads(t *testing.T) {
 					}}}, true
 				}
 				view := r.sessionOverview(nil, cv)
+				if kind == "retry" {
+					state.Snapshot.Sequence++
+					r.beginConversationFrame()
+					r.conversationCopies[id] = conversationCopy{state: state, ok: true}
+					view = r.sessionOverview(nil, cv)
+					if !view.Failed {
+						t.Fatal("streaming hid an inventory failure before retry")
+					}
+				}
 				if kind == "initial" {
 					view.Opened(true)
 				} else {
@@ -127,6 +138,9 @@ func TestSessionOverviewForegroundReads(t *testing.T) {
 				if updated.Loading || updated.Failed || len(updated.Output) == 0 || updated.Output[len(updated.Output)-1].Name != "loaded.txt" {
 					t.Fatalf("foreground read did not publish its result: %+v", updated)
 				}
+				if kind == "paging" && read.current() {
+					t.Fatal("paging marked a stale inventory head as refreshed")
+				}
 			})
 		})
 	}
@@ -137,7 +151,8 @@ func TestSessionOverviewCoalescesStreamAndReleasesUnmountedRead(t *testing.T) {
 		r, source, cv, id := cacheTestRuntime(t)
 		state := cacheTestFrame(t, r, cv, id)
 		revision := state.Snapshot.Page.Revision
-		read := &overviewRead{open: true, revision: revision, head: state.Snapshot.Sequence}
+		read := &overviewRead{open: true, loaded: true, revision: revision, inventory: state.InventoryVersion,
+			loadedRevision: revision, loadedInventory: state.InventoryVersion}
 		r.overviews = map[protocol.SessionID]*overviewRead{id: read}
 		proceed := make(chan struct{})
 		defer func() { close(proceed); r.workers.Wait() }()
@@ -150,25 +165,50 @@ func TestSessionOverviewCoalescesStreamAndReleasesUnmountedRead(t *testing.T) {
 			<-proceed
 			return link.Response{Output: protocol.Output{Kind: "conversation_assets", Data: protocol.ConversationAssetsPage{Session: id, Revision: revision}}}, true
 		}
-		advance := func() {
+		advance := func(commit bool) {
 			state.Snapshot.Sequence++
+			if commit {
+				state.InventoryVersion++
+			}
 			r.beginConversationFrame()
 			r.conversationVersion++
 			r.conversationCopies[id] = conversationCopy{state: state, ok: true, generation: r.conversationVersion}
 			r.sessionOverview(nil, cv)
 		}
+		for range 200 {
+			advance(false)
+		}
+		synctest.Wait()
+		if calls.Load() != 0 || !read.current() {
+			t.Fatal("draft deltas invalidated the loaded inventory")
+		}
+		advance(true)
 		for range 20 {
-			advance()
+			advance(false)
 		}
 		synctest.Wait()
 		if calls.Load() != 1 {
+			t.Fatalf("canonical commit started %d reads", calls.Load())
+		}
+		proceed <- struct{}{}
+		synctest.Wait()
+		applyOverviewCallbacks(r)
+		synctest.Wait()
+		if calls.Load() != 1 || !read.current() {
+			t.Fatal("deltas during an inventory read scheduled another scan")
+		}
+		for range 20 {
+			advance(true)
+		}
+		synctest.Wait()
+		if calls.Load() != 2 {
 			t.Fatalf("stream burst caused %d concurrent inventory reads", calls.Load())
 		}
 		proceed <- struct{}{}
 		synctest.Wait()
 		applyOverviewCallbacks(r)
 		synctest.Wait()
-		if calls.Load() != 2 {
+		if calls.Load() != 3 {
 			t.Fatalf("expected one follow-up, got %d total reads", calls.Load())
 		}
 		proceed <- struct{}{}
@@ -177,7 +217,7 @@ func TestSessionOverviewCoalescesStreamAndReleasesUnmountedRead(t *testing.T) {
 		if !read.current() {
 			t.Fatal("follow-up did not cover the latest stream head")
 		}
-		advance()
+		advance(true)
 		synctest.Wait()
 		r.beginConversationFrame()
 		r.finishConversationFrame()

@@ -117,12 +117,16 @@ func testConversationWatchRecovery(t *testing.T) {
 	if count != 1 {
 		t.Fatal("observers did not share a subscription")
 	}
+	initial, _ := c.Conversation(session.ID)
 	if err := c.LoadOlderConversation(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	wait(func(s ConversationState) bool {
 		return len(s.Snapshot.Page.Runs) == 3 && s.Snapshot.Page.NextBefore == nil
 	})
+	if paged, _ := c.Conversation(session.ID); paged.InventoryVersion != initial.InventoryVersion {
+		t.Fatal("loading existing history invalidated the Node's inventory")
+	}
 	if err := c.RefreshConversation(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +134,9 @@ func testConversationWatchRecovery(t *testing.T) {
 	wait(func(s ConversationState) bool {
 		return s.Connected && s.Snapshot.Sequence == 12 && len(s.Snapshot.Page.Runs) == 3 && s.Snapshot.Page.NextBefore == nil
 	})
+	if recovered, _ := c.Conversation(session.ID); recovered.InventoryVersion == initial.InventoryVersion {
+		t.Fatal("reconnected observation reused the previous inventory")
+	}
 	select {
 	case <-first.closed:
 	default:
@@ -302,7 +309,7 @@ func TestConversationObserverDropsRevokedHistory(t *testing.T) {
 	}); view != nil {
 		t.Fatal("the bridge emitted a stale transcript after the Node denied access")
 	}
-	if state, _ := c.Conversation(snapshot.Page.Session); len(state.Snapshot.Page.Entries) != 0 || state.Connected {
+	if state, _ := c.Conversation(snapshot.Page.Session); len(state.Snapshot.Page.Entries) != 0 || state.Connected || state.InventoryVersion != 0 {
 		t.Fatal("the Go view retained an authorized transcript after access was revoked")
 	}
 }
@@ -344,9 +351,57 @@ func TestConversationWatchDropsQueuedSnapshotAfterRemoval(t *testing.T) {
 	if applied, err := c.applyConversationUpdate(w, generation, incoming.update); applied != Ignored || err != context.Canceled {
 		t.Fatalf("queued snapshot after removal = %v, %v", applied, err)
 	}
-	if state, ok := c.Conversation(session.ID); !ok || !state.Removed || state.Connected || faultCode(state.Err) != protocol.ErrorCodeNotFound || state.Snapshot.Sequence != 0 || len(state.Snapshot.Page.Entries) != 0 {
+	if state, ok := c.Conversation(session.ID); !ok || !state.Removed || state.Connected || faultCode(state.Err) != protocol.ErrorCodeNotFound || state.Snapshot.Sequence != 0 || len(state.Snapshot.Page.Entries) != 0 || state.InventoryVersion != 0 {
 		t.Fatalf("queued snapshot changed the removal state: %+v", state)
 	}
+}
+
+func TestConversationInventoryVersionFollowsAcceptedHistory(t *testing.T) {
+	s := conversationFixture()
+	id, turn := s.Page.Session, s.Page.Runs[0].Turn
+	watch := func() *conversationWatch {
+		return &conversationWatch{session: id, projection: NewConversationProjection(s.Node, id, 1), ctx: t.Context()}
+	}
+	w := watch()
+	c := &Client{conversations: map[protocol.SessionID]*conversationWatch{id: w}}
+	var previous ConversationState
+	check := func(update protocol.Update, want Apply, changed bool) {
+		t.Helper()
+		if got, err := c.applyConversationUpdate(w, 1, update); err != nil || got != want {
+			t.Fatalf("%s: %v, %v", update.Kind, got, err)
+		}
+		now, _ := c.ConversationView(id, previous)
+		if changed != (now.InventoryVersion != previous.InventoryVersion) {
+			t.Fatalf("%s: inventory %d -> %d", update.Kind, previous.InventoryVersion, now.InventoryVersion)
+		}
+		previous = now
+	}
+	snapshot := protocol.Update{Kind: "conversation_snapshot", Data: s}
+	check(snapshot, Applied, true)
+	frame := func(kind string, data any, changed bool) {
+		t.Helper()
+		u := conversationFrame(*w.projection.snapshot, kind, data)
+		check(u, Applied, changed)
+	}
+	for range 64 {
+		frame("delta", protocol.ConversationDraft{ID: "draft", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "x"}}}, false)
+	}
+	frame("statistics", protocol.ConversationStatistics{}, false)
+	frame("statistics_failed", protocol.Fault{Code: protocol.ErrorCodeUnavailable}, false)
+	frame("queue", protocol.ConversationQueue{Revision: 1}, false)
+	frame("run", s.Page.Runs[0], false)
+	entry := protocol.ConversationEntry{ID: "draft", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "![image](file.png)"}}}
+	committed := conversationFrame(*w.projection.snapshot, "entry", entry)
+	check(committed, Applied, true)
+	check(committed, Ignored, false)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: "outside-page"}, true)
+	frame("revealed", entry, true)
+	frame("future_change", protocol.UnknownVariant(`{"kind":"future_change"}`), true)
+	check(protocol.Update{Kind: "reset_required"}, Recover, false)
+	check(snapshot, Applied, true) // recovery can replace history at the same structural revision
+	w = watch()
+	c.conversations[id] = w
+	check(snapshot, Applied, true) // a remount is not the old authority, even at the same sequence
 }
 
 func TestConversationViewReusesUnchangedHistoryDuringStreaming(t *testing.T) {
