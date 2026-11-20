@@ -411,6 +411,11 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 				}
 				kit.Tooltip(c, badge, label)
 			}
+			if hovered {
+				// A new conversation in this project, without the menu.
+				kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_session"), 20, false).
+					TextColor(p.MutedForeground).OnClick(func() { s.newIn(pr) })
+			}
 			label := i18n.T(c, "workspace_collapse")
 			if !*s.opened("project/" + pr.ID) {
 				label = i18n.T(c, "workspace_expand")
