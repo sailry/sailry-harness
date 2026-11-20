@@ -2121,6 +2121,7 @@ turn_changes_retry: 重试撤销
 pane_restore_failed: 工作区恢复失败
 pane_drag: 拖动分屏
 pane_restore: 还原
+pane_limit: 分屏最多 %{count} 个窗格
 pane_session_missing: 会话已不存在
 
 chat_navigation: 消息导航

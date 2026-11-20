@@ -54,6 +54,12 @@ type Hooks struct {
 	PluginOverlays   func(*ui.Context)
 	// Overview is a conversation's session overview for the header's button.
 	Overview func(*ui.Context, *viewmodel.Conversation) *composer.Overview
+	// NewConversationDraft opens a fresh unsent conversation in project (nil:
+	// without one) for the pane keys' new tab or split, with that location's
+	// composer defaults, and selects it as New session does. Unlike New
+	// session it never reuses the location's unsent draft. A selection left
+	// as it was means none was created.
+	NewConversationDraft func(project *viewmodel.Project)
 }
 
 type ConversationActions interface {

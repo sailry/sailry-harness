@@ -38,6 +38,9 @@ type workspace struct {
 	// enlarged is the conversation floating over the window's body
 	// (pane_keys.go), none when zero; its layout stays as it was.
 	enlarged panes.Target
+	// created counts the preview's conversations opened by the pane keys
+	// (sampleConversation).
+	created int
 }
 
 // handle returns pane t's focus handle.

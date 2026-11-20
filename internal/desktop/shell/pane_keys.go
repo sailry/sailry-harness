@@ -1,11 +1,15 @@
 package shell
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -13,17 +17,18 @@ import (
 // conversation pane the keyboard focus is in: the conversation standing
 // alone in the main column, a split's session pane or the enlarged pane.
 // Each such pane takes them as Element shortcuts (paneKeys), so a text input
-// inside keeps its editing keys (⌘⇧ and an arrow select), and with the focus
-// in the sidebar, the panel, a terminal or a page they go on to the window:
-// ⌘T then opens the panel's browser as before. ⌘N and Minimize come from the
-// native menu, which takes their keys first, and decide by the same focus
-// (focusedConversationPane).
+// inside keeps its editing keys (Cmd+Shift and an arrow select), and with the
+// focus in the sidebar, the panel, a terminal or a page they go on to the
+// window: Cmd+T then opens the panel's browser as before. Cmd+N and Minimize
+// come from the native menu, which takes their keys first, and decide by the
+// same focus (focusedConversationPane). Cmd stands for Ctrl off macOS.
 
 // WindowMinimize is the Window menu's Minimize: its key enlarges the focused
 // conversation pane, and minimizes the window anywhere else.
 const WindowMinimize = "window.minimize"
 
-// splitKeys put a new conversation on a side of the focused one, with ⌘⇧.
+// splitKeys put a new conversation on a side of the focused one, with
+// Cmd+Shift.
 var splitKeys = []struct {
 	key ui.Key
 	at  panes.Placement
@@ -62,46 +67,77 @@ func (a *App) paneKeys(c *ui.Context, e ui.Element, t panes.Target) {
 	}
 }
 
-// newConversationFrom opens a new conversation where from is, in its project
-// or without one, by the sidebar's New session: the location's unsent draft
-// when it has one. It reports the conversation, false when none other than
-// the one shown opened.
+// newConversationFrom opens a fresh conversation where from is, in its
+// project or without one, and selects it with the focus in its composer. It
+// is never the location's unsent draft, which may be from itself: a new tab
+// or split always adds one. Live, the controller creates it
+// (Hooks.NewConversationDraft) with the location's composer defaults; the
+// preview keeps it in memory as the sidebar's New session does. False when
+// none was created.
 func (a *App) newConversationFrom(from panes.Target) (panes.Target, bool) {
+	pr := a.Data.ProjectOf(from.ID)
 	before := a.Sidebar.Selected
-	if pr := a.Data.ProjectOf(from.ID); pr != nil {
-		a.Sidebar.NewSession(pr)
-	} else {
-		a.Sidebar.NewChat()
+	switch {
+	case a.Hooks.NewConversationDraft != nil:
+		a.Hooks.NewConversationDraft(pr)
+	case a.Sidebar.Actions == nil:
+		a.Sidebar.Selected = a.sampleConversation(pr)
+		if pr != nil {
+			a.Sidebar.Reveal(pr.ID)
+		}
+	}
+	id := a.Sidebar.Selected
+	if id == before || id == from.ID || a.Data.Find(id) == nil {
+		return panes.Target{}, false
 	}
 	a.Page = ConversationPage
-	t := session(a.Sidebar.Selected)
-	return t, t != from && a.Sidebar.Selected != before && a.Data.Find(t.ID) != nil
+	a.Composer(id).Focus()
+	return session(id), true
 }
 
-// newConversationBeside opens a new conversation split at p of from, which
-// keeps its place and shares. A full workspace shows it alone instead.
+// sampleConversation adds an empty conversation to the preview's data, first
+// in pr or among those without a project, and returns its ID.
+func (a *App) sampleConversation(pr *preview.Project) string {
+	w := &a.panes
+	w.created++
+	cv := &preview.Conversation{Updated: preview.Now, Created: 20000 + w.created}
+	if pr != nil {
+		cv.ID = fmt.Sprintf("%s/pane-%d", pr.ID, w.created)
+		pr.Conversations = append([]*preview.Conversation{cv}, pr.Conversations...)
+	} else {
+		cv.ID = fmt.Sprintf("chat/pane-%d", w.created)
+		a.Data.Unassigned = append([]*preview.Conversation{cv}, a.Data.Unassigned...)
+	}
+	return cv.ID
+}
+
+// newConversationBeside opens a fresh conversation split at p of from, which
+// keeps its place and shares. A full workspace takes none: it says so, and
+// nothing is created or selected.
 func (a *App) newConversationBeside(c *ui.Context, from panes.Target, p panes.Placement) {
+	if len(a.panes.Members(from)) >= panes.Limit {
+		kit.Toast(c, kit.Failed, i18n.T(c, "pane_limit", "count", strconv.Itoa(panes.Limit)))
+		return
+	}
 	a.panes.enlarged = panes.Target{}
 	if created, ok := a.newConversationFrom(from); ok {
 		a.dropPane(c, from, created, p)
 	}
 }
 
-// newConversationTab opens a new conversation in a tab of its own: what
+// newConversationTab opens a fresh conversation in a tab of its own: what
 // showed alone is kept as a tab, as a split group is one already.
 func (a *App) newConversationTab(from panes.Target) {
 	w := &a.panes
-	w.enlarged = panes.Target{}
-	if w.Group(from) < 0 {
-		w.Keep(from)
-	}
 	created, ok := a.newConversationFrom(from)
 	if !ok {
 		return
 	}
-	if w.Group(created) < 0 {
-		w.Keep(created)
+	w.enlarged = panes.Target{}
+	if w.Group(from) < 0 {
+		w.Keep(from)
 	}
+	w.Keep(created)
 	a.focusPane(created)
 }
 
@@ -153,8 +189,9 @@ func (a *App) enlargedSlot(c *ui.Context, t panes.Target) {
 }
 
 // enlargedPane floats the enlarged conversation over the window's body in
-// Kit's floating surface, over a veil as a dialog's: ⌘M, its restore button
-// or a click on the veil puts it back, and ⌘W closes it as in its place.
+// Kit's floating surface, over a veil as a dialog's: Cmd+M, its restore
+// button or a click on the veil puts it back, and Cmd+W closes it as in its
+// place.
 func (a *App) enlargedPane(c *ui.Context) {
 	w := &a.panes
 	t := w.enlarged

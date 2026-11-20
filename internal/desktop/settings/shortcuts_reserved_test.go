@@ -23,7 +23,7 @@ func TestReservedKeys(t *testing.T) {
 	k.SetOverrides(map[string]string{"sidebar.toggle": "secondary-="})
 	toggle, _ := find("sidebar.toggle")
 	if !k.Reserved(toggle) || k.Effective(toggle) != (Chord{}) {
-		t.Fatalf("a saved ⌘= is reserved %v, effective %+v", k.Reserved(toggle), k.Effective(toggle))
+		t.Fatalf("a saved Cmd+= is reserved %v, effective %+v", k.Reserved(toggle), k.Effective(toggle))
 	}
 	if _, ok := k.Bound(toggle); ok {
 		t.Error("a reserved key is bound")

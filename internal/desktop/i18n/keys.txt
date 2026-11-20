@@ -1728,6 +1728,7 @@ workspace_terminal_preview
 pane_drag
 pane_group
 pane_restore
+pane_limit
 workspace_tab_keep
 workspace_tab_release
 workspace_tab_unsplit
