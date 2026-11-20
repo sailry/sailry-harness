@@ -73,17 +73,25 @@ type agentStatisticCall struct {
 	request  protocol.ConversationObservationRequest
 }
 
-const agentStatisticCallsQuery = `WITH rounds AS (
- SELECT t.id,row_number() OVER (ORDER BY t.rowid) AS turn_index
- FROM conversation_turns membership JOIN turns t ON t.id=membership.turn
- WHERE membership.session=?1 AND t.kind='task' AND EXISTS(SELECT 1 FROM agent_events event WHERE event.turn=t.id))
- SELECT h.sequence,json_extract(e.body,'$.metadata.execution.observation'),
- (SELECT json_extract(model.value,'$.context') FROM agent_runs r
-  JOIN turns t ON t.id=r.turn JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision,
-  json_each(r.provider,'$.models') model WHERE r.turn=e.turn AND json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
- (SELECT turn_index FROM rounds WHERE rounds.id=e.turn)
+const agentStatisticCallsQuery = `SELECT h.sequence,json_extract(e.body,'$.metadata.execution.observation'),e.turn
  FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
  WHERE h.session=?1 AND json_type(e.body,'$.metadata.execution.observation')='object' ORDER BY h.sequence`
+
+const agentStatisticCallLimitsQuery = `SELECT t.id,
+ (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
+  WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1)
+ FROM json_each(?1) observed CROSS JOIN turns t ON t.id=observed.value
+ CROSS JOIN agent_runs r ON r.turn=t.id
+ CROSS JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision`
+
+const agentStatisticRoundTurnsQuery = `SELECT t.id FROM conversation_turns membership JOIN turns t ON t.id=membership.turn
+ WHERE membership.session=?1 AND t.kind='task' AND EXISTS(SELECT 1 FROM agent_events event WHERE event.turn=t.id)
+ ORDER BY t.rowid`
+
+type agentStatisticTurnMetadata struct {
+	contextLimit sql.NullInt64
+	turnIndex    uint64
+}
 
 func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.SessionID) ([]agentStatisticCall, error) {
 	rows, err := db.QueryContext(ctx, agentStatisticCallsQuery, session.String())
@@ -92,11 +100,13 @@ func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.Ses
 	}
 	result := []agentStatisticCall{}
 	indices := map[string]int{}
+	turns := map[string]agentStatisticTurnMetadata{}
+	var observedTurns, callTurns []string
 	for rows.Next() {
 		var sequence uint64
 		var body []byte
-		var limit, turnIndex sql.NullInt64
-		if err = rows.Scan(&sequence, &body, &limit, &turnIndex); err != nil {
+		var turn string
+		if err = rows.Scan(&sequence, &body, &turn); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -105,22 +115,18 @@ func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.Ses
 			rows.Close()
 			return nil, err
 		}
-		request.ContextLimit, request.TurnIndex = nil, nil
-		if limit.Valid {
-			value := uint32(limit.Int64)
-			request.ContextLimit = &value
-		}
-		if turnIndex.Valid {
-			value := uint64(turnIndex.Int64)
-			request.TurnIndex = &value
+		if _, exists := turns[turn]; !exists {
+			turns[turn] = agentStatisticTurnMetadata{}
+			observedTurns = append(observedTurns, turn)
 		}
 		index, exists := indices[request.ID]
 		if !exists {
 			index = len(result)
 			indices[request.ID] = index
 			capture := request
-			capture.Attempts = nil
+			capture.Attempts, capture.ContextLimit, capture.TurnIndex = nil, nil, nil
 			result = append(result, agentStatisticCall{sequence, capture})
+			callTurns = append(callTurns, turn)
 		}
 		current := &result[index].request
 		for _, attempt := range request.Attempts {
@@ -134,7 +140,69 @@ func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.Ses
 		}
 		slices.SortFunc(current.Attempts, func(a, b protocol.ConversationObservationAttempt) int { return cmp.Compare(a.Index, b.Index) })
 	}
-	return result, errors.Join(rows.Err(), rows.Close())
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	if len(observedTurns) == 0 {
+		return result, nil
+	}
+	if err = readAgentStatisticTurnMetadata(ctx, db, session, observedTurns, turns); err != nil {
+		return nil, err
+	}
+	for i, turn := range callTurns {
+		metadata := turns[turn]
+		if metadata.contextLimit.Valid {
+			value := uint32(metadata.contextLimit.Int64)
+			result[i].request.ContextLimit = &value
+		}
+		if metadata.turnIndex != 0 {
+			value := metadata.turnIndex
+			result[i].request.TurnIndex = &value
+		}
+	}
+	return result, nil
+}
+
+func readAgentStatisticTurnMetadata(ctx context.Context, db *sql.Conn, session protocol.SessionID, observedTurns []string, turns map[string]agentStatisticTurnMetadata) error {
+	keys, err := json.Marshal(observedTurns)
+	if err != nil {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, agentStatisticCallLimitsQuery, string(keys))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var turn string
+		var limit sql.NullInt64
+		if err = rows.Scan(&turn, &limit); err != nil {
+			rows.Close()
+			return err
+		}
+		turns[turn] = agentStatisticTurnMetadata{contextLimit: limit}
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+
+	rows, err = db.QueryContext(ctx, agentStatisticRoundTurnsQuery, session.String())
+	if err != nil {
+		return err
+	}
+	var index uint64
+	for rows.Next() {
+		var turn string
+		if err = rows.Scan(&turn); err != nil {
+			rows.Close()
+			return err
+		}
+		index++
+		if metadata, exists := turns[turn]; exists {
+			metadata.turnIndex = index
+			turns[turn] = metadata
+		}
+	}
+	return errors.Join(rows.Err(), rows.Close())
 }
 
 // Lightweight JSON selects avoid retaining conversation or tool result bodies.
