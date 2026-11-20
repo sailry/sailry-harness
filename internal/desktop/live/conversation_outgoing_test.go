@@ -146,6 +146,21 @@ func TestOutgoingMessageProjection(t *testing.T) {
 			t.Fatal("a finishing run moved the idle message to the tray", cv.Turns, cv.Queue)
 		}
 	})
+	t.Run("another running run moves the message to the tray", func(t *testing.T) {
+		// The client looked idle, but the Node still runs another turn: the
+		// message waits and stays editable and withdrawable in the tray.
+		actions.stageOutgoing(message)
+		r.composerOutgoing[cv.ID].request = request
+		r.snapshotCopy.Turns = nil
+		page.Entries = nil
+		page.Runs = []protocol.ConversationRun{{Session: session, Turn: other, Kind: "task", Status: "running"}, {Session: session, Turn: turn, Kind: "task", Status: "queued"}}
+		page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "Captured message"}}
+		project()
+		if slices.ContainsFunc(cv.Turns, func(t conversation.Turn) bool { return t.User == message.Text }) || r.composerOutgoing[cv.ID] != nil ||
+			len(cv.Queue) != 1 || cv.Queue[0].ID != turn.String() {
+			t.Fatal("a waiting message left the tray while another run was running", cv.Turns, cv.Queue)
+		}
+	})
 	t.Run("queued admission stays in the tray", func(t *testing.T) {
 		// In a paused queue, or behind another item, the turn waits.
 		for _, paused := range []bool{false, true} {

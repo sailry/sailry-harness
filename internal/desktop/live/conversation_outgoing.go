@@ -113,9 +113,11 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 		// The Node admits every turn as a queued item and starts it from the
 		// queue. This message was sent while the conversation looked idle, so
 		// it starts next and keeps its place in the transcript, including
-		// while a run the client had not yet seen end finishes. Only a paused
-		// queue or another item ahead moves it to the tray: moving it for a
-		// run that ends a moment later made the message jump back and forth.
+		// while a run the client had not yet seen end is stopping: moving it
+		// for a run that ends a moment later made the message jump back and
+		// forth. A paused queue, another item ahead or another run that is
+		// still running makes it wait, so it moves to the tray where it stays
+		// editable and withdrawable.
 		for index, item := range page.Queue.Items {
 			if item.Turn != pending.turn || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 				return run.Turn == pending.turn && (run.Status == "running" || run.Status == "stopping")
@@ -123,7 +125,9 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 				continue
 			}
 			ahead := slices.ContainsFunc(page.Queue.Items[:index], func(other protocol.ConversationPending) bool { return other.Guidance == nil })
-			if page.Queue.Paused || ahead {
+			if page.Queue.Paused || ahead || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+				return run.Turn != pending.turn && run.Status == "running"
+			}) {
 				delete(r.composerOutgoing, cv.ID)
 				return
 			}
