@@ -33,6 +33,10 @@ type browserState struct {
 	// drafts are the unsent form answers of document revisions, by form,
 	// kept while the app runs so a reloaded page restores them.
 	drafts map[documentDraftKey]map[string]json.RawMessage
+	// sent are the forms of document revisions whose answers were sent or
+	// are being sent. A reloaded page forgets its own record, so this one
+	// keeps a form from sending its answers twice.
+	sent map[documentDraftKey]map[string]bool
 	// persistent is whether the open pages keep their website data.
 	persistent bool
 	// elements counts the elements picked for a conversation, for their names.
@@ -72,7 +76,7 @@ func (r *Runtime) SetWebViewWindow(window *mygo.Window) {
 	}
 	r.browser = &browserState{window: window, available: mygo.WebViewAvailable(), tabs: map[string]*browserTab{},
 		serving: map[*Runtime]context.CancelFunc{}, documents: map[string]*documentView{}, sources: map[string]documentSource{},
-		drafts: map[documentDraftKey]map[string]json.RawMessage{}}
+		drafts: map[documentDraftKey]map[string]json.RawMessage{}, sent: map[documentDraftKey]map[string]bool{}}
 	r.browser.persistent = r.browserPersistent()
 	r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
 		Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) },

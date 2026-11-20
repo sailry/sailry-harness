@@ -303,6 +303,27 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 		acknowledge(false)
 		return
 	}
+	// A form sends its answers once: a second submit, such as from a page
+	// reloaded while the first was sent, only locks the form again.
+	key := documentDraftKey{content.Artifact.ID, content.Artifact.Revision}
+	if r.browser.sent[key][event.Form] {
+		acknowledge(true)
+		return
+	}
+	if r.browser.sent[key] == nil {
+		if len(r.browser.sent) >= 64 {
+			clear(r.browser.sent)
+		}
+		r.browser.sent[key] = map[string]bool{}
+	}
+	r.browser.sent[key][event.Form] = true
+	settle := acknowledge
+	acknowledge = func(accepted bool) {
+		if !accepted {
+			delete(r.browser.sent[key], event.Form)
+		}
+		settle(accepted)
+	}
 	// The revision read may have been replaced since; the Node's latest
 	// visible revision decides.
 	owner := source.owner
@@ -326,7 +347,7 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 			default:
 				r.sendDocumentReply(c, source.conversation, reply, func(accepted bool) {
 					if accepted {
-						delete(r.browser.drafts[documentDraftKey{artifact.ID, artifact.Revision}], event.Form)
+						delete(r.browser.drafts[key], event.Form)
 					}
 					acknowledge(accepted)
 				})
