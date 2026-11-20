@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/api/transfers/download.dart';
+import 'package:sailry_mobile/content/attachment.dart';
+import 'package:sailry_mobile/content/code.dart';
 import 'package:sailry_mobile/content/document_images.dart';
+import 'package:sailry_mobile/content/visuals.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 
@@ -38,6 +41,10 @@ class _Connection extends Fake implements Connection {
     reads++;
     return _Download(bytes);
   }
+
+  @override
+  Future<Download> downloadAttachment({required String download}) async =>
+      _Download(bytes);
 }
 
 class _Picker extends FilePickerPlatform {
@@ -115,6 +122,69 @@ void main() {
     first.dispose();
     other.dispose();
   });
+
+  testWidgets(
+    'Markdown attachments render only the Mermaid fence as a diagram',
+    (tester) async {
+      const diagram = 'flowchart LR\n  A --> B';
+      final bytes = utf8.encode(
+        '```mermaid\n$diagram\n```\n\n```text\n$diagram\n```',
+      );
+      final attachment = {
+        'id': 'document',
+        'spec': {
+          'name': 'guide.md',
+          'media_type': 'Text/Markdown',
+          'worktree': 'tree',
+          'revision': 'revision',
+          'size': bytes.length,
+        },
+      };
+      final host = HostConnection.test(
+        id: 'entry/node',
+        label: 'Node',
+        connection: _Connection(bytes),
+        command: (kind, data) async {
+          expect(kind, 'download_attachment');
+          return {
+            'data': {'stream': 'stream', 'attachment': attachment},
+          };
+        },
+      );
+      addTearDown(host.dispose);
+      final requests = <VisualRequest>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          builder: (_, child) => VisualScope(
+            render: (request) async {
+              requests.add(request);
+              return const VisualSvg(
+                source:
+                    '<svg viewBox="0 0 20 10"><path d="M0 0h20v10z"/></svg>',
+                width: 20,
+                height: 10,
+              );
+            },
+            child: child!,
+          ),
+          home: Scaffold(
+            body: AttachmentView(host: host, attachment: attachment),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('guide.md'));
+      await tester.pumpAndSettle();
+      expect(requests.single.kind, VisualKind.mermaid);
+      expect(requests.single.source.trimRight(), diagram);
+      final code = tester.widget<CodeBlock>(find.byType(CodeBlock));
+      expect(code.language, 'text');
+      expect(code.text.trimRight(), diagram);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   for (final format in ['png', 'svg']) {
     testWidgets('a cached Markdown $format image can be saved while offline', (

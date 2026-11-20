@@ -273,13 +273,14 @@ class _AttachmentDocumentState extends State<_AttachmentDocument> {
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      if (widget.mime.startsWith('text/') || widget.mime == 'application/json')
-        widget.mime == 'text/markdown'
-            ? MarkdownContent(
-                utf8.decode(widget.bytes, allowMalformed: true),
-                imageBuilder: _images.image,
-              )
-            : SelectableText(utf8.decode(widget.bytes, allowMalformed: true)),
+      if (widget.mime.toLowerCase() == 'text/markdown')
+        MarkdownContent(
+          utf8.decode(widget.bytes, allowMalformed: true),
+          imageBuilder: _images.image,
+        )
+      else if (widget.mime.startsWith('text/') ||
+          widget.mime == 'application/json')
+        SelectableText(utf8.decode(widget.bytes, allowMalformed: true)),
       const SizedBox(height: 12),
       FilledButton(
         onPressed: () async {
