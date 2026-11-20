@@ -155,6 +155,27 @@ void main() {
     },
   );
 
+  test('a selected demo still opens when native transport fails', () async {
+    final preferences = _Preferences()
+      ..values.addAll({
+        'hosts.demo.enabled': true,
+        'hosts.demo.selected': true,
+      });
+    final session = AppSession.test(
+      ready: false,
+      preferences: preferences,
+      savedPeers: (_) async => true,
+      initialize: () async => throw StateError('native transport failed'),
+    );
+    await session.start(path: '/isolated/controller');
+    expect(session.error, isNull);
+    expect(session.ready, isTrue);
+    expect(session.selectedHost?.isDemo, isTrue);
+    expect(session.controller, isNull);
+    await session.close();
+    session.dispose();
+  });
+
   test(
     'a selected saved demo restarts beside existing trust without re-pairing',
     () async {

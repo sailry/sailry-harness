@@ -189,7 +189,13 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       // hide genuine peers: saved trust reconnects beside it. A fresh
       // installation can reach pairing before any native transport starts.
       if (await _savedPeers(profilePath)) {
-        await _ensureController();
+        try {
+          await _ensureController();
+        } catch (_) {
+          // A selected demo needs no native transport, so a failed start
+          // leaves it usable; genuine peers return at the next start.
+          if (!(demo && selected) || _closed) rethrow;
+        }
       }
       if (_closed) return;
       _selected ??= _hosts.firstOrNull?.id;
