@@ -1,9 +1,9 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -54,33 +55,38 @@ func watchCallbackTranscript(t *testing.T, snapshot protocol.ConversationSnapsho
 	if err := controller.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	r := &Runtime{controller: controller, ctx: t.Context(), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
 	cv := &viewmodel.Conversation{Node: node.Node.String(), ID: session.ID.String()}
-	changed := make(chan struct{}, 1)
-	release, err := controller.WatchConversation(t.Context(), session.ID, func() {
-		r.conversationChanged(session.ID)
+	r := &Runtime{controller: controller, ctx: t.Context(), busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
+		App:                 shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}}),
+		conversationWatches: map[protocol.SessionID]func(){}}
+	wake := make(chan struct{}, 1)
+	r.SetInvalidate(func() {
 		select {
-		case changed <- struct{}{}:
+		case wake <- struct{}{}:
 		default:
 		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(release)
+	r.startConversationFeed(session.ID, "en")
+	feed := r.conversationFeeds[session.ID]
+	t.Cleanup(func() {
+		r.conversationWatches[session.ID]()
+		r.observers.Wait()
+		r.workers.Wait()
+	})
 	await := func(sequence uint64) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		for {
-			got, ok := controller.Conversation(session.ID)
-			if ok && got.Snapshot.Sequence == sequence && got.Connected {
+			r.takeConversationFeed(session.ID, feed)
+			got := r.conversationCache[session.ID].state
+			if got.Connected && got.Snapshot.Sequence == sequence {
 				return
 			}
 			select {
-			case <-changed:
+			case <-wake:
 			case <-ctx.Done():
-				t.Fatalf("Client did not accept frame %d: %v", sequence, got.Err)
+				t.Fatalf("Desktop did not publish fixture frame %d (last %d, connected %t): %v", sequence, got.Snapshot.Sequence, got.Connected, got.Err)
 			}
 		}
 	}
@@ -344,8 +350,20 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 	if err := protocol.DecodeAs(protocol.PeerData, encoded, &replay); err != nil {
 		t.Fatal(err)
 	}
-	turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: replay}, "en")
-	if !reflect.DeepEqual(blocks, conversation.Compact(turns[0].Reply.Blocks)) {
-		t.Fatal("reopened history changed the command or child rows")
+	turns := r.prepareConversation(session, client.ConversationState{Connected: true, Snapshot: replay}, "en").view.Turns
+	if len(turns) != 1 {
+		t.Fatalf("reopened history has %d turns, want one", len(turns))
+	}
+	reopened := conversation.Compact(turns[0].Reply.Blocks)
+	liveRows, liveErr := json.Marshal(blocks)
+	replayedRows, replayErr := json.Marshal(reopened)
+	if liveErr != nil || replayErr != nil || !bytes.Equal(liveRows, replayedRows) {
+		t.Fatalf("reopened history changed the command or child rows: %v, %v\nlive: %s\nreplay: %s", liveErr, replayErr, liveRows, replayedRows)
+	}
+	for i, call := range blocks[0].Calls {
+		got := reopened[0].Calls[i]
+		if (call.Load == nil) != (got.Load == nil) || (call.BackgroundDetail == nil) != (got.BackgroundDetail == nil) {
+			t.Fatalf("reopened history changed the disclosure actions of %q", call.ID)
+		}
 	}
 }

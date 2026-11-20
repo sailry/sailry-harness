@@ -77,6 +77,7 @@ type Runtime struct {
 	permissions         permissionState
 	knowledgeWanted     string // the citation the knowledge viewer was last asked for
 	pendingSession      string
+	pendingSelected     string // the selection pendingSession waits behind
 	transferDialogOwner *Runtime
 	admittedSessions    map[string]protocol.Session
 
@@ -1253,16 +1254,33 @@ func (r *Runtime) movePin(source, target string, after bool) {
 // OpenSession and OpenNotice are called by window and notification callbacks on
 // the UI thread; asynchronous work still returns through the same queue.
 func (r *Runtime) OpenSession(id string) {
-	r.pendingSession = id
+	// The window's root projects the shared data, so it resolves the request.
+	r = r.localRuntime()
+	r.pendingSession, r.pendingSelected = id, r.App.Sidebar.Selected
 	r.selectPendingSession()
 }
+
+// A session opened before it is projected is selected when it appears, unless
+// a later navigation replaced the selection the request was made from.
 func (r *Runtime) selectPendingSession() {
+	if r.pendingSession != "" && r.App.Sidebar.Selected != r.pendingSelected {
+		r.pendingSession = ""
+	}
 	if r.pendingSession == "" || r.App.Data.Find(r.pendingSession) == nil {
 		return
 	}
 	r.App.Page = shell.ConversationPage
 	r.App.Sidebar.Selected = r.pendingSession
 	r.pendingSession = ""
+}
+
+// fallBackSelection keeps a pending OpenSession across a selection the runtime
+// chose because the previous one was unavailable; it is not a navigation.
+func (r *Runtime) fallBackSelection(before string) {
+	r = r.localRuntime()
+	if r.pendingSession != "" && r.pendingSelected == before {
+		r.pendingSelected = r.App.Sidebar.Selected
+	}
 }
 func (r *Runtime) markNotice(id string) {
 	if r.parent == nil {

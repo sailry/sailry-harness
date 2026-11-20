@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -25,6 +26,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -40,7 +42,9 @@ func panelTabs(t *testing.T) {
 	// their own waits, and the test runner bounds the complete walkthrough.
 	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{
+		Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return panelReplyModel{}, nil },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +397,7 @@ func panelTabs(t *testing.T) {
 	if !valid {
 		t.Fatal("the registered project was not returned")
 	}
-	// A provider no request is sent to: a session can be created on it.
+	// The scripted model supplies the reply without contacting this endpoint.
 	provider := protocol.DefaultConversationProvider()
 	provider.ID = protocol.NewProviderID()
 	provider.Name, provider.Api = "Panel fixture", protocol.ConversationModelApiChatCompletions
@@ -522,6 +526,16 @@ func panelTabs(t *testing.T) {
 	if !slices.Equal(again.App.Panel.Tabs, []panel.Tab{second}) {
 		t.Fatalf("the relaunched window's tabs: %v, want %v", again.App.Panel.Tabs, []panel.Tab{second})
 	}
+}
+
+type panelReplyModel struct{ fantasy.LanguageModel }
+
+func (panelReplyModel) Stream(context.Context, fantasy.Call) (fantasy.StreamResponse, error) {
+	return func(yield func(fantasy.StreamPart) bool) {
+		if yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "answer", Delta: "Kept the panel tabs."}) {
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+		}
+	}, nil
 }
 
 // panelFixture is panelTabs' window for panelConversations.
@@ -934,13 +948,37 @@ func panelConversations(t *testing.T, f panelFixture) {
 	wait("⌘W ends the last terminal", func() bool { return status(one.ID) == "" && len(app.Panel.Tabs) == 0 })
 
 	// An archived session takes its terminal and its tabs with it.
-	var current protocol.Session
-	for _, candidate := range f.controller.Snapshot().Sessions {
-		if candidate.ID.String() == second {
-			current = candidate
-		}
+	id, err := protocol.ParseSessionID(second)
+	if err != nil {
+		t.Fatal(err)
 	}
-	f.do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: current.ID, ExpectedRevision: current.Revision, Archived: true}})
+	var current protocol.Session
+	wait("the second session's turn to settle before archiving", func() bool {
+		var valid bool
+		current, valid = detail[protocol.Session](f.do(protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}).Data)
+		if !valid || current.ID != id || current.Archived {
+			t.Fatalf("expected the active second session before archiving: %+v", current)
+		}
+		activity := current.Activity
+		run := activity.Run
+		if run == nil || run.FinishedMs == nil {
+			return false
+		}
+		if run.Status != protocol.ConversationStatusCompleted {
+			t.Fatalf("the second session's turn ended as %s: %v", run.Status, run.Error)
+		}
+		return run.Waiting == nil && activity.Waiting == nil && activity.Queued == 0 && activity.Background == 0
+	})
+	if state := status(three.ID); state != "running" {
+		t.Fatalf("the second session's terminal is %q before archiving, want running", state)
+	}
+	if tabs := app.ConversationTabs(second); !slices.Contains(tabs, three) || !slices.Contains(tabs, page) || r.browser.tabs[page.ID] == nil {
+		t.Fatalf("the second session lost panel content before archiving: tabs %v, browser page %v", tabs, r.browser.tabs[page.ID])
+	}
+	archived, valid := detail[protocol.Session](f.do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: id, ExpectedRevision: current.Revision, Archived: true}}).Data)
+	if !valid || archived.ID != id || !archived.Archived {
+		t.Fatalf("the second session was not archived: %+v", archived)
+	}
 	wait("an archived session ends its terminal", func() bool {
 		return status(three.ID) == "" && len(app.ConversationTabs(second)) == 0 && !slices.Contains(app.PanelConversations(), second)
 	})

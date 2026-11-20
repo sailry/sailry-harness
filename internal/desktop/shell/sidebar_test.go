@@ -221,7 +221,9 @@ func testSidebarGroups(t *testing.T) {
 			items = append(items, fmt.Sprintf("%s %v", info.Name, info.Checked))
 		}
 	}
-	if want := []string{zh("session_order_recent") + " true", zh("session_order_created") + " false", zh("session_order_name") + " false"}; !slices.Equal(items, want) {
+	// The orders, then the active or archived sessions to list.
+	if want := []string{zh("session_order_recent") + " true", zh("session_order_created") + " false", zh("session_order_name") + " false",
+		zh("sidebar_sessions_active") + " true", zh("sidebar_sessions_archived") + " false"}; !slices.Equal(items, want) {
 		t.Fatalf("the sort menu is %q, want %q", items, want)
 	}
 	tt.Key(0, ui.KeyEscape)
@@ -371,17 +373,22 @@ func testSidebarNewSession(t *testing.T) {
 		}
 	}
 	snapshot(t, tt, "new-session-refocus")
-	tt.Key(ui.Cmd, ui.KeyN)
-	settle(tt)
-	if a.Sidebar.Selected != draft || count() != before+1 {
-		t.Fatalf("a second New session stacked a chat: %q among %d", a.Sidebar.Selected, count())
-	}
 	// From another session it is enabled and goes back to the unsent chat.
+	// Cmd+N with the focus outside a conversation pane is the same New
+	// session; from inside one it splits off a fresh conversation instead
+	// (testPaneKeysFreshFromDraft).
 	click(t, tt, "Port the neutral theme tokens")
 	settle(tt)
 	if b, plus := disabled(); b || plus || a.Sidebar.Selected == draft {
 		t.Fatalf("over another session New session is disabled %v %v", b, plus)
 	}
+	tt.Key(ui.Cmd, ui.KeyN)
+	settle(tt)
+	if a.Sidebar.Selected != draft || count() != before+1 || !tt.Focused(editor) {
+		t.Fatalf("Cmd+N from the sidebar stacked a chat: %q among %d, the editor focused %v", a.Sidebar.Selected, count(), tt.Focused(editor))
+	}
+	click(t, tt, "Port the neutral theme tokens")
+	settle(tt)
 	press()
 	if a.Sidebar.Selected != draft || count() != before+1 {
 		t.Fatalf("New session did not reuse the unsent chat: %q among %d", a.Sidebar.Selected, count())

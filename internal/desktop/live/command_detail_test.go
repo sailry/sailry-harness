@@ -155,8 +155,7 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 		completions = r.queue
 		r.queue = nil
 		r.mu.Unlock()
-		state := cacheTestFrame(t, r, cv, session)
-		r.enrichDetails(cv, state, "en")
+		cacheTestFrame(t, r, cv, session)
 		tester.Frame()
 	}
 	requests := func() []string {

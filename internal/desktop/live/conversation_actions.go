@@ -606,11 +606,18 @@ type turnRetry struct {
 }
 
 func turnObserved(page protocol.ConversationPage) string {
-	last := protocol.ConversationRun{}
-	if len(page.Runs) > 0 {
-		last = page.Runs[len(page.Runs)-1]
+	if page.Session == (protocol.SessionID{}) {
+		// A just-mounted feed can report Loading without a history page.
+		return ""
 	}
-	return fmt.Sprint(page.Revision, len(page.Runs), last.Turn, last.Status, page.Queue.Revision, len(page.Queue.Items))
+	last := protocol.ConversationRun{}
+	for i := len(page.Runs) - 1; i >= 0; i-- {
+		if page.Runs[i].Joined == nil {
+			last = page.Runs[i]
+			break
+		}
+	}
+	return fmt.Sprint(page.Revision, last.Turn, last.Status, page.Queue.Revision)
 }
 
 // turn sends a command that adds to or replaces the session's turns.
@@ -622,8 +629,12 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 	if _, state, ok := x.state(); ok {
 		observed = turnObserved(state.Page)
 	}
-	if retry, ok := x.r.turnRetries[id]; ok && (retry.key != key || retry.observed != "" && retry.observed != observed) {
-		x.r.forgetTurnRetry(id)
+	if retry, ok := x.r.turnRetries[id]; ok {
+		if retry.key != key || retry.observed != "" && observed != "" && retry.observed != observed {
+			x.r.forgetTurnRetry(id)
+		} else if observed == "" {
+			observed = retry.observed
+		}
 	}
 	pending := x.r.composerOutgoing[id]
 	var request protocol.RequestID
@@ -681,12 +692,13 @@ func (r *Runtime) settleTurnRetry(id string, comp *composer.State, turns []proto
 		slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool {
 			return item.Request != nil && *item.Request == retry.request
 		})
-	if retry.observed == "" {
+	observed := turnObserved(page)
+	if retry.observed == "" && observed != "" {
 		// The request was sent before its new session's history was read.
-		retry.observed = turnObserved(page)
+		retry.observed = observed
 		r.turnRetries[id] = retry
 	}
-	if !landed && retry.observed == turnObserved(page) && (retry.comp != comp || retry.draft == composerFingerprint(comp)) {
+	if !landed && (observed == "" || retry.observed == observed) && (retry.comp != comp || retry.draft == composerFingerprint(comp)) {
 		return
 	}
 	r.forgetTurnRetry(id)

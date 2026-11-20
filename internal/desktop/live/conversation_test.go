@@ -10,8 +10,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -892,7 +894,7 @@ func TestComposerSendRouting(t *testing.T) {
 		{"new_session_keeps_later_attachment", "draft/1", "start_session", false, "", false},
 		{"new_session_base_keeps_later_attachment", "draft/1", "start_session", false, "", false},
 	} {
-		t.Run(row.name, func(t *testing.T) {
+		run := func(t *testing.T) {
 			node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
 			session := protocol.SessionID{5}
 			config := protocol.DefaultSessionConfig()
@@ -936,6 +938,21 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.name == "uncertain_team_before_admission" {
 				transport.teamFailure = protocol.ErrorCodeUnavailable
 			}
+			outcome := protocol.RequestOutcome{Kind: "admitted"}
+			if row.failure == protocol.ErrorCodeOutcomeUnknown {
+				transport.handle = func(request protocol.Request) (link.Response, bool) {
+					if request.Command.Kind != "inspect_request" {
+						return link.Response{}, false
+					}
+					query, ok := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
+					if !ok || !slices.ContainsFunc(transport.requests, func(sent protocol.Request) bool {
+						return sent.Command.Kind == "submit_turn" && sent.ID == query.ID
+					}) {
+						t.Errorf("inspected a request that was not submitted: %+v", query)
+					}
+					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: outcome}}}, true
+				}
+			}
 			transport.conversation = protocol.DefaultConversationSnapshot()
 			transport.conversation.Node = node
 			transport.conversation.Page.Session = session
@@ -943,6 +960,7 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.running {
 				transport.conversation.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: protocol.TurnID{6}, Sequence: 1, Revision: 1, Kind: "task", Status: "running"}}
 			}
+			var externalDownloads []protocol.CommandDownloadFilePayload
 			if row.name == "replace_references" {
 				turn := protocol.TurnID{6}
 				transport.conversation.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Worktree: worktree, Sequence: 1, Revision: 1, Kind: "task", Status: "completed"}}
@@ -958,12 +976,18 @@ func TestComposerSendRouting(t *testing.T) {
 					protocol.ConversationEntry{ID: "later", Sequence: 3, Turn: later, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Later answer"}}})
 				transport.snapshot.Sessions = append(transport.snapshot.Sessions, protocol.Session{ID: backup, Revision: 1, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()})
 				transport.handle = func(request protocol.Request) (link.Response, bool) {
-					if request.Command.Kind != "rewind_conversation" {
+					switch request.Command.Kind {
+					case "download_file":
+						input, _ := detail[protocol.CommandDownloadFilePayload](request.Command.Data)
+						externalDownloads = append(externalDownloads, input)
+						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture has no downloadable file"}}, true
+					case "rewind_conversation":
+						input := request.Command.Data.(protocol.CommandRewindConversationPayload)
+						saved := transport.snapshot.Sessions[1]
+						return link.Response{Output: protocol.Output{Kind: "rewound", Data: protocol.ConversationRewind{Session: session, Revision: 2, Through: input.Through, Backup: &saved}}}, true
+					default:
 						return link.Response{}, false
 					}
-					input := request.Command.Data.(protocol.CommandRewindConversationPayload)
-					saved := transport.snapshot.Sessions[1]
-					return link.Response{Output: protocol.Output{Kind: "rewound", Data: protocol.ConversationRewind{Session: session, Revision: 2, Through: input.Through, Backup: &saved}}}, true
 				}
 			}
 			controller := client.New(transport)
@@ -979,6 +1003,9 @@ func TestComposerSendRouting(t *testing.T) {
 			id := session.String()
 			if row.session != "existing" {
 				id = r.App.Sidebar.Selected
+			}
+			if row.name == "replace_references" {
+				r.OpenSession(id)
 			}
 			cv := r.App.Data.Find(id)
 			if cv == nil {
@@ -1033,28 +1060,15 @@ func TestComposerSendRouting(t *testing.T) {
 			var context *ui.Context
 			var toastDuration time.Duration
 			var frame func(*ui.Context)
-			var fixedStatus *pluginStatusFeed
-			if row.name == "replace_references" {
-				// Status-watch lifecycle is covered separately. Keep this routing
-				// fixture's empty feed mounted so its callbacks cannot be counted
-				// as the native browser/file loads held below.
-				scope := protocol.PluginUiStatusScope{Worktree: &worktree, Session: &session}
-				body, _ := json.Marshal(scope)
-				fixedStatus = &pluginStatusFeed{scope: scope, view: pluginStatusView{Connected: true}, open: map[string]bool{}, pending: map[string]*pluginStatusPending{}, cancel: func() {}}
-				r.pluginStatus = map[string]*pluginStatusFeed{string(body): fixedStatus}
-			}
-			hold := false // keeps queued work, as a page load no headless window can make
 			tester := ui.NewTester(func(c *ui.Context) {
 				context = c
-				if fixedStatus != nil {
-					fixedStatus.seen = true
-				}
-				if !hold {
-					r.drain(c)
-				}
+				r.drain(c)
 				toastDuration = kit.ToastDuration(c)
 				if frame != nil {
 					frame(c)
+					r.App.Messages.FinishFrame()
+					r.finishFrame()
+					r.finishConversationFrame()
 				}
 			}, 640, 400)
 			tester.SetLocale("en")
@@ -1063,8 +1077,8 @@ func TestComposerSendRouting(t *testing.T) {
 			tester.Frame()
 			actions := &conversationActions{r: r, c: context, cv: cv, comp: comp}
 			// shown renders one frame with the conversation on screen, absent one without it.
-			shown := func(c *ui.Context) { r.conversation(c, cv, comp); r.finishFrame() }
-			absent := func(*ui.Context) { r.finishFrame() }
+			shown := func(c *ui.Context) { r.conversation(c, cv, comp) }
+			absent := func(*ui.Context) {}
 			render := func(step func(*ui.Context)) {
 				frame = step
 				tester.Frame()
@@ -1087,7 +1101,6 @@ func TestComposerSendRouting(t *testing.T) {
 				_, act := r.conversation(c, cv, comp)
 				ui.Column(c).Fill().Children(func() { conversation.View(c, r.App.Messages, id, cv.Turns, &cv.Session, act) })
 				kit.ToastHost(c)
-				r.finishFrame()
 			}
 			settle := func() {
 				for range 4 {
@@ -1402,78 +1415,70 @@ func TestComposerSendRouting(t *testing.T) {
 				comp.Draft = ""
 				frame = view
 				tester.Frame()
+				awaitConversationFeed(t, r, session)
+				r.App.Messages.List(id).ScrollTo(0, ui.Start)
+				tester.Frame()
+				clickLink := func(label string, mods ui.Modifiers) {
+					t.Helper()
+					link, ok := tester.AccessByRole(ui.RoleLink, label)
+					if !ok || link.Disabled || link.Offscreen || link.Bounds.W <= 0 || link.Bounds.H <= 0 {
+						t.Fatalf("link %q is not clickable: %+v; %q", label, link, tester.Texts())
+					}
+					tester.ClickAtWith(mods, link.Bounds.X+link.Bounds.W/2, link.Bounds.Y+link.Bounds.H/2)
+					tester.Frame()
+				}
 				// Each link of a reply goes where its kind belongs.
 				backup := (protocol.SessionID{10}).String()
 				tabs := len(r.App.Panel.Tabs)
-				hold = true
-				if err := tester.Click("website"); err != nil {
-					t.Fatal(err)
+				// A window without native content rejects NewWebView without opening a page.
+				r.browser.window = new(mygo.Window)
+				const website = "https://example.com/page"
+				clickLink("website", 0)
+				tab := r.App.Panel.Active
+				address := r.browserPage(tab.ID).Address
+				if len(r.App.Panel.Tabs) != tabs+1 || tab.Kind != panel.Browser || !r.App.PanelOpen || address != website || len(tester.OpenedURLs()) != 0 {
+					t.Fatalf("a web link did not open in a browser tab: %d tabs (was %d), active %+v, address %q, external %v", len(r.App.Panel.Tabs), tabs, tab, address, tester.OpenedURLs())
 				}
-				tester.Frame()
-				r.mu.Lock()
-				loads := len(r.queue)
-				r.queue = nil
-				r.mu.Unlock()
-				hold = false
-				if len(r.App.Panel.Tabs) != tabs+1 || r.App.Panel.Active.Kind != panel.Browser || !r.App.PanelOpen || loads != 1 || len(tester.OpenedURLs()) != 0 {
-					t.Fatal("a web link did not open in a browser tab", len(r.App.Panel.Tabs), loads, tester.OpenedURLs())
-				}
-				if err := tester.ClickWith(ui.Cmd, "website"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
-				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 1 || opened[0] != "https://example.com/page" {
+				clickLink("website", ui.Cmd)
+				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 1 || opened[0] != website {
 					t.Fatal("a modifier click did not open the system browser", opened)
 				}
 				// Mail goes to the system; an address with credentials opens nowhere, in either mode.
-				if err := tester.Click("mail"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
+				clickLink("mail", 0)
 				for _, mods := range []ui.Modifiers{0, ui.Cmd} {
-					if err := tester.ClickWith(mods, "secret"); err != nil {
-						t.Fatal(err)
-					}
-					tester.Frame()
+					clickLink("secret", mods)
 				}
 				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 2 || opened[1] != "mailto:a@example.com" {
 					t.Fatal("mail did not go to the system alone", opened, len(r.App.Panel.Tabs))
 				}
 				// A file outside the worktree opens with the system on this device only.
-				if err := tester.Click("hosts"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
+				clickLink("hosts", 0)
 				tester.Frame()
 				if !tester.HasText(i18n.In("en", "files_remote_path")) {
 					t.Fatal("a path outside the worktree on another device reported nothing", tester.Texts())
 				}
-				own := r.attachments
+				tester.Move(0, 0)
+				tester.Advance(toastDuration + time.Second)
+				own := r.attachments.native
 				var system []string
 				r.SetNativeFileActions(NativeFileActions{LocalNode: r.controller.Target(), OpenLocal: func(path string) { system = append(system, path) }})
-				if err := tester.Click("hosts"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
+				clickLink("hosts", 0)
 				if len(system) != 1 || filepath.ToSlash(system[0]) != "/etc/hosts" {
 					t.Fatal("a local path outside the worktree did not open with the system", system)
 				}
 				// With the modifier a workspace file on this device goes to its own app, not to the panel.
 				active := r.App.Panel.Active
-				hold = true
-				if err := tester.ClickWith(ui.Cmd, "source"); err != nil {
-					t.Fatal(err)
+				clickLink("source", ui.Cmd)
+				settle()
+				transport.mu.Lock()
+				downloads := slices.Clone(externalDownloads)
+				transport.mu.Unlock()
+				if len(downloads) != 1 || downloads[0].Worktree != worktree || downloads[0].Path != "src/main.go" || r.App.Panel.Active != active {
+					t.Fatalf("a modifier click did not request the file for external open: %+v, active %+v", downloads, r.App.Panel.Active)
 				}
-				tester.Frame()
-				r.mu.Lock()
-				external := len(r.queue)
-				r.queue = nil
-				r.mu.Unlock()
-				hold = false
-				if external != 1 || r.App.Panel.Active != active {
-					t.Fatal("a modifier click on a workspace file did not hand it to the system", external, r.App.Panel.Active)
-				}
-				r.attachments = own
+				r.SetNativeFileActions(own)
+				tester.Move(0, 0)
+				tester.Advance(toastDuration + time.Second)
 				for link, want := range map[string]fileTarget{
 					"src/main.go#L12":                   {workspace: true, path: "src/main.go", line: 12},
 					"src/main.go:7:3":                   {workspace: true, path: "src/main.go", line: 7},
@@ -1486,18 +1491,12 @@ func TestComposerSendRouting(t *testing.T) {
 					}
 				}
 				// A workspace file link shows the session's workspace and opens the file there at its line.
-				if err := tester.Click("source"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
+				clickLink("source", 0)
 				if tab := r.App.Panel.Active; r.workspace == nil || r.workspace.projects[worktree] == nil || tab.Kind != panel.Files || tab.ID != "src/main.go" {
 					t.Fatalf("a workspace file link opened %+v", tab)
 				}
 				// A session link carries the agent's icon before its text.
-				if err := tester.Click("\uFFFC\u2060backup"); err != nil {
-					t.Fatal(err, tester.Texts())
-				}
-				tester.Frame()
+				clickLink("\uFFFC\u2060backup", 0)
 				if r.App.Sidebar.Selected != backup {
 					t.Fatal("a session link did not open its session", r.App.Sidebar.Selected)
 				}
@@ -1528,17 +1527,30 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 				// A change in the shown conversation redraws it; only a Client change projects the Node snapshot.
 				render(shown)
+				feed := r.conversationFeeds[session]
+				if feed == nil {
+					t.Fatal("fixture conversation is not mounted")
+				}
+				synctest.Wait()
+				for feed.latest.Load() != nil {
+					tester.Frame()
+					synctest.Wait()
+				}
 				r.mu.Lock()
 				r.dirty = false
-				clear(r.conversationChanges)
 				r.mu.Unlock()
-				_ = controller.LoadOlderConversation(t.Context(), session)
+				if err := controller.LoadOlderConversation(t.Context(), session); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
 				r.mu.Lock()
 				dirty := r.dirty
-				_, stale := r.conversationChanges[session]
 				r.mu.Unlock()
-				if !stale || dirty {
-					t.Fatal("a change in the shown conversation projected the Node snapshot again", dirty)
+				if feed.latest.Load() == nil {
+					t.Fatal("a change in the shown conversation did not publish a new frame")
+				}
+				if dirty {
+					t.Fatal("a change in the shown conversation invalidated the Node projection")
 				}
 			}
 			if row.configure {
@@ -1606,25 +1618,26 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			if row.failure == protocol.ErrorCodeOutcomeUnknown {
 				first := commands[len(commands)-1].ID
-				actions.Send(message)
-				r.workers.Wait()
-				tester.Frame()
-				// The transport also carries the submission's feature counts.
-				retried := turns()
-				if last := retried[len(retried)-1]; last.ID != first {
-					t.Fatal("explicit retry changed uncertain request identity")
-				}
 				again := func() protocol.RequestID {
+					t.Helper()
+					before := len(turns())
 					actions.Send(message)
 					r.workers.Wait()
 					tester.Frame()
 					sent := turns()
-					return sent[len(sent)-1].ID
+					if len(sent) != before+1 || sent[before].Command.Kind != "submit_turn" {
+						t.Fatalf("Send did not submit exactly one request: %+v", sent[before:])
+					}
+					return sent[before].ID
+				}
+				if again() != first {
+					t.Fatal("explicit retry changed uncertain request identity")
 				}
 				render(shown)
 				if again() != first {
 					t.Fatal("an unchanged draft and history lost the uncertain request")
 				}
+				awaitConversationFeed(t, r, session)
 				comp.Draft = "Captured draft, edited"
 				render(shown)
 				comp.Draft = "Captured draft"
@@ -1647,19 +1660,7 @@ func TestComposerSendRouting(t *testing.T) {
 				// The Node answers that a restart interrupted the request. That is
 				// final, so the request is dropped and the next send is a new one.
 				transport.mu.Lock()
-				previous := transport.handle
-				transport.handle = func(request protocol.Request) (link.Response, bool) {
-					var query protocol.CommandInspectRequestPayload
-					switch data := request.Command.Data.(type) {
-					case protocol.CommandInspectRequestPayload:
-						query = data
-					case *protocol.CommandInspectRequestPayload:
-						query = *data
-					default:
-						return link.Response{}, false
-					}
-					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: protocol.RequestOutcome{Kind: "unknown"}}}}, true
-				}
+				outcome.Kind = "unknown"
 				transport.mu.Unlock()
 				fourth := again()
 				if len(r.turnRetries) != 0 || len(r.uncertain) != 0 {
@@ -1668,9 +1669,6 @@ func TestComposerSendRouting(t *testing.T) {
 				if again() == fourth {
 					t.Fatal("a released request was sent again")
 				}
-				transport.mu.Lock()
-				transport.handle = previous
-				transport.mu.Unlock()
 			}
 			if slices.ContainsFunc(r.App.Data.Models, func(m composer.Model) bool { return m.Name == "" }) {
 				t.Fatal("live model projection contains an empty sample")
@@ -1749,7 +1747,12 @@ func TestComposerSendRouting(t *testing.T) {
 					t.Fatal("a removed session left its state behind", r.composerInitialized, r.composerRevisions)
 				}
 			}
-		})
+		}
+		if row.name == "replace_references" {
+			t.Run(row.name, func(t *testing.T) { synctest.Test(t, run) })
+		} else {
+			t.Run(row.name, run)
+		}
 	}
 	t.Run("a session on another Node uses that Node's model", testSessionForwarding)
 	t.Run("a failed installation removal keeps its row and toasts", testInstallationRemoval)
