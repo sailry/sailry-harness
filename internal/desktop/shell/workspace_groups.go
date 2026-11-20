@@ -145,11 +145,11 @@ func (a *App) orderTabs(tabs []headerTab) {
 
 // workspaceGroupWidth is the tabs' width in the room the strip leaves, each
 // tab as wide as its title up to groupTabMax. More remain reachable
-// by horizontal scrolling rather than covering page actions. A single entry
-// uses the page title instead of a tab strip.
+// by horizontal scrolling rather than covering page actions. A lone entry
+// uses the page title unless it was kept and needs its close action.
 func (a *App) workspaceGroupWidth(c *ui.Context, room float32) float32 {
 	tabs := a.headerTabs(c)
-	if len(tabs) < 2 {
+	if len(tabs) == 0 || len(tabs) == 1 && !tabs[0].kept {
 		return 0
 	}
 	width := float32(len(tabs)-1) * (2*kit.StripGap + 1)

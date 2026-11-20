@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -65,12 +66,20 @@ func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 			t.Fatalf("single entry has no header title: %q at %+v", title, bounds)
 		}
 	}
+	keptTab := func(title string) ui.AccessInfo {
+		t.Helper()
+		tab, ok := headerButton(tt, title)
+		if !ok || !tab.Checked {
+			t.Fatalf("the kept tab %q is not visible and selected: %+v", title, tab)
+		}
+		return tab
+	}
 	frame()
 	plainTitle(first.Title)
 	snapshot(t, tt, "workspace-single-title")
 	a.panes.Keep(session(first.ID))
 	frame()
-	plainTitle(first.Title)
+	keptTab(first.Title)
 	a.Sidebar.Selected = second.ID
 	frame()
 	for _, title := range []string{first.Title, second.Title} {
@@ -84,9 +93,20 @@ func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyW)
 	frame()
-	plainTitle(first.Title)
+	kept := keptTab(first.Title)
 	if a.Sidebar.Selected != first.ID || a.Composer(first.ID).Draft != "Preserved draft" || !slices.Equal(a.panes.Kept, []panes.Target{session(first.ID)}) {
-		t.Fatal("returning to the single title changed the selection, draft or kept tab")
+		t.Fatal("returning to the kept tab changed the selection, draft or kept tab")
+	}
+	// A lone kept tab stays visible so it can be closed. It then reverts to
+	// a plain title without leaving the conversation or clearing the draft.
+	tt.RightClickAt(kept.Bounds.X+kept.Bounds.W/2, kept.Bounds.Y+kept.Bounds.H/2)
+	if err := tt.ChooseMenuItem(i18n.In("zh-CN", "close")); err != nil {
+		t.Fatal(err)
+	}
+	frame()
+	plainTitle(first.Title)
+	if len(a.panes.Kept) != 0 || a.Sidebar.Selected != first.ID || a.Composer(first.ID).Draft != "Preserved draft" {
+		t.Fatal("closing the last kept tab changed the open conversation or draft")
 	}
 	// A project conversation uses its existing breadcrumb title.
 	a.Data.Unassigned = []*viewmodel.Conversation{second}
@@ -98,7 +118,6 @@ func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 		}
 	}
 	snapshot(t, tt, "workspace-single-project-title")
-	a.panes.Release(session(first.ID))
 	a.OpenWorkspaceTerminal("terminal", "Standalone terminal")
 	frame()
 	plainTitle("Standalone terminal")
@@ -257,6 +276,83 @@ func TestWorkspaceGroupsScrollInNarrowHeader(t *testing.T) {
 		t.Fatalf("last group did not open: %v", a.panes.Active)
 	}
 	snapshot(t, tt, "workspace-group-buttons-narrow")
+}
+
+// A sidebar click shows another conversation while a kept one runs: the
+// selection follows the click through background updates, a running session
+// is no tab of its own, and closing a tab that does not show keeps the
+// selection and the session.
+func TestSidebarSelectionBesideRunningTab(t *testing.T) {
+	running := &viewmodel.Conversation{ID: "a", Title: "Conversation a", Status: viewmodel.Running}
+	idle := &viewmodel.Conversation{ID: "b", Title: "Conversation b"}
+	a := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{running, idle}})
+	a.focusPane(session("a"))
+	// Kept explicitly, as ⌘T, a double click or restored tabs keep it.
+	a.panes.Keep(session("a"))
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	settle(tt)
+	row, ok := ui.AccessInfo{}, false
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && info.Name == idle.Title && b.Y >= HeaderHeight && b.X < RailWidth+NavMax {
+			row, ok = info, true
+		}
+	}
+	if !ok {
+		t.Fatal("no sidebar row for the idle conversation")
+	}
+	tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+	tt.Frame()
+	tt.Frame()
+	showsIdle := func(when string) {
+		t.Helper()
+		if a.Sidebar.Selected != "b" || a.panes.Active != session("b") || a.FocusedConversation() != "b" {
+			t.Fatalf("%s: selected %q, active %v", when, a.Sidebar.Selected, a.panes.Active)
+		}
+		if cv := a.Data.Find("a"); cv == nil || cv.Status != viewmodel.Running {
+			t.Fatalf("%s: the running session changed: %+v", when, cv)
+		}
+	}
+	showsIdle("sidebar click")
+	if b, ok := headerButton(tt, idle.Title); !ok || !b.Checked {
+		t.Fatalf("the clicked conversation is not the shown tab: %+v", b)
+	}
+	if b, ok := headerButton(tt, running.Title); !ok || b.Checked {
+		t.Fatalf("the kept running tab: %+v", b)
+	}
+	// Background projections replace the data while the reply runs.
+	for range 3 {
+		next := *running
+		next.Updated = next.Updated.Add(time.Second)
+		other := *idle
+		a.ApplyData(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{&next, &other}})
+		settle(tt)
+	}
+	showsIdle("background update")
+	if !slices.Equal(a.panes.Kept, []panes.Target{session("a")}) {
+		t.Fatalf("background update changed the kept tabs: %v", a.panes.Kept)
+	}
+	// Closing the kept tab that does not show leaves the selection.
+	b, _ := headerButton(tt, running.Title)
+	tt.RightClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	if err := tt.ChooseMenuItem(i18n.In("en", "close")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	showsIdle("closing the running tab")
+	if len(a.panes.Kept) != 0 {
+		t.Fatalf("closed tab still kept: %v", a.panes.Kept)
+	}
+	// Running alone is no tab: the shown conversation has the plain title.
+	for _, title := range []string{running.Title, idle.Title} {
+		if _, ok := headerButton(tt, title); ok {
+			t.Fatalf("a single shown conversation still has tab %q", title)
+		}
+	}
+	if bounds, ok := tt.Find(idle.Title); !ok || bounds.Y+bounds.H > HeaderHeight {
+		t.Fatalf("the shown conversation has no header title: %+v", bounds)
+	}
 }
 
 // A passing tab is kept from its menu and stays when another conversation
