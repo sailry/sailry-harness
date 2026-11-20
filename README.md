@@ -14,15 +14,15 @@
 
 <p align="center">
   <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="docs/hosts.md">Hosts</a> ·
-  <a href="docs/models.md">Models</a> ·
-  <a href="docs/projects.md">Projects</a> ·
+  <a href="https://sailry.dev/docs/hosts/">Hosts</a> ·
+  <a href="https://sailry.dev/docs/models/">Models</a> ·
+  <a href="https://sailry.dev/docs/projects/">Projects</a> ·
   <a href="sdk/plugins.md">Plugin SDK</a>
 </p>
 
 Sailry is an open-source AI harness: agent teams that run on your own Mac or Linux machines, next
 to your code and data, driven from the desktop app or your phone on the
-[models you choose](docs/models.md).
+[models you choose](https://sailry.dev/docs/models/).
 
 > [!NOTE]
 > **Early preview.** Sailry changes quickly between releases. Back up important work before
@@ -114,7 +114,7 @@ and model metadata from models.dev without sending user data.
 
 ## Install
 
-[Changelog](CHANGELOG.md) · [Build from source](CONTRIBUTING.md#setup)
+[Host deployment guide](https://sailry.dev/docs/hosts/#before-connecting) · [Changelog](CHANGELOG.md) · [Build from source](CONTRIBUTING.md#setup)
 
 | | Download | Requires |
 | --- | --- | --- |
@@ -130,13 +130,13 @@ curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/ins
 
 ## Get started
 
-1. [Add a model provider](docs/models.md#add-a-provider) in **Settings → Models** with an
+1. [Add a model provider](https://sailry.dev/docs/models/#add-a-provider) in **Settings → Models** with an
    API key or a ChatGPT or Claude account.
 2. Add a folder or clone a repository as a project on **Local device** or a connected Host.
 3. Choose **Create session**, pick a model and describe your task.
-4. [Add a Host and pair your devices](docs/hosts.md#install-and-pair) to work from anywhere.
+4. [Add a Host and pair your devices](https://sailry.dev/docs/hosts/#install-and-pair) to work from anywhere.
 
-Guides: [Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects and sessions](docs/projects.md)
+Guides: [Models](https://sailry.dev/docs/models/) · [Remote hosts](https://sailry.dev/docs/hosts/) · [Projects and sessions](https://sailry.dev/docs/projects/)
 
 ## Community
 

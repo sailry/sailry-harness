@@ -14,13 +14,13 @@
 
 <p align="center">
   <a href="README.md">English</a> ·
-  <a href="docs/hosts.md">主机</a> ·
-  <a href="docs/models.md">模型</a> ·
-  <a href="docs/projects.md">项目</a> ·
+  <a href="https://sailry.dev/zh/docs/hosts/">主机</a> ·
+  <a href="https://sailry.dev/zh/docs/models/">模型</a> ·
+  <a href="https://sailry.dev/zh/docs/projects/">项目</a> ·
   <a href="sdk/plugins.md">插件 SDK</a>
 </p>
 
-Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 或 Linux 机器上，紧挨着你的代码和数据，用桌面端或手机来驱动，模型[由你选择](docs/models.md)。
+Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 或 Linux 机器上，紧挨着你的代码和数据，用桌面端或手机来驱动，模型[由你选择](https://sailry.dev/zh/docs/models/)。
 
 > [!NOTE]
 > **早期预览版。** Sailry 版本之间变化较快。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
@@ -82,7 +82,7 @@ Sailry 默认发送匿名错误报告（应用版本、设备类型和错误代�
 
 ## 安装
 
-[更新日志](CHANGELOG.md) · [从源码构建](CONTRIBUTING.md#setup)
+[服务端部署指南（Host）](https://sailry.dev/zh/docs/hosts/#before-connecting) · [更新日志](CHANGELOG.md) · [从源码构建](CONTRIBUTING.md#setup)
 
 | | 下载 | 系统要求 |
 | --- | --- | --- |
@@ -98,12 +98,12 @@ curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/ins
 
 ## 开始使用
 
-1. 在**设置 › 模型**里[添加模型服务商](docs/models.md#add-a-provider)，填 API 密钥或登录 ChatGPT、Claude 账号。
+1. 在**设置 › 模型**里[添加模型服务商](https://sailry.dev/zh/docs/models/#add-a-provider)，填 API 密钥或登录 ChatGPT、Claude 账号。
 2. 在**本机**或已连接的 Host 上，把现有文件夹或克隆的仓库添加为项目。
 3. 选择**创建会话**，选定模型，描述你的任务。
-4. [添加 Host 并配对设备](docs/hosts.md#install-and-pair)，随时随地继续工作。
+4. [添加 Host 并配对设备](https://sailry.dev/zh/docs/hosts/#install-and-pair)，随时随地继续工作。
 
-使用指南（英文）：[模型配置](docs/models.md) · [远程主机](docs/hosts.md) · [项目与会话](docs/projects.md)
+使用指南（英文）：[模型配置](https://sailry.dev/zh/docs/models/) · [远程主机](https://sailry.dev/zh/docs/hosts/) · [项目与会话](https://sailry.dev/zh/docs/projects/)
 
 ## 交流与合作
 
