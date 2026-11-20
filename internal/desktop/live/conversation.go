@@ -167,25 +167,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.applyComposer(comp, s.Config)
 			r.composerRevisions[cv.ID] = s.Revision
 		} else {
-			comp.Model = ""
-			if saved := r.Preferences.Data.Composer; saved != nil {
-				comp.Mode = modeChoice(saved.Mode)
-				comp.Permission = permissionChoice(saved.Permission)
-				if m := saved.Model; m != nil && m.Source == snapshot.Node {
-					for _, p := range r.composerProviders() {
-						if p.ID == m.Provider && p.Enabled && slices.ContainsFunc(p.Models, func(v protocol.ConversationModel) bool { return v.ID == m.Model }) {
-							config := protocol.DefaultSessionConfig()
-							config.Provider = m.Provider
-							config.Model = m.Model
-							config.Effort = m.Effort
-							config.Features = m.Features
-							config.Mode = saved.Mode
-							config.Permission = saved.Permission
-							r.applyComposer(comp, config)
-						}
-					}
-				}
-			}
+			r.initializeDraftComposer(comp)
 		}
 		r.composerInitialized[cv.ID] = true
 	}
@@ -269,7 +251,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		encoded, _ := json.Marshal(config)
 		key := string(encoded)
 		if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {
-			r.rememberConfig(config, comp.Team)
 			if s, exists := r.session(cv.ID); exists {
 				r.saveComposerConfig(s, config, nil)
 			}
@@ -367,7 +348,7 @@ func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (prot
 
 func (r *Runtime) rememberConfig(config protocol.SessionConfig, team string) {
 	source := r.controller.Target()
-	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Team: team, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
+	r.localRuntime().Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Team: team, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
 }
 
 func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) ([]composer.Reference, []composer.Reference) {
@@ -638,8 +619,10 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		failed()
 		return
 	}
-	x.r.rememberConfig(config, x.comp.Team)
 	if draftSession {
+		if config.Assistant == nil {
+			x.r.rememberConfig(config, x.comp.Team)
+		}
 		x.start(m, config, !guide && !queue)
 		return
 	}

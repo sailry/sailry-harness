@@ -20,6 +20,7 @@ type teamComposer struct {
 	members     map[string]*composer.MemberModel
 	revision    uint64
 	observed    string
+	draftConfig string
 	autoAttempt string
 	saving      bool
 	selecting   bool
@@ -176,13 +177,6 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 		if exists {
 			r.applyTeamComposer(comp, session, ctx.Models)
 		} else {
-			// A new conversation starts as the last message was sent: with
-			// that team while it exists, else with one model, as a new
-			// profile does.
-			comp.Team = ""
-			if saved := r.localRuntime().Preferences.Data.Composer; saved != nil && slices.ContainsFunc(ctx.Teams, func(team composer.Team) bool { return team.ID == saved.Team }) {
-				comp.Team = saved.Team
-			}
 			comp.MemberModels = map[string]*composer.MemberModel{}
 			for _, role := range snapshot.Roles {
 				comp.MemberModels[role.ID.String()] = memberChoice(comp, role, protocol.DefaultRoleSnapshot(), ctx.Models)
@@ -190,6 +184,9 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 		}
 		state.revision = session.Revision
 		state.observed = composerTeamKey(comp)
+		if !exists && unsentDraft(cv) {
+			state.draftConfig = r.composerKey(comp) + "\x00" + comp.Team
+		}
 	}
 	if exists && session.Revision != state.revision && !state.saving {
 		if composerTeamKey(comp) == state.observed {

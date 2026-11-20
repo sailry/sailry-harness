@@ -28,14 +28,14 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 	snapshot := r.snapshot()
 	if config := snapshot.Defaults.Config; config != nil {
 		for _, p := range snapshot.Providers {
-			if p.Enabled && p.ID == config.Provider && slices.ContainsFunc(p.Models, func(m protocol.ConversationModel) bool { return m.ID == config.Model }) {
+			if p.Enabled && r.hasLocalProviderCredential(p) && p.ID == config.Provider && slices.ContainsFunc(p.Models, func(m protocol.ConversationModel) bool { return m.ID == config.Model }) {
 				r.applyComposer(c, *config)
 				return
 			}
 		}
 	}
 	for _, p := range snapshot.Providers {
-		if !p.Enabled || len(p.Models) == 0 {
+		if !p.Enabled || !r.hasLocalProviderCredential(p) || len(p.Models) == 0 {
 			continue
 		}
 		model := p.Models[0]
@@ -53,6 +53,85 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 			}
 		}
 		return
+	}
+}
+
+// The controller remembers a selection, not a provider capture. Resolve it only
+// against the authenticated user's listed channels on this execution Node.
+func (r *Runtime) initializeDraftComposer(comp *composer.State) {
+	comp.Model, comp.Effort, comp.Team = "", 0, ""
+	comp.Features, comp.MemberModels = nil, nil
+	delete(r.composerBases, comp)
+	root := r.localRuntime()
+	if root.Preferences != nil && root.Preferences.Data.Composer != nil {
+		saved := root.Preferences.Data.Composer
+		comp.Mode, comp.Permission = modeChoice(saved.Mode), permissionChoice(saved.Permission)
+		if model := saved.Model; model != nil && model.Source == r.controller.Target() {
+			snapshot := r.snapshot()
+			for _, provider := range snapshot.Providers {
+				if provider.ID != model.Provider || !provider.Enabled || !r.hasLocalProviderCredential(provider) ||
+					!slices.ContainsFunc(provider.Models, func(candidate protocol.ConversationModel) bool { return candidate.ID == model.Model }) {
+					continue
+				}
+				config := protocol.DefaultSessionConfig()
+				config.Provider, config.Model, config.Effort, config.Features = model.Provider, model.Model, model.Effort, model.Features
+				config.Mode, config.Permission = saved.Mode, saved.Permission
+				r.applyComposer(comp, config)
+				if saved.Team == defaultTeamID || slices.ContainsFunc(snapshot.Teams, func(team protocol.TeamProfile) bool { return team.ID.String() == saved.Team }) {
+					comp.Team = saved.Team
+				}
+				return
+			}
+		}
+	}
+	r.defaultComposer(comp)
+}
+
+func (r *Runtime) resetDraftComposer(id string, comp *composer.State) {
+	delete(r.composerInitialized, id)
+	delete(r.composerObserved, id)
+	delete(r.composerCatalogs, id)
+	delete(r.composerBases, comp)
+	if r.teams != nil {
+		delete(r.teams.composers, id)
+	}
+}
+
+// Controls mutate the draft after its projection. Capture those edits before
+// the frame saves preferences, including a team change with the same lead model.
+func (r *Runtime) rememberDraftComposers() {
+	root := r.localRuntime()
+	remember := func(owner *Runtime) {
+		if owner.teams == nil {
+			return
+		}
+		for id, state := range owner.teams.composers {
+			cv := root.App.Data.Find(id)
+			if cv == nil || !unsentDraft(cv) || cv.Node != owner.controller.Target().String() || owner.draftSubmitted(cv) {
+				continue
+			}
+			comp := state.composer
+			if comp.Host != "" && comp.Host != cv.Node {
+				continue
+			}
+			key := owner.composerKey(comp) + "\x00" + comp.Team
+			if key == state.draftConfig {
+				continue
+			}
+			state.draftConfig = key
+			effort := ""
+			if chosen := comp.Chosen(owner.models()); chosen.Reasoning {
+				effort = comp.EffortName(nil, chosen)
+			}
+			config, _, err := owner.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: effort})
+			if _, executionErr := owner.composerExecution(comp); err == nil && executionErr == nil && config.Assistant == nil {
+				owner.rememberConfig(config, comp.Team)
+			}
+		}
+	}
+	remember(root)
+	for _, bound := range root.bindings {
+		remember(bound)
 	}
 }
 

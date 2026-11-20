@@ -44,7 +44,7 @@ func (r *Runtime) conversationRuntime(cv *viewmodel.Conversation, comp *composer
 	}
 	node := cv.Node
 	if comp != nil && len(cv.ID) >= 6 && cv.ID[:6] == "draft/" {
-		previous := comp.Host
+		previous := cv.Node
 		if comp.Project == "" && comp.Host != "" {
 			node = comp.Host
 		}
@@ -73,10 +73,14 @@ func (r *Runtime) conversationRuntime(cv *viewmodel.Conversation, comp *composer
 		}
 		cv.Node, comp.Host = node, node
 		if previous != "" && previous != node {
+			root.resetDraftComposer(cv.ID, comp)
+			for _, bound := range root.bindings {
+				bound.resetDraftComposer(cv.ID, comp)
+			}
 			comp.Model, comp.Effort = "", 0
-			comp.Features = nil
+			comp.Features, comp.Team, comp.MemberModels = nil, "", nil
 			if owner := root.runtimeFor(node); owner != nil {
-				owner.defaultComposer(comp)
+				owner.initializeDraftComposer(comp)
 			}
 		}
 	} else if comp != nil {

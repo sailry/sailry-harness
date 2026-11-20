@@ -110,6 +110,7 @@ func setChoice[T comparable](field **T, value, fallback T) {
 // savePreferences captures edits on the UI thread and writes one immutable JSON
 // snapshot off-thread. Failed bytes are not silently retried every frame.
 func (r *Runtime) savePreferences() {
+	r.rememberDraftComposers()
 	a, m := r.App, r.App.Settings.Model
 	d := &r.Preferences.Data
 	d.Notifications, d.SidebarMetrics = m.Notify, m.SidebarMetrics
