@@ -979,6 +979,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get newTerminal => '新建终端';
 
   @override
+  String get terminalEnd => '结束终端';
+
+  @override
+  String get terminalEndWarning => '其 Shell 和运行中的命令将停止';
+
+  @override
+  String get terminalNone => '没有运行中的终端';
+
+  @override
   String get files => '文件';
 
   @override
@@ -3258,6 +3267,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get newTerminal => '新建終端';
+
+  @override
+  String get terminalEnd => '結束終端';
+
+  @override
+  String get terminalEndWarning => '其 Shell 與執行中的命令將停止';
+
+  @override
+  String get terminalNone => '沒有執行中的終端';
 
   @override
   String get files => '檔案';

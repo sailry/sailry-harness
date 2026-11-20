@@ -982,6 +982,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get newTerminal => '新しいターミナル';
 
   @override
+  String get terminalEnd => 'ターミナルを終了';
+
+  @override
+  String get terminalEndWarning => 'シェルと実行中のコマンドが停止します';
+
+  @override
+  String get terminalNone => '実行中のターミナルはありません';
+
+  @override
   String get files => 'ファイル';
 
   @override

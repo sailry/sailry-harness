@@ -1003,6 +1003,15 @@ class AppLocalizationsRu extends AppLocalizations {
   String get newTerminal => 'Новый терминал';
 
   @override
+  String get terminalEnd => 'Завершить терминал';
+
+  @override
+  String get terminalEndWarning => 'Оболочка и выполняемые команды остановятся';
+
+  @override
+  String get terminalNone => 'Нет запущенных терминалов';
+
+  @override
   String get files => 'Файлы';
 
   @override

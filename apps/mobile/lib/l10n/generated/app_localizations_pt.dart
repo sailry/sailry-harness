@@ -1005,6 +1005,15 @@ class AppLocalizationsPt extends AppLocalizations {
   String get newTerminal => 'O novo terminal';
 
   @override
+  String get terminalEnd => 'Encerrar terminal';
+
+  @override
+  String get terminalEndWarning => 'A shell e os comandos em execução param';
+
+  @override
+  String get terminalNone => 'Nenhum terminal em execução';
+
+  @override
   String get files => 'Arquivos';
 
   @override

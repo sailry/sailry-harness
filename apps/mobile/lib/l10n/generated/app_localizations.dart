@@ -2022,6 +2022,24 @@ abstract class AppLocalizations {
   /// **'New terminal'**
   String get newTerminal;
 
+  /// No description provided for @terminalEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'End terminal'**
+  String get terminalEnd;
+
+  /// No description provided for @terminalEndWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Its shell and running commands stop'**
+  String get terminalEndWarning;
+
+  /// No description provided for @terminalNone.
+  ///
+  /// In en, this message translates to:
+  /// **'No running terminals'**
+  String get terminalNone;
+
   /// No description provided for @files.
   ///
   /// In en, this message translates to:

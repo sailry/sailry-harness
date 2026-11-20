@@ -80,6 +80,9 @@ class DemoConnection implements Connection {
   final _terminalViewport = <String, int>{'columns': 80, 'rows': 24};
   Map<String, dynamic> _terminalAppearance = {};
   int _terminalRevision = 1;
+  // Closing the demo shell removes it from the inventory, as a Node does; a
+  // new terminal starts it again with a fresh screen.
+  bool _terminalRunning = true;
 
   Map<String, dynamic> get _config => {
     'mode': 'code',
@@ -121,7 +124,7 @@ class DemoConnection implements Connection {
     'worktree': 'demo-lumen-main',
     'title': 'zsh',
     'access': 'unrestricted',
-    'status': {'kind': 'running'},
+    'status': {'kind': _terminalRunning ? 'running' : 'closed'},
     'owner': controllerId,
     'revision': _terminalRevision,
   };
@@ -159,7 +162,7 @@ class DemoConnection implements Connection {
     'sessions': _sessions,
     'session_lanes': Map<String, String>.of(_sessionLanes),
     'providers': [_provider],
-    'terminals': [_terminal],
+    'terminals': [if (_terminalRunning) _terminal],
     'roles': <dynamic>[],
     'teams': <dynamic>[],
     'defaults': {'revision': 1, 'config': _config},
@@ -696,8 +699,23 @@ class DemoConnection implements Connection {
         return <dynamic>[];
       case 'open_terminal':
       case 'create_terminal':
+        if (!_terminalRunning) {
+          if (kind == 'open_terminal') {
+            throw StateError('Demo terminal has ended');
+          }
+          _restartTerminal();
+          _publish();
+        }
         _resizeTerminal(data['viewport']);
         _terminalAppearance = object(data['appearance']);
+        return _terminal;
+      case 'close_terminal':
+        if (!_terminalRunning || data['terminal'] != _terminal['id']) {
+          throw StateError('Demo terminal has ended');
+        }
+        _terminalRunning = false;
+        _terminalRevision++;
+        _publish();
         return _terminal;
       case 'claim_terminal':
         if (data['expected_revision'] != _terminalRevision) {
@@ -739,6 +757,19 @@ class DemoConnection implements Connection {
       viewport['rows'],
       _terminalViewport['rows']!,
     ).toInt().clamp(1, 200);
+  }
+
+  void _restartTerminal() {
+    _terminalRunning = true;
+    _terminalRevision++;
+    _terminalText = '${translate('demoTerminalWelcome')}\r\n';
+    _terminalInput.clear();
+    _terminalHistory.clear();
+    _terminalCursor = 0;
+    _terminalHistoryIndex = 0;
+    _terminalDraft = '';
+    _terminalDirectory = _projectPath;
+    _terminalCR = false;
   }
 
   String get _terminalPrompt {

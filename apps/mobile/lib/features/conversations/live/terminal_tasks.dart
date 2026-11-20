@@ -6,37 +6,10 @@ import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../task_row.dart';
 import '../../../ui/theme.dart';
+import '../../terminal/records.dart';
 import '../../terminal/terminal_page.dart';
 
-bool activeTerminal(Map<String, dynamic> terminal) =>
-    object(terminal['status'])['kind'] == 'running';
-
-String terminalTitle(
-  Map<String, dynamic> terminal, {
-  Translator translate = tr,
-}) => text(terminal['title']).isEmpty
-    ? translate('terminal')
-    : text(terminal['title']);
-
-String terminalStatus(Map<String, dynamic> terminal) {
-  final status = object(terminal['status']);
-  return switch (status['kind']) {
-    'running' => 'running',
-    'exited' when status['code'] == 0 => 'completed',
-    _ => 'idle',
-  };
-}
-
-Future<void> closeTerminal(
-  HostConnection host,
-  Map<String, dynamic> terminal,
-) async {
-  final ssh = terminal['ssh'] != null;
-  await host.command(ssh ? 'close_ssh_terminal' : 'close_terminal', {
-    if (!ssh) 'worktree': terminal['worktree'],
-    'terminal': terminal['id'],
-  });
-}
+export '../../terminal/records.dart';
 
 class TerminalTask extends StatelessWidget {
   const TerminalTask({

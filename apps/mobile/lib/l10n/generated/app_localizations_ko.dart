@@ -983,6 +983,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get newTerminal => '새 터미널';
 
   @override
+  String get terminalEnd => '터미널 종료';
+
+  @override
+  String get terminalEndWarning => '셸과 실행 중인 명령이 중지됩니다';
+
+  @override
+  String get terminalNone => '실행 중인 터미널 없음';
+
+  @override
   String get files => '파일';
 
   @override

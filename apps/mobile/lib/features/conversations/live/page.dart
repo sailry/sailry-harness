@@ -21,6 +21,7 @@ import 'attention.dart';
 import 'attachments.dart';
 import 'configuration.dart';
 import 'connection_status.dart';
+import 'conversation_terminals.dart';
 import 'draft_attachments.dart';
 import 'turn_draft.dart';
 import 'queue.dart';
@@ -854,6 +855,17 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                         hostId: widget.host.id,
                         worktreeId: _session['worktree'] as String,
                       ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('conversation-terminals'),
+                    style: actionStyle,
+                    icon: const AppIcon('terminal', size: 18),
+                    tooltip: context.tr('terminal'),
+                    onPressed: () => showConversationTerminals(
+                      context,
+                      widget.host,
+                      _session['worktree'] as String,
                     ),
                   ),
                   if (!delegated)

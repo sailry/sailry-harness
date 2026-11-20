@@ -17,6 +17,7 @@ import 'appearance.dart';
 import 'cursor.dart';
 import 'emulator.dart';
 import 'grid.dart';
+import 'records.dart';
 import 'session.dart';
 import 'toolbar.dart';
 
@@ -602,6 +603,22 @@ class _TerminalPageState extends State<TerminalPage>
     });
   }
 
+  // Leaving the page only detaches it; ending stops the shell on its Node.
+  Future<void> _end() async {
+    final host = _host;
+    final terminal = _terminal;
+    if (host == null || terminal == null) return;
+    final title = widget.title.isEmpty
+        ? terminalTitle(_info, translate: context.tr)
+        : widget.title;
+    final ended = await confirmTerminalEnd(context, host, {
+      'id': terminal,
+      'worktree': widget.worktreeId,
+      ..._info,
+    }, title);
+    if (ended && mounted) Navigator.of(context).maybePop();
+  }
+
   void _keyboard() {
     if (MediaQuery.viewInsetsOf(context).bottom > 0) {
       _focus.unfocus();
@@ -633,6 +650,14 @@ class _TerminalPageState extends State<TerminalPage>
           icon: 'paste',
           tooltip: context.tr('resourceTerminalPaste'),
           onPressed: _controlling ? _paste : null,
+        ),
+        RoundButton(
+          key: const ValueKey('terminal-end'),
+          icon: 'close',
+          tooltip: context.tr('terminalEnd'),
+          onPressed: _host?.connected == true && _terminal != null && _running
+              ? _end
+              : null,
         ),
       ],
       child: Column(

@@ -999,6 +999,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get newTerminal => 'New terminal';
 
   @override
+  String get terminalEnd => 'End terminal';
+
+  @override
+  String get terminalEndWarning => 'Its shell and running commands stop';
+
+  @override
+  String get terminalNone => 'No running terminals';
+
+  @override
   String get files => 'Files';
 
   @override

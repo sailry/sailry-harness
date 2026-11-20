@@ -1007,6 +1007,16 @@ class AppLocalizationsEs extends AppLocalizations {
   String get newTerminal => 'La nueva terminal';
 
   @override
+  String get terminalEnd => 'Cerrar terminal';
+
+  @override
+  String get terminalEndWarning =>
+      'Se detienen su shell y los comandos en ejecución';
+
+  @override
+  String get terminalNone => 'No hay terminales en ejecución';
+
+  @override
   String get files => 'Archivos';
 
   @override

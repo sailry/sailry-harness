@@ -1013,6 +1013,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get newTerminal => 'Nouveau terminal';
 
   @override
+  String get terminalEnd => 'Fermer le terminal';
+
+  @override
+  String get terminalEndWarning =>
+      'Son shell et les commandes en cours s\'arrêtent';
+
+  @override
+  String get terminalNone => 'Aucun terminal en cours';
+
+  @override
   String get files => 'Fichiers';
 
   @override
