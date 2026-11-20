@@ -2120,6 +2120,7 @@ turn_changes_retry: 重试撤销
 
 pane_restore_failed: 工作区恢复失败
 pane_drag: 拖动分屏
+pane_restore: 还原
 pane_session_missing: 会话已不存在
 
 chat_navigation: 消息导航
@@ -2403,6 +2404,14 @@ shortcut_disabled: 未设置
 shortcut_reset: 恢复默认
 shortcut_invalid: 快捷键格式不正确
 shortcut_conflict: 快捷键与现有操作冲突
+shortcut_reserved: Sailry 已占用此快捷键，请另选
+shortcut_pane_split: 在旁边新建会话
+shortcut_pane_tab: 新建会话标签页
+shortcut_pane_enlarge: 放大会话
+shortcut_zoom_in: 放大界面
+shortcut_zoom_out: 缩小界面
+shortcut_zoom_reset: 实际大小
+settings_pane_commands: 会话与视图
 shortcut_unavailable: 快捷键不可用
 
 

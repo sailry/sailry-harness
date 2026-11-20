@@ -35,6 +35,9 @@ type workspace struct {
 	groupFocus map[panes.Target]panes.Target
 	// splits counts the panes split off (Usage).
 	splits int
+	// enlarged is the conversation floating over the window's body
+	// (pane_keys.go), none when zero; its layout stays as it was.
+	enlarged panes.Target
 }
 
 // handle returns pane t's focus handle.
@@ -84,6 +87,7 @@ func (a *App) prunePanes() {
 	if w.Active.Kind == panes.Terminal && !a.paneExists(w.Active) {
 		a.focusPane(session(a.Sidebar.Selected))
 	}
+	a.followEnlarged()
 }
 
 // paneExists reports whether t's session or main terminal surface is still there.
@@ -226,7 +230,16 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 	w := &a.panes
 	h := w.handle(t)
 	col := ui.Column(c.Key(t)).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
+	if w.enlarged == t {
+		// The pane floats over the body (enlargedPane), which binds its
+		// focus; its slot keeps the split's shares.
+		col.Children(func() { a.enlargedSlot(c, t) })
+		return
+	}
 	a.pane(c, col, h, true, func() { a.closePane(c, t) })
+	if t.Kind == panes.Session {
+		a.paneKeys(c, col, t)
+	}
 	// A pane ⌘W just closed still has the focus in this build; the focus
 	// goes to the group's next pane, not back to it.
 	if w.Active != t && w.Group(t) >= 0 && c.FocusWithin(*h) {

@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -43,9 +45,47 @@ var Registry = []Shortcut{
 
 // Fixed are keys of the app no shortcut may take: Settings, Find in
 // Conversation, Close Tab, Close Window and Quit, then the conversation's
-// Stop, Focus the composer and model controls.
-var Fixed = []Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ},
-	{ui.Cmd, ui.KeyPeriod}, {ui.Cmd, ui.KeyL}, {ui.Cmd | ui.Shift, ui.KeyM}}
+// Stop, Focus the composer and model controls, then the panes' and the view's
+// keys (Listed).
+var Fixed = append([]Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ},
+	{ui.Cmd, ui.KeyPeriod}, {ui.Cmd, ui.KeyL}, {ui.Cmd | ui.Shift, ui.KeyM}}, listedChords()...)
+
+// ListedKeys is a fixed command the Shortcuts page shows without recording:
+// its label's i18n key and its keys.
+type ListedKeys struct {
+	Label  string
+	Chords []Chord
+}
+
+// Listed are the conversation panes' keys, which act in the focused
+// conversation (a split's pane or the conversation standing alone), and the
+// view zoom's, which act in the whole window.
+var Listed = []ListedKeys{
+	{"shortcut_pane_split", []Chord{{ui.Cmd | ui.Shift, ui.KeyRight}, {ui.Cmd | ui.Shift, ui.KeyLeft}, {ui.Cmd | ui.Shift, ui.KeyUp}, {ui.Cmd | ui.Shift, ui.KeyDown}}},
+	{"shortcut_pane_tab", []Chord{{ui.Cmd, ui.KeyT}}},
+	{"shortcut_pane_enlarge", []Chord{{ui.Cmd, ui.KeyM}}},
+	{"shortcut_zoom_in", []Chord{{ui.Cmd, ui.KeyEqual}, {ui.Cmd | ui.Shift, ui.KeyEqual}}},
+	{"shortcut_zoom_out", []Chord{{ui.Cmd, ui.KeyMinus}}},
+	{"shortcut_zoom_reset", []Chord{{ui.Cmd, ui.Key0}}},
+}
+
+func listedChords() []Chord {
+	var out []Chord
+	for _, l := range Listed {
+		out = append(out, l.Chords...)
+	}
+	return out
+}
+
+// fixed reports whether a key is one of the app's own.
+func fixed(ch Chord) bool {
+	for _, f := range Fixed {
+		if f == ch {
+			return true
+		}
+	}
+	return false
+}
 
 // Keys is the Shortcuts page's state: the user's keys over the defaults, and
 // the shortcut being recorded.
@@ -67,9 +107,27 @@ func (k *Keys) Chord(s Shortcut) Chord {
 	return Chord{s.Mods, s.Key}
 }
 
-// Bound is s on its key now; false when the user turned it off.
+// Reserved reports whether the key the user gave s is now one of the app's
+// own (Fixed), as a key saved before the app took it. The key is kept, and
+// the page shows it as reserved until the user chooses another.
+func (k *Keys) Reserved(s Shortcut) bool {
+	_, set := k.set[s.ID]
+	return set && fixed(k.Chord(s))
+}
+
+// Effective is the key s runs on: its key now, none when turned off or
+// reserved, so the app's own command alone takes a reserved key.
+func (k *Keys) Effective(s Shortcut) Chord {
+	if k.Reserved(s) {
+		return Chord{}
+	}
+	return k.Chord(s)
+}
+
+// Bound is s on the key it runs on; false when the user turned it off or its
+// key is reserved.
 func (k *Keys) Bound(s Shortcut) (Shortcut, bool) {
-	ch := k.Chord(s)
+	ch := k.Effective(s)
 	s.Mods, s.Key = ch.Mods, ch.Key
 	return s, ch.Key != 0
 }
@@ -129,10 +187,8 @@ func (k *Keys) check(s Shortcut, ch Chord) string {
 	if ch.Key == 0 || ch.Key == ui.KeyUnknown || ch.Mods&(ui.Cmd|ui.Ctrl|ui.Alt|ui.Super) == 0 && !function {
 		return "shortcut_invalid"
 	}
-	for _, f := range Fixed {
-		if f == ch {
-			return "shortcut_conflict"
-		}
+	if fixed(ch) {
+		return "shortcut_conflict"
 	}
 	for _, o := range Registry {
 		if o.ID != s.ID && k.Chord(o) == ch {
@@ -183,11 +239,31 @@ func shortcuts(c *ui.Context, k *Keys) {
 		kit.Group(c, "commands", i18n.T(c, "settings_global_commands"), "", nil, func() {
 			kit.Card(c, func() {
 				for _, s := range Registry {
-					kit.Row(c, s.ID, i18n.T(c, s.Label), "", func() { shortcutControl(c, k, s) })
+					description := ""
+					if k.Reserved(s) && k.Active != s.ID {
+						description = i18n.T(c, "shortcut_reserved")
+					}
+					kit.Row(c, s.ID, i18n.T(c, s.Label), description, func() { shortcutControl(c, k, s) })
+				}
+			})
+		})
+		kit.Group(c, "panes", i18n.T(c, "settings_pane_commands"), "", nil, func() {
+			kit.Card(c, func() {
+				for _, l := range Listed {
+					kit.Row(c, l.Label, i18n.T(c, l.Label), "", func() { listedControl(c, l) })
 				}
 			})
 		})
 	})
+}
+
+// listedControl is a fixed command's keys, as text: they record nothing.
+func listedControl(c *ui.Context, l ListedKeys) {
+	var keys []string
+	for _, ch := range l.Chords {
+		keys = append(keys, kit.KeyText(ch.Mods, ch.Key))
+	}
+	ui.Text(c, strings.Join(keys, "  ")).FontSize(12).SingleLine().TextColor(theme.Of(c).MutedForeground)
 }
 
 // shortcutControl is a shortcut's button, primary while recording, with
@@ -203,12 +279,13 @@ func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
 	case ch.Key != 0:
 		label = kit.KeyText(ch.Mods, ch.Key)
 	}
+	reserved := !recording && k.Reserved(s)
 	var b ui.Element
 	if recording {
 		b = kit.Primary(c.Key("key"), label, false).Children(func() { ui.Text(c, label).FontSize(12) })
 	} else {
 		b = kit.Secondary(c.Key("key"), label)
-		if ch.Key == 0 {
+		if ch.Key == 0 || reserved {
 			b.TextColor(p.MutedForeground)
 		}
 	}

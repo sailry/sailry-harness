@@ -199,6 +199,9 @@ type App struct {
 	fileSaveEnabled     bool
 	fileSaveMenu        func(bool)
 	menuKeys            []menuKey // the native menu's items with a key (syncMenuKeys)
+	// minimizeWindow minimizes the window the Window menu's Minimize was
+	// chosen in (WindowMinimize).
+	minimizeWindow func()
 	// children are the subagent sessions opened in the panel, by ID.
 	children map[string][]conversation.Turn
 
@@ -413,8 +416,12 @@ func (a *App) View(c *ui.Context) {
 						a.closeShownTab(c)
 					}
 				})
+				if a.tabClosable() && a.Data.Find(a.panes.Active.ID) != nil {
+					a.paneKeys(c, main, a.panes.Active)
+				}
 				a.mainColumn(c, main, f)
 				a.details(c, f, fill)
+				a.enlargedPane(c)
 			})
 		})
 	})
@@ -756,6 +763,10 @@ func (a *App) page(c *ui.Context) {
 		return
 	}
 	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil {
+		if t := session(cv.ID); a.panes.enlarged == t {
+			a.enlargedSlot(c, t)
+			return
+		}
 		a.conversation(c, cv, a.mainPane)
 	}
 }

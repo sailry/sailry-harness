@@ -94,10 +94,15 @@ func (a *App) shortcuts(c *ui.Context) {
 		for _, id := range sent {
 			if s, ok := shortcutOf(id); ok {
 				a.Settings.Keys.Take(settings.Chord{Mods: s.Mods, Key: s.Key})
+			} else if id == WindowMinimize {
+				a.Settings.Keys.Take(settings.Chord{Mods: ui.Super, Key: ui.KeyM})
 			}
 		}
 		return
 	}
+	// The view zoom's keys are fixed (settings.Fixed), so no shortcut of the
+	// registry runs on them too.
+	a.viewZoomShortcuts(c)
 	for _, s := range Shortcuts {
 		s, ok := a.binding(s)
 		if !ok || !c.Shortcut(s.Mods, s.Key) || c.ShortcutRepeated() && s.ID != "conversation.previous" && s.ID != "conversation.next" {
@@ -107,6 +112,8 @@ func (a *App) shortcuts(c *ui.Context) {
 	}
 	for _, id := range sent {
 		switch {
+		case id == WindowMinimize:
+			a.minimize(c)
 		case a.dialog():
 		case id == CloseFocused.ID:
 			a.closeFocused(c)
@@ -163,6 +170,9 @@ func (a *App) closeFocused(c *ui.Context) {
 
 // run carries out a window command.
 func (a *App) run(c *ui.Context, id string) {
+	if a.runViewZoom(id) {
+		return
+	}
 	if _, exists := a.pluginFeatures[id]; exists {
 		a.openFeature(c, id)
 		return
@@ -202,6 +212,12 @@ func (a *App) run(c *ui.Context, id string) {
 			a.keyed = id
 		}
 	case "conversation.new":
+		// From the focused conversation the new one splits off to its
+		// right; from anywhere else it opens alone, without a project.
+		if t, ok := a.focusedConversationPane(c); ok {
+			a.newConversationBeside(c, t, panes.Right)
+			return
+		}
 		a.Page = ConversationPage
 		a.Sidebar.NewChat()
 	case "project.new":

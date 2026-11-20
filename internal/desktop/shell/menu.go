@@ -22,7 +22,9 @@ const (
 // cmd/sailry-desktop passes to Do: the menu takes their keys before the
 // window does. The system's items are MyGo's roles under the reference's
 // labels and keys: the menu binds Close Window, Hide, Hide Others, Minimize
-// and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Save follows
+// and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Minimize
+// is the app's item on cmd: in a focused conversation its key enlarges the
+// pane, elsewhere it minimizes the window (WindowMinimize). Save follows
 // the focused live editor. Logs stays disabled without a live log folder
 // (Hooks.OpenLogs). Help also opens the welcome guide.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
@@ -31,7 +33,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	item := func(label, id string) *mygo.MenuItem {
 		it := &mygo.MenuItem{ID: id, Label: t(label), Click: func(*mygo.MenuItem, *mygo.Window) { send(id) }}
 		if s, ok := shortcutOf(id); ok {
-			key := menuKey{item: it, shortcut: s, chord: a.Settings.Keys.Chord(s)}
+			key := menuKey{item: it, shortcut: s, chord: a.Settings.Keys.Effective(s)}
 			it.Accelerator = key.accelerator()
 			a.menuKeys = append(a.menuKeys, key)
 		}
@@ -119,7 +121,13 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 		}},
 		{Label: t("menu_view"), Submenu: view},
 		{Label: t("menu_window"), Submenu: []*mygo.MenuItem{
-			role("menu_minimize", mygo.RoleMinimize, ui.Super, ui.KeyM),
+			{ID: WindowMinimize, Label: t("menu_minimize"), Accelerator: Accelerator(ui.Super, ui.KeyM), Click: func(_ *mygo.MenuItem, w *mygo.Window) {
+				a.minimizeWindow = nil
+				if w != nil {
+					a.minimizeWindow = w.Minimize
+				}
+				send(WindowMinimize)
+			}},
 			role("menu_zoom", mygo.RoleZoom, 0, 0),
 			sep(),
 			role("menu_bring_all_to_front", mygo.RoleFront, 0, 0),
@@ -155,7 +163,7 @@ func (k menuKey) accelerator() string {
 func (a *App) syncMenuKeys() {
 	for i := range a.menuKeys {
 		k := &a.menuKeys[i]
-		if now := a.Settings.Keys.Chord(k.shortcut); now != k.chord {
+		if now := a.Settings.Keys.Effective(k.shortcut); now != k.chord {
 			k.chord = now
 			k.item.SetAccelerator(k.accelerator())
 		}

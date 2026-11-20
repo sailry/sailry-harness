@@ -1065,6 +1065,14 @@ shortcut_record
 shortcut_reset
 shortcut_selection
 shortcut_unavailable
+shortcut_reserved
+shortcut_pane_split
+shortcut_pane_tab
+shortcut_pane_enlarge
+shortcut_zoom_in
+shortcut_zoom_out
+shortcut_zoom_reset
+settings_pane_commands
 ssh_host
 ssh_key_file
 ssh_key_path
@@ -1719,6 +1727,7 @@ workspace_close_terminal
 workspace_terminal_preview
 pane_drag
 pane_group
+pane_restore
 workspace_tab_keep
 workspace_tab_release
 workspace_tab_unsplit
