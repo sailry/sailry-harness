@@ -329,7 +329,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.unsubscribe = controller.OnChange(r.changed)
 	r.unsubscribePrefs = prefs.OnChange(r.wake)
 	if err := prefs.FinishStartup(); err != nil {
-		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "preferences_read_failed")) })
+		r.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, "preferences_read_failed", err) })
 	}
 	r.prefsRevision = prefs.Revision()
 	r.readTelemetry()
@@ -895,6 +895,7 @@ func (r *Runtime) report(c *ui.Context, err error, conflict string) {
 		key = "resource_offline_action"
 	}
 	kit.Toast(c, o, i18n.T(c, key))
+	kit.RecordFailure("desktop", "chat_action_failed", o, err)
 }
 
 func (r *Runtime) rename(cv *viewmodel.Conversation, title string, done func(bool)) {

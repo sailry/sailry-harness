@@ -428,6 +428,11 @@ func (r *Runtime) toastSSH(c *ui.Context, err error, updating, uncertain bool) {
 	case code == protocol.ErrorCodeUnavailable && faultMessage(err) == protocol.SSHWindowsDesktopRequired:
 		key = "host_ssh_windows_pairing"
 	}
+	operation := "host_install_failed"
+	if updating {
+		operation = "live_update_failed"
+	}
+	kit.RecordFailure("desktop", operation, tone, err)
 	if updating || !r.addFailed(tone, key, err) {
 		kit.Toast(c, tone, i18n.T(c, key))
 	}

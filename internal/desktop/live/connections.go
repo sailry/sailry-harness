@@ -218,7 +218,7 @@ func (r *Runtime) loadWSLDistributions() {
 			distributions, ok := detail[[]protocol.WslDistribution](output.Data)
 			if err != nil || output.Kind != "wsl_distributions" || !ok {
 				state.wsl.failed = true
-				kit.Toast(c, kit.Failed, i18n.T(c, "host_wsl_load_failed"))
+				kit.Fail(c, kit.Failed, "host_wsl_load_failed", err)
 				return
 			}
 			state.wsl.names = nil
@@ -471,4 +471,5 @@ func (r *Runtime) reportConnection(c *ui.Context, err error, fallback string) {
 		outcome, key = kit.Uncertain, "host_network_unknown"
 	}
 	kit.Toast(c, outcome, i18n.T(c, key))
+	kit.RecordFailure("desktop", fallback, outcome, err)
 }

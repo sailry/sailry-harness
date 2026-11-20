@@ -11,6 +11,14 @@ func (r *Runtime) reportKeys(c *ui.Context, err error, failed, conflict, unknown
 	if err == nil {
 		return
 	}
+	outcome, key := outcomeKey(err, failed, conflict, unknown)
+	kit.Toast(c, outcome, i18n.T(c, key))
+	// The failed key names the action whichever outcome was shown.
+	kit.RecordFailure("desktop", failed, outcome, err)
+}
+
+// outcomeKey selects the toast for a failed action by its fault.
+func outcomeKey(err error, failed, conflict, unknown string) (kit.Outcome, string) {
 	outcome, key := kit.Failed, failed
 	switch faultCode(err) {
 	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
@@ -21,7 +29,7 @@ func (r *Runtime) reportKeys(c *ui.Context, err error, failed, conflict, unknown
 	if faultMessage(err) == "resource host is offline" {
 		key = "resource_offline_action"
 	}
-	kit.Toast(c, outcome, i18n.T(c, key))
+	return outcome, key
 }
 
 func (r *Runtime) providerCommand(command protocol.Command, done func(protocol.Output, bool)) {

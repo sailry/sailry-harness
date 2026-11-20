@@ -1196,7 +1196,10 @@ bounded reason through command admission and completion. Explicit setup states
 kept as breadcrumbs, not standalone Sentry errors. Missing captured configuration,
 missing retained credentials and unclassified failures remain errors. Remote
 reports include only allowlisted configuration reasons and command stages, never
-the fault message, credentials or conversation contents.
+the fault message, credentials or conversation contents. Each Desktop toast for a
+failed action, and each plugin error toast, records a failure under its stable key or
+toast id with its fault code; the message stays in the local log. Validation and
+setup prompts are not failures.
 
 ## Security and repository resources
 

@@ -366,10 +366,14 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 				state.Next = false
 				p.directoryState(directory, state)
 			}
+			// The read's command names the failure; keys can hold paths.
 			if outcome, name, own := workspaceReadFailure(key, err); own {
+				kit.RecordFailure("desktop", command.Kind, outcome, err)
 				p.reportRead(c, key, outcome, name)
 			} else {
-				p.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+				outcome, shown := outcomeKey(err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+				kit.RecordFailure("desktop", command.Kind, outcome, err)
+				kit.Toast(c, outcome, i18n.T(c, shown))
 			}
 			for _, failure := range failures {
 				failure(c, err)

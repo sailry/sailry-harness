@@ -19,7 +19,7 @@ func (r *Runtime) ReportReaderFailure() {
 func (r *Runtime) ReportExport(err error) {
 	r.enqueue(func(c *ui.Context) {
 		if err != nil {
-			kit.Toast(c, kit.Failed, i18n.T(c, "conversation_export_failed"))
+			kit.Fail(c, kit.Failed, "conversation_export_failed", err)
 		} else {
 			kit.Toast(c, kit.Done, i18n.T(c, "conversation_exported"))
 		}

@@ -277,4 +277,5 @@ func reportControllerLogin(c *ui.Context, err error) {
 		}
 	}
 	kit.Toast(c, outcome, i18n.T(c, key))
+	kit.RecordFailure("desktop", "controller_login_restore_failed", outcome, err)
 }

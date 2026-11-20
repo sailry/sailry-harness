@@ -601,7 +601,7 @@ func (r *Runtime) showPermissionApp() {
 	}
 	r.async(func() {
 		if err := exec.CommandContext(r.ctx, "/usr/bin/open", "-R", bundle).Run(); err != nil {
-			r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "permission_failed")) })
+			r.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, "permission_failed", err) })
 		}
 	})
 }

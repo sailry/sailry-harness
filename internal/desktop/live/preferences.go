@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -193,7 +192,7 @@ func (r *Runtime) savePreferences() {
 		return
 	}
 	if err = d.Validate(); err != nil {
-		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "preferences_save_failed")) })
+		r.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, "preferences_save_failed", err) })
 		return
 	}
 	version := r.Preferences.Changed()
@@ -205,7 +204,7 @@ func (r *Runtime) savePreferences() {
 		err := r.Preferences.WriteSnapshot(version, bytes)
 		r.enqueue(func(c *ui.Context) {
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "preferences_save_failed"))
+				kit.Fail(c, kit.Failed, "preferences_save_failed", err)
 			}
 		})
 	})

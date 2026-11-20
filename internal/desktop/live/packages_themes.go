@@ -61,7 +61,7 @@ func (r *Runtime) readThemeCatalog(force bool) {
 				root.App.Settings.MarketLoad.Loading, root.App.Settings.MarketLoad.Loaded = false, true
 			}
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "market_themes_failed"))
+				kit.Fail(c, kit.Failed, "market_themes_failed", err)
 				return
 			}
 			state.themeCatalog = listing

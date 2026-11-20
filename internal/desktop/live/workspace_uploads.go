@@ -213,4 +213,7 @@ func (u *workspaceUpload) report(c *ui.Context, err error) {
 		}
 	}
 	kit.Toast(c, kind, i18n.T(c, key))
+	if kind != kit.Done {
+		kit.RecordFailure("desktop", "files_upload_failed", kind, err)
+	}
 }

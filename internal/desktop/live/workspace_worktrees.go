@@ -99,7 +99,7 @@ func (p *workspaceProject) manageWorktrees() {
 		trees, ok := detail[protocol.GitWorktrees](out.Data)
 		switch {
 		case err != nil || !ok:
-			kit.Toast(c, kit.Failed, i18n.T(c, "worktree_load_failed"))
+			kit.Fail(c, kit.Failed, "worktree_load_failed", err)
 		case p.owner.Project == nil:
 			kit.Toast(c, kit.Failed, i18n.T(c, "worktree_missing_project"))
 		case trees.Kind == protocol.RepositoryKindDirectory:
@@ -294,7 +294,7 @@ func (p *workspaceProject) confirmWorktreePrune(tree protocol.GitWorktree) {
 		p.runtime.executeScoped("workspace-read/"+p.owner.ID.String()+"/worktree-prune", inspect, func(c *ui.Context, out protocol.Output, err error) {
 			status, ok := detail[protocol.GitStatus](out.Data)
 			if err != nil || !ok {
-				kit.Toast(c, kit.Failed, i18n.T(c, "worktree_prune_failed"))
+				kit.Fail(c, kit.Failed, "worktree_prune_failed", err)
 				done(false)
 				return
 			}
@@ -353,7 +353,7 @@ func (p *workspaceProject) createWorktree(c *ui.Context, a panel.GitAction, stat
 		p.runtime.executeScoped("workspace-read/"+p.owner.ID.String()+"/worktree-base", resolve, func(c *ui.Context, out protocol.Output, err error) {
 			resolved, ok := detail[protocol.OutputGitRevisionPayload](out.Data)
 			if err != nil || !ok {
-				kit.Toast(c, kit.Failed, i18n.T(c, "worktree_revision_failed"))
+				kit.Fail(c, kit.Failed, "worktree_revision_failed", err)
 				done(false)
 				return
 			}

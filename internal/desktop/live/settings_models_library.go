@@ -101,7 +101,7 @@ func (r *Runtime) readLibraryPage() {
 			m.LibraryLoad.Loading, m.LibraryLoad.Loaded = false, true
 			lib.failed = err != nil
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "model_library_failed"))
+				kit.Fail(c, kit.Failed, "model_library_failed", err)
 				return
 			}
 			lib.next = page.NextCursor
@@ -455,7 +455,7 @@ func (r *Runtime) readLibraryModel(id string) {
 			}
 			delete(lib.resolving, id)
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "model_library_failed"))
+				kit.Fail(c, kit.Failed, "model_library_failed", err)
 				return
 			}
 			lib.versions[id] = versions
@@ -495,7 +495,7 @@ func (r *Runtime) showLibraryVersion(id string, version int) {
 			}
 			delete(lib.resolving, id)
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "model_library_failed"))
+				kit.Fail(c, kit.Failed, "model_library_failed", err)
 				return
 			}
 			lib.details[id] = definition

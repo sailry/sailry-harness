@@ -11,7 +11,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -206,7 +205,7 @@ func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, m
 			read.loading, read.cancel = false, nil
 			if err != nil || read.revision != 0 && read.revision != page.Revision || more && read.loaded && read.loadedRevision != page.Revision {
 				read.failed = true
-				kit.Toast(c, kit.Failed, i18n.T(c, "chat_assets_failed"))
+				kit.Fail(c, kit.Failed, "chat_assets_failed", err)
 				return
 			}
 			if !more {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -19,6 +20,7 @@ type pluginNativeToast struct {
 	ID      string `json:"id"`
 	Message string `json:"message"`
 	Kind    string `json:"kind"`
+	Code    string `json:"code"`
 	Action  *struct {
 		ID    string `json:"id"`
 		Label string `json:"label"`
@@ -239,7 +241,7 @@ func (state *pluginNativeState) showToast(_ context.Context, arguments []json.Ra
 		return nil, err
 	}
 	if value.ID == "" || strings.TrimSpace(value.Message) == "" || len(value.Message) > 4096 ||
-		(value.Kind != "info" && value.Kind != "error") ||
+		(value.Kind != "info" && value.Kind != "error") || value.Code != "" && (value.Kind != "error" || !pluginToastCode(value.Code)) ||
 		(value.Action != nil && (value.Action.ID == "" || strings.TrimSpace(value.Action.Label) == "" || len(value.Action.Label) > 512)) {
 		return nil, pluginNativeFault(protocol.ErrorCodeInvalidRequest, "invalid plugin notification")
 	}
@@ -252,6 +254,15 @@ func (state *pluginNativeState) showToast(_ context.Context, arguments []json.Ra
 	sequence := state.toastSequence
 	state.toasts[value.ID] = sequence
 	state.mu.Unlock()
+	if value.Kind == "error" {
+		// An error toast is a failure the plugin showed; its id names it and
+		// its optional code says why. The message stays on screen only.
+		var cause error
+		if value.Code != "" {
+			cause = protocol.Fault{Code: protocol.ErrorCode(value.Code), Message: "plugin reported " + value.Code}
+		}
+		kit.RecordFailure("plugin", value.ID, kit.Failed, cause, slog.String("package", state.scope.Package.Name))
+	}
 	return state.effect(func(view *ui.Context) {
 		state.mu.Lock()
 		current := state.toasts[value.ID] == sequence
@@ -287,4 +298,18 @@ func (state *pluginNativeState) dismissToast(_ context.Context, arguments []json
 
 func (state *pluginNativeState) toastID(id string) string {
 	return fmt.Sprintf("plugin/%p/%s", state, id)
+}
+
+// pluginToastCode accepts a protocol-style error code: lowercase words
+// joined by underscores.
+func pluginToastCode(code string) bool {
+	if len(code) > 64 {
+		return false
+	}
+	for i, r := range code {
+		if !(r >= 'a' && r <= 'z' || i > 0 && (r == '_' || r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
 }

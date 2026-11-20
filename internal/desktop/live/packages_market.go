@@ -136,7 +136,7 @@ func (r *Runtime) readPluginMarketPage(source int, query string, page uint32, fo
 			if err != nil {
 				kit.Error(c, i18n.T(c, "market_plugins"), faultDetail(err))
 			} else if value.Unavailable {
-				kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+				kit.Fail(c, kit.Failed, "unavailable", err)
 			}
 			if failed && (paging || len(value.Entries) == 0) {
 				return

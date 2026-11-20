@@ -125,7 +125,7 @@ func (r *Runtime) installSpeechModel(id string) {
 	}
 	if err := manager.Start(model, nil); err != nil {
 		key := dictationKey(err)
-		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+		root.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, key, err) })
 	}
 }
 
@@ -197,7 +197,7 @@ func (r *Runtime) deleteSpeechModel(id string) {
 	}
 	if err := manager.Remove(*model); err != nil {
 		key := dictationKey(err)
-		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+		root.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, key, err) })
 		return
 	}
 	if selected := root.Preferences.Data.DictationModel(); selected != nil && *selected == *model {
