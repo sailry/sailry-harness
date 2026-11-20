@@ -64,8 +64,9 @@ func FileIcon(f File) *ui.SVG {
 }
 
 // fileCard is a 2xl-rounded group box, a 40 DIP icon tile, the name over its
-// kind, Open and the More menu (Preview, Show in the file manager, Save as,
-// Request edit). A file the panel cannot preview, such as an archive, opens
+// kind, Open and the More menu: Preview, then Show in the file manager for a
+// worktree file or Open in the system's app for a published document, Save
+// as, and Request edit for an editable file. A file the panel cannot preview, such as an archive, opens
 // in the file manager instead. A document with a picture shows it on top.
 func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 	p := theme.Of(c)
@@ -127,18 +128,31 @@ func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 				if !demo && !f.Document && m.Item(i18n.T(c, revealKey())).Chosen() {
 					actions.FileAction(f, Reveal)
 				}
-				if !demo && m.Item(i18n.T(c, "files_download")).Chosen() {
-					actions.FileAction(f, Download)
-				}
-				if f.Document && !demo {
-					if m.Item(i18n.T(c, "conversation_export_html")).Disabled(!f.Exportable).Chosen() {
+				// Save as writes the file; a published document saves as its
+				// HTML, and a static one also as a picture. An action the
+				// card cannot take is left out rather than disabled.
+				switch {
+				case demo, f.Document && !f.Exportable:
+				case f.Document && !f.Interactive:
+					m.Submenu(i18n.T(c, "files_download"), func(m *kit.Menu) {
+						if m.Item(i18n.T(c, "conversation_export_html")).Chosen() {
+							actions.FileAction(f, ExportDocumentHTML)
+						}
+						if m.Item(i18n.T(c, "conversation_export_image")).Chosen() {
+							actions.FileAction(f, ExportDocumentImage)
+						}
+					})
+				case f.Document:
+					if m.Item(i18n.T(c, "files_download")).Chosen() {
 						actions.FileAction(f, ExportDocumentHTML)
 					}
-					if !f.Interactive && m.Item(i18n.T(c, "conversation_export_image")).Disabled(!f.Exportable).Chosen() {
-						actions.FileAction(f, ExportDocumentImage)
+				default:
+					if m.Item(i18n.T(c, "files_download")).Chosen() {
+						actions.FileAction(f, Download)
 					}
 				}
-				if m.Item(i18n.T(c, "artifact_request_edit")).Disabled(!f.Editable).Chosen() {
+				// Only a worktree text file can be revised from its card.
+				if f.Editable && m.Item(i18n.T(c, "artifact_request_edit")).Chosen() {
 					actions.FileAction(f, RequestEdit)
 				}
 			}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})

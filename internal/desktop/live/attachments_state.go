@@ -108,6 +108,16 @@ func (r *Runtime) SetNativeFileActions(actions NativeFileActions) {
 	if r.attachments == nil {
 		r.initAttachments()
 	}
+	// The save panel waits for the user by running the event loop. Opened
+	// from a frame, such as a menu's chosen item, that nested loop rebuilds
+	// the frame it is inside and the window stops responding. It opens off
+	// the frame instead, and the choice returns to the next one. Bound
+	// runtimes receive the parent's wrapped action.
+	if save := actions.SaveFile; save != nil && r.parent == nil {
+		actions.SaveFile = func(name string, selected func(string)) {
+			go save(name, func(path string) { r.enqueue(func(*ui.Context) { selected(path) }) })
+		}
+	}
 	r.attachments.native = actions
 	for _, bound := range r.bindings {
 		bound.SetNativeFileActions(actions)
