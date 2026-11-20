@@ -520,7 +520,7 @@ func contextConnection(c *ui.Context, d *ContextStats) {
 // the width equally, so a zero-length stage still has a readable label.
 func contextConnectionPath(c *ui.Context, response, waiting uint64) {
 	p := theme.Of(c)
-	const station = 28
+	const station, linkLabel = 28, 16
 	stops := []struct {
 		icon *ui.SVG
 		key  string
@@ -537,10 +537,13 @@ func contextConnectionPath(c *ui.Context, response, waiting uint64) {
 				}
 				value := []uint64{response, waiting}[i]
 				color := p.Chart[i+1]
-				ui.Row(c.Key(i)).Grow(1).Basis(0).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Box(c).Grow(1).Height(1.5).Background(color)
-					ui.Text(c, contextDuration(c, value)).FontSize(12).FontFeatures("tnum").SingleLine()
-					ui.Box(c).Grow(1).Height(1.5).Background(color)
+				// The duration sits above its link and an equal space below
+				// keeps the link at the stations' centre; the link stops short
+				// of both stations.
+				ui.Column(c.Key(i)).Grow(1).Basis(0).MinWidth(0).Padding(0, 8).Gap(3).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, contextDuration(c, value)).FontSize(12).FontFeatures("tnum").Height(linkLabel).SingleLine()
+					ui.Box(c).FillWidth().Height(1.5).Radius(1).Background(color)
+					ui.Box(c).Height(linkLabel)
 				})
 			}
 		})
