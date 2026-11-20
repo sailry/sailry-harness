@@ -151,10 +151,12 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		json.Unmarshal(provider.ResponseBody, &body)
 		code := provider.ErrorType
 		overloaded := overloadedCode(code)
+		usageMissing := containsCode(code, "upstream_usage_missing")
 		foundCode := false
 		for _, path := range [][]string{{"error", "code"}, {"error", "type"}, {"response", "error", "code"}, {"code"}, {"type"}} {
 			if value := jsonString(body, path...); value != "" {
 				overloaded = overloaded || overloadedCode(value)
+				usageMissing = usageMissing || containsCode(value, "upstream_usage_missing")
 				if !foundCode {
 					code, foundCode = value, true
 				}
@@ -167,6 +169,10 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 				break
 			}
 		}
+		for _, path := range [][]string{{"error", "reason"}, {"response", "error", "reason"}, {"reason"}} {
+			usageMissing = usageMissing || containsCode(jsonString(body, path...), "upstream_usage_missing")
+		}
+		usageMissing = (status == 0 || status >= 200 && status <= 299) && (usageMissing || strings.HasPrefix(message, `error: code=502 reason="UPSTREAM_USAGE_MISSING" message="`))
 		if len(provider.ResponseBody) > 0 {
 			if message == "" {
 				message = "Model request failed"
@@ -194,7 +200,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Quota
 		case status == 429 || containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests"):
 			f.Kind = RateLimited
-		case status == 408 || status >= 500 && status <= 599 || overloaded || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error"):
+		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error"):
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
 			f.Kind = Cancelled
