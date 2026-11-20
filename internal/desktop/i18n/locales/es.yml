@@ -2251,6 +2251,8 @@ artifact_form_reply: Respuesta a %{title} (versión %{revision}, formulario %{fo
 artifact_form_invalid: Formulario no válido
 artifact_form_required: Completa los campos obligatorios
 artifact_form_stale: Hay una versión más reciente; ábrela antes de enviar
+artifact_version: Versión %{revision}
+artifact_version_latest: Más reciente
 chat_compact_incomplete: Resumen incompleto
 chat_compact_interrupted: Compactación interrumpida
 chat_compact_no_reduction: El resumen no redujo el contexto

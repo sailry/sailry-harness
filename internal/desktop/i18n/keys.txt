@@ -2263,6 +2263,8 @@ artifact_form_reply
 artifact_form_invalid
 artifact_form_required
 artifact_form_stale
+artifact_version
+artifact_version_latest
 chat_compact_incomplete
 chat_compact_interrupted
 chat_compact_no_reduction

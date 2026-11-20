@@ -2251,6 +2251,8 @@ artifact_form_reply: 回复「%{title}」（版本 %{revision}，表单 %{form}�
 artifact_form_invalid: 表单无效
 artifact_form_required: 请填写必填项
 artifact_form_stale: 方案已有新版本，请打开新版后提交
+artifact_version: 版本 %{revision}
+artifact_version_latest: 最新
 chat_compact_incomplete: 摘要未完整返回
 chat_compact_interrupted: 压缩已中断
 chat_compact_no_reduction: 摘要未缩短上下文

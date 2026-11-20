@@ -7,3 +7,5 @@ artifact_export_unsupported: "Pré-visualizações interativas são exportadas c
 artifact_close: "Fechar"
 artifact_form_stale: "Há uma versão mais recente; abra-a antes de enviar"
 artifact_render_failed: "Não foi possível renderizar o gráfico"
+artifact_version: "Versão %{revision}"
+artifact_version_latest: "Mais recente"

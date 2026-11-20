@@ -2251,6 +2251,8 @@ artifact_form_reply: Ответ на %{title} (версия %{revision}, фор�
 artifact_form_invalid: Недопустимая форма
 artifact_form_required: Заполните обязательные поля
 artifact_form_stale: Доступна новая версия; откройте её перед отправкой
+artifact_version: Версия %{revision}
+artifact_version_latest: Последняя
 chat_compact_incomplete: Резюме неполное
 chat_compact_interrupted: Уплотнение прервано
 chat_compact_no_reduction: Резюме не уменьшает контекста

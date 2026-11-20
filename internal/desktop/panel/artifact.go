@@ -1,10 +1,13 @@
 package panel
 
 import (
+	"strconv"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
@@ -18,6 +21,10 @@ type ArtifactCallbacks struct {
 	Image        func(kit.ImageAction, conversation.Image)
 	Render       func(*ui.Context, conversation.File) bool
 	Markdown     func(conversation.File) *markdown.Options
+	// Versions are the version a document's preview shows and the latest
+	// its conversation sees, 0 for a file; ShowVersion shows another.
+	Versions    func(conversation.File) (shown, latest uint32)
+	ShowVersion func(conversation.File, uint32)
 }
 
 func (s *State) SetArtifactCallbacks(callbacks ArtifactCallbacks) { s.artifactCallbacks = callbacks }
@@ -71,9 +78,45 @@ func (s *State) artifact(c *ui.Context, id string) {
 		fileview.Content(c, &s.view, id, f, cb)
 		if f.State == conversation.PreviewReady {
 			kit.Floating(c, ui.Row(c.Key("artifact-tools"))).Absolute().Top(8).Right(12).Padding(2).Gap(2).
-				Radius(8).Children(func() { fileview.Tools(c, f, cb) })
+				Radius(8).AlignItems(ui.Center).Children(func() {
+				s.artifactVersions(c, f)
+				fileview.Tools(c, f, cb)
+			})
 		}
 	})
+}
+
+// artifactVersions is a revised document's version menu: the version shown,
+// opening a list of every version, newest first, the latest marked.
+func (s *State) artifactVersions(c *ui.Context, f conversation.File) {
+	callbacks := s.artifactCallbacks
+	if callbacks.Versions == nil || callbacks.ShowVersion == nil {
+		return
+	}
+	shown, latest := callbacks.Versions(f)
+	if latest < 2 || shown == 0 {
+		return
+	}
+	version := func(n uint32) string {
+		return i18n.T(c, "artifact_version", "revision", strconv.FormatUint(uint64(n), 10))
+	}
+	kit.MenuButton(c.Key("versions"), "artifact-versions/"+f.ID, func(b ui.Element) {
+		label := version(shown)
+		kit.GhostLook(c, b.Label(label), false).Row().Height(28).PaddingX(8).Gap(4).Children(func() {
+			ui.Text(c, label).FontSize(13).SingleLine()
+			ui.Icon(c, icons.ChevronDown).FontSize(14).Shrink(0)
+		})
+	}, func(m *kit.Menu) {
+		for n := latest; n >= 1; n-- {
+			item := m.Item(version(n)).Checked(n == shown)
+			if n == latest {
+				item.Trailing(i18n.T(c, "artifact_version_latest"))
+			}
+			if item.Chosen() && n != shown {
+				callbacks.ShowVersion(f, n)
+			}
+		}
+	}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
 }
 
 // ForgetArtifact removes a closed or revoked file projection and its content.

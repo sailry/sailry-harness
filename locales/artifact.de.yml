@@ -7,3 +7,5 @@ artifact_export_unsupported: "Interaktive Vorschauen lassen sich als HTML export
 artifact_close: "Schließen"
 artifact_form_stale: "Eine neuere Version ist verfügbar; öffnen Sie diese vor dem Absenden"
 artifact_render_failed: "Die Visualisierung konnte nicht dargestellt werden"
+artifact_version: "Version %{revision}"
+artifact_version_latest: "Neueste"

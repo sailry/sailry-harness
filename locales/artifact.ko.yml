@@ -7,3 +7,5 @@ artifact_export_unsupported: "대화형 미리보기는 HTML로 내보낼 수 �
 artifact_close: "닫기"
 artifact_form_stale: "새 버전을 연 후 제출하세요"
 artifact_render_failed: "시각 자료를 렌더링할 수 없습니다"
+artifact_version: "버전 %{revision}"
+artifact_version_latest: "최신"

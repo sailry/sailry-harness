@@ -7,3 +7,5 @@ artifact_export_unsupported: "Интерактивные макеты экспо
 artifact_close: "Закрыть"
 artifact_form_stale: "Доступна новая версия; откройте её перед отправкой"
 artifact_render_failed: "Не удалось отобразить визуализацию"
+artifact_version: "Версия %{revision}"
+artifact_version_latest: "Последняя"

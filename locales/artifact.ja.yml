@@ -7,3 +7,5 @@ artifact_export_unsupported: "対話型プレビューは HTML でエクスポ�
 artifact_close: "閉じる"
 artifact_form_stale: "新しいバージョンを開いてから送信してください"
 artifact_render_failed: "図表を描画できませんでした"
+artifact_version: "バージョン %{revision}"
+artifact_version_latest: "最新"

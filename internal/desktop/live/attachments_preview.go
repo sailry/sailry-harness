@@ -36,6 +36,12 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 		return
 	}
 	file.ID = "preview/" + r.controller.Target().String() + "/" + session + "/" + file.ID
+	r.showCapturedPreview(file, descriptor)
+}
+
+// showCapturedPreview loads a captured file into its preview, as it opens or
+// as its document shows another version.
+func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachmentDescriptor) {
 	r.attachments.previews[file.ID] = descriptor
 	r.attachments.previewGeneration[file.ID]++
 	generation := r.attachments.previewGeneration[file.ID]
@@ -101,6 +107,11 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 			}
 			if content != nil {
 				r.attachments.previewContent[file.ID] = *content
+				if descriptor.artifact != nil {
+					// The version read is the one the preview's actions use.
+					descriptor.artifact = &content.Artifact
+					r.attachments.previews[file.ID] = descriptor
+				}
 			}
 			if document := r.attachments.previewDocuments[file.ID]; document != nil && err == nil && content == nil {
 				version := fmt.Sprintf("%x", blake3.Sum256([]byte(loaded.Text)))
@@ -227,7 +238,9 @@ func (r *Runtime) readPublishedArtifact(ctx context.Context, descriptor attachme
 		return protocol.ArtifactContent{}, err
 	}
 	content, ok := detail[protocol.ArtifactContent](output.Data)
-	if !ok || output.Kind != "artifact" || content.Artifact != *artifact {
+	// A revision never changes, so its ID and number name it; a version
+	// chosen in the preview is known only by those.
+	if !ok || output.Kind != "artifact" || content.Artifact.ID != artifact.ID || content.Artifact.Revision != artifact.Revision {
 		return protocol.ArtifactContent{}, fileActionFault(protocol.ErrorCodeRevisionConflict, "published document revision changed")
 	}
 	return content, nil
@@ -434,4 +447,39 @@ func (r *Runtime) artifactRuntime(id string) *Runtime {
 		}
 	}
 	return nil
+}
+
+// artifactVersions are the version a document's preview shows and the
+// latest its conversation sees; none for a file or before it loads.
+func (r *Runtime) artifactVersions(file conversation.File) (uint32, uint32) {
+	if owner := r.artifactRuntime(file.ID); owner != nil && owner != r {
+		return owner.artifactVersions(file)
+	}
+	if r.attachments == nil || r.attachments.previews[file.ID].artifact == nil {
+		return 0, 0
+	}
+	content, loaded := r.attachments.previewContent[file.ID]
+	if !loaded {
+		return 0, 0
+	}
+	return content.Artifact.Revision, content.LatestRevision
+}
+
+// showArtifactVersion loads another version of a document into its preview.
+// Only the latest takes form answers.
+func (r *Runtime) showArtifactVersion(file conversation.File, revision uint32) {
+	r.enqueue(func(*ui.Context) {
+		owner := r.artifactRuntime(file.ID)
+		if owner == nil || owner.attachments == nil {
+			return
+		}
+		descriptor, ok := owner.attachments.previews[file.ID]
+		if !ok || descriptor.artifact == nil {
+			return
+		}
+		artifact := *descriptor.artifact
+		artifact.Revision = revision
+		descriptor.artifact = &artifact
+		owner.showCapturedPreview(file, descriptor)
+	})
 }

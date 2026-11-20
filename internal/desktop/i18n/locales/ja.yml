@@ -2251,6 +2251,8 @@ artifact_form_reply: '%{title}への回答（バージョン %{revision}、フ�
 artifact_form_invalid: 無効なフォーム
 artifact_form_required: 必須項目を入力してください
 artifact_form_stale: 新しいバージョンを開いてから送信してください
+artifact_version: バージョン %{revision}
+artifact_version_latest: 最新
 chat_compact_incomplete: 要約不完全
 chat_compact_interrupted: 圧縮中断
 chat_compact_no_reduction: 要約はコンテキストを縮小しませんでした

@@ -2251,6 +2251,8 @@ artifact_form_reply: '%{title}에 답변 (버전 %{revision}, 양식 %{form}) [%
 artifact_form_invalid: 유효하지 않은 양식
 artifact_form_required: 필수 항목을 입력하세요
 artifact_form_stale: 새 버전을 연 후 제출하세요
+artifact_version: 버전 %{revision}
+artifact_version_latest: 최신
 chat_compact_incomplete: 요약 불완전
 chat_compact_interrupted: 압축 중단됨
 chat_compact_no_reduction: 요약은 컨텍스트를 줄이지 않았습니다
