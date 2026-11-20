@@ -62,6 +62,32 @@ func TestDocumentSandboxNoBridge(t *testing.T) {
 	}
 }
 
+func TestDocumentRendererFallback(t *testing.T) {
+	source := documentSource{content: documentFormContent()}
+	source.content.Html = "<p>Fallback</p>"
+	source.content.View = &protocol.ArtifactViewContent{Template: "missing head and body"}
+	var doc documentView
+	page, err := doc.compose(source, documentMount{})
+	if err == nil || !strings.Contains(page, `srcdoc="&lt;p&gt;Fallback&lt;/p&gt;"`) {
+		t.Fatalf("renderer failure did not return a plain frame: %v", err)
+	}
+	if doc.stale(source, false) {
+		t.Error("unchanged document would reload its failed renderer on the next frame")
+	}
+	if !doc.stale(source, true) {
+		t.Error("plain fallback needs to reload when its color scheme changes")
+	}
+	source.content.Artifact.Revision++
+	source.content.View = &protocol.ArtifactViewContent{Template: "<html><head></head><body></body></html>"}
+	if !doc.stale(source, false) {
+		t.Fatal("a new revision did not retry the renderer")
+	}
+	page, err = doc.compose(source, documentMount{})
+	if err != nil || !strings.Contains(page, "sailryDocument.mount(") || doc.stale(source, true) {
+		t.Fatalf("new revision did not recover a live renderer: %v", err)
+	}
+}
+
 // testBrowserAddress covers the addresses a browser tab loads.
 func testBrowserAddress(t *testing.T) {
 	for _, address := range []string{"https://example.com", "http://localhost:3000/a?b=c", "https://example.com/#top"} {

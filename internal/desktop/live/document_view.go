@@ -44,6 +44,7 @@ type documentView struct {
 	view   *mygo.WebView
 	source documentSource
 	shown  bool // the last frame placed it
+	plain  bool // the loaded page has no renderer, including after a composition failure
 	// writable and theme are what the page was last told; dark is the
 	// scheme it loaded in, which a page without a renderer reloads to change.
 	writable bool
@@ -53,6 +54,10 @@ type documentView struct {
 	background string
 	// stop ends the relay of the page loaded last.
 	stop context.CancelFunc
+}
+
+func (d *documentView) stale(source documentSource, dark bool) bool {
+	return !d.source.same(source) || d.plain && d.dark != dark
 }
 
 // close ends the page and its relay.
@@ -116,17 +121,14 @@ func (r *Runtime) documentView(c *ui.Context, source documentSource) bool {
 	id := source.id()
 	document := state.documents[id]
 	dark := theme.Of(c).Dark
-	stale := func(document *documentView) bool {
-		return !document.source.same(source) || source.content.View == nil && document.dark != dark
-	}
-	if document == nil || stale(document) {
+	if document == nil || document.stale(source, dark) {
 		mount := root.documentMount(c, source)
 		// The WebView is made, or loads the new revision, before the next
 		// frame builds.
 		root.enqueue(func(*ui.Context) {
 			document := state.documents[id]
 			if document != nil && !document.view.IsDestroyed() {
-				if stale(document) {
+				if document.stale(source, dark) {
 					root.loadDocument(document, source, mount)
 				}
 				return
@@ -170,24 +172,32 @@ func (r *Runtime) loadDocument(document *documentView, source documentSource, mo
 		document.stop()
 		document.stop = nil
 	}
-	frame, err := documentFrame(source.content, mount)
-	plain := source.content.View == nil
+	page, err := document.compose(source, mount)
 	if err != nil {
 		r.Report(err)
-		source.content.View, plain = nil, true
-		frame, _ = documentFrame(source.content, mount)
+	}
+	document.view.Page().LoadHTML(page, "about:blank")
+}
+
+func (document *documentView) compose(source documentSource, mount documentMount) (string, error) {
+	content := source.content
+	frame, err := documentFrame(content, mount)
+	document.plain = content.View == nil || err != nil
+	if err != nil {
+		content.View = nil
+		frame, _ = documentFrame(content, mount)
 	}
 	theme, _ := json.Marshal(mount.Theme)
 	document.source, document.writable, document.theme = source, mount.Writable, string(theme)
 	document.dark = mount.Dark
-	document.view.Page().LoadHTML(documentPage(frame, plain, mount), "about:blank")
+	return documentPage(frame, document.plain, mount), err
 }
 
 // relayDocument takes the events the loaded page posts until it loads
 // again or closes. One evaluation waits at a time, so the page cannot
 // raise more work than Desktop asks for.
 func (r *Runtime) relayDocument(document *documentView) {
-	if document.view.IsDestroyed() || document.source.content.View == nil {
+	if document.plain || document.view.IsDestroyed() {
 		return
 	}
 	if document.stop != nil {
@@ -225,7 +235,7 @@ func (r *Runtime) syncDocument(c *ui.Context, document *documentView) {
 		document.background = background
 		_ = document.view.SetBackgroundColor(background)
 	}
-	if document.source.content.View == nil {
+	if document.plain {
 		return
 	}
 	if writable := documentWritable(document.source); writable != document.writable {
