@@ -37,7 +37,7 @@ func TestToolRowsKeepExecutionInput(t *testing.T) {
 				theme.Apply(c, "", theme.Light)
 				palette := theme.Of(c)
 				status, danger, warning = rowColor(palette, call), palette.Danger, palette.Warning
-				state.row(c, call)
+				state.row(c, call, false)
 			}, 900, 300)
 			tester.SetLocale("zh-CN")
 			tester.Frame()
@@ -71,7 +71,7 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	state := New()
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		state.row(c, call)
+		state.row(c, call, false)
 	}, 900, 300)
 	tester.Frame()
 	if !tester.HasText(failure) || !tester.HasText(call.Detail) {
@@ -125,7 +125,7 @@ func TestToolCommandShowsOnlyOutput(t *testing.T) {
 			state := New()
 			tester := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
-				state.row(c, call)
+				state.row(c, call, false)
 			}, 900, 300)
 			tester.SetLocale("zh-CN")
 			tester.Frame()
@@ -155,7 +155,7 @@ func TestOpenToolDetailLifetime(t *testing.T) {
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		if mounted {
-			state.row(c, call)
+			state.row(c, call, false)
 		}
 	}, 640, 400)
 	frame := func() { tester.Frame() }
@@ -209,7 +209,7 @@ func TestFoldedToolImageIsResolvedOnlyWhenShown(t *testing.T) {
 	state := New()
 	var reads int
 	state.resolveImage = func(session string, image Image) Image { reads++; return image }
-	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); state.row(c, call) }, 640, 400)
+	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); state.row(c, call, false) }, 640, 400)
 	tester.Frame()
 	if reads != 0 {
 		t.Fatal("folded tool requested its bitmap")

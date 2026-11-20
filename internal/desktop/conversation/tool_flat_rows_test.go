@@ -245,7 +245,7 @@ func TestToolRowPathList(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, true)
+		s.tools(c, calls, false)
 	}, 900, 600)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -525,5 +525,27 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 		if growing := mid.H < end.H; growing == reduce {
 			t.Fatalf("reduce %v: the new row was %v high during the entry and %v after it", reduce, mid.H, end.H)
 		}
+	}
+}
+
+// A failed command stays closed while its run is active, and the finished
+// turn reveals its failure.
+func TestFailedRowOpensAfterRun(t *testing.T) {
+	s := New()
+	calls := []Call{{ID: "run", Name: "run_command", Label: "Command", Detail: "make", Failed: true, Output: &Output{Failure: "exit status 2"}}}
+	activity := true
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		s.tools(c, calls, activity)
+	}, 600, 400)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if tt.HasText("exit status 2") {
+		t.Fatalf("an active failed command opened: %q", tt.Texts())
+	}
+	activity = false
+	tt.Frame()
+	if !tt.HasText("exit status 2") {
+		t.Fatalf("the finished failed command did not open: %q", tt.Texts())
 	}
 }

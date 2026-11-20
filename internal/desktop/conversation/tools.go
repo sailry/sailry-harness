@@ -282,7 +282,7 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 				}
 			}
 			if end-first == 1 {
-				s.row(c, calls[first])
+				s.row(c, calls[first], activity)
 			} else {
 				s.toolGroup(c, calls[first:end], activity)
 			}
@@ -313,7 +313,7 @@ func (s *State) toolGroup(c *ui.Context, calls []Call, activity bool) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(ui.Element) {
 		for _, call := range calls {
-			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call) })
+			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, activity) })
 		}
 	})
 }
@@ -333,8 +333,9 @@ func toolErrorOpen(call Call) bool {
 	return !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
 }
 
-// row is one call: its body is its output.
-func (s *State) row(c *ui.Context, call Call) {
+// row is one call: its body is its output. Like a group, a failed row opens
+// on its own only once its run is no longer active.
+func (s *State) row(c *ui.Context, call Call, activity bool) {
 	if call.Name == "generate_image" && call.Output != nil && len(call.Output.Images) > 0 {
 		// Generated pictures belong in the answer and output inventory. Keep the
 		// original references for reply embeds without repeating the preview here.
@@ -349,7 +350,7 @@ func (s *State) row(c *ui.Context, call Call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	s.wrapping(c, "tools-"+call.ID, false, toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
+	s.wrapping(c, "tools-"+call.ID, false, !activity && toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func(rail ui.Element) {
 		if call.Load != nil {
