@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -270,9 +271,7 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 			delete(p.uncertainCallbacks, key)
 		}
 		if err != nil {
-			if outcome, name := workspaceFailure(kind, err); name != "" {
-				kit.Toast(c, outcome, i18n.T(c, name))
-			}
+			reportWorkspaceMutation(c, command.Kind, kind, err)
 			for _, failure := range failed {
 				failure(c, err)
 			}
@@ -288,4 +287,13 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 		}
 	})
+}
+
+func reportWorkspaceMutation(c *ui.Context, operation, kind string, err error) {
+	outcome, name := workspaceFailure(kind, err)
+	if name == "" {
+		return
+	}
+	kit.Toast(c, outcome, i18n.T(c, name))
+	kit.RecordFailure("desktop", operation, outcome, err, slog.String("stage", "workspace_mutation"), slog.String("reason", name))
 }

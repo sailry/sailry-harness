@@ -64,12 +64,16 @@ func (c *Control) admitLocked(fingerprint string, now time.Time) bool {
 type recorder struct {
 	next   http.RoundTripper
 	status int
+	retry  time.Duration
 }
 
 func (r *recorder) RoundTrip(request *http.Request) (*http.Response, error) {
 	response, err := r.next.RoundTrip(request)
 	if err == nil {
 		r.status = response.StatusCode
+		r.retry = retryHTTP(response)
+	} else if retryNetwork(err) {
+		r.retry = operationInterval
 	}
 	return response, err
 }
@@ -77,6 +81,11 @@ func (r *recorder) RoundTrip(request *http.Request) (*http.Response, error) {
 // send delivers one event within ten seconds, without following redirects.
 // No request URL, response body or HTTP error text reaches diagnostics.
 func (c *Control) send(ctx context.Context, event *sentry.Event) bool {
+	ok, _ := c.deliverReport(ctx, event)
+	return ok
+}
+
+func (c *Control) deliverReport(ctx context.Context, event *sentry.Event) (ok bool, retry time.Duration) {
 	ctx, cancel := context.WithTimeout(ctx, reportTimeout)
 	defer cancel()
 	record := &recorder{next: c.transport}
@@ -84,7 +93,7 @@ func (c *Control) send(ctx context.Context, event *sentry.Event) bool {
 	transport.Configure(sentry.ClientOptions{Dsn: c.dsn, HTTPClient: &http.Client{Transport: record, Timeout: reportTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
 	transport.SendEventWithContext(ctx, event)
-	return record.status >= 200 && record.status <= 299
+	return record.status >= 200 && record.status <= 299, record.retry
 }
 
 // stack is the reporting goroutine's own frames inside this module: package,
@@ -153,14 +162,14 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 	}
 	hash := blake3.New(32, nil)
 	hash.Write([]byte(kind))
-	for _, key := range []string{"area", "code", "operation", "stage", "reason", "command_stage", "configuration_reason", "cause_code", "package", "plugin_version"} {
+	for _, key := range []string{"area", "code", "operation", "stage", "reason", "command_stage", "configuration_reason", "reason_code", "cause_code", "package", "plugin_version"} {
 		if value, found := fields[key]; found {
 			encoded, _ := json.Marshal(value)
 			hash.Write([]byte(key))
 			hash.Write(encoded)
 		}
 	}
-	if trace != nil {
+	if trace != nil && fields["reason_code"] == nil {
 		for _, frame := range trace.Frames {
 			hash.Write([]byte(frame.Module + frame.Function + frame.Filename))
 			hash.Write(binary.LittleEndian.AppendUint64(nil, uint64(frame.Lineno)))
@@ -178,6 +187,9 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 		Fingerprint: []string{hex.EncodeToString(hash.Sum(nil))},
 		Tags:        c.tagsLocked(),
 		Sdk:         sentry.SdkInfo{Name: "Sailry", Version: "1"},
+	}
+	if reason, ok := fields["reason_code"].(string); ok {
+		event.Tags["sailry.reason_code"] = reason
 	}
 	if len(fields) > 0 {
 		// sentry-go's event has no free "extra" object; the public fields
@@ -197,6 +209,33 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 	return event
 }
 
+const queueBurstCount = 10
+
+// One expected guide race is a warning. Report the threshold crossing only
+// once per cause per five-minute window, without counting individual users.
+func (c *Control) queueBurstLocked(fields logging.Fields, now time.Time) bool {
+	if fields["area"] != "command" || fields["operation"] != "guide_queued_turn" || fields["phase"] != logging.Failed ||
+		(fields["code"] != "conflict" && fields["code"] != "revision_conflict") {
+		return false
+	}
+	reason, _ := fields["reason_code"].(string)
+	switch reason {
+	case "queue_revision_changed", "queue_item_not_pending", "queue_input_consumed", "recipient_stopping", "recipient_not_running":
+	default:
+		return false
+	}
+	if c.queueRaces == nil {
+		c.queueRaces = make(map[string]limit)
+	}
+	entry := c.queueRaces[reason]
+	if entry.start.IsZero() || now.Sub(entry.start) >= 5*time.Minute {
+		entry = limit{start: now}
+	}
+	entry.count++
+	c.queueRaces[reason] = entry
+	return entry.count == queueBurstCount
+}
+
 // Record receives the log's warnings and errors. While error reports are
 // on, a warning is kept for the next report and a failed operation is
 // reported, at most ten times an hour for one fingerprint. While they are
@@ -208,7 +247,7 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 		return
 	}
 	safe := logging.Remote(fields)
-	if level < slog.LevelError {
+	if level < slog.LevelError && !(level == slog.LevelWarn && c.queueBurstLocked(safe, time.Now())) {
 		if len(safe) > 0 {
 			c.breadcrumbs = append(c.breadcrumbs, breadcrumb{at: time.Now().UTC(), fields: safe})
 			if len(c.breadcrumbs) > keptBreadcrumbs {
@@ -222,6 +261,9 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 		c.mu.Unlock()
 		return
 	}
+	if level < slog.LevelError {
+		safe["count"] = uint64(queueBurstCount)
+	}
 	event := c.eventLocked("operation", safe, stack(sentry.NewStacktrace()))
 	if !c.admitLocked(event.Fingerprint[0], time.Now()) || c.inFlight >= reportsInFlight {
 		c.mu.Unlock()
@@ -229,7 +271,7 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 	}
 	c.inFlight++
 	c.reports.Add(1)
-	scope, epoch := c.scope, c.epoch
+	scope, epoch, queue := c.scope, c.epoch, c.retry
 	c.mu.Unlock()
 	go func() {
 		defer c.reports.Done()
@@ -237,7 +279,9 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 		allowed := c.errorsLocked() && c.epoch == epoch
 		c.mu.Unlock()
 		if allowed {
-			c.send(scope, event)
+			if _, delay := c.deliverReport(scope, event); delay > 0 && queue != nil && scope.Err() == nil {
+				queue.offer(event, delay)
+			}
 		}
 		c.mu.Lock()
 		c.inFlight--

@@ -138,8 +138,7 @@ func (p *workspaceProject) managedWorktree(status protocol.GitStatus, session *p
 		p.runtime.executeScoped("managed-worktree/"+p.owner.ID.String(), protocol.Command{Kind: "create_managed_worktree", Data: input}, func(c *ui.Context, out protocol.Output, err error) {
 			if err != nil {
 				p.panel.LockPrompt(client.Retained(err))
-				outcome, key := workspaceFailure(worktreeCreate, err)
-				kit.Toast(c, outcome, i18n.T(c, key))
+				reportWorkspaceMutation(c, "create_managed_worktree", worktreeCreate, err)
 				done(false)
 				return
 			}

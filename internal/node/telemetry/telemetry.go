@@ -31,7 +31,9 @@ type Options struct {
 	Application string              // "desktop" (default) or "host"
 	Lookup      func(string) string // environment; os.Getenv by default
 	Transport   http.RoundTripper   // http.DefaultTransport by default
-	// Timer schedules the usage window's flush; time.AfterFunc by default.
+	// RetryDirectory is the owned profile's private temporary directory.
+	RetryDirectory string
+	// Timer schedules usage flushes and operation retries; time.AfterFunc by default.
 	Timer func(time.Duration, func()) (stop func())
 	// Models are the built-in presets' static model identifiers by preset.
 	// Any other model is counted as "custom".
@@ -54,7 +56,11 @@ type Control struct {
 	scope        context.Context // ends when the epoch advances
 	advance      context.CancelFunc
 	installation string
+	policy       sync.Mutex // serializes queue replacement and profile cleanup
+	retryDir     string
+	retry        *operationQueue
 
+	queueRaces  map[string]limit // one counter per allowlisted cause
 	breadcrumbs []breadcrumb
 	limits      map[string]*limit
 	reports     sync.WaitGroup
@@ -111,6 +117,7 @@ func New(options Options) *Control {
 	}
 	c.release = "sailry@" + link.ProductVersion + "+" + revision
 	c.scope, c.advance = context.WithCancel(context.Background())
+	c.retryDir = options.RetryDirectory
 	return c
 }
 
@@ -122,21 +129,46 @@ func (c *Control) advanceLocked() {
 	c.advance()
 	c.scope, c.advance = context.WithCancel(context.Background())
 	c.breadcrumbs = nil
+	clear(c.queueRaces)
 	c.clearWindowLocked()
 }
 
 // Configure takes the saved settings. The first one counts the launch when
 // usage metrics are on.
 func (c *Control) Configure(settings protocol.TelemetrySettings) {
+	c.policy.Lock()
+	defer c.policy.Unlock()
 	c.mu.Lock()
 	id := settings.InstallationID.String()
+	rotate := !c.closing && c.retryDir != "" && (!c.ready || c.errors != settings.Errors || c.installation != id)
+	previous := c.retry
 	if !c.closing && !(c.ready && c.errors == settings.Errors && c.metrics == settings.Metrics && c.installation == id) {
 		c.ready, c.errors, c.metrics, c.installation = true, settings.Errors, settings.Metrics, id
 		c.advanceLocked()
 	}
 	first := !c.configured && !c.closing
 	c.configured = true
+	if rotate {
+		c.retry = nil
+		if previous != nil {
+			previous.cancel()
+		}
+		if c.errorsLocked() {
+			c.retry = newOperationQueue(c)
+		}
+	}
+	next := c.retry
 	c.mu.Unlock()
+	if rotate {
+		if previous != nil {
+			<-previous.done
+		}
+		if next != nil {
+			go next.run(c)
+		} else if previous == nil {
+			purgeOperations(c.retryDir)
+		}
+	}
 	if first {
 		c.Observe(Launch())
 	}
@@ -145,14 +177,24 @@ func (c *Control) Configure(settings protocol.TelemetrySettings) {
 // Close sends the pending usage window and waits for reports in flight, for
 // two seconds at most, then withdraws consent for the rest of the process.
 func (c *Control) Close() {
+	c.policy.Lock()
+	defer c.policy.Unlock()
 	c.mu.Lock()
 	if c.closing {
 		c.mu.Unlock()
 		return
 	}
 	c.closing = true
+	queue := c.retry
+	c.retry = nil
+	if queue != nil {
+		queue.cancel()
+	}
 	pending, epoch := c.takeWindowLocked()
 	c.mu.Unlock()
+	if queue != nil {
+		<-queue.done
+	}
 	deadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	c.deliver(deadline, pending, epoch)

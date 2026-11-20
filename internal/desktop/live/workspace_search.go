@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"mime"
 	"path"
 	"strings"
@@ -50,6 +51,8 @@ func (p *workspaceProject) searchFiles(query panel.SearchQuery, done func(panel.
 					key := "file_search_failed"
 					if faultCode(err) == protocol.ErrorCodeInvalidRequest {
 						key = "file_search_invalid"
+					} else {
+						kit.RecordFailure("desktop", command.Kind, kit.Failed, err, slog.String("stage", "file_search"))
 					}
 					kit.Toast(c, kit.Failed, i18n.T(c, key))
 				}

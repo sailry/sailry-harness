@@ -57,6 +57,8 @@ type Fault struct {
 	Code    ErrorCode     `json:"code"`
 	Message string        `json:"message"`
 	Details *FaultDetails `json:"details,omitempty"`
+	// ReportRef correlates this delivery's diagnostics, not the durable request.
+	ReportRef string `json:"report_ref,omitempty"`
 }
 
 func DefaultFault() Fault {

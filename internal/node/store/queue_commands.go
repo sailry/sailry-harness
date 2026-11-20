@@ -201,13 +201,13 @@ func checkQueueItem(ctx context.Context, db *sql.Conn, turn protocol.TurnID, exp
 	}
 	var revision uint64
 	if err = db.QueryRowContext(ctx, "SELECT revision FROM agent_pending WHERE turn=?1", turn.String()).Scan(&revision); errors.Is(err, sql.ErrNoRows) {
-		return run, fault(protocol.ErrorCodeConflict, "turn is no longer queued")
+		return run, new(queueItemNotPending)
 	}
 	if err != nil {
 		return run, err
 	}
-	if err = checkRevision(revision, expected); err != nil {
-		return run, err
+	if revision != expected {
+		return run, new(queueRevisionChanged)
 	}
 	return run, nil
 }
@@ -231,7 +231,7 @@ func startQueued(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (proto
 			return run, err
 		}
 		if !retained {
-			return run, fault(protocol.ErrorCodeConflict, "turn input has already been consumed")
+			return run, new(queueInputConsumed)
 		}
 		run.Status = protocol.ConversationStatusQueued
 		run.Error = nil
@@ -314,7 +314,7 @@ func reorderQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID,
 		ids = append(ids, item.Turn)
 	}
 	if !found {
-		return fault(protocol.ErrorCodeConflict, "turn is no longer queued")
+		return new(queueItemNotPending)
 	}
 	index := len(ids)
 	if before != nil {
@@ -376,11 +376,20 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 	if err != nil {
 		return err
 	}
-	if target.Kind != protocol.ConversationRunKindTask || target.Status != protocol.ConversationStatusRunning {
-		return fault(protocol.ErrorCodeConflict, "guidance requires an active task recipient")
+	if turn == recipient {
+		return new(guidanceRecipientIsSource)
 	}
 	if source.Kind != protocol.ConversationRunKindTask || source.Notice || source.Continuation != nil || target.Session != source.Session || target.Worktree != source.Worktree {
-		return fault(protocol.ErrorCodeConflict, "guidance belongs to another execution scope")
+		return new(guidanceScopeMismatch)
+	}
+	if target.Kind != protocol.ConversationRunKindTask {
+		return new(guidanceRecipientNotTask)
+	}
+	if target.Status == protocol.ConversationStatusStopping {
+		return new(guidanceRecipientStopping)
+	}
+	if target.Status != protocol.ConversationStatusRunning {
+		return new(guidanceRecipientNotRunning)
 	}
 	compatible, err := sameCapture(ctx, db, turn, recipient)
 	if err != nil {
@@ -574,7 +583,7 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 		return nil, nil, err
 	}
 	if target.Status != protocol.ConversationStatusRunning {
-		return nil, nil, fault(protocol.ErrorCodeConflict, "guidance recipient is no longer running")
+		return nil, nil, new(guidanceRecipientNotRunning)
 	}
 	// One boundary takes a bounded batch, like background results; the rest
 	// stays addressed to the turn and joins at its next model step.

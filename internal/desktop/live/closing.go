@@ -2,6 +2,7 @@ package live
 
 import (
 	"crypto/sha256"
+	"log/slog"
 	"path"
 	"slices"
 	"strings"
@@ -88,6 +89,7 @@ func (r *Runtime) SaveDocuments() {
 		root.workspace.saveAll = nil
 		if !started {
 			kit.Toast(c, kit.Failed, i18n.T(c, "workspace_action_failed"))
+			kit.RecordFailure("desktop", "save_all_documents", kit.Failed, nil, slog.String("stage", "preflight"), slog.String("reason_code", "draft_not_saveable"))
 		}
 	})
 }

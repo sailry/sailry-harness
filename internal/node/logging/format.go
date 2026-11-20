@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -34,7 +35,7 @@ var fields = []struct {
 	{"package", local}, {"digest", local}, {"settings_revision", local}, {"handler", local}, {"invocation", local},
 	{"call", local}, {"artifact_id", local}, {"attachment_id", local}, {"revision", local}, {"command", local},
 	{"operation", public}, {"stage", local}, {"detail", local}, {"source_kind", local}, {"reason", local},
-	{"command_stage", local}, {"configuration_reason", local},
+	{"command_stage", local}, {"configuration_reason", local}, {"reason_code", local}, {"report_ref", local},
 	{"cause_code", public}, {"cause_component", local}, {"cause_category", local}, {"upstream_status", local},
 	{"websocket_close_code", local}, {"attempt", local}, {"limit", local}, {"request_mode", local}, {"transport", local},
 	{"connection_reused", local}, {"communication_outcome", local}, {"execution_outcome", local},
@@ -162,6 +163,16 @@ func token(value string) bool {
 	return true
 }
 
+// ValidReportRef accepts only canonical, random v4 references. In particular
+// a request's timestamped v7 identifier is not a report reference.
+func ValidReportRef(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	id, err := uuid.Parse(s)
+	return err == nil && id.Version() == 4 && id.Variant() == uuid.RFC4122 && id.String() == s
+}
+
 // Remote is the part of a record that may leave the process: public tokens
 // and counters, a valid application version, and a package only as
 // "third_party". Configuration reasons and command stages use closed lists.
@@ -185,6 +196,21 @@ func Remote(values Fields) Fields {
 		case int64, uint64, bool:
 			if field.disclosure == public {
 				safe[field.name] = value
+			}
+		}
+	}
+	if ref, _ := values["report_ref"].(string); safe["phase"] == Failed && ValidReportRef(ref) {
+		safe["report_ref"] = ref
+	}
+	if safe["phase"] == Failed {
+		switch reason, _ := values["reason_code"].(string); reason {
+		case "draft_not_saveable", "selection_unmapped", "queue_revision_changed", "queue_item_not_pending", "queue_input_consumed", "queue_input_not_editable", "guidance_not_pending", "recipient_stopping", "recipient_not_running", "recipient_not_task", "recipient_is_source", "guidance_scope_mismatch":
+			safe["reason_code"] = reason
+		}
+		if safe["area"] == "desktop" {
+			switch stage, _ := values["stage"].(string); stage {
+			case "preflight", "map_selection", "workspace_mutation", "file_search":
+				safe["stage"] = stage
 			}
 		}
 	}
@@ -304,6 +330,8 @@ func parse(entry string) (Fields, bool) {
 		}
 	}
 	values = Remote(values)
+	// Manual log tails do not link other deliveries to this diagnostic.
+	delete(values, "report_ref")
 	values["level"], values["timestamp"] = level, header[0]
 	return values, true
 }

@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -9,9 +11,50 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/richtext"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 )
+
+func TestEditorUnmappedSelectionRecordsFailure(t *testing.T) {
+	stop, err := logging.Install(filepath.Join(t.TempDir(), "profile"), "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	var records []logging.Fields
+	logging.SetReport(func(level slog.Level, fields logging.Fields) {
+		if level != slog.LevelError {
+			t.Errorf("level = %v", level)
+		}
+		records = append(records, fields)
+	})
+	defer logging.SetReport(nil)
+	const path, draft = "private.md", "confidential draft"
+	pr := editorFixture(path, "original")
+	pr.FileChanged(path, draft)
+	item := pr.Files.item(path)
+	state := item.documentState()
+	state.rich, state.richSafe = richtext.NewDocument(richtext.ParseMarkdown("other text")), true
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		if item.source == 0 {
+			pr.editorSourceAction(c, path, "link", "private-link")
+		}
+		kit.ToastHost(c)
+	}, 800, 600)
+	tester.SetLocale("en")
+	tester.Frame()
+	tester.Frame()
+	if got, dirty := pr.FileDraft(path); !dirty || got != draft || item.source != 1 || state.pending != nil || !tester.HasText(i18n.In("en", "workspace_action_failed")) {
+		t.Fatalf("unmapped selection: draft %q, dirty %v, source %d, texts %q", got, dirty, item.source, tester.Texts())
+	}
+	if len(records) != 1 || records[0]["operation"] != "edit_markdown_source" || records[0]["stage"] != "map_selection" || logging.Remote(records[0])["reason_code"] != "selection_unmapped" {
+		t.Fatalf("failure records = %v", records)
+	}
+}
 
 func TestEditorContracts(t *testing.T) {
 	t.Run("live page and closing panel share a file", func(t *testing.T) {

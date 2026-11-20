@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -242,6 +243,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	value.modelFactory = options.Model
 	value.mediaPoll = model.MediaVideoPoll
+	options.Telemetry.RetryDirectory = filepath.Join(profile.Ownership.Path, "tmp")
 	value.telemetry = newTelemetry(options.Telemetry)
 	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn})
 	if err := value.agent.Recover(ctx); err != nil {
@@ -265,6 +267,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	if err := value.initLocalModels(ctx, options.LocalModels); err != nil {
+		value.detachLogging()
+		value.telemetry.Close()
 		cancel()
 		value.closeAuth()
 		_ = value.terminals.Close()

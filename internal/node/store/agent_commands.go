@@ -243,7 +243,7 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 				return protocol.Output{}, nil, err
 			}
 			if !retained {
-				return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "turn input is no longer editable")
+				return protocol.Output{}, nil, new(queueInputNotEditable)
 			}
 		}
 		if err = recaptureDetachedGuidance(ctx, db, v.Turn); err != nil {
@@ -362,7 +362,7 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, err
 		}
 		if n == 0 {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "queued input has no pending guidance")
+			return protocol.Output{}, nil, new(guidanceNotPending)
 		}
 		if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET ready=0 WHERE turn=?1", v.Turn.String()); err != nil {
 			return protocol.Output{}, nil, err
@@ -382,8 +382,8 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = checkRevision(queue.Revision, v.ExpectedRevision); err != nil {
-			return protocol.Output{}, nil, err
+		if queue.Revision != v.ExpectedRevision {
+			return protocol.Output{}, nil, new(queueRevisionChanged)
 		}
 		if err = reorderQueue(ctx, db, session, v.Turn, v.Before); err != nil {
 			return protocol.Output{}, nil, err
@@ -394,8 +394,8 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = checkRevision(queue.Revision, v.ExpectedRevision); err != nil {
-			return protocol.Output{}, nil, err
+		if queue.Revision != v.ExpectedRevision {
+			return protocol.Output{}, nil, new(queueRevisionChanged)
 		}
 		if v.Paused {
 			err = pauseQueue(ctx, db, session, protocol.ConversationQueuePauseUser)

@@ -1247,16 +1247,64 @@ The helper requires a graphical login; its absence does not prevent Node startup
 Shutdown rejects new work, closes subscriptions, joins admitted operations,
 closes storage and releases the profile lock. Recovery reads durable facts without
 silently rerunning uncertain effects. Notifications have one Node-owned store.
-Telemetry is inactive while its switch is off. Configuration refusals carry a
-bounded reason through command admission and completion. Explicit setup states
-(such as missing defaults, sign-in required or a disabled provider) are warnings
-kept as breadcrumbs, not standalone Sentry errors. Missing captured configuration,
-missing retained credentials and unclassified failures remain errors. Remote
-reports include only allowlisted configuration reasons and command stages, never
-the fault message, credentials or conversation contents. Each Desktop toast for a
-failed action, and each plugin error toast, records a failure under its stable key or
-toast id with its fault code; the message stays in the local log. Validation and
-setup prompts are not failures.
+Automatic error reporting is inactive while its switch is off. Configuration
+refusals carry a bounded reason through command admission and completion. Explicit
+setup states (such as missing defaults, sign-in required or a disabled provider)
+are warnings kept as breadcrumbs, not standalone Sentry errors. Missing captured configuration,
+missing retained credentials and unclassified failures remain errors.
+
+Two Sentry groups need more evidence than their titles provide:
+
+- `command.guide_queued_turn:conflict` does not by itself identify a stopping
+  recipient. Desktop directs guidance only to a running task; the queue or
+  recipient can still change before Node accepts it. For failed
+  `guide_queued_turn` commands with `conflict` or `revision_conflict`, Node
+  counts five exact race reasons separately: `queue_revision_changed`,
+  `queue_item_not_pending`, `queue_input_consumed`, `recipient_stopping` and
+  `recipient_not_running`. One race is a warning; the tenth of the same reason
+  in a five-minute window is eligible for one report with `count=10`. This is
+  a reporting threshold, not a limit on user actions. Other queue commands do
+  not trigger it. A non-task recipient, a scope mismatch or an unclassified
+  conflict remains an error. Initial reports are capped at ten per fingerprint
+  per hour, with at most 32 in flight.
+- `desktop.workspace_action_failed` names a generic toast, not a cause. The
+  `unspecified` code means no error was supplied to the reporter. Read
+  the operation, fault code and stage: a refused write records `write_file`
+  at `workspace_mutation`; a Save all that cannot start records
+  `save_all_documents` at `preflight` with `draft_not_saveable`; an unmapped
+  Markdown selection records `edit_markdown_source` at `map_selection` with
+  `selection_unmapped`. Failed file searches record the command at `file_search`,
+  not the query. Invalid search input and setup prompts are not failures.
+  Controller reads of `list_directory`, `inspect_git`, `list_worktrees` and
+  `search_files` retain local Node diagnostics without a duplicate automatic
+  Node report.
+  Desktop conflicts, uncertain outcomes and cancellations are warnings. Plugin
+  error toasts keep their stable toast ID and fault code.
+
+For covered queue and workspace commands, Node adds a fresh random UUIDv4
+(`report_ref`) to the delivered fault and its log record, not to the stored
+receipt. Match that value to the Desktop failure to trace one delivery. It is
+not a request, session or user ID, is not reused on redelivery and is not part
+of the Sentry grouping fingerprint. Only allowlisted fields leave the log;
+fault text, paths, credentials and conversation contents do not.
+
+Only a failed automatic **operation report** can enter the retry queue; Node
+never replays the command. Selected transient network errors and HTTP 408, 429,
+500, 502, 503 or 504 qualify. An explicit `X-Sentry-Rate-Limits` quota is not
+retried. The minimum delay is five minutes; a valid `Retry-After` can extend it
+within the 24-hour lifetime. There are at most three retries after the original
+send. The profile's `tmp` holds at most 32 private records of 2 KiB each
+(64 KiB total). Each stores the allowlisted classification, event ID and
+fingerprint, timestamps, retry count and a binding hash, not an envelope,
+stack, breadcrumbs or attachment. Retries keep the original event ID and
+fingerprint. Expired, invalid and excess records are discarded. A restart can
+recover records left by an interrupted process only for the same installation,
+DSN, application and release. Retry delays start at five minutes, then grow to
+at least 30 minutes and three hours. The process reads `SAILRY_SENTRY_DSN` at startup;
+a nonempty override replaces the compiled endpoint. Turning off automatic errors,
+opting out via `SAILRY_TELEMETRY=off` or `DO_NOT_TRACK=1`, or starting without
+a DSN leaves no active retry queue. Disabling reporting or closing normally clears the slots;
+changing identity or DSN never sends an old report under the new binding.
 
 ## Security and repository resources
 

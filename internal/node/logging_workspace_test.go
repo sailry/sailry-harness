@@ -89,6 +89,7 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 		kind  string
 		level string
 		code  protocol.ErrorCode
+		ref   string
 	}
 	var failures []failure
 	for _, test := range []struct {
@@ -105,7 +106,10 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 		if fault == nil || fault.Code != test.code {
 			t.Fatalf("%s = %v, want %s", test.command.Kind, fault, test.code)
 		}
-		failures = append(failures, failure{request.ID, test.command.Kind, test.level, test.code})
+		if !logging.ValidReportRef(fault.ReportRef) {
+			t.Fatalf("%s failure has no valid reference: %q", test.command.Kind, fault.ReportRef)
+		}
+		failures = append(failures, failure{request.ID, test.command.Kind, test.level, test.code, fault.ReportRef})
 	}
 	if !inspected.Load() {
 		t.Fatal("inspection did not reach native Git status")
@@ -152,7 +156,7 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 			matched++
 			if !strings.Contains(line, " "+want.level+" desktop area=command phase=failed ") ||
 				!strings.Contains(line, " worktree="+tree.String()+" command="+want.kind+" ") ||
-				!strings.Contains(line, " command_stage=completion code="+string(want.code)+" ") {
+				!strings.Contains(line, " command_stage=completion ") || !slices.Contains(strings.Fields(line), "report_ref="+want.ref) || !strings.Contains(line, " code="+string(want.code)+" ") {
 				t.Errorf("%s failure logged as %q", want.kind, line)
 			}
 		}

@@ -1,6 +1,8 @@
 package live
 
 import (
+	"log/slog"
+	"path/filepath"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -14,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -89,6 +92,17 @@ func TestCloseGuard(t *testing.T) {
 		})
 	})
 	t.Run("a failed save keeps the draft and tells a toast", func(t *testing.T) {
+		stop, err := logging.Install(filepath.Join(t.TempDir(), "profile"), "desktop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stop()
+		logging.SetReport(func(_ slog.Level, fields logging.Fields) {
+			if fields["area"] == "desktop" {
+				t.Errorf("editor-handled save conflict was reported again: %v", fields)
+			}
+		})
+		defer logging.SetReport(nil)
 		synctest.Test(t, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root

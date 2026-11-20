@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -54,7 +56,7 @@ var transientCommands = func() map[string]observation {
 			"read_tool_output", "read_tool_detail", "read_session", "read_plugin_callback", "read_plugin_value", "read_plugin_conversation_value",
 			"list_ssh", "list_databases", "list_plugin_models", "read_model_catalog", "read_model_scores", "read_project_catalog",
 		},
-		workspaceRead: {"list_directory", "inspect_git", "list_worktrees"},
+		workspaceRead: {"list_directory", "inspect_git", "list_worktrees", "search_files"},
 		transfer: {
 			"open_port", "cancel_port", "download_ssh_file", "stage_ssh_upload", "upload_plugin", "download_backup", "upload_backup",
 			"download_file", "upload_file", "upload_attachment", "download_attachment", "download_image", "cancel_file_transfer",
@@ -80,7 +82,7 @@ var transientCommands = func() map[string]observation {
 			"read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "fetch_web",
 			"cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_code_index_settings", "read_hooks", "read_personal_instructions",
 			"read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "read_attachment",
-			"search_files", "read_git_head", "list_git_branches", "resolve_git_revision",
+			"read_git_head", "list_git_branches", "resolve_git_revision",
 			"read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "read_git_show",
 			"list_git_changes", "read_git_change", "read_git_context", "read_git_blame", "read_git_diff",
 		},
@@ -235,6 +237,10 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
+	if reason, race := store.QueueRejection(kind, fault); reason != "" {
+		span.Set(slog.String("reason_code", reason))
+		expected = race
+	}
 	if fault.Code == protocol.ErrorCodeNotConfigured && fault.Details == nil && (kind == "inspect_git" || kind == "list_worktrees") {
 		// The native Git service reports a missing executable without a configuration reason.
 		expected = true
@@ -267,20 +273,53 @@ func faultDiagnostic(fault *protocol.Fault) (protocol.NotificationSystemSystemDi
 	return protocol.NotificationSystemSystemDiagnostic{}, false
 }
 
+// reportFault correlates a single failure delivery, not the durable request.
+// Never modify a fault owned by a stored receipt, shared result or handler.
+func reportFault(span *logging.Span, kind string, original *protocol.Fault) *protocol.Fault {
+	if original.Code == protocol.ErrorCodeCancelled {
+		return original
+	}
+	switch kind {
+	case "guide_queued_turn", "send_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused",
+		"create_directory", "rename_entry", "trash_entry", "copy_entry_to", "move_entry_to", "finish_file_upload", "restore_file_checkpoint", "apply_turn_hunk",
+		"register_worktree", "move_conversation":
+	default:
+		if !fileTextMutation(kind) && !workspaceGitWrite(kind) && transientCommands[kind] != workspaceRead {
+			return original
+		}
+	}
+	f := *original
+	f.ReportRef = uuid.NewString()
+	span.Set(slog.String("report_ref", f.ReportRef))
+	return &f
+}
+
 // Dispatch admits a command and observes every one that changes data.
 func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	kind := request.Command.Kind
 	span := node.commandSpan(caller, request)
 	accepted, err := node.admitCommand(ctx, caller, request)
 	if span == nil {
 		return accepted, err
 	}
 	if err != nil {
+		abandoned := !request.Command.Durable() && ctx.Err() != nil
 		var fault *protocol.Fault
-		if !errors.As(err, &fault) {
+		if !errors.As(err, &fault) || fault == nil {
+			var value protocol.Fault
+			if errors.As(err, &value) {
+				fault = &value
+			}
+		}
+		if fault == nil {
 			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
+		} else if !abandoned {
+			if delivered := reportFault(span, kind, fault); delivered != fault {
+				fault, err = delivered, delivered
+			}
 		}
 		span.Set(slog.String("command_stage", "admission"))
-		rejectCommand(span, request.Command.Kind, fault, !request.Command.Durable() && ctx.Err() != nil)
+		rejectCommand(span, kind, fault, abandoned)
 		return accepted, err
 	}
 	span.Set(slog.Bool("durable", accepted.Receipt.Durable))
@@ -295,8 +334,12 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			span.Finish(logging.Interrupted, string(protocol.ErrorCodeOutcomeUnknown), false)
 			return
 		case result.Fault != nil:
+			abandoned := !accepted.Receipt.Durable && ctx.Err() != nil
+			if !abandoned {
+				result.Fault = reportFault(span, kind, result.Fault)
+			}
 			span.Set(slog.String("command_stage", "completion"))
-			rejectCommand(span, request.Command.Kind, result.Fault, !accepted.Receipt.Durable && ctx.Err() != nil)
+			rejectCommand(span, kind, result.Fault, abandoned)
 		default:
 			observeOutput(span, request, result.Output)
 			span.Finish(logging.Completed, "", false)

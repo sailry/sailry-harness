@@ -18,11 +18,15 @@ func Fail(c *ui.Context, outcome Outcome, key string, err error) {
 }
 
 // RecordFailure logs a failure shown to the user under its stable operation
-// name. A failed outcome is an error, which error reporting sends with only
-// the area, operation and code; the fault message stays in the local log.
+// name. A failed outcome is an error. A Node-issued reference may accompany
+// the public diagnostic fields; the fault message stays in the local log.
 // Conflicts, uncertain outcomes and cancellations are warnings.
 func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...slog.Attr) {
-	code := string(FaultCode(err))
+	fault := failureFault(err)
+	code := string(fault.Code)
+	if fault.Code != protocol.ErrorCodeCancelled && logging.ValidReportRef(fault.ReportRef) {
+		attrs = append(attrs, slog.String("report_ref", fault.ReportRef))
+	}
 	if code == "" {
 		code = "internal"
 		if err == nil {
@@ -43,13 +47,15 @@ func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...
 
 // FaultCode is the protocol code an error carries, or "" for another error.
 func FaultCode(err error) protocol.ErrorCode {
+	return failureFault(err).Code
+}
+
+func failureFault(err error) protocol.Fault {
 	var pointer *protocol.Fault
-	if errors.As(err, &pointer) {
-		return pointer.Code
+	if errors.As(err, &pointer) && pointer != nil {
+		return *pointer
 	}
 	var fault protocol.Fault
-	if errors.As(err, &fault) {
-		return fault.Code
-	}
-	return ""
+	errors.As(err, &fault)
+	return fault
 }

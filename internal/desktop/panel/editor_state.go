@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -186,6 +187,7 @@ func (pr *Project) editorSourceAction(c *ui.Context, path, action, value string)
 		if !ok {
 			item.source = 1
 			kit.Toast(c, kit.Failed, i18n.T(c, "workspace_action_failed"))
+			kit.RecordFailure("desktop", "edit_markdown_source", kit.Failed, nil, slog.String("stage", "map_selection"), slog.String("reason_code", "selection_unmapped"))
 			return
 		}
 		source, selected = mapped, &selection
