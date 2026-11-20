@@ -173,6 +173,16 @@ func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web
 			return err
 		}
 		selection = plan.Settings.Providers[protocol.SearchDriverModel].Model
+		// Without a chosen search model, model search follows the calling
+		// conversation's current model.
+		if selection == nil && request.Plugin != nil && request.Plugin.Session != nil {
+			session, err := store.ReadSession(ctx, db, *request.Plugin.Session)
+			if err != nil {
+				modelErr = err
+			} else {
+				selection = &protocol.SearchModelConfig{Provider: session.Config.Provider, Model: session.Config.Model}
+			}
+		}
 		if selection != nil {
 			provider, modelErr = store.CaptureSearchProvider(ctx, db, *selection)
 		}
@@ -182,11 +192,11 @@ func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web
 		return plan, user.ID, err
 	}
 	plan.Model = func(ctx context.Context, input protocol.SearchRequest) (protocol.SearchPage, error) {
-		if selection == nil {
-			return protocol.SearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "search model is not configured"}
-		}
 		if modelErr != nil {
 			return protocol.SearchPage{}, modelErr
+		}
+		if selection == nil {
+			return protocol.SearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "model search needs a conversation or a chosen model"}
 		}
 		session := protocol.NewSessionID()
 		var turn *protocol.TurnID

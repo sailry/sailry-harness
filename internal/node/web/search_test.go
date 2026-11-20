@@ -132,6 +132,31 @@ func TestSearchChannelOrder(t *testing.T) {
 			t.Fatal(page, err, calls)
 		}
 	})
+	t.Run("automatic model search needs no chosen model and falls back", func(t *testing.T) {
+		defaults := protocol.DefaultSearchSettings()
+		if defaults.Order[0] != protocol.SearchDriverModel || !defaults.Providers[protocol.SearchDriverModel].Enabled {
+			t.Fatal("model search is not the first enabled default", defaults.Order)
+		}
+		settings := searchSettings(protocol.SearchDriverModel, protocol.SearchDriverBrave)
+		config := settings.Providers[protocol.SearchDriverModel]
+		config.Model = nil
+		settings.Providers[protocol.SearchDriverModel] = config
+		called := 0
+		searcher := NewSearcher(SearchOptions{Endpoints: map[protocol.SearchDriver]string{protocol.SearchDriverBrave: "https://brave.test/"}, Transport: fixtureTransport(func(*http.Request) (*http.Response, error) {
+			called++
+			return responseFixture(`{"web":{"results":[{"url":"https://example.com/","title":"Source","description":"Excerpt"}]}}`, "application/json"), nil
+		})})
+		searcher.Configure(settings)
+		calls := 0
+		plan := SearchPlan{Settings: settings, Credentials: map[protocol.SearchDriver]Auth{protocol.SearchDriverBrave: searchAuth()}, Model: func(context.Context, protocol.SearchRequest) (protocol.SearchPage, error) {
+			calls++
+			return protocol.SearchPage{}, nativeUnsupported()
+		}}
+		page, err := searcher.Search(context.Background(), plan, protocol.SearchRequest{Query: "fixture", Limit: 5})
+		if err != nil || calls != 1 || called != 1 || page.Driver != protocol.SearchDriverBrave {
+			t.Fatal(page, err, calls, called)
+		}
+	})
 }
 
 func TestSearchDriverContracts(t *testing.T) {

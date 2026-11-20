@@ -293,7 +293,7 @@ func searchCandidates(settings protocol.SearchSettings) []protocol.SearchDriver 
 	}
 	return slices.DeleteFunc(drivers, func(driver protocol.SearchDriver) bool {
 		config, ok := settings.Providers[driver]
-		return !ok || !config.Enabled || searchKeyRequired(driver) && !config.KeyConfigured || driver == protocol.SearchDriverSearxng && (config.Endpoint == nil || *config.Endpoint == "") || driver == protocol.SearchDriverModel && config.Model == nil
+		return !ok || !config.Enabled || searchKeyRequired(driver) && !config.KeyConfigured || driver == protocol.SearchDriverSearxng && (config.Endpoint == nil || *config.Endpoint == "")
 	})
 }
 func searchKeyRequired(driver protocol.SearchDriver) bool {

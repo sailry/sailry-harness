@@ -107,7 +107,7 @@ func (value Fault) Error() string { return fmt.Sprintf("%s: %s", value.Code, val
 func modelPointer[T any](value T) *T { return &value }
 
 func defaultSearchOrder() []SearchDriver {
-	return []SearchDriver{SearchDriverExa, SearchDriverTinyfish, SearchDriverTavily, SearchDriverBrave, SearchDriverSearxng, SearchDriverBocha, SearchDriverVolcengine, SearchDriverDeepseek, SearchDriverModel}
+	return []SearchDriver{SearchDriverModel, SearchDriverExa, SearchDriverTinyfish, SearchDriverTavily, SearchDriverBrave, SearchDriverSearxng, SearchDriverBocha, SearchDriverVolcengine, SearchDriverDeepseek}
 }
 
 func defaultSearchCapabilities() map[SearchDriver]SearchCapability {
@@ -134,7 +134,7 @@ func defaultSearchCapabilities() map[SearchDriver]SearchCapability {
 func defaultSearchProviders() map[SearchDriver]SearchConfig {
 	values := make(map[SearchDriver]SearchConfig)
 	for _, driver := range defaultSearchOrder() {
-		values[driver] = SearchConfig{Enabled: driver == SearchDriverExa}
+		values[driver] = SearchConfig{Enabled: driver == SearchDriverModel || driver == SearchDriverExa}
 	}
 	return values
 }
