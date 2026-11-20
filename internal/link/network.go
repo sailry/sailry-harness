@@ -230,8 +230,8 @@ func (link *Link) Online(ctx context.Context) error {
 }
 
 // NetworkChanged rebinds the endpoint, then verifies each cached outgoing
-// connection with one inspection. A connection that does not answer within
-// livenessTimeout is dropped, so its streams fail now and the next use redials.
+// connection with one inspection. A libp2p inspection checks only the path
+// carrying its stream; other paths and their admitted streams remain usable.
 func (link *Link) NetworkChanged(ctx context.Context) error {
 	scoped, cancel := link.operation(ctx, true)
 	err := linkNetwork(link.endpoint.NetworkChange(scoped))
@@ -248,7 +248,8 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 			continue
 		}
 		checks.Go(func() {
-			reply, err := link.answers(ctx, connection.OpenBi)
+			probe := livenessProbe{connection: connection}
+			reply, err := link.answers(ctx, probe.open)
 			if err == nil && reply.Endpoint != nil && len(reply.Endpoint.LANListeners) != 0 {
 				if conn, ok := connection.(*libp2pConnection); ok {
 					conn.endpoint.mu.Lock()
@@ -272,12 +273,25 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 						return
 					}
 				}
-				link.drop(peer, connection, "peer did not answer", expired)
+				probe.err = err
+				link.drop(peer, &probe, "peer did not answer")
 			}
 		})
 	}
 	checks.Wait()
 	return err
+}
+
+type livenessProbe struct {
+	connection peertransport.Connection
+	stream     contextStream
+	err        error
+}
+
+func (probe *livenessProbe) open(ctx context.Context) (contextStream, error) {
+	stream, err := probe.connection.OpenBi(ctx)
+	probe.stream = stream
+	return stream, err
 }
 
 // answers sends one inspection on a new stream and waits livenessTimeout for
@@ -350,12 +364,12 @@ func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bo
 // a connection to a process that is gone is otherwise noticed only when an
 // operation on it times out.
 func (link *Link) Disconnect(peer protocol.NodeID) {
-	link.drop(peer, nil, "peer restarted", false)
+	link.drop(peer, nil, "peer restarted")
 }
 
 // drop closes the peer's cached connection so the next use redials. With an
-// expected connection it leaves a newer one that replaced it in place.
-func (link *Link) drop(peer protocol.NodeID, expected peertransport.Connection, reason string, discardPaths bool) {
+// unsuccessful probe it leaves a replacement or a surviving route in place.
+func (link *Link) drop(peer protocol.NodeID, probe *livenessProbe, reason string) {
 	link.mu.RLock()
 	slot := link.outgoing[peer]
 	if slot == nil {
@@ -363,15 +377,13 @@ func (link *Link) drop(peer protocol.NodeID, expected peertransport.Connection, 
 		return
 	}
 	slot.mu.Lock()
-	if expected != nil && slot.connection != expected {
-		slot.mu.Unlock()
-		link.mu.RUnlock()
-		return
-	}
 	connection, telemetry := slot.connection, slot.telemetry
-	if discardPaths && expected != nil {
-		if stale, ok := connection.(interface{ DiscardPaths() error }); ok {
-			_ = stale.DiscardPaths()
+	if probe != nil {
+		conn, libp2p := connection.(*libp2pConnection)
+		if connection != probe.connection || libp2p && conn.retainAfterProbe(probe.stream, probe.err) {
+			slot.mu.Unlock()
+			link.mu.RUnlock()
+			return
 		}
 	}
 	slot.connection, slot.telemetry = nil, nil

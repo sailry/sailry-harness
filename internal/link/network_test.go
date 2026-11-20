@@ -999,67 +999,52 @@ type fixtureRebindingEndpoint struct{ peertransport.Endpoint }
 
 func (fixtureRebindingEndpoint) NetworkChange(context.Context) error { return nil }
 
-type fixtureDiscardConnection struct {
-	*fixtureConnection
-	discarded int
-}
-
-func (connection *fixtureDiscardConnection) DiscardPaths() error {
-	connection.discarded++
-	return nil
-}
-
 func TestLivenessCheckBoundsOneInspection(t *testing.T) {
-	link := newFixtureLink(t)
-	var bounded atomic.Int32
-	link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
-		if duration == livenessTimeout {
-			bounded.Add(1)
-			// The silent peer below outlasts the liveness deadline.
-			return context.WithTimeout(ctx, time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		link := newFixtureLink(t)
+		var bounded atomic.Int32
+		link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+			if duration == livenessTimeout {
+				bounded.Add(1)
+			}
+			return context.WithTimeout(ctx, duration)
 		}
-		return context.WithCancel(ctx)
-	}
-	answering := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &wire.Endpoint{LANListeners: []string{"/ip4/192.168.1.42/tcp/1234"}}}))
-	reply, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return answering, nil })
-	if err != nil || reply.Endpoint == nil || len(reply.Endpoint.LANListeners) != 0 {
-		t.Fatalf("non-circuit inspection = %#v, %v", reply.Endpoint, err)
-	}
-	var call wire.Envelope
-	if err := wire.Read(bytes.NewReader(answering.written()), &call, false); err != nil || call.Call.Kind != wire.CallInspect || !answering.finished || !answering.closed {
-		t.Fatalf("liveness check sent %#v, %v; finished %v, closed %v", call.Call.Kind, err, answering.finished, answering.closed)
-	}
-	rejecting := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyRejected, Rejected: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "denied"}}))
-	if _, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return rejecting, nil }); err != nil {
-		t.Fatalf("a rejection is still an answer: %v", err)
-	}
-	silent := silentStream{newFixtureStream(nil)}
-	_, err = link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
-	if !errors.Is(err, context.DeadlineExceeded) || faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
-		t.Fatalf("silent peer = %v, closed %v", err, silent.closed)
-	}
-	_, unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, peertransport.ErrClosed })
-	if faultValue(unreachable).Code != protocol.ErrorCodeUnavailable {
-		t.Fatalf("closed connection = %v", unreachable)
-	}
-	if bounded.Load() != 4 {
-		t.Fatalf("liveness deadlines = %d, want one per check", bounded.Load())
-	}
+		answering := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &wire.Endpoint{LANListeners: []string{"/ip4/192.168.1.42/tcp/1234"}}}))
+		reply, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return answering, nil })
+		if err != nil || reply.Endpoint == nil || len(reply.Endpoint.LANListeners) != 0 {
+			t.Fatalf("non-circuit inspection = %#v, %v", reply.Endpoint, err)
+		}
+		var call wire.Envelope
+		if err := wire.Read(bytes.NewReader(answering.written()), &call, false); err != nil || call.Call.Kind != wire.CallInspect || !answering.finished || !answering.closed {
+			t.Fatalf("liveness check sent %#v, %v; finished %v, closed %v", call.Call.Kind, err, answering.finished, answering.closed)
+		}
+		rejecting := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyRejected, Rejected: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "denied"}}))
+		if _, err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return rejecting, nil }); err != nil {
+			t.Fatalf("a rejection is still an answer: %v", err)
+		}
+		silent := silentStream{newFixtureStream(nil)}
+		_, err = link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
+		if !errors.Is(err, context.DeadlineExceeded) || faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
+			t.Fatalf("silent peer = %v, closed %v", err, silent.closed)
+		}
+		_, unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, peertransport.ErrClosed })
+		if faultValue(unreachable).Code != protocol.ErrorCodeUnavailable {
+			t.Fatalf("closed connection = %v", unreachable)
+		}
+		if bounded.Load() != 4 {
+			t.Fatalf("liveness deadlines = %d, want one per check", bounded.Load())
+		}
+	})
 }
 
-func TestNetworkChangedDiscardsOnlyTimedOutPaths(t *testing.T) {
+func TestNetworkChangedDropsFailedSingleConnections(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		link := newFixtureLink(t)
 		link.endpoint = fixtureRebindingEndpoint{}
-		link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
-			if duration == livenessTimeout {
-				return context.WithTimeout(ctx, time.Millisecond)
-			}
-			return context.WithCancel(ctx)
-		}
-		silent := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{stream: silentStream{newFixtureStream(nil)}}}
-		closed := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{openErr: peertransport.ErrClosed}}
-		for id, connection := range []*fixtureDiscardConnection{silent, closed} {
+		link.timeout = context.WithTimeout
+		silent := &fixtureConnection{stream: silentStream{newFixtureStream(nil)}}
+		closed := &fixtureConnection{openErr: peertransport.ErrClosed}
+		for id, connection := range []*fixtureConnection{silent, closed} {
 			peer := protocol.NodeID{byte(id + 1)}
 			slot, err := link.slot(t.Context(), peer)
 			if err != nil {
@@ -1070,9 +1055,6 @@ func TestNetworkChangedDiscardsOnlyTimedOutPaths(t *testing.T) {
 		}
 		if err := link.NetworkChanged(t.Context()); err != nil {
 			t.Fatal(err)
-		}
-		if silent.discarded != 1 || closed.discarded != 0 {
-			t.Fatalf("discarded paths: timeout %d, already closed %d", silent.discarded, closed.discarded)
 		}
 		for _, slot := range link.outgoing {
 			if slot.connection != nil {
@@ -1088,13 +1070,15 @@ func TestFailedLivenessCheckKeepsReplacementConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(link.ctx)
 	defer cancel()
 	// The peer redialed while the check of its previous connection ran.
-	checked := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{}}
-	replacement := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{}}
+	checked := &libp2pConnection{}
+	replacement := &libp2pConnection{}
+	path := &livenessPath{}
+	probe := &livenessProbe{connection: checked, stream: &libp2pStream{raw: &livenessStream{path: path}}, err: context.DeadlineExceeded}
 	telemetry := &connectionTelemetry{changed: make(chan struct{}), done: make(chan struct{}), cancel: func() {}}
 	slot := &outgoingSlot{ctx: ctx, cancel: cancel, dial: make(chan struct{}, 1), connection: replacement, telemetry: telemetry}
 	link.outgoing[peer] = slot
-	link.drop(peer, checked, "peer did not answer", true)
-	if slot.connection != replacement || slot.telemetry != telemetry || checked.discarded != 0 || replacement.discarded != 0 {
+	link.drop(peer, probe, "peer did not answer")
+	if slot.connection != replacement || slot.telemetry != telemetry || path.closed {
 		t.Fatal("a failed check dropped the connection that replaced the checked one")
 	}
 }

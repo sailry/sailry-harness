@@ -276,7 +276,12 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 		return EndpointAddress{}, err
 	}
 	scoped, cancel := link.operation(ctx, true)
-	connection, err := link.endpoint.Connect(scoped, dialAddress, wire.PairALPN)
+	var connection peertransport.Connection
+	if endpoint, ok := link.endpoint.(*libp2pEndpoint); ok && relays != nil {
+		connection, err = endpoint.connect(scoped, dialAddress, wire.PairALPN, selected)
+	} else {
+		connection, err = link.endpoint.Connect(scoped, dialAddress, wire.PairALPN)
+	}
 	cancel()
 	if err != nil {
 		return EndpointAddress{}, linkNetwork(err)
@@ -296,7 +301,7 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	}
 	defer stream.Close()
 	if relays != nil {
-		// libp2p may reuse an existing path independently of the ticket hints.
+		// Check the actual stream before sending the invitation token.
 		opened, ok := stream.(*libp2pStream)
 		if !ok || !matchesPairingNetwork(opened.raw.Conn().RemoteMultiaddr(), selected) {
 			return EndpointAddress{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "the opened pairing path does not match the selected network"}

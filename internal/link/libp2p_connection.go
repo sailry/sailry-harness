@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	lpprotocol "github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
+	multistream "github.com/multiformats/go-multistream"
 
 	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -50,6 +51,10 @@ type libp2pConnection struct {
 var _ peertransport.Connection = (*libp2pConnection)(nil)
 
 func (endpoint *libp2pEndpoint) Connect(ctx context.Context, address peertransport.Address, alpn string) (peertransport.Connection, error) {
+	return endpoint.connect(ctx, address, alpn, nil)
+}
+
+func (endpoint *libp2pEndpoint) connect(ctx context.Context, address peertransport.Address, alpn string, selected []libp2pRelaySpec) (peertransport.Connection, error) {
 	if alpn != libp2pNodeALPN && alpn != libp2pPairALPN {
 		return nil, invalidLink("unsupported libp2p Link protocol")
 	}
@@ -95,20 +100,31 @@ func (endpoint *libp2pEndpoint) Connect(ctx context.Context, address peertranspo
 		return nil, peertransport.ErrClosed
 	}
 	var authenticated bool
+	var pinned network.Conn
 	for _, path := range endpoint.host.Network().ConnsToPeer(info.ID) {
 		if path.IsClosed() {
 			continue
 		}
 		id, ok := libp2pNodeID(path)
-		if ok && path.RemotePeer() == info.ID && id == address.ID {
-			authenticated = true
+		if !ok || path.RemotePeer() != info.ID || id != address.ID {
+			continue
+		}
+		authenticated = true
+		if selected == nil {
+			break
+		}
+		if matchesPairingNetwork(path.RemoteMultiaddr(), selected) {
+			pinned = path
 			break
 		}
 	}
 	if !authenticated {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "libp2p peer identity could not be verified"}
 	}
-	conn := endpoint.addConnectionLocked(info.ID, address.ID, alpn, false, nil)
+	if selected != nil && pinned == nil {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "no live pairing path matches the selected network"}
+	}
+	conn := endpoint.addConnectionLocked(info.ID, address.ID, alpn, false, pinned)
 	if conn == nil {
 		return nil, libp2pCapacity()
 	}
@@ -282,15 +298,21 @@ func (conn *libp2pConnection) openBi(ctx context.Context) (peertransport.Stream,
 		return nil, libp2pCapacity()
 	}
 	conn.opened = true
+	pinned := conn.path
 	endpoint.mu.Unlock()
 
 	opening, cancel := context.WithTimeout(ctx, ioTimeout)
 	stop := context.AfterFunc(conn.ctx, cancel)
 	defer func() { stop(); cancel() }()
-	// Swarm prefers a direct connection, with a limited circuit as fallback.
-	// The stream stays on its original path once opened; it is never replayed.
 	opts := network.WithAllowLimitedConn(network.WithNoDial(opening, "existing Sailry Link session"), "Sailry Link relay fallback")
-	raw, err := endpoint.host.NewStream(opts, conn.peer, libp2pProtocol(conn.alpn))
+	var raw network.Stream
+	var err error
+	if pinned != nil {
+		raw, err = openPinnedPairingStream(opts, pinned)
+	} else {
+		// For unpinned sessions Swarm prefers direct paths, with circuit fallback.
+		raw, err = endpoint.host.NewStream(opts, conn.peer, libp2pProtocol(conn.alpn))
+	}
 	if err != nil {
 		conn.releaseStream()
 		return nil, err
@@ -319,6 +341,30 @@ func (conn *libp2pConnection) openBi(ctx context.Context) (peertransport.Stream,
 	}
 	owned = true
 	return newLibp2pStream(raw, conn.ctx, conn.releaseStream), nil
+}
+
+// Host.NewStream selects a connection by peer, so negotiate the Pair protocol
+// on the already admitted physical connection instead of reselecting a path.
+func openPinnedPairingStream(ctx context.Context, path network.Conn) (network.Stream, error) {
+	raw, err := path.NewStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pid := libp2pProtocol(libp2pPairALPN)
+	if err := raw.SetProtocol(pid); err != nil {
+		_ = raw.ResetWithError(network.StreamResourceLimitExceeded)
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = raw.ResetWithError(network.StreamProtocolNegotiationFailed) })
+	err = multistream.SelectProtoOrFail(pid, raw)
+	if !stop() {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		_ = raw.ResetWithError(network.StreamProtocolNegotiationFailed)
+		return nil, err
+	}
+	return raw, nil
 }
 
 func (conn *libp2pConnection) admitStreamLocked() bool {
@@ -452,24 +498,16 @@ func (conn *libp2pConnection) Close(code uint64, reason string) error {
 	return nil
 }
 
-// DiscardPaths removes reusable physical paths after Link's liveness check fails.
-// Closing an ordinary logical connection does not invalidate shared paths.
-func (conn *libp2pConnection) DiscardPaths() error {
-	endpoint := conn.endpoint
-	endpoint.mu.Lock()
-	var paths []network.Conn
-	if conn.path != nil {
-		paths = []network.Conn{conn.path}
-	} else {
-		paths = endpoint.host.Network().ConnsToPeer(conn.peer)
+// The logical connection owns streams across all physical paths. Cancel it
+// only when the transport has no remaining route, not on one failed inspection.
+func (conn *libp2pConnection) retainAfterProbe(probe contextStream, err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		discardIdleProbePath(probe)
 	}
-	endpoint.mu.Unlock()
-
-	var failure error
-	for _, path := range paths {
-		failure = errors.Join(failure, path.Close())
-	}
-	return failure
+	conn.endpoint.mu.Lock()
+	defer conn.endpoint.mu.Unlock()
+	conn.refreshPathLocked()
+	return conn.closed == nil
 }
 
 func (conn *libp2pConnection) closeLocked(kind string, code uint64, reason string) {
