@@ -10,6 +10,12 @@ released only after its entry is here.
   changes rather than streamed text or statistics. Remove the fixed 320 MiB Go
   heap ceiling that can force repeated collections in a larger Desktop and Node.
   Start plugin status observation without reading an unused full Node snapshot.
+  Reopen at the latest page when there is no saved reading position. Skip
+  replay-only text in history reads and compute statistics metadata once per turn.
+- Send smaller conversation image previews over Link and prioritize visible
+  tiles within the decoded card cache budget. Keep original images for full-size
+  viewing, copying and saving. Send source references instead of repeating reply
+  text in the Mobile bridge.
 - Read Git ignore rules along changed paths instead of recursively scanning the
   repository for metadata notifications. Release the code reader between files
   and use native Git to list checkouts with per-worktree configuration.
@@ -19,7 +25,8 @@ released only after its entry is here.
 - Add focus-scoped conversation tabs and directional splits. Keep an explicitly
   retained tab visible even when it is alone. Highlight the focused split title
   with the primary color and enlarge or restore it from the header without
-  discarding the layout or stopping tasks.
+  discarding the layout or stopping tasks. Do not let a delayed session-open
+  request override a more recent sidebar selection.
 - Show at most five lines of a sent user message until expanded. Keep the full
   text available for copying and editing.
 - Remember new-conversation team and model choices before the first send, including
@@ -30,7 +37,9 @@ released only after its entry is here.
   sidebar sort menu without rebinding open tabs, split panes or their drafts.
 - Refresh missing workspace files without repeated stale reads, preserve unsaved
   drafts, and inspect uncertain trash results without dispatching the mutation again.
-  Distinguish unsupported attachment directories and special files from I/O failures.
+  Keep the request identity of an uncertain send while its conversation is still
+  loading. Distinguish unsupported attachment directories and special files from
+  I/O failures.
 - Render public HTTPS images and linked badges in Markdown documents without
   changing the HTML sandbox or Mermaid rendering. Fix linked-image layout crashes.
 - Recover eligible missing-usage and HTTP/2 stream failures within the existing

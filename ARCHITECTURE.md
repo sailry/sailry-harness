@@ -953,12 +953,18 @@ scratch worktree of a chat without a project.
 Client restores the previously loaded history range after a new authoritative
 conversation snapshot, preserving that target even if another reconnect
 interrupts paging. The last observer drops the body and may leave one of 64
-range bookmarks. A matching history revision does not make detached pages
-current. Full-range recovery can request up to 1,000 entries per turn page;
-interactive reads and partial-range recovery retain their smaller entry limit.
+range bookmarks. A reopened transcript with no saved reading position starts
+at the newest page instead of downloading the previous range. Earlier history
+remains available by scrolling or revealing a search result. A matching history
+revision does not make detached pages current. Full-range recovery can request
+up to 1,000 entries per turn page; interactive reads and partial-range recovery
+retain their smaller entry limit.
 Node byte and wire frame limits apply to both. History pages place consumed
 guidance with its recipient. The recipient's admission sequence is the
 exclusive cursor for the group, and individual turns retain entry cursors.
+A display history read can omit captured prompt text from large configuration
+records before copying them into Go. The original record sizes still determine
+pagination and the stored records remain the source for model replay.
 A new subscription sends history first. Closing the last observation releases
 queued and replayed frames. Node skips live metadata refresh for unobserved
 conversations and reads current durable state when a new observer attaches.
@@ -970,6 +976,9 @@ changes, including pagination and connection state. Across history pages and
 streaming drafts the read-only view shares its already detached canonical entries.
 Replacement snapshots and removal of a visible entry invalidate their reuse.
 Mutable action reads always get independent copies.
+Mobile asks the Client to send transcript rows by source part range when no
+display override is needed. The bridge carries the original parts once; Flutter
+resolves them when it builds a row. Other observations keep inline row parts.
 Mounted transcripts prepare Client views, history rows, references and attachment
 descriptors outside the UI frame. A shared preparation lane bounds concurrent
 work across windows; each mount holds one latest publication, not a snapshot
@@ -977,6 +986,14 @@ queue. Taking a publication transfers its mutable rows to one presentation.
 A directory refresh transfers unchanged rows to the rebuilt view. Elapsed labels
 update without rebuilding history; controls and mutable overlays still refresh.
 An unmounted transcript releases its observation, widget list and row frame.
+Desktop requests a small derivative for conversation image cards. The Node
+checks the source and access even on a derivative cache hit. It bounds preparation
+and retains encoded derivatives by source digest and requested size. The stream's
+digest describes the derivative, not the original. An older Node may send the
+original for locally bounded decoding. The viewer and original file actions use
+the original revision. Transcript tiles retain layout facts separately from pixels
+and request their bitmaps when visible. Desktop budgets card bitmaps and their mip
+levels separately from explicit previews and graphics-driver memory.
 Desktop leaves collection policy to the Go runtime and any explicit `GOMEMLIMIT`:
 a fixed process-wide ceiling cannot accommodate both Node tasks and mounted
 histories and can force repeated collections when their live heap exceeds it.
