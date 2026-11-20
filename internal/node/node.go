@@ -160,10 +160,6 @@ func Start(ctx context.Context, path string) (*Node, error) {
 }
 
 func StartWithOptions(ctx context.Context, path string, options Options) (*Node, error) {
-	directory, err := newNetworkDirectory(ctx)
-	if err != nil {
-		return nil, err
-	}
 	profile, err := OpenProfile(ctx, path)
 	if err != nil {
 		return nil, err
@@ -238,7 +234,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.ports = ports.New(nodeContext, ports.Options{})
 	value.externalBrowser = externalbrowser.New(externalbrowser.Options{Profile: profile.Ownership.Path, Node: value.ID(), Changed: func(root string) { value.watches.changed(root, nil) }})
 	value.removeExternalBrowserProfiles(ctx)
-	value.networkDirectory = directory
+	value.networkDirectory = &networkDirectory{}
 	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
 	value.initHost()
 	if options.HostDeployment != nil {

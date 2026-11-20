@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -12,29 +11,19 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/netproxy"
-	"github.com/sailry/sailry-harness/assets/catalogs"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const networkPresetURL = "https://sailry.dev/catalogs/network-presets.json"
+const networkPresetURL = "https://sailry.dev/catalogs/network-presets-libp2p.json"
 
 type networkDirectory struct {
 	mu         sync.Mutex
 	refreshing chan struct{}
 	listing    protocol.NetworkListing
-	bundled    []protocol.NetworkPreset
 	completed  uint64
 	source     string
 	transport  http.RoundTripper
-}
-
-func newNetworkDirectory(ctx context.Context) (*networkDirectory, error) {
-	catalog, err := parseNetworkCatalog(ctx, []byte(catalogs.NetworkPresetsJSON()))
-	if err != nil {
-		return nil, fmt.Errorf("validate bundled network preset catalog: %w", err)
-	}
-	return &networkDirectory{bundled: catalog.Presets, listing: protocol.NetworkListing{Presets: catalog.Presets}}, nil
 }
 
 func (directory *networkDirectory) read(ctx context.Context, refresh bool) (protocol.NetworkListing, error) {
@@ -67,7 +56,7 @@ func (directory *networkDirectory) read(ctx context.Context, refresh bool) (prot
 	catalog, err := directory.download(ctx)
 	directory.mu.Lock()
 	if err == nil {
-		directory.listing.Presets = mergeNetworkPresets(directory.bundled, catalog.Presets)
+		directory.listing.Presets = catalog.Presets
 	}
 	if ctx.Err() == nil {
 		directory.listing.Unavailable = err != nil
@@ -81,27 +70,6 @@ func (directory *networkDirectory) read(ctx context.Context, refresh bool) (prot
 		return protocol.NetworkListing{}, ctx.Err()
 	}
 	return value, nil
-}
-
-func mergeNetworkPresets(bundled, remote []protocol.NetworkPreset) []protocol.NetworkPreset {
-	presets := make([]protocol.NetworkPreset, len(bundled), len(bundled)+len(remote))
-	copy(presets, bundled)
-	positions := make(map[string]int, len(bundled))
-	for index, preset := range bundled {
-		positions[preset.ID] = index
-	}
-	for _, preset := range remote {
-		// The direct ID is also the explicit no-relay choice in the CLI.
-		if preset.ID == "direct" && preset.Selection.Kind != "direct" {
-			continue
-		}
-		if index, ok := positions[preset.ID]; ok {
-			presets[index] = preset
-		} else {
-			presets = append(presets, preset)
-		}
-	}
-	return presets
 }
 
 func (directory *networkDirectory) download(ctx context.Context) (protocol.NetworkCatalog, error) {
@@ -154,10 +122,17 @@ func parseNetworkCatalog(ctx context.Context, body []byte) (protocol.NetworkCata
 		if legacyNetworkPreset(preset.Selection) {
 			continue
 		}
-		if _, err := link.NetworkRelayURLs(ctx, preset.Selection); err != nil {
+		relays, err := link.NetworkRelayURLs(ctx, preset.Selection)
+		if err != nil {
 			return catalog, invalidNetworkCatalog()
 		}
+		if len(relays) == 0 || preset.ID == "direct" || preset.ID == "custom" {
+			continue
+		}
 		presets = append(presets, preset)
+	}
+	if len(catalog.Presets) > 0 && len(presets) == 0 {
+		return catalog, invalidNetworkCatalog()
 	}
 	catalog.Presets = presets
 	return catalog, nil

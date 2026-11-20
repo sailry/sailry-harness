@@ -920,7 +920,7 @@ pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启
 pairing_relay_address: 中继地址
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定义
-pairing_relay_direct: 仅直连
+pairing_relay_direct: 直连（局域网）
 pairing_relay_server: 连接服务器
 pairing_share: 分享本机
 pairing_share_hint: 在另一台设备的「远程连接」中输入配对码

@@ -920,7 +920,7 @@ pairing_preview_disabled: UI-Vorschau verbindet keine echten Geräte; starten Si
 pairing_relay_address: Relay-Adresse
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Benutzerdefiniert
-pairing_relay_direct: Nur Direktverbindung
+pairing_relay_direct: Nur Direktverbindung (LAN)
 pairing_relay_server: Verbindungsserver
 pairing_share: Dieses Gerät teilen
 pairing_share_hint: Geben Sie diesen Code in Remote-Verbindungen auf einem anderen Gerät

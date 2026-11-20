@@ -702,11 +702,14 @@ state. The update does not write the managed `relay.toml` or the relay's
 the selection with a revision check, and publishes a private six-digit pairing
 code. The scriptable form is `sailry link --data-dir <profile> --relay
 <preset-id|direct|custom> [--address <relay address>] [--pairing-service <HTTPS origin>]`.
-For a custom relay, enter a hostname or known relay IP, optionally with its port
-(e.g. `relay.example.com:4001`). Third-party hostnames not in the directory can
-publish `dnsaddr=<peer-addressed multiaddr>` at `_dnsaddr.<hostname>`; the input
-must select one address. An explicit libp2p multiaddr still works. An optional
-`https://` prefix is only an input convenience, not the relay transport.
+Only Direct (LAN) and Custom relay are built in. Named relays come from the
+[official libp2p directory](https://sailry.dev/catalogs/network-presets-libp2p.json).
+For a custom relay, enter a hostname or IP from that directory, optionally with
+its port (e.g. `relay.example.com:4001`). A hostname outside the directory can
+publish `dnsaddr=<peer-addressed multiaddr>` at `_dnsaddr.<hostname>`. The input
+must identify one address. Without a loaded directory or a suitable DNS record,
+use the full libp2p multiaddr. Saved addresses do not depend on the directory.
+An optional `https://` prefix is input shorthand, not the relay transport.
 `sailry share --data-dir <profile>` remains an alias that publishes a code using
 the current network selection. The code display refreshes in place with its
 remaining lifetime. Pairing from a controller uses the relay route in the Host's

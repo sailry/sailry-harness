@@ -920,7 +920,7 @@ pairing_preview_disabled: La vista previa de la interfaz de usuario no conecta d
 pairing_relay_address: Dirección del relé
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personalizado
-pairing_relay_direct: Solo conexión directa
+pairing_relay_direct: Solo conexión directa (LAN)
 pairing_relay_server: Servidor de conexión
 pairing_share: Comparte este dispositivo
 pairing_share_hint: Ingrese este código en Conexiones remotas en otro dispositivo

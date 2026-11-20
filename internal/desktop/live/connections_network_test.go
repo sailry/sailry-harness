@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -46,6 +47,151 @@ func TestSettleConnectionNetwork(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSavedConnectionRelayUsesShortAddressAndKeepsPin(t *testing.T) {
+	const peer = "/p2p/QmS3zcG7LhYZYSJMhyRZvTddvbNUqtt8BJpaSs6mi1K5Va"
+	const backup = "/dns4/backup.example/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64"
+	for _, row := range []struct {
+		name, primary, short string
+	}{
+		{"dns", "/dns4/primary.example/tcp/4001" + peer, "primary.example:4001"},
+		{"ipv4", "/ip4/192.0.2.10/tcp/4101" + peer, "192.0.2.10:4101"},
+		{"ipv6", "/ip6/2001:db8::7/udp/4201/quic-v1" + peer, "[2001:db8::7]:4201"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			saved := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{row.primary, backup}}}
+			r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+			model := &settings.NetworkEditor{}
+			picker := r.newConnectionPicker(nil, model, &saved)
+			t.Cleanup(picker.close)
+			if !picker.custom(model.Relay) || model.Address != row.short {
+				t.Fatalf("saved relay draft = choice %d, address %q; want Custom with %q", model.Relay, model.Address, row.short)
+			}
+			selection, err := picker.draftSelection(model.Relay, model.Address)
+			want := []string{row.primary, backup}
+			payload, ok := detail[protocol.NetworkSelectionCustomPayload](selection.Data)
+			if err != nil || selection.Kind != "custom" || !ok || !slices.Equal(payload.Relays, want) {
+				t.Fatalf("selection from %q = %+v, %v; want both pinned relays %q", model.Address, selection, err, want)
+			}
+		})
+	}
+}
+
+func TestConnectionCatalogKeepsOnlyFixedChoicesAndPreservesRoutes(t *testing.T) {
+	const peer = "/p2p/QmS3zcG7LhYZYSJMhyRZvTddvbNUqtt8BJpaSs6mi1K5Va"
+	const primary = "primary.example:4001"
+	saved := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{
+		"/dns4/primary.example/tcp/4001" + peer,
+		"/dns4/backup.example/tcp/4001/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64",
+	}}}
+	preset := protocol.NetworkPreset{ID: "region", Label: protocol.PluginDesktopNavigation{Label: "Region"}, Selection: protocol.NetworkSelection{
+		Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"/dns4/listed.example/tcp/4001" + peer}},
+	}}
+	r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	model := &settings.NetworkEditor{}
+	picker := r.newConnectionPicker(nil, model, &saved)
+	t.Cleanup(func() {
+		picker.close()
+		r.workers.Wait()
+	})
+	assertChoices := func(want ...string) {
+		t.Helper()
+		var ids []string
+		for _, choice := range picker.choices {
+			ids = append(ids, choice.id)
+		}
+		if !slices.Equal(ids, want) {
+			t.Fatalf("choices = %v, want %v", ids, want)
+		}
+	}
+	assertChoice := func(want string) {
+		t.Helper()
+		index := model.Relay
+		if index < 0 || index >= len(picker.choices) || picker.choices[index].id != want {
+			t.Fatalf("selected choice = %d in %+v, want %q", index, picker.choices, want)
+		}
+	}
+	assertCustomDraft := func(want string) {
+		t.Helper()
+		assertChoice("custom")
+		if model.Address != want {
+			t.Fatalf("custom draft address = %q, want %q", model.Address, want)
+		}
+	}
+	assertSelection := func(want protocol.NetworkSelection) {
+		t.Helper()
+		got, err := picker.draftSelection(model.Relay, model.Address)
+		if err != nil || !sameConnectionNetwork(&want, &got) {
+			t.Fatalf("selection at %d with %q = %+v, %v; want %+v", model.Relay, model.Address, got, err, want)
+		}
+	}
+	assertChoices("direct", "custom")
+	assertCustomDraft(primary)
+	assertSelection(saved)
+
+	shadow := preset
+	shadow.ID = "custom"
+	r.acceptConnectionCatalog(picker, []protocol.NetworkPreset{shadow, {ID: "old-direct", Selection: protocol.NetworkSelection{Kind: "direct"}}, preset})
+	assertChoices("direct", "preset/region", "custom")
+	assertCustomDraft(primary)
+	assertSelection(saved)
+
+	known := preset
+	known.ID, known.Selection = "saved", saved
+	const edited = "edited.example:4001"
+	model.Address = edited
+	r.acceptConnectionCatalog(picker, []protocol.NetworkPreset{known, preset})
+	assertChoices("direct", "preset/saved", "preset/region", "custom")
+	assertCustomDraft(edited)
+	assertSelection(protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{edited}}})
+
+	model.Address = primary
+	millis := uint64(41)
+	picker.lookup = &connectionRelayLookup{key: encoded(saved), cancel: func() {}, ready: true, result: saved}
+	picker.choices[model.Relay].millis = &millis
+	tester := ui.NewTester(func(c *ui.Context) { r.connectionPickerFrame(c, picker) }, 800, 600)
+	frame := func() {
+		t.Helper()
+		tester.Frame()
+		if len(model.Relays) != len(picker.choices) {
+			t.Fatalf("editor has %d relay options, want %d", len(model.Relays), len(picker.choices))
+		}
+	}
+	frame()
+	if shown := model.Relays[model.Relay].Millis; shown == nil || *shown != millis {
+		t.Fatal("saved custom route should show its measured latency before matching")
+	}
+
+	r.acceptConnectionCatalog(picker, []protocol.NetworkPreset{known, preset})
+	assertChoice("preset/saved")
+	assertSelection(saved)
+	matched := model.Relay
+	model.Relay = len(picker.choices) - 1
+	connectionTiming(picker, saved, false, &millis)
+	frame()
+	assertCustomDraft("")
+	if shown := model.Relays[matched].Millis; shown == nil || *shown != millis {
+		t.Fatal("matched preset should still show its measured latency")
+	}
+	if choice := model.Relays[model.Relay]; !choice.Custom || choice.Pending || choice.Millis != nil {
+		t.Fatalf("Custom retained latency from the matched route: %+v", choice)
+	}
+	if _, err := picker.draftSelection(model.Relay, model.Address); faultCode(err) != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("empty Custom draft was not rejected: %v", err)
+	}
+
+	model.Address = primary
+	r.acceptConnectionCatalog(picker, []protocol.NetworkPreset{known, preset})
+	assertCustomDraft(primary)
+	assertSelection(protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{primary}}})
+
+	model.Relay, model.Address = 2, ""
+	assertSelection(preset.Selection)
+	r.acceptConnectionCatalog(picker, nil)
+	assertChoices("direct", "custom")
+	assertCustomDraft("listed.example:4001")
+	assertSelection(preset.Selection)
 }
 
 func TestSaveConnectionNetworkPinsCurrentCustomDraft(t *testing.T) {
@@ -93,7 +239,10 @@ func TestSaveConnectionNetworkPinsCurrentCustomDraft(t *testing.T) {
 	editor := &connectionNetworkEditor{model: model, ctx: ctx, cancel: cancel, controller: controller, saved: &before}
 	r.connections.editor, r.App.Settings.NetworkEditor = editor, model
 	editor.picker = r.newConnectionPicker(controller, model, &direct)
-	editor.picker.presets = []protocol.NetworkPreset{{ID: "fixture", Selection: pinned}}
+	t.Cleanup(editor.picker.close)
+	load := &connectionCatalogLoad{done: make(chan struct{}), presets: []protocol.NetworkPreset{{ID: "fixture", Selection: pinned}}}
+	close(load.done)
+	editor.picker.catalog = load
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		r.mu.Lock()
@@ -139,7 +288,7 @@ func TestSaveConnectionNetworkPinsCurrentCustomDraft(t *testing.T) {
 
 	// A refreshed catalog cannot change the ID or payload of a pending save.
 	editor.picker.cancelLookup()
-	editor.picker.presets = []protocol.NetworkPreset{{ID: "fixture", Selection: protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{base + "QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64"}}}}}
+	editor.picker.catalog.presets = []protocol.NetworkPreset{{ID: "fixture", Selection: protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{base + "QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64"}}}}}
 	r.saveConnectionNetwork(model)
 	r.workers.Wait()
 	tester.Frame()

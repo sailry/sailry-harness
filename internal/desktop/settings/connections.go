@@ -740,13 +740,10 @@ func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices 
 		if choice.LabelKey != "" {
 			label = i18n.T(c, choice.LabelKey)
 		}
-		timing := i18n.T(c, "composer_metric_unknown")
-		if choice.Pending {
-			timing = "…"
-		} else if choice.Millis != nil {
-			timing = i18n.T(c, "usage_duration_ms", "value", *choice.Millis)
+		if !choice.Pending && choice.Millis != nil {
+			label += " · " + i18n.T(c, "usage_duration_ms", "value", *choice.Millis)
 		}
-		options[index] = label + " · " + timing
+		options[index] = label
 	}
 	label := i18n.T(c, "pairing_relay_server")
 	relayField(c, "relay", label, bare, func() { pick(c, "relay", label, &pr.relay, options, disabled).Fill() })

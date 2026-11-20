@@ -920,7 +920,7 @@ pairing_preview_disabled: UI 預覽不連線真實裝置。使用 --data-dir 啟
 pairing_relay_address: 中繼位址
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定義
-pairing_relay_direct: 僅直接連線
+pairing_relay_direct: 直連（區域網路）
 pairing_relay_server: 連線伺服器
 pairing_share: 分享本機
 pairing_share_hint: 在另一臺裝置的「遠端連線」中輸入配對碼

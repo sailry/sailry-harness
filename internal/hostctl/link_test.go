@@ -27,8 +27,24 @@ func TestSelectNetworkUsesHostCatalogAndCustomStep(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != "/dns4/custom.example/tcp/443/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV" {
 		t.Fatalf("selected custom network = %v, %v", got, err)
 	}
-	if !strings.Contains(output.String(), "China EdgeOne") || !strings.Contains(output.String(), "Custom relay") || !strings.Contains(output.String(), "Press Enter") {
+	if !strings.Contains(output.String(), "1  Direct only (LAN)") || !strings.Contains(output.String(), "2  China EdgeOne") || !strings.Contains(output.String(), "3  Custom relay") || !strings.Contains(output.String(), "Press Enter") {
 		t.Fatalf("wizard did not show catalog and confirmation steps: %q", output.String())
+	}
+}
+
+func TestSelectNetworkKeepsFixedOptionsWithoutDirectory(t *testing.T) {
+	t.Parallel()
+	listing := protocol.NetworkListing{Unavailable: true, Presets: []protocol.NetworkPreset{
+		{ID: "direct", Label: protocol.PluginDesktopNavigation{Label: "Renamed direct"}, Selection: protocol.NetworkSelection{Kind: "direct"}},
+		{ID: "custom", Label: protocol.PluginDesktopNavigation{Label: "Renamed custom"}, Selection: protocol.NetworkSelection{Kind: "custom"}},
+	}}
+	var output bytes.Buffer
+	selected, err := selectNetwork(t.Context(), bufio.NewReader(strings.NewReader("1\n\n")), &output, listing, "", "", true)
+	if err != nil || selected.Kind != "direct" || selected.Data != nil {
+		t.Fatalf("offline selection = %+v, %v", selected, err)
+	}
+	if text := output.String(); !strings.Contains(text, "1  Direct only (LAN)\n  2  Custom relay\n") || strings.Contains(text, "Renamed") {
+		t.Fatalf("invalid offline options: %q", text)
 	}
 }
 

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -8,6 +9,41 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
+
+func TestConnectionRelayLabelsOnlyShowMeasuredLatency(t *testing.T) {
+	draft := pairing{}
+	millis := uint64(41)
+	choices := []RelayChoice{
+		{LabelKey: "pairing_relay_direct"},
+		{Label: "China (Tencent Cloud)", Millis: &millis},
+		{LabelKey: "pairing_relay_custom", Custom: true},
+		{Label: "Pending relay", Pending: true},
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Padding(24).Children(func() {
+			connectionRelayFields(c, &draft, nil, choices, false, true)
+		})
+	}, 420, 320)
+	tt.SetLocale("en")
+	tt.Frame()
+	if texts := tt.Texts(); !slices.Contains(texts, "Direct only (LAN)") {
+		t.Fatalf("closed selector does not show the plain name: %q", texts)
+	}
+	trigger, ok := tt.AccessByRole(ui.RoleMenuButton, i18n.In("en", "pairing_relay_server"))
+	if !ok {
+		t.Fatal("connection server selector is missing")
+	}
+	tt.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
+	tt.Advance(250 * time.Millisecond)
+	if _, ok := tt.AccessByRole(ui.RoleMenuItemCheckBox, "Direct only (LAN)"); !ok {
+		t.Errorf("selected menu option does not show the plain name: %q", tt.Texts())
+	}
+	for _, label := range []string{"China (Tencent Cloud) · 41 ms", "Custom", "Pending relay"} {
+		if _, ok := tt.AccessByRole(ui.RoleMenuItem, label); !ok {
+			t.Errorf("missing menu option %q: %q", label, tt.Texts())
+		}
+	}
+}
 
 func TestConnectionsDeviceMonitor(t *testing.T) {
 	for _, device := range []viewmodel.Device{

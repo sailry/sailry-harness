@@ -920,7 +920,7 @@ pairing_preview_disabled: A visualização da IU não conecta dispositivos reais
 pairing_relay_address: Endereço do relay
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personalizado
-pairing_relay_direct: Somente conexão direta
+pairing_relay_direct: Somente conexão direta (LAN)
 pairing_relay_server: Servidor de conexão
 pairing_share: Compartilhar este dispositivo
 pairing_share_hint: Digite este código em Conexões Remotas em outro dispositivo

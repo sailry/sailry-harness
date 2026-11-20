@@ -920,7 +920,7 @@ pairing_preview_disabled: UI preview does not connect real devices; start with -
 pairing_relay_address: Relay address
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Custom
-pairing_relay_direct: Direct only
+pairing_relay_direct: Direct only (LAN)
 pairing_relay_server: Connection server
 pairing_share: Share this device
 pairing_share_hint: Enter this code in Remote Connections on another device

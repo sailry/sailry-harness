@@ -920,7 +920,7 @@ pairing_preview_disabled: L'aperçu de l'interface utilisateur ne connecte pas l
 pairing_relay_address: Adresse du relais
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personnalisé
-pairing_relay_direct: Connexion directe uniquement
+pairing_relay_direct: Connexion directe uniquement (LAN)
 pairing_relay_server: Serveur de connexion
 pairing_share: Partager cet appareil
 pairing_share_hint: Entrez ce code dans Connexions à distance sur un autre appareil

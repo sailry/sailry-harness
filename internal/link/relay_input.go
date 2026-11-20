@@ -2,7 +2,6 @@ package link
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/netip"
@@ -10,11 +9,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	ma "github.com/multiformats/go-multiaddr"
 
-	"github.com/sailry/sailry-harness/assets/catalogs"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -23,13 +20,16 @@ type relayInputDNS interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
 }
 
-var bundledRelayPresets = sync.OnceValue(func() []protocol.NetworkPreset {
-	var catalog protocol.NetworkCatalog
-	if json.Unmarshal([]byte(catalogs.NetworkPresetsJSON()), &catalog) != nil {
-		return nil
+// RelayInputAddress formats a pinned relay for editing without changing the
+// address used by the transport. Unresolved input stays editable as entered.
+func RelayInputAddress(value string) string {
+	spec, err := parseLibp2pRelay(value)
+	if err != nil {
+		return value
 	}
-	return catalog.Presets
-})
+	base := spec.info.Addrs[0]
+	return net.JoinHostPort(base[0].Value(), base[1].Value())
+}
 
 // ResolveNetworkSelection resolves user input before a selection is applied or
 // persisted. Stored selections and transport addresses never depend on DNSADDR
@@ -47,6 +47,8 @@ func resolveNetworkSelection(ctx context.Context, selection protocol.NetworkSele
 	if selection.Kind != "custom" || len(relays) == 0 || len(relays) > 2 {
 		return protocol.NetworkSelection{}, invalid
 	}
+	ctx, cancel := context.WithTimeout(ctx, ioTimeout)
+	defer cancel()
 	relays = slices.Clone(relays)
 	for i, value := range relays {
 		var err error
@@ -120,53 +122,31 @@ func resolveRelayInput(ctx context.Context, value string, presets []protocol.Net
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	matches := func(address ma.Multiaddr) bool {
-		host := address[0].Value()
-		if input.ip.IsValid() {
-			ip, err := netip.ParseAddr(host)
-			return err == nil && ip.Unmap() == input.ip
+	address, err := matchingRelayPreset(presets, input.port, func(base ma.Multiaddr) (bool, error) {
+		if !input.ip.IsValid() {
+			return strings.EqualFold(strings.TrimSuffix(base[0].Value(), "."), input.host), nil
 		}
-		return strings.EqualFold(strings.TrimSuffix(host, "."), input.host)
+		if code := base[0].Code(); code != ma.P_IP4 && code != ma.P_IP6 {
+			return false, nil
+		}
+		ip, err := netip.ParseAddr(base[0].Value())
+		return err == nil && ip.Unmap() == input.ip, nil
+	})
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	for _, catalog := range [][]protocol.NetworkPreset{presets, bundledRelayPresets()} {
-		if address, err := matchingRelayPreset(catalog, input.port, matches); address != "" || err != nil {
-			return address, err
-		}
+	if address != "" || err != nil {
+		return address, err
 	}
 	if input.ip.IsValid() {
-		// An IP alias can select a bundled DNS relay without learning or changing
-		// its PeerID. Do not reverse-resolve arbitrary addresses or scan a catalog.
-		address, err := matchingRelayPreset(bundledRelayPresets(), input.port, func(address ma.Multiaddr) bool {
-			family := "ip"
-			switch address[0].Code() {
-			case ma.P_DNS4:
-				family = "ip4"
-			case ma.P_DNS6:
-				family = "ip6"
-			case ma.P_DNS:
-			default:
-				return false
-			}
-			ips, err := dns.LookupNetIP(ctx, family, strings.TrimSuffix(address[0].Value(), ".")+".")
-			return err == nil && slices.ContainsFunc(ips, func(ip netip.Addr) bool { return ip.Unmap() == input.ip })
-		})
-		if err != nil || address != "" {
-			return address, err
-		}
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		return "", invalidLink("no known relay matches this IP and port; use a relay hostname or a peer-addressed multiaddr")
+		return resolveRelayIPAlias(ctx, input, presets, dns)
 	}
 	records, err := dns.LookupTXT(ctx, "_dnsaddr."+input.host+".")
-	if err != nil {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		var problem *net.DNSError
-		if !errors.As(err, &problem) || !problem.IsNotFound {
-			return "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "relay DNS records could not be read"}
-		}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err != nil && !relayDNSNotFound(err) {
+		return "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "relay DNS records could not be read"}
 	}
 	var chosen string
 	for _, record := range records {
@@ -190,7 +170,46 @@ func resolveRelayInput(ctx context.Context, value string, presets []protocol.Net
 	return chosen, nil
 }
 
-func matchingRelayPreset(presets []protocol.NetworkPreset, port string, matches func(ma.Multiaddr) bool) (string, error) {
+func resolveRelayIPAlias(ctx context.Context, input relayInput, presets []protocol.NetworkPreset, dns relayInputDNS) (string, error) {
+	family, familyCode := "ip6", ma.P_DNS6
+	if input.ip.Is4() {
+		family, familyCode = "ip4", ma.P_DNS4
+	}
+	resolved := make(map[string]bool)
+	address, err := matchingRelayPreset(presets, input.port, func(base ma.Multiaddr) (bool, error) {
+		if code := base[0].Code(); code != ma.P_DNS && code != familyCode {
+			return false, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		name := strings.ToLower(strings.TrimSuffix(base[0].Value(), ".")) + "."
+		if match, ok := resolved[name]; ok {
+			return match, nil
+		}
+		ips, err := dns.LookupNetIP(ctx, family, name)
+		if err != nil && !relayDNSNotFound(err) {
+			return false, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "relay DNS addresses could not be read"}
+		}
+		match := err == nil && slices.ContainsFunc(ips, func(ip netip.Addr) bool { return ip.Unmap() == input.ip })
+		resolved[name] = match
+		return match, nil
+	})
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if address != "" || err != nil {
+		return address, err
+	}
+	return "", invalidLink("no known relay matches this IP and port; use a relay hostname or a peer-addressed multiaddr")
+}
+
+func relayDNSNotFound(err error) bool {
+	var problem *net.DNSError
+	return errors.As(err, &problem) && problem.IsNotFound
+}
+
+func matchingRelayPreset(presets []protocol.NetworkPreset, port string, matches func(ma.Multiaddr) (bool, error)) (string, error) {
 	var chosen string
 	for _, preset := range presets {
 		if preset.Selection.Kind != "custom" {
@@ -202,7 +221,14 @@ func matchingRelayPreset(presets []protocol.NetworkPreset, port string, matches 
 				continue
 			}
 			base := spec.info.Addrs[0]
-			if port != "" && base[1].Value() != port || !matches(base) {
+			if port != "" && base[1].Value() != port {
+				continue
+			}
+			match, err := matches(base)
+			if err != nil {
+				return "", err
+			}
+			if !match {
 				continue
 			}
 			address := spec.circuit[:len(spec.circuit)-1].String()

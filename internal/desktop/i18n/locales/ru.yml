@@ -920,7 +920,7 @@ pairing_preview_disabled: Предварительный просмотр пол
 pairing_relay_address: Адрес ретранслятора
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Пользовательский
-pairing_relay_direct: Только прямое соединение
+pairing_relay_direct: Только прямое соединение (LAN)
 pairing_relay_server: Сервер подключения
 pairing_share: Поделиться этим устройством
 pairing_share_hint: Введите этот код в Удаленные подключения на другом устройстве

@@ -920,7 +920,7 @@ pairing_preview_disabled: UI プレビューは実際のデバイスを接続し
 pairing_relay_address: リレーアドレス
 pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: カスタム
-pairing_relay_direct: 直接接続のみ
+pairing_relay_direct: 直接接続のみ（LAN）
 pairing_relay_server: 接続サーバ
 pairing_share: このデバイスを共有
 pairing_share_hint: 他のデバイスのリモート接続でこのコードを入力

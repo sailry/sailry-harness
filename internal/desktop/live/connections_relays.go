@@ -28,9 +28,15 @@ type connectionPicker struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	choices    []connectionChoice
-	presets    []protocol.NetworkPreset
-	saved      *protocol.NetworkSelection
+	catalog    *connectionCatalogLoad
+	customPin  *protocol.NetworkSelection
+	pinAddress string
 	lookup     *connectionRelayLookup
+}
+
+type connectionCatalogLoad struct {
+	done    chan struct{}
+	presets []protocol.NetworkPreset
 }
 
 type connectionRelayLookup struct {
@@ -54,20 +60,26 @@ func (r *Runtime) newConnectionPicker(controller *client.Client, editor *setting
 		parent = r.connections.editor.ctx
 	}
 	ctx, cancel := context.WithCancel(parent)
-	if selected == nil {
-		value := protocol.NetworkSelection{Kind: "direct"}
-		selected = &value
-	}
 	picker := &connectionPicker{
-		controller: controller, editor: editor, ctx: ctx, cancel: cancel, saved: selected,
-		choices: []connectionChoice{{id: "retained", selection: selected}, {id: "custom"}},
+		controller: controller, editor: editor, ctx: ctx, cancel: cancel,
+		choices: []connectionChoice{{id: "direct", selection: &protocol.NetworkSelection{Kind: "direct"}}, {id: "custom"}},
 	}
-	address := ""
-	if payload, ok := detail[protocol.NetworkSelectionCustomPayload](selected.Data); ok && len(payload.Relays) > 0 {
-		address = payload.Relays[0]
+	index, address := 0, picker.restoreCustom(selected)
+	if address != "" {
+		index = 1
 	}
-	picker.setDraft(r.App.Settings.Model, 0, address)
+	picker.setDraft(r.App.Settings.Model, index, address)
 	return picker
+}
+
+func (picker *connectionPicker) restoreCustom(selected *protocol.NetworkSelection) string {
+	picker.customPin, picker.pinAddress = nil, ""
+	if selected != nil && selected.Kind == "custom" {
+		if payload, ok := detail[protocol.NetworkSelectionCustomPayload](selected.Data); ok && len(payload.Relays) > 0 {
+			picker.customPin, picker.pinAddress = selected, link.RelayInputAddress(payload.Relays[0])
+		}
+	}
+	return picker.pinAddress
 }
 
 func (picker *connectionPicker) draft(model *settings.Model) (int, string) {
@@ -101,10 +113,8 @@ func (picker *connectionPicker) draftSelection(index int, address string) (proto
 	if address == "" {
 		return protocol.NetworkSelection{}, connectionFault(protocol.ErrorCodeInvalidRequest, "relay network is required")
 	}
-	if picker.saved != nil {
-		if payload, ok := detail[protocol.NetworkSelectionCustomPayload](picker.saved.Data); ok && len(payload.Relays) > 0 && payload.Relays[0] == address {
-			return *picker.saved, nil
-		}
+	if picker.customPin != nil && picker.pinAddress == address {
+		return *picker.customPin, nil
 	}
 	return protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{address}}}, nil
 }
@@ -215,7 +225,7 @@ func (r *Runtime) startConnectionRelayLookup(picker *connectionPicker, input pro
 	lookup := &connectionRelayLookup{key: key, cancel: cancel}
 	picker.lookup = lookup
 	picker.choices[len(picker.choices)-1].pending = true
-	presets := picker.presets
+	catalog := picker.catalog
 	r.async(func() {
 		if delay > 0 {
 			timer := time.NewTimer(delay)
@@ -228,7 +238,19 @@ func (r *Runtime) startConnectionRelayLookup(picker *connectionPicker, input pro
 		var selected protocol.NetworkSelection
 		err := ctx.Err()
 		if err == nil {
-			selected, err = link.ResolveNetworkSelection(ctx, input, presets)
+			if _, invalid := link.NetworkRelayURLs(ctx, input); invalid == nil {
+				selected = input
+			} else {
+				var presets []protocol.NetworkPreset
+				if catalog != nil {
+					select {
+					case <-ctx.Done():
+					case <-catalog.done:
+						presets = catalog.presets
+					}
+				}
+				selected, err = link.ResolveNetworkSelection(ctx, input, presets)
+			}
 		}
 		r.enqueue(func(*ui.Context) {
 			if !r.connectionRelayLookupActive(picker, lookup) || ctx.Err() != nil {
@@ -267,9 +289,9 @@ func (r *Runtime) probeConnectionRelayLookup(ctx context.Context, picker *connec
 }
 
 func (r *Runtime) startConnectionCatalog(picker *connectionPicker) {
-	index, address := picker.draft(r.App.Settings.Model)
-	selected, selectedErr := picker.draftSelection(index, address)
-	r.async(func() {
+	load := &connectionCatalogLoad{done: make(chan struct{})}
+	picker.catalog = load
+	if !r.async(func() {
 		var pending sync.WaitGroup
 		limit := make(chan struct{}, 4)
 		seen := map[string]bool{}
@@ -305,9 +327,9 @@ func (r *Runtime) startConnectionCatalog(picker *connectionPicker) {
 			}()
 		}
 		accept := func(listing protocol.NetworkListing) {
+			load.presets = listing.Presets
 			r.enqueue(func(*ui.Context) {
 				if r.connectionPickerActive(picker) {
-					picker.presets = listing.Presets
 					r.acceptConnectionCatalog(picker, listing.Presets)
 				}
 			})
@@ -318,14 +340,14 @@ func (r *Runtime) startConnectionCatalog(picker *connectionPicker) {
 		if listing, ok := connectionCatalog(picker.ctx, picker.controller, false); ok {
 			accept(listing)
 		}
-		if selectedErr == nil {
-			probe(selected)
-		}
 		if listing, ok := connectionCatalog(picker.ctx, picker.controller, true); ok {
 			accept(listing)
 		}
+		close(load.done)
 		pending.Wait()
-	})
+	}) {
+		close(load.done)
+	}
 }
 
 func connectionCatalog(ctx context.Context, controller *client.Client, refresh bool) (protocol.NetworkListing, bool) {
@@ -362,13 +384,24 @@ func connectionTiming(picker *connectionPicker, selected protocol.NetworkSelecti
 func (r *Runtime) acceptConnectionCatalog(picker *connectionPicker, presets []protocol.NetworkPreset) {
 	index, address := picker.draft(r.App.Settings.Model)
 	previous := picker.choices
-	var selected *connectionChoice
+	selected := previous[0]
 	if index >= 0 && index < len(previous) {
-		value := previous[index]
-		selected = &value
+		selected = previous[index]
+	}
+	restored := picker.customPin != nil && address == picker.pinAddress
+	if selected.id == "custom" && restored {
+		selected.selection = picker.customPin
 	}
 	choices := make([]connectionChoice, 0, len(presets)+2)
+	choices = append(choices, previous[0])
+	chosen := 0
 	for _, preset := range presets {
+		if preset.Selection.Kind != "custom" || preset.ID == "direct" || preset.ID == "custom" {
+			continue
+		}
+		if _, err := link.NetworkRelayURLs(picker.ctx, preset.Selection); err != nil {
+			continue
+		}
 		value := preset.Selection
 		choice := connectionChoice{id: "preset/" + preset.ID, selection: &value, label: preset.Label}
 		for _, old := range previous {
@@ -377,30 +410,25 @@ func (r *Runtime) acceptConnectionCatalog(picker *connectionPicker, presets []pr
 				break
 			}
 		}
+		if chosen == 0 && (choice.id == selected.id || selected.id == "custom") && sameConnectionNetwork(choice.selection, selected.selection) {
+			chosen = len(choices)
+		}
+		if restored && sameConnectionNetwork(choice.selection, picker.customPin) {
+			// The restored address belongs to a named preset, not the custom draft.
+			address = picker.restoreCustom(nil)
+			picker.cancelLookup()
+		}
 		choices = append(choices, choice)
 	}
-	chosen := -1
-	if selected != nil && selected.selection != nil {
-		for index, choice := range choices {
-			if sameConnectionNetwork(choice.selection, selected.selection) && (selected.id == "retained" || choice.id == selected.id) {
-				chosen = index
-				break
-			}
-		}
-		if chosen < 0 {
-			retained := *selected
-			retained.id, retained.label = "retained", protocol.PluginDesktopNavigation{}
-			choices = append([]connectionChoice{retained}, choices...)
-			chosen = 0
+	if chosen == 0 && selected.id != "direct" {
+		chosen = len(choices)
+		if selected.id != "custom" {
+			// An unlisted route remains the user's selection, not a new preset.
+			address = picker.restoreCustom(selected.selection)
 		}
 	}
-	custom := previous[len(previous)-1]
-	choices = append(choices, custom)
-	if selected != nil && selected.id == "custom" {
-		chosen = len(choices) - 1
-	}
-	picker.choices = choices
-	picker.setDraft(r.App.Settings.Model, max(0, chosen), address)
+	picker.choices = append(choices, previous[len(previous)-1])
+	picker.setDraft(r.App.Settings.Model, chosen, address)
 }
 
 func sameConnectionNetwork(first, second *protocol.NetworkSelection) bool {

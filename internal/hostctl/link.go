@@ -82,22 +82,16 @@ func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactiv
 }
 
 func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, listing protocol.NetworkListing, relayID, address string, interactive bool) (protocol.NetworkSelection, error) {
-	options := make([]protocol.NetworkPreset, 0, len(listing.Presets)+2)
-	seenDirect := false
+	options := make([]protocol.NetworkPreset, 0, len(listing.Presets)+1)
+	options = append(options, protocol.NetworkPreset{ID: "direct", Label: protocol.PluginDesktopNavigation{Label: "Direct only (LAN)"}, Selection: protocol.NetworkSelection{Kind: "direct"}})
 	for _, preset := range listing.Presets {
+		if preset.ID == "direct" || preset.ID == "custom" || preset.Selection.Kind != "custom" {
+			continue
+		}
 		if preset.ID == "" || strings.TrimSpace(preset.Label.Label) == "" && len(preset.Label.Locales) == 0 {
 			return protocol.NetworkSelection{}, errors.New("Host network catalog contains an invalid preset")
 		}
-		if preset.Selection.Kind == "direct" {
-			seenDirect = true
-		}
 		options = append(options, preset)
-	}
-	if !seenDirect {
-		options = append(options, protocol.NetworkPreset{ID: "direct", Label: protocol.PluginDesktopNavigation{Label: "Direct only"}, Selection: protocol.NetworkSelection{Kind: "direct"}})
-	}
-	if len(options) == 0 {
-		return protocol.NetworkSelection{}, errors.New("Host network catalog is empty")
 	}
 	if relayID == "" {
 		if _, err := fmt.Fprintln(output, "Select the relay network for this Host:"); err != nil {
@@ -148,7 +142,7 @@ func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, l
 	} else {
 		found := false
 		for _, option := range options {
-			if option.ID == relayID || relayID == "direct" && option.Selection.Kind == "direct" {
+			if option.ID == relayID {
 				selection, found = option.Selection, true
 				break
 			}
@@ -157,7 +151,7 @@ func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, l
 			return protocol.NetworkSelection{}, fmt.Errorf("unknown relay preset %q", relayID)
 		}
 	}
-	selection, err := link.ResolveNetworkSelection(ctx, selection, listing.Presets)
+	selection, err := link.ResolveNetworkSelection(ctx, selection, options[1:])
 	if err != nil {
 		return protocol.NetworkSelection{}, err
 	}

@@ -22,7 +22,7 @@ func (transport networkPresetRoundTripper) RoundTrip(request *http.Request) (*ht
 	return transport(request)
 }
 
-func TestNetworkPresetsAvailableAtStartupAndOffline(t *testing.T) {
+func TestNetworkPresetsEmptyAtStartupAndOffline(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
@@ -40,8 +40,11 @@ func TestNetworkPresetsAvailableAtStartupAndOffline(t *testing.T) {
 		}
 	})
 	requests := 0
-	node.networkDirectory.transport = networkPresetRoundTripper(func(*http.Request) (*http.Response, error) {
+	node.networkDirectory.transport = networkPresetRoundTripper(func(request *http.Request) (*http.Response, error) {
 		requests++
+		if url := request.URL.String(); url != "https://sailry.dev/catalogs/network-presets-libp2p.json" {
+			t.Errorf("catalog request URL = %q", url)
+		}
 		return nil, errors.New("offline")
 	})
 	list := func(refresh bool) protocol.NetworkListing {
@@ -58,23 +61,12 @@ func TestNetworkPresetsAvailableAtStartupAndOffline(t *testing.T) {
 	}
 
 	initial := list(false)
-	if requests != 0 || initial.Unavailable || len(initial.Presets) != 2 {
+	if requests != 0 || initial.Unavailable || len(initial.Presets) != 0 {
 		t.Fatalf("startup listing = %#v, requests = %d", initial, requests)
-	}
-	direct, china := initial.Presets[0], initial.Presets[1]
-	if direct.ID != "direct" || direct.Selection.Kind != "direct" || direct.Selection.Data != nil {
-		t.Fatalf("direct preset = %#v", direct)
-	}
-	if china.ID != "china-tencent" || china.Selection.Kind != "custom" || china.Label.Label != "China (Tencent Cloud)" || china.Label.Locales["zh-CN"] != "中国（腾讯云）" {
-		t.Fatalf("China preset = %#v", china)
-	}
-	const chinaRelay = "/dns4/cn1.link.sailry.dux.plus/tcp/4001/p2p/12D3KooWJJnnLjPYHmQ4p7TduxDkuqYkPEjmGNGsiX9QPTf27nap"
-	if relays, err := link.NetworkRelayURLs(ctx, china.Selection); err != nil || !slices.Equal(relays, []string{chinaRelay}) {
-		t.Fatalf("China relays = %v, %v", relays, err)
 	}
 
 	offline := list(true)
-	if requests != 1 || !offline.Unavailable || !reflect.DeepEqual(offline.Presets, initial.Presets) {
+	if requests != 1 || !offline.Unavailable || len(offline.Presets) != 0 {
 		t.Fatalf("offline listing = %#v, requests = %d", offline, requests)
 	}
 	settings := commandFixture(t, node, protocol.Command{Kind: "read_network_settings"}).Data.(protocol.NetworkSettings)
@@ -84,61 +76,70 @@ func TestNetworkPresetsAvailableAtStartupAndOffline(t *testing.T) {
 	}
 }
 
-func TestNetworkDirectoryMergesValidatedRefreshByID(t *testing.T) {
+func TestNetworkDirectoryReplacesOnlyWithValidRefresh(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	directory, err := newNetworkDirectory(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundled := slices.Clone(directory.listing.Presets)
-	refresh := func(body string, unavailable bool) []protocol.NetworkPreset {
-		t.Helper()
-		directory.transport = networkPresetRoundTripper(func(*http.Request) (*http.Response, error) {
+	const relay = "/dns4/updated-relay.example/tcp/443/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
+	const china = `{"id":"china-tencent","label":{"label":"China (Tencent Cloud)"},"selection":{"kind":"custom","relays":["` + relay + `"]}}`
+	const other = `{"id":"other","label":{"label":"Other"},"selection":{"kind":"custom","relays":["` + relay + `"]}}`
+	const ignored = `
+		{"id":"direct","label":{"label":"Reserved direct"},"selection":{"kind":"custom","relays":["` + relay + `"]}},
+		{"id":"custom","label":{"label":"Reserved custom"},"selection":{"kind":"custom","relays":["` + relay + `"]}},
+		{"id":"direct-alias","label":{"label":"Direct alias"},"selection":{"kind":"direct"}},
+		{"id":"legacy-iroh","label":{"label":"Iroh"},"selection":{"kind":"iroh"}},
+		{"id":"legacy-https","label":{"label":"HTTPS"},"selection":{"kind":"custom","relays":["https://iroh.example"]}}`
+	catalog := func(entries string) string { return `{"version":1,"presets":[` + entries + `]}` }
+	var body string
+	var fetchErr error
+	directory := &networkDirectory{
+		transport: networkPresetRoundTripper(func(*http.Request) (*http.Response, error) {
+			if fetchErr != nil {
+				return nil, fetchErr
+			}
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
-		})
+		}),
+	}
+	refresh := func(unavailable bool) []protocol.NetworkPreset {
+		t.Helper()
 		listing, err := directory.read(ctx, true)
 		if err != nil || listing.Unavailable != unavailable {
 			t.Fatalf("refresh %s = %#v, %v", body, listing, err)
 		}
 		return listing.Presets
 	}
-	const updatedRelay = "/dns4/updated-relay.example/tcp/443/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
-	merged := refresh(`{"version":1,"presets":[
-		{"id":"global","label":{"label":"Global"},"selection":{"kind":"direct"}},
-		{"id":"china-tencent","label":{"label":"Updated China"},"selection":{"kind":"custom","relays":["`+updatedRelay+`"]}},
-		{"id":"direct","label":{"label":"Updated direct"},"selection":{"kind":"direct"}},
-		{"id":"other","label":{"label":"Other"},"selection":{"kind":"direct"}}
-	]}`, false)
-	if len(merged) != 4 || merged[0].ID != "direct" || merged[0].Label.Label != "Updated direct" ||
-		merged[1].ID != "china-tencent" || merged[1].Label.Label != "Updated China" || len(merged[1].Label.Locales) != 0 ||
-		merged[2].ID != "global" || merged[3].ID != "other" {
-		t.Fatalf("merged presets = %#v", merged)
+
+	body = catalog(china + "," + ignored + "," + other)
+	loaded := slices.Clone(refresh(false))
+	if len(loaded) != 2 || loaded[0].ID != "china-tencent" || loaded[0].Label.Label != "China (Tencent Cloud)" || loaded[1].ID != "other" {
+		t.Fatalf("loaded presets = %#v", loaded)
 	}
-	if relays, err := link.NetworkRelayURLs(ctx, merged[1].Selection); err != nil || !slices.Equal(relays, []string{updatedRelay}) {
-		t.Fatalf("updated China relays = %v, %v", relays, err)
+	if relays, err := link.NetworkRelayURLs(ctx, loaded[0].Selection); err != nil || !slices.Equal(relays, []string{relay}) {
+		t.Fatalf("China relays = %v, %v", relays, err)
 	}
 
-	invalid := refresh(`{"version":1,"presets":[
-		{"id":"direct","label":{"label":"Partial update"},"selection":{"kind":"direct"}},
-		{"id":"china-tencent","label":{"label":"Invalid China"},"selection":{"kind":"custom","relays":["bad-address"]}}
-	]}`, true)
-	if !reflect.DeepEqual(invalid, merged) {
-		t.Fatalf("invalid refresh changed presets: %#v", invalid)
+	fetchErr = errors.New("offline")
+	if offline := refresh(true); !reflect.DeepEqual(offline, loaded) {
+		t.Fatalf("offline refresh changed presets: %#v", offline)
+	}
+	fetchErr = nil
+	for _, invalid := range []struct{ name, body string }{
+		{"invalid relay", catalog(other + `,{"id":"malformed","label":{"label":"Malformed"},"selection":{"kind":"custom","relays":["bad-address"]}}`)},
+		{"missing presets", `{"version":1}`},
+		{"null presets", `{"version":1,"presets":null}`},
+		{"only ignored presets", catalog(ignored)},
+	} {
+		body = invalid.body
+		if got := refresh(true); !reflect.DeepEqual(got, loaded) {
+			t.Errorf("refresh with %s changed presets: %#v", invalid.name, got)
+		}
 	}
 
-	legacy := refresh(`{"version":1,"presets":[
-		{"id":"global","label":{"label":"Old global"},"selection":{"kind":"iroh"}},
-		{"id":"china-tencent","label":{"label":"Old China"},"selection":{"kind":"custom","relays":["https://iroh.example"]}}
-	]}`, false)
-	if !reflect.DeepEqual(legacy, bundled) {
-		t.Fatalf("legacy refresh changed bundled presets: %#v", legacy)
+	body = catalog(other)
+	if replaced := refresh(false); !reflect.DeepEqual(replaced, loaded[1:]) {
+		t.Fatalf("refresh did not remove missing preset: %#v", replaced)
 	}
-
-	alias := refresh(`{"version":1,"presets":[
-		{"id":"direct","label":{"label":"Not direct"},"selection":{"kind":"custom","relays":["`+updatedRelay+`"]}}
-	]}`, false)
-	if !reflect.DeepEqual(alias, bundled) {
-		t.Fatalf("relay hidden behind the direct ID changed bundled presets: %#v", alias)
+	body = catalog("")
+	if empty := refresh(false); len(empty) != 0 {
+		t.Fatalf("empty catalog did not clear presets: %#v", empty)
 	}
 }
