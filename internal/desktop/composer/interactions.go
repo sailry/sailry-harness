@@ -257,6 +257,27 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 	}).HasPopup(ui.PopupDialog)
 }
 
+// toned recolors a chip of a request the run waits on in tone (Info for a
+// question, Warning for approvals), so it stands apart from the strip's
+// muted chips: a light wash of it behind, deepening a step on hover and
+// again while pressed or open, a thin border of it, and the tone moved
+// toward the foreground for its icon and text (which inherit the chip's),
+// so they stay readable on light and dark themes alike.
+func toned(c *ui.Context, b ui.Element, open bool, tone ui.Color) ui.Element {
+	p := theme.Of(c)
+	wash, ink := float32(0.08), float32(0.45)
+	if p.Dark {
+		wash, ink = 0.12, 0.2
+	}
+	switch {
+	case b.Pressed() || open:
+		wash *= 2.5
+	case b.Hovered():
+		wash *= 1.75
+	}
+	return b.Background(tone.Alpha(wash)).Border(1, tone.Alpha(0.4)).TextColor(tone.Mix(p.Foreground, ink))
+}
+
 // chip is a small round outlined button, muted, named label, holding
 // children; the strip's capsules are all chips.
 func chip(c *ui.Context, label string, open bool, children func()) ui.Element {
@@ -364,6 +385,9 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 		label = i18n.T(c, "approval_live_count", "count", pending)
 	}
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
+	if pending > 0 {
+		toned(c, trigger, s.in.approvals, p.Warning)
+	}
 	s.in.at = min(max(s.in.at, 0), len(list)-1)
 	place(c, kit.Popover(c, trigger, &s.in.approvals, func() {
 		if len(list) > 1 {
@@ -531,7 +555,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	}
 	locked := q.Disabled || q.Busy || q.Retry || q.Check != nil
 	label := i18n.T(c, "question_reply")
-	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
+	trigger := toned(c, capsule(c.Key("question"), label, in.question), in.question, theme.Of(c).Info).OnClick(func() { in.question = !in.question })
 	place(c, kit.Popover(c, trigger, &in.question, func() {
 		_, height := c.Size()
 		ui.Scroll(c).Gap(16).MaxHeight(max(min(height/2, 420), 160)).Shrink(1).Children(func() {
