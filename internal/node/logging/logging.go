@@ -66,7 +66,12 @@ func Install(profile, application string) (func(), error) {
 	directory := filepath.Join(profile, "logs", application)
 	// Logging precedes Node startup, so it must create the profile with the
 	// same privacy as the Node instead of leaving an inherited Windows DACL.
-	for _, path := range []string{profile, filepath.Join(profile, "logs"), directory} {
+	for index, path := range []string{profile, filepath.Join(profile, "logs"), directory} {
+		if index > 0 {
+			if err := tightenDirectory(path); err != nil {
+				return nil, ErrUnavailable
+			}
+		}
 		if err := core.PrivateDirectory(path); err != nil {
 			return nil, ErrUnavailable
 		}
