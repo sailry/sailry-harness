@@ -209,8 +209,8 @@ func TestToolGroupHeadState(t *testing.T) {
 	}
 }
 
-// The waiting phase shows only while no awaited call sweeps last: after a
-// batch whose latest call failed it remains.
+// After the reply's first output the waiting phase no longer shows, whether
+// the latest call is awaited or failed.
 func TestAwaitingPhaseBehindSweep(t *testing.T) {
 	waiting := i18n.In("en", "turn_awaiting_response")
 	awaited := settledCall("a", "read", "a.go", true, true)
@@ -224,7 +224,7 @@ func TestAwaitingPhaseBehindSweep(t *testing.T) {
 	}{
 		{"awaited", callBlocks(awaited), false},
 		{"awaited above progress", append(callBlocks(awaited), progress), false},
-		{"failed", callBlocks(awaited, failed), true},
+		{"failed", callBlocks(awaited, failed), false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			turns := sweepTurn(AwaitingResponse, row.blocks...)

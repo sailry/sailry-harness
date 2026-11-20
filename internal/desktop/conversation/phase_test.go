@@ -2,6 +2,8 @@ package conversation
 
 import "testing"
 
+// The model's own progress shows only before the reply's first output;
+// waiting on children still shows after it.
 func TestThinkingFallbackFollowsVisibleActivity(t *testing.T) {
 	tool := Block{Kind: ToolsBlock, Calls: []Call{{ID: "read", Running: true}}}
 	text := Block{Kind: TextBlock, Text: "Answer"}
@@ -17,9 +19,11 @@ func TestThinkingFallbackFollowsVisibleActivity(t *testing.T) {
 		{"folded tool", ExecutingTool, []Block{tool}, false, false},
 		{"streaming answer", Generating, []Block{text}, true, false},
 		{"streaming reasoning", Thinking, []Block{reasoning}, true, false},
-		{"folded reasoning", Thinking, []Block{reasoning}, false, true},
+		{"folded reasoning", Thinking, []Block{reasoning}, false, false},
 		{"waiting after committed answer", AwaitingResponse, []Block{text}, true, false},
-		{"waiting after prior reasoning", AwaitingResponse, []Block{reasoning}, true, true},
+		{"waiting after prior reasoning", AwaitingResponse, []Block{reasoning}, true, false},
+		{"waiting after a tool", AwaitingResponse, []Block{{Kind: ToolsBlock, Calls: []Call{{ID: "done"}}}}, false, false},
+		{"waiting on children after output", WaitingChildren, []Block{text}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reply := Reply{Status: Running, Phase: tc.phase, Blocks: tc.blocks}

@@ -227,7 +227,11 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	thinking := i18n.In("zh-CN", "turn_awaiting_response")
 	first := batch("first", 10, 2)
 	show()
-	order(count(0, 10), thinking)
+	// After the launches the model's wait shows only in the reply header.
+	order(count(0, 10))
+	if tester.HasText(thinking) {
+		t.Fatalf("thinking row after the reply's output: %q", tester.Texts())
+	}
 	for i := len(first) - 1; i >= 0; i-- {
 		first[i].Run.Status = "completed"
 		frame("child", first[i])
@@ -414,7 +418,8 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 	}
 	page.Questions[0].State = protocol.ConversationQuestionState{Kind: "answered", Data: protocol.ConversationQuestionAnswer{Kind: "choices", Data: protocol.ConversationQuestionAnswerChoicesPayload{Selected: []uint64{0}}}}
 	entry("answered", "tool", transcriptResult("ask", "ask_user"))
-	check("question answered", idle)
+	// Once the reply has output the model's wait shows only in its header.
+	check("question answered", "")
 	page.Runs[0].Waiting = &protocol.ConversationRunWaiting{
 		Kind: "controller_login", Attempt: protocol.RequestID{1}, Provider: protocol.ProviderID{1},
 		Credential: protocol.CredentialRef{Node: state.Snapshot.Node, ID: protocol.CredentialID{1}},
@@ -424,7 +429,7 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 	state.Connected = false
 	check("disconnected", "")
 	state.Connected = true
-	check("reconnected", idle)
+	check("reconnected", "")
 	for _, status := range []protocol.ConversationStatus{"stopping", "cancelled", "interrupted", "failed", "completed"} {
 		page.Runs[0].Status = status
 		check(string(status), "")

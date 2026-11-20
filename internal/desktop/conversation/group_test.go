@@ -127,7 +127,8 @@ func testTextSize(t *testing.T) {
 	outline := map[float32]float64{} // the first row's icon, top to bottom
 	for _, size := range []float32{12, 14, 18} {
 		s := New()
-		turns := []Turn{{ID: "turn", User: user, Reply: Reply{Status: Running, Phase: AwaitingResponse, Blocks: []Block{
+		// Waiting on a child keeps the phase row below earlier output.
+		turns := []Turn{{ID: "turn", User: user, Reply: Reply{Status: Running, Phase: WaitingChildren, Waiting: 1, Blocks: []Block{
 			{Kind: ToolsBlock, Calls: []Call{{ID: "a", Name: "shell", Label: first, Icon: "circle-check", Detail: "MAKE TEST", Code: true, Output: &Output{Text: "ok"}}}},
 			{Kind: TextBlock, Text: between},
 			{Kind: ToolsBlock, Calls: []Call{{ID: "b", Name: "read", Label: second, Icon: "file-text", Output: &Output{Text: "ok"}}}},

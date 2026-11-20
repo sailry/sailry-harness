@@ -718,6 +718,13 @@ func showPhase(r *Reply, parts replySections) bool {
 	if r.Phase == WaitingController {
 		return true
 	}
+	// The model's own progress shows only until the reply's first output:
+	// between later steps the row would flash for a moment at each one.
+	// Compaction and waiting on children remain distinct states.
+	if (r.Phase == AwaitingResponse || r.Phase == Thinking || r.Phase == Generating || r.Phase == PhaseNone) && r.Status == Running &&
+		(parts.hasWork || len(parts.answer)+len(parts.failures) > 0) {
+		return false
+	}
 	if len(parts.work) > 0 && parts.endsInRetry && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
 		return false
 	}
