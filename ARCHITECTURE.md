@@ -967,11 +967,16 @@ changes, including pagination and connection state. Across history pages and
 streaming drafts the read-only view shares its already detached canonical entries.
 Replacement snapshots and removal of a visible entry invalidate their reuse.
 Mutable action reads always get independent copies.
-The visible transcript projects from the current observation in the frame's
-locale. A directory refresh transfers unchanged rows to the rebuilt view.
-Elapsed labels update without rebuilding history. Controls and mutable
-presentation overlays still refresh. An unmounted transcript releases the
-widget list and its row frame.
+Mounted transcripts prepare Client views, history rows, references and attachment
+descriptors outside the UI frame. A shared preparation lane bounds concurrent
+work across windows; each mount holds one latest publication, not a snapshot
+queue. Taking a publication transfers its mutable rows to one presentation.
+A directory refresh transfers unchanged rows to the rebuilt view. Elapsed labels
+update without rebuilding history; controls and mutable overlays still refresh.
+An unmounted transcript releases its observation, widget list and row frame.
+Desktop leaves collection policy to the Go runtime and any explicit `GOMEMLIMIT`:
+a fixed process-wide ceiling cannot accommodate both Node tasks and mounted
+histories and can force repeated collections when their live heap exceeds it.
 Desktop keeps up to 64 lightweight turn-and-pixel scroll bookmarks for reopening
 away from the end. Controller-owned drafts and canonical history have their own
 lifetimes. Command
