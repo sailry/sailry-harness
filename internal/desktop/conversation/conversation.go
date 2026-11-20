@@ -638,6 +638,10 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		}
 		if live && showPhase(r, parts) {
 			phaseRow(c, r, t.ID, actions)
+		} else if live && endsInTools(parts) {
+			// Between calls the phase row shows and hides once per call; its
+			// place stays so the transcript does not move with it.
+			ui.Box(c.Key("phase")).Height(rowHeight(textSize(c)))
 		}
 		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
@@ -704,6 +708,20 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, t
 
 // The tail reports the parent's current phase, not the last activity in its
 // history. A background child has its own status independent of the parent.
+// endsInTools reports a reply whose last shown work is a tool run.
+func endsInTools(parts replySections) bool {
+	tail := parts.answer
+	if len(tail) == 0 && len(parts.failures) == 0 {
+		tail = parts.work
+	}
+	for i := len(tail) - 1; i >= 0; i-- {
+		if tail[i].Kind != ProgressBlock {
+			return tail[i].Kind == ToolsBlock
+		}
+	}
+	return false
+}
+
 func showPhase(r *Reply, parts replySections) bool {
 	if r.Status == Stopping || r.Phase == WaitingUser || r.Phase == ExecutingTool {
 		return false
