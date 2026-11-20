@@ -159,6 +159,34 @@ func TestSearchChannelOrder(t *testing.T) {
 	})
 }
 
+// A service that ignores the included domains returns nothing in scope;
+// the next one is asked, and the empty page stands when none does better.
+func TestSearchOutOfScopeFallsThrough(t *testing.T) {
+	t.Parallel()
+	for _, tavily := range []bool{true, false} {
+		drivers := []protocol.SearchDriver{protocol.SearchDriverBrave}
+		if tavily {
+			drivers = append(drivers, protocol.SearchDriverTavily)
+		}
+		settings := searchSettings(drivers...)
+		searcher := NewSearcher(SearchOptions{Endpoints: map[protocol.SearchDriver]string{protocol.SearchDriverBrave: "https://brave.test/", protocol.SearchDriverTavily: "https://tavily.test/"}, Transport: fixtureTransport(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Host == "brave.test" {
+				return responseFixture(`{"web":{"results":[{"url":"https://other.test/","title":"Elsewhere","description":"Out of scope"}]}}`, "application/json"), nil
+			}
+			return responseFixture(`{"results":[{"url":"https://docs.example.com/","title":"Kept","content":"In scope"}]}`, "application/json"), nil
+		})})
+		searcher.Configure(settings)
+		credentials := map[protocol.SearchDriver]Auth{protocol.SearchDriverBrave: searchAuth(), protocol.SearchDriverTavily: searchAuth()}
+		page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings, Credentials: credentials}, protocol.SearchRequest{Query: "fixture", Limit: 5, IncludeDomains: []string{"example.com"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tavily && (page.Driver != protocol.SearchDriverTavily || len(page.Results) != 1) || !tavily && (page.Driver != protocol.SearchDriverBrave || len(page.Results) != 0) {
+			t.Fatalf("tavily %v: %+v", tavily, page)
+		}
+	}
+}
+
 func TestSearchDriverContracts(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
@@ -275,8 +303,8 @@ func TestHostedExaLifecycle(t *testing.T) {
 			if frame.Params["name"] != "web_search_exa" {
 				t.Error("incorrect hosted tool", frame.Params)
 			}
-			if arguments, _ := frame.Params["arguments"].(map[string]any); arguments["query"] != "fixture" {
-				t.Error("hosted query carries filter operators", arguments)
+			if arguments, _ := frame.Params["arguments"].(map[string]any); arguments["query"] != "fixture" || arguments["numResults"] != float64(25) {
+				t.Error("hosted query carries filter operators or too few results", arguments)
 			}
 			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "Title: Public source\nURL: https://example.com/\nPublished: N/A\nText: Fixture excerpt\n\n---\n\nTitle: Other\nURL: https://other.test/\nPublished: N/A\nText: Out of scope"}}}
 		default:

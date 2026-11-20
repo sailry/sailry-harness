@@ -47,7 +47,12 @@ type exaResult struct {
 
 func (searcher *Searcher) exaHosted(ctx context.Context, endpoint string, input protocol.SearchRequest) (protocol.SearchPage, error) {
 	// Hosted Exa rejects some site: combinations; domain filters apply to the
-	// returned results instead, as for every driver.
+	// returned results instead, as for every driver, so a filtered search
+	// asks for more of them.
+	numResults := int(input.Limit)
+	if len(input.IncludeDomains) > 0 {
+		numResults = min(numResults*5, 100)
+	}
 	operation, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	client, closeIdle := searchClient(searcher.options.Transport)
@@ -63,7 +68,7 @@ func (searcher *Searcher) exaHosted(ctx context.Context, endpoint string, input 
 			finished <- exaResult{err: err, cleaned: true}
 			return
 		}
-		response, err := session.CallTool(operation, &mcp.CallToolParams{Name: "web_search_exa", Arguments: map[string]any{"query": input.Query, "numResults": input.Limit}})
+		response, err := session.CallTool(operation, &mcp.CallToolParams{Name: "web_search_exa", Arguments: map[string]any{"query": input.Query, "numResults": numResults}})
 		cleaned := session.Close() == nil
 		finished <- exaResult{response: response, err: err, cleaned: cleaned}
 	}()

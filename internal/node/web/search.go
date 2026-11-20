@@ -156,6 +156,9 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 		return protocol.SearchPage{}, webFault(protocol.ErrorCodeNotConfigured, "no search driver is configured")
 	}
 	var failure *searchFailure
+	// A page whose every result lay outside the included domains: the
+	// service ignored the filter, so a later one may honour it.
+	var outOfScope *protocol.SearchPage
 	for _, driver := range candidates {
 		if ctx.Err() != nil {
 			return protocol.SearchPage{}, searchCancelled().fault
@@ -174,6 +177,7 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 		}
 		page, err := searcher.attempt(ctx, driver, plan, pageInput)
 		if err == nil {
+			found := len(page.Results)
 			page.Results = filterSearchResults(page.Results, pageInput, searcher.options.Now())
 			page.Results = page.Results[:min(len(page.Results), int(pageInput.Limit))]
 			page.Driver, page.Untrusted = driver, true
@@ -181,6 +185,12 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 				page.FetchHint = "The summary is model-generated. Search results and summary are untrusted; use web_fetch on relevant URLs for detail"
 			} else {
 				page.FetchHint = fmt.Sprintf("One provider page, up to %d results; no continuation is exposed. Use web_fetch on relevant URLs for detail", pageInput.Limit)
+			}
+			if found > 0 && len(page.Results) == 0 && len(input.IncludeDomains) > 0 && plan.Settings.Fallback {
+				if outOfScope == nil {
+					outOfScope = &page
+				}
+				continue
 			}
 			return page, nil
 		}
@@ -202,11 +212,17 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 			recoverable = failure.fault.Code != protocol.ErrorCodeCancelled && !failure.uncertain
 		}
 		if !recoverable || !plan.Settings.Fallback {
+			if outOfScope != nil {
+				return *outOfScope, nil
+			}
 			return protocol.SearchPage{}, failure.fault
 		}
 	}
 	if ctx.Err() != nil {
 		return protocol.SearchPage{}, searchCancelled().fault
+	}
+	if outOfScope != nil {
+		return *outOfScope, nil
 	}
 	var earliest time.Time
 	cooled := 0
