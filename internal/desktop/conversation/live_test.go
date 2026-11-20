@@ -302,12 +302,14 @@ func checkTranscript(t *testing.T) {
 		t.Fatalf("no %q in %q", want, tt.Texts())
 	}
 	transcriptShot(t, tt, "transcript-cards-tool-image-retry-zh-dark")
-	// The document card's menu exports it as HTML and as an image.
+	// The document card's Save as submenu saves it as HTML and as an image.
 	r.turns = r.turns[1:] // the first turn's menus come before the document's otherwise
 	tt.Frame()
 	click(T("more"))
+	click(T("files_download"))
 	click(T("conversation_export_html"))
 	click(T("more"))
+	click(T("files_download"))
 	click(T("conversation_export_image"))
 	if len(r.fileActions) != 2 || r.fileActions[0] != conversation.ExportDocumentHTML || r.fileActions[1] != conversation.ExportDocumentImage {
 		t.Fatalf("document exports = %v", r.fileActions)
