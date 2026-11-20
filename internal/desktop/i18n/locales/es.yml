@@ -37,6 +37,8 @@ activity_waiting: Necesita atención
 notification_unread: Sin leer
 project_sessions_empty: No hay sesiones
 project_archived: Archivado
+project_terminals: Terminales
+project_terminals_empty: No hay terminales
 settings_group_app: Aplicación
 settings_group_ai: AI
 settings_group_tools: Herramientas y conexiones

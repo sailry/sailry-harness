@@ -37,6 +37,8 @@ activity_waiting: 주의가 필요합니다
 notification_unread: 읽지 않음
 project_sessions_empty: 세션 없음
 project_archived: 보관됨
+project_terminals: 터미널
+project_terminals_empty: 터미널 없음
 settings_group_app: 응용 프로그램
 settings_group_ai: AI
 settings_group_tools: 도구 및 연결

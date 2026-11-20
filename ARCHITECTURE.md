@@ -926,7 +926,12 @@ with that conversation and do not join splits. A terminal ID has one surface at 
 time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available through terminal activity.
 Explicitly closing a right-panel terminal stops its shell. Project overview lists
-active and archived conversations separately.
+active and archived conversations separately, and the running terminals in the
+project's worktrees whichever controller started them; opening one attaches a
+main surface without starting another shell. Mobile's terminal page and a
+conversation's terminal sheet end a shell only through an explicit action;
+the sheet lists the terminals of the conversation's worktree, including the
+scratch worktree of a chat without a project.
 
 Client restores the previously loaded history range after a new authoritative
 conversation snapshot, preserving that target even if another reconnect

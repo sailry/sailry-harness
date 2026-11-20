@@ -37,6 +37,8 @@ activity_waiting: 待處理
 notification_unread: 未讀
 project_sessions_empty: 暫無會話
 project_archived: 已歸檔
+project_terminals: 終端
+project_terminals_empty: 暫無終端
 settings_group_app: 應用
 settings_group_ai: AI
 settings_group_tools: 工具與連線

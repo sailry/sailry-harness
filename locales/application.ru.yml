@@ -349,6 +349,7 @@ worktree_duplicate_path: "На этом хосте уже есть рабоче�
 worktree_missing_project: "Выберите проект"
 workspace_sessions: "Сеансы"
 project_sessions_empty: "Нет сеансов"
+project_terminals: "Терминалы"
 project_terminals_empty: "Терминалов нет"
 workspace_runtime: "Время выполнения"
 workspace_runtime_preview: "Для реальной ОС, версий времени выполнения и метрик хоста требуется общий Node"

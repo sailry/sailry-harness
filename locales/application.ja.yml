@@ -349,6 +349,7 @@ worktree_duplicate_path: "このホストは既にそのパスにワークツリ
 worktree_missing_project: "プロジェクトを選択"
 workspace_sessions: "セッション"
 project_sessions_empty: "セッションなし"
+project_terminals: "ターミナル"
 project_terminals_empty: "ターミナルなし"
 workspace_runtime: "ランタイム"
 workspace_runtime_preview: "ライブOS、ランタイムバージョンおよびホストメトリクスには共有 Node が必要です"

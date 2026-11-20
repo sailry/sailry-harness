@@ -70,3 +70,55 @@ func TestProjectArchiveTabs(t *testing.T) {
 		t.Fatal("the archived row did not preserve its captured open action")
 	}
 }
+
+// The terminals tab lists the Node's running project terminals, including
+// those another controller started, and opens one through its action.
+func TestProjectTerminalsTab(t *testing.T) {
+	session := &viewmodel.Conversation{Node: "local", ID: "active", Title: "Current conversation"}
+	project := &viewmodel.Project{ID: "project", Host: "local", Name: "Sailry", Path: "/Projects/sailry",
+		Conversations: []*viewmodel.Conversation{session}}
+	data := &viewmodel.Data{Projects: []*viewmodel.Project{project}, Workspace: &viewmodel.Workspace{
+		Hosts: []viewmodel.Host{{ID: "local", Name: "MacBook Pro", Local: true}},
+	}}
+	a := NewLive(data)
+	terminals := []ProjectTerminal{{ID: "mobile", Title: "zsh", Path: "/Projects/sailry"}}
+	var opened string
+	a.OpenProject(project, ProjectActions{
+		Terminals:    func() []ProjectTerminal { return terminals },
+		OpenTerminal: func(id string) { opened = id },
+	})
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	settle(tt)
+	row := func(title string) (ui.AccessInfo, bool) {
+		for _, entry := range tt.AccessAll() {
+			if entry.Role == ui.RoleButton && entry.Name == title && entry.Bounds.X >= RailWidth+a.NavWidth {
+				return entry, true
+			}
+		}
+		return ui.AccessInfo{}, false
+	}
+	if _, ok := row("zsh"); ok {
+		t.Fatal("the sessions tab listed a terminal")
+	}
+	click(t, tt, i18n.In("en", "project_terminals"))
+	settle(tt)
+	if _, ok := row(session.Title); ok {
+		t.Fatal("the terminals tab listed a conversation")
+	}
+	entry, ok := row("zsh")
+	if !ok {
+		t.Fatal("the terminals tab omitted the running terminal")
+	}
+	tt.ClickAt(entry.Bounds.X+entry.Bounds.W/2, entry.Bounds.Y+entry.Bounds.H/2)
+	settle(tt)
+	if opened != "mobile" {
+		t.Fatalf("opened terminal = %q, want mobile", opened)
+	}
+	terminals = nil
+	settle(tt)
+	if _, ok := row("zsh"); ok {
+		t.Fatal("an ended terminal stayed listed")
+	}
+}

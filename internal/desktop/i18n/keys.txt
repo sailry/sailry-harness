@@ -39,6 +39,8 @@ activity_waiting
 notification_unread
 project_sessions_empty
 project_archived
+project_terminals
+project_terminals_empty
 # Settings navigation
 settings_group_app
 settings_group_ai

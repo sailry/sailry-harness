@@ -26,8 +26,17 @@ type ProjectActions struct {
 	Initialize     func(func(bool))
 	// NewTerminal opens an independent terminal in the project's worktree.
 	NewTerminal func(*viewmodel.Project)
+	// Terminals lists the project's running Node terminals, whichever
+	// controller started them; OpenTerminal shows one as a main surface.
+	Terminals    func() []ProjectTerminal
+	OpenTerminal func(id string)
 	// Controls draws the controls packages add to the page, after its own.
 	Controls func(*ui.Context)
+}
+
+// ProjectTerminal is a running terminal in one of a project's worktrees.
+type ProjectTerminal struct {
+	ID, Title, Path string
 }
 
 type projectOverview struct {
@@ -163,7 +172,13 @@ func (a *App) projectView(c *ui.Context) {
 func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, state *projectOverview) {
 	ui.Column(c.Key("project-records")).FillWidth().Gap(12).Padding(16, 0, 0, 0).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(16).Wrap().Children(func() {
-			kit.Segmented(c, "tabs", &state.tab, []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "project_archived")}, kit.SegmentedProps{})
+			tabs := []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "project_archived")}
+			if state.actions.Terminals != nil {
+				tabs = append(tabs, i18n.T(c, "project_terminals"))
+			} else if state.tab > 1 {
+				state.tab = 0
+			}
+			kit.Segmented(c, "tabs", &state.tab, tabs, kit.SegmentedProps{})
 			ui.Spacer(c)
 			label := i18n.T(c, "search")
 			ui.SearchField(c.Key("search"), &state.search).Placeholder(label).Label(label).Width(240).MinWidth(0)
@@ -178,7 +193,24 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 		if archived {
 			icon, none = icons.Archive, "backup_no_archived"
 		}
-		for _, session := range project.Conversations {
+		sessions := project.Conversations
+		if state.tab == 2 {
+			sessions, icon, none = nil, icons.Terminal, "project_terminals_empty"
+			for _, terminal := range state.actions.Terminals() {
+				title := terminal.Title
+				if title == "" {
+					title = i18n.T(c, "terminal")
+				}
+				if !matches(title, terminal.Path) {
+					continue
+				}
+				rows = append(rows, func() {
+					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, nil).
+						Disabled(state.actions.OpenTerminal == nil).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
+				})
+			}
+		}
+		for _, session := range sessions {
 			if session.Archived != archived || (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
 				continue
 			}

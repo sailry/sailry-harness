@@ -37,6 +37,8 @@ activity_waiting: 注意が必要です
 notification_unread: 未読
 project_sessions_empty: セッションなし
 project_archived: アーカイブ済み
+project_terminals: ターミナル
+project_terminals_empty: ターミナルなし
 settings_group_app: アプリケーション
 settings_group_ai: AI
 settings_group_tools: ツールと接続

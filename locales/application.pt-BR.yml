@@ -349,6 +349,7 @@ worktree_duplicate_path: "Este host já tem uma árvore de trabalho nesse caminh
 worktree_missing_project: "Selecione um projeto"
 workspace_sessions: "Sessões"
 project_sessions_empty: "Não há sessões"
+project_terminals: "Terminais"
 project_terminals_empty: "Sem terminais"
 workspace_runtime: "Tempo de execução"
 workspace_runtime_preview: "Live OS, versões de tempo de execução e métricas de host requerem o Node compartilhado"

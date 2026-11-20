@@ -37,6 +37,8 @@ activity_waiting: 待处理
 notification_unread: 未读
 project_sessions_empty: 暂无会话
 project_archived: 归档
+project_terminals: 终端
+project_terminals_empty: 暂无终端
 settings_group_app: 应用
 settings_group_ai: AI
 settings_group_tools: 工具与连接

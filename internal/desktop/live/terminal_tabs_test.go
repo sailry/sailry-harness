@@ -560,3 +560,42 @@ func TestWorkspaceTerminalKeepsHiddenConversationUnread(t *testing.T) {
 		}
 	})
 }
+
+// A terminal another controller started in the project's worktree, such as
+// one opened from Mobile, is listed by the project overview and opens here
+// without starting another shell.
+func TestProjectOverviewListsNodeTerminals(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		project := protocol.DefaultProject()
+		project.ID, project.Name, project.Path = protocol.ProjectID{1}, "Terminal project", "/fixture"
+		main, scratch := protocol.WorktreeID{1}, protocol.WorktreeID{2}
+		remote := terminalTabsTestInfo(1, main, "running")
+		remote.Title, remote.Owner = new("zsh"), &protocol.NodeID{9}
+		exited := terminalTabsTestInfo(2, main, "exited")
+		chat := terminalTabsTestInfo(3, scratch, "running")
+		tool := terminalTabsTestInfo(4, main, "running")
+		tool.Tool = new(protocol.TerminalToolsTool)
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node, snapshot.Projects = protocol.NodeID{1}, []protocol.Project{project}
+		snapshot.Worktrees = []protocol.Worktree{
+			{ID: main, Project: &project.ID, Path: project.Path, Main: true},
+			{ID: scratch, Path: "/scratch"},
+		}
+		snapshot.Terminals = []protocol.TerminalInfo{remote, exited, chat, tool}
+		root, source := snapshotFixture(t, snapshot)
+		overview := &viewmodel.Project{ID: project.ID.String(), Host: root.controller.Target().String()}
+		listed := root.projectTerminals(overview)
+		want := []shell.ProjectTerminal{{ID: remote.ID.String(), Title: "zsh", Path: "/fixture"}}
+		if !slices.Equal(listed, want) {
+			t.Fatalf("project terminals = %+v, want %+v", listed, want)
+		}
+		root.showWorkspaceTerminal(listed[0].ID)
+		if !root.App.HasWorkspaceTerminal(remote.ID.String()) {
+			t.Fatal("opening a listed terminal did not show it in the workspace")
+		}
+		synctest.Wait()
+		if commands := source.sent("create_terminal"); len(commands) != 0 {
+			t.Fatalf("opening a listed terminal started %d shells", len(commands))
+		}
+	})
+}

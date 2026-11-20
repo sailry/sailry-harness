@@ -349,6 +349,7 @@ worktree_duplicate_path: "Dieser Host hat bereits einen Worktree unter diesem Pf
 worktree_missing_project: "Ein Projekt auswählen"
 workspace_sessions: "Sitzungen"
 project_sessions_empty: "Keine Sitzungen gefunden"
+project_terminals: "Terminals"
 project_terminals_empty: "Keine Terminals"
 workspace_runtime: "Laufzeit"
 workspace_runtime_preview: "Live-Betriebssystem, Laufzeitversionen und Hostmetriken erfordern die gemeinsame Node"

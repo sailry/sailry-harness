@@ -349,6 +349,7 @@ worktree_duplicate_path: "Cet hôte possède déjà un arbre de travail à ce ch
 worktree_missing_project: "Sélectionner un projet"
 workspace_sessions: "Sessions"
 project_sessions_empty: "Aucune session"
+project_terminals: "Terminaux"
 project_terminals_empty: "Aucun terminal"
 workspace_runtime: "Temps d'exécution"
 workspace_runtime_preview: "Le système d'exploitation Live, les versions d'exécution et les métriques d'hôte nécessitent le partage Node"
