@@ -484,6 +484,18 @@ func build(p *Palette) *ui.Theme {
 // ContentWidth is the transcript's and the composer's maximum width.
 const ContentWidth = 800
 
+// Brand is Sailry's orange, as Mobile paints it, for marks that show the
+// application at work. Themes have no brand color key.
+var Brand = struct{ Light, Dark ui.Color }{Light: ui.Hex("#bb5b34"), Dark: ui.Hex("#df9c70")}
+
+// BrandColor is the brand color for the palette's mode.
+func (p *Palette) BrandColor() ui.Color {
+	if p.Dark {
+		return Brand.Dark
+	}
+	return Brand.Light
+}
+
 // Welcome is the welcome guide's approved peach-to-coral brand banner and the
 // white over it. Themes have no brand banner token; the reference paints
 // these two stops for the design's four, and so does this.

@@ -254,7 +254,6 @@ func (a *App) groupTab(c *ui.Context, b ui.Element, t headerTab, hovered bool) {
 // passing in italics until a double click keeps it. Closing it stops
 // keeping it and, while it shows, shows its neighbour.
 func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab, hovered bool) {
-	p := theme.Of(c)
 	if !t.kept {
 		b.Italic()
 	}
@@ -263,11 +262,7 @@ func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTa
 	// A terminal's leads with its mark.
 	lead := func() { ui.Icon(c, icons.Terminal).FontSize(14).Shrink(0) }
 	if cv := a.Data.Find(t.alone.ID); t.alone.Kind == panes.Session && cv != nil {
-		ink := p.MutedForeground
-		if t.shown {
-			ink = p.TabActiveText
-		}
-		lead = func() { sidebar.StatusMark(c, cv.Status, ink) }
+		lead = func() { sidebar.StatusMark(c, cv.Status) }
 	}
 	kit.StripTabBodyWith(c, b, lead, t.title, t.shown, hovered, i18n.T(c, "close"), close)
 	kit.Tooltip(c, b, t.title)

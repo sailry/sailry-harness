@@ -492,7 +492,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			ui.Icon(c, icons.Network).FontSize(12).Label(i18n.T(c, "resource_offline")).TextColor(p.MutedForeground).
 				Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
 		} else {
-			status(c, cv.Status, text)
+			status(c, cv.Status)
 		}
 		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
 		if s.nonMainWorktree(cv) {
@@ -674,19 +674,19 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 
 // status puts the conversation's status mark in the 12x12 slot on the
 // elbow.
-func status(c *ui.Context, st preview.Status, color ui.Color) {
-	StatusMark(c, st, color).Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
+func status(c *ui.Context, st preview.Status) {
+	StatusMark(c, st).Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
 }
 
 // StatusMark is a conversation's state in a 12x12 slot, a row's and a
-// tab's alike: the loader, in color and named as running, while it runs,
+// tab's alike: the loader, in the brand color and named as running, while it runs,
 // the status dot in its tone while it waits or is unread, and a small dim
 // dot at rest. One that does not run has no loader and asks for no frame.
-func StatusMark(c *ui.Context, st preview.Status, color ui.Color) ui.Element {
+func StatusMark(c *ui.Context, st preview.Status) ui.Element {
 	slot := ui.Box(c).Size(12, 12).Shrink(0).Center()
 	switch st {
 	case preview.Running:
-		slot.Children(func() { kit.LoaderIn(c, 12, color) })
+		slot.Children(func() { kit.LoaderIn(c, 12, theme.Of(c).BrandColor()) })
 	case preview.Waiting:
 		slot.Children(func() { kit.StatusDot(c, kit.Caution, i18n.T(c, "activity_waiting")) })
 	case preview.Unread:
