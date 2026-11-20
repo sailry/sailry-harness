@@ -679,14 +679,14 @@ func status(c *ui.Context, st preview.Status) {
 }
 
 // StatusMark is a conversation's state in a 12x12 slot, a row's and a
-// tab's alike: the loader, in the brand color and named as running, while it runs,
+// tab's alike: the loader, in the theme's primary color and named as running, while it runs,
 // the status dot in its tone while it waits or is unread, and a small dim
 // dot at rest. One that does not run has no loader and asks for no frame.
 func StatusMark(c *ui.Context, st preview.Status) ui.Element {
 	slot := ui.Box(c).Size(12, 12).Shrink(0).Center()
 	switch st {
 	case preview.Running:
-		slot.Children(func() { kit.LoaderIn(c, 12, theme.Of(c).BrandColor()) })
+		slot.Children(func() { kit.LoaderIn(c, 12, theme.Of(c).Primary) })
 	case preview.Waiting:
 		slot.Children(func() { kit.StatusDot(c, kit.Caution, i18n.T(c, "activity_waiting")) })
 	case preview.Unread:
