@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/richtext"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -327,8 +328,13 @@ func TestEditorContracts(t *testing.T) {
 
 func TestFileEditorMermaidDocumentAndSource(t *testing.T) {
 	const path = "workflow.md"
-	const source = "# Workflow\n\n```mermaid\nflowchart TB\n  A --> B\n```"
+	const source = "# Workflow\n\n" +
+		`<p align="center"><a href="https://example.test/docs"><img src="badge.svg" alt="Badge"></a></p>` +
+		"\n\n```mermaid\nflowchart TB\n  A --> B\n```"
 	pr := editorFixture(path, source)
+	badge := ui.MustParseSVG([]byte(`<svg viewBox="0 0 80 24"><path d="M0 0h80v24H0z"/></svg>`))
+	options := markdown.Options{LoadImage: func(string) (ui.ImageSource, error) { return badge, nil }}
+	pr.Actions.DocumentMarkdown = func(string) *markdown.Options { return &options }
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Children(func() { pr.filePreview(c, path, true) })
@@ -339,6 +345,9 @@ func TestFileEditorMermaidDocumentAndSource(t *testing.T) {
 		tester.Frame()
 		if picture, ok := tester.AccessByRole(ui.RoleImage, "flowchart"); !ok || picture.Bounds.W <= 0 || picture.Bounds.H <= 0 || tester.HasText("mermaid") {
 			t.Fatal("document mode did not replace the Mermaid code block with its diagram")
+		}
+		if link, ok := tester.AccessByRole(ui.RoleLink, "Badge"); !ok || link.Bounds.W <= 0 || link.Bounds.H <= 0 {
+			t.Fatal("document mode did not preserve the linked HTML image")
 		}
 	}
 	checkDiagram()

@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -89,6 +90,53 @@ func TestDocumentImageTextLinksReachOuterAnchor(t *testing.T) {
 			click("Install")
 			if scroll.Y <= 0 || options.AnchorVersion <= version {
 				t.Fatal("repeated nested anchor did not reveal the target")
+			}
+		})
+	}
+}
+
+func TestDocumentLinkedImages(t *testing.T) {
+	const target = "https://example.test/docs"
+	badge := ui.MustParseSVG([]byte(`<svg viewBox="0 0 80 24"><path d="M0 0h80v24H0z"/></svg>`))
+	for _, tc := range []struct{ name, source string }{
+		{"Markdown", "[![Badge](badge.svg)](" + target + ")"},
+		{"inline HTML", `Before <a href="` + target + `"><img src="badge.svg" alt="Badge"></a> after.`},
+		{"HTML block", `<p align="center"><a href="` + target + `"><img src="badge.svg" alt="Badge"></a></p>`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var opened []string
+			var menuTarget string
+			options := markdown.Options{
+				LoadImage: func(string) (ui.ImageSource, error) { return badge, nil },
+				OnLink:    func(dest string) { opened = append(opened, dest) },
+				LinkMenu: func(menu *ui.Menu, dest string) {
+					if menu.Item("Copy target").Chosen() {
+						menuTarget = dest
+					}
+				},
+			}
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				Markdown(c, tc.source, MarkdownProps{Options: &options})
+			}, 500, 300)
+			tester.Frame()
+			link, ok := tester.AccessByRole(ui.RoleLink, "Badge")
+			if !ok || !link.Focusable || link.Bounds.W <= 0 || link.Bounds.H <= 0 {
+				t.Fatalf("linked image is not a focusable, laid-out link: %+v, found=%v", link, ok)
+			}
+			x, y := link.Bounds.X+link.Bounds.W/2, link.Bounds.Y+link.Bounds.H/2
+			tester.ClickAt(x, y)
+			tester.Key(0, ui.KeyEnter)
+			tester.Key(0, ui.KeySpace)
+			if !slices.Equal(opened, []string{target, target}) {
+				t.Fatalf("pointer and Enter must open the image target, but Space must not: %v", opened)
+			}
+			tester.RightClickAt(x, y)
+			if err := tester.ChooseMenuItem("Copy target"); err != nil {
+				t.Fatal(err)
+			}
+			if menuTarget != target {
+				t.Fatalf("image context menu target %q, want %q", menuTarget, target)
 			}
 		})
 	}

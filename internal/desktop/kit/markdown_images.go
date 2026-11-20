@@ -48,7 +48,8 @@ func documentImageBlock(o *markdown.Options) func(*ui.Context, *parser.Document,
 					markdown.View(c.Key(k), run.markdown, inner)
 					continue
 				}
-				link := ui.Link(c.Key(k), "", "").Tooltip(run.link)
+				// MyGo links are text-only; an image view needs a container with link semantics.
+				link := ui.ButtonBase(c.Key(k)).Role(ui.RoleLink).Cursor(ui.CursorPointer).Tooltip(run.link)
 				if link.Clicked() {
 					openDocumentLink(c, o, run.link)
 				}
