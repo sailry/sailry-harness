@@ -315,105 +315,111 @@ class _LiveQueueState extends State<LiveQueue> {
             EmptyState(icon: 'chat', message: context.tr('queueEmpty')),
           for (final (index, item) in items.indexed)
             Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.only(bottom: 8),
+              // One line per queued message: its text clipped to a single
+              // line, then its state and compact actions.
               child: Surface(
-                radius: 16,
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                radius: 14,
+                padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 4, 4),
+                child: Row(
                   children: [
-                    InkWell(
-                      onTap:
-                          enabled &&
-                              !automatic(item) &&
-                              item['guidance'] == null
-                          ? () => _open(item)
-                          : null,
-                      child: Text(
-                        markers[item['turn']] != null
-                            ? continuationLabel(context, markers[item['turn']])
-                            : item['notice'] == true
-                            ? context.tr('backgroundNoticeTitle')
-                            : item['preview'] as String? ?? '',
-                        style: const TextStyle(height: 1.5),
+                    Expanded(
+                      child: InkWell(
+                        onTap:
+                            enabled &&
+                                !widget.delegated &&
+                                !automatic(item) &&
+                                item['guidance'] == null
+                            ? () => _open(item)
+                            : null,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            markers[item['turn']] != null
+                                ? continuationLabel(
+                                    context,
+                                    markers[item['turn']],
+                                  )
+                                : item['notice'] == true
+                                ? context.tr('backgroundNoticeTitle')
+                                : (item['preview'] as String? ?? '')
+                                      .replaceAll(RegExp(r'\s+'), ' ')
+                                      .trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ),
                     ),
                     if (guidance[item['turn']] != null ||
                         (_busy || _pending) && _guiding == item['turn'])
-                      GuidanceStatus(
-                        state: (_busy || _pending) && _guiding == item['turn']
-                            ? 'pending'
-                            : guidance[item['turn']],
-                      ),
-                    Wrap(
-                      children: [
-                        if (!widget.delegated &&
-                            !automatic(item) &&
-                            item['guidance'] == null)
-                          TextButton(
-                            onPressed: enabled ? () => _open(item) : null,
-                            child: Text(context.tr('edit')),
-                          ),
-                        TextButton(
-                          onPressed: enabled
-                              ? () => _run(
-                                  item['guidance'] == null
-                                      ? 'remove_queued_turn'
-                                      : 'withdraw_guidance',
-                                  {
-                                    'turn': item['turn'],
-                                    'expected_revision': item['revision'],
-                                  },
-                                )
-                              : null,
-                          child: Text(
-                            context.tr(
-                              item['guidance'] == null
-                                  ? 'delete'
-                                  : 'guidanceWithdraw',
-                            ),
-                          ),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 6),
+                        child: GuidanceStatus(
+                          state: (_busy || _pending) && _guiding == item['turn']
+                              ? 'pending'
+                              : guidance[item['turn']],
                         ),
-                        if (!widget.delegated &&
-                            index > 0 &&
-                            !automatic(item) &&
-                            item['guidance'] == null &&
-                            !automatic(items[index - 1]) &&
-                            items[index - 1]['guidance'] == null)
-                          TextButton(
-                            onPressed: enabled
-                                ? () => _run('move_queued_turn', {
-                                    'session': widget.session,
-                                    'expected_revision': queue['revision'],
-                                    'turn': item['turn'],
-                                    'before': items[index - 1]['turn'],
-                                  })
-                                : null,
-                            child: Text(context.tr('moveUp')),
-                          ),
-                        if (!widget.delegated && !automatic(item))
-                          TextButton(
-                            onPressed:
-                                enabled &&
-                                    (item['guidance'] == null ||
-                                        item['guidance'] == recipient?['turn'])
-                                ? () => _run(
-                                    recipient != null && item['kind'] == 'task'
-                                        ? 'guide_queued_turn'
-                                        : 'send_queued_turn',
-                                    {
-                                      'turn': item['turn'],
-                                      if (recipient != null &&
-                                          item['kind'] == 'task')
-                                        'recipient': recipient['turn'],
-                                      'expected_revision': item['revision'],
-                                    },
-                                  )
-                                : null,
-                            child: Text(context.tr('send')),
-                          ),
-                      ],
+                      ),
+                    if (!widget.delegated &&
+                        index > 0 &&
+                        !automatic(item) &&
+                        item['guidance'] == null &&
+                        !automatic(items[index - 1]) &&
+                        items[index - 1]['guidance'] == null)
+                      _QueueAction(
+                        icon: 'arrow-up',
+                        label: context.tr('moveUp'),
+                        onPressed: enabled
+                            ? () => _run('move_queued_turn', {
+                                'session': widget.session,
+                                'expected_revision': queue['revision'],
+                                'turn': item['turn'],
+                                'before': items[index - 1]['turn'],
+                              })
+                            : null,
+                      ),
+                    _QueueAction(
+                      icon: item['guidance'] == null ? 'trash' : 'close',
+                      label: context.tr(
+                        item['guidance'] == null
+                            ? 'delete'
+                            : 'guidanceWithdraw',
+                      ),
+                      onPressed: enabled
+                          ? () => _run(
+                              item['guidance'] == null
+                                  ? 'remove_queued_turn'
+                                  : 'withdraw_guidance',
+                              {
+                                'turn': item['turn'],
+                                'expected_revision': item['revision'],
+                              },
+                            )
+                          : null,
                     ),
+                    if (!widget.delegated && !automatic(item))
+                      _QueueAction(
+                        icon: 'arrow',
+                        label: context.tr('send'),
+                        onPressed:
+                            enabled &&
+                                (item['guidance'] == null ||
+                                    item['guidance'] == recipient?['turn'])
+                            ? () => _run(
+                                recipient != null && item['kind'] == 'task'
+                                    ? 'guide_queued_turn'
+                                    : 'send_queued_turn',
+                                {
+                                  'turn': item['turn'],
+                                  if (recipient != null &&
+                                      item['kind'] == 'task')
+                                    'recipient': recipient['turn'],
+                                  'expected_revision': item['revision'],
+                                },
+                              )
+                            : null,
+                      ),
                   ],
                 ),
               ),
@@ -436,5 +442,26 @@ class _LiveQueueState extends State<LiveQueue> {
         ],
       );
     },
+  );
+}
+
+/// A queued message's action: an icon named by its tooltip.
+class _QueueAction extends StatelessWidget {
+  const _QueueAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: label,
+    visualDensity: VisualDensity.compact,
+    onPressed: onPressed,
+    icon: AppIcon(icon, size: 16),
   );
 }

@@ -51,10 +51,10 @@ void main() {
     );
     expect(find.text(tr('backgroundNoticeTitle')), findsOneWidget);
     expect(find.text('Callback prompt for the model'), findsNothing);
-    expect(find.text(tr('edit')), findsNothing);
-    expect(find.text(tr('send')), findsNothing);
+    expect(find.byTooltip(tr('edit')), findsNothing);
+    expect(find.byTooltip(tr('send')), findsNothing);
     expect(summarize(updates.value, null).count, 1);
-    await tester.tap(find.text(tr('delete')));
+    await tester.tap(find.byTooltip(tr('delete')));
     await tester.pumpAndSettle();
     expect(commands, hasLength(1));
     expect(commands.single.$1, 'remove_queued_turn');
@@ -106,8 +106,9 @@ void main() {
     );
     for (final key in ['edit', 'send', 'moveUp', 'pauseQueue', 'resumeQueue']) {
       expect(find.text(tr(key)), findsNothing);
+      expect(find.byTooltip(tr(key)), findsNothing);
     }
-    await tester.tap(find.text(tr('guidanceWithdraw')));
+    await tester.tap(find.byTooltip(tr('guidanceWithdraw')));
     await tester.pumpAndSettle();
     expect(commands.map((entry) => [entry.$1, entry.$2]), [
       [
@@ -118,7 +119,7 @@ void main() {
     expect(find.text('Pending guidance'), findsNothing);
     expect(find.text('Retained input'), findsOneWidget);
 
-    await tester.tap(find.text(tr('delete')));
+    await tester.tap(find.byTooltip(tr('delete')));
     await tester.pumpAndSettle();
     expect(commands.map((entry) => [entry.$1, entry.$2]), [
       [
