@@ -74,7 +74,7 @@ func TestGitBadgeCommandReporting(t *testing.T) {
 	request := protocol.NewRequest(node.ID(), command)
 	request.Plugin = &scope
 	fault := dispatchFixture(t, node, node.ID(), request).Fault
-	if fault == nil || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "Git repository operation failed" {
+	if fault == nil || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "Git repository operation failed: "+localCause {
 		t.Fatalf("Git callback returned %v", fault)
 	}
 	if !inspected.Load() {

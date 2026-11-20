@@ -114,7 +114,9 @@ func mapError(err error) error {
 	if errors.Is(err, gogit.ErrRepositoryNotExists) || errors.Is(err, plumbing.ErrObjectNotFound) || errors.Is(err, plumbing.ErrReferenceNotFound) || errors.Is(err, os.ErrNotExist) {
 		return fault(protocol.ErrorCodeNotFound, "Git resource does not exist")
 	}
-	return fault(protocol.ErrorCodeUnavailable, "Git repository operation failed")
+	// The cause stays in the message the user and model read; error
+	// reporting sends only the code.
+	return fault(protocol.ErrorCodeUnavailable, "Git repository operation failed: "+err.Error())
 }
 func open(root string) (*gogit.Repository, error) {
 	metadata, err := os.Lstat(filepath.Join(root, ".git"))
