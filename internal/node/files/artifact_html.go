@@ -29,6 +29,10 @@ func PrepareArtifactHTML(kind protocol.ArtifactKind, source string, allowedClass
 	}
 	policy := bluemonday.NewPolicy()
 	policy.AllowElements(strings.Fields("section h1 h2 h3 h4 p br hr strong em code pre blockquote ul ol li table thead tbody tr th td caption details summary span div a img figure figcaption form fieldset legend label input textarea select option button")...)
+	// bluemonday drops an element left without attributes unless it is on its
+	// own list, which lacks a form's label and legend: their questions and
+	// choices would lose their structure and the labels the answers carry.
+	policy.AllowNoAttrs().OnElements("form", "label", "legend")
 	policy.SkipElementsContent("script", "style", "iframe", "object", "embed", "link", "meta", "base", "svg", "math")
 	policy.AllowAttrs("class", "id", "data-title", "data-kind").Globally()
 	for tag, names := range map[string]string{"a": "href", "img": "src alt", "th": "colspan rowspan", "td": "colspan rowspan", "details": "open", "form": "data-name", "fieldset": "data-name data-required", "label": "for", "input": "type name value placeholder checked", "textarea": "name placeholder rows", "select": "name multiple", "option": "value selected", "button": "type"} {

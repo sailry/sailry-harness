@@ -132,6 +132,11 @@ func TestCapturedArtifactPublication(t *testing.T) {
 			t.Fatalf("invalid chart fallback: %s %v %v", html, warnings, err)
 		}
 	}
+	// A form keeps its questions and the labels its answers carry.
+	form := `<form class="brief-form" data-name="decisions"><fieldset data-name="palette" data-required=""><legend>Palette</legend><label><input type="radio" name="palette" value="navy"/>Navy</label></fieldset><button type="submit">Send</button></form>`
+	if html, _, err := files.PrepareArtifactHTML(protocol.ArtifactKindDocument, form, []string{"brief-form"}); err != nil || html != form {
+		t.Fatalf("form structure changed: %s %v", html, err)
+	}
 	preview := `<script>run()</script>`
 	html, warnings, err := files.PrepareArtifactHTML(protocol.ArtifactKindPreview, preview, nil)
 	if err != nil || html != preview || len(warnings) != 0 {
