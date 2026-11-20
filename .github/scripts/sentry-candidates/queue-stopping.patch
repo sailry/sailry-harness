@@ -1,0 +1,40 @@
+diff --git a/internal/desktop/live/conversation.go b/internal/desktop/live/conversation.go
+index c8a1c2c4c..b76c10ac5 100644
+--- a/internal/desktop/live/conversation.go
++++ b/internal/desktop/live/conversation.go
+@@ -658,7 +658,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
+ 				x.outgoing(m, guide)
+ 			}
+ 			if guide {
+-				if run, ok := x.activeRun(); ok {
++				if run, ok := x.activeRun(); ok && acceptsGuidance(run) {
+ 					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, func(output protocol.Output, err error) {
+ 						finish(output, err)
+ 						if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted {
+@@ -732,6 +732,11 @@ func activeConversationRun(page protocol.ConversationPage) (protocol.Conversatio
+ 	}
+ 	return protocol.ConversationRun{}, false
+ }
++
++func acceptsGuidance(run protocol.ConversationRun) bool {
++	return run.Kind == protocol.ConversationRunKindTask && run.Status == protocol.ConversationStatusRunning
++}
++
+ func (x *conversationActions) Stop() {
+ 	if x.readonly() {
+ 		x.unavailable()
+diff --git a/internal/desktop/live/conversation_actions.go b/internal/desktop/live/conversation_actions.go
+index 795741ef3..55467123d 100644
+--- a/internal/desktop/live/conversation_actions.go
++++ b/internal/desktop/live/conversation_actions.go
+@@ -61,6 +61,10 @@ func (x *conversationActions) SendQueued(id string) {
+ 		return
+ 	}
+ 	if run, active := x.activeRun(); active && !item.Notice && item.Kind == protocol.ConversationRunKindTask {
++		if !acceptsGuidance(run) {
++			kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "session_changed"))
++			return
++		}
+ 		x.queueCommand(protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: run.Turn, ExpectedRevision: item.Revision}})
+ 	} else {
+ 		x.queueCommand(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}})

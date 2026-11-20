@@ -253,8 +253,6 @@ and full indexing.
 
 ## Continuous integration
 
-The checkout contains five workflows:
-
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
 pull requests, on `main`, manually, and when `release.yml` calls it:
 
@@ -337,6 +335,50 @@ main.
 
 `model-catalog.yml` refreshes the bundled model metadata every six hours and
 commits validated content changes on the default branch.
+
+**Sentry intake and repair.** Enable the two workflows in stages on
+`sailry/sailry-harness`. No production event text or credentials are workflow
+inputs.
+
+1. **Verify first.** Protect the default branch. Leave `SENTRY_INTAKE_ENABLED`
+   and `SENTRY_REPAIR_DRAFT_PR` unset or `false`. Run `sentry-repair.yml` manually
+   on that branch with `template=queue-stopping`, `fingerprint` (the 64-digit
+   lowercase SHA-256 hex digest of `sentry:<org>:<project-id>:<issue>`) and
+   `target` (a published `vMAJOR.MINOR.PATCH` tag or a full lowercase commit
+   SHA). The resolved commit must belong to the default branch's history.
+   Verification uses the built-in `GITHUB_TOKEN` with `contents: read` and no
+   Sentry secret. The fixed `TestStoppingQueueGuidance` assertion
+   must fail on both the affected revision and the default-branch revision and
+   pass after applying the reviewed patch. A green baseline, missing candidate,
+   build error, skipped test or different failure does not qualify for a draft.
+2. **Enable intake.** Create the `sentry-intake` Actions environment,
+   restrict it to the protected default branch and store `SENTRY_READ_TOKEN`
+   only as an environment secret. Use a read-only token with `org:read` and
+   access to the selected project on `sentry.io`, not a write token. Set Actions
+   variables `SENTRY_ORG` (organization slug) and `SENTRY_PROJECT_ID` (numeric
+   project ID), then set
+   repository variable `SENTRY_INTAKE_ENABLED=true`. Neither `SAILRY_SENTRY_DSN`
+   nor `SAILRY_TELEMETRY_KEY` is an intake credential. Run `sentry-intake.yml`
+   manually on the protected default branch and inspect the Actions summary;
+   the schedule runs at minute 17 each hour. It samples the last closed UTC
+   hour with five minutes of indexing grace, at most 20 events per query,
+   without pagination or backfill. Other guide conflicts and workspace errors
+   are observations only. At most two `recipient_stopping` groups with a release
+   revision are selected. If none qualify there is only a run summary and an
+   `[]` job output: no reservation, dispatch, branch or PR. The handoff alone
+   uses the built-in `GITHUB_TOKEN` with `actions: write` to reserve each
+   group/revision in the Actions cache and dispatch verification. Inspect the
+   original run if dispatch is uncertain; do not blindly repeat it. Cache eviction
+   can allow another verification, but does not bypass the PR check below.
+3. **Enable draft publication only after reviewing verification.** Allow GitHub
+   Actions to create pull requests in repository settings, then set repository
+   variable `SENTRY_REPAIR_DRAFT_PR=true`. Only a verified candidate enters
+   this separate job. Its built-in `GITHUB_TOKEN` needs `contents: write` and
+   `pull-requests: write`; no PAT or Sentry token is needed. It checks the base
+   has not moved, rebuilds the verified tree and creates or recovers one draft
+   per fingerprint. An existing PR, even if closed, is not reopened or replaced.
+   Without a verified candidate there is no branch or PR write. Review and
+   merge remain manual; neither workflow deploys or auto-merges to production.
 
 Actions are pinned by commit. Do not add nightly fuzzing, coverage gates,
 per-test matrices or retry-on-flake wrappers.

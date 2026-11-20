@@ -102,6 +102,11 @@ jobs:
         run: bash .github/scripts/test_test.sh
       - name: Test release CI reuse
         run: bash .github/scripts/reuse-ci_test.sh
+      - name: Test Sentry intake and repair routing
+        run: |
+          python3 -B .github/scripts/test_sentry_intake.py
+          python3 -B .github/scripts/sentry_repair_test.py
+          bash .github/scripts/sentry-draft_test.sh
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: Format

@@ -1,0 +1,81 @@
+name: Sentry repair
+
+on:
+  repository_dispatch:
+    types: [sentry-repair]
+  workflow_dispatch:
+    inputs:
+      fingerprint:
+        description: SHA-256 grouping key (64 lowercase hex characters)
+        type: string
+        required: true
+      template:
+        description: Reviewed reproduction template (queue-stopping)
+        type: string
+        required: true
+      target:
+        description: Published version tag or exact default-branch history commit
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentry-repair-${{ github.event.client_payload.fingerprint || inputs.fingerprint }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.repository == 'sailry/sailry-harness' && github.ref_protected &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GO_CACHE_ROLE: test
+      CGO_ENABLED: '0'
+      GOTOOLCHAIN: go1.27.3
+    outputs:
+      fingerprint: ${{ steps.event.outputs.fingerprint }}
+      target: ${{ steps.event.outputs.target }}
+      tree: ${{ steps.test.outputs.tree }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: event
+        name: Validate event and resolve trusted target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/sentry_repair.py resolve
+      - uses: ./.github/actions/go-cache
+      - id: test
+        name: Reproduce and verify reviewed candidate
+        env:
+          TARGET: ${{ steps.event.outputs.target }}
+        run: python3 .github/scripts/sentry_repair.py verify
+
+  draft:
+    needs: verify
+    if: vars.SENTRY_REPAIR_DRAFT_PR == 'true' && needs.verify.outputs.tree != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Rebuild only the index from the reviewed patch; never check out or
+      # run the tested source, nor consume an executable artifact from verify.
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ github.sha }}
+      - name: Open or recover one draft for this fingerprint
+        env:
+          BASE: ${{ github.event.repository.default_branch }}
+          FINGERPRINT: ${{ needs.verify.outputs.fingerprint }}
+          TARGET: ${{ needs.verify.outputs.target }}
+          VERIFIED_TREE: ${{ needs.verify.outputs.tree }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/sentry-draft.sh
