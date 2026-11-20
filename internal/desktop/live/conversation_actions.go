@@ -61,6 +61,10 @@ func (x *conversationActions) SendQueued(id string) {
 		return
 	}
 	if run, active := x.activeRun(); active && !item.Notice && item.Kind == protocol.ConversationRunKindTask {
+		if !acceptsGuidance(run) {
+			kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "session_changed"))
+			return
+		}
 		x.queueCommand(protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: run.Turn, ExpectedRevision: item.Revision}})
 	} else {
 		x.queueCommand(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}})
