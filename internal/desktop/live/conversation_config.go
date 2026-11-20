@@ -58,38 +58,28 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 
 // A send waits for this controller's in-flight configuration save. A failed or
 // uncertain save preserves the draft and never admits the captured message.
-func (r *Runtime) withComposerConfig(session protocol.Session, config protocol.SessionConfig, next func(protocol.Session)) {
+func (r *Runtime) withComposerConfig(session protocol.Session, config protocol.SessionConfig, next func(protocol.Session), failed func()) {
 	id := session.ID.String()
 	if r.teams != nil {
 		if state := r.teams.composers[id]; state != nil {
-			if state.pending != nil {
+			if state.pending != nil || state.saving {
 				before := state.baseConfig
-				r.withComposerTeam(session, state.composer, func(current protocol.Session) {
-					r.withComposerConfig(current, composerConfigAfterTeam(before, config, current.Config), next)
-				})
-				return
-			}
-			if state.saving {
-				before := state.baseConfig
-				state.waiters = append(state.waiters, func(ok bool) {
-					if ok {
-						if current, exists := r.session(id); exists {
-							r.withComposerConfig(current, composerConfigAfterTeam(before, config, current.Config), next)
-						}
-					}
-				})
+				resume := func(current protocol.Session) {
+					r.withComposerConfig(current, composerConfigAfterTeam(before, config, current.Config), next, failed)
+				}
+				if state.pending != nil {
+					r.withComposerTeam(session, state.composer, resume, failed)
+				} else {
+					state.waiters = append(state.waiters, r.afterComposerSave(id, resume, failed))
+				}
 				return
 			}
 		}
 	}
 	if r.composerSaving[id] {
-		r.composerWaiters[id] = append(r.composerWaiters[id], func(ok bool) {
-			if ok {
-				if current, yes := r.session(id); yes {
-					r.withComposerConfig(current, config, next)
-				}
-			}
-		})
+		r.composerWaiters[id] = append(r.composerWaiters[id], r.afterComposerSave(id, func(current protocol.Session) {
+			r.withComposerConfig(current, config, next, failed)
+		}, failed))
 		return
 	}
 	before, _ := json.Marshal(session.Config)
@@ -98,13 +88,19 @@ func (r *Runtime) withComposerConfig(session protocol.Session, config protocol.S
 		next(session)
 		return
 	}
-	r.saveComposerConfig(session, config, func(ok bool) {
+	r.saveComposerConfig(session, config, r.afterComposerSave(id, next, failed))
+}
+
+func (r *Runtime) afterComposerSave(id string, next func(protocol.Session), failed func()) func(bool) {
+	return func(ok bool) {
 		if ok {
 			if current, yes := r.session(id); yes {
 				next(current)
+				return
 			}
 		}
-	})
+		failed()
+	}
 }
 
 func composerConfigAfterTeam(before, selected, current protocol.SessionConfig) protocol.SessionConfig {

@@ -523,12 +523,12 @@ func (x *conversationActions) SaveEdit(turn, text string) {
 	edit.pending = true
 	x.r.conversationEdits[id] = edit
 	x.r.localRuntime().count(protocol.FeatureUseComposerEdited)
-	x.turn(protocol.Command{Kind: "replace_turn", Data: protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: edit.Turn, ExpectedHead: edit.Head, ExpectedHistoryRevision: edit.History, ExpectedRevision: session.Revision, Message: editedInput(edit.Input, text)}}, func(_ protocol.Output, ok bool) {
+	x.turn(protocol.Command{Kind: "replace_turn", Data: protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: edit.Turn, ExpectedHead: edit.Head, ExpectedHistoryRevision: edit.History, ExpectedRevision: session.Revision, Message: editedInput(edit.Input, text)}}, func(_ protocol.Output, err error) {
 		current, editing := x.r.conversationEdits[id]
 		if !editing || current.Turn != edit.Turn {
 			return
 		}
-		if ok {
+		if err == nil {
 			delete(x.r.conversationEdits, id)
 			_ = x.r.controller.RefreshConversation(x.r.ctx, session.ID)
 			return
@@ -583,7 +583,7 @@ type turnRetry struct {
 	key, observed, draft string
 	request              protocol.RequestID
 	comp                 *composer.State
-	done                 func(protocol.Output, bool)
+	done                 func(protocol.Output, error)
 }
 
 func turnObserved(page protocol.ConversationPage) string {
@@ -595,7 +595,7 @@ func turnObserved(page protocol.ConversationPage) string {
 }
 
 // turn sends a command that adds to or replaces the session's turns.
-func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, bool)) {
+func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, error)) {
 	id := x.cv.ID
 	encoded, _ := json.Marshal(command)
 	key := "turn/" + id + "\x00" + string(encoded)
@@ -630,7 +630,7 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			x.r.report(c, err, "session_changed")
 		}
 		if done != nil {
-			done(output, err == nil)
+			done(output, err)
 		}
 	})
 	if pending != nil && request != (protocol.RequestID{}) && (pending.transcript && command.Kind == "submit_turn" || !pending.transcript) {
@@ -672,7 +672,7 @@ func (r *Runtime) settleTurnRetry(id string, comp *composer.State, turns []proto
 	}
 	r.forgetTurnRetry(id)
 	if landed && retry.done != nil {
-		retry.done(protocol.Output{}, true)
+		retry.done(protocol.Output{}, nil)
 	}
 }
 

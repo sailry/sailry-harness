@@ -270,7 +270,7 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 		return
 	}
 	state.autoAttempt = key
-	r.withComposerTeam(session, comp, func(protocol.Session) {})
+	r.withComposerTeam(session, comp, func(protocol.Session) {}, func() {})
 }
 
 func (r *Runtime) applyTeamComposer(comp *composer.State, session protocol.Session, models []composer.Model) {
@@ -314,12 +314,13 @@ func selectedMemberModels(comp *composer.State, models []composer.Model, roles p
 }
 
 // withComposerTeam serializes exact team writes before admitting user input.
-func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.State, done func(protocol.Session)) {
+func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.State, done func(protocol.Session), failed func()) {
 	if r.teams == nil || delegated(session) {
 		if !delegated(session) {
 			done(session)
 		} else {
 			r.discardUnsubmitted(session.ID.String())
+			failed()
 		}
 		return
 	}
@@ -339,13 +340,9 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 		r.teams.composers[id] = state
 	}
 	if state.saving {
-		state.waiters = append(state.waiters, func(ok bool) {
-			if ok {
-				if current, exists := r.session(id); exists {
-					r.withComposerTeam(current, comp, done)
-				}
-			}
-		})
+		state.waiters = append(state.waiters, r.afterComposerSave(id, func(current protocol.Session) {
+			r.withComposerTeam(current, comp, done, failed)
+		}, failed))
 		return
 	}
 	var command protocol.Command
@@ -361,6 +358,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 				if !r.failUnsubmitted(c, id, modelErr) {
 					r.report(c, modelErr, "session_changed")
 				}
+				failed()
 			})
 			return
 		}
@@ -384,6 +382,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 			if !r.failUnsubmitted(c, id, err) {
 				r.report(c, err, "session_changed")
 			}
+			failed()
 		})
 		return
 	}
@@ -423,6 +422,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 			if !r.failUnsubmitted(c, id, err) {
 				r.report(c, err, "session_changed")
 			}
+			failed()
 			for _, waiter := range waiters {
 				waiter(false)
 			}
@@ -440,7 +440,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 			r.composerRevisions[id] = current.Revision
 		}
 		r.project()
-		r.withComposerTeam(current, comp, done)
+		r.withComposerTeam(current, comp, done, failed)
 		for _, waiter := range waiters {
 			waiter(true)
 		}

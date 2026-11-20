@@ -582,11 +582,23 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 
 // submit sends the captured message, keeping edits made while it is pending.
 func (x *conversationActions) submit(m composer.Message, guide, queue bool, draft string) {
+	failed := func() {
+		if x.settled != nil {
+			x.settled(false)
+		}
+	}
 	if x.readonly() {
 		x.unavailable()
+		failed()
 		return
 	}
 	draftSession := unsentDraft(x.cv)
+	session, exists := x.r.session(x.cv.ID)
+	if x.settled != nil && (draftSession || !exists) {
+		x.unavailable()
+		failed()
+		return
+	}
 	if draftSession {
 		if pending := x.r.conversationCreations[x.cv.ID]; pending != nil {
 			pending.resume()
@@ -599,6 +611,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	for _, attachment := range m.Attachments {
 		if attachment.Status != composer.Ready || attachment.ID == "" {
 			x.unavailable()
+			failed()
 			return
 		}
 	}
@@ -608,19 +621,21 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	if !guide && !queue {
 		x.stageOutgoing(m)
 	}
-	if session, exists := x.r.session(x.cv.ID); exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
+	if exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
 		x.r.discardUnsubmitted(x.cv.ID)
 		x.r.reportCreation(x.c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "legacy remote model sessions cannot start new turns on this Node"}})
+		failed()
 		return
 	}
 	config, _, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
 		x.r.discardUnsubmitted(x.cv.ID)
-		if _, exists := x.r.session(x.cv.ID); exists {
+		if exists {
 			x.r.report(x.c, err, "session_changed")
 		} else {
 			x.r.reportCreation(x.c, err)
 		}
+		failed()
 		return
 	}
 	x.r.rememberConfig(config, x.comp.Team)
@@ -628,8 +643,15 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x.start(m, config, !guide && !queue)
 		return
 	}
-	finish := func(output protocol.Output, ok bool) { x.finishSubmission(output, false, ok) }
-	if s, ok := x.r.session(x.cv.ID); ok {
+	finish := func(output protocol.Output, err error) {
+		// An unknown turn may already have landed. Only a definite result
+		// settles the originating form, including later request reconciliation.
+		if x.settled != nil && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			x.settled(err == nil)
+		}
+		x.finishSubmission(output, false, err == nil)
+	}
+	if exists {
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
 			if guide || queue {
@@ -637,15 +659,16 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			}
 			if guide {
 				if run, ok := x.activeRun(); ok {
-					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, func(output protocol.Output, ok bool) {
-						finish(output, ok)
-						if queued, admitted := detail[protocol.QueuedTurn](output.Data); ok && admitted {
+					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, func(output protocol.Output, err error) {
+						finish(output, err)
+						if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted {
 							x.guided(queued.ID, run.Turn)
 						}
 					})
 				} else {
 					delete(x.r.composerOutgoing, x.cv.ID)
 					x.unavailable()
+					failed()
 				}
 				return
 			}
@@ -657,21 +680,19 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			}
 			x.turn(protocol.Command{Kind: kind, Data: data}, finish)
 		}
-		x.r.withComposerConfig(s, config, func(session protocol.Session) {
-			x.r.withComposerTeam(session, x.comp, submit)
-		})
+		x.r.withComposerConfig(session, config, func(session protocol.Session) {
+			x.r.withComposerTeam(session, x.comp, submit, failed)
+		}, failed)
 		return
 	}
 	x.r.discardUnsubmitted(x.cv.ID)
 	x.unavailable()
+	failed()
 }
 
 func (x *conversationActions) finishSubmission(output protocol.Output, draftSession, ok bool) {
 	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
 		delete(x.r.composerOutgoing, x.cv.ID)
-	}
-	if x.settled != nil {
-		x.settled(ok)
 	}
 	if !ok {
 		return

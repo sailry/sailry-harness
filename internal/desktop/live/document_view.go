@@ -305,8 +305,8 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 	source := document.source
 	content := source.content
 	acknowledge := func(accepted bool) {
-		if document.source.content.Artifact == content.Artifact {
-			r.postDocument(document, map[string]any{"kind": "submitted", "form": event.Form, "accepted": accepted})
+		if current := r.browser.documents[source.id()]; current != nil && current.source.same(source) {
+			r.postDocument(current, map[string]any{"kind": "submitted", "form": event.Form, "accepted": accepted})
 		}
 	}
 	if content.Artifact.Revision != content.LatestRevision {
@@ -329,26 +329,30 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 		acknowledge(false)
 		return
 	}
-	// A form sends its answers once: a second submit, such as from a page
-	// reloaded while the first was sent, only locks the form again.
+	// Presence reserves the form across reloads; only true means admitted.
+	// Keep both states even when other document revisions are opened.
 	key := documentDraftKey{content.Artifact.ID, content.Artifact.Revision}
-	if r.browser.sent[key][event.Form] {
-		acknowledge(true)
+	if accepted, exists := r.browser.sent[key][event.Form]; exists {
+		if accepted {
+			acknowledge(true)
+		}
 		return
 	}
 	if r.browser.sent[key] == nil {
-		if len(r.browser.sent) >= 64 {
-			clear(r.browser.sent)
-		}
 		r.browser.sent[key] = map[string]bool{}
 	}
-	r.browser.sent[key][event.Form] = true
-	settle := acknowledge
-	acknowledge = func(accepted bool) {
-		if !accepted {
+	r.browser.sent[key][event.Form] = false
+	settle := func(accepted bool) {
+		if accepted {
+			r.browser.sent[key][event.Form] = true
+			delete(r.browser.drafts[key], event.Form)
+		} else {
 			delete(r.browser.sent[key], event.Form)
+			if len(r.browser.sent[key]) == 0 {
+				delete(r.browser.sent, key)
+			}
 		}
-		settle(accepted)
+		acknowledge(accepted)
 	}
 	// The revision read may have been replaced since; the Node's latest
 	// visible revision decides.
@@ -366,21 +370,16 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 					err = errors.New("unexpected artifact revisions response")
 				}
 				r.reportKeys(c, err, "chat_action_failed", "session_changed", "chat_action_unknown")
-				acknowledge(false)
+				settle(false)
 			case !documentLatest(artifact, page):
 				kit.Toast(c, kit.Failed, i18n.T(c, "artifact_form_stale"))
-				acknowledge(false)
+				settle(false)
 			default:
-				r.sendDocumentReply(c, source.conversation, reply, func(accepted bool) {
-					if accepted {
-						delete(r.browser.drafts[key], event.Form)
-					}
-					acknowledge(accepted)
-				})
+				r.sendDocumentReply(c, source.conversation, reply, settle)
 			}
 		})
 	}) {
-		acknowledge(false)
+		settle(false)
 	}
 }
 
@@ -407,24 +406,13 @@ func (r *Runtime) sendDocumentReply(c *ui.Context, session protocol.SessionID, t
 	}
 	comp := root.App.Composer(cv.ID)
 	owner := root.conversationRuntime(cv, comp)
+	if owner == nil {
+		kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+		done(false)
+		return
+	}
 	actions := &conversationActions{r: owner, c: c, cv: cv, comp: comp, settled: done}
-	if actions.readonly() {
-		actions.unavailable()
-		done(false)
-		return
-	}
-	// submit drops a send these refuse without settling it.
-	if current, exists := owner.session(cv.ID); !exists || current.Profile != nil && current.Profile.Source != owner.controller.Target() {
-		actions.unavailable()
-		done(false)
-		return
-	}
 	message := comp.Reply(owner.models(), text)
-	if _, _, err := owner.composerConfig(comp, message); err != nil {
-		owner.report(c, err, "session_changed")
-		done(false)
-		return
-	}
 	_, running := actions.activeRun()
 	actions.submit(message, false, running, documentReplyDraft)
 }
