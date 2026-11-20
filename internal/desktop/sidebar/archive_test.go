@@ -77,16 +77,19 @@ func TestSidebarArchiveMode(t *testing.T) {
 
 func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
 	for _, scenario := range []struct {
-		name   string
-		status viewmodel.Status
-		queue  []composer.Queued
-		busy   bool
+		name          string
+		status        viewmodel.Status
+		queue         []composer.Queued
+		busy          bool
+		wantPrompt    bool
+		busyAtConfirm bool
 	}{
 		{name: "running", status: viewmodel.Running},
 		{name: "waiting", status: viewmodel.Waiting},
 		{name: "held queue", queue: []composer.Queued{{}}},
 		{name: "new Node activity", busy: true},
-		{name: "idle"},
+		{name: "idle", wantPrompt: true},
+		{name: "work admitted during confirmation", wantPrompt: true, busyAtConfirm: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			cv := &viewmodel.Conversation{ID: "first", Title: "First session", Status: scenario.status, Queue: scenario.queue}
@@ -96,9 +99,13 @@ func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
 				{ID: "other-project", Name: "Other project", Conversations: []*viewmodel.Conversation{other}},
 			}}
 			s := New(data, other.ID)
+			s.Reveal("first-project")
 			busy := scenario.busy
 			var archived *viewmodel.Conversation
-			s.Actions = &Actions{CanArchive: func(*viewmodel.Conversation) bool { return !busy }, Archive: func(target *viewmodel.Conversation) { archived = target }}
+			s.Actions = &Actions{
+				CanArchive: func(target *viewmodel.Conversation) bool { return target != cv || !busy },
+				Archive:    func(target *viewmodel.Conversation) { archived = target },
+			}
 			ask := false
 			tt := ui.NewTesterWith(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
@@ -108,38 +115,56 @@ func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
 					s.archive(c, cv)
 				}
 			}, 300, 650, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+			tt.SetLocale("en")
 			tt.Frame()
-			row, ok := tt.Access(cv.Title)
-			if !ok {
-				t.Fatal("session row is missing")
+			tt.Advance(time.Second)
+			tt.Frame()
+			row, ok := tt.AccessByRole(ui.RoleButton, cv.Title)
+			if !ok || row.Offscreen || row.Bounds.W == 0 || row.Bounds.H == 0 {
+				t.Fatalf("session row is not visible: bounds=%v offscreen=%t found=%t", row.Bounds, row.Offscreen, ok)
 			}
-			tt.Move(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
-			tt.Frame()
-			button, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "workspace_archive"))
-			blocked := scenario.name != "idle"
-			if !ok || button.Disabled != blocked {
-				t.Fatalf("archive button availability = %+v, found %t", button, ok)
+			tt.Move(row.Bounds.X+min(20, row.Bounds.W/2), row.Bounds.Y+row.Bounds.H/2)
+			// MyGo exposes the row button as an accessibility leaf. Find its nested
+			// archive button by the rendered label and press it: a disabled button
+			// cannot take focus, so its enclosing row gets focus instead.
+			label := i18n.In("en", "workspace_archive")
+			button, ok := tt.Find(label)
+			if !ok || button.W <= 0 || button.H <= 0 {
+				t.Fatalf("hovered row %v has no visible %q button: %v", row.Bounds, label, button)
 			}
-			ask = true
-			tt.Frame()
-			if blocked {
+			x, y := button.X+button.W/2, button.Y+button.H/2
+			tt.Press(x, y)
+			if rowFocused := tt.Focused(cv.Title); rowFocused == scenario.wantPrompt {
+				t.Fatalf("pressing %q focused row=%t, want button enabled=%t", label, rowFocused, scenario.wantPrompt)
+			}
+			tt.Release(x, y)
+			if s.confirm.open != scenario.wantPrompt || archived != nil || s.Selected != other.ID {
+				t.Fatalf("archive click: prompt=%t archived=%p selected=%q", s.confirm.open, archived, s.Selected)
+			}
+			if !scenario.wantPrompt {
+				ask = true
+				tt.Frame()
 				if s.confirm.open || archived != nil {
-					t.Fatal("a busy session opened archive confirmation")
+					t.Fatal("archive handler accepted a busy session")
 				}
 				return
 			}
-			if !s.confirm.open {
-				t.Fatal("idle session did not ask for confirmation")
+			confirm, ok := tt.AccessByRole(ui.RoleButton, label)
+			if !ok || !tt.HasText(i18n.In("en", "session_archive_named", "name", cv.Title)) {
+				t.Fatal("missing archive confirmation for the clicked session")
 			}
-			busy = true
-			s.confirm.run()
-			if archived != nil {
-				t.Fatal("work admitted during confirmation was archived")
+			busy = scenario.busyAtConfirm
+			b := confirm.Bounds
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			if s.confirm.open || s.Selected != other.ID || data.ProjectOf(cv.ID) != data.Projects[0] {
+				t.Fatal("confirming archive did not close the prompt and preserve selection and ownership")
 			}
-			busy = false
-			s.confirm.run()
-			if archived != cv || s.Selected != other.ID || data.ProjectOf(archived.ID) != data.Projects[0] {
-				t.Fatal("confirmation used the selected session instead of its captured target")
+			if busy {
+				if archived != nil {
+					t.Fatal("work admitted during confirmation was archived")
+				}
+			} else if archived != cv {
+				t.Fatal("confirmation did not archive its captured target")
 			}
 		})
 	}

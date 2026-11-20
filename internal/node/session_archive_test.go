@@ -50,9 +50,9 @@ func TestArchiveRejectsUnfinishedTasks(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	setRun := func(status protocol.ConversationStatus, waiting *protocol.ConversationRunWaiting) {
+	setRun := func(status protocol.ConversationStatus) {
 		t.Helper()
-		run.Status, run.Waiting = status, waiting
+		run.Status = status
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			_, err := db.ExecContext(ctx, "UPDATE agent_runs SET body=?2 WHERE turn=?1", run.Turn.String(), encode(run))
 			return err
@@ -85,21 +85,50 @@ func TestArchiveRejectsUnfinishedTasks(t *testing.T) {
 		}
 	}
 	for _, scenario := range []struct {
-		name    string
-		status  protocol.ConversationStatus
-		waiting *protocol.ConversationRunWaiting
+		name   string
+		status protocol.ConversationStatus
 	}{
-		{"held queue", protocol.ConversationStatusQueued, nil},
-		{"running", protocol.ConversationStatusRunning, nil},
-		{"stopping", protocol.ConversationStatusStopping, nil},
-		{"waiting for controller", protocol.ConversationStatusRunning, &protocol.ConversationRunWaiting{Kind: "controller_login"}},
+		{"held queue", protocol.ConversationStatusQueued},
+		{"running", protocol.ConversationStatusRunning},
+		{"stopping", protocol.ConversationStatusStopping},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			setRun(scenario.status, scenario.waiting)
+			setRun(scenario.status)
 			assertBlocked(t)
 		})
 	}
-	setRun(protocol.ConversationStatusCompleted, nil)
+	t.Run("waiting for controller", func(t *testing.T) {
+		waitingNode, waitingCtx, invocation, _, _ := controllerLoginRunFixture(t)
+		read := func() (protocol.Session, uint64) {
+			t.Helper()
+			snapshot, err := waitingNode.Snapshot(waitingCtx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, session := range snapshot.Sessions {
+				if session.ID == invocation.Session.ID {
+					return session, snapshot.Cursor
+				}
+			}
+			t.Fatal("controller-wait fixture session is missing")
+			return protocol.Session{}, 0
+		}
+		session, cursor := read()
+		for _, command := range []protocol.Command{
+			{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: session.Revision, Archived: true}},
+			{Kind: "archive_sessions", Data: protocol.CommandArchiveSessionsPayload{Expected: []protocol.SessionRevision{{Session: session.ID, Revision: session.Revision}}}},
+		} {
+			response := dispatchFixture(t, waitingNode, invocation.Caller, protocol.NewRequest(waitingNode.ID(), command))
+			if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeBusy {
+				t.Fatalf("%s accepted work waiting for sign-in: %+v", command.Kind, response)
+			}
+			current, next := read()
+			if next != cursor || current.Archived || current.Revision != session.Revision {
+				t.Fatal("rejected controller-wait archive changed the session or published an event")
+			}
+		}
+	})
+	setRun(protocol.ConversationStatusCompleted)
 	t.Run("background work after the turn", func(t *testing.T) {
 		record := store.BackgroundRecord{Task: protocol.ConversationBackgroundTask{
 			ID: "command:" + protocol.NewRequestID().String(), Session: busy.ID, Turn: run.Turn,
@@ -126,7 +155,7 @@ func TestArchiveRejectsUnfinishedTasks(t *testing.T) {
 	if !archived.Archived || archived.Revision != busy.Revision+1 {
 		t.Fatalf("settled session was not archived: %+v", archived)
 	}
-	setRun(protocol.ConversationStatusStopping, nil)
+	setRun(protocol.ConversationStatusStopping)
 	restored := commandFixture(t, node, protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{
 		Session: busy.ID, ExpectedRevision: archived.Revision, Archived: false,
 	}}).Data.(protocol.Session)
