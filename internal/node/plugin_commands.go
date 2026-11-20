@@ -369,18 +369,18 @@ func (node *Node) mutatePluginCommand(ctx context.Context, db *sql.Conn, caller 
 			expected = input.ExpectedRevision
 		case *protocol.CommandInstallSkillUploadPayload:
 			expected = input.ExpectedRevision
-		case *protocol.CommandInstallMcpPayload:
-			expected = input.ExpectedRevision
 		}
 		var info protocol.PluginInfo
 		var err error
-		if input, catalog := command.Data.(*protocol.CommandInstallCatalogPluginPayload); catalog {
+		switch input := command.Data.(type) {
+		case *protocol.CommandInstallMcpPayload:
+			// Native tools dispatch as the controller and must keep exact credential bindings.
+			retainStdioEnv := request.Plugin == nil && ctx.Value(nativeAgentRequestKey{}) == nil
+			info, err = store.InstallStandaloneMCP(ctx, db, *prepared.info, *input, prepared.mcp, retainStdioEnv)
+		case *protocol.CommandInstallCatalogPluginPayload:
 			info, err = store.InstallCatalogPlugin(ctx, db, *prepared.info, input.ExpectedRevision, input.Mode, prepared.mcp)
-		} else {
+		default:
 			info, err = store.InstallPlugin(ctx, db, *prepared.info, expected, true)
-		}
-		if input, ok := command.Data.(*protocol.CommandInstallMcpPayload); ok && err == nil {
-			info, err = store.SaveStandaloneMCPSettings(ctx, db, info, input.Secrets, prepared.mcp)
 		}
 		return protocol.Output{Kind: "plugin", Data: info}, []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}}, err
 	}

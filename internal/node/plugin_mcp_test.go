@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +20,54 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestStandaloneMCPArgumentEditKeepsEnvironment(t *testing.T) {
+	node := nodeFixture(t)
+	const name, token = "mcp-edit-fixture", "fixture-token"
+	install := func(revision uint64, command string, args []string, secret protocol.PluginSettingsSecretUpdate) protocol.Command {
+		return protocol.Command{Kind: "install_mcp", Data: protocol.CommandInstallMcpPayload{
+			Name: name, ExpectedRevision: revision,
+			Definition: protocol.PluginMcpDefinition{Kind: "stdio", Data: &protocol.PluginMcpDefinitionStdioPayload{Command: command, Args: args, Env: []string{"TOKEN"}}},
+			Secrets:    map[string]protocol.PluginSettingsSecretUpdate{"TOKEN": secret},
+		}}
+	}
+	initial := commandFixture(t, node, install(0, "fixture-mcp", []string{"serve", "--mcp"}, protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: protocol.NewSecret(token)})).Data.(protocol.PluginInfo)
+	keep := protocol.PluginSettingsSecretUpdate{Kind: "keep"}
+	args := []string{"serve"}
+	update := install(initial.Summary.Revision, "fixture-mcp", args, keep)
+
+	invocation := &store.AgentInvocation{Caller: node.ID()}
+	_, err := node.agentRequest(t.Context(), invocation, protocol.NewRequest(node.ID(), update), mcpInventoryLost)
+	var fault *protocol.Fault
+	if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("native tool changed the credential destination: %v", err)
+	}
+	changed := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), install(initial.Summary.Revision, "other-mcp", args, keep)))
+	if changed.Fault == nil || changed.Fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("changed executable accepted a saved credential: %v", changed.Fault)
+	}
+	saved := commandFixture(t, node, update).Data.(protocol.PluginInfo)
+	stale := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), update))
+	if stale.Fault == nil || stale.Fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("stale editor changed the configuration: %v", stale.Fault)
+	}
+	info, settings, configuration, err := node.capturedPluginMCP(t.Context(), plugins.PackageReference(saved), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch, err := node.prepareMCPLaunch(t.Context(), info, settings, "server", configuration.Servers["server"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := launch.Release(); err != nil {
+			t.Error(err)
+		}
+	})
+	if !slices.Equal(launch.Launch.Args, args) || launch.Launch.Env["TOKEN"] != token {
+		t.Fatal("saved launch did not use the edited arguments and retained credential")
+	}
+}
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestMCPPackageAndScriptCapture(t *testing.T) {

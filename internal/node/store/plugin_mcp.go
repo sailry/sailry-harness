@@ -143,38 +143,62 @@ func SetPluginMCPAllowed(ctx context.Context, db *sql.Conn, input protocol.Comma
 	return persistMCPSettings(ctx, db, info, saved)
 }
 
-func SaveStandaloneMCPSettings(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, secrets map[string]protocol.PluginSettingsSecretUpdate, configuration protocol.PluginMcpConfiguration) (protocol.PluginInfo, error) {
+// InstallStandaloneMCP saves the generated package and its credentials in the
+// caller's transaction.
+func InstallStandaloneMCP(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, input protocol.CommandInstallMcpPayload, configuration protocol.PluginMcpConfiguration, retainStdioEnv bool) (protocol.PluginInfo, error) {
 	if info.McpSource == nil || info.Settings == nil {
 		return info, invalid("standalone MCP package is unavailable")
+	}
+	var previousDestinations map[string]string
+	if retainStdioEnv && input.ExpectedRevision != 0 && info.McpSource.Kind == "stdio" && len(input.Secrets) != 0 {
+		previous, err := ReadPlugin(ctx, db, info.Summary.Name)
+		if err != nil {
+			return info, err
+		}
+		previousDestinations = standaloneMCPPreviousTargets(previous, configuration)
+	}
+	info, err := InstallPlugin(ctx, db, info, input.ExpectedRevision, true)
+	if err != nil {
+		return info, err
 	}
 	mapped := map[string]protocol.PluginSettingsSecretUpdate{}
 	for name, field := range info.Settings.Properties {
 		if field.Title == nil {
 			return info, invalid("standalone MCP credential declaration is invalid")
 		}
-		update, exists := secrets[*field.Title]
+		update, exists := input.Secrets[*field.Title]
 		if !exists {
 			return info, invalid("every MCP slot requires an explicit credential update")
 		}
 		mapped[name] = update
 	}
-	if len(mapped) != len(secrets) {
+	if len(mapped) != len(input.Secrets) {
 		return info, invalid("MCP credential update references an undeclared slot")
 	}
-	_, err := SavePluginSettings(ctx, db, protocol.CommandSavePluginSettingsPayload{
-		Package: plugins.PackageReference(info), Values: map[string]json.RawMessage{}, Secrets: mapped,
-	}, MCPSettingsTargets(info.Settings, configuration))
-	if err != nil {
-		return info, err
+	_, err = savePluginSettings(ctx, db, &info, protocol.CommandSavePluginSettingsPayload{
+		Values: map[string]json.RawMessage{}, Secrets: mapped,
+	}, MCPSettingsTargets(info.Settings, configuration), previousDestinations)
+	return info, err
+}
+
+// An explicit controller edit may keep an environment slot across argument
+// changes. Reconstruct the prior destination with the old arguments and the
+// new command and directory so the settings save still checks the saved binding.
+func standaloneMCPPreviousTargets(previous *protocol.PluginInfo, configuration protocol.PluginMcpConfiguration) map[string]string {
+	if previous == nil || previous.McpSource == nil || len(previous.Mcp) != 1 {
+		return nil
 	}
-	current, err := ReadPlugin(ctx, db, info.Summary.Name)
-	if err != nil {
-		return info, err
+	name := previous.Mcp[0].Name
+	before, wasStdio := previous.McpSource.Data.(*protocol.PluginMcpDefinitionStdioPayload)
+	server := configuration.Servers[name]
+	after, isStdio := server.Data.(*protocol.PluginMcpServerStdioPayload)
+	if !wasStdio || !isStdio || before.Command != after.Command {
+		return nil
 	}
-	if current == nil {
-		return info, fault(protocol.ErrorCodeNotFound, "standalone MCP package is unavailable")
-	}
-	return *current, nil
+	old := *after
+	old.Args = before.Args
+	server.Data = &old
+	return MCPSettingsTargets(previous.Settings, protocol.PluginMcpConfiguration{Servers: map[string]protocol.PluginMcpServer{name: server}})
 }
 
 func MCPSettingsTargets(schema *protocol.PluginSettingsSchema, configuration protocol.PluginMcpConfiguration) map[string]string {

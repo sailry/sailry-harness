@@ -91,8 +91,11 @@ func (node *Node) agentTools(inv *store.AgentInvocation) ([]engine.Tool, error) 
 	return tools, nil
 }
 
+type nativeAgentRequestKey struct{}
+
 // agentRequest dispatches one native tool request as the turn's controller.
 func (node *Node) agentRequest(ctx context.Context, inv *store.AgentInvocation, request protocol.Request, lost string) (protocol.Output, error) {
+	ctx = context.WithValue(ctx, nativeAgentRequestKey{}, true)
 	accepted, err := node.Dispatch(ctx, inv.Caller, request)
 	if err != nil {
 		return protocol.Output{}, err

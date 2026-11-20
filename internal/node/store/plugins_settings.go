@@ -160,6 +160,14 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	if plugins.PackageReference(*info) != input.Package {
 		return protocol.PluginSettingsState{}, fault(protocol.ErrorCodeRevisionConflict, "plugin configuration changed")
 	}
+	destinations := map[string]string{}
+	if len(targets) != 0 {
+		destinations = targets[0]
+	}
+	return savePluginSettings(ctx, db, info, input, destinations, nil)
+}
+
+func savePluginSettings(ctx context.Context, db *sql.Conn, info *protocol.PluginInfo, input protocol.CommandSavePluginSettingsPayload, destinations, previousDestinations map[string]string) (protocol.PluginSettingsState, error) {
 	if info.Settings == nil {
 		return protocol.PluginSettingsState{}, fault(protocol.ErrorCodeNotConfigured, "plugin has no valid settings form")
 	}
@@ -169,10 +177,6 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	stored, err := readStoredPluginSettings(ctx, db, *info)
 	if err != nil {
 		return protocol.PluginSettingsState{}, err
-	}
-	destinations := map[string]string{}
-	if len(targets) != 0 {
-		destinations = targets[0]
 	}
 	for name := range input.Secrets {
 		if settingsBinding(info.Settings, name) == nil {
@@ -192,7 +196,9 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 		switch update.Kind {
 		case "keep":
 			if stored.Slots[name] != nil && !sameSettingsBinding(stored, info.Settings, name, destinations) {
-				return protocol.PluginSettingsState{}, fault(protocol.ErrorCodeRevisionConflict, "secret destination changed; replace or clear its value")
+				if previousDestinations[name] == "" || !sameSettingsBinding(stored, info.Settings, name, previousDestinations) {
+					return protocol.PluginSettingsState{}, fault(protocol.ErrorCodeRevisionConflict, "secret destination changed; replace or clear its value")
+				}
 			}
 			nextSlots[name] = stored.Slots[name]
 		case "replace":
