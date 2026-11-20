@@ -111,7 +111,9 @@ func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 				})
 			})
 			kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "artifact_open"), 28, false).OnClick(open)
-			kit.MenuButton(c.Key("more"), "file-"+key, func(b ui.Element) {
+			// The menu's open state is kept by this ID: the card's position
+			// repeats in every reply, so the file's own ID tells them apart.
+			kit.MenuButton(c.Key("more"), "file-"+key+"/"+f.ID, func(b ui.Element) {
 				kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
 			}, func(m *kit.Menu) {
 				if previewable && m.Item(i18n.T(c, "artifact_preview")).Chosen() {
