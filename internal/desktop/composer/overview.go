@@ -465,13 +465,14 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 	})
 }
 
-// head is the overview's quiet first line: the current turn's mark, state
-// and time, with the tool call under way below it while it runs, or the
-// overview's title before a turn.
+// head is the overview's quiet first line: the current turn's mark, state,
+// the tool call under way while it runs, cut short to the room left, and
+// the time at the end; or the overview's title before a turn. It stays one
+// line so the sections below keep their place as the tool call changes.
 func (s *OverviewState) head(c *ui.Context, o *Overview) {
 	p := theme.Of(c)
-	ui.Column(c.Key("head")).FillWidth().MinWidth(0).Gap(2).PaddingX(6).Children(func() {
-		ui.Row(c.Key("state")).FillWidth().Height(24).Gap(8).AlignItems(ui.Center).Children(func() {
+	ui.Column(c.Key("head")).FillWidth().MinWidth(0).PaddingX(6).Children(func() {
+		ui.Row(c.Key("state")).FillWidth().MinWidth(0).Height(24).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
 				switch {
 				case !o.Turn:
@@ -490,19 +491,27 @@ func (s *OverviewState) head(c *ui.Context, o *Overview) {
 			if o.Turn {
 				state = i18n.T(c, conversation.StatusKey(o.Status))
 			}
-			ui.Text(c, state).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			doing := ""
+			if o.Turn && o.Status.Active() && o.Doing != "" {
+				doing = o.Doing
+				if o.DoingDetail != "" {
+					doing += " · " + o.DoingDetail
+				}
+			}
+			title := ui.Text(c, state).FontSize(14).SingleLine()
+			if doing == "" {
+				title.Grow(1).Shrink(1).MinWidth(0)
+			} else {
+				// The state stays whole; the tool call takes the rest of the
+				// line and is the part cut short.
+				title.Shrink(0)
+				ui.Text(c, doing).FontSize(12).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+			}
 			if o.Turn && o.Elapsed > 0 {
 				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
 					TextColor(p.MutedForeground)
 			}
 		})
-		if o.Turn && o.Status.Active() && o.Doing != "" {
-			doing := o.Doing
-			if o.DoingDetail != "" {
-				doing += " · " + o.DoingDetail
-			}
-			ui.Text(c, doing).FontSize(12).SingleLine().MinWidth(0).PaddingStart(24).TextColor(p.MutedForeground)
-		}
 	})
 }
 
