@@ -68,6 +68,7 @@ type BackupActions struct {
 
 	// Archive access follows the session's scope rather than backup status.
 	ArchiveUnavailable, ArchiveBusy bool
+	ArchiveBlocked                  bool
 
 	Records          []BackupRecord
 	Partial, Listing bool

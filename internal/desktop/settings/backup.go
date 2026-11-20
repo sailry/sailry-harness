@@ -256,7 +256,7 @@ func backupArchiveRows(c *ui.Context, m *Model) {
 		kit.TextAction(c.Key("action"), t("backup_manage"), locked).OnClick(func() { d.archives = true })
 	})
 	kit.Entry(c, "archive-all", func() { ui.Text(c, t("backup_archive_all")).FontSize(14) }, nil, func() {
-		kit.TextActionBusy(c.Key("action"), t("backup_archive_all_action"), locked || m.Sessions == 0, m.Busy[BusyBackup+"archive"]).OnClick(func() {
+		kit.TextActionBusy(c.Key("action"), t("backup_archive_all_action"), locked || m.Sessions == 0 || a != nil && a.ArchiveBlocked, m.Busy[BusyBackup+"archive"]).OnClick(func() {
 			if a == nil {
 				notice(c)
 				return

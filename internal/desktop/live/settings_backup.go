@@ -129,6 +129,7 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	// Only this Desktop's own profile can be switched and restarted.
 	state.actions.Restartable = owner == root && state.restart != nil
 	state.actions.ArchiveUnavailable = owner == nil
+	state.actions.ArchiveBlocked = false
 	if owner == nil {
 		m.Backup.Pending, m.Archived, m.Sessions = true, nil, 0
 		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = nil, false, false, false
@@ -149,7 +150,15 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 		return
 	}
 	state.actions.Host = root.backupHostName(c, owner)
-	m.Archived, m.Sessions = backupSessions(owner.snapshot().Sessions, i18n.T(c, "conversation"))
+	sessions := owner.snapshot().Sessions
+	m.Archived, m.Sessions = backupSessions(sessions, i18n.T(c, "conversation"))
+	lanes := client.AggregateLanes(sessions)
+	for i, session := range sessions {
+		if !session.Archived && session.Delegation == nil && archiveBusy(session, lanes[i]) {
+			state.actions.ArchiveBlocked = true
+			break
+		}
+	}
 	if state.actions.Status != "" {
 		return
 	}
