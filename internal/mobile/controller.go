@@ -62,14 +62,6 @@ func (values input) networkScope() link.NetworkScope {
 	if len(scope.Relays) != 0 {
 		scope.Internet = false
 	}
-	if scope.Bind == "" {
-		scope.Bind = "127.0.0.1:0"
-		if scope.Internet || len(scope.Relays) != 0 {
-			// Android and iOS keep ephemeral listeners on both address families
-			// as Wi-Fi or cellular interfaces change.
-			scope.Bind = ":0"
-		}
-	}
 	return scope
 }
 

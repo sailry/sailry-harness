@@ -60,11 +60,11 @@ func TestMobileNetworkScope(t *testing.T) {
 		args string
 		want link.NetworkScope
 	}{
-		{"local", `{}`, link.NetworkScope{Bind: "127.0.0.1:0"}},
-		{"internet", `{"internet":true}`, link.NetworkScope{Internet: true, Bind: ":0"}},
+		{"local", `{}`, link.NetworkScope{}},
+		{"internet", `{"internet":true}`, link.NetworkScope{Internet: true}},
 		{"explicit bind", `{"internet":true,"bind":"[::1]:0"}`, link.NetworkScope{Internet: true, Bind: "[::1]:0"}},
-		{"legacy relays", `{"internet":true,"relays":["https://legacy.invalid"]}`, link.NetworkScope{Internet: true, Bind: ":0"}},
-		{"libp2p relay", `{"internet":true,"relays":["` + relay + `"]}`, link.NetworkScope{Bind: ":0", Relays: []string{relay}}},
+		{"legacy relays", `{"internet":true,"relays":["https://legacy.invalid"]}`, link.NetworkScope{Internet: true}},
+		{"libp2p relay", `{"internet":true,"relays":["` + relay + `"]}`, link.NetworkScope{Relays: []string{relay}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var values input
