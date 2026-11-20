@@ -516,6 +516,9 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if backupCommand(request.Command.Kind) {
 		return node.dispatchBackup(ctx, caller, request, encoded)
 	}
+	if configurationCommand(request.Command.Kind) {
+		return node.dispatchConfiguration(ctx, caller, request, encoded)
+	}
 	if request.Command.Kind == "open_port" || request.Command.Kind == "cancel_port" {
 		return node.dispatchPort(ctx, caller, request)
 	}

@@ -390,6 +390,28 @@ Validation rejects any archived entry beneath a link. Restore copies verified
 regular files first and creates links last, so archive extraction never writes
 through a restored link.
 
+### Configuration transfer
+
+`export_configuration` and `import_configuration` move one user's settings
+between Nodes as a versioned JSON document (`internal/node/store/configuration_transfer*.go`).
+The document is the unit a later sync or backup would carry; transport is out
+of scope. It holds providers with their API keys, search settings and
+credentials, media, compaction and team settings, roles, teams, and each
+installed package's enabled, pinned and settings values and secrets. Secrets are
+plaintext. Sandbox, power, Python and the personal instructions are included and
+applied only for a machine administrator. Hooks, terminal, local model, code
+index, network and MCP server settings are machine-bound and never included, and
+account sign-ins are not carried: such providers import without a credential.
+Export orders lists by ID or name, so unchanged configuration gives the same
+bytes apart from `exported_at`. Import merges: entries are matched by ID (roles
+and teams then by key, since built-in roles have per-profile IDs) and replaced,
+new entries are added, and entries only on the target are kept. Each section is
+optional and an absent one leaves its area unchanged. A refused entry is
+reported as skipped; missing packages are skipped and a different package build
+receives only its enabled and pinned choices. SQL changes commit together and
+the instructions file is written after the commit. A preview runs the same
+import and rolls it back.
+
 ## Command admission and recovery
 
 1. Client submits a typed command with a stable request ID and captured resources.

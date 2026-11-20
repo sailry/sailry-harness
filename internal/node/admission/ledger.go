@@ -54,7 +54,7 @@ func DigestOnly(kind string) bool {
 		"save_plugin_settings", "save_plugin_mcp", "install_mcp",
 		"start_connector_login", "submit_connector_input", "update_connection",
 		"save_backup_settings", "restore_backup", "restore_backup_file",
-		"dispatch", "plugin_transaction", "configuration_follow":
+		"dispatch", "plugin_transaction", "configuration_follow", "import_configuration":
 		return true
 	default:
 		return false

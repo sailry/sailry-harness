@@ -96,8 +96,9 @@ func TestCommandLogClassification(t *testing.T) {
 		}
 	}
 	// Its server definitions hold a free-form environment and headers rather
-	// than a typed secret; it is digested as in the Rust engine.
-	if want := []string{"save_plugin_mcp"}; !slices.Equal(free, want) {
+	// than a typed secret; it is digested as in the Rust engine. A
+	// configuration import carries plaintext secrets inside its document.
+	if want := []string{"save_plugin_mcp", "import_configuration"}; !slices.Equal(free, want) {
 		t.Errorf("digested without a secret-typed field: %v, want %v", free, want)
 	}
 	for kind := range typed {

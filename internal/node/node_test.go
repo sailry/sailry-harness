@@ -1262,7 +1262,10 @@ func secretCommands(canary string) map[string]protocol.Command {
 	config.Provider, config.Model, config.Mode, config.Permission = provider.ID, "fixture", protocol.WorkModeCode, protocol.PermissionProject
 	imported := protocol.DefaultSessionImport()
 	imported.Source, imported.Config, imported.Provider, imported.Secret = protocol.NodeID{1}, config, provider, &secret
+	transferred, _ := json.Marshal(store.ConfigurationDocument{Format: "sailry-configuration", Version: 1, ExportedAt: "2026-11-20T08:00:00Z",
+		Providers: []store.ConfigurationProvider{{Provider: provider, Key: &secret}}})
 	return map[string]protocol.Command{
+		"import_configuration":    {Kind: "import_configuration", Data: &protocol.CommandImportConfigurationPayload{Document: transferred, Preview: true}},
 		"configuration_follow":    {Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &protocol.ConfigurationManifest{Source: protocol.NodeID{1}, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{{ID: provider.ID.String(), Revision: 1, Digest: strings.Repeat("a", 64), Body: json.RawMessage(`{}`), Secret: &secret}}}}},
 		"save_provider":           {Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}},
 		"complete_provider_login": {Kind: "complete_provider_login", Data: &protocol.CommandCompleteProviderLoginPayload{Attempt: protocol.NewRequestID(), Callback: secret}},
