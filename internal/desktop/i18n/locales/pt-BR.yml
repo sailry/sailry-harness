@@ -2444,6 +2444,7 @@ meter_state_unknown: Ainda não medido
 meter_left: Restam %{count}
 meter_tokens: Tokens
 meter_speed: Velocidade
+meter_model: Modelo
 meter_show_details: Mostrar detalhes
 meter_hide_details: Mostrar menos
 configuration_follow_from_source: Do controlador

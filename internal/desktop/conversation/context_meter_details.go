@@ -322,7 +322,7 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 			label := strings.Join(fields(step), "  ")
 			b := ui.ButtonBase(c.Key("step/" + step.ID)).Label(label).Grow(1).Basis(0).Height(historyHeight).
 				Cursor(ui.CursorPointer).AccessSelected(chosen == step)
-			kit.Tooltip(c, b, label)
+			kit.ChartTooltip(c, b, stepTip(c, step))
 			b.OnClick(func() {
 				if s.Selected == step.ID {
 					s.Selected = ""
@@ -342,6 +342,25 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 		})
 	}
 	return chosen
+}
+
+// stepTip is a step's hover card: the step over a row for each measured
+// field, those not measured left out.
+func stepTip(c *ui.Context, step *ContextStep) kit.ChartTip {
+	tip := kit.ChartTip{Heading: strings.ReplaceAll(i18n.T(c, "meter_step"), "%{count}", fmt.Sprint(step.Step))}
+	if step.Tokens != nil {
+		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: i18n.T(c, "meter_tokens"), Value: tokenLabel(step.Tokens, step.Estimated)})
+	}
+	if step.Model != "" {
+		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: i18n.T(c, "meter_model"), Value: step.Model})
+	}
+	if step.Speed != nil {
+		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: "TPS", Value: fmt.Sprintf("%.1f", *step.Speed)})
+	}
+	if step.FirstTokenUs != nil {
+		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: i18n.T(c, "meter_first_response"), Value: contextDuration(c, *step.FirstTokenUs)})
+	}
+	return tip
 }
 
 // contextUsage is the session's tokens: input, output and the cache hit

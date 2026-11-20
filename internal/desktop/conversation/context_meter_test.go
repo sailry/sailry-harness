@@ -181,6 +181,88 @@ func TestContextMeterStep(t *testing.T) {
 	}
 }
 
+// Resting on a step shows its fields a line each, in order; those not
+// measured are left out rather than shown empty.
+func TestContextMeterStepTip(t *testing.T) {
+	d := meterStats()
+	d.Steps[0].Model = "gpt-6.2-astra"
+	s := &conversation.ContextMeterState{Open: true, Expanded: true}
+	tt := meterTester(t, s, d)
+	meterSettle(tt)
+	// Texts also holds the bars' accessible names, each step's fields on one
+	// line, so the tip is what resting adds to the texts shown before.
+	before := tt.Texts()
+	added := func() []string {
+		rest := map[string]int{}
+		for _, text := range before {
+			rest[text]++
+		}
+		var out []string
+		for _, text := range tt.Texts() {
+			if rest[text] > 0 {
+				rest[text]--
+				continue
+			}
+			out = append(out, text)
+		}
+		slices.Sort(out)
+		return out
+	}
+	rest := func(label string) ui.AccessInfo {
+		t.Helper()
+		bar, ok := tt.Access(label)
+		if !ok {
+			t.Fatalf("no step bar %q: %q", label, tt.Texts())
+		}
+		tt.Move(bar.Bounds.X+bar.Bounds.W/2, bar.Bounds.Y+bar.Bounds.H-1)
+		tt.Advance(time.Second)
+		tt.Frame()
+		return bar
+	}
+	full := "Step 1  20k  gpt-6.2-astra  TPS 18.8  TTFT 120.0 ms"
+	bar := rest(full)
+	if want := "Step 1\nTokens 20k\nModel gpt-6.2-astra\nTPS 18.8\nTTFT 120.0 ms"; bar.Description != want {
+		t.Errorf("step description %q, want %q", bar.Description, want)
+	}
+	want := []string{"Step 1", "Tokens", "20k", "Model", "gpt-6.2-astra", "TPS", "18.8", "TTFT", "120.0 ms"}
+	if got := added(); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+		t.Fatalf("resting on step 1 added %q, want each field apart: %q", got, want)
+	}
+	// Each field is a row below the one before, its label beside its value.
+	above := float32(-1)
+	for _, row := range [][2]string{{"Step 1", ""}, {"Tokens", "20k"}, {"Model", "gpt-6.2-astra"}, {"TPS", "18.8"}, {"", "120.0 ms"}} {
+		text := row[0]
+		if text == "" {
+			text = row[1]
+		}
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("the tip lacks %q: %q", text, tt.Texts())
+		}
+		if r.Y <= above {
+			t.Errorf("%q is not on a line below the previous field", text)
+		}
+		above = r.Y
+		if row[0] != "" && row[1] != "" {
+			if v, _ := tt.Find(row[1]); v.Y != r.Y || v.X <= r.X {
+				t.Errorf("value %q at %v is not beside its label %q at %v", row[1], v, row[0], r)
+			}
+		}
+	}
+	sparse := rest("Step 2  47.2k  TPS —  TTFT —")
+	if want := "Step 2\nTokens 47.2k"; sparse.Description != want {
+		t.Errorf("sparse step description %q, want %q", sparse.Description, want)
+	}
+	if got, want := added(), []string{"47.2k", "Step 2", "Tokens"}; !slices.Equal(got, want) {
+		t.Errorf("resting on step 2 added %q, want only its measured fields %q", got, want)
+	}
+	tt.ClickAt(bar.Bounds.X+bar.Bounds.W/2, bar.Bounds.Y+bar.Bounds.H-1)
+	meterSettle(tt)
+	if s.Selected != "a" {
+		t.Errorf("a click under the tip chose step %q, want a", s.Selected)
+	}
+}
+
 func TestContextMeterConnectionPath(t *testing.T) {
 	for _, tc := range []struct {
 		name              string

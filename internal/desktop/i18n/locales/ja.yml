@@ -2444,6 +2444,7 @@ meter_state_unknown: 未計測
 meter_left: 残り %{count}
 meter_tokens: Token
 meter_speed: 速度
+meter_model: モデル
 meter_show_details: 詳細を表示
 meter_hide_details: 折りたたむ
 configuration_follow_from_source: コントローラーから

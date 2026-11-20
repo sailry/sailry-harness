@@ -2444,6 +2444,7 @@ meter_state_unknown: 아직 측정 전
 meter_left: '%{count} 남음'
 meter_tokens: Token
 meter_speed: 속도
+meter_model: 모델
 meter_show_details: 자세히 보기
 meter_hide_details: 접기
 configuration_follow_from_source: 컨트롤러에서

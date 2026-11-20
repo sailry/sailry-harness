@@ -2444,6 +2444,7 @@ meter_state_unknown: Noch nicht gemessen
 meter_left: '%{count} frei'
 meter_tokens: Tokens
 meter_speed: Tempo
+meter_model: Modell
 meter_show_details: Details anzeigen
 meter_hide_details: Weniger anzeigen
 configuration_follow_from_source: Vom Controller

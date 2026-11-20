@@ -2457,6 +2457,7 @@ meter_state_unknown
 meter_left
 meter_tokens
 meter_speed
+meter_model
 meter_show_details
 meter_hide_details
 
