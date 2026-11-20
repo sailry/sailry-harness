@@ -34,6 +34,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic/mermaid"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -552,10 +553,10 @@ func TestPolicy(t *testing.T) {
 			_, _, ok["branches, repeated"] = BranchPicker(c, "t:branches", []code.Branch{{Name: "main"}, {Name: "main"}}, &current, &query, code.BranchPickerOptions{})
 			_, ok["blame"] = Blame(c, "t:blame", []code.BlameLine{{Text: "package main", At: day}}, code.BlameOptions{})
 			_, ok["blame, no time"] = Blame(c, "t:blame", []code.BlameLine{{Author: "Ada", Text: "package main"}}, code.BlameOptions{})
-			_, ok["mermaid"] = Mermaid(c, "flowchart LR\n  Cart --> Pay", diagram.MermaidOptions{Failed: "t:failed"})
-			_, ok["mermaid, a syntax error"] = Mermaid(c, "flowchart LR\n  Cart -->", diagram.MermaidOptions{Failed: "t:failed"})
-			_, ok["mermaid, no kind"] = Mermaid(c, "no such diagram", diagram.MermaidOptions{Failed: "t:failed"})
-			_, ok["mermaid, a reserved property"] = Mermaid(c, "flowchart LR\n  A --> B\n  style A fill:var(--pele-bg)", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid"] = mermaid.Draw(c, "flowchart LR\n  Cart --> Pay", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, a syntax error"] = mermaid.Draw(c, "flowchart LR\n  Cart -->", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, no kind"] = mermaid.Draw(c, "no such diagram", diagram.MermaidOptions{Failed: "t:failed"})
+			_, ok["mermaid, a reserved property"] = mermaid.Draw(c, "flowchart LR\n  A --> B\n  style A fill:var(--pele-bg)", diagram.MermaidOptions{Failed: "t:failed"})
 		}, theme.Light)
 		s.settle()
 		for name, built := range ok {

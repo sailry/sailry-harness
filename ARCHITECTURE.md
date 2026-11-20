@@ -999,9 +999,10 @@ Open workspace editors retain file bodies and draft revisions. A single-file
 diff retains the revision needed for hunk actions. Closing an editor or diff
 releases its recoverable file contents while retaining workspace navigation.
 
-Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
-CrychicUI, chart variants use the conversation painter over limu, and math uses
-Untie. These render natively and keep source text on failure. File preview draws
+Terminal rendering uses MyGo's terminal package and libghostty-vt. Desktop Markdown
+and conversation visual blocks share Kit's CrychicUI Mermaid renderer. Replies
+use their interactive painter for Mermaid data charts and limu to read them.
+Conversation math uses Untie. These render natively and keep source text on failure. File preview draws
 text, code, Markdown, notebooks and images; unsupported formats open in the system
 application. Conversation image assets open directly in the shared window image
 viewer without changing the detail panel. The captured source owner supplies the

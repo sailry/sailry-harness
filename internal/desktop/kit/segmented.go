@@ -151,7 +151,7 @@ func Segmented(c *ui.Context, key any, selected *int, options []string, o Segmen
 			seg.Children(func() {
 				if i == *selected {
 					ui.Box(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).
-						Radius(p.Radius).Background(p.Foreground).ZIndex(-1).Transition(slide)
+						Radius(p.Radius).Background(p.Foreground).ZIndex(-1).IgnoreInput(true).Transition(slide)
 				}
 				if i < len(o.Icons) && o.Icons[i] != nil {
 					ui.Icon(c, o.Icons[i]).FontSize(font).Shrink(0)

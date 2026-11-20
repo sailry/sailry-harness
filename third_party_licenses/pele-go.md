@@ -1,11 +1,11 @@
 # pele-go Mermaid renderer
 
-Desktop draws the Mermaid diagrams of a reply with CrychicUI's
+Desktop draws Mermaid diagrams in Markdown and replies with CrychicUI's
 `diagram.Mermaid`, which lays
 them out with `github.com/Broderick-Westrope/pele-go`. Desktop links pele-go at
 the version CrychicUI's `go.mod` requires and Sailry's `go.mod` pins (`v0.2.0`),
 unmodified, through that package and through
-`internal/desktop/kit/crychic/mermaid.go`, which renders a source once before
+`internal/desktop/kit/crychic/mermaid/picture.go`, which renders a source once before
 the library does. It is a Go module dependency: no pele-go source is copied
 into this repository.
 

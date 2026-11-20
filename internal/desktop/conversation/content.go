@@ -221,19 +221,13 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 
 // visual is a VisualBlock: the chart or diagram of its Mermaid source in
 // place, with no card around it, under the block's title as one muted
-// caption line (visuals.go). A source that cannot be drawn shows as code.
+// caption line. A source that cannot be drawn shows as code.
 func visual(c *ui.Context, key string, v *Visual) {
 	if v == nil || v.Mermaid == "" {
 		return
 	}
 	box := ui.Column(c.Key(key)).FillWidth().MinWidth(0)
-	if showVisual(c, box, v.Mermaid, v.Title) {
-		return
-	}
-	box.Gap(visualGap).Children(func() {
-		caption(c, v.Title)
-		kit.Code(c, ui.Column(c.Key("source")), v.Mermaid, kit.CodeOptions{Tint: true})
-	})
+	kit.Mermaid(c, box, v.Mermaid, v.Title, textSize(c), drawMermaidChart)
 }
 
 // grounding is a web search's row: it opens the result over the window,

@@ -208,7 +208,8 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	defer func() { s.renderSession = previousSession }()
 	s.messageTheme(c)
 	s.md.ShareSelection = true
-	s.bindVisuals()
+	kit.BindMermaid(&s.md, drawMermaidChart)
+	bindMath(&s.md)
 	s.md.LinkIcon = nil
 	if s.SessionLink != nil {
 		s.md.LinkIcon = sessionIcon(c, s.SessionLink)

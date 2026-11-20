@@ -1,4 +1,4 @@
-package crychic
+package mermaid
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// MermaidPicture is what the library draws of a Mermaid source: its size
+// Picture is what the library draws of a Mermaid source: its size
 // before it is fitted to a width, in the theme's font and text size; the
 // kind of diagram; the title the source gives assistive technology
 // (accTitle); and whether the picture draws a title of its own.
-type MermaidPicture struct {
+type Picture struct {
 	Width, Height float32
 	Kind, Title   string
 	Titled        bool
@@ -37,8 +37,8 @@ const pictureLimit = 256
 // is not read again every frame.
 var pictures = struct {
 	sync.Mutex
-	m map[pictureKey]*MermaidPicture
-}{m: map[pictureKey]*MermaidPicture{}}
+	m map[pictureKey]*Picture
+}{m: map[pictureKey]*Picture{}}
 
 // measurer measures labels as the library's does, in the fonts that draw
 // them, so the size found here is the size of what it draws.
@@ -59,11 +59,11 @@ func (m measurer) Width(text string, size float64, st pele.Style) float64 {
 	return float64(w)
 }
 
-// MermaidOf is the picture diagram.Mermaid draws of source, and false for a
+// PictureOf is the picture diagram.Mermaid draws of source, and false for a
 // source it would answer with its error box: one Pele cannot read, and one
 // that names a custom property of Pele's own (reserved). The library gives
 // no result to ask, so the source is rendered here first, with its options.
-func MermaidOf(c *ui.Context, source string) (MermaidPicture, bool) {
+func PictureOf(c *ui.Context, source string) (Picture, bool) {
 	t := c.Theme()
 	key := pictureKey{source, t.Font, t.Rem(1)}
 	pictures.Lock()
@@ -77,13 +77,13 @@ func MermaidOf(c *ui.Context, source string) (MermaidPicture, bool) {
 		pictures.m[key] = p
 	}
 	if p == nil {
-		return MermaidPicture{}, false
+		return Picture{}, false
 	}
 	return *p, true
 }
 
 // picture renders a source as the library does; nil is one it cannot draw.
-func picture(key pictureKey) *MermaidPicture {
+func picture(key pictureKey) *Picture {
 	if reserved(key.source) {
 		return nil
 	}
@@ -97,7 +97,7 @@ func picture(key pictureKey) *MermaidPicture {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	return &MermaidPicture{Width: w, Height: h, Kind: string(res.Type), Title: title,
+	return &Picture{Width: w, Height: h, Kind: string(res.Type), Title: title,
 		Titled: strings.Contains(res.SVG, `class="pele-title"`)}
 }
 
@@ -150,14 +150,14 @@ func drawing(svg string) (w, h float32, title string) {
 	return w, h, strings.TrimSpace(string(chars))
 }
 
-// Mermaid is diagram.Mermaid for a source a model wrote. It builds nothing
-// for a source the library would answer with its error box (MermaidOf), so
+// Draw is diagram.Mermaid for a source in Markdown or a visual block. It builds nothing
+// for a source the library would answer with its error box (PictureOf), so
 // the caller shows the source its own way. A diagram without a label is
 // named by its accTitle, else by its kind, never by the library's English.
 // The library's arrival is held still: a virtual list would replay it each
 // time the diagram scrolls back in.
-func Mermaid(c *ui.Context, source string, o diagram.MermaidOptions) (ui.Element, bool) {
-	p, ok := MermaidOf(c, source)
+func Draw(c *ui.Context, source string, o diagram.MermaidOptions) (ui.Element, bool) {
+	p, ok := PictureOf(c, source)
 	if !ok {
 		return ui.Element{}, false
 	}

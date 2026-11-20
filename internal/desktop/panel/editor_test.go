@@ -282,6 +282,40 @@ func TestEditorContracts(t *testing.T) {
 	})
 }
 
+func TestFileEditorMermaidDocumentAndSource(t *testing.T) {
+	const path = "workflow.md"
+	const source = "# Workflow\n\n```mermaid\nflowchart TB\n  A --> B\n```"
+	pr := editorFixture(path, source)
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { pr.filePreview(c, path, true) })
+	}, 1000, 700)
+	tester.SetLocale("en")
+	checkDiagram := func() {
+		t.Helper()
+		tester.Frame()
+		if picture, ok := tester.AccessByRole(ui.RoleImage, "flowchart"); !ok || picture.Bounds.W <= 0 || picture.Bounds.H <= 0 || tester.HasText("mermaid") {
+			t.Fatal("document mode did not replace the Mermaid code block with its diagram")
+		}
+	}
+	checkDiagram()
+	if err := tester.Click(en("content_source")); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	item := pr.Files.item(path)
+	if _, ok := tester.AccessByRole(ui.RoleImage, "flowchart"); ok || item.editor == nil || item.editor.Buffer.String() != source {
+		t.Fatal("source mode did not show the exact Markdown in the native editor")
+	}
+	if err := tester.Click(en("content_document")); err != nil {
+		t.Fatal(err)
+	}
+	checkDiagram()
+	if got, dirty := pr.FileDraft(path); got != source || dirty {
+		t.Fatalf("switching modes changed the file draft: %q, dirty=%v", got, dirty)
+	}
+}
+
 func editorFixture(path, source string) *Project {
 	pr := NewLiveProject("worktree", &viewmodel.Workspace{Files: &viewmodel.FileNode{Children: []*viewmodel.FileNode{{Name: path, Path: path}}}}, &Actions{})
 	pr.SetFile(path, source)
