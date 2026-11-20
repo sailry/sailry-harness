@@ -1,7 +1,6 @@
 package live
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -15,16 +14,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
-
-func fragmentedSnapshot(node protocol.NodeID, id protocol.SessionID, chunks int) protocol.ConversationSnapshot {
-	s := protocol.DefaultConversationSnapshot()
-	s.Node, s.Sequence, s.Page = node, 10, cacheTestPage(id, 1, id.String())
-	s.Page.Entries = s.Page.Entries[:1]
-	for i := range chunks {
-		s.Page.Entries = append(s.Page.Entries, protocol.ConversationEntry{ID: fmt.Sprintf("reply/%d", i), Turn: s.Page.Runs[0].Turn, Sequence: uint64(i + 2), Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: strings.Repeat("x", 128)}}})
-	}
-	return s
-}
 
 // Standalone view tests have no event loop to redraw on the worker's wake.
 func awaitConversationFeed(t *testing.T, r *Runtime, id protocol.SessionID) {
@@ -66,7 +55,7 @@ func TestConversationSwitchDoesNotWaitForPreparation(t *testing.T) {
 			s := protocol.DefaultSession()
 			s.ID, s.Revision = id, 1
 			node.Sessions = append(node.Sessions, s)
-			source.conversations[id] = fragmentedSnapshot(node.Node, id, 1024)
+			source.conversations[id] = fragmentedSnapshot(node.Node, id, 1024, 128)
 		}
 		source.snapshot = node
 		controller := client.New(source)
@@ -133,7 +122,7 @@ func TestConversationSwitchDoesNotWaitForPreparation(t *testing.T) {
 // to the UI. It excludes layout/paint; the transcript benchmarks cover those.
 func BenchmarkConversationSwitchProjection(b *testing.B) {
 	id := protocol.SessionID{1}
-	state := client.ConversationState{Connected: true, Snapshot: fragmentedSnapshot(protocol.NodeID{1}, id, 2048)}
+	state := client.ConversationState{Connected: true, Snapshot: fragmentedSnapshot(protocol.NodeID{1}, id, 2048, 128)}
 	r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
 	b.Run("prepare", func(b *testing.B) {
 		b.ReportAllocs()

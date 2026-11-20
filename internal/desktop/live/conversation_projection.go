@@ -117,8 +117,8 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		}
 		session.Usage = u
 	}
-	runs := slices.Clone(page.Runs)
-	slices.SortStableFunc(runs, func(a, b protocol.ConversationRun) int {
+	runs := page.Runs
+	compareRuns := func(a, b protocol.ConversationRun) int {
 		x, y := a.StartedMs, b.StartedMs
 		if x == nil {
 			x = a.FinishedMs
@@ -138,7 +138,11 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			}
 		}
 		return cmp.Compare(a.Sequence, b.Sequence)
-	})
+	}
+	if !slices.IsSortedFunc(runs, compareRuns) {
+		runs = slices.Clone(runs)
+		slices.SortStableFunc(runs, compareRuns)
+	}
 	owners := turnOwners(runs)
 	pending := map[protocol.TurnID]bool{}
 	for _, p := range page.Queue.Items {
@@ -437,10 +441,15 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	for ti := range turns {
 		firstProgress := -1
 		retries := map[string]int{}
-		boundaries := make([]int, len(turns[ti].Reply.Blocks)+1)
+		var boundaries []int
+		if len(turns[ti].Segments) > 0 {
+			boundaries = make([]int, len(turns[ti].Reply.Blocks)+1)
+		}
 		blocks := turns[ti].Reply.Blocks[:0]
 		for index, block := range turns[ti].Reply.Blocks {
-			boundaries[index] = len(blocks)
+			if boundaries != nil {
+				boundaries[index] = len(blocks)
+			}
 			if retry := block.Retry; retry != nil && retry.Request != "" {
 				if position, exists := retries[retry.Request]; exists {
 					blocks[position] = block
@@ -457,10 +466,12 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			}
 			blocks = append(blocks, block)
 		}
-		boundaries[len(boundaries)-1] = len(blocks)
-		for index := range turns[ti].Segments {
-			segment := &turns[ti].Segments[index]
-			segment.From = boundaries[segment.From]
+		if boundaries != nil {
+			boundaries[len(boundaries)-1] = len(blocks)
+			for index := range turns[ti].Segments {
+				segment := &turns[ti].Segments[index]
+				segment.From = boundaries[segment.From]
+			}
 		}
 		turns[ti].Reply.Blocks = blocks
 		for bi := range turns[ti].Reply.Blocks {
