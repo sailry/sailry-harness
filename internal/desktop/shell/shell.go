@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
@@ -368,6 +369,13 @@ func (a *App) View(c *ui.Context) {
 	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
+	a.panes.enlargedFrame = a.panes.enlarged
+	if target := a.panes.enlargedFocus; target != (panes.Target{}) {
+		a.panes.enlargedFocus = panes.Target{}
+		if a.Page == ConversationPage && a.panes.Active == target {
+			a.Composer(target.ID).Focus()
+		}
+	}
 	if a.Page == ConversationPage && (a.sampled() || a.panels.mounted == boundConversation) {
 		a.syncPanel()
 	}
@@ -778,7 +786,7 @@ func (a *App) page(c *ui.Context) {
 		return
 	}
 	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil {
-		if t := session(cv.ID); a.panes.enlarged == t {
+		if t := session(cv.ID); a.panes.enlargedFrame == t {
 			a.enlargedSlot(c, t)
 			return
 		}

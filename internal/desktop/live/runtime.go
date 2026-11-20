@@ -301,7 +301,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App = shell.NewLive(d)
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
-	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh,
+	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, NewConversationDraft: r.newConversationDraft,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
 		CaptureSelection: func() { r.CaptureSelection(nil) }}
 	r.App.Messages.OpenLink = r.openChatLink

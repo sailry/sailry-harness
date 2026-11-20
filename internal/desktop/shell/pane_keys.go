@@ -58,7 +58,7 @@ func (a *App) paneKeys(c *ui.Context, e ui.Element, t panes.Target) {
 		a.newConversationTab(t)
 	}
 	if e.Shortcut(ui.Cmd, ui.KeyM) && !c.ShortcutRepeated() {
-		a.toggleEnlarged(t)
+		a.toggleEnlarged(c, t)
 	}
 	for _, k := range splitKeys {
 		if e.Shortcut(ui.Cmd|ui.Shift, k.key) && !c.ShortcutRepeated() {
@@ -144,14 +144,15 @@ func (a *App) newConversationTab(from panes.Target) {
 // toggleEnlarged floats pane t over the window's body, or puts it back. The
 // layout under it stays as it was, so its shares, subscriptions and the
 // sessions' tasks go on; the composer keeps the focus.
-func (a *App) toggleEnlarged(t panes.Target) {
+func (a *App) toggleEnlarged(c *ui.Context, t panes.Target) {
 	w := &a.panes
 	if w.enlarged == t {
 		w.enlarged = panes.Target{}
 	} else {
 		w.enlarged = t
 	}
-	a.Composer(t.ID).Focus()
+	w.enlargedFocus = t
+	c.Invalidate()
 }
 
 // followEnlarged puts the enlarged pane back once it is no longer the active
@@ -169,7 +170,7 @@ func (a *App) followEnlarged() {
 func (a *App) minimize(c *ui.Context) {
 	if !a.dialog() {
 		if t, ok := a.focusedConversationPane(c); ok {
-			a.toggleEnlarged(t)
+			a.toggleEnlarged(c, t)
 			return
 		}
 	}
@@ -194,7 +195,7 @@ func (a *App) enlargedSlot(c *ui.Context, t panes.Target) {
 // place.
 func (a *App) enlargedPane(c *ui.Context) {
 	w := &a.panes
-	t := w.enlarged
+	t := w.enlargedFrame
 	cv := a.Data.Find(t.ID)
 	if t == (panes.Target{}) || cv == nil {
 		return
@@ -204,7 +205,7 @@ func (a *App) enlargedPane(c *ui.Context) {
 	if !p.Dark {
 		veil = 0.25
 	}
-	restore := func() { a.toggleEnlarged(t) }
+	restore := func() { a.toggleEnlarged(c, t) }
 	ui.Box(c.Key("enlarged-veil")).Absolute().Top(0).Left(0).Fill().ZIndex(2).Background(p.Backdrop().Alpha(veil)).
 		Label(i18n.T(c, "pane_restore")).OnClick(restore)
 	h := w.handle(t)

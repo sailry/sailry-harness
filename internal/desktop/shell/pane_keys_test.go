@@ -67,12 +67,15 @@ func testPaneKeysFreshFromDraft(t *testing.T) {
 // selected or moved.
 func testPaneKeysAtCapacity(t *testing.T) {
 	a, tt := newTester(t)
+	dest := session(preview.Big)
 	for i := range panes.Limit - 1 {
 		id := fmt.Sprintf("full-%d", i)
 		a.OpenWorkspaceTerminal(id, "")
-		if !a.panes.Drop(session(preview.Big), panes.Target{Kind: panes.Terminal, ID: id}, panes.Right) {
+		target := panes.Target{Kind: panes.Terminal, ID: id}
+		if !a.panes.Drop(dest, target, panes.Right) {
 			t.Fatalf("drop %d", i)
 		}
+		dest = target
 	}
 	a.focusPane(session(preview.Big))
 	tt.Frame()
@@ -325,8 +328,8 @@ func TestViewZoomKeysReserved(t *testing.T) {
 		nav := a.NavOpen
 		tt.Key(ui.Cmd, ui.KeyEqual)
 		tt.Frame()
-		if a.ViewZoom != 110 || a.NavOpen != nav {
-			t.Fatalf("Cmd+=: zoom %d, sidebar toggled %v", a.ViewZoom, a.NavOpen != nav)
+		if a.Settings.ViewZoom != 1 || a.NavOpen != nav {
+			t.Fatalf("Cmd+=: zoom %d, sidebar toggled %v", a.Settings.ViewZoom, a.NavOpen != nav)
 		}
 		if got := a.Settings.Keys.Overrides()["sidebar.toggle"]; got != "secondary-=" {
 			t.Errorf("the saved key became %q", got)
@@ -341,8 +344,8 @@ func TestViewZoomKeysReserved(t *testing.T) {
 		tt.Frame()
 		tt.Key(ui.Cmd, ui.KeyEqual)
 		tt.Frame()
-		if a.ViewZoom != 0 || !a.Settings.Keys.Recording() {
-			t.Fatalf("Cmd+= while recording: zoom %d, recording %v", a.ViewZoom, a.Settings.Keys.Recording())
+		if a.Settings.ViewZoom != 0 || !a.Settings.Keys.Recording() {
+			t.Fatalf("Cmd+= while recording: zoom %d, recording %v", a.Settings.ViewZoom, a.Settings.Keys.Recording())
 		}
 		if s, _ := a.Settings.Keys.Bound(settings.Registry[0]); s.Key != ui.KeyN {
 			t.Errorf("Cmd+= was recorded: %+v", s)
@@ -359,15 +362,15 @@ func TestViewZoomKeysReserved(t *testing.T) {
 		tt.Frame()
 		tt.Key(ui.Cmd, ui.KeyEqual)
 		tt.Frame()
-		if a.ViewZoom != 0 {
-			t.Fatalf("Cmd+= zoomed behind the dialog: %d", a.ViewZoom)
+		if a.Settings.ViewZoom != 0 {
+			t.Fatalf("Cmd+= zoomed behind the dialog: %d", a.Settings.ViewZoom)
 		}
 		tt.Key(0, ui.KeyEscape)
 		settle(tt)
 		tt.Key(ui.Cmd, ui.KeyEqual)
 		tt.Frame()
-		if a.ViewZoom != 110 {
-			t.Errorf("Cmd+= after the dialog: %d", a.ViewZoom)
+		if a.Settings.ViewZoom != 1 {
+			t.Errorf("Cmd+= after the dialog: %d", a.Settings.ViewZoom)
 		}
 	})
 }
