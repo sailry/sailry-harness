@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -434,58 +435,131 @@ func withinWorkspace(path, root string) bool {
 	relative, err := filepath.Rel(root, path)
 	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
+
+type entryTarget struct{ root, path string }
+
 func (node *Node) protectEntry(root, path string) error {
-	absolute := filepath.Clean(filepath.Join(root, filepath.FromSlash(path)))
-	if info, err := os.Lstat(absolute); err == nil && info.Mode()&os.ModeSymlink == 0 {
-		if actual, e := filepath.EvalSymlinks(absolute); e == nil {
-			absolute = actual
-		}
-	} else if parent, e := filepath.EvalSymlinks(filepath.Dir(absolute)); e == nil {
-		absolute = filepath.Join(parent, filepath.Base(absolute))
+	return node.protectEntries([]entryTarget{{root, path}})
+}
+
+// protectEntries refuses targets that contain a registered worktree or Node
+// storage. A target inside the profile is allowed only in the managed
+// workspace of a conversation without a project. The registrations are read
+// once for every target: this runs before and again during each file change.
+func (node *Node) protectEntries(targets []entryTarget) error {
+	if len(targets) == 0 {
+		return nil
 	}
+	profile := node.profile.Ownership.Path
 	var trees []protocol.Worktree
-	var sessions []protocol.Session
+	managed := map[string]bool{}
 	err := node.profile.Store.Node.Read(node.ctx, func(db *sql.Conn) error {
 		var err error
 		trees, err = store.ReadWorktrees(node.ctx, db)
 		if err != nil {
 			return err
 		}
-		snapshot, err := store.Snapshot(node.ctx, db, node.ID())
-		sessions = snapshot.Sessions
-		return err
+		for _, target := range targets {
+			if _, known := managed[target.root]; known {
+				continue
+			}
+			managed[target.root] = false
+			for _, tree := range trees {
+				if tree.Path != target.root || tree.Main || !core.ManagedWorkspace(target.root, profile) {
+					continue
+				}
+				owned, err := node.managedWorkspace(db, tree)
+				if err != nil {
+					return err
+				}
+				managed[target.root] = managed[target.root] || owned
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	managed := false
-	for _, tree := range trees {
-		if withinWorkspace(tree.Path, absolute) {
-			return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "entry contains registered resources or Node storage"}
+	for _, target := range targets {
+		absolute := filepath.Clean(filepath.Join(target.root, filepath.FromSlash(target.path)))
+		if info, err := os.Lstat(absolute); err == nil && info.Mode()&os.ModeSymlink == 0 {
+			if actual, e := filepath.EvalSymlinks(absolute); e == nil {
+				absolute = actual
+			}
+		} else if parent, e := filepath.EvalSymlinks(filepath.Dir(absolute)); e == nil {
+			absolute = filepath.Join(parent, filepath.Base(absolute))
 		}
-		if tree.Path == root && !tree.Main && core.ManagedWorkspace(root, node.profile.Ownership.Path) {
-			for _, session := range sessions {
-				if session.Worktree == tree.ID && session.Project == nil {
-					expected := core.SessionWorkspace(node.profile.Ownership.Path, session.ID)
-					if session.Config.Resource != nil {
-						expected, _ = core.ConnectionWorkspace(node.profile.Ownership.Path, *session.Config.Resource)
-					} else if session.Config.Assistant != nil {
-						expected, _ = core.AssistantWorkspace(node.profile.Ownership.Path, *session.Config.Assistant)
-					}
-					managed = managed || expected == root
-				}
+		for _, tree := range trees {
+			if withinWorkspace(tree.Path, absolute) {
+				return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "entry contains registered resources or Node storage"}
 			}
 		}
-	}
-	profile := node.profile.Ownership.Path
-	if withinWorkspace(profile, absolute) || withinWorkspace(absolute, profile) && !managed {
-		return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "entry contains registered resources or Node storage"}
+		if withinWorkspace(profile, absolute) || withinWorkspace(absolute, profile) && !managed[target.root] {
+			return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "entry contains registered resources or Node storage"}
+		}
 	}
 	return nil
 }
+
+// managedWorkspace reports whether tree is the managed workspace of an
+// accessible conversation without a project that uses it. Only the sessions of
+// that worktree are read, without their activity summaries.
+func (node *Node) managedWorkspace(db *sql.Conn, tree protocol.Worktree) (bool, error) {
+	rows, err := db.QueryContext(node.ctx, "SELECT s.id,r.config FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision WHERE s.worktree=?1 AND s.project IS NULL AND s.state!='removed'", tree.ID.String())
+	if err != nil {
+		return false, err
+	}
+	type candidate struct {
+		id     protocol.SessionID
+		config protocol.SessionConfig
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var id string
+		var config []byte
+		if err = rows.Scan(&id, &config); err != nil {
+			break
+		}
+		value := candidate{config: protocol.DefaultSession().Config}
+		if value.id, err = protocol.ParseSessionID(id); err != nil {
+			break
+		}
+		if err = json.Unmarshal(config, &value.config); err != nil {
+			break
+		}
+		candidates = append(candidates, value)
+	}
+	if err = errors.Join(err, rows.Err(), rows.Close()); err != nil {
+		return false, err
+	}
+	profile := node.profile.Ownership.Path
+	for _, session := range candidates {
+		if err := store.CheckSessionAccess(node.ctx, db, session.id); err != nil {
+			var denied *protocol.Fault
+			if errors.As(err, &denied) && denied.Code == protocol.ErrorCodePermissionDenied {
+				continue
+			}
+			return false, err
+		}
+		expected := core.SessionWorkspace(profile, session.id)
+		if session.config.Resource != nil {
+			expected, _ = core.ConnectionWorkspace(profile, *session.config.Resource)
+		} else if session.config.Assistant != nil {
+			expected, _ = core.AssistantWorkspace(profile, *session.config.Assistant)
+		}
+		if expected == tree.Path {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 func (node *Node) protectWorkspaceMutation(source, root string, command protocol.Command, prepared *files.Prepared) error {
-	var targets []struct{ root, path string }
-	add := func(root, path string) { targets = append(targets, struct{ root, path string }{root, path}) }
+	var targets []entryTarget
+	add := func(root, path string) {
+		if !slices.Contains(targets, entryTarget{root, path}) {
+			targets = append(targets, entryTarget{root, path})
+		}
+	}
 	if prepared != nil {
 		for _, value := range prepared.Changes {
 			add(root, value.Path)
@@ -548,12 +622,7 @@ func (node *Node) protectWorkspaceMutation(source, root string, command protocol
 			}
 		}
 	}
-	for _, target := range targets {
-		if err := node.protectEntry(target.root, target.path); err != nil {
-			return err
-		}
-	}
-	return nil
+	return node.protectEntries(targets)
 }
 
 func (node *Node) workspaceSettings(ctx context.Context, command protocol.Command, effect *workspaceCompletion) (protocol.Output, error) {
