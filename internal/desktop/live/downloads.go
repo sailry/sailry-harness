@@ -44,6 +44,29 @@ func (r *Runtime) downloadFileCard(x *conversationActions, file conversation.Fil
 		r.chooseAttachmentDestination(descriptor)
 	}
 }
+
+// revealFileCard shows a card's worktree file in the file manager. A file on
+// another host has no local path, so its copy is downloaded and shown.
+func (r *Runtime) revealFileCard(x *conversationActions, file conversation.File) {
+	descriptor, ok := r.attachmentDescriptor(x.cv.ID, file.ID)
+	if !ok {
+		r.report(x.c, fileActionFault(protocol.ErrorCodeNotFound, "file source is unavailable"), "workspace_changed")
+		return
+	}
+	descriptor.name = file.Name()
+	if descriptor.artifact != nil {
+		r.openExternalArtifact(descriptor)
+		return
+	}
+	if r.attachments == nil {
+		return
+	}
+	if descriptor.path != "" && descriptor.attachment == nil && descriptor.image == nil && r.attachments.native.LocalNode == r.controller.Target() {
+		r.RevealWorkspaceFile(descriptor.worktree, descriptor.path)
+		return
+	}
+	r.openExternalAttachment(descriptor, true)
+}
 func (r *Runtime) chooseAttachmentDestination(descriptor attachmentDescriptor) {
 	if r.attachments == nil {
 		return

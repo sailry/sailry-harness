@@ -245,6 +245,8 @@ func (r *Runtime) attachmentFileAction(x *conversationActions, file conversation
 		r.downloadFileCard(x, file, false)
 	case conversation.OpenExternal:
 		r.downloadFileCard(x, file, true)
+	case conversation.Reveal:
+		r.revealFileCard(x, file)
 	case conversation.ExportDocumentHTML:
 		r.exportDocument(x, file, false)
 	case conversation.ExportDocumentImage:

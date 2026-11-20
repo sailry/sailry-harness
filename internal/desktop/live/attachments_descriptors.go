@@ -144,7 +144,10 @@ func (r *Runtime) prepareAttachmentDownload(ctx context.Context, descriptor atta
 	if output.Kind != "file_download" || !ok {
 		return protocol.StreamID{}, 0, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "download descriptor is invalid")
 	}
-	if value.Worktree != descriptor.worktree || value.Path != descriptor.path || value.Size > math.MaxInt64 || descriptor.revision != nil && value.Revision != *descriptor.revision {
+	// A card records the content revision or, as present_files does, the
+	// source stamp; either identifies the version it presented.
+	if value.Worktree != descriptor.worktree || value.Path != descriptor.path || value.Size > math.MaxInt64 ||
+		descriptor.revision != nil && value.Revision != *descriptor.revision && value.Stamp != *descriptor.revision {
 		return invalid(value.Stream)
 	}
 	return value.Stream, value.Size, value.Revision, nil

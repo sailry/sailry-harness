@@ -3,6 +3,7 @@ package conversation
 import (
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -63,19 +64,25 @@ func FileIcon(f File) *ui.SVG {
 }
 
 // fileCard is a 2xl-rounded group box, a 40 DIP icon tile, the name over its
-// kind, Open and the More menu (Preview, Open in another app, Save as,
-// Request edit). A document with a picture shows it on top.
+// kind, Open and the More menu (Preview, Show in the file manager, Save as,
+// Request edit). A file the panel cannot preview, such as an archive, opens
+// in the file manager instead. A document with a picture shows it on top.
 func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	// A click opens the file in the right panel; with the platform
 	// modifier, in the system's app, as the menu's item does.
+	previewable := f.Kind != OtherFile || f.Document
+	demo := kit.Demo(c)
 	open := func() {
-		if External(c) {
+		switch {
+		case External(c):
 			actions.FileAction(f, OpenExternal)
-			return
+		case previewable || demo:
+			actions.OpenFile(f)
+		default:
+			actions.FileAction(f, Reveal)
 		}
-		actions.OpenFile(f)
 	}
 	card := ui.Column(c.Key(key)).FillWidth().MinWidth(0).Radius(p.Radius2xl()).Border(1, p.Border).
 		Background(p.Surface.Alpha(0.8)).Clip()
@@ -107,18 +114,17 @@ func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 			kit.MenuButton(c.Key("more"), "file-"+key, func(b ui.Element) {
 				kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
 			}, func(m *kit.Menu) {
-				label := "artifact_open"
-				if f.Kind != OtherFile {
-					label = "artifact_preview"
-				}
-				if m.Item(i18n.T(c, label)).Chosen() {
+				if previewable && m.Item(i18n.T(c, "artifact_preview")).Chosen() {
 					actions.OpenFile(f)
 				}
 				// The demo's files are on no disk: nothing opens, saves or
-				// exports them.
-				demo := kit.Demo(c)
-				if !demo && m.Item(i18n.T(c, "files_open_system")).Chosen() {
+				// exports them. A published document has no file to show,
+				// so it opens in the system's app.
+				if !demo && f.Document && m.Item(i18n.T(c, "files_open_system")).Chosen() {
 					actions.FileAction(f, OpenExternal)
+				}
+				if !demo && !f.Document && m.Item(i18n.T(c, revealKey())).Chosen() {
+					actions.FileAction(f, Reveal)
 				}
 				if !demo && m.Item(i18n.T(c, "files_download")).Chosen() {
 					actions.FileAction(f, Download)
@@ -592,4 +598,15 @@ func Cite(text string, cites []Citation) string {
 	}
 	b.WriteString(text[copied:])
 	return b.String()
+}
+
+// revealKey names the platform's file manager.
+func revealKey() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "files_reveal_finder"
+	case "windows":
+		return "files_reveal_explorer"
+	}
+	return "files_reveal_manager"
 }

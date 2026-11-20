@@ -594,6 +594,7 @@ const (
 	RequestEdit
 	ExportDocumentHTML  // a published document as an HTML file
 	ExportDocumentImage // a published document as a picture
+	Reveal              // the file in the system's file manager
 )
 
 // Session is the conversation around its turns: its history paging, its
