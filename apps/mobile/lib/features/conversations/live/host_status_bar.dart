@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/connection_status.dart';
+import '../../../ui/theme.dart';
 import '../../resources/host/host_info_card.dart';
 import '../../resources/host/metric_history.dart';
 import '../task_row.dart';
@@ -82,41 +83,32 @@ class HostStatusBar extends StatelessWidget {
                   pulse: status == HostStatus.connecting,
                 ),
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: muted,
-                ),
-              ),
-              if (word != null && status != HostStatus.online) ...[
-                const SizedBox(width: 6),
-                AnimatedSwitcher(
-                  duration: duration,
-                  child: Text(word, key: ValueKey(word), style: muted),
-                ),
-              ],
+              const SizedBox(width: 10),
+              // The route and its latency, or the state while not online.
+              // The host's name stays in the semantic label.
               AnimatedSwitcher(
                 duration: duration,
                 child: Row(
-                  key: ValueKey((route, latency)),
+                  key: ValueKey((status, route, latency)),
                   mainAxisSize: MainAxisSize.min,
+                  spacing: 10,
                   children: [
-                    if (route != null) ...[
-                      Text(' · ', style: muted),
+                    if (status != HostStatus.online && word != null)
+                      Text(word, style: muted)
+                    else if (route != null)
                       Text(route, style: muted),
-                    ],
-                    if (latency != null) ...[
-                      Text(' · ', style: muted),
+                    if (status == HostStatus.online && latency != null)
                       Text(
                         latency,
                         style: muted.copyWith(
+                          color: latencyColor(
+                            context,
+                            linkLatency(best!.transport),
+                          ),
+                          fontWeight: FontWeight.w500,
                           fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
-                    ],
                   ],
                 ),
               ),
@@ -127,3 +119,15 @@ class HostStatusBar extends StatelessWidget {
     );
   }
 }
+
+/// Latency colors by how responsive the route feels: green up to 100 ms,
+/// yellow up to 300 ms and red beyond.
+Color latencyColor(BuildContext context, double? milliseconds) =>
+    SailryTheme.statusColor(
+      context,
+      milliseconds == null || milliseconds <= 100
+          ? StatusTone.success
+          : milliseconds <= 300
+          ? StatusTone.warning
+          : StatusTone.danger,
+    );

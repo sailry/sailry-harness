@@ -68,7 +68,8 @@ void main() {
   for (final (route, name) in [('p2p', 'P2P'), ('relay', 'Relay')]) {
     testWidgets('connected host shows $name route and latency', (tester) async {
       await show(tester, [host('Studio', route: route, rtt: 23.4)]);
-      expect(bar('Studio'), findsOneWidget);
+      // Names stay in the semantic label, not on the line.
+      expect(bar('Studio'), findsNothing);
       // The green dot shows the state; screen readers still hear it.
       expect(bar('Connected'), findsNothing);
       expect(bar(name), findsOneWidget);
@@ -101,7 +102,8 @@ void main() {
       host('Laptop', route: 'p2p', rtt: 12),
       host('Server', connected: false, error: 'closed'),
     ]);
-    expect(bar('2/3 hosts connected'), findsOneWidget);
+    // Names stay in the semantic label, not on the line.
+    expect(bar('2/3 hosts connected'), findsNothing);
     expect(bar('P2P'), findsOneWidget);
     expect(bar('12 ms'), findsOneWidget);
     expect(label(tester), '2/3 hosts connected, P2P, 12 ms');
@@ -114,7 +116,8 @@ void main() {
     ]);
     session.selectProject('Studio', 'project');
     await tester.pumpAndSettle();
-    expect(bar('Studio'), findsOneWidget);
+    // Names stay in the semantic label, not on the line.
+    expect(bar('Studio'), findsNothing);
     expect(bar('Relay'), findsOneWidget);
     expect(bar('80 ms'), findsOneWidget);
   });
