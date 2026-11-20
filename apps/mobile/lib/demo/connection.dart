@@ -327,6 +327,8 @@ class DemoConnection implements Connection {
   @override
   Future<ConversationUpdates> watchConversation({
     required String session,
+    bool referenceRows = false,
+    bool recent = false,
   }) async => _watch(() => _conversation(session));
 
   @override

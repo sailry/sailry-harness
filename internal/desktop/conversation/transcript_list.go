@@ -52,6 +52,14 @@ func (s *State) List(id string) *ui.ListState {
 	return &l.layout
 }
 
+// HasTranscriptAnchor reports whether conversation id has a reading position
+// saved when its transcript was last unmounted away from its end, which its
+// next mount restores.
+func (s *State) HasTranscriptAnchor(id string) bool {
+	_, ok := s.anchors[id]
+	return ok
+}
+
 func (s *State) listOf(id string) *transcriptList {
 	if l := s.lists[id]; l != nil {
 		return l

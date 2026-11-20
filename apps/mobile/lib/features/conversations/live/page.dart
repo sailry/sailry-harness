@@ -291,6 +291,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       if (!ownsObservation()) return null;
       return widget.host.connection.watchConversation(
         session: widget.sessionId,
+        referenceRows: true,
+        recent:
+            _reveal == null && (_returnOffset == null || _returnOffset == 0),
       );
     });
     _observation = observation;

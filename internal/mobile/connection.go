@@ -16,7 +16,16 @@ type connection struct {
 
 func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle uint64, method string, data json.RawMessage) (any, error) {
 	var values input
-	if err := arguments(data, &values); err != nil {
+	var conversation struct {
+		input
+		ReferenceRows bool `json:"reference_rows"`
+		Recent        bool `json:"recent"`
+	}
+	var target any = &values
+	if method == "watch_conversation" {
+		target = &conversation
+	}
+	if err := arguments(data, target); err != nil {
 		return nil, err
 	}
 	switch method {
@@ -102,8 +111,10 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 	case "watch", "watch_commands", "watch_conversation", "watch_status", "watch_terminal", "watch_usage":
 		var argument json.RawMessage = json.RawMessage("null")
 		switch method {
-		case "watch_commands", "watch_conversation":
+		case "watch_commands":
 			argument, _ = json.Marshal(values.Session)
+		case "watch_conversation":
+			argument, _ = json.Marshal(conversation.Session)
 		case "watch_terminal":
 			argument, _ = json.Marshal(values.Terminal)
 		case "watch_status":
@@ -112,7 +123,20 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 			argument = json.RawMessage(values.Query)
 		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, handle)
-		observer, err := owner.client.Watch(lifetime, method, argument)
+		var observer *client.Observer
+		var err error
+		if conversation.ReferenceRows || conversation.Recent {
+			session, parseErr := protocol.ParseSessionID(conversation.Session)
+			if parseErr != nil {
+				err = invalid("invalid session identifier")
+			} else {
+				observer, err = owner.client.WatchConversationView(lifetime, session, client.ConversationViewOptions{
+					ReferenceRows: conversation.ReferenceRows, Recent: conversation.Recent,
+				})
+			}
+		} else {
+			observer, err = owner.client.Watch(lifetime, method, argument)
+		}
 		detach()
 		if err != nil {
 			cancel()

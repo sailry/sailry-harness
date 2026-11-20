@@ -51,6 +51,84 @@ void main() {
     expect(jsonEncode([entry, draft, selected]), before);
   });
 
+  test('resolves source ranges with citations and keeps inline overrides', () {
+    const result = {'name': 'capture'};
+    const image = {'index': 2};
+    final entry = <String, dynamic>{
+      'id': 'answer',
+      'parts': [
+        {'kind': 'text', 'data': ' \n'},
+        {'kind': 'thinking', 'data': 'Working '},
+        {'kind': 'thinking', 'data': '🙂'},
+        {'kind': 'text', 'data': 'A😀'},
+        {'kind': 'text', 'data': '中'},
+        {'kind': 'tool_result', 'data': result},
+        {'kind': 'text', 'data': 'B'},
+      ],
+      'citations': [
+        {'uri': 'https://example.com/merged', 'end': 4},
+        {'uri': 'https://example.com/last', 'end': 6},
+        {'uri': 'https://example.com/whole'},
+      ],
+    };
+    final draft = <String, dynamic>{
+      'id': 'draft',
+      'parts': [
+        {'kind': 'text', 'data': 'Streaming draft'},
+      ],
+    };
+    Map<String, dynamic> row(
+      int start,
+      int end, {
+      int offset = 0,
+      bool last = false,
+      bool work = false,
+      bool inDraft = false,
+    }) => {
+      'source': {'entry': inDraft ? 'draft' : 'answer', 'index': start},
+      'draft': inDraft,
+      'end': end,
+      'work': work,
+      'text_offset': offset,
+      'text_last': last,
+    };
+    final selected = [
+      row(1, 3, offset: 2, work: true),
+      row(3, 5, offset: 2),
+      row(5, 6, offset: 5)..['part'] = {'kind': 'image', 'data': image},
+      row(5, 6, offset: 5, work: true),
+      row(6, 7, offset: 5, last: true),
+      row(0, 1, inDraft: true, last: true),
+    ];
+    final before = jsonEncode([entry, draft, selected]);
+    final rows = selectedRows(
+      selected,
+      entries: {'answer': entry},
+      drafts: {'draft': draft},
+    );
+    expect(rows.take(5).every((row) => identical(row.$1, entry)), isTrue);
+    expect(rows.last.$1, same(draft));
+    expect(
+      rows.map(
+        (row) => [row.$2, row.$3['kind'], row.$3['data'], row.$3['work']],
+      ),
+      [
+        [1, 'thinking', 'Working 🙂', true],
+        [3, 'text', 'A😀 [1](<https://example.com/merged>)中', false],
+        [5, 'image', image, false],
+        [5, 'tool_result', result, true],
+        [
+          6,
+          'text',
+          'B [2](<https://example.com/last>) [3](<https://example.com/whole>)',
+          false,
+        ],
+        [0, 'text', 'Streaming draft', false],
+      ],
+    );
+    expect(jsonEncode([entry, draft, selected]), before);
+  });
+
   test('business fields never establish execution failure', () {
     final call = {
       'row': {'failed': false},

@@ -81,6 +81,10 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 		root.conversationLane = make(chan struct{}, 1)
 	}
 	lane := root.conversationLane
+	watch := r.controller.WatchRecentConversation
+	if r.App.Messages.HasTranscriptAnchor(id.String()) {
+		watch = r.controller.WatchConversation
+	}
 	ctx, cancel := context.WithCancel(r.ctx)
 	feed := &conversationFeed{changed: make(chan struct{}, 1), taken: make(chan struct{}, 1)}
 	if language != "" {
@@ -104,7 +108,7 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 		if ctx.Err() != nil {
 			return
 		}
-		release, err := r.controller.WatchConversation(ctx, id, feed.refresh)
+		release, err := watch(ctx, id, feed.refresh)
 		if err != nil {
 			if ctx.Err() == nil {
 				feed.latest.Store(r.prepareConversation(id, client.ConversationState{Err: err}, language))

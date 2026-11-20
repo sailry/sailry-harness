@@ -66,7 +66,12 @@ List<SelectedRow> selectedRows(
   for (final row in objects(selected)) {
     final source = object(row['source']);
     final entry = (row['draft'] == true ? drafts : entries)[source['entry']]!;
-    final part = {...object(row['part']), 'work': row['work']};
+    final index = source['index'] as int;
+    final inline = row['part'];
+    final part = inline is Map
+        ? object(inline)
+        : _sourcePart(entry['parts'] as List, index, row['end'] as int);
+    part['work'] = row['work'];
     if (part['kind'] == 'text') {
       part['data'] = citedText(
         text(part['data']),
@@ -75,9 +80,21 @@ List<SelectedRow> selectedRows(
         row['text_last'] == true,
       );
     }
-    rows.add((entry, source['index'] as int, part));
+    rows.add((entry, index, part));
   }
   return rows;
+}
+
+Map<String, dynamic> _sourcePart(List parts, int index, int end) {
+  final part = object(parts[index]);
+  if (end > index + 1) {
+    final data = StringBuffer(text(part['data']));
+    for (var i = index + 1; i < end; i++) {
+      data.write(text((parts[i] as Map)['data']));
+    }
+    part['data'] = data.toString();
+  }
+  return part;
 }
 
 Map<String, dynamic> sentInput(Map<String, dynamic> page, Object? turn) {
@@ -108,6 +125,7 @@ String citedText(
   int offset,
   bool last,
 ) {
+  if (citations.isEmpty) return value;
   final runes = value.runes.toList();
   final insertions = <int, List<String>>{};
   for (final (index, citation) in citations.indexed) {

@@ -196,6 +196,77 @@ func (t *conversationTransport) Open(context.Context, protocol.StreamID) (link.S
 	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
 }
 
+func TestConversationTailReopenSkipsOffscreenHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	transport := &conversationTransport{opened: make(chan *clientSubscription, 2)}
+	c := New(transport)
+	defer c.Close()
+	id := conversationFixture().Page.Session
+	changed := make(chan struct{}, 1)
+	notify := func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	}
+	wait := func() ConversationState {
+		t.Helper()
+		for {
+			if state, _ := c.Conversation(id); state.Connected {
+				return state
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			case <-changed:
+			}
+		}
+	}
+	release, err := c.WatchConversation(ctx, id, notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	wait()
+	if err := c.LoadOlderConversation(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if state := wait(); len(state.Snapshot.Page.Runs) != 3 || state.Snapshot.Page.NextBefore != nil {
+		t.Fatal("older fixture history did not load")
+	}
+	release()
+	if len(c.conversationBookmarks) != 1 || !c.conversationBookmarks[0].extent.all {
+		t.Fatal("closing the original watch did not save its loaded range")
+	}
+	reopened, err := c.WatchRecentConversation(ctx, id, notify)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened()
+	if state := wait(); len(state.Snapshot.Page.Runs) != 1 || state.Snapshot.Page.NextBefore == nil {
+		t.Fatal("tail reopen did not keep the newest page and its older cursor")
+	}
+	c.conversationMu.Lock()
+	loaded := c.conversations[id].extent
+	c.conversationMu.Unlock()
+	if loaded.all || loaded.turn != 3 {
+		t.Fatal("the fresh watch inherited the old restore target")
+	}
+	if err := c.LoadOlderConversation(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if state := wait(); len(state.Snapshot.Page.Runs) != 3 {
+		t.Fatal("older pages are not available on demand")
+	}
+	transport.mu.Lock()
+	requests := len(transport.requests)
+	transport.mu.Unlock()
+	if requests != 2 {
+		t.Fatalf("expected two explicit history reads, got %d", requests)
+	}
+}
+
 type gatedConversationTransport struct {
 	*conversationTransport
 	snapshot <-chan struct{}

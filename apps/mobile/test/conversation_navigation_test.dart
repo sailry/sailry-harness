@@ -105,6 +105,8 @@ class _FailedConversation extends Fake implements Connection {
   @override
   Future<ConversationUpdates> watchConversation({
     required String session,
+    bool referenceRows = false,
+    bool recent = false,
   }) async {
     watches.add(session);
     feed.publish({
@@ -168,13 +170,17 @@ class _ManualConversationFeed extends Fake implements ConversationUpdates {
 
 class _LifecycleConnection extends Fake implements Connection {
   final watches = <String>[];
+  final watchOptions = <({bool referenceRows, bool recent})>[];
   final feeds = <_ManualConversationFeed>[];
 
   @override
   Future<ConversationUpdates> watchConversation({
     required String session,
+    bool referenceRows = false,
+    bool recent = false,
   }) async {
     watches.add(session);
+    watchOptions.add((referenceRows: referenceRows, recent: recent));
     final feed = _ManualConversationFeed();
     feeds.add(feed);
     return feed;
@@ -429,6 +435,10 @@ void main() {
       expect(draft().text, 'Unsent branch text');
 
       await returnFromFork(firstCover, 'session', 4);
+      expect(connection.watchOptions, [
+        for (final recent in [true, true, true, true, false])
+          (referenceRows: true, recent: recent),
+      ]);
       final restored = connection.feeds.last;
       restored.publish(
         _transcript('session', 'Fresh partial body', before: 'older'),

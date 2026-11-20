@@ -164,6 +164,17 @@ func copySnapshotWithEntries(snapshot protocol.ConversationSnapshot, previous []
 
 // WatchConversation shares a single subscription and reduction owner per session.
 func (c *Client) WatchConversation(ctx context.Context, session protocol.SessionID, changed func()) (func(), error) {
+	return c.watchConversation(ctx, session, changed, true)
+}
+
+// WatchRecentConversation starts at the newest page when reopening without a
+// saved reading position. It does not change the range of a shared active watch
+// or interfere with pagination and reconnects after opening.
+func (c *Client) WatchRecentConversation(ctx context.Context, session protocol.SessionID, changed func()) (func(), error) {
+	return c.watchConversation(ctx, session, changed, false)
+}
+
+func (c *Client) watchConversation(ctx context.Context, session protocol.SessionID, changed func(), restoreRange bool) (func(), error) {
 	c.lifecycle.Lock()
 	defer c.lifecycle.Unlock()
 	if c.closed {
@@ -182,14 +193,18 @@ func (c *Client) WatchConversation(ctx context.Context, session protocol.Session
 		owner, cancel := context.WithCancel(parent)
 		next := &conversationWatch{session: session, projection: NewConversationProjection(c.Target(), session, 0), ctx: owner, cancel: cancel, done: make(chan struct{}), refresh: make(chan struct{}, 1), signal: make(chan struct{}), callbacks: map[uint64]func(){}, state: ConversationState{Loading: true}}
 		if w != nil {
-			next.extent = w.extent
+			if restoreRange {
+				next.extent = w.extent
+			}
 			w.discardHistory()
 		}
 		// A bookmark describes how far to page after authorization; it is not
 		// a display snapshot that can be delivered by a new subscription.
 		bookmarks := c.conversationBookmarks
 		if at := slices.IndexFunc(bookmarks, func(b conversationBookmark) bool { return b.session == session }); at >= 0 {
-			next.extent = bookmarks[at].extent
+			if restoreRange {
+				next.extent = bookmarks[at].extent
+			}
 			c.conversationBookmarks = slices.Delete(bookmarks, at, at+1)
 		}
 		next.known = c.sessionKnown(session)

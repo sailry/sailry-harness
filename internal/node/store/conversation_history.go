@@ -15,6 +15,34 @@ import (
 
 const visibleCanonical = `CASE WHEN json_extract(e.body,'$.kind')='compaction' THEN 1 ELSE coalesce((SELECT json_extract(v.body,'$.user_visible') FROM agent_events v WHERE json_extract(v.body,'$.message')=json_extract(e.body,'$.id') AND json_extract(v.body,'$.kind')='operation' AND json_extract(v.body,'$.operation')='visibility' AND EXISTS(SELECT 1 FROM conversation_events visibility WHERE visibility.session=h.session AND visibility.sequence=v.sequence) ORDER BY v.sequence DESC LIMIT 1),json_extract(e.body,'$.metadata.runtime.user_visible'),1) END`
 
+const historyStoredBytes = `length(CAST(e.body AS BLOB))`
+
+// Configuration's captured prompt is for replay, not the conversation entry.
+// Replace only known shapes before returning the row to Go. Keep the keys so
+// the canonical decoder still rejects duplicate fields; unknown or malformed
+// guide shapes need the original body for decoding.
+const historyEntryBody = `CASE
+ WHEN ` + historyStoredBytes + ` < 4096 THEN e.body
+ WHEN json_extract(e.body,'$.kind') IS NOT 'configuration' THEN e.body
+ WHEN NOT json_valid(e.body) THEN e.body
+ WHEN json_type(e.body,'$.context') IS NOT 'object'
+   OR coalesce(json_type(e.body,'$.context.policy'),'null') NOT IN ('text','null')
+   OR coalesce(json_type(e.body,'$.context.environment'),'null') NOT IN ('text','null')
+   OR coalesce(json_type(e.body,'$.context.personal'),'null') NOT IN ('text','null')
+   OR coalesce(json_type(e.body,'$.context.guides'),'object') != 'object' THEN e.body
+ WHEN EXISTS (
+   SELECT 1 FROM json_each(e.body,'$.context.guides') g
+   WHERE g.type != 'object' OR NOT (
+     SELECT count(*)=3 AND count(DISTINCT CASE
+       WHEN f.type='text' AND f.key IN ('path','revision','content') THEN f.key END)=3
+     FROM json_each(CASE WHEN g.type='object' THEN g.value ELSE '{}' END) f
+   )
+ ) THEN e.body
+ ELSE json_replace(e.body,'$.context.policy','','$.context.environment','','$.context.personal','','$.context.guides',json('{}'))
+END`
+
+const historyEntryColumns = "e.sequence," + historyStoredBytes + "," + historyEntryBody
+
 func historyRevision(ctx context.Context, db *sql.Conn, session protocol.SessionID) (uint64, error) {
 	var revision uint64
 	err := db.QueryRowContext(ctx, "SELECT history_revision FROM sessions WHERE id=?1 AND state!='removed'", session.String()).Scan(&revision)
@@ -87,11 +115,13 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		defer rows.Close()
 		for rows.Next() {
 			var seq uint64
+			var storedBytes int
 			var body sql.RawBytes
-			if err = rows.Scan(&seq, &body); err != nil {
+			if err = rows.Scan(&seq, &storedBytes, &body); err != nil {
 				return err
 			}
-			if len(records) >= int(limit) || len(records) > 0 && size+len(body) > 3*1024*1024 {
+			// The original row sizes keep the same page and turn boundaries.
+			if len(records) >= int(limit) || len(records) > 0 && size+storedBytes > 3*1024*1024 {
 				more = true
 				break
 			}
@@ -101,14 +131,14 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 			}
 			requests.include(record)
 			records = append(records, rowValue{seq, record})
-			size += len(body)
+			size += storedBytes
 		}
 		return errors.Join(rows.Err(), rows.Close())
 	}
 	if byTurn || len(turns) == 1 {
 		// Backward browsing uses a turn cursor. Fill the page in that same order
 		// so a long earlier turn cannot strand newer, short turns behind individual reads.
-		const query = "SELECT e.sequence,e.body FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND e.sequence<?3 AND " + visibleCanonical + " ORDER BY e.sequence DESC LIMIT ?4"
+		const query = "SELECT " + historyEntryColumns + " FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND e.sequence<?3 AND " + visibleCanonical + " ORDER BY e.sequence DESC LIMIT ?4"
 		for i := len(turns) - 1; i >= 0 && !more; i-- {
 			if err := read(query, turns[i].String()); err != nil {
 				return nil, false, err
@@ -124,7 +154,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		if err != nil {
 			return nil, false, err
 		}
-		const query = "SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND " + visibleCanonical + " ORDER BY h.sequence DESC LIMIT ?4"
+		const query = "SELECT " + historyEntryColumns + " FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND " + visibleCanonical + " ORDER BY h.sequence DESC LIMIT ?4"
 		if err = read(query, string(members)); err != nil {
 			return nil, false, err
 		}

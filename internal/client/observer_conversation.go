@@ -23,24 +23,41 @@ type detailRead struct {
 }
 
 type conversationObserver struct {
-	client   *Client
-	observer *Observer
-	session  protocol.SessionID
-	history  chan historyRequest
-	mu       sync.Mutex
-	selected map[toolReference]bool
-	reads    map[string]*detailRead
-	failures map[string]*protocol.Fault
-	sent     map[string]bool
+	client        *Client
+	observer      *Observer
+	session       protocol.SessionID
+	referenceRows bool
+	history       chan historyRequest
+	mu            sync.Mutex
+	selected      map[toolReference]bool
+	reads         map[string]*detailRead
+	failures      map[string]*protocol.Fault
+	sent          map[string]bool
 }
 
 func (client *Client) watchConversationView(ctx context.Context, session protocol.SessionID) (*Observer, error) {
+	return client.WatchConversationView(ctx, session, ConversationViewOptions{})
+}
+
+type ConversationViewOptions struct {
+	ReferenceRows bool // Omit recoverable parts; the default keeps plugin rows inline.
+	Recent        bool // Skip the released bookmark when opening a new watch.
+}
+
+func (client *Client) WatchConversationView(ctx context.Context, session protocol.SessionID, options ConversationViewOptions) (*Observer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	observer := newObserver(ctx)
 	owner := &conversationObserver{
-		client: client, observer: observer, session: session, history: make(chan historyRequest, 8),
+		client: client, observer: observer, session: session, referenceRows: options.ReferenceRows, history: make(chan historyRequest, 8),
 		selected: map[toolReference]bool{}, reads: map[string]*detailRead{}, failures: map[string]*protocol.Fault{}, sent: map[string]bool{},
 	}
-	release, err := client.WatchConversation(observer.ctx, session, observer.notify)
+	watch := client.WatchConversation
+	if options.Recent {
+		watch = client.WatchRecentConversation
+	}
+	release, err := watch(observer.ctx, session, observer.notify)
 	if err != nil {
 		_ = observer.Close()
 		return nil, err
@@ -250,7 +267,7 @@ func (owner *conversationObserver) view() (any, error) {
 	value["children"] = map[string]any{"sessions": projectChildren(snapshot.Page)}
 	guidance := projectGuidance(snapshot.Page)
 	value["guidance"] = guidance
-	timeline, owners, segments := projectTranscript(*snapshot, calls, guidance)
+	timeline, owners, segments := projectTranscript(*snapshot, calls, guidance, owner.referenceRows)
 	value["timeline"], value["owners"], value["segments"] = timeline, owners, segments
 	value["images"] = referencedImages(*snapshot)
 	return value, nil

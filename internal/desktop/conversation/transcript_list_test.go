@@ -205,6 +205,24 @@ func TestTranscriptBookmarksAreBounded(t *testing.T) {
 	}
 }
 
+func TestHasTranscriptAnchorReportsSavedPositionWithoutConsumingIt(t *testing.T) {
+	s := New()
+	if s.HasTranscriptAnchor("session") {
+		t.Fatal("a session never left away from its end has no saved position")
+	}
+	s.rememberTranscript("session", transcriptAnchor{turn: "turn"})
+	if !s.HasTranscriptAnchor("session") || !s.HasTranscriptAnchor("session") || s.anchors["session"].turn != "turn" {
+		t.Fatal("reading the bookmark must report it and keep it for the next mount")
+	}
+	if s.HasTranscriptAnchor("other") {
+		t.Fatal("another session's bookmark was reported")
+	}
+	s.List("session")
+	if s.HasTranscriptAnchor("session") {
+		t.Fatal("an explicit scroll request replaces the saved position")
+	}
+}
+
 func TestFailedHistoryLoadDiscardsPendingTranscriptBookmark(t *testing.T) {
 	s := New()
 	sess := &Session{Older: 12}

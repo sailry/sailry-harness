@@ -91,8 +91,16 @@ class Connection extends NativeHandle {
     );
   }
 
-  Future<ConversationUpdates> watchConversation({required String session}) async {
-    final value = await invoke('watch_conversation', {'session': session});
+  Future<ConversationUpdates> watchConversation({
+    required String session,
+    bool referenceRows = false,
+    bool recent = false,
+  }) async {
+    final value = await invoke('watch_conversation', {
+      'session': session,
+      if (referenceRows) 'reference_rows': true,
+      if (recent) 'recent': true,
+    });
     return ConversationUpdates.internal(
       bridge,
       nativeHandle(value, 'conversation_updates'),
