@@ -293,6 +293,9 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 				value.Published = true
 			}
 		}
+		// A publication's cards are read from its details, so a result of
+		// cards alone, as present_files returns, still has them.
+		value.HasDetails = value.HasDetails || value.Published && raw.Result != nil
 	}
 	if raw.Display != nil {
 		value.Icon = raw.Display.Icon
