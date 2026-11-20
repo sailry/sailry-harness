@@ -33,7 +33,7 @@ func TestDocumentSandboxNoBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page := documentPage(frame, true)
+	page := documentPage(frame, true, documentMount{})
 	// The one script outside the frame is Desktop's relay.
 	if strings.Count(page, "<iframe") != 1 || strings.Count(page, "<script") != 1 || !strings.Contains(page, "<script>"+documentRelay+"</script>") ||
 		!strings.Contains(page, `<iframe id="document" sandbox="allow-scripts" srcdoc="&lt;p onclick=&#34;x&#34;&gt;&#34;&gt;&lt;/iframe&gt;&lt;script&gt;`) {

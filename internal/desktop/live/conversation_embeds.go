@@ -185,6 +185,7 @@ func (r *Runtime) exportDocument(x *conversationActions, file conversation.File,
 		extension = "png"
 	}
 	ctx := r.attachments.ctx
+	mount := documentFileMount(x.c)
 	native.SaveFile(string(name)+"-v"+strconv.FormatUint(uint64(artifact.Revision), 10)+"."+extension, func(target string) {
 		if target == "" {
 			return
@@ -210,7 +211,7 @@ func (r *Runtime) exportDocument(x *conversationActions, file conversation.File,
 		r.async(func() {
 			content, err := r.readPublishedArtifact(ctx, descriptor)
 			if err != nil || !image {
-				finish([]byte(content.Html), err)
+				finish([]byte(documentFile(content, mount)), err)
 				return
 			}
 			r.enqueue(func(*ui.Context) {

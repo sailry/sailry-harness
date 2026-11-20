@@ -44,9 +44,11 @@ type documentView struct {
 	view   *mygo.WebView
 	source documentSource
 	shown  bool // the last frame placed it
-	// writable and theme are what the page was last told.
+	// writable and theme are what the page was last told; dark is the
+	// scheme it loaded in, which a page without a renderer reloads to change.
 	writable bool
 	theme    string
+	dark     bool
 	// stop ends the relay of the page loaded last.
 	stop context.CancelFunc
 }
@@ -92,6 +94,7 @@ func (r *Runtime) documentMount(c *ui.Context, source documentSource) documentMo
 		Labels: map[string]string{"contents": i18n.T(c, "artifact_contents"), "submit": i18n.T(c, "send"), "close": i18n.T(c, "artifact_close"),
 			"required": i18n.T(c, "artifact_form_required"), "invalid_form": i18n.T(c, "artifact_form_invalid")},
 		Writable: documentWritable(source),
+		Dark:     theme.Of(c).Dark,
 	}
 	key := documentDraftKey{source.content.Artifact.ID, source.content.Artifact.Revision}
 	for _, draft := range r.browser.drafts[key] {
@@ -110,14 +113,18 @@ func (r *Runtime) documentView(c *ui.Context, source documentSource) bool {
 	}
 	id := source.id()
 	document := state.documents[id]
-	if document == nil || !document.source.same(source) {
+	dark := theme.Of(c).Dark
+	stale := func(document *documentView) bool {
+		return !document.source.same(source) || source.content.View == nil && document.dark != dark
+	}
+	if document == nil || stale(document) {
 		mount := root.documentMount(c, source)
 		// The WebView is made, or loads the new revision, before the next
 		// frame builds.
 		root.enqueue(func(*ui.Context) {
 			document := state.documents[id]
 			if document != nil && !document.view.IsDestroyed() {
-				if !document.source.same(source) {
+				if stale(document) {
 					root.loadDocument(document, source, mount)
 				}
 				return
@@ -168,7 +175,8 @@ func (r *Runtime) loadDocument(document *documentView, source documentSource, mo
 	}
 	theme, _ := json.Marshal(mount.Theme)
 	document.source, document.writable, document.theme = source, mount.Writable, string(theme)
-	document.view.Page().LoadHTML(documentPage(frame, plain), "about:blank")
+	document.dark = mount.Dark
+	document.view.Page().LoadHTML(documentPage(frame, plain, mount), "about:blank")
 }
 
 // relayDocument takes the events the loaded page posts until it loads

@@ -95,7 +95,7 @@ func BrowserProbe(ctx context.Context, window *mygo.Window, place func(*mygo.Web
 			event.PreventDefault()
 		}
 	})
-	page.LoadHTML(documentPage(`<!doctype html><p id="state">Loading</p><script>document.getElementById("state").textContent="Rendered"</script>`), "about:blank")
+	page.LoadHTML(documentPage(`<!doctype html><p id="state">Loading</p><script>document.getElementById("state").textContent="Rendered"</script>`, true, documentMount{}), "about:blank")
 	place(document)
 	if err := settle(document); err != nil {
 		return err

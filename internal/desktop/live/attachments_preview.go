@@ -247,7 +247,7 @@ func (r *Runtime) OpenArtifactExternal(file conversation.File) {
 			return
 		}
 		if descriptor.artifact != nil {
-			owner.openExternalArtifact(descriptor)
+			owner.openExternalArtifact(descriptor, documentFileMount(c))
 			return
 		}
 		owner.openExternalAttachment(descriptor, false)
@@ -268,7 +268,7 @@ func (r *Runtime) ArtifactImageAction(action kit.ImageAction, image conversation
 		owner.attachmentImageDescriptorAction(c, action, descriptor)
 	})
 }
-func (r *Runtime) chooseArtifactDestination(descriptor attachmentDescriptor) {
+func (r *Runtime) chooseArtifactDestination(descriptor attachmentDescriptor, mount documentMount) {
 	native := r.attachments.native
 	if native.SaveFile == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "native save panel is unavailable"))
@@ -278,10 +278,10 @@ func (r *Runtime) chooseArtifactDestination(descriptor attachmentDescriptor) {
 		if path == "" {
 			return
 		}
-		r.writePublishedArtifact(descriptor, path, nil)
+		r.writePublishedArtifact(descriptor, mount, path, nil)
 	})
 }
-func (r *Runtime) writePublishedArtifact(descriptor attachmentDescriptor, path string, finished func(error)) {
+func (r *Runtime) writePublishedArtifact(descriptor attachmentDescriptor, mount documentMount, path string, finished func(error)) {
 	r.async(func() {
 		content, err := r.readPublishedArtifact(r.attachments.ctx, descriptor)
 		if err == nil {
@@ -289,7 +289,7 @@ func (r *Runtime) writePublishedArtifact(descriptor attachmentDescriptor, path s
 			err = e
 			if e == nil {
 				defer target.close()
-				_, err = target.file.WriteString(content.Html)
+				_, err = target.file.WriteString(documentFile(content, mount))
 				if err == nil {
 					err = target.publish(r.attachments.ctx)
 				}
@@ -307,7 +307,7 @@ func (r *Runtime) writePublishedArtifact(descriptor attachmentDescriptor, path s
 		})
 	})
 }
-func (r *Runtime) openExternalArtifact(descriptor attachmentDescriptor) {
+func (r *Runtime) openExternalArtifact(descriptor attachmentDescriptor, mount documentMount) {
 	native := r.attachments.native
 	if native.OpenLocal == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "native file action is unavailable"))
@@ -320,7 +320,7 @@ func (r *Runtime) openExternalArtifact(descriptor attachmentDescriptor) {
 			return
 		}
 		path := filepath.Join(directory, filepath.Base(descriptor.name))
-		r.writePublishedArtifact(descriptor, path, func(err error) {
+		r.writePublishedArtifact(descriptor, mount, path, func(err error) {
 			if err != nil {
 				release()
 				return

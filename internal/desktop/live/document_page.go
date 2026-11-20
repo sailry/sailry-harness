@@ -12,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/exporter"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	nethtml "golang.org/x/net/html"
@@ -48,12 +49,20 @@ const documentShim = `(()=>{const host=window.parent;` +
 // documentPage wraps a document's frame HTML in a frame of an opaque origin:
 // its scripts run, without a network, a parent to reach or a place to
 // navigate. Only the relay outside the frame hears what it posts.
-func documentPage(frame string, plain bool) string {
-	background := "transparent"
+func documentPage(frame string, plain bool, mount documentMount) string {
+	// A page without a renderer shows on the app's background in its light
+	// or dark scheme, as the renderer's pages follow the app's theme.
+	background, scheme := "transparent", "normal"
 	if plain {
-		background = "white"
+		background, scheme = "white", "light"
+		if value := mount.Theme["background"]; value != "" {
+			background = value
+		}
+		if mount.Dark {
+			scheme = "dark"
+		}
 	}
-	return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;background:` +
+	return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src about: 'self'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;color-scheme:` + scheme + `;background:` +
 		background + `}</style></head><body><iframe id="document" sandbox="allow-scripts" srcdoc="` + frame + `"></iframe><script>` + documentRelay + `</script></body></html>`
 }
 
@@ -63,6 +72,8 @@ type documentMount struct {
 	Labels   map[string]string
 	Writable bool
 	Drafts   []json.RawMessage
+	// Dark is the app's scheme, which a page without a renderer takes.
+	Dark bool
 }
 
 // documentFrame is a document's escaped frame HTML: the package's template
@@ -71,7 +82,14 @@ type documentMount struct {
 func documentFrame(content protocol.ArtifactContent, mount documentMount) (string, error) {
 	view := content.View
 	if view == nil || content.Artifact.Kind != protocol.ArtifactKindDocument {
-		return html.EscapeString(content.Html), nil
+		page := content.Html
+		// Without a declared scheme of its own a page keeps its light
+		// defaults on a dark app. The rule has no specificity, so any the
+		// page sets wins, and comes last, so the doctype still leads.
+		if mount.Dark {
+			page += `<style>:where(:root){color-scheme:dark}</style>`
+		}
+		return html.EscapeString(page), nil
 	}
 	var head strings.Builder
 	head.WriteString(`<meta http-equiv="Content-Security-Policy" content="` + documentPolicy + `">`)
@@ -182,4 +200,26 @@ func documentTheme(palette *theme.Palette, fontSize float32) map[string]string {
 		values[name] = fmt.Sprintf("#%02x%02x%02x%02x", value.R, value.G, value.B, value.A)
 	}
 	return values
+}
+
+// documentFileMount is what a document's page opened in a browser or saved
+// mounts with: the app's theme and labels, its forms read-only.
+func documentFileMount(c *ui.Context) documentMount {
+	return documentMount{Theme: documentTheme(theme.Of(c), c.Theme().FontSize), Dark: theme.Of(c).Dark,
+		Labels: map[string]string{"contents": i18n.T(c, "artifact_contents"), "submit": i18n.T(c, "send"), "close": i18n.T(c, "artifact_close")}}
+}
+
+// documentFile is a revision as a page of its own: a document composed in
+// its package's renderer as the panel shows it, or the HTML itself for a
+// preview or a document without a renderer. The fragment alone would show
+// none of the renderer's layout, charts or diagrams.
+func documentFile(content protocol.ArtifactContent, mount documentMount) string {
+	if content.View == nil || content.Artifact.Kind != protocol.ArtifactKindDocument {
+		return content.Html
+	}
+	frame, err := documentFrame(content, mount)
+	if err != nil {
+		return content.Html
+	}
+	return documentPage(frame, false, mount)
 }

@@ -32,9 +32,9 @@ func (r *Runtime) downloadFileCard(x *conversationActions, file conversation.Fil
 	descriptor.name = file.Name()
 	if descriptor.artifact != nil {
 		if external {
-			r.openExternalArtifact(descriptor)
+			r.openExternalArtifact(descriptor, documentFileMount(x.c))
 		} else {
-			r.chooseArtifactDestination(descriptor)
+			r.chooseArtifactDestination(descriptor, documentFileMount(x.c))
 		}
 		return
 	}
@@ -55,7 +55,7 @@ func (r *Runtime) revealFileCard(x *conversationActions, file conversation.File)
 	}
 	descriptor.name = file.Name()
 	if descriptor.artifact != nil {
-		r.openExternalArtifact(descriptor)
+		r.openExternalArtifact(descriptor, documentFileMount(x.c))
 		return
 	}
 	if r.attachments == nil {
