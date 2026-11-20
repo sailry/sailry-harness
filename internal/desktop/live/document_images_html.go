@@ -33,7 +33,10 @@ func (d *documentImages) inlineHTML(source string) string {
 			if attribute.Key == "srcset" {
 				continue
 			}
-			if token.DataAtom == atom.Img && attribute.Key == "src" {
+			// A data image already shows in the sandbox, which allows data:
+			// sources; decoding it again could only drop it past the cache
+			// limit, as several animated pictures would.
+			if token.DataAtom == atom.Img && attribute.Key == "src" && !strings.HasPrefix(strings.TrimSpace(attribute.Val), "data:") {
 				image := d.image(attribute.Val)
 				if image.err != nil {
 					// The browser keeps the original alt text as the placeholder.

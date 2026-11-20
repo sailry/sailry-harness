@@ -93,7 +93,13 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 					r.forgetDocumentPreview(file.ID)
 				}
 				return
-			} else if content != nil {
+			}
+			if loaded.State == conversation.PreviewLarge && preview == nil {
+				kit.Toast(c, kit.Failed, i18n.T(c, "artifact_preview_large"))
+				r.forgetDocumentPreview(file.ID)
+				return
+			}
+			if content != nil {
 				r.attachments.previewHTML[file.ID] = content.Html
 			}
 			if document := r.attachments.previewDocuments[file.ID]; document != nil && err == nil && content == nil {
