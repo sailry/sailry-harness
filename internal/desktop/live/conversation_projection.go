@@ -382,11 +382,14 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		owner := owners[draft.Turn]
 		if position, ok := positions[owner]; ok {
 			t := &turns[position]
+			blockCount := len(t.Reply.Blocks)
 			phase := projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil)
 			clocks.record(position, time.Time{}, phase)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
-				if draft.Author == "assistant" && draft.Turn == owner && (phase == conversation.Generating || phase == conversation.Thinking) {
+				// Reasoning the transcript does not show keeps the returned
+				// call's sweep, so a brief thought does not flash a phase row.
+				if draft.Author == "assistant" && draft.Turn == owner && (phase == conversation.Generating || phase == conversation.Thinking && len(t.Reply.Blocks) > blockCount) {
 					delete(awaitingModel, position)
 				}
 			}
@@ -571,7 +574,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	}
 	for position, batch := range awaitingModel {
 		reply := &turns[position].Reply
-		if !state.Connected || reply.Status != conversation.Running || reply.Phase != conversation.AwaitingResponse {
+		if !state.Connected || reply.Status != conversation.Running || reply.Phase != conversation.AwaitingResponse && reply.Phase != conversation.Thinking {
 			continue
 		}
 		for _, call := range batch {
@@ -990,12 +993,14 @@ func toolDiagnostics(summary *protocol.ToolDetailSummary) bool {
 	return summary != nil && (summary.Failure != nil || summary.Diagnostics)
 }
 
+// hasModelOutput reports a tool call or reply text. Reasoning counts only when
+// the transcript shows it as a new block.
 func hasModelOutput(parts []protocol.ConversationPart) bool {
 	for _, part := range parts {
 		switch part.Kind {
 		case "tool_call":
 			return true
-		case "text", "thinking":
+		case "text":
 			if text, ok := detail[string](part.Data); ok && text != "" {
 				return true
 			}

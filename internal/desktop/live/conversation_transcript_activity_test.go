@@ -142,10 +142,10 @@ func TestTranscriptToolBatchAwaitsModel(t *testing.T) {
 	check("empty assistant draft", conversation.AwaitingResponse, nil, batch)
 	thought := protocol.ConversationPart{Kind: "thinking", Data: "private reasoning"}
 	state.Snapshot.Drafts[0].Parts[0] = thought
-	check("first assistant thinking", conversation.Thinking, nil, nil)
+	check("first assistant thinking", conversation.Thinking, nil, batch)
 	state.Snapshot.Drafts = nil
 	entry("answer", "assistant", thought)
-	check("committed assistant thinking", conversation.AwaitingResponse, nil, nil)
+	check("committed assistant thinking", conversation.AwaitingResponse, nil, batch)
 }
 
 func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
@@ -379,6 +379,13 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 		check("no new frame", "")
 	}
 	transcriptActivityShot(t, tester, "transcript-after-tool")
+	// Reasoning the transcript does not show keeps the call's sweep instead
+	// of flashing a thinking row.
+	state.Snapshot.Drafts = []protocol.ConversationDraft{{ID: "thought", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "thinking", Data: "private"}}}}
+	check("hidden reasoning", "")
+	if call := turns[0].Reply.Blocks[0].Calls[0]; !call.AwaitingModel || tester.HasText("private") {
+		t.Fatalf("hidden reasoning replaced the call's model wait: %+v", call)
+	}
 	text := protocol.ConversationPart{Kind: "text", Data: "Partial reply"}
 	state.Snapshot.Drafts = []protocol.ConversationDraft{{ID: "partial", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{text}}}
 	check("streaming", "")
