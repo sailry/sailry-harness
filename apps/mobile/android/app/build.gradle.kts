@@ -1,5 +1,3 @@
-import groovy.json.JsonSlurper
-
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -17,12 +15,14 @@ require(System.getenv("SAILRY_ANDROID_RELEASE") != "1" || hasReleaseSigning) {
     "Android distribution requires release signing credentials"
 }
 
+val sailryJniDir = rootProject.file("../../../.runtime/native/android-mobile-jni")
+
 android {
     namespace = "com.sailry.sailry_mobile"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
-    sourceSets.getByName("main").jniLibs.srcDir(rootProject.file("../../../.runtime/native/android-jni"))
+    sourceSets.getByName("main").jniLibs.srcDir(sailryJniDir)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -37,7 +37,6 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        proguardFiles("consumer-rules.pro")
         // Flutter's default filters also admit other ABIs from dependency AARs.
         if (providers.gradleProperty("target-platform").orNull == "android-arm64") {
             ndk {
@@ -66,22 +65,7 @@ android {
     }
 }
 
-// Discover the companion from the locked Rust graph, as upstream recommends.
-val rustMetadata = providers.exec {
-    workingDir(rootProject.file("../../.."))
-    commandLine("rustup", "run", "1.98.0", "cargo", "metadata", "--locked", "--format-version", "1",
-        "--manifest-path", "native/iroh/Cargo.toml",
-        "--filter-platform", "aarch64-linux-android")
-}.standardOutput.asText
-val packages = (JsonSlurper().parseText(rustMetadata.get()) as Map<*, *>)["packages"] as List<*>
-val verifier = packages.map { it as Map<*, *> }.first { it["name"] == "rustls-platform-verifier-android" }
-repositories {
-    maven {
-        url = uri(File(File(verifier["manifest_path"] as String).parentFile, "maven"))
-    }
-}
 dependencies {
-    implementation("rustls:rustls-platform-verifier:${verifier["version"]}")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
@@ -99,15 +83,11 @@ val prepareSailryNative = tasks.register("prepareSailryNative") {
     val sourceRoot = rootProject.file("../../..")
     inputs.files(fileTree(File(sourceRoot, "internal/client")), fileTree(File(sourceRoot, "internal/link")),
         fileTree(File(sourceRoot, "internal/protocol")), fileTree(File(sourceRoot, "internal/mobile")),
-        fileTree(File(sourceRoot, "cmd/sailry-mobile")), fileTree(File(sourceRoot, "native/iroh/src")),
-        File(sourceRoot, "go.mod"), File(sourceRoot, "go.sum"),
-        File(sourceRoot, "native/iroh/Cargo.toml"), File(sourceRoot, "native/iroh/Cargo.lock"))
+        fileTree(File(sourceRoot, "assets/catalogs")), fileTree(File(sourceRoot, "cmd/sailry-mobile")),
+        File(sourceRoot, "go.mod"), File(sourceRoot, "go.sum"))
     inputs.property("abis", nativeAbis.joinToString(","))
     inputs.property("ndkVersion", flutter.ndkVersion)
-    outputs.files(nativeAbis.flatMap { abi ->
-        listOf(File(sourceRoot, ".runtime/native/android-jni/$abi/libsailry_mobile.so"),
-            File(sourceRoot, ".runtime/native/android-jni/$abi/libsailry_iroh.so"))
-    })
+    outputs.files(nativeAbis.map { File(sailryJniDir, "$it/libsailry_mobile.so") })
     doLast {
         nativeAbis.forEach { abi ->
             providers.exec {

@@ -19,6 +19,7 @@ import (
 )
 
 func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
+	const legacyTransport = "libsailry_iroh.so"
 	for _, test := range []struct {
 		name, corrupt  string
 		serviceFails   bool
@@ -32,6 +33,7 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 		{name: "service failure restores old runtime", serviceFails: true},
 		{name: "rollback uses its original temporary directory", serviceFails: true, oneTempDir: true},
 		{name: "stale version cannot replace a newer installation", versionChanged: true},
+		{name: "damaged Host binary is refused", corrupt: "sailry-host"},
 		{name: "damaged Turso is refused", corrupt: "libturso_sync_sdk_kit.so"},
 		{name: "damaged seal is refused", corrupt: shipped.SealName},
 		{name: "publish new runtime", fresh: true},
@@ -59,7 +61,7 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			}
 			current := map[string][]byte{
 				"sailry-host":              []byte("#!/bin/sh\nprintf '%s\\n' '" + currentVersion + "'\n"),
-				"libsailry_iroh.so":        []byte("old transport"),
+				legacyTransport:            []byte("old transport"),
 				"libturso_sync_sdk_kit.so": []byte("old engine"),
 				shipped.SealName:           []byte("old seal"),
 				"managed-go-host":          []byte("1\n"),
@@ -87,22 +89,16 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			}
 			next := map[string][]byte{
 				"sailry-host":              []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
-				"libsailry_iroh.so":        []byte("new transport"),
 				"libturso_sync_sdk_kit.so": []byte("new engine"),
 			}
 			for name, body := range next {
 				write(filepath.Join(stage, name), body, 0o700)
 			}
-			seal := shipped.Seal{Version: 1, Target: "linux/amd64"}
-			for _, name := range []string{"libsailry_iroh.so", "libturso_sync_sdk_kit.so"} {
-				entry, err := shipped.Record(stage, name)
-				if err != nil {
-					t.Fatal(err)
-				}
-				seal.Files = append(seal.Files, entry)
+			entry, err := shipped.Record(stage, "libturso_sync_sdk_kit.so")
+			if err != nil {
+				t.Fatal(err)
 			}
-			writeHostSeal(t, stage, seal)
-			var err error
+			writeHostSeal(t, stage, shipped.Seal{Version: 1, Target: "linux/amd64", Files: []shipped.File{entry}})
 			next[shipped.SealName], err = os.ReadFile(filepath.Join(stage, shipped.SealName))
 			if err != nil {
 				t.Fatal(err)
@@ -128,7 +124,7 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			if !test.fresh {
 				installedVersion = verifiedVersion
 			}
-			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, installedVersion, nil)
+			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, installedVersion, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -193,6 +189,8 @@ exec /bin/mv "$@"
 				}
 			} else if err != nil {
 				t.Fatalf("publication: %v: %s", err, output)
+			} else if _, err := os.Lstat(filepath.Join(root, legacyTransport)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the new installation contains the old transport: %v", err)
 			}
 			if test.versionChanged {
 				if !strings.Contains(string(output), "Host version changed after verification") {

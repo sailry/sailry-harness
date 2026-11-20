@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -29,7 +29,9 @@ const ioTimeout = 10 * time.Second
 // until the QUIC idle timeout.
 const livenessTimeout = 3 * time.Second
 
-type EndpointAddress = iroh.Address
+const peerRevokedCloseCode = 1
+
+type EndpointAddress = peertransport.Address
 
 type NetworkScope struct {
 	Bind     string
@@ -65,7 +67,7 @@ func (info PeerInfo) Compatibility() error {
 
 type Link struct {
 	nodeID          protocol.NodeID
-	endpoint        *iroh.Endpoint
+	endpoint        peertransport.Endpoint
 	ctx             context.Context
 	cancel          context.CancelFunc
 	handler         Handler
@@ -80,11 +82,10 @@ type Link struct {
 	addresses       map[protocol.NodeID]EndpointAddress
 	outgoing        map[protocol.NodeID]*outgoingSlot
 	removalNotices  map[protocol.NodeID]*HostRemovalNotice
-	incoming        map[*iroh.Connection]protocol.NodeID
+	incoming        map[peertransport.Connection]protocol.NodeID
 	trustUpdate     sync.Mutex
 	relayUpdate     chan struct{}
 	selection       *protocol.NetworkSelection
-	relayURLs       []string
 	peerChanged     chan struct{}
 	paired          func(protocol.NodeID)
 	offerMu         sync.Mutex
@@ -106,31 +107,32 @@ type outgoingSlot struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	users      int
-	connection *iroh.Connection
+	connection peertransport.Connection
 	address    EndpointAddress
 	info       PeerInfo
 	telemetry  *connectionTelemetry
 }
 
 func Bind(ctx context.Context, options EndpointOptions) (*Link, error) {
-	config := iroh.Config{
-		SecretKey: options.Identity.SecretKey(),
-		Mode:      "direct",
-		Bind:      options.Scope.Bind,
+	scope := options.Scope
+	var selection *protocol.NetworkSelection
+	bind := scope.Bind
+	if bind == "" && (scope.Internet || len(scope.Relays) != 0) {
+		bind = ":0"
 	}
-	if options.Scope.Internet && len(options.Scope.Relays) != 0 {
-		return nil, invalidLink("select one relay network")
+	if len(scope.Relays) != 0 {
+		selection = &protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: append([]string{}, scope.Relays...)}}
+	} else if scope.Internet {
+		selection = &protocol.NetworkSelection{Kind: "direct"}
 	}
-	if options.Scope.Internet {
-		config.Mode = "internet"
+	var relays []string
+	if selection != nil {
+		var err error
+		relays, err = NetworkRelayURLs(ctx, *selection)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if len(options.Scope.Relays) != 0 {
-		config.Mode, config.Relays = "custom", append([]string{}, options.Scope.Relays...)
-	}
-	return bindConfigured(ctx, options, config)
-}
-
-func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Config) (*Link, error) {
 	if options.Peers == nil {
 		return nil, invalidLink("peer storage is required")
 	}
@@ -142,33 +144,18 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := iroh.NewEndpoint(ctx, config)
+	endpoint, err := newLibp2pEndpoint(ctx, options.Identity.SecretKey(), bind, relays)
 	if err != nil {
-		return nil, linkNetwork(err)
-	}
-	var selection *protocol.NetworkSelection
-	switch config.Mode {
-	case "internet":
-		selection = &protocol.NetworkSelection{Kind: "iroh"}
-	case "custom":
-		selection = &protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: append([]string{}, config.Relays...)}}
-	}
-	var relays []string
-	if selection != nil {
-		relays, err = NetworkRelayURLs(ctx, *selection)
-		if err != nil {
-			_ = endpoint.Close()
-			return nil, err
-		}
+		return nil, err
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	link := &Link{
 		nodeID: options.Identity.ID(), endpoint: endpoint, ctx: lifetime, cancel: cancel, handler: options.Handler,
 		store: options.Peers, softwareVersion: options.SoftwareVersion, paired: options.Paired,
 		trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{},
-		outgoing: map[protocol.NodeID]*outgoingSlot{}, incoming: map[*iroh.Connection]protocol.NodeID{},
+		outgoing: map[protocol.NodeID]*outgoingSlot{}, incoming: map[peertransport.Connection]protocol.NodeID{},
 		work: make(chan func(), maxTasks), now: time.Now, timeout: context.WithTimeout,
-		selection: selection, relayURLs: relays, ticks: connectionTicks,
+		selection: selection, ticks: connectionTicks,
 	}
 	if link.softwareVersion == "" {
 		link.softwareVersion = ProductVersion
@@ -261,15 +248,23 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 			continue
 		}
 		checks.Go(func() {
-			open := func(ctx context.Context) (contextStream, error) {
-				stream, err := connection.OpenBi(ctx)
-				if err != nil {
-					return nil, err
+			if err := link.answers(ctx, connection.OpenBi); err != nil && ctx.Err() == nil {
+				expired := errors.Is(err, context.DeadlineExceeded)
+				if expired {
+					// Serialize physical path cleanup with replacement dials.
+					select {
+					case <-ctx.Done():
+						return
+					case <-slot.ctx.Done():
+						return
+					case <-slot.dial:
+					}
+					defer func() { slot.dial <- struct{}{} }()
+					if ctx.Err() != nil || slot.ctx.Err() != nil {
+						return
+					}
 				}
-				return stream, nil
-			}
-			if link.answers(ctx, open) != nil && ctx.Err() == nil {
-				link.drop(peer, connection, "peer did not answer")
+				link.drop(peer, connection, "peer did not answer", expired)
 			}
 		})
 	}
@@ -279,16 +274,23 @@ func (link *Link) NetworkChanged(ctx context.Context) error {
 
 // answers sends one inspection on a new stream and waits livenessTimeout for
 // a reply. Any reply frame, including a rejection, shows the peer is reachable.
-func (link *Link) answers(ctx context.Context, open func(context.Context) (contextStream, error)) error {
+func (link *Link) answers(ctx context.Context, open func(context.Context) (contextStream, error)) (err error) {
 	scoped, cancel := link.operation(ctx, false)
 	defer cancel()
 	bounded, expire := link.timeoutContext(scoped, livenessTimeout)
 	defer expire()
 	stream, err := open(bounded)
+	if err == nil {
+		defer stream.Close()
+	}
+	defer func() {
+		if err != nil && errors.Is(bounded.Err(), context.DeadlineExceeded) {
+			err = context.DeadlineExceeded
+		}
+	}()
 	if err != nil {
 		return linkNetwork(err)
 	}
-	defer stream.Close()
 	if err := link.writeCall(bounded, stream, wire.Call{Kind: wire.CallInspect}, false); err != nil {
 		return err
 	}
@@ -334,26 +336,33 @@ func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bo
 // a connection to a process that is gone is otherwise noticed only when an
 // operation on it times out.
 func (link *Link) Disconnect(peer protocol.NodeID) {
-	link.drop(peer, nil, "peer restarted")
+	link.drop(peer, nil, "peer restarted", false)
 }
 
 // drop closes the peer's cached connection so the next use redials. With an
 // expected connection it leaves a newer one that replaced it in place.
-func (link *Link) drop(peer protocol.NodeID, expected *iroh.Connection, reason string) {
+func (link *Link) drop(peer protocol.NodeID, expected peertransport.Connection, reason string, discardPaths bool) {
 	link.mu.RLock()
 	slot := link.outgoing[peer]
-	link.mu.RUnlock()
 	if slot == nil {
+		link.mu.RUnlock()
 		return
 	}
 	slot.mu.Lock()
 	if expected != nil && slot.connection != expected {
 		slot.mu.Unlock()
+		link.mu.RUnlock()
 		return
 	}
 	connection, telemetry := slot.connection, slot.telemetry
+	if discardPaths && expected != nil {
+		if stale, ok := connection.(interface{ DiscardPaths() error }); ok {
+			_ = stale.DiscardPaths()
+		}
+	}
 	slot.connection, slot.telemetry = nil, nil
 	slot.mu.Unlock()
+	link.mu.RUnlock()
 	if telemetry != nil {
 		telemetry.close()
 		<-telemetry.done
@@ -376,7 +385,7 @@ func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 	link.trusted[peer] = trusted
 	link.directions[peer] = direction
 	var outgoing *outgoingSlot
-	var incoming []*iroh.Connection
+	var incoming []peertransport.Connection
 	if !trusted {
 		delete(link.trusted, peer)
 		delete(link.directions, peer)
@@ -408,11 +417,11 @@ func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 			<-telemetry.done
 		}
 		if connection != nil && !link.retainRemovalConnection(peer, connection) {
-			_ = connection.Close(1, "peer revoked")
+			_ = connection.Close(peerRevokedCloseCode, "peer revoked")
 		}
 	}
 	for _, connection := range incoming {
-		_ = connection.Close(1, "peer revoked")
+		_ = connection.Close(peerRevokedCloseCode, "peer revoked")
 	}
 	link.notifyPeers()
 }
@@ -619,6 +628,9 @@ func invalidLink(message string) error {
 func linkNetwork(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, libp2pRevokedByPeer) {
+		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer revoked access"}
 	}
 	var fault *protocol.Fault
 	if errors.As(err, &fault) {

@@ -4,7 +4,7 @@
 #
 #   internal/node/host/deployment/archive.sh [-artifacts <dir>]
 #
-# -artifacts is the CI native job's directory holding the iroh library;
+# -artifacts is the CI native job's directory holding the Turso library;
 # without it the library built in .runtime/native is used. The result is
 # .runtime/host/<triple>/sailry-host-<triple>.tar.gz with SHA256SUMS-<triple>.
 #
@@ -40,11 +40,11 @@ package=internal/node/host/deployment/package
 rm -rf -- "$stage"
 mkdir -p "$stage/host"
 
-# The pinned runtimes from their official URLs and the iroh library; the Host
+# The pinned runtimes from their official URLs and the Turso library; the Host
 # ships no speech or capture library.
 go run ./native/fetch -target "$platform" -host ${artifacts[@]+"${artifacts[@]}"} -bundle "$stage/host"
 
-# A release build opens the release profile by default and loads the iroh
+# A release build opens the release profile by default and loads the Turso
 # library only from its package, against the seal written below.
 telemetry=github.com/sailry/sailry-harness/internal/node/telemetry
 flags="-w -X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry"
@@ -76,8 +76,8 @@ if test "$(uname -s)" = Darwin; then
     signing=(--sign "$APPLE_SIGNING_IDENTITY" --timestamp)
     test -z "${APPLE_SIGNING_KEYCHAIN:-}" || signing+=(--keychain "$APPLE_SIGNING_KEYCHAIN")
   fi
-  codesign --force "${signing[@]}" "$stage/host/libsailry_iroh.dylib" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
-  codesign --verify --strict "$stage/host/libsailry_iroh.dylib" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
+  codesign --force "${signing[@]}" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
+  codesign --verify --strict "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
 fi
 go run ./native/fetch -target "$platform" -host -seal "$stage/host"
 
@@ -87,7 +87,7 @@ version=${version#Sailry Host }
 cp "$package/sailry" "$package/install-host.sh" "$package/service.sh" "$stage/host/"
 chmod 755 "$stage/host/sailry"
 bash internal/node/host/deployment/licenses.sh "$platform" "$triple" "$stage/host/licenses"
-cp go.mod go.sum native/iroh/Cargo.lock "$stage/host/"
+cp go.mod go.sum "$stage/host/"
 dirty=false
 if test -n "$(git status --porcelain)"; then dirty=true; fi
 jq -n --arg revision "$revision" --argjson dirty "$dirty" --arg target "$triple" --arg version "$version" \

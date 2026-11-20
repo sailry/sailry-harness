@@ -10,7 +10,7 @@ package/service.sh        crates/node-runtime/src/ssh/install/service.sh, adapte
 dependencies.jq           scripts/package/dependencies.jq, unchanged
 licenses.sh               scripts/package/licenses.sh, adapted: Go modules of
                           the named command (cmd/sailry-host by default) and
-                          the crates of native/iroh replace the Rust
+                          the crates of native/turso replace the Rust
                           workspace's dependency graph
 archive.sh                new: assembles the Host archive that
                           scripts/build-host.sh produced

@@ -896,10 +896,10 @@ pairing_connect: Подключить устройство
 pairing_local_code: Локальный код сопряжения
 pairing_pin_hint: Введите 6-значный парольный код
 pairing_preview_disabled: Предварительный просмотр пользовательского интерфейса не подключает реальные устройства; начните с --data-dir для создания пары
-pairing_relay_address: ИРОХ адрес
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: Адрес ретранслятора
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Пользовательский
-pairing_relay_iroh: Общедоступная сеть
+pairing_relay_direct: Только прямое соединение
 pairing_relay_server: Сервер подключения
 pairing_share: Поделиться этим устройством
 pairing_share_hint: Введите этот код в Удаленные подключения на другом устройстве
@@ -1912,7 +1912,7 @@ pairing_preparing: Подготовка соединения
 pairing_refresh_hint: Действует в течение 60 секунд; обновляется по истечении срока действия
 pairing_relay_checking: Проверка реле
 pairing_relay_failed: Не удалось подключиться к ретрансляции; проверьте URL и повторите попытку
-pairing_relay_invalid: Введите допустимый URL-адрес ретрансляции HTTPS
+pairing_relay_invalid: Введите допустимый адрес ретранслятора
 pairing_relay_ready: Реле подключено
 pairing_relay_selected: Выбранная сеть
 pairing_retrying: Служба парирования недоступна; повторная попытка

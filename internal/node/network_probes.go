@@ -2,15 +2,11 @@ package node
 
 import (
 	"context"
-	"io"
-	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo/netproxy"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -27,21 +23,20 @@ type networkProbeEntry struct {
 }
 
 type networkProbes struct {
-	mu        sync.Mutex
-	cache     []networkProbeEntry
-	permits   chan struct{}
-	transport http.RoundTripper
-	now       func() time.Time
+	mu      sync.Mutex
+	cache   []networkProbeEntry
+	permits chan struct{}
+	now     func() time.Time
 }
 
 func (probes *networkProbes) read(ctx context.Context, selection protocol.NetworkSelection) (protocol.NetworkLatency, error) {
-	urls, err := link.NetworkRelayURLs(ctx, selection)
+	relays, err := link.NetworkRelayURLs(ctx, selection)
 	if err != nil {
 		return protocol.NetworkLatency{}, err
 	}
-	slices.Sort(urls)
-	urls = slices.Compact(urls)
-	key := strings.Join(urls, "\n")
+	slices.Sort(relays)
+	relays = slices.Compact(relays)
+	key := strings.Join(relays, "\n")
 	probes.mu.Lock()
 	var slot *networkProbeSlot
 	for index, entry := range probes.cache {
@@ -70,18 +65,10 @@ func (probes *networkProbes) read(ctx context.Context, selection protocol.Networ
 		value.Millis = slot.millis
 		return value, nil
 	}
-	transport := probes.transport
-	if transport == nil {
-		transport = netproxy.Transport()
-	}
-	client := &http.Client{
-		Transport: transport, Timeout: 3 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
 	owner, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	results := make(chan *uint64, len(urls))
-	for _, address := range urls {
+	results := make(chan *uint64, len(relays))
+	for _, address := range relays {
 		go func() {
 			select {
 			case <-owner.Done():
@@ -90,35 +77,16 @@ func (probes *networkProbes) read(ctx context.Context, selection protocol.Networ
 			case probes.permits <- struct{}{}:
 			}
 			defer func() { <-probes.permits }()
-			base, err := url.Parse(address)
+			rtt, err := link.ProbeRelay(owner, address)
 			if err != nil {
 				results <- nil
 				return
 			}
-			target := base.ResolveReference(&url.URL{Path: "/ping"})
-			request, err := http.NewRequestWithContext(owner, http.MethodGet, target.String(), nil)
-			if err != nil {
-				results <- nil
-				return
-			}
-			request.Close = true
-			started := probes.now()
-			response, err := client.Do(request)
-			if err != nil {
-				results <- nil
-				return
-			}
-			elapsed := uint64(max(0, probes.now().Sub(started).Milliseconds()))
-			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 8*1024))
-			_ = response.Body.Close()
-			if response.StatusCode < 200 || response.StatusCode >= 300 {
-				results <- nil
-				return
-			}
+			elapsed := uint64(max(0, rtt.Milliseconds()))
 			results <- &elapsed
 		}()
 	}
-	for range urls {
+	for range relays {
 		select {
 		case <-owner.Done():
 			if ctx.Err() != nil {

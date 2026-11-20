@@ -10,10 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -91,24 +91,23 @@ func runRelay(ctx context.Context, directory, configPath string) error {
 		return err
 	}
 	var config struct {
-		URL      string   `json:"url"`
-		RootsDER [][]byte `json:"roots_der"`
+		Address string `json:"address"`
 	}
 	err = json.Unmarshal(encoded, &config)
 	clear(encoded)
-	if err != nil || config.URL == "" || len(config.RootsDER) == 0 {
-		return errors.New("relay URL and fixture certificate roots are required")
+	if err != nil || config.Address == "" {
+		return errors.New("libp2p relay multiaddr is required")
 	}
 	ledger := &relayLedger{
 		settings: protocol.DefaultTerminalSettings(),
 		requests: make(map[protocol.RequestID]link.Response),
 	}
-	server, err := link.OpenRelayFixture(ctx, filepath.Join(directory, "server"), config.URL, ledger, config.RootsDER)
+	server, err := link.OpenRelayFixture(ctx, filepath.Join(directory, "server"), config.Address, ledger)
 	if err != nil {
 		return err
 	}
 	defer server.Close()
-	controller, err := link.OpenRelayFixture(ctx, filepath.Join(directory, "controller"), config.URL, nil, config.RootsDER)
+	controller, err := link.OpenRelayFixture(ctx, filepath.Join(directory, "controller"), config.Address, nil)
 	if err != nil {
 		return err
 	}
@@ -135,7 +134,11 @@ func runRelay(ctx context.Context, directory, configPath string) error {
 		return err
 	}
 	defer invitation.Close()
-	paired, err := controller.Pair(ctx, invitation.Ticket())
+	ticket, err := relayOnlyFixtureTicket(invitation.Ticket())
+	if err != nil {
+		return err
+	}
+	paired, err := controller.Pair(ctx, ticket)
 	if err != nil {
 		return err
 	}
@@ -223,11 +226,10 @@ func runRelay(ctx context.Context, directory, configPath string) error {
 			if err := errors.Join(controller.Close(), server.Close()); err != nil {
 				return err
 			}
-			counts := iroh.DebugCounts()
-			if counts != (iroh.Counts{}) {
-				return errors.New("Link relay fixture retained native resources after close")
+			if controller.Online(ctx) == nil || server.Online(ctx) == nil {
+				return errors.New("closed Link relay fixture still reported online")
 			}
-			emit(map[string]any{"stage": "relay_closed", "counts": counts})
+			emit(map[string]any{"stage": "relay_closed"})
 			return nil
 		default:
 			return errors.New("fixture operation must be outage or recover")
@@ -237,4 +239,33 @@ func runRelay(ctx context.Context, directory, configPath string) error {
 		return err
 	}
 	return errors.New("relay fixture ended before recovery")
+}
+
+func relayOnlyFixtureTicket(raw string) (string, error) {
+	var ticket map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &ticket); err != nil {
+		return "", err
+	}
+	var address link.EndpointAddress
+	if err := json.Unmarshal(ticket["address"], &address); err != nil {
+		return "", err
+	}
+	selected := address.Addrs[:0]
+	for _, raw := range address.Addrs {
+		var hint struct{ Libp2p string }
+		if json.Unmarshal(raw, &hint) == nil && strings.HasSuffix(hint.Libp2p, "/p2p-circuit") {
+			selected = append(selected, raw)
+		}
+	}
+	if len(selected) == 0 {
+		return "", errors.New("fixture ticket is missing its confirmed relay route")
+	}
+	address.Addrs = selected
+	encoded, err := json.Marshal(address)
+	if err != nil {
+		return "", err
+	}
+	ticket["address"] = json.RawMessage(encoded)
+	encoded, err = json.Marshal(ticket)
+	return string(encoded), err
 }

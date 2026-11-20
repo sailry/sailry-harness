@@ -896,10 +896,10 @@ pairing_connect: 连接设备
 pairing_local_code: 本机配对码
 pairing_pin_hint: 输入 6 位配对码
 pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。
-pairing_relay_address: iroh 地址
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: 中继地址
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定义
-pairing_relay_iroh: 公共网络
+pairing_relay_direct: 仅直连
 pairing_relay_server: 连接服务器
 pairing_share: 分享本机
 pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
@@ -1912,7 +1912,7 @@ pairing_preparing: 正在准备连接…
 pairing_refresh_hint: 60 秒内有效，到期自动更新
 pairing_relay_checking: 正在探测
 pairing_relay_failed: 无法连接中继，请检查地址后重试
-pairing_relay_invalid: 请输入有效的 HTTPS 中继地址
+pairing_relay_invalid: 请输入有效的中继地址
 pairing_relay_ready: 中继已连接
 pairing_relay_selected: 当前选择的网络
 pairing_retrying: 配对服务暂不可用，正在重试…

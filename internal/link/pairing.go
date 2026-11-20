@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	ma "github.com/multiformats/go-multiaddr"
+
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -194,9 +197,15 @@ func (link *Link) InviteFor(ctx context.Context, scope InvitationScope) (*Invita
 	if link.ctx.Err() != nil {
 		return nil, linkNetwork(link.ctx.Err())
 	}
+	if err := link.Online(ctx); err != nil {
+		return nil, err
+	}
 	address, err := link.Address(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if len(address.Addrs) == 0 {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Link endpoint has no dialable address to advertise"}
 	}
 	var token pairingToken
 	if _, err := rand.Read(token[:]); err != nil {
@@ -243,26 +252,31 @@ func (link *Link) Pair(ctx context.Context, encoded string) (EndpointAddress, er
 }
 
 func (link *Link) pairSelected(ctx context.Context, encoded string, relays []string) (EndpointAddress, error) {
-	address, err := link.Address(ctx)
+	ticket, err := decodePairingTicket(encoded, link.nodeID)
 	if err != nil {
 		return EndpointAddress{}, err
 	}
-	ticket, err := decodePairingTicket(encoded, address.ID)
-	if err != nil {
-		return EndpointAddress{}, err
-	}
+	var selected []libp2pRelaySpec
 	if relays != nil {
-		ticket.Address, err = pairingAddressOnNetwork(ticket.Address, relays)
+		selected, err = parseLibp2pRelays(relays)
+		if err != nil {
+			return EndpointAddress{}, err
+		}
+		ticket.Address, err = pairingAddressOnNetwork(ticket.Address, selected)
 		if err != nil {
 			return EndpointAddress{}, err
 		}
 	}
-	link.cancelHostRemoval(ticket.Address.ID)
-	if err := link.insertAddressRelays(ctx, ticket.Address); err != nil {
+	dialAddress, err := libp2pDialAddress(ticket.Address)
+	if err != nil {
+		return EndpointAddress{}, err
+	}
+	address, err := link.Address(ctx)
+	if err != nil {
 		return EndpointAddress{}, err
 	}
 	scoped, cancel := link.operation(ctx, true)
-	connection, err := link.endpoint.Connect(scoped, ticket.Address, wire.PairALPN)
+	connection, err := link.endpoint.Connect(scoped, dialAddress, wire.PairALPN)
 	cancel()
 	if err != nil {
 		return EndpointAddress{}, linkNetwork(err)
@@ -281,6 +295,14 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 		return EndpointAddress{}, linkNetwork(err)
 	}
 	defer stream.Close()
+	if relays != nil {
+		// libp2p may reuse an existing path independently of the ticket hints.
+		opened, ok := stream.(*libp2pStream)
+		if !ok || !matchesPairingNetwork(opened.raw.Conn().RemoteMultiaddr(), selected) {
+			return EndpointAddress{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "the opened pairing path does not match the selected network"}
+		}
+	}
+	link.cancelHostRemoval(ticket.Address.ID)
 	hasNode := link.handler != nil
 	if err := link.writeFrame(ctx, stream, pairingClaim{Token: ticket.Token, Address: address, HasNode: &hasNode}); err != nil {
 		return EndpointAddress{}, err
@@ -320,27 +342,36 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	return ticket.Address, nil
 }
 
-func pairingAddressOnNetwork(address EndpointAddress, relays []string) (EndpointAddress, error) {
-	filtered := EndpointAddress{ID: address.ID, Addrs: []json.RawMessage{}}
-	offered, selected := false, false
-	for _, hint := range address.Addrs {
-		if relay, ok := relayHint(hint); ok {
-			offered = true
-			if containsRelay(relays, relay) {
-				filtered.Addrs = append(filtered.Addrs, append(json.RawMessage{}, hint...))
-				selected = true
-			}
-			continue
-		}
-		var transport map[string]json.RawMessage
-		if json.Unmarshal(hint, &transport) == nil && len(transport) == 1 && transport["Ip"] != nil {
-			filtered.Addrs = append(filtered.Addrs, append(json.RawMessage{}, hint...))
+func pairingAddressOnNetwork(address EndpointAddress, selected []libp2pRelaySpec) (EndpointAddress, error) {
+	address, err := libp2pDialAddress(address)
+	if err != nil {
+		return EndpointAddress{}, err
+	}
+	info, err := libp2pAddressInfo(address)
+	if err != nil {
+		return EndpointAddress{}, err
+	}
+	filtered := EndpointAddress{ID: address.ID}
+	for index, route := range info.Addrs {
+		if matchesPairingNetwork(route, selected) {
+			filtered.Addrs = append(filtered.Addrs, address.Addrs[index])
 		}
 	}
-	if offered && !selected {
-		return EndpointAddress{}, invalidLink("pairing invitation uses another relay network")
+	if len(filtered.Addrs) == 0 {
+		if len(selected) == 0 {
+			return EndpointAddress{}, invalidLink("pairing invitation does not advertise a direct Libp2p address")
+		}
+		return EndpointAddress{}, invalidLink("pairing invitation does not advertise a selected Libp2p relay")
 	}
 	return filtered, nil
+}
+
+func matchesPairingNetwork(route ma.Multiaddr, selected []libp2pRelaySpec) bool {
+	if len(selected) == 0 {
+		return libp2pDirectAddr(route, false)
+	}
+	id, circuit := libp2pCircuitRelay(route)
+	return circuit && slices.ContainsFunc(selected, func(relay libp2pRelaySpec) bool { return id == relay.info.ID })
 }
 
 // maxPairings bounds the accept workers one invitation's claimants occupy, so
@@ -360,7 +391,7 @@ func (link *Link) admitPairing() *pairingOffer {
 	return offer
 }
 
-func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID) {
+func (link *Link) servePairing(connection peertransport.Connection, peer protocol.NodeID) {
 	// A connection that no invitation can answer is closed before it holds an
 	// accept worker for the stream and claim deadlines.
 	offer := link.admitPairing()
@@ -383,7 +414,7 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 	defer stream.Close()
 	scoped, cancel = link.operation(link.ctx, true)
 	var claim pairingClaim
-	err = wire.ReadLimited(scopedReader{scoped, stream}, &claim, 8192)
+	err = wire.ReadLimited(&scopedReader{ctx: scoped, stream: stream}, &claim, 8192)
 	cancel()
 	if err != nil {
 		return

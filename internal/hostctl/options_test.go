@@ -3,9 +3,11 @@ package hostctl
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -93,13 +95,7 @@ func TestHostTaskOptions(t *testing.T) {
 		{nil, true, false},
 		{[]string{"--help"}, true, true},
 		{[]string{"--help", "--internet"}, false, false},
-		{[]string{"--bind", "127.0.0.1:0", "--internet"}, false, false},
-		{[]string{"--internet", "--relay", "https://relay.example"}, false, false},
 		{[]string{"--bootstrap", "--pairing-service", "https://pair.example"}, false, false},
-		{[]string{"--relay", "https://one.example", "--relay", "https://two.example"}, true, false},
-		{[]string{"--relay", "https://relay.example/?token=1"}, false, false},
-		{[]string{"--relay", "https://relay.example/?"}, false, false},
-		{[]string{"--relay", "https://relay.example/#"}, false, false},
 		{[]string{"--pairing-service", "http://127.0.0.1:8080", "--telemetry", "off"}, true, false},
 		{[]string{"--pairing-service", "http://pair.example"}, false, false},
 		{[]string{"--pairing-service", "https://pair.example/path"}, false, false},
@@ -125,5 +121,40 @@ func TestHostTaskOptions(t *testing.T) {
 		if err != nil || options.Environment("SAILRY_TELEMETRY") != row.want || options.Environment("PATH") != os.Getenv("PATH") {
 			t.Fatalf("telemetry choice args=%v err=%v lookup=%q", row.args, err, options.Environment("SAILRY_TELEMETRY"))
 		}
+	}
+}
+
+func TestHostServiceNetworkOptions(t *testing.T) {
+	t.Parallel()
+	const peerID = "12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
+	const tcpRelay = "/ip4/127.0.0.1/tcp/30001/p2p/" + peerID
+	const quicRelay = "/ip4/127.0.0.1/udp/30002/quic-v1/p2p/12D3KooWDwTirQce1RRKnasT5fPVFgzXCy6SiRgSwrwPGLC7zE91"
+	for _, row := range []struct {
+		name string
+		args []string
+		want *link.NetworkScope
+	}{
+		{"default is loopback", nil, &link.NetworkScope{Bind: "127.0.0.1:0"}},
+		{"explicit bind", []string{"--bind", "[::1]:0"}, &link.NetworkScope{Bind: "[::1]:0"}},
+		{"internet is direct", []string{"--internet"}, &link.NetworkScope{Internet: true}},
+		{"one relay", []string{"--relay", tcpRelay}, &link.NetworkScope{Relays: []string{tcpRelay}}},
+		{"two relays", []string{"--relay", tcpRelay, "--relay", quicRelay}, &link.NetworkScope{Relays: []string{tcpRelay, quicRelay}}},
+		{"bind with internet", []string{"--bind", "127.0.0.1:0", "--internet"}, nil},
+		{"bind with relay", []string{"--bind", "127.0.0.1:0", "--relay", tcpRelay}, nil},
+		{"internet with relay", []string{"--internet", "--relay", tcpRelay}, nil},
+		{"missing relay", []string{"--relay"}, nil},
+		{"legacy HTTPS relay", []string{"--relay", "https://relay.example"}, nil},
+		{"unauthenticated relay address", []string{"--relay", "/ip4/127.0.0.1/tcp/30001"}, nil},
+		{"repeated peer identity", []string{"--relay", tcpRelay, "--relay", "/ip4/127.0.0.1/tcp/30003/p2p/" + peerID}, nil},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			options, help, err := ParseService(row.args)
+			if help || (err == nil) != (row.want != nil) {
+				t.Fatalf("service args=%v err=%v help=%v", row.args, err, help)
+			}
+			if row.want != nil && !reflect.DeepEqual(options.Network, *row.want) {
+				t.Fatalf("network scope = %+v, want %+v", options.Network, *row.want)
+			}
+		})
 	}
 }

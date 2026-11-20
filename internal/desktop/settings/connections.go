@@ -137,7 +137,7 @@ func (pr *pairing) installable() bool {
 // relayOptions are the connection servers: the public network, the named
 // relays, and a custom address.
 func relayOptions(c *ui.Context, relays []string) []string {
-	return append(append([]string{i18n.T(c, "pairing_relay_iroh")}, relays...), i18n.T(c, "pairing_relay_custom"))
+	return append(append([]string{i18n.T(c, "pairing_relay_direct")}, relays...), i18n.T(c, "pairing_relay_custom"))
 }
 
 // connections is the hosts, with sharing and adding one, and the mobile

@@ -86,10 +86,8 @@ func runService(ctx context.Context, args []string, cancel context.CancelFunc) (
 
 func serve(ctx context.Context, execution *node.Node, options hostctl.ServiceOptions) error {
 	endpoint := execution.Link()
-	if options.Network.Internet || len(options.Network.Relays) > 0 {
-		if err := endpoint.Online(ctx); err != nil {
-			return err
-		}
+	if err := endpoint.Online(ctx); err != nil {
+		return err
 	}
 	if _, err := execution.Snapshot(ctx); err != nil {
 		return err

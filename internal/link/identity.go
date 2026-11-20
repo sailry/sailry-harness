@@ -56,22 +56,33 @@ func OpenIdentity(directory string) (Identity, error) {
 // ReadIdentity loads the existing key without creating one.
 func ReadIdentity(directory string) (Identity, error) {
 	var identity Identity
-	path := filepath.Join(directory, identityName)
-	metadata, err := os.Lstat(path)
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return Identity{}, err
+	}
+	defer root.Close()
+	metadata, err := root.Lstat(identityName)
 	if err != nil {
 		return Identity{}, err
 	}
 	if !metadata.Mode().IsRegular() {
 		return Identity{}, errors.New("identity must be a regular private file")
 	}
-	if runtime.GOOS != "windows" && metadata.Mode().Perm()&0o077 != 0 {
-		return Identity{}, errors.New("identity file permissions must exclude group and other users")
-	}
-	file, err := os.Open(path)
+	file, err := openIdentityKey(root)
 	if err != nil {
 		return Identity{}, err
 	}
 	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return Identity{}, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(metadata, opened) {
+		return Identity{}, errors.New("identity file changed before it could be read")
+	}
+	if runtime.GOOS != "windows" && opened.Mode().Perm()&0o077 != 0 {
+		return Identity{}, errors.New("identity file permissions must exclude group and other users")
+	}
 	data, err := io.ReadAll(io.LimitReader(file, ed25519.SeedSize+1))
 	if err != nil {
 		return Identity{}, err

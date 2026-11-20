@@ -172,7 +172,7 @@ func (link *Link) readRelayFrame(ctx context.Context, stream contextStream, read
 	// direct Remote reader: cancellation bounds observation, not an idle timer.
 	scoped, cancel := link.operation(ctx, false)
 	defer cancel()
-	return reader.Raw(scopedReader{scoped, stream})
+	return reader.Raw(&scopedReader{ctx: scoped, stream: stream})
 }
 
 func (link *Link) writeRelayFrame(ctx context.Context, stream contextStream, frame json.RawMessage, compressed bool) error {

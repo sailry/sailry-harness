@@ -1,13 +1,16 @@
 package link
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
 func TestPairingTicketMatchesRustAndBounds(t *testing.T) {
@@ -106,6 +109,111 @@ func TestPairingTicketMatchesRustAndBounds(t *testing.T) {
 			t.Fatal("duplicate pairing ticket field was accepted")
 		}
 	})
+}
+
+type fixturePairEndpoint struct {
+	peertransport.Endpoint
+	local      EndpointAddress
+	dialed     EndpointAddress
+	alpn       string
+	connection peertransport.Connection
+	onlineErr  error
+	addresses  int
+}
+
+func (endpoint *fixturePairEndpoint) Online(context.Context) error { return endpoint.onlineErr }
+
+func (endpoint *fixturePairEndpoint) Address(context.Context) (EndpointAddress, error) {
+	endpoint.addresses++
+	return endpoint.local, nil
+}
+
+func (endpoint *fixturePairEndpoint) Connect(_ context.Context, address EndpointAddress, alpn string) (peertransport.Connection, error) {
+	endpoint.dialed, endpoint.alpn = address, alpn
+	return endpoint.connection, nil
+}
+
+func TestInviteRequiresReadyAddress(t *testing.T) {
+	service := newFixtureLink(t)
+	endpoint := &fixturePairEndpoint{local: EndpointAddress{ID: service.nodeID}, onlineErr: peertransport.ErrClosed}
+	service.endpoint = endpoint
+	if _, err := service.Invite(t.Context()); faultValue(err).Code != protocol.ErrorCodeUnavailable || endpoint.addresses != 0 || service.offer != nil {
+		t.Fatalf("unready endpoint produced an invitation: %v", err)
+	}
+	endpoint.onlineErr = nil
+	if _, err := service.Invite(t.Context()); faultValue(err).Code != protocol.ErrorCodeUnavailable || endpoint.addresses != 1 || service.offer != nil {
+		t.Fatalf("unadvertised endpoint produced an invitation: %v", err)
+	}
+	endpoint.local.Addrs = []json.RawMessage{json.RawMessage(`{"Libp2p":"/ip4/127.0.0.1/tcp/4003"}`)}
+	invitation, err := service.Invite(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer invitation.Close()
+	ticket, err := decodePairingTicket(invitation.Ticket(), protocol.NodeID{1})
+	if err != nil || !addressIncludes(ticket.Address, endpoint.local) {
+		t.Fatalf("ready address not advertised: %#v, %v", ticket.Address, err)
+	}
+}
+
+func TestPairingReplacesLegacyHintsWithoutChangingSelection(t *testing.T) {
+	ctx, service := t.Context(), newFixtureLink(t)
+	service.nodeID = protocol.NodeID{1}
+	selection := fixtureRelaySelection(fixtureRelayTCP)
+	service.selection = &selection
+	legacy := EndpointAddress{ID: protocol.NodeID{2}, Addrs: []json.RawMessage{json.RawMessage(`{"Relay":"https://relay.example/"}`)}}
+	if err := service.SetTrust(ctx, legacy.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.remember(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	ticket := func(address EndpointAddress) string {
+		t.Helper()
+		encoded, err := json.Marshal(pairingTicket{Version: 1, Address: address, Token: pairingToken{1}, ExpiresAtMS: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
+	_, inspectErr := service.Inspect(ctx, legacy)
+	_, pairErr := service.Pair(ctx, ticket(legacy))
+	for _, err := range []error{inspectErr, pairErr, service.UpdatePeer(ctx, legacy)} {
+		if fault := faultValue(err); fault.Code != protocol.ErrorCodeUnavailable || !strings.Contains(fault.Message, "Iroh") {
+			t.Fatalf("legacy-only route did not fail explicitly: %v", err)
+		}
+	}
+	peers, err := service.Peers(ctx)
+	if err != nil || len(peers) != 1 || !addressIncludes(peers[0], legacy) || !service.Direction(legacy.ID).AllowsOutbound() {
+		t.Fatalf("failed legacy dial changed trust or routes: %#v, %v", peers, err)
+	}
+
+	modern := EndpointAddress{ID: legacy.ID, Addrs: []json.RawMessage{json.RawMessage(`{"Libp2p":"` + fixtureRelayQUIC + `/p2p-circuit"}`)}}
+	var response bytes.Buffer
+	hasNode := true
+	if err := wire.Write(&response, pairingResult{HasNode: &hasNode}, false); err != nil {
+		t.Fatal(err)
+	}
+	stream := newFixtureStream(response.Bytes())
+	stream.stopOnce.Do(func() { close(stream.stopped) })
+	endpoint := &fixturePairEndpoint{
+		local:      EndpointAddress{ID: service.nodeID, Addrs: []json.RawMessage{json.RawMessage(`{"Libp2p":"/ip4/127.0.0.1/tcp/4003"}`)}},
+		connection: &fixtureConnection{info: peertransport.ConnectionInfo{RemoteID: modern.ID, ALPN: wire.PairALPN}, stream: stream},
+		onlineErr:  peertransport.ErrClosed,
+	}
+	service.endpoint = endpoint
+	paired, err := service.Pair(ctx, ticket(modern))
+	if err != nil || !addressIncludes(paired, modern) || !addressIncludes(endpoint.dialed, modern) || endpoint.alpn != wire.PairALPN || !stream.finished {
+		t.Fatalf("re-pair on the Host's circuit = %#v, dialed %#v, %v", paired, endpoint.dialed, err)
+	}
+	peers, err = service.Peers(ctx)
+	if err != nil || len(peers) != 1 || !addressIncludes(peers[0], modern) || addressIncludes(peers[0], legacy) || !service.Direction(legacy.ID).AllowsOutbound() {
+		t.Fatalf("re-pair did not update the same trusted peer: %#v, %v", peers, err)
+	}
+	relays, err := NetworkRelayURLs(ctx, *service.NetworkSelection())
+	if err != nil || len(relays) != 1 || relays[0] != fixtureRelayTCP {
+		t.Fatalf("raw pairing changed the claimant's selection: %v, %v", relays, err)
+	}
 }
 
 func TestPairingHasOneCertifiedClaimant(t *testing.T) {

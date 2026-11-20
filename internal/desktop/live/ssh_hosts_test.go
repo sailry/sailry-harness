@@ -397,7 +397,7 @@ func testSSHHostInstall(t *testing.T) {
 		if len(wsl) != 1 || !results[len(results)-1] || root.App.Settings.ConnectionPending {
 			t.Fatalf("WSL installation: %d commands, results %v", len(wsl), results)
 		}
-		if payload, _ := detail[protocol.CommandInstallWslHostPayload](wsl[0].Data); payload.Distribution != "Ubuntu" || payload.Network == nil || payload.Network.Kind != "iroh" {
+		if payload, _ := detail[protocol.CommandInstallWslHostPayload](wsl[0].Data); payload.Distribution != "Ubuntu" || payload.Network == nil || payload.Network.Kind != "direct" {
 			t.Fatalf("WSL installation payload: %+v", payload)
 		}
 		// An unavailable inspection cannot settle an original unknown result.

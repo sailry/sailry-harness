@@ -896,10 +896,10 @@ pairing_connect: Conecte o dispositivo
 pairing_local_code: Código de emparelhamento local
 pairing_pin_hint: Introduza o código de emparelhamento de 6 dígitos
 pairing_preview_disabled: A visualização da IU não conecta dispositivos reais; comece com --data-dir para emparelhar
-pairing_relay_address: Endereço de iroh
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: Endereço do relay
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personalizado
-pairing_relay_iroh: Rede pública
+pairing_relay_direct: Somente conexão direta
 pairing_relay_server: Servidor de conexão
 pairing_share: Compartilhar este dispositivo
 pairing_share_hint: Digite este código em Conexões Remotas em outro dispositivo
@@ -1912,7 +1912,7 @@ pairing_preparing: Preparando a conexão
 pairing_refresh_hint: Válido por 60 segundos; atualiza na expiração
 pairing_relay_checking: Verificando o relé
 pairing_relay_failed: Não foi possível se conectar ao relé; verifique o URL e tente novamente
-pairing_relay_invalid: Insira um URL de retransmissão HTTPS válido
+pairing_relay_invalid: Insira um endereço de relay válido
 pairing_relay_ready: Relé conectado
 pairing_relay_selected: Rede selecionada
 pairing_retrying: Serviço de emparelhamento indisponível; tentando novamente

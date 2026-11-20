@@ -33,6 +33,7 @@ type connectionState struct {
 	shareCancel     context.CancelFunc
 	shareSelection  string
 	shareChange     *connectionNetworkChange
+	shareChangeKey  string
 	localName       string
 	revoking        map[string]bool
 	revocations     map[protocol.NodeID]protocol.Request
@@ -69,7 +70,7 @@ func (r *Runtime) initConnectionActions() {
 		Narrow:      r.narrowConnection,
 		EditNetwork: r.editConnectionNetwork,
 		SaveNetwork: r.saveConnectionNetwork,
-		RetryShare:  func() { r.startConnectionShare(0) },
+		RetryShare:  func() { r.startConnectionShare(0, true) },
 		BrowseKey: func(selected func(string)) {
 			if r.pickKeyFile == nil {
 				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
@@ -94,6 +95,10 @@ func (r *Runtime) initConnectionActions() {
 	}
 }
 
+func (r *Runtime) connectionsOpen() bool {
+	return r.App.Page == shell.SettingsPage && r.App.Settings.Section == settings.Connections
+}
+
 func (r *Runtime) connectionsFrame(c *ui.Context) {
 	state := r.connections
 	if state == nil {
@@ -101,7 +106,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	}
 	model := r.App.Settings.Model
 	model.ConnectionStage = r.sshProgress()
-	if r.App.Page != shell.SettingsPage || r.App.Settings.Section != settings.Connections {
+	if !r.connectionsOpen() {
 		model.CloseConnectionDialogs()
 	}
 	if model.Adding() && model.ConnectionDraft().Method == settings.ByWSL {
@@ -140,25 +145,19 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 		r.connectionPickerFrame(c, picker)
 	}
 	if model.Sharing() {
-		draft := model.ConnectionDraft()
-		selected, err := r.connectionSelection(draft)
-		key := encoded(selected)
-		if err != nil {
-			key = draft.Address
-		}
+		_, key, _ := r.connectionShareDraft()
 		if !state.sharing || state.shareSelection != key {
 			delay := time.Duration(0)
-			if state.sharing && state.picker != nil && state.picker.custom(draft.Relay) {
-				delay = 650 * time.Millisecond
+			if state.sharing && state.picker != nil && state.picker.custom(model.ConnectionDraft().Relay) {
+				delay = connectionRelayDebounce
 			}
-			state.sharing, state.shareSelection = true, key
-			r.startConnectionShare(delay)
+			r.startConnectionShare(delay, false)
 		}
 	} else if state.sharing {
 		state.sharing = false
 		r.stopConnectionShare()
 		model.Share = settings.ShareState{}
-		state.shareChange = nil
+		state.shareChange, state.shareChangeKey = nil, ""
 	}
 	if editor := state.editor; editor != nil {
 		if model.NetworkEditor != editor.model {
@@ -250,12 +249,12 @@ func (r *Runtime) closeConnections() {
 	}
 }
 
-func (r *Runtime) connectionSelection(draft settings.ConnectionDraft) (protocol.NetworkSelection, error) {
+func (r *Runtime) connectionDraftSelection(draft settings.ConnectionDraft) (protocol.NetworkSelection, error) {
 	if state := r.connections; state != nil && state.picker != nil {
-		return state.picker.selection(draft.Relay, draft.Address)
+		return state.picker.draftSelection(draft.Relay, draft.Address)
 	}
 	if draft.Relay == 0 {
-		return protocol.NetworkSelection{Kind: "iroh"}, nil
+		return protocol.NetworkSelection{Kind: "direct"}, nil
 	}
 	address := strings.TrimSpace(draft.Address)
 	if address == "" {

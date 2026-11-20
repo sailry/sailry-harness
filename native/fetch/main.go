@@ -7,11 +7,11 @@
 //
 // Downloads come only from the official release URLs in the lock files under
 // native/ and internal/localmodels/decision, are checked against their pinned
-// size and SHA-256, and are cached in .runtime/native/dl. The iroh, Turso and
-// capture builds are taken from the CI native job's artifacts (-artifacts,
-// checked against its SHA256SUMS), or from an
-// earlier local build already in the output directory. Windows artifacts
-// also carry the app-local Microsoft C++ runtime and its original notices.
+// size and SHA-256, and are cached in .runtime/native/dl. The Turso and capture
+// builds are taken from the CI native job's artifacts (-artifacts, checked
+// against its SHA256SUMS), or from an earlier local build already in the
+// output directory. Windows artifacts also carry the app-local Microsoft C++
+// runtime and its original notices.
 // libghostty-vt is not handled here; `mygo build` downloads it from the
 // terminal plugin's manifest.
 //
@@ -124,16 +124,14 @@ func main() {
 		return
 	}
 	fail(os.MkdirAll(run.output, 0o755))
-	names := built(goos)
 	fail(run.onnx(*host))
 	fail(run.llama())
 	fail(run.helper())
 	fail(run.python())
 	fail(run.windowsCRT(*artifacts))
-	fail(run.built(names[0], "sh native/iroh/build.sh", *artifacts))
 	fail(run.built(tursoLibrary(goos), "sh native/turso/build.sh", *artifacts))
 	if !*host {
-		fail(run.built(names[1], "sh native/capture/build.sh, on Windows see native/capture/README.md", *artifacts))
+		fail(run.built(captureLibrary(goos), "sh native/capture/build.sh, on Windows see native/capture/README.md", *artifacts))
 	}
 	if *bundle != "" {
 		for _, name := range run.shipped {
@@ -154,15 +152,14 @@ func main() {
 	}
 }
 
-// built names the iroh and capture libraries Sailry builds itself.
-func built(goos string) []string {
+func captureLibrary(goos string) string {
 	switch goos {
 	case "darwin":
-		return []string{"libsailry_iroh.dylib", "libsailry-capture.dylib"}
+		return "libsailry-capture.dylib"
 	case "windows":
-		return []string{"sailry_iroh.dll", "sailry-capture.dll"}
+		return "sailry-capture.dll"
 	}
-	return []string{"libsailry_iroh.so", "libsailry-capture.so"}
+	return "libsailry-capture.so"
 }
 
 func tursoLibrary(goos string) string {
@@ -647,11 +644,10 @@ func (run *stage) seal(location, platform string, host bool, identity, entitleme
 	if err != nil {
 		return err
 	}
-	names := built(run.goos)
-	if host {
-		names = names[:1]
+	names := []string{tursoLibrary(run.goos)}
+	if !host {
+		names = append(names, captureLibrary(run.goos))
 	}
-	names = append(names, tursoLibrary(run.goos))
 	if run.goos == "windows" {
 		crt, err := shipped.ReadWindowsCRT(directory)
 		if err != nil {

@@ -896,10 +896,10 @@ pairing_connect: Connect device
 pairing_local_code: Local pairing code
 pairing_pin_hint: Enter 6-digit pairing code
 pairing_preview_disabled: UI preview does not connect real devices; start with --data-dir to pair
-pairing_relay_address: iroh address
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: Relay address
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Custom
-pairing_relay_iroh: Public network
+pairing_relay_direct: Direct only
 pairing_relay_server: Connection server
 pairing_share: Share this device
 pairing_share_hint: Enter this code in Remote Connections on another device
@@ -1912,7 +1912,7 @@ pairing_preparing: Preparing connection
 pairing_refresh_hint: Valid for 60 seconds; refreshes on expiry
 pairing_relay_checking: Checking relay
 pairing_relay_failed: Could not connect to relay; check the URL and retry
-pairing_relay_invalid: Enter a valid HTTPS relay URL
+pairing_relay_invalid: Enter a valid relay address
 pairing_relay_ready: Relay connected
 pairing_relay_selected: Selected network
 pairing_retrying: Pairing service unavailable; retrying

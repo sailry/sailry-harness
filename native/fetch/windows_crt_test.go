@@ -79,7 +79,8 @@ func TestWindowsCRTSeal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := append(built("windows"), tursoLibrary("windows"))
+	const retiredIroh = "sailry_iroh.dll"
+	names := []string{captureLibrary("windows"), tursoLibrary("windows"), retiredIroh}
 	for _, file := range onnx.Files {
 		names = append(names, file.Name)
 	}
@@ -103,6 +104,9 @@ func TestWindowsCRTSeal(t *testing.T) {
 		}
 		if err := seal.CheckWindowsCRT(directory); err != nil {
 			t.Fatal(err)
+		}
+		if slices.ContainsFunc(seal.Files, func(file shipped.File) bool { return file.Name == retiredIroh }) {
+			t.Errorf("host=%v: sealed the retired Iroh runtime", host)
 		}
 	}
 	if err := os.Remove(filepath.Join(directory, "vcruntime140_1.dll")); err != nil {

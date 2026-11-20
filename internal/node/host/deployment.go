@@ -81,13 +81,13 @@ func openArtifact(root, name string) (*artifact, error) {
 func targetPlatform(platform string) (string, string, error) {
 	switch strings.Join(strings.Fields(platform), "/") {
 	case "Linux/x86_64":
-		return "linux-amd64", "libsailry_iroh.so", nil
+		return "linux-amd64", "libturso_sync_sdk_kit.so", nil
 	case "Linux/aarch64", "Linux/arm64":
-		return "linux-arm64", "libsailry_iroh.so", nil
+		return "linux-arm64", "libturso_sync_sdk_kit.so", nil
 	case "Darwin/arm64":
-		return "darwin-arm64", "libsailry_iroh.dylib", nil
+		return "darwin-arm64", "libturso_sync_sdk_kit.dylib", nil
 	case "Darwin/x86_64":
-		return "darwin-amd64", "libsailry_iroh.dylib", nil
+		return "darwin-amd64", "libturso_sync_sdk_kit.dylib", nil
 	}
 	if windowsPlatform(platform) {
 		return "", "", unavailable(protocol.SSHWindowsDesktopRequired)
@@ -110,10 +110,10 @@ func windowsPlatform(platform string) bool {
 func detectPlatform(ctx context.Context, connection *cryptossh.Client) (string, string, error) {
 	platform, err := commandSSH(ctx, connection, "uname -s; uname -m", nil)
 	if err == nil {
-		var target, native string
-		target, native, err = targetPlatform(platform)
+		var target, turso string
+		target, turso, err = targetPlatform(platform)
 		if err == nil || windowsPlatform(platform) {
-			return target, native, err
+			return target, turso, err
 		}
 	}
 	if ctx.Err() != nil {
@@ -153,7 +153,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	ctx, cancel := context.WithTimeout(ctx, 600*time.Second)
 	defer cancel()
 	owner.Progress(caller, request, "detecting")
-	target, native, err := detectPlatform(ctx, connection)
+	target, turso, err := detectPlatform(ctx, connection)
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}
@@ -170,7 +170,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	if _, missing := os.Lstat(filepath.Join(root, "sailry-host")); errors.Is(missing, fs.ErrNotExist) {
 		err = owner.installRelease(ctx, connection, caller, request, expected, selection)
 	} else {
-		err = owner.installLocal(ctx, connection, caller, request, root, target, native, paths, expected, selection)
+		err = owner.installLocal(ctx, connection, caller, request, root, target, turso, paths, expected, selection)
 	}
 	if err != nil {
 		return protocol.SshOutcome{}, err
@@ -201,18 +201,13 @@ const stageCommand = "umask 077; command -v python3 >/dev/null || { echo 'python
 
 // installLocal verifies and uploads the locally built Host artifacts of the
 // target, then activates them with the embedded deployment scripts.
-func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, target, native string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
+func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, target, turso string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
 	binary, err := openArtifact(root, "sailry-host")
 	if err != nil {
 		return err
 	}
 	defer binary.file.Close()
-	library, err := openArtifact(root, native)
-	if err != nil {
-		return err
-	}
-	defer library.file.Close()
-	database, err := openArtifact(root, "libturso_sync_sdk_kit"+filepath.Ext(native))
+	database, err := openArtifact(root, turso)
 	if err != nil {
 		return err
 	}
@@ -226,11 +221,9 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	if err != nil {
 		return unavailable("locally built Host package seal is unavailable or invalid")
 	}
-	for _, input := range []*artifact{library, database} {
-		entry, present := manifest.File(input.name)
-		if !present || entry.Size != input.size || entry.SHA256 != input.digest {
-			return unavailable("locally built Host native artifacts do not match their package seal")
-		}
+	entry, present := manifest.File(database.name)
+	if !present || entry.Size != database.size || entry.SHA256 != database.digest {
+		return unavailable("locally built Host Turso library does not match its package seal")
 	}
 	var installedVersion string
 	if expected != nil {
@@ -259,7 +252,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 		}
 	}()
 	owner.Progress(caller, request, "installing")
-	for _, input := range []*artifact{binary, library, database, seal} {
+	for _, input := range []*artifact{binary, database, seal} {
 		destination, _ := shellQuote(stage + "/" + input.name)
 		if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, input.file); err != nil {
 			return err
@@ -270,7 +263,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
 		return err
 	}
-	script, err := deploymentScript(stage, binary, library, database, seal, paths, installedVersion, selection)
+	script, err := deploymentScript(stage, binary, database, seal, paths, installedVersion, selection)
 	if err != nil {
 		return err
 	}
@@ -394,13 +387,13 @@ func inspectInstalled(ctx context.Context, connection *cryptossh.Client, paths D
 	return identity, nil
 }
 
-func deploymentScript(stage string, binary, native, database, seal *artifact, paths DeploymentOptions, installedVersion string, selection *protocol.NetworkSelection) (string, error) {
+func deploymentScript(stage string, binary, database, seal *artifact, paths DeploymentOptions, installedVersion string, selection *protocol.NetworkSelection) (string, error) {
 	if !semver.IsValid("v" + link.ProductVersion) {
 		return "", invalid("invalid target Host version")
 	}
 	values := []struct{ name, value string }{
-		{"install_stage", stage}, {"install_native", native.name}, {"install_turso", database.name},
-		{"install_digest", binary.digest}, {"install_native_digest", native.digest}, {"install_turso_digest", database.digest}, {"install_seal_digest", seal.digest},
+		{"install_stage", stage}, {"install_turso", database.name},
+		{"install_digest", binary.digest}, {"install_turso_digest", database.digest}, {"install_seal_digest", seal.digest},
 		{"install_root", paths.ProgramRoot}, {"install_data", paths.Profile}, {"install_service_path", paths.ServicePath},
 		{"install_command", paths.CommandPath}, {"install_version", link.ProductVersion},
 		{"SAILRY_HOST_EXPECT_CURRENT_VERSION", installedVersion},
@@ -421,7 +414,7 @@ func deploymentScript(stage string, binary, native, database, seal *artifact, pa
 	arguments := []string{}
 	if selection != nil {
 		switch selection.Kind {
-		case "iroh":
+		case "direct":
 			arguments = append(arguments, "--internet")
 		case "custom":
 			var custom protocol.NetworkSelectionCustomPayload

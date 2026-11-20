@@ -5,7 +5,7 @@
 #
 #   cmd/sailry-desktop/windows/package.sh -artifacts <dir>
 #
-# -artifacts is the CI native job's directory of the Windows iroh, Turso, capture
+# -artifacts is the CI native job's directory of the Windows Turso, capture
 # and app-local Microsoft C++ runtime, including checksums and notices.
 #
 # .runtime/package/out/windows-amd64 receives the application directory, the
@@ -30,6 +30,7 @@ resources=cmd/sailry-desktop/resources/windows-amd64
 installer=$out/Sailry-$triple-setup.exe
 portable=$out/Sailry-$triple.zip
 
+rm -f -- "$resources/sailry_iroh.dll"
 go run ./native/fetch -target "$platform" -artifacts "$2" -bundle "$resources"
 go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 

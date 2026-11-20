@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"reflect"
 	"sync"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -20,6 +22,7 @@ func TestMobileInvokeOps(t *testing.T) {
 		input  string
 		ok     bool
 	}{
+		{"initialize", `{"iroh":"/missing/legacy/library"}`, true},
 		{"new", `{"kind":"digest"}`, true},
 		{"new", `{"kind":"speech_input"}`, false},
 		{"missing", `{}`, false},
@@ -44,6 +47,32 @@ func TestMobileInvokeOps(t *testing.T) {
 			runtime.Close(2)
 			if final := <-results; !final.Closed || final.Count != "2" {
 				t.Fatalf("close acknowledgement = %#v", final)
+			}
+		})
+	}
+}
+
+func TestMobileNetworkScope(t *testing.T) {
+	t.Parallel()
+	const relay = "/ip4/127.0.0.1/tcp/30001/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
+	for _, test := range []struct {
+		name string
+		args string
+		want link.NetworkScope
+	}{
+		{"local", `{}`, link.NetworkScope{Bind: "127.0.0.1:0"}},
+		{"internet", `{"internet":true}`, link.NetworkScope{Internet: true, Bind: ":0"}},
+		{"explicit bind", `{"internet":true,"bind":"[::1]:0"}`, link.NetworkScope{Internet: true, Bind: "[::1]:0"}},
+		{"legacy relays", `{"internet":true,"relays":["https://legacy.invalid"]}`, link.NetworkScope{Internet: true, Bind: ":0"}},
+		{"libp2p relay", `{"internet":true,"relays":["` + relay + `"]}`, link.NetworkScope{Bind: ":0", Relays: []string{relay}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var values input
+			if err := arguments(json.RawMessage(test.args), &values); err != nil {
+				t.Fatal(err)
+			}
+			if scope := values.networkScope(); !reflect.DeepEqual(scope, test.want) {
+				t.Fatalf("scope = %+v, want %+v", scope, test.want)
 			}
 		})
 	}

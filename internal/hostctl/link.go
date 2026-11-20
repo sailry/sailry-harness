@@ -19,7 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const LinkUsage = "Usage: sailry link [--data-dir <profile>] [--pairing-service <HTTPS origin>] [--relay <preset-id|iroh|custom> [--address <HTTPS relay URL>]]"
+const LinkUsage = "Usage: sailry link [--data-dir <profile>] [--pairing-service <HTTPS origin>] [--relay <preset-id|direct|custom> [--address <relay address>]]"
 
 func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactive bool, stdout, stderr io.Writer) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
@@ -30,8 +30,8 @@ func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactiv
 	flags.SetOutput(stderr)
 	profile := flags.String("data-dir", "", "Host profile directory")
 	origin := flags.String("pairing-service", link.DefaultPairingService, "Pairing service origin")
-	relayID := flags.String("relay", "", "Network preset ID, iroh, or custom")
-	address := flags.String("address", "", "HTTPS URL for a custom relay")
+	relayID := flags.String("relay", "", "Network preset ID, direct, or custom")
+	address := flags.String("address", "", "Relay hostname or IP with an optional port, or a libp2p multiaddr")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -83,18 +83,18 @@ func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactiv
 
 func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, listing protocol.NetworkListing, relayID, address string, interactive bool) (protocol.NetworkSelection, error) {
 	options := make([]protocol.NetworkPreset, 0, len(listing.Presets)+2)
-	seenIroh := false
+	seenDirect := false
 	for _, preset := range listing.Presets {
 		if preset.ID == "" || strings.TrimSpace(preset.Label.Label) == "" && len(preset.Label.Locales) == 0 {
 			return protocol.NetworkSelection{}, errors.New("Host network catalog contains an invalid preset")
 		}
-		if preset.Selection.Kind == "iroh" {
-			seenIroh = true
+		if preset.Selection.Kind == "direct" {
+			seenDirect = true
 		}
 		options = append(options, preset)
 	}
-	if !seenIroh {
-		options = append(options, protocol.NetworkPreset{ID: "iroh", Label: protocol.PluginDesktopNavigation{Label: "Public iroh relays"}, Selection: protocol.NetworkSelection{Kind: "iroh"}})
+	if !seenDirect {
+		options = append(options, protocol.NetworkPreset{ID: "direct", Label: protocol.PluginDesktopNavigation{Label: "Direct only"}, Selection: protocol.NetworkSelection{Kind: "direct"}})
 	}
 	if len(options) == 0 {
 		return protocol.NetworkSelection{}, errors.New("Host network catalog is empty")
@@ -139,7 +139,7 @@ func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, l
 	if relayID == "custom" {
 		if address == "" {
 			var err error
-			address, err = promptValue(ctx, input, output, "Custom HTTPS relay URL: ")
+			address, err = promptValue(ctx, input, output, "Relay address (host:port): ")
 			if err != nil {
 				return protocol.NetworkSelection{}, err
 			}
@@ -148,7 +148,7 @@ func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, l
 	} else {
 		found := false
 		for _, option := range options {
-			if option.ID == relayID || relayID == "iroh" && option.Selection.Kind == "iroh" {
+			if option.ID == relayID || relayID == "direct" && option.Selection.Kind == "direct" {
 				selection, found = option.Selection, true
 				break
 			}
@@ -157,7 +157,8 @@ func selectNetwork(ctx context.Context, input *bufio.Reader, output io.Writer, l
 			return protocol.NetworkSelection{}, fmt.Errorf("unknown relay preset %q", relayID)
 		}
 	}
-	if _, err := link.NetworkRelayURLs(ctx, selection); err != nil {
+	selection, err := link.ResolveNetworkSelection(ctx, selection, listing.Presets)
+	if err != nil {
 		return protocol.NetworkSelection{}, err
 	}
 	if interactive {

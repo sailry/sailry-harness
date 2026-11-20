@@ -4,7 +4,8 @@ These are the Go modules linked into the shipped binaries, taken from
 `go list -deps` for `cmd/sailry-desktop` and `cmd/sailry-host` (macOS, Linux and
 Windows) and `cmd/sailry-mobile` (Android and iOS) at the versions pinned in
 `go.mod`. Modules that `go.mod` lists only for tests or tools are not linked and
-are not listed.
+are not listed. See [Standalone relay](#standalone-relay) for its additional
+dependency.
 
 Every module keeps its own license. The license column names the license
 texts found in the notice files at the root of each module in the Go module
@@ -24,8 +25,10 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `cloud.google.com/go/compute/metadata` | v0.10.0 | Apache-2.0 | `LICENSE` | D H |
 | `dario.cat/mergo` | v1.0.0 | BSD-3-Clause | `LICENSE` | D H |
 | `filippo.io/age` | v1.3.2 | BSD-3-Clause | `LICENSE` | D H |
+| `filippo.io/bigmod` | v0.1.1-0.20260103110540-f8a47775ebe5 | BSD-3-Clause | `LICENSE` | D H M |
 | `filippo.io/edwards25519` | v1.2.0 | BSD-3-Clause | `LICENSE` | D H |
 | `filippo.io/hpke` | v0.4.0 | BSD-3-Clause | `LICENSE` | D H |
+| `filippo.io/keygen` | v1.0.0 | ISC | `LICENSE` | D H M |
 | `github.com/anthropics/anthropic-sdk-go` | v1.84.0 | MIT | `LICENSE` | D H |
 | `github.com/aws/aws-sdk-go-v2` | v1.47.5 | Apache-2.0 | `LICENSE.txt`, `NOTICE.txt` | D H |
 | `github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream` | v1.7.25 | Apache-2.0 | `LICENSE.txt` | D H |
@@ -44,6 +47,8 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/aws/smithy-go` | v1.28.7 | Apache-2.0 | `LICENSE`, `NOTICE` | D H |
 | `github.com/aymerick/douceur` | v0.2.0 | MIT | `LICENSE` | D H |
 | `github.com/bahlo/generic-list-go` | v0.2.0 | BSD-3-Clause | `LICENSE` | D H |
+| `github.com/benbjohnson/clock` | v1.3.5 | MIT | `LICENSE` | D H M |
+| `github.com/beorn7/perks` | v1.0.1 | MIT | `LICENSE` | D H M |
 | `github.com/Bios-Marcel/wastebasket/v2` | v2.0.3 | MPL-2.0 | `LICENSE` | D H |
 | `github.com/bmatcuk/doublestar/v4` | v4.10.4 | MIT | `LICENSE` | D H |
 | `github.com/Broderick-Westrope/pele-go` | v0.2.0 | MIT | `LICENSE` | D |
@@ -61,16 +66,21 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/coder/websocket` | v1.8.15 | ISC | `LICENSE.txt` | D H |
 | `github.com/creack/pty/v2` | v2.0.1 | MIT | `LICENSE` | D H |
 | `github.com/cyphar/filepath-securejoin` | v0.6.1 | MPL-2.0, BSD-3-Clause | `COPYING.md`, `LICENSE.BSD`, `LICENSE.MPL-2.0` | D H |
+| `github.com/davidlazar/go-crypto` | v0.0.0-20200604182044-b73af7476f6c | MIT | `LICENSE` | D H M |
+| `github.com/decred/dcrd/dcrec/secp256k1/v4` | v4.4.1 | ISC | `LICENSE` | D H M |
 | `github.com/dicebear/dicebear-go/v10` | v10.7.0 | MIT | `LICENSE` | D |
 | `github.com/dicebear/schema` | v1.5.1 | MIT | `LICENSE` | D |
 | `github.com/dlclark/regexp2` | v1.11.0 | MIT | `LICENSE` | D H |
+| `github.com/dunglas/httpsfv` | v1.1.2 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/dustin/go-humanize` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/ebitengine/purego` | v0.11.3 | Apache-2.0 | `LICENSE` | D H M |
 | `github.com/egoist/mygo` | v0.10.0 | MIT | `LICENSE` | D H |
 | `github.com/ELY-Open-Source/CrychicUI` | v0.0.0-20261110123803-1c55e6a884bb | MIT; bundled Lucide icons ISC | `LICENSE`, `THIRD_PARTY_NOTICES.md` | D |
 | `github.com/emirpasic/gods` | v1.18.1 | BSD-2-Clause, ISC | `LICENSE` | D H |
 | `github.com/felixge/httpsnoop` | v1.1.0 | MIT | `LICENSE.txt` | D H |
+| `github.com/filecoin-project/go-clock` | v0.1.0 | MIT | `LICENSE` | D H M |
 | `github.com/firede/limu` | v0.5.0 | MIT | `LICENSE` | D |
+| `github.com/flynn/noise` | v1.1.0 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/fsnotify/fsnotify` | v1.10.1 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/gabriel-vasile/mimetype` | v1.4.16 | MIT | `LICENSE` | D H |
 | `github.com/getsentry/sentry-go` | v0.50.0 | MIT | `LICENSE` | D H |
@@ -96,11 +106,16 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/googleapis/gax-go/v2` | v2.27.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/gorilla/css` | v1.0.1 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/gorilla/websocket` | v1.5.3 | BSD-2-Clause | `LICENSE` | D H |
+| `github.com/hajimehoshi/go-mp3` | v0.3.4 | Apache-2.0 | `LICENSE` | D |
+| `github.com/huin/goupnp` | v1.3.1 | BSD-2-Clause | `LICENSE` | D H M |
 | `github.com/invopop/jsonschema` | v0.14.0 | MIT | `COPYING` | D H |
+| `github.com/ipfs/go-cid` | v0.6.2 | MIT | `LICENSE` | D H M |
 | `github.com/jackc/pgpassfile` | v1.0.0 | MIT | `LICENSE` | D H |
 | `github.com/jackc/pgservicefile` | v0.0.0-20240606120523-5a60cdf6a761 | MIT | `LICENSE` | D H |
 | `github.com/jackc/pgx/v5` | v5.12.0 | MIT | `LICENSE` | D H |
+| `github.com/jackpal/go-nat-pmp` | v1.1.0 | Apache-2.0 | `LICENSE` | D H M |
 | `github.com/jbenet/go-context` | v0.0.0-20150711004518-d14ea06fba99 | MIT | `LICENSE` | D H |
+| `github.com/jbenet/go-temp-err-catcher` | v0.1.0 | MIT | `LICENSE` | D H M |
 | `github.com/JohannesKaufmann/dom` | v0.3.1 | MIT | `LICENSE` | D H |
 | `github.com/JohannesKaufmann/html-to-markdown/v2` | v2.5.2 | MIT | `LICENSE` | D H |
 | `github.com/jolestar/go-commons-pool/v2` | v2.1.2 | Apache-2.0 | `LICENSE` | D H |
@@ -110,15 +125,27 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/kaptinlin/jsonschema` | v0.9.10 | MIT | `LICENSE` | D H |
 | `github.com/kevinburke/ssh_config` | v1.2.0 | MIT | `LICENSE` | D H |
 | `github.com/klauspost/compress` | v1.20.4 | Apache-2.0, MIT, BSD-3-Clause | `LICENSE` | D H M |
-| `github.com/klauspost/cpuid/v2` | v2.4.0 | MIT | `LICENSE` | D H M |
+| `github.com/klauspost/cpuid/v2` | v2.4.2 | MIT | `LICENSE` | D H M |
 | `github.com/klauspost/crc32` | v1.3.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/klippa-app/go-pdfium` | v1.21.4 | MIT | `LICENSE` | D H |
+| `github.com/koron/go-ssdp` | v0.9.2 | MIT | `LICENSE` | D H M |
 | `github.com/kr/fs` | v0.1.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/ledongthuc/pdf` | v0.0.0-20261020125853-5e46805f718e | BSD-3-Clause | `LICENSE` | D H |
+| `github.com/libp2p/go-buffer-pool` | v0.1.0 | MIT, BSD-3-Clause | `LICENSE`, `LICENSE-BSD` | D H M |
+| `github.com/libp2p/go-flow-metrics` | v0.3.0 | MIT | `LICENSE` | D H M |
+| `github.com/libp2p/go-libp2p` | v0.52.0 | MIT | `LICENSE` | D H M |
+| `github.com/libp2p/go-libp2p-asn-util` | v0.4.1 | MIT | `LICENSE` | D H M |
+| `github.com/libp2p/go-msgio` | v0.3.0 | MIT | `LICENSE` | D H M |
+| `github.com/libp2p/go-netroute` | v0.4.0 | BSD-3-Clause | `LICENSE` | D H M |
+| `github.com/libp2p/go-reuseport` | v0.4.0 | ISC | `LICENSE` | D H M |
+| `github.com/libp2p/go-yamux/v5` | v5.1.0 | MPL-2.0, BSD-3-Clause | `LICENSE`, `LICENSE-BSD` | D H M |
+| `github.com/marten-seemann/tcp` | v0.0.0-20210406111302-dfbc87cc63fd | BSD-2-Clause | `LICENSE` | D H M |
 | `github.com/Masterminds/semver/v3` | v3.5.0 | MIT | `LICENSE.txt` | D H |
 | `github.com/mattn/go-isatty` | v0.0.24 | MIT | `LICENSE` | D H |
 | `github.com/microcosm-cc/bluemonday` | v1.0.27 | BSD-3-Clause | `LICENSE.md` | D H |
 | `github.com/Microsoft/go-winio` | v0.6.2 | MIT | `LICENSE` | D H |
+| `github.com/mikioh/tcpinfo` | v0.0.0-20190314235526-30a79bb1804b | BSD-2-Clause | `LICENSE` | D H M |
+| `github.com/mikioh/tcpopt` | v0.0.0-20190314235656-172688c1accc | BSD-2-Clause | `LICENSE` | D H M |
 | `github.com/minio/crc64nvme` | v1.1.1 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/minio/md5-simd` | v1.1.2 | Apache-2.0, BSD-3-Clause | `LICENSE`, `LICENSE.Golang` | D H |
 | `github.com/minio/minio-go/v7` | v7.4.1 | Apache-2.0 | `LICENSE`, `NOTICE` | D H |
@@ -127,18 +154,56 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/modern-go/reflect2` | v1.0.2 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/MoeForge/moego` | v0.1.0-alpha.1 | MIT | `LICENSE` | D H |
 | `github.com/MoeForge/moejs` | v0.1.0 | Apache-2.0 | `LICENSE` | D H |
+| `github.com/mr-tron/base58` | v1.3.0 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-base32` | v0.1.0 | BSD-3-Clause | `LICENSE` | D H M |
+| `github.com/multiformats/go-base36` | v0.2.0 | MIT | `LICENSE.md` | D H M |
+| `github.com/multiformats/go-multiaddr` | v0.16.1 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-multiaddr-dns` | v0.6.0 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-multiaddr-fmt` | v0.1.0 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-multibase` | v0.3.0 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-multicodec` | v0.10.0 | Apache-2.0, MIT | `LICENSE`, `LICENSE-APACHE`, `LICENSE-MIT` | D H M |
+| `github.com/multiformats/go-multihash` | v0.2.3 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-multistream` | v0.6.1 | MIT | `LICENSE` | D H M |
+| `github.com/multiformats/go-varint` | v0.1.0 | MIT | `LICENSE` | D H M |
+| `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/ncruces/go-strftime` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/nikolalohinski/gonja/v2` | v2.5.1 | MIT | `LICENSE` | D H |
 | `github.com/odvcencio/gotreesitter` | v0.57.0 | MIT | `LICENSE` | D H |
 | `github.com/openai/openai-go/v3` | v3.98.0 | Apache-2.0 | `LICENSE` | D H |
+| `github.com/pandatix/go-abnf` | v0.5.5 | MIT | `LICENSE` | D H M |
 | `github.com/pb33f/ordered-map/v2` | v2.3.1 | Apache-2.0 | `LICENSE` | D H |
+| `github.com/pbnjay/memory` | v0.0.0-20210728143218-7b4eea64cf58 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/philhofer/fwd` | v1.2.0 | MIT | `LICENSE.md` | D H |
+| `github.com/pion/datachannel` | v1.5.10 | MIT | `LICENSE` | D H M |
+| `github.com/pion/dtls/v3` | v3.1.2 | MIT | `LICENSE` | D H M |
+| `github.com/pion/ice/v4` | v4.0.10 | MIT | `LICENSE` | D H M |
+| `github.com/pion/interceptor` | v0.1.40 | MIT | `LICENSE` | D H M |
+| `github.com/pion/logging` | v0.2.4 | MIT | `LICENSE` | D H M |
+| `github.com/pion/mdns/v2` | v2.0.7 | MIT | `LICENSE` | D H M |
+| `github.com/pion/randutil` | v0.1.0 | MIT | `LICENSE` | D H M |
+| `github.com/pion/rtcp` | v1.2.16 | MIT | `LICENSE` | D H M |
+| `github.com/pion/rtp` | v1.8.19 | MIT | `LICENSE` | D H M |
+| `github.com/pion/sctp` | v1.8.39 | MIT | `LICENSE` | D H M |
+| `github.com/pion/sdp/v3` | v3.0.18 | MIT | `LICENSE` | D H M |
+| `github.com/pion/srtp/v3` | v3.0.6 | MIT | `LICENSE` | D H M |
+| `github.com/pion/stun/v3` | v3.1.1 | MIT | `LICENSE` | D H M |
+| `github.com/pion/transport/v3` | v3.0.7 | MIT | `LICENSE` | D H M |
+| `github.com/pion/transport/v4` | v4.0.1 | MIT | `LICENSE` | D H M |
+| `github.com/pion/turn/v4` | v4.0.2 | MIT | `LICENSE` | D H M |
+| `github.com/pion/webrtc/v4` | v4.1.2 | MIT | `LICENSE` | D H M |
 | `github.com/pjbgf/sha1cd` | v0.7.0 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/pkg/errors` | v0.9.1 | BSD-2-Clause | `LICENSE` | D H |
 | `github.com/pkg/sftp` | v1.13.12 | BSD-2-Clause | `LICENSE` | D H |
 | `github.com/pkoukk/tiktoken-go` | v0.1.8 | MIT | `LICENSE` | D H |
 | `github.com/pkoukk/tiktoken-go-loader` | v0.0.2 | MIT | `LICENSE` | D H |
+| `github.com/prometheus/client_golang` | v1.25.0 | Apache-2.0 | `LICENSE`, `NOTICE` | D H M |
+| `github.com/prometheus/client_model` | v0.6.3 | Apache-2.0 | `LICENSE`, `NOTICE` | D H M |
+| `github.com/prometheus/common` | v0.74.0 | Apache-2.0 | `LICENSE`, `NOTICE` | D H M |
+| `github.com/prometheus/procfs` | v0.23.0 | Apache-2.0 | `LICENSE`, `NOTICE` | D H M |
 | `github.com/ProtonMail/go-crypto` | v1.4.1 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
+| `github.com/quic-go/qpack` | v0.6.0 | MIT | `LICENSE.md` | D H M |
+| `github.com/quic-go/quic-go` | v0.64.1 | MIT | `LICENSE` | D H M |
+| `github.com/quic-go/webtransport-go` | v0.13.0 | MIT | `LICENSE` | D H M |
 | `github.com/remyoudompheng/bigfft` | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/richardlehane/mscfb` | v1.0.9 | Apache-2.0 | `LICENSE.txt` | D H |
 | `github.com/richardlehane/msoleps` | v1.0.6 | Apache-2.0 | `LICENSE.txt` | D H |
@@ -150,6 +215,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/shirou/gopsutil/v4` | v4.26.10 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/sirupsen/logrus` | v1.10.2 | MIT | `LICENSE` | D H |
 | `github.com/skeema/knownhosts` | v1.3.1 | Apache-2.0 | `LICENSE`, `NOTICE` | D H |
+| `github.com/spaolacci/murmur3` | v1.1.0 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/standard-webhooks/standard-webhooks/libraries` | v0.0.1 | MIT | `LICENSE` | D H |
 | `github.com/studio-b12/gowebdav` | v0.13.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/tetratelabs/wazero` | v1.12.0 | Apache-2.0 | `LICENSE`, `NOTICE` | D H |
@@ -161,6 +227,8 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/tinylib/msgp` | v1.6.4 | MIT | `LICENSE` | D H |
 | `github.com/tklauser/go-sysconf` | v0.4.0 | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/tklauser/numcpus` | v0.12.0 | Apache-2.0 | `LICENSE` | D H |
+| `github.com/tursodatabase/turso-go-platform-libs` | v0.8.3 | MIT | `LICENSE` | D H |
+| [`github.com/wlynxg/anet`](https://github.com/wlynxg/anet/tree/v0.0.5) | v0.0.5 (replaced by [`github.com/BieHDC/anet`](https://github.com/BieHDC/anet/tree/d47f8b766b3c) v0.0.6-0.20241226223613-d47f8b766b3c) | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/xanzy/ssh-agent` | v0.3.3 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/xuri/efp` | v0.0.3-0.20260924042702-217b81952dec | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/xuri/excelize/v2` | v2.11.1 | BSD-3-Clause | `LICENSE` | D H |
@@ -177,17 +245,21 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `go.opentelemetry.io/otel/log` | v1.47.0 | Apache-2.0, BSD-3-Clause | `LICENSE` | D H |
 | `go.opentelemetry.io/otel/metric` | v1.47.0 | Apache-2.0, BSD-3-Clause | `LICENSE` | D H |
 | `go.opentelemetry.io/otel/trace` | v1.47.0 | Apache-2.0, BSD-3-Clause | `LICENSE` | D H |
+| `go.uber.org/dig` | v1.19.0 | MIT | `LICENSE` | D H M |
+| `go.uber.org/fx` | v1.24.0 | MIT | `LICENSE` | D H M |
+| `go.uber.org/multierr` | v1.11.0 | MIT | `LICENSE.txt` | D H M |
+| `go.uber.org/zap` | v1.28.0 | MIT | `LICENSE` | D H M |
 | `go.yaml.in/yaml/v3` | v3.0.6 | Apache-2.0, MIT | `LICENSE`, `NOTICE` | D H |
 | `go.yaml.in/yaml/v4` | v4.0.0-rc.3 | Apache-2.0 | `LICENSE`, `NOTICE` | D H |
-| `golang.org/x/crypto` | v0.58.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
-| `golang.org/x/exp` | v0.0.0-20260410095643-746e56fc9e2f | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
+| `golang.org/x/crypto` | v0.59.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
+| `golang.org/x/exp` | v0.0.0-20261113113407-e3970619a1a4 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `golang.org/x/image` | v0.47.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `golang.org/x/mod` | v0.43.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `golang.org/x/net` | v0.62.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H M |
-| `golang.org/x/oauth2` | v0.37.0 | BSD-3-Clause | `LICENSE` | D H |
+| `golang.org/x/oauth2` | v0.38.0 | BSD-3-Clause | `LICENSE` | D H |
 | `golang.org/x/sync` | v0.25.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `golang.org/x/sys` | v0.50.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H M |
-| `golang.org/x/text` | v0.43.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H M |
+| `golang.org/x/text` | v0.44.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H M |
 | `golang.org/x/time` | v0.16.0 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `google.golang.org/api` | v0.309.0 | BSD-3-Clause | `LICENSE` | D H |
 | `google.golang.org/genai` | v1.76.0 | Apache-2.0, BSD-3-Clause | `LICENSE` | D H |
@@ -203,3 +275,14 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `modernc.org/memory` | v1.12.1 | BSD-3-Clause | `LICENSE`, `LICENSE-GO`, `LICENSE-LOGO`, `LICENSE-MMAP-GO` | D H |
 | `modernc.org/sqlite` | v1.62.0 | BSD-3-Clause, Apache-2.0, MPL-2.0, MIT | `LICENSE`, `LICENSE-3RD-PARTY.md`, `LICENSE-SQLITE`, `LICENSE-SQLITE_VEC` | D H |
 | `rsc.io/qr` | v0.2.0 | BSD-3-Clause | `LICENSE` | D |
+| `turso.tech/database/tursogo` | v0.8.3 | MIT | `LICENSE.md` | D H |
+
+## Standalone relay
+
+The Linux `sailry-relay` package collects the notices for
+`cmd/sailry-libp2p-relay` from the target's Go dependency graph. The relay's
+additional TOML dependency is:
+
+| Module | Version | License | Notice files |
+| --- | --- | --- | --- |
+| [`github.com/pelletier/go-toml/v2`](https://github.com/pelletier/go-toml/tree/v2.4.3) | v2.4.3 | MIT | [`LICENSE`](https://github.com/pelletier/go-toml/blob/v2.4.3/LICENSE) |

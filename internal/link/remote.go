@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -121,7 +120,7 @@ func (remote *Remote) dispatchCall(ctx context.Context, request protocol.Request
 		}
 		scoped, cancel := remote.link.operation(owner, false)
 		defer cancel()
-		reply, err := reader.Reply(scopedReader{scoped, stream})
+		reply, err := reader.Reply(&scopedReader{ctx: scoped, stream: stream})
 		if err != nil && bound && ctx.Err() != nil {
 			completed <- Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "request was cancelled before its completion"}}
 			return
@@ -186,7 +185,7 @@ func (remote *Remote) Subscribe(ctx context.Context, topic protocol.Topic) (Subs
 	if err := stream.CloseWrite(); err != nil {
 		return nil, linkNetwork(err)
 	}
-	subscription := &remoteSubscription{link: remote.link, connection: connection, stream: stream, reader: wire.NewReader(compressed)}
+	subscription := &remoteSubscription{link: remote.link, stream: stream, reader: wire.NewReader(compressed)}
 	reply, err := subscription.reply(ctx)
 	if err != nil {
 		return nil, err
@@ -203,13 +202,12 @@ func (remote *Remote) Subscribe(ctx context.Context, topic protocol.Topic) (Subs
 }
 
 type remoteSubscription struct {
-	link       *Link
-	connection *iroh.Connection
-	stream     contextStream
-	reader     *wire.Reader
-	next       sync.Mutex
-	closeOnce  sync.Once
-	closeErr   error
+	link      *Link
+	stream    contextStream
+	reader    *wire.Reader
+	next      sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (subscription *remoteSubscription) Next(ctx context.Context) (protocol.Update, error) {
@@ -233,16 +231,9 @@ func (subscription *remoteSubscription) Next(ctx context.Context) (protocol.Upda
 func (subscription *remoteSubscription) reply(ctx context.Context) (wire.Reply, error) {
 	scoped, cancel := subscription.link.operation(ctx, false)
 	defer cancel()
-	reply, err := subscription.reader.Reply(scopedReader{scoped, subscription.stream})
-	if err != nil && subscription.connection != nil {
-		infoContext, release := subscription.link.operation(subscription.link.ctx, true)
-		info, infoErr := subscription.connection.Info(infoContext)
-		release()
-		if infoErr == nil && info.Closed != nil && info.Closed.Kind == "application" && info.Closed.Code == 1 {
-			return wire.Reply{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer revoked access"}
-		}
-	}
-	return reply, err
+	reader := &scopedReader{ctx: scoped, stream: subscription.stream}
+	reply, err := subscription.reader.Reply(reader)
+	return reply, reader.result(err)
 }
 
 func (subscription *remoteSubscription) Close() error {

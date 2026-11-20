@@ -1,7 +1,7 @@
 # Windows C++ runtime
 
 The x64 native CI job runs `pwsh -File native/windows/crt.ps1` after building
-iroh, Turso and capture. It uses `vswhere` to select the same installed Visual
+Turso and capture. It uses `vswhere` to select the same installed Visual
 Studio C++ toolchain as capture, reads its default redistributable version, and
 copies the DLLs in `x64/Microsoft.VC*.CRT`. No runtime is downloaded separately.
 
@@ -16,8 +16,8 @@ DLLs or notices fail staging; no terms are synthesized.
 `windows-crt.json` records the target, toolset version and filenames. The native
 artifact's `SHA256SUMS` covers it, the DLLs and notices. `native/fetch` verifies
 those checksums and puts the files beside the application executable. The seal
-includes the complete list; Turso and iroh check it before loading their native
-library. Python retains its own locked runtime files under `python/`.
+includes the complete list; Turso checks it before loading its native library.
+Python retains its own locked runtime files under `python/`.
 
 For local Windows packaging, run the same PowerShell command first, then
 `native/fetch` and the usual seal step. The Desktop installer and portable

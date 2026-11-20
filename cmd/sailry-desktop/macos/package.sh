@@ -5,7 +5,7 @@
 #
 #   cmd/sailry-desktop/macos/package.sh [-artifacts <dir>]
 #
-# -artifacts is the CI native job's directory of iroh, Turso and capture libraries;
+# -artifacts is the CI native job's directory of Turso and capture libraries;
 # without it the libraries already built in .runtime/native are used.
 #
 # .runtime/package/out/darwin-<arch> receives Sailry.app, the disk image
@@ -85,6 +85,7 @@ if test -n "${APPLE_SIGNING_KEYCHAIN:-}"; then
   security list-keychains -d user -s "$APPLE_SIGNING_KEYCHAIN" ${previous[@]+"${previous[@]}"}
 fi
 
+rm -f -- "$resources/libsailry_iroh.dylib"
 go run ./native/fetch -target "$platform" ${artifacts[@]+"${artifacts[@]}"} -bundle "$resources"
 # Pinned MyGo reaches the helper app's main executable before its sibling.
 # Intel's unsigned sibling must be signed before codesign validates that app.

@@ -1,6 +1,6 @@
 # Short-code ticket exchange
 
-This service exchanges a six-digit code for an opaque iroh pairing ticket.
+This service exchanges a six-digit code for an opaque Sailry pairing ticket.
 Rust Link establishes the authenticated connection and saves peer trust.
 There is no account login or second approval page. Codes expire after **60 seconds**.
 Code `888888` is reserved for Mobile's local offline demonstration and is never allocated.
@@ -60,37 +60,32 @@ pnpm dev
 process restart, Durable Object SQLite and concurrent HTTP redemption. Tests use
 isolated temporary storage, not production namespaces.
 
-`test:rust` starts workerd and two real Rust Nodes, publishes an invitation,
-redeems its PIN, authenticates over iroh and executes a Node snapshot request.
-It also verifies retry and cancellation behavior. It does not test a public relay.
+The historical `test:rust` and `test:desktop` fixtures use Iroh and the Rust
+application. They check opaque ticket exchange, not current Sailry transport.
+The Go Link's `TestPairPINConnectsAcrossDifferentRelays` integration test checks PIN
+pairing over real loopback Circuit Relay v2 servers.
 
-`test:desktop` uses Kit's interaction test context with real Tokio I/O enabled,
-workerd and isolated Nodes. It clicks share/cancel/connect and verifies a real
-authenticated Node request.
+For desktop integration, run `go run ./cmd/sailry-desktop --data-dir
+/absolute/private/profile` from the repository root, then configure this service
+origin in the controller's pairing preference. Literal loopback HTTP origins are
+allowed for local testing. Configure the data relay separately with `--relay
+<libp2p multiaddr>`. Only `--preview` starts without a Node or user data.
 
-For desktop integration, run `cargo run -p sailry-desktop -- --data-dir
-/absolute/private/profile` from the repository root, then open Settings → Remote
-connections and enter this service URL. Literal loopback HTTP URLs are allowed for
-local testing. Add `--relay https://...` for a custom iroh relay. Desktop normally
-starts its Node in `~/.sailry`; use an explicit private test directory for local
-acceptance. Only `--preview` starts without a Node or user data.
-
-Tickets carry the complete iroh endpoint address, including endpoint ID, direct
-addresses and the selected relay URLs, plus the expiring invitation credential.
-The exchange service preserves this opaque value; it must not substitute its own
-relay. Host supports `--internet` for the default relay network or repeated
-`--relay https://...` options for custom relays. The relay connection is established
-before Host announces its address. These options are separate from the short-code
-service URL. Custom relay cloud connectivity still requires deployment acceptance.
+Tickets carry the endpoint identity, direct and Circuit Relay v2 addresses,
+and the expiring invitation credential. The exchange service preserves this opaque
+value; it must not substitute its own route. `--internet` is direct-only and
+`--relay <libp2p multiaddr>` uses a configured data relay. Host obtains a reservation
+before announcing a configured relay route. These options are separate from the
+short-code service URL. Custom relay cloud connectivity still requires deployment acceptance.
 
 Headless Host can explicitly enable pairing with `--pairing-service https://...`.
 It prints a private six-digit PIN with its expiry, automatically replaces expired
 codes, and stops sharing after pairing succeeds. The Node continues serving its
 paired clients. SIGINT/SIGTERM cancels the invitation before shutting down the Node.
 Treat this opt-in process output as sensitive; do not expose it in public logs.
-Without this option Host does not publish invitations. Run
-`node test/rust-e2e.mjs --host` here to verify a real Host process with workerd,
-iroh pairing, a Node request, graceful exit and persisted peer recovery.
+Without this option Host does not publish invitations. The historical
+`node test/rust-e2e.mjs --host` fixture targets the old Rust Host, not `sailry-host`
+in this checkout.
 
 On macOS, the Host archive also includes `host-launchd.sh` (requires `jq`). First
 pair the foreground Host using the intended private profile, then stop it. Generate
@@ -102,7 +97,7 @@ bash host-launchd.sh /absolute/sailry-host /absolute/private/profile --internet
 
 The generator prints a new plist path; it does not install or start a service.
 It preserves argument boundaries and creates private logs inside the profile.
-Use `--relay https://...` instead of `--internet` for a custom relay. Omit
+Use `--relay <libp2p multiaddr>` instead of `--internet` for a private data relay. Omit
 `--pairing-service` from the installed service to keep pairing closed after restart.
 Place the generated plist at `~/Library/LaunchAgents/ai.sailry.host.plist`, then run:
 
@@ -204,7 +199,7 @@ physical cleanup. Failed schedules can leave expired objects until a later
 pass; they never make an expired ticket redeemable.
 
 `test:edgeone` runs the production Node handler and Blob adapter against a local
-SQLite-backed Blob contract fixture, then real Rust Nodes/iroh, including the
+SQLite-backed Blob contract fixture. Its historical Rust/Iroh leg checks the
 60-second rollover. It does not contact EdgeOne storage or prove cloud deployment.
 `build:edgeone` verifies bundling only. Actual deployments and scheduled-job
 execution on both cloud providers remain separate release acceptance.

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -50,9 +49,6 @@ func (subscription *routedFixtureSubscription) Close() error {
 }
 
 func TestMultiHostRoutesCommandsSubscriptionsBytesAndReverseKnowledge(t *testing.T) {
-	if err := iroh.LoadDefault(true); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	identity := func() Identity {

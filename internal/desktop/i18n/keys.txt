@@ -918,7 +918,7 @@ pairing_preview_disabled
 pairing_relay_address
 pairing_relay_address_hint
 pairing_relay_custom
-pairing_relay_iroh
+pairing_relay_direct
 pairing_relay_server
 pairing_share
 pairing_share_hint

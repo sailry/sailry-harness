@@ -11,7 +11,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 	"lukechampine.com/blake3"
@@ -68,7 +67,7 @@ func reserveNoticeFixture(t *testing.T, service *Link, attempt HostRemovalAttemp
 	done := make(chan struct{})
 	close(done)
 	route := RouteP2P
-	service.outgoing[attempt.Request.Target] = &outgoingSlot{ctx: ctx, cancel: cancel, connection: &iroh.Connection{},
+	service.outgoing[attempt.Request.Target] = &outgoingSlot{ctx: ctx, cancel: cancel, connection: &fixtureConnection{},
 		telemetry: &connectionTelemetry{value: ConnectionInfo{Route: &route}, changed: make(chan struct{}), cancel: func() {}, done: done}}
 	_, notice, err := service.reserveHostRemovalNotice(t.Context(), attempt)
 	if err != nil || notice == nil {

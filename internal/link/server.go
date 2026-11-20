@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -28,7 +28,7 @@ func (link *Link) acceptWorker() {
 		connection, err := link.endpoint.Accept(link.ctx)
 		if err != nil {
 			// A closed endpoint accepts nothing more, so its workers end.
-			if link.ctx.Err() != nil || errors.Is(err, iroh.ErrClosed) {
+			if link.ctx.Err() != nil || errors.Is(err, peertransport.ErrClosed) {
 				return
 			}
 			continue
@@ -49,7 +49,7 @@ func (link *Link) acceptWorker() {
 		case info.ALPN == wire.NodeALPN && link.isTrusted(info.RemoteID):
 			link.serveConnection(connection, info.RemoteID)
 		default:
-			_ = connection.Close(1, "peer not paired")
+			_ = connection.Close(peerRevokedCloseCode, "peer not paired")
 		}
 		link.mu.Lock()
 		delete(link.incoming, connection)
@@ -107,7 +107,7 @@ func (link *Link) spawn(work func()) error {
 	}
 }
 
-func (link *Link) serveConnection(connection *iroh.Connection, peer protocol.NodeID) {
+func (link *Link) serveConnection(connection peertransport.Connection, peer protocol.NodeID) {
 	ctx, cancel := context.WithCancel(link.ctx)
 	defer cancel()
 	streams := make(chan struct{}, maxStreams)
@@ -118,7 +118,7 @@ func (link *Link) serveConnection(connection *iroh.Connection, peer protocol.Nod
 		if link.isTrusted(peer) {
 			_ = connection.Close(0, "Link closed")
 		} else {
-			_ = connection.Close(1, "peer revoked")
+			_ = connection.Close(peerRevokedCloseCode, "peer revoked")
 		}
 		cancel()
 		pending.Wait()

@@ -146,11 +146,11 @@ func TestSSHWindowsInstallationGuidance(t *testing.T) {
 
 func TestSSHPlatformDetectionKeepsPOSIX(t *testing.T) {
 	for _, test := range []struct {
-		name, version, platform, target, native string
+		name, version, platform, target, turso string
 	}{
-		{"Linux", "SSH-2.0-fixture", "Linux\nx86_64\n", "linux-amd64", "libsailry_iroh.so"},
-		{"macOS", "SSH-2.0-fixture", "Darwin\narm64\n", "darwin-arm64", "libsailry_iroh.dylib"},
-		{"WSL behind Windows OpenSSH", "SSH-2.0-OpenSSH_for_Windows_9.5", "Linux\naarch64\n", "linux-arm64", "libsailry_iroh.so"},
+		{"Linux", "SSH-2.0-fixture", "Linux\nx86_64\n", "linux-amd64", "libturso_sync_sdk_kit.so"},
+		{"macOS", "SSH-2.0-fixture", "Darwin\narm64\n", "darwin-arm64", "libturso_sync_sdk_kit.dylib"},
+		{"WSL behind Windows OpenSSH", "SSH-2.0-OpenSSH_for_Windows_9.5", "Linux\naarch64\n", "linux-arm64", "libturso_sync_sdk_kit.so"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			connection, commands := deploymentSSH(t, test.version, func(command string) (string, string, uint32) {
@@ -161,9 +161,9 @@ func TestSSHPlatformDetectionKeepsPOSIX(t *testing.T) {
 			})
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			target, native, err := detectPlatform(ctx, connection)
-			if err != nil || target != test.target || native != test.native || !slices.Equal(commands(), []string{"uname -s; uname -m"}) {
-				t.Fatalf("platform = %q, %q, %v; commands %q", target, native, err, commands())
+			target, turso, err := detectPlatform(ctx, connection)
+			if err != nil || target != test.target || turso != test.turso || !slices.Equal(commands(), []string{"uname -s; uname -m"}) {
+				t.Fatalf("platform = %q, %q, %v; commands %q", target, turso, err, commands())
 			}
 		})
 	}

@@ -13,12 +13,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/net/idna"
 )
 
 const DefaultPairingService = "https://sailry.link.dux.plus"
@@ -94,6 +96,47 @@ func (link *Link) PairPINOnNetwork(ctx context.Context, origin, pin string, sele
 		return EndpointAddress{}, err
 	}
 	return link.pairPINSelected(ctx, origin, pin, relays, claim)
+}
+
+func normalizeURLHost(relay *url.URL) error {
+	host := strings.ToLower(relay.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	} else {
+		canonical, err := idna.Lookup.ToASCII(host)
+		if err != nil || strings.Contains(host, ":") {
+			return invalidLink("invalid relay URL")
+		}
+		host = canonical
+	}
+	port := relay.Port()
+	if port != "" {
+		number, err := strconv.ParseUint(port, 10, 16)
+		if err != nil {
+			return invalidLink("invalid relay URL")
+		}
+		port = strconv.FormatUint(number, 10)
+	}
+	relay.Host = host
+	if strings.Contains(host, ":") {
+		relay.Host = "[" + host + "]"
+	}
+	defaultPort := relay.Scheme == "https" && port == "443" || relay.Scheme == "http" && port == "80"
+	if port != "" && !defaultPort {
+		relay.Host = net.JoinHostPort(host, port)
+	}
+	if relay.User != nil && !urlHasCredentials(relay) {
+		relay.User = nil
+	}
+	return nil
+}
+
+func urlHasCredentials(value *url.URL) bool {
+	if value.User == nil {
+		return false
+	}
+	_, password := value.User.Password()
+	return value.User.Username() != "" || password
 }
 
 func (link *Link) pairPINSelected(ctx context.Context, origin, pin string, relays []string, claim *PairingClaim) (EndpointAddress, error) {

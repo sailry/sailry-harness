@@ -896,10 +896,10 @@ pairing_connect: 장치 연결
 pairing_local_code: 로컬 페어링 코드
 pairing_pin_hint: 6자리 페어링 코드 입력
 pairing_preview_disabled: UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다
-pairing_relay_address: 주소
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: 릴레이 주소
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 사용자 지정
-pairing_relay_iroh: 공용 네트워크
+pairing_relay_direct: 직접 연결만
 pairing_relay_server: 연결 서버
 pairing_share: 이 장치 공유하기
 pairing_share_hint: 다른 장치의 원격 연결에서 이 코드를 입력하십시오
@@ -1912,7 +1912,7 @@ pairing_preparing: 연결 준비 중
 pairing_refresh_hint: 60초 동안 유효하며 만료시 새로 고침
 pairing_relay_checking: 릴레이 검사 중
 pairing_relay_failed: 리레이에 연결할 수 없습니다. URL을 확인하고 다시 시도하십시오
-pairing_relay_invalid: 유효한 HTTPS 중계 URL을 입력하십시오
+pairing_relay_invalid: 유효한 릴레이 주소를 입력하세요
 pairing_relay_ready: 릴레이 연결됨
 pairing_relay_selected: 선택한 네트워크
 pairing_retrying: 페어링 서비스를 사용할 수 없습니다. 다시 시도 중

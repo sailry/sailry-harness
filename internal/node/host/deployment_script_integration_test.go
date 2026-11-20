@@ -169,6 +169,38 @@ func TestFreshHostInstallRecovery(t *testing.T) {
 	}
 }
 
+func TestPublishedHostInstallPassesRelayArguments(t *testing.T) {
+	directory, home, installer, tools := freshHostInstaller(t)
+	command := exec.CommandContext(t.Context(), "/bin/bash", installer, "--version", link.ProductVersion,
+		"--relay", deploymentTestTCPRelay, "--relay", deploymentTestQUICRelay)
+	command.Env = append(os.Environ(),
+		"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"SAILRY_INSTALL_FIXTURE="+directory,
+		"SAILRY_INSTALL_FIXTURE_HOME="+home,
+		"SAILRY_INSTALL_FAIL=",
+		"SAILRY_INSTALL_RETAIN_DATA=false",
+		"SAILRY_INSTALL_CLEANUP_FAILS=false",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("install with custom relays: %v: %s", err, output)
+	}
+	unit, err := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", "sailry-host.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `ExecStart="%h/.local/lib/sailry/sailry-host" --data-dir "%h/.sailry-host" "--relay" "` + deploymentTestTCPRelay +
+		`" "--relay" "` + deploymentTestQUICRelay + `" --bootstrap`
+	for line := range strings.SplitSeq(string(unit), "\n") {
+		if strings.HasPrefix(line, "ExecStart=") {
+			if line != want {
+				t.Fatalf("service argv = %q, want %q", line, want)
+			}
+			return
+		}
+	}
+	t.Fatal("Host service has no ExecStart")
+}
+
 func TestFreshHostInstallSerializesConcurrentPublication(t *testing.T) {
 	directory, home, installer, tools := freshHostInstaller(t)
 	command := func() *exec.Cmd {

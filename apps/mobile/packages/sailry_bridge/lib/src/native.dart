@@ -11,32 +11,17 @@ import 'envelope.dart';
 typedef _Completion = Void Function(Uint64, Pointer<Uint8>, Uint64);
 
 NativeBridge? _shared;
-Future<void>? _initialization;
 
 Future<void> initializeNativeBridge({DynamicLibrary? library}) async {
-  final existing = _initialization;
-  if (existing != null) return existing;
-  var bridge = _shared;
-  if (bridge == null || bridge._closing) {
-    bridge = NativeBridge(library);
-    _shared = bridge;
-  }
-  if (bridge.initialized) return;
-  final initialization = bridge.initialize();
-  _initialization = initialization;
-  try {
-    await initialization;
-  } catch (_) {
-    await bridge.shutdown();
-    rethrow;
-  } finally {
-    _initialization = null;
-  }
+  _openNativeBridge(library);
 }
 
-NativeBridge get nativeBridge {
-  if (_shared == null || _shared!._closing) _shared = NativeBridge(null);
-  return _shared!;
+NativeBridge get nativeBridge => _openNativeBridge(null);
+
+NativeBridge _openNativeBridge(DynamicLibrary? library) {
+  final existing = _shared;
+  if (existing != null && !existing._closing) return existing;
+  return _shared = NativeBridge(library);
 }
 
 class _Release {
@@ -110,13 +95,7 @@ class NativeBridge {
   bool _closing = false;
   bool _closed = false;
   bool _disposeRequested = false;
-  bool initialized = false;
   Completer<void>? _shutdown;
-
-  Future<void> initialize() async {
-    await invoke(0, 'initialize', {'iroh': _irohLibrary()});
-    initialized = true;
-  }
 
   int _nextRequest() {
     if (_request == 0x7fffffffffffffff) {
@@ -166,16 +145,15 @@ class NativeBridge {
             );
       if (immediate.value != nullptr) {
         try {
-          _resolve(
-            request,
-            _decode(immediate.value, immediateLength.value),
-          );
+          _resolve(request, _decode(immediate.value, immediateLength.value));
         } finally {
           bindings.sailry_free(immediate.value);
         }
       } else if (accepted == 0) {
         _pending.remove(request);
-        completer.completeError(StateError('native operation was not accepted'));
+        completer.completeError(
+          StateError('native operation was not accepted'),
+        );
       }
     } catch (error, stack) {
       _pending.remove(request);
@@ -335,16 +313,4 @@ DynamicLibrary _library() {
     return DynamicLibrary.open('libsailry_mobile.dylib');
   }
   throw UnsupportedError('Sailry Mobile is unavailable on this platform');
-}
-
-String _irohLibrary() {
-  final explicit = Platform.environment['SAILRY_IROH_LIB'];
-  if (explicit != null && explicit.isNotEmpty) return explicit;
-  if (Platform.isIOS) {
-    return '${File(Platform.resolvedExecutable).parent.path}'
-        '/Frameworks/SailryIroh.framework/SailryIroh';
-  }
-  if (Platform.isAndroid || Platform.isLinux) return 'libsailry_iroh.so';
-  if (Platform.isMacOS) return 'libsailry_iroh.dylib';
-  throw UnsupportedError('Sailry Link is unavailable on this platform');
 }

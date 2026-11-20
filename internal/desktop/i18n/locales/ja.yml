@@ -896,10 +896,10 @@ pairing_connect: デバイスを接続
 pairing_local_code: ローカルペアリングコード
 pairing_pin_hint: 6 桁のペアリングコードを入力
 pairing_preview_disabled: UI プレビューは実際のデバイスを接続しません。ペアを作成するには --data-dir を起動してください
-pairing_relay_address: いろはの住所
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: リレーアドレス
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: カスタム
-pairing_relay_iroh: パブリックネットワーク
+pairing_relay_direct: 直接接続のみ
 pairing_relay_server: 接続サーバ
 pairing_share: このデバイスを共有
 pairing_share_hint: 他のデバイスのリモート接続でこのコードを入力
@@ -1912,7 +1912,7 @@ pairing_preparing: 接続を準備中
 pairing_refresh_hint: 60 秒間有効。有効期限が過ぎると更新されます
 pairing_relay_checking: チェッキングリレー
 pairing_relay_failed: リレーに接続できませんでした。URLを確認してやり直してください
-pairing_relay_invalid: 有効な HTTPS リレー URL を入力
+pairing_relay_invalid: 有効なリレーアドレスを入力してください
 pairing_relay_ready: リレー接続
 pairing_relay_selected: 選択中のネットワーク
 pairing_retrying: ペアリングサービスが利用できません。やり直します
