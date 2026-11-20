@@ -19,6 +19,7 @@ type Section string
 const (
 	General      Section = "settings_general"
 	Appearance   Section = "settings_appearance"
+	View         Section = "settings_view"
 	Conversation Section = "settings_conversation"
 	Shortcuts    Section = "settings_shortcuts"
 	Dictation    Section = "settings_dictation"
@@ -54,7 +55,7 @@ var Groups = []struct {
 	Items []Item
 }{
 	{"settings_group_app", []Item{
-		{General, icons.Settings}, {Appearance, icons.Palette}, {Conversation, icons.Chat},
+		{General, icons.Settings}, {Appearance, icons.Palette}, {View, icons.Monitor}, {Conversation, icons.Chat},
 		{Shortcuts, icons.ALargeSmall}, {Dictation, icons.ALargeSmall},
 	}},
 	{"settings_group_ai", []Item{
@@ -175,6 +176,8 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			general(c, s.Model)
 		case Appearance:
 			appearance(c, look)
+		case View:
+			view(c, s.Model)
 		case Conversation:
 			conversation(c, s.Model)
 		case Shortcuts:

@@ -46,6 +46,9 @@ settings_group_system: 系统
 settings_general: 通用
 settings_appearance: 外观
 settings_appearance_description: 调整界面主题与窗口外观
+settings_view: 视图
+settings_view_description: 调整界面与文字大小
+settings_view_size: 界面大小
 settings_conversation: 会话
 settings_shortcuts: 快捷键
 settings_dictation: 语音输入

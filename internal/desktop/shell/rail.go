@@ -137,9 +137,9 @@ func (a *App) openFeature(c *ui.Context, id string) {
 
 // rail is the column of features: 36 DIP ghost buttons, the pinned features
 // in their order and More at the top; notifications, search and
-// settings at the bottom.
-func (a *App) rail(c *ui.Context) {
-	ui.Column(c.Key("rail")).Width(RailWidth).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
+// settings at the bottom. width is the frame's, RailWidth in the window's DIPs.
+func (a *App) rail(c *ui.Context, width float32) {
+	ui.Column(c.Key("rail")).Width(width).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
 		for _, id := range a.features {
 			f, ok := a.lookupFeature(id)
 			if !ok || a.unpinned[id] {

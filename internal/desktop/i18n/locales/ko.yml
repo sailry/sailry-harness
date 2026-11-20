@@ -46,6 +46,9 @@ settings_group_system: 시스템
 settings_general: 일반
 settings_appearance: 모양
 settings_appearance_description: 테마와 창 모양 조정하기
+settings_view: 보기
+settings_view_description: 인터페이스와 텍스트 크기 조정
+settings_view_size: 인터페이스 크기
 settings_conversation: 대화
 settings_shortcuts: 키보드 단축키
 settings_dictation: 음성 입력

@@ -9,9 +9,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// The view zoom is a profile preference: it survives a restart, reaches the
-// profile's other windows through the store's revision, and an unchanged
-// default writes nothing.
+// The interface size is a profile preference beside the conversation's text
+// size: both survive a restart and reach the profile's other windows through
+// the store's revision, and unchanged defaults write nothing.
 func TestViewZoomPreference(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "preferences.json")
@@ -24,15 +24,15 @@ func TestViewZoomPreference(t *testing.T) {
 	}
 	store := preferences.Open(path)
 	first, second := window(store), window(store)
-	if first.App.ViewZoom != 100 {
-		t.Fatalf("a new profile starts at %d%%", first.App.ViewZoom)
+	if first.App.Settings.ViewZoom != 0 {
+		t.Fatalf("a new profile starts at level %d", first.App.Settings.ViewZoom)
 	}
 	first.savePreferences()
 	first.workers.Wait()
-	if store.Data.ViewZoom != nil {
-		t.Fatalf("the default zoom was written as %d", *store.Data.ViewZoom)
+	if store.Data.ViewZoom != nil || store.Data.MessageTextSize != nil {
+		t.Fatalf("the defaults were written as %v, %v", store.Data.ViewZoom, store.Data.MessageTextSize)
 	}
-	first.App.ViewZoom = 125
+	first.App.Settings.ViewZoom, first.App.Settings.TextSize = 2, 16
 	first.savePreferences()
 	first.workers.Wait()
 	if store.Revision() == second.prefsRevision {
@@ -42,14 +42,15 @@ func TestViewZoomPreference(t *testing.T) {
 	second.applyPreferences()
 	second.savePreferences()
 	second.workers.Wait()
-	if second.App.ViewZoom != 125 {
-		t.Fatalf("the other window shows %d%%", second.App.ViewZoom)
+	if second.App.Settings.ViewZoom != 2 || second.App.Settings.TextSize != 16 {
+		t.Fatalf("the other window shows level %d, text %v", second.App.Settings.ViewZoom, second.App.Settings.TextSize)
 	}
 	stored := preferences.Open(path).Data
-	if stored.ViewZoom == nil || *stored.ViewZoom != 125 || stored.MessageTextSize != nil {
+	if stored.ViewZoom == nil || *stored.ViewZoom != 125 || stored.MessageTextSize == nil || *stored.MessageTextSize != 16 {
 		t.Fatalf("stored zoom %v, text size %v", stored.ViewZoom, stored.MessageTextSize)
 	}
-	if restarted := window(preferences.Open(path)); restarted.App.ViewZoom != 125 {
-		t.Fatalf("after a restart the zoom is %d%%", restarted.App.ViewZoom)
+	restarted := window(preferences.Open(path))
+	if restarted.App.Settings.ViewZoom != 2 || restarted.App.Settings.TextSize != 16 {
+		t.Fatalf("after a restart level %d, text %v", restarted.App.Settings.ViewZoom, restarted.App.Settings.TextSize)
 	}
 }

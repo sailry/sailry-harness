@@ -46,6 +46,9 @@ settings_group_system: System
 settings_general: Allgemein
 settings_appearance: Darstellung
 settings_appearance_description: Design und Fensterdarstellung anpassen
+settings_view: Ansicht
+settings_view_description: Größe von Oberfläche und Text anpassen
+settings_view_size: Oberflächengröße
 settings_conversation: Unterhaltung
 settings_shortcuts: Tastaturbefehle und Kurzbefehle
 settings_dictation: Spracheingabe

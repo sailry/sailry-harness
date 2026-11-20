@@ -137,9 +137,9 @@ type App struct {
 	// (panel.BindListShare); 0 is the first share. The divider between them
 	// writes it, and it is saved as DiffSplit is.
 	ListShare float32
-	// ViewZoom is the window content's zoom in percent (view_zoom.go); 0 is
-	// 100. A profile keeps it in its preferences.
-	ViewZoom uint16
+	// viewZoom is the zoom commands' own state (view_zoom.go); the
+	// interface size itself is a setting.
+	viewZoom viewZoom
 
 	// OnMode, when set, gets the theme mode as it changes, so the window's
 	// native material follows the app's appearance.
@@ -402,7 +402,7 @@ func (a *App) View(c *ui.Context) {
 	root.Children(func() {
 		a.header(c, f)
 		ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-			a.rail(c)
+			a.rail(c, f.rail)
 			// The panel's outline: a 1 DIP top and left edge, rounded at the top left.
 			body := ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(p.RadiusLg, 0, 0, 0).Clip()
@@ -435,11 +435,20 @@ func (a *App) View(c *ui.Context) {
 
 // frame is where the columns are in this frame: how open each is, from 0
 // to 1 along Motion, and their widths.
+//
+// The widths are in the content's DIPs. The view zoom (view_zoom.go)
+// enlarges what the columns show, not the columns: their saved widths,
+// limits and whether the panel fits are in the window's DIPs, the
+// content's at 100%, and zoom converts between them.
 type frame struct {
 	nav, details         float32 // openness
+	rail                 float32 // the rail's width
 	navWidth, panelW     float32 // their full widths
 	mainWidth, mainShift float32 // settled content width and its visual offset
 	showsPanel, fitted   bool
+	// zoom is the content's zoom and window the window's width in its own
+	// DIPs, which the resize handles' limits are in.
+	zoom, window float32
 }
 
 // HasNavigation reports whether the page shown has a side column beside the
@@ -473,8 +482,10 @@ func (a *App) toggleNav() {
 // frame animates the columns' openness on root, which stays from frame to
 // frame.
 func (a *App) frame(c *ui.Context, root ui.Element) frame {
+	z := c.Zoom()
 	w, _ := c.Size()
-	f := frame{navWidth: a.clampNavigation(a.NavWidth)}
+	w *= z
+	f := frame{navWidth: a.clampNavigation(a.NavWidth), zoom: z, window: w}
 	navTarget := float32(0)
 	if a.NavShown() {
 		navTarget = 1
@@ -513,9 +524,11 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	} else {
 		f.details = root.AnimateTo("details", target, Motion)
 	}
-	f.mainWidth = max(w-RailWidth-1-nav-f.panelW*target, 0)
-	actual := max(w-RailWidth-1-f.navWidth*f.nav-f.panelW*f.details, 0)
+	// The panel's 1 DIP outline is the content's, z of the window's.
+	f.mainWidth = max(w-RailWidth-z-nav-f.panelW*target, 0)
+	actual := max(w-RailWidth-z-f.navWidth*f.nav-f.panelW*f.details, 0)
 	f.mainShift = (actual - f.mainWidth) / 2
+	f.rail, f.navWidth, f.panelW, f.mainWidth, f.mainShift = RailWidth/z, f.navWidth/z, f.panelW/z, f.mainWidth/z, f.mainShift/z
 	return f
 }
 
@@ -546,7 +559,7 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 		})
 	})
 	if f.nav >= 0.999 {
-		resize(c, "nav-handle", i18n.T(c, "sidebar_toggle"), 1, &a.NavWidth, NavWidth, a.clampNavigation)
+		resize(c, "nav-handle", i18n.T(c, "sidebar_toggle"), 1, &a.NavWidth, NavWidth, a.clampNavigation, f.zoom)
 	}
 }
 
@@ -558,16 +571,16 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 	}
 	p := theme.Of(c)
 	if f.details >= 0.999 {
-		w, _ := c.Size()
+		nav := f.navWidth * f.nav * f.zoom
 		width, reset := &a.PanelWidth, float32(PanelWidth)
 		clamp := func(v float32) float32 {
-			return ClampPanel(v, w, f.navWidth*f.nav)
+			return ClampPanel(v, f.window, nav)
 		}
 		if a.workspaceDetails() {
 			width, reset = &a.pluginWorkspacePrefs().Width, a.pluginDetailsDefault
-			clamp = func(v float32) float32 { return a.clampPluginDetails(v, w, f.navWidth*f.nav) }
+			clamp = func(v float32) float32 { return a.clampPluginDetails(v, f.window, nav) }
 		}
-		resize(c, "panel-handle", i18n.T(c, "details"), -1, width, reset, clamp)
+		resize(c, "panel-handle", i18n.T(c, "details"), -1, width, reset, clamp, f.zoom)
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
 		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.panelW).Shrink(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
@@ -643,8 +656,10 @@ func (a *App) syncPanel() {
 // resize cursor; dragging moves the edge by dir (1 for an edge on the
 // right of the column, -1 on its left), and a double click puts the
 // column back at reset. Custom: ui.Split keeps both panes 40 DIPs wide and
-// cannot close a pane to nothing, which the columns' motion needs.
-func resize(c *ui.Context, key, label string, dir float32, width *float32, reset float32, clamp func(float32) float32) {
+// cannot close a pane to nothing, which the columns' motion needs. width,
+// reset and clamp are in the window's DIPs, zoom of the content's the
+// drag moves by.
+func resize(c *ui.Context, key, label string, dir float32, width *float32, reset float32, clamp func(float32) float32, zoom float32) {
 	p := theme.Of(c)
 	h := ui.Box(c.Key(key)).Width(handle).Margin(0, -handle/2).ZIndex(1).Cursor(ui.CursorResizeEW).Label(label).Shrink(0)
 	if h.Hovered() || h.Pressed() {
@@ -652,7 +667,7 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 		h.Justify(ui.Center).Children(func() { ui.Box(c).Width(2).FillHeight().Background(p.Ring.Alpha(0.5)) })
 	}
 	if dx, _, ok := h.Dragged(); ok {
-		*width = clamp(clamp(*width) + dir*dx)
+		*width = clamp(clamp(*width) + dir*dx*zoom)
 	}
 	if h.DoubleClicked() {
 		*width = clamp(reset)

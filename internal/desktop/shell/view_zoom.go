@@ -1,10 +1,9 @@
 package shell
 
 import (
-	"slices"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
 // The view zoom's commands, for the window's keys and the native menu (Do).
@@ -14,13 +13,22 @@ const (
 	ViewZoomReset = "view.zoom_reset"
 )
 
-// viewZoomKeys are the zoom's fixed keys, ⌘ standing for Ctrl off macOS:
-// ⌘= and ⌘+ (⌘⇧=) zoom in, ⌘- out and ⌘0 back to 100%, as in a browser.
+// viewZoomKeys are the zoom's fixed keys, Cmd standing for Ctrl off macOS:
+// Cmd+= and Cmd+Shift+= (Cmd++) zoom in, Cmd+- out and Cmd+0 resets.
 var viewZoomKeys = []Shortcut{
 	{ID: ViewZoomIn, Mods: ui.Cmd, Key: ui.KeyEqual},
 	{ID: ViewZoomIn, Mods: ui.Cmd | ui.Shift, Key: ui.KeyEqual},
 	{ID: ViewZoomOut, Mods: ui.Cmd, Key: ui.KeyMinus},
 	{ID: ViewZoomReset, Mods: ui.Cmd, Key: ui.Key0},
+}
+
+// viewZoom is what the zoom commands keep beyond the settings: the text
+// size steps In added past the largest interface size, which Out takes back
+// before it lowers the interface size. A text size changed elsewhere, on
+// the View page or in another window, ends them.
+type viewZoom struct {
+	extra int
+	text  float64
 }
 
 // viewZoomShortcuts runs the zoom's keys as the window's (shortcuts): a
@@ -34,36 +42,60 @@ func (a *App) viewZoomShortcuts(c *ui.Context) {
 	}
 }
 
-// runViewZoom carries out a zoom command, false for another command.
+// runViewZoom carries out a zoom command, false for another command. In
+// steps the interface size up to its largest, then the conversation's text
+// size; Out undoes those text steps first, then the interface size; Reset
+// returns both to their defaults.
 func (a *App) runViewZoom(id string) bool {
-	levels := preferences.ViewZoomLevels
-	i := slices.Index(levels, viewZoomLevel(a.ViewZoom))
+	m, z := a.Settings.Model, &a.viewZoom
+	if m.TextSize != z.text {
+		z.extra = 0
+	}
+	level, last := viewZoomIndex(m.ViewZoom), len(preferences.ViewZoomLevels)-1
 	switch id {
 	case ViewZoomIn:
-		i = min(i+1, len(levels)-1)
+		switch {
+		case level < last:
+			level++
+		case m.TextSize < settings.MaxTextSize:
+			m.TextSize = min(m.TextSize+1, settings.MaxTextSize)
+			z.extra++
+		}
 	case ViewZoomOut:
-		i = max(i-1, 0)
+		switch {
+		case z.extra > 0 && m.TextSize > settings.MinTextSize:
+			m.TextSize = max(m.TextSize-1, settings.MinTextSize)
+			z.extra--
+		case level > 0:
+			level--
+		}
 	case ViewZoomReset:
-		i = slices.Index(levels, 100)
+		level, m.TextSize, z.extra = 0, settings.DefaultTextSize, 0
 	default:
 		return false
 	}
-	a.ViewZoom = levels[i]
+	m.ViewZoom, z.text = level, m.TextSize
 	return true
 }
 
-// viewZoomLevel is a zoom in percent as one of the levels, 100 for none or
-// an unknown one.
-func viewZoomLevel(percent uint16) uint16 {
-	if slices.Contains(preferences.ViewZoomLevels, percent) {
-		return percent
+// viewZoomIndex is an interface size as an index of the levels, the first
+// (100%) for an unknown one.
+func viewZoomIndex(i int) int {
+	if i < 0 || i >= len(preferences.ViewZoomLevels) {
+		return 0
 	}
-	return 100
+	return i
+}
+
+// viewZoomFactor is the interface size as a zoom, 1 for 100%.
+func (a *App) viewZoomFactor() float32 {
+	return float32(preferences.ViewZoomLevels[viewZoomIndex(a.Settings.ViewZoom)]) / 100
 }
 
 // applyViewZoom zooms the window's content, which MyGo lays out, draws and
 // maps input at (Context.SetZoom); a change builds the frame again at the
-// new size. The conversation's text size scales inside it on its own.
+// new size. The shell's columns keep their widths in the window's DIPs
+// (frame), and the conversation's text size scales inside the zoom.
 func (a *App) applyViewZoom(c *ui.Context) {
-	c.SetZoom(float32(viewZoomLevel(a.ViewZoom)) / 100)
+	c.SetZoom(a.viewZoomFactor())
 }

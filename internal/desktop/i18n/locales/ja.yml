@@ -46,6 +46,9 @@ settings_group_system: システム
 settings_general: 一般
 settings_appearance: 外観
 settings_appearance_description: テーマとウィンドウの外観を調整Name
+settings_view: 表示
+settings_view_description: インターフェイスと文字のサイズを調整
+settings_view_size: インターフェイスのサイズ
 settings_conversation: 会話
 settings_shortcuts: キーボードショートカット
 settings_dictation: 音声入力

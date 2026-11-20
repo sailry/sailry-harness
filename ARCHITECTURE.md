@@ -274,6 +274,9 @@ Plugin, MCP and connector callbacks retain their deadlines and effect recovery.
 Desktop controller preferences live at
 `<profile>/desktop/preferences.json`; UI layout state lives beside MyGo's
 `window-state.json` in its application-data directory.
+The interface size (`view_zoom`) zooms window content through MyGo's
+`Context.SetZoom`; the shell keeps the rail, sidebar and details columns, their
+saved widths and fit limits in unzoomed window DIPs and converts them per frame.
 
 ### Storage
 

@@ -46,6 +46,9 @@ settings_group_system: Sistema
 settings_general: Geral
 settings_appearance: Aparência
 settings_appearance_description: Ajustar o tema e a aparência da janela
+settings_view: Visualização
+settings_view_description: Ajustar o tamanho da interface e do texto
+settings_view_size: Tamanho da interface
 settings_conversation: Conversa
 settings_shortcuts: Atalhos de teclado
 settings_dictation: Entrada de voz

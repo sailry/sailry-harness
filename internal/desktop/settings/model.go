@@ -198,6 +198,9 @@ type Model struct {
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
 	TextSize       float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
+	// ViewZoom is the interface size, an index of preferences.ViewZoomLevels:
+	// 0 for 100%.
+	ViewZoom int
 
 	PersistentCodeIndex     *bool
 	SavePersistentCodeIndex func(bool)

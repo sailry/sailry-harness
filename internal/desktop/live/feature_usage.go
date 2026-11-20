@@ -162,8 +162,9 @@ func (r *Runtime) countFrame() {
 			if !known {
 				feature = protocol.FeatureUseSettingsPluginPage
 			}
-			// Experimental is a core page the feature list does not name.
-			if section != settings.Experimental {
+			// Experimental and View are core pages the feature list does not
+			// name.
+			if section != settings.Experimental && section != settings.View {
 				features = append(features, feature)
 			}
 		}

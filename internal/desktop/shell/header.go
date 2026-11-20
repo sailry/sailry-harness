@@ -26,7 +26,7 @@ func (a *App) header(c *ui.Context, f frame) {
 	bar := c.TitleBar()
 	width, _ := c.Size()
 	end := HeaderInsets(bar)
-	left := RailWidth + f.navWidth*f.nav
+	left := f.rail + f.navWidth*f.nav
 	ui.Row(c.Key("header")).Height(HeaderHeight).Shrink(0).DragWindow().Children(func() {
 		// The traffic lights' room, from MyGo's title bar: none in full screen or
 		// without lights. The brand column keeps the rail's width while the sidebar

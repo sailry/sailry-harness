@@ -72,9 +72,9 @@ func (r *Runtime) applyPreferences() {
 	} else {
 		a.Effects = true
 	}
-	a.ViewZoom = 100
+	m.ViewZoom = 0
 	if d.ViewZoom != nil {
-		a.ViewZoom = *d.ViewZoom
+		m.ViewZoom = max(0, slices.Index(preferences.ViewZoomLevels, *d.ViewZoom))
 	}
 	a.Surfaces = d.Materials()
 	r.lastMaterials = [3]float32{a.Surfaces.Main, a.Surfaces.Sidebar, a.Surfaces.Blur}
@@ -145,8 +145,10 @@ func (r *Runtime) savePreferences() {
 	d.Appearance = preferences.Selection{Package: packageID, Mode: []string{"system", "light", "dark"}[min(max(int(a.Mode), 0), 2)]}
 	setChoice(&d.ThemeEffects, a.Effects, true)
 	setChoice(&d.WelcomeSeen, a.Welcome.Seen, true)
-	// Every window of the profile shows the zoom last chosen in one of them.
-	setChoice(&d.ViewZoom, max(a.ViewZoom, 100), 100)
+	// Every window of the profile shows the interface size last chosen in
+	// one of them.
+	levels := preferences.ViewZoomLevels
+	setChoice(&d.ViewZoom, levels[min(max(m.ViewZoom, 0), len(levels)-1)], levels[0])
 	now := [3]float32{a.Surfaces.Main, a.Surfaces.Sidebar, a.Surfaces.Blur}
 	if now != r.lastMaterials {
 		if d.Surfaces == nil {

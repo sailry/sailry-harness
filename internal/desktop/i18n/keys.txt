@@ -49,6 +49,9 @@ settings_group_system
 settings_general
 settings_appearance
 settings_appearance_description
+settings_view
+settings_view_description
+settings_view_size
 settings_conversation
 settings_shortcuts
 settings_dictation

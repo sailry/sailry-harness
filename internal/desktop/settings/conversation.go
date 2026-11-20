@@ -53,11 +53,6 @@ func conversation(c *ui.Context, m *Model) {
 		kit.Card(c, func() {
 			kit.SegmentedRow(c, "display", i18n.T(c, "settings_message_display"), i18n.T(c, "settings_message_display_description"),
 				&m.MessageDisplay, i18n.T(c, "message_display_detailed"), i18n.T(c, "message_display_compact"))
-			title := i18n.T(c, "settings_message_text_size")
-			kit.WideRow(c, "text-size", title, "", func() {
-				// One tick a pixel, 12 to 18.
-				ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
-			})
 		})
 	})
 }
