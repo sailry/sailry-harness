@@ -141,7 +141,10 @@ func (node *Node) importConfiguration(ctx context.Context, caller protocol.NodeI
 		if operationErr == nil {
 			result, operationErr = store.ImportConfiguration(ctx, db, node.ID(), document, targets)
 		}
-		changes, writeInstructions = result.Events, result.Instructions != nil && !preview
+		if operationErr == nil {
+			changes, operationErr = node.followKnowledgeStorage(ctx, db, request, result.Events)
+		}
+		writeInstructions = result.Instructions != nil && !preview
 		if operationErr != nil || preview {
 			changes, writeInstructions = nil, false
 			if _, err := db.ExecContext(ctx, "ROLLBACK TO sailry_configuration"); err != nil {
@@ -191,8 +194,8 @@ func configurationReport(preview bool, result store.ConfigurationImport) protoco
 }
 
 // configurationCommitted applies committed changes the way their own
-// commands do after a commit: package programs and authentication follow
-// plugin changes, model clients follow provider changes, and Python follows
+// commands do after a commit: package programs, authentication and indexing
+// follow plugin changes, model clients follow provider changes, and Python follows
 // its package index.
 func (node *Node) configurationCommitted(ctx context.Context, changes []protocol.Event, python *protocol.PythonSettings) {
 	plugin := false
@@ -201,6 +204,7 @@ func (node *Node) configurationCommitted(ctx context.Context, changes []protocol
 	}
 	if plugin {
 		node.pluginCommitted(changes, ctx, nil)
+		node.knowledge.Refresh()
 	} else {
 		for _, change := range changes {
 			if store.RuntimeCredentialEvent(change.Kind) {
