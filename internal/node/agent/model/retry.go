@@ -90,8 +90,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	buffered := purpose == SummaryPurpose
 	schedule := newRetryPolicy()
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
+	sdk, _ := languageModel.(*sdkModel)
+	nextModel := languageModel
+	var releaseFallback func()
 	var secrets []protocol.Secret
-	if sdk, ok := languageModel.(*sdkModel); ok {
+	if sdk != nil {
 		secrets = append(secrets, sdk.config.Protection...)
 		if sdk.config.Key != "" {
 			secrets = append(secrets, protocol.NewSecret(sdk.config.Key))
@@ -104,7 +107,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now()}
 		owner, cancel := context.WithCancel(ctx)
 		owner, capture := captureAttempt(owner, call, timer, attempt.Started)
-		stream, err := languageModel.Stream(owner, call)
+		stream, err := nextModel.Stream(owner, call)
 		var pending []fantasy.StreamPart
 		escaped, finished, released := false, false, false
 		if err == nil && stream != nil {
@@ -149,6 +152,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			err = ctx.Err()
 		}
 		cancel()
+		if releaseFallback != nil {
+			releaseFallback()
+			nextModel, releaseFallback = languageModel, nil
+		}
 		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
 		exhausted, waitExhausted := false, false
@@ -204,6 +211,13 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			return Classify(err)
 		}
 		schedule.waited += *attempt.RetryDelay
+		if sdk != nil && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
+			// Spend one admitted retry on HTTP/1.1 without pinning an HTTP/2-only origin to it.
+			if fallback, release := sdk.http1Fallback(); fallback != nil {
+				nextModel, releaseFallback = fallback, release
+			}
+			sdk = nil
+		}
 	}
 }
 

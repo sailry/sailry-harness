@@ -208,7 +208,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = InvalidRequest
 		case errors.Is(provider.Cause, io.ErrUnexpectedEOF) || errors.As(provider.Cause, &malformed):
 			f.Kind = InvalidResponse
-		case errors.As(provider.Cause, &network) || errors.Is(provider.Cause, context.DeadlineExceeded):
+		case http2ProtocolFailure(err) || errors.As(provider.Cause, &network) || errors.Is(provider.Cause, context.DeadlineExceeded):
 			f.Kind = Network
 		default:
 			f.Kind = InvalidResponse
@@ -216,7 +216,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		f.overloaded = overloaded
 	case errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &malformed):
 		f.Kind = InvalidResponse
-	case errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded):
+	case http2ProtocolFailure(err) || errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded):
 		f.Kind = Network
 	}
 	if f.Kind == InvalidResponse && errors.Is(err, io.ErrUnexpectedEOF) {

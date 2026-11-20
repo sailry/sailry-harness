@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/net/http2"
 )
 
 func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
@@ -21,6 +23,16 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw}, model.Unavailable, diagnostic+" (HTTP 200)")
+}
+
+func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
+	reset := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
+	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error())
+}
+
+func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKind, diagnostic string) {
+	t.Helper()
 	for _, recovers := range []bool{true, false} {
 		t.Run(fmt.Sprintf("recovers_%t", recovers), func(t *testing.T) {
 			var executed atomic.Int32
@@ -36,7 +48,7 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 			for range failures {
 				m.scripts = append(m.scripts, response(text("Discarded attempt"), call("discarded", "probe", `{}`), fantasy.StreamPart{
 					Type:  fantasy.StreamPartTypeError,
-					Error: &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw},
+					Error: failure,
 				}))
 			}
 			if recovers {
@@ -57,15 +69,15 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 					}
 					close(wait.advance)
 				case <-f.ctx.Done():
-					t.Fatal("the HTTP 200 gateway error did not enter bounded recovery")
+					t.Fatal("the model transport failure did not enter bounded recovery")
 				}
 			}
 			run := f.waitRun(turn, status)
 			if executed.Load() != 1 || m.count() != 2+waits {
 				t.Fatalf("recovery repeated a completed step: tools=%d requests=%d", executed.Load(), m.count())
 			}
-			if !recovers && (run.Error == nil || run.Error.Message != diagnostic+" (HTTP 200)" || run.Error.Details == nil || run.Error.Details.Kind != "model_recovery") {
-				t.Fatalf("unresolved upstream settlement was marked successful or lost its cause: %+v", run.Error)
+			if !recovers && (run.Error == nil || run.Error.Message != diagnostic || run.Error.Details == nil || run.Error.Details.Kind != "model_recovery") {
+				t.Fatalf("unresolved model failure was marked successful or lost its cause: %+v", run.Error)
 			}
 			m.mu.Lock()
 			for _, request := range m.calls[2:] {
@@ -83,11 +95,14 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 				}
 				if execution := record.Metadata.Execution; execution != nil && execution.Retry != nil {
 					retries++
-					if retry := execution.Retry; retry.Status == nil || *retry.Status != 200 || retry.Code == nil || *retry.Code != string(model.Unavailable) || retry.Error == nil || *retry.Error != diagnostic+" (HTTP 200)" {
+					if retry := execution.Retry; retry.Status == nil || *retry.Status != 200 || retry.Code == nil || *retry.Code != string(kind) || retry.Error == nil || *retry.Error != diagnostic {
 						t.Fatalf("retry lost the provider error or actual HTTP status: %+v", retry)
 					}
 					if message.Usage != nil && !reflect.DeepEqual(*message.Usage, canonical.Usage{}) {
 						t.Fatalf("settlement recovery invented usage: %+v", message.Usage)
+					}
+					if execution.Observation == nil {
+						t.Fatal("recovery lost its failed attempt observation")
 					}
 					attempts := execution.Observation.Attempts
 					if len(attempts) != 1 || attempts[0].Outcome != protocol.ConversationObservationOutcomeFailed || attempts[0].Usage != nil {
@@ -96,7 +111,7 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 				}
 				if message.Error != nil {
 					terminalErrors++
-					if recovers || message.Error.Code == nil || *message.Error.Code != string(model.Unavailable) || !message.Error.RetryExhausted || message.Error.Message != diagnostic+" (HTTP 200)" {
+					if recovers || message.Error.Code == nil || *message.Error.Code != string(kind) || !message.Error.RetryExhausted || message.Error.Message != diagnostic {
 						t.Fatalf("terminal upstream failure was hidden: %+v", message.Error)
 					}
 				}

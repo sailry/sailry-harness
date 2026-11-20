@@ -432,7 +432,7 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 	}
 	if err := stream.Err(); err != nil {
 		var network net.Error
-		lostTrailer := errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &network)
+		lostTrailer := errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &network) || http2ProtocolFailure(err)
 		if len(finished) != want || !lostTrailer {
 			emitter.fail(err)
 			return
