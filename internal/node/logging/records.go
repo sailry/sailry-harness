@@ -51,7 +51,8 @@ func NewQuery(area string, attrs ...slog.Attr) *Span {
 	return &Span{attrs: append([]slog.Attr{slog.String("area", area)}, attrs...), started: time.Now(), routine: true}
 }
 
-// NewBackground observes a package's read at debug level.
+// NewBackground observes a package's read at debug level, omitting a fast
+// success.
 func NewBackground(area string, attrs ...slog.Attr) *Span {
 	span := NewQuery(area, attrs...)
 	span.routine, span.debug = false, true
@@ -74,14 +75,10 @@ func (span *Span) emit(severity slog.Level, phase, code string, extra ...slog.At
 
 // Record notes an intermediate phase with the time since the beginning.
 func (span *Span) Record(phase string) {
-	if span.routine {
+	if span.routine || span.debug {
 		return
 	}
-	severity := level(phase, "")
-	if span.debug {
-		severity = slog.LevelDebug
-	}
-	span.emit(severity, phase, "", slog.Uint64("duration_us", uint64(time.Since(span.started).Microseconds())))
+	span.emit(level(phase, ""), phase, "", slog.Uint64("duration_us", uint64(time.Since(span.started).Microseconds())))
 }
 
 // Finish records the outcome once. code is "" for success; warn lowers an
@@ -92,7 +89,8 @@ func (span *Span) Finish(phase, code string, warn bool) {
 	}
 	span.finished = true
 	elapsed := time.Since(span.started)
-	if span.routine && phase == Completed && elapsed < 100*time.Millisecond {
+	// Fast successful reads would bury the records that explain a failure.
+	if (span.routine || span.debug) && phase == Completed && code == "" && elapsed < 100*time.Millisecond {
 		return
 	}
 	severity := level(phase, code)
