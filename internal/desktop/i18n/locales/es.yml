@@ -1049,6 +1049,14 @@ shortcut_record: Presione el atajo
 shortcut_reset: Restablecer a la configuración predeterminada
 shortcut_selection: Usar texto seleccionado
 shortcut_unavailable: Atajo no disponible
+shortcut_reserved: Sailry now uses this key. Choose another
+shortcut_pane_split: New conversation beside
+shortcut_pane_tab: New conversation tab
+shortcut_pane_enlarge: Enlarge conversation
+shortcut_zoom_in: Zoom in
+shortcut_zoom_out: Zoom out
+shortcut_zoom_reset: Actual size
+settings_pane_commands: Conversation and view
 ssh_host: Host
 ssh_key_file: Archivo de clave privada
 ssh_key_path: Archivo de claves
@@ -1710,6 +1718,8 @@ workspace_close_terminal: Cerrar la terminal
 workspace_terminal_preview: Vista previa de la interfaz de usuario del terminal con propiedad del proyecto y del árbol de trabajo; no se inicia ningún PTY ni shell
 pane_drag: Arrastrar para dividir
 pane_group: Grupo dividido %{number}
+pane_restore: Restore
+pane_limit: A split holds %{count} panes at most
 workspace_tab_keep: Mantener abierta
 workspace_tab_release: No mantener abierta
 workspace_tab_unsplit: Quitar división
@@ -1792,6 +1802,8 @@ files_upload_changed: La fuente cambió; selecciónela de nuevo
 files_upload_too_large: El archivo supera los 64 MiB
 files_upload_name: Nombre de archivo no válido
 files_upload_source: No se pudo leer el archivo seleccionado
+files_upload_directory: Choose an ordinary file; folders cannot be attached
+files_upload_special_source: Only ordinary files can be attached
 files_download_failed: La descarga falló
 files_download_changed: La fuente cambió; vuelva a descargar
 files_download_destination: No se pudo guardar la descarga

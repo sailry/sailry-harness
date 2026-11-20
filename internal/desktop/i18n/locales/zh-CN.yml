@@ -1049,6 +1049,14 @@ shortcut_record: 按下快捷键
 shortcut_reset: 恢复默认
 shortcut_selection: 使用选中文字
 shortcut_unavailable: 快捷键不可用
+shortcut_reserved: Sailry 已占用此快捷键，请另选
+shortcut_pane_split: 在旁边新建会话
+shortcut_pane_tab: 新建会话标签页
+shortcut_pane_enlarge: 放大会话
+shortcut_zoom_in: 放大界面
+shortcut_zoom_out: 缩小界面
+shortcut_zoom_reset: 实际大小
+settings_pane_commands: 会话与视图
 ssh_host: 地址
 ssh_key_file: 私钥文件
 ssh_key_path: 私钥路径
@@ -1710,6 +1718,8 @@ workspace_close_terminal: 关闭终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
 pane_drag: 拖动分屏
 pane_group: 分屏组 %{number}
+pane_restore: 还原
+pane_limit: 分屏最多 %{count} 个窗格
 workspace_tab_keep: 固定
 workspace_tab_release: 取消固定
 workspace_tab_unsplit: 解除分屏
@@ -1792,6 +1802,8 @@ files_upload_changed: 来源已变更，请重新选择文件
 files_upload_too_large: 文件超过 64 MiB
 files_upload_name: 文件名无效
 files_upload_source: 无法读取所选文件
+files_upload_directory: 请选择普通文件，文件夹不能作为附件
+files_upload_special_source: 仅支持将普通文件作为附件
 files_download_failed: 下载失败，请检查文件和连接后重试
 files_download_changed: 来源已变更，请重新下载
 files_download_destination: 无法保存下载，请检查目标路径和权限

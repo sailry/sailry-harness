@@ -1049,6 +1049,14 @@ shortcut_record: ショートカットキー
 shortcut_reset: デフォルトにリセット
 shortcut_selection: 選択した文字を使用
 shortcut_unavailable: ショートカットが利用できません
+shortcut_reserved: Sailry now uses this key. Choose another
+shortcut_pane_split: New conversation beside
+shortcut_pane_tab: New conversation tab
+shortcut_pane_enlarge: Enlarge conversation
+shortcut_zoom_in: Zoom in
+shortcut_zoom_out: Zoom out
+shortcut_zoom_reset: Actual size
+settings_pane_commands: Conversation and view
 ssh_host: ホスト
 ssh_key_file: 秘密鍵ファイル
 ssh_key_path: 鍵ファイル
@@ -1710,6 +1718,8 @@ workspace_close_terminal: 閉端子
 workspace_terminal_preview: プロジェクトとワークツリーの所有者を含むターミナル UI プレビュー; PTY や Shell は起動しません
 pane_drag: 分割するにはドラッグ
 pane_group: 分割グループ %{number}
+pane_restore: Restore
+pane_limit: A split holds %{count} panes at most
 workspace_tab_keep: 開いたままにする
 workspace_tab_release: 固定を解除
 workspace_tab_unsplit: 分割を解除
@@ -1792,6 +1802,8 @@ files_upload_changed: ソースが変更されました。もう一度選択し�
 files_upload_too_large: ファイルが 64 MiB を超えています
 files_upload_name: 無効なファイル名
 files_upload_source: 選択したファイルを読めませんでした
+files_upload_directory: Choose an ordinary file; folders cannot be attached
+files_upload_special_source: Only ordinary files can be attached
 files_download_failed: ダウンロードに失敗
 files_download_changed: ソースが変更されました。ダウンロードを再開してください
 files_download_destination: ダウンロードを保存できませんでした
