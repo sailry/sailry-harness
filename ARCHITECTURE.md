@@ -274,9 +274,11 @@ Plugin, MCP and connector callbacks retain their deadlines and effect recovery.
 Desktop controller preferences live at
 `<profile>/desktop/preferences.json`; UI layout state lives beside MyGo's
 `window-state.json` in its application-data directory.
-The interface size (`view_zoom`) zooms window content through MyGo's
-`Context.SetZoom`; the shell keeps the rail, sidebar and details columns, their
-saved widths and fit limits in unzoomed window DIPs and converts them per frame.
+Appearance keeps interface size (`view_zoom`) separate from conversation font
+size. The shell keeps saved widths and fit limits in window DIPs, allows extra
+space for the conversation sidebar at larger sizes where room permits, and uses
+MyGo's `Context.SetZoom` for the window content. Details widths and split shares
+are not scaled with zoom.
 
 ### Storage
 
@@ -933,9 +935,10 @@ translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
 Project-created terminals are independent main-workspace surfaces and may share
-split groups with conversations. The header shows a title for one workspace entry
-and tabs for multiple entries; selecting a split-group tab restores its focused
-pane. Terminal tabs opened in the right panel stay
+split groups with conversations. The header shows tabs for multiple entries or
+an explicitly kept tab; selecting a split-group tab restores its focused pane.
+An enlarged conversation retains its split slot and shares until restored.
+Terminal tabs opened in the right panel stay
 with that conversation and do not join splits. A terminal ID has one surface at a
 time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available through terminal activity.

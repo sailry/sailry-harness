@@ -48,8 +48,6 @@ settings_group_system: システム
 settings_general: 一般
 settings_appearance: 外観
 settings_appearance_description: テーマとウィンドウの外観を調整Name
-settings_view: 表示
-settings_view_description: インターフェイスと文字のサイズを調整
 settings_view_size: インターフェイスのサイズ
 settings_conversation: 会話
 settings_shortcuts: キーボードショートカット
@@ -135,6 +133,8 @@ chat_navigation: メッセージナビゲーション
 chat_new: 新しい会話
 turn_copy: コピペ応答
 message_copy: コピー
+message_expand: 展開
+message_collapse: 折りたたむ
 chat_fork: フォークセッション
 chat_retry: 再試行
 chat_running: 作業中

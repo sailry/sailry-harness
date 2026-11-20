@@ -23,6 +23,7 @@ func TestConversationPaneKeys(t *testing.T) {
 	t.Run("NewTab", testPaneNewTab)
 	t.Run("OutsideConversation", testPaneKeysOutsideConversation)
 	t.Run("Enlarge", testPaneEnlarge)
+	t.Run("EnlargeButtons", testPaneEnlargeButtons)
 	t.Run("MinimizeOutsideConversation", testMinimizeOutsideConversation)
 	t.Run("FreshFromDraft", testPaneKeysFreshFromDraft)
 	t.Run("AtCapacity", testPaneKeysAtCapacity)
@@ -277,6 +278,40 @@ func testPaneEnlarge(t *testing.T) {
 	tt.Frame()
 	if a.panes.enlarged != (panes.Target{}) {
 		t.Errorf("another active pane left %v enlarged", a.panes.enlarged)
+	}
+}
+
+func testPaneEnlargeButtons(t *testing.T) {
+	a, tt := newTester(t)
+	splitTwo(t, a, tt)
+	a.focusPane(session(themeChat))
+	tt.Frame()
+	group := a.panes.Displayed()
+	sizes := slices.Clone(group.Sizes)
+	rows := paneRows(tt)
+	if len(rows) != 2 {
+		t.Fatalf("expected two pane headers, got %d", len(rows))
+	}
+	press := func(bounds ui.Rect) {
+		t.Helper()
+		if bounds.W <= 0 || bounds.H <= 0 {
+			t.Fatal("missing pane size button")
+		}
+		tt.ClickAt(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
+		tt.Frame()
+		tt.Frame()
+	}
+	press(rows[0][i18n.In("en", "shortcut_pane_enlarge")])
+	if a.panes.enlarged != session(preview.Big) || a.panes.Active != session(preview.Big) || a.Sidebar.Selected != preview.Big {
+		t.Fatalf("enlarging the inactive pane: enlarged %v, active %v, selected %q", a.panes.enlarged, a.panes.Active, a.Sidebar.Selected)
+	}
+	restore, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "pane_restore"))
+	if !ok {
+		t.Fatal("no restore button in enlarged pane")
+	}
+	press(restore.Bounds)
+	if a.panes.enlarged != (panes.Target{}) || a.panes.Active != session(preview.Big) || a.panes.Displayed() != group || !slices.Equal(group.Sizes, sizes) {
+		t.Fatal("restoring did not keep the focused pane and split layout")
 	}
 }
 

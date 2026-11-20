@@ -149,10 +149,22 @@ func (a *App) toggleEnlarged(c *ui.Context, t panes.Target) {
 	if w.enlarged == t {
 		w.enlarged = panes.Target{}
 	} else {
+		if w.Active != t {
+			a.focusPane(t)
+		}
 		w.enlarged = t
 	}
 	w.enlargedFocus = t
 	c.Invalidate()
+}
+
+func (a *App) paneSizeButton(c *ui.Context, t panes.Target, enlarged bool) {
+	icon, label := icons.Maximize, "shortcut_pane_enlarge"
+	if enlarged {
+		icon, label = icons.Minimize, "pane_restore"
+	}
+	kit.IconButton(c.Key("pane-size"), icon, i18n.T(c, label), 28, false).
+		OnClick(func() { a.toggleEnlarged(c, t) })
 }
 
 // followEnlarged puts the enlarged pane back once it is no longer the active
@@ -222,9 +234,9 @@ func (a *App) enlargedPane(c *ui.Context) {
 	a.paneKeys(c, col, t)
 	col.Children(func() {
 		ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4).Children(func() {
-			ui.Text(c, a.paneTitle(c, t)).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			ui.Text(c, a.paneTitle(c, t)).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.Primary)
 			a.conversationActions(c, cv, 28)
-			kit.IconButton(c.Key("pane-restore"), icons.Minimize, i18n.T(c, "pane_restore"), 28, false).OnClick(restore)
+			a.paneSizeButton(c, t, true)
 		})
 		a.conversation(c, cv, *h)
 	})

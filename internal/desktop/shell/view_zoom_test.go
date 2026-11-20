@@ -1,10 +1,12 @@
 package shell
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -85,10 +87,7 @@ func handleCenter(t *testing.T, tt *ui.Tester, label string) (x, y float32) {
 	return 0, 0
 }
 
-// The content zooms at each interface size, but the rail, the sidebar and
-// the panel keep their place on the window, the panel still fits, and the
-// saved widths stay as chosen.
-func TestViewZoomKeepsColumns(t *testing.T) {
+func TestViewZoomAdaptsSidebar(t *testing.T) {
 	a, tt, seen := zoomTester(t)
 	tt.Key(ui.Cmd, ui.KeyP)
 	settle(tt)
@@ -97,6 +96,11 @@ func TestViewZoomKeepsColumns(t *testing.T) {
 	panelX, _ := handleCenter(t, tt, details)
 	main := a.mainLayoutWidth
 	saved := a.prefs()
+	// The body starts with a one-DIP left outline before its columns.
+	if want := float32(RailWidth+1) + saved.NavWidth; !near(navX, want) {
+		t.Fatalf("100%% sidebar edge %v, want %v", navX, want)
+	}
+	lastEdge := navX
 	for i, level := range preferences.ViewZoomLevels {
 		a.Settings.ViewZoom = i
 		settle(tt)
@@ -104,14 +108,16 @@ func TestViewZoomKeepsColumns(t *testing.T) {
 		if seen[0] != z || !near(seen[1], 1280/z) {
 			t.Fatalf("%d%%: zoom %v, content %v wide", level, seen[0], seen[1])
 		}
-		if x, _ := handleCenter(t, tt, nav); !edgeNear(x, navX) {
-			t.Errorf("%d%%: the sidebar's edge at %v, at 100%% %v", level, x, navX)
+		x, _ := handleCenter(t, tt, nav)
+		if i > 0 && x <= lastEdge || i == 0 && !near(x, navX) || x > navX+64 {
+			t.Errorf("%d%%: sidebar edge %v, previous %v, at 100%% %v", level, x, lastEdge, navX)
 		}
+		lastEdge = x
 		if x, _ := handleCenter(t, tt, details); !near(x, panelX) {
 			t.Errorf("%d%%: the panel's edge at %v, at 100%% %v", level, x, panelX)
 		}
-		if !edgeNear(a.mainLayoutWidth*z, main) {
-			t.Errorf("%d%%: the conversation %v window DIPs wide, at 100%% %v", level, a.mainLayoutWidth*z, main)
+		if want := main - (x - navX); !near(a.mainLayoutWidth*z, want) {
+			t.Errorf("%d%%: the conversation %v window DIPs wide, want %v", level, a.mainLayoutWidth*z, want)
 		}
 		if p := a.prefs(); p.NavWidth != saved.NavWidth || p.PanelWidth != saved.PanelWidth || !a.PanelOpen {
 			t.Errorf("%d%%: saved widths %v, %v, panel open %v", level, p.NavWidth, p.PanelWidth, a.PanelOpen)
@@ -131,15 +137,38 @@ func TestViewZoomKeepsColumns(t *testing.T) {
 	if got, _ := handleCenter(t, tt, nav); !near(got, x+40) {
 		t.Errorf("the dragged edge is at %v, want %v", got, x+40)
 	}
+
+	// At the minimum Desktop width, preserve the fitted details and the main
+	// area's width instead of adding zoom padding to a full window.
+	tt.SetSize(1024, 820)
+	a.Settings.ViewZoom = 0
+	settle(tt)
+	baseEdge, _ := handleCenter(t, tt, nav)
+	baseDetails, _ := handleCenter(t, tt, details)
+	baseMain := a.mainLayoutWidth
+	if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Right) {
+		t.Fatal("cannot split the conversation")
+	}
+	a.focusPane(session(preview.Big))
+	group := a.panes.Displayed()
+	group.Sizes[0], group.Sizes[1] = 0.4, 0.6
+	shares := slices.Clone(group.Sizes)
+	a.Settings.ViewZoom = len(preferences.ViewZoomLevels) - 1
+	settle(tt)
+	fitEdge, _ := handleCenter(t, tt, nav)
+	fitDetails, _ := handleCenter(t, tt, details)
+	if !near(fitEdge-(seen[0]-1), baseEdge) || !near(fitDetails, baseDetails) || !near(a.mainLayoutWidth*seen[0]+seen[0]-1, baseMain) {
+		t.Errorf("zoom consumed the main or details area in a narrow window: nav %v→%v, details %v→%v, main %v→%v",
+			baseEdge, fitEdge, baseDetails, fitDetails, baseMain, a.mainLayoutWidth*seen[0])
+	}
+	if a.panes.Displayed() != group || !slices.Equal(group.Sizes, shares) || !near(a.NavWidth, saved.NavWidth+40) {
+		t.Fatal("narrow zoom changed the saved width or split shares")
+	}
 }
 
-// edgeNear allows for the panel's 1 DIP outline, which zooms as the
-// content's borders do.
-func edgeNear(a, b float32) bool { return a-b <= 1 && b-a <= 1 }
-
-// The View page holds the interface size and the conversation's text size,
+// Appearance holds the interface size and the conversation's text size,
 // which Conversation no longer shows.
-func TestViewSettingsPage(t *testing.T) {
+func TestAppearanceSizeSettings(t *testing.T) {
 	a, tt, seen := zoomTester(t)
 	a.Navigate(SettingsPage)
 	a.Settings.Open(settings.Conversation)
@@ -148,10 +177,10 @@ func TestViewSettingsPage(t *testing.T) {
 	if tt.HasText(textSize) {
 		t.Error("Conversation still shows the text size")
 	}
-	a.Settings.Open(settings.View)
+	a.Settings.Open(settings.Appearance)
 	tt.Frame()
 	if !tt.HasText(i18n.In("en", "settings_view_size")) || !tt.HasText(textSize) || !tt.HasText("150%") {
-		t.Fatalf("the View page shows %q", tt.Texts())
+		t.Fatalf("Appearance shows %q", tt.Texts())
 	}
 	if err := tt.Click("125%"); err != nil {
 		t.Fatal(err)

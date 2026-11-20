@@ -2,12 +2,20 @@ package settings
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+)
+
+// Conversation text sizes in DIPs, a pixel a step.
+const (
+	MinTextSize = 12
+	MaxTextSize = 18
 )
 
 // Look is the appearance the Appearance page edits: UI state of the app,
@@ -27,10 +35,9 @@ type Look struct {
 // previewHeight is a theme card's preview (h_24).
 const previewHeight = 96
 
-// appearance is the interface group (mode and effects), the transparency
-// sliders and the gallery of theme packages with its update check and import.
-// A card's right-click menu opens a theme's details in a dialog.
-func appearance(c *ui.Context, look Look) {
+// appearance shows interface sizing, color mode and effects, transparency,
+// and installed themes with their update and import actions.
+func appearance(c *ui.Context, look Look, m *Model) {
 	kit.Group(c, "interface", i18n.T(c, "settings_interface"), "", nil, func() {
 		kit.Card(c, func() {
 			chosen := int(*look.Mode)
@@ -38,6 +45,15 @@ func appearance(c *ui.Context, look Look) {
 				i18n.T(c, "appearance_system"), i18n.T(c, "appearance_light"), i18n.T(c, "appearance_dark")) {
 				*look.Mode = theme.Mode(chosen)
 			}
+			levels := make([]string, len(preferences.ViewZoomLevels))
+			for i, level := range preferences.ViewZoomLevels {
+				levels[i] = strconv.Itoa(int(level)) + "%"
+			}
+			kit.SegmentedRow(c, "view-size", i18n.T(c, "settings_view_size"), "", &m.ViewZoom, levels...)
+			title := i18n.T(c, "settings_message_text_size")
+			kit.WideRow(c, "text-size", title, "", func() {
+				ui.StepSlider(c.Key("slider"), &m.TextSize, MinTextSize, MaxTextSize, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
+			})
 			kit.SwitchRow(c, "effects", i18n.T(c, "appearance_effects"), "", look.Effects)
 		})
 	})

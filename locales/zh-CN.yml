@@ -1537,8 +1537,6 @@ settings_about: 关于
 plugins_settings_description: 管理插件选项
 settings_general_description: 管理通知偏好和设备配对服务
 settings_appearance_description: 调整界面主题与窗口外观
-settings_view: "视图"
-settings_view_description: "调整界面与文字大小"
 settings_view_size: "界面大小"
 settings_terminal_description: 终端环境与显示偏好
 settings_security_description: 管理执行节点的命令与隔离权限

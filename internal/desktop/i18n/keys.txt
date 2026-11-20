@@ -51,8 +51,6 @@ settings_group_system
 settings_general
 settings_appearance
 settings_appearance_description
-settings_view
-settings_view_description
 settings_view_size
 settings_conversation
 settings_shortcuts
@@ -142,6 +140,8 @@ chat_navigation
 chat_new
 turn_copy
 message_copy
+message_expand
+message_collapse
 chat_fork
 chat_retry
 chat_running

@@ -444,10 +444,9 @@ func (a *App) View(c *ui.Context) {
 // frame is where the columns are in this frame: how open each is, from 0
 // to 1 along Motion, and their widths.
 //
-// The widths are in the content's DIPs. The view zoom (view_zoom.go)
-// enlarges what the columns show, not the columns: their saved widths,
-// limits and whether the panel fits are in the window's DIPs, the
-// content's at 100%, and zoom converts between them.
+// The widths are in the content's DIPs. Column preferences and fit limits
+// use window DIPs; zoom converts them after allowing the conversation
+// sidebar some extra room.
 type frame struct {
 	nav, details         float32 // openness
 	rail                 float32 // the rail's width
@@ -519,6 +518,15 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
+	}
+	// The same conversation sidebar shows beside the host and project pages.
+	// At larger sizes it gets up to 56 extra window DIPs, but never at the
+	// expense of a fitted details column or the main column's minimum space.
+	switch a.Page {
+	case ConversationPage, HostPage, ProjectPage:
+		space := max(w-RailWidth-z-f.navWidth-f.panelW*target-MainMin, 0)
+		f.navWidth += min(112*(z-1), space)
+		nav = f.navWidth * navTarget
 	}
 	resource := panel.Kind("")
 	if a.resourceDetails() {

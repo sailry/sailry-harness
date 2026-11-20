@@ -9,15 +9,19 @@ released only after its entry is here.
   preparation and linear text assembly. Refresh the asset inventory on canonical
   changes rather than streamed text or statistics. Remove the fixed 320 MiB Go
   heap ceiling that can force repeated collections in a larger Desktop and Node.
+  Start plugin status observation without reading an unused full Node snapshot.
 - Read Git ignore rules along changed paths instead of recursively scanning the
   repository for metadata notifications. Release the code reader between files
   and use native Git to list checkouts with per-worktree configuration.
-- Put interface size and conversation font size in Settings > View. Zoom content
-  through four levels while preserving sidebar and details widths; beyond the
-  largest view, increase conversation text and undo those extra steps first.
-- Add focus-scoped conversation tabs and directional splits. Enlarge a conversation
-  in a floating surface without discarding its split layout or stopping tasks.
-  Preserve focus when creating tabs and moving a pane between surfaces.
+- Put interface size and conversation font size in Settings > Appearance. Zoom
+  through four levels, giving the conversation sidebar extra room where it fits.
+  Beyond the largest view, increase conversation text and undo those steps first.
+- Add focus-scoped conversation tabs and directional splits. Keep an explicitly
+  retained tab visible even when it is alone. Highlight the focused split title
+  with the primary color and enlarge or restore it from the header without
+  discarding the layout or stopping tasks.
+- Show at most five lines of a sent user message until expanded. Keep the full
+  text available for copying and editing.
 - Remember new-conversation team and model choices before the first send, including
   across restarts, without rewriting existing sessions or borrowing another Node's
   model configuration.

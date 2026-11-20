@@ -76,7 +76,7 @@ func paneRows(tt *ui.Tester) []map[string]ui.Rect {
 // popover; ⌘F is the focused pane's, and a terminal pane has none.
 func testPaneActions(t *testing.T) {
 	find, overview := i18n.In("en", "chat_search"), i18n.In("en", "chat_assets_title")
-	drag, shut := i18n.In("en", "pane_drag"), i18n.In("en", "close")
+	enlarge, drag, shut := i18n.In("en", "shortcut_pane_enlarge"), i18n.In("en", "pane_drag"), i18n.In("en", "close")
 	a, tt := newTester(t)
 	for _, name := range []string{find, overview} {
 		if _, ok := headerButton(tt, name); !ok || buttons(tt, name) != 1 {
@@ -97,9 +97,9 @@ func testPaneActions(t *testing.T) {
 		t.Fatalf("%d pane headers, want 2", len(rows))
 	}
 	for i, row := range rows {
-		f, o, d, x := row[find], row[overview], row[drag], row[shut]
-		if f.W != 28 || f.H != 28 || o.W != 28 || o.H != 28 || o.X != f.X+f.W+4 || d.X != o.X+o.W+4 || x.X != d.X+d.W+4 {
-			t.Errorf("pane %d: the header is not Find %v, the overview %v, the handle %v, close %v", i, f, o, d, x)
+		f, o, e, d, x := row[find], row[overview], row[enlarge], row[drag], row[shut]
+		if f.W != 28 || f.H != 28 || o.W != 28 || o.H != 28 || e.W != 28 || e.H != 28 || o.X != f.X+f.W+4 || e.X != o.X+o.W+4 || d.X != e.X+e.W+4 || x.X != d.X+d.W+4 {
+			t.Errorf("pane %d: header actions out of order: Find %v, Overview %v, Enlarge %v, Drag %v, Close %v", i, f, o, e, d, x)
 		}
 	}
 	press := func(r ui.Rect) {

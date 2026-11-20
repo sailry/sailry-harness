@@ -26,6 +26,9 @@ const (
 	bubbleMax  = 440
 	userLift   = 0.06 // the user message's lift toward the text on a dark page
 	workGap    = 16   // between the blocks of a reply
+
+	userLeading    = 1.6 // the user message's line height, in ems
+	collapsedLines = 5   // the lines a long user message shows until expanded
 )
 
 // State is the transcript's UI state: a list state per conversation, so
@@ -422,15 +425,23 @@ func (s *State) user(c *ui.Context, session string, t *Turn, q string, current i
 	col := ui.Column(c.Key("user")).Gap(8)
 	over := col.Hovered()
 	col.Children(func() {
+		var fold userFold
 		if t.Editing != nil {
 			s.editor(c, session, t, actions)
 		} else if t.User != "" {
 			var hl []ui.Span
+			// The search's current match shows even where it is in the lines
+			// a collapsed message hides; the message folds again after it.
+			reveal := false
 			if marked {
 				hl = spans(t.User, q, current, theme.Of(c))
+				reveal = current >= 0 && current < len(hl)/2
 			}
-			text := userMessage(c, t.User, hl, s.references[session][t.ID])
-			s.span(text, text.ID(), 9, 14)
+			fold.key = "user-more-" + t.ID
+			fold.open = s.opened(fold.key)
+			text, shown, long := userMessage(c, t.User, hl, s.references[session][t.ID], fold.open || reveal)
+			fold.long = long && !reveal
+			s.span(shown, text.ID(), 0, 14)
 		}
 		if len(t.Images) > 0 {
 			s.thumbnails(c, "user-images", t.Images, true)
@@ -440,27 +451,64 @@ func (s *State) user(c *ui.Context, session string, t *Turn, q string, current i
 				ui.Column(c).Width(bubbleMax).Children(func() { s.files(c, "user-files", t.Files, actions) })
 			})
 		}
-		s.userFooter(c, t, over, actions)
+		s.userFooter(c, t, over, fold, actions)
 	})
+}
+
+// userFold is whether a user message folds: long when its text lays out in
+// more lines than a collapsed message shows, open while the user expanded it
+// (the disclosure key).
+type userFold struct {
+	key        string
+	long, open bool
 }
 
 // userMessage is the muted bubble on the right, in the package's user message
 // colors, border and radius, with its corner art; marks, when set, are its
-// text with the search's matches marked. It returns the bubble, its text's
-// paragraph.
-func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference) ui.Element {
-	var b ui.Element
+// text with the search's matches marked. Unless expanded, it shows the first
+// collapsedLines lines of the text as it wraps at the bubble's width. It
+// returns the text's paragraph, the box that shows it and whether the text
+// lays out in more lines than a collapsed bubble shows.
+func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference, expanded bool) (body, shown ui.Element, long bool) {
+	size := textSize(c)
+	// Every line is at least the leading high, and system fonts reach no
+	// higher at 1.6 ems: half a line past the collapsed ones is a line more.
+	line := size * userLeading
+	limit := (collapsedLines + 0.5) * line
 	ui.Row(c).Justify(ui.End).Children(func() {
-		if len(references) > 0 {
-			b = referenceText(c, text, marks, references)
-		} else if marks != nil {
-			b = ui.RichText(c, marks...)
-		} else {
-			b = ui.Text(c, text)
-		}
-		bubble(c, b.FontSize(textSize(c)).LineHeight(1.6).Padding(9, 14).MaxWidth(bubbleMax))
+		// The text keeps the bubble's sides as its padding, and the bubble its
+		// top and bottom, so the clip ends at a line.
+		bubble(c, ui.Column(c.Key("bubble")).Padding(9, 0).MaxWidth(bubbleMax)).Children(func() {
+			shown = ui.Column(c.Key("text")).ClipY()
+			shown.Children(func() {
+				if len(references) > 0 {
+					body = referenceText(c, text, marks, references)
+				} else if marks != nil {
+					body = ui.RichText(c, marks...)
+				} else {
+					body = ui.Text(c, text)
+				}
+				body.FontSize(size).LineHeight(userLeading).PaddingX(14).Shrink(0)
+			})
+		})
 	})
-	return b
+	// MyGo v0.10.0 reports neither a text's lines nor that MaxLines cut it,
+	// only the box its layout takes. Collapsed, the text lays out one line
+	// past those shown, under a clip, so that box tells a longer text without
+	// a second layout or laying out the rest of it; expanded, it is all of it.
+	// The box is the last frame's: painting a box on the other side of the
+	// limit builds again, so the toggle follows a new width or text size.
+	long = body.LayoutBounds().H > limit
+	if !expanded {
+		body.MaxLines(collapsedLines + 1)
+		shown.MaxHeight(collapsedLines * line)
+	}
+	body.Draw(func(_ *ui.Painter, r ui.Rect) {
+		if (r.H > limit) != long {
+			c.Invalidate()
+		}
+	})
+	return body, shown, long
 }
 
 // bubble gives b the user message's look: the theme's colors, border, radius

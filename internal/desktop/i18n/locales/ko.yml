@@ -48,8 +48,6 @@ settings_group_system: 시스템
 settings_general: 일반
 settings_appearance: 모양
 settings_appearance_description: 테마와 창 모양 조정하기
-settings_view: 보기
-settings_view_description: 인터페이스와 텍스트 크기 조정
 settings_view_size: 인터페이스 크기
 settings_conversation: 대화
 settings_shortcuts: 키보드 단축키
@@ -135,6 +133,8 @@ chat_navigation: 메시지 탐색
 chat_new: 새 대화
 turn_copy: 응답 복사
 message_copy: 복사
+message_expand: 펼치기
+message_collapse: 접기
 chat_fork: 포크 세션
 chat_retry: 다시 시도
 chat_running: 작업 중

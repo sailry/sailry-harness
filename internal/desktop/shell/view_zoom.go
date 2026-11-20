@@ -25,7 +25,7 @@ var viewZoomKeys = []Shortcut{
 // viewZoom is what the zoom commands keep beyond the settings: the text
 // size steps In added past the largest interface size, which Out takes back
 // before it lowers the interface size. A text size changed elsewhere, on
-// the View page or in another window, ends them.
+// the Appearance page or in another window, ends them.
 type viewZoom struct {
 	extra int
 	text  float64
@@ -94,8 +94,8 @@ func (a *App) viewZoomFactor() float32 {
 
 // applyViewZoom zooms the window's content, which MyGo lays out, draws and
 // maps input at (Context.SetZoom); a change builds the frame again at the
-// new size. The shell's columns keep their widths in the window's DIPs
-// (frame), and the conversation's text size scales inside the zoom.
+// new size. The shell sizes its columns in window DIPs (frame), and the
+// conversation's text size scales inside the zoom.
 func (a *App) applyViewZoom(c *ui.Context) {
 	c.SetZoom(a.viewZoomFactor())
 }

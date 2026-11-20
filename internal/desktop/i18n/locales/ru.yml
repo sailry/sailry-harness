@@ -48,8 +48,6 @@ settings_group_system: Система
 settings_general: Общие
 settings_appearance: Внешний вид
 settings_appearance_description: Настройка темы и внешнего вида окна
-settings_view: Вид
-settings_view_description: Настройка размера интерфейса и текста
 settings_view_size: Размер интерфейса
 settings_conversation: Разговор
 settings_shortcuts: Горячие клавиши
@@ -135,6 +133,8 @@ chat_navigation: Навигация сообщений
 chat_new: Новый разговор
 turn_copy: Копия ответа
 message_copy: Копировать
+message_expand: Развернуть
+message_collapse: Свернуть
 chat_fork: Форк-сесия
 chat_retry: Повторить
 chat_running: В работе

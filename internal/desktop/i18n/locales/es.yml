@@ -48,8 +48,6 @@ settings_group_system: Sistema
 settings_general: General
 settings_appearance: Apariencia
 settings_appearance_description: Ajustar el tema y el aspecto de la ventana
-settings_view: Vista
-settings_view_description: Ajustar el tamaño de la interfaz y del texto
 settings_view_size: Tamaño de la interfaz
 settings_conversation: Conversación
 settings_shortcuts: Atajos de teclado
@@ -135,6 +133,8 @@ chat_navigation: Navegación de mensajes
 chat_new: Una nueva conversación
 turn_copy: Copiar la respuesta
 message_copy: Copiar
+message_expand: Expandir
+message_collapse: Contraer
 chat_fork: Sesión de tenedor
 chat_retry: Reintentar
 chat_running: En curso

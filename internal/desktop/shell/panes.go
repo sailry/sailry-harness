@@ -280,32 +280,23 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 	}
 }
 
-// paneHeader is a pane's header in a split: the title, a conversation's own
-// Find and overview, then the handle that drags the pane to another place and
-// the close button, on the header band's height.
+// paneHeader is a pane's header in a split: the title, conversation actions,
+// then its drag handle and close button.
 func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 	p := theme.Of(c)
 	title := a.paneTitle(c, t)
-	// The focused pane's title is in the foreground over a short accent
-	// line; the others recede, so the split shows where keys go.
-	focused := a.panes.Active == t
 	ink := p.MutedForeground
-	if focused {
-		ink = p.Foreground
+	if a.panes.Active == t {
+		ink = p.Primary
 	}
-	head := ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4)
-	if focused {
-		head.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(ui.Rect{X: r.X + 12, Y: r.Y + r.H - 2, W: 24, H: 2}, p.Primary, 1)
-		})
-	}
-	head.Children(func() {
+	ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4).Children(func() {
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(ink)
 		// The band has no Find or overview over a split, where they would
 		// name no pane: each conversation's are here, acting on it alone. A
 		// terminal has none.
 		if t.Kind == panes.Session {
 			a.conversationActions(c, a.Data.Find(t.ID), 28)
+			a.paneSizeButton(c, t, false)
 		}
 		drag := kit.IconButton(c.Key("pane-drag"), icons.Move, i18n.T(c, "pane_drag"), 28, false).Cursor(ui.CursorGrab)
 		drag.Drag(panes.Drag{Target: t, Title: title})

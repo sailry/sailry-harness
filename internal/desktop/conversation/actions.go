@@ -252,14 +252,27 @@ func exportMenu(c *ui.Context, id, turn string, disabled bool, actions Actions) 
 }
 
 // userFooter is under a user message, at the end: the time it was sent
-// while the pointer is over the message (over) or the row, Copy and Edit.
-func (s *State) userFooter(c *ui.Context, t *Turn, over bool, actions Actions) {
+// while the pointer is over the message (over) or the row, Expand or
+// Collapse for a long message, Copy and Edit. The toggle shows whether the
+// pointer is there or not, after the time so that it stays in place.
+func (s *State) userFooter(c *ui.Context, t *Turn, over bool, fold userFold, actions Actions) {
 	p := theme.Of(c)
 	row := ui.Row(c.Key("user-footer")).FillWidth().Gap(8).Justify(ui.End).AlignItems(ui.Center).TextColor(p.Description())
 	hovered := over || row.Hovered()
 	row.Children(func() {
 		if hovered && !t.Sent.IsZero() {
 			ui.Text(c, t.Sent.Format("15:04")).FontSize(14).SingleLine()
+		}
+		if fold.long {
+			label, chevron := i18n.T(c, "message_expand"), icons.ChevronDown
+			if fold.open {
+				label, chevron = i18n.T(c, "message_collapse"), icons.ChevronUp
+			}
+			quiet(c, kit.GhostLook(c, ui.ButtonBase(c.Key("fold")).Label(label).Expanded(fold.open), false)).
+				Height(28).PaddingX(8).Gap(4).Children(func() {
+				ui.Text(c, label).FontSize(14).SingleLine()
+				ui.Icon(c, chevron).FontSize(14)
+			}).OnClick(func() { s.toggle(fold.key) })
 		}
 		if t.User != "" {
 			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false)).OnClick(func() {
