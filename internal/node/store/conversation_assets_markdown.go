@@ -3,10 +3,12 @@ package store
 import (
 	"io/fs"
 	"net/url"
+	pathpkg "path"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -15,14 +17,23 @@ import (
 func conversationAssetMarkdown(targets *conversationAssetTargets, markdown string, root *string, input bool) {
 	source := []byte(markdown)
 	document := goldmark.New().Parser().Parse(text.NewReader(source))
-	// Assistant Markdown references do not declare a published output. Only
-	// explicit tool file/artifact content and images own output inventory;
-	// user links still identify the input resources of the conversation.
+	// A user's links identify the conversation's inputs. An assistant's link
+	// publishes an output only standing alone in a top-level paragraph and
+	// naming a deliverable or a picture, as the transcript shows it as a
+	// card; source references stay navigation. Images are always outputs.
 	_ = ast.Walk(document, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
 		switch value := node.(type) {
+		case *ast.Paragraph:
+			if _, top := value.Parent().(*ast.Document); top && !input {
+				if destination, ok := standaloneLink(value, source); ok && !strings.ContainsAny(destination, "#?") && !assetSourceLine(destination) {
+					if path, ok := conversationAssetPath(destination, root); ok && (core.DeliverableFile(path) || assetImageFile(path)) {
+						targets.file(path)
+					}
+				}
+			}
 		case *ast.Link:
 			if input {
 				if path, ok := conversationAssetPath(string(value.Destination), root); ok {
@@ -42,6 +53,35 @@ func conversationAssetMarkdown(targets *conversationAssetTargets, markdown strin
 		}
 		return ast.WalkContinue, nil
 	})
+}
+
+// standaloneLink is the destination of a paragraph holding only one link.
+func standaloneLink(paragraph *ast.Paragraph, source []byte) (string, bool) {
+	destination, found := "", false
+	for child := paragraph.FirstChild(); child != nil; child = child.NextSibling() {
+		switch value := child.(type) {
+		case *ast.Link:
+			if found {
+				return "", false
+			}
+			destination, found = string(value.Destination), true
+		case *ast.Text:
+			if len(strings.TrimSpace(string(value.Segment.Value(source)))) > 0 {
+				return "", false
+			}
+		default:
+			return "", false
+		}
+	}
+	return destination, found
+}
+
+func assetImageFile(path string) bool {
+	switch strings.ToLower(pathpkg.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff":
+		return true
+	}
+	return false
 }
 
 func assetSourceLine(link string) bool {

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -40,10 +41,11 @@ func imageReference(dest string) (string, bool) {
 	return call + "/" + number, true
 }
 
-// chatEmbed resolves image markup: a tool's image reference, a workspace
-// picture or its file fallback. Markdown file links do not publish outputs.
+// chatEmbed resolves image markup, a tool's image reference, a workspace
+// picture or its file fallback, and a standalone link to a deliverable or a
+// picture. A link to source code remains navigation.
 func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool) (conversation.Embed, bool) {
-	if !image || r.attachments == nil {
+	if r.attachments == nil {
 		return conversation.Embed{}, false
 	}
 	session := cv.ID
@@ -85,9 +87,12 @@ func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool)
 		return conversation.Embed{}, false
 	}
 	kind := attachmentFileKind(target.path, "")
+	if !image && kind != conversation.ImageFile && !core.DeliverableFile(target.path) {
+		return conversation.Embed{}, false
+	}
 	id := "link/" + target.path
 	r.registerWorkspaceFile(session, id, current.Worktree, target.path, nil)
-	if image && kind == conversation.ImageFile && r.attachmentConversationVisible(session) {
+	if kind == conversation.ImageFile && r.attachmentConversationVisible(session) {
 		cache := r.attachmentImages(session)
 		key := attachmentKey(session, id)
 		picture := conversation.Image{ID: id, Name: path.Base(target.path)}

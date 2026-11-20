@@ -206,8 +206,9 @@ func checkTranscript(t *testing.T) {
 	if edits, forks := count(T("message_edit")), count(T("chat_fork")); edits != 2 || forks != 2 {
 		t.Fatalf("Edit shows %d times and the fork menu %d: %q", edits, forks, tt.Texts())
 	}
-	// Published files keep their card; Markdown references stay links, the
-	// conversation's picture a thumbnail and the unknown picture a line.
+	// Published files keep their card; links the resolver declines stay
+	// links, the conversation's picture a thumbnail and the unknown picture
+	// a line.
 	if !tt.HasText("report.md") || !tt.HasText(T("chat_image_missing")) || !tt.HasText("设计说明") {
 		t.Fatalf("Markdown cards: %q", tt.Texts())
 	}
@@ -216,9 +217,11 @@ func checkTranscript(t *testing.T) {
 			t.Fatalf("no image card: %q", tt.Texts())
 		}
 	}
+	// A standalone link goes to the resolver, which decides by the file; a
+	// reference within text never does.
 	for _, dest := range embedded {
-		if dest == "docs/design.md" || dest == "docs/report.md" {
-			t.Fatal("a Markdown file reference was offered as a card")
+		if dest == "docs/design.md" {
+			t.Fatal("a Markdown file reference within text was offered as a card")
 		}
 	}
 	click(T("artifact_open"))

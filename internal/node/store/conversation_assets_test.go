@@ -194,7 +194,8 @@ func TestConversationAssetInventory(t *testing.T) {
 			text  string
 			want  []string
 		}{
-			{false, "[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt", []string{"image.png"}},
+			{false, "[Report](report.md)\n\n![Image](image.png)\n\n[Again](./report.md)\n\nSource: [Code](src/main.rs#L3) `![Code](code.png)` [Outside](../secret) [Web](https://example.test/a.png) plain.txt", []string{"report.md", "image.png"}},
+			{false, "[Budget](output/budget.xlsx)\n\n[Page](site/index.html)\n\n[Chart](chart.png)\n\n[Source](main.go)\n\n[Config](config.json)", []string{"output/budget.xlsx", "site/index.html", "chart.png"}},
 			{false, "[Line](src/main.rs:42)\n\n[Section](guide.md#intro)\n\n[One](a.json) [Two](b.json)\n\nSee [Report](report.pdf)\n\n> [Source](src/quoted.rs)\n\n> > [Nested](src/nested.rs)\n\n`[Code](code.py)`\n\n[Web](https://example.test) [Mixed](mixed.json)\n\n- [Report](report.pdf)\n- [Data](data.json)", []string{}},
 			{false, "Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)", []string{}},
 			{true, "See [Input](input.txt)\n\n> [Quoted](quoted.txt)", []string{"input.txt", "quoted.txt"}},

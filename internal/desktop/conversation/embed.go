@@ -12,9 +12,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// A Markdown file reference is navigation, not a publication. Explicit file
-// and artifact blocks own file cards; image markup owns thumbnails and their
-// file fallback. Ordinary links retain Markdown's inline click behavior.
+// A deliverable shows as what it is: a link standing alone in its paragraph
+// to a produced document, page, export or media file is a file card, and to a
+// picture its thumbnail. Image markup shows pictures and falls back to a
+// file card. Source references and links within text remain links; the
+// resolver decides which files are deliverables.
 
 // embed builds paragraph i of d as its cards and reports whether it did.
 func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, actions Actions, resolve func(string, string, string, bool) (Embed, bool)) bool {
@@ -23,10 +25,15 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 	}
 	inlines := d.Inlines(i)
 	var images []parser.Inline
+	links := 0
 	for at := 0; at < len(inlines); {
 		in := inlines[at]
 		switch {
 		case in.Kind == parser.Image && !in.Pending:
+			images = append(images, in)
+		case in.Kind == parser.Link && !in.Pending && !in.Auto && d.Block(d.Block(i).Parent).Kind == parser.Root:
+			// Only a top-level paragraph delivers; a list or quote refers.
+			links++
 			images = append(images, in)
 		case in.Kind == parser.SoftBreak, in.Kind == parser.LineBreak, in.Kind == parser.Text && strings.TrimSpace(in.Text) == "":
 		default:
@@ -34,13 +41,13 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 		}
 		at = max(in.Next, at+1)
 	}
-	if len(images) == 0 {
+	if len(images) == 0 || links > 0 && len(images) != 1 {
 		return false
 	}
 	embeds := make([]Embed, len(images))
 	for n, in := range images {
-		e, ok := resolve(session, in.Dest, "", true)
-		if !ok && webLink(in.Dest) {
+		e, ok := resolve(session, in.Dest, "", links == 0)
+		if links > 0 && !ok || !ok && webLink(in.Dest) {
 			return false
 		}
 		embeds[n] = e
