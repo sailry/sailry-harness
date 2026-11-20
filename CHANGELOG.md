@@ -3,6 +3,34 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.6](https://github.com/sailry/sailry-harness/releases/tag/v0.2.6) — 2026-11-21
+
+- Reduce long-conversation allocation and switching stalls with bounded background
+  preparation and linear text assembly. Refresh the asset inventory on canonical
+  changes rather than streamed text or statistics. Remove the fixed 320 MiB Go
+  heap ceiling that can force repeated collections in a larger Desktop and Node.
+- Read Git ignore rules along changed paths instead of recursively scanning the
+  repository for metadata notifications. Release the code reader between files
+  and use native Git to list checkouts with per-worktree configuration.
+- Put interface size and conversation font size in Settings > View. Zoom content
+  through four levels while preserving sidebar and details widths; beyond the
+  largest view, increase conversation text and undo those extra steps first.
+- Add focus-scoped conversation tabs and directional splits. Enlarge a conversation
+  in a floating surface without discarding its split layout or stopping tasks.
+  Preserve focus when creating tabs and moving a pane between surfaces.
+- Remember new-conversation team and model choices before the first send, including
+  across restarts, without rewriting existing sessions or borrowing another Node's
+  model configuration.
+- Refuse to archive sessions with unfinished work, including through bulk actions.
+  Switch all project lists between active and archived conversations from the
+  sidebar sort menu without rebinding open tabs, split panes or their drafts.
+- Refresh missing workspace files without repeated stale reads, preserve unsaved
+  drafts, and inspect uncertain trash results without dispatching the mutation again.
+  Distinguish unsupported attachment directories and special files from I/O failures.
+- Fix linked-image Markdown layout crashes while keeping Mermaid rendering. Recover
+  eligible missing-usage and HTTP/2 stream failures within the existing replay
+  budget, without rerunning completed tools or inventing token usage.
+
 ## [0.2.5](https://github.com/sailry/sailry-harness/releases/tag/v0.2.5) — 2026-11-20
 
 - Replace Iroh with libp2p for remote connections. Paired devices can move
