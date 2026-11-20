@@ -62,3 +62,40 @@ func TestToolRunKeepsTranscriptStill(t *testing.T) {
 		done = append(done, call(id, 2))
 	}
 }
+
+// Reasoning, waiting for a model, a question and a stop each show or hide the
+// phase row; the transcript stays where it rests.
+func TestPhaseChangesKeepTranscriptStill(t *testing.T) {
+	var lines []string
+	for i := range 80 {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	reply := Reply{Status: Running, Blocks: []Block{{Kind: ReasoningBlock, Text: "Considering the options"}}}
+	s := New()
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		turns := []Turn{
+			{ID: "earlier", User: "earlier", Reply: Reply{Status: Completed, Blocks: []Block{{Kind: TextBlock, Text: strings.Join(lines, "\n\n")}}}},
+			{ID: "run", User: "go", Reply: reply},
+		}
+		ui.Column(c).Fill().Children(func() { View(c, s, "t", turns, &Session{}, stillActions{}) })
+	}, 1000, 700)
+	tt.SetLocale("en")
+	var top float32 = -1
+	for _, step := range []struct {
+		phase  Phase
+		status RunStatus
+	}{{Thinking, Running}, {AwaitingResponse, Running}, {WaitingUser, Running}, {Thinking, Running}, {ExecutingTool, Running}, {AwaitingResponse, Stopping}} {
+		reply.Phase, reply.Status = step.phase, step.status
+		tt.Frame()
+		tt.Frame()
+		user, ok := tt.Access("go")
+		if !ok {
+			t.Fatalf("the running turn is not shown: %q", tt.Texts())
+		}
+		if top >= 0 && user.Bounds.Y != top {
+			t.Fatalf("phase %v (%v) moved the transcript from %.1f to %.1f", step.phase, step.status, top, user.Bounds.Y)
+		}
+		top = user.Bounds.Y
+	}
+}
