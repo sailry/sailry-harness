@@ -60,9 +60,22 @@ func Resolve(name string, environment map[string]string) (string, error) {
 		return "", errors.New("program must be an executable name")
 	}
 	names := []string{name}
-	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
-		for _, extension := range strings.Split(environment["PATHEXT"], ";") {
-			names = append(names, name+strings.ToLower(extension))
+	if runtime.GOOS == "windows" {
+		if filepath.Ext(name) == "" {
+			names = nil
+		}
+		extensions := environment["PATHEXT"]
+		if extensions == "" {
+			extensions = ".COM;.EXE;.BAT;.CMD"
+		}
+		for extension := range strings.SplitSeq(extensions, ";") {
+			if extension == "" {
+				continue
+			}
+			if !strings.HasPrefix(extension, ".") {
+				extension = "." + extension
+			}
+			names = append(names, name+extension)
 		}
 	}
 	for _, directory := range filepath.SplitList(environment["PATH"]) {

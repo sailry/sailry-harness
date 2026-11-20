@@ -863,8 +863,10 @@ Core owns the common picker and credentials; the package owns protocol
 translation and its declared account flows.
 
 The Node-owned MCP pool keys connections by user, package digest, settings revision,
-server, authorization and launch parameters. The SDK owns protocol version
-negotiation. Each connection admits up to eight
+server, authorization and launch parameters. Stdio executable names resolve on
+the Node's captured PATH. Per-server environment values belong to the child
+process. Windows batch launchers use the system command interpreter. The SDK
+owns protocol version negotiation. Each connection admits up to eight
 read-only calls; writes and catalog reads hold that connection exclusively. The
 configured service-level write exclusion also spans its connections. Each call
 owns its input-wait timer and cancellation. MCP input uses the SDK's originating

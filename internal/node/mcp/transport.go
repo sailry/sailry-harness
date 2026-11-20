@@ -8,9 +8,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
-	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/netproxy"
@@ -51,20 +48,9 @@ func Open(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.
 	var transport sdk.Transport
 	switch launch.Kind {
 	case "stdio":
-		command := exec.Command(launch.Command, launch.Args...)
-		command.Dir = launch.Directory
-		command.Stderr = io.Discard
-		command.Env = launch.Environment
-		if command.Env == nil {
-			command.Env = os.Environ()
-		}
-		names := make([]string, 0, len(launch.Env))
-		for name := range launch.Env {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			command.Env = append(command.Env, name+"="+launch.Env[name])
+		command, err := stdioCommand(launch)
+		if err != nil {
+			return nil, err
 		}
 		transport = commandTransport{command: command}
 	case "streamable-http", "sse":

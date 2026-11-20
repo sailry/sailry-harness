@@ -4,12 +4,56 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
+	"os"
 	"os/exec"
+	"runtime"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sailry/sailry-harness/internal/node/program"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func stdioCommand(launch Launch) (*exec.Cmd, error) {
+	environment := slices.Clone(launch.Environment)
+	if environment == nil {
+		environment = os.Environ()
+	}
+	executable := launch.Command
+	if !strings.ContainsAny(executable, `/\`) {
+		// The Node's captured shell environment owns executable lookup.
+		// A server's environment overrides are passed to the child only.
+		search := map[string]string{}
+		for _, entry := range environment {
+			name, value, ok := strings.Cut(entry, "=")
+			if runtime.GOOS == "windows" {
+				name = strings.ToUpper(name)
+			}
+			if ok && (name == "PATH" || name == "PATHEXT") {
+				search[name] = value
+			}
+		}
+		path, err := program.Resolve(executable, search)
+		if err != nil {
+			return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "MCP executable was not found in the Node's PATH"}
+		}
+		executable = path
+	}
+	command := exec.Command(executable, launch.Args...)
+	command.Args[0], command.Dir, command.Stderr = launch.Command, launch.Directory, io.Discard
+	for _, name := range slices.Sorted(maps.Keys(launch.Env)) {
+		environment = append(environment, name+"="+launch.Env[name])
+	}
+	command.Env = environment
+	if err := configureCommand(command); err != nil {
+		return nil, err
+	}
+	return command, nil
+}
 
 type commandTransport struct{ command *exec.Cmd }
 
@@ -26,7 +70,6 @@ func (transport commandTransport) Connect(ctx context.Context) (sdk.Connection, 
 		_ = output.Close()
 		return nil, err
 	}
-	configureGroup(transport.command)
 	if err := transport.command.Start(); err != nil {
 		_ = output.Close()
 		_ = input.Close()

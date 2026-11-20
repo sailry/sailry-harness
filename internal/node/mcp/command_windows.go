@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -21,8 +23,30 @@ type jobBasicAccountingInformation struct {
 	TotalTerminatedProcesses  uint32
 }
 
-func configureGroup(command *exec.Cmd) {
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
+func configureCommand(command *exec.Cmd) error {
+	attributes := &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
+	switch strings.ToLower(filepath.Ext(command.Path)) {
+	case ".bat", ".cmd":
+		// Npm installs Windows command shims as batch files. CreateProcess
+		// needs the system interpreter for these files, with literal arguments.
+		words := append([]string{command.Path}, command.Args[1:]...)
+		for index, word := range words {
+			if strings.ContainsAny(word, "\"%\r\n\x00") {
+				return invalid("MCP batch commands cannot contain double quotes, percent signs or line breaks in their path or arguments")
+			}
+			// Keep trailing backslashes literal when a shim forwards %* to an executable.
+			trailing := word[len(strings.TrimRight(word, `\`)):]
+			words[index] = `"` + word + trailing + `"`
+		}
+		system, err := windows.GetSystemDirectory()
+		if err != nil {
+			return err
+		}
+		command.Path = filepath.Join(system, "cmd.exe")
+		attributes.CmdLine = `cmd.exe /d /s /v:off /c "` + strings.Join(words, " ") + `"`
+	}
+	command.SysProcAttr = attributes
+	return nil
 }
 
 func retainGroup(command *exec.Cmd) (*commandGroup, error) {

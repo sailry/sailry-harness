@@ -10,7 +10,10 @@ import (
 
 type commandGroup struct{ id int }
 
-func configureGroup(command *exec.Cmd) { command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
+func configureCommand(command *exec.Cmd) error {
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return nil
+}
 
 func retainGroup(command *exec.Cmd) (*commandGroup, error) {
 	return &commandGroup{id: command.Process.Pid}, nil
