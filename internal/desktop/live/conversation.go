@@ -113,12 +113,12 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	if idErr == nil {
 		r.conversationSeen[id] = true
 		if _, ok := r.conversationWatches[id]; !ok {
-			release, err := r.controller.WatchConversation(r.ctx, id, func() { r.conversationChanged(id) })
-			if err == nil {
-				r.conversationWatches[id] = release
-				delete(r.conversationCache, id)
-			} else {
-				r.report(c, err, "session_changed")
+			r.startConversationFeed(id, c.Locale())
+		}
+		if feed := r.conversationFeeds[id]; feed != nil {
+			feed.setLanguage(c.Locale())
+			if r.conversationCopies == nil {
+				r.takeConversationFeed(id, feed)
 			}
 		}
 		if state, ok := r.conversationState(id); ok {
@@ -151,14 +151,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		c.Invalidate()
 	}
 	r.projectControls(c, cv, comp)
-	for ti := range cv.Turns {
-		for bi := range cv.Turns[ti].Reply.Blocks {
-			block := &cv.Turns[ti].Reply.Blocks[bi]
-			if block.Kind == conversation.ErrorBlock {
-				block.Label = i18n.T(c, block.Label)
-			}
-		}
-	}
 	if cv.Session.Diagnostic != nil {
 		cv.Session.Diagnostic.Title = i18n.T(c, cv.Session.Diagnostic.Title)
 	}
@@ -191,7 +183,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		markOfflineConversation(cv)
 		// The Node can disconnect before the conversation observation changes.
 		if idErr == nil {
-			r.invalidateConversationPresentation(cv)
+			saved := r.conversationPresentations[cv]
+			saved.offline = true
+			r.saveConversationPresentation(cv, saved)
 		}
 	}
 	r.projectComposerModels(c, cv, comp, ctx)

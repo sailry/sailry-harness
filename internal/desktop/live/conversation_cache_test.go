@@ -58,6 +58,7 @@ func cacheTestRuntime(t *testing.T) (*Runtime, *liveWorkspaceBenchmarkTransport,
 		_ = controller.Close()
 		t.Fatal(err)
 	}
+	r.conversationWatches = map[protocol.SessionID]func(){id: release}
 	t.Cleanup(func() { release(); _ = controller.Close() })
 	synctest.Wait()
 	return r, source, cv, id
@@ -233,6 +234,7 @@ func TestConversationFrameCacheKeepsUnchangedSibling(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer release()
+		r.conversationWatches[secondID] = release
 		synctest.Wait()
 
 		frame := func() (client.ConversationState, client.ConversationState) {

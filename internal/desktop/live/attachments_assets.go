@@ -19,6 +19,7 @@ import (
 type attachmentPublication struct {
 	session        protocol.SessionID
 	loading, ready bool
+	checkedCache   bool
 	failed         bool
 	items          []attachmentPublishedItem
 }
@@ -64,7 +65,7 @@ func sentAttachmentImages(turn *conversation.Turn) {
 
 // projectConversationAssets projects only publication metadata. Raw tool details
 // remain in Client's bounded shared cache; file bytes load only for previews.
-func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state client.ConversationState) {
+func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state client.ConversationState, parts []attachmentPart) {
 	if r.attachments == nil {
 		return
 	}
@@ -83,73 +84,71 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 	seen := map[string]bool{}
 	blocks := map[string][]conversation.Block{}
 	retained := map[string]bool{}
-	for ei := len(page.Entries) - 1; ei >= 0; ei-- {
-		entry := page.Entries[ei]
-		for pi := len(entry.Parts) - 1; pi >= 0; pi-- {
-			part := entry.Parts[pi]
-			if part.Kind != "tool_result" {
+	for i := len(parts) - 1; i >= 0; i-- {
+		entry := page.Entries[parts[i].entry]
+		pi := parts[i].part
+		part := entry.Parts[pi]
+		if part.Kind != "tool_result" {
+			continue
+		}
+		result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data)
+		if !ok || result.Summary == nil || !result.Summary.Published || !result.Summary.HasDetails {
+			continue
+		}
+		if owners == nil {
+			displayed := turnOwners(page.Runs)
+			owners = make(map[protocol.TurnID]owner, len(page.Runs))
+			for _, run := range page.Runs {
+				owners[run.Turn] = owner{turn: displayed[run.Turn].String(), worktree: run.Worktree}
+			}
+			positions = make(map[string]int, len(cv.Turns))
+			for i := range cv.Turns {
+				positions[cv.Turns[i].ID] = i
+			}
+		}
+		location, ok := owners[entry.Turn]
+		if !ok {
+			continue
+		}
+		if _, ok := positions[location.turn]; !ok {
+			continue
+		}
+		ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(pi), Call: result.ID, Revision: result.Summary.Revision}
+		key := fmt.Sprintf("publication/%s/%s/%d/%s", page.Session, entry.ID, pi, result.Summary.Revision)
+		retained[key] = true
+		publication := r.attachments.publications[key]
+		if publication == nil {
+			publication = &attachmentPublication{session: page.Session}
+			r.attachments.publications[key] = publication
+		}
+		if !publication.ready && !publication.loading && !publication.failed && (prefetch || !publication.checkedCache) {
+			publication.loading, publication.checkedCache = true, true
+			ctx := r.ctx
+			if prefetch {
+				ctx = r.attachmentImages(cv.ID).ctx
+			}
+			r.loadAttachmentPublication(ctx, key, ref, location.worktree, publication, prefetch)
+		}
+		for index := len(publication.items) - 1; index >= 0; index-- {
+			item := publication.items[index]
+			dedupe := location.turn + "/file/" + item.descriptor.path
+			if item.descriptor.artifact != nil {
+				dedupe = location.turn + "/document/" + item.descriptor.artifact.ID.String()
+			}
+			if seen[dedupe] {
 				continue
 			}
-			result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data)
-			if !ok || result.Summary == nil || !result.Summary.Published || !result.Summary.HasDetails {
-				continue
+			seen[dedupe] = true
+			r.attachments.files[attachmentKey(cv.ID, item.file.ID)] = item.descriptor
+			if artifact := item.descriptor.artifact; artifact != nil && artifact.Kind == protocol.ArtifactKindPreview {
+				item.file.Image = &conversation.Image{ID: item.file.ID, Name: item.file.Name()}
 			}
-			if owners == nil {
-				displayed := turnOwners(page.Runs)
-				owners = make(map[protocol.TurnID]owner, len(page.Runs))
-				for _, run := range page.Runs {
-					owners[run.Turn] = owner{turn: displayed[run.Turn].String(), worktree: run.Worktree}
-				}
-				positions = make(map[string]int, len(cv.Turns))
-				for i := range cv.Turns {
-					positions[cv.Turns[i].ID] = i
-				}
+			block := conversation.Block{Kind: conversation.FilesBlock, Label: key, Files: []conversation.File{item.file}}
+			if item.image {
+				block.Kind, block.Files = conversation.ImagesBlock, nil
+				block.Images = []conversation.Image{{ID: item.file.ID, Name: item.file.Name()}}
 			}
-			location, ok := owners[entry.Turn]
-			if !ok {
-				continue
-			}
-			if _, ok := positions[location.turn]; !ok {
-				continue
-			}
-			ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(pi), Call: result.ID, Revision: result.Summary.Revision}
-			key := fmt.Sprintf("publication/%s/%s/%d/%s", page.Session, entry.ID, pi, result.Summary.Revision)
-			retained[key] = true
-			publication := r.attachments.publications[key]
-			if publication == nil {
-				publication = &attachmentPublication{session: page.Session}
-				r.attachments.publications[key] = publication
-			}
-			if !publication.ready {
-				if loaded, ok := r.controller.ConversationDetail(ref); ok {
-					publication.items = projectPublishedItems(ref, location.worktree, loaded)
-					publication.ready, publication.loading = true, false
-				} else if prefetch && !publication.loading && !publication.failed {
-					publication.loading = true
-					r.loadAttachmentPublication(r.attachmentImages(cv.ID).ctx, key, ref, location.worktree, publication)
-				}
-			}
-			for index := len(publication.items) - 1; index >= 0; index-- {
-				item := publication.items[index]
-				dedupe := location.turn + "/file/" + item.descriptor.path
-				if item.descriptor.artifact != nil {
-					dedupe = location.turn + "/document/" + item.descriptor.artifact.ID.String()
-				}
-				if seen[dedupe] {
-					continue
-				}
-				seen[dedupe] = true
-				r.attachments.files[attachmentKey(cv.ID, item.file.ID)] = item.descriptor
-				if artifact := item.descriptor.artifact; artifact != nil && artifact.Kind == protocol.ArtifactKindPreview {
-					item.file.Image = &conversation.Image{ID: item.file.ID, Name: item.file.Name()}
-				}
-				block := conversation.Block{Kind: conversation.FilesBlock, Label: key, Files: []conversation.File{item.file}}
-				if item.image {
-					block.Kind, block.Files = conversation.ImagesBlock, nil
-					block.Images = []conversation.Image{{ID: item.file.ID, Name: item.file.Name()}}
-				}
-				blocks[location.turn] = append(blocks[location.turn], block)
-			}
+			blocks[location.turn] = append(blocks[location.turn], block)
 		}
 	}
 	for turn, published := range blocks {
@@ -163,9 +162,21 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 		}
 	}
 }
-func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref protocol.ToolDetailReference, worktree protocol.WorktreeID, publication *attachmentPublication) {
+func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref protocol.ToolDetailReference, worktree protocol.WorktreeID, publication *attachmentPublication, fetch bool) {
 	r.async(func() {
-		loaded, err := r.controller.ReadConversationDetail(ctx, ref)
+		var loaded protocol.ToolDetail
+		var err error
+		var found bool
+		if fetch {
+			loaded, err = r.controller.ReadConversationDetail(ctx, ref)
+			found = err == nil
+		} else {
+			loaded, found = r.controller.ConversationDetail(ref)
+		}
+		var items []attachmentPublishedItem
+		if found {
+			items = projectPublishedItems(ref, worktree, loaded)
+		}
 		r.enqueue(func(c *ui.Context) {
 			if ctx.Err() != nil || r.attachments.publications[key] != publication {
 				return
@@ -175,8 +186,10 @@ func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref
 				r.downloadOutcome(c, err)
 				return
 			}
-			publication.items = projectPublishedItems(ref, worktree, loaded)
-			publication.ready = true
+			publication.items, publication.ready = items, found
+			if !found && !r.attachmentConversationVisible(ref.Session.String()) {
+				return
+			}
 			for cv := range r.conversationPresentations {
 				if cv.ID == ref.Session.String() {
 					r.invalidateConversationPresentation(cv)

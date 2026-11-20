@@ -224,7 +224,7 @@ func TestAttachmentSourceProjection(t *testing.T) {
 				if phase.seed {
 					seed()
 				}
-				r.projectConversationAssets(cv, state)
+				r.projectConversationAssets(cv, state, attachmentParts(state.Snapshot.Page))
 				var text string
 				var files []conversation.File
 				for _, block := range cv.Turns[0].Reply.Blocks {
@@ -266,7 +266,7 @@ func TestAttachmentSourceProjection(t *testing.T) {
 	page := protocol.DefaultConversationPage()
 	page.Entries = []protocol.ConversationEntry{{Parts: []protocol.ConversationPart{{Kind: "tool_result", Data: &protocol.ConversationPartToolResultPayload{Images: []protocol.ConversationImage{imageSource}}}}}}
 	page.Queue.Items = []protocol.ConversationPending{{Attachments: []protocol.Attachment{attachment}}}
-	r.bindAttachmentSources(session.String(), page)
+	r.bindAttachmentSources(session.String(), page, attachmentParts(page))
 	descriptor, ok := r.attachmentDescriptor(session.String(), attachment.ID.String())
 	if !ok || descriptor.image == nil || *descriptor.image != imageSource || descriptor.worktree != worktree || descriptor.session != session {
 		t.Fatalf("canonical image provenance lost to queue metadata: %+v", descriptor)

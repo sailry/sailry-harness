@@ -57,7 +57,30 @@ func cloneAttachmentRevision(value *string) *string {
 	cloned := *value
 	return &cloned
 }
-func (r *Runtime) bindAttachmentSources(session string, page protocol.ConversationPage) {
+
+type attachmentPart struct{ entry, part int }
+
+func attachmentParts(page protocol.ConversationPage) []attachmentPart {
+	var parts []attachmentPart
+	for i, entry := range page.Entries {
+		for j, part := range entry.Parts {
+			switch part.Kind {
+			case "attachment", "image":
+			case "tool_result":
+				v, ok := detail[protocol.ConversationPartToolResultPayload](part.Data)
+				if !ok || len(v.Images) == 0 && (v.Summary == nil || !v.Summary.Published || !v.Summary.HasDetails) {
+					continue
+				}
+			default:
+				continue
+			}
+			parts = append(parts, attachmentPart{i, j})
+		}
+	}
+	return parts
+}
+
+func (r *Runtime) bindAttachmentSources(session string, page protocol.ConversationPage, parts []attachmentPart) {
 	if r.attachments == nil {
 		return
 	}
@@ -69,22 +92,21 @@ func (r *Runtime) bindAttachmentSources(session string, page protocol.Conversati
 		attachment := value.Attachment
 		r.attachments.files[attachmentKey(session, attachment.ID.String())] = attachmentDescriptor{session: owner, worktree: attachment.Spec.Worktree, name: attachment.Spec.Name, mime: attachment.Spec.MediaType, attachment: &attachment, image: &value}
 	}
-	for _, entry := range page.Entries {
-		for _, part := range entry.Parts {
-			switch part.Kind {
-			case "attachment":
-				if value, ok := detail[protocol.Attachment](part.Data); ok {
-					r.registerConversationAttachment(session, value)
-				}
-			case "image":
-				if value, ok := detail[protocol.ConversationImage](part.Data); ok {
-					registerImage(value)
-				}
-			case "tool_result":
-				if value, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
-					for _, image := range value.Images {
-						registerImage(image)
-					}
+	for _, source := range parts {
+		part := page.Entries[source.entry].Parts[source.part]
+		switch part.Kind {
+		case "attachment":
+			if value, ok := detail[protocol.Attachment](part.Data); ok {
+				r.registerConversationAttachment(session, value)
+			}
+		case "image":
+			if value, ok := detail[protocol.ConversationImage](part.Data); ok {
+				registerImage(value)
+			}
+		case "tool_result":
+			if value, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
+				for _, image := range value.Images {
+					registerImage(image)
 				}
 			}
 		}

@@ -375,21 +375,19 @@ func (x *conversationActions) controls(turn protocol.TurnID) conversation.Contro
 // fork menu; the rest wait for a connected, idle conversation.
 func (x *conversationActions) pageControls() func(protocol.TurnID) conversation.Controls {
 	session, state, ok := x.viewState()
+	if facts := x.r.conversationCache[session.ID].controls; ok && facts != nil {
+		return x.controlsWith(session, facts, true)
+	}
 	return x.controlsFrom(session, state, ok)
 }
 
-func (x *conversationActions) controlsFrom(session protocol.Session, state protocol.ConversationSnapshot, ok bool) func(protocol.TurnID) conversation.Controls {
-	if !ok || delegated(session) {
-		return func(protocol.TurnID) conversation.Controls {
-			return conversation.Controls{ReadOnly: true, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
-		}
-	}
-	page := state.Page
-	edit, replacing := x.r.conversationEdits[x.cv.ID]
-	pending, operating := x.r.conversationPending[x.cv.ID]
-	blocked := !x.r.controller.Connected() || operating || replacing && edit.pending
-	busy := pageBusy(page)
-	movable := session.Delegation == nil && len(x.comp.Attachments) == 0 && workspacePageIdle(page)
+type conversationControlFacts struct {
+	busy                  bool
+	head                  protocol.TurnID
+	ended, sent, editable map[protocol.TurnID]bool
+}
+
+func controlFacts(page protocol.ConversationPage) *conversationControlFacts {
 	ended, sent, editable := map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}
 	for _, run := range page.Runs {
 		ended[run.Turn] = run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning && run.Status != protocol.ConversationStatusStopping
@@ -407,13 +405,30 @@ func (x *conversationActions) controlsFrom(session protocol.Session, state proto
 	if len(page.Runs) > 0 {
 		head = page.Runs[len(page.Runs)-1].Turn
 	}
+	return &conversationControlFacts{pageBusy(page), head, ended, sent, editable}
+}
+
+func (x *conversationActions) controlsFrom(session protocol.Session, state protocol.ConversationSnapshot, ok bool) func(protocol.TurnID) conversation.Controls {
+	return x.controlsWith(session, controlFacts(state.Page), ok)
+}
+
+func (x *conversationActions) controlsWith(session protocol.Session, f *conversationControlFacts, ok bool) func(protocol.TurnID) conversation.Controls {
+	if !ok || delegated(session) {
+		return func(protocol.TurnID) conversation.Controls {
+			return conversation.Controls{ReadOnly: true, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
+		}
+	}
+	edit, replacing := x.r.conversationEdits[x.cv.ID]
+	pending, operating := x.r.conversationPending[x.cv.ID]
+	blocked := !x.r.controller.Connected() || operating || replacing && edit.pending
+	movable := session.Delegation == nil && len(x.comp.Attachments) == 0 && !f.busy
 	return func(turn protocol.TurnID) conversation.Controls {
-		_, found := ended[turn]
+		_, found := f.ended[turn]
 		return conversation.Controls{
-			NoEdit:     blocked || busy || !editable[turn] || !sent[turn],
-			NoFork:     blocked || !ended[turn],
-			NoRewind:   blocked || busy || !found || head == turn,
-			NoWorktree: blocked || !ended[turn] || !movable,
+			NoEdit:     blocked || f.busy || !f.editable[turn] || !f.sent[turn],
+			NoFork:     blocked || !f.ended[turn],
+			NoRewind:   blocked || f.busy || !found || f.head == turn,
+			NoWorktree: blocked || !f.ended[turn] || !movable,
 			Busy:       operating && pending == turn,
 		}
 	}

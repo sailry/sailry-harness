@@ -6,9 +6,16 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+type conversationReveal struct {
+	request uint64
+	finish  func(*viewmodel.Conversation, client.ConversationState)
+}
 
 func (r *Runtime) initConversationSearch() {
 	r.App.Messages.Search = func(session, query string, before *uint64, done func(conversation.SearchPage)) func() {
@@ -67,6 +74,7 @@ func (r *Runtime) initConversationSearch() {
 			done(0, false)
 			return cancel
 		}
+		feed := owner.conversationFeeds[id]
 		r.async(func() {
 			err := owner.controller.RevealConversation(ctx, id, target.Revision, protocol.ConversationSearchMatch{Turn: turn, TurnSequence: target.TurnSequence, Entry: target.Entry, Sequence: target.Sequence})
 			r.enqueue(func(c *ui.Context) {
@@ -78,27 +86,31 @@ func (r *Runtime) initConversationSearch() {
 					done(0, false)
 					return
 				}
-				cv := r.App.Data.Find(session)
-				if cv != nil && r.conversationRuntime(cv, nil) == owner {
-					ownerTurn := turn
-					if copy, ok := owner.conversationCopies[id]; ok {
-						copy.stale = true
-						owner.conversationCopies[id] = copy
+				if feed == nil || owner.conversationFeeds[id] != feed {
+					done(0, false)
+					return
+				}
+				// The reveal can finish before its restored page has been projected.
+				// Resolve the row in a publication read after that successful reveal.
+				feed.reveal = &conversationReveal{request: feed.request.Add(1), finish: func(cv *viewmodel.Conversation, state client.ConversationState) {
+					if ctx.Err() != nil {
+						return
 					}
-					if state, ok := owner.conversationState(id); ok {
+					if cv != nil && state.Snapshot.Page.Revision == target.Revision {
+						ownerTurn := turn
 						if joined, listed := turnOwners(state.Snapshot.Page.Runs)[turn]; listed {
 							ownerTurn = joined
 						}
-						owner.projectWatchedConversation(c, cv, id, state)
-					}
-					for i, row := range cv.Turns {
-						if row.ID == ownerTurn.String() {
-							done(i, true)
-							return
+						for i, row := range cv.Turns {
+							if row.ID == ownerTurn.String() {
+								done(i, true)
+								return
+							}
 						}
 					}
-				}
-				done(0, false)
+					done(0, false)
+				}}
+				feed.refresh()
 			})
 		})
 		return cancel

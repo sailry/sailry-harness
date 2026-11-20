@@ -177,6 +177,8 @@ type Runtime struct {
 	snapshotRead              bool
 	conversationCopies        map[protocol.SessionID]conversationCopy
 	conversationCache         map[protocol.SessionID]conversationCopy
+	conversationFeeds         map[protocol.SessionID]*conversationFeed
+	conversationLane          chan struct{}
 	conversationVersion       uint64
 	conversationPresentations map[*viewmodel.Conversation]conversationPresentation
 	childConversations        map[protocol.SessionID]*viewmodel.Conversation
@@ -204,6 +206,9 @@ type conversationCopy struct {
 	ok         bool
 	generation uint64
 	composer   *composerHistory
+	prepared   *preparedConversation
+	controls   *conversationControlFacts
+	request    uint64
 }
 
 // snapshot returns the Client's Node snapshot, copied once per Client
@@ -230,10 +235,22 @@ func (r *Runtime) snapshotAt() (protocol.Snapshot, uint64) {
 // The persistent cache is attached only during UI frames; actions outside a
 // frame read the Client directly.
 func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationState, bool) {
+	if feed := r.conversationFeeds[id]; feed != nil {
+		// All consumers of a mounted transcript use the same publication in a
+		// frame. Action guards read the Client directly, not this view.
+		copied := r.conversationCache[id]
+		return copied.state, copied.ok
+	}
 	if r.conversationCopies == nil {
 		return r.controller.Conversation(id)
 	}
 	copied, ok := r.conversationCopies[id]
+	if !ok && r.conversationWatches[id] == nil {
+		// Workspace and composer hooks can ask before the new pane mounts.
+		// Do not enter the shared Client reducer for a view this window does
+		// not own (another window may be restoring a very large page).
+		return client.ConversationState{}, false
+	}
 	if !ok || copied.stale {
 		previous := copied.state
 		copied.state, copied.ok = r.controller.ConversationView(id, previous)

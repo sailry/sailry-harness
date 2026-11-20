@@ -10,7 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) bindReferences(session string, page protocol.ConversationPage) {
+func (r *Runtime) conversationReferences(session string, page protocol.ConversationPage) map[string][]conversation.Reference {
 	bound := map[string][]conversation.Reference{}
 	fallback := map[protocol.TurnID][]protocol.ConversationReference{}
 	for i := range page.Runs {
@@ -44,7 +44,7 @@ func (r *Runtime) bindReferences(session string, page protocol.ConversationPage)
 			appendReference(turn, ref)
 		}
 	}
-	r.App.Messages.SetReferences(session, bound)
+	return bound
 }
 
 func (r *Runtime) openReference(session string, turn protocol.TurnID, ref protocol.ConversationReference) {

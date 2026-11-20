@@ -14,10 +14,7 @@ import (
 func (r *Runtime) watchChild(id protocol.SessionID) {
 	r.conversationSeen[id] = true
 	if _, ok := r.conversationWatches[id]; !ok {
-		if release, err := r.controller.WatchConversation(r.ctx, id, func() { r.conversationChanged(id) }); err == nil {
-			r.conversationWatches[id] = release
-			delete(r.conversationCache, id)
-		}
+		r.startConversationFeed(id, "")
 	}
 }
 

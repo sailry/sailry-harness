@@ -1130,6 +1130,8 @@ func TestComposerSendRouting(t *testing.T) {
 				comp.Draft = "Unsent draft"
 				frame = view
 				tester.Frame()
+				awaitConversationFeed(t, r, session)
+				tester.Frame()
 				editing := func() bool { return len(r.conversationEdits) == 1 && cv.Turns[0].Editing != nil }
 				open := func() {
 					t.Helper()

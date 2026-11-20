@@ -84,6 +84,7 @@ func TestNativeAssistantTools(t *testing.T) {
 	}}
 	runtime.beginConversationFrame()
 	runtime.watchChild(session)
+	awaitConversationFeed(t, runtime, session)
 	state.assistantToolOperations()
 	next := native.Operations["sailry.nextAssistantTools"]
 	read := func(ctx context.Context, cursor string) (string, map[string]pluginAssistantHistory, error) {

@@ -205,6 +205,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		positions[r.Turn] = len(turns)
 		turns = append(turns, t)
 	}
+	texts := make([]transcriptText, len(turns))
 	associations := map[toolPendingKey][]toolAssociation{}
 	// Unlike composer activity, the transcript keeps every execution of a
 	// reused session at its own delegation call.
@@ -338,7 +339,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if entry.Author == "tool" && entry.Turn == owner && t.Reply.Status == conversation.Running {
 			collect = &batch
 		}
-		phase := projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t), collect)
+		phase := projectParts(&t.Reply, &texts[position], entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t), collect)
 		clocks.record(position, time.Time{}, phase)
 		if len(batch) > 0 {
 			awaitingModel[position] = batch
@@ -383,7 +384,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if position, ok := positions[owner]; ok {
 			t := &turns[position]
 			blockCount := len(t.Reply.Blocks)
-			phase := projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil)
+			phase := projectParts(&t.Reply, &texts[position], draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil)
 			clocks.record(position, time.Time{}, phase)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
@@ -841,19 +842,40 @@ func segmentFrom(turn *conversation.Turn) int {
 	return turn.Segments[len(turn.Segments)-1].From
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int, toolBatch *[]*conversation.Call) time.Time {
+// Adjacent text can span canonical entries and a live draft. Accumulate it
+// for this projection only, without recopying the full prefix for every part.
+type transcriptText struct {
+	block   int
+	builder strings.Builder
+}
+
+func (text *transcriptText) append(reply *conversation.Reply, value string, from int) {
+	n := len(reply.Blocks)
+	if n <= from || reply.Blocks[n-1].Kind != conversation.TextBlock {
+		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.TextBlock, Text: value})
+		text.builder.Reset()
+		return
+	}
+	block := &reply.Blocks[n-1]
+	if text.builder.Len() == 0 || text.block != n-1 {
+		text.builder.Reset()
+		text.builder.Grow(len(block.Text) + len(value))
+		text.builder.WriteString(block.Text)
+		text.block = n - 1
+	}
+	text.builder.WriteString(value)
+	block.Text = text.builder.String()
+}
+
+func projectParts(reply *conversation.Reply, text *transcriptText, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int, toolBatch *[]*conversation.Call) time.Time {
 	var compacting time.Time
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
 			continue
 		case "text":
-			if text, ok := detail[string](part.Data); ok && text != "" {
-				if n := len(reply.Blocks); n > from && reply.Blocks[n-1].Kind == conversation.TextBlock {
-					reply.Blocks[n-1].Text += text
-				} else {
-					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.TextBlock, Text: text})
-				}
+			if value, ok := detail[string](part.Data); ok && value != "" {
+				text.append(reply, value, from)
 			}
 		case "compaction":
 			if text, ok := detail[string](part.Data); ok {

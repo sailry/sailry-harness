@@ -23,6 +23,9 @@ type conversationPresentation struct {
 	connection conversation.Connection
 	clocks     transcriptClocks
 	mounted    bool
+	outgoing   *conversationOutgoing
+	requested  uint64
+	offline    bool
 }
 
 // Composer bindings share the usage wire representation and the run flags
@@ -74,6 +77,9 @@ func (r *Runtime) beginConversationFrame() {
 	}
 	clear(r.conversationChanges)
 	r.mu.Unlock()
+	for id, feed := range r.conversationFeeds {
+		r.takeConversationFeed(id, feed)
+	}
 	r.conversationCopies = r.conversationCache
 }
 
@@ -144,44 +150,71 @@ func (r *Runtime) invalidateConversationPresentation(cv *viewmodel.Conversation)
 }
 
 func (r *Runtime) projectWatchedConversation(c *ui.Context, cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState) {
-	if r.projectConversation(cv, id, state, c.Now(), c.Locale()) {
-		page := state.Snapshot.Page
-		r.bindReferences(cv.ID, page)
-		r.enrichDetails(cv, state, c.Locale())
-		r.enrichQueue(cv, page.Queue)
-		r.bindAttachmentSources(cv.ID, page)
-		r.projectConversationAssets(cv, state)
+	r.projectConversation(cv, id, state, c.Now(), c.Locale())
+	if feed := r.conversationFeeds[id]; feed != nil && feed.reveal != nil && r.conversationPresentations[cv].generation == r.conversationCache[id].generation &&
+		r.conversationCache[id].request >= feed.reveal.request {
+		reveal := feed.reveal
+		feed.reveal = nil
+		reveal.finish(cv, state)
 	}
 	cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 }
 
 func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState, now time.Time, language string) bool {
-	copy := r.conversationCopies[id]
-	cacheable := copy.generation != 0 && r.composerOutgoing[cv.ID] == nil
+	copied := r.conversationCache[id]
+	if r.conversationCopies != nil {
+		copied = r.conversationCopies[id]
+	}
+	outgoing := r.composerOutgoing[cv.ID]
 	saved := r.conversationPresentations[cv]
-	if cacheable && saved.generation == copy.generation && saved.language == language {
+	if copied.generation != 0 && saved.generation == copied.generation && saved.language == language && saved.outgoing == outgoing && (!saved.offline || !r.controller.Connected()) {
 		// The Node's connection override is applied later in conversation.
 		// Restore the observed connection when that Node becomes available.
 		cv.Session.Connection = saved.connection
 		cv.Session.LoadingOlder, cv.Session.OlderFailed = state.LoadingOlder, state.OlderErr != nil
-		saved.clocks.advance(cv.Turns, now)
+		if !saved.offline {
+			saved.clocks.advance(cv.Turns, now)
+		}
 		saved.mounted = true
 		r.conversationPresentations[cv] = saved
 		return false
 	}
-	var clocks transcriptClocks
-	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
-	clocks.advance(cv.Turns, now)
+	p := copied.prepared
+	if feed := r.conversationFeeds[id]; feed != nil {
+		if p == nil || p.language != language {
+			// A second mounted view needs its own mutable rows. Never rebuild a
+			// consumed presentation or a locale change in the calling frame.
+			feed.setLanguage(language)
+			if saved.requested <= copied.request {
+				saved.requested = feed.request.Add(1)
+				feed.refresh()
+			}
+			if saved.generation == 0 && len(cv.Turns) == 0 {
+				cv.Session.Loading = true
+			}
+			saved.mounted = true
+			r.saveConversationPresentation(cv, saved)
+			return false
+		}
+		copied.prepared = nil
+		r.conversationCache[id] = copied
+	} else {
+		p = r.prepareConversation(id, state, language)
+	}
+	v := &p.view
+	cv.Turns, cv.Session, cv.Waiting, cv.Queue = v.Turns, v.Session, v.Waiting, v.Queue
+	cv.Session.LoadingOlder, cv.Session.OlderFailed = state.LoadingOlder, state.OlderErr != nil
+	p.clocks.advance(cv.Turns, now)
+	r.App.Messages.SetReferences(cv.ID, p.references)
+	r.bindAttachmentSources(cv.ID, state.Snapshot.Page, p.attachments)
+	r.projectConversationAssets(cv, state, p.attachments)
 	// Recover a blank turn on the fitted page without loading unrelated
 	// history or the prefix of a turn already shown.
-	if state.HasBlankHistoryTurn() && !state.LoadingOlder && state.OlderErr == nil {
+	if p.blank && !state.LoadingOlder && state.OlderErr == nil {
 		r.async(func() { _ = r.controller.LoadBlankConversationTurn(r.ctx, id) })
 	}
-	presentation := conversationPresentation{mounted: true}
-	if cacheable {
-		presentation.generation, presentation.language = copy.generation, language
-		presentation.connection, presentation.clocks = cv.Session.Connection, clocks
-	}
+	presentation := conversationPresentation{mounted: true, generation: copied.generation, language: language, outgoing: outgoing,
+		connection: cv.Session.Connection, clocks: p.clocks}
 	r.saveConversationPresentation(cv, presentation)
 	return true
 }
