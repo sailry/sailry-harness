@@ -43,8 +43,9 @@ func TestTitleTool(t *testing.T) {
 		})
 	}
 	// Rust parity: the catalog dispatches every registered tool, and a saved
-	// request loads its declaration, so a deferred tool called by name runs
-	// under its own approval and is declared from the next request on.
+	// request loads it, so a deferred tool called by name runs under its own
+	// approval. Later requests describe it in context and replay the call
+	// through call_tool without declaring it.
 	t.Run("deferred tool called by name runs and stays loaded", func(t *testing.T) {
 		t.Parallel()
 		var ran atomic.Int32
@@ -66,8 +67,22 @@ func TestTitleTool(t *testing.T) {
 		offered := func(request int) bool {
 			return slices.ContainsFunc(model.calls[request].Tools, func(tool fantasy.Tool) bool { return tool.GetName() == "files_write" })
 		}
-		if offered(0) || !offered(1) {
-			t.Fatal("deferred tool was not declared exactly from the request after its call")
+		described := func(request int) bool {
+			return strings.Contains(promptText(model.calls[request]), `<loaded-tool name="files_write">`)
+		}
+		if offered(0) || offered(1) || described(0) || !described(1) {
+			t.Fatal("deferred tool was not loaded exactly from the request after its call")
+		}
+		replayed := false
+		for _, message := range model.calls[1].Prompt {
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](part); ok && value.ToolCallID == "early" {
+					replayed = value.ToolName == callToolName && value.Input == `{"name":"files_write","arguments":{}}`
+				}
+			}
+		}
+		if !replayed {
+			t.Fatal("the undeclared call was not replayed through call_tool")
 		}
 		for _, record := range fixture.state().Records {
 			message := record.Message()

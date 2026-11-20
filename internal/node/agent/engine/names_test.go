@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -128,9 +129,13 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if context := promptText(model.calls[0]); !strings.Contains(context, "Deferred tools\ncreate_goal, delete_file, guide_agent, list_sessions, list_subagents, mcp__github__run_trigger, read_session, search_session, spawn_agent, stop_agent, wait_agent\n") {
 			t.Fatalf("deferred names are not listed:\n%s", context)
 		}
-		second := offeredNames(model.calls[1])
-		if !slices.Contains(second, "delete_file") || !slices.Contains(second, "mcp__github__run_trigger") || slices.Contains(second, "create_goal") {
-			t.Fatalf("discovery did not load the selected tools: %v", second)
+		// Loaded tools are described under their declared names in context;
+		// the declarations stay those of the first request.
+		if second := offeredNames(model.calls[1]); !slices.Equal(second, first) {
+			t.Fatalf("discovery changed the declarations: %v", second)
+		}
+		if context := promptText(model.calls[1]); !strings.Contains(context, `<loaded-tool name="delete_file">`) || !strings.Contains(context, `<loaded-tool name="mcp__github__run_trigger">`) || strings.Contains(context, `<loaded-tool name="create_goal">`) {
+			t.Fatalf("discovery did not load the selected tools:\n%s", context)
 		}
 		// The history a model reads uses the names it called.
 		var called []string
@@ -196,7 +201,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 			t.Fatal(err)
 		}
 		// A declared initial tool starts visible only to the main agent.
-		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), "tool_search"}) ||
+		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), "tool_search", callToolName}) ||
 			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
 			t.Fatalf("standard child visible=%v deferred=%v", visible, deferred)
 		}
@@ -293,4 +298,60 @@ func TestToolSelectionAndNames(t *testing.T) {
 			t.Fatalf("restored names=%+v", received)
 		}
 	})
+}
+
+// TestDispatchedCallsKeepCanonicalNames covers the model boundary of
+// call_tool: a response naming a captured tool by its declared name becomes
+// that tool's canonical call, and history shows an undeclared tool's call as
+// the call_tool call that ran it.
+func TestDispatchedCallsKeepCanonicalNames(t *testing.T) {
+	deleteFile := packageTool("files", "delete_file", protocol.ToolOperationDeleteFile, false, nil)
+	alias := deleteFile.Definition.Name
+	names := captureExposure([]Tool{deleteFile, jsonTool("tool_search", "", `{"type":"object"}`, true, true, nil), callTool()}, nil)
+	for input, want := range map[string]string{
+		`{"name":"delete_file","arguments":{"path":"a.txt"}}`:               alias + ` {"path":"a.txt"}`,
+		`{"name":"delete_file","arguments":"{\"path\":\"a.txt\"}"}`:         alias + ` {"path":"a.txt"}`,
+		`{"name":"absent","arguments":{}}`:                                  callToolName + ` {"name":"absent","arguments":{}}`,
+		`{"name":"delete_file","arguments":[1]}`:                            callToolName + ` {"name":"delete_file","arguments":[1]}`,
+		`{"name":"call_tool","arguments":{}}`:                               callToolName + ` {"name":"call_tool","arguments":{}}`,
+		`{"name":"tool_search","arguments":{"query":"select:delete_file"}}`: `tool_search {"query":"select:` + alias + `"}`,
+	} {
+		request := &canonical.ToolRequest{ID: "call", Name: callToolName, Arguments: json.RawMessage(input)}
+		names.restore([]canonical.Block{{Kind: "tool_request", Data: request}})
+		if got := request.Name + " " + string(request.Arguments); got != want {
+			t.Errorf("restore(%s) = %s, want %s", input, got, want)
+		}
+	}
+	records := []canonical.Record{
+		canonical.NewRecord(protocol.TurnID{}, "message", canonical.NewMessage(canonical.Assistant,
+			canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: "loaded", Name: alias, Arguments: json.RawMessage(`{"path":"a.txt"}`)}},
+			canonical.Block{Index: 1, Kind: "tool_request", Data: &canonical.ToolRequest{ID: "removed", Name: "removed_tool", Arguments: json.RawMessage(`{}`)}},
+		), time.Time{}),
+		canonical.NewRecord(protocol.TurnID{}, "message", canonical.NewMessage(canonical.User,
+			canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "loaded", Name: alias}},
+			canonical.Block{Index: 1, Kind: "tool_response", Data: &canonical.ToolResponse{ID: "removed", Name: "removed_tool"}},
+		), time.Time{}),
+	}
+	declared := []fantasy.FunctionTool{{Name: "tool_search"}, {Name: callToolName}}
+	projected, tools, _ := names.request(records, declared, nil)
+	if !slices.Equal([]string{tools[0].Name, tools[1].Name}, []string{"tool_search", callToolName}) {
+		t.Fatalf("declarations = %+v", tools)
+	}
+	var got []string
+	for _, record := range projected {
+		for _, block := range record.Message().Content {
+			switch value := block.Data.(type) {
+			case *canonical.ToolRequest:
+				got = append(got, value.Name+" "+string(value.Arguments))
+			case *canonical.ToolResponse:
+				got = append(got, value.Name)
+			}
+		}
+	}
+	if want := []string{callToolName + ` {"name":"delete_file","arguments":{"path":"a.txt"}}`, `removed_tool {}`, callToolName, "removed_tool"}; !slices.Equal(got, want) {
+		t.Fatalf("projected history = %v", got)
+	}
+	if stored := records[0].Message().Content[0].Data.(*canonical.ToolRequest); stored.Name != alias {
+		t.Fatalf("projection changed the stored call: %+v", stored)
+	}
 }

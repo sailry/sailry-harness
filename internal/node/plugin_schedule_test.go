@@ -50,6 +50,9 @@ func (script *scheduleScript) Stream(_ context.Context, call fantasy.Call) (fant
 		name := declaredToolName(alias)
 		if slices.ContainsFunc(call.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == name }) {
 			part, script.pending = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "task", ToolCallName: name, ToolCallInput: arguments}, nil
+		} else if slices.Contains(callableTools(call), name) {
+			// A loaded deferred tool runs through call_tool.
+			part, script.pending = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "task", ToolCallName: "call_tool", ToolCallInput: `{"name":"` + name + `","arguments":` + arguments + `}`}, nil
 		} else {
 			part = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "discover", ToolCallName: "tool_search", ToolCallInput: `{"query":"select:` + alias + `"}`}
 		}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,15 +40,13 @@ func (script *pluginConversationScript) Stream(_ context.Context, call fantasy.C
 	}
 	if step >= 2 {
 		// The model reads the declared names; the aliases stay internal.
+		// The initial native tool stays declared; the loaded MCP tool arrives
+		// as context while the declarations stay fixed.
+		callable := callableTools(call)
 		for _, name := range []string{"mcp__server__echo", declaredToolName(script.native)} {
-			count := 0
-			for _, tool := range call.Tools {
-				if tool.GetName() == name {
-					count++
-				}
-			}
-			if count != 1 {
-				return nil, fmt.Errorf("captured plugin alias %s appeared %d times", name, count)
+			declared := slices.ContainsFunc(call.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == name })
+			if declared != (name != "mcp__server__echo") || !slices.Contains(callable, name) {
+				return nil, fmt.Errorf("captured plugin alias %s declared=%v callable=%v", name, declared, callable)
 			}
 		}
 	}
@@ -58,7 +57,7 @@ func (script *pluginConversationScript) Stream(_ context.Context, call fantasy.C
 			arguments, _ := json.Marshal(map[string]any{"query": "select:" + script.mcp + "," + script.native})
 			part.ID, part.ToolCallName, part.ToolCallInput = "discover", "tool_search", string(arguments)
 		case 2:
-			part.ID, part.ToolCallName, part.ToolCallInput = "mcp-call", script.mcp, `{"text":"captured"}`
+			part.ID, part.ToolCallName, part.ToolCallInput = "mcp-call", "call_tool", `{"name":"mcp__server__echo","arguments":{"text":"captured"}}`
 		case 3:
 			part.ID, part.ToolCallName, part.ToolCallInput = "native-call", script.native, script.arguments
 		case 4:

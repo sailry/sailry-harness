@@ -145,7 +145,7 @@ func (r *Runtime) captureTools(x *execution) error {
 		return err
 	}
 	if search := r.builtinSearch(x); search != nil {
-		x.tools = append(x.tools, *search)
+		x.tools = append(x.tools, *search, callTool())
 	}
 	for i := range x.tools {
 		tool := &x.tools[i]
@@ -263,12 +263,13 @@ func visibleOperation(operation protocol.ToolOperation) bool {
 	return false
 }
 
-// deferredContext lists the captured tools that discovery can currently load.
+// deferredContext lists every captured deferred tool. Loading one does not
+// change the list, so discovery appends no repeated catalog to the history.
 func (r *Runtime) deferredContext(x *execution, state store.AgentState) string {
 	names := r.exposure(x, state)
 	var deferred []string
 	for _, tool := range x.tools {
-		if tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
+		if tool.Deferred {
 			deferred = append(deferred, names.name(tool.Definition.Name))
 		}
 	}
@@ -276,9 +277,13 @@ func (r *Runtime) deferredContext(x *execution, state store.AgentState) string {
 		return ""
 	}
 	slices.Sort(deferred)
-	return "Deferred tools\n" + strings.Join(deferred, ", ") + "\nUse tool_search to load a needed tool by exact name (select:name) or search by capability."
+	return "Deferred tools\n" + strings.Join(deferred, ", ") + "\nUse tool_search to load a needed tool by exact name (select:name) or search by capability, then run it with call_tool."
 }
 
+// declarations are the same for every request of a turn and for later turns
+// with the same captured configuration. Provider prompt caches key on the
+// declared tools before the history, so loaded deferred tools are described
+// in turn context and run through call_tool instead of being declared.
 func (r *Runtime) declarations(x *execution, binding model.Binding, state store.AgentState) []fantasy.FunctionTool {
 	var values []fantasy.FunctionTool
 	if !capturedModel(binding).Tools {
@@ -287,7 +292,7 @@ func (r *Runtime) declarations(x *execution, binding model.Binding, state store.
 	// The request renames these canonical declarations at the model boundary.
 	r.exposure(x, state)
 	for _, tool := range x.tools {
-		if !tool.Deferred || toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
+		if !tool.Deferred {
 			values = append(values, tool.Definition)
 		}
 	}
@@ -484,16 +489,6 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					}
 				}
 			}
-		}
-	}
-	if contextDelta.LoadedTools != nil && state.Context.Policy != nil {
-		policy := *state.Context.Policy
-		if contextDelta.Policy != nil {
-			policy = *contextDelta.Policy
-		}
-		if addition := capabilityInstructions(x, policy, *contextDelta.LoadedTools); addition != "" {
-			policy += "\n\n" + addition
-			contextDelta.Policy = &policy
 		}
 	}
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())

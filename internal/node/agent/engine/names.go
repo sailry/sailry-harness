@@ -17,15 +17,27 @@ import (
 const (
 	maxToolName   = 64
 	toolHashChars = 8
+	// callToolName is the declared entry through which a model calls a
+	// captured tool that the request does not declare.
+	callToolName = "call_tool"
 )
 
 // exposure maps the internal aliases of package and MCP tools to the names a
 // model sees: a package tool's declared name and mcp__{server}__{tool}. The
 // aliases stay canonical in records, approvals, rules, hooks and telemetry;
-// only a model request and its response cross this boundary.
+// only a model request and its response cross this boundary. The same
+// boundary carries calls of undeclared captured tools through call_tool.
 type exposure struct {
-	forward map[string]string
-	reverse map[string]string
+	forward  map[string]string
+	reverse  map[string]string
+	captured map[string]bool
+}
+
+// dispatched is the call_tool input for one call of a named tool. Field order
+// keeps the projected arguments byte-stable across requests.
+type dispatched struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // MCPToolName is the name an MCP tool is offered under when it is unique.
@@ -106,7 +118,12 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 	for _, value := range declared {
 		counts[value.name]++
 	}
-	result := &exposure{forward: map[string]string{}, reverse: map[string]string{}}
+	result := &exposure{forward: map[string]string{}, reverse: map[string]string{}, captured: map[string]bool{}}
+	for _, tool := range tools {
+		if tool.Definition.Name != callToolName {
+			result.captured[tool.Definition.Name] = true
+		}
+	}
 	for _, value := range declared {
 		if counts[value.name] == 1 && !registered[value.name] && !pluginAlias(value.name) && !mcpAlias(value.name) {
 			result.forward[value.alias] = value.name
@@ -165,14 +182,22 @@ func (e *exposure) alias(name string) string {
 }
 
 // request renames the tools, their schemas and the tool calls of the history
-// for one model request. The stored records are shared and stay untouched.
+// for one model request. A call of a captured tool that the request does not
+// declare is shown as the call_tool call that runs it, so loading a tool never
+// changes the declarations. The stored records are shared and stay untouched.
 func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionTool, schemas map[string]json.RawMessage) ([]canonical.Record, []fantasy.FunctionTool, map[string]json.RawMessage) {
-	if e == nil || len(e.forward) == 0 {
+	if e == nil {
 		return records, tools, schemas
 	}
 	tools = slices.Clone(tools)
+	declared := map[string]bool{}
 	for index := range tools {
 		tools[index].Name = e.name(tools[index].Name)
+		declared[tools[index].Name] = true
+	}
+	dispatch := declared[callToolName]
+	if len(e.forward) == 0 && !dispatch {
+		return records, tools, schemas
 	}
 	renamed := make(map[string]json.RawMessage, len(schemas))
 	for name, schema := range schemas {
@@ -180,6 +205,7 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 	}
 	records = slices.Clone(records)
 	searches := map[string]bool{}
+	wrapped := map[string]bool{}
 	for index := range records {
 		message := records[index].Message()
 		if message == nil {
@@ -205,7 +231,14 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 						call.Arguments = arguments
 						replace(position, &call)
 					}
-				} else if name := e.name(value.Name); name != value.Name {
+				} else if name := e.name(value.Name); dispatch && e.captured[value.Name] && !declared[name] {
+					if arguments, err := json.Marshal(dispatched{Name: name, Arguments: value.Arguments}); err == nil {
+						call := *value
+						call.Name, call.Arguments = callToolName, arguments
+						wrapped[value.ID] = true
+						replace(position, &call)
+					}
+				} else if name != value.Name {
 					call := *value
 					call.Name = name
 					replace(position, &call)
@@ -217,6 +250,10 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 						response.Result = canonical.Payload{Value: result}
 						replace(position, &response)
 					}
+				} else if wrapped[value.ID] {
+					response := *value
+					response.Name = callToolName
+					replace(position, &response)
 				} else if name := e.name(value.Name); name != value.Name {
 					response := *value
 					response.Name = name
@@ -233,15 +270,22 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 	return records, tools, renamed
 }
 
-// restore gives the calls of a model response their canonical aliases.
+// restore gives the calls of a model response their canonical aliases. A
+// call_tool call naming a captured tool becomes that tool's own call, so
+// approvals, execution, history and presentation see the real tool.
 func (e *exposure) restore(blocks []canonical.Block) {
-	if e == nil || len(e.reverse) == 0 {
+	if e == nil {
 		return
 	}
 	for _, block := range blocks {
 		call, ok := block.Data.(*canonical.ToolRequest)
 		if !ok || call.Error != nil {
 			continue
+		}
+		if call.Name == callToolName {
+			if name, arguments, ok := e.undispatch(call.Arguments); ok {
+				call.Name, call.Arguments = name, arguments
+			}
 		}
 		call.Name = e.alias(call.Name)
 		if call.Name == "tool_search" {
@@ -250,6 +294,26 @@ func (e *exposure) restore(blocks []canonical.Block) {
 			}
 		}
 	}
+}
+
+// undispatch reads the exposed name and the object arguments of a call_tool
+// input that names a captured tool. Arguments sent as an encoded JSON object
+// string are accepted as that object.
+func (e *exposure) undispatch(input json.RawMessage) (string, json.RawMessage, bool) {
+	var value dispatched
+	if json.Unmarshal(input, &value) != nil || !e.captured[e.alias(value.Name)] {
+		return "", nil, false
+	}
+	arguments := value.Arguments
+	var encoded string
+	if json.Unmarshal(arguments, &encoded) == nil {
+		arguments = json.RawMessage(encoded)
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(arguments, &object) != nil || object == nil {
+		return "", nil, false
+	}
+	return value.Name, arguments, true
 }
 
 // query maps the exact names of a discovery query; keyword text is untouched.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -55,13 +56,33 @@ func (script *agentToolScript) reset(plan func(int, map[string]string) [][3]stri
 	script.offered, script.prompts, script.results, script.plan = nil, nil, map[string]string{}, plan
 }
 
-func (script *agentToolScript) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
-	script.mu.Lock()
+var loadedToolPattern = regexp.MustCompile(`<loaded-tool name="([^"]+)">`)
+
+// callableTools lists the tools a request lets the model call: its
+// declarations, then the loaded deferred tools its context describes, which
+// the model runs through call_tool without a change to the declarations.
+func callableTools(call fantasy.Call) []string {
 	var names []string
 	for _, tool := range call.Tools {
 		names = append(names, tool.GetName())
 	}
-	script.offered = append(script.offered, names)
+	for _, message := range call.Prompt {
+		for _, part := range message.Content {
+			if text, found := fantasy.AsMessagePart[fantasy.TextPart](part); found {
+				for _, match := range loadedToolPattern.FindAllStringSubmatch(text.Text, -1) {
+					if !slices.Contains(names, match[1]) {
+						names = append(names, match[1])
+					}
+				}
+			}
+		}
+	}
+	return names
+}
+
+func (script *agentToolScript) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+	script.mu.Lock()
+	script.offered = append(script.offered, callableTools(call))
 	var prompt strings.Builder
 	for _, message := range call.Prompt {
 		for _, part := range message.Content {

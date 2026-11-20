@@ -33,9 +33,12 @@ func TestReactiveCompactionRediscoversUnloadedTool(t *testing.T) {
 	search := func(id, name string) script {
 		return response(call(id, "tool_search", `{"query":"select:`+name+`"}`), finish())
 	}
+	loaded := func(request fantasy.Call) bool {
+		return strings.Contains(promptText(request), `<loaded-tool name="`+target+`">`)
+	}
 	rediscover := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
 		offered, deferred := offeredNames(request), candidates(request)
-		if !slices.Contains(offered, target) && slices.Contains(offered, operations.UpdatePlanTool) && slices.Contains(offered, "tool_search") &&
+		if !loaded(request) && !slices.Contains(offered, target) && slices.Contains(offered, operations.UpdatePlanTool) && slices.Contains(offered, "tool_search") &&
 			slices.Contains(deferred, target) && !slices.Contains(deferred, operations.UpdatePlanTool) && strings.Contains(promptText(request), plan) {
 			search("reload", target)(ctx, request, yield)
 			return
@@ -64,14 +67,21 @@ func TestReactiveCompactionRediscoversUnloadedTool(t *testing.T) {
 	if count := m.count(); count != len(m.scripts) {
 		t.Fatalf("requests = %d, want %d including compaction and rediscovery", count, len(m.scripts))
 	}
-	if offered, deferred := offeredNames(m.calls[2]), candidates(m.calls[2]); !slices.Contains(offered, target) || slices.Contains(deferred, target) {
-		t.Errorf("request before overflow: want %q declared but not deferred; declarations = %v, candidates = %v", target, offered, deferred)
+	// Loading and compaction leave the declarations unchanged; the loaded
+	// tool is described in context before the overflow and after reloading.
+	if offered := offeredNames(m.calls[2]); !loaded(m.calls[2]) || slices.Contains(offered, target) {
+		t.Errorf("request before overflow: want %q loaded in context, not declared; declarations = %v", target, offered)
 	}
 	if offered := offeredNames(m.calls[3]); len(offered) != 0 {
 		t.Errorf("summary request offered tools: %v", offered)
 	}
-	if offered := offeredNames(m.calls[5]); !slices.Contains(offered, target) || !slices.Contains(offered, operations.UpdatePlanTool) {
+	if offered := offeredNames(m.calls[5]); !loaded(m.calls[5]) || !slices.Contains(offered, operations.UpdatePlanTool) {
 		t.Errorf("request after rediscovery lacks the requested tools: %v", offered)
+	}
+	for _, index := range []int{1, 2, 4, 5} {
+		if !slices.Equal(declarationBytes(t, m.calls[index]), declarationBytes(t, m.calls[0])) {
+			t.Errorf("request %d changed the tool declarations", index)
+		}
 	}
 
 	state := f.state()

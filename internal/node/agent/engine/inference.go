@@ -130,6 +130,18 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			}
 		}
 	}
+	if hasTools {
+		r.exposure(x, state)
+		policy := ""
+		if state.Context.Policy != nil {
+			policy = *state.Context.Policy
+		}
+		for _, block := range loadedToolContext(x, policy, state.LoadedTools) {
+			if !slices.Contains(ownedParts, block) {
+				ownedParts = append(ownedParts, block)
+			}
+		}
+	}
 	parts, ownedParts = prompt.Pending(state.Records, parts, ownedParts)
 	// A callback is evidence in history, not a new user instruction or the
 	// assistant prefill that some providers would infer from a final text part.

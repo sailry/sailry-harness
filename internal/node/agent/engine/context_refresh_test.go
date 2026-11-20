@@ -179,11 +179,16 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 		}
 		_, catalog, ok := strings.Cut(after, `<context-section name="deferred_tools">`)
 		catalog, _, _ = strings.Cut(catalog, "</context-section>")
-		if !ok || !strings.Contains(catalog, "remaining_probe") || strings.Contains(catalog, "update_plan") || strings.Contains(catalog, "optional_probe") == step.loaded {
+		// The catalog lists every deferred tool, loaded or not, so loading
+		// one appends no new catalog; its declaration arrives as context.
+		if !ok || !strings.Contains(catalog, "remaining_probe") || strings.Contains(catalog, "update_plan") || !strings.Contains(catalog, "optional_probe") {
 			t.Errorf("request %d has stale deferred tools: %q", step.index, catalog)
 		}
-		if enabled := slices.ContainsFunc(request.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == "optional_probe" }); enabled != step.loaded {
-			t.Errorf("request %d has wrong discovered-tool declaration: %v", step.index, enabled)
+		if slices.ContainsFunc(request.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == "optional_probe" }) {
+			t.Errorf("request %d declared the discovered tool", step.index)
+		}
+		if described := strings.Contains(prompt.String(), `<loaded-tool name="optional_probe">`); described != step.loaded {
+			t.Errorf("request %d has wrong discovered-tool context: %v", step.index, described)
 		}
 		if step.index == 4 && strings.Count(after, planSection) != 1 {
 			t.Error("unchanged plan was injected again without new input")

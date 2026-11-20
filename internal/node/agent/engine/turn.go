@@ -324,7 +324,7 @@ func (r *Runtime) turn(x *execution) error {
 		}
 	}
 	if capturedModel(binding).Tools {
-		if addition := capabilityInstructions(x, policy, state.LoadedTools); addition != "" {
+		if addition := capabilityInstructions(x, policy); addition != "" {
 			policy += "\n\n" + addition
 		}
 	}

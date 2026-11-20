@@ -43,11 +43,7 @@ type mediaScript struct {
 
 func (script *mediaScript) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	script.mu.Lock()
-	var names []string
-	for _, tool := range call.Tools {
-		names = append(names, tool.GetName())
-	}
-	script.offered = append(script.offered, names)
+	script.offered = append(script.offered, callableTools(call))
 	step := len(script.offered)
 	for _, message := range call.Prompt {
 		for _, part := range message.Content {

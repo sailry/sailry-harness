@@ -604,6 +604,17 @@ permission rules. The Commands package provides desktop terminal controls.
 Command input is discoverable on demand. Everyday file,
 Git, code and web tools are initially exposed when their packages are enabled.
 `tool_search` discovers other declared tools under the captured permission.
+Provider prompt caches key on the declared tools and system prompt before the
+history, so loading never changes either: a turn declares its initial tools,
+`tool_search` and `call_tool` in capture order, and the same configuration
+declares the same list in later turns and after compaction. A loaded tool's
+declaration and the package instructions it selects are appended once as
+owned turn context, and restored when compaction removes them while the tool
+stays loaded. The model calls it through `call_tool` with its exposed name and
+arguments; the response boundary turns that call into the tool's own canonical
+call before approval, execution and storage, and request projection shows an
+undeclared tool's stored call as the `call_tool` call that ran it. Records,
+approvals, hooks and presentation therefore name the real tool.
 Approvals settle before execution. A command run with workspace access needs
 no prompt, and neither does stopping it or writing to it: the admitted launch
 request in the same session records that access. Adjacent read-only concurrent calls run in

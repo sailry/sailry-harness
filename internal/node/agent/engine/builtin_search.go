@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -89,14 +90,14 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 	return selected
 }
 
-// capabilityInstructions reads only admitted tools. The final loaded set is
-// shared by every discovery in a model step; their policy additions must be
-// merged together instead of letting the last discovery replace the others.
-func capabilityInstructions(x *execution, policy string, loaded []string) string {
+// capabilityInstructions adds the policy of the tools every request declares.
+// Loaded deferred tools contribute through loadedToolContext instead, so
+// discovery never rewrites the system prompt that provider caches key on.
+func capabilityInstructions(x *execution, policy string) string {
 	var additions []string
 	var offered []string
 	for _, tool := range x.tools {
-		if tool.Deferred && !toolWasLoaded(loaded, tool.Definition.Name) {
+		if tool.Deferred {
 			continue
 		}
 		offered = append(offered, tool.Definition.Name)
@@ -118,11 +119,63 @@ func capabilityInstructions(x *execution, policy string, loaded []string) string
 	return strings.Join(additions, "\n\n")
 }
 
+// loadedToolContext describes loaded deferred tools as owned turn context:
+// each declaration, then package instructions selected only by loaded tools.
+// Owned content is appended once after the history and restored when
+// compaction removes it, so loading leaves the declared tool list and system
+// prompt byte-identical.
+func loadedToolContext(x *execution, policy string, loaded []string) []string {
+	var blocks, selected, shown, instructions []string
+	for _, tool := range x.tools {
+		if !tool.Deferred || !toolWasLoaded(loaded, tool.Definition.Name) {
+			continue
+		}
+		selected = append(selected, tool.Definition.Name)
+		schema := tool.SchemaJSON
+		if len(schema) == 0 {
+			schema, _ = json.Marshal(tool.Definition.InputSchema)
+		}
+		block := fmt.Sprintf("<loaded-tool name=%q>\n%s\nInput schema: %s", x.names.name(tool.Definition.Name), tool.Definition.Description, schema)
+		if tool.Instruction != "" && !strings.Contains(policy, tool.Instruction) {
+			block += "\nInstructions:\n" + tool.Instruction
+			shown = append(shown, tool.Instruction)
+		}
+		blocks = append(blocks, block+"\n</loaded-tool>")
+	}
+	for _, instruction := range x.inv.Instructions {
+		if instruction.Text == "" || strings.Contains(policy, instruction.Text) || slices.Contains(shown, instruction.Text) || slices.Contains(instructions, instruction.Text) {
+			continue
+		}
+		if slices.ContainsFunc(instruction.AnyTools, func(name string) bool { return slices.Contains(selected, name) }) {
+			instructions = append(instructions, instruction.Text)
+		}
+	}
+	slices.Sort(instructions)
+	for _, text := range instructions {
+		blocks = append(blocks, "<loaded-tool-instructions>\n"+text+"\n</loaded-tool-instructions>")
+	}
+	return blocks
+}
+
+// callTool is the stable entry for deferred tools. The model response
+// boundary replaces a call that names a captured tool with that tool's own
+// call before approval, execution and storage; this executor answers only
+// calls that name no captured tool.
+func callTool() Tool {
+	return jsonTool(callToolName, "Call a tool loaded with tool_search. Pass its exact name and, as arguments, an object that follows the input schema in its loaded-tool context. The call runs as that tool, under its own approval and permissions.", `{"type":"object","additionalProperties":false,"required":["name","arguments"],"properties":{"name":{"type":"string","minLength":1},"arguments":{"type":"object"}}}`, true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		var arguments struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(call.Arguments, &arguments)
+		return invalidTool(fmt.Sprintf("%q is not an available tool; use tool_search to find and load it", arguments.Name))
+	})
+}
+
 func (r *Runtime) builtinSearch(x *execution) *Tool {
 	if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return tool.Deferred }) {
 		return nil
 	}
-	tool := jsonTool("tool_search", "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools become available on the next model request. Context compaction can unload tools; search again for capabilities absent from the current tool list. Discovery does not execute the tools or change their permissions.", `{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":8}}}`, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+	tool := jsonTool("tool_search", "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools are loaded: their input schemas appear as loaded-tool context before the next model request, and call_tool runs them. Context compaction can unload tools; search again for a tool whose loaded-tool context is absent. Discovery does not execute the tools or change their permissions.", `{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":8}}}`, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 		if ctx.Err() != nil || x.ctx.Err() != nil {
 			return invalidTool("tool discovery invocation is no longer active")
 		}
@@ -138,11 +191,10 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 			limit = max(1, min(int(*arguments.Limit), 8))
 		}
 		// Discovery needs the materialized context, not the history.
-		var captured canonical.Context
 		var loaded []string
 		if err := r.db.Read(ctx, func(db *sql.Conn) error {
 			var err error
-			captured, loaded, err = store.LoadAgentContext(ctx, db, x.inv.Session.ID)
+			_, loaded, err = store.LoadAgentContext(ctx, db, x.inv.Session.ID)
 			return err
 		}); err != nil {
 			return toolFault(err)
@@ -156,11 +208,7 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 				loaded = append(loaded, name)
 			}
 		}
-		if captured.Policy == nil {
-			return invalidTool("captured policy is unavailable")
-		}
-		addition := capabilityInstructions(x, *captured.Policy, loaded)
-		return ToolResult{Value: map[string]any{"tools": tools, "sailry_context": addition}, Context: &canonical.Context{LoadedTools: &loaded}}
+		return ToolResult{Value: map[string]any{"tools": tools}, Context: &canonical.Context{LoadedTools: &loaded}}
 	})
 	return &tool
 }

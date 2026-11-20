@@ -18,7 +18,7 @@ func TestClaudeToolContinuationScopesBoundThinking(t *testing.T) {
 	for _, discovery := range []bool{false, true} {
 		name := "ordinary tool"
 		if discovery {
-			name = "discovery changes tools and policy"
+			name = "discovery keeps the bound request prefix"
 		}
 		t.Run(name, func(t *testing.T) {
 			var executed atomic.Int32
@@ -33,7 +33,7 @@ func TestClaudeToolContinuationScopesBoundThinking(t *testing.T) {
 			}
 			firstCall, secondCall := call("one", "plain", `{}`), call("two", "plain", `{}`)
 			if discovery {
-				firstCall, secondCall = call("one", "tool_search", `{"query":"select:alpha"}`), call("two", "alpha", `{}`)
+				firstCall, secondCall = call("one", "tool_search", `{"query":"select:alpha"}`), call("two", callToolName, `{"name":"alpha","arguments":{}}`)
 			}
 			language := &scriptedModel{scripts: []script{
 				response(reasoning("first-signature"), text("Working"), firstCall, finish()),
@@ -76,8 +76,10 @@ func TestClaudeToolContinuationScopesBoundThinking(t *testing.T) {
 				return values
 			}
 			second, third := strings.Join(signatures(language.calls[1]), ","), strings.Join(signatures(language.calls[2]), ",")
+			// Loading a tool changes neither declarations nor policy, so the
+			// reasoning bound to the earlier prefix is still replayed.
 			if discovery {
-				if second != "" || third != "second-signature" || executed.Load() != 1 {
+				if second != "first-signature" || third != "first-signature,second-signature" || executed.Load() != 1 {
 					t.Fatalf("discovery replay = %q, %q; executions=%d", second, third, executed.Load())
 				}
 			} else if second != "first-signature" || third != "first-signature,second-signature" || executed.Load() != 2 {
