@@ -156,7 +156,7 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 		return protocol.SearchPage{}, webFault(protocol.ErrorCodeNotConfigured, "no search driver is configured")
 	}
 	var failure *searchFailure
-	// A page whose every result lay outside the included domains: the
+	// A page whose every result was rejected by the domain filters: the
 	// service ignored the filter, so a later one may honour it.
 	var outOfScope *protocol.SearchPage
 	for _, driver := range candidates {
@@ -177,8 +177,8 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 		}
 		page, err := searcher.attempt(ctx, driver, plan, pageInput)
 		if err == nil {
-			found := len(page.Results)
-			page.Results = filterSearchResults(page.Results, pageInput, searcher.options.Now())
+			var allOutsideDomains bool
+			page.Results, allOutsideDomains = filterSearchResults(page.Results, pageInput, searcher.options.Now())
 			page.Results = page.Results[:min(len(page.Results), int(pageInput.Limit))]
 			page.Driver, page.Untrusted = driver, true
 			if driver == protocol.SearchDriverModel {
@@ -186,7 +186,7 @@ func (searcher *Searcher) execute(ctx context.Context, plan SearchPlan, input pr
 			} else {
 				page.FetchHint = fmt.Sprintf("One provider page, up to %d results; no continuation is exposed. Use web_fetch on relevant URLs for detail", pageInput.Limit)
 			}
-			if found > 0 && len(page.Results) == 0 && len(input.IncludeDomains) > 0 && plan.Settings.Fallback {
+			if allOutsideDomains && plan.Settings.Fallback {
 				if outOfScope == nil {
 					outOfScope = &page
 				}

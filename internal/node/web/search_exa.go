@@ -50,7 +50,7 @@ func (searcher *Searcher) exaHosted(ctx context.Context, endpoint string, input 
 	// returned results instead, as for every driver, so a filtered search
 	// asks for more of them.
 	numResults := int(input.Limit)
-	if len(input.IncludeDomains) > 0 {
+	if len(input.IncludeDomains) > 0 || len(input.ExcludeDomains) > 0 {
 		numResults = min(numResults*5, 100)
 	}
 	operation, cancel := context.WithTimeout(ctx, 20*time.Second)

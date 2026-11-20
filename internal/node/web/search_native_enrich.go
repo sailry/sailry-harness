@@ -18,7 +18,7 @@ func nativeSelect(results []protocol.SearchResult, input protocol.SearchRequest,
 			// The redirect host does not identify the cited source's domain.
 			filters.IncludeDomains, filters.ExcludeDomains = nil, nil
 		}
-		if len(filterSearchResults([]protocol.SearchResult{result}, filters, now)) > 0 {
+		if kept, _ := filterSearchResults([]protocol.SearchResult{result}, filters, now); len(kept) > 0 {
 			selected = append(selected, result)
 		}
 	}

@@ -159,31 +159,50 @@ func TestSearchChannelOrder(t *testing.T) {
 	})
 }
 
-// A service that ignores the included domains returns nothing in scope;
-// the next one is asked, and the empty page stands when none does better.
 func TestSearchOutOfScopeFallsThrough(t *testing.T) {
 	t.Parallel()
-	for _, tavily := range []bool{true, false} {
-		drivers := []protocol.SearchDriver{protocol.SearchDriverBrave}
-		if tavily {
-			drivers = append(drivers, protocol.SearchDriverTavily)
-		}
-		settings := searchSettings(drivers...)
-		searcher := NewSearcher(SearchOptions{Endpoints: map[protocol.SearchDriver]string{protocol.SearchDriverBrave: "https://brave.test/", protocol.SearchDriverTavily: "https://tavily.test/"}, Transport: fixtureTransport(func(request *http.Request) (*http.Response, error) {
-			if request.URL.Host == "brave.test" {
-				return responseFixture(`{"web":{"results":[{"url":"https://other.test/","title":"Elsewhere","description":"Out of scope"}]}}`, "application/json"), nil
+	const blocked = `{"url":"https://sub.blocked.test/"}`
+	const kept = `{"url":"https://docs.example.com/"}`
+	const stale = `{"url":"https://docs.example.com/old","page_age":"2020-01-01"}`
+	day := protocol.SearchFreshnessDay
+	include := protocol.SearchRequest{IncludeDomains: []string{"example.com"}}
+	exclude := protocol.SearchRequest{ExcludeDomains: []string{"blocked.test"}}
+	for _, tc := range []struct {
+		name          string
+		input         protocol.SearchRequest
+		first, second string
+		fallback      bool
+		wantCalls     int
+		wantDriver    protocol.SearchDriver
+		wantResults   int
+	}{
+		{"outside include", include, blocked, kept, true, 2, protocol.SearchDriverTavily, 1},
+		{"all excluded", exclude, blocked, kept, true, 2, protocol.SearchDriverTavily, 1},
+		{"both drivers out of scope", exclude, blocked, blocked, true, 2, protocol.SearchDriverBrave, 0},
+		{"fallback disabled", exclude, blocked, kept, false, 1, protocol.SearchDriverBrave, 0},
+		{"provider returned nothing", exclude, "", kept, true, 1, protocol.SearchDriverBrave, 0},
+		{"one result survives", exclude, blocked + "," + kept, kept, true, 1, protocol.SearchDriverBrave, 1},
+		{"in-scope result is stale", protocol.SearchRequest{ExcludeDomains: exclude.ExcludeDomains, Freshness: &day}, blocked + "," + stale, kept, true, 1, protocol.SearchDriverBrave, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := searchSettings(protocol.SearchDriverBrave, protocol.SearchDriverTavily)
+			settings.Fallback = tc.fallback
+			calls := 0
+			searcher := NewSearcher(SearchOptions{Now: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }, Endpoints: map[protocol.SearchDriver]string{protocol.SearchDriverBrave: "https://brave.test/", protocol.SearchDriverTavily: "https://tavily.test/"}, Transport: fixtureTransport(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if request.URL.Host == "brave.test" {
+					return responseFixture(`{"web":{"results":[`+tc.first+`]}}`, "application/json"), nil
+				}
+				return responseFixture(`{"results":[`+tc.second+`]}`, "application/json"), nil
+			})})
+			searcher.Configure(settings)
+			credentials := map[protocol.SearchDriver]Auth{protocol.SearchDriverBrave: searchAuth(), protocol.SearchDriverTavily: searchAuth()}
+			tc.input.Query, tc.input.Limit = "fixture", 5
+			page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings, Credentials: credentials}, tc.input)
+			if err != nil || calls != tc.wantCalls || page.Driver != tc.wantDriver || len(page.Results) != tc.wantResults || len(page.Results) > 0 && page.Results[0].Url != "https://docs.example.com/" {
+				t.Fatalf("calls=%d page=%+v err=%v", calls, page, err)
 			}
-			return responseFixture(`{"results":[{"url":"https://docs.example.com/","title":"Kept","content":"In scope"}]}`, "application/json"), nil
-		})})
-		searcher.Configure(settings)
-		credentials := map[protocol.SearchDriver]Auth{protocol.SearchDriverBrave: searchAuth(), protocol.SearchDriverTavily: searchAuth()}
-		page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings, Credentials: credentials}, protocol.SearchRequest{Query: "fixture", Limit: 5, IncludeDomains: []string{"example.com"}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if tavily && (page.Driver != protocol.SearchDriverTavily || len(page.Results) != 1) || !tavily && (page.Driver != protocol.SearchDriverBrave || len(page.Results) != 0) {
-			t.Fatalf("tavily %v: %+v", tavily, page)
-		}
+		})
 	}
 }
 
@@ -261,7 +280,7 @@ func TestSearchDriverContracts(t *testing.T) {
 	if _, err := normalizeSearch(protocol.SearchRequest{Query: "query", Limit: 5, IncludeDomains: []string{"EXAMPLE.COM."}, ExcludeDomains: []string{"example.com"}}); err == nil {
 		t.Fatal("normalized domain overlap ignored")
 	}
-	filtered := filterSearchResults([]protocol.SearchResult{{Url: "https://example.com/"}, {Url: "https://private.example.com/"}, {Url: "https://example.com.evil/"}}, input, now)
+	filtered, _ := filterSearchResults([]protocol.SearchResult{{Url: "https://example.com/"}, {Url: "https://private.example.com/"}, {Url: "https://example.com.evil/"}}, input, now)
 	if len(filtered) != 1 {
 		t.Fatal(filtered)
 	}
@@ -269,6 +288,26 @@ func TestSearchDriverContracts(t *testing.T) {
 
 func TestHostedExaLifecycle(t *testing.T) {
 	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		input       protocol.SearchRequest
+		wantCount   float64
+		wantSnippet string
+	}{
+		{"include", protocol.SearchRequest{Limit: 5, IncludeDomains: []string{"example.com", "example.org"}}, 25, "Fixture excerpt"},
+		{"exclude", protocol.SearchRequest{Limit: 1, ExcludeDomains: []string{"example.com"}}, 5, "Out of scope"},
+		{"exclude capped", protocol.SearchRequest{Limit: 25, ExcludeDomains: []string{"other.test"}}, 100, "Fixture excerpt"},
+		{"plain", protocol.SearchRequest{Limit: 1}, 1, "Fixture excerpt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.input.Query = "fixture"
+			testHostedExa(t, tc.input, tc.wantCount, tc.wantSnippet)
+		})
+	}
+}
+
+func testHostedExa(t *testing.T, input protocol.SearchRequest, wantCount float64, wantSnippet string) {
+	t.Helper()
 	var mu sync.Mutex
 	calls := 0
 	transport := fixtureTransport(func(request *http.Request) (*http.Response, error) {
@@ -303,8 +342,8 @@ func TestHostedExaLifecycle(t *testing.T) {
 			if frame.Params["name"] != "web_search_exa" {
 				t.Error("incorrect hosted tool", frame.Params)
 			}
-			if arguments, _ := frame.Params["arguments"].(map[string]any); arguments["query"] != "fixture" || arguments["numResults"] != float64(25) {
-				t.Error("hosted query carries filter operators or too few results", arguments)
+			if arguments, _ := frame.Params["arguments"].(map[string]any); len(arguments) != 2 || arguments["query"] != input.Query || arguments["numResults"] != wantCount {
+				t.Errorf("hosted arguments: %v; want query %q and numResults %v", arguments, input.Query, wantCount)
 			}
 			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "Title: Public source\nURL: https://example.com/\nPublished: N/A\nText: Fixture excerpt\n\n---\n\nTitle: Other\nURL: https://other.test/\nPublished: N/A\nText: Out of scope"}}}
 		default:
@@ -320,10 +359,10 @@ func TestHostedExaLifecycle(t *testing.T) {
 	config.KeyConfigured = false
 	settings.Providers[protocol.SearchDriverExa] = config
 	searcher.Configure(settings)
-	page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings}, protocol.SearchRequest{Query: "fixture", Limit: 5, IncludeDomains: []string{"example.com", "example.org"}})
+	page, err := searcher.Search(context.Background(), SearchPlan{Settings: settings}, input)
 	mu.Lock()
 	defer mu.Unlock()
-	if err != nil || calls != 1 || len(page.Results) != 1 || page.Results[0].Snippet != "Fixture excerpt" || page.Results[0].Published != nil {
+	if err != nil || calls != 1 || len(page.Results) != 1 || page.Results[0].Snippet != wantSnippet || page.Results[0].Published != nil {
 		t.Fatal(page, err, calls)
 	}
 }

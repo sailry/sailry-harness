@@ -117,8 +117,9 @@ func searchSince(freshness protocol.SearchFreshness, now time.Time) time.Time {
 	return now
 }
 
-func filterSearchResults(results []protocol.SearchResult, input protocol.SearchRequest, now time.Time) []protocol.SearchResult {
-	return slices.DeleteFunc(results, func(result protocol.SearchResult) bool {
+func filterSearchResults(results []protocol.SearchResult, input protocol.SearchRequest, now time.Time) (kept []protocol.SearchResult, allOutsideDomains bool) {
+	domainRejects := 0
+	kept = slices.DeleteFunc(results, func(result protocol.SearchResult) bool {
 		parsed, err := url.Parse(result.Url)
 		if err != nil || parsed.Hostname() == "" {
 			return true
@@ -126,6 +127,7 @@ func filterSearchResults(results []protocol.SearchResult, input protocol.SearchR
 		host := strings.ToLower(parsed.Hostname())
 		matches := func(domain string) bool { return host == domain || strings.HasSuffix(host, "."+domain) }
 		if slices.ContainsFunc(input.ExcludeDomains, matches) || len(input.IncludeDomains) > 0 && !slices.ContainsFunc(input.IncludeDomains, matches) {
+			domainRejects++
 			return true
 		}
 		if input.Freshness == nil || result.Published == nil {
@@ -142,4 +144,5 @@ func filterSearchResults(results []protocol.SearchResult, input protocol.SearchR
 		}
 		return false
 	})
+	return kept, domainRejects > 0 && domainRejects == len(results)
 }
