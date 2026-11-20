@@ -28,7 +28,15 @@ func TestStdioCommandUsesNodePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command.Path != path || command.Dir != directory || !slices.Equal(command.Args, []string{name, "serve", "--mcp"}) {
+	expected, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := os.Stat(command.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(expected, resolved) || command.Dir != directory || !slices.Equal(command.Args, []string{name, "serve", "--mcp"}) {
 		t.Fatalf("unexpected MCP invocation: path %q, directory %q, argv %q", command.Path, command.Dir, command.Args)
 	}
 	if !slices.Contains(command.Environ(), "PATH="+directory) {
