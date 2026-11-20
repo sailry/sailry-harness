@@ -30,6 +30,8 @@ workspace_pin
 workspace_unpin
 sidebar_sessions_more
 sidebar_sessions_less
+sidebar_sessions_active
+sidebar_sessions_archived
 sidebar_age_seconds
 sidebar_age_minutes
 sidebar_age_hours

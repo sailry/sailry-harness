@@ -28,6 +28,8 @@ workspace_pin: ピンセッション
 workspace_unpin: 固定を解除
 sidebar_sessions_more: もっと表示
 sidebar_sessions_less: 折りたたむ
+sidebar_sessions_active: Active sessions
+sidebar_sessions_archived: Archived sessions
 sidebar_age_seconds: '%{count}s'
 sidebar_age_minutes: '%{count}m'
 sidebar_age_hours: '%{count}h'

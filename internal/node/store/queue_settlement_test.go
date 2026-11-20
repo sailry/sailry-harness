@@ -1099,7 +1099,7 @@ func TestGuidanceQueue(t *testing.T) {
 					if next, _, err := ClaimNext(ctx, db, now); err != nil || next != nil {
 						return fmt.Errorf("a paused queue started input: %v", err)
 					}
-					// A session with waiting input cannot be deleted; archiving keeps the queue.
+					// Held input remains unfinished work, even after its recipient completes.
 					current, err := ReadSession(ctx, db, session.ID)
 					if err != nil {
 						return err
@@ -1107,8 +1107,8 @@ func TestGuidanceQueue(t *testing.T) {
 					if _, _, err = removeSession(ctx, db, session.ID, current.Revision); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
 						return fmt.Errorf("session with queued input was deleted: %v", err)
 					}
-					if _, _, err = archiveSession(ctx, db, protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: current.Revision, Archived: true}); err != nil {
-						return err
+					if _, _, err = archiveSession(ctx, db, protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: current.Revision, Archived: true}); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
+						return fmt.Errorf("session with queued input was archived: %v", err)
 					}
 					if err = order([]protocol.TurnID{held, guided}, nil, nil); err != nil {
 						return err

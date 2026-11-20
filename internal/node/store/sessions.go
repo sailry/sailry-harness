@@ -368,6 +368,30 @@ func archiveSession(ctx context.Context, db *sql.Conn, input protocol.CommandSet
 	}
 	state := "active"
 	if input.Archived {
+		var busy bool
+		// Admission and this check share the writer transaction. Inspect every
+		// unfinished turn, including held input and delegated/background work,
+		// rather than only the activity summary's most recent visible outcome.
+		err := db.QueryRowContext(ctx, `WITH RECURSIVE owned(id) AS (
+			SELECT ?1 UNION
+			SELECT child.session FROM owned
+			JOIN turns parent ON parent.session=owned.id
+			JOIN agent_delegations d ON d.parent_turn=parent.id
+			JOIN turns child ON child.id=d.turn
+		) SELECT EXISTS(
+			SELECT 1 FROM owned JOIN turns t ON t.session=owned.id JOIN agent_runs a ON a.turn=t.id
+			WHERE json_extract(a.body,'$.status') IN ('queued','running','stopping')
+		) OR EXISTS(
+			SELECT 1 FROM agent_background WHERE session IN (SELECT id FROM owned)
+			AND (state='running' AND `+backgroundFollowUp+` AND json_extract(body,'$.task.suppressed')=0 OR (`+backgroundReady+`
+			AND NOT EXISTS(SELECT 1 FROM agent_queues q WHERE q.session=agent_background.session AND q.paused=1)))
+		)`, input.Session.String()).Scan(&busy)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if busy {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "finish all session tasks before archiving it")
+		}
 		state = "archived"
 	}
 	if _, err := db.ExecContext(ctx, "UPDATE sessions SET state=?2 WHERE id=?1", input.Session.String(), state); err != nil {

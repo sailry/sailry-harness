@@ -28,6 +28,8 @@ workspace_pin: 置顶会话
 workspace_unpin: 取消置顶
 sidebar_sessions_more: 展开显示
 sidebar_sessions_less: 收起
+sidebar_sessions_active: 正常会话
+sidebar_sessions_archived: 归档会话
 sidebar_age_seconds: '%{count}s'
 sidebar_age_minutes: '%{count}m'
 sidebar_age_hours: '%{count}h'

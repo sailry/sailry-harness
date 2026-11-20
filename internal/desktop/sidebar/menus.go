@@ -61,7 +61,7 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		}
 	}
 	m.Separator()
-	if m.Item(t("workspace_archive")).Chosen() {
+	if m.Item(t("workspace_archive")).Disabled(!s.canArchive(cv)).Chosen() {
 		s.archive(c, cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
@@ -149,11 +149,7 @@ func (s *State) SessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if m.Item(t("backup_unarchive")).Chosen() {
-		if s.Actions != nil && s.Actions.Unarchive != nil {
-			s.Actions.Unarchive(cv)
-		} else if s.Actions == nil {
-			cv.Archived = false
-		}
+		s.unarchive(cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
 		s.confirmDelete(c, cv)
@@ -400,11 +396,33 @@ func (s *State) Fork(cv *preview.Conversation, turn string, worktree bool) {
 // AddWorktree adds a worktree to a sample project, in memory.
 func (s *State) AddWorktree(pr *preview.Project) preview.Worktree { return s.addWorktree(pr) }
 
-// archive asks before archiving, which in the preview only hides the row
-// (workspace_memory_only).
+func (s *State) canArchive(cv *preview.Conversation) bool {
+	if cv == nil || cv.Archived || cv.Offline || cv.Status == preview.Running || cv.Status == preview.Waiting || len(cv.Queue) != 0 {
+		return false
+	}
+	return s.Actions == nil || s.Actions.CanArchive == nil || s.Actions.CanArchive(cv)
+}
+
+func (s *State) unarchive(cv *preview.Conversation) {
+	if s.Actions != nil && s.Actions.Unarchive != nil {
+		s.Actions.Unarchive(cv)
+	} else if s.Actions == nil {
+		cv.Archived = false
+	}
+}
+
+// archive asks before archiving. The open transcript and its selection stay
+// bound to the same session when its navigation row leaves the active list.
 func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
+	if !s.canArchive(cv) {
+		return
+	}
 	if s.Actions != nil && s.Actions.Archive != nil {
-		s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "session_archive_named", "name", Title(c, cv)), action: i18n.T(c, "workspace_archive"), run: func() { s.Actions.Archive(cv) }}
+		s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "session_archive_named", "name", Title(c, cv)), action: i18n.T(c, "workspace_archive"), run: func() {
+			if s.canArchive(cv) {
+				s.Actions.Archive(cv)
+			}
+		}}
 		return
 	}
 	// The demo asks as the application does.
@@ -414,11 +432,8 @@ func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: message,
 		action: action, run: func() {
-			cv.Archived = true
-			if s.Selected == cv.ID {
-				if ids := s.Order(); len(ids) > 0 {
-					s.Selected = ids[0]
-				}
+			if s.canArchive(cv) {
+				cv.Archived = true
 			}
 		}}
 }

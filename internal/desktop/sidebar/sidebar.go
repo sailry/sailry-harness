@@ -36,6 +36,7 @@ type State struct {
 	Selected     string // conversation ID
 	SelectedHost string
 	Preview      bool
+	Archived     bool // show archived sessions across the sidebar, without changing selection
 	// Sort is the order of the projects and of the conversations in the
 	// chats and in each project, as a Sort: the session order preference,
 	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
@@ -121,6 +122,9 @@ func (s *State) Reveal(id string) {
 
 // pinned returns the pinned group's conversations in their order.
 func (s *State) pinned() []*preview.Conversation {
+	if s.Archived {
+		return nil
+	}
 	byID := map[string]*preview.Conversation{}
 	var pins []Pin
 	s.each(func(cv *preview.Conversation) {
@@ -157,13 +161,13 @@ func (s *State) sort() Sort {
 	return Sort(*s.Sort)
 }
 
-// sessions returns the conversations of a list that are not archived, in
-// the order chosen. The list is in creation order, newest first.
+// sessions returns the conversations in the chosen archive mode and order.
+// The list is in creation order, newest first.
 func (s *State) sessions(list []*preview.Conversation) []*preview.Conversation {
 	byID := map[string]*preview.Conversation{}
 	var entries []Entry
 	for _, cv := range list {
-		if !cv.Archived {
+		if cv.Archived == s.Archived {
 			byID[cv.ID] = cv
 			entries = append(entries, Entry{ID: cv.ID, Name: cv.Title, Updated: cv.Updated})
 		}
@@ -183,7 +187,7 @@ func (s *State) projects() []*preview.Project {
 	for _, pr := range slices.Backward(s.Data.Projects) {
 		e := Entry{ID: pr.ID, Name: pr.Name}
 		for _, cv := range pr.Conversations {
-			if !cv.Archived && cv.Updated.After(e.Updated) {
+			if cv.Archived == s.Archived && cv.Updated.After(e.Updated) {
 				e.Updated = cv.Updated
 			}
 		}
@@ -368,6 +372,13 @@ func (s *State) sortMenu(c *ui.Context, color ui.Color) {
 				*s.Sort = int(o.Sort)
 			}
 		}
+		m.Separator()
+		if m.Item(i18n.T(c, "sidebar_sessions_active")).Checked(!s.Archived).Chosen() {
+			s.Archived = false
+		}
+		if m.Item(i18n.T(c, "sidebar_sessions_archived")).Checked(s.Archived).Chosen() {
+			s.Archived = true
+		}
 	}, kit.MenuOptions{CheckRight: true})
 }
 
@@ -499,13 +510,18 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)
 		}
 		if hovered {
+			if cv.Archived {
+				kit.IconButton(c.Key("unarchive"), icons.Inbox, i18n.T(c, "backup_unarchive"), 20, false).TextColor(p.MutedForeground).
+					OnClick(func() { s.unarchive(cv) })
+				return
+			}
 			icon, label := icons.Pin, i18n.T(c, "workspace_pin")
 			if cv.Pinned {
 				icon, label = icons.PinOff, i18n.T(c, "workspace_unpin")
 			}
 			kit.IconButton(c.Key("pin"), icon, label, 20, false).TextColor(p.MutedForeground).
 				OnClick(func() { s.TogglePin(cv) })
-			kit.IconButton(c.Key("archive"), icons.Inbox, i18n.T(c, "workspace_archive"), 20, false).TextColor(p.MutedForeground).
+			kit.IconButton(c.Key("archive"), icons.Inbox, i18n.T(c, "workspace_archive"), 20, false).TextColor(p.MutedForeground).Disabled(!s.canArchive(cv)).
 				OnClick(func() { s.archive(c, cv) })
 			return
 		}

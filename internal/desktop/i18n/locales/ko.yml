@@ -28,6 +28,8 @@ workspace_pin: 세션 핀
 workspace_unpin: 고정 해제
 sidebar_sessions_more: 더 보기
 sidebar_sessions_less: 접기
+sidebar_sessions_active: Active sessions
+sidebar_sessions_archived: Archived sessions
 sidebar_age_seconds: '%{count}s'
 sidebar_age_minutes: '%{count}m'
 sidebar_age_hours: '%{count}h'

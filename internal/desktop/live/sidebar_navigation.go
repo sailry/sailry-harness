@@ -12,6 +12,7 @@ import (
 )
 
 func (r *Runtime) initSidebarNavigation() {
+	r.App.Sidebar.Actions.CanArchive = r.canArchiveConversation
 	r.App.Sidebar.Actions.Overview = r.openProjectOverview
 	r.App.Sidebar.Actions.ProjectMenu = r.projectPluginMenu
 	r.App.Sidebar.Actions.OpenWorkspace = func(project *viewmodel.Project, session *viewmodel.Conversation) {

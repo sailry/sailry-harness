@@ -28,6 +28,8 @@ workspace_pin: Закрепить сеанс
 workspace_unpin: Открепить
 sidebar_sessions_more: Показать больше
 sidebar_sessions_less: Свернуть
+sidebar_sessions_active: Active sessions
+sidebar_sessions_archived: Archived sessions
 sidebar_age_seconds: '%{count}s'
 sidebar_age_minutes: '%{count}m'
 sidebar_age_hours: '%{count}h'
