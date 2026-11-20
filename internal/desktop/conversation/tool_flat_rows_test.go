@@ -177,15 +177,18 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 	}
 }
 
+// A group stays closed while its run is active, and the finished turn
+// reveals a failure with detail.
 func TestToolGroupRevealsFailureMessage(t *testing.T) {
 	s := New()
+	activity := true
 	calls := []Call{
 		{ID: "review", Name: "review_scope", Label: "Review scope", Running: true},
 		{ID: "read", Name: "read_file", Label: "Read file", Output: &Output{Text: "successful output"}},
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, true)
+		s.tools(c, calls, activity)
 	}, 600, 400)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
@@ -195,8 +198,13 @@ func TestToolGroupRevealsFailureMessage(t *testing.T) {
 	calls[0].Running, calls[0].Failed = false, true
 	calls[0].Output = &Output{Failure: "the plugin could not read the changes\nCode: changes_unavailable", ToolFailure: true}
 	tt.Frame()
+	if tt.HasText(calls[0].Output.Failure) {
+		t.Fatalf("an active group opened on a failure: %q", tt.Texts())
+	}
+	activity = false
+	tt.Frame()
 	if !tt.HasText(calls[0].Output.Failure) || tt.HasText("successful output") {
-		t.Fatalf("the group's error did not open on its own: %q", tt.Texts())
+		t.Fatalf("the finished group's error did not open on its own: %q", tt.Texts())
 	}
 	if !slices.ContainsFunc(tt.Texts(), func(text string) bool { return strings.Contains(text, "Code: changes_unavailable") }) {
 		t.Fatalf("the group's error lost its code: %q", tt.Texts())

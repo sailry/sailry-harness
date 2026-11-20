@@ -284,7 +284,7 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 			if end-first == 1 {
 				s.row(c, calls[first])
 			} else {
-				s.toolGroup(c, calls[first:end])
+				s.toolGroup(c, calls[first:end], activity)
 			}
 			first = end
 		}
@@ -300,10 +300,12 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // A group discloses call headers. Individual rows still own their outputs.
 // Every call of a run joins it whatever its state, so a call that starts,
 // settles or fails stays in its place. The group is keyed by its first
-// call, which a growing run keeps.
-func (s *State) toolGroup(c *ui.Context, calls []Call) {
+// call, which a growing run keeps. While the run is active a failure does
+// not open the group, so the transcript stays still as calls join it; the
+// finished turn reveals the failure.
+func (s *State) toolGroup(c *ui.Context, calls []Call, activity bool) {
 	head := groupHead(calls)
-	failed := slices.ContainsFunc(calls, func(call Call) bool {
+	failed := !activity && slices.ContainsFunc(calls, func(call Call) bool {
 		return (call.Failed || call.Warning) && toolErrorOpen(call) &&
 			(call.Load != nil || call.Output != nil && call.Output.Failure != "")
 	})
