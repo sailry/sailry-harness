@@ -192,3 +192,56 @@ func TestDraftHostChangeReseedsTeamAndModelTogether(t *testing.T) {
 		t.Fatal("returning to the saved Node did not restore its selection")
 	}
 }
+
+func TestFreshConversationDraftKeepsInputAndSeedsLatestSelection(t *testing.T) {
+	snapshot := conversationDefaultsSnapshot()
+	f := selectionWindow(t, snapshot)
+	r, app := f.r, f.r.App
+	r.newDraft(nil)
+	f.window.Frame()
+	before := app.Sidebar.Selected
+	first := app.Composer(before)
+	first.Draft = "Keep the first draft"
+	if first.SelectTeam == nil || !first.SelectTeam(snapshot.Teams[0].ID.String()) {
+		t.Fatal("team selection was unavailable")
+	}
+	first.Model = modelKey(snapshot.Providers[1].ID, snapshot.Providers[1].DefaultModel)
+	r.newConversationDraft(nil)
+	after := app.Sidebar.Selected
+	if before == after || app.Data.Find(before) == nil || app.Composer(before) != first || first.Draft != "Keep the first draft" {
+		t.Fatal("fresh draft creation reused or discarded the typed draft")
+	}
+	f.window.Frame()
+	second := app.Composer(after)
+	if second == first || second.Draft != "" || second.Model != first.Model || second.Team != first.Team {
+		t.Fatal("fresh draft did not independently seed the latest selection")
+	}
+	second.Draft = "Keep the second draft"
+	r.newConversationDraft(nil)
+	third := app.Sidebar.Selected
+	f.window.Frame()
+	if third == before || third == after || app.Data.Find(before) == nil || app.Data.Find(after) == nil ||
+		first.Draft != "Keep the first draft" || second.Draft != "Keep the second draft" {
+		t.Fatal("repeated explicit creation lost a draft or reused an identifier")
+	}
+	current := app.Composer(third)
+	current.Draft = "Reuse this location draft"
+	r.newDraft(nil)
+	if app.Sidebar.Selected != third || app.Composer(third) != current || current.Draft != "Reuse this location draft" {
+		t.Fatal("ordinary New session no longer reused the location's draft")
+	}
+}
+
+func TestFreshProjectlessDraftRetainsExecutionNode(t *testing.T) {
+	snapshot := conversationDefaultsSnapshot()
+	r := defaultsRuntime(t, snapshot, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	remote := protocol.NodeID{9}.String()
+	existing := &viewmodel.Conversation{ID: "draft/existing", Node: remote}
+	r.App.Data.Unassigned = []*viewmodel.Conversation{existing}
+	r.App.Page, r.App.Sidebar.Selected = shell.ConversationPage, existing.ID
+	r.newConversationDraft(nil)
+	created := r.App.Data.Find(r.App.Sidebar.Selected)
+	if created == nil || created == existing || created.Node != remote || r.App.Composer(created.ID).Host != remote || r.App.Data.Find(existing.ID) != existing {
+		t.Fatal("fresh projectless draft switched execution Node or replaced the source draft")
+	}
+}

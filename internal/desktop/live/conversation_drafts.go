@@ -22,7 +22,29 @@ func unsentDraft(cv *viewmodel.Conversation) bool { return strings.HasPrefix(cv.
 // newDraft opens the unsent conversation of a location: the one it already
 // has, with whatever was typed in it, otherwise a new one.
 func (r *Runtime) newDraft(p *viewmodel.Project) {
-	cv := r.draftIn(p)
+	r.openDraft(r.draftIn(p), p)
+}
+
+// Explicit tab and split creation needs an independent composer even while the
+// location already has an unsent draft. Ordinary New session still reuses it.
+func (r *Runtime) newConversationDraft(p *viewmodel.Project) {
+	r = r.localRuntime()
+	r.rememberDraftComposers()
+	node := ""
+	if p == nil {
+		if current := r.App.Data.Find(r.App.FocusedConversation()); current != nil {
+			node = current.Node
+		}
+	}
+	cv := r.createDraftIn(p)
+	if node != "" {
+		cv.Node = node
+		r.App.Composer(cv.ID).Host = node
+	}
+	r.openDraft(cv, p)
+}
+
+func (r *Runtime) openDraft(cv *viewmodel.Conversation, p *viewmodel.Project) {
 	if p != nil {
 		comp := r.App.Composer(cv.ID)
 		comp.Host, comp.Project = p.Host, p.ID
@@ -34,17 +56,7 @@ func (r *Runtime) newDraft(p *viewmodel.Project) {
 }
 
 func (r *Runtime) draftIn(p *viewmodel.Project) *viewmodel.Conversation {
-	list := &r.App.Data.Unassigned
-	if p != nil {
-		list = nil
-		for _, current := range r.App.Data.Projects {
-			if current.ID == p.ID && current.Host == p.Host {
-				list = &current.Conversations
-				break
-			}
-		}
-	}
-	if list != nil {
+	if list := r.draftList(p); list != nil {
 		for _, current := range *list {
 			// A submitted draft is becoming its session.
 			if unsentDraft(current) && !r.draftSubmitted(current) {
@@ -52,6 +64,22 @@ func (r *Runtime) draftIn(p *viewmodel.Project) *viewmodel.Conversation {
 			}
 		}
 	}
+	return r.createDraftIn(p)
+}
+
+func (r *Runtime) draftList(p *viewmodel.Project) *[]*viewmodel.Conversation {
+	if p == nil {
+		return &r.App.Data.Unassigned
+	}
+	for _, current := range r.App.Data.Projects {
+		if current.ID == p.ID && current.Host == p.Host {
+			return &current.Conversations
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) createDraftIn(p *viewmodel.Project) *viewmodel.Conversation {
 	r.drafts++
 	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: fmt.Sprintf("draft/%d", r.drafts), Updated: time.Now(), Created: int(^uint(0) >> 1)}
 	if p != nil {
@@ -61,7 +89,7 @@ func (r *Runtime) draftIn(p *viewmodel.Project) *viewmodel.Conversation {
 		r.openDrafts = map[string]bool{}
 	}
 	r.openDrafts[cv.ID] = true
-	if list != nil {
+	if list := r.draftList(p); list != nil {
 		*list = append([]*viewmodel.Conversation{cv}, *list...)
 	}
 	return cv
