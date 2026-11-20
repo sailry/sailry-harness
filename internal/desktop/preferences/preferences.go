@@ -135,6 +135,10 @@ type Data struct {
 	UpdateChannel     *string                   `json:"update_channel"`
 	WelcomeSeen       *bool                     `json:"welcome_seen"`
 	SidebarMetrics    bool                      `json:"sidebar_metrics"`
+	// ViewZoom is the windows' content zoom in percent, one of
+	// ViewZoomLevels; nil is 100. An optional Go presentation extension,
+	// independent of MessageTextSize.
+	ViewZoom *uint16 `json:"view_zoom,omitempty"`
 	// Retained for preference round trips. Developer launch modes no longer
 	// restore or update these former UI switches.
 	DemoMode bool `json:"demo_mode,omitempty"`
@@ -215,6 +219,9 @@ func (d *Data) DictationMicrophone() *string {
 	return d.Dictation.Microphone
 }
 
+// ViewZoomLevels are the values of view_zoom, in percent, smallest first.
+var ViewZoomLevels = []uint16{100, 110, 125, 150}
+
 var Languages = []string{"system", "english", "chinese", "traditional_chinese", "japanese", "korean", "french", "german", "spanish", "portuguese_brazil", "russian"}
 
 func (d Data) Validate() error {
@@ -246,6 +253,9 @@ func (d Data) Validate() error {
 	}
 	if d.MessageTextSize != nil && (*d.MessageTextSize < 12 || *d.MessageTextSize > 18) {
 		return errors.New("invalid conversation text size")
+	}
+	if d.ViewZoom != nil && !slices.Contains(ViewZoomLevels, *d.ViewZoom) {
+		return errors.New("invalid view zoom")
 	}
 	if d.Surfaces != nil {
 		valid := func(v float32, lo float32) bool { return !math.IsNaN(float64(v)) && v >= lo && v <= 100 }

@@ -137,6 +137,9 @@ type App struct {
 	// (panel.BindListShare); 0 is the first share. The divider between them
 	// writes it, and it is saved as DiffSplit is.
 	ListShare float32
+	// ViewZoom is the window content's zoom in percent (view_zoom.go); 0 is
+	// 100. A profile keeps it in its preferences.
+	ViewZoom uint16
 
 	// OnMode, when set, gets the theme mode as it changes, so the window's
 	// native material follows the app's appearance.
@@ -358,6 +361,7 @@ func (a *App) View(c *ui.Context) {
 	// A selection changed by a shortcut takes that binding on the next frame.
 	boundConversation := a.panels.mounted
 	a.shortcuts(c)
+	a.applyViewZoom(c)
 	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
