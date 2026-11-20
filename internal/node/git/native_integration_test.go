@@ -719,6 +719,37 @@ func TestNativeGitIntegration(t *testing.T) {
 			t.Fatalf("sibling = %q, %v", body, err)
 		}
 	})
+	t.Run("list_worktrees_with_per_worktree_config", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		s := service(t)
+		for _, setting := range [][2]string{{"core.repositoryFormatVersion", "1"}, {"extensions.worktreeConfig", "true"}} {
+			if _, err := s.command(ctx, root, []string{"config", "--local", setting[0], setting[1]}, nil, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		listed, err := s.ListWorktrees(ctx, root)
+		if err != nil || listed.Kind != protocol.RepositoryKindReady || len(listed.Entries) != 1 {
+			t.Fatalf("native worktree config listing = %+v, %v", listed, err)
+		}
+		entry := listed.Entries[0]
+		if entry.Path != root || !entry.Main || !entry.Available || entry.Head == nil || *entry.Head != commit {
+			t.Fatalf("main checkout = %+v", entry)
+		}
+		if _, err := s.command(ctx, root, []string{"symbolic-ref", "HEAD", "refs/heads/unborn"}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		listed, err = s.ListWorktrees(ctx, root)
+		if err != nil || listed.Kind != protocol.RepositoryKindUnborn || len(listed.Entries) != 1 || listed.Entries[0].Head != nil {
+			t.Fatalf("unborn checkout = %+v, %v", listed, err)
+		}
+		child := filepath.Join(root, "nested")
+		if err := os.MkdirAll(filepath.Join(child, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := s.ListWorktrees(ctx, child); err == nil {
+			t.Fatalf("an invalid .git selected its parent: %+v", got)
+		}
+	})
 	t.Run("missing_worktree_registration", func(t *testing.T) {
 		root, _, commit := fixture(t)
 		s := service(t)

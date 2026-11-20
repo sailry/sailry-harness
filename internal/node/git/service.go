@@ -118,13 +118,19 @@ func mapError(err error) error {
 	// reporting sends only the code.
 	return fault(protocol.ErrorCodeUnavailable, "Git repository operation failed: "+err.Error())
 }
-func open(root string) (*gogit.Repository, error) {
+func checkGitMetadata(root string) error {
 	metadata, err := os.Lstat(filepath.Join(root, ".git"))
 	if err != nil {
-		return nil, mapError(err)
+		return err
 	}
 	if metadata.Mode()&os.ModeSymlink != 0 || !metadata.IsDir() && !metadata.Mode().IsRegular() {
-		return nil, invalid("Git metadata cannot be a symlink or special entry")
+		return invalid("Git metadata cannot be a symlink or special entry")
+	}
+	return nil
+}
+func open(root string) (*gogit.Repository, error) {
+	if err := checkGitMetadata(root); err != nil {
+		return nil, mapError(err)
 	}
 	r, err := gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{DetectDotGit: false, EnableDotGitCommonDir: true})
 	if err != nil {

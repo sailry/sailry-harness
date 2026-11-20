@@ -29,16 +29,39 @@ const (
 )
 
 func (s *Service) ListWorktrees(ctx context.Context, root string) (protocol.GitWorktrees, error) {
-	head, err := s.Head(ctx, root)
-	result := protocol.GitWorktrees{Kind: head.Kind, Entries: []protocol.GitWorktree{}}
-	if err != nil || head.Kind == protocol.RepositoryKindDirectory {
+	result := protocol.GitWorktrees{Entries: []protocol.GitWorktree{}}
+	if err := checkContext(ctx); err != nil {
 		return result, err
 	}
-	capture, err := s.command(ctx, root, []string{"worktree", "list", "--porcelain", "-z"}, nil, true)
+	if err := checkGitMetadata(root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			result.Kind = protocol.RepositoryKindDirectory
+			return result, nil
+		}
+		return result, mapError(err)
+	}
+	// Native Git knows the checkout's HEAD even for repository extensions that
+	// go-git cannot open. Pin .git so an invalid marker cannot select a parent.
+	capture, err := s.command(ctx, root, []string{"--git-dir=.git", "worktree", "list", "--porcelain", "-z"}, nil, true)
 	if err != nil {
 		return result, err
 	}
-	return ParseWorktrees(capture.Stdout, head.Kind, capture.Truncated)
+	result, err = ParseWorktrees(capture.Stdout, protocol.RepositoryKindReady, capture.Truncated)
+	if err != nil {
+		return result, err
+	}
+	for _, entry := range result.Entries {
+		if entry.Path == root && (entry.Head != nil || entry.Branch != nil) {
+			if entry.Head == nil {
+				result.Kind = protocol.RepositoryKindUnborn
+			}
+			return result, nil
+		}
+	}
+	// The bounded listing may omit the checkout that owns the request.
+	head, err := s.Head(ctx, root)
+	result.Kind = head.Kind
+	return result, err
 }
 func ParseWorktrees(data []byte, kind protocol.RepositoryKind, truncated bool) (protocol.GitWorktrees, error) {
 	result := protocol.GitWorktrees{Kind: kind, Entries: []protocol.GitWorktree{}, Truncated: truncated}
