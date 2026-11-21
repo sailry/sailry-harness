@@ -238,13 +238,19 @@ func ownLiveParse(file *Parsed) (*Parsed, int) {
 		}
 	}
 	owned.References = slices.Clone(file.References)
+	scopes := map[*Scope]*Scope{}
 	for i := range owned.References {
 		ref := &owned.References[i]
 		ref.Name, ref.Kind = strings.Clone(ref.Name), strings.Clone(ref.Kind)
 		if ref.Scope != nil {
-			scope := *ref.Scope
-			scope.Name, scope.Kind = strings.Clone(scope.Name), strings.Clone(scope.Kind)
-			ref.Scope = &scope
+			detached := scopes[ref.Scope]
+			if detached == nil {
+				scope := *ref.Scope
+				scope.Name, scope.Kind = strings.Clone(scope.Name), strings.Clone(scope.Kind)
+				detached = &scope
+				scopes[ref.Scope] = detached
+			}
+			ref.Scope = detached
 		}
 	}
 	owned.Imports = slices.Clone(file.Imports)

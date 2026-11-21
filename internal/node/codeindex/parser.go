@@ -35,7 +35,12 @@ const (
 // parse.
 type Parser struct {
 	mutex   sync.Mutex
-	queries map[string]*gotreesitter.Query
+	queries map[string]compiledQuery
+}
+
+type compiledQuery struct {
+	query   *gotreesitter.Query
+	present bool
 }
 
 // Parsed is the indexable content of one file. Ranges keep UTF-8 coordinates.
@@ -101,8 +106,7 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, con
 	if hash == "" {
 		hash = Hash(source)
 	}
-	parsed := Omitted(file, StatusUnsupported)
-	parsed.Hash = hash
+	parsed := Parsed{Path: file, Hash: hash, Status: StatusUnsupported}
 	entry := detect(file, source)
 	if entry == nil {
 		return parsed, nil
@@ -121,13 +125,13 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, con
 		return parsed, nil
 	}
 	defer tree.Release()
-	s := &syntax{language: entry.Language(), source: source}
+	s := &syntax{language: tree.Language(), source: source}
 	found := extract(s, tree.RootNode(), language)
 	parsed.Status = StatusParsed
 	parsed.Partial = tree.ParseStoppedEarly()
 	parsed.Truncated = tree.ParseStopReason() == gotreesitter.ParseStopMemoryBudget
 	parsed.collect(found, language, source, origin{})
-	if err := p.embedded(ctx, &parsed, s, entry, tree, content != allContent); err != nil {
+	if err := p.embedded(ctx, &parsed, s, language, tree, content != allContent); err != nil {
 		return Parsed{}, err
 	}
 	slices.SortStableFunc(parsed.Symbols, func(left, right Symbol) int {
@@ -149,7 +153,7 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, con
 		return duplicate
 	})
 	if content != outlineContent {
-		if err := p.references(ctx, &parsed, s, entry, tree, found.imports); err != nil {
+		if err := p.references(ctx, &parsed, s, language, tree, found.imports); err != nil {
 			return Parsed{}, err
 		}
 	}

@@ -142,11 +142,28 @@ func (b *batch) flush(ctx context.Context, db *sql.Conn) error {
 	return err
 }
 
+type writeMode uint8
+
+const (
+	replaceFiles writeMode = iota
+	appendSearchFiles
+	appendGraphFiles
+)
+
 // replace commits the files' records, symbols, references and imports in one
 // transaction. It reports the committed revision, or false without files.
 func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string) (uint64, bool, error) {
+	return i.writeFiles(ctx, files, fingerprint, replaceFiles)
+}
+
+func (i *index) writeFiles(ctx context.Context, files []Parsed, fingerprint string, mode writeMode) (uint64, bool, error) {
 	if len(files) == 0 {
 		return 0, false, nil
+	}
+	const insertFile = "INSERT INTO files(path,fingerprint,hash,state) VALUES(?1,?2,?3,?4)"
+	statement := insertFile + " RETURNING id"
+	if mode == replaceFiles {
+		statement = insertFile + " ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,hash=excluded.hash,state=excluded.state RETURNING id"
 	}
 	var committed uint64
 	err := i.handle.Write(ctx, func(db *sql.Conn) error {
@@ -164,11 +181,13 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 			if file.Hash != "" {
 				hash = file.Hash
 			}
-			if err := db.QueryRowContext(ctx, "INSERT INTO files(path,fingerprint,hash,state) VALUES(?1,?2,?3,?4) ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,hash=excluded.hash,state=excluded.state RETURNING id", file.Path, fingerprint, hash, string(body)).Scan(&ids[index]); err != nil {
+			if err := db.QueryRowContext(ctx, statement, file.Path, fingerprint, hash, string(body)).Scan(&ids[index]); err != nil {
 				return err
 			}
-			if err := clearFile(ctx, db, ids[index]); err != nil {
-				return err
+			if mode == replaceFiles {
+				if err := clearFile(ctx, db, ids[index]); err != nil {
+					return err
+				}
 			}
 		}
 		references := batch{prefix: "INSERT INTO refs(file_id,name,kind,start_line,start_column,start_byte,receiver,scope,scope_kind,scope_line,scope_end_line) VALUES ", row: "(?,?,?,?,?,?,?,?,?,?,?)"}
@@ -202,14 +221,19 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 		for index := range files {
 			file := &files[index]
 			for _, symbol := range file.Symbols {
-				terms := file.Path + " "
-				if symbol.Signature != nil {
-					terms += *symbol.Signature
+				var fieldName, fieldTerms, cjkName, cjkTerms string
+				if mode != appendGraphFiles {
+					terms := file.Path + " "
+					if symbol.Signature != nil {
+						terms += *symbol.Signature
+					}
+					fieldName, fieldTerms = knowledge.Field(symbol.Name), knowledge.Field(terms)
+					cjkName, cjkTerms = knowledge.Index(symbol.Name), knowledge.Index(terms)
 				}
 				span := symbol.Range
 				if err := symbols.push(ctx, db, batchSymbols, ids[index], symbol.Name, symbol.Language, symbol.Kind,
 					span.StartByte, span.EndByte, span.StartLine, span.StartColumn, span.EndLine, span.EndColumn, optional(symbol.Signature), symbol.Depth,
-					knowledge.Field(symbol.Name), knowledge.Field(terms), knowledge.Index(symbol.Name), knowledge.Index(terms)); err != nil {
+					fieldName, fieldTerms, cjkName, cjkTerms); err != nil {
 					return err
 				}
 			}

@@ -11,11 +11,21 @@ import (
 // IndexedSource reports whether a path can contribute declarations and
 // references. Unknown names still get a shebang check when discovered.
 func IndexedSource(file string) bool {
+	_, allowed := indexedLanguage(file)
+	return allowed
+}
+
+func indexedLanguage(file string) (*grammars.LangEntry, bool) {
 	if excludedCodePath(file) {
-		return false
+		return nil, false
 	}
 	entry := grammars.DetectLanguage(file)
-	return entry == nil || sourceLanguage(entry.Name)
+	return entry, entry == nil || sourceLanguage(entry.Name)
+}
+
+func indexedCandidate(file string) bool {
+	entry, allowed := indexedLanguage(file)
+	return allowed && (entry != nil || path.Ext(file) == "")
 }
 
 func excludedCodePath(file string) bool {

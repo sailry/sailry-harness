@@ -107,3 +107,14 @@ func BenchmarkEncloseDenseReferences(b *testing.B) {
 		enclose(file.Symbols, refs)
 	}
 }
+
+func BenchmarkOwnLiveParseDenseReferences(b *testing.B) {
+	file := parseDenseReferences(b, new(Parser), denseGoSource())
+	b.ReportAllocs()
+	for b.Loop() {
+		owned, _ := ownLiveParse(&file)
+		if owned == nil || len(owned.References) != denseCalls {
+			b.Fatal("dense parse was not detached")
+		}
+	}
+}

@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
 )
 
 const (
@@ -58,10 +57,10 @@ type Scope struct {
 }
 
 // references records the file's imports and the references its tags query finds.
-func (p *Parser) references(ctx context.Context, parsed *Parsed, s *syntax, entry *grammars.LangEntry, tree *gotreesitter.Tree, imported []statement) error {
-	parsed.Imports = modules(entry.Name, parsed.Path, imported)
+func (p *Parser) references(ctx context.Context, parsed *Parsed, s *syntax, name string, tree *gotreesitter.Tree, imported []statement) error {
+	parsed.Imports = modules(name, parsed.Path, imported)
 	found := imports(imported)
-	if query := p.tags(entry); query != nil {
+	if query := p.tags(name, s.language); query != nil {
 		var truncated bool
 		var err error
 		if found, truncated, err = collect(ctx, query, s, tree, aliases(imported), found); err != nil {
@@ -88,44 +87,46 @@ func (p *Parser) references(ctx context.Context, parsed *Parsed, s *syntax, entr
 	return nil
 }
 
-// tags returns the compiled tags query of a language, or nil without one.
-func (p *Parser) tags(entry *grammars.LangEntry) *gotreesitter.Query {
+// tags returns the compiled reference-bearing tags query of a language.
+func (p *Parser) tags(name string, language *gotreesitter.Language) *gotreesitter.Query {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	key := "tags/" + entry.Name
-	if query, ok := p.queries[key]; ok {
-		return query
+	key := "tags/" + name
+	if compiled, ok := p.queries[key]; ok {
+		return compiled.query
 	}
-	query := compile(entry)
+	query := compile(name, language)
 	if p.queries == nil {
-		p.queries = map[string]*gotreesitter.Query{}
+		p.queries = map[string]compiledQuery{}
 	}
-	p.queries[key] = query
+	p.queries[key] = compiledQuery{query: query}
 	return query
 }
 
-func compile(entry *grammars.LangEntry) *gotreesitter.Query {
-	own, ok := bundled("tags", entry.Name)
+func compile(name string, language *gotreesitter.Language) *gotreesitter.Query {
+	own, ok := bundled("tags", name)
 	if !ok {
 		return nil
 	}
-	language := entry.Language()
 	var sources []string
 	// TypeScript grammars extend JavaScript; their tags omit its calls.
-	if entry.Name == "typescript" || entry.Name == "tsx" {
+	if name == "typescript" || name == "tsx" {
 		if inherited, ok := bundled("tags", "javascript"); ok {
 			sources = append(sources, inherited)
 		}
 	}
-	sources = append(append(sources, own), additions[entry.Name]...)
+	sources = append(append(sources, own), additions[name]...)
 	text := ""
 	var query *gotreesitter.Query
 	for _, source := range sources {
 		// Keep whole sources when they compile; otherwise keep each pattern
 		// the grammar accepts.
 		units := []string{source}
-		if _, err := gotreesitter.NewQuery(source, language); err != nil {
+		if compiled, err := gotreesitter.NewQuery(source, language); err != nil {
 			units = patterns(source)
+		} else if query == nil {
+			text, query = source, compiled
+			continue
 		}
 		for _, unit := range units {
 			extended := text + "\n" + unit
@@ -134,7 +135,14 @@ func compile(entry *grammars.LangEntry) *gotreesitter.Query {
 			}
 		}
 	}
-	return query
+	// Definitions in tags only suppress false references. The outline already
+	// extracts declarations even when the tags bundle contains no references.
+	for id := range query.CaptureCount() {
+		if capture, _ := query.CaptureNameForID(id); strings.HasPrefix(capture, "reference.") {
+			return query
+		}
+	}
+	return nil
 }
 
 // patterns splits a query source into its top-level patterns, each with its
@@ -211,7 +219,7 @@ func collect(ctx context.Context, query *gotreesitter.Query, s *syntax, tree *go
 	deadline := time.Now().Add(parseMicros * time.Microsecond)
 	definitions := map[uint32]bool{}
 	var references []reference
-	cursor := query.Exec(tree.RootNode(), s.language, []byte(s.source))
+	cursor := query.Exec(tree.RootNode(), s.language, tree.Source())
 	cursor.SetMatchWorkBudget(matchWorkBudget)
 	truncated := false
 	for {

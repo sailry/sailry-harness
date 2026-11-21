@@ -157,6 +157,27 @@ func TestLiveGraphRevalidatesCachedSelection(t *testing.T) {
 	run("chain/b.rs")
 }
 
+func TestLiveGraphReclassifiesEditedShebang(t *testing.T) {
+	f := newFixture(t)
+	const body = "def bridge():\n    start_work()\n"
+	const script = "#!/usr/bin/env python3\n" + body
+	f.write("main.py", "def start_work():\n    pass\n", "runner", script, "ignored.codeindex-unknown", script)
+	query := graphQuery("callers", "start_work", "main.py")
+	page, err := f.service.GraphOnDemand(t.Context(), f.id, f.root, query)
+	if err != nil || page.Partial || page.Truncated || len(page.Callers) != 1 {
+		t.Fatalf("initial callers: %+v, %v", page, err)
+	}
+	caller := page.Callers[0]
+	if caller.Path != "runner" || caller.Scope == nil || caller.Scope.Name != "bridge" || caller.Line != 2 || caller.Column != 4 {
+		t.Fatalf("unexpected extensionless caller: %+v", caller)
+	}
+	f.write("runner", body)
+	page, err = f.service.GraphOnDemand(t.Context(), f.id, f.root, query)
+	if err != nil || page.Partial || page.Truncated || len(page.Targets) != 1 || len(page.Callers) != 0 {
+		t.Fatalf("callers after removing the shebang: %+v, %v", page, err)
+	}
+}
+
 func TestLiveReuseKeepsWorktreesSeparate(t *testing.T) {
 	f := newFixture(t)
 	f.write("same.rs", "pub fn original() {}\n", ".sailry/worktrees/hidden/source.rs", "pub fn hidden() {}\n")
@@ -257,5 +278,26 @@ func TestLiveResultReusesCompleteDerivation(t *testing.T) {
 	f.write("source.rs", changed)
 	if page, err := f.service.SearchOnDemand(t.Context(), f.id, f.root, query); err != nil || len(page.Symbols) != 1 || page.Symbols[0].FileRevision != Hash(changed) {
 		t.Fatalf("full reads did not discover modified content: %+v, %v", page, err)
+	}
+}
+
+func TestOwnLiveParsePreservesSharedScopes(t *testing.T) {
+	parsed := parseDenseReferences(t, new(Parser), denseGoSource())
+	owned, size := ownLiveParse(&parsed)
+	if owned == nil || size == 0 || !reflect.DeepEqual(owned, &parsed) {
+		t.Fatalf("detached parse differs from the original: owned=%t size=%d", owned != nil, size)
+	}
+	original, detached := parsed.References[0].Scope, owned.References[0].Scope
+	if detached == nil || detached == original {
+		t.Fatalf("cached scope shares the original scope: %+v", detached)
+	}
+	for i, ref := range owned.References {
+		if ref.Scope != detached {
+			t.Fatalf("reference %d did not reuse the detached scope", i)
+		}
+	}
+	original.Name = "changed"
+	if detached.Name != "run" {
+		t.Fatalf("mutation affected the cached scope: %+v", detached)
 	}
 }

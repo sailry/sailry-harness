@@ -184,6 +184,12 @@ func TestCodeReferences(t *testing.T) {
 			[]referenced{{"listen", "call", "Start", false}, {"Open", "call", "Start", false}},
 			[]string{"example.com/app/store"},
 		},
+		{
+			"src/caller.c",
+			"void target(void) {}\nvoid caller(void) { target(); }\n",
+			[]referenced{{"target", "call", "caller", false}},
+			nil,
+		},
 		{"settings.json", "{\"service\":{\"port\":8080}}", nil, nil},
 	} {
 		t.Run(fixture.path, func(t *testing.T) {

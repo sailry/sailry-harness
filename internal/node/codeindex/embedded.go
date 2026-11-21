@@ -23,38 +23,39 @@ func bundled(kind, language string) (string, bool) {
 	return string(data), err == nil
 }
 
-// injections returns the compiled injection query of a language, or nil when
-// the language has none or the grammar rejects it.
-func (p *Parser) injections(entry *grammars.LangEntry) *gotreesitter.Query {
+// injections distinguishes an absent bundle from a rejected query.
+func (p *Parser) injections(name string, language *gotreesitter.Language) compiledQuery {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	key := "injections/" + entry.Name
-	if query, ok := p.queries[key]; ok {
-		return query
+	key := "injections/" + name
+	if compiled, ok := p.queries[key]; ok {
+		return compiled
 	}
-	var query *gotreesitter.Query
-	if source, ok := bundled("injections", entry.Name); ok {
-		query, _ = gotreesitter.NewQuery(source, entry.Language())
+	source, present := bundled("injections", name)
+	compiled := compiledQuery{present: present}
+	if present {
+		compiled.query, _ = gotreesitter.NewQuery(source, language)
 	}
 	if p.queries == nil {
-		p.queries = map[string]*gotreesitter.Query{}
+		p.queries = map[string]compiledQuery{}
 	}
-	p.queries[key] = query
-	return query
+	p.queries[key] = compiled
+	return compiled
 }
 
 // embedded indexes the regions a host language delegates to other grammars.
-func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry *grammars.LangEntry, tree *gotreesitter.Tree, sourceOnly bool) error {
-	if _, ok := bundled("injections", entry.Name); !ok {
+func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, name string, tree *gotreesitter.Tree, sourceOnly bool) error {
+	compiled := p.injections(name, s.language)
+	if !compiled.present {
 		return nil
 	}
-	query := p.injections(entry)
+	query := compiled.query
 	if query == nil {
 		parsed.Partial = true
 		return nil
 	}
 	deadline := time.Now().Add(parseMicros * time.Microsecond)
-	cursor := query.Exec(tree.RootNode(), s.language, []byte(s.source))
+	cursor := query.Exec(tree.RootNode(), s.language, tree.Source())
 	cursor.SetMatchWorkBudget(matchWorkBudget)
 	regions := 0
 	for {
@@ -120,7 +121,7 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry 
 				parsed.Capabilities.Embedded = true
 				parsed.Partial = parsed.Partial || guestTree.ParseStoppedEarly()
 				parsed.Truncated = parsed.Truncated || guestTree.ParseStopReason() == gotreesitter.ParseStopMemoryBudget
-				inner := &syntax{language: guest.Language(), source: text}
+				inner := &syntax{language: guestTree.Language(), source: text}
 				start := region.StartPoint()
 				parsed.collect(extract(inner, guestTree.RootNode(), guest.Name), guest.Name, text,
 					origin{byte: int(region.StartByte()), line: int(start.Row), column: int(start.Column)})

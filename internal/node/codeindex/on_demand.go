@@ -190,7 +190,7 @@ func (scan *liveFiles) cut() {
 func (scan *liveFiles) walk(scope string, match *regexp.Regexp) error {
 	var refusal *protocol.Fault
 	walked, err := scan.files.VisitFiles(scan.ctx, scope, nil, func(_ *os.Root, _, path string, metadata fs.FileInfo) (bool, error) {
-		if scan.seen[path] || !Candidate(path) || !IndexedSource(path) {
+		if scan.seen[path] || !indexedCandidate(path) {
 			return true, nil
 		}
 		cost := min(metadata.Size(), MaxFileBytes)
@@ -253,7 +253,11 @@ func (scan *liveFiles) index(ctx context.Context) (*index, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err := i.replace(ctx, scan.parsed, Fingerprint); err != nil {
+	mode := appendSearchFiles
+	if scan.content == sourceContent {
+		mode = appendGraphFiles
+	}
+	if _, _, err := i.writeFiles(ctx, scan.parsed, Fingerprint, mode); err != nil {
 		_ = i.close()
 		return nil, err
 	}
@@ -399,7 +403,10 @@ func (s *Service) GraphOnDemand(ctx context.Context, id protocol.WorktreeID, roo
 	if query.View != protocol.CodeIndexGraphViewMap {
 		hints := scan.graphHints(query)
 		if len(hints) > 0 && (len(query.Paths) > 0 || len(hints) > 1) {
-			if err := scan.walk("", expression(hints, true)); err != nil {
+			if match == nil || len(hints) > 1 {
+				match = expression(hints, true)
+			}
+			if err := scan.walk("", match); err != nil {
 				return out, err
 			}
 		}
