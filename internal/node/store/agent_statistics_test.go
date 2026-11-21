@@ -139,7 +139,7 @@ func TestAgentStatistics(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if current.Budget == nil || current.Budget.ContextLimit != 200000 || current.Budget.TriggerTokens != 128000 || current.Budget.OutputReserve != 64000 || current.Budget.SummaryOutput != 8000 || current.ContextLimit == nil || *current.ContextLimit != 32000 {
+					if current.Budget == nil || current.Budget.ContextLimit != 200000 || current.Budget.TriggerTokens != 136000 || current.Budget.OutputReserve != 64000 || current.Budget.SummaryOutput != 8000 || current.ContextLimit == nil || *current.ContextLimit != 32000 {
 						return errors.New("settled budget or frozen measurement used the wrong policy")
 					}
 				}

@@ -75,7 +75,7 @@ func shouldCompact(binding model.Binding, state store.AgentState, policy store.C
 		return false
 	}
 	count := contextTokens(state.Records)
-	return count > budget.TriggerTokens && automaticFailures(binding, state.Records) < pauseAfter
+	return count >= budget.TriggerTokens && automaticFailures(binding, state.Records) < pauseAfter
 }
 
 // pauseAfter is how many automatic compactions in a row may fail before the
@@ -159,28 +159,6 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	}
 	output := model.OutputLimit(binding, true)
 	cap := handoff.Cap(uint64(selected.Context), uint64(output))
-	if policy := x.inv.Compaction; !manual && keepRecent && policy.UseDefault && selected.CompactionTokens == nil {
-		var reclaimable []canonical.Record
-		for _, record := range selection.Prefix {
-			if compactionUsage(record) || record.Metadata.Runtime != nil && record.Metadata.Runtime.TurnContext || preserved != nil && record.ID == preserved.ID {
-				continue
-			}
-			reclaimable = append(reclaimable, record)
-		}
-		removable := pendingTokens(reclaimable)
-		if removable <= cap {
-			return nil
-		}
-		// Defer the soft trigger if the fixed prompt and retained history would
-		// still be over it. Near the window limit, any useful reduction counts.
-		trigger := store.AgentCompactionBudget(selected, policy).TriggerTokens
-		if windowTrigger := policy.WindowTrigger(selected.Context); trigger < windowTrigger {
-			count := contextTokens(state.Records)
-			if count <= windowTrigger && count > trigger && count-trigger > removable-cap {
-				return nil
-			}
-		}
-	}
 	summaryID := protocol.NewRequestID().String()
 	if !manual {
 		progress, _ := json.Marshal(map[string]any{"type": "compacting", "started_ms": r.clock.Now().UnixMilli()})

@@ -166,12 +166,12 @@ func TestAgentStatisticsHistoryPricingAndBudget(t *testing.T) {
 		}
 		return nil
 	})
-	check(360+180, 25600, 2)
+	check(360+180, 24000, 2)
 	write(func(db *sql.Conn) error {
 		_, err := db.ExecContext(ctx, `UPDATE model_catalog SET body=?1 WHERE provider='openai'`, []byte(`{"cost":{"input":4,"output":16}}`))
 		return err
 	})
-	check(720+180, 25600, 2)
+	check(720+180, 24000, 2)
 	write(func(db *sql.Conn) error {
 		configuration, err := currentProvider(ctx, db, session.Config.Provider, nil)
 		if err != nil {
@@ -188,7 +188,7 @@ func TestAgentStatisticsHistoryPricingAndBudget(t *testing.T) {
 		_, _, err = saveCompaction(ctx, db, compaction)
 		return err
 	})
-	check(140+180, 25600, 2)
+	check(140+180, 24000, 2)
 	write(func(db *sql.Conn) error {
 		_, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now)
 		return err

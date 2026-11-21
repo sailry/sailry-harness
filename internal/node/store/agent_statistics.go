@@ -214,12 +214,12 @@ func AgentCompactionBudget(selected protocol.ConversationModel, policy Compactio
 	if selected.Context == 0 {
 		return nil
 	}
-	const defaultWorkingSet = 128_000
 	trigger := policy.WindowTrigger(selected.Context)
 	if selected.CompactionTokens != nil {
 		trigger = uint64(*selected.CompactionTokens)
-	} else if policy.UseDefault {
-		trigger = min(trigger, defaultWorkingSet)
+	}
+	if selected.Output > 0 && selected.Output < selected.Context {
+		trigger = min(trigger, uint64(selected.Context-selected.Output))
 	}
 	binding := model.Binding{Config: protocol.SessionConfig{Model: selected.ID}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{selected}}}
 	output := uint32(model.OutputLimit(binding, true))

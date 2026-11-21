@@ -30,7 +30,7 @@ func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
 		response(text("Initial review completed."), workingSetUsage(71_000)),
 		workingSetBatch(120, batchSize, 87_000),
 		workingSetBatch(160, batchSize, 103_000),
-		workingSetBatch(200, batchSize, 120_000),
+		workingSetBatch(200, batchSize, 800_000),
 		response(text(`{"user_intent":["Finish reviewing the inventory"]}`), finish()),
 		workingSetBatch(240, batchSize, 20_000),
 		response(text("Inventory report completed."), workingSetUsage(37_000)),
@@ -103,7 +103,7 @@ func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
 		if boundary != "" || record.Turn != second.ID {
 			t.Fatal("expected one checkpoint during the second turn")
 		}
-		if i == 0 || contextTokens(state.Records[:i]) <= 128_000 {
+		if i == 0 || contextTokens(state.Records[:i]) < 800_000 {
 			t.Fatal("checkpoint was saved before crossing the default working-set threshold")
 		}
 		boundary = record.Data.(*canonical.Compaction).Boundary
@@ -121,7 +121,7 @@ func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
 	t.Fatal("checkpoint boundary did not resolve to the original second-turn history")
 }
 
-func TestDefaultWorkingSetDefersWhenFixedPromptKeepsPressureHigh(t *testing.T) {
+func TestLargeFixedPromptBelowWindowThreshold(t *testing.T) {
 	m := &scriptedModel{scripts: []script{
 		workingSetBatch(0, 1, 134_000),
 		workingSetBatch(1, 1, 150_000),
@@ -175,7 +175,7 @@ func TestWorkingSetPreservesExplicitPercentAndModelLimit(t *testing.T) {
 	turn := f.submit("Use the captured default.")
 	settings := protocol.DefaultConversationCompactionSettings()
 	f.command("save_compaction_settings", &settings)
-	if got := trigger(); got != 128_000 {
+	if got := trigger(); got != 800_000 {
 		t.Fatalf("queued turn trigger = %d, want the captured default", got)
 	}
 	f.start()

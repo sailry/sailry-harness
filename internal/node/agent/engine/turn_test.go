@@ -823,7 +823,7 @@ func TestCompactionAtThreshold(t *testing.T) {
 		percent    uint8
 		configured *uint32
 		want       bool
-	}{{800, 80, nil, false}, {801, 80, nil, true}, {0, 80, nil, false}, {1000, 100, nil, false}, {1000, 0, nil, false}, {700, 80, &configured, false}, {701, 80, &configured, true}} {
+	}{{799, 80, nil, false}, {800, 80, nil, true}, {801, 80, nil, true}, {0, 80, nil, false}, {1000, 100, nil, false}, {1000, 0, nil, false}, {699, 80, &configured, false}, {700, 80, &configured, true}, {701, 80, &configured, true}} {
 		t.Run(fmt.Sprintf("%d tokens at %d%% configured %t", row.tokens, row.percent, row.configured != nil), func(t *testing.T) {
 			binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture"}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{{ID: "fixture", Context: 1000, CompactionTokens: row.configured}}}}
 			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.Assistant), manualNow())
@@ -840,12 +840,22 @@ func TestCompactionAtThreshold(t *testing.T) {
 			}
 		})
 	}
+	t.Run("output reserve reached before percentage", func(t *testing.T) {
+		binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture"}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{{ID: "fixture", Context: 200_000, Output: 64_000}}}}
+		for tokens, want := range map[uint64]bool{103_700: false, 135_999: false, 136_000: true} {
+			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User), manualNow())
+			usage.Message().Usage = &canonical.Usage{Total: &tokens}
+			if got := shouldCompact(binding, store.AgentState{Records: []canonical.Record{usage}}, store.CompactionPolicy{Percent: 80}); got != want {
+				t.Errorf("threshold at %d = %v, want %v", tokens, got, want)
+			}
+		}
+	})
 	t.Run("unlisted model on an empty list", func(t *testing.T) {
 		binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture/unknown"}, Provider: protocol.ConversationProvider{Api: protocol.ConversationModelApiAnthropic}}
 		if selected := capturedModel(binding); selected.Context != 128000 || selected.Tools {
 			t.Fatalf("selected = %+v", selected)
 		}
-		for tokens, want := range map[uint64]bool{102400: false, 102401: true} {
+		for tokens, want := range map[uint64]bool{102399: false, 102400: true, 102401: true} {
 			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User), manualNow())
 			usage.Message().Usage = &canonical.Usage{Total: &tokens}
 			if got := shouldCompact(binding, store.AgentState{Records: []canonical.Record{usage}}, store.CompactionPolicy{Percent: 80, UseDefault: true}); got != want {

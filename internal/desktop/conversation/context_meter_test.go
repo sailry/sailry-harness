@@ -61,6 +61,7 @@ func TestContextMeterState(t *testing.T) {
 		want                     string
 	}{
 		{100, 1000, 800, false, "meter_state_plenty"},
+		{103_700, 1_000_000, 800_000, false, "meter_state_plenty"},
 		{500, 1000, 800, false, "meter_state_filling"},
 		{700, 1000, 800, false, "meter_state_near"},
 		{700, 1000, 0, false, "meter_state_filling"},

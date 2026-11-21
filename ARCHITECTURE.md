@@ -549,11 +549,9 @@ Delegated children can record and restore their own plan only when their role
 explicitly selects that tool.
 Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
-Automatic compaction uses the captured model and the lower of 80% of its context
-window and 128,000 tokens by default. An explicit model token limit or saved
-percentage takes precedence. If the fixed prompt and retained history would
-still exceed the soft trigger, a useful reduction can wait until the window's
-percentage threshold. Summaries preserve original records and raw tool output.
+Automatic compaction starts at the earlier of 80% of the captured model's window
+and the window minus its output reserve. A saved percentage or explicit model
+threshold replaces the percentage boundary. Summaries preserve original records and raw tool output.
 Context-length failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
