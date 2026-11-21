@@ -29,6 +29,7 @@ type overviewRead struct {
 	loadedRevision, loadedInventory uint64
 	groups                          []protocol.ConversationAssetsGroup
 	before                          *uint64
+	checkpoint                      string
 	loading, failed                 bool
 	// refreshing retains the last loaded inventory while history updates
 	// trigger a background read. Initial reads, retries and paging stay visible.
@@ -51,6 +52,11 @@ func (o *overviewRead) cancelRead() {
 // current reports whether the inventory covers the newest history.
 func (o *overviewRead) current() bool {
 	return o.loaded && o.loadedRevision == o.revision && o.loadedInventory == o.inventory
+}
+
+func (o *overviewRead) discardInventory() {
+	o.loaded, o.groups, o.before, o.checkpoint = false, nil, nil, ""
+	o.loadedRevision, o.loadedInventory = 0, 0
 }
 
 // sessionOverview is the header's overview of conversation cv: the running
@@ -96,7 +102,7 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 			read.failed = false
 			read.revision, read.inventory = page.Revision, state.InventoryVersion
 			if read.loaded && read.loadedRevision != read.revision {
-				read.loaded, read.groups, read.before = false, nil, nil
+				read.discardInventory()
 			}
 			if read.open && !read.current() {
 				r.loadOverview(session.ID, read, false)
@@ -165,9 +171,13 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 		}
 	}
 	view.OpenAsset = func(id string) {
-		for _, row := range rows {
+		if r.overviews[session.ID] != read {
+			return
+		}
+		for _, row := range overviewAssets(read.groups) {
 			if row.view.ID == id {
 				r.openOverviewAsset(session, row)
+				return
 			}
 		}
 	}
@@ -178,42 +188,59 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 // one after what is loaded. A page read at another history revision than
 // the one shown fails, as the rows would not belong together.
 func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, more bool) {
+	var before *uint64
+	if more {
+		before = read.before
+	}
+	r.loadOverviewPage(session, read, before, true)
+}
+
+func (r *Runtime) loadOverviewPage(session protocol.SessionID, read *overviewRead, before *uint64, canRestart bool) {
 	if read.loading {
 		return
 	}
-	var before *uint64
 	inventory := read.inventory
-	if more {
-		before = read.before
+	if before != nil {
 		// Appending older groups does not refresh the already loaded head.
-		if before != nil {
-			inventory = read.loadedInventory
-		}
+		inventory = read.loadedInventory
 	}
 	read.generation++
 	generation := read.generation
-	read.refreshing = read.loaded && !more && !read.failed
+	read.refreshing = read.loaded && before == nil && !read.failed
 	read.loading, read.failed = true, false
 	ctx, cancel := context.WithCancel(r.ctx)
 	read.cancel = cancel
+	checkpoint := read.checkpoint
 	if !r.async(func() {
 		defer cancel()
-		page, err := r.readConversationAssets(ctx, session, before)
+		page, err := r.readConversationAssets(ctx, session, before, checkpoint)
 		r.enqueue(func(c *ui.Context) {
 			if read.generation != generation {
 				return
 			}
 			read.loading, read.cancel = false, nil
-			if err != nil || read.revision != 0 && read.revision != page.Revision || more && read.loaded && read.loadedRevision != page.Revision {
+			if err == nil && (read.revision != 0 && read.revision != page.Revision || (before != nil || page.Delta) && read.loaded && read.loadedRevision != page.Revision) {
+				err = fileActionFault(protocol.ErrorCodeRevisionConflict, "asset page belongs to another history revision")
+			}
+			if err != nil {
+				paging := before != nil || page.NextBefore != nil
+				code := faultCode(err)
+				switch code {
+				case protocol.ErrorCodePermissionDenied:
+					read.discardInventory()
+				case protocol.ErrorCodeNotFound, protocol.ErrorCodeWrongTarget, protocol.ErrorCodeRevisionConflict:
+					read.discardInventory()
+					if canRestart && (paging || code == protocol.ErrorCodeRevisionConflict && checkpoint != "") {
+						r.loadOverviewPage(session, read, nil, false)
+						return
+					}
+				}
 				read.failed = true
 				kit.Fail(c, kit.Failed, "chat_assets_failed", err)
 				return
 			}
-			if !more {
-				read.groups = nil
-			}
-			read.groups = append(read.groups, page.Groups...)
-			read.loaded, read.loadedRevision, read.loadedInventory, read.before = true, page.Revision, inventory, page.NextBefore
+			read.applyPage(page, before != nil)
+			read.loaded, read.loadedRevision, read.loadedInventory = true, page.Revision, inventory
 			if read.open && read.inventory != inventory {
 				r.loadOverview(session, read, false)
 			}
@@ -223,12 +250,37 @@ func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, m
 	}
 }
 
-// readConversationAssets asks the Host for groups until it has overviewLimit
-// of them or the inventory ends: one answer may hold fewer.
-func (r *Runtime) readConversationAssets(ctx context.Context, session protocol.SessionID, before *uint64) (protocol.ConversationAssetsPage, error) {
+func (o *overviewRead) applyPage(page protocol.ConversationAssetsPage, more bool) {
+	o.checkpoint = page.Checkpoint
+	if page.Delta {
+		if len(page.Groups) != 0 {
+			limit := max(overviewLimit, len(o.groups))
+			keep := min(len(o.groups), limit-len(page.Groups))
+			groups := append(page.Groups, o.groups[:keep]...)
+			if keep < len(o.groups) {
+				cursor := groups[len(groups)-1].Sequence
+				o.before = &cursor
+			}
+			o.groups = groups
+		}
+		return
+	}
+	if !more {
+		o.groups = nil
+	}
+	o.groups = append(o.groups, page.Groups...)
+	o.before = page.NextBefore
+}
+
+// A sparse history can span many empty physical pages. Leave the remaining
+// cursor to Show earlier, bounding each automatic refresh even on older Nodes.
+const overviewScanPages = 8
+
+func (r *Runtime) readConversationAssets(ctx context.Context, session protocol.SessionID, before *uint64, checkpoint string) (protocol.ConversationAssetsPage, error) {
 	result := protocol.ConversationAssetsPage{Session: session}
-	for {
-		query := protocol.ConversationAssetsQuery{Before: before, Limit: uint16(overviewLimit - len(result.Groups))}
+	for pages := 1; ; pages++ {
+		token := checkpoint
+		query := protocol.ConversationAssetsQuery{Before: before, Limit: uint16(overviewLimit - len(result.Groups)), Checkpoint: &token}
 		output, err := r.controller.Do(ctx, protocol.Command{Kind: "list_conversation_assets", Data: protocol.CommandListConversationAssetsPayload{Session: session, Query: query}})
 		if err != nil {
 			return result, err
@@ -237,18 +289,25 @@ func (r *Runtime) readConversationAssets(ctx context.Context, session protocol.S
 		if !valid || output.Kind != "conversation_assets" || page.Session != session || page.Revision == 0 || len(page.Groups) > int(query.Limit) {
 			return result, fileActionFault(protocol.ErrorCodeInvalidRequest, "conversation asset response is invalid")
 		}
+		if page.Delta {
+			if before != nil || checkpoint == "" || page.NextBefore != nil {
+				return result, fileActionFault(protocol.ErrorCodeInvalidRequest, "unexpected incremental asset response")
+			}
+			return page, nil
+		}
 		if before != nil && page.NextBefore != nil && *page.NextBefore >= *before {
 			return result, fileActionFault(protocol.ErrorCodeInvalidRequest, "conversation asset cursor did not advance")
 		}
 		if result.Revision != 0 && result.Revision != page.Revision {
 			return result, fileActionFault(protocol.ErrorCodeRevisionConflict, "conversation history changed while reading assets")
 		}
-		result.Revision, result.NextBefore = page.Revision, page.NextBefore
+		result.Revision, result.NextBefore, result.Checkpoint = page.Revision, page.NextBefore, page.Checkpoint
 		result.Groups = append(result.Groups, page.Groups...)
-		if len(result.Groups) >= overviewLimit || result.NextBefore == nil {
+		if len(result.Groups) >= overviewLimit || result.NextBefore == nil || pages == overviewScanPages {
 			return result, nil
 		}
 		before = result.NextBefore
+		checkpoint = result.Checkpoint
 	}
 }
 

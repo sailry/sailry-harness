@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,10 @@ import (
 // ListConversationAssets derives bounded inventory pages from canonical history.
 // It does not index workspace writes or inspect the filesystem.
 func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.SessionID, query protocol.ConversationAssetsQuery) (protocol.ConversationAssetsPage, error) {
+	return (*ConversationAssetReads)(nil).List(ctx, db, session, query)
+}
+
+func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, session protocol.SessionID, query protocol.ConversationAssetsQuery) (protocol.ConversationAssetsPage, error) {
 	page := protocol.DefaultConversationAssetsPage()
 	page.Session = session
 	if err := requireSession(ctx, db, session); err != nil {
@@ -37,48 +42,49 @@ func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.
 	if page.Revision, err = historyRevision(ctx, db, session); err != nil {
 		return page, err
 	}
+	entry := assetCheckpoint{session: session, revision: page.Revision}
+	if query.Kind != nil {
+		entry.kind = *query.Kind
+	}
+	var prior *assetCheckpoint
+	var deps *assetDependencies
+	var after uint64
+	if reads != nil && query.Checkpoint != nil && (query.Kind == nil || entry.kind == protocol.ConversationAssetsKindResource || entry.kind == protocol.ConversationAssetsKindArtifact) {
+		prior = reads.lookup(*query.Checkpoint)
+		if prior != nil {
+			if prior.session != session || prior.revision != page.Revision || prior.kind != entry.kind || query.Before != nil && (*query.Before < prior.next || *query.Before > prior.head) {
+				prior = nil
+			} else if valid, err := prior.valid(ctx, db); err != nil {
+				return page, err
+			} else if !valid {
+				prior = nil
+			}
+		}
+		if query.Before != nil && *query.Checkpoint != "" && prior == nil {
+			return page, fault(protocol.ErrorCodeRevisionConflict, "retained asset pages changed")
+		}
+		if query.Before == nil || prior != nil {
+			entry.deps = newAssetDependencies()
+			deps = &entry.deps
+		}
+		if prior != nil && query.Before == nil {
+			after = prior.head
+		}
+	}
 	boundary := uint64(math.MaxInt64)
 	if query.Before != nil {
-		boundary = *query.Before
+		boundary = *query.Before - 1
 	}
-	rows, err := db.QueryContext(ctx, "SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence<?2 ORDER BY h.sequence DESC LIMIT 257", session.String(), boundary)
+	records, more, err := conversationAssetEvents(ctx, db, session, after, boundary)
 	if err != nil {
 		return page, err
 	}
-	type event struct {
-		sequence uint64
-		turn     string
-		body     []byte
-	}
-	records := []event{}
-	storedBytes := 0
-	more := false
-	for rows.Next() {
-		if len(records) == 256 || storedBytes >= 4*1024*1024 {
-			more = true
-			break
-		}
-		var value event
-		if err = rows.Scan(&value.sequence, &value.turn, &value.body); err != nil {
-			rows.Close()
-			return page, err
-		}
-		records = append(records, value)
-		storedBytes += len(value.body)
-	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return page, err
-	}
-	type location struct {
-		worktree protocol.WorktreeID
-		root     *string
-	}
-	locations := map[protocol.TurnID]location{}
+	locations := map[protocol.TurnID]assetLocation{}
 	var last uint64
 	for _, value := range records {
 		if len(page.Groups) == int(query.Limit) {
-			page.NextBefore = &last
-			return page, nil
+			more = true
+			break
 		}
 		last = value.sequence
 		turn, err := protocol.ParseTurnID(value.turn)
@@ -98,21 +104,16 @@ func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.
 		}
 		owner, ok := locations[turn]
 		if !ok {
-			run, err := visibleAgentRun(ctx, db, session, turn)
+			owner, err = readAssetLocation(ctx, db, session, turn)
 			if err != nil {
 				return page, err
 			}
-			owner.worktree = run.Worktree
-			var path string
-			err = db.QueryRowContext(ctx, "SELECT path FROM worktrees WHERE id=?1", run.Worktree.String()).Scan(&path)
-			if err == nil {
-				owner.root = &path
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return page, err
+			if deps.bounded() {
+				deps.turns[turn] = owner.fingerprint()
 			}
 			locations[turn] = owner
 		}
-		items, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root)
+		items, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root, deps)
 		if err != nil {
 			return page, err
 		}
@@ -123,7 +124,77 @@ func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.
 	if more {
 		page.NextBefore = &last
 	}
+	if deps != nil {
+		if len(records) > 0 {
+			entry.head, entry.headID = records[0].sequence, records[0].id
+		}
+		if more {
+			entry.next = last
+		}
+		if prior != nil && (query.Before != nil || !more) {
+			entry.deps.merge(prior.deps)
+			if query.Before != nil || len(records) == 0 {
+				entry.head, entry.headID = prior.head, prior.headID
+			}
+			if query.Before == nil {
+				page.Delta = true
+				entry.next = prior.next
+			}
+		}
+		page.Checkpoint = reads.remember(entry)
+	}
 	return page, nil
+}
+
+type conversationAssetEvent struct {
+	sequence uint64
+	turn, id string
+	body     []byte
+}
+
+func conversationAssetEvents(ctx context.Context, db *sql.Conn, session protocol.SessionID, after, through uint64) ([]conversationAssetEvent, bool, error) {
+	const members = ` FROM conversation_events h CROSS JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence<=?2 AND h.sequence>?3 ORDER BY h.sequence DESC`
+	rows, err := db.QueryContext(ctx, `SELECT h.sequence,`+historyStoredBytes+members+` LIMIT 257`, session.String(), through, after)
+	if err != nil {
+		return nil, false, err
+	}
+	var last uint64
+	var storedBytes int64
+	count, more := 0, false
+	for rows.Next() {
+		var seq uint64
+		var size int64
+		if err = rows.Scan(&seq, &size); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		// One oversized event must advance on its own. Read only lengths up to
+		// the cutoff so a second body cannot cross the physical page budget.
+		if count == 256 || count > 0 && size > (4<<20)-storedBytes {
+			more = true
+			break
+		}
+		count++
+		storedBytes += size
+		last = seq
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil || count == 0 {
+		return nil, false, err
+	}
+	rows, err = db.QueryContext(ctx, `SELECT h.sequence,e.turn,e.id,e.body`+members, session.String(), through, last-1)
+	if err != nil {
+		return nil, false, err
+	}
+	records := make([]conversationAssetEvent, 0, count)
+	for rows.Next() {
+		var value conversationAssetEvent
+		if err = rows.Scan(&value.sequence, &value.turn, &value.id, &value.body); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		records = append(records, value)
+	}
+	return records, more, errors.Join(rows.Err(), rows.Close())
 }
 
 type conversationAssetTargets struct {
@@ -163,7 +234,7 @@ func (targets *conversationAssetTargets) image(record canonical.Record, worktree
 	}
 	return err
 }
-func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.Record, worktree protocol.WorktreeID, root *string) ([]protocol.ConversationAssetsTarget, error) {
+func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.Record, worktree protocol.WorktreeID, root *string, deps *assetDependencies) ([]protocol.ConversationAssetsTarget, error) {
 	targets := &conversationAssetTargets{items: []protocol.ConversationAssetsTarget{}}
 	message := record.Message()
 	if message == nil {
@@ -208,6 +279,13 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 							return nil, invalid("attachment media type mismatch")
 						}
 						targets.push("attachment", &attachment)
+						if deps.bounded() {
+							body, err := encode(attachment)
+							if err != nil {
+								return nil, err
+							}
+							deps.attachments[assetAttachmentKey{record.Turn, id}] = sha256.Sum256(body)
+						}
 					}
 				case *canonical.ToolResponse:
 					if path, ok := generatedImageAssetFile(value); ok {
@@ -247,6 +325,12 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 		hydrated, err := HydrateCanonicalPayload(ctx, db, response.Result)
 		if err != nil {
 			return nil, err
+		}
+		for _, slot := range response.Result.Assets {
+			if !deps.bounded() {
+				break
+			}
+			deps.blobs[slot.Asset.Digest] = true
 		}
 		raw := rawAgentTool{Presentation: protocol.ToolPresentationContent, Result: &hydrated, Format: response.Format}
 		for index, asset := range conversationAssetImages(response) {

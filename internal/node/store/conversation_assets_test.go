@@ -365,6 +365,22 @@ func TestConversationAssetInventory(t *testing.T) {
 			if len(inherited.Groups) != 2 || inherited.Groups[0].Turn != turn || !reflect.DeepEqual(*inherited.Groups[0].Items[0].Data.(*protocol.ConversationImage), oldImage) {
 				return fmt.Errorf("fork inventory lost canonical image provenance: %+v", inherited)
 			}
+			var reads ConversationAssetReads
+			tracked := protocol.ConversationAssetsQuery{Limit: 20, Checkpoint: ptr("")}
+			parent, err := reads.List(ctx, db, session.ID, tracked)
+			if err != nil {
+				return err
+			}
+			tracked.Checkpoint = &parent.Checkpoint
+			fork, err := reads.List(ctx, db, branch.ID, tracked)
+			if err != nil || fork.Delta || fork.Checkpoint == "" || !reflect.DeepEqual(fork.Groups, inherited.Groups) {
+				return fmt.Errorf("fork reused another conversation's checkpoint: %+v, %v", fork, err)
+			}
+			tracked.Checkpoint = &fork.Checkpoint
+			warm, err := reads.List(ctx, db, branch.ID, tracked)
+			if err != nil || !warm.Delta || len(warm.Groups) != 0 {
+				return fmt.Errorf("inherited inventory did not validate at its origin: %+v, %v", warm, err)
+			}
 			for _, query := range []protocol.ConversationAssetsQuery{{Limit: 0}, {Limit: 51}, {Limit: 1, Before: ptr(uint64(0))}} {
 				if _, err := ListConversationAssets(ctx, db, session.ID, query); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
 					return fmt.Errorf("invalid asset query was accepted: %+v, %v", query, err)
@@ -388,14 +404,14 @@ func TestConversationAssetInventory(t *testing.T) {
 				return fmt.Errorf("fork resource targets lost origin scope: %+v", resource)
 			}
 			plain := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_response", Data: &canonical.ToolResponse{ID: "write", Result: canonical.Payload{Value: json.RawMessage(`{"kind":"file_written","data":{"path":"source.go","revision":"captured","size":1}}`)}}})), now)
-			items, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"))
+			items, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"), nil)
 			if err != nil || len(items) != 0 {
 				return fmt.Errorf("ordinary write receipt became a delivery: %+v, %v", items, err)
 			}
 			review := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0,
 				"Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)"))), now)
 			review.Provenance.Author = "assistant"
-			items, err = conversationAssetItems(ctx, db, review, session.Worktree, ptr("/project"))
+			items, err = conversationAssetItems(ctx, db, review, session.Worktree, ptr("/project"), nil)
 			if err != nil || len(items) != 0 {
 				return fmt.Errorf("review references became published outputs: %+v, %v", items, err)
 			}
@@ -564,6 +580,30 @@ func TestConversationAssetCursorUsesStoredBytes(t *testing.T) {
 		filtered, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Kind: &kind})
 		if err != nil || len(filtered.Groups) != 0 || filtered.NextBefore == nil || *filtered.NextBefore != newest {
 			return fmt.Errorf("kind filter changed the byte-capped cursor: %+v, %v", filtered, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var prefix uint64
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Small append"))), now)
+		record.Provenance.Author = "assistant"
+		var err error
+		prefix, err = insertConversationAssetFixture(ctx, db, session.ID, record)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		var reads ConversationAssetReads
+		page, err := reads.List(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Checkpoint: ptr("")})
+		if err != nil || len(page.Groups) != 0 || page.NextBefore == nil || *page.NextBefore != prefix || page.Checkpoint == "" {
+			return fmt.Errorf("oversized second row crossed the byte budget: %+v, %v", page, err)
+		}
+		next, err := reads.List(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Before: page.NextBefore, Checkpoint: &page.Checkpoint})
+		if err != nil || len(next.Groups) != 1 || next.Groups[0].Sequence != newest || next.NextBefore == nil || *next.NextBefore != newest {
+			return fmt.Errorf("empty first page lost the oversized publication: %+v, %v", next, err)
 		}
 		return nil
 	}); err != nil {

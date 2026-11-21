@@ -82,6 +82,7 @@ type Node struct {
 	processAfter      func(time.Duration) <-chan time.Time
 	locks             workspaceLocks
 	stored            storedFiles
+	assetReads        store.ConversationAssetReads
 	profile           *Profile
 	ctx               context.Context
 	mu                sync.Mutex
@@ -736,6 +737,14 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "list_associated_sessions":
 			value, err := store.ListAssociatedSessions(ctx, db, request)
 			output = protocol.Output{Kind: "associated_sessions", Data: value}
+			return err
+		case "list_conversation_assets":
+			if err := node.authorizeCommandDB(ctx, db, caller, request); err != nil {
+				return err
+			}
+			input := request.Command.Data.(*protocol.CommandListConversationAssetsPayload)
+			value, err := node.assetReads.List(ctx, db, input.Session, input.Query)
+			output = protocol.Output{Kind: "conversation_assets", Data: value}
 			return err
 		case "read_power_settings":
 			value, err := store.ReadPower(ctx, db)

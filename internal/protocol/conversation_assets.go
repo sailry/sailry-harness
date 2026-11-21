@@ -45,6 +45,9 @@ type ConversationAssetsQuery struct {
 	Kind   *ConversationAssetsKind `json:"kind"`
 	Before *uint64                 `json:"before"`
 	Limit  uint16                  `json:"limit"`
+	// An empty token requests a checkpoint. Echo it on a head refresh or
+	// when continuing at the returned before cursor.
+	Checkpoint *string `json:"checkpoint,omitempty"`
 }
 
 func DefaultConversationAssetsQuery() ConversationAssetsQuery {
@@ -154,6 +157,9 @@ type ConversationAssetsPage struct {
 	Revision   uint64                    `json:"revision"`
 	Groups     []ConversationAssetsGroup `json:"groups"`
 	NextBefore *uint64                   `json:"next_before"`
+	Checkpoint string                    `json:"checkpoint,omitempty"`
+	// A delta contains all newer groups. Keep the retained older cursor.
+	Delta bool `json:"delta,omitempty"`
 }
 
 func DefaultConversationAssetsPage() ConversationAssetsPage {
