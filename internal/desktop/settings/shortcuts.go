@@ -172,9 +172,19 @@ func (k *Keys) Capture(ch Chord) string {
 	return ""
 }
 
-// Take is Capture for a key that comes from outside the page, as a menu
-// item's: a problem toasts as the page shows next.
-func (k *Keys) Take(ch Chord) { k.problem = k.Capture(ch) }
+// Take is Capture for a recorded key, the page's or one from outside it, as
+// a menu item's: a problem toasts as the page shows next, and a key taken
+// returns the focus to its shortcut's button. Without a recording it does
+// nothing, so a second key sent in the same frame is not refused.
+func (k *Keys) Take(ch Chord) {
+	id := k.Active
+	if id == "" {
+		return
+	}
+	if k.problem = k.Capture(ch); k.problem == "" {
+		k.refocus, k.landed = id, id
+	}
+}
 
 func (k *Keys) check(s Shortcut, ch Chord) string {
 	function := false

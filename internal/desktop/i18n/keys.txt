@@ -1065,6 +1065,7 @@ shortcut_activate
 shortcut_clear
 shortcut_conflict
 shortcut_disabled
+shortcut_edit
 shortcut_invalid
 shortcut_record
 shortcut_reset

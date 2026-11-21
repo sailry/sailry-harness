@@ -66,6 +66,30 @@ func TestSettingsSectionsOpen(t *testing.T) {
 	}
 }
 
+// A key the native menu takes while recording is recorded and returns the
+// focus to the shortcut's button, as a key the page takes does; a second
+// command sent in the same frame finds no recording and is not refused.
+func TestShortcutRecorderMenuKeyRefocuses(t *testing.T) {
+	a, tt := newTester(t)
+	tt.Key(ui.Cmd, ui.KeySlash)
+	click(t, tt, kit.KeyText(ui.Cmd, ui.KeyN))
+	name := i18n.In("en", settings.Registry[0].Label)
+	if _, focused := focusOf(tt); !a.Settings.Keys.Recording() || focused == name {
+		t.Fatalf("recording %v with the focus on %q", a.Settings.Keys.Recording(), focused)
+	}
+	a.Do(settings.Registry[0].ID)
+	a.Do("app.search")
+	tt.Frame()
+	tt.Frame()
+	role, focused := focusOf(tt)
+	if a.Settings.Keys.Recording() || a.Page != SettingsPage || a.search.open || role != ui.RoleButton || focused != name {
+		t.Fatalf("menu key: recording %v, page %d, search %v, focus %v %q", a.Settings.Keys.Recording(), a.Page, a.search.open, role, focused)
+	}
+	if tt.HasText(i18n.In("en", "shortcut_unavailable")) || tt.HasText(i18n.In("en", "shortcut_conflict")) {
+		t.Errorf("a menu key after the recording ended was refused: %q", tt.Texts())
+	}
+}
+
 // ⌘/ opens Shortcuts; a recorded key replaces the default, the window
 // does not act on keys while recording, and refused keys toast.
 func TestShortcutRecorder(t *testing.T) {

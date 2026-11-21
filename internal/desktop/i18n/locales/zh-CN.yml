@@ -1046,6 +1046,7 @@ shortcut_activate: 显示 Sailry
 shortcut_clear: 清除快捷键
 shortcut_conflict: 快捷键与现有操作冲突
 shortcut_disabled: 未设置
+shortcut_edit: 编辑快捷键
 shortcut_invalid: 快捷键格式不正确
 shortcut_record: 按下快捷键
 shortcut_reset: 恢复默认

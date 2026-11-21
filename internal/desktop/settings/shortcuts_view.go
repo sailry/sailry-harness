@@ -52,9 +52,7 @@ func shortcuts(c *ui.Context, k *Keys) {
 			k.refocus = id
 		case ev.Repeat, ev.Key == ui.KeyUnknown:
 		default:
-			if k.problem = k.Capture(Chord{ev.Mods, ev.Key}); k.problem == "" {
-				k.refocus, k.landed = id, id
-			}
+			k.Take(Chord{ev.Mods, ev.Key})
 		}
 		return true
 	})
@@ -99,14 +97,11 @@ func listedControl(c *ui.Context, l ListedKeys) {
 }
 
 // shortcutControl is a shortcut's key button, then while recording reset and
-// clear. The button is a ghost around the cap, which shows the key; a muted,
-// dashed "Not set" when off; the key in the warning color when reserved; the
-// accent "Press shortcut" while recording. Each face has the cap's metrics,
-// so the row keeps its geometry from state to state. Assistive technology
+// clear. The ghost button provides the hit target and keyboard focus. Assistive technology
 // reads the command as the button's name and what the cap shows as its
 // value, so the buttons of unset shortcuts stay apart.
 func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
-	p, t := theme.Of(c), c.Theme()
+	p := theme.Of(c)
 	recording := k.Active == s.ID
 	ch := k.Chord(s)
 	label := i18n.T(c, "shortcut_disabled")
@@ -119,25 +114,15 @@ func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
 	h := k.button(s.ID)
 	b := kit.GhostLook(c, ui.ButtonBase(c.Key("key")).Label(i18n.T(c, s.Label)).Value(label).Bind(h), false).
 		MinHeight(keyButtonHeight).MinWidth(keyButtonHeight).PaddingX(2).Shrink(0)
-	// face is a text drawn in the cap's place, at typography.Kbd's metrics.
-	face := func(e ui.Element) ui.Element {
-		return e.Padding(t.Space(1), t.Space(2)).Radius(t.Radius).FontSize(t.Rem(0.85)).SingleLine().BorderWidth(1, 1, 2, 1)
-	}
 	switch {
 	case recording:
-		b.Children(func() {
-			face(ui.Text(c, label)).BorderColor(p.Ring).Background(p.Primary.Alpha(0.12)).TextColor(p.Primary)
-		})
+		b.TextColor(p.Primary)
 	case ch.Key == 0:
-		b.TextColor(p.MutedForeground).Children(func() {
-			face(ui.Text(c, label)).BorderColor(t.Border).BorderStyle(ui.BorderDashed)
-		})
-	default:
-		if k.Reserved(s) {
-			b.TextColor(p.Warning)
-		}
-		b.Children(func() { typography.Kbd(c, label, k.landed == s.ID).Shrink(0) })
+		b.TextColor(p.MutedForeground)
+	case k.Reserved(s):
+		b.TextColor(p.Warning)
 	}
+	b.Children(func() { typography.Kbd(c, label, recording || k.landed == s.ID).Shrink(0) })
 	if !recording {
 		kit.Tooltip(c, b, i18n.T(c, "shortcut_edit"))
 	}

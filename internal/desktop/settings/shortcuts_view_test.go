@@ -226,6 +226,7 @@ func TestShortcutKeyCapsSnapshots(t *testing.T) {
 				width = 420
 			}
 			tt := shortcutsPage(&k, mode, width)
+			tt.SetLocale("zh-CN")
 			tt.SetSize(width, 1250)
 			tt.SetScale(2)
 			if state == "recording" {

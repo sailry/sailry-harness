@@ -1046,6 +1046,7 @@ shortcut_activate: Show Sailry
 shortcut_clear: Clear shortcut
 shortcut_conflict: Shortcut conflicts with an existing action
 shortcut_disabled: Not set
+shortcut_edit: Edit shortcut
 shortcut_invalid: Invalid shortcut format
 shortcut_record: Press shortcut
 shortcut_reset: Reset to default
