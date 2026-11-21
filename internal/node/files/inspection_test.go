@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -15,8 +16,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestListDirectoryContextFault(t *testing.T) {
+	root, _ := filesFixture(t)
+	command := protocol.Command{Kind: "list_directory", Data: &protocol.CommandListDirectoryPayload{}}
+	expired, stop := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer stop()
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tc := range []struct {
+		ctx  context.Context
+		code protocol.ErrorCode
+	}{{expired, protocol.ErrorCodeBusy}, {cancelled, protocol.ErrorCodeCancelled}} {
+		_, err := Inspect(tc.ctx, root, command, core.ManualFiles, nil)
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != tc.code {
+			t.Errorf("list_directory with %v returned %v, want %s", tc.ctx.Err(), err, tc.code)
+		}
+	}
+}
 
 func TestFileInspectionPages(t *testing.T) {
 	t.Parallel()

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/git"
@@ -99,6 +100,21 @@ func TestWorktreeManagerCommands(t *testing.T) {
 	}
 	acceptanceFault(t, "a locked worktree", remove(created.ID, "feature"), protocol.ErrorCodeBusy, git.WorktreeLocked)
 	native("worktree", "unlock", feature)
+	last := filepath.Join(parent, "zz-last")
+	native("worktree", "add", "--detach", last, commit)
+	native("worktree", "lock", last)
+	if err := os.WriteFile(filepath.Join(root, ".git", "worktrees", "zz-last", "locked"), []byte(strings.Repeat("x", 64*1024)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	partial := acceptanceDo[protocol.GitWorktrees](t, node, protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: main}})
+	if partial.Kind != protocol.RepositoryKindReady || !partial.Truncated || partial.OmittedPaths != 1 || len(partial.Entries) != 2 || partial.Entries[0].Path != root || partial.Entries[1].Path != feature {
+		t.Fatalf("bounded worktree listing = %+v", partial)
+	}
+	if failure := remove(created.ID, "feature"); failure == nil || failure.Code != protocol.ErrorCodeConflict {
+		t.Fatalf("remove with a partial worktree listing = %+v", failure)
+	}
+	native("worktree", "unlock", last)
+	native("worktree", "remove", last)
 	if failure := remove(created.ID, "feature"); failure != nil {
 		t.Fatalf("remove a clean worktree: %+v", failure)
 	}

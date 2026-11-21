@@ -65,11 +65,22 @@ func (s *Service) ListWorktrees(ctx context.Context, root string) (protocol.GitW
 }
 func ParseWorktrees(data []byte, kind protocol.RepositoryKind, truncated bool) (protocol.GitWorktrees, error) {
 	result := protocol.GitWorktrees{Kind: kind, Entries: []protocol.GitWorktree{}, Truncated: truncated}
+	// A single NUL ends a field. Only the empty field after it closes the
+	// worktree, which may still have a locked or prunable marker.
+	terminator := []byte{0, 0}
+	if len(data) > 0 && !bytes.HasSuffix(data, terminator) {
+		if !truncated {
+			return result, invalid("incomplete Git worktree listing")
+		}
+		result.OmittedPaths++
+		if end := bytes.LastIndex(data, terminator); end >= 0 {
+			data = data[:end+len(terminator)]
+		} else {
+			data = nil
+		}
+	}
 	if !utf8.Valid(data) {
 		return result, invalid("worktree paths are not UTF-8")
-	}
-	if len(data) > 0 && data[len(data)-1] != 0 {
-		return result, invalid("incomplete Git worktree listing")
 	}
 	var current *protocol.GitWorktree
 	seen := map[string]bool{}
@@ -388,6 +399,9 @@ func (s *Service) RemoveWorktree(ctx context.Context, root, expectedHead, expect
 		} else if pathWithin(entry.Path, root) {
 			return fault(protocol.ErrorCodeConflict, "worktree contains another Git worktree")
 		}
+	}
+	if list.Truncated || list.OmittedPaths != 0 {
+		return fault(protocol.ErrorCodeConflict, "an incomplete Git worktree listing cannot rule out a nested worktree")
 	}
 	if !found || main == "" {
 		return conflict()

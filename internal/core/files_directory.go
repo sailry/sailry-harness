@@ -31,6 +31,10 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 			return out, fileFault(protocol.ErrorCodeInvalidRequest, "invalid directory cursor")
 		}
 	}
+	control := fileControl{context: ctx}
+	if err := control.check(); err != nil {
+		return out, err
+	}
 	dir, err := descendFiles(files.root, parts)
 	if err != nil {
 		return out, missingFileFault(err)
@@ -86,7 +90,7 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 	var selected []candidate
 	compareCandidate := func(a, b candidate) int { return compare(a.value, b.value) }
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := control.check(); err != nil {
 			return out, err
 		}
 		entries, e := handle.ReadDir(128)
@@ -145,6 +149,9 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 		out.Next = &protocol.DirectoryCursor{Revision: out.Revision, Directory: last.Kind == protocol.EntryKindDirectory, Name: last.Name}
 	}
 	for _, item := range selected {
+		if err := control.check(); err != nil {
+			return out, err
+		}
 		m, e := fileDirectoryInfo(dir, item.source)
 		if e != nil {
 			return out, fileConflict()
@@ -157,5 +164,5 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 		}
 		out.Entries = append(out.Entries, value)
 	}
-	return out, nil
+	return out, control.check()
 }

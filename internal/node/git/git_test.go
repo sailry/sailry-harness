@@ -137,6 +137,22 @@ func TestGitReadMapping(t *testing.T) {
 			t.Fatalf("locked worktree: %+v", entry)
 		}
 	})
+	t.Run("worktree_listing_requires_complete_records", func(t *testing.T) {
+		main := t.TempDir()
+		complete := "worktree " + filepath.ToSlash(main) + "\x00branch refs/heads/main\x00\x00"
+		linked := "worktree " + filepath.ToSlash(t.TempDir()) + "\x00branch refs/heads/linked\x00"
+		for _, tail := range []string{linked, linked + "locked \xe4"} {
+			listing := []byte(complete + tail)
+			partial, err := ParseWorktrees(listing, protocol.RepositoryKindReady, true)
+			if err != nil || !partial.Truncated || partial.OmittedPaths != 1 || len(partial.Entries) != 1 || partial.Entries[0].Path != main || !partial.Entries[0].Main {
+				t.Fatalf("worktree list with a partial last record = %+v, %v", partial, err)
+			}
+			_, err = ParseWorktrees(listing, protocol.RepositoryKindReady, false)
+			requireFault(t, err, protocol.ErrorCodeInvalidRequest)
+		}
+		_, err := ParseWorktrees([]byte(complete+linked+"locked \xff\x00\x00"), protocol.RepositoryKindReady, true)
+		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
+	})
 	ctx := context.Background()
 	t.Run("status_native_fields_and_bound", func(t *testing.T) {
 		body := "# branch.oid abcdef\x00# branch.head main\x001 .M N... 100644 100644 100644 abc def file with space.txt\x00? new.txt\x00u UU N... 100644 100644 100644 100644 a b c conflict.txt\x00"
