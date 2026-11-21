@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -210,9 +211,18 @@ func TestBuildProjectedCallMatchesRawAudience(t *testing.T) {
 	turn := protocol.NewTurnID()
 	call := canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: "c", Name: "sample", Arguments: json.RawMessage(`{}`)}}
 	result := canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "c", Name: "sample", Format: canonical.MCP, Status: canonical.ToolSuccess, Result: canonical.Payload{Value: json.RawMessage(`{"content":[{"type":"text","text":"secret-fixture","annotations":{"audience":["user"]}},{"type":"text","text":"allowed-fixture"}]}`)}}}
-	records := []canonical.Record{canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, call), time.Time{}), canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, result), time.Time{})}
+	hidden := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "hidden-message-fixture")), time.Time{})
+	hidden.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: false}
+	records := []canonical.Record{
+		canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, call), time.Time{}),
+		canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, result), time.Time{}),
+		hidden,
+	}
 	var cache output.Cache
 	filtered := cache.Project(records)
+	if len(filtered) != len(records) || filtered[2].ID != hidden.ID {
+		t.Fatal("fixture must retain the hidden message after audience filtering")
+	}
 	binding := Binding{Provider: protocol.DefaultConversationProvider(), Config: protocol.DefaultSessionConfig()}
 	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiPlugin} {
 		binding.Provider.Api = api
@@ -235,12 +245,154 @@ func TestBuildProjectedCallMatchesRawAudience(t *testing.T) {
 			source = raw.ProviderOptions[pluginRequestKey]
 			actual = projected.ProviderOptions[pluginRequestKey]
 		}
-		body, err := json.Marshal(source)
+		body, err := json.Marshal(actual)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(source, actual) || strings.Contains(string(body), "secret-fixture") || !strings.Contains(string(body), "allowed-fixture") {
+		if !reflect.DeepEqual(source, actual) || strings.Contains(string(body), "secret-fixture") || strings.Contains(string(body), "hidden-message-fixture") || !strings.Contains(string(body), "allowed-fixture") {
 			t.Fatalf("%s raw/projected output diverged or contained wrong audience: %s", api, body)
 		}
+	}
+}
+
+func TestVisibleAnsweredRecordsMatchesLegacyRequests(t *testing.T) {
+	turn := protocol.NewTurnID()
+	message := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), time.Time{})
+	}
+	compaction := func(boundary canonical.Record, text string) canonical.Record {
+		return canonical.NewRecord(turn, "compaction", &canonical.Compaction{Boundary: boundary.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, text))}, time.Time{})
+	}
+	visibility := func(record canonical.Record, visible bool) canonical.Record {
+		change := canonical.NewRecord(turn, "operation", &canonical.Operation{Kind: "visibility", Data: &canonical.Visibility{Message: record.ID, AgentVisible: visible}}, time.Time{})
+		change.Metadata.Runtime = &canonical.Runtime{AgentVisible: false}
+		return change
+	}
+	request := func(id string) canonical.Record {
+		return message(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: id, Name: "sample", Arguments: json.RawMessage(`{}`)}})
+	}
+	result := func(id, text string) canonical.Record {
+		return message(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
+			ID: id, Name: "sample", Format: canonical.MCP, Status: canonical.ToolSuccess, Revision: strings.Repeat("a", 64),
+			Result: canonical.Payload{Value: json.RawMessage(`{"content":[{"type":"text","text":"` + text + `"},{"type":"text","text":"user-only content","annotations":{"audience":["user"]}}]}`)},
+		}})
+	}
+	covered := request("covered-call")
+	previous := compaction(covered, "obsolete handoff")
+	revealed := message(canonical.User, canonical.Text(0, "revealed tail"))
+	revealed.Metadata.Runtime = &canonical.Runtime{AgentVisible: false}
+	orphan := result("covered-call", "covered result")
+	first, second := request("reused-call"), request("reused-call")
+	firstResult, secondResult := result("reused-call", "first result"), result("reused-call", "second result")
+	unanswered, hidden := request("hidden-pair"), result("hidden-pair", "hidden result")
+	latest := compaction(previous, "current handoff")
+	records := []canonical.Record{covered, previous, revealed, orphan, first, firstResult, second, secondResult, unanswered, hidden, latest, visibility(revealed, true), visibility(hidden, false)}
+	before, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := VisibleAnsweredRecords(records)
+	legacy := Answered(VisibleRecords(records))
+	if !reflect.DeepEqual(prepared, legacy) || !reflect.DeepEqual(VisibleAnsweredRecords(prepared), prepared) {
+		t.Fatal("combined visibility and repair changed the projected records")
+	}
+	want := []canonical.Record{latest, revealed, orphan, first, firstResult, second, secondResult, unanswered}
+	if len(prepared) != len(want) {
+		t.Fatalf("prepared history contains %d records, want %d", len(prepared), len(want))
+	}
+	for i, record := range prepared {
+		if record.ID != want[i].ID {
+			t.Fatalf("record %d = %s, want %s", i, record.ID, want[i].ID)
+		}
+	}
+	raw := Answered(records)
+	if len(raw) != len(records) || !reflect.DeepEqual(raw[0], covered) || !reflect.DeepEqual(raw[9], hidden) {
+		t.Fatal("Answered changed records outside the visible history")
+	}
+	var legacyCache, preparedCache output.Cache
+	legacy = legacyCache.Project(legacy)
+	prepared = preparedCache.Project(prepared)
+	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiPlugin} {
+		t.Run(string(api), func(t *testing.T) {
+			binding := Binding{Provider: protocol.DefaultConversationProvider(), Config: protocol.DefaultSessionConfig()}
+			binding.Provider.Api = api
+			buildRaw := BuildCall
+			if api == protocol.ConversationModelApiPlugin {
+				selection := protocol.DefaultConversationPresetsBinding()
+				selection.Adapter = &protocol.PluginModelAdapterBinding{Capabilities: protocol.PluginModelAdapterCapabilities{Tools: true}}
+				capture := &selection
+				binding.Provider.Binding = &capture
+				buildRaw = BuildPluginCall
+			}
+			actual, err := BuildVisibleProjectedCall(binding, Request{Records: prepared})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, baseline := range []struct {
+				build   func(Binding, Request) (fantasy.Call, error)
+				records []canonical.Record
+			}{{BuildProjectedCall, legacy}, {buildRaw, raw}} {
+				want, err := baseline.build(binding, Request{Records: baseline.records})
+				if err != nil || !reflect.DeepEqual(actual, want) {
+					t.Fatalf("prepared and baseline requests diverged: %v", err)
+				}
+			}
+			var payload any = actual.Prompt
+			if api == protocol.ConversationModelApiPlugin {
+				payload = actual.ProviderOptions[pluginRequestKey]
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := string(encoded)
+			for _, text := range []string{"current handoff", "revealed tail", "first result", "second result"} {
+				if !strings.Contains(body, text) {
+					t.Fatalf("request omitted %q: %s", text, body)
+				}
+			}
+			for _, text := range []string{"obsolete handoff", "covered-call", "hidden-pair", "user-only content"} {
+				if strings.Contains(body, text) {
+					t.Fatalf("request included %q: %s", text, body)
+				}
+			}
+			if strings.Count(body, "reused-call") != 2 || strings.Count(body, canonical.ToolCallOccurrenceID(second.ID, 0)) != 2 {
+				t.Fatalf("request did not retain both tool pairs with distinct IDs: %s", body)
+			}
+		})
+	}
+	after, err := json.Marshal(records)
+	if err != nil || string(before) != string(after) {
+		t.Fatal("request assembly mutated canonical history")
+	}
+}
+
+func BenchmarkModelHistoryProjection(b *testing.B) {
+	const count, tail = 4096, 256
+	message := canonical.NewMessage(canonical.User, canonical.Text(0, "Recorded progress"))
+	records := make([]canonical.Record, count+1)
+	for i := range count {
+		records[i] = canonical.Record{ID: strconv.Itoa(i), Kind: "message", Data: &message}
+	}
+	records[count] = canonical.Record{ID: "summary", Kind: "compaction", Data: &canonical.Compaction{
+		Boundary: records[count-tail-1].ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, "Rolling handoff")),
+	}}
+	for _, entry := range []struct {
+		name    string
+		project func([]canonical.Record) []canonical.Record
+	}{
+		{"legacy", func(records []canonical.Record) []canonical.Record {
+			return VisibleRecords(Answered(VisibleRecords(records)))
+		}},
+		{"prepared", VisibleAnsweredRecords},
+	} {
+		b.Run(entry.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if len(entry.project(records)) != tail+1 {
+					b.Fatal("projection lost the summary or retained tail")
+				}
+			}
+		})
 	}
 }

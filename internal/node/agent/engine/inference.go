@@ -89,7 +89,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		{Key: "child_budget", Text: childBudgetContext(x, state)},
 	}
 	if hasTools {
-		parts = append(parts, prompt.Part{Key: "deferred_tools", Text: r.deferredContext(x, state), RefreshOnInput: true})
+		parts = append(parts, prompt.Part{Key: "deferred_tools", Text: r.deferredContext(x, state)})
 	}
 	if x.inv.Session.Delegation == nil || findTool(x.tools, operations.UpdatePlanTool) != nil {
 		if plan := store.LatestAgentPlan(state.Records); plan != nil {
@@ -164,10 +164,11 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			schemas[tool.Name] = captured.SchemaJSON
 		}
 	}
-	projected := model.Answered(model.VisibleRecords(state.Records))
+	projected := model.VisibleAnsweredRecords(state.Records)
 	if err = r.hydrateModelToolResults(x.ctx, projected); err != nil {
 		return err
 	}
+	projectContextPressure(projected, state.Records, tools)
 	projected = x.output.Project(projected)
 	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
 	if err != nil {
@@ -182,7 +183,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
 		return err
 	}
-	call, err := model.BuildProjectedCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets, Delegated: x.inv.Session.Delegation != nil})
+	call, err := model.BuildVisibleProjectedCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets, Delegated: x.inv.Session.Delegation != nil})
 	if err != nil {
 		return err
 	}

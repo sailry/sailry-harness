@@ -144,7 +144,7 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		}
 		delete(input.Options, "stop")
 	}
-	records := VisibleRecords(request.Records)
+	records := request.visibleRecords()
 	calls := map[string]string{}
 	appendBackground := func(text string) {
 		if text != "" {

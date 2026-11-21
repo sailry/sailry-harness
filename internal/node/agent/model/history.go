@@ -17,15 +17,37 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// BuildProjectedCall consumes request records already filtered by output.Cache.Project.
-// The engine may subsequently materialize attachments and rename tool calls.
+type requestProjection uint8
+
+const (
+	rawHistory requestProjection = iota
+	audienceProjected
+	visibleProjected
+)
+
+// BuildProjectedCall consumes records filtered by output.Cache.Project and
+// still selects which records are agent-visible.
 func BuildProjectedCall(binding Binding, request Request) (fantasy.Call, error) {
-	request.audienceProjected = true
+	request.projection = audienceProjected
 	return BuildCall(binding, request)
 }
 
+// BuildVisibleProjectedCall consumes records selected and paired by
+// VisibleAnsweredRecords and audience-filtered by output.Cache.Project.
+func BuildVisibleProjectedCall(binding Binding, request Request) (fantasy.Call, error) {
+	request.projection = visibleProjected
+	return BuildCall(binding, request)
+}
+
+func (request Request) visibleRecords() []canonical.Record {
+	if request.projection == visibleProjected {
+		return request.Records
+	}
+	return VisibleRecords(request.Records)
+}
+
 func (request Request) audienceRecord(record canonical.Record) canonical.Record {
-	if request.audienceProjected {
+	if request.projection != rawHistory {
 		return record
 	}
 	return output.Audience(record)
@@ -51,7 +73,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	for _, tool := range request.Tools {
 		call.Tools = append(call.Tools, tool)
 	}
-	records := VisibleRecords(request.Records)
+	records := request.visibleRecords()
 	origins := map[int]string{}
 	active := -1
 	for i := len(records) - 1; i >= 0 && active < 0; i-- {
@@ -368,11 +390,20 @@ func VisibleRecords(records []canonical.Record) []canonical.Record {
 	return result
 }
 
-// Answered applies the source request repair to the records a request carries:
-// a tool result is kept only after its unanswered call, and a call that never
-// received a result is removed. A turn that ended before recording a result
-// therefore cannot make every later request invalid.
+// VisibleAnsweredRecords selects the visible history and repairs its tool pairs.
+func VisibleAnsweredRecords(records []canonical.Record) []canonical.Record {
+	visible := VisibleRecords(records)
+	return repairToolPairs(visible, visible)
+}
+
+// Answered repairs tool pairs among visible records without removing records
+// from the input. It drops a result with no preceding unanswered call and any
+// call with no result, so interrupted turns cannot invalidate later requests.
 func Answered(records []canonical.Record) []canonical.Record {
+	return repairToolPairs(records, VisibleRecords(records))
+}
+
+func repairToolPairs(records, visible []canonical.Record) []canonical.Record {
 	type position struct {
 		record string
 		block  int
@@ -388,7 +419,7 @@ func Answered(records []canonical.Record) []canonical.Record {
 		}
 		repairs[where.record][where.block] = id
 	}
-	for _, record := range VisibleRecords(records) {
+	for _, record := range visible {
 		message := record.Message()
 		if message == nil {
 			continue

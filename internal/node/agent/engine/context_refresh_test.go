@@ -84,7 +84,7 @@ func TestCollaborateOffersNativeProgressTool(t *testing.T) {
 	}
 }
 
-func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
+func TestGuidanceRefreshesPlanAndRetainsToolDiscoveryWithoutCompaction(t *testing.T) {
 	const originalPlan = `{"title":"Coordinate two fixes","steps":[{"description":"Fix the first report","state":"completed"},{"description":"Verify the second report","state":"in_progress"}]}`
 	cold := objectTool("optional_probe", true, true, nil)
 	remaining := objectTool("remaining_probe", true, true, nil)
@@ -177,7 +177,11 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 			!slices.Contains(offeredNames(request), operations.UpdatePlanTool) {
 			t.Errorf("request %d lacks the native progress tool or verified plan after guidance", step.index)
 		}
-		_, catalog, ok := strings.Cut(after, `<context-section name="deferred_tools">`)
+		const catalogSection = `<context-section name="deferred_tools">`
+		if strings.Count(prompt.String(), catalogSection) != 1 || strings.Contains(after, catalogSection) {
+			t.Fatalf("request %d lost or repeated its unchanged discovery catalog", step.index)
+		}
+		_, catalog, ok := strings.Cut(prompt.String(), catalogSection)
 		catalog, _, _ = strings.Cut(catalog, "</context-section>")
 		// The catalog lists every deferred tool, loaded or not, so loading
 		// one appends no new catalog; its declaration arrives as context.

@@ -37,7 +37,7 @@ type Request struct {
 	// service counts as the agent's own.
 	Delegated bool
 
-	audienceProjected bool
+	projection requestProjection
 }
 type transportConfig struct {
 	Kind, Model, Endpoint, Key string

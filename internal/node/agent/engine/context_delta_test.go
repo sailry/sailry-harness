@@ -37,7 +37,7 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 		}
 	}
 	last := promptText(m.calls[len(m.calls)-1])
-	for _, section := range []string{"Active work mode: Flagship", "Follow the team instructions and choose the exact key of the role whose responsibilities fit.", "Session environment"} {
+	for _, section := range []string{"Active work mode: Flagship", "Follow the team instructions and choose the exact key of the role whose responsibilities fit.", "Session environment", `<context-section name="deferred_tools">`} {
 		if count := strings.Count(last, section); count != 1 {
 			t.Errorf("stable section %q occurs %d times, want 1", section, count)
 		}
@@ -57,9 +57,8 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 			key = "title"
 		}
 		parts := record.Metadata.Runtime.Notes.Context.Parts
-		if key == "title" && (len(parts) != 1 || parts[key] == "") ||
-			key == "execution_identity" && (len(parts) != 2 || parts[key] == "" || parts["deferred_tools"] == "") {
-			t.Fatalf("context update %d did not keep stable sections separate from refreshed discovery: %v", index+1, parts)
+		if len(parts) != 1 || parts[key] == "" {
+			t.Fatalf("context update %d should contain only %s: %v", index+1, key, parts)
 		}
 		if key == "execution_identity" {
 			value := record.Message().Content[0].Data.(*canonical.TextContent).Text
