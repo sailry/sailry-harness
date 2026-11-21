@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/clock"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/observation"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
@@ -82,6 +83,7 @@ type Runtime struct {
 	workers           sync.WaitGroup
 	decisions         sync.Mutex
 	publication       sync.Mutex
+	responsesHistory  observation.ResponsesHistory
 	statisticsMu      sync.Mutex
 	statistics        map[protocol.SessionID]statisticsFlight
 	statisticsHistory []statisticsCompleted
@@ -276,6 +278,7 @@ func (r *Runtime) run() {
 			}
 			r.mu.Unlock()
 			ctx, cancel := context.WithCancel(store.WithCapturedUser(store.WithUser(parent, inv.User), inv.StorageUser))
+			ctx, trace := r.responsesHistory.Start(ctx, inv.Session.ID, inv.Run.Turn)
 			x := &execution{inv: inv, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
 			// A turn has one owner. A claim that finds an earlier owner waits
 			// for it in its worker instead of taking its place.
@@ -310,6 +313,7 @@ func (r *Runtime) run() {
 			go func() {
 				defer r.workers.Done()
 				defer cancel()
+				defer trace.Clear()
 				if previous == nil || r.succeed(x, previous) {
 					r.executeOwned(x)
 				}

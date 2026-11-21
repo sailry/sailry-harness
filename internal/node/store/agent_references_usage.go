@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math"
 	"time"
 
@@ -35,11 +36,14 @@ func (tokens *referenceUsageTokens) scanTargets() []any {
 }
 
 type referenceUsageRequest struct {
-	EntrySequence uint64               `json:"entry_sequence"`
-	EntryPublic   bool                 `json:"entry_public"`
-	TimestampMs   int64                `json:"timestamp_ms"`
-	Model         string               `json:"model,omitempty"`
-	Usage         referenceUsageTokens `json:"usage"`
+	EntrySequence     uint64                                  `json:"entry_sequence"`
+	EntryPublic       bool                                    `json:"entry_public"`
+	TimestampMs       int64                                   `json:"timestamp_ms"`
+	Model             string                                  `json:"model,omitempty"`
+	Usage             referenceUsageTokens                    `json:"usage"`
+	RequestID         string                                  `json:"request_id,omitempty"`
+	Attempt           uint64                                  `json:"attempt,omitempty"`
+	ResponsesBoundary *protocol.ConversationResponsesBoundary `json:"responses_boundary,omitempty"`
 }
 
 type referenceUsage struct {
@@ -74,7 +78,10 @@ func readAgentReferenceUsage(ctx context.Context, db *sql.Conn, session protocol
 		return nil, err
 	}
 	const requests = `SELECT e.sequence,` + visibleCanonical + `,json_extract(e.body,'$.created'),
- substr(coalesce(json_extract(e.body,'$.metadata.execution.source.model'),json_extract(e.body,'$.model'),json_extract(e.body,'$.summary.model'),''),1,128),` +
+ substr(coalesce(json_extract(e.body,'$.metadata.execution.source.model'),json_extract(e.body,'$.model'),json_extract(e.body,'$.summary.model'),''),1,128),
+ coalesce(json_extract(e.body,'$.metadata.execution.observation.id'),''),
+ coalesce(json_extract(e.body,'$.metadata.execution.observation.attempts[0].index'),0),
+ json_extract(e.body,'$.metadata.execution.observation.attempts[0].responses_boundary'),` +
 		referenceUsageColumns + referenceUsageFrom + ` AND e.sequence<?3 ORDER BY e.sequence DESC LIMIT ?4`
 	rows, err := db.QueryContext(ctx, requests, session.String(), turn.String(), boundary, limit+1)
 	if err != nil {
@@ -88,9 +95,15 @@ func readAgentReferenceUsage(ctx context.Context, db *sql.Conn, session protocol
 		}
 		var item referenceUsageRequest
 		var created string
-		targets = append([]any{&item.EntrySequence, &item.EntryPublic, &created, &item.Model}, item.Usage.scanTargets()...)
+		var responseBoundary []byte
+		targets = append([]any{&item.EntrySequence, &item.EntryPublic, &created, &item.Model, &item.RequestID, &item.Attempt, &responseBoundary}, item.Usage.scanTargets()...)
 		if err = rows.Scan(targets...); err != nil {
 			return nil, err
+		}
+		if len(responseBoundary) != 0 {
+			if err = json.Unmarshal(responseBoundary, &item.ResponsesBoundary); err != nil {
+				return nil, err
+			}
 		}
 		at, err := time.Parse(time.RFC3339Nano, created)
 		if err != nil {

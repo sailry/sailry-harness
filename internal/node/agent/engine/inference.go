@@ -70,10 +70,17 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	hasTools := capturedModel(binding).Tools
 	var delegation string
 	if hasTools {
-		delegation = r.delegationContext(x, state)
+		delegation = r.delegationRoster(x, state)
 	}
 	canDelegate := hasTools && findTool(x.tools, "spawn_agent") != nil
 	identity := fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)
+	if hasTools && (findTool(x.tools, "apply_agents") != nil || findTool(x.tools, "apply_team") != nil) {
+		identity += fmt.Sprintf("\nCaptured conversation revision: %d.", x.inv.Turn.Revision)
+		if delegation != "" {
+			delegation += "\n"
+		}
+		delegation += "Catalog changes do not change this turn's roster. Explicit application affects future admission only; use the exact inspected revision and never silently rebase a conflict."
+	}
 	if started := x.inv.Run.StartedMs; started != nil {
 		identity += fmt.Sprintf("\nTurn started (UTC): %s (%d ms)", time.UnixMilli(*started).UTC().Format(time.RFC3339Nano), *started)
 	}
@@ -507,6 +514,7 @@ func (r *Runtime) observationRecord(x *execution, binding model.Binding, purpose
 	observed.HeadersUs, observed.ResponseUs = attempt.ResponseUs, attempt.ResponseUs
 	observed.RequestBytes, observed.DispatchUs, observed.RequestSentUs = attempt.RequestBytes, attempt.DispatchUs, attempt.RequestSentUs
 	observed.Categories, observed.CompleteContext = attempt.Categories, attempt.CompleteContext
+	observed.ResponsesBoundary = attempt.ResponsesBoundary
 	observed.ReasoningStreamed = attempt.ReasoningStreamed
 	observed.ElapsedUs = &elapsed
 	observed.FirstTokenUs = timing.FirstTokenUs

@@ -34,6 +34,11 @@ type Result struct {
 
 // Prepared inspects the final adapted body. It never changes or retains raw.
 func Prepared(raw []byte, inventory *Inventory) Result {
+	result, _ := prepare(raw, inventory, nil)
+	return result
+}
+
+func prepare(raw []byte, inventory *Inventory, trace *ResponsesTrace) (Result, *ResponsesShape) {
 	var body any
 	if err := json.Unmarshal(raw, &body); err != nil {
 		body = nil
@@ -53,10 +58,14 @@ func Prepared(raw []byte, inventory *Inventory) Result {
 		}
 	}
 	object, _ := body.(map[string]any)
+	var shape *ResponsesShape
+	if trace != nil && object != nil {
+		shape = trace.shape(raw, object)
+	}
 	return Result{
 		Categories: result.Categories,
 		Complete:   result.Complete && object["previous_response_id"] == nil && object["previous_interaction_id"] == nil,
-	}
+	}, shape
 }
 
 func uniqueSources(sources []Source) []Source {

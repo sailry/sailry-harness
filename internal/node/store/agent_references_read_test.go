@@ -214,6 +214,8 @@ func TestAgentReferenceTurnUsageWithoutRevision(t *testing.T) {
 	ctx := t.Context()
 	var sourceTurn protocol.TurnID
 	var entries []protocol.ConversationEntry
+	var requestIDs []string
+	var expectedBoundary *protocol.ConversationResponsesBoundary
 	tokens := []canonical.Usage{
 		{Input: ptr(uint64(40)), Output: ptr(uint64(8)), CacheRead: ptr(uint64(6)), CacheWrite: ptr(uint64(9)), Reasoning: ptr(uint64(2)), Total: ptr(uint64(48))},
 		{Input: ptr(uint64(12)), Output: ptr(uint64(2)), CacheRead: ptr(uint64(0))},
@@ -233,6 +235,24 @@ func TestAgentReferenceTurnUsageWithoutRevision(t *testing.T) {
 			message.Usage = &usage
 			record := canonical.NewRecord(turn, "message", &message, now.Add(time.Duration(i+1)*time.Second))
 			record.Provenance.Author = "assistant"
+			if i < 2 {
+				id := protocol.NewRequestID().String()
+				requestIDs = append(requestIDs, id)
+				request := protocol.DefaultConversationObservationRequest()
+				request.ID, request.Turn, request.Model, request.TimestampMs = id, turn, *message.Model, record.Created.UnixMilli()
+				attempt := protocol.DefaultConversationObservationAttempt()
+				attempt.Index, attempt.Transport, attempt.Outcome = 1, "http", protocol.ConversationObservationOutcomeSucceeded
+				if i == 1 {
+					expectedBoundary = &protocol.ConversationResponsesBoundary{
+						PreviousRequestID: requestIDs[0], PreviousAttempt: 1, PreviousCachedInput: tokens[0].CacheRead,
+						InstructionsEqual: true, ToolsEqual: true, CacheOptionsEqual: true, OtherFieldsEqual: true,
+						SharedInputItems: 2, PreviousInputItems: 2, InputItems: 4,
+					}
+					attempt.ResponsesBoundary = expectedBoundary
+				}
+				request.Attempts = []protocol.ConversationObservationAttempt{attempt}
+				record.Metadata.Execution = &canonical.Execution{Observation: &request}
+			}
 			switch i {
 			case 1:
 				runtime := canonical.DefaultRuntime()
@@ -300,6 +320,13 @@ func TestAgentReferenceTurnUsageWithoutRevision(t *testing.T) {
 		want := referenceUsageTokens{Input: usage.Input, Output: usage.Output, CachedInput: usage.CacheRead, CacheWrite: usage.CacheWrite, Reasoning: usage.Reasoning, ReportedTotal: usage.Total}
 		if row.EntrySequence != entries[index].Sequence || row.EntryPublic != (index != 1) || row.TimestampMs != now.Add(time.Duration(index+1)*time.Second).UnixMilli() || row.Model != "fixture-model" || !reflect.DeepEqual(row.Usage, want) {
 			t.Errorf("request %d returned %+v, want sequence %d and usage %+v", index, row, entries[index].Sequence, want)
+		}
+		if index < 2 {
+			if row.RequestID != requestIDs[index] || row.Attempt != 1 || index == 0 && row.ResponsesBoundary != nil || index == 1 && !reflect.DeepEqual(row.ResponsesBoundary, expectedBoundary) {
+				t.Errorf("request %d lost its measured adjacency: %+v", index, row)
+			}
+		} else if row.RequestID != "" || row.Attempt != 0 || row.ResponsesBoundary != nil {
+			t.Errorf("request %d invented observation fields: %+v", index, row)
 		}
 	}
 	_, err := queryAgentHistoryFixture(ctx, storage, node, source, fmt.Sprintf(`{"session":%q,"mode":"usage","turn":%q,"before_entry":%d}`, session.ID.String(), turn.String(), *got.NextBefore))

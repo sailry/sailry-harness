@@ -161,6 +161,63 @@ type ConversationObservationAttempt struct {
 	CacheReported     bool                              `json:"cache_reported"`
 	ReasoningReported bool                              `json:"reasoning_reported"`
 	ReasoningStreamed bool                              `json:"reasoning_streamed"`
+	ResponsesBoundary *ConversationResponsesBoundary    `json:"responses_boundary,omitempty"`
+}
+
+// ConversationResponsesBoundary compares the serialized bodies of adjacent
+// observed Responses attempts. PreviousTurn is set for a cross-turn comparison.
+type ConversationResponsesBoundary struct {
+	PreviousRequestID      string                             `json:"previous_request_id"`
+	PreviousAttempt        uint64                             `json:"previous_attempt"`
+	PreviousTurn           TurnID                             `json:"previous_turn,omitzero"`
+	PreviousCachedInput    *uint64                            `json:"previous_cached_input,omitempty"`
+	InstructionsEqual      bool                               `json:"instructions_equal"`
+	InstructionsBytes      *ConversationResponsesFieldBytes   `json:"instructions_bytes,omitempty"`
+	ToolsEqual             bool                               `json:"tools_equal"`
+	CacheOptionsEqual      bool                               `json:"cache_options_equal"`
+	OtherFieldsEqual       bool                               `json:"other_fields_equal"`
+	SharedInputItems       uint64                             `json:"shared_input_items"`
+	SharedInputBytes       *uint64                            `json:"shared_input_bytes,omitempty"`
+	PreviousInputItems     uint64                             `json:"previous_input_items"`
+	InputItems             uint64                             `json:"input_items"`
+	InputChanges           []ConversationResponsesInputChange `json:"input_changes,omitempty"`
+	InputReorderIncomplete bool                               `json:"input_reorder_incomplete,omitempty"`
+}
+
+// ConversationResponsesFieldBytes counts the JSON value bytes on each side of
+// a change. A missing field has zero bytes.
+type ConversationResponsesFieldBytes struct {
+	Previous uint64 `json:"previous"`
+	Current  uint64 `json:"current"`
+}
+
+type ConversationResponsesInputKind string
+
+const (
+	ConversationResponsesInputUser             ConversationResponsesInputKind = "user"
+	ConversationResponsesInputAssistant        ConversationResponsesInputKind = "assistant"
+	ConversationResponsesInputToolCall         ConversationResponsesInputKind = "tool_call"
+	ConversationResponsesInputToolOutput       ConversationResponsesInputKind = "tool_output"
+	ConversationResponsesInputDeveloperContext ConversationResponsesInputKind = "developer_context"
+	ConversationResponsesInputReasoning        ConversationResponsesInputKind = "reasoning"
+	ConversationResponsesInputOther            ConversationResponsesInputKind = "other"
+)
+
+// ConversationResponsesInputSize sums complete serialized items, including
+// JSON quoting and escapes, excluding array delimiters and inter-item whitespace.
+type ConversationResponsesInputSize struct {
+	Items uint64 `json:"items"`
+	Bytes uint64 `json:"bytes"`
+}
+
+// Added and Removed count unmatched occurrences of exact items. Reordered counts
+// retained occurrences whose relative order changed with another retained item.
+// InputReorderIncomplete indicates duplicate counts prevented complete matching.
+type ConversationResponsesInputChange struct {
+	Kind      ConversationResponsesInputKind `json:"kind"`
+	Added     ConversationResponsesInputSize `json:"added,omitzero"`
+	Removed   ConversationResponsesInputSize `json:"removed,omitzero"`
+	Reordered ConversationResponsesInputSize `json:"reordered,omitzero"`
 }
 
 func DefaultConversationObservationAttempt() ConversationObservationAttempt {

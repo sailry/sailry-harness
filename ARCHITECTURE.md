@@ -607,6 +607,12 @@ measurement is available.
 
 Request observations retain the final serialized body size, attributed text
 character counts and excluded opaque payload sizes, never request bodies.
+For comparable adjacent Responses attempts, the usage view reports the shared
+input prefix, added, removed and reordered input items by wire category, and
+changes to instructions, tools and cache settings. Sizes count serialized JSON
+value bytes. Temporary keyed digests support the comparison. A completed turn
+can hand off its last measured attempt to the next turn in the same session
+using a bounded, process-local cache. Upstream cached tokens are reported separately.
 Text estimates remain separate from provider-reported tokens. Attempt-relative
 timings distinguish HTTP dispatch after preparation, successful request write,
 response headers and first model content; unavailable transport facts stay absent.

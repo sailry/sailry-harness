@@ -171,6 +171,11 @@ func (r *Runtime) execute(x *execution) {
 		if !finishUnknown {
 			err = r.db.Write(ctx, finish)
 			if err == nil {
+				// A recovered commit can already have a successor. Handoff
+				// requires confirmation under the same publication lock.
+				if run.Status == protocol.ConversationStatusCompleted {
+					r.responsesHistory.Complete(x.ctx)
+				}
 				break
 			}
 			fault, ok := errors.AsType[*protocol.Fault](err)

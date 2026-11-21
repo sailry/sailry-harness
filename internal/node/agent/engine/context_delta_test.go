@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -14,13 +16,18 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 	for range 8 {
 		m.scripts = append(m.scripts, response(text("Here"), finish()))
 	}
-	f := newFixture(t, m)
+	f := newFixture(t, m, Tool{Definition: fantasy.FunctionTool{Name: "apply_team"}, Deferred: true})
 	config := f.session.Config
 	config.Mode = protocol.WorkModeFlagship
 	f.session = f.command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Config: config}).Data.(protocol.Session)
 	f.start()
 	var turns []protocol.TurnID
-	for range 8 {
+	var revisions []uint64
+	for i := range 8 {
+		if i == 4 {
+			f.session = f.command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Config: config}).Data.(protocol.Session)
+		}
+		revisions = append(revisions, f.session.Revision)
 		turn := f.submit("Hello")
 		turns = append(turns, turn)
 		f.waitRun(turn, protocol.ConversationStatusCompleted)
@@ -37,6 +44,9 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 		}
 	}
 	last := promptText(m.calls[len(m.calls)-1])
+	if revisions[0] == revisions[7] || !strings.Contains(last, fmt.Sprintf("Captured conversation revision: %d.", revisions[7])) {
+		t.Fatal("updated capture revision missing from the model prompt")
+	}
 	for _, section := range []string{"Active work mode: Flagship", "Follow the team instructions and choose the exact key of the role whose responsibilities fit.", "Session environment", `<context-section name="deferred_tools">`} {
 		if count := strings.Count(last, section); count != 1 {
 			t.Errorf("stable section %q occurs %d times, want 1", section, count)

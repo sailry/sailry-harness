@@ -42,6 +42,7 @@ type Attempt struct {
 	Categories        []protocol.ConversationObservationCategory
 	CompleteContext   bool
 	ReasoningStreamed bool
+	ResponsesBoundary *protocol.ConversationResponsesBoundary
 }
 
 func PartUsage(part fantasy.StreamPart) canonical.Usage {

@@ -224,19 +224,6 @@ func (r *Runtime) usableRole(x *execution, role protocol.RoleProfile) bool {
 	return true
 }
 
-func (r *Runtime) delegationContext(x *execution, state store.AgentState) string {
-	text := r.delegationRoster(x, state)
-	// Catalog changes never rebase the captured turn; application names the
-	// exact conversation revision it replaces.
-	if findTool(x.tools, "apply_agents") != nil || findTool(x.tools, "apply_team") != nil {
-		if text != "" {
-			text += "\n"
-		}
-		text += fmt.Sprintf("Captured conversation revision: %d. Catalog changes do not change this turn's roster. Explicit application affects future admission only; use the exact inspected revision and never silently rebase a conflict.", x.inv.Turn.Revision)
-	}
-	return text
-}
-
 func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string {
 	if !delegationAvailable(x) {
 		return ""
