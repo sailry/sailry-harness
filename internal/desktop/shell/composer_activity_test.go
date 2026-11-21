@@ -40,10 +40,6 @@ func TestActivityStrip(t *testing.T) {
 		tt.Frame()
 		trigger, ok := tt.AccessByRole(ui.RoleButton, name)
 		if !ok {
-			// The ports' capsule opens a menu.
-			trigger, ok = tt.AccessByRole(ui.RoleMenuButton, name)
-		}
-		if !ok {
 			t.Fatalf("no capsule %q: %q", name, tt.Texts())
 		}
 		tt.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
@@ -82,18 +78,20 @@ func TestActivityStrip(t *testing.T) {
 	open(i18n.In("en", "composer_subagent_one")+running, "Measure scroll frames", "composer-activity-subagents")
 	open(i18n.In("en", "task_progress"), "Run the benchmarks", "composer-activity-progress")
 
-	// The ports are one capsule whose menu lists them, as the host's
-	// forwards: a press on it opens no service, choosing a port does.
-	ports := i18n.In("en", "port_mappings") + ": 5173"
-	open(ports, "npx vite --port 5173", "composer-activity-services")
-	if _, ok := tt.AccessByRole(ui.RoleMenuItem, "5173"); !ok {
-		t.Fatalf("the ports menu is not open: %q", tt.Texts())
-	}
-	clickItem(t, tt, "5173")
+	// A port is a capsule of its own: one press opens its service (here the
+	// preview's notice), with no list or command text between.
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(2 * time.Second) // the toast before is gone
 	tt.Frame()
-	if _, ok := tt.AccessByRole(ui.RoleMenuItem, "5173"); ok {
-		t.Errorf("opening a service leaves the ports open")
+	clickButton(t, tt, i18n.In("en", "port_mappings")+": 5173")
+	tt.Frame()
+	if !tt.HasText(i18n.In("en", "preview_notice")) {
+		t.Errorf("pressing a port does not open its service: %q", tt.Texts())
 	}
+	if tt.HasText("npx vite --port 5173") {
+		t.Errorf("pressing a port shows its command: %q", tt.Texts())
+	}
+	snapshot(t, tt, "composer-activity-services")
 
 	// An idle conversation in a repository: the Git badge alone.
 	click(t, tt, "Port the neutral theme tokens")

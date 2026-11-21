@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"fmt"
 	"path"
 	"strconv"
 	"strings"
@@ -405,10 +406,18 @@ type service struct {
 	command string
 }
 
-// services is the capsule of the ports the running commands listen on and
-// its menu, as the host's forwards list theirs: a row a port, the command
-// that serves it below; choosing one opens the service.
-func (s *State) services(c *ui.Context, running []Command, connected bool, actions Actions) {
+// serviceRows is how many ports show at once; more scroll down. The ports'
+// column is servicesHeight high at most: that many capsules, serviceGap
+// apart.
+const (
+	serviceRows    = 3
+	serviceGap     = 4
+	servicesHeight = serviceRows*28 + (serviceRows-1)*serviceGap
+)
+
+// serviceList is the ports the running commands listen on, each once, in
+// the commands' order, with the first command serving it on one line.
+func serviceList(running []Command) []service {
 	var list []service
 	seen := map[int]bool{}
 	for _, cmd := range running {
@@ -419,35 +428,61 @@ func (s *State) services(c *ui.Context, running []Command, connected bool, actio
 			}
 		}
 	}
+	return list
+}
+
+// serviceState is a port's shown label (with its local listener once
+// forwarded) and whether its forward is being opened.
+func (s *State) serviceState(port int) (string, bool) {
+	label, busy := strconv.Itoa(port), false
+	if s.ActivityCallbacks != nil {
+		if s.ActivityCallbacks.ServiceLabel != nil {
+			label = s.ActivityCallbacks.ServiceLabel(port)
+		}
+		if s.ActivityCallbacks.ServiceBusy != nil {
+			busy = s.ActivityCallbacks.ServiceBusy(port)
+		}
+	}
+	return label, busy
+}
+
+// services is the ports the running commands listen on, a one-line capsule
+// each, one under another in a column that scrolls past serviceRows; a
+// press opens the service. A capsule shows the port, its command only
+// described to assistive technology. The keys carry the composer: a split
+// shows several strips in one window, and two of them may list the same
+// port.
+func (s *State) services(c *ui.Context, running []Command, connected bool, actions Actions) {
+	list := serviceList(running)
 	if len(list) == 0 {
 		return
 	}
-	label := strconv.Itoa(list[0].port)
-	if len(list) > 1 {
-		label = i18n.T(c, "port_count", "count", len(list))
-	}
-	name := i18n.T(c, "port_mappings") + ": " + label
-	kit.MenuButton(c, s.menuID("services"), func(b ui.Element) {
-		chipLook(c, b.Label(name), false, func() {
-			ui.Icon(c, icons.Globe).FontSize(chipIcon)
-			chipText(c, label)
-		})
-	}, func(m *kit.Menu) {
+	ui.Scroll(c.Key(s.serviceKey("services"))).Label(i18n.T(c, "port_mappings")).MaxHeight(servicesHeight).Shrink(0).
+		Gap(serviceGap).Children(func() {
 		for _, item := range list {
-			port, busy := strconv.Itoa(item.port), false
-			if s.ActivityCallbacks != nil {
-				if s.ActivityCallbacks.ServiceLabel != nil {
-					port = s.ActivityCallbacks.ServiceLabel(item.port)
-				}
-				if s.ActivityCallbacks.ServiceBusy != nil {
-					busy = s.ActivityCallbacks.ServiceBusy(item.port)
-				}
-			}
-			if m.Item(port).Icon(icons.Globe).Description(item.command).Disabled(!connected || busy).Chosen() {
-				actions.OpenService(item.port)
-			}
+			s.serviceChip(c, item, connected, actions)
 		}
-	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart, MaxHeight: 320})
+	})
+}
+
+// serviceKey names one of this composer's port elements.
+func (s *State) serviceKey(name string) string {
+	return fmt.Sprintf("composer-%p-%s", s, name)
+}
+
+// serviceChip is a port's capsule: the globe, or the loader while its
+// forward opens, and the port; a press opens the service.
+func (s *State) serviceChip(c *ui.Context, item service, connected bool, actions Actions) {
+	label, busy := s.serviceState(item.port)
+	name := i18n.T(c, "port_mappings") + ": " + strconv.Itoa(item.port)
+	chipLook(c, ui.ButtonBase(c.Key(s.serviceKey("service-"+strconv.Itoa(item.port)))).Label(name), false, func() {
+		if busy {
+			kit.Loader(c, chipIcon)
+		} else {
+			ui.Icon(c, icons.Globe).FontSize(chipIcon)
+		}
+		chipText(c, label)
+	}).Disabled(!connected || busy).Description(item.command).OnClick(func() { actions.OpenService(item.port) })
 }
 
 // commandRow is the status icon, the command (a click shows its output), the
