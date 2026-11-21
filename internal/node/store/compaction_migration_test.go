@@ -21,8 +21,8 @@ func TestV026CompactionUpgradeAndRecovery(t *testing.T) {
 	schemaExecute(t, fixture.db, "INSERT INTO user_personal_settings VALUES(?1,'compaction',?2)", custom.String(), v026CompactionJSON(t, protocol.ConversationCompactionSettings{Revision: 2, Percent: 67}))
 
 	running := fixture.addRun(t, fixture.owner, protocol.ConversationStatusRunning, 80)
-	explicit := fixture.addRun(t, legacy, protocol.ConversationStatusQueued, 80)
 	ordinary := fixture.addRun(t, fixture.owner, protocol.ConversationStatusQueued, 80)
+	explicit := fixture.addRun(t, legacy, protocol.ConversationStatusQueued, 80)
 	nonDefault := fixture.addRun(t, custom, protocol.ConversationStatusQueued, 67)
 	changed := fixture.addRun(t, custom, protocol.ConversationStatusCompleted, 80)
 	unattributed := fixture.addRun(t, protocol.UserID{}, protocol.ConversationStatusCompleted, 80)
@@ -39,7 +39,17 @@ func TestV026CompactionUpgradeAndRecovery(t *testing.T) {
 		if err := queueFixtureInput(ctx, db, fixture.session.ID, running, now.Add(-time.Second)); err != nil {
 			return err
 		}
-		return tagGuidance(ctx, db, explicit, running)
+		if err := tagGuidance(ctx, db, explicit, running); err != nil {
+			return err
+		}
+		queue, err := ReadQueue(ctx, db, fixture.session.ID)
+		if err != nil {
+			return err
+		}
+		if len(queue.Items) != 3 || queue.Items[0].Turn != explicit || queue.Items[0].Guidance == nil || *queue.Items[0].Guidance != running {
+			return fmt.Errorf("fixture did not put guidance ahead of ordinary input: %+v", queue)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +60,14 @@ func TestV026CompactionUpgradeAndRecovery(t *testing.T) {
 		name   string
 		policy CompactionPolicy
 	}
-	queued := []expectation{
-		{explicit, "explicit 80 offered as guidance", CompactionPolicy{Percent: 80}},
-		{ordinary, "ordinary queued default", CompactionPolicy{Percent: 80, UseDefault: true}},
-		{nonDefault, "explicit 67 queued", CompactionPolicy{Percent: 67}},
+	queued := []struct {
+		expectation
+		user    protocol.UserID
+		trigger uint64
+	}{
+		{expectation{explicit, "explicit 80 offered as guidance", CompactionPolicy{Percent: 80}}, legacy, 800_000},
+		{expectation{ordinary, "ordinary queued default", CompactionPolicy{Percent: 80, UseDefault: true}}, fixture.owner, 800_000},
+		{expectation{nonDefault, "explicit 67 queued", CompactionPolicy{Percent: 67}}, custom, 670_000},
 	}
 	history := []expectation{
 		{running, "default running", CompactionPolicy{Percent: 80, UseDefault: true}},
@@ -65,7 +79,10 @@ func TestV026CompactionUpgradeAndRecovery(t *testing.T) {
 	}
 	checkPolicies := func(db *Handle) {
 		t.Helper()
-		for _, run := range append(history, queued...) {
+		for _, run := range history {
+			checkV026CompactionPolicy(t, db, run.turn, run.name, run.policy)
+		}
+		for _, run := range queued {
 			checkV026CompactionPolicy(t, db, run.turn, run.name, run.policy)
 		}
 	}
@@ -124,18 +141,39 @@ func TestV026CompactionUpgradeAndRecovery(t *testing.T) {
 			if inv == nil || inv.Run.Turn != run.turn || inv.Message.Text != "Fixture input" {
 				return fmt.Errorf("%s did not start with its preserved input", run.name)
 			}
+			if inv.User.ID != run.user || inv.StorageUser != run.user {
+				return fmt.Errorf("%s claimed users = %s/%s, want %s", run.name, inv.User.ID, inv.StorageUser, run.user)
+			}
 			if inv.Compaction != run.policy {
 				return fmt.Errorf("%s claimed policy = %+v, want %+v", run.name, inv.Compaction, run.policy)
+			}
+			if inv.Provider == nil || len(inv.Provider.Models) != 1 || inv.Provider.Models[0].ID != inv.Session.Config.Model {
+				return fmt.Errorf("%s did not keep its captured model", run.name)
+			}
+			budget := AgentCompactionBudget(inv.Provider.Models[0], inv.Compaction)
+			if budget == nil || budget.TriggerTokens != run.trigger {
+				return fmt.Errorf("%s claimed budget = %+v, want trigger %d", run.name, budget, run.trigger)
 			}
 			if err := queueFixtureInput(ctx, db, fixture.session.ID, run.turn, now); err != nil {
 				return err
 			}
-			if _, _, err := FinishTurn(ctx, db, run.turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			finished, _, err := FinishTurn(ctx, db, run.turn, protocol.ConversationStatusCompleted, nil, now)
+			if err != nil {
 				return err
+			}
+			if finished.Status != protocol.ConversationStatusCompleted || finished.FinishedMs == nil || finished.Error != nil {
+				return fmt.Errorf("%s did not complete: %+v", run.name, finished)
 			}
 		}
 		if next, _, err := ClaimNext(ctx, db, now); err != nil || next != nil {
 			return fmt.Errorf("settled queue was not idle: %v", err)
+		}
+		var pending int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1", fixture.session.ID.String()).Scan(&pending); err != nil {
+			return err
+		}
+		if pending != 0 {
+			return fmt.Errorf("settled queue still has %d pending rows", pending)
 		}
 		return nil
 	}); err != nil {
@@ -216,16 +254,20 @@ func newV026CompactionFixture(t *testing.T) v026CompactionFixture {
 	provider.Api, provider.Authentication = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey
 	provider.Endpoint, provider.Enabled, provider.DefaultModel = "http://fixture.invalid/v1", true, "fixture"
 	model := protocol.DefaultConversationModel()
-	model.ID, model.Context, model.Output, model.Tools = provider.DefaultModel, 32000, 8000, true
+	model.ID, model.Context, model.Output, model.Tools = provider.DefaultModel, 1_000_000, 8_000, true
 	provider.Models = []protocol.ConversationModel{model}
 	fixture.provider = v026CompactionJSON(t, provider)
+	project := protocol.NewProjectID()
+	path := filepath.Join(fixture.profile, "project")
+	appearance := v026CompactionJSON(t, protocol.DefaultProjectsAppearance())
 	session := &fixture.session
-	session.ID, session.Worktree, session.Revision = protocol.NewSessionID(), protocol.NewWorktreeID(), 1
+	session.ID, session.Project, session.Worktree, session.Revision = protocol.NewSessionID(), &project, protocol.NewWorktreeID(), 1
 	session.Config.Provider, session.Config.Model = provider.ID, model.ID
 	session.Config.Mode, session.Config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
 	session.Roles.Execution = protocol.ConversationExecutionModel
-	schemaExecute(t, fixture.db, "INSERT INTO worktrees(id,owner,path,main) VALUES(?1,?2,?3,1)", session.Worktree.String(), fixture.owner.String(), filepath.Join(fixture.profile, "worktrees", session.Worktree.String()))
-	schemaExecute(t, fixture.db, "INSERT INTO sessions(rowid,id,owner,worktree,revision) VALUES(1,?1,?2,?3,1)", session.ID.String(), fixture.owner.String(), session.Worktree.String())
+	schemaExecute(t, fixture.db, "INSERT INTO projects(id,name,path,appearance,owner,visibility) VALUES(?1,'Fixture',?2,?3,?4,'shared')", project.String(), path, appearance, fixture.owner.String())
+	schemaExecute(t, fixture.db, "INSERT INTO worktrees(id,project,owner,path,main) VALUES(?1,?2,?3,?4,1)", session.Worktree.String(), project.String(), fixture.owner.String(), path)
+	schemaExecute(t, fixture.db, "INSERT INTO sessions(rowid,id,project,owner,worktree,revision) VALUES(1,?1,?2,?3,?4,1)", session.ID.String(), project.String(), fixture.owner.String(), session.Worktree.String())
 	if err := fixture.db.Write(ctx, func(db *sql.Conn) error {
 		if err := initializeLocalModels(ctx, db); err != nil {
 			return err
@@ -250,6 +292,7 @@ func (fixture v026CompactionFixture) addRun(t *testing.T, user protocol.UserID, 
 	message := protocol.ConversationInput{Text: "Fixture input"}
 	request := protocol.NewRequest(fixture.node, protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{Session: fixture.session.ID, ExpectedRevision: fixture.session.Revision, Message: message}})
 	requestBody := v026CompactionJSON(t, request)
+	roles := v026CompactionJSON(t, fixture.session.Roles)
 	ctx := t.Context()
 	if err := fixture.db.Write(ctx, func(db *sql.Conn) error {
 		sequence, err := NextCounter(ctx, db, CounterTurns)
@@ -278,7 +321,7 @@ func (fixture v026CompactionFixture) addRun(t *testing.T, user protocol.UserID, 
 		if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", fixture.node[:], request.ID.String(), requestBody); err != nil {
 			return err
 		}
-		if _, err = db.ExecContext(ctx, "INSERT INTO turns(rowid,id,kind,plugins,session,revision,request,caller,user) VALUES(?1,?2,'task',X'5B5D',?3,1,?4,?5,?6)", sequence, turn.String(), run.Session.String(), request.ID.String(), fixture.node[:], principal); err != nil {
+		if _, err = db.ExecContext(ctx, "INSERT INTO turns(rowid,id,kind,plugins,session,revision,request,caller,user,roles) VALUES(?1,?2,'task',X'5B5D',?3,?4,?5,?6,?7,?8)", sequence, turn.String(), run.Session.String(), run.Revision, request.ID.String(), fixture.node[:], principal, roles); err != nil {
 			return err
 		}
 		if principal.Valid {
