@@ -28,6 +28,8 @@ type Projection struct {
 	directory  uint64
 	credential uint64
 	providers  uint64
+	// A directory read can lead the event stream for providers and quotas only.
+	providerCursor uint64
 	// removed are the latest removedLimit sessions the Node's committed
 	// sessions_removed events named, in order, and removals counts every one
 	// named. A snapshot no longer listing a session adds nothing: a
@@ -80,6 +82,12 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			return Ignored, nil
 		}
 		snapshot = copyValue(snapshot)
+		if !projection.recovery && snapshot.Cursor < projection.providerCursor {
+			snapshot.Providers = projection.snapshot.Providers
+			snapshot.ProviderQuotas = projection.snapshot.ProviderQuotas
+		} else {
+			projection.providerCursor = snapshot.Cursor
+		}
 		snapshot.Terminals = slices.DeleteFunc(snapshot.Terminals, terminalFinished)
 		retainQuotas(&snapshot)
 		if err := projection.changes.reset(snapshot); err != nil {
@@ -114,6 +122,13 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		if projection.recovery || projection.snapshot.Cursor == ^uint64(0) || projection.snapshot.Cursor+1 != envelope.Cursor {
 			projection.recovery = true
 			return Recover, nil
+		}
+		switch envelope.Event.Kind {
+		case "provider_changed", "provider_removed", "provider_quota_changed":
+			if envelope.Cursor <= projection.providerCursor {
+				projection.snapshot.Cursor = envelope.Cursor
+				return Applied, nil
+			}
 		}
 		settled, removed, err := projection.settledChange(envelope.Event)
 		if err != nil {
@@ -460,8 +475,11 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		snapshot.Providers = slices.DeleteFunc(snapshot.Providers, func(item protocol.ConversationProvider) bool { return item.ID == provider.ID })
-		snapshot.Providers = append(snapshot.Providers, provider)
+		if i := slices.IndexFunc(snapshot.Providers, func(item protocol.ConversationProvider) bool { return item.ID == provider.ID }); i >= 0 {
+			snapshot.Providers[i] = provider
+		} else {
+			snapshot.Providers = append(snapshot.Providers, provider)
+		}
 		retainQuotas(snapshot)
 	case "provider_removed":
 		change, err := payload[protocol.EventProviderRemovedPayload](event.Data)

@@ -2,12 +2,14 @@ package live
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -28,6 +30,21 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	}
 	snapshot.Sessions[1].Activity.Title = "Sibling session"
 	transport := &conversationTestTransport{snapshot: snapshot}
+	transport.handle = func(request protocol.Request) (link.Response, bool) {
+		switch request.Command.Kind {
+		case "read_resource_catalog":
+			source := protocol.ResourceSource{Node: node, Route: protocol.RouteKey{Entry: node, Target: node}, Projects: snapshot.Projects, Worktrees: snapshot.Worktrees}
+			return link.Response{Output: protocol.Output{Kind: "resource_catalog", Data: protocol.ResourceCatalog{Entry: node, Sources: []protocol.ResourceSource{source}}}}, true
+		case "inspect_git":
+			return link.Response{Output: protocol.Output{Kind: "git_status", Data: protocol.GitStatus{Kind: protocol.RepositoryKindDirectory}}}, true
+		case "list_worktrees":
+			return link.Response{Output: protocol.Output{Kind: "git_worktrees", Data: protocol.GitWorktrees{Kind: protocol.RepositoryKindDirectory}}}, true
+		case "list_directory":
+			return link.Response{Output: protocol.Output{Kind: "directory", Data: protocol.Directory{Revision: "root"}}}, true
+		default:
+			return link.Response{}, false
+		}
+	}
 	transport.conversation = protocol.DefaultConversationSnapshot()
 	transport.conversation.Node = node
 	transport.conversation.Page.Session, transport.conversation.Page.Revision = shown, 1
@@ -43,6 +60,13 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	defer r.Close()
 	cv := &viewmodel.Conversation{Node: node.String(), ID: shown.String()}
 	comp := r.App.Composer(cv.ID)
+	wake := make(chan struct{}, 1)
+	r.SetInvalidate(func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	})
 	var ctx *composer.Context
 	tester := ui.NewTester(func(c *ui.Context) {
 		r.drain(c)
@@ -50,9 +74,24 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 		r.finishFrame()
 	}, 640, 400)
 	tester.SetLocale("en")
-	for range 4 {
-		r.workers.Wait()
+	deadline := time.After(2 * time.Second)
+	for {
 		tester.Frame()
+		r.workers.Wait()
+		r.mu.Lock()
+		pending := len(r.queue) > 0 || r.dirty
+		r.mu.Unlock()
+		workspace := r.workspace.projects[worktree]
+		directoryReady := r.resourceCatalog != nil && workspace != nil && workspace.directories[""]
+		connected := r.conversationCache[shown].state.Connected
+		if directoryReady && ctx.Repository.Kind == composer.Directory && connected && !pending {
+			break
+		}
+		select {
+		case <-wake:
+		case <-deadline:
+			t.Fatalf("composer did not settle: directory ready=%t, repository=%v, connected=%t, callbacks pending=%t", directoryReady, ctx.Repository.Kind, connected, pending)
+		}
 	}
 	catalog := r.composerCatalogs[cv.ID]
 	if catalog == nil || len(ctx.Models) == 0 {

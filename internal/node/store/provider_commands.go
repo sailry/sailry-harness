@@ -13,7 +13,7 @@ import (
 
 func SupportsProviderCommand(kind string) bool {
 	switch kind {
-	case "list_providers", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models":
+	case "list_providers", "read_provider_directory", "read_provider_key", "put_provider", "save_provider", "remove_provider", "list_credentials", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models":
 		return true
 	}
 	return false
@@ -417,6 +417,13 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 }
 func ReadProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, command protocol.Command) (protocol.Output, error) {
 	switch command.Kind {
+	case "read_provider_directory":
+		providers, quotas, err := ReadProviderSnapshot(ctx, db, node)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		cursor, err := EventCursor(ctx, db)
+		return protocol.Output{Kind: "provider_directory", Data: protocol.ProviderDirectory{Node: node, Cursor: cursor, Providers: providers, Quotas: quotas}}, err
 	case "list_providers":
 		values, err := providerList(ctx, db)
 		return protocol.Output{Kind: "providers", Data: values}, err

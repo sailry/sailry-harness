@@ -99,7 +99,8 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 	case "project_registered", "project_changed", "project_removed":
 		return eventAudience{Kind: "reset"}, nil
 	case "provider_changed", "provider_removed", "provider_quota_changed":
-		return eventAudience{Kind: "reset"}, nil
+		user, err := CurrentUser(ctx, db)
+		return eventAudience{Kind: "provider", Owner: &user.ID}, err
 	case "knowledge_collections_changed", "projection_invalidated":
 		return eventAudience{Kind: "reset"}, nil
 	case "model_catalog_changed":
@@ -229,6 +230,9 @@ func (v *eventVisibility) visible(a eventAudience) (bool, error) {
 	switch a.Kind {
 	case "host", "reset":
 		return true, nil
+	case "provider":
+		// Provider reads use the caller's configuration namespace even after a user merge.
+		return a.Owner != nil && *a.Owner == v.user.ID, nil
 	case "project":
 		if a.Project == nil {
 			return false, nil

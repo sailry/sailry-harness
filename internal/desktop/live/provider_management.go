@@ -252,6 +252,10 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 		request := *target.request
 		if !owner.async(func() {
 			resolution, err := owner.controller.Resolve(owner.ctx, request)
+			var directoryErr error
+			if err == nil && resolution.State == client.RequestApplied {
+				directoryErr = owner.controller.RefreshProviders(owner.ctx)
+			}
 			owner.enqueue(func(c *ui.Context) {
 				result := providerSaveFailure([]string{node})
 				unknown := "provider_save_unknown"
@@ -267,13 +271,13 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 								// Applied at this revision, but not as asked: the next
 								// save expects the revision and sends the rate again.
 								target.request, target.saved, target.intent = nil, &saved, [sha256.Size]byte{}
-								owner.refreshProviderSnapshot()
+								owner.projectProviderDirectory(c, directoryErr)
 								report(c, errProviderBillingRateDropped, unknown)
 								done(settings.ProviderSaveResult{Failed: []string{node}, TargetRevisions: map[string]uint64{node: saved.Revision}})
 								return
 							}
 							target.request, target.saved, target.intent = nil, &saved, target.requestIntent
-							owner.refreshProviderSnapshot()
+							owner.projectProviderDirectory(c, directoryErr)
 							batch.save(root, d, finished)
 							return
 						}
@@ -483,6 +487,10 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 		request := owner.controller.Prepare(command)
 		if owner.async(func() {
 			output, err := owner.controller.Settle(owner.ctx, request)
+			var directoryErr error
+			if err == nil && output.Kind == "provider" {
+				directoryErr = owner.controller.RefreshProviders(owner.ctx)
+			}
 			owner.enqueue(func(c *ui.Context) {
 				saved, valid := detail[protocol.ConversationProvider](output.Data)
 				if err == nil && (!valid || output.Kind != "provider" || saved.ID != id) {
@@ -515,7 +523,7 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 						result.Failed = append(result.Failed, node)
 						err = errProviderBillingRateDropped
 					}
-					owner.refreshProviderSnapshot()
+					owner.projectProviderDirectory(c, directoryErr)
 				}
 				report(c, err, unknown)
 				pending--

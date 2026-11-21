@@ -11,6 +11,7 @@ import (
 func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol.Snapshot, error) {
 	value := protocol.DefaultSnapshot()
 	value.Node = node
+	value.ProviderDirectory = true
 	user, userErr := CurrentUser(ctx, db)
 	if userErr != nil {
 		return value, userErr

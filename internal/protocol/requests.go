@@ -123,6 +123,7 @@ func (command Command) Durable() bool {
 		"read_compaction_settings",
 		"read_team_settings",
 		"list_providers",
+		"read_provider_directory",
 		"read_provider_key",
 		"list_channel_presets",
 		"refresh_model_catalog",

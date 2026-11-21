@@ -54,18 +54,21 @@ func (r *Runtime) readProviderKeyForSave(p protocol.ConversationProvider, done f
 }
 
 func (r *Runtime) refreshProviderSnapshot() {
-	root := r.localRuntime()
 	r.async(func() {
-		err := r.controller.Refresh(r.ctx)
+		err := r.controller.RefreshProviders(r.ctx)
 		r.enqueue(func(c *ui.Context) {
-			if err != nil {
-				r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
-				return
-			}
-			r.project()
-			root.projectProviderSnapshot()
+			r.projectProviderDirectory(c, err)
 		})
 	})
+}
+
+func (r *Runtime) projectProviderDirectory(c *ui.Context, err error) {
+	if err != nil {
+		r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
+		return
+	}
+	r.projectModels()
+	r.localRuntime().projectProviderSnapshot()
 }
 
 func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {

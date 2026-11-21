@@ -195,17 +195,21 @@ func TestSavedProviderRefreshesOpenDraft(t *testing.T) {
 			provider.Enabled = true
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node, snapshot.Providers = protocol.NodeID{1}, []protocol.ConversationProvider{provider}
+			snapshot.ProviderDirectory = true
 			transport := &conversationTestTransport{snapshot: snapshot}
 			var saved protocol.ConversationProvider
 			transport.handle = func(request protocol.Request) (link.Response, bool) {
+				if request.Command.Kind == "read_provider_directory" {
+					directory := protocol.ProviderDirectory{Node: snapshot.Node, Cursor: transport.snapshot.Cursor, Providers: transport.snapshot.Providers}
+					return link.Response{Output: protocol.Output{Kind: "provider_directory", Data: directory}}, true
+				}
 				if request.Command.Kind != "save_provider" {
 					return link.Response{}, false
 				}
 				input, _ := detail[protocol.CommandSaveProviderPayload](request.Command.Data)
 				saved = input.Provider
 				saved.Revision = 1
-				// No event is sent to the existing subscription. A fresh
-				// subscription reads the actual post-save state instead.
+				// Hold the subscription at its original cursor through the save.
 				transport.snapshot.Cursor++
 				if !removed {
 					transport.snapshot.Providers = append(slices.Clone(transport.snapshot.Providers), saved)
@@ -246,10 +250,16 @@ func TestSavedProviderRefreshesOpenDraft(t *testing.T) {
 			selected := comp.Model
 			newID := protocol.ProviderID{9}.String()
 			result := settings.ProviderSaveResult{}
-			r.saveManagedProvider(settings.ProviderDraft{Channel: viewmodel.Channel{
+			r.App.Settings.ProviderActions.Save(settings.ProviderDraft{Channel: viewmodel.Channel{
 				ID: newID, Name: "New channel", API: "responses", Endpoint: "https://models.example.test/v1", Auth: viewmodel.AuthKey, Enabled: true,
 				Models: []viewmodel.ChannelModel{{ID: "new-model", Context: 128000, Output: 16384}},
-			}}, func(saved settings.ProviderSaveResult) { result = saved })
+			}}, func(outcome settings.ProviderSaveResult) {
+				result = outcome
+				found := slices.ContainsFunc(r.App.Data.Models, func(model composer.Model) bool { return model.ID == modelKey(saved.ID, "new-model") })
+				if found == removed {
+					t.Error("the save completed before the model choices reflected the committed directory")
+				}
+			})
 			settle()
 			if len(result.Succeeded) != 1 {
 				t.Fatal("confirmed channel save was not reported")

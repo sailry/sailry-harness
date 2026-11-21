@@ -76,14 +76,14 @@ func WriteReply(reply Reply, write func(Reply) error) error {
 	if snapshot != nil {
 		header = SnapshotHeader{Delivery: delivery, Node: snapshot.Node, Cursor: snapshot.Cursor}
 		data, err = json.Marshal(snapshot)
-	} else if catalog := replyCatalog(reply); catalog != nil {
-		data, err = json.Marshal(catalog)
+	} else if directory, info := replyDirectory(reply); directory != nil {
+		header = info
+		data, err = json.Marshal(directory)
 		// Leave room for the completed reply envelope. Small catalogs use
 		// the original single-frame reply.
 		if err == nil && len(data) <= protocol.MAX_FRAME_BYTES-4096 {
 			return write(reply)
 		}
-		header = SnapshotHeader{Delivery: DeliveryCompleted, Node: catalog.Entry, Output: "resource_catalog"}
 	} else {
 		return write(reply)
 	}
@@ -110,19 +110,31 @@ func WriteReply(reply Reply, write func(Reply) error) error {
 	return nil
 }
 
-func replyCatalog(reply Reply) *protocol.ResourceCatalog {
-	if reply.Kind != ReplyCompleted || reply.Completed == nil || reply.Completed.Output == nil ||
-		reply.Completed.Output.Kind != "resource_catalog" {
-		return nil
+func replyDirectory(reply Reply) (any, SnapshotHeader) {
+	if reply.Kind == ReplyCompleted && reply.Completed != nil && reply.Completed.Output != nil {
+		out := reply.Completed.Output
+		switch out.Kind {
+		case "resource_catalog":
+			if catalog := directoryValue[protocol.ResourceCatalog](out.Data); catalog != nil {
+				return catalog, SnapshotHeader{Delivery: DeliveryCompleted, Node: catalog.Entry, Output: out.Kind}
+			}
+		case "provider_directory":
+			if providers := directoryValue[protocol.ProviderDirectory](out.Data); providers != nil {
+				return providers, SnapshotHeader{Delivery: DeliveryCompleted, Node: providers.Node, Cursor: providers.Cursor, Output: out.Kind}
+			}
+		}
 	}
-	switch data := reply.Completed.Output.Data.(type) {
-	case *protocol.ResourceCatalog:
-		return data
-	case protocol.ResourceCatalog:
-		return &data
-	default:
-		return nil
+	return nil, SnapshotHeader{}
+}
+
+func directoryValue[T any](data any) *T {
+	switch value := data.(type) {
+	case *T:
+		return value
+	case T:
+		return &value
 	}
+	return nil
 }
 
 func replySnapshot(reply Reply) (*protocol.Snapshot, Delivery) {
@@ -162,9 +174,10 @@ func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 		if assembly.pending != nil || reply.SnapshotStart == nil || reply.SnapshotStart.Bytes == 0 || reply.SnapshotStart.Bytes > MaxSnapshotBytes {
 			return nil, invalid()
 		}
-		if header := reply.SnapshotStart; header.Output != "" &&
-			(header.Output != "resource_catalog" || header.Delivery != DeliveryCompleted || header.Cursor != 0) {
-			return nil, invalid()
+		if header := reply.SnapshotStart; header.Output != "" {
+			if header.Delivery != DeliveryCompleted || (header.Output != "provider_directory" && (header.Output != "resource_catalog" || header.Cursor != 0)) {
+				return nil, invalid()
+			}
 		}
 		assembly.pending = &pendingSnapshot{header: *reply.SnapshotStart}
 		return nil, nil
@@ -187,6 +200,14 @@ func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 		}
 		assembly.pending = nil
 		defer clear(pending.data)
+		if pending.header.Output == "provider_directory" {
+			var directory protocol.ProviderDirectory
+			if err := protocol.DecodeAs(protocol.PeerData, pending.data, &directory); err != nil || directory.Node != pending.header.Node || directory.Cursor != pending.header.Cursor {
+				return nil, invalid()
+			}
+			output := protocol.Output{Kind: "provider_directory", Data: &directory}
+			return &Reply{Kind: ReplyCompleted, Completed: &Response{Output: &output}}, nil
+		}
 		if pending.header.Output == "resource_catalog" {
 			var catalog protocol.ResourceCatalog
 			if err := protocol.DecodeAs(protocol.PeerData, pending.data, &catalog); err != nil || catalog.Entry != pending.header.Node {
