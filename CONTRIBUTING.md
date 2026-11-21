@@ -540,7 +540,6 @@ just acceptance acceptance --suite quick --provider "Test channel" --model "mode
 just acceptance acceptance --suite full --provider "Test channel" --model "model-id" --effort medium
 just acceptance acceptance --suite backend --case F01-exit127 --timeout 3m
 just acceptance acceptance --suite e2e --case E2E01 --provider "Test channel" --model "model-id" --effort medium
-just acceptance acceptance --suite cache-tools --provider "Test Responses channel" --model "model-id"
 just acceptance-ui
 ```
 
@@ -559,7 +558,6 @@ a second Node. UI-only and replay runs open no Node and call no model.
 | `e2e` | Three real Client-to-interface conversation cases |
 | `full` | All backend cases, fixture interface checks and live UI cases |
 | `replay` | Recorded conversation snapshots and tool results through the real interface, without a model |
-| `cache-tools` | Paired measurements of fresh input tokens on a native Responses API-key channel |
 
 The command saves private `latest.json` and `latest.html` under
 `<test-profile>/acceptance` and opens the HTML report in the system browser even
@@ -567,36 +565,6 @@ when a case fails. `--report-dir` chooses another dedicated report directory.
 The direct Host CLI opens a report only with `--open-report`; `just` adds it.
 Exit codes are 0 for a passing run, 1 for failure/blocked/incomplete, and 130 for
 cancellation. Case progress is also written as JSON lines.
-
-### Responses tool declaration cache
-
-To run only the cache experiment with a built Host, use the same isolated test
-profile and its configured channel. `--start` is required for this suite.
-
-```sh
-sailry-host acceptance --data-dir "$PWD/.runtime/profiles/acceptance" --start \
-  --suite cache-tools --provider "Test Responses channel" --model "model-id"
-```
-
-The experiment sends up to six streaming model requests through the selected
-channel. Each group gets one cold request and two warm requests. Requests share
-a long synthetic reference item and the selected model and effort. Each run has
-a fresh namespace, and each group has its own cache key and one-letter prefix
-marker. Paired requests share a short sample suffix that changes between pairs.
-The tools group declares three workspace-style functions with parameter schemas.
-Each request sets a maximum of 64 output tokens. The experiment measures
-stateless requests and discards generated tool calls.
-
-Reports live in the `cache-tools` subdirectory of the report directory. Each
-`cache-tools.request` evidence value records the reported `input` and `cached`
-counts and the derived `fresh` count (`input` minus `cached`). `null` marks an
-unavailable count. A passing run requires a consistent reported model, explicit
-zero cached tokens in both cold samples, and a cache hit in each warm sample.
-It reports the fresh-input difference for both warm pairs, including zero when
-appropriate. A blocked run retains the available measurements. The report
-omits raw model responses, cache keys and credentials.
-
-### Conversation records
 
 Every created test session is recorded in an ownership ledger, including fork
 and backup sessions. A run stops its work, saves the test-owned evidence, and

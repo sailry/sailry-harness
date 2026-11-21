@@ -26,16 +26,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const acceptanceUsage = `Usage: sailry-host acceptance --data-dir <absolute test profile> [--start] [--suite quick|backend|ui|e2e|full|replay|cache-tools] [--provider <name or id> --model <id> [--effort <level>]] [--case <id> ...] [--timeout <duration>] [--report-dir <directory>] [--desktop <executable>] [--open-report]
-       sailry-host acceptance --list [--suite quick|backend|cache-tools]
+const acceptanceUsage = `Usage: sailry-host acceptance --data-dir <absolute test profile> [--start] [--suite quick|backend|ui|e2e|full|replay] [--provider <name or id> --model <id> [--effort <level>]] [--case <id> ...] [--timeout <duration>] [--report-dir <directory>] [--desktop <executable>] [--open-report]
+       sailry-host acceptance --list [--suite quick|backend]
        sailry-host acceptance-cleanup --data-dir <absolute test profile> [--start] [--report-dir <directory>]
 Attaches to the running Host by default. --start exclusively opens the test profile for this run.
-Live suites use real models. Configure a separate test profile first.
+Live suites use real models and dedicated test conversations. Configure a separate test profile first.
 --provider accepts a unique channel name or provider ID. --effort requires --provider and --model.
 UI/E2E/full suites use --desktop for their isolated headless process. Replay opens no Node or model.
-cache-tools requires --start and measures six stateless requests on a native Responses API-key channel.
 Records and reports are private. Cleanup uses recorded ownership only, never session title matching.
-Default suite: quick. Default case timeout: 2m. Default report directory: <profile>/acceptance (cache-tools: <profile>/acceptance/cache-tools).
+Default suite: quick. Default case timeout: 2m. Default report directory: <profile>/acceptance.
 Exit codes: 0 passed, 1 failed/blocked/incomplete, 130 canceled. Never runs from CI automatically.`
 
 type acceptanceOptions struct {
@@ -53,7 +52,7 @@ func parseAcceptance(args []string) (acceptanceOptions, bool, error) {
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.profile, "data-dir", "", "Use this isolated test profile")
 	flags.BoolVar(&options.start, "start", false, "Own the profile and stop the Node after testing")
-	flags.StringVar(&options.suite, "suite", "quick", "Run quick, backend, ui, e2e, full, replay or cache-tools acceptance")
+	flags.StringVar(&options.suite, "suite", "quick", "Run quick, backend, ui, e2e, full or replay acceptance")
 	flags.StringVar(&options.desktop, "desktop", "", "Use this Desktop executable for headless UI checks")
 	flags.BoolVar(&options.cleanup, "cleanup", false, "Clean only recorded acceptance sessions")
 	flags.BoolVar(&options.openReport, "open-report", false, "Open the generated HTML report")
@@ -86,8 +85,8 @@ func parseAcceptance(args []string) (acceptanceOptions, bool, error) {
 	if flags.NArg() != 0 {
 		return options, false, errors.New("unexpected acceptance argument; use --help")
 	}
-	if !slices.Contains([]string{"quick", "backend", "ui", "e2e", "full", "replay", cacheToolsSuite}, options.suite) {
-		return options, false, errors.New("--suite must be quick, backend, ui, e2e, full, replay or cache-tools")
+	if !slices.Contains([]string{"quick", "backend", "ui", "e2e", "full", "replay"}, options.suite) {
+		return options, false, errors.New("--suite must be quick, backend, ui, e2e, full or replay")
 	}
 	if options.timeout <= 0 {
 		return options, false, errors.New("--timeout must be a positive duration, such as 2m")
@@ -112,14 +111,6 @@ func parseAcceptance(args []string) (acceptanceOptions, bool, error) {
 	}
 	if options.cleanup && (options.suite == "ui" || options.suite == "replay") {
 		return options, false, errors.New("cleanup requires the test Node, not an offline suite")
-	}
-	if options.suite == cacheToolsSuite {
-		if options.cleanup {
-			return options, false, errors.New("cache-tools creates no sessions to clean up")
-		}
-		if !options.list && !options.start {
-			return options, false, errors.New("cache-tools requires --start on the isolated test profile")
-		}
 	}
 	if options.reportDirectory == "" && !options.list {
 		options.reportDirectory = filepath.Join(options.profile, "acceptance")
@@ -152,20 +143,11 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 		_, err := fmt.Fprintln(output, acceptanceUsage)
 		return 0, err
 	}
-	cacheTools := options.suite == cacheToolsSuite
-	var definitions []acceptance.CaseResult
-	if cacheTools {
-		definitions = []acceptance.CaseResult{cacheToolsCase()}
-	} else {
-		definitions, err = acceptance.ListBackendCases("backend")
-		if err != nil {
-			return 1, err
-		}
+	definitions, err := acceptance.ListBackendCases("backend")
+	if err != nil {
+		return 1, err
 	}
 	for _, id := range options.cases {
-		if cacheTools && id != cacheToolsSuite {
-			return 1, fmt.Errorf("case %s is not included in the selected suite", id)
-		}
 		if !slices.ContainsFunc(definitions, func(c acceptance.CaseResult) bool { return c.ID == id }) && !strings.HasPrefix(id, "ui.") && !slices.Contains([]string{"E2E01", "E2E02", "E2E03"}, id) {
 			return 1, fmt.Errorf("unknown acceptance case %q", id)
 		}
@@ -178,7 +160,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	}
 	encoder := json.NewEncoder(output)
 	if options.list {
-		if len(options.cases) == 0 && !cacheTools {
+		if len(options.cases) == 0 {
 			definitions, err = acceptance.ListBackendCases(options.suite)
 			if err != nil {
 				return 1, err
@@ -210,9 +192,6 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	scoped, cancel := context.WithCancel(ctx)
 	defer cancel()
 	report := acceptance.Report{Version: 1, Suite: options.suite, Started: time.Now().UTC(), Provider: options.provider, Model: options.model, Effort: options.effort, Cases: []acceptance.CaseResult{}}
-	if cacheTools {
-		report.Provider, report.Model, report.Effort = "", "", nil
-	}
 	var streamErr error
 	emit := func(result acceptance.CaseResult) {
 		if index := slices.IndexFunc(report.Cases, func(c acceptance.CaseResult) bool { return c.ID == result.ID && c.Group == result.Group }); index >= 0 {
@@ -228,12 +207,11 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 		}
 	}
 	var controller *client.Client
-	var execution *node.Node
 	var closeBackend func() error
 	ownershipImported := false
 	offline := options.suite == "ui" || options.suite == "replay"
 	if !offline {
-		controller, execution, closeBackend, err = acceptanceClient(scoped, options)
+		controller, closeBackend, err = acceptanceClient(scoped, options)
 	}
 	defer func() {
 		if closeBackend != nil {
@@ -247,7 +225,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 			message = "Could not start the standalone Node; inspect the test profile and its current owner"
 		}
 	}
-	if err == nil && controller != nil && !cacheTools {
+	if err == nil && controller != nil {
 		err = acceptance.ImportReportOwnership(options.reportDirectory, controller.Target())
 		ownershipImported = err == nil
 		if err != nil {
@@ -273,9 +251,7 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 			}
 		}
 		runOptions := acceptance.Options{Suite: options.suite, Config: config, Cases: options.cases, CaseTimeout: options.timeout, ReportDirectory: options.reportDirectory}
-		if err == nil && cacheTools {
-			emit(runAcceptanceCacheTools(scoped, execution, *config, options.timeout))
-		} else if err == nil && !offline && options.suite != "e2e" {
+		if err == nil && !offline && options.suite != "e2e" {
 			backendOptions := runOptions
 			backendOptions.Cases = nil
 			for _, id := range options.cases {
@@ -326,10 +302,10 @@ func runAcceptance(ctx context.Context, args []string, output io.Writer) (int, e
 	if options.cleanup {
 		reportDirectory = filepath.Join(reportDirectory, "cleanup")
 	}
-	if offline || cacheTools {
+	if offline {
 		reportDirectory = filepath.Join(reportDirectory, options.suite)
 	}
-	if !offline && !cacheTools && !ownershipImported && !options.cleanup {
+	if !offline && !ownershipImported && !options.cleanup {
 		// A previous latest report may be the only evidence of legacy session
 		// ownership. Preserve it until its identities have entered the ledger.
 		reportDirectory = filepath.Join(reportDirectory, "setup")
@@ -423,7 +399,7 @@ func openAcceptanceReport(path string) error {
 	return command.Run()
 }
 
-func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.Client, *node.Node, func() error, error) {
+func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.Client, func() error, error) {
 	var transport link.Transport
 	var execution *node.Node
 	var err error
@@ -444,13 +420,13 @@ func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.C
 			}},
 		})
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		transport = link.NewLocal(execution.ID(), execution.ID(), execution)
 		if options.desktop != "" && (options.suite == "full" || options.suite == "quick" || options.suite == "e2e") {
 			server, err = hostctl.Listen(options.profile, execution.Link(), transport)
 			if err != nil {
-				return nil, nil, nil, errors.Join(err, execution.Stop(context.Background()))
+				return nil, nil, errors.Join(err, execution.Stop(context.Background()))
 			}
 			var controlCtx context.Context
 			controlCtx, stopControl = context.WithCancel(context.WithoutCancel(ctx))
@@ -460,7 +436,7 @@ func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.C
 	} else {
 		transport, err = hostctl.Connect(ctx, options.profile)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 	}
 	controller := client.New(transport)
@@ -479,7 +455,7 @@ func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.C
 		return errors.Join(controllerErr, nodeErr)
 	}
 	if err := controller.Start(ctx); err != nil {
-		return nil, nil, nil, errors.Join(err, closeBackend())
+		return nil, nil, errors.Join(err, closeBackend())
 	}
-	return controller, execution, closeBackend, nil
+	return controller, closeBackend, nil
 }

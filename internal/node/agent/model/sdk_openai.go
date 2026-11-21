@@ -160,7 +160,6 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 			}
 		}
 		if response != nil {
-			captureCacheToolsResponseModel(ctx, response)
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
 		}
 		switch eventType {
