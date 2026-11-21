@@ -500,6 +500,44 @@ func TestGitLogEntryParents(t *testing.T) {
 	}
 }
 
+func TestUsageRequestCacheWire(t *testing.T) {
+	t.Parallel()
+	request := DefaultUsageRequest()
+	request.Session, request.Turn, request.Worktree, request.Provider = NewSessionID(), NewTurnID(), NewWorktreeID(), NewProviderID()
+	request.Tokens.Input = 9_007_199_254_741_000
+	for _, test := range []struct {
+		name     string
+		read     uint64
+		reported bool
+		write    *uint64
+	}{
+		{"unreported", 0, false, nil},
+		{"reported zero", 0, true, new(uint64(0))},
+		{"reported positive", 3, true, new(uint64(9_007_199_254_740_993))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request.Tokens.CachedInput, request.CachedInputReported, request.CacheWrite = test.read, test.reported, test.write
+			encoded, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), `"cached_input_reported"`) != test.reported || strings.Contains(string(encoded), `"cache_write"`) != (test.write != nil) {
+				t.Fatalf("encoded %s", encoded)
+			}
+			var decoded UsageRequest
+			if err := DecodeAs(PeerData, encoded, &decoded); err != nil || !reflect.DeepEqual(decoded, request) {
+				t.Fatalf("request = %+v, error %v, want %+v", decoded, err, request)
+			}
+			var legacy struct {
+				Tokens ConversationUsage `json:"tokens"`
+			}
+			if err := DecodeObject(encoded, &legacy, []string{"tokens"}, false); err != nil || legacy.Tokens != request.Tokens {
+				t.Fatalf("legacy tokens = %+v, error %v, want %+v", legacy.Tokens, err, request.Tokens)
+			}
+		})
+	}
+}
+
 func TestUsageTokenCoverageWire(t *testing.T) {
 	t.Parallel()
 	request := DefaultUsageRequest()

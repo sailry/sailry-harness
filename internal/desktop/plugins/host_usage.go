@@ -165,6 +165,12 @@ func projectUsageReport(value any, scopedGroups bool) {
 		if hostAt(request, "missing_output_tokens") == true {
 			hostSet(request, nil, "tokens", "output")
 		}
+		if hostAt(request, "tokens", "cached_input") == json.Number("0") && hostAt(request, "cached_input_reported") != true {
+			hostSet(request, nil, "tokens", "cached_input")
+		}
+		row, _ := request.(map[string]any)
+		hostSet(request, row["cache_write"], "tokens", "cache_write")
+		delete(row, "cache_write")
 	}
 }
 

@@ -280,10 +280,10 @@ func testHostUsageSample(t *testing.T) {
 			}
 			report.Requests.Items = []protocol.UsageRequest{
 				{MissingInputTokens: true},
-				{MissingOutputTokens: true, Tokens: protocol.ConversationUsage{Input: 9_007_199_254_740_993}},
+				{MissingOutputTokens: true, Tokens: protocol.ConversationUsage{Input: 9_007_199_254_740_993}, CacheWrite: new(uint64(9_007_199_254_740_993))},
 				{MissingInputTokens: true, MissingOutputTokens: true},
-				{Tokens: *report.Totals.Tokens},
-				{},
+				{Tokens: *report.Totals.Tokens, CachedInputReported: true, CacheWrite: new(uint64(0))},
+				{Tokens: protocol.ConversationUsage{Input: 10, CachedInput: 2}},
 			}
 			for index := range report.Requests.Items {
 				report.Requests.Items[index].Position = protocol.UsagePosition{TimestampMs: query.StartMs, Node: node, Sequence: uint64(len(report.Requests.Items) - index)}
@@ -332,18 +332,29 @@ func testHostUsageSample(t *testing.T) {
 			}
 			checkMetrics("group", hostAt(group, "metrics"), "3", "9007199254740993")
 			items, _ := hostAt(report, "requests", "items").([]any)
-			want := [][2]any{{nil, "0"}, {"9007199254740993", nil}, {nil, nil}, {"9007199254740993", "0"}, {"0", "0"}}
+			want := [][4]any{
+				{nil, "0", nil, nil},
+				{"9007199254740993", nil, nil, "9007199254740993"},
+				{nil, nil, nil, nil},
+				{"9007199254740993", "0", "0", "0"},
+				{"10", "0", "2", nil},
+			}
 			if len(items) != len(want) {
 				t.Fatalf("request page = %#v", items)
 			}
 			for index, item := range items {
 				tokens, _ := hostAt(item, "tokens").(map[string]any)
-				for slot, name := range []string{"input", "output"} {
+				for slot, name := range []string{"input", "output", "cached_input", "cache_write"} {
 					actual, exists := tokens[name]
-					flagged := hostAt(item, "missing_"+name+"_tokens") == true
-					if !exists || actual != want[index][slot] || flagged != (want[index][slot] == nil) {
-						t.Fatalf("request %d %s = %#v, flagged %t; want %#v", index, name, actual, flagged, want[index][slot])
+					if !exists || actual != want[index][slot] {
+						t.Fatalf("request %d %s = %#v (present: %t), want %#v", index, name, actual, exists, want[index][slot])
 					}
+					if slot < 2 && (hostAt(item, "missing_"+name+"_tokens") == true) != (actual == nil) {
+						t.Fatalf("request %d %s has inconsistent missing flag: %#v", index, name, item)
+					}
+				}
+				if (hostAt(item, "cached_input_reported") == true) != (index == 3) {
+					t.Fatalf("request %d lost its cache read marker: %#v", index, item)
 				}
 			}
 		}

@@ -167,9 +167,9 @@ func TestCanonicalUsageReportsIncompleteHelperResponses(t *testing.T) {
 		cost     *uint64
 	}{
 		{&media, "image", canonical.Usage{}, protocol.ConversationUsage{}, [2]bool{true, true}, nil},
-		{&search, "search", canonical.Usage{Input: ptr(uint64(13)), CacheRead: ptr(uint64(2))}, protocol.ConversationUsage{Input: 13, CachedInput: 2}, [2]bool{false, true}, nil},
-		{&search, "search", canonical.Usage{Output: ptr(uint64(0))}, protocol.ConversationUsage{}, [2]bool{true, false}, nil},
-		{&search, "search", canonical.Usage{Input: ptr(uint64(4)), Output: ptr(uint64(2))}, protocol.ConversationUsage{Input: 4, Output: 2}, [2]bool{}, ptr(uint64(8))},
+		{&search, "search", canonical.Usage{Input: ptr(uint64(13)), CacheRead: ptr(uint64(2)), CacheWrite: ptr(uint64(9))}, protocol.ConversationUsage{Input: 13, CachedInput: 2}, [2]bool{false, true}, nil},
+		{&search, "search", canonical.Usage{Output: ptr(uint64(0)), CacheWrite: ptr(uint64(0))}, protocol.ConversationUsage{}, [2]bool{true, false}, nil},
+		{&search, "search", canonical.Usage{Input: ptr(uint64(4)), Output: ptr(uint64(2)), CacheRead: ptr(uint64(0))}, protocol.ConversationUsage{Input: 4, Output: 2}, [2]bool{}, ptr(uint64(8))},
 	}
 	appendRequest := func(db *sql.Conn, i int) error {
 		request := requests[i]
@@ -275,6 +275,9 @@ func TestCanonicalUsageReportsIncompleteHelperResponses(t *testing.T) {
 				if item.Session != session.ID || item.Turn != turn || item.Provider != request.provider.ID || item.ProviderName != request.provider.Name || item.Model != request.model ||
 					item.Tokens != request.present || [2]bool{item.MissingInputTokens, item.MissingOutputTokens} != request.missing || !reflect.DeepEqual(item.UsdMicros, request.cost) {
 					t.Errorf("request %d lost its binding, reported token fields, or cost: %+v", i, item)
+				}
+				if item.CachedInputReported != (request.usage.CacheRead != nil) || !reflect.DeepEqual(item.CacheWrite, request.usage.CacheWrite) {
+					t.Errorf("request %d lost its cache usage: %+v", i, item)
 				}
 			}
 			facts, err := ReadTurnFacts(ctx, db, session.ID, turn)

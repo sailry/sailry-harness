@@ -3,7 +3,7 @@
     {
       "name": "run_command",
       "operation": "process.run",
-      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Do not use it for cat, head, grep, find, ls or sed when a file, search or edit tool can do the work. Output reports truncation. Timeout defaults to 120000 ms. A command that does not exit on its own, such as a development or HTTP server, file watcher, tail -f or REPL, must use background=true: in the foreground it blocks until the timeout and is killed. Also set service=true for a server or watcher the user keeps using after the turn, never for builds or tests. A background command returns an ID immediately, has no timeout and records its completion. Confirm that a server is ready with read_command, its ID, until set to its readiness text and wait_ms, not with sleep or curl loops. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. A follow_up command, or a foreground command moved to the background when the user sends guidance, that produces no output for 15 minutes continues the conversation once with a stall notice and keeps running. A command that listens or waits for an event must enforce its own timeout. When the user stops the turn, the session's commands are stopped except those started with service=true, and no completion continues the conversation; their results are shown with the user's next message. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
+      "description": "Run a Node command. Give its purpose and call directly for approval. Prefer file, search and edit tools for supported work. Bundled skill paths outside the workspace require unrestricted access. Foreground commands stop on exit, cancellation or timeout. Use background=true (not shell &) for servers, watchers, REPLs and other open-ended commands. It returns an ID immediately, has no timeout and records completion. Give event waits their own timeout. Check readiness with read_command, the ID, wait_ms and readiness text in until. Avoid sleep or curl loops. Background stdin works with or without a PTY. write_command queues input. Read output to confirm acceptance. Output reports truncation. Use stop_command to stop a process. Stopping the turn stops non-service commands and defers completion reports until the user's next message.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -18,19 +18,19 @@
               "unrestricted"
             ],
             "default": "workspace",
-            "description": "With the workspace sandbox on macOS/Linux, workspace access confines writes to the admitted worktree and temporary directory, blocks network, and protects existing Git metadata and managed child worktrees; macOS also blocks new .git paths. Confined commands run without approval. Request unrestricted access for Git writes, including git init, git add and git commit, network access or paths outside the worktree; Ask and Project require fresh approval for each unrestricted command. When the sandbox setting is off, on Windows, or in Full mode, every command runs unrestricted whatever this field says and follows the permission mode."
+            "description": "Sandboxed workspace commands on macOS/Linux need no approval. Writes stay in the worktree or temp directory. Network is blocked. Existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Request unrestricted for Git writes (including git init, add and commit), network or outside paths. Ask and Project require fresh approval per unrestricted command. With sandbox off, on Windows or in Full mode, every command runs unrestricted under the current permission mode."
           },
           "description": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Optional concise explanation shown with the command before approval"
+            "description": "Purpose shown before approval"
           },
           "cwd": {
             "type": "string",
             "default": "",
-            "description": "Working directory on the Node. Omit or use a relative path for the admitted worktree. Workspace access cannot select a directory outside that worktree."
+            "description": "Defaults to the admitted worktree. Relative paths resolve there. Workspace access confines cwd to it."
           },
           "background": {
             "type": "boolean",
@@ -39,12 +39,12 @@
           "follow_up": {
             "type": "boolean",
             "default": false,
-            "description": "Continue the conversation automatically when this background command finishes or stalls (no output for 15 minutes, reported once). Required when you wait for its result; otherwise status and output are only retained."
+            "description": "Set when waiting for or monitoring a background command to resume on completion. Otherwise only the result is retained. A 15-minute silence triggers one stall notice and execution continues. Foreground commands backgrounded by user guidance get the same notice."
           },
           "service": {
             "type": "boolean",
             "default": false,
-            "description": "Keep this background command running when the user stops the turn. Use only for long-lived services such as development or HTTP servers and file watchers, never for builds or tests. Requires background=true."
+            "description": "Requires background=true. Only for servers or watchers the user keeps running after the turn. Never use for builds or tests."
           },
           "timeout_ms": {
             "type": "integer",
@@ -58,12 +58,12 @@
             "items": {
               "type": "string"
             },
-            "description": "Attachment IDs to read at SAILRY_ATTACHMENTS/<id> using the shell's environment-variable and path syntax. Copies last for this command; edits do not modify the originals."
+            "description": "IDs copied to SAILRY_ATTACHMENTS/<id> for this command only. Use the shell's variable and path syntax. Edits affect only the copies."
           },
           "pty": {
             "type": "boolean",
             "default": false,
-            "description": "Allocate a PTY for a background command that requires a terminal. Requires background=true."
+            "description": "Requires background=true. Use for terminal prompts, REPLs or debuggers. Merges stdout and stderr."
           }
         },
         "required": [
@@ -149,7 +149,7 @@
     {
       "name": "read_command",
       "operation": "process.read",
-      "description": "Read retained output; this does not start a process or read a file directly. Pass the exact UUID returned as data.id by run_command with background=true, a listed command id, or the sailry_command.id in a foreground result. Never substitute a PID, filename, command text or invented ID. Omit id or use null to list commands. Use run_command to start a new command. With id, set wait_ms up to 30000 for an event-driven wait: return on new output, command exit or deadline. Add until to wait for a new occurrence of that text in either output stream after this read begins; command exit or deadline still returns. until requires wait_ms greater than 0 and is rejected without it. A waited read reports data.wait: matched (until text appeared), output (new output arrived), exited (the command ended) or deadline (wait_ms elapsed first). Omitted or zero wait_ms reads immediately. To page complete command output, pass id, stream (stdout or stderr), offset=0 and limit up to 32768 bytes, then continue with next_offset. To read an original tool result omitted from model context, pass its output object unchanged, offset and limit; add stream only for a retained command stream. Command streams last while their Node owner retains them; canonical tool results survive restart.",
+      "description": "Inspect retained output. Use run_command to start processes and read_file for files. Page a command stream by id and stream from byte offset=0, then follow next_offset. For a tool result omitted from context, pass its output unchanged with offset and limit. Add stream only for a retained command stream. Streams last while their Node owner retains them. Canonical tool results survive restart. A waited read reports data.wait as matched, output, exited or deadline.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -160,7 +160,7 @@
               "null"
             ],
             "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$",
-            "description": "Exact background command UUID from run_command data.id or a listed command id; omit or null to list commands"
+            "description": "Exact UUID from run_command data.id (background), sailry_command.id (foreground) or the command list. Omit or pass null to list this session's commands."
           },
           "output": {
             "type": "object",
@@ -200,12 +200,12 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 30000,
-            "description": "Wait up to this many milliseconds for output or exit. Omit or use 0 for an immediate read. Waiting requires id."
+            "description": "With id, wait for new output, exit or deadline. Zero or omitted reads immediately."
           },
           "until": {
             "type": "string",
             "minLength": 1,
-            "description": "Requires id and wait_ms greater than 0. Wait for a new occurrence of this substring in either stream after this read begins, command exit or deadline; data.wait reports which ended the wait."
+            "description": "Requires id and positive wait_ms. Match a new occurrence of this substring in either stream after this read begins. Exit or deadline also returns."
           }
         },
         "required": []

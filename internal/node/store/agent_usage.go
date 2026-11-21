@@ -207,6 +207,8 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		request.Model = row.model
 		request.Tokens = tokens
 		request.MissingInputTokens, request.MissingOutputTokens = stored.Input == nil, stored.Output == nil
+		request.CachedInputReported = stored.CacheRead != nil
+		request.CacheWrite = stored.CacheWrite
 		// Copies escape only for the requests a page keeps.
 		if elapsedKnown {
 			v := elapsed

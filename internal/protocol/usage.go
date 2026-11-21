@@ -98,6 +98,10 @@ type UsageRequest struct {
 	// A missing counter occupies the old wire's numeric slot but is not a measured zero.
 	MissingInputTokens  bool `json:"missing_input_tokens,omitempty"`
 	MissingOutputTokens bool `json:"missing_output_tokens,omitempty"`
+
+	// The legacy cached_input slot cannot distinguish a reported zero from an absent count.
+	CachedInputReported bool    `json:"cached_input_reported,omitempty"`
+	CacheWrite          *uint64 `json:"cache_write,omitempty"`
 }
 
 func DefaultUsageRequest() UsageRequest {

@@ -306,6 +306,8 @@ export function usageSources():{node:string;label:string}[];
 export function readUsageInventory(node?:string):Promise<{node:string;projects:{id:string;name:string}[];providers:{id:string;name:string;/** Provider type logo asset; null for generic providers. */icon:string|null;models:string[]}[]}>;
 /** In report request rows, `tokens.input` and `tokens.output` are exact decimal strings (including `"0"`),
  * or null when the corresponding `missing_input_tokens` / `missing_output_tokens` flag is true.
+ * `tokens.cached_input` and `tokens.cache_write` are exact decimal strings when reported, or null.
+ * A legacy `cached_input` of zero without `cached_input_reported: true` is treated as unknown.
  * In totals, groups and point metrics, a nonzero `incomplete_token_responses` decimal string means
  * `tokens` is null. `token_subtotal` sums responses reporting both counts and is absent if none did.
  * Point `models` also cover only those responses; coverage is reported for the point, not per model. */
