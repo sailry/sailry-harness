@@ -2,7 +2,7 @@ package link
 
 import "github.com/sailry/sailry-harness/internal/protocol"
 
-var ProductVersion = "0.2.6"
+var ProductVersion = "0.2.7"
 
 func CheckHost(hostProtocol *uint16, hostVersion *string) error {
 	local := uint16(protocol.VERSION)

@@ -616,9 +616,10 @@ using a bounded, process-local cache. Upstream cached tokens are reported separa
 Text estimates remain separate from provider-reported tokens. Attempt-relative
 timings distinguish HTTP dispatch after preparation, successful request write,
 response headers and first model content; unavailable transport facts stay absent.
-Generation speed divides total measured output tokens by the sum of positive
-intervals from first model output to completion. A request without that timing
-can still contribute usage and cost. Request duration includes time to first output.
+Full-request throughput divides the measured output token total by the sum of
+complete request durations, including time to first output. Each sample contributes
+both its reported output and its duration. Generation timing remains available for
+clients that display the interval from first model output to completion.
 
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;
@@ -716,6 +717,15 @@ removed meanwhile does not reject it. Each boundary takes up to 16 messages or
 turn settles without joining becomes an ordinary queued turn captured again with
 the session's current settings, keeping the earlier capture only when the
 current settings are unavailable.
+
+An explicit queue send to a running recipient prioritizes the selected input at
+its next model boundary. Once the queue update commits, the Node requests
+cancellation of foreground commands, interruptible reads and interaction waits.
+Already admitted noninterruptible effects settle first. Successful and uncertain
+results stay in the original turn with the selected input. A completed recipient
+can fall back to starting the selected input in an idle, unpaused queue. A
+replacement run or a stop takes precedence over this fallback.
+
 Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
@@ -1071,9 +1081,11 @@ unknown is marked interrupted and its body keeps only the tool's own result.
 Visible conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane
 previews release images after their last visible use. Installed themes validate
-artwork at admission and decode the full image only when it is rendered. The transcript retains
-checkpoint paths and change counts for loaded turns. Opening the history or
-changes view requests the older checkpoint inventory; review owns the diff lines.
+artwork at admission and decode the full image only when it is rendered. Each
+mounted transcript reads checkpoint paths and change counts from its session's
+Host, including splits and embedded conversations. The shared details panel
+shows the selected session's checkpoints and requests the older inventory when
+history or changes opens. Review owns the diff lines.
 Open workspace editors retain file bodies and draft revisions. A single-file
 diff retains the revision needed for hunk actions. Closing an editor or diff
 releases its recoverable file contents while retaining workspace navigation.
@@ -1119,10 +1131,6 @@ dependency or microphone permission; audio and video attachments remain supporte
 `--preview` opens no profile and starts no Node. Explicit
 acceptance and replay run in isolated processes; their limits and commands are in
 [CONTRIBUTING.md](CONTRIBUTING.md#manual-acceptance).
-The standalone Host runs the `cache-tools` acceptance experiment in its test
-Node. The Node captures the selected channel and keeps its credentials local to
-the standard Responses SDK transport. The experiment reports per-request usage
-without creating a conversation.
 
 Mobile reserves pairing code `888888` for a local demonstration host with the
 ordinary host presentation. Flutter persists this choice separately from Link

@@ -3,6 +3,13 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.7](https://github.com/sailry/sailry-harness/releases/tag/v0.2.7) — 2026-11-22
+
+- Keep sent messages in the correct queue or transcript while admission and history updates arrive, and resume queued inputs after stopping a turn.
+- Bound recovery after HTTP 524, preserve cancellation and completed tool results, and release collected child tasks from active parent turns.
+- Measure output throughput over complete requests, including time to first output. Preserve cache read and write coverage and request-level history diagnostics.
+- Reduce long-session tool replay, code graph rebuild allocations and mobile history projection time. Handle large Git worktree inventories without losing records.
+
 ## [0.2.6](https://github.com/sailry/sailry-harness/releases/tag/v0.2.6) — 2026-11-21
 
 - Reduce long-conversation allocation and switching stalls with bounded background
