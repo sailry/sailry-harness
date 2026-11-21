@@ -134,6 +134,17 @@ all-project reports and their request pages, preserving partial source failures
 and the timestamp, Node and sequence pagination order. The statistics plugin owns
 the filters and presentation, without a separate host selection.
 
+API-key channels can adjust model cost estimates by a percentage, defaulting to
+100%. Node uses the captured channel with the reported usage to record the
+estimate at commit. Both conversation and usage reports use that recorded
+estimate; later channel or catalog edits do not reprice it. Older usage without
+a recorded estimate keeps the unadjusted catalog lookup. Unknown prices are not
+zero charges, and catalog estimates are separate from provider invoices.
+Media and search responses with recorded usage count even when input or output
+tokens are missing. Request rows distinguish missing counters from reported zero;
+token subtotals include only responses with both counters and carry the number
+excluded. Price coverage counts responses with a known estimate independently.
+
 Projects have a Node-local user owner and private or host-shared visibility.
 New projects default to host-shared visibility; existing private projects keep
 their visibility, including when older stored records omit that field.
@@ -155,9 +166,10 @@ A task on a host uses that host's collections under its captured user.
 Node authenticates callers before every command family, direct subscription and
 byte stream; typed resource identifiers are checked centrally and unknown commands
 fail closed. Snapshots, catalogs and batch events contain only accessible
-resources. Event audiences retain deletion
-scope, hidden rows advance the cursor without payload, and visibility changes
-invalidate projections. Buffered events and open streams recheck current access.
+resources. Node event streams retain a cursor watermark, not prefiltered pages.
+Each delivery reads its row and current audience in the same snapshot. Historical
+audiences retain deletion scope; hidden rows advance the cursor without payload,
+and visibility changes invalidate projections. Open streams recheck current access.
 
 `Session` is the common conversation container for controllers, Host automation
 and plugin assistants. `StartSession` creates a session and admits its first turn
@@ -530,10 +542,11 @@ context. The execution identity section includes the turn's UTC start time.
 Plugin initializer text stays in agent context and fixed package guidance
 follows the tools available to inference. Unavailable MCP servers contribute
 no tool instructions. Named context sections append changed values. New user
-input refreshes the current deferred
-tool catalog and last successfully recorded unfinished plan. The core
-`update_plan` tool records progress alongside delegation or independent reads.
-Delegated children receive it only through an explicit role tool selection.
+input refreshes the last successfully recorded unfinished plan. The deferred
+tool catalog is emitted on change or when its last copy is no longer visible.
+Leading `update_plan` receipts are recorded before the rest of the tool batch.
+Delegated children can record and restore their own plan only when their role
+explicitly selects that tool.
 Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
 Automatic compaction uses the captured model and defaults to 80% of its context
@@ -573,7 +586,13 @@ original context intact; there is no background compaction or second summary pas
 
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.
-Hidden history is filtered before materialization. A successful
+Hidden history is filtered before materialization. In ordinary main requests,
+a completed tool-calling response that reports at least half its context window
+in input can establish a stable boundary for older tool pages. When exact output
+recovery is available, eligible large file and search pages before that boundary
+are represented by their source references and page facts. The triggering batch,
+errors and media keep their normal projection. A new checkpoint resets this
+boundary; summary requests and canonical history are unchanged. A successful
 compaction must reach a main request before another threshold compaction.
 Provider-reported usage alone enters usage and cost totals; local token estimates
 inform context budgeting without inventing billed usage. After a checkpoint,
@@ -740,6 +759,12 @@ approval for command input and stopping follows the live process identity.
 | Session documents | Immutable bounded HTML revisions, rendered in an opaque-origin sandbox |
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
+
+On-demand code relations validate candidate files under the current worktree
+access and ignore rules. A bounded memory cache reuses lexical tests and index
+rows for verified file versions, and small result pages for identical selected
+inputs. It retains neither source bodies nor open indexes and does not enable
+the persistent index.
 
 Hook commands receive one UTF-8 JSON object on standard input followed by EOF.
 The fields are `schema_version` (currently 1), `hook_event_name`, `node_id`,
@@ -935,8 +960,12 @@ translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
 Project-created terminals are independent main-workspace surfaces and may share
-split groups with conversations. The header shows tabs for multiple entries or
-an explicitly kept tab; selecting a split-group tab restores its focused pane.
+split groups with conversations. Opening a conversation (a sidebar row, New
+session, `App.OpenConversation` from links, search or notifications) gives it a
+normal header tab until it is closed, one per target; one in a split shows its
+group. A selection the window falls back to after data changes adds no tab, and
+closing a tab leaves the session's tasks running. Main-workspace terminals keep
+passing and kept tabs; selecting a split-group tab restores its focused pane.
 An enlarged conversation retains its split slot and shares until restored.
 Terminal tabs opened in the right panel stay
 with that conversation and do not join splits. A terminal ID has one surface at a
@@ -965,17 +994,26 @@ exclusive cursor for the group, and individual turns retain entry cursors.
 A display history read can omit captured prompt text from large configuration
 records before copying them into Go. The original record sizes still determine
 pagination and the stored records remain the source for model replay.
-A new subscription sends history first. Closing the last observation releases
-queued and replayed frames. Node skips live metadata refresh for unobserved
-conversations and reads current durable state when a new observer attaches.
-Statistics are computed outside the publication lock and delivered on the same
-ordered feed.
+A new subscription sends history first and reuses measured entry lengths when
+fitting the enclosing snapshot. Each observed session shares one replay window:
+up to 512 frames within a 4 MiB ordinary budget, plus at most one legal large
+frame. Observers retain cursors rather than their own queues. A gap requires
+that observer to read canonical history again. Closing the last observation
+releases the window. Live activity reads runs, queue, interactions and tasks
+without projecting entry bodies. Unobserved conversations skip that refresh.
+Statistics are computed outside the publication lock. A bounded cache validates
+turn membership, append cursors and relevant pricing dependencies in the
+current read snapshot before extending completed aggregates. Metadata and
+statistics are delivered on the same ordered feed.
 
 Desktop reuses read-only conversation source copies until a Client observation
 changes, including pagination and connection state. Across history pages and
 streaming drafts the read-only view shares its already detached canonical entries.
 Replacement snapshots and removal of a visible entry invalidate their reuse.
 Mutable action reads always get independent copies.
+Statistics-only changes keep the existing prepared transcript while updating
+the usage display. Conversation observers reuse the detached rows and their
+derived transcript data; the Mobile bridge still sends full view packets.
 Mobile asks the Client to send transcript rows by source part range when no
 display override is needed. The bridge carries the original parts once; Flutter
 resolves them when it builds a row. Other observations keep inline row parts.
@@ -1013,11 +1051,12 @@ Consecutive tool calls share one folded group until text, a subagent, an
 interaction or a standalone call breaks the run; the task's progress card keeps
 its place without splitting it. Calls keep their rows as they start, settle or
 fail, and the group's header shows the latest call as that call's own row
-would. A failed call displays its error message
-when one is available and falls back to its original result. A cancelled call
-is a plain row; a call whose outcome is unknown is marked interrupted and its
-body keeps only the tool's own result. Visible
-conversation image rows resolve bounded thumbnails. The viewer loads the selected
+would. Opening the process of a completed reply leaves its tool groups and
+results folded until chosen separately. Those choices live only in the window.
+A failed call displays its error message when one is available and falls back to
+its original result. A cancelled call is a plain row; a call whose outcome is
+unknown is marked interrupted and its body keeps only the tool's own result.
+Visible conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane
 previews release images after their last visible use. Installed themes validate
 artwork at admission and decode the full image only when it is rendered. The transcript retains
