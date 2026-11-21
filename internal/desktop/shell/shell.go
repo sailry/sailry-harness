@@ -369,6 +369,7 @@ func (a *App) View(c *ui.Context) {
 	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
+	a.handOverFocus(c)
 	a.panes.enlargedFrame = a.panes.enlarged
 	if target := a.panes.enlargedFocus; target != (panes.Target{}) {
 		a.panes.enlargedFocus = panes.Target{}
@@ -418,13 +419,14 @@ func (a *App) View(c *ui.Context) {
 			body.Children(func() {
 				a.nav(c, f, fill)
 				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
-				// On the conversation standing alone ⌘W closes its tab.
+				// On the conversation standing alone ⌘W closes its tab, when
+				// it has one; its pane keys work with or without.
 				a.pane(c, main, &a.mainPane, a.closable() || a.tabClosable(), func() {
 					if !a.closePageTab(c) && !a.ClosePage() {
 						a.closeShownTab(c)
 					}
 				})
-				if a.tabClosable() && a.Data.Find(a.panes.Active.ID) != nil {
+				if a.standsAlone() && a.Data.Find(a.panes.Active.ID) != nil {
 					a.paneKeys(c, main, a.panes.Active)
 				}
 				a.mainColumn(c, main, f)
@@ -655,10 +657,11 @@ func (a *App) syncPanel() {
 	a.Panel.Paged = a.paged()
 	a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
 	a.Panel.Cwd = ""
-	if pr := a.Data.ProjectOf(a.Sidebar.Selected); pr != nil {
+	selected := a.SelectedConversation()
+	if pr := a.Data.ProjectHolding(selected); pr != nil {
 		a.Panel.Cwd = pr.Path
 	}
-	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
+	if cv := selected; cv != nil && cv.WorktreePath != "" {
 		a.Panel.Cwd = cv.WorktreePath
 	}
 	if a.Page == ConversationPage {
@@ -799,7 +802,7 @@ func (a *App) page(c *ui.Context) {
 	if a.split(c) {
 		return
 	}
-	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil {
+	if cv := a.SelectedConversation(); cv != nil {
 		if t := session(cv.ID); a.panes.enlargedFrame == t {
 			a.enlargedSlot(c, t)
 			return

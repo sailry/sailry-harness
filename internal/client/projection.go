@@ -28,7 +28,17 @@ type Projection struct {
 	directory  uint64
 	credential uint64
 	providers  uint64
+	// removed are the latest removedLimit sessions the Node's committed
+	// sessions_removed events named, in order, and removals counts every one
+	// named. A snapshot no longer listing a session adds nothing: a
+	// permission withdrawn hides a session without removing it.
+	removed  []protocol.SessionID
+	removals uint64
 }
+
+// removedLimit bounds the removals kept for readers. One that falls further
+// behind misses the oldest, and keeps whatever it would have forgotten.
+const removedLimit = 1024
 
 func NewProjection(node protocol.NodeID, generation uint64) *Projection {
 	return &Projection{node: node, generation: generation, recovery: true}
@@ -180,6 +190,11 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		}
 		snapshot.Sessions = slices.DeleteFunc(snapshot.Sessions, func(session protocol.Session) bool { return slices.Contains(ids, session.ID) })
 		snapshot.Turns = slices.DeleteFunc(snapshot.Turns, func(turn protocol.TurnSummary) bool { return slices.Contains(ids, turn.Session) })
+		projection.removals += uint64(len(ids))
+		projection.removed = append(projection.removed, ids...)
+		if over := len(projection.removed) - removedLimit; over > 0 {
+			projection.removed = slices.Clone(projection.removed[over:])
+		}
 	case "sessions_reordered":
 		ids, err := payload[[]protocol.SessionID](event.Data)
 		if err != nil {

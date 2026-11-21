@@ -480,7 +480,7 @@ func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, 
 	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: ":changes"})
 	if operation == "create" {
-		if cv := r.App.Data.Find(r.App.Sidebar.Selected); cv != nil {
+		if cv := r.App.SelectedConversation(); cv != nil {
 			r.openManagedConversation(cv, nil, false, func(tree protocol.Worktree) { comp.Worktree = tree.Path; p.locationsLoaded = false })
 		}
 	} else {

@@ -174,8 +174,12 @@ func (a *App) ApplyData(d *viewmodel.Data) {
 		if ids := a.Sidebar.Order(); len(ids) > 0 {
 			a.Sidebar.Selected = ids[0]
 		}
+	} else if node := a.Sidebar.SelectedNode(); node != "" && d.FindOn(node, a.Sidebar.Selected) == nil {
+		// The chosen host no longer lists it; another host's of its ID stays
+		// selected by ID, as before.
+		a.Sidebar.SelectOn("", a.Sidebar.Selected)
 	}
-	a.panes.Prune(a.paneExists)
+	a.prunePanes()
 	if a.Preview {
 		a.hosts = nil
 	}

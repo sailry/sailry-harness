@@ -97,7 +97,7 @@ func (a *App) header(c *ui.Context, f frame) {
 				// pane of a split has its own (paneHeader).
 				var cv *preview.Conversation
 				if a.panes.Displayed() == nil && a.panes.Active.Kind != panes.Terminal {
-					cv = a.Data.Find(a.Sidebar.Selected)
+					cv = a.SelectedConversation()
 				}
 				if hasActions(cv) {
 					known += 2 * (HeaderButton + ButtonGap)
@@ -459,12 +459,12 @@ func (a *App) trail(c *ui.Context) {
 		ui.Text(c, a.paneTitle(c, a.panes.Active)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
-	cv := a.Data.Find(a.Sidebar.Selected)
+	cv := a.SelectedConversation()
 	if cv == nil {
 		ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.Foreground)
 		return
 	}
-	pr := a.Data.ProjectOf(cv.ID)
+	pr := a.Data.ProjectHolding(cv)
 	if pr == nil {
 		ui.Text(c, sidebar.Title(c, cv)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return

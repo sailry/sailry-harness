@@ -316,7 +316,7 @@ func (a *App) planStrip(c *ui.Context, room float32) stripPlan {
 func (a *App) avatar(c *ui.Context, cv *preview.Conversation, l lane) {
 	p := theme.Of(c)
 	title := sidebar.Title(c, cv)
-	b := ui.ButtonBase(c.Key(cv.ID)).Label(title+" · "+i18n.T(c, l.key())).Size(28, 28).Radius(p.Radius).Center().Shrink(0).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c.Key(sidebar.RowKey(cv))).Label(title+" · "+i18n.T(c, l.key())).Size(28, 28).Radius(p.Radius).Center().Shrink(0).Cursor(ui.CursorPointer)
 	b.Children(func() {
 		tone, _, color := l.look(p)
 		if l == laneRunning {
@@ -371,7 +371,7 @@ func (a *App) overflowRow(c *ui.Context, cv *preview.Conversation, l lane, open 
 	p := theme.Of(c)
 	_, glyph, color := l.look(p)
 	title := sidebar.Title(c, cv)
-	row := kit.Ghost(c.Key(cv.ID), title+" · "+i18n.T(c, l.key()), false).Height(36).PaddingX(8).Gap(8).Shrink(0).Justify(ui.Start)
+	row := kit.Ghost(c.Key(sidebar.RowKey(cv)), title+" · "+i18n.T(c, l.key()), false).Height(36).PaddingX(8).Gap(8).Shrink(0).Justify(ui.Start)
 	row.Children(func() {
 		kit.Agent(c, cv.ID, kit.AgentColor(c, cv.ID), false, 16)
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
@@ -388,7 +388,7 @@ func (a *App) overflowRow(c *ui.Context, cv *preview.Conversation, l lane, open 
 // clearing the 28 DIP avatar.
 func (a *App) preview(c *ui.Context, anchor ui.Element, cv *preview.Conversation) {
 	project := i18n.T(c, "activity_no_project")
-	if pr := a.Data.ProjectOf(cv.ID); pr != nil {
+	if pr := a.Data.ProjectHolding(cv); pr != nil {
 		project = pr.Name
 	}
 	kit.SessionCard(c, anchor, kit.Session{Title: sidebar.Title(c, cv), Project: project}, false, kit.Bottom, func(card ui.Element) {

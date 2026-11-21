@@ -96,7 +96,7 @@ func (r *Runtime) selectedRuntime() *Runtime {
 	if node, _, shown := root.App.ProjectOwner(); shown {
 		return root.runtimeFor(node)
 	}
-	cv := root.App.Data.Find(root.App.Sidebar.Selected)
+	cv := root.App.SelectedConversation()
 	if cv == nil {
 		return root
 	}

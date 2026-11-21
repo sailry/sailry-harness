@@ -131,6 +131,7 @@ func (r *Runtime) removeDraft(id string) {
 	}
 	delete(r.openDrafts, id)
 	r.applyConversationData(r.App.Data)
+	r.App.ForgetSession(id)
 }
 
 func (r *Runtime) applyConversationData(data *viewmodel.Data) {

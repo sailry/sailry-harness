@@ -278,6 +278,90 @@ func TestSessionDeletionKeepsSurvivingSplit(t *testing.T) {
 	}
 }
 
+// Only the Node's removal, its event or a delete's answer, forgets a session's
+// tab and its place in a saved split. A snapshot that stops listing a watched
+// session, as when its permission is withdrawn, keeps both, and they return
+// with it; a removal another client made of a session not shown forgets it;
+// and a session ID another host still lists keeps its tab.
+func TestSessionTabsForgottenOnlyOnRemoval(t *testing.T) {
+	snapshot := selectionSnapshot("Deleted here", "Withdrawn", "Deleted elsewhere", "Shared")
+	deleted, withdrawn, background, shared := snapshot.Sessions[0].ID, snapshot.Sessions[1].ID, snapshot.Sessions[2].ID, snapshot.Sessions[3].ID
+	f := selectionWindow(t, snapshot)
+	r, app := f.r, f.r.App
+	target := func(id protocol.SessionID) panes.Target { return panes.Target{Kind: panes.Session, ID: id.String()} }
+	saved := func() []panes.Target {
+		var out []panes.Target
+		for _, group := range app.Prefs().Panes {
+			out = append(out, group.Targets()...)
+		}
+		return out
+	}
+	remote := protocol.DefaultSnapshot()
+	remote.Node = protocol.NodeID{2}
+	listed := protocol.DefaultSession()
+	listed.ID = shared
+	remote.Sessions = []protocol.Session{listed}
+	bound := r.newBinding(ownershipClient(t, remote))
+	t.Cleanup(func() { _ = bound.Close() })
+	r.bindings = map[string]*Runtime{remote.Node.String(): bound}
+	prefs := app.Prefs()
+	prefs.Tabs = []panes.Target{target(deleted), target(shared)}
+	prefs.Panes = []*panes.Node{selectionSplit(target(withdrawn), target(background))}
+	app.SetPrefs(prefs)
+	r.OpenSession(withdrawn.String())
+	f.window.Frame()
+	wantSplit := []panes.Target{target(withdrawn), target(background)}
+	if got := saved(); !slices.Equal(got, wantSplit) || !r.conversationSeen[withdrawn] || !r.conversationSeen[background] {
+		t.Fatalf("the initial split is not displayed: panes %v, shown %v", got, r.conversationSeen)
+	}
+
+	snapshotAt := func(sessions []protocol.Session) {
+		t.Helper()
+		next := snapshot
+		next.Sessions = sessions
+		next.Cursor = r.controller.Snapshot().Cursor + 1
+		f.update(t, next.Cursor, protocol.Update{Kind: "snapshot", Data: next})
+		f.window.Frame()
+	}
+	snapshotAt(slices.DeleteFunc(slices.Clone(snapshot.Sessions), func(s protocol.Session) bool { return s.ID == withdrawn }))
+	if app.Data.Find(withdrawn.String()) != nil || r.conversationSeen[withdrawn] {
+		t.Fatal("the withdrawn session is still visible")
+	}
+	// Both hosts list the shared ID; the sidebar draws a row for each.
+	var hosts []string
+	for _, cv := range app.Data.Unassigned {
+		if cv.ID == shared.String() {
+			hosts = append(hosts, cv.Node)
+		}
+	}
+	if len(hosts) != 2 || hosts[0] == hosts[1] {
+		t.Fatalf("the shared ID is not listed once per host: %q", hosts)
+	}
+	if !slices.Contains(saved(), target(withdrawn)) || !slices.Contains(app.Prefs().Tabs, target(deleted)) {
+		t.Fatalf("a withdrawn session lost its place: panes %v, tabs %v", saved(), app.Prefs().Tabs)
+	}
+	snapshotAt(slices.Clone(snapshot.Sessions))
+	if got := saved(); !slices.Equal(got, wantSplit) || !r.conversationSeen[withdrawn] || !r.conversationSeen[background] {
+		t.Fatalf("a restored session did not return to its split: panes %v, shown %v", got, r.conversationSeen)
+	}
+
+	f.event(t, "sessions_removed", []protocol.SessionID{background, shared})
+	if got := saved(); slices.Contains(got, target(background)) {
+		t.Fatalf("a session another client removed kept its split place: %v", got)
+	}
+	if !slices.Contains(app.Prefs().Tabs, target(shared)) {
+		t.Fatalf("a session another host lists lost its tab: %v", app.Prefs().Tabs)
+	}
+
+	r.removeSession(app.Data.Find(deleted.String()))
+	r.workers.Wait()
+	f.window.Frame()
+	f.window.Frame()
+	if slices.Contains(app.Prefs().Tabs, target(deleted)) {
+		t.Fatalf("a confirmed delete kept its tab: %v", app.Prefs().Tabs)
+	}
+}
+
 func TestSessionDeletionKeepsWorkspaceTerminal(t *testing.T) {
 	snapshot := selectionSnapshot("Split chat", "Other chat")
 	inside, outside := snapshot.Sessions[0].ID, snapshot.Sessions[1].ID

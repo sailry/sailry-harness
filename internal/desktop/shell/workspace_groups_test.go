@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -599,5 +600,72 @@ func TestHeaderTabsOpen(t *testing.T) {
 	menu(i18n.In("en", "pane_group", "number", 1), "workspace_tab_unsplit")
 	if len(a.panes.Groups) != 1 {
 		t.Fatalf("unsplit left %d groups", len(a.panes.Groups))
+	}
+}
+
+// A session shown without a tab leaves ⌘W to the window, while its pane keys
+// still work. Closing its tab before that leaves the session as it was.
+func TestCloseWithoutTabKeepsPaneKeys(t *testing.T) {
+	a := New(preview.Load())
+	reached := 0
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		a.View(c)
+		if c.Shortcut(CloseFocused.Mods, CloseFocused.Key) {
+			reached++
+		}
+	}, 1280, 820, opaque)
+	tt.SetLocale("en")
+	tt.Frame()
+	shown := session(preview.Big)
+	a.panes.Kept = nil
+	a.OpenConversation(preview.Big)
+	tt.Frame()
+	status := a.Data.Find(preview.Big).Status
+	click(t, tt, i18n.In("en", "composer"))
+	tt.Key(ui.Cmd, ui.KeyW)
+	tt.Frame()
+	if len(a.panes.Kept) != 0 || reached != 0 || a.panes.Active != shown || a.Data.Find(preview.Big) == nil || a.Data.Find(preview.Big).Status != status {
+		t.Fatalf("⌘W on the tab: kept %v, reached the window %d, active %v", a.panes.Kept, reached, a.panes.Active)
+	}
+	if !a.standsAlone() || a.tabClosable() {
+		t.Fatalf("without a tab: stands alone %v, closable %v", a.standsAlone(), a.tabClosable())
+	}
+	tt.Key(ui.Cmd, ui.KeyW)
+	tt.Frame()
+	if reached != 1 || a.Page != ConversationPage || a.panes.Active != shown {
+		t.Fatalf("⌘W without a tab: reached the window %d, page %d, active %v", reached, a.Page, a.panes.Active)
+	}
+	tt.Key(ui.Cmd, ui.KeyT)
+	tt.Frame()
+	if created := a.panes.Active; created == shown || !slices.Contains(a.panes.Kept, created) {
+		t.Fatalf("pane keys without a tab: active %v, kept %v", created, a.panes.Kept)
+	}
+}
+
+// A session that is only absent, as of a host offline, keeps its tab and its
+// place in a saved split; a confirmed deletion takes both.
+func TestForgetSessionOnlyOnDeletion(t *testing.T) {
+	a, tt := workspaceGroupsFixture(t, 1280)
+	a.OpenConversation("e")
+	tt.Frame()
+	a.Data.Unassigned = slices.DeleteFunc(a.Data.Unassigned, func(cv *viewmodel.Conversation) bool { return cv.ID == "e" || cv.ID == "b" })
+	a.OpenConversation("a")
+	tt.Frame()
+	tt.Frame()
+	saved := func() []panes.Target {
+		var out []panes.Target
+		for _, g := range a.prefs().Panes {
+			out = append(out, g.Targets()...)
+		}
+		return out
+	}
+	if p := a.prefs(); !slices.Contains(p.Tabs, session("e")) || !slices.Contains(p.TabOrder, session("e")) || !slices.Contains(saved(), session("b")) {
+		t.Fatalf("an absent session lost its place: tabs %v, order %v, panes %v", p.Tabs, p.TabOrder, saved())
+	}
+	a.ForgetSession("e")
+	a.ForgetSession("b")
+	tt.Frame()
+	if p := a.prefs(); slices.Contains(p.Tabs, session("e")) || slices.Contains(p.TabOrder, session("e")) || slices.Contains(saved(), session("b")) {
+		t.Fatalf("a deleted session kept its place: tabs %v, order %v, panes %v", p.Tabs, p.TabOrder, saved())
 	}
 }

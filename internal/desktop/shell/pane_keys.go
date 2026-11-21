@@ -121,7 +121,7 @@ func (a *App) newConversationBeside(c *ui.Context, from panes.Target, p panes.Pl
 	}
 	a.panes.enlarged = panes.Target{}
 	if created, ok := a.newConversationFrom(from); ok {
-		a.dropPane(c, from, created, p)
+		a.dropPane(c, from, created, "", p)
 	}
 }
 
@@ -208,7 +208,7 @@ func (a *App) enlargedSlot(c *ui.Context, t panes.Target) {
 func (a *App) enlargedPane(c *ui.Context) {
 	w := &a.panes
 	t := w.enlargedFrame
-	cv := a.Data.Find(t.ID)
+	cv := a.paneSession(t)
 	if t == (panes.Target{}) || cv == nil {
 		return
 	}

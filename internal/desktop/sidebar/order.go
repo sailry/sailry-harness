@@ -36,8 +36,15 @@ type Pin struct {
 // their last run, newest first, then by creation, newest first; then the
 // ordered ones by their order. The sort is stable.
 func OrderPins(pins []Pin) []Pin {
-	out := slices.Clone(pins)
-	slices.SortStableFunc(out, func(a, b Pin) int {
+	return OrderPinsFunc(pins, func(p Pin) Pin { return p })
+}
+
+// OrderPinsFunc orders values as OrderPins orders their pins. Callers sort
+// their own values rather than map pins back by ID, which two hosts may share.
+func OrderPinsFunc[T any](list []T, pin func(T) Pin) []T {
+	out := slices.Clone(list)
+	slices.SortStableFunc(out, func(x, y T) int {
+		a, b := pin(x), pin(y)
 		switch {
 		case (a.Order == nil) != (b.Order == nil):
 			if a.Order == nil {
@@ -68,12 +75,13 @@ func NextPinOrder(orders []*int) int {
 
 // MovePin moves source before target, or after it, in ids, the pinned
 // group's order. It reports false when nothing moves: an unknown id, or
-// the source dropped on itself or where it already is.
-func MovePin(ids []string, source, target string, after bool) ([]string, bool) {
+// the source dropped on itself or where it already is. The sidebar moves its
+// own rows, which two hosts' sessions of one ID do not share.
+func MovePin[T comparable](ids []T, source, target T, after bool) ([]T, bool) {
 	if source == target || !slices.Contains(ids, source) || !slices.Contains(ids, target) {
 		return ids, false
 	}
-	out := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return id == source })
+	out := slices.DeleteFunc(slices.Clone(ids), func(id T) bool { return id == source })
 	at := slices.Index(out, target)
 	if after {
 		at++
@@ -132,10 +140,18 @@ type Entry struct {
 // are stable, so equal entries keep that order. The pinned group is not
 // sorted by it: pins keep their own order (OrderPins).
 func Sorted(list []Entry, by Sort) []Entry {
+	return SortedFunc(list, by, func(e Entry) Entry { return e })
+}
+
+// SortedFunc orders values as Sorted orders their entries. Callers sort
+// their own values rather than map entries back by ID, which two hosts may
+// share.
+func SortedFunc[T any](list []T, by Sort, entry func(T) Entry) []T {
 	out := slices.Clone(list)
 	switch by {
 	case SortUpdated:
-		slices.SortStableFunc(out, func(a, b Entry) int {
+		slices.SortStableFunc(out, func(x, y T) int {
+			a, b := entry(x), entry(y)
 			// What never ran is new: it leads, as the reference's.
 			switch {
 			case a.Updated.IsZero() == b.Updated.IsZero():
@@ -146,8 +162,8 @@ func Sorted(list []Entry, by Sort) []Entry {
 			return 1
 		})
 	case SortName:
-		slices.SortStableFunc(out, func(a, b Entry) int {
-			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		slices.SortStableFunc(out, func(x, y T) int {
+			return strings.Compare(strings.ToLower(entry(x).Name), strings.ToLower(entry(y).Name))
 		})
 	}
 	return out

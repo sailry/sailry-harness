@@ -18,7 +18,9 @@ type Actions struct {
 	Read       func(*viewmodel.Conversation, bool)
 	Delete     func(*viewmodel.Conversation)
 	Pin        func(*viewmodel.Conversation)
-	MovePin    func(source, target string, after bool)
+	// MovePin saves the pinned order with source before or after target,
+	// each on its own host.
+	MovePin func(source, target *viewmodel.Conversation, after bool)
 	// MoveSession saves a project's manual session order with source
 	// before or after target.
 	MoveSession   func(source, target *viewmodel.Conversation, after bool)

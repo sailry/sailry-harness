@@ -42,6 +42,11 @@ type State struct {
 	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
 	// the shell points it at the setting.
 	Sort *int
+	// selection is the host a row or pane chose Selected on (SelectOn); it
+	// holds while Selected still names that ID.
+	selection rowKey
+	// current is the selected conversation as this build's rows show it.
+	current *viewmodel.Conversation
 	// shown is set when the sidebar opens a conversation, also the selected
 	// one; the shell takes it to go back to the conversation.
 	shown bool
@@ -122,19 +127,15 @@ func (s *State) pinned() []*preview.Conversation {
 	if s.Archived {
 		return nil
 	}
-	byID := map[string]*preview.Conversation{}
-	var pins []Pin
+	var pinned []*preview.Conversation
 	s.each(func(cv *preview.Conversation) {
 		if cv.Pinned && !cv.Archived {
-			byID[cv.ID] = cv
-			pins = append(pins, Pin{ID: cv.ID, Order: cv.PinOrder, LastRun: cv.Updated, Created: cv.Created})
+			pinned = append(pinned, cv)
 		}
 	})
-	var out []*preview.Conversation
-	for _, p := range OrderPins(pins) {
-		out = append(out, byID[p.ID])
-	}
-	return out
+	return OrderPinsFunc(pinned, func(cv *preview.Conversation) Pin {
+		return Pin{ID: cv.ID, Order: cv.PinOrder, LastRun: cv.Updated, Created: cv.Created}
+	})
 }
 
 // each runs fn on every conversation: those without a project, then each
@@ -161,26 +162,22 @@ func (s *State) sort() Sort {
 // sessions returns the conversations in the chosen archive mode and order.
 // The list is in creation order, newest first.
 func (s *State) sessions(list []*preview.Conversation) []*preview.Conversation {
-	byID := map[string]*preview.Conversation{}
-	var entries []Entry
+	var shown []*preview.Conversation
 	for _, cv := range list {
 		if cv.Archived == s.Archived {
-			byID[cv.ID] = cv
-			entries = append(entries, Entry{ID: cv.ID, Name: cv.Title, Updated: cv.Updated})
+			shown = append(shown, cv)
 		}
 	}
-	var out []*preview.Conversation
-	for _, e := range Sorted(entries, s.sort()) {
-		out = append(out, byID[e.ID])
-	}
-	return out
+	return SortedFunc(shown, s.sort(), func(cv *preview.Conversation) Entry {
+		return Entry{ID: cv.ID, Name: cv.Title, Updated: cv.Updated}
+	})
 }
 
 // projects returns the projects in the order chosen. The data lists them
 // oldest first; a project's last run is the latest of its conversations'.
 func (s *State) projects() []*preview.Project {
-	byID := map[string]*preview.Project{}
-	var entries []Entry
+	entries := map[*preview.Project]Entry{}
+	var list []*preview.Project
 	for _, pr := range slices.Backward(s.Data.Projects) {
 		e := Entry{ID: pr.ID, Name: pr.Name}
 		for _, cv := range pr.Conversations {
@@ -188,14 +185,10 @@ func (s *State) projects() []*preview.Project {
 				e.Updated = cv.Updated
 			}
 		}
-		byID[pr.ID] = pr
-		entries = append(entries, e)
+		entries[pr] = e
+		list = append(list, pr)
 	}
-	var out []*preview.Project
-	for _, e := range Sorted(entries, s.sort()) {
-		out = append(out, byID[e.ID])
-	}
-	return out
+	return SortedFunc(list, s.sort(), func(pr *preview.Project) Entry { return entries[pr] })
 }
 
 // Order is the order of next and previous conversation: pinned, chats, then
@@ -222,6 +215,7 @@ func (s *State) Order() []string {
 // View builds the navigation column's content.
 func View(c *ui.Context, s *State) {
 	s.drawn = false
+	s.current = s.Current()
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
 		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
 		if v := theme.Of(c).Variant; v != nil {
@@ -436,7 +430,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 		})
 		parts.Panel(func() {
 			ui.Column(c).Gap(rowGap).Children(func() {
-				s.limited(c, pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
+				s.limited(c, pr.Host+"/"+pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
 					s.conversation(c, cv, rowTree)
 				})
 			})
@@ -453,6 +447,13 @@ const (
 	rowPinned                // pinned: the project's name, and drags to reorder
 )
 
+// RowKey keys a session's element among its siblings: its host and its ID,
+// since two hosts may list a session of one ID, as one restored from the
+// other's backup.
+func RowKey(cv *preview.Conversation) any { return rowKey{cv.Node, cv.ID} }
+
+type rowKey struct{ node, id string }
+
 // conversation is a session row: its status, title and age, and on hover a
 // pin and an archive button. A double click keeps its tab open. Its right-
 // click menu is the system's; the pointer resting on it shows its details in
@@ -460,14 +461,14 @@ const (
 // preview's look.
 func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind) {
 	p := theme.Of(c)
-	if s.renaming == cv.ID && !s.drawn {
+	if s.renamingRow(cv) && !s.drawn {
 		s.drawn = true
 		s.renameRow(c, cv)
 		return
 	}
-	selected := cv.ID == s.Selected
+	selected := cv == s.current
 	title := Title(c, cv)
-	b := ui.ButtonBase(c.Key(cv.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
+	b := ui.ButtonBase(c.Key(RowKey(cv))).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered := b.Hovered()
 	b.Background(p.SidebarItem(selected, hovered))
 	if selected {
@@ -480,15 +481,16 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	case hovered || cv.Status == preview.Running:
 		text = p.SidebarForeground
 	}
-	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title})
+	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title, Node: cv.Node})
 	switch {
 	case kind == rowPinned:
-		s.reorder(c, b, cv, s.pinnedDrag, func(source string, after bool) { s.MovePin(source, cv.ID, after) })
+		s.reorder(c, b, cv, func(source *preview.Conversation) bool { return source.Pinned },
+			func(source *preview.Conversation, after bool) { s.MovePin(source, cv, after) })
 	case kind == rowTree && s.sort() == SortCreated:
 		// The manual order is the Node's, which only the creation order
 		// shows.
-		s.reorder(c, b, cv, func(d panes.Drag) bool { return s.sessionDrag(d, cv) },
-			func(source string, after bool) { s.MoveSession(source, cv.ID, after) })
+		s.reorder(c, b, cv, func(source *preview.Conversation) bool { return s.sessionDrag(source, cv) },
+			func(source *preview.Conversation, after bool) { s.MoveSession(source, cv, after) })
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
 	s.details(c, b, cv)
@@ -523,7 +525,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			return
 		}
 		if kind == rowPinned {
-			if pr := s.Data.ProjectOf(cv.ID); pr != nil {
+			if pr := s.Data.ProjectHolding(cv); pr != nil {
 				ui.Text(c, pr.Name).FontSize(12).SingleLine().MaxWidth(80).TextColor(p.MutedForeground)
 			}
 		}
@@ -534,11 +536,11 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			}
 			ui.Text(c, ageAt(c, cv.Updated, now)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
 		}
-	}).OnClick(func() { s.show(cv.ID) })
+	}).OnClick(func() { s.show(cv) })
 }
 
 func (s *State) nonMainWorktree(cv *preview.Conversation) bool {
-	if project := s.Data.ProjectOf(cv.ID); project != nil {
+	if project := s.Data.ProjectHolding(cv); project != nil {
 		for _, tree := range project.Worktrees {
 			if cv.WorktreePath != "" && cv.WorktreePath == tree.Path || cv.WorktreePath == "" && cv.Worktree != "" && cv.Worktree == tree.Branch {
 				return !tree.Main
@@ -552,11 +554,17 @@ func (s *State) nonMainWorktree(cv *preview.Conversation) bool {
 // accepts to a new place before or after it, a 2 DIP line showing where it
 // would go: a pinned row among the pinned, a project's row among the
 // project's.
-func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation, accepts func(panes.Drag) bool, move func(source string, after bool)) {
+func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation, accepts func(*preview.Conversation) bool, move func(source *preview.Conversation, after bool)) {
 	if b.Dragging() {
 		b.Opacity(0.5)
 	}
-	if v, over := ui.DragOver[panes.Drag](b); over && v.Target.ID != cv.ID && accepts(v) {
+	other := func(d panes.Drag) *preview.Conversation {
+		if source := s.dragged(d); source != nil && source != cv && accepts(source) {
+			return source
+		}
+		return nil
+	}
+	if v, over := ui.DragOver[panes.Drag](b); over && other(v) != nil {
 		_, y, _ := b.PointerPosition()
 		after := y >= b.Bounds().H/2
 		line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(2).Radius(1).Background(theme.Of(c).Primary).PassThrough()
@@ -566,29 +574,41 @@ func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation, a
 			line.Top(-1)
 		}
 	}
-	if v, ok := ui.Drop[panes.Drag](b); ok && v.Target.ID != cv.ID && accepts(v) {
-		_, y, _ := b.PointerPosition()
-		move(v.Target.ID, y >= b.Bounds().H/2)
+	if v, ok := ui.Drop[panes.Drag](b); ok {
+		if source := other(v); source != nil {
+			_, y, _ := b.PointerPosition()
+			move(source, y >= b.Bounds().H/2)
+		}
 	}
 }
 
-// sessionDrag reports whether a drag carries another session of cv's
-// project that is not archived.
-func (s *State) sessionDrag(d panes.Drag, cv *preview.Conversation) bool {
-	source := s.Data.Find(d.Target.ID)
-	if d.Target.Kind != panes.Session || source == nil || source == cv || source.Archived || source.Node != cv.Node {
+// dragged returns the session a drag carries: a row's on its host, a pane's
+// by its ID as the pane itself resolves it.
+func (s *State) dragged(d panes.Drag) *preview.Conversation {
+	if d.Target.Kind != panes.Session {
+		return nil
+	}
+	if d.Node != "" {
+		return s.Data.FindOn(d.Node, d.Target.ID)
+	}
+	return s.Data.Find(d.Target.ID)
+}
+
+// sessionDrag reports whether source is another session of cv's project
+// that is not archived.
+func (s *State) sessionDrag(source, cv *preview.Conversation) bool {
+	if source == nil || source == cv || source.Archived || source.Node != cv.Node {
 		return false
 	}
-	pr := s.Data.ProjectOf(cv.ID)
-	return pr != nil && pr == s.Data.ProjectOf(source.ID)
+	pr := s.Data.ProjectHolding(cv)
+	return pr != nil && pr == s.Data.ProjectHolding(source)
 }
 
 // MoveSession moves a project's session before or after another of the
 // same project in its manual order.
-func (s *State) MoveSession(source, target string, after bool) {
-	from, to := s.Data.Find(source), s.Data.Find(target)
-	pr := s.Data.ProjectOf(target)
-	if from == nil || to == nil || pr == nil || pr != s.Data.ProjectOf(source) {
+func (s *State) MoveSession(from, to *preview.Conversation, after bool) {
+	pr := s.Data.ProjectHolding(to)
+	if from == nil || to == nil || pr == nil || pr != s.Data.ProjectHolding(from) {
 		return
 	}
 	if s.Actions != nil {
@@ -597,46 +617,28 @@ func (s *State) MoveSession(source, target string, after bool) {
 		}
 		return
 	}
-	var ids []string
-	byID := map[string]*preview.Conversation{}
-	for _, cv := range pr.Conversations {
-		ids, byID[cv.ID] = append(ids, cv.ID), cv
+	if moved, ok := MovePin(pr.Conversations, from, to, after); ok {
+		copy(pr.Conversations, moved)
 	}
-	moved, ok := MovePin(ids, source, target, after)
-	if !ok {
-		return
-	}
-	for i, id := range moved {
-		pr.Conversations[i] = byID[id]
-	}
-}
-
-// pinnedDrag reports whether a drag carries a pinned session.
-func (s *State) pinnedDrag(d panes.Drag) bool {
-	cv := s.Data.Find(d.Target.ID)
-	return d.Target.Kind == panes.Session && cv != nil && cv.Pinned
 }
 
 // MovePin moves a pinned conversation before or after another, giving the
 // pins their new order.
-func (s *State) MovePin(source, target string, after bool) {
+func (s *State) MovePin(source, target *preview.Conversation, after bool) {
+	if source == nil || target == nil {
+		return
+	}
 	if s.Actions != nil && s.Actions.MovePin != nil {
 		s.Actions.MovePin(source, target, after)
 		return
 	}
-	var ids []string
-	for _, cv := range s.pinned() {
-		ids = append(ids, cv.ID)
-	}
-	moved, ok := MovePin(ids, source, target, after)
+	moved, ok := MovePin(s.pinned(), source, target, after)
 	if !ok {
 		return
 	}
-	for i, id := range moved {
-		if cv := s.Data.Find(id); cv != nil {
-			n := i
-			cv.PinOrder = &n
-		}
+	for i, cv := range moved {
+		n := i
+		cv.PinOrder = &n
 	}
 }
 
@@ -663,7 +665,7 @@ func (s *State) TogglePin(cv *preview.Conversation) {
 // (Anchor::LeftCenter).
 func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation) {
 	d := kit.Session{Title: Title(c, cv)}
-	if pr := s.Data.ProjectOf(cv.ID); pr != nil {
+	if pr := s.Data.ProjectHolding(cv); pr != nil {
 		d.Project, d.Branch, d.Path = pr.Name, pr.Branch, pr.Path
 		for _, w := range pr.Worktrees {
 			if cv.Worktree != "" && w.Branch == cv.Worktree {
@@ -722,11 +724,37 @@ func ageAt(c *ui.Context, t, now time.Time) string {
 	return i18n.T(c, "sidebar_age_days", "count", int(d.Hours()/24))
 }
 
-// show opens a conversation from the sidebar: it selects it and, for the
-// shell, marks that the conversation is to show, also when it is the
+// show opens a conversation from the sidebar: it selects it on its host and,
+// for the shell, marks that the conversation is to show, also when it is the
 // selected one behind a host or project page.
-func (s *State) show(id string) {
-	s.Selected, s.shown = id, true
+func (s *State) show(cv *preview.Conversation) {
+	s.SelectOn(cv.Node, cv.ID)
+	s.shown = true
+}
+
+// SelectOn selects session id of host node. An empty node selects by ID
+// alone, as setting Selected does.
+func (s *State) SelectOn(node, id string) {
+	s.Selected, s.selection = id, rowKey{node, id}
+}
+
+// SelectedNode is the host Selected was chosen on, empty when it was set by
+// ID alone: a later write of another ID to Selected drops the host.
+func (s *State) SelectedNode() string {
+	if s.selection.id != s.Selected {
+		s.selection = rowKey{}
+	}
+	return s.selection.node
+}
+
+// Current is the selected conversation's row: the one on the host it was
+// chosen on, or the first of its ID when no host was named. A named host's
+// session that is not listed has no row; another host's of its ID is not it.
+func (s *State) Current() *viewmodel.Conversation {
+	if node := s.SelectedNode(); node != "" {
+		return s.Data.FindOn(node, s.Selected)
+	}
+	return s.Data.Find(s.Selected)
 }
 
 // TakeShown reports, once, whether the sidebar opened a conversation since
@@ -770,7 +798,7 @@ func (s *State) unsentIn(list []*preview.Conversation) *preview.Conversation {
 func (s *State) NewChat() {
 	s.asked = true
 	if cv := s.unsentIn(s.Data.Unassigned); cv != nil {
-		s.show(cv.ID)
+		s.show(cv)
 		return
 	}
 	s.shown = true
@@ -790,7 +818,7 @@ func (s *State) newIn(pr *preview.Project) {
 	s.asked = true
 	if cv := s.unsentIn(pr.Conversations); cv != nil {
 		*s.opened("project/" + pr.ID) = true
-		s.show(cv.ID)
+		s.show(cv)
 		return
 	}
 	s.shown = true

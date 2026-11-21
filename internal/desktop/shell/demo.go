@@ -252,7 +252,7 @@ func (a *App) sampleComposer(cv *viewmodel.Conversation, comp *composer.State) *
 // project directory first, where the tree holds it. The chosen files become
 // the draft's cards with the tree's sizes; nothing is read or sent.
 func (a *App) sampleAttach(c *ui.Context, cv *viewmodel.Conversation, comp *composer.State, act composer.Actions) {
-	pr := a.Data.ProjectOf(cv.ID)
+	pr := a.Data.ProjectHolding(cv)
 	host := a.Host
 	if pr != nil {
 		host = pr.Host

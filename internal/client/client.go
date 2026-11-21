@@ -196,6 +196,21 @@ func (client *Client) sessionKnown(id protocol.SessionID) bool {
 	return client.project.snapshot != nil && slices.ContainsFunc(client.project.snapshot.Sessions, func(session protocol.Session) bool { return session.ID == id })
 }
 
+// RemovedSessions returns the sessions this Node's sessions_removed events
+// named from position since on, and the position to read from next. Only
+// the event confirms a removal; a session an authoritative snapshot stops
+// listing, as after a permission is withdrawn, is not one. Removals made
+// while the subscription recovered from a gap are not reported, nor those
+// older than the latest 1024 when since lies further back.
+func (client *Client) RemovedSessions(since uint64) ([]protocol.SessionID, uint64) {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	removed, next := client.project.removed, client.project.removals
+	first := next - uint64(len(removed))
+	since = min(max(since, first), next)
+	return slices.Clone(removed[since-first:]), next
+}
+
 func (client *Client) Connected() bool {
 	client.mu.RLock()
 	defer client.mu.RUnlock()

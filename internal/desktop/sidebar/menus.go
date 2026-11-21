@@ -68,7 +68,7 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		s.confirmDelete(c, cv)
 	}
 	m.Separator()
-	pr := s.Data.ProjectOf(cv.ID)
+	pr := s.Data.ProjectHolding(cv)
 	m.Submenu(t("content_copy"), func(m *ui.Menu) {
 		if m.Item(t("workspace_copy_title")).Chosen() {
 			c.WriteClipboard(Title(c, cv))
@@ -167,7 +167,7 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 
 func (s *State) confirmDelete(c *ui.Context, cv *preview.Conversation) {
 	message := "session_delete_named"
-	if s.Data.ProjectOf(cv.ID) == nil {
+	if s.Data.ProjectHolding(cv) == nil {
 		message = "session_delete_private_named"
 	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "session_delete"),
@@ -360,7 +360,7 @@ func (s *State) fork(pr *preview.Project, cv *preview.Conversation, worktree boo
 // all of it, or its turns up to turn, where the copy is at rest; in the
 // session's own worktree, or in a new one of its project.
 func (s *State) Fork(cv *preview.Conversation, turn string, worktree bool) {
-	pr := s.Data.ProjectOf(cv.ID)
+	pr := s.Data.ProjectHolding(cv)
 	s.created++
 	fork := *cv
 	owner := "chat"
@@ -380,7 +380,7 @@ func (s *State) Fork(cv *preview.Conversation, turn string, worktree bool) {
 	if pr == nil {
 		at := slices.Index(s.Data.Unassigned, cv)
 		s.Data.Unassigned = slices.Insert(s.Data.Unassigned, max(at, 0), &fork)
-		s.show(fork.ID)
+		s.show(&fork)
 		return
 	}
 	if worktree {
@@ -390,7 +390,7 @@ func (s *State) Fork(cv *preview.Conversation, turn string, worktree bool) {
 	at := slices.Index(pr.Conversations, cv)
 	pr.Conversations = slices.Insert(pr.Conversations, max(at, 0), &fork)
 	*s.opened("project/" + pr.ID) = true
-	s.show(fork.ID)
+	s.show(&fork)
 }
 
 // AddWorktree adds a worktree to a sample project, in memory.
@@ -445,6 +445,7 @@ func (s *State) delete(cv *preview.Conversation) {
 		s.Actions.Delete(cv)
 		return
 	}
+	selected := s.Current() == cv
 	drop := func(list []*preview.Conversation) []*preview.Conversation {
 		return slices.DeleteFunc(list, func(x *preview.Conversation) bool { return x == cv })
 	}
@@ -452,10 +453,10 @@ func (s *State) delete(cv *preview.Conversation) {
 		p.Conversations = drop(p.Conversations)
 	}
 	s.Data.Unassigned = drop(s.Data.Unassigned)
-	if s.Selected == cv.ID {
-		s.Selected = ""
+	if selected {
+		s.SelectOn("", "")
 		if ids := s.Order(); len(ids) > 0 {
-			s.Selected = ids[0]
+			s.SelectOn("", ids[0])
 		}
 	}
 }
@@ -492,10 +493,15 @@ func (s *State) remove(pr *preview.Project) {
 			s.Data.Projects = append(s.Data.Projects[:i:i], s.Data.Projects[i+1:]...)
 		}
 	}
-	if s.Data.Find(s.Selected) == nil {
+	switch {
+	case s.Data.Find(s.Selected) == nil:
 		if ids := s.Order(); len(ids) > 0 {
-			s.Selected = ids[0]
+			s.SelectOn("", ids[0])
 		}
+	case s.Current() == nil:
+		// The selected host's session left with its project; another
+		// host's of its ID stays selected by ID, as before.
+		s.SelectOn("", s.Selected)
 	}
 }
 
@@ -507,13 +513,19 @@ func (s *State) StartRename(cv *preview.Conversation) {
 	s.renameGeneration++
 }
 
+// renamingRow reports whether cv's row is the one renamed: the session on its
+// host, not another host's of the same ID.
+func (s *State) renamingRow(cv *preview.Conversation) bool {
+	return s.renaming != "" && s.renameTarget != nil && RowKey(s.renameTarget) == RowKey(cv)
+}
+
 // renameRow is the row of the conversation renamed: an input with its
 // title, which Enter or leaving it keeps, and Escape gives up. An empty
 // title stays in the input with a toast.
 func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 	p := theme.Of(c)
 	commit := func() {
-		if s.renaming != cv.ID || s.renamePending {
+		if !s.renamingRow(cv) || s.renamePending {
 			return
 		}
 		title, ok := ValidTitle(s.draft)
@@ -529,7 +541,7 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 					return
 				}
 				s.renamePending = false
-				if ok && s.renaming == cv.ID {
+				if ok && s.renamingRow(cv) {
 					s.renaming = ""
 				}
 			})
@@ -537,7 +549,7 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 		}
 		cv.Title, s.renaming = title, ""
 	}
-	ui.Row(c.Key(cv.ID)).Height(rowHeight).PaddingStart(indent - 6).PaddingEnd(4).Children(func() {
+	ui.Row(c.Key(RowKey(cv))).Height(rowHeight).PaddingStart(indent - 6).PaddingEnd(4).Children(func() {
 		in := ui.TextInputBase(c.Key("rename"), &s.draft).Grow(1).Height(24).PaddingX(6).Radius(p.Radius).
 			Border(1, p.Ring).Background(p.Background).TextColor(p.Foreground).FontSize(14).
 			Label(i18n.T(c, "workspace_rename")).AutoFocus().Disabled(s.renamePending)
@@ -545,7 +557,7 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 		if in.Shortcut(0, ui.KeyEscape) {
 			s.renaming = ""
 		}
-		if in.FocusLeft() && s.renaming == cv.ID && !s.renamePending {
+		if in.FocusLeft() && s.renamingRow(cv) && !s.renamePending {
 			// Leaving the input keeps a valid title and gives up an empty one.
 			if title, ok := ValidTitle(s.draft); ok {
 				if s.Actions != nil && s.Actions.Rename != nil {

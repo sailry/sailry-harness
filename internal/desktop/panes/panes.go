@@ -69,10 +69,13 @@ func (p Placement) axis() Axis {
 }
 
 // Drag is the value dragged onto the workspace from a session row or a pane's
-// header: the target and the title its drag preview shows.
+// header: the target and the title its drag preview shows. Node is a session
+// row's host, which tells it from another host's row of the same ID; a pane's
+// drag has none, as its target is the ID alone.
 type Drag struct {
 	Target Target
 	Title  string
+	Node   string
 }
 
 // Node is a layout tree's node: a leaf holding a Target, or a split of
@@ -472,6 +475,25 @@ func (w *Workspace) Keep(t Target) {
 // Release stops keeping t as a tab.
 func (w *Workspace) Release(t Target) {
 	w.Kept = slices.DeleteFunc(w.Kept, func(k Target) bool { return k == t })
+}
+
+// Forget takes t out of the workspace for good, as a session that was
+// deleted: its tab, and its pane in the groups shown and in those Follow
+// holds for it, so it neither comes back nor is saved.
+func (w *Workspace) Forget(t Target) {
+	w.Release(t)
+	holding := w.held != nil && same(w.Groups, w.shown)
+	if holding {
+		held := Workspace{Groups: copies(w.held)}
+		held.remove(t)
+		w.held = held.Groups
+	}
+	w.remove(t)
+	if holding {
+		w.shown = copies(w.Groups)
+	} else {
+		w.held, w.shown = nil, nil
+	}
 }
 
 // Dissolve undoes group i's split: its panes stand alone again and the

@@ -167,7 +167,9 @@ func (a *App) SetPrefs(p Prefs) {
 		}
 	}
 	// The terminal surfaces are known before restoring split groups. Old
-	// right-panel terminal tabs no longer supply workspace panes.
+	// right-panel terminal tabs no longer supply workspace panes. The layout
+	// read back keeps IDs alone, so its panes have no host yet.
+	a.panes.hosts = nil
 	a.panes.Restore(p.Panes)
 	a.panes.Kept = slices.Clone(p.Tabs)
 	a.panes.order = slices.Clone(p.TabOrder)

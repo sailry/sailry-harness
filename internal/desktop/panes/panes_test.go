@@ -305,6 +305,33 @@ func TestEditsLeaveAHeldTree(t *testing.T) {
 	}
 }
 
+// A pane away keeps its tab and its held place; forgetting it, as a deleted
+// session, takes both, so it neither returns nor is saved.
+func TestForget(t *testing.T) {
+	var w Workspace
+	w.Drop(s("a"), s("b"), Right)
+	w.Drop(s("b"), s("c"), Right)
+	w.Keep(s("b"))
+	w.Keep(s("d"))
+	w.Follow(func(t Target) bool { return t != s("b") })
+	if !slices.Contains(w.Saved()[0].Targets(), s("b")) || !slices.Contains(w.Kept, s("b")) {
+		t.Fatalf("a pane away lost its place: saved %v, kept %v", w.Saved()[0].Targets(), w.Kept)
+	}
+	w.Forget(s("b"))
+	if got := w.Saved()[0].Targets(); !slices.Equal(got, []Target{s("a"), s("c")}) || !slices.Equal(w.Kept, []Target{s("d")}) {
+		t.Fatalf("forgotten: saved %v, kept %v", got, w.Kept)
+	}
+	w.Follow(func(Target) bool { return true })
+	if w.Group(s("b")) >= 0 || !slices.Equal(w.Groups[0].Targets(), []Target{s("a"), s("c")}) {
+		t.Fatalf("a forgotten pane came back: %v", w.Groups[0].Targets())
+	}
+	// A pane shown is forgotten from its group too.
+	w.Forget(s("c"))
+	if len(w.Groups) != 0 {
+		t.Fatalf("forgetting a shown pane left %d groups", len(w.Groups))
+	}
+}
+
 // Kept tabs keep their order and hold each target once; dissolving a group
 // leaves its panes standing alone with the focus where it was.
 func TestKeptTabsAndDissolve(t *testing.T) {

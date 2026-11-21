@@ -116,7 +116,9 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 // changes is no open and adds no tab, so closing the last tab stays closed.
 func (a *App) OpenConversation(id string) {
 	a.Page = ConversationPage
-	a.Sidebar.Selected = id
+	if a.Sidebar.Selected != id {
+		a.Sidebar.SelectOn("", id)
+	}
 	a.openTab(session(id))
 }
 
@@ -283,7 +285,7 @@ func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTa
 	// A session's tab leads with its status mark, as its sidebar row.
 	// A terminal's leads with its mark.
 	lead := func() { ui.Icon(c, icons.Terminal).FontSize(14).Shrink(0) }
-	if cv := a.Data.Find(t.alone.ID); t.alone.Kind == panes.Session && cv != nil {
+	if cv := a.paneSession(t.alone); t.alone.Kind == panes.Session && cv != nil {
 		lead = func() { sidebar.StatusMark(c, cv.Status) }
 	}
 	kit.StripTabBodyWith(c, b, lead, t.title, t.shown, hovered, i18n.T(c, "close"), close)
@@ -331,11 +333,37 @@ func (a *App) showTab(c *ui.Context, t headerTab) {
 	a.panes.handle(target).Focus(c)
 }
 
-// tabClosable reports whether ⌘W in the main column closes the shown tab:
-// a session standing alone on the conversation page. In a split each pane
-// takes it and leaves the split first.
-func (a *App) tabClosable() bool {
+// standsAlone reports whether a session stands alone in the main column of
+// the conversation page, with a tab of its own or as the selection the
+// window fell back to. Its pane keys work either way.
+func (a *App) standsAlone() bool {
 	return a.Page == ConversationPage && a.panes.Displayed() == nil && a.panes.Active.Kind == panes.Session
+}
+
+// tabClosable reports whether ⌘W in the main column closes the shown tab:
+// a loaded session standing alone that has one. A session shown without a
+// tab leaves the key to whatever else closes, and in a split each pane takes
+// it and leaves the split first.
+func (a *App) tabClosable() bool {
+	t := a.panes.Active
+	return a.standsAlone() && slices.Contains(a.panes.Kept, t) && a.paneExists(t)
+}
+
+// ForgetSession clears the tab, tab order entry and saved split position when
+// the Node confirms deletion or the window discards a local draft.
+func (a *App) ForgetSession(id string) {
+	t := session(id)
+	w := &a.panes
+	w.Forget(t)
+	w.order = slices.DeleteFunc(w.order, func(o panes.Target) bool { return o == t })
+	delete(w.groupFocus, t)
+	for member, focused := range w.groupFocus {
+		if focused == t {
+			delete(w.groupFocus, member)
+		}
+	}
+	delete(w.focus, t)
+	delete(w.hosts, t)
 }
 
 // closeShownTab is ⌘W on a session standing alone: its tab closes as its

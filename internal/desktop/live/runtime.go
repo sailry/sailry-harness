@@ -149,6 +149,7 @@ type Runtime struct {
 	prefsRevision             uint64
 	conversationWatches       map[protocol.SessionID]func()
 	conversationSeen          map[protocol.SessionID]bool
+	removedRead               uint64 // how far the Client's removed sessions were read
 	childStops                map[protocol.TurnID]bool
 	composerInitialized       map[string]bool
 	composerObserved          map[string]string
@@ -634,6 +635,11 @@ func (r *Runtime) finishFrame() {
 			delete(r.conversationWatches, id)
 		}
 	}
+	// A watched conversation's Removed is only absence from a snapshot, which
+	// a withdrawn permission also causes; the Node's removal event forgets.
+	removed, next := r.controller.RemovedSessions(r.removedRead)
+	r.removedRead = next
+	r.forgetRemovedSessions(removed)
 	// Leaving a conversation abandons its edit.
 	for id := range r.conversationEdits {
 		if session, err := protocol.ParseSessionID(id); err != nil || !r.conversationSeen[session] {
@@ -1000,7 +1006,43 @@ func (r *Runtime) removeSession(cv *viewmodel.Conversation) {
 		r.removeDraft(cv.ID)
 		return
 	}
-	r.command(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: cv.Revision}}, "session_changed", nil)
+	r.command(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: cv.Revision}}, "session_changed", func(output protocol.Output, ok bool) {
+		if ok {
+			r.forgetRemovedOutput(output)
+		}
+	})
+}
+
+// forgetRemovedOutput forgets the sessions a successful remove_session or
+// remove_sessions answer names, child sessions included. Any other answer,
+// and a failure or an unknown outcome, which the caller does not pass, forgets
+// nothing.
+func (r *Runtime) forgetRemovedOutput(output protocol.Output) {
+	if ids, ok := detail[[]protocol.SessionID](output.Data); ok && output.Kind == "sessions_removed" {
+		r.forgetRemovedSessions(ids)
+	}
+}
+
+// forgetRemovedSessions takes sessions this runtime's Node confirmed removed
+// out of the window's tabs and splits: its command's answer, or its
+// sessions_removed event (Client.RemovedSessions), which covers a removal by
+// another client. A session only absent, as one not loaded, of a host
+// offline, archived or hidden by a withdrawn permission, never reaches here.
+// The window's tabs name a session by ID alone, so one another host still
+// lists keeps them.
+func (r *Runtime) forgetRemovedSessions(ids []protocol.SessionID) {
+	for _, id := range ids {
+		listed := false
+		for _, owner := range r.terminalOwners() {
+			if owner != r {
+				_, found := owner.session(id.String())
+				listed = listed || found
+			}
+		}
+		if !listed {
+			r.App.ForgetSession(id.String())
+		}
+	}
 }
 
 func expectedProject(p *viewmodel.Project) (protocol.Project, error) {
@@ -1219,12 +1261,25 @@ func sessionOrderCommand(sessions []protocol.Session, source, target string, aft
 	}
 	return protocol.Command{Kind: "set_session_order", Data: protocol.CommandSetSessionOrderPayload{Project: *project, Expected: expected, Sessions: order}}, true
 }
-func (r *Runtime) movePin(source, target string, after bool) {
-	var pins []sidebar.Pin
+
+// movePin saves the pinned order with source before or after target and
+// shows it.
+func (r *Runtime) movePin(source, target *viewmodel.Conversation, after bool) {
+	if r.savePinOrder(source, target, after) {
+		r.project()
+	}
+}
+
+// savePinOrder saves the pinned order with source before or after target,
+// reporting whether it changed. The pins are the sessions themselves, so each
+// order is saved for its own host even where two hosts list a session of one
+// ID.
+func (r *Runtime) savePinOrder(source, target *viewmodel.Conversation, after bool) bool {
+	var pins []*viewmodel.Conversation
 	add := func(list []*viewmodel.Conversation) {
 		for _, cv := range list {
 			if cv.Pinned {
-				pins = append(pins, sidebar.Pin{ID: cv.ID, Order: cv.PinOrder, LastRun: cv.Updated, Created: cv.Created})
+				pins = append(pins, cv)
 			}
 		}
 	}
@@ -1232,22 +1287,20 @@ func (r *Runtime) movePin(source, target string, after bool) {
 	for _, p := range r.App.Data.Projects {
 		add(p.Conversations)
 	}
-	var ids []string
-	for _, p := range sidebar.OrderPins(pins) {
-		ids = append(ids, p.ID)
-	}
-	moved, ok := sidebar.MovePin(ids, source, target, after)
+	pins = sidebar.OrderPinsFunc(pins, func(cv *viewmodel.Conversation) sidebar.Pin {
+		return sidebar.Pin{ID: cv.ID, Order: cv.PinOrder, LastRun: cv.Updated, Created: cv.Created}
+	})
+	moved, ok := sidebar.MovePin(pins, source, target, after)
 	if !ok {
-		return
+		return false
 	}
-	for i, id := range moved {
+	for i, cv := range moved {
 		order := uint64(i)
-		owner := r.conversationRuntime(r.App.Data.Find(id), nil)
-		if owner != nil {
-			r.Preferences.Data.SetPin(owner.controller.Target(), id, preferences.Pin{Pinned: true, Order: &order})
+		if owner := r.conversationRuntime(cv, nil); owner != nil {
+			r.Preferences.Data.SetPin(owner.controller.Target(), cv.ID, preferences.Pin{Pinned: true, Order: &order})
 		}
 	}
-	r.project()
+	return true
 }
 
 // OpenSession and OpenNotice are called by window and notification callbacks on

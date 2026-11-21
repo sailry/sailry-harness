@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The split workspace in the main column: the active pane's group of sessions
@@ -45,6 +46,27 @@ type workspace struct {
 	// created counts the preview's conversations opened by the pane keys
 	// (sampleConversation).
 	created int
+	// hosts are the hosts of the session panes chosen from a host's row in
+	// this window. A target is its ID alone, as saved layouts keep it, and two
+	// hosts may list a session of one ID; a layout read back has none, so its
+	// panes find their sessions by ID as before.
+	hosts map[panes.Target]string
+	// handover is the pane a selection made in this pass gave the focus to,
+	// while the keyboard focus, which moves at the end of the pass, is still
+	// in another pane of its group (handOverFocus).
+	handover panes.Target
+}
+
+// bind makes session pane t show its session of host node; an empty node
+// keeps the host it has.
+func (w *workspace) bind(t panes.Target, node string) {
+	if t.Kind != panes.Session || node == "" {
+		return
+	}
+	if w.hosts == nil {
+		w.hosts = map[panes.Target]string{}
+	}
+	w.hosts[t] = node
 }
 
 // handle returns pane t's focus handle.
@@ -74,11 +96,40 @@ func placement(z kit.Zone) panes.Placement {
 // surface is gone leave their group.
 func (a *App) followPanes() {
 	w := &a.panes
-	if a.Sidebar.Selected != w.seen {
+	w.handover = panes.Target{}
+	// A row of another host's session of the selected ID is a new choice too:
+	// its pane shows that host's session from then on.
+	if node := a.Sidebar.SelectedNode(); a.Sidebar.Selected != w.seen || node != "" && node != w.hosts[session(w.seen)] {
 		w.seen = a.Sidebar.Selected
+		w.bind(session(w.seen), node)
+		from := w.Active
 		a.focusPane(session(w.seen))
+		if w.Active != from {
+			w.handover = w.Active
+		}
 	}
 	a.prunePanes()
+}
+
+// handOverFocus gives the keyboard focus to the pane a selection made active
+// in this pass, as a tab, a notification or a link opens a session of a split
+// whose other pane has the focus; that pane would otherwise take the
+// selection back as a click in it does (paneView). Focus elsewhere, as in the
+// sidebar, the panel or a field outside the split, stays where it is.
+func (a *App) handOverFocus(c *ui.Context) {
+	w := &a.panes
+	t := w.handover
+	if t == (panes.Target{}) || w.Group(t) < 0 {
+		w.handover = panes.Target{}
+		return
+	}
+	for _, m := range w.Members(t) {
+		if h := w.focus[m]; m != t && h != nil && c.FocusWithin(*h) {
+			w.handle(t).Focus(c)
+			return
+		}
+	}
+	w.handover = panes.Target{}
 }
 
 // prunePanes takes the panes that are not there out of their groups. A
@@ -102,18 +153,49 @@ func (a *App) paneExists(t panes.Target) bool {
 	if t.Kind == panes.Terminal {
 		return a.HasWorkspaceTerminal(t.ID)
 	}
+	if node := a.panes.hosts[t]; node != "" {
+		// A pane of a host that is away is held for it, not given another
+		// host's session of its ID.
+		return a.Data.FindOn(node, t.ID) != nil
+	}
 	return a.Data.Find(t.ID) != nil
 }
 
+// SelectedConversation is the sidebar's selection on the host it was chosen
+// on, as a row or a row's drop chose it, or by its ID alone when none was
+// named: two hosts may list a session of one ID.
+func (a *App) SelectedConversation() *viewmodel.Conversation {
+	return a.Data.Resolve(a.Sidebar.SelectedNode(), a.Sidebar.Selected)
+}
+
+// paneSession is session pane t's conversation: the one of the host its pane
+// was chosen on, focused or not. A target is its ID alone, as saved layouts
+// keep it; without a host the selected one's is on the host it was chosen on,
+// any other the first of its ID.
+func (a *App) paneSession(t panes.Target) *viewmodel.Conversation {
+	if node := a.panes.hosts[t]; node != "" {
+		return a.Data.FindOn(node, t.ID)
+	}
+	if t.ID == a.Sidebar.Selected {
+		return a.SelectedConversation()
+	}
+	return a.Data.Find(t.ID)
+}
+
 // focusPane makes t the active pane: a session's becomes the sidebar's
-// selection, as focus_pane opens its session scope.
+// selection, as focus_pane opens its session scope, on the host the pane was
+// chosen on. A pane without one keeps the selection's host while it names the
+// same session.
 func (a *App) focusPane(t panes.Target) {
 	w := &a.panes
 	a.rememberGroupFocus(w.Active)
 	w.Active = t
 	a.rememberGroupFocus(t)
 	if t.Kind == panes.Session {
-		a.Sidebar.Selected, w.seen = t.ID, t.ID
+		if node := w.hosts[t]; a.Sidebar.Selected != t.ID || node != "" && a.Sidebar.SelectedNode() != node {
+			a.Sidebar.SelectOn(node, t.ID)
+		}
+		w.seen = t.ID
 	}
 }
 
@@ -128,14 +210,17 @@ func (a *App) canDropPane(dest, t panes.Target, p panes.Placement) bool {
 		(dest.Kind != panes.Terminal || a.HasWorkspaceTerminal(dest.ID)) && a.panes.CanDrop(dest, t, p)
 }
 
-// dropPane puts t on dest at p and gives it the focus.
-func (a *App) dropPane(c *ui.Context, dest, t panes.Target, p panes.Placement) {
+// dropPane puts t on dest at p and gives it the focus. node is a session
+// row's host, which the pane shows from then on; a pane's drop has none and
+// keeps the host the pane has.
+func (a *App) dropPane(c *ui.Context, dest, t panes.Target, node string, p panes.Placement) {
 	if !a.canDropPane(dest, t, p) || !a.panes.Drop(dest, t, p) {
 		return
 	}
 	if p != panes.Center {
 		a.panes.splits++
 	}
+	a.panes.bind(t, node)
 	a.focusPane(t)
 	a.panes.handle(a.panes.Active).Focus(c)
 }
@@ -175,7 +260,7 @@ func (a *App) mainColumn(c *ui.Context, main ui.Element, f frame) {
 			Translate(f.mainShift, 0).Children(func() { a.page(c) })
 	})
 	if ok {
-		a.dropPane(c, dest, d.Target, placement(z))
+		a.dropPane(c, dest, d.Target, d.Node, placement(z))
 	}
 }
 
@@ -223,7 +308,7 @@ func (a *App) paneTitle(c *ui.Context, t panes.Target) string {
 		}
 		return i18n.T(c, "terminal")
 	}
-	if cv := a.Data.Find(t.ID); cv != nil {
+	if cv := a.paneSession(t); cv != nil {
 		return sidebar.Title(c, cv)
 	}
 	return ""
@@ -249,8 +334,9 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 		a.paneKeys(c, col, t)
 	}
 	// A pane ⌘W just closed still has the focus in this build; the focus
-	// goes to the group's next pane, not back to it.
-	if w.Active == active && w.Active != t && w.Group(t) >= 0 && c.FocusWithin(*h) {
+	// goes to the group's next pane, not back to it. So does a pane the
+	// selection just left (handOverFocus).
+	if w.Active == active && w.Active != t && w.handover != w.Active && w.Group(t) >= 0 && c.FocusWithin(*h) {
 		a.focusPane(t)
 	}
 	if t.Kind == panes.Terminal {
@@ -271,12 +357,12 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 			a.terminalPane(c, t.ID)
 			return
 		}
-		if cv := a.Data.Find(t.ID); cv != nil {
+		if cv := a.paneSession(t); cv != nil {
 			a.conversation(c, cv, *h)
 		}
 	})
 	if ok {
-		a.dropPane(c, t, d.Target, placement(z))
+		a.dropPane(c, t, d.Target, d.Node, placement(z))
 	}
 }
 
@@ -295,7 +381,7 @@ func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 		// name no pane: each conversation's are here, acting on it alone. A
 		// terminal has none.
 		if t.Kind == panes.Session {
-			a.conversationActions(c, a.Data.Find(t.ID), 28)
+			a.conversationActions(c, a.paneSession(t), 28)
 			a.paneSizeButton(c, t, false)
 		}
 		drag := kit.IconButton(c.Key("pane-drag"), icons.Move, i18n.T(c, "pane_drag"), 28, false).Cursor(ui.CursorGrab)
@@ -335,7 +421,7 @@ func (a *App) splitTerminal(c *ui.Context, t panes.Target, p panes.Placement) {
 	}
 	if actions := a.Panel.TerminalActions; actions != nil && actions.Split != nil {
 		if id, ok := actions.Split(t.ID); ok {
-			a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, p)
+			a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, "", p)
 		}
 		return
 	}
@@ -344,5 +430,5 @@ func (a *App) splitTerminal(c *ui.Context, t panes.Target, p panes.Placement) {
 		project = terminal.project
 	}
 	id := a.sampleWorkspaceTerminal(project)
-	a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, p)
+	a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, "", p)
 }

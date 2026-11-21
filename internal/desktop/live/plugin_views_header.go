@@ -224,7 +224,7 @@ func (r *Runtime) emitPluginHeader(mounted *pluginMountedView, identity string) 
 func (r *Runtime) renderPluginHeader(view *ui.Context) {
 	root := r.localRuntime()
 	if root.App.Page == shell.ConversationPage {
-		if conversation := root.App.Data.Find(root.App.Sidebar.Selected); conversation != nil && len(conversation.Turns) > 0 {
+		if conversation := root.App.SelectedConversation(); conversation != nil && len(conversation.Turns) > 0 {
 			if root.App.Demo() {
 				// A demo conversation is no session of a Node: the statistics
 				// package alone is mounted over it (plugin_demo.go).

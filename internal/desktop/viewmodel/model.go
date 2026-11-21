@@ -313,6 +313,51 @@ func (d *Data) Find(id string) *Conversation {
 	return nil
 }
 
+// FindOn returns the conversation with id on host node. Two hosts may list
+// a session of one ID, as one restored from the other's backup.
+func (d *Data) FindOn(node, id string) *Conversation {
+	for _, p := range d.Projects {
+		for _, c := range p.Conversations {
+			if c.Node == node && c.ID == id {
+				return c
+			}
+		}
+	}
+	for _, c := range d.Unassigned {
+		if c.Node == node && c.ID == id {
+			return c
+		}
+	}
+	return nil
+}
+
+// Resolve returns the conversation with id on host node, or by id alone when
+// node is empty or lists none: a choice that named its host keeps it, and one
+// that did not, as a restored layout's, finds the session as before.
+func (d *Data) Resolve(node, id string) *Conversation {
+	if node != "" {
+		if cv := d.FindOn(node, id); cv != nil {
+			return cv
+		}
+	}
+	return d.Find(id)
+}
+
+// ProjectHolding returns the project listing cv on its host, nil when none.
+func (d *Data) ProjectHolding(cv *Conversation) *Project {
+	if cv == nil {
+		return nil
+	}
+	for _, p := range d.Projects {
+		for _, c := range p.Conversations {
+			if c.Node == cv.Node && c.ID == cv.ID {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
 // ProjectOf returns the project holding the conversation, nil when none.
 func (d *Data) ProjectOf(id string) *Project {
 	for _, p := range d.Projects {

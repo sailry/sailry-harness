@@ -772,11 +772,13 @@ func (r *Runtime) forgetBackupStorage() {
 func (r *Runtime) submitArchive(command protocol.Command, done, operation string) {
 	s := &r.backupSettings
 	s.archive = operation
-	r.execute(command, func(c *ui.Context, _ protocol.Output, err error) {
+	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		s.archive = ""
 		outcome, key := kit.Done, done
 		if err != nil {
 			outcome, key = backupSessionFailure(err)
+		} else {
+			r.forgetRemovedOutput(output)
 		}
 		kit.Toast(c, outcome, i18n.T(c, key))
 	})

@@ -77,6 +77,38 @@ func TestSidebarKeepsResourceSessionsInTheirSurface(t *testing.T) {
 	}
 }
 
+// Moving a pin saves each pinned session's order on its own host, though two
+// hosts list a session of one ID.
+func TestPinOrderKeepsEachHostsSharedID(t *testing.T) {
+	localSnapshot, remoteSnapshot := protocol.DefaultSnapshot(), protocol.DefaultSnapshot()
+	localSnapshot.Node, remoteSnapshot.Node = protocol.NodeID{1}, protocol.NodeID{2}
+	r := &Runtime{controller: ownershipClient(t, localSnapshot), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))}
+	r.bindings = map[string]*Runtime{remoteSnapshot.Node.String(): {controller: ownershipClient(t, remoteSnapshot), parent: r}}
+	place := func(n int) *int { return &n }
+	localNode, remoteNode := localSnapshot.Node.String(), remoteSnapshot.Node.String()
+	localShared := &viewmodel.Conversation{Node: localNode, ID: "shared", Pinned: true, PinOrder: place(0)}
+	localOther := &viewmodel.Conversation{Node: localNode, ID: "other", Pinned: true, PinOrder: place(1)}
+	remoteShared := &viewmodel.Conversation{Node: remoteNode, ID: "shared", Pinned: true, PinOrder: place(2)}
+	r.App = shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{localShared, localOther, remoteShared}})
+
+	if !r.savePinOrder(remoteShared, localShared, false) {
+		t.Fatal("the remote pin did not move")
+	}
+	prefs := r.Preferences.Data
+	for _, want := range []struct {
+		node  protocol.NodeID
+		id    string
+		order uint64
+	}{{remoteSnapshot.Node, "shared", 0}, {localSnapshot.Node, "shared", 1}, {localSnapshot.Node, "other", 2}} {
+		if got := prefs.Pin(want.node, want.id); !got.Pinned || got.Order == nil || *got.Order != want.order {
+			t.Errorf("pin %s on %s: %+v, want order %d", want.id, want.node, got, want.order)
+		}
+	}
+	if r.savePinOrder(remoteShared, remoteShared, true) {
+		t.Error("a pin dropped on itself moved")
+	}
+}
+
 func TestDefaultSessionSelectionExcludesAssistants(t *testing.T) {
 	for _, ordinary := range []bool{false, true} {
 		t.Run(map[bool]string{false: "assistant only", true: "ordinary available"}[ordinary], func(t *testing.T) {

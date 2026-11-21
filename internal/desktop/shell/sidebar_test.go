@@ -543,7 +543,7 @@ func testSidebarReordersPins(t *testing.T) {
 		return out
 	}
 	before := order()
-	a.Sidebar.MovePin(before[0], before[2], true)
+	a.Sidebar.MovePin(a.Data.Find(before[0]), a.Data.Find(before[2]), true)
 	after := order()
 	if after[2] != before[0] || after[0] != before[1] {
 		t.Errorf("pins %v became %v", before, after)
@@ -620,7 +620,7 @@ func testSidebarReordersSessions(t *testing.T) {
 	a.Sidebar.Actions = &sidebar.Actions{MoveSession: func(source, target *viewmodel.Conversation, after bool) {
 		moved = []string{source.ID, target.ID, fmt.Sprint(after)}
 	}}
-	a.Sidebar.MoveSession(rows[1].ID, rows[0].ID, true)
+	a.Sidebar.MoveSession(rows[1], rows[0], true)
 	if want := []string{rows[1].ID, rows[0].ID, "true"}; !slices.Equal(moved, want) || !slices.Equal(ids(), got) {
 		t.Fatalf("live move = %v, rows %v", moved, ids())
 	}
