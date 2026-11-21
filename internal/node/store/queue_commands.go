@@ -368,6 +368,10 @@ func sameCapture(ctx context.Context, db *sql.Conn, a, b protocol.TurnID) (bool,
 // waiting for it and ahead of ordinary items; input with other settings stays
 // an ordinary ready item in its place.
 func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID) error {
+	return addressGuidance(ctx, db, turn, recipient, false)
+}
+
+func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID, sendNow bool) error {
 	source, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
 		return err
@@ -389,6 +393,9 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 		return new(guidanceRecipientStopping)
 	}
 	if target.Status != protocol.ConversationStatusRunning {
+		if sendNow && target.Status == protocol.ConversationStatusCompleted && target.Joined == nil {
+			return sendGuidanceToIdleQueue(ctx, db, source)
+		}
 		return new(guidanceRecipientNotRunning)
 	}
 	compatible, err := sameCapture(ctx, db, turn, recipient)
@@ -435,6 +442,30 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 		before = &others[last+1]
 	}
 	return reorderQueue(ctx, db, source.Session, turn, before)
+}
+
+func sendGuidanceToIdleQueue(ctx context.Context, db *sql.Conn, source protocol.ConversationRun) error {
+	var active bool
+	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn
+		WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping'))`, source.Session.String()).Scan(&active)
+	if err != nil {
+		return err
+	}
+	if active {
+		return new(guidanceRecipientNotRunning)
+	}
+	queue, err := ReadQueue(ctx, db, source.Session)
+	if err != nil {
+		return err
+	}
+	if queue.Paused || len(queue.Items) == 0 {
+		return new(guidanceRecipientNotRunning)
+	}
+	if err = reorderQueue(ctx, db, source.Session, source.Turn, &queue.Items[0].Turn); err != nil {
+		return err
+	}
+	_, err = startQueued(ctx, db, source.Turn)
+	return err
 }
 
 // addressSuccessors batches guidance that outlived its recipient. When the
@@ -577,7 +608,7 @@ func pendingTurns(ctx context.Context, db *sql.Conn, query string, args ...any) 
 	}
 	return ids, errors.Join(rows.Err(), rows.Close())
 }
-func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) ([]AgentGuidance, []protocol.Event, error) {
+func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID, selected ...protocol.TurnID) ([]AgentGuidance, []protocol.Event, error) {
 	target, err := ReadAgentRun(ctx, db, recipient)
 	if err != nil {
 		return nil, nil, err
@@ -585,9 +616,14 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 	if target.Status != protocol.ConversationStatusRunning {
 		return nil, nil, new(guidanceRecipientNotRunning)
 	}
-	// One boundary takes a bounded batch, like background results; the rest
-	// stays addressed to the turn and joins at its next model step.
-	ids, err := pendingTurns(ctx, db, "SELECT p.turn FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient=?1 ORDER BY p.position,t.rowid LIMIT ?2", recipient.String(), backgroundBatch)
+	// The selected input takes priority within the same bounded batch, and
+	// each group follows queue order. Unconsumed input keeps its position.
+	priority, err := encode(selected)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, err := pendingTurns(ctx, db, `SELECT p.turn FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient=?1
+		ORDER BY EXISTS(SELECT 1 FROM json_each(?3) WHERE value=p.turn) DESC, p.position, t.rowid LIMIT ?2`, recipient.String(), backgroundBatch, string(priority))
 	if err != nil {
 		return nil, nil, err
 	}

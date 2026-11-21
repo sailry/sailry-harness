@@ -323,21 +323,23 @@ func findTool(tools []Tool, name string) *Tool {
 }
 
 func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
+	step, end := r.beginToolStep(x)
+	defer end()
 	// Discovery answers with the names this turn offers its tools under.
 	r.exposure(x, state)
 	// Commit leading plan receipts before the work they introduce can block
 	// on execution or approval. Do not move a later update ahead of that work.
 	firstWork := slices.IndexFunc(calls, func(call canonical.ToolRequest) bool { return !operations.IsUpdatePlanTool(call.Name) })
 	if firstWork > 0 {
-		if err := r.runToolBatch(x, state, calls[:firstWork]); err != nil {
+		if err := r.runToolBatch(x, step, state, calls[:firstWork]); err != nil {
 			return err
 		}
 		calls = calls[firstWork:]
 	}
-	return r.runToolBatch(x, state, calls)
+	return r.runToolBatch(x, step, state, calls)
 }
 
-func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
+func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.AgentState, calls []canonical.ToolRequest) error {
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
 	startedCalls := make([]bool, len(calls))
@@ -353,6 +355,9 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 	x.observedMu.Unlock()
 	// Mark every allowed call before requesting the first approval.
 	for i, call := range calls {
+		if step.Err() != nil {
+			break
+		}
 		tool := findTool(x.tools, call.Name)
 		if call.Error != nil {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: call.Error.Message}}
@@ -403,11 +408,17 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 		return err
 	}
 	for i, call := range calls {
+		if step.Err() != nil {
+			break
+		}
 		tool := findTool(x.tools, call.Name)
 		if !asks[i] || results[i].Value != nil || results[i].Failure != nil {
 			continue
 		}
-		approved, err := r.approval(x, call, tool)
+		approved, err := r.approval(x, step, call, tool)
+		if err == errQueuedSteer {
+			break
+		}
 		if err != nil {
 			return err
 		}
@@ -423,8 +434,9 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 		tool := findTool(x.tools, calls[i].Name)
 		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !asks[i] && !x.hooks.WrapsTools()
 	}
+	toolContext := context.WithValue(x.ctx, foregroundToolKey{}, step)
 	for start := 0; start < len(calls); {
-		if x.ctx.Err() != nil {
+		if step.Err() != nil {
 			break
 		}
 		end := start + 1
@@ -443,7 +455,7 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 			}
 			slots <- struct{}{}
 			// Cancellation may arrive while a worker slot is occupied.
-			if x.ctx.Err() != nil {
+			if step.Err() != nil {
 				<-slots
 				break
 			}
@@ -461,19 +473,26 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 					}
 				}()
 				call := calls[i]
+				if step.Err() != nil {
+					return
+				}
 				if err := x.hooks.Before(x.ctx, call.Name, call.ID); err != nil {
 					results[i] = toolFault(err)
 					return
 				}
-				if x.ctx.Err() != nil {
+				if step.Err() != nil {
 					return
 				}
 				tool := findTool(x.tools, call.Name)
+				ctx := toolContext
+				if tool.ReadOnly && !asks[i] && !tool.Delegation {
+					ctx = step
+				}
 				func() {
 					defer r.toolActivity(x, call)()
 					defer x.timeline.tool(call, tool.Delegation)()
 					startedCalls[i] = true
-					results[i] = tool.Execute(x.ctx, call)
+					results[i] = tool.Execute(ctx, call)
 				}()
 				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 			}(i)
@@ -484,8 +503,11 @@ func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []can
 	blocks := make([]canonical.Block, 0, len(calls))
 	var contextDelta canonical.Context
 	for i, call := range calls {
-		if executable[i] && results[i].Value == nil && results[i].Failure == nil {
+		if (executable[i] || step.Err() != nil) && results[i].Value == nil && results[i].Failure == nil {
 			results[i] = interruptedTool(startedCalls[i])
+			if !startedCalls[i] && Steered(step) {
+				results[i].Failure.Message = "Tool call did not start before queued guidance redirected the turn"
+			}
 		}
 		blocks = append(blocks, responseBlock(uint64(i), call, results[i]))
 		if delta := results[i].Context; delta != nil {

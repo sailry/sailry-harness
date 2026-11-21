@@ -2,6 +2,7 @@ package live
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -88,13 +89,16 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 				})
 			}, 1050, 950, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
 			tt.SetLocale("en")
+			tt.SetFocused(true)
+			tt.Move(-1, -1)
+			comp.Focus()
 			tt.Frame()
+			tt.Advance(time.Second / 60)
 			editor := i18n.In("en", "composer")
 			field, ok := tt.AccessByRole(ui.RoleTextField, editor)
-			if !ok {
-				t.Fatal("missing draft editor")
+			if !ok || !field.Focused || field.Bounds.W <= 0 || field.Bounds.H <= 0 {
+				t.Fatalf("draft editor hidden or unfocused before typing: %+v", field)
 			}
-			tt.ClickAt(field.Bounds.X+12, field.Bounds.Y+10)
 			tt.Type(message)
 			tt.Frame()
 			if comp.Draft != message || comp.Running != tc.busy {

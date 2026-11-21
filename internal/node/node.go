@@ -945,17 +945,19 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	}
 	if err == nil {
 		if operationErr == nil {
-			switch job.request.Command.Kind {
-			case "stop_turn":
-				if run, ok := output.Data.(protocol.ConversationRun); ok {
-					node.agent.StopCommitted(run)
+			switch value := output.Data.(type) {
+			case protocol.ConversationRun:
+				if job.request.Command.Kind == "stop_turn" {
+					node.agent.StopCommitted(value)
 				}
-			case "send_queued_turn":
-				if update, ok := output.Data.(protocol.ConversationQueueUpdate); ok {
-					for _, run := range update.Runs {
+			case protocol.ConversationQueueUpdate:
+				if job.request.Command.Kind == "send_queued_turn" {
+					for _, run := range value.Runs {
 						node.agent.StopCommitted(run)
 					}
 				}
+				selection, _ := job.request.Command.Data.(*protocol.CommandGuideQueuedTurnPayload)
+				node.agent.QueueCommitted(value, selection)
 			}
 		}
 		for _, review := range reviewChanges {

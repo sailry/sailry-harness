@@ -96,19 +96,6 @@ func BeginMCPElicitation(ctx context.Context, db *sql.Conn, record canonical.Rec
 	return entry, value, append(changes, events...), err
 }
 
-func CancelMCPElicitation(ctx context.Context, db *sql.Conn, id protocol.QuestionID) (protocol.ConversationQuestion, []protocol.Event, error) {
-	value, err := ReadQuestion(ctx, db, id)
-	if err != nil || value.State.Kind != "pending" {
-		return value, nil, err
-	}
-	value.State = protocol.ConversationQuestionState{Kind: "cancelled"}
-	if err = putQuestion(ctx, db, value); err != nil {
-		return value, nil, err
-	}
-	changes, err := activityEvent(ctx, db, value.Session)
-	return value, changes, err
-}
-
 func validateMCPAnswer(ctx context.Context, db *sql.Conn, question protocol.ConversationQuestion, answer protocol.ConversationQuestionAnswer) error {
 	if answer.Kind != "form" {
 		return nil

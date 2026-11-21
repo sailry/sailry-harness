@@ -141,6 +141,9 @@ func (s *Service) Execute(ctx context.Context, launch Launch) (protocol.ProcessC
 // running command to session ownership when the caller's guidance boundary opens.
 // CompletionGate, when supplied, opens after the promoted receipt commits.
 func (s *Service) ExecutePromotable(ctx context.Context, launch Launch, promotion <-chan struct{}) (protocol.Output, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.Output{}, err
+	}
 	launch.Background = false
 	entry, err := s.begin(launch, false)
 	if err != nil {

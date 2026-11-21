@@ -507,6 +507,9 @@ func (r *Runtime) turn(x *execution) error {
 			continue
 		}
 		if finishing && !x.callbackPending {
+			if r.hasQueuedSteer(x) {
+				continue
+			}
 			return nil
 		}
 		limited, err := r.childTurnLimit(x, state)
@@ -534,6 +537,9 @@ func (r *Runtime) turn(x *execution) error {
 			}
 		}
 		if err = r.infer(x, binding, languageModel, state); err != nil {
+			if err == errQueuedSteer {
+				continue
+			}
 			return err
 		}
 		compacted = false
@@ -622,7 +628,7 @@ func (r *Runtime) guidance(x *execution) (bool, error) {
 	defer unlock()
 	var entries []protocol.ConversationEntry
 	err := r.db.Write(ctx, func(db *sql.Conn) error {
-		values, changes, err := store.TakeGuidance(ctx, db, x.inv.Run.Turn)
+		values, changes, err := store.TakeGuidance(ctx, db, x.inv.Run.Turn, x.queuedSteer...)
 		if err != nil {
 			return err
 		}
@@ -641,6 +647,9 @@ func (r *Runtime) guidance(x *execution) (bool, error) {
 		_, err = store.RecordEvents(ctx, db, r.node, changes)
 		return err
 	})
+	if err == nil {
+		x.queuedSteer = nil
+	}
 	if err == nil && len(entries) > 0 {
 		r.publish()
 		for _, entry := range entries {

@@ -336,7 +336,7 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = tagGuidance(ctx, db, v.Turn, v.Recipient); err != nil {
+		if err = addressGuidance(ctx, db, v.Turn, v.Recipient, true); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		session = run.Session

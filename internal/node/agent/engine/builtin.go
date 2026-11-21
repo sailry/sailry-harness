@@ -46,7 +46,7 @@ func (r *Runtime) builtins(x *execution) []Tool {
 			if ctx.Err() != nil || x.ctx.Err() != nil {
 				return invalidTool("question was cancelled")
 			}
-			return r.question(x, call)
+			return r.question(x, ForegroundToolContext(ctx, x.ctx), call)
 		}),
 	}
 	if x.inv.Session.Delegation == nil || x.childRole != nil && x.childRole.Tools != nil {

@@ -33,10 +33,14 @@ func (r *Runtime) deadline(ctx context.Context, duration time.Duration) (<-chan 
 func toolIdentity(call canonical.ToolRequest) canonical.ToolIdentity {
 	return canonical.ToolIdentity{ID: &call.ID, Name: call.Name, Arguments: call.Arguments}
 }
-func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool) (bool, error) {
+func (r *Runtime) approval(x *execution, step context.Context, call canonical.ToolRequest, tool *Tool) (bool, error) {
 	defer x.timeline.span(phaseExcluded, call.ID)()
 	var value protocol.ConversationApproval
 	publication := r.LockPublication()
+	if err := context.Cause(step); err != nil {
+		publication()
+		return false, err
+	}
 	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
 		var changes []protocol.Event
 		var err error
@@ -67,8 +71,13 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 	defer cancel()
 	for value.State == protocol.ConversationApprovalStatePending {
 		select {
-		case <-x.ctx.Done():
-			return false, x.ctx.Err()
+		case <-step.Done():
+			if Steered(step) && x.ctx.Err() == nil {
+				if _, err := r.settleApprovalWait(x, step, value.ID); err != nil {
+					return false, err
+				}
+			}
+			return false, context.Cause(step)
 		case <-x.wake:
 			err = r.db.Read(x.ctx, func(db *sql.Conn) error {
 				var err error
@@ -76,41 +85,23 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 				return err
 			})
 		case <-expired:
-			r.decisions.Lock()
-			publication := r.LockPublication()
-			err = r.db.Write(x.ctx, func(db *sql.Conn) error {
-				var changes []protocol.Event
-				var err error
-				value, changes, err = store.ExpireApproval(x.ctx, db, value.ID)
-				if err != nil {
-					return err
-				}
-				_, err = store.RecordEvents(x.ctx, db, r.node, changes)
-				return err
-			})
-			expired = nil
-			if err == nil {
-				x.observedMu.Lock()
-				x.observed.Expired++
-				x.observedMu.Unlock()
-				r.publish()
-				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
-				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-					r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
-				}
-			}
-			publication()
-			r.decisions.Unlock()
+			value, err = r.settleApprovalWait(x, step, value.ID)
 		}
 		if err != nil {
 			return false, err
 		}
+	}
+	if Steered(step) && value.State == protocol.ConversationApprovalStateCancelled {
+		return false, errQueuedSteer
 	}
 	if value.State != protocol.ConversationApprovalStateApproved {
 		return false, nil
 	}
 	publication = r.LockPublication()
 	defer publication()
+	if err := context.Cause(step); err != nil {
+		return false, err
+	}
 	var request protocol.RequestID
 	err = r.db.Write(x.ctx, func(db *sql.Conn) error {
 		result, err := db.ExecContext(x.ctx, "UPDATE agent_approvals SET claimed=1 WHERE id=?1 AND claimed=0 AND json_extract(body,'$.state')='approved'", value.ID.String())
@@ -136,7 +127,40 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 	}
 	return err == nil, err
 }
-func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult {
+
+func (r *Runtime) settleApprovalWait(x *execution, step context.Context, id protocol.ApprovalID) (protocol.ConversationApproval, error) {
+	r.decisions.Lock()
+	defer r.decisions.Unlock()
+	publication := r.LockPublication()
+	defer publication()
+	var value protocol.ConversationApproval
+	var changed bool
+	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
+		var changes []protocol.Event
+		var err error
+		value, changes, err = store.ExpireApproval(x.ctx, db, id)
+		if err != nil {
+			return err
+		}
+		changed = len(changes) != 0
+		_, err = store.RecordEvents(x.ctx, db, r.node, changes)
+		return err
+	})
+	if err == nil && changed {
+		if !Steered(step) {
+			x.observedMu.Lock()
+			x.observed.Expired++
+			x.observedMu.Unlock()
+		}
+		r.publish()
+		r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
+		if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+			r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
+		}
+	}
+	return value, err
+}
+func (r *Runtime) question(x *execution, step context.Context, call canonical.ToolRequest) ToolResult {
 	var spec protocol.ConversationQuestionSpec
 	if err := json.Unmarshal(call.Arguments, &spec); err != nil {
 		return invalidTool("invalid question arguments")
@@ -144,6 +168,10 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 	defer x.timeline.span(phaseExcluded, call.ID)()
 	var value protocol.ConversationQuestion
 	publication := r.LockPublication()
+	if err := step.Err(); err != nil {
+		publication()
+		return toolFault(err)
+	}
 	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
 		var changes []protocol.Event
 		var err error
@@ -172,8 +200,11 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 	}
 	for value.State.Kind == "pending" {
 		select {
-		case <-x.ctx.Done():
-			return toolFault(x.ctx.Err())
+		case <-step.Done():
+			if !Steered(step) || x.ctx.Err() != nil {
+				return toolFault(step.Err())
+			}
+			value, err = r.settleQuestionWait(x, step, value.ID)
 		case <-x.wake:
 			err = r.db.Read(x.ctx, func(db *sql.Conn) error {
 				var err error
@@ -181,31 +212,7 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 				return err
 			})
 		case <-expired:
-			r.decisions.Lock()
-			publication := r.LockPublication()
-			err = r.db.Write(x.ctx, func(db *sql.Conn) error {
-				var changes []protocol.Event
-				var err error
-				value, changes, err = store.ExpireQuestion(x.ctx, db, value.ID)
-				if err != nil {
-					return err
-				}
-				_, err = store.RecordEvents(x.ctx, db, r.node, changes)
-				return err
-			})
-			expired = nil
-			if err == nil {
-				x.observedMu.Lock()
-				x.observed.Expired++
-				x.observedMu.Unlock()
-				r.publish()
-				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
-				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-					r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
-				}
-			}
-			publication()
-			r.decisions.Unlock()
+			value, err = r.settleQuestionWait(x, step, value.ID)
 		}
 		if err != nil {
 			return toolFault(err)
@@ -243,4 +250,42 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 		}
 	}
 	return ToolResult{Value: result}
+}
+
+func (r *Runtime) settleQuestionWait(x *execution, step context.Context, id protocol.QuestionID) (protocol.ConversationQuestion, error) {
+	r.decisions.Lock()
+	defer r.decisions.Unlock()
+	publication := r.LockPublication()
+	defer publication()
+	settle := store.ExpireQuestion
+	expired := !Steered(step)
+	if !expired {
+		settle = store.CancelQuestion
+	}
+	var value protocol.ConversationQuestion
+	var changed bool
+	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
+		var changes []protocol.Event
+		var err error
+		value, changes, err = settle(x.ctx, db, id)
+		if err != nil {
+			return err
+		}
+		changed = len(changes) != 0
+		_, err = store.RecordEvents(x.ctx, db, r.node, changes)
+		return err
+	})
+	if err == nil && changed {
+		if expired {
+			x.observedMu.Lock()
+			x.observed.Expired++
+			x.observedMu.Unlock()
+		}
+		r.publish()
+		r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
+		if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+			r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
+		}
+	}
+	return value, err
 }

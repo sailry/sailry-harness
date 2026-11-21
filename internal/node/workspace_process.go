@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -200,9 +201,19 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		}
 		return protocol.Output{Kind: "command_started", Data: value}, err
 	}
-	promotion, release := node.commandPromotion(operation, input.Turn)
+	foreground := engine.ForegroundToolContext(ctx, operation)
+	promotion, release := node.commandPromotion(foreground, input.Turn)
 	defer release()
-	output, err := node.processes.ExecutePromotable(operation, launch, promotion)
+	output, err := node.processes.ExecutePromotable(foreground, launch, promotion)
+	if result, ok := output.Data.(protocol.ProcessCompletion); ok && engine.Steered(foreground) {
+		if errors.Is(err, context.Canceled) {
+			err = nil
+		}
+		if err == nil && (result.Outcome.Kind == "cancelled" || result.Outcome.Kind == "") {
+			result.Outcome = protocol.ProcessOutcome{Kind: "unknown", Data: "Queued guidance interrupted the command. Inspect the original command before retrying."}
+			output.Data = result
+		}
+	}
 	if err != nil && launch.Release != nil {
 		launch.Release()
 	}

@@ -229,6 +229,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		var streamErr error
 		var attempts []model.Attempt
 		metric := r.telemetry.Capture()
+		if r.hasQueuedSteer(x) {
+			return errQueuedSteer
+		}
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			r.observeModel(metric, binding, attempt)
 			x.timeline.attempt(attempt)

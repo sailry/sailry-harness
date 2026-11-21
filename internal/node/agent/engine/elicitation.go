@@ -144,7 +144,7 @@ func (r *Runtime) cancelElicitation(owner *execution, id protocol.QuestionID) {
 	err := r.db.Write(ctx, func(db *sql.Conn) error {
 		var changes []protocol.Event
 		var err error
-		question, changes, err = store.CancelMCPElicitation(ctx, db, id)
+		question, changes, err = store.CancelQuestion(ctx, db, id)
 		if err != nil {
 			return err
 		}

@@ -118,7 +118,9 @@ type execution struct {
 	renewedSecret     protocol.Secret
 	childBudget       uint64
 	finishing         bool
-	commandsStopped   bool // guarded by Runtime.publication
+	commandsStopped   bool                    // guarded by Runtime.publication
+	queuedSteer       []protocol.TurnID       // guarded by Runtime.publication
+	interruptTools    context.CancelCauseFunc // guarded by Runtime.publication
 	operations        uint64
 	operationsDone    chan struct{}
 	attachments       map[protocol.AttachmentID]*attachmentMaterial

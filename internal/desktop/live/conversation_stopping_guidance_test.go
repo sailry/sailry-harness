@@ -52,6 +52,11 @@ func TestSendQueuedAfterStopChecksOriginalRequest(t *testing.T) {
 
 	comp := composer.New(cv.ID)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		// NewTesterWith renders before SetLocale. Mount the English feed
+		// only once the window has the same locale as its prepared rows.
+		if c.Locale() != "en" {
+			return
+		}
 		theme.Apply(c, "", theme.Light)
 		r.mu.Lock()
 		callbacks := r.queue

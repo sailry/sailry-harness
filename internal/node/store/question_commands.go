@@ -337,6 +337,19 @@ func ExpireQuestion(ctx context.Context, db *sql.Conn, id protocol.QuestionID) (
 	return value, events, err
 }
 
+func CancelQuestion(ctx context.Context, db *sql.Conn, id protocol.QuestionID) (protocol.ConversationQuestion, []protocol.Event, error) {
+	value, err := ReadQuestion(ctx, db, id)
+	if err != nil || value.State.Kind != "pending" {
+		return value, nil, err
+	}
+	value.State = protocol.ConversationQuestionState{Kind: "cancelled"}
+	if err = putQuestion(ctx, db, value); err != nil {
+		return value, nil, err
+	}
+	changes, err := activityEvent(ctx, db, value.Session)
+	return value, changes, err
+}
+
 func activeQuestionRun(ctx context.Context, db *sql.Conn, value protocol.ConversationQuestion) error {
 	completed, err := completedReview(ctx, db, value)
 	if err != nil || completed {

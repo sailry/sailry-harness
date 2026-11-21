@@ -200,6 +200,10 @@ func (f *engineFixture) command(kind string, data any) protocol.Output {
 		output, _, err = store.ExecuteAgentCommand(f.ctx, db, f.node, f.r.profile, f.node, request, f.r.clock.Now())
 		return err
 	})
+	if update, ok := output.Data.(protocol.ConversationQueueUpdate); err == nil && ok {
+		selection, _ := data.(*protocol.CommandGuideQueuedTurnPayload)
+		f.r.QueueCommitted(update, selection)
+	}
 	publication()
 	if err != nil {
 		f.t.Fatal(err)
