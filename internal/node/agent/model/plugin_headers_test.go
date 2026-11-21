@@ -76,3 +76,30 @@ func TestPluginCustomHeadersOverrideDefaultsWithinConfiguredOrigin(t *testing.T)
 		})
 	}
 }
+
+func TestPluginPreparedAffinityHeaderCaseConflict(t *testing.T) {
+	requests := 0
+	model, _, _ := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
+		requests++
+		if values := request.Header.Values("X-Session-Affinity"); len(values) != 1 || values[0] != "lane-a" {
+			t.Errorf("affinity header = %q", values)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: http.NoBody}, nil
+	})
+	prepared := protocol.DefaultPluginModelAdapterWirePrepared()
+	prepared.Url = "https://example.test/v1/messages"
+	prepared.Headers = map[string]string{"X-Session-Affinity": "lane-a", "x-session-affinity": "lane-a"}
+	response, err := model.send(t.Context(), prepared, pluginRequestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	prepared.Headers["x-session-affinity"] = "lane-b"
+	response, err = model.send(t.Context(), prepared, pluginRequestBytes)
+	if response != nil {
+		response.Body.Close()
+	}
+	if failure := Classify(err); failure == nil || failure.Kind != InvalidRequest || requests != 1 {
+		t.Fatalf("conflicting affinity headers: failure=%v requests=%d", failure, requests)
+	}
+}

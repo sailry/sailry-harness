@@ -72,6 +72,9 @@ func (model *pluginModel) send(ctx context.Context, prepared protocol.PluginMode
 		if !validPluginHeader(name, value) {
 			return nil, &Failure{Kind: InvalidRequest, Message: "model request has an invalid URL or header"}
 		}
+		if previous := headers.Values(name); len(previous) > 0 && previous[0] != value {
+			return nil, &Failure{Kind: InvalidRequest, Message: "model translation returned conflicting values for the same HTTP header"}
+		}
 		headers.Set(name, value)
 	}
 	if sameOrigin {
@@ -144,7 +147,7 @@ func (model *pluginModel) send(ctx context.Context, prepared protocol.PluginMode
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &Failure{Kind: Network, Message: "model connection failed"}
+		return nil, &Failure{Kind: Network, Message: "model connection failed", tcpDialTimeout: response == nil && isTCPDialTimeout(err)}
 	}
 	response.Body = &pluginResponseBody{ReadCloser: response.Body, timer: timer, cancel: cancel}
 	return response, nil

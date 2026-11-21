@@ -3,6 +3,7 @@ package model
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,30 +157,32 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 	timer := time.AfterFunc(transport.stall, func() { stalled.Store(true); cancel() })
 	captureDispatch(owner)
 	response, err := transport.base.RoundTrip(request.WithContext(owner))
-	if response == nil {
+	if err != nil || response == nil {
 		timer.Stop()
 		cancel()
+		if response != nil && response.Body != nil {
+			response.Body.Close()
+		}
 		if stalled.Load() {
 			err = stallError{}
 		}
+		return nil, err
 	}
-	if response != nil {
-		response.Body = &stallBody{ReadCloser: response.Body, limit: transport.stall, timer: timer, cancel: cancel, stalled: stalled}
-		captureHeaders(request.Context(), response.StatusCode)
-		if facts, ok := request.Context().Value(factsKey{}).(*responseFacts); ok {
-			facts.status, facts.headers = response.StatusCode, response.Header.Clone()
-			if response.StatusCode >= 400 {
-				// A failure body is a bounded diagnostic; its read error is not the transport's.
-				facts.body, _ = io.ReadAll(io.LimitReader(response.Body, maxFailureBody))
-				response.Body.Close()
-				response.Body = io.NopCloser(bytes.NewReader(facts.body))
-			} else if (facts.family == "google" || facts.family == "anthropic") && strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
-				facts.observer = observeUsage(response, facts.family)
-				response.Body = facts.observer
-			}
+	response.Body = &stallBody{ReadCloser: response.Body, limit: transport.stall, timer: timer, cancel: cancel, stalled: stalled}
+	captureHeaders(request.Context(), response.StatusCode)
+	if facts, ok := request.Context().Value(factsKey{}).(*responseFacts); ok {
+		facts.status, facts.headers = response.StatusCode, response.Header.Clone()
+		if response.StatusCode >= 400 {
+			// A failure body is a bounded diagnostic; its read error is not the transport's.
+			facts.body, _ = io.ReadAll(io.LimitReader(response.Body, maxFailureBody))
+			response.Body.Close()
+			response.Body = io.NopCloser(bytes.NewReader(facts.body))
+		} else if (facts.family == "google" || facts.family == "anthropic") && strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+			facts.observer = observeUsage(response, facts.family)
+			response.Body = facts.observer
 		}
 	}
-	return response, err
+	return response, nil
 }
 
 func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, error) {
@@ -333,10 +336,16 @@ func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
 }
 
 func (emitter *sdkEmitter) fail(cause error) {
-	// No HTTP response reached this transport, so a completion event was not yet expected.
-	if emitter.ctx.Err() == nil && emitter.facts.status == 0 && (errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF)) {
-		emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: Network, Message: "Model connection ended before response headers"}})
-		return
+	if emitter.ctx.Err() == nil && emitter.facts.status == 0 {
+		if certificate, ok := errors.AsType[*tls.CertificateVerificationError](cause); ok {
+			emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: InvalidRequest, Message: "model connection failed: " + transportCause(certificate)}})
+			return
+		}
+		// No HTTP response reached this transport, so a completion event was not yet expected.
+		if errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF) {
+			emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: Network, Message: "Model connection ended before response headers"}})
+			return
+		}
 	}
 	message := "model stream failed"
 	if errors.Is(cause, context.Canceled) || errors.Is(emitter.ctx.Err(), context.Canceled) {

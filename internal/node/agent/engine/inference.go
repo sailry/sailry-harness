@@ -476,7 +476,7 @@ func successfulTool(records []canonical.Record) bool {
 // only record: its usage and timing are not observed a second time.
 func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
 	record := r.observationRecord(x, binding, purpose, attempt)
-	limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
+	limit, delay := attempt.RetryLimit, uint64(attempt.RetryDelay.Milliseconds())
 	code := string(attempt.Failure.Kind)
 	message := attempt.Failure.Message
 	record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}

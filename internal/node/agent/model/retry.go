@@ -30,6 +30,8 @@ type Attempt struct {
 	FirstToken     *time.Time
 	Usage          canonical.Usage
 	Failure        *Failure
+	// RetryLimit is the last resend allowed if the current failure streak continues.
+	RetryLimit uint64
 	// RetryDelay is the wait before the next attempt; nil on the last attempt.
 	RetryDelay        *time.Duration
 	Status            *uint16
@@ -83,10 +85,11 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 // the request's cumulative wait budget, regardless of the transient cause.
 const MainRetries = 9
 
+const mainTCPDialTimeoutAttempts = 3
+
 // Run uses reset to discard provisional output before replaying an interrupted attempt.
 // Without it, main output that escaped to the consumer cannot be retried safely.
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool, reset func()) error {
-	retries := uint64(MainRetries)
 	buffered := purpose == SummaryPurpose
 	schedule := newRetryPolicy()
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
@@ -94,6 +97,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	nextModel := languageModel
 	var releaseFallback func()
 	var secrets []protocol.Secret
+	var dialTimeouts uint64
 	if sdk != nil {
 		secrets = append(secrets, sdk.config.Protection...)
 		if sdk.config.Key != "" {
@@ -104,12 +108,12 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		if err := ctx.Err(); err != nil {
 			return Classify(err)
 		}
-		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now()}
+		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now(), RetryLimit: MainRetries}
 		owner, cancel := context.WithCancel(ctx)
 		owner, capture := captureAttempt(owner, call, timer, attempt.Started)
 		stream, err := nextModel.Stream(owner, call)
 		var pending []fantasy.StreamPart
-		escaped, finished, released := false, false, false
+		streamed, escaped, finished, released := false, false, false, false
 		if err == nil && stream != nil {
 			for part := range stream {
 				attempt.Usage = mergeUsage(attempt.Usage, PartUsage(part))
@@ -130,6 +134,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 					}
 					break
 				}
+				streamed = true
 				if part.Type == fantasy.StreamPartTypeFinish {
 					finished = true
 				}
@@ -165,7 +170,13 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				attempt.Status = attempt.Failure.status
 			}
 			if !released && (!escaped || reset != nil) && attempt.Failure.Retryable() && ctx.Err() == nil {
-				if index >= retries {
+				if purpose == Main && attempt.Failure.tcpDialTimeout && !streamed && attempt.RequestSentUs == nil && attempt.Status == nil {
+					dialTimeouts++
+					attempt.RetryLimit = min(attempt.RetryLimit, index+(mainTCPDialTimeoutAttempts-dialTimeouts))
+				} else {
+					dialTimeouts = 0
+				}
+				if index >= attempt.RetryLimit {
 					exhausted = true
 				} else if delay, allowed := schedule.next(attempt.Failure, timer.Now()); allowed {
 					attempt.RetryDelay = &delay
