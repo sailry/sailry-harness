@@ -81,7 +81,7 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 			active = &workspaceWatch{owner: w, root: root, ready: make(chan struct{}), done: make(chan struct{}), observers: map[*workspaceEvents]struct{}{}}
 			w.roots[root] = active
 			w.mu.Unlock()
-			err := active.open()
+			err := active.open(ctx)
 			w.mu.Lock()
 			// A removal or shutdown during the open took the root away.
 			current := w.roots[root] == active
@@ -123,16 +123,12 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 
 // open watches the worktree and the Git directories outside it. Git's own
 // directory inside the worktree is part of the tree.
-func (w *workspaceWatch) open() error {
-	filter, err := workspacegit.NewWatchFilter(w.root)
+func (w *workspaceWatch) open(ctx context.Context) error {
+	filter, watched, err := w.owner.git.NewWatchFilter(ctx, w.root)
 	if err != nil {
 		return err
 	}
 	w.filter = filter
-	watched, err := workspacegit.WatchRoots(w.root)
-	if err != nil {
-		return watchUnavailable()
-	}
 	if w.native, err = fswatch.New(); err != nil {
 		return watchUnavailable()
 	}

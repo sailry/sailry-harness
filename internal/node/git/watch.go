@@ -2,9 +2,11 @@ package git
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -15,6 +17,7 @@ import (
 
 type WatchFilter struct {
 	root       string
+	service    *Service
 	repository *gogit.Repository
 	metadata   []string
 	tracked    map[string]bool
@@ -116,14 +119,7 @@ func (m *watchMatcher) Match(parts []string, isDir bool) bool {
 	return err != nil || ignored
 }
 
-func WatchRoots(root string) ([]string, error) {
-	r, err := open(root)
-	if err != nil {
-		if _, e := os.Lstat(filepath.Join(root, ".git")); os.IsNotExist(e) {
-			return []string{}, nil
-		}
-		return nil, err
-	}
+func watchRoots(root string, r *gogit.Repository) ([]string, error) {
 	dir, err := gitDir(root, r)
 	if err != nil {
 		return nil, err
@@ -147,29 +143,42 @@ func WatchRoots(root string) ([]string, error) {
 }
 func NewWatchFilter(root string) (*WatchFilter, error) {
 	f := &WatchFilter{root: root}
-	return f, f.refresh()
+	return f, f.refresh(context.Background())
 }
-func (f *WatchFilter) refresh() error {
-	metadata, err := WatchRoots(f.root)
+func (s *Service) NewWatchFilter(ctx context.Context, root string) (*WatchFilter, []string, error) {
+	f := &WatchFilter{root: root, service: s}
+	if err := f.refresh(ctx); err != nil {
+		return nil, nil, err
+	}
+	return f, slices.Clone(f.metadata), nil
+}
+func (f *WatchFilter) refresh(ctx context.Context) error {
+	var r *gogit.Repository
+	var err error
+	if f.service == nil {
+		r, err = open(f.root)
+	} else {
+		ctx, cancel := context.WithTimeout(ctx, readTimeout)
+		defer cancel()
+		r, err = f.service.openReadWorktree(ctx, f.root)
+	}
 	if err != nil {
-		return err
+		if _, e := os.Lstat(filepath.Join(f.root, ".git")); !os.IsNotExist(e) {
+			return err
+		}
 	}
-	f.metadata = metadata
-	f.tracked = nil
-	f.names = nil
-	f.repository = nil
-	f.matcher = nil
-	if len(metadata) == 0 {
-		f.reopen, f.indexDirty = false, false
-		return nil
+	var metadata []string
+	var matcher *watchMatcher
+	if r != nil {
+		metadata, err = watchRoots(f.root, r)
+		if err != nil {
+			return err
+		}
+		matcher = &watchMatcher{root: f.root, common: metadata[len(metadata)-1]}
 	}
-	r, err := open(f.root)
-	if err != nil {
-		return err
-	}
-	f.repository = r
-	f.matcher = &watchMatcher{root: f.root, common: metadata[len(metadata)-1]}
-	f.reopen, f.indexDirty = false, true
+	f.repository, f.metadata, f.matcher = r, metadata, matcher
+	f.tracked, f.names = nil, nil
+	f.reopen, f.indexDirty = false, r != nil
 	return nil
 }
 
@@ -266,7 +275,7 @@ func (f *WatchFilter) Changed(paths []string) bool {
 			continue
 		}
 		if f.reopen {
-			if err := f.refresh(); err != nil {
+			if err := f.refresh(context.Background()); err != nil {
 				return true
 			}
 		}

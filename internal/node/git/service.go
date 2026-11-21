@@ -273,7 +273,7 @@ func (s *Service) Head(ctx context.Context, root string) (protocol.GitHead, erro
 	if err := checkContext(ctx); err != nil {
 		return protocol.GitHead{}, err
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		if errors.Is(err, gogit.ErrRepositoryNotExists) {
 			return protocol.GitHead{Kind: protocol.RepositoryKindDirectory}, nil

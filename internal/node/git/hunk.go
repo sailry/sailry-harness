@@ -50,7 +50,7 @@ func (s *Service) ApplyHunk(ctx context.Context, root string, input protocol.Com
 	if err != nil {
 		return result, err
 	}
-	before, after, err := s.contents(ctx, root, input.Path, input.Scope)
+	before, after, err := s.contents(ctx, root, input.Path, r, input.Scope)
 	if err != nil {
 		return result, err
 	}

@@ -50,11 +50,7 @@ func digest(value any) string {
 	sum := blake3.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }
-func (s *Service) changeCapture(ctx context.Context, root string, state protocol.GitChangeState) (*changeCapture, error) {
-	r, err := open(root)
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) changeCapture(ctx context.Context, root string, r *gogit.Repository, state protocol.GitChangeState) (*changeCapture, error) {
 	old, new := map[string]*resource{}, map[string]*resource{}
 	omitted := uint64(0)
 	treeInventory := func(revision *string, target map[string]*resource) error {
@@ -162,10 +158,11 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 			for p := range staged {
 				paths[p] = true
 			}
-			filter, err := NewWatchFilter(root)
+			metadata, err := watchRoots(root, r)
 			if err != nil {
 				return nil, err
 			}
+			matcher := &watchMatcher{root: root, common: metadata[len(metadata)-1]}
 			anchor, err := os.OpenRoot(root)
 			if err != nil {
 				return nil, mapError(err)
@@ -190,7 +187,7 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 					}
 					return nil
 				}
-				if filter.matcher != nil && filter.matcher.Match(strings.Split(relative, "/"), entry.IsDir()) {
+				if matcher.Match(strings.Split(relative, "/"), entry.IsDir()) {
 					if entry.IsDir() {
 						return fs.SkipDir
 					}
@@ -306,11 +303,7 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 	capture.snapshot = protocol.GitChangeSnapshot{Target: state, MetadataRevision: digest([]any{state, entries, omitted})}
 	return capture, nil
 }
-func (s *Service) startChanges(ctx context.Context, root string, target protocol.GitChangeTarget) (*changeCapture, error) {
-	r, err := open(root)
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) startChanges(ctx context.Context, root string, r *gogit.Repository, target protocol.GitChangeTarget) (*changeCapture, error) {
 	state := protocol.GitChangeState{Kind: target.Kind}
 	switch target.Kind {
 	case "worktree":
@@ -353,7 +346,7 @@ func (s *Service) startChanges(ctx context.Context, root string, target protocol
 	default:
 		return nil, invalid("invalid Git change target")
 	}
-	return s.changeCapture(ctx, root, state)
+	return s.changeCapture(ctx, root, r, state)
 }
 func (s *Service) rememberChanges(value *changeCapture) {
 	s.mu.Lock()
@@ -370,12 +363,8 @@ func (s *Service) rememberChanges(value *changeCapture) {
 	}
 	s.changes = append(entries, value)
 }
-func (s *Service) restoreChanges(ctx context.Context, root string, snapshot protocol.GitChangeSnapshot, full bool) (*changeCapture, error) {
+func (s *Service) restoreChanges(ctx context.Context, root string, r *gogit.Repository, snapshot protocol.GitChangeSnapshot, full bool) (*changeCapture, error) {
 	if snapshot.Target.Kind == "worktree" {
-		r, err := open(root)
-		if err != nil {
-			return nil, err
-		}
 		h, err := head(r)
 		if err != nil {
 			return nil, err
@@ -404,7 +393,7 @@ func (s *Service) restoreChanges(ctx context.Context, root string, snapshot prot
 		}
 		s.mu.Unlock()
 	}
-	capture, err := s.changeCapture(ctx, root, snapshot.Target)
+	capture, err := s.changeCapture(ctx, root, r, snapshot.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -419,16 +408,19 @@ func (s *Service) Changes(ctx context.Context, root string, input protocol.Comma
 	if input.Limit == 0 || (input.Target == nil) == (input.Cursor == nil) {
 		return result, invalid("provide one Git change target or cursor and a positive limit")
 	}
+	r, err := s.openReadWorktree(ctx, root)
+	if err != nil {
+		return result, err
+	}
 	var capture *changeCapture
-	var err error
 	after := ""
 	if input.Target != nil {
-		capture, err = s.startChanges(ctx, root, *input.Target)
+		capture, err = s.startChanges(ctx, root, r, *input.Target)
 		if err == nil {
 			s.rememberChanges(capture)
 		}
 	} else {
-		capture, err = s.restoreChanges(ctx, root, input.Cursor.Snapshot, input.Cursor.AfterPath == nil)
+		capture, err = s.restoreChanges(ctx, root, r, input.Cursor.Snapshot, input.Cursor.AfterPath == nil)
 		if input.Cursor.AfterPath != nil {
 			after = *input.Cursor.AfterPath
 		}
@@ -523,11 +515,11 @@ func (s *Service) readResource(ctx context.Context, root, path string, r *gogit.
 	return c.data, "", nil
 }
 func (s *Service) changeBytes(ctx context.Context, root string, snapshot protocol.GitChangeSnapshot, path, metadata string) (candidate, []byte, []byte, string, string, error) {
-	capture, err := s.restoreChanges(ctx, root, snapshot, false)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return candidate{}, nil, nil, "", "", err
 	}
-	r, err := open(root)
+	capture, err := s.restoreChanges(ctx, root, r, snapshot, false)
 	if err != nil {
 		return candidate{}, nil, nil, "", "", err
 	}

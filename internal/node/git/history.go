@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -91,10 +92,9 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 	if input.Cursor != nil && ((input.Path == nil) != (input.Cursor.Path == nil) || input.Path != nil && *input.Path != *input.Cursor.Path) {
 		return result, invalid("Git history cursor belongs to another path")
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
-		head, e := s.Head(ctx, root)
-		if e == nil && head.Kind == protocol.RepositoryKindDirectory {
+		if ctx.Err() == nil && errors.Is(checkGitMetadata(root), os.ErrNotExist) {
 			return result, nil
 		}
 		return result, err
@@ -232,7 +232,7 @@ func historyEntry(commit *object.Commit, path string) (object.TreeEntry, error) 
 }
 
 func (s *Service) Commit(ctx context.Context, root, revision string) (protocol.GitCommit, error) {
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return protocol.GitCommit{}, err
 	}
@@ -357,7 +357,7 @@ func (s *Service) Show(ctx context.Context, root string, input protocol.CommandR
 		value, err := s.Commit(ctx, root, input.Revision)
 		return protocol.Output{Kind: "git_commit", Data: value}, err
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return protocol.Output{}, err
 	}

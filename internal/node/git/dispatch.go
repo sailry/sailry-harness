@@ -40,7 +40,7 @@ func (s *Service) read(ctx context.Context, root string, command protocol.Comman
 		v, e := s.Head(ctx, root)
 		return protocol.Output{Kind: "git_head", Data: v}, e
 	case "resolve_git_revision":
-		r, e := open(root)
+		r, e := s.openReadWorktree(ctx, root)
 		if e != nil {
 			return protocol.Output{}, e
 		}
@@ -138,7 +138,7 @@ func (s *Service) RemoteTags(ctx context.Context, root, remote string) ([]protoc
 	if err := name(remote); err != nil {
 		return nil, err
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return nil, err
 	}

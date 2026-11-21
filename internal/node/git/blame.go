@@ -39,7 +39,7 @@ func (s *Service) Blame(ctx context.Context, root string, input protocol.Command
 	if input.Limit == 0 {
 		return result, invalid("Git line page limit must be positive")
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return result, err
 	}

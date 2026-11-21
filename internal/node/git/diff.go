@@ -162,18 +162,12 @@ func workingContent(root, path string, limit int) (content, error) {
 	}
 	return content{data: data, hash: plumbing.ComputeHash(plumbing.BlobObject, data), mode: mode, exists: true, size: int64(len(data))}, nil
 }
-func (s *Service) contents(ctx context.Context, root, path string, scope protocol.GitDiffScope) (content, content, error) {
-	if err := validPath(path); err != nil {
-		return content{}, content{}, err
-	}
+func (s *Service) contents(ctx context.Context, root, path string, r *gogit.Repository, scope protocol.GitDiffScope) (content, content, error) {
 	if err := checkContext(ctx); err != nil {
 		return content{}, content{}, err
 	}
-	r, err := open(root)
-	if err != nil {
-		return content{}, content{}, err
-	}
 	var before, after content
+	var err error
 	switch scope {
 	case protocol.GitDiffScopeStaged:
 		tree, e := headTree(r)
@@ -204,7 +198,17 @@ func (s *Service) contents(ctx context.Context, root, path string, scope protoco
 	return before, after, err
 }
 func (s *Service) Diff(ctx context.Context, root, path string, scope protocol.GitDiffScope) (protocol.GitDiff, error) {
-	a, b, err := s.contents(ctx, root, path, scope)
+	if err := validPath(path); err != nil {
+		return protocol.GitDiff{}, err
+	}
+	if err := checkContext(ctx); err != nil {
+		return protocol.GitDiff{}, err
+	}
+	r, err := s.openReadWorktree(ctx, root)
+	if err != nil {
+		return protocol.GitDiff{}, err
+	}
+	a, b, err := s.contents(ctx, root, path, r, scope)
 	if err != nil {
 		return protocol.GitDiff{}, err
 	}
