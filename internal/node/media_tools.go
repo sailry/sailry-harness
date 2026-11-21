@@ -450,13 +450,6 @@ func (node *Node) inspectMedia(ctx context.Context, inv *store.AgentInvocation, 
 
 // recordMediaUsage counts the call under the provider and model that ran it.
 func (node *Node) recordMediaUsage(ctx context.Context, inv *store.AgentInvocation, binding model.Binding, kind protocol.MediaKind, usage canonical.Usage) error {
-	var zero uint64
-	if usage.Input == nil {
-		usage.Input = &zero
-	}
-	if usage.Output == nil {
-		usage.Output = &zero
-	}
 	return nodeFault(node.agent.RecordMediaUsage(ctx, inv.Session.ID, inv.Run.Turn, binding.Provider, binding.Config.Model, kind, usage))
 }
 

@@ -261,6 +261,118 @@ func testHostUsageSample(t *testing.T) {
 		}
 	})
 
+	t.Run("projects token coverage", func(t *testing.T) {
+		coverage := sample(5)
+		read := coverage.Report
+		coverage.Report = func(node protocol.NodeID, query protocol.UsageQuery) (protocol.UsageReport, error) {
+			report, err := read(node, query)
+			if err != nil {
+				return report, err
+			}
+			report.Totals.IncompleteTokenResponses = 3
+			report.Groups[0].Metrics = report.Totals
+			report.Days = []protocol.UsagePoint{{Metrics: protocol.UsageMetrics{
+				Responses: 2, IncompleteTokenResponses: 1, Tokens: &protocol.ConversationUsage{},
+			}}}
+			report.Recent = []protocol.UsagePoint{
+				{Metrics: protocol.UsageMetrics{Responses: 2, IncompleteTokenResponses: 2, Generation: &protocol.UsageGeneration{ElapsedUs: 1, Responses: 1}}},
+				{Metrics: protocol.UsageMetrics{Responses: 1, Tokens: &protocol.ConversationUsage{}}},
+			}
+			report.Requests.Items = []protocol.UsageRequest{
+				{MissingInputTokens: true},
+				{MissingOutputTokens: true, Tokens: protocol.ConversationUsage{Input: 9_007_199_254_740_993}},
+				{MissingInputTokens: true, MissingOutputTokens: true},
+				{Tokens: *report.Totals.Tokens},
+				{},
+			}
+			for index := range report.Requests.Items {
+				report.Requests.Items[index].Position = protocol.UsagePosition{TimestampMs: query.StartMs, Node: node, Sequence: uint64(len(report.Requests.Items) - index)}
+			}
+			return report, nil
+		}
+		owner := NewHost(HostBinding{Context: ctx, Target: protocol.NodeID{2}, Scope: scope, UsageSample: coverage})
+		defer owner.Close()
+		one := func(value any) any {
+			t.Helper()
+			items, _ := value.([]any)
+			if len(items) != 1 {
+				t.Fatalf("expected one usage item: %#v", value)
+			}
+			return items[0]
+		}
+		checkMetrics := func(name string, value any, incomplete string, subtotalInput any) {
+			t.Helper()
+			metrics, _ := value.(map[string]any)
+			tokens, exists := metrics["tokens"]
+			if !exists || tokens != nil || metrics["incomplete_token_responses"] != incomplete || hostAt(value, "token_subtotal", "input") != subtotalInput {
+				t.Fatalf("%s token coverage = %#v", name, value)
+			}
+		}
+		check := func(report any, scopedGroups bool) {
+			t.Helper()
+			checkMetrics("totals", hostAt(report, "totals"), "3", "9007199254740993")
+			checkMetrics("day with a measured zero subtotal", hostAt(one(hostAt(report, "days")), "metrics"), "1", "0")
+			recent, _ := hostAt(report, "recent").([]any)
+			if len(recent) != 2 {
+				t.Fatalf("recent usage points = %#v", recent)
+			}
+			unknown := hostAt(recent[0], "metrics")
+			checkMetrics("recent, all incomplete", unknown, "2", nil)
+			if hostAt(unknown, "token_subtotal") != nil || hostAt(unknown, "generation", "output_tokens") != "0" {
+				t.Fatalf("unknown token subtotal changed generation data: %#v", unknown)
+			}
+			measured := hostAt(recent[1], "metrics")
+			if hostAt(measured, "tokens", "input") != "0" || hostAt(measured, "tokens", "output") != "0" ||
+				hostAt(measured, "incomplete_token_responses") != nil || hostAt(measured, "token_subtotal") != nil {
+				t.Fatalf("complete measured zero changed: %#v", measured)
+			}
+			group := one(hostAt(report, "groups"))
+			if scopedGroups {
+				group = hostAt(group, "group")
+			}
+			checkMetrics("group", hostAt(group, "metrics"), "3", "9007199254740993")
+			items, _ := hostAt(report, "requests", "items").([]any)
+			want := [][2]any{{nil, "0"}, {"9007199254740993", nil}, {nil, nil}, {"9007199254740993", "0"}, {"0", "0"}}
+			if len(items) != len(want) {
+				t.Fatalf("request page = %#v", items)
+			}
+			for index, item := range items {
+				tokens, _ := hostAt(item, "tokens").(map[string]any)
+				for slot, name := range []string{"input", "output"} {
+					actual, exists := tokens[name]
+					flagged := hostAt(item, "missing_"+name+"_tokens") == true
+					if !exists || actual != want[index][slot] || flagged != (want[index][slot] == nil) {
+						t.Fatalf("request %d %s = %#v, flagged %t; want %#v", index, name, actual, flagged, want[index][slot])
+					}
+				}
+			}
+		}
+		report, err := call(owner, "readUsageChoices", query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(report, false)
+		for _, all := range []string{"false", "true"} {
+			if _, err := call(owner, "watchUsage", query, all); err != nil {
+				t.Fatal(err)
+			}
+			event, err := call(owner, "nextUsageChange", `""`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if all == "true" {
+				view := hostAt(event, "view")
+				if hostAt(view, "complete") != true {
+					t.Fatalf("incomplete token reporting made available sources incomplete: %#v", view)
+				}
+				check(hostAt(view, "summary"), true)
+				check(hostAt(one(hostAt(view, "sources")), "view", "report"), false)
+			} else {
+				check(hostAt(event, "view", "report"), false)
+			}
+		}
+	})
+
 	t.Run("replaces a live watch", func(t *testing.T) {
 		controller := client.New(&hostTestTransport{target: protocol.NodeID{1}})
 		defer controller.Close()

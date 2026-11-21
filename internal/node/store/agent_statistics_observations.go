@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"math"
 	"math/bits"
 	"slices"
@@ -94,6 +95,10 @@ type agentStatisticTurnMetadata struct {
 }
 
 func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.SessionID) ([]agentStatisticCall, error) {
+	return readAgentStatisticCalls(ctx, db, session, nil)
+}
+
+func readAgentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.SessionID, observed *[]string) ([]agentStatisticCall, error) {
 	rows, err := db.QueryContext(ctx, agentStatisticCallsQuery, session.String())
 	if err != nil {
 		return nil, err
@@ -142,6 +147,9 @@ func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.Ses
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, err
+	}
+	if observed != nil {
+		*observed = observedTurns
 	}
 	if len(observedTurns) == 0 {
 		return result, nil
@@ -214,28 +222,46 @@ const agentStatisticEventsQuery = `SELECT e.turn,json_object(
  'tools',json((SELECT json_group_array(json_extract(p.value,'$.name')) FROM json_each(e.body,'$.content') p
   WHERE json_extract(p.value,'$.type')='tool_request' AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.arguments')='object'))),
  EXISTS(SELECT 1 FROM conversation_events membership WHERE membership.session=?1 AND membership.sequence=e.sequence)
- FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1 ORDER BY e.sequence`
+ FROM json_each(?2) h CROSS JOIN agent_events e
+ ON e.turn=json_extract(h.value,'$.turn') AND e.sequence>json_extract(h.value,'$.after') ORDER BY e.sequence`
 
-func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.ConversationObservationSummary, error) {
-	result := protocol.DefaultConversationObservationSummary()
-	calls, err := agentStatisticCalls(ctx, db, session)
-	if err != nil {
-		return result, err
+type agentStatisticEventTotals struct {
+	phases                                                   map[string]protocol.ConversationObservationPhases
+	replies                                                  map[string]bool
+	tools                                                    map[string]uint64
+	compactions                                              uint64
+	usageCount, cacheCount, reasoningCount, cache, reasoning uint64
+}
+
+func (totals *agentStatisticEventTotals) extend(ctx context.Context, db *sql.Conn, session protocol.SessionID, ranges []agentStatisticsRange, work *agentStatisticsWork) error {
+	if len(ranges) == 0 {
+		return nil
 	}
-	rows, err := db.QueryContext(ctx, agentStatisticEventsQuery, session.String())
+	keys, err := json.Marshal(ranges)
 	if err != nil {
-		return result, err
+		return err
 	}
-	phases := map[string]protocol.ConversationObservationPhases{}
-	replies := map[string]bool{}
-	var usageCount, cacheCount, reasoningCount, cacheTotal, reasoningTotal uint64
+	rows, err := db.QueryContext(ctx, agentStatisticEventsQuery, session.String(), string(keys))
+	if err != nil {
+		return err
+	}
+	if totals.phases == nil {
+		totals.phases = map[string]protocol.ConversationObservationPhases{}
+		totals.replies = map[string]bool{}
+		totals.tools = map[string]uint64{}
+	} else {
+		totals.phases = maps.Clone(totals.phases)
+		totals.replies = maps.Clone(totals.replies)
+		totals.tools = maps.Clone(totals.tools)
+	}
 	for rows.Next() {
+		work.eventRows++
 		var turn string
 		var body []byte
 		var visible bool
 		if err = rows.Scan(&turn, &body, &visible); err != nil {
 			rows.Close()
-			return result, err
+			return err
 		}
 		var event struct {
 			Kind     string                                  `json:"kind"`
@@ -246,47 +272,56 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 		}
 		if err = json.Unmarshal(body, &event); err != nil {
 			rows.Close()
-			return result, err
+			return err
 		}
 		if event.Phases != nil {
-			phases[turn] = *event.Phases
+			totals.phases[turn] = *event.Phases
 		}
 		if usage := event.Usage; usage != nil {
-			usageCount++
+			totals.usageCount++
 			if usage.CacheRead != nil {
-				cacheCount++
-				cacheTotal = addAgentStatistic(cacheTotal, *usage.CacheRead)
+				totals.cacheCount++
+				totals.cache = addAgentStatistic(totals.cache, *usage.CacheRead)
 			}
 			if usage.Reasoning != nil {
-				reasoningCount++
-				reasoningTotal = addAgentStatistic(reasoningTotal, *usage.Reasoning)
+				totals.reasoningCount++
+				totals.reasoning = addAgentStatistic(totals.reasoning, *usage.Reasoning)
 			}
 		}
 		if !visible {
 			continue
 		}
 		if event.Kind == "compaction" {
-			result.Compactions++
+			totals.compactions++
 		}
 		if event.HasReply == 1 {
-			replies[turn] = true
+			totals.replies[turn] = true
 		}
 		for _, tool := range event.Tools {
-			result.Tools[tool]++
+			totals.tools[tool]++
 		}
 	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return result, err
+	return errors.Join(rows.Err(), rows.Close())
+}
+
+func (totals *agentStatisticEventTotals) apply(result *protocol.ConversationObservationSummary, turns map[string]agentStatisticsTurn) {
+	result.Replies = uint64(len(totals.replies))
+	result.Compactions = totals.compactions
+	result.Children = 0
+	result.Tools = totals.tools
+	if result.Tools == nil {
+		result.Tools = map[string]uint64{}
 	}
-	result.Replies = uint64(len(replies))
-	if usageCount > 0 && cacheCount == usageCount {
-		result.CacheRead = &cacheTotal
+	result.CacheRead, result.Reasoning = nil, nil
+	if totals.usageCount > 0 && totals.cacheCount == totals.usageCount {
+		result.CacheRead = &totals.cache
 	}
-	if usageCount > 0 && reasoningCount == usageCount {
-		result.Reasoning = &reasoningTotal
+	if totals.usageCount > 0 && totals.reasoningCount == totals.usageCount {
+		result.Reasoning = &totals.reasoning
 	}
+	result.Phases = protocol.DefaultConversationObservationPhases()
 	first := true
-	for _, phase := range phases {
+	for _, phase := range totals.phases {
 		if first {
 			result.Phases, first = phase, false
 			continue
@@ -297,27 +332,18 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 		result.Phases.ToolsUs = sumAgentStatistic(result.Phases.ToolsUs, phase.ToolsUs)
 		result.Phases.OtherUs = sumAgentStatistic(result.Phases.OtherUs, phase.OtherUs)
 	}
-	rows, err = db.QueryContext(ctx, `SELECT h.turn FROM conversation_turns h JOIN agent_runs r ON r.turn=h.turn
- WHERE h.session=?1 AND json_extract(r.body,'$.status') IN ('completed','failed','cancelled','interrupted')`, session.String())
-	if err != nil {
-		return result, err
-	}
-	for rows.Next() {
-		var turn string
-		if err = rows.Scan(&turn); err != nil {
-			rows.Close()
-			return result, err
+	for id, turn := range turns {
+		if turn.child {
+			result.Children++
 		}
-		if _, exists := phases[turn]; !exists {
+		if _, exists := totals.phases[id]; turn.own && turn.terminal && !exists {
 			result.Phases = protocol.DefaultConversationObservationPhases()
 		}
 	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return result, err
-	}
-	if err = db.QueryRowContext(ctx, `SELECT count(DISTINCT d.turn) FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn WHERE h.session=?1`, session.String()).Scan(&result.Children); err != nil {
-		return result, err
-	}
+}
+
+func agentStatisticsCallsSummary(calls []agentStatisticCall) protocol.ConversationObservationSummary {
+	result := protocol.DefaultConversationObservationSummary()
 	result.Calls = uint64(len(calls))
 	var latency agentStatisticLatency
 	composition := map[protocol.ConversationObservationCategoryKind]protocol.ConversationObservationCategory{}
@@ -366,5 +392,5 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 	for _, call := range recent[max(0, len(recent)-16):] {
 		result.Recent = append(result.Recent, call.request)
 	}
-	return result, nil
+	return result
 }

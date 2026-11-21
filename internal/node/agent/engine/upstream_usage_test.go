@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/http2"
 )
@@ -29,6 +31,99 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
 	reset := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
 	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error())
+}
+
+func TestAttemptPricesAreFrozenAndCountedOnce(t *testing.T) {
+	billed := func(part fantasy.StreamPart, input, output int64) fantasy.StreamPart {
+		part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{Reported: true, Input: &input, Output: &output}}
+		return part
+	}
+	for _, outcome := range []string{"success", "failure", "cancelled"} {
+		t.Run(outcome, func(t *testing.T) {
+			transient := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "Retry later"}}
+			terminal := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "Incomplete response"}}
+			last, status := response(billed(terminal, 20, 5)), protocol.ConversationStatusFailed
+			reported := make(chan struct{})
+			switch outcome {
+			case "success":
+				last, status = response(text("Final answer"), billed(finish(), 20, 5)), protocol.ConversationStatusCompleted
+			case "cancelled":
+				status = protocol.ConversationStatusCancelled
+				last = func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+					if yield(billed(text("Partial answer"), 20, 5)) {
+						close(reported)
+						<-ctx.Done()
+					}
+				}
+			}
+			m := &scriptedModel{scripts: []script{response(billed(transient, 12, 4)), response(transient), last}}
+			f := newFixture(t, m)
+			if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+				if _, err := db.ExecContext(f.ctx, `UPDATE providers SET body=json_set(body,'$.provider.billing_rate_bps',5000) WHERE id=?1`, f.session.Config.Provider.String()); err != nil {
+					return err
+				}
+				_, err := db.ExecContext(f.ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('openai','fixture',?1)", []byte(`{"cost":{"input":2,"output":8}}`))
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			f.start()
+			turn := f.submit("Task")
+			for i := range 2 {
+				select {
+				case wait := <-f.r.clock.(*manualClock).waits:
+					if i == 0 {
+						if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+							if _, err := db.ExecContext(f.ctx, `UPDATE providers SET body=json_set(body,'$.provider.billing_rate_bps',0) WHERE id=?1`, f.session.Config.Provider.String()); err != nil {
+								return err
+							}
+							_, err := db.ExecContext(f.ctx, "UPDATE model_catalog SET body=?1 WHERE provider='openai' AND id='fixture'", []byte(`{"cost":{"input":4,"output":16}}`))
+							return err
+						}); err != nil {
+							t.Fatal(err)
+						}
+					}
+					close(wait.advance)
+				case <-f.ctx.Done():
+					t.Fatal("the scripted failure did not enter recovery")
+				}
+			}
+			if outcome == "cancelled" {
+				select {
+				case <-reported:
+					f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+				case <-f.ctx.Done():
+					t.Fatal("the stopped attempt did not report usage")
+				}
+			}
+			f.waitRun(turn, status)
+			var priced []uint64
+			for _, record := range f.state().Records {
+				message := record.Message()
+				if message == nil || message.Usage == nil || message.Usage.Input == nil {
+					continue
+				}
+				pricing := message.Usage.Pricing
+				execution := record.Metadata.Execution
+				if pricing == nil || pricing.Estimate == nil || execution == nil || execution.Source == nil || execution.Source.ID != f.session.Config.Provider {
+					t.Fatalf("billed attempt lost its price or execution source: %+v", message.Usage)
+				}
+				priced = append(priced, pricing.Estimate.UsdMicros)
+			}
+			if !reflect.DeepEqual(priced, []uint64{28, 80}) {
+				t.Fatalf("stored attempt prices = %v, want [28 80]", priced)
+			}
+			if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+				statistics, err := store.ReadAgentStatistics(f.ctx, db, f.session.ID)
+				if err == nil && (statistics.Responses != 2 || statistics.Cost == nil || statistics.Cost.Responses != 2 || statistics.Cost.UsdMicros != 108) {
+					return fmt.Errorf("attempt statistics counted missing or duplicate usage: %+v", statistics)
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKind, diagnostic string) {

@@ -258,6 +258,11 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 		if err := bindProviderPreset(ctx, db, &provider, previous, false); err != nil {
 			return protocol.Output{}, nil, err
 		}
+		// Older clients and edits of unrelated settings may leave the rate out.
+		if provider.Authentication == protocol.AuthenticationApiKey && provider.BillingRateBps == nil &&
+			previous != nil && previous.Authentication == protocol.AuthenticationApiKey {
+			provider.BillingRateBps = previous.BillingRateBps
+		}
 		if err := providers.ValidateConfiguration(provider); err != nil {
 			return protocol.Output{}, nil, err
 		}

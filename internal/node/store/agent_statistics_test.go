@@ -372,16 +372,22 @@ func TestDelegatedStatistics(t *testing.T) {
 		if _, err := db.ExecContext(ctx, `INSERT INTO model_catalog(provider,id,body) VALUES('openai','fixture',?1)`, []byte(`{"cost":{"input":2,"output":8}}`)); err != nil {
 			return err
 		}
-		respond := func(session protocol.SessionID, turn protocol.TurnID, input, output, elapsed uint64) error {
+		respond := func(session protocol.SessionID, turn protocol.TurnID, provider *protocol.ConversationProvider, input, output, elapsed uint64) error {
 			message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer"))
 			message.Usage = &canonical.Usage{Input: ptr(input), Output: ptr(output)}
 			record := canonical.NewRecord(turn, "message", &message, now)
 			record.Provenance.Author = "assistant"
 			record.Metadata.Execution = &canonical.Execution{Timing: &canonical.Timing{ElapsedUs: ptr(elapsed), FirstTokenUs: ptr(uint64(2))}}
-			_, _, err := AppendCanonical(ctx, db, session, record)
+			if provider != nil {
+				record.Metadata.Execution.Source = &canonical.ModelSource{ID: provider.ID, Name: provider.Name, API: provider.Api, Authentication: provider.Authentication, Model: "fixture"}
+			}
+			_, _, err := AppendCanonicalWithProvider(ctx, db, session, record, provider)
 			return err
 		}
-		if err := respond(session.ID, parent, 100, 20, 10); err != nil {
+		if err := respond(session.ID, parent, nil, 100, 20, 10); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, `UPDATE agent_runs SET provider=json_set(provider,'$.billing_rate_bps',5000) WHERE turn=?1`, parent.String()); err != nil {
 			return err
 		}
 		var children []AgentInvocation
@@ -394,11 +400,12 @@ func TestDelegatedStatistics(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now); err != nil || inv == nil {
+			inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now)
+			if err != nil || inv == nil || inv.Provider == nil {
 				return fmt.Errorf("child was not claimed: %v", err)
 			}
 			for range responses {
-				if err = respond(child.Session.ID, child.Run.Turn, 1000, 300, 7); err != nil {
+				if err = respond(child.Session.ID, child.Run.Turn, inv.Provider, 1000, 300, 7); err != nil {
 					return err
 				}
 			}
@@ -412,14 +419,14 @@ func TestDelegatedStatistics(t *testing.T) {
 			t.Fatalf("child usage leaked into the parent's own totals: %#v", result)
 		}
 		delegated := result.Delegated
-		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 13200 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 15 {
+		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 6600 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 15 {
 			t.Fatalf("delegated totals = %#v", delegated)
 		}
 		own, err := ReadAgentStatistics(ctx, db, children[0].Session.ID)
 		if err != nil {
 			return err
 		}
-		if own.Responses != 2 || own.Usage == nil || own.Usage.Input != 2000 || !reflect.DeepEqual(own.Delegated, protocol.DefaultUsageMetrics()) {
+		if own.Responses != 2 || own.Usage == nil || own.Usage.Input != 2000 || own.Cost == nil || own.Cost.UsdMicros != 4400 || !reflect.DeepEqual(own.Delegated, protocol.DefaultUsageMetrics()) {
 			t.Fatalf("child statistics = %#v", own)
 		}
 		// A fork inherits the parent turn and therefore the children it delegated.

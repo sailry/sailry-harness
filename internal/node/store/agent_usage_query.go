@@ -13,6 +13,19 @@ const agentUsagePreset = `coalesce(
 // rest of that object, which can be large, stays in the database.
 const agentUsageTrimmed = `CASE WHEN json_type(e.usage,'$.provider')='object' THEN json_set(json_remove(e.usage,'$.provider'),'$.provider',json_object('cache_creation',json(e.usage -> '$.provider.cache_creation'))) ELSE e.usage END`
 
+const (
+	agentUsageObject = `coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'`
+	agentUsageInput  = `coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))`
+	agentUsageOutput = `coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))`
+	agentUsagePair   = agentUsageInput + `>=0 AND ` + agentUsageOutput + `>=0`
+)
+
+// Media and search record their calls explicitly, even without a token pair.
+// Other requests can contain an empty usage value on an unmetered attempt.
+const agentReportableUsage = agentUsageObject + ` AND ((` + agentUsagePair + `)
+ OR ((json_extract(e.body,'$.metadata.execution.media') IS NOT NULL OR json_extract(e.body,'$.metadata.execution.purpose')='search')
+ AND coalesce(` + agentUsageInput + `,0)>=0 AND coalesce(` + agentUsageOutput + `,0)>=0))`
+
 const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
     coalesce(json_extract(e.body,'$.metadata.execution.source.id'),
         CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
@@ -30,9 +43,7 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
     JOIN sessions s ON s.id=t.session
     LEFT JOIN session_media media ON media.session=t.session
     LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
-    WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
-    AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
-    AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0
+    WHERE ` + agentReportableUsage + `
     AND substr(json_extract(e.body,'$.created'),1,19)>=?1
     AND substr(json_extract(e.body,'$.created'),1,19)<=?2
     AND (?3='[]' OR s.project IN (SELECT value FROM json_each(?3)))
@@ -40,10 +51,6 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
     AND (CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?8 ELSE EXISTS(SELECT 1 FROM projects access WHERE access.id=s.project AND (access.visibility='shared' OR coalesce(access.owner,(SELECT id FROM users WHERE local=1))=?8)) END))
     SELECT
     json_extract(e.body,'$.created'),
-    max(0,json_extract(e.usage,'$.input')),
-    max(0,json_extract(e.usage,'$.output')),
-    max(0,coalesce(json_extract(e.usage,'$.cache_read'),0)),
-    max(0,coalesce(json_extract(e.usage,'$.reasoning'),0)),
     e.provider_id,e.model,e.project,e.worktree,
     json_extract(e.provider,'$.api'),json_extract(e.provider,'$.authentication'),
     json_extract(e.provider,'$.endpoint'),

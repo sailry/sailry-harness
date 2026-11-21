@@ -37,8 +37,15 @@ func scanProviderConfiguration(row interface{ Scan(...any) error }) (*providerCo
 	}
 	if saved.Provider != nil {
 		saved.Provider.Owner, saved.Provider.Shared = &ownerID, false
+		clearNonAPIBillingRate(saved.Provider)
 	}
 	return &saved, nil
+}
+
+func clearNonAPIBillingRate(provider *protocol.ConversationProvider) {
+	if provider.Authentication != protocol.AuthenticationApiKey {
+		provider.BillingRateBps = nil
+	}
 }
 
 func providerConfigurations(ctx context.Context, db *sql.Conn) ([]providerConfiguration, error) {

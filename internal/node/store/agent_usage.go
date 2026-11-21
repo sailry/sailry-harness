@@ -94,7 +94,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
 		}
 		scanned++
-		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.scope.provider, &row.model, &row.scope.project, &row.scope.worktree, &row.api, &row.authentication, &row.endpoint, &usage, &row.elapsed, &row.media, &row.sequence, &row.scope.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scopeName, &row.scope.resource, &row.scope.assistant, &row.preset); err != nil {
+		if err = rows.Scan(&row.time, &row.scope.provider, &row.model, &row.scope.project, &row.scope.worktree, &row.api, &row.authentication, &row.endpoint, &usage, &row.elapsed, &row.media, &row.sequence, &row.scope.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scopeName, &row.scope.resource, &row.scope.assistant, &row.preset); err != nil {
 			return report, err
 		}
 		created, e := time.Parse(time.RFC3339Nano, row.time)
@@ -150,36 +150,42 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if e = stored.UnmarshalJSON(usage); e != nil {
 			return report, e
 		}
-		var cost *protocol.UsageCost
-		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, e = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, stored)
-			if e != nil {
-				return report, e
-			}
+		cost, e := readAgentCost(ctx, db, prices, row.media.String, row.preset.String, row.api.String, row.model, stored)
+		if e != nil {
+			return report, e
+		}
+		tokens := agentUsageTokens(stored)
+		var complete *protocol.ConversationUsage
+		if stored.Input != nil && stored.Output != nil {
+			complete = &tokens
 		}
 		elapsed, elapsedKnown := usageMicros(row.elapsed)
 		first, firstKnown := usageMicros(row.first)
 		var generation *protocol.UsageGeneration
-		if elapsedKnown && firstKnown {
-			generation = row.tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
+		if stored.Output != nil && elapsedKnown && firstKnown {
+			generation = tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
 		}
-		if e = addUsageMetrics(&report.Totals, row.tokens, cost, generation); e != nil {
+		if e = addUsageMetrics(&report.Totals, complete, cost, generation); e != nil {
 			return report, e
 		}
-		if e = addUsageMetrics(&group.Metrics, row.tokens, cost, generation); e != nil {
+		if e = addUsageMetrics(&group.Metrics, complete, cost, generation); e != nil {
 			return report, e
 		}
 		day := int((usageFloor(ms, 86400000, offset) - report.Days[0].StartMs) / 86400000)
-		if e = addUsageMetrics(&report.Days[day].Metrics, row.tokens, cost, generation); e != nil {
+		if e = addUsageMetrics(&report.Days[day].Metrics, complete, cost, generation); e != nil {
 			return report, e
 		}
-		addUsageModel(&report.Days[day], row.model, row.tokens)
+		if complete != nil {
+			addUsageModel(&report.Days[day], row.model, tokens)
+		}
 		if ms >= recentStart {
 			bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
-			if e = addUsageMetrics(&report.Recent[bucket].Metrics, row.tokens, cost, generation); e != nil {
+			if e = addUsageMetrics(&report.Recent[bucket].Metrics, complete, cost, generation); e != nil {
 				return report, e
 			}
-			addUsageModel(&report.Recent[bucket], row.model, row.tokens)
+			if complete != nil {
+				addUsageModel(&report.Recent[bucket], row.model, tokens)
+			}
 		}
 		position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: row.sequence}
 		if before := query.Before; before != nil && (ms > before.TimestampMs || ms == before.TimestampMs &&
@@ -199,7 +205,8 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		request.Provider = scope.provider
 		request.ProviderName = providerName
 		request.Model = row.model
-		request.Tokens = row.tokens
+		request.Tokens = tokens
+		request.MissingInputTokens, request.MissingOutputTokens = stored.Input == nil, stored.Output == nil
 		// Copies escape only for the requests a page keeps.
 		if elapsedKnown {
 			v := elapsed
@@ -274,7 +281,6 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 // usageRow holds the columns of the response being aggregated.
 type usageRow struct {
 	time                          string
-	tokens                        protocol.ConversationUsage
 	model                         string
 	scope                         usageScopeKey
 	api, authentication, endpoint sql.NullString
@@ -428,15 +434,23 @@ func usageTime(value sql.NullInt64) *uint64 {
 	return &us
 }
 
-func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.ConversationUsage, cost *protocol.UsageCost, generation *protocol.UsageGeneration) error {
+func agentUsageTokens(usage canonical.Usage) protocol.ConversationUsage {
+	return protocol.ConversationUsage{Input: optionalUint(usage.Input), Output: optionalUint(usage.Output), CachedInput: optionalUint(usage.CacheRead), Reasoning: optionalUint(usage.Reasoning)}
+}
+
+func addUsageMetrics(target *protocol.UsageMetrics, tokens *protocol.ConversationUsage, cost *protocol.UsageCost, generation *protocol.UsageGeneration) error {
 	target.Responses++
-	if target.Tokens == nil {
-		target.Tokens = &protocol.ConversationUsage{}
+	if tokens == nil {
+		target.IncompleteTokenResponses++
+	} else {
+		if target.Tokens == nil {
+			target.Tokens = &protocol.ConversationUsage{}
+		}
+		target.Tokens.Input += tokens.Input
+		target.Tokens.Output += tokens.Output
+		target.Tokens.CachedInput += tokens.CachedInput
+		target.Tokens.Reasoning += tokens.Reasoning
 	}
-	target.Tokens.Input += tokens.Input
-	target.Tokens.Output += tokens.Output
-	target.Tokens.CachedInput += tokens.CachedInput
-	target.Tokens.Reasoning += tokens.Reasoning
 	if generation != nil {
 		if target.Generation == nil {
 			target.Generation = &protocol.UsageGeneration{}
@@ -501,6 +515,11 @@ type pricedChannel struct {
 // models.dev lists under another identifier.
 var catalogSuppliers = map[string]string{"gemini": "google", "qwen": "alibaba", "moonshot": "moonshotai", "fireworks": "fireworks-ai", "together": "togetherai", "zhipu": "zhipuai", "doubao": "volcengine"}
 
+var catalogModelNamespaces = map[string]string{
+	"anthropic": "anthropic", "claude": "anthropic", "deepseek": "deepseek",
+	"google": "google", "openai": "openai", "xai": "xai",
+}
+
 var presetBrands = sync.OnceValue(func() map[string]string {
 	brands := map[string]string{}
 	for _, preset := range providers.Bundled().Builtin {
@@ -533,56 +552,65 @@ func (prices *modelPrices) channel(ctx context.Context, db *sql.Conn, preset, ap
 	if priced, known := prices.channels[key]; known {
 		return priced.price, priced.supplier, nil
 	}
-	price, supplier, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
-	if err != nil {
-		return nil, "", err
+	var priced pricedChannel
+	for _, supplier := range append(priceSuppliers(preset, api), "") {
+		price, err := prices.entry(ctx, db, supplier, model)
+		if err != nil {
+			return nil, "", err
+		}
+		if price != nil {
+			priced = pricedChannel{price, supplier}
+			break
+		}
+	}
+	if priced.price == nil {
+		namespace, bare, _ := strings.Cut(model, "/")
+		if supplier := catalogModelNamespaces[namespace]; supplier != "" && bare != "" && !strings.Contains(bare, "/") {
+			price, err := prices.entry(ctx, db, supplier, bare)
+			if err != nil {
+				return nil, "", err
+			}
+			priced = pricedChannel{price, supplier}
+		}
 	}
 	if prices.channels == nil {
 		prices.channels = map[[3]string]pricedChannel{}
 	}
-	prices.channels[key] = pricedChannel{price, supplier}
-	return price, supplier, nil
+	prices.channels[key] = priced
+	return priced.price, priced.supplier, nil
 }
 
-// entry returns the catalog price of a model: the first of the suppliers
-// that lists the exact identifier, else the entry of any other supplier when
-// all that list it state one price. Resellers price the same identifier
-// differently, so a model they disagree on stays unpriced. The supplier
-// identifies which vendor-specific pricing rules can be applied.
-func (prices *modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) (*catalogPrice, string, error) {
-	for _, supplier := range append(suppliers, "") {
-		key := [2]string{supplier, model}
-		price, known := prices.entries[key]
-		if !known {
-			var body []byte
-			var err error
-			if supplier != "" {
-				err = db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
-				if errors.Is(err, sql.ErrNoRows) {
-					err = nil
-				}
-			} else {
-				body, err = agreedPrice(ctx, db, model)
-			}
-			if err != nil {
-				return nil, "", err
-			}
-			if body != nil {
-				price = parseCatalogPrice(body)
-			}
-			if prices.entries == nil {
-				prices.entries = map[[2]string]*catalogPrice{}
-			}
-			prices.entries[key] = price
+// entry distinguishes a missing identifier from an exact match without a
+// usable price. Only a missing identifier permits namespace fallback.
+func (prices *modelPrices) entry(ctx context.Context, db *sql.Conn, supplier, model string) (*catalogPrice, error) {
+	key := [2]string{supplier, model}
+	if price, known := prices.entries[key]; known {
+		return price, nil
+	}
+	var price *catalogPrice
+	if supplier == "" {
+		var err error
+		price, err = agreedPrice(ctx, db, model)
+		if err != nil {
+			return nil, err
 		}
-		if price != nil {
-			return price, supplier, nil
+	} else {
+		var body []byte
+		err := db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
+		if err == nil {
+			price = parseCatalogPrice(body)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
 		}
 	}
-	return nil, "", nil
+	if prices.entries == nil {
+		prices.entries = map[[2]string]*catalogPrice{}
+	}
+	prices.entries[key] = price
+	return price, nil
 }
 
-func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error) {
+func agreedPrice(ctx context.Context, db *sql.Conn, model string) (*catalogPrice, error) {
 	rows, err := db.QueryContext(ctx, "SELECT body FROM model_catalog WHERE id=?1 ORDER BY provider", model)
 	if err != nil {
 		return nil, err
@@ -590,7 +618,9 @@ func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error
 	defer rows.Close()
 	var agreed []byte
 	price := ""
+	matched := false
 	for rows.Next() {
+		matched = true
 		var body []byte
 		if err = rows.Scan(&body); err != nil {
 			return nil, err
@@ -604,11 +634,20 @@ func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error
 		// Encoding a decoded object orders its keys, so equal prices compare equal.
 		cost, _ := json.Marshal(entry.Cost)
 		if agreed != nil && string(cost) != price {
-			return nil, rows.Err()
+			return &catalogPrice{}, rows.Err()
 		}
 		agreed, price = body, string(cost)
 	}
-	return agreed, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if agreed != nil {
+		return parseCatalogPrice(agreed), nil
+	}
+	if matched {
+		return &catalogPrice{}, nil
+	}
+	return nil, nil
 }
 
 // The rates a catalog price states, by the field that names them.
@@ -638,11 +677,11 @@ func parseRates(cost map[string]json.RawMessage) priceRates {
 	_, output := cost["output_audio"]
 	rates.audio = input || output
 	for i, field := range rateFields {
-		var v float64
-		if json.Unmarshal(cost[field], &v) != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v*1000000 >= float64(math.MaxUint64) {
+		var v *float64
+		if json.Unmarshal(cost[field], &v) != nil || v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v*1000000 >= float64(math.MaxUint64) {
 			continue
 		}
-		rates.rate[i], rates.known[i] = uint64(math.Round(v*1000000)), true
+		rates.rate[i], rates.known[i] = uint64(math.Round(*v*1000000)), true
 	}
 	return rates
 }
@@ -734,17 +773,43 @@ func (value *uint128) add(other uint128) bool {
 	return carry == 0
 }
 
-// micros rounds a sum of rate products to micro-USD, reporting whether the
-// amount fits.
-func (value uint128) micros() (uint64, bool) {
-	if !value.add(uint128{lo: 500000}) || value.hi >= 1000000 {
+// micros applies the channel's multiplier before rounding the cumulative
+// amount to micro-USD. Overflow cannot yield a representable rounded price.
+func (value uint128) micros(billingRateBps uint32) (uint64, bool) {
+	divisor := uint64(1_000_000)
+	if billingRateBps != protocol.DefaultBillingRateBps {
+		divisor *= uint64(protocol.DefaultBillingRateBps)
+		rate := uint64(billingRateBps)
+		hi, lo := bits.Mul64(value.lo, rate)
+		overflow, upper := bits.Mul64(value.hi, rate)
+		hi, carry := bits.Add64(hi, upper, 0)
+		if overflow != 0 || carry != 0 {
+			return 0, false
+		}
+		value = uint128{hi: hi, lo: lo}
+	}
+	if !value.add(uint128{lo: divisor / 2}) || value.hi >= divisor {
 		return 0, false
 	}
-	quotient, _ := bits.Div64(value.hi, value.lo, 1000000)
+	quotient, _ := bits.Div64(value.hi, value.lo, divisor)
 	return quotient, true
 }
 
-func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, preset, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
+func tokenPricedMedia(media string) bool {
+	return media != string(protocol.MediaKindImage) && media != string(protocol.MediaKindVideo)
+}
+
+func readAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, media, preset, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
+	if usage.Pricing != nil {
+		return usage.Pricing.Estimate, nil
+	}
+	if !tokenPricedMedia(media) {
+		return nil, nil
+	}
+	return estimateAgentCost(ctx, db, prices, preset, api, model, usage, protocol.DefaultBillingRateBps)
+}
+
+func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, preset, api, model string, usage canonical.Usage, billingRateBps uint32) (*protocol.UsageCost, error) {
 	if usage.Input == nil || usage.Output == nil {
 		return nil, nil
 	}
@@ -811,6 +876,9 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, p
 		if !rates.known[field] {
 			return nil, nil
 		}
+		if billingRateBps == 0 {
+			continue
+		}
 		var product uint128
 		product.hi, product.lo = bits.Mul64(rates.rate[field], item.count)
 		if item.doubled && !product.add(product) {
@@ -832,7 +900,7 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, p
 		if !cumulative.add(category) {
 			return nil, nil
 		}
-		next, ok := cumulative.micros()
+		next, ok := cumulative.micros(billingRateBps)
 		if !ok {
 			return nil, nil
 		}

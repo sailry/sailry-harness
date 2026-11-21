@@ -26,6 +26,17 @@ type agentContextObservation struct {
 	summary                 bool
 }
 
+const agentContextCandidates = `json_extract(e.body,'$.metadata.execution.media') IS NULL
+ AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='search'
+ AND (coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction' OR json_extract(e.body,'$.kind')='compaction')
+ AND ((json_extract(e.body,'$.role')='assistant' AND json_extract(e.body,'$.part_count')>0)
+  OR json_type(e.body,'$.usage')='object' OR json_extract(e.body,'$.kind')='compaction'
+  OR json_type(e.body,'$.metadata.execution.context_tokens')='integer')`
+
+const agentContextTail = `json_extract(e.body,'$.kind')!='compaction'
+ AND json_extract(e.body,'$.metadata.execution.media') IS NULL
+ AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'') NOT IN ('compaction','search')`
+
 const agentContextObservationQuery = `SELECT h.sequence,
  CASE WHEN json_extract(e.body,'$.kind')!='compaction' AND json_extract(e.body,'$.usage.input')>=0
   AND json_extract(e.body,'$.usage.output')>=0 THEN json_extract(e.body,'$.usage.input')+json_extract(e.body,'$.usage.output') END,
@@ -40,12 +51,7 @@ const agentContextObservationQuery = `SELECT h.sequence,
  FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
  LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
  LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
- WHERE h.session=?1 AND json_extract(e.body,'$.metadata.execution.media') IS NULL
- AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='search'
- AND (coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'')!='compaction' OR json_extract(e.body,'$.kind')='compaction')
- AND ((json_extract(e.body,'$.role')='assistant' AND json_extract(e.body,'$.part_count')>0)
-  OR json_type(e.body,'$.usage')='object' OR json_extract(e.body,'$.kind')='compaction'
-  OR json_type(e.body,'$.metadata.execution.context_tokens')='integer')
+ WHERE h.session=?1 AND ` + agentContextCandidates + `
  AND (?2=0 OR json_extract(e.body,'$.kind')='compaction' OR json_type(e.body,'$.metadata.execution.context_tokens')='integer'
   OR (json_extract(e.body,'$.usage.input')>=0 AND json_extract(e.body,'$.usage.output')>=0))
  ORDER BY h.sequence DESC LIMIT 1`
@@ -132,9 +138,7 @@ func agentStatisticsContext(ctx context.Context, db *sql.Conn, session protocol.
 		pending = append(pending, *summary)
 	}
 	records, err := readBodies[canonical.Record](ctx, db, `SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
- WHERE h.session=?1 AND h.sequence>?2 AND json_extract(e.body,'$.kind')!='compaction'
- AND json_extract(e.body,'$.metadata.execution.media') IS NULL
- AND coalesce(json_extract(e.body,'$.metadata.execution.purpose'),'') NOT IN ('compaction','search') AND `+visibleCanonical+` ORDER BY h.sequence`, session.String(), sequence)
+ WHERE h.session=?1 AND h.sequence>?2 AND `+agentContextTail+` AND `+visibleCanonical+` ORDER BY h.sequence`, session.String(), sequence)
 	if err != nil {
 		return err
 	}

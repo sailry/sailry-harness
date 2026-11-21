@@ -393,6 +393,9 @@ func addUsageMetrics(target *protocol.UsageMetrics, value protocol.UsageMetrics)
 	if err := addUsageCounter(&target.Responses, value.Responses); err != nil {
 		return err
 	}
+	if err := addUsageCounter(&target.IncompleteTokenResponses, value.IncompleteTokenResponses); err != nil {
+		return err
+	}
 	if value.Tokens != nil {
 		if target.Tokens == nil {
 			target.Tokens = &protocol.ConversationUsage{}

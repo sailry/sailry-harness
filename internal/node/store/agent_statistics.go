@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
+	"reflect"
 	"slices"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -15,47 +17,18 @@ import (
 // ReadAgentStatistics derives session totals from canonical turn membership.
 // The caller's transaction keeps usage, observation and policy reads consistent.
 func ReadAgentStatistics(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.ConversationStatistics, error) {
-	result := protocol.DefaultConversationStatistics()
-	current, err := ReadSession(ctx, db, session)
-	if err != nil {
-		return result, err
-	}
-	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM conversation_turns h JOIN turns t ON t.id=h.turn
- WHERE h.session=?1 AND t.kind='task' AND EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn)`, session.String()).Scan(&result.Turns); err != nil {
-		return result, err
-	}
-	metrics, delegated, err := agentStatisticsMetrics(ctx, db, session)
-	if err != nil {
-		return result, err
-	}
-	result.Responses, result.Usage = metrics.Responses, metrics.Tokens
-	result.Cost, result.Generation = metrics.Cost, metrics.Generation
-	result.Delegated = delegated
-	if result.Observations, err = agentStatisticsObservations(ctx, db, session); err != nil {
-		return result, err
-	}
-	if err = agentStatisticsContext(ctx, db, session, &result); err != nil {
-		return result, err
-	}
-	if result.Budget, err = agentStatisticsBudget(ctx, db, current); err != nil {
-		return result, err
-	}
-	result.LastCompaction, err = agentStatisticsCompaction(ctx, db, session)
+	result, _, err := ReadAgentStatisticsReusing(ctx, db, session, nil)
 	return result, err
 }
 
 // Frozen execution sources override the original turn's provider for helper
 // requests. Inherited turns keep their original capture, never the fork's model.
-// The selection is the session's own turns plus the child turns delegated from
-// them, which are Sailry's own sessions and are totalled apart. Only Anthropic
-// cache-write pricing reads the raw provider usage payload.
+// Ranges come from exact own and delegated membership in the same snapshot.
+// Only legacy Anthropic cache-write pricing needs the raw provider usage.
 const agentStatisticsUsageRows = `WITH selected AS (
- SELECT turn,0 AS delegated FROM conversation_turns WHERE session=?1
- UNION
- SELECT d.turn,1 FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn
- WHERE h.session=?1 AND NOT EXISTS(SELECT 1 FROM conversation_turns own WHERE own.session=?1 AND own.turn=d.turn)),
+ SELECT json_extract(value,'$.turn') AS turn,json_extract(value,'$.after') AS start_seq FROM json_each(?1)),
  responses AS (
- SELECT h.delegated,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,
+ SELECT coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,
  coalesce(json_extract(e.body,'$.metadata.execution.source.model'),
   CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
    THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END) AS model,
@@ -67,71 +40,173 @@ const agentStatisticsUsageRows = `WITH selected AS (
  coalesce(json_extract(e.body,'$.metadata.execution.observation.attempts[0].reasoning_streamed'),0) AS reasoning_streamed,
  json_extract(e.body,'$.metadata.execution.media') AS media,
  a.provider AS captured,json_extract(m.value,'$.provider') AS assigned
- FROM selected h JOIN agent_events e ON e.turn=h.turn
+ FROM selected h CROSS JOIN agent_events e ON e.turn=h.turn AND e.sequence>h.start_seq
  JOIN turns t ON t.id=e.turn JOIN agent_runs a ON a.turn=t.id
  JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
  LEFT JOIN session_media media ON media.session=t.session
  LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
- WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
- AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
- AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
+ WHERE ` + agentReportableUsage + `)
  SELECT CASE WHEN json_extract(provider,'$.api')='anthropic' AND json_extract(usage,'$.cache_write')>0
-  THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,first,reasoning_streamed,media,delegated,` + agentUsagePreset + ` FROM responses`
+  AND coalesce(json_type(usage,'$.pricing'),'null')='null'
+  THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,first,reasoning_streamed,media,
+ json_extract(provider,'$.id'),coalesce(
+ CASE WHEN json_extract(captured,'$.id')=json_extract(provider,'$.id') AND json_extract(captured,'$.preset.source.kind')='builtin' THEN json_extract(captured,'$.preset.id') END,
+ CASE WHEN json_extract(assigned,'$.id')=json_extract(provider,'$.id') AND json_extract(assigned,'$.preset.source.kind')='builtin' THEN json_extract(assigned,'$.preset.id') END)
+ FROM responses`
 
-// agentStatisticsMetrics totals the session's own usage and, apart from it,
-// the usage of the children its turns delegated.
-func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.UsageMetrics, protocol.UsageMetrics, error) {
-	result, delegated := protocol.DefaultUsageMetrics(), protocol.DefaultUsageMetrics()
+type agentStatisticsPriceKey struct {
+	api, model       string
+	provider, preset sql.NullString
+}
+
+type agentStatisticsPrice struct {
+	preset  string
+	channel pricedChannel
+}
+
+type agentStatisticsPricing struct {
+	models  modelPrices
+	presets map[string]sql.NullString
+	prices  map[agentStatisticsPriceKey]agentStatisticsPrice
+}
+
+func (p *agentStatisticsPricing) read(ctx context.Context, db *sql.Conn, key agentStatisticsPriceKey) (agentStatisticsPrice, error) {
+	if value, exists := p.prices[key]; exists {
+		return value, nil
+	}
+	preset := key.preset
+	if !preset.Valid && key.provider.Valid {
+		var exists bool
+		if preset, exists = p.presets[key.provider.String]; !exists {
+			err := db.QueryRowContext(ctx, `SELECT json_extract(body,'$.provider.preset.id') FROM providers
+ WHERE id=?1 AND json_extract(body,'$.provider.preset.source.kind')='builtin'`, key.provider.String).Scan(&preset)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return agentStatisticsPrice{}, err
+			}
+			p.presets[key.provider.String] = preset
+		}
+	}
+	price, supplier, err := p.models.channel(ctx, db, preset.String, key.api, key.model)
+	value := agentStatisticsPrice{preset: preset.String, channel: pricedChannel{price: price, supplier: supplier}}
+	if err == nil {
+		p.prices[key] = value
+	}
+	return value, err
+}
+
+type agentStatisticsUsage struct {
+	metrics protocol.UsageMetrics
+	// Effective catalog prices, including a missing price, for legacy rows only.
+	prices map[agentStatisticsPriceKey]pricedChannel
+}
+
+func (usage agentStatisticsUsage) valid(ctx context.Context, db *sql.Conn, prices *agentStatisticsPricing) (bool, error) {
+	for key, previous := range usage.prices {
+		current, err := prices.read(ctx, db, key)
+		if err != nil || !reflect.DeepEqual(previous, current.channel) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (usage *agentStatisticsUsage) extend(ctx context.Context, db *sql.Conn, ranges []agentStatisticsRange, prices *agentStatisticsPricing, work *agentStatisticsWork) error {
+	if len(ranges) == 0 {
+		return nil
+	}
 	type row struct {
 		usage             canonical.Usage
 		model             string
 		api, media        sql.NullString
 		elapsed, first    sql.NullInt64
 		reasoningStreamed bool
-		delegated         bool
-		preset            sql.NullString
+		provider, preset  sql.NullString
 	}
-	rows, err := db.QueryContext(ctx, agentStatisticsUsageRows, session.String())
+	keys, err := json.Marshal(ranges)
 	if err != nil {
-		return result, delegated, err
+		return err
+	}
+	rows, err := db.QueryContext(ctx, agentStatisticsUsageRows, string(keys))
+	if err != nil {
+		return err
 	}
 	var records []row
 	for rows.Next() {
 		var value row
 		var body []byte
-		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.first, &value.reasoningStreamed, &value.media, &value.delegated, &value.preset); err != nil {
+		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.first, &value.reasoningStreamed, &value.media, &value.provider, &value.preset); err != nil {
 			rows.Close()
-			return result, delegated, err
+			return err
 		}
 		if err = json.Unmarshal(body, &value.usage); err != nil {
 			rows.Close()
-			return result, delegated, err
+			return err
 		}
 		records = append(records, value)
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return result, delegated, err
+		return err
 	}
-	prices := &modelPrices{}
+	if len(records) == 0 {
+		return nil
+	}
+	work.usageRows += len(records)
+	usage.metrics = cloneAgentStatisticsUsage(usage.metrics)
+	usage.prices = maps.Clone(usage.prices)
+	if usage.prices == nil {
+		usage.prices = map[agentStatisticsPriceKey]pricedChannel{}
+	}
 	for _, row := range records {
-		var cost *protocol.UsageCost
-		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, err = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, row.usage)
-			if err != nil {
-				return result, delegated, err
+		preset := row.preset.String
+		tokens := agentUsageTokens(row.usage)
+		var complete *protocol.ConversationUsage
+		if row.usage.Input != nil && row.usage.Output != nil {
+			complete = &tokens
+		}
+		if row.usage.Pricing == nil && tokenPricedMedia(row.media.String) && complete != nil {
+			key := agentStatisticsPriceKey{api: row.api.String, model: row.model, preset: row.preset}
+			if !key.preset.Valid {
+				key.provider = row.provider
 			}
+			price, err := prices.read(ctx, db, key)
+			if err != nil {
+				return err
+			}
+			preset, usage.prices[key] = price.preset, price.channel
 		}
-		tokens := protocol.ConversationUsage{Input: optionalUint(row.usage.Input), Output: optionalUint(row.usage.Output), CachedInput: optionalUint(row.usage.CacheRead), Reasoning: optionalUint(row.usage.Reasoning)}
-		total := &result
-		if row.delegated {
-			total = &delegated
+		cost, err := readAgentCost(ctx, db, &prices.models, row.media.String, preset, row.api.String, row.model, row.usage)
+		if err != nil {
+			return err
 		}
-		generation := tokens.DecodeGeneration(usageTime(row.elapsed), usageTime(row.first), row.reasoningStreamed)
-		if err = addUsageMetrics(total, tokens, cost, generation); err != nil {
-			return result, delegated, err
+		var generation *protocol.UsageGeneration
+		if row.usage.Output != nil {
+			generation = tokens.DecodeGeneration(usageTime(row.elapsed), usageTime(row.first), row.reasoningStreamed)
+		}
+		if err = addUsageMetrics(&usage.metrics, complete, cost, generation); err != nil {
+			return err
 		}
 	}
-	return result, delegated, nil
+	return nil
+}
+
+func cloneAgentStatisticsUsage(result protocol.UsageMetrics) protocol.UsageMetrics {
+	if result.Tokens != nil {
+		tokens := *result.Tokens
+		result.Tokens = &tokens
+	}
+	if result.Generation != nil {
+		generation := *result.Generation
+		result.Generation = &generation
+	}
+	if result.Cost != nil {
+		cost := *result.Cost
+		if cost.Breakdown != nil {
+			breakdown := *cost.Breakdown
+			cost.Breakdown = &breakdown
+		}
+		result.Cost = &cost
+	}
+	return result
 }
 
 // AgentCompactionBudget describes the same captured threshold used by execution.

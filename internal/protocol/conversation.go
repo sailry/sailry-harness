@@ -176,8 +176,13 @@ func (value *ConversationModelApi) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
+// DefaultBillingRateBps is the unadjusted API cost estimate (100%).
+const DefaultBillingRateBps uint32 = 10_000
+
 // ConversationProvider is a model connection. Headers are request headers an
 // API-key provider adds to model calls, replacing defaults of the same name.
+// BillingRateBps adjusts estimates only for API-key providers. Nil uses
+// DefaultBillingRateBps; a non-nil zero is a zero estimate.
 type ConversationProvider struct {
 	Source            *ConfigurationOrigin           `json:"source,omitempty"`
 	Owner             *UserID                        `json:"owner,omitempty"`
@@ -197,6 +202,7 @@ type ConversationProvider struct {
 	Enabled           bool                           `json:"enabled"`
 	Models            []ConversationModel            `json:"models"`
 	DefaultModel      string                         `json:"default_model"`
+	BillingRateBps    *uint32                        `json:"billing_rate_bps,omitempty"`
 	RequestMaxRetries *uint64                        `json:"request_max_retries,omitempty"`
 	StreamMaxRetries  *uint64                        `json:"stream_max_retries,omitempty"`
 	Credential        *CredentialRef                 `json:"credential"`
@@ -1198,6 +1204,9 @@ type ConversationStatistics struct {
 	Cost               *UsageCost                     `json:"cost"`
 	Generation         *UsageGeneration               `json:"generation"`
 	Delegated          UsageMetrics                   `json:"delegated"`
+
+	// IncompleteTokenResponses counts own responses left out of the Usage subtotal.
+	IncompleteTokenResponses uint64 `json:"incomplete_token_responses,omitempty"`
 }
 
 func DefaultConversationStatistics() ConversationStatistics {

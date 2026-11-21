@@ -178,11 +178,22 @@ func TestCompactionHandoff(t *testing.T) {
 					part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: row.metadata}
 				}
 				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue task"]}`), part)}})
+				want := model.PartUsage(part)
+				if want.Input != nil && want.Output != nil {
+					binding.Provider.BillingRateBps = new(uint32(5_000))
+					if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+						_, err := db.ExecContext(f.ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('openai','fixture',?1)", []byte(`{"cost":{"input":2,"output":8}}`))
+						return err
+					}); err != nil {
+						t.Fatal(err)
+					}
+					want.Pricing = &canonical.UsagePricing{Estimate: &protocol.UsageCost{UsdMicros: 303, Responses: 1, Breakdown: &protocol.UsageCostBreakdown{Input: 123, Output: 180}}}
+				}
 				if err := f.r.compact(x, binding, before, true); err != nil {
 					t.Fatal(err)
 				}
 				summary := f.state().Records[len(before.Records)].MutableMessage()
-				if want := model.PartUsage(part); summary.Usage == nil || !reflect.DeepEqual(*summary.Usage, want) {
+				if summary.Usage == nil || !reflect.DeepEqual(*summary.Usage, want) {
 					t.Fatalf("summary usage = %+v, want %+v", summary.Usage, want)
 				}
 			})

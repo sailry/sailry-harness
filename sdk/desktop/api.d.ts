@@ -304,9 +304,16 @@ export function prepareRemoveRole(id: string, expected_revision: number): string
 export interface UsageQuery {start_ms:number|string;end_ms:number|string;utc_offset_minutes?:number|string;dimension:'model'|'provider'|'project';projects:string[];worktrees:string[];providers:string[];models:string[];before:null|{node:string;timestamp_ms:string;sequence:string}}
 export function usageSources():{node:string;label:string}[];
 export function readUsageInventory(node?:string):Promise<{node:string;projects:{id:string;name:string}[];providers:{id:string;name:string;/** Provider type logo asset; null for generic providers. */icon:string|null;models:string[]}[]}>;
+/** In report request rows, `tokens.input` and `tokens.output` are exact decimal strings (including `"0"`),
+ * or null when the corresponding `missing_input_tokens` / `missing_output_tokens` flag is true.
+ * In totals, groups and point metrics, a nonzero `incomplete_token_responses` decimal string means
+ * `tokens` is null. `token_subtotal` sums responses reporting both counts and is absent if none did.
+ * Point `models` also cover only those responses; coverage is reported for the point, not per model. */
 export function readUsageChoices(query:UsageQuery,node?:string):Promise<Record<string,unknown>>;
 /** all combines connected usage sources; only model names and the global request cursor may filter across Nodes. Project, worktree and provider IDs require all=false and their owning node. */
 export function watchUsage(query:UsageQuery,all:boolean,node?:string):void;
+/** Reports and overview summaries use the same token coverage fields as `readUsageChoices`.
+ * The overview's `complete` concerns source readiness, not token coverage. */
 export function nextUsageChange(cursor:string):Promise<{cursor:string;all:boolean;view:Record<string,unknown>|null}>;
 export function refreshUsage():void;
 

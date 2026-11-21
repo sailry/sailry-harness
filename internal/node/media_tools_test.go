@@ -360,6 +360,7 @@ func TestMediaTools(t *testing.T) {
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Media fixture", true
 	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, server.URL+"/v1", "plain"
+	provider.BillingRateBps = new(uint32(15_000))
 	for _, id := range []string{"plain", "planner", "bare", "asker", "filmer", "twin", "eyes", "painter", "voice"} {
 		entry := protocol.DefaultConversationModel()
 		entry.ID, entry.Context, entry.Output, entry.Tools, entry.CustomCapabilities = id, 32000, 8000, true, true
@@ -452,6 +453,12 @@ func TestMediaTools(t *testing.T) {
 
 	var session protocol.Session
 	t.Run("turn generates and inspects an image", func(t *testing.T) {
+		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+			_, err := db.ExecContext(t.Context(), "INSERT INTO model_catalog(provider,id,body) VALUES('openai','eyes',?1),('openai','painter',?1)", []byte(`{"cost":{"input":2,"output":4}}`))
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		var history protocol.ConversationHistory
 		session, history = run(t, "plain", protocol.WorkModeCode)
 		painter.mu.Lock()
@@ -535,13 +542,15 @@ func TestMediaTools(t *testing.T) {
 		query := protocol.DefaultUsageQuery()
 		query.StartMs, query.EndMs, query.Dimension = time.Now().Add(-time.Hour).UnixMilli(), time.Now().Add(time.Hour).UnixMilli(), protocol.UsageDimensionModel
 		report := commandFixture(t, node, protocol.Command{Kind: "read_usage", Data: query}).Data.(protocol.UsageReport)
-		usage := map[string]protocol.ConversationUsage{}
+		usage := map[string]protocol.UsageRequest{}
 		for _, item := range report.Requests.Items {
 			if item.Session == session.ID && item.Provider == provider.ID {
-				usage[item.Model] = item.Tokens
+				usage[item.Model] = item
 			}
 		}
-		if usage["painter"].Input != 7 || usage["painter"].Output != 5 || usage["eyes"].Input != 11 || usage["eyes"].Output != 3 {
+		image, inspection := usage["painter"], usage["eyes"]
+		if image.Tokens.Input != 7 || image.Tokens.Output != 5 || inspection.Tokens.Input != 11 || inspection.Tokens.Output != 3 ||
+			image.UsdMicros != nil || inspection.UsdMicros == nil || *inspection.UsdMicros != 51 {
 			t.Fatalf("media usage = %+v", report.Requests.Items)
 		}
 	})

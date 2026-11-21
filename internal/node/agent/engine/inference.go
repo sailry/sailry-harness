@@ -229,7 +229,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				// controller before the next attempt, without persisting failed
 				// tool calls or repeating an already completed model step.
 				record.ID = out.record.ID
-				return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
+				return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &binding.Provider, record)
 			}
 			attempts = append(attempts, attempt)
 			return nil
@@ -300,12 +300,12 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				out.record.Metadata.Execution = last.Metadata.Execution
 			}
 			if len(billing) > 0 {
-				if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, billing...); e != nil {
+				if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &binding.Provider, billing...); e != nil {
 					return e
 				}
 			}
 			if len(message.Content) > 0 || out.finished || out.limited {
-				if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, out.record); e != nil {
+				if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &binding.Provider, out.record); e != nil {
 					return e
 				}
 			}
@@ -328,7 +328,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			return nil
 		}
 		if len(billing) > 0 {
-			if e := r.save(x.ctx, x.inv.Session.ID, billing...); e != nil {
+			if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &binding.Provider, billing...); e != nil {
 				return e
 			}
 		}

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				usage := canonical.Usage{Input: ptr(uint64(200)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(60)), CacheWrite: ptr(uint64(40)), Provider: json.RawMessage(test.raw)}
-				cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage)
+				cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage, protocol.DefaultBillingRateBps)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -54,7 +55,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 			return err
 		}
 		usage := canonical.Usage{Input: ptr(uint64(200)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(60)), CacheWrite: ptr(uint64(40)), Provider: json.RawMessage(`{"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30}}`)}
-		cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage)
+		cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage, protocol.DefaultBillingRateBps)
 		if err != nil {
 			return err
 		}
@@ -64,7 +65,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		if _, err = db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('reseller','fixture',?1)", catalog); err != nil {
 			return err
 		}
-		cost, err = estimateAgentCost(ctx, db, &modelPrices{}, "reseller", "anthropic", "fixture", usage)
+		cost, err = estimateAgentCost(ctx, db, &modelPrices{}, "reseller", "anthropic", "fixture", usage, protocol.DefaultBillingRateBps)
 		if err != nil {
 			return err
 		}
@@ -72,6 +73,139 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 			t.Fatalf("compatible API invented the reseller's one-hour price: %#v", cost)
 		}
 		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentCostScalesBeforeRounding(t *testing.T) {
+	t.Parallel()
+	storage, _, _, _, _ := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		for name, body := range map[string]string{
+			"fixture":  `{"cost":{"input":0.4,"output":0.4,"cache_read":0.2,"cache_write":0.3}}`,
+			"unpriced": `{"cost":{"input":0.4,"output":0.4,"cache_read":null,"cache_write":0.3}}`,
+		} {
+			if _, err := db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('openai',?1,?2)", name, []byte(body)); err != nil {
+				return err
+			}
+		}
+		prices := &modelPrices{}
+		usage := canonical.Usage{Input: ptr(uint64(3)), Output: ptr(uint64(1)), CacheRead: ptr(uint64(1)), CacheWrite: ptr(uint64(1)), Reasoning: ptr(uint64(1))}
+		for _, row := range []struct {
+			name   string
+			rate   uint32
+			micros uint64
+			parts  protocol.UsageCostBreakdown
+		}{
+			{"standard", 10_000, 1, protocol.UsageCostBreakdown{Output: 1}},
+			{"markup", 20_000, 3, protocol.UsageCostBreakdown{Input: 1, Output: 1, CacheWrite: 1}},
+			{"discount", 5_000, 1, protocol.UsageCostBreakdown{CacheRead: 1}},
+			{"free", 0, 0, protocol.UsageCostBreakdown{}},
+		} {
+			cost, err := estimateAgentCost(ctx, db, prices, "", "responses", "fixture", usage, row.rate)
+			if err != nil {
+				return err
+			}
+			if cost == nil || cost.UsdMicros != row.micros || cost.Responses != 1 || cost.Breakdown == nil || *cost.Breakdown != row.parts {
+				t.Errorf("%s: cost = %+v, want %d and %+v", row.name, cost, row.micros, row.parts)
+			}
+		}
+		for _, rate := range []uint32{protocol.DefaultBillingRateBps, 0} {
+			for _, name := range []string{"unpriced", "missing"} {
+				cost, err := estimateAgentCost(ctx, db, prices, "", "responses", name, usage, rate)
+				if err != nil {
+					return err
+				}
+				if cost != nil {
+					t.Errorf("%s at %d bps: unknown price became %+v", name, rate, cost)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentCostRateRange(t *testing.T) {
+	for _, row := range []struct {
+		products uint128
+		rate     uint32
+		want     uint64
+		fits     bool
+	}{
+		{uint128{lo: 1_000_000}, math.MaxUint32, 429_497, true},
+		{uint128{hi: 1_000_000}, 10_000, 0, false},
+		{uint128{hi: 1_000_000}, 5_000, 1 << 63, true},
+		{uint128{hi: math.MaxUint64}, math.MaxUint32, 0, false},
+	} {
+		got, fits := row.products.micros(row.rate)
+		if got != row.want || fits != row.fits {
+			t.Errorf("%+v * %d bps = %d, %t; want %d, %t", row.products, row.rate, got, fits, row.want, row.fits)
+		}
+	}
+}
+
+func TestAgentCostRecognizedModelNamespace(t *testing.T) {
+	t.Parallel()
+	storage, _, _, _, _ := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		put := func(supplier, model, price string) error {
+			_, err := db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES(?1,?2,?3)", supplier, model, []byte(price))
+			return err
+		}
+		if err := put("anthropic", "claude-fable-5", `{"cost":{"input":10,"output":50}}`); err != nil {
+			return err
+		}
+		if err := put("openrouter", "claude-fable-5", `{"cost":{"input":1,"output":2}}`); err != nil {
+			return err
+		}
+		usage := canonical.Usage{Input: ptr(uint64(1)), Output: ptr(uint64(1))}
+		check := func(preset, model string, want *uint64) error {
+			cost, err := estimateAgentCost(ctx, db, &modelPrices{}, preset, "chat_completions", model, usage, protocol.DefaultBillingRateBps)
+			if err != nil {
+				return err
+			}
+			if (cost == nil) != (want == nil) || want != nil && cost != nil && cost.UsdMicros != *want {
+				t.Errorf("%s / %s: cost = %+v, want %v", preset, model, cost, want)
+			}
+			return nil
+		}
+		for name, want := range map[string]*uint64{
+			"claude/claude-fable-5":       ptr(uint64(60)),
+			"anthropic/claude-fable-5":    ptr(uint64(60)),
+			"gateway/claude-fable-5":      nil,
+			"claude/other/claude-fable-5": nil,
+		} {
+			if err := check("openrouter", name, want); err != nil {
+				return err
+			}
+		}
+		const exact = "anthropic/claude-fable-5"
+		if err := put("openrouter", exact, `{"cost":{"input":12,"output":55}}`); err != nil {
+			return err
+		}
+		if err := check("", exact, ptr(uint64(67))); err != nil {
+			return err
+		}
+		if err := put("gateway", exact, `{"cost":{"input":14,"output":55}}`); err != nil {
+			return err
+		}
+		if err := check("", exact, nil); err != nil {
+			return err
+		}
+		if err := check("openrouter", exact, ptr(uint64(67))); err != nil {
+			return err
+		}
+		if err := put("gateway", "claude/claude-fable-5", `{"limit":{"context":200000}}`); err != nil {
+			return err
+		}
+		return check("", "claude/claude-fable-5", nil)
 	})
 	if err != nil {
 		t.Fatal(err)

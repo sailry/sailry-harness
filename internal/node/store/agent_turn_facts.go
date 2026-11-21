@@ -7,8 +7,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// TurnTokens totals recorded model usage. Cached input and reasoning are
-// parts of Input and Output, not additions to them.
+// TurnTokens totals usage with a reported input and output pair. Cached input
+// and reasoning are parts of Input and Output, not additions to them.
 type TurnTokens struct {
 	Input       uint64 `json:"input"`
 	Output      uint64 `json:"output"`
@@ -30,14 +30,12 @@ type TurnFacts struct {
 	Chain   AutomaticChain
 }
 
-const turnUsageTotals = `SELECT coalesce(sum(coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))),0),
- coalesce(sum(coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))),0),
+const turnUsageTotals = `SELECT coalesce(sum(` + agentUsageInput + `),0),
+ coalesce(sum(` + agentUsageOutput + `),0),
  coalesce(sum(coalesce(json_extract(e.body,'$.usage.cache_read'),json_extract(e.body,'$.summary.usage.cache_read'))),0),
  coalesce(sum(coalesce(json_extract(e.body,'$.usage.reasoning'),json_extract(e.body,'$.summary.usage.reasoning'))),0)
  FROM selected h JOIN agent_events e ON e.turn=h.turn
- WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
- AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
- AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0`
+ WHERE ` + agentUsageObject + ` AND ` + agentUsagePair
 
 // ReadTurnFacts reads the facts of an ended turn in the caller's transaction.
 // Usage follows the statistics selection: Sailry's own turns and the child

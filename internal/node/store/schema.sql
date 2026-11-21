@@ -504,6 +504,7 @@ CREATE TABLE model_catalog (
     body BLOB NOT NULL,
     PRIMARY KEY(provider,id)
 );
+CREATE INDEX model_catalog_model ON model_catalog(id,provider);
 CREATE TABLE model_score_status (
     id INTEGER PRIMARY KEY CHECK(id=1),
     body BLOB NOT NULL

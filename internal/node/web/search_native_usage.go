@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net/http"
 
@@ -58,24 +59,41 @@ func nativeUsage(api protocol.ConversationModelApi, value map[string]any) *canon
 	if !ok {
 		return nil
 	}
-	count := func(path ...string) uint64 { value, _ := jsonUint(jsonAt(usage, path...)); return value }
-	pointer := func(value uint64) *uint64 { return &value }
+	count := func(path ...string) *uint64 {
+		value, ok := jsonUint(jsonAt(usage, path...))
+		if !ok {
+			return nil
+		}
+		return &value
+	}
+	sum := func(base *uint64, parts ...*uint64) *uint64 {
+		if base == nil {
+			return nil
+		}
+		total := *base
+		for _, part := range parts {
+			if part != nil {
+				total = nativeSaturatingAdd(total, *part)
+			}
+		}
+		return &total
+	}
 	var result canonical.Usage
 	switch api {
 	case protocol.ConversationModelApiResponses:
-		result.Input, result.Output = pointer(count("input_tokens")), pointer(count("output_tokens"))
-		result.CacheRead, result.Reasoning = pointer(count("input_tokens_details", "cached_tokens")), pointer(count("output_tokens_details", "reasoning_tokens"))
+		result.Input, result.Output = count("input_tokens"), count("output_tokens")
+		result.CacheRead = count("input_tokens_details", "cached_tokens")
+		result.CacheWrite = count("input_tokens_details", "cache_write_tokens")
+		result.Reasoning = count("output_tokens_details", "reasoning_tokens")
 	case protocol.ConversationModelApiAnthropic:
-		read, write := count("cache_read_input_tokens"), count("cache_creation_input_tokens")
-		result.Input, result.Output = pointer(nativeSaturatingAdd(nativeSaturatingAdd(count("input_tokens"), read), write)), pointer(count("output_tokens"))
-		result.CacheRead, result.Reasoning = pointer(read), pointer(0)
-		if write, ok := jsonUint(usage["cache_creation_input_tokens"]); ok {
-			result.CacheWrite = pointer(write)
+		result.CacheRead, result.CacheWrite = count("cache_read_input_tokens"), count("cache_creation_input_tokens")
+		result.Input, result.Output = sum(count("input_tokens"), result.CacheRead, result.CacheWrite), count("output_tokens")
+		if creation, present := usage["cache_creation"]; present {
+			result.Provider, _ = json.Marshal(map[string]any{"cache_creation": creation})
 		}
 	case protocol.ConversationModelApiGemini:
-		reasoning := count("thoughtsTokenCount")
-		result.Input, result.Output = pointer(count("promptTokenCount")), pointer(nativeSaturatingAdd(count("candidatesTokenCount"), reasoning))
-		result.CacheRead, result.Reasoning = pointer(count("cachedContentTokenCount")), pointer(reasoning)
+		result.CacheRead, result.Reasoning = count("cachedContentTokenCount"), count("thoughtsTokenCount")
+		result.Input, result.Output = count("promptTokenCount"), sum(count("candidatesTokenCount"), result.Reasoning)
 	default:
 		return nil
 	}

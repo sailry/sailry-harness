@@ -94,6 +94,10 @@ type UsageRequest struct {
 	UsdMicros    *uint64           `json:"usd_micros"`
 	ElapsedUs    *uint64           `json:"elapsed_us"`
 	FirstTokenUs *uint64           `json:"first_token_us"`
+
+	// A missing counter occupies the old wire's numeric slot but is not a measured zero.
+	MissingInputTokens  bool `json:"missing_input_tokens,omitempty"`
+	MissingOutputTokens bool `json:"missing_output_tokens,omitempty"`
 }
 
 func DefaultUsageRequest() UsageRequest {
@@ -199,6 +203,9 @@ type UsageMetrics struct {
 	Tokens     *ConversationUsage `json:"tokens"`
 	Cost       *UsageCost         `json:"cost"`
 	Generation *UsageGeneration   `json:"generation"`
+
+	// IncompleteTokenResponses counts responses left out of the Tokens subtotal.
+	IncompleteTokenResponses uint64 `json:"incomplete_token_responses,omitempty"`
 }
 
 func DefaultUsageMetrics() UsageMetrics {

@@ -129,9 +129,8 @@ func (owner *Host) selectUsageClient(ctx context.Context, arguments []json.RawMe
 	return nil, ctx, hostUnavailable("usage source is unavailable")
 }
 
-// exactUsage is a usage value as the plugin reads it: its integers exact.
-func exactUsage(value any) (json.RawMessage, error) {
-	body, err := hostJSON(value)
+func sdkUsageReport(report protocol.UsageReport) (json.RawMessage, error) {
+	body, err := hostJSON(report)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +138,42 @@ func exactUsage(value any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	projectUsageReport(decoded, false)
 	return hostJSON(exactHostUsage(decoded))
+}
+
+func projectUsageReport(value any, scopedGroups bool) {
+	projectUsageMetrics(hostAt(value, "totals"))
+	for _, name := range []string{"days", "recent"} {
+		points, _ := hostAt(value, name).([]any)
+		for _, point := range points {
+			projectUsageMetrics(hostAt(point, "metrics"))
+		}
+	}
+	groups, _ := hostAt(value, "groups").([]any)
+	for _, group := range groups {
+		if scopedGroups {
+			group = hostAt(group, "group")
+		}
+		projectUsageMetrics(hostAt(group, "metrics"))
+	}
+	requests, _ := hostAt(value, "requests", "items").([]any)
+	for _, request := range requests {
+		if hostAt(request, "missing_input_tokens") == true {
+			hostSet(request, nil, "tokens", "input")
+		}
+		if hostAt(request, "missing_output_tokens") == true {
+			hostSet(request, nil, "tokens", "output")
+		}
+	}
+}
+
+func projectUsageMetrics(value any) {
+	metrics, _ := value.(map[string]any)
+	incomplete, _ := metrics["incomplete_token_responses"].(json.Number)
+	if incomplete != "" && incomplete != "0" && metrics["tokens"] != nil {
+		metrics["token_subtotal"], metrics["tokens"] = metrics["tokens"], nil
+	}
 }
 
 // usageInventory is what a usage page's filters choose between on node.
@@ -372,7 +406,7 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 			if err != nil {
 				return nil, err
 			}
-			return exactUsage(report)
+			return sdkUsageReport(report)
 		}
 		selected, scoped, err := owner.selectUsageClient(ctx, arguments, 1)
 		if err != nil {
@@ -386,7 +420,7 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 		if err != nil {
 			return nil, err
 		}
-		return exactUsage(report)
+		return sdkUsageReport(report)
 	})
 	add("readUsageInventory", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		if sample := owner.sampledUsage(); sample != nil {
@@ -472,6 +506,15 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 					}
 				}
 				if !all || !waitForUsageOverview(value) {
+					if all {
+						sources, _ := hostAt(value, "sources").([]any)
+						for _, source := range sources {
+							projectUsageReport(hostAt(source, "view", "report"), false)
+						}
+						projectUsageReport(hostAt(value, "summary"), true)
+					} else {
+						projectUsageReport(hostAt(value, "report"), false)
+					}
 					return hostJSON(map[string]any{"cursor": cursor, "all": all, "view": exactHostUsage(value)})
 				}
 			}

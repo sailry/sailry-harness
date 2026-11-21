@@ -68,6 +68,13 @@ type Usage struct {
 	Reasoning  *uint64         `json:"reasoning,omitempty"`
 	Cost       *float64        `json:"cost,omitempty"`
 	Provider   json.RawMessage `json:"provider,omitempty"`
+	Pricing    *UsagePricing   `json:"pricing,omitempty"`
+}
+
+// UsagePricing records the estimate at append time. A nil estimate means no
+// usable price was available, not that a measured request was free.
+type UsagePricing struct {
+	Estimate *protocol.UsageCost `json:"estimate"`
 }
 type Sources struct {
 	Citations         []Citation  `json:"citations,omitempty"`

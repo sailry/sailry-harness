@@ -499,3 +499,50 @@ func TestGitLogEntryParents(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageTokenCoverageWire(t *testing.T) {
+	t.Parallel()
+	request := DefaultUsageRequest()
+	request.Session, request.Turn, request.Worktree, request.Provider = NewSessionID(), NewTurnID(), NewWorktreeID(), NewProviderID()
+	request.Tokens.Input = 11
+	legacy, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(legacy), `"missing_input_tokens"`) || strings.Contains(string(legacy), `"missing_output_tokens"`) {
+		t.Fatalf("measured zero changed the old wire: %s", legacy)
+	}
+	var decoded UsageRequest
+	if err := DecodeAs(PeerData, legacy, &decoded); err != nil || decoded != request {
+		t.Fatalf("old request = %+v, error %v, want %+v", decoded, err, request)
+	}
+	request.MissingOutputTokens = true
+	partial, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := DecodeAs(PeerData, partial, &decoded); err != nil || decoded != request {
+		t.Fatalf("partial request = %+v, error %v, want %+v", decoded, err, request)
+	}
+	var oldRequest struct {
+		Tokens ConversationUsage `json:"tokens"`
+	}
+	if err := DecodeObject(partial, &oldRequest, []string{"tokens"}, false); err != nil || oldRequest.Tokens != request.Tokens {
+		t.Fatalf("partial request did not retain the required legacy counters: %+v, %v", oldRequest, err)
+	}
+
+	var metrics UsageMetrics
+	if err := DecodeAs(PeerData, []byte(`{"responses":1,"tokens":{"input":0,"output":0,"cached_input":0,"reasoning":0}}`), &metrics); err != nil ||
+		metrics.Responses != 1 || metrics.IncompleteTokenResponses != 0 || metrics.Tokens == nil || *metrics.Tokens != (ConversationUsage{}) {
+		t.Fatalf("old metrics = %+v, error %v", metrics, err)
+	}
+	metrics.Responses, metrics.IncompleteTokenResponses = 2, 1
+	encoded, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mixed UsageMetrics
+	if err := DecodeAs(PeerData, encoded, &mixed); err != nil || !reflect.DeepEqual(mixed, metrics) {
+		t.Fatalf("mixed metrics = %+v, error %v, want %+v", mixed, err, metrics)
+	}
+}

@@ -173,7 +173,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		if x.ctx.Err() == nil {
 			records = append(records, r.compactionFailure(x, summaryBinding, state.Records, manual, stage, reason, attempts, failure))
 		}
-		if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, records...); e != nil {
+		if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &summaryBinding.Provider, records...); e != nil {
 			return e
 		}
 		return failure
@@ -198,7 +198,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		x.timeline.attempt(attempt)
 		// An attempt that waits to be sent again shows as a main request's does.
 		if attempt.RetryDelay != nil {
-			return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, r.retryRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
+			return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &summaryBinding.Provider, r.retryRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
 		}
 		usage = attempt.Usage
 		attempts = append(attempts, attempt)
@@ -251,7 +251,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	rendered := summary.Render()
 	boundary := selection.Boundary
 	message := canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
-	message.Model = &binding.Config.Model
+	message.Model = &summaryBinding.Config.Model
 	message.Usage = &usage
 	// The last summary attempt is billed on the summary; earlier attempts retain
 	// their independent observations.
@@ -276,16 +276,16 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	var records []canonical.Record
 	if len(attempts) > 0 {
 		for _, attempt := range attempts[:len(attempts)-1] {
-			records = append(records, r.observationRecord(x, binding, canonical.PurposeCompaction, attempt))
+			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
 		}
-		last := r.observationRecord(x, binding, canonical.PurposeCompaction, attempts[len(attempts)-1])
+		last := r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempts[len(attempts)-1])
 		record.Metadata.Execution = last.Metadata.Execution
 	}
 	records = append(records, record)
 	if len(selection.Tail) > 0 {
 		// The original tail remains after Boundary. Projection puts the new
 		// summary before it, so no copied messages or synthetic reply is needed.
-		return r.save(x.ctx, x.inv.Session.ID, records...)
+		return r.saveWithProvider(x.ctx, x.inv.Session.ID, &summaryBinding.Provider, records...)
 	}
 	// The continuation is a runtime notice, not an assistant statement or user
 	// input. Automatic compaction interrupts work in progress, so it always
@@ -359,7 +359,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		carry.Metadata.Runtime = &runtime
 		records = append(records, carry)
 	}
-	return r.save(x.ctx, x.inv.Session.ID, records...)
+	return r.saveWithProvider(x.ctx, x.inv.Session.ID, &summaryBinding.Provider, records...)
 }
 func containsTool(message *canonical.Message) bool {
 	for _, block := range message.Content {

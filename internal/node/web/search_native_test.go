@@ -23,7 +23,7 @@ func nativeFixture(api protocol.ConversationModelApi) string {
 	case protocol.ConversationModelApiResponses:
 		return `{"status":"completed","output":[{"type":"reasoning","encrypted_content":"opaque-private-state"},{"type":"web_search_call","status":"completed","action":{"sources":[{"url":"https://example.com/source"}]}},{"type":"message","content":[{"type":"output_text","text":"Generated answer","annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Public source"}]}]}],"usage":{"input_tokens":100,"output_tokens":40,"input_tokens_details":{"cached_tokens":20},"output_tokens_details":{"reasoning_tokens":5}}}`
 	case protocol.ConversationModelApiAnthropic:
-		return `{"type":"message","stop_reason":"end_turn","content":[{"type":"web_search_tool_result","content":[{"type":"web_search_result","url":"https://example.com/source","title":"Public source","encrypted_content":"opaque-private-state"}]},{"type":"text","text":"Generated answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Public source","cited_text":"Original source excerpt"}]}],"usage":{"input_tokens":30,"output_tokens":40,"cache_read_input_tokens":20,"cache_creation_input_tokens":50}}`
+		return `{"type":"message","stop_reason":"end_turn","content":[{"type":"web_search_tool_result","content":[{"type":"web_search_result","url":"https://example.com/source","title":"Public source","encrypted_content":"opaque-private-state"}]},{"type":"text","text":"Generated answer","citations":[{"type":"web_search_result_location","url":"https://example.com/source","title":"Public source","cited_text":"Original source excerpt"}]}],"usage":{"input_tokens":30,"output_tokens":40,"cache_read_input_tokens":20,"cache_creation_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":20,"ephemeral_1h_input_tokens":30}}}`
 	case protocol.ConversationModelApiGemini:
 		return `{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"Private reasoning","thought":true},{"text":"Generated answer"}]},"groundingMetadata":{"groundingChunks":[{"web":{"uri":"https://example.com/source","title":"Public source"}}],"groundingSupports":[{"segment":{"text":"Generated answer"}}],"webSearchQueries":["search fixture"]}}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":35,"thoughtsTokenCount":5,"cachedContentTokenCount":20}}`
 	}
@@ -100,6 +100,12 @@ func TestNativeSearchContracts(t *testing.T) {
 				if recorded[0].CacheWrite == nil || *recorded[0].CacheWrite != 50 {
 					t.Fatal("cache creation usage lost")
 				}
+				var details struct {
+					Creation map[string]uint64 `json:"cache_creation"`
+				}
+				if err := json.Unmarshal(recorded[0].Provider, &details); err != nil || details.Creation["ephemeral_5m_input_tokens"] != 20 || details.Creation["ephemeral_1h_input_tokens"] != 30 {
+					t.Fatalf("cache creation durations lost: %s (%v)", recorded[0].Provider, err)
+				}
 			}
 			if page.Results[0].Snippet != want {
 				t.Fatal("generated answer became source excerpt", page)
@@ -146,7 +152,15 @@ func TestNativeSearchContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 		usage := nativeUsage(protocol.ConversationModelApiAnthropic, value)
-		if *usage.Input != math.MaxUint64 || *usage.Output != 0 || *usage.Reasoning != 0 {
+		if usage.Input == nil || *usage.Input != math.MaxUint64 || usage.Output != nil || usage.Reasoning != nil {
+			t.Fatal(usage)
+		}
+		value, err = nativeDecode([]byte(`{"usage":{"input_tokens":0,"output_tokens":0,"output_tokens_details":{"reasoning_tokens":0}}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		usage = nativeUsage(protocol.ConversationModelApiResponses, value)
+		if usage.Input == nil || *usage.Input != 0 || usage.Output == nil || *usage.Output != 0 || usage.Reasoning == nil || *usage.Reasoning != 0 || usage.CacheRead != nil {
 			t.Fatal(usage)
 		}
 	})

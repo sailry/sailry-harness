@@ -129,6 +129,7 @@ func bindProviderPreset(ctx context.Context, db *sql.Conn, provider *protocol.Co
 // CaptureProvider freezes current native declaration policy independently of the
 // saved configuration. Inherited turns retain their existing captured binding.
 func CaptureProvider(ctx context.Context, db *sql.Conn, provider protocol.ConversationProvider) (protocol.ConversationProvider, error) {
+	clearNonAPIBillingRate(&provider)
 	raw, err := encode(provider)
 	if err != nil {
 		return protocol.ConversationProvider{}, err

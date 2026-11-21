@@ -169,6 +169,11 @@ func activityEvent(ctx context.Context, db *sql.Conn, session protocol.SessionID
 // AppendCanonical preserves immutable record identity and updates only derived
 // membership and materialized state in the caller's transaction.
 func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record) (protocol.ConversationEntry, []protocol.Event, error) {
+	return AppendCanonicalWithProvider(ctx, db, session, record, nil)
+}
+
+// AppendCanonicalWithProvider also prices reported usage from the provider that executed the request.
+func AppendCanonicalWithProvider(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record, provider *protocol.ConversationProvider) (protocol.ConversationEntry, []protocol.Event, error) {
 	if err := prepareCanonicalRecord(ctx, db, &record); err != nil {
 		return protocol.ConversationEntry{}, nil, err
 	}
@@ -194,6 +199,18 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	if owner != session.String() {
 		return protocol.ConversationEntry{}, nil, invalid("event turn belongs to another session")
 	}
+	var previous []byte
+	var sequence uint64
+	found := true
+	if err := db.QueryRowContext(ctx, "SELECT sequence,body FROM agent_events WHERE session=?1 AND id=?2", session.String(), record.ID).Scan(&sequence, &previous); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return protocol.ConversationEntry{}, nil, err
+		}
+		found = false
+	}
+	if err := captureAgentUsagePricing(ctx, db, &record, provider, previous); err != nil {
+		return protocol.ConversationEntry{}, nil, err
+	}
 	body, err := encode(record)
 	if err != nil {
 		return protocol.ConversationEntry{}, nil, err
@@ -201,10 +218,7 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 	if len(body) > protocol.MAX_FRAME_BYTES {
 		return protocol.ConversationEntry{}, nil, invalid("event exceeds the history frame limit")
 	}
-	var previous []byte
-	var sequence uint64
-	err = db.QueryRowContext(ctx, "SELECT sequence,body FROM agent_events WHERE session=?1 AND id=?2", session.String(), record.ID).Scan(&sequence, &previous)
-	if err == nil {
+	if found {
 		var a, b any
 		if json.Unmarshal(previous, &a) != nil || json.Unmarshal(body, &b) != nil {
 			return protocol.ConversationEntry{}, nil, invalid("invalid stored conversation record")
@@ -216,9 +230,6 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 		}
 		entry, err := projectStoredEntry(ctx, db, record, sequence, nil)
 		return entry, nil, err
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return protocol.ConversationEntry{}, nil, err
 	}
 	if record.Kind == "compaction" {
 		c := record.Data.(*canonical.Compaction)

@@ -73,6 +73,9 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 	if err := validateHeaders(provider); err != nil {
 		return err
 	}
+	if provider.BillingRateBps != nil && provider.Authentication != protocol.AuthenticationApiKey {
+		return invalid("billing rate requires API-key authentication")
+	}
 	if provider.Api == protocol.ConversationModelApiPlugin && (provider.Binding == nil || *provider.Binding == nil || (**provider.Binding).Adapter == nil) {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin model requires its captured translation"}
 	}
