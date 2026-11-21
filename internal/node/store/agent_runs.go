@@ -579,6 +579,12 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = putAgentRun(ctx, db, run); err != nil {
 		return run, nil, err
 	}
+	// Queue membership depends on run status, not just pending rows. An input
+	// stopped before its first save reappears here even if Stop already paused
+	// the queue or a later submission resumed it.
+	if err = bumpQueue(ctx, db, run.Session); err != nil {
+		return run, nil, err
+	}
 	closed := "cancelled"
 	if status == protocol.ConversationStatusInterrupted {
 		closed = "interrupted"

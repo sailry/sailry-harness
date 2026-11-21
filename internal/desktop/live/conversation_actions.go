@@ -45,30 +45,35 @@ func (x *conversationActions) queued(id string) (protocol.ConversationPending, b
 	if !ok {
 		return protocol.ConversationPending{}, false
 	}
-	for _, p := range state.Page.Queue.Items {
-		if p.Turn.String() == id {
-			return p, true
-		}
-	}
-	return protocol.ConversationPending{}, false
+	return pendingQueueItem(state.Page.Queue, id)
 }
 func (x *conversationActions) SendQueued(id string) {
 	if x.readonly() {
 		return
 	}
-	item, ok := x.queued(id)
+	session, state, ok := x.state()
 	if !ok {
 		return
 	}
-	if run, active := x.activeRun(); active && !item.Notice && item.Kind == protocol.ConversationRunKindTask {
+	page := state.Page
+	item, ok := pendingQueueItem(page.Queue, id)
+	if !ok {
+		return
+	}
+	x.r.reconcileQueuedSends(session.ID, page.Queue)
+	if x.r.queuedSends[session.ID][item.Turn] != nil {
+		x.r.sendQueuedTurn(session.ID, page.Queue.Revision, item)
+		return
+	}
+	if run, active := activeConversationRun(page); active && !page.Queue.Paused && run.Status != protocol.ConversationStatusStopping && !item.Notice && item.Kind == protocol.ConversationRunKindTask {
 		if !acceptsGuidance(run) {
 			kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "session_changed"))
 			return
 		}
 		x.queueCommand(protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: run.Turn, ExpectedRevision: item.Revision}})
-	} else {
-		x.queueCommand(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}})
+		return
 	}
+	x.r.sendQueuedTurn(session.ID, page.Queue.Revision, item)
 }
 
 // A subagent's session is read-only, but its queue tray still withdraws

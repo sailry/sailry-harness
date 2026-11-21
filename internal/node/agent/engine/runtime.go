@@ -167,7 +167,11 @@ func (r *Runtime) Recover(ctx context.Context) error {
 }
 
 func (r *Runtime) Start() { go r.run() }
-func (r *Runtime) Stop()  { r.cancel(); <-r.done }
+
+// BeginStop interrupts turns before the Node cancels their dependencies. Stop
+// joins their settlement after the command lanes have released their locks.
+func (r *Runtime) BeginStop() { r.cancel() }
+func (r *Runtime) Stop()      { r.BeginStop(); <-r.done }
 func (r *Runtime) Wake() {
 	r.mu.Lock()
 	if r.activity != nil {

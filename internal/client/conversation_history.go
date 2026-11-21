@@ -266,7 +266,11 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 	}
 	for _, r := range incoming.Runs {
 		if i, found := byTurn[r.Turn]; found {
-			if !sameRun(merged.Runs[i], r) {
+			previous, current := merged.Runs[i], r
+			if keep {
+				previous, current = current, previous
+			}
+			if !sameRun(previous, current) && !recapturedGuidance(previous, current) {
 				return fault(protocol.ErrorCodeInvalidRequest, "sent turn changed during pagination")
 			}
 			if !keep {

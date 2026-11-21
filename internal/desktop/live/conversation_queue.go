@@ -4,10 +4,102 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func pendingQueueItem(queue protocol.ConversationQueue, id string) (protocol.ConversationPending, bool) {
+	for _, item := range queue.Items {
+		if item.Turn.String() == id {
+			return item, true
+		}
+	}
+	return protocol.ConversationPending{}, false
+}
+
+type queuedSend struct {
+	request       protocol.Request
+	busy          bool
+	queueRevision uint64
+}
+
+// An accepted send can still be visible at the head while the stopped turn
+// exits. A later pause, move or withdrawal can make it actionable again.
+func (r *Runtime) reconcileQueuedSends(session protocol.SessionID, queue protocol.ConversationQueue) {
+	sends := r.queuedSends[session]
+	for turn, send := range sends {
+		if send.queueRevision == 0 || queue.Revision < send.queueRevision {
+			continue
+		}
+		if queue.Paused || len(queue.Items) == 0 || queue.Items[0].Turn != turn || !queue.Items[0].Ready {
+			delete(sends, turn)
+		}
+	}
+	if len(sends) == 0 {
+		delete(r.queuedSends, session)
+	}
+}
+
+func (r *Runtime) sendQueuedTurn(session protocol.SessionID, queueRevision uint64, item protocol.ConversationPending) {
+	sends := r.queuedSends[session]
+	attempt := sends[item.Turn]
+	checking := attempt != nil
+	if checking {
+		if attempt.busy || attempt.queueRevision != 0 {
+			return
+		}
+	} else {
+		if r.queuedSends == nil {
+			r.queuedSends = map[protocol.SessionID]map[protocol.TurnID]*queuedSend{}
+		}
+		if sends == nil {
+			sends = map[protocol.TurnID]*queuedSend{}
+			r.queuedSends[session] = sends
+		}
+		request := r.controller.Prepare(protocol.Command{Kind: "send_queued_turn", Data: protocol.CommandSendQueuedTurnPayload{Turn: item.Turn, ExpectedRevision: item.Revision}})
+		attempt = &queuedSend{request: request}
+		sends[item.Turn] = attempt
+	}
+	attempt.busy = true
+	r.async(func() {
+		var output protocol.Output
+		var err, lookupErr error
+		if checking {
+			var resolution client.Resolution
+			resolution, lookupErr = r.controller.Resolve(r.ctx, attempt.request)
+			if lookupErr == nil {
+				output, err = resolution.Result()
+			}
+		} else {
+			output, err = r.controller.Settle(r.ctx, attempt.request)
+		}
+		r.enqueue(func(c *ui.Context) {
+			attempt.busy = false
+			if lookupErr != nil {
+				kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_action_unknown"))
+				return
+			}
+			unknown := "chat_action_unknown"
+			switch {
+			case err == nil:
+				attempt.queueRevision = queueRevision + 1
+				if update, ok := detail[protocol.ConversationQueueUpdate](output.Data); ok && update.Session == session && update.Queue.Revision != 0 {
+					attempt.queueRevision = update.Queue.Revision
+				}
+			case client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown:
+				attempt.queueRevision = queueRevision + 1
+				unknown = "tool_interrupted"
+			case !client.Retained(err):
+				delete(sends, item.Turn)
+			}
+			r.reportKeys(c, err, "chat_action_failed", "session_changed", unknown)
+		})
+	})
+}
 
 // enrichQueue gives the rows a user can edit their reader and writer. A
 // notice, a compaction and a continuation a package queued (a marker row)

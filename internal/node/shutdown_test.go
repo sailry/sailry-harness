@@ -11,13 +11,227 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/process"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+type shutdownScript struct {
+	fantasy.LanguageModel
+	started chan context.Context
+	finish  chan struct{}
+	calls   atomic.Int32
+}
+
+func (script *shutdownScript) Stream(ctx context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
+	script.calls.Add(1)
+	return func(yield func(fantasy.StreamPart) bool) {
+		if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "answer", Delta: "Retained output"}) {
+			return
+		}
+		select {
+		case script.started <- ctx:
+		case <-ctx.Done():
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-script.finish:
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+		}
+	}, nil
+}
+
+func startShutdownNode(t *testing.T, path string, script *shutdownScript) *Node {
+	t.Helper()
+	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	value, err := StartWithOptions(t.Context(), path, Options{
+		Environment: &environment, MCP: fixtureMCPOptions(),
+		Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := value.Stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	return value
+}
+
+func TestStopInterruptsTurnsBeforeCommandLanes(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "profile")
+	script := &shutdownScript{started: make(chan context.Context, 2), finish: make(chan struct{})}
+	value := startShutdownNode(t, path, script)
+	session := sessionFixture(t, value)
+	submit := func(text string) protocol.QueuedTurn {
+		return commandFixture(t, value, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
+			Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: text},
+		}}).Data.(protocol.QueuedTurn)
+	}
+	first := submit("Running input")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var running context.Context
+	select {
+	case running = <-script.started:
+	case <-ctx.Done():
+		t.Fatal("model did not start")
+	}
+	queued := submit("Keep this pending input")
+
+	// A workspace effect holds the registration lock needed by the admitted
+	// project command, including its cancelled outcome during shutdown.
+	root := t.TempDir()
+	release := sync.OnceFunc(value.locks.effect(root))
+	defer release()
+	draft := protocol.DefaultProjectsDraft()
+	draft.Name, draft.Path, draft.Source = "Blocked registration", root, protocol.ProjectsSource{Kind: "local"}
+	admitted, err := value.Dispatch(ctx, value.ID(), protocol.NewRequest(value.ID(), protocol.Command{Kind: "create_project", Data: draft}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopping, stopWaiting := context.WithCancel(ctx)
+	stopWaiting()
+	if err := value.Stop(stopping); !errors.Is(err, context.Canceled) {
+		t.Fatalf("stop waiter = %v", err)
+	}
+	if running.Err() == nil {
+		t.Fatal("Node cancelled its dependencies while its model was still running behind a blocked command lane")
+	}
+	select {
+	case <-admitted.Completion:
+		t.Fatal("the command lane did not remain blocked")
+	default:
+	}
+	release()
+	if err := value.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	next := startShutdownNode(t, path, script)
+	if err := next.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		run, err := store.ReadAgentRun(ctx, db, first.ID)
+		if err != nil {
+			return err
+		}
+		if run.Status != protocol.ConversationStatusInterrupted {
+			return fmt.Errorf("shutdown run = %s, want interrupted", run.Status)
+		}
+		queue, err := store.ReadQueue(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
+		if !queue.Paused || queue.PauseReason == nil || *queue.PauseReason != protocol.ConversationQueuePauseInterrupted || len(queue.Items) != 1 || queue.Items[0].Turn != queued.ID || !queue.Items[0].Ready || queue.Items[0].Preview != "Keep this pending input" {
+			return fmt.Errorf("restart did not retain the held queue: %+v", queue)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if calls := script.calls.Load(); calls != 1 {
+		t.Fatalf("shutdown or recovery replayed a model request: %d calls", calls)
+	}
+}
+
+func TestClientCloseLeavesAdmittedTurnRunning(t *testing.T) {
+	t.Parallel()
+	script := &shutdownScript{started: make(chan context.Context, 2), finish: make(chan struct{})}
+	value := startShutdownNode(t, filepath.Join(t.TempDir(), "profile"), script)
+	caller := protocol.NodeID{38}
+	if err := value.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		return store.PairLinkPeer(t.Context(), db, caller, link.DirectionController)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := sessionConfigFixtureFor(t, value, caller)
+	created := dispatchFixture(t, value, caller, protocol.NewRequest(value.ID(), protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}))
+	if created.Fault != nil {
+		t.Fatal(created.Fault)
+	}
+	session := created.Output.Data.(protocol.Session)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	connect := func() (*client.Client, <-chan struct{}) {
+		t.Helper()
+		controller := client.New(link.NewLocal(value.ID(), caller, value))
+		t.Cleanup(func() { _ = controller.Close() })
+		if err := controller.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		changed := make(chan struct{}, 1)
+		_, err := controller.WatchConversation(ctx, session.ID, func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return controller, changed
+	}
+	controller, _ := connect()
+	output, err := controller.Do(ctx, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
+		Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Continue after the controller closes"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := output.Data.(protocol.QueuedTurn)
+	var running context.Context
+	select {
+	case running = <-script.started:
+	case <-ctx.Done():
+		t.Fatal("model did not start")
+	}
+	if err := controller.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if running.Err() != nil || value.ctx.Err() != nil {
+		t.Fatal("closing the controller cancelled its execution Node or admitted turn")
+	}
+	fresh, changed := connect()
+	wait := func(status protocol.ConversationStatus) {
+		t.Helper()
+		for {
+			if state, ok := fresh.Conversation(session.ID); ok {
+				if state.Err != nil {
+					t.Fatal(state.Err)
+				}
+				for _, run := range state.Snapshot.Page.Runs {
+					if run.Turn == turn.ID && run.Status == status {
+						return
+					}
+				}
+			}
+			select {
+			case <-changed:
+			case <-ctx.Done():
+				t.Fatalf("reconnected controller did not observe %s", status)
+			}
+		}
+	}
+	wait(protocol.ConversationStatusRunning)
+	close(script.finish)
+	wait(protocol.ConversationStatusCompleted)
+	if calls := script.calls.Load(); calls != 1 {
+		t.Fatalf("controller reconnection replayed the turn: %d calls", calls)
+	}
+}
 
 func TestStopDeadline(t *testing.T) {
 	t.Parallel()

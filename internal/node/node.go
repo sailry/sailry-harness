@@ -311,6 +311,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.mu.Lock()
 	if !node.stopped {
 		node.stopped = true
+		node.agent.BeginStop()
 		close(node.closed)
 		for index := range node.lanes {
 			node.signal(&node.lanes[index])

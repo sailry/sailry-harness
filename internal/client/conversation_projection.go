@@ -247,7 +247,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			x.Input = nil
 		}
 		if i := slices.IndexFunc(page.Runs, func(v protocol.ConversationRun) bool { return v.Turn == x.Turn }); i >= 0 {
-			if !sameRun(page.Runs[i], x) {
+			if !sameRun(page.Runs[i], x) && !recapturedGuidance(page.Runs[i], x) {
 				return Ignored, fault(protocol.ErrorCodeInvalidRequest, "sent turn identity changed")
 			}
 			transcriptChanged = !reflect.DeepEqual(page.Runs[i], x)
@@ -314,7 +314,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		for _, item := range x.Items {
 			if i := slices.IndexFunc(page.Queue.Items, func(v protocol.ConversationPending) bool { return v.Turn == item.Turn }); i >= 0 {
 				previous := page.Queue.Items[i]
-				if previous.ConfigRevision != item.ConfigRevision || previous.Kind != item.Kind || previous.Notice != item.Notice || previous.Revision > item.Revision || previous.Revision == item.Revision && (!reflect.DeepEqual(previous.Request, item.Request) || previous.Preview != item.Preview || previous.Truncated != item.Truncated) {
+				if previous.ConfigRevision > item.ConfigRevision || previous.Kind != item.Kind || previous.Notice != item.Notice || previous.Revision > item.Revision || previous.Revision == item.Revision && (previous.ConfigRevision != item.ConfigRevision || !reflect.DeepEqual(previous.Request, item.Request) || previous.Preview != item.Preview || previous.Truncated != item.Truncated) {
 					return Ignored, fault(protocol.ErrorCodeInvalidRequest, "pending input changed without its revision")
 				}
 			}
@@ -437,6 +437,16 @@ func activeConversationRun(s protocol.ConversationStatus) bool {
 
 func sameRun(a, b protocol.ConversationRun) bool {
 	return a.Turn == b.Turn && a.Session == b.Session && a.Revision == b.Revision && a.Sequence == b.Sequence && a.Kind == b.Kind && a.Notice == b.Notice && a.Worktree == b.Worktree && reflect.DeepEqual(a.Origin, b.Origin) && (a.Input == nil || b.Input == nil || reflect.DeepEqual(a.Input, b.Input))
+}
+
+// Detached guidance takes current settings before starting. A metadata refresh
+// can first publish that capture after the turn has already started or ended.
+func recapturedGuidance(previous, current protocol.ConversationRun) bool {
+	if previous.Status != protocol.ConversationStatusQueued || previous.StartedMs != nil || previous.Guidance == nil || previous.Revision >= current.Revision {
+		return false
+	}
+	previous.Revision = current.Revision
+	return sameRun(previous, current)
 }
 
 func validateConversationPage(p protocol.ConversationPage) error {

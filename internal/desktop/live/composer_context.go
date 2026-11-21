@@ -130,7 +130,10 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 	for i := range ctx.Queue {
 		ctx.Queue[i].Joining = false
 	}
-	_, state, loaded := x.viewState()
+	session, state, loaded := x.viewState()
+	if loaded {
+		r.reconcileQueuedSends(session.ID, state.Page.Queue)
+	}
 	if run, active := activeConversationRun(state.Page); loaded && active {
 		for i := range ctx.Queue {
 			if item := slices.IndexFunc(state.Page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn.String() == ctx.Queue[i].ID }); item >= 0 &&
