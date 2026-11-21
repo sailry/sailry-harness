@@ -25,11 +25,11 @@ type entry struct {
 	slots    slotProjection
 }
 type identity struct {
-	message, call, revision string
-	visible                 bool
-	digest                  [32]byte
-	format                  canonical.ToolFormat
-	status                  canonical.ToolStatus
+	message, call, revision, name string
+	visible, hasSlots             bool
+	digest                        [32]byte
+	format                        canonical.ToolFormat
+	status                        canonical.ToolStatus
 }
 
 func clone[T any](value T) T {
@@ -177,7 +177,8 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		for j := range value.Content {
 			if response := response(&value.Content[j]); response != nil {
 				key := identity{
-					message: record.ID, call: response.ID, revision: response.Revision, visible: isVisible,
+					message: record.ID, call: response.ID, revision: response.Revision, name: response.Name,
+					visible: isVisible, hasSlots: len(response.Result.Assets) != 0,
 					digest: blake3.Sum256(response.Result.Value), format: response.Format, status: response.Status,
 				}
 				sources = append(sources, source{response: response, identity: key})
@@ -235,6 +236,9 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 		if !bytes.Equal(response.Result.Value, original) {
 			slots.removedField = "/data"
 		}
+		return
+	}
+	if projectCommand(response, source) {
 		return
 	}
 	envelope := resultEnvelope(response)
