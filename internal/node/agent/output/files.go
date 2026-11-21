@@ -134,10 +134,35 @@ func pagePreview(value any) (string, bool) {
 		return "", false
 	}
 	var page protocol.ToolOutputOutputPage
-	if json.Unmarshal([]byte(encoded(value)), &page) != nil || page.Offset > ^uint64(0)-uint64(len(page.Text)) {
+	if json.Unmarshal([]byte(encoded(value)), &page) != nil || !validOutputReference(page.Output.Call, page.Output.Revision) ||
+		page.Offset > ^uint64(0)-uint64(len(page.Text)) {
 		return "", false
 	}
-	return fmt.Sprintf("Result bytes %d–%d of %d\n%s\n%s", page.Offset, page.Offset+uint64(len(page.Text)), page.TotalBytes, page.Text, encoded(map[string]any{"output": page.Output, "next_offset": page.NextOffset, "read": "read_tool_output with the same output and next_offset"})), true
+	render := func(body string, end uint64, next *uint64) string {
+		return fmt.Sprintf("Result bytes %d–%d of %d\n%s\n%s", page.Offset, end, page.TotalBytes, body, encoded(map[string]any{
+			"output": page.Output, "next_offset": next, "read": "read_tool_output with the same output and next_offset",
+		}))
+	}
+	end := page.Offset + uint64(len(page.Text))
+	if full := render(page.Text, end, page.NextOffset); lineCount(full) <= MaxLines && len(commandJSON(textEnvelope(full))) <= MaxBytes {
+		return full, true
+	}
+	overhead := render("", end, &end)
+	bytes := MaxBytes - len(commandJSON(textEnvelope(overhead)))
+	lines := MaxLines - lineCount(overhead)
+	if bytes <= 0 || lines <= 0 {
+		return "", false
+	}
+	shown := fitEncodedText(page.Text, bytes, lines, false)
+	if shown == "" {
+		return "", false
+	}
+	end = page.Offset + uint64(len(shown))
+	return render(shown, end, &end), true
+}
+
+func textEnvelope(text string) map[string]any {
+	return map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}}
 }
 func editPreview(original map[string]any) (string, bool) {
 	var written protocol.FileWritten

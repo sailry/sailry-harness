@@ -480,6 +480,9 @@ func repairToolPairs(records, visible []canonical.Record) []canonical.Record {
 				updated.ID, block.Data = id, &updated
 			case *canonical.ToolResponse:
 				updated := *value
+				if updated.OriginalID == "" {
+					updated.OriginalID = value.ID
+				}
 				updated.ID, block.Data = id, &updated
 			}
 			kept.Content = append(kept.Content, block)

@@ -60,6 +60,8 @@ type ToolResponse struct {
 	Provider    *map[string]json.RawMessage `json:"provider,omitempty"`
 	Format      ToolFormat                  `json:"format,omitempty"`
 	Meta        *map[string]json.RawMessage `json:"meta,omitempty"`
+	// OriginalID is set on a replay copy when its model-facing ID is repaired.
+	OriginalID string `json:"-"`
 }
 type ToolStatus string
 

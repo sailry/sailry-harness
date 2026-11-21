@@ -4,6 +4,7 @@ package output
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"reflect"
 
@@ -25,11 +26,11 @@ type entry struct {
 	slots    slotProjection
 }
 type identity struct {
-	message, call, revision, name string
-	visible, hasSlots             bool
-	digest                        [32]byte
-	format                        canonical.ToolFormat
-	status                        canonical.ToolStatus
+	message, call, originalCall, revision, name string
+	visible, hasSlots                           bool
+	digest                                      [32]byte
+	format                                      canonical.ToolFormat
+	status                                      canonical.ToolStatus
 }
 
 func clone[T any](value T) T {
@@ -117,6 +118,7 @@ func cloneRecord(record canonical.Record) canonical.Record {
 		fields.Result.Value = nil
 		fields = clone(fields)
 		fields.Result.Value = tool.Result.Value
+		fields.OriginalID = tool.OriginalID
 		block.Data = &fields
 		out.Content[i] = block
 	}
@@ -177,7 +179,7 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		for j := range value.Content {
 			if response := response(&value.Content[j]); response != nil {
 				key := identity{
-					message: record.ID, call: response.ID, revision: response.Revision, name: response.Name,
+					message: record.ID, call: response.ID, originalCall: response.OriginalID, revision: response.Revision, name: response.Name,
 					visible: isVisible, hasSlots: len(response.Result.Assets) != 0,
 					digest: blake3.Sum256(response.Result.Value), format: response.Format, status: response.Status,
 				}
@@ -224,21 +226,26 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 	return projected
 }
 
+func resultSource(response *canonical.ToolResponse) map[string]any {
+	return map[string]any{"call": cmp.Or(response.OriginalID, response.ID), "revision": response.Revision}
+}
+
 func projectResponse(response *canonical.ToolResponse, visible bool, reads *fileReads, slots *slotProjection) {
 	original := response.Result.Value
-	if projectToolFailure(response) {
+	name := commandToolName(response.Name)
+	if projectToolFailure(response, name != "") {
 		slots.clear, slots.clearAttachments = true, true
 		return
 	}
-	source := map[string]any{"call": response.ID, "revision": response.Revision}
+	source := resultSource(response)
+	if name != "" && (projectCommand(response, name, source) || projectUnshapedCommand(response, source)) {
+		return
+	}
 	if response.Format == canonical.MCPError {
 		projectError(response, source)
 		if !bytes.Equal(response.Result.Value, original) {
 			slots.removedField = "/data"
 		}
-		return
-	}
-	if projectCommand(response, source) {
 		return
 	}
 	envelope := resultEnvelope(response)
@@ -254,7 +261,7 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 	if visible {
 		previous = reads
 	}
-	preview(envelope, source, previous, response.ID)
+	preview(envelope, source, previous)
 	slots.bounded = bound(envelope, source, tail, response.Format == canonical.JSON)
 	if _, kept := envelope["structuredContent"]; !kept {
 		slots.removedField = "/structuredContent"
@@ -275,7 +282,7 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 // reason and the failure marker in model requests. A failure with other
 // content keeps its bounded original body and attachments. The stored
 // response remains available for inspection.
-func projectToolFailure(response *canonical.ToolResponse) bool {
+func projectToolFailure(response *canonical.ToolResponse, command bool) bool {
 	if response.Status != canonical.ToolErrorStatus && response.Format != canonical.MCPError {
 		return false
 	}
@@ -283,8 +290,10 @@ func projectToolFailure(response *canonical.ToolResponse) bool {
 	if message == "" || !failureOnly(response) {
 		return false
 	}
-	source := map[string]any{"call": response.ID, "revision": response.Revision}
-	if response.Format == canonical.MCPError {
+	source := resultSource(response)
+	if command {
+		projectCommandText(response, source, message, true)
+	} else if response.Format == canonical.MCPError {
 		response.Result.Value = json.RawMessage(encoded(map[string]any{"message": message}))
 		projectError(response, source)
 	} else {
@@ -298,13 +307,13 @@ func projectToolFailure(response *canonical.ToolResponse) bool {
 	}
 	return true
 }
-func preview(envelope map[string]any, source map[string]any, reads *fileReads, call string) {
+func preview(envelope map[string]any, source map[string]any, reads *fileReads) {
 	original := envelope["structuredContent"]
 	fields := object(original)
 	if fields == nil {
 		return
 	}
-	if object(fields["output"])["call"] == call {
+	if ref := object(fields["output"]); ref["call"] == source["call"] && ref["revision"] == source["revision"] {
 		return
 	}
 	var projected string

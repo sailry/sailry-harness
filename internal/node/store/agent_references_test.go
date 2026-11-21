@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -82,6 +86,108 @@ func agentHistoryFixture(t testing.TB, mode protocol.WorkMode) (*Store, protocol
 		t.Fatal(err)
 	}
 	return storage, node, session, turn, now
+}
+
+func TestReadToolOutputAfterLegacyPairRepair(t *testing.T) {
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	const call, tool = "legacy-poll", "read_command"
+	info := protocol.DefaultProcessInfo()
+	info.ID, info.Session, info.Turn = protocol.NewRequestID(), session.ID, turn
+	info.Status.Kind = "running"
+	arguments, err := json.Marshal(map[string]any{"id": info.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []canonical.Record
+	var originals []canonical.ToolResponse
+	for _, stdout := range []string{"first capture\n", "second capture\n"} {
+		request := canonical.ToolRequest{ID: call, Name: tool, Arguments: arguments}
+		body, err := json.Marshal(protocol.Output{Kind: "command_output", Data: protocol.ProcessSnapshot{Info: info, Stdout: protocol.ProcessCapture{Text: stdout}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err = encode(agentJSON(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := canonical.ToolResponse{ID: call, Name: tool, Status: canonical.ToolSuccess, Revision: fmt.Sprintf("%x", blake3.Sum256(body)), Result: canonical.Payload{Value: body}}
+		requestRecord := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &request})), now)
+		resultRecord := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &result})), now)
+		requestRecord.Provenance.Author, resultRecord.Provenance.Author = "assistant", "tool"
+		records = append(records, requestRecord, resultRecord)
+		originals = append(originals, result)
+	}
+	var state AgentState
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		for _, record := range records {
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+		}
+		var err error
+		state, err = LoadAgentState(ctx, db, session.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := json.Marshal(state.Records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := new(output.Cache).Project(model.VisibleAnsweredRecords(state.Records))
+	binding := model.Binding{Provider: protocol.DefaultConversationProvider(), Config: protocol.DefaultSessionConfig()}
+	binding.Provider.Api = protocol.ConversationModelApiChatCompletions
+	prompt, err := model.BuildVisibleProjectedCall(binding, model.Request{Records: projected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callIDs []string
+	var results []fantasy.ToolResultPart
+	for _, message := range prompt.Prompt {
+		for _, part := range message.Content {
+			if request, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](part); ok {
+				callIDs = append(callIDs, request.ToolCallID)
+			}
+			if result, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part); ok {
+				results = append(results, result)
+			}
+		}
+	}
+	if !slices.Equal(callIDs, []string{call, canonical.ToolCallOccurrenceID(records[2].ID, 0)}) || len(results) != len(callIDs) {
+		t.Fatalf("unexpected model call IDs %v or result count %d", callIDs, len(results))
+	}
+	for i, result := range results {
+		body, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
+		var receipt struct {
+			Output protocol.ToolOutputOutputReference `json:"output"`
+		}
+		if !ok || json.Unmarshal([]byte(body.Text), &receipt) != nil || result.ToolCallID != callIDs[i] {
+			t.Fatalf("invalid model result for %s", callIDs[i])
+		}
+		if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+			value, err := ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_tool_output", Data: &protocol.CommandReadToolOutputPayload{
+				Turn: turn, Output: receipt.Output, Limit: 32768,
+			}})
+			if err != nil {
+				return err
+			}
+			page, ok := value.Data.(protocol.ToolOutputOutputPage)
+			if !ok || page.Text != string(originals[i].Result.Value) || page.NextOffset != nil {
+				return errors.New("recovery did not return the original receipt")
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("recover model result %s using %+v: %v", callIDs[i], receipt.Output, err)
+		}
+		if receipt.Output.Call != call || receipt.Output.Revision != originals[i].Revision {
+			t.Fatalf("model result %s points to the wrong canonical receipt: %+v", callIDs[i], receipt.Output)
+		}
+	}
+	after, err := json.Marshal(state.Records)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("model projection mutated the original history")
+	}
 }
 
 // Over 1 s only beside the package's other parallel tests: each opens its own synced store.

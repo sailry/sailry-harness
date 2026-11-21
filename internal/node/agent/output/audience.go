@@ -45,7 +45,7 @@ func filterAudience(record *canonical.Record, filterResults bool) {
 		if filterResults {
 			if tool := response(&block); tool != nil {
 				slots := slotProjection{audience: filterResultAudience(tool)}
-				if projectToolFailure(tool) {
+				if projectToolFailure(tool, false) {
 					slots.clear, slots.clearAttachments = true, true
 				}
 				slots.apply(tool)
