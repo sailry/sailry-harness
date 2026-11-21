@@ -175,7 +175,7 @@ func ValidReportRef(s string) bool {
 
 // Remote is the part of a record that may leave the process: public tokens
 // and counters, a valid application version, and a package only as
-// "third_party". Configuration reasons and command stages use closed lists.
+// "third_party". Diagnostic stages and reasons use closed lists.
 // Identifiers, names, details and paths never pass.
 func Remote(values Fields) Fields {
 	safe := Fields{}
@@ -208,9 +208,24 @@ func Remote(values Fields) Fields {
 			safe["reason_code"] = reason
 		}
 		if safe["area"] == "desktop" {
-			switch stage, _ := values["stage"].(string); stage {
-			case "preflight", "map_selection", "workspace_mutation", "file_search":
-				safe["stage"] = stage
+			stage, _ := values["stage"].(string)
+			if safe["operation"] == "inspect_git" {
+				reason, _ := values["reason"].(string)
+				if stage != "" && protocol.GitInspectionReason(reason).Stage() == stage && safe["code"] != string(protocol.ErrorCodeCancelled) {
+					safe["stage"], safe["reason"] = stage, reason
+				}
+			} else {
+				switch stage {
+				case "preflight", "map_selection", "workspace_mutation", "file_search":
+					safe["stage"] = stage
+				}
+			}
+		}
+		if safe["area"] == "command" && (safe["operation"] == "check_ssh" || safe["operation"] == "install_host") {
+			stage, _ := values["stage"].(string)
+			reason, _ := values["reason"].(string)
+			if stage != "" && protocol.SSHFailureReason(reason).Stage() == stage && safe["code"] != string(protocol.ErrorCodeCancelled) {
+				safe["stage"], safe["reason"] = stage, reason
 			}
 		}
 	}

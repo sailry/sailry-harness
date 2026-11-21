@@ -24,8 +24,16 @@ func Fail(c *ui.Context, outcome Outcome, key string, err error) {
 func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...slog.Attr) {
 	fault := failureFault(err)
 	code := string(fault.Code)
-	if fault.Code != protocol.ErrorCodeCancelled && logging.ValidReportRef(fault.ReportRef) {
-		attrs = append(attrs, slog.String("report_ref", fault.ReportRef))
+	if fault.Code != protocol.ErrorCodeCancelled {
+		if logging.ValidReportRef(fault.ReportRef) {
+			attrs = append(attrs, slog.String("report_ref", fault.ReportRef))
+		}
+		if area == "desktop" && operation == "inspect_git" {
+			reason := fault.GitInspectionReason
+			if stage := reason.Stage(); stage != "" {
+				attrs = append(attrs, slog.String("stage", stage), slog.String("reason", string(reason)))
+			}
+		}
 	}
 	if code == "" {
 		code = "internal"

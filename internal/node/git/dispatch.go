@@ -23,6 +23,9 @@ func (s *Service) Read(ctx context.Context, root string, command protocol.Comman
 	go func() { output, err := s.read(ctx, root, command); done <- result{output, err} }()
 	select {
 	case <-ctx.Done():
+		if command.Kind == "inspect_git" {
+			return protocol.Output{}, statusFailure(mapError(ctx.Err()), protocol.GitInspectionDeadlineExceeded)
+		}
 		return protocol.Output{}, mapError(ctx.Err())
 	case value := <-done:
 		return value.output, value.err

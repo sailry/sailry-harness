@@ -185,8 +185,7 @@ func workspaceReadGroup(key string) string {
 // shows a worktree, as when a project is chosen for a new draft, so the copy
 // says what was read and the cause the Node tells apart instead of naming a
 // workspace action. own is false for any other read, which keeps the general
-// copy. A Git that cannot run on the Node (not_configured, or unavailable on
-// Nodes that do not tell it apart) keeps Git's general failure copy.
+// copy. A failed local Git read names the inspection that failed.
 func workspaceReadFailure(key string, err error) (outcome kit.Outcome, name string, own bool) {
 	group := workspaceReadGroup(key)
 	if group == "" {
@@ -218,7 +217,7 @@ func workspaceReadFailure(key string, err error) (outcome kit.Outcome, name stri
 	case protocol.ErrorCodeBusy:
 		return kit.Failed, "git_index_busy", true
 	}
-	return kit.Failed, "git_action_failed", true
+	return kit.Failed, "git_inspection_failed", true
 }
 
 // worktreeFailureKey is a worktree operation's copy for a fault code.

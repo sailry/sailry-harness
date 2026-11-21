@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,15 +17,23 @@ import (
 )
 
 func (s *Service) Branches(ctx context.Context, root string) (protocol.GitBranches, error) {
-	h, err := s.Head(ctx, root)
-	result := protocol.GitBranches{Kind: h.Kind, Current: h.Branch, Entries: []protocol.GitBranch{}, Sync: protocol.DefaultGitSync()}
-	if err != nil || h.Kind == protocol.RepositoryKindDirectory {
+	result := protocol.GitBranches{Entries: []protocol.GitBranch{}, Sync: protocol.DefaultGitSync()}
+	if err := checkContext(ctx); err != nil {
 		return result, err
 	}
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
+	if err != nil {
+		if _, e := os.Lstat(filepath.Join(root, ".git")); errors.Is(e, os.ErrNotExist) {
+			result.Kind = protocol.RepositoryKindDirectory
+			return result, nil
+		}
+		return result, err
+	}
+	h, err := head(r)
 	if err != nil {
 		return result, err
 	}
+	result.Kind, result.Current = h.Kind, h.Branch
 	iter, err := r.References()
 	if err != nil {
 		return result, mapError(err)

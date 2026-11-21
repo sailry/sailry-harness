@@ -14,9 +14,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-git/go-billy/v5"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -129,13 +129,19 @@ func checkGitMetadata(root string) error {
 	return nil
 }
 func open(root string) (*gogit.Repository, error) {
-	if err := checkGitMetadata(root); err != nil {
-		return nil, mapError(err)
-	}
-	r, err := gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{DetectDotGit: false, EnableDotGitCommonDir: true})
+	r, err := plainOpen(root)
 	if err != nil {
 		return nil, mapError(err)
 	}
+	return checkWorktree(root, r)
+}
+func plainOpen(root string) (*gogit.Repository, error) {
+	if err := checkGitMetadata(root); err != nil {
+		return nil, err
+	}
+	return gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{DetectDotGit: false, EnableDotGitCommonDir: true})
+}
+func checkWorktree(root string, r *gogit.Repository) (*gogit.Repository, error) {
 	worktree, err := r.Worktree()
 	if err != nil {
 		return nil, invalid("expected a non-bare worktree")
@@ -197,7 +203,7 @@ func safePath(root, path string) (string, error) {
 	return target, nil
 }
 func gitDir(root string, r *gogit.Repository) (string, error) {
-	storage, ok := r.Storer.(*filesystem.Storage)
+	storage, ok := r.Storer.(interface{ Filesystem() billy.Filesystem })
 	if !ok {
 		return "", invalid("repository has no file-backed metadata")
 	}

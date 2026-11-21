@@ -152,6 +152,12 @@ func TestGitReadMapping(t *testing.T) {
 		}
 		_, err = ParseStatus([]byte(body[:len(body)-1]), false)
 		requireFault(t, err, protocol.ErrorCodeUnavailable)
+		partial, err := ParseStatus([]byte(body+"? \xe4"), true)
+		if err != nil || !partial.Truncated || partial.OmittedPaths != 1 || len(partial.Entries) != len(got.Entries) {
+			t.Fatalf("truncated path lost complete records: %+v, %v", partial, err)
+		}
+		_, err = ParseStatus([]byte(body+"? \xff\x00? partial"), true)
+		requireFault(t, err, protocol.ErrorCodeUnavailable)
 	})
 	t.Run("diff_log_show_blame", func(t *testing.T) {
 		root, _, commit := fixture(t)

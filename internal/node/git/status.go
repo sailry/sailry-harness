@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	fdiff "github.com/go-git/go-git/v5/plumbing/format/diff"
 	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
@@ -33,7 +32,7 @@ func StatusArgs(drivers []string) []string {
 	return append(args, "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--no-renames")
 }
 func filterDrivers(r *gogit.Repository) ([]string, error) {
-	config, err := r.ConfigScoped(config.GlobalScope)
+	config, err := readFilterConfig(r)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -95,7 +94,7 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 	}()
 	select {
 	case <-ctx.Done():
-		return protocol.GitStatus{}, mapError(ctx.Err())
+		return protocol.GitStatus{}, statusFailure(mapError(ctx.Err()), protocol.GitInspectionDeadlineExceeded)
 	case <-slot.done:
 		result := slot.value
 		result.Entries = append([]protocol.GitEntry(nil), result.Entries...)
@@ -104,24 +103,24 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 }
 func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, error) {
-	r, err := open(root)
+	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		if _, e := os.Lstat(filepath.Join(root, ".git")); errors.Is(e, os.ErrNotExist) {
 			return protocol.GitStatus{Kind: protocol.RepositoryKindDirectory, Entries: []protocol.GitEntry{}, Repositories: childRepositories(ctx, root)}, nil
 		}
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionWorktreeOpenFailed)
 	}
 	beforeHead, err := head(r)
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionHeadReadFailed)
 	}
 	revision, err := indexRevision(root, r)
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionIndexReadFailed)
 	}
 	drivers, err := filterDrivers(r)
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionFilterConfigReadFailed)
 	}
 	limited, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
@@ -133,7 +132,7 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		capture, err = s.command(limited, root, StatusArgs(drivers), nil, true)
 	}
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusCommandFailure(err, capture)
 	}
 	result, err := ParseStatus(capture.Stdout, capture.Truncated)
 	if err != nil {
@@ -141,17 +140,17 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 	next, err := indexRevision(root, r)
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionIndexRecheckFailed)
 	}
 	if next != revision {
-		return protocol.GitStatus{}, fault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection")
+		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionIndexChanged)
 	}
 	afterHead, err := head(r)
 	if err != nil {
-		return protocol.GitStatus{}, err
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionHeadRecheckFailed)
 	}
 	if !sameString(beforeHead.Head, afterHead.Head) || !sameString(beforeHead.Branch, afterHead.Branch) {
-		return protocol.GitStatus{}, fault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection")
+		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionHeadChanged)
 	}
 	result.IndexRevision = ptr(revision)
 	// Line statistics read the HEAD tree and the index once for the whole status.
@@ -196,7 +195,7 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 	for _, entry := range result.Entries {
 		if err := checkContext(limited); err != nil {
-			return protocol.GitStatus{}, err
+			return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionDeadlineExceeded)
 		}
 		path, e := safePath(root, entry.Path)
 		if e != nil {
@@ -292,9 +291,6 @@ func lineStats(before, after content, beforeErr, afterErr error, limit time.Dura
 // ParseStatus reads source-native porcelain v2, including its NUL-framed paths.
 func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 	result := protocol.GitStatus{Kind: protocol.RepositoryKindUnborn, Entries: []protocol.GitEntry{}, Truncated: truncated, Repositories: []string{}}
-	if !utf8.Valid(data) {
-		return result, fault(protocol.ErrorCodeUnavailable, "Git status contains unsupported path encoding")
-	}
 	if truncated {
 		result.OmittedPaths++
 		if end := bytes.LastIndexByte(data, 0); end >= 0 {
@@ -303,7 +299,10 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 			data = nil
 		}
 	} else if len(data) == 0 || data[len(data)-1] != 0 {
-		return result, fault(protocol.ErrorCodeUnavailable, "incomplete Git status output")
+		return result, statusFault(protocol.ErrorCodeUnavailable, "incomplete Git status output", protocol.GitInspectionIncompleteOutput)
+	}
+	if !utf8.Valid(data) {
+		return result, statusFault(protocol.ErrorCodeUnavailable, "Git status contains unsupported path encoding", protocol.GitInspectionUnsupportedEncoding)
 	}
 	headers := 0
 	for _, record := range strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00") {
@@ -336,11 +335,11 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 				count = 11
 				entry.Conflicted = true
 			} else if !strings.HasPrefix(record, "1 ") {
-				return result, fault(protocol.ErrorCodeUnavailable, "invalid Git status output")
+				return result, statusFault(protocol.ErrorCodeUnavailable, "invalid Git status output", protocol.GitInspectionInvalidRecord)
 			}
 			fields := strings.SplitN(record, " ", count)
 			if len(fields) != count || len(fields[1]) != 2 {
-				return result, fault(protocol.ErrorCodeUnavailable, "incomplete Git status record")
+				return result, statusFault(protocol.ErrorCodeUnavailable, "incomplete Git status record", protocol.GitInspectionInvalidRecord)
 			}
 			entry.Path = fields[count-1]
 			if !entry.Conflicted {
@@ -373,7 +372,7 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 		result.Entries = append(result.Entries, entry)
 	}
 	if headers != 2 {
-		return result, fault(protocol.ErrorCodeUnavailable, "incomplete Git status headers")
+		return result, statusFault(protocol.ErrorCodeUnavailable, "incomplete Git status headers", protocol.GitInspectionIncompleteHeaders)
 	}
 	sort.Slice(result.Entries, func(i, j int) bool { return result.Entries[i].Path < result.Entries[j].Path })
 	return result, nil
@@ -391,7 +390,7 @@ func statusKind(code byte) (*protocol.GitChangeKind, error) {
 	case 'A':
 		return ptr(protocol.GitChangeKindAdded), nil
 	}
-	return nil, fault(protocol.ErrorCodeUnavailable, "unsupported Git status classification")
+	return nil, statusFault(protocol.ErrorCodeUnavailable, "unsupported Git status classification", protocol.GitInspectionUnsupportedStatus)
 }
 
 func childRepositories(ctx context.Context, root string) []string {

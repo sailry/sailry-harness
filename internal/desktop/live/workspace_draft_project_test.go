@@ -26,18 +26,18 @@ func TestDraftProjectSelectionReadFailure(t *testing.T) {
 		{
 			name: "Git that cannot run reports Git once and keeps the folder",
 			git:  &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Git executable not found on execution Node"},
-			want: []string{"git_action_failed"},
+			want: []string{"git_inspection_failed"},
 		},
 		{
 			name: "a Node that does not tell a missing Git apart still names Git",
 			git:  &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Git executable unavailable on execution Node"},
-			want: []string{"git_action_failed"},
+			want: []string{"git_inspection_failed"},
 		},
 		{
 			name:   "the linked checkout and project location report the same Git failure once",
 			git:    &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Git executable not found on execution Node"},
 			linked: true,
-			want:   []string{"git_action_failed"},
+			want:   []string{"git_inspection_failed"},
 		},
 		{
 			name:      "a missing project folder is named as such",

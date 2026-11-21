@@ -109,6 +109,9 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 		if !logging.ValidReportRef(fault.ReportRef) {
 			t.Fatalf("%s failure has no valid reference: %q", test.command.Kind, fault.ReportRef)
 		}
+		if test.command.Kind == "inspect_git" && fault.GitInspectionReason != protocol.GitInspectionStatusCommandFailed {
+			t.Fatalf("inspection fault lost its Git failure reason: %+v", fault)
+		}
 		failures = append(failures, failure{request.ID, test.command.Kind, test.level, test.code, fault.ReportRef})
 	}
 	if !inspected.Load() {
