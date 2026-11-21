@@ -44,6 +44,7 @@ type Service struct {
 	parser      *Parser
 	inspectText func(*core.Files, context.Context, string, int, core.FileStamp, func(*string) error) (core.FileStamp, error)
 	parsing     chan struct{}
+	live        liveCache
 	closed      context.Context
 	close       context.CancelFunc
 
@@ -234,8 +235,9 @@ func (s *Service) Configure(enabled bool) {
 	defer s.maintenance.Unlock()
 	s.mutex.Lock()
 	s.enabled = enabled && s.closed.Err() == nil
+	disabled := !s.enabled
 	var released []*worktree
-	if !s.enabled {
+	if disabled {
 		released = slices.Collect(maps.Values(s.worktrees))
 	}
 	s.mutex.Unlock()
@@ -245,9 +247,10 @@ func (s *Service) Configure(enabled bool) {
 	for _, worktree := range released {
 		_ = worktree.release()
 	}
-	if len(released) != 0 {
+	if disabled {
 		s.mutex.Lock()
 		clear(s.worktrees)
+		s.live.clear()
 		s.mutex.Unlock()
 	}
 }
@@ -312,6 +315,7 @@ func (s *Service) Remove(id protocol.WorktreeID) error {
 	worktree := s.worktrees[id]
 	if worktree == nil {
 		defer s.mutex.Unlock()
+		s.live.forget(id)
 		return failure(s.removeCache(id))
 	}
 	worktree.stop()
@@ -320,6 +324,7 @@ func (s *Service) Remove(id protocol.WorktreeID) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	delete(s.worktrees, id)
+	s.live.forget(id)
 	if err != nil {
 		return err
 	}

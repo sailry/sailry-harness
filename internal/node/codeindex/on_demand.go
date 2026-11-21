@@ -40,7 +40,8 @@ type liveFiles struct {
 	ctx      context.Context
 	service  *Service
 	files    *core.Files
-	parse    func(context.Context, string, string) (Parsed, error)
+	scope    liveScope
+	content  parseContent
 	parsed   []Parsed
 	seen     map[string]bool
 	report   report
@@ -62,11 +63,11 @@ func (s *Service) liveFiles(ctx context.Context, id protocol.WorktreeID, root st
 	}
 	bounded, cancel := context.WithTimeoutCause(ctx, queryTime, errScanBudget)
 	close := func() { cancel(); _ = files.Close(); end() }
-	parse := s.parser.ParseOutline
+	content := outlineContent
 	if references {
-		parse = s.parser.ParseIndexed
+		content = sourceContent
 	}
-	return ctx, &liveFiles{ctx: bounded, service: s, files: files, parse: parse, seen: map[string]bool{}, report: report{problems: map[string]problem{}}}, close, nil
+	return ctx, &liveFiles{ctx: bounded, service: s, files: files, scope: liveScope{id, root}, content: content, seen: map[string]bool{}, report: report{problems: map[string]problem{}}}, close, nil
 }
 
 func (scan *liveFiles) read(path string, match *regexp.Regexp) (*Parsed, error) {
@@ -84,8 +85,27 @@ func (scan *liveFiles) read(path string, match *regexp.Regexp) (*Parsed, error) 
 	}
 	defer release()
 	scan.started = true
+	key := liveFileKey{scan.scope, path, scan.content}
+	prior := scan.service.live.proof(key)
+	pattern := ""
+	if match != nil {
+		pattern = match.String()
+	}
+	var previous core.FileStamp
+	cached, known := prior.selected(pattern)
+	if prior.stamp != (core.FileStamp{}) {
+		if !known && prior.file != nil && match != nil && matchesSource(match, path) {
+			cached, known = prior.file, true
+		}
+		if known {
+			previous = prior.stamp
+		}
+	}
+
 	var parsed *Parsed
-	_, err = scan.service.inspectText(scan.files, scan.ctx, path, MaxFileBytes, core.FileStamp{}, func(source *string) error {
+	inspected := false
+	stamp, err := scan.service.inspectText(scan.files, scan.ctx, path, MaxFileBytes, previous, func(source *string) error {
+		inspected = true
 		if source == nil {
 			file := Omitted(path, StatusTooLarge)
 			parsed = &file
@@ -95,11 +115,50 @@ func (scan *liveFiles) read(path string, match *regexp.Regexp) (*Parsed, error) 
 			return nil
 		}
 		scan.attempts++
-		file, err := scan.parse(scan.ctx, path, *source)
+		var hash string
+		if prior.file != nil && prior.file.Hash != "" {
+			hash = Hash(*source)
+			if hash == prior.file.Hash {
+				parsed = prior.file
+				return nil
+			}
+		}
+		file, err := scan.service.parser.parseHashed(scan.ctx, path, *source, hash, scan.content)
 		parsed = &file
 		return err
 	})
-	return parsed, err
+	if err != nil {
+		return nil, err
+	}
+	if !inspected {
+		if previous == (core.FileStamp{}) || stamp != previous {
+			return nil, fault(protocol.ErrorCodeInternal, "code index: file inspection did not validate source")
+		}
+		if cached != nil && cached.Status != StatusTooLarge {
+			scan.attempts++ // Hits consume the same selection budget as cold parses.
+		}
+		return cached, nil
+	}
+
+	proof := liveProof{stamp: stamp}
+	if stamp != (core.FileStamp{}) && stamp == prior.stamp {
+		proof = prior
+	}
+	if parsed != nil && (stamp != (core.FileStamp{}) || parsed.Hash != "") {
+		if parsed == prior.file {
+			proof.file, proof.bytes = prior.file, prior.bytes
+		} else {
+			proof.file, proof.bytes = ownLiveParse(parsed)
+		}
+	}
+	proof.remember(pattern, parsed != nil)
+	if proof != prior {
+		scan.service.live.saveProof(key, proof)
+	}
+	if parsed != nil && proof.file != nil {
+		return proof.file, nil
+	}
+	return parsed, nil
 }
 
 func matchesSource(match *regexp.Regexp, text string) bool {
@@ -220,10 +279,15 @@ func (s *Service) OutlineOnDemand(ctx context.Context, id protocol.WorktreeID, r
 	value := stateOf(file)
 	out.Path, out.Language, out.Status, out.Capabilities = path, value.Language, value.Status, value.Capabilities
 	if file.Hash != "" {
-		out.FileRevision = &file.Hash
+		out.FileRevision = new(file.Hash)
 	}
 	out.Partial, out.Truncated = value.Partial, value.Truncated || len(file.Symbols) > maxOutlineSymbols
-	out.Symbols = file.Symbols[:min(len(file.Symbols), maxOutlineSymbols)]
+	out.Symbols = slices.Clone(file.Symbols[:min(len(file.Symbols), maxOutlineSymbols)])
+	for i := range out.Symbols {
+		if signature := out.Symbols[i].Signature; signature != nil {
+			out.Symbols[i].Signature = new(*signature)
+		}
+	}
 	return out, nil
 }
 
@@ -258,15 +322,10 @@ func (s *Service) SearchOnDemand(ctx context.Context, id protocol.WorktreeID, ro
 		return out, cancelled()
 	}
 	if len(scan.parsed) != 0 {
-		i, err := scan.index(operation)
-		if err != nil {
+		if out, err = indexedLivePage(operation, scan, &query, (*index).search); err != nil {
 			return out, err
 		}
-		defer i.close()
-		if out, err = i.search(operation, &query); err != nil {
-			return out, err
-		}
-		out.IndexRevision = 0 // There is no reusable index snapshot.
+		out.IndexRevision = 0 // On-demand results have no persistent revision.
 	}
 	status := scan.report.scoped(query.Path)
 	out.Visited, out.Skipped, out.Issues = scan.report.visited, status.skipped, status.issues
@@ -356,12 +415,7 @@ func (s *Service) GraphOnDemand(ctx context.Context, id protocol.WorktreeID, roo
 		return out, cancelled()
 	}
 	if len(scan.parsed) != 0 {
-		i, err := scan.index(operation)
-		if err != nil {
-			return out, err
-		}
-		defer i.close()
-		if out, err = i.graph(operation, &query); err != nil {
+		if out, err = indexedLivePage(operation, scan, &query, (*index).graph); err != nil {
 			return out, err
 		}
 		out.IndexRevision = 0
