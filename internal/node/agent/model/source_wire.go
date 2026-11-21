@@ -75,12 +75,13 @@ type sourceResponsesTool struct {
 	Description *string         `json:"description,omitempty"`
 }
 type sourceResponsePart struct {
-	Type     string  `json:"type"`
-	Text     *string `json:"text,omitempty"`
-	Detail   string  `json:"detail,omitempty"`
-	ImageURL string  `json:"image_url,omitempty"`
-	Filename string  `json:"filename,omitempty"`
-	FileData string  `json:"file_data,omitempty"`
+	Type                  string          `json:"type"`
+	Text                  *string         `json:"text,omitempty"`
+	Detail                string          `json:"detail,omitempty"`
+	ImageURL              string          `json:"image_url,omitempty"`
+	Filename              string          `json:"filename,omitempty"`
+	FileData              string          `json:"file_data,omitempty"`
+	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
 }
 type sourceResponseItem struct {
 	Type             string               `json:"type"`
