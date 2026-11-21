@@ -69,21 +69,24 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 	const report = "When you collect a substantive result, failure or blocker from a delegated child"
 	const link = "](sailry://session/<session-id>)"
 	const initialPlan = "Use update_plan to record a plan early for substantial multi-step work"
-	const revisePlan = "Submit the full revised plan with the current progress tool as soon as it is available"
+	const revisePlan = "reconcile the latest recorded plan in the retained `plan` section"
 	for _, mode := range []protocol.WorkMode{protocol.WorkModeCode, protocol.WorkModeFlagship, protocol.WorkModePlan} {
 		t.Run(string(mode), func(t *testing.T) {
 			parentPolicy := Policy(mode, protocol.PermissionFull, false)
 			parent := System(Instruction(false), canonical.Context{Policy: &parentPolicy})
 			for _, phrase := range []string{
 				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
-				initialPlan, "Include plan updates in the same batch as ready delegation or independent tools", "review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
+				initialPlan, "skip the tool for simple tasks", "without claiming a saved plan", revisePlan,
+				"do not guess at a saved plan", "build a fresh plan from the current scope and confirmed evidence",
+				"Use a separate tool batch if a plan update must precede other calls or depends on their results",
+				"read the corresponding results", "leave unrun required checks pending", "not proof of completion or new authorization",
 			} {
 				if !strings.Contains(parent, phrase) {
 					t.Errorf("parent prompt is missing %q", phrase)
 				}
 			}
-			if mode == protocol.WorkModePlan && !strings.Contains(parent, "Do not implement changes or run tools with side effects.") {
-				t.Error("Plan prompt lost its read-only policy")
+			if mode == protocol.WorkModePlan && !strings.Contains(parent, "Do not implement changes or run tools with side effects, except to record conversation progress with update_plan when offered.") {
+				t.Error("Plan prompt lost its read-only policy or conversation progress exception")
 			}
 
 			childPolicy := Policy(mode, protocol.PermissionFull, true)
@@ -94,6 +97,14 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 			for _, phrase := range []string{"returns to the parent agent, not the user", "assigned goal", "what remains unverified"} {
 				if !strings.Contains(child, phrase) {
 					t.Errorf("child prompt is missing %q", phrase)
+				}
+			}
+			for _, phrase := range []string{
+				"in assistant text before tool calls that start extended work or a long wait", "meaningful milestones", "avoid fixed intervals",
+				"Tool calls, receipts and plan updates do not replace a conversational update",
+			} {
+				if !strings.Contains(parent, phrase) || !strings.Contains(child, phrase) {
+					t.Errorf("shared progress instructions are missing %q", phrase)
 				}
 			}
 		})

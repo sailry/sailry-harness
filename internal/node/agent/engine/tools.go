@@ -324,6 +324,19 @@ func findTool(tools []Tool, name string) *Tool {
 func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
 	// Discovery answers with the names this turn offers its tools under.
 	r.exposure(x, state)
+	// Commit leading plan receipts before the work they introduce can block
+	// on execution or approval. Do not move a later update ahead of that work.
+	firstWork := slices.IndexFunc(calls, func(call canonical.ToolRequest) bool { return !operations.IsUpdatePlanTool(call.Name) })
+	if firstWork > 0 {
+		if err := r.runToolBatch(x, state, calls[:firstWork]); err != nil {
+			return err
+		}
+		calls = calls[firstWork:]
+	}
+	return r.runToolBatch(x, state, calls)
+}
+
+func (r *Runtime) runToolBatch(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
 	startedCalls := make([]bool, len(calls))

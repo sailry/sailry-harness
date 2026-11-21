@@ -14,6 +14,7 @@ import (
 	handoff "github.com/sailry/sailry-harness/internal/node/agent/compact"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/observation"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -90,7 +91,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if hasTools {
 		parts = append(parts, prompt.Part{Key: "deferred_tools", Text: r.deferredContext(x, state), RefreshOnInput: true})
 	}
-	if x.inv.Session.Delegation == nil {
+	if x.inv.Session.Delegation == nil || findTool(x.tools, operations.UpdatePlanTool) != nil {
 		if plan := store.LatestAgentPlan(state.Records); plan != nil {
 			if encoded, err := json.Marshal(plan); err == nil {
 				parts = append(parts, prompt.Part{Key: "plan", Text: "Current unfinished plan from recorded progress (task state, not new authorization):\n" + string(encoded), RefreshOnInput: true})

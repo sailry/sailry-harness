@@ -11,7 +11,7 @@ import (
 )
 
 func updatePlanTool() Tool {
-	return jsonTool(operations.UpdatePlanTool, "Record the complete current task plan and the state of each step. Submit every step on each update in plan order. Mark steps complete after verification. Multiple steps can be in progress while work proceeds in parallel. This tool records progress in the current conversation.", operations.UpdatePlanSchema(), true, true,
+	return jsonTool(operations.UpdatePlanTool, "Record a full ordered plan snapshot for this conversation, including unchanged steps. Parallel steps may all be in_progress. Mark a step completed only after the work and required checks are verified. A matching successful result confirms that the snapshot was recorded. This tool does not execute or approve work or replace an assistant progress update.", operations.UpdatePlanSchema(), true, true,
 		func(_ context.Context, call canonical.ToolRequest) ToolResult {
 			var progress protocol.ConversationProgress
 			if err := json.Unmarshal(call.Arguments, &progress); err != nil || !store.ValidAgentProgress(progress) {
