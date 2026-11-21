@@ -1,14 +1,6 @@
 package settings
 
-import (
-	"strings"
-
-	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/icons"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
-)
+import "github.com/egoist/mygo/ui"
 
 // Chord is a key with its modifiers; the zero Chord is no key.
 type Chord struct {
@@ -94,6 +86,11 @@ type Keys struct {
 	Active  string           // the shortcut being recorded, "" for none
 	problem string           // a refused key's i18n key, toasted next frame
 	focus   ui.Handle
+	// buttons are the shortcuts' key buttons; refocus is the one that takes
+	// the focus back when the page ends its recording, and landed the one
+	// whose new key presses its cap once.
+	buttons         map[string]*ui.Handle
+	refocus, landed string
 }
 
 // NewKeys has every shortcut on its default key.
@@ -205,97 +202,4 @@ func find(id string) (Shortcut, bool) {
 		}
 	}
 	return Shortcut{}, false
-}
-
-// shortcuts is the global commands, each a row whose button shows its key and
-// records a new one when clicked. While recording, the page takes every key
-// (capture_key_down): Escape cancels, another key is saved, and the reset and
-// clear buttons follow the button. Kit has no shortcut recorder; this is
-// MyGo's buttons over a focusable column taking raw keys (HandleInput).
-func shortcuts(c *ui.Context, k *Keys) {
-	if k.problem != "" {
-		kit.Toast(c, kit.Failed, i18n.T(c, k.problem))
-		k.problem = ""
-	}
-	page := ui.Column(c.Key("shortcuts")).Focusable().FocusRing(false).Bind(&k.focus).HandleInput(func(ev ui.InputEvent) bool {
-		if !k.Recording() || ev.Kind != ui.InputKeyDown {
-			return false
-		}
-		switch {
-		case ev.Key == ui.KeyEscape && ev.Mods == 0:
-			k.Cancel()
-		case ev.Repeat, ev.Key == ui.KeyUnknown:
-		default:
-			k.problem = k.Capture(Chord{ev.Mods, ev.Key})
-		}
-		return true
-	})
-	// The recorder keeps the keys when a click elsewhere, as on a toast's
-	// close button, took the focus.
-	if k.Recording() && !k.focus.FocusWithin(c) {
-		k.focus.Focus(c)
-	}
-	page.Children(func() {
-		kit.Group(c, "commands", i18n.T(c, "settings_global_commands"), "", nil, func() {
-			kit.Card(c, func() {
-				for _, s := range Registry {
-					description := ""
-					if k.Reserved(s) && k.Active != s.ID {
-						description = i18n.T(c, "shortcut_reserved")
-					}
-					kit.Row(c, s.ID, i18n.T(c, s.Label), description, func() { shortcutControl(c, k, s) })
-				}
-			})
-		})
-		kit.Group(c, "panes", i18n.T(c, "settings_pane_commands"), "", nil, func() {
-			kit.Card(c, func() {
-				for _, l := range Listed {
-					kit.Row(c, l.Label, i18n.T(c, l.Label), "", func() { listedControl(c, l) })
-				}
-			})
-		})
-	})
-}
-
-// listedControl is a fixed command's keys, as text: they record nothing.
-func listedControl(c *ui.Context, l ListedKeys) {
-	var keys []string
-	for _, ch := range l.Chords {
-		keys = append(keys, kit.KeyText(ch.Mods, ch.Key))
-	}
-	ui.Text(c, strings.Join(keys, "  ")).FontSize(12).SingleLine().TextColor(theme.Of(c).MutedForeground)
-}
-
-// shortcutControl is a shortcut's button, primary while recording, with
-// reset and clear beside it then.
-func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
-	p := theme.Of(c)
-	recording := k.Active == s.ID
-	ch := k.Chord(s)
-	label := i18n.T(c, "shortcut_disabled")
-	switch {
-	case recording:
-		label = i18n.T(c, "shortcut_record")
-	case ch.Key != 0:
-		label = kit.KeyText(ch.Mods, ch.Key)
-	}
-	reserved := !recording && k.Reserved(s)
-	var b ui.Element
-	if recording {
-		b = kit.Primary(c.Key("key"), label, false).Children(func() { ui.Text(c, label).FontSize(12) })
-	} else {
-		b = kit.Secondary(c.Key("key"), label)
-		if ch.Key == 0 || reserved {
-			b.TextColor(p.MutedForeground)
-		}
-	}
-	b.OnClick(func() {
-		k.Record(s.ID)
-		k.focus.Focus(c)
-	})
-	if !recording {
-		return
-	}
-	kit.IconButton(c.Key("reset"), icons.RotateCw, i18n.T(c, "shortcut_reset"), 32, false).OnClick(k.Reset)
-	kit.IconButton(c.Key("clear"), icons.Close, i18n.T(c, "shortcut_clear"), 32, false).Disabled(ch.Key == 0).OnClick(k.Clear)
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/ELY-Open-Source/CrychicUI/navigation"
 	"github.com/ELY-Open-Source/CrychicUI/overlay"
 	"github.com/ELY-Open-Source/CrychicUI/sound"
+	"github.com/ELY-Open-Source/CrychicUI/typography"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -311,6 +312,9 @@ var probes = []probe{
 		return func(c *ui.Context) {
 			diagram.Mermaid(c, "flowchart LR\n  Cart --> Pay\n  Pay -->|ok| Shipped", diagram.MermaidOptions{Label: "t:flow", Failed: "t:failed"})
 		}
+	}},
+	{name: "typography.Kbd", idle: func() func(*ui.Context) {
+		return func(c *ui.Context) { typography.Kbd(c, "t:key", false) }
 	}},
 }
 
