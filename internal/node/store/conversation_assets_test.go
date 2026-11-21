@@ -424,6 +424,7 @@ func TestConversationAssetStoredToolFormats(t *testing.T) {
 		items  []string
 	}{
 		{name: "direct", value: wrapped, items: []string{"file"}},
+		{name: "escaped block kind", value: strings.Replace(wrapped, `"file"`, `"f\u0069le"`, 1), items: []string{"file"}},
 		{name: "JSON structured", value: `{"structuredContent":` + wrapped + `}`, items: []string{"file"}},
 		{name: "JSON output", value: `{"output":` + wrapped + `}`, items: []string{"file"}},
 		{name: "MCP structured", format: canonical.MCP, value: `{"structuredContent":` + wrapped + `}`, items: []string{"file"}},

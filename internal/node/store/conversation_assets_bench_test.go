@@ -15,7 +15,7 @@ import (
 )
 
 func BenchmarkListConversationAssets(b *testing.B) {
-	for _, name := range []string{"inline_output", "externalized_output"} {
+	for _, name := range []string{"inline_output", "externalized_output", "text_presentation"} {
 		b.Run(name, func(b *testing.B) {
 			storage, _, session, turn, now := agentHistoryFixture(b, protocol.WorkModeCode)
 			ctx := b.Context()
@@ -25,6 +25,10 @@ func BenchmarkListConversationAssets(b *testing.B) {
 				text := strings.Repeat("abcd", size/4)
 				value := json.RawMessage(`{"kind":"command_result","data":{"stdout":{"text":"` + text + `"}}}`)
 				payload := canonical.Payload{Value: value}
+				if name == "text_presentation" {
+					value = json.RawMessage(`{"data":"` + text + `","sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/data"}]}}`)
+					payload.Value = value
+				}
 				if name == "externalized_output" {
 					value = json.RawMessage(`{"data":"` + base64.StdEncoding.EncodeToString([]byte(text)) + `","mime_type":"application/octet-stream"}`)
 					var err error

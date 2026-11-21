@@ -238,6 +238,12 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 		if !ok || !conversationAssetResultMayContain(response.Result.Value, `"sailry_content"`) {
 			continue
 		}
+		// Only file and artifact blocks contribute targets here. Preserve the full
+		// decoder for escaped discriminators and values supplied by binary slots.
+		body := response.Result.Value
+		if len(response.Result.Assets) == 0 && !bytes.Contains(body, []byte(`"file"`)) && !bytes.Contains(body, []byte(`"artifact"`)) && !bytes.Contains(body, []byte(`\u`)) {
+			continue
+		}
 		hydrated, err := HydrateCanonicalPayload(ctx, db, response.Result)
 		if err != nil {
 			return nil, err
