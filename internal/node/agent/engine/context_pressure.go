@@ -8,10 +8,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 )
 
-// A completed main reply records the input usage and window of its own
-// request. Its next answered tool batch stays intact. Replaying the first
-// qualifying boundary, rather than looking at the latest usage, prevents a
-// shorter request from undoing its own projection on the next step.
+const toolOutputPressureBytes = 96 * 1024
+
+// Replay pressure at answered batch boundaries to keep already shortened
+// results stable as history grows. Each boundary protects its newest batch.
 func projectContextPressure(projected, history []canonical.Record, tools []fantasy.FunctionTool) {
 	if !slices.ContainsFunc(tools, func(t fantasy.FunctionTool) bool { return t.Name == "read_tool_output" }) {
 		return
@@ -22,43 +22,62 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 			break
 		}
 	}
-	var positions map[string]int
-	start := 0
-	for i, record := range history {
-		m := record.Message()
-		if m == nil || m.Role != canonical.Assistant || m.Finish == nil || *m.Finish != canonical.Completed || m.Error != nil || m.Usage == nil || m.Usage.Input == nil {
-			continue
+	positions := make(map[string]int, len(projected))
+	for i := range projected {
+		positions[projected[i].ID] = i
+	}
+
+	var start, batchStart, olderBytes, batchBytes int
+	var windowPressure, usedWindowPressure bool
+	finishBatch := func() {
+		if batchBytes == 0 {
+			return
 		}
-		x := record.Metadata.Execution
-		if x == nil || x.Purpose == nil || *x.Purpose != canonical.PurposeMain || x.Observation == nil || x.Observation.ContextLimit == nil {
-			continue
-		}
-		window := uint64(*x.Observation.ContextLimit)
-		if window == 0 || *m.Usage.Input < (window+1)/2 {
-			continue
-		}
-		if positions == nil {
-			positions = make(map[string]int, len(projected))
-			for j := range projected {
-				positions[projected[j].ID] = j
+		if olderBytes > 0 && (olderBytes+batchBytes >= toolOutputPressureBytes || windowPressure && !usedWindowPressure) {
+			for _, original := range history[start:batchStart] {
+				if j, ok := positions[original.ID]; ok {
+					if shortened, ok := output.Processed(projected[j], original); ok {
+						projected[j] = shortened
+						usedWindowPressure = usedWindowPressure || windowPressure
+					}
+				}
 			}
+			start, olderBytes = batchStart, 0
 		}
-		at, visible := positions[record.ID]
-		if !visible || !slices.ContainsFunc(projected[at].Message().Content, func(b canonical.Block) bool { return b.Kind == "tool_request" }) {
+		olderBytes += batchBytes
+		batchBytes = 0
+	}
+	for i, original := range history {
+		j, visible := positions[original.ID]
+		if !visible {
 			continue
 		}
-		changed := false
-		for _, original := range history[start:i] {
-			if j, ok := positions[original.ID]; ok && j < at {
-				if shortened, ok := output.Processed(projected[j], original); ok {
-					projected[j] = shortened
-					changed = true
+		m := projected[j].Message()
+		if m == nil {
+			continue
+		}
+		if m.Role == canonical.Assistant && slices.ContainsFunc(m.Content, func(b canonical.Block) bool { return b.Kind == "tool_request" }) {
+			finishBatch()
+			batchStart, windowPressure = i, mainReplyOverHalfWindow(original, m)
+		} else if m.Role == canonical.User {
+			for _, block := range m.Content {
+				if result, ok := block.Data.(*canonical.ToolResponse); ok {
+					batchBytes += min(len(result.Result.Value), output.MaxBytes)
 				}
 			}
 		}
-		if changed {
-			return
-		}
-		start = i
 	}
+	finishBatch()
+}
+
+func mainReplyOverHalfWindow(record canonical.Record, m *canonical.Message) bool {
+	if m.Finish == nil || *m.Finish != canonical.Completed || m.Error != nil || m.Usage == nil || m.Usage.Input == nil {
+		return false
+	}
+	x := record.Metadata.Execution
+	if x == nil || x.Purpose == nil || *x.Purpose != canonical.PurposeMain || x.Observation == nil || x.Observation.ContextLimit == nil {
+		return false
+	}
+	window := uint64(*x.Observation.ContextLimit)
+	return window != 0 && *m.Usage.Input >= (window+1)/2
 }

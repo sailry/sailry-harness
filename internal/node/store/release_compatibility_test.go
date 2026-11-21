@@ -84,6 +84,9 @@ INSERT INTO telemetry_settings VALUES(1,CAST('{"revision":1,"errors":false,"metr
 		if got := schemaInteger(t, active.Node, "SELECT count(*) FROM pragma_table_info('agent_delegations') WHERE name='stop_requested'"); got != 1 {
 			t.Fatal("release delegation table did not receive the additive upgrade")
 		}
+		if got := schemaInteger(t, active.Node, "SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('conversation_turns_order','agent_reference_messages','agent_reference_usage')"); got != 3 {
+			t.Fatalf("release database has %d of 3 model history indexes", got)
+		}
 		if got := schemaInteger(t, active.Knowledge, "SELECT generation FROM collections WHERE id='release'"); got != 3 {
 			t.Fatalf("release knowledge generation = %d", got)
 		}

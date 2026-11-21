@@ -589,11 +589,13 @@ original context intact; there is no background compaction or second summary pas
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.
 Hidden history is filtered before materialization. In ordinary main requests,
-a completed tool-calling response that reports at least half its context window
-in input can establish a stable boundary for older tool pages. When exact output
-recovery is available, eligible large file and search pages before that boundary
-are represented by their source references and page facts. The triggering batch,
-errors and media keep their normal projection. A new checkpoint resets this
+older tool pages can be shortened at answered batch boundaries when cumulative
+output reaches 96 KiB or observed input reaches half the model window. With
+exact output recovery available, eligible large file, search and session history
+pages are represented by their original result references and pagination facts.
+The latest batch, errors and media keep their normal projection. A session
+overview returns bounded intent and reply excerpts with evidence locations;
+turn usage can be read directly without loading tool payloads. A new checkpoint resets this
 boundary; summary requests and canonical history are unchanged. A successful
 compaction must reach a main request before another threshold compaction.
 Provider-reported usage alone enters usage and cost totals; local token estimates

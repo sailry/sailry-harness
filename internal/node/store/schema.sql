@@ -363,6 +363,7 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
     turn TEXT NOT NULL REFERENCES turns(id),
     PRIMARY KEY(session,turn)
 );
+CREATE INDEX IF NOT EXISTS conversation_turns_order ON conversation_turns(session);
 CREATE TABLE IF NOT EXISTS turn_attachments (
     turn TEXT NOT NULL REFERENCES turns(id),
     attachment TEXT NOT NULL REFERENCES attachments(id),
@@ -398,6 +399,19 @@ CREATE TABLE IF NOT EXISTS agent_pending (
 );
 CREATE INDEX IF NOT EXISTS agent_events_id ON agent_events(id);
 CREATE INDEX IF NOT EXISTS agent_events_turn ON agent_events(turn,sequence);
+CREATE INDEX IF NOT EXISTS agent_reference_messages ON agent_events(
+    turn,json_extract(body,'$.provenance.author'),sequence
+) WHERE json_extract(body,'$.kind')='message';
+CREATE INDEX IF NOT EXISTS agent_reference_usage ON agent_events(turn,sequence)
+WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object'
+AND coalesce(
+    coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input')),
+    coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output')),
+    coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),
+    coalesce(json_extract(body,'$.usage.cache_write'),json_extract(body,'$.summary.usage.cache_write')),
+    coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),
+    coalesce(json_extract(body,'$.usage.total'),json_extract(body,'$.summary.usage.total'))
+) IS NOT NULL;
 CREATE INDEX IF NOT EXISTS agent_visibility ON agent_events(
     json_extract(body,'$.message'),sequence DESC
 ) WHERE json_extract(body,'$.kind')='operation' AND json_extract(body,'$.operation')='visibility';

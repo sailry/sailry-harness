@@ -137,3 +137,45 @@ func TestContextPressureIgnoresObservationsBeforeCheckpoint(t *testing.T) {
 		t.Fatal("old pressure shortened the tail retained by a new checkpoint")
 	}
 }
+
+func BenchmarkContextPressureHistoryReplay(b *testing.B) {
+	session, turn := protocol.SessionID{1}, protocol.TurnID{1}
+	page := protocol.DefaultConversationSearchPage()
+	page.Session, page.Revision, page.NextBefore = session, 3, new(uint64(140))
+	for i := range 72 {
+		page.Matches = append(page.Matches, protocol.ConversationSearchMatch{
+			Turn: turn, TurnSequence: 1, Entry: fmt.Sprintf("entry-%03d", i), Sequence: 140 + uint64(i), Author: "assistant",
+			Snippet: strings.Repeat("Archived inspection at the south gate. ", 5),
+		})
+	}
+	var history []canonical.Record
+	for i := range 7 {
+		id := fmt.Sprintf("search-%d", i)
+		request := canonical.ToolRequest{ID: id, Name: "search_session", Arguments: json.RawMessage(fmt.Sprintf(`{"session":%q,"text":"inspection"}`, session.String()))}
+		reply := canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &request})
+		result := canonical.NewMessage(canonical.User, responseBlock(0, request, ToolResult{Value: page}))
+		history = append(history, canonical.Record{ID: id, Turn: turn, Kind: "message", Data: &reply},
+			canonical.Record{ID: id + "-output", Turn: turn, Kind: "message", Data: &result})
+	}
+	followup := canonical.NewMessage(canonical.User, canonical.Text(0, "What did the archive say?"))
+	history = append(history, canonical.Record{ID: "follow-up", Turn: turn, Kind: "message", Data: &followup})
+	for _, run := range []struct {
+		name     string
+		pressure bool
+	}{{"baseline", false}, {"pressure", true}} {
+		b.Run(run.name, func(b *testing.B) {
+			var cache output.Cache
+			var projected []canonical.Record
+			b.ReportAllocs()
+			for b.Loop() {
+				projected = pressureProjection(history, &cache, run.pressure)
+			}
+			var size int
+			for _, result := range pressureStoredResults(projected) {
+				size += len(result.Result.Value)
+			}
+			b.ReportMetric(float64(size), "tool-bytes")
+			b.ReportMetric(float64(tokens.Chat("", projected)), "prompt-tokens")
+		})
+	}
+}

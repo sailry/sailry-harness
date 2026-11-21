@@ -1,7 +1,8 @@
 package output
 
 import (
-	"encoding/hex"
+	"bytes"
+	"cmp"
 	"encoding/json"
 	"slices"
 
@@ -29,7 +30,9 @@ func Processed(record, original canonical.Record) (canonical.Record, bool) {
 		}
 		originalBlock := stored.Content[index]
 		source := response(&originalBlock)
-		if source == nil || source.Revision != tool.Revision || len(source.Attachments) != 0 || len(source.Result.Assets) != 0 {
+		if source == nil || source.ID != cmp.Or(tool.OriginalID, tool.ID) || source.Name != tool.Name || source.Revision != tool.Revision ||
+			source.Status != tool.Status || source.Format != tool.Format || !bytes.Equal(source.Result.Value, tool.Result.Value) ||
+			len(source.Attachments) != 0 || len(source.Result.Assets) != 0 || len(tool.Attachments) != 0 || len(tool.Result.Assets) != 0 {
 			continue
 		}
 		value := processedPage(source)
@@ -53,14 +56,33 @@ func Processed(record, original canonical.Record) (canonical.Record, bool) {
 }
 
 func processedPage(source *canonical.ToolResponse) json.RawMessage {
-	if source.ID == "" || len(source.ID) > 4096 || len(source.Revision) != 64 {
+	if !validOutputReference(source.ID, source.Revision) {
 		return nil
 	}
-	if _, err := hex.DecodeString(source.Revision); err != nil {
+	var summary map[string]any
+	switch source.Name {
+	case "read_session":
+		summary = processedSessionRead(source.Result.Value)
+	case "search_session":
+		summary = processedSessionSearch(source.Result.Value)
+	default:
+		summary = processedFilePage(source.Result.Value)
+	}
+	if summary == nil {
 		return nil
 	}
+	summary["output"] = protocol.ToolOutputOutputReference{Call: source.ID, Revision: source.Revision}
+	summary["read"] = "Read the original result with read_tool_output using output and offset=0."
+	value := json.RawMessage(encoded(summary))
+	if len(value) > 1024 {
+		return nil
+	}
+	return value
+}
+
+func processedFilePage(value json.RawMessage) map[string]any {
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(source.Result.Value, &fields) != nil || len(fields) != 2 {
+	if json.Unmarshal(value, &fields) != nil || len(fields) != 2 {
 		return nil
 	}
 	var summary map[string]any
@@ -94,11 +116,5 @@ func processedPage(source *canonical.ToolResponse) json.RawMessage {
 	default:
 		return nil
 	}
-	summary["output"] = map[string]string{"call": source.ID, "revision": source.Revision}
-	summary["read"] = "Read the original result with read_tool_output using output and offset=0."
-	value := json.RawMessage(encoded(summary))
-	if len(value) > 1024 {
-		return nil
-	}
-	return value
+	return summary
 }
