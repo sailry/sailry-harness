@@ -24,6 +24,7 @@ type ConversationState struct {
 	InventoryVersion uint64 `json:"-"`
 	entryEpoch       *byte
 	viewVersion      uint64
+	transcript       uint64
 }
 
 type conversationWatch struct {
@@ -107,34 +108,52 @@ func (c *Client) readConversationState(session protocol.SessionID, previous *Con
 	if w == nil {
 		return ConversationState{}, false
 	}
+	return w.readState(previous), true
+}
+
+// readState runs under conversationMu, allowing observers to capture their
+// delivery cursors and read-only view from one projection state.
+func (w *conversationWatch) readState(previous *ConversationState) ConversationState {
 	s := w.state
 	s.StatisticsErr = w.projection.statisticsErr
 	snapshot := w.projection.snapshot
 	if snapshot == nil {
-		return s, true
+		return s
 	}
 	if previous != nil {
 		if w.projection.entryEpoch == nil {
 			w.projection.entryEpoch = new(byte)
 		}
-		s.entryEpoch, s.viewVersion = w.projection.entryEpoch, w.viewVersion
+		s.entryEpoch, s.viewVersion, s.transcript = w.projection.entryEpoch, w.viewVersion, w.projection.transcript
 		if s.SameViewSnapshot(*previous) {
 			s.Snapshot = previous.Snapshot
-			return s, true
+			return s
+		}
+		if s.SameViewTranscript(*previous) {
+			s.Snapshot = previous.Snapshot
+			s.Snapshot.Sequence = snapshot.Sequence
+			s.Snapshot.Statistics = copyValue(snapshot.Statistics)
+			return s
 		}
 		if previous.entryEpoch == s.entryEpoch {
 			s.Snapshot = copySnapshotWithEntries(*snapshot, previous.Snapshot.Page.Entries)
-			return s, true
+			return s
 		}
 	}
 	s.Snapshot = copyValue(*snapshot)
-	return s, true
+	return s
 }
 
 // SameViewSnapshot reports whether two read-only views share the complete
 // detached snapshot, independently of watch status such as LoadingOlder.
 func (s ConversationState) SameViewSnapshot(other ConversationState) bool {
 	return s.entryEpoch != nil && s.entryEpoch == other.entryEpoch && s.viewVersion == other.viewVersion
+}
+
+// SameViewTranscript reports whether read-only views differ only in the
+// stream sequence, statistics or watch state, not their transcript data.
+func (s ConversationState) SameViewTranscript(other ConversationState) bool {
+	return s.entryEpoch != nil && s.entryEpoch == other.entryEpoch && s.transcript == other.transcript
 }
 
 // Within an entry epoch, streaming and pagination only insert records in

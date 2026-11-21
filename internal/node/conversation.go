@@ -3,8 +3,6 @@ package node
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"slices"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -59,37 +57,11 @@ func (node *Node) subscribeConversation(ctx context.Context, session protocol.Se
 	unlock := node.agent.LockPublication()
 	defer unlock()
 	reservation := node.feed.Reserve(session, node.closed)
-	snapshot := protocol.DefaultConversationSnapshot()
+	var snapshot protocol.ConversationSnapshot
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		history, err := store.ReadConversation(ctx, db, session, nil, 20)
-		if err != nil {
-			return err
-		}
-		snapshot.Page, snapshot.Missing = history.Page, history.Missing
-		if snapshot.Artifacts, err = store.ListArtifacts(ctx, db, session, nil, 64); err != nil {
-			return err
-		}
-		// Account for the rest of the enclosing snapshot when fitting the page.
-		snapshot.Drafts = reservation.Drafts
-		overhead := snapshot
-		overhead.Page = protocol.DefaultConversationPage()
-		body, err := json.Marshal(overhead)
-		if err != nil {
-			return err
-		}
-		missing, err := store.FitConversationPage(&snapshot.Page, len(body))
-		if err != nil {
-			return err
-		}
-		snapshot.Missing = slices.DeleteFunc(snapshot.Missing, func(turn protocol.TurnID) bool {
-			return !slices.ContainsFunc(snapshot.Page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == turn })
-		})
-		for _, turn := range missing {
-			if !slices.Contains(snapshot.Missing, turn) {
-				snapshot.Missing = append(snapshot.Missing, turn)
-			}
-		}
-		return nil
+		var err error
+		snapshot, err = store.ReadConversationSnapshot(ctx, db, session, 20, reservation.Drafts)
+		return err
 	})
 	if err != nil {
 		_ = reservation.Close()

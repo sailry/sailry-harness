@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -553,6 +554,10 @@ func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previo
 }
 
 func (r *Runtime) save(ctx context.Context, session protocol.SessionID, records ...canonical.Record) error {
+	return r.saveWithProvider(ctx, session, nil, records...)
+}
+
+func (r *Runtime) saveWithProvider(ctx context.Context, session protocol.SessionID, provider *protocol.ConversationProvider, records ...canonical.Record) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -567,7 +572,7 @@ func (r *Runtime) save(ctx context.Context, session protocol.SessionID, records 
 		input := false
 		for _, record := range records {
 			r.captureCorePresentation(&record)
-			entry, events, err := store.AppendCanonical(ctx, db, session, record)
+			entry, events, err := store.AppendCanonicalWithProvider(ctx, db, session, record, provider)
 			if err != nil {
 				return err
 			}
@@ -600,7 +605,13 @@ func (r *Runtime) save(ctx context.Context, session protocol.SessionID, records 
 	if queue != nil {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "queue", Data: *queue})
 	}
-	r.RefreshStatisticsCommitted(session)
+	turns := make([]protocol.TurnID, 0, len(entries))
+	for _, entry := range entries {
+		if !slices.Contains(turns, entry.Turn) {
+			turns = append(turns, entry.Turn)
+		}
+	}
+	r.refreshStatisticsForTurnsCommitted(session, turns)
 	return nil
 }
 

@@ -16,6 +16,7 @@ type ConversationProjection struct {
 	generation     uint64
 	snapshot       *protocol.ConversationSnapshot
 	entryEpoch     *byte
+	transcript     uint64
 	recovering     bool
 	liveStart      *uint64
 	artifactCursor uint64
@@ -122,6 +123,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		}
 		p.snapshot = new(copyValue(v))
 		p.entryEpoch = nil
+		p.transcript++
 		p.recovering = false
 		p.liveStart = nil
 		p.artifactCursor++
@@ -157,6 +159,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 	f = copyValue(f)
 	v := p.snapshot
 	page := &v.Page
+	transcriptChanged := true
 	switch f.Change.Kind {
 	case "entry", "revealed":
 		x, e := payload[protocol.ConversationEntry](f.Change.Data)
@@ -240,16 +243,21 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			if !sameRun(page.Runs[i], x) {
 				return Ignored, fault(protocol.ErrorCodeInvalidRequest, "sent turn identity changed")
 			}
-			page.Runs[i] = x
+			transcriptChanged = !reflect.DeepEqual(page.Runs[i], x)
+			if transcriptChanged {
+				page.Runs[i] = x
+			}
 		} else {
 			if slices.ContainsFunc(page.Runs, func(r protocol.ConversationRun) bool { return r.Sequence == x.Sequence }) {
 				return Ignored, fault(protocol.ErrorCodeInvalidRequest, "turn order repeats a sequence")
 			}
 			page.Runs = append(page.Runs, x)
+			slices.SortFunc(page.Runs, func(a, b protocol.ConversationRun) int { return cmp.Compare(a.Sequence, b.Sequence) })
 		}
-		slices.SortFunc(page.Runs, func(a, b protocol.ConversationRun) int { return cmp.Compare(a.Sequence, b.Sequence) })
 		if !activeConversationRun(x.Status) {
+			before := len(v.Drafts)
 			v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool { return d.Turn == x.Turn })
+			transcriptChanged = transcriptChanged || len(v.Drafts) != before
 		}
 	case "delta":
 		x, e := payload[protocol.ConversationDraft](f.Change.Data)
@@ -291,6 +299,10 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		}
 		if err := validateConversationQueue(x); err != nil {
 			return Ignored, err
+		}
+		if x.Revision == page.Queue.Revision {
+			transcriptChanged = false // identical by the revision check above
+			break
 		}
 		for _, item := range x.Items {
 			if i := slices.IndexFunc(page.Queue.Items, func(v protocol.ConversationPending) bool { return v.Turn == item.Turn }); i >= 0 {
@@ -347,6 +359,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		// A child whose delegation call is on an unloaded older page arrives
 		// with that page; its progress meanwhile must not force a reload.
 		if (page.NextBefore != nil || len(v.Missing) != 0) && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == x.Origin.Turn && e.ID == x.Origin.Entry }) {
+			transcriptChanged = false
 			break
 		}
 		if err := mergeConversationChild(page, x, false); err != nil {
@@ -367,6 +380,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		}
 		v.Statistics = &x
 		p.statisticsErr = nil
+		transcriptChanged = false
 	case "statistics_failed":
 		x, e := payload[protocol.Fault](f.Change.Data)
 		if e != nil {
@@ -374,6 +388,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		}
 		v.Statistics = nil
 		p.statisticsErr = &x
+		transcriptChanged = false
 	case "artifact":
 		x, e := payload[protocol.ArtifactSummary](f.Change.Data)
 		if e != nil {
@@ -393,7 +408,11 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		}
 	}
 	v.Sequence = f.Sequence
+	entries := len(page.Entries)
 	p.settle()
+	if transcriptChanged || entries != len(page.Entries) {
+		p.transcript++
+	}
 	return Applied, nil
 }
 

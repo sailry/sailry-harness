@@ -16,6 +16,10 @@ func conversationChildren(ctx context.Context, db *sql.Conn, entries []protocol.
 	for _, entry := range entries {
 		calls = append(calls, [2]string{entry.Turn.String(), entry.ID})
 	}
+	return conversationChildrenAt(ctx, db, calls)
+}
+
+func conversationChildrenAt(ctx context.Context, db *sql.Conn, calls [][2]string) ([]protocol.ConversationChild, error) {
 	body, err := encode(calls)
 	if err != nil {
 		return nil, err
@@ -23,10 +27,15 @@ func conversationChildren(ctx context.Context, db *sql.Conn, entries []protocol.
 	return readConversationChildren(ctx, db, conversationChildColumns+"JOIN json_each(?1) e ON d.parent_turn=json_extract(e.value,'$[0]') AND d.entry=json_extract(e.value,'$[1]') ORDER BY t.rowid", string(body))
 }
 
-// ReadConversationChild reads one delegated run with its origin, independently
-// of whether its delegation call is on the parent's newest history page.
-func ReadConversationChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (protocol.ConversationChild, bool, error) {
-	selected, err := readConversationChildren(ctx, db, conversationChildColumns+"WHERE d.turn=?1", turn.String())
+// ReadConversationChild reads one delegated run whose origin still belongs to
+// the parent, even when the call does not fit on its newest history page.
+func ReadConversationChild(ctx context.Context, db *sql.Conn, parent protocol.SessionID, turn protocol.TurnID) (protocol.ConversationChild, bool, error) {
+	selected, err := readConversationChildren(ctx, db, conversationChildColumns+`
+		JOIN conversation_turns p ON p.session=?1 AND p.turn=d.parent_turn
+		JOIN turns owner ON owner.id=p.turn
+		JOIN agent_events e ON e.session=owner.session AND e.turn=p.turn AND e.id=d.entry
+		JOIN conversation_events h ON h.session=p.session AND h.sequence=e.sequence
+		WHERE d.turn=?2 AND `+visibleCanonical, parent.String(), turn.String())
 	if err != nil || len(selected) == 0 {
 		return protocol.ConversationChild{}, false, err
 	}

@@ -118,6 +118,51 @@ func TestConversationPageFit(t *testing.T) {
 			t.Fatalf("a pruned guidance group left data or skipped the next group: %+v", page)
 		}
 	})
+	t.Run("snapshot fit reuses lengths across both trims", func(t *testing.T) {
+		page, refitted := build(), build()
+		var fit conversationPageFit
+		for _, budget := range []int{exact - 1, exact / 2, exact / 3} {
+			got, err := fit.apply(&page, headroom(budget), true)
+			want, refitErr := FitConversationPage(&refitted, headroom(budget))
+			gotJSON, _ := encode(page)
+			wantJSON, _ := encode(refitted)
+			if err != nil || refitErr != nil || !slices.Equal(got, want) || !slices.Equal(gotJSON, wantJSON) || len(gotJSON) > budget {
+				t.Fatalf("budget %d: reusing lengths changed the page or missing turns (%v, %v)", budget, err, refitErr)
+			}
+		}
+	})
+}
+
+func BenchmarkConversationSnapshotFitting(b *testing.B) {
+	page := protocol.DefaultConversationPage()
+	turn := protocol.NewTurnID()
+	text := strings.Repeat("a", 32<<10)
+	for i := range 96 {
+		page.Entries = append(page.Entries, protocol.ConversationEntry{
+			ID: fmt.Sprint(i), Turn: turn, Sequence: uint64(i + 1), Author: "assistant",
+			Parts: []protocol.ConversationPart{{Kind: "text", Data: text}},
+		})
+	}
+	for _, test := range []struct {
+		name  string
+		reuse bool
+	}{{"measure_twice", false}, {"reuse_entry_lengths", true}} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				value, fit := page, conversationPageFit{}
+				if _, err := fit.apply(&value, 0, true); err != nil {
+					b.Fatal(err)
+				}
+				if !test.reuse {
+					fit = conversationPageFit{}
+				}
+				if _, err := fit.apply(&value, 1<<20, true); err != nil || len(value.Entries) != len(page.Entries) {
+					b.Fatalf("fixture did not fit: %v", err)
+				}
+			}
+		})
+	}
 }
 
 func TestConversationMissingHonorsForkVisibility(t *testing.T) {

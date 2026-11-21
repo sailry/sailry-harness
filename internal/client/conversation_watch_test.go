@@ -519,6 +519,49 @@ func TestConversationViewReusesUnchangedHistoryDuringStreaming(t *testing.T) {
 	}
 }
 
+func TestConversationViewKeepsTranscriptForStatisticsAndIdenticalFrames(t *testing.T) {
+	snapshot := conversationFixture()
+	id := snapshot.Page.Session
+	w := &conversationWatch{session: id, projection: NewConversationProjection(snapshot.Node, id, 1), ctx: t.Context()}
+	c := &Client{conversations: map[protocol.SessionID]*conversationWatch{id: w}}
+	apply := func(update protocol.Update) {
+		t.Helper()
+		if got, err := c.applyConversationUpdate(w, 1, update); got != Applied || err != nil {
+			t.Fatalf("update %s = %v, %v", update.Kind, got, err)
+		}
+	}
+	apply(protocol.Update{Kind: "conversation_snapshot", Data: snapshot})
+	initial, _ := c.ConversationView(id, ConversationState{})
+	previous := initial
+	for _, change := range []protocol.ConversationChange{
+		{Kind: "run", Data: initial.Snapshot.Page.Runs[0]},
+		{Kind: "queue", Data: initial.Snapshot.Page.Queue},
+		{Kind: "statistics", Data: protocol.ConversationStatistics{Turns: 1}},
+		{Kind: "statistics_failed", Data: protocol.Fault{Code: protocol.ErrorCodeUnavailable}},
+	} {
+		apply(conversationFrame(*w.projection.snapshot, change.Kind, change.Data))
+		view, _ := c.ConversationView(id, previous)
+		if !view.SameViewTranscript(initial) || view.SameViewSnapshot(previous) || view.Snapshot.Sequence != previous.Snapshot.Sequence+1 ||
+			&view.Snapshot.Page.Entries[0] != &initial.Snapshot.Page.Entries[0] || &view.Snapshot.Page.Runs[0] != &initial.Snapshot.Page.Runs[0] {
+			t.Fatalf("%s did not advance only the non-transcript state", change.Kind)
+		}
+		if change.Kind == "statistics" && (view.Snapshot.Statistics == nil || view.Snapshot.Statistics.Turns != 1 || previous.Snapshot.Statistics != nil) {
+			t.Fatal("statistics were stale or modified a previous snapshot")
+		}
+		previous = view
+	}
+	if previous.Snapshot.Statistics != nil || faultCode(previous.StatisticsErr) != protocol.ErrorCodeUnavailable {
+		t.Fatal("the statistics failure did not clear the reported totals")
+	}
+	run := previous.Snapshot.Page.Runs[0]
+	run.Status = protocol.ConversationStatusCompleted
+	apply(conversationFrame(*w.projection.snapshot, "run", run))
+	current, _ := c.ConversationView(id, previous)
+	if current.SameViewTranscript(previous) || current.Snapshot.Page.Runs[0].Status != run.Status {
+		t.Fatal("an actual run transition did not invalidate the transcript")
+	}
+}
+
 type requestedTurnPage struct {
 	query    protocol.CommandReadTurnPayload
 	complete chan link.Response

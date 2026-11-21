@@ -351,15 +351,8 @@ func saveBackgroundRecord(ctx context.Context, db *sql.Conn, record *BackgroundR
 }
 
 func ReadBackgroundTasks(ctx context.Context, db *sql.Conn, session protocol.SessionID) ([]protocol.ConversationBackgroundTask, error) {
-	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE session=?1 AND state IN ('running','pending') UNION ALL SELECT body FROM (SELECT body FROM agent_background WHERE session=?1 AND state NOT IN ('running','pending') ORDER BY sequence DESC LIMIT 20)", session.String())
-	if err != nil {
-		return nil, err
-	}
-	tasks := make([]protocol.ConversationBackgroundTask, 0, len(records))
-	for _, record := range records {
-		tasks = append(tasks, record.Task)
-	}
-	return tasks, nil
+	return readBodies[protocol.ConversationBackgroundTask](ctx, db, `SELECT json_extract(body,'$.task') FROM agent_background WHERE session=?1 AND state IN ('running','pending')
+UNION ALL SELECT json_extract(body,'$.task') FROM (SELECT body FROM agent_background WHERE session=?1 AND state NOT IN ('running','pending') ORDER BY sequence DESC LIMIT 20)`, session.String())
 }
 
 // dismissSessionBackground closes the evidence of a removed session. The Node

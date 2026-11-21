@@ -43,6 +43,13 @@ END`
 
 const historyEntryColumns = "e.sequence," + historyStoredBytes + "," + historyEntryBody
 
+const (
+	historyEntryLimit     = 100
+	historyEntryByteLimit = 3 * 1024 * 1024
+	historyTurnRows       = " FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND e.sequence<?3 AND " + visibleCanonical + " ORDER BY e.sequence DESC LIMIT ?4"
+	historyHeadRows       = " FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND " + visibleCanonical + " ORDER BY h.sequence DESC LIMIT ?4"
+)
+
 func historyRevision(ctx context.Context, db *sql.Conn, session protocol.SessionID) (uint64, error) {
 	var revision uint64
 	err := db.QueryRowContext(ctx, "SELECT history_revision FROM sessions WHERE id=?1 AND state!='removed'", session.String()).Scan(&revision)
@@ -121,7 +128,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 				return err
 			}
 			// The original row sizes keep the same page and turn boundaries.
-			if len(records) >= int(limit) || len(records) > 0 && size+storedBytes > 3*1024*1024 {
+			if len(records) >= int(limit) || len(records) > 0 && size+storedBytes > historyEntryByteLimit {
 				more = true
 				break
 			}
@@ -138,7 +145,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	if byTurn || len(turns) == 1 {
 		// Backward browsing uses a turn cursor. Fill the page in that same order
 		// so a long earlier turn cannot strand newer, short turns behind individual reads.
-		const query = "SELECT " + historyEntryColumns + " FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND e.sequence<?3 AND " + visibleCanonical + " ORDER BY e.sequence DESC LIMIT ?4"
+		const query = "SELECT " + historyEntryColumns + historyTurnRows
 		for i := len(turns) - 1; i >= 0 && !more; i-- {
 			if err := read(query, turns[i].String()); err != nil {
 				return nil, false, err
@@ -154,7 +161,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		if err != nil {
 			return nil, false, err
 		}
-		const query = "SELECT " + historyEntryColumns + " FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND " + visibleCanonical + " ORDER BY h.sequence DESC LIMIT ?4"
+		const query = "SELECT " + historyEntryColumns + historyHeadRows
 		if err = read(query, string(members)); err != nil {
 			return nil, false, err
 		}
@@ -192,21 +199,8 @@ func readConversationPage(ctx context.Context, db *sql.Conn, session protocol.Se
 	for _, entry := range entries {
 		ids = append(ids, entry.ID)
 	}
-	body, err := encode(ids)
-	if err != nil {
+	if page.Approvals, page.Questions, err = readConversationInteractions(ctx, db, session, ids); err != nil {
 		return page, err
-	}
-	if page.Approvals, err = readBodies[protocol.ConversationApproval](ctx, db, "SELECT a.body FROM agent_approvals a JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND (json_extract(a.body,'$.state')='pending' OR json_extract(a.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY a.rowid", session.String(), string(body)); err != nil {
-		return page, err
-	}
-	for i := range page.Approvals {
-		page.Approvals[i].Session = session
-	}
-	if page.Questions, err = readBodies[protocol.ConversationQuestion](ctx, db, "SELECT q.body FROM agent_questions q JOIN conversation_turns h ON h.turn=q.turn WHERE h.session=?1 AND (json_extract(q.body,'$.state.kind')='pending' OR json_extract(q.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY q.rowid", session.String(), string(body)); err != nil {
-		return page, err
-	}
-	for i := range page.Questions {
-		page.Questions[i].Session = session
 	}
 	page.Children, err = conversationChildren(ctx, db, entries)
 	if err != nil {
@@ -224,6 +218,28 @@ func readConversationPage(ctx context.Context, db *sql.Conn, session protocol.Se
 		}
 	}
 	return page, nil
+}
+
+func readConversationInteractions(ctx context.Context, db *sql.Conn, session protocol.SessionID, ids []string) ([]protocol.ConversationApproval, []protocol.ConversationQuestion, error) {
+	body, err := encode(ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	approvals, err := readBodies[protocol.ConversationApproval](ctx, db, "SELECT a.body FROM agent_approvals a JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND (json_extract(a.body,'$.state')='pending' OR json_extract(a.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY a.rowid", session.String(), string(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range approvals {
+		approvals[i].Session = session
+	}
+	questions, err := readBodies[protocol.ConversationQuestion](ctx, db, "SELECT q.body FROM agent_questions q JOIN conversation_turns h ON h.turn=q.turn WHERE h.session=?1 AND (json_extract(q.body,'$.state.kind')='pending' OR json_extract(q.body,'$.entry') IN (SELECT value FROM json_each(?2))) ORDER BY q.rowid", session.String(), string(body))
+	if err != nil {
+		return approvals, nil, err
+	}
+	for i := range questions {
+		questions[i].Session = session
+	}
+	return approvals, questions, nil
 }
 
 // historyOwners maps each run to the recipient whose history it belongs to.
@@ -330,6 +346,45 @@ AND h.turn!=?3`, session.String(), string(selected), cursor)
 }
 
 func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, before *protocol.TurnID, limit uint16) (protocol.ConversationHistory, error) {
+	var fit conversationPageFit
+	return readConversation(ctx, db, session, before, limit, &fit)
+}
+
+// ReadConversationSnapshot fits the history and the enclosing subscription on
+// the same snapshot. The second fit uses the sizes of the entries it kept.
+func ReadConversationSnapshot(ctx context.Context, db *sql.Conn, session protocol.SessionID, limit uint16, drafts []protocol.ConversationDraft) (protocol.ConversationSnapshot, error) {
+	snapshot := protocol.DefaultConversationSnapshot()
+	var fit conversationPageFit
+	history, err := readConversation(ctx, db, session, nil, limit, &fit)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.Missing, snapshot.Drafts = history.Missing, drafts
+	if snapshot.Artifacts, err = ListArtifacts(ctx, db, session, nil, 64); err != nil {
+		return snapshot, err
+	}
+	// Measure the enclosing fields before replacing the empty default page.
+	body, err := encode(snapshot)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.Page = history.Page
+	missing, err := fit.apply(&snapshot.Page, len(body), true)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.Missing = slices.DeleteFunc(snapshot.Missing, func(turn protocol.TurnID) bool {
+		return !slices.ContainsFunc(snapshot.Page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == turn })
+	})
+	for _, turn := range missing {
+		if !slices.Contains(snapshot.Missing, turn) {
+			snapshot.Missing = append(snapshot.Missing, turn)
+		}
+	}
+	return snapshot, nil
+}
+
+func readConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, before *protocol.TurnID, limit uint16, fit *conversationPageFit) (protocol.ConversationHistory, error) {
 	value := protocol.DefaultConversationHistory()
 	if limit == 0 {
 		return value, invalid("history limit must be positive")
@@ -352,34 +407,18 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 		// recipient's guidance was admitted after them.
 		slices.SortStableFunc(ids, func(a, b protocol.TurnID) int { return cmp.Compare(owners[a].Sequence, owners[b].Sequence) })
 	}
-	entries, _, err := historyEntries(ctx, db, session, ids, nil, 100, before != nil)
+	entries, _, err := historyEntries(ctx, db, session, ids, nil, historyEntryLimit, before != nil)
 	if err != nil {
 		return value, err
 	}
-	// Closed groups entirely preceding the oldest retained group remain on
-	// older pages.
 	if len(entries) > 0 {
 		oldest := uint64(math.MaxUint64)
 		for _, entry := range entries {
 			oldest = min(oldest, owners[entry.Turn].Sequence)
 		}
-		newestRemoved := uint64(0)
-		blocked := false
-		for _, r := range runs {
-			if owners[r.Turn].Turn == r.Turn && r.Sequence < oldest && !activeRunStatus(r.Status) {
-				newestRemoved = max(newestRemoved, r.Sequence)
-			}
-		}
-		for _, r := range runs {
-			if activeRunStatus(r.Status) && r.Sequence < newestRemoved {
-				blocked = true
-			}
-		}
-		if !blocked && newestRemoved > 0 {
-			runs = slices.DeleteFunc(runs, func(r protocol.ConversationRun) bool {
-				owner := owners[r.Turn]
-				return owner.Sequence < oldest && !activeRunStatus(owner.Status)
-			})
+		count := len(runs)
+		runs = pruneHistoryRuns(runs, owners, oldest)
+		if len(runs) < count {
 			for _, run := range runs {
 				if owners[run.Turn].Turn == run.Turn {
 					next = new(run.Turn)
@@ -392,7 +431,7 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	if err != nil {
 		return value, err
 	}
-	trimmed, err := FitConversationPage(&page, 0)
+	trimmed, err := fit.apply(&page, 0, true)
 	if err != nil {
 		return value, err
 	}
@@ -420,6 +459,29 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	}
 	return value, nil
 }
+
+// Closed groups entirely preceding the oldest retained group remain on older pages.
+func pruneHistoryRuns(runs []protocol.ConversationRun, owners map[protocol.TurnID]protocol.ConversationRun, oldest uint64) []protocol.ConversationRun {
+	newestRemoved := uint64(0)
+	for _, run := range runs {
+		if owners[run.Turn].Turn == run.Turn && run.Sequence < oldest && !activeRunStatus(run.Status) {
+			newestRemoved = max(newestRemoved, run.Sequence)
+		}
+	}
+	if newestRemoved == 0 {
+		return runs
+	}
+	for _, run := range runs {
+		if activeRunStatus(run.Status) && run.Sequence < newestRemoved {
+			return runs
+		}
+	}
+	return slices.DeleteFunc(runs, func(run protocol.ConversationRun) bool {
+		owner := owners[run.Turn]
+		return owner.Sequence < oldest && !activeRunStatus(owner.Status)
+	})
+}
+
 func activeRunStatus(status protocol.ConversationStatus) bool {
 	return status == protocol.ConversationStatusQueued || status == protocol.ConversationStatusRunning || status == protocol.ConversationStatusStopping
 }
@@ -451,7 +513,8 @@ func ReadConversationTurn(ctx context.Context, db *sql.Conn, session protocol.Se
 	if err != nil {
 		return value, err
 	}
-	if _, err = fitConversationPage(&page, 0, false); err != nil {
+	var fit conversationPageFit
+	if _, err = fit.apply(&page, 0, false); err != nil {
 		return value, err
 	}
 	value.Revision = actual
@@ -467,9 +530,16 @@ func ReadConversationTurn(ctx context.Context, db *sql.Conn, session protocol.Se
 	return value, nil
 }
 func FitConversationPage(page *protocol.ConversationPage, extraBytes int) ([]protocol.TurnID, error) {
-	return fitConversationPage(page, extraBytes, true)
+	var fit conversationPageFit
+	return fit.apply(page, extraBytes, true)
 }
-func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune bool) ([]protocol.TurnID, error) {
+
+type conversationPageFit struct {
+	sizes []int // Parallel to the entries of the page being fitted.
+	bytes int
+}
+
+func (fit *conversationPageFit) apply(page *protocol.ConversationPage, extraBytes int, prune bool) ([]protocol.TurnID, error) {
 	budget := protocol.MAX_FRAME_BYTES - 64*1024 - extraBytes
 	if budget < 0 {
 		return nil, invalid("conversation resources exceed the transport limit")
@@ -477,15 +547,18 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 	// Each entry is encoded once. The page's size is its metadata, its entries
 	// and the commas between them, so dropping an entry re-encodes only the
 	// metadata.
-	sizes := make([]int, len(page.Entries))
-	entryBytes := 0
-	for i := range page.Entries {
-		body, err := encode(page.Entries[i])
-		if err != nil {
-			return nil, err
+	if fit.sizes == nil {
+		sizes := make([]int, len(page.Entries))
+		entryBytes := 0
+		for i := range page.Entries {
+			body, err := encode(page.Entries[i])
+			if err != nil {
+				return nil, err
+			}
+			sizes[i] = len(body)
+			entryBytes += len(body)
 		}
-		sizes[i] = len(body)
-		entryBytes += len(body)
+		fit.sizes, fit.bytes = sizes, entryBytes
 	}
 	trimmed := map[protocol.TurnID]bool{}
 	owners := historyOwners(page.Runs)
@@ -497,15 +570,15 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		if err != nil {
 			return nil, err
 		}
-		if len(metadata)+entryBytes+max(len(entries)-1, 0) <= budget {
+		if len(metadata)+fit.bytes+max(len(entries)-1, 0) <= budget {
 			break
 		}
 		if len(page.Entries) > 1 {
 			trimmed[page.Entries[0].Turn] = true
 			page.Entries[0] = protocol.ConversationEntry{}
 			page.Entries = page.Entries[1:]
-			entryBytes -= sizes[0]
-			sizes = sizes[1:]
+			fit.bytes -= fit.sizes[0]
+			fit.sizes = fit.sizes[1:]
 			retainConversationMetadata(page)
 			continue
 		}
@@ -529,14 +602,14 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		kept := 0
 		for i, entry := range page.Entries {
 			if dropped(entry.Turn) {
-				entryBytes -= sizes[i]
+				fit.bytes -= fit.sizes[i]
 				continue
 			}
-			page.Entries[kept], sizes[kept] = entry, sizes[i]
+			page.Entries[kept], fit.sizes[kept] = entry, fit.sizes[i]
 			kept++
 		}
 		clear(page.Entries[kept:])
-		page.Entries, sizes = page.Entries[:kept], sizes[:kept]
+		page.Entries, fit.sizes = page.Entries[:kept], fit.sizes[:kept]
 		page.Approvals = slices.DeleteFunc(page.Approvals, func(a protocol.ConversationApproval) bool { return dropped(a.Turn) })
 		page.Questions = slices.DeleteFunc(page.Questions, func(q protocol.ConversationQuestion) bool { return dropped(q.Turn) })
 		page.Children = slices.DeleteFunc(page.Children, func(c protocol.ConversationChild) bool { return dropped(c.Origin.Turn) })

@@ -3,6 +3,7 @@ package engine
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func TestConversationPublication(t *testing.T) {
-	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "bounded_admission", "unobserved_statistics", "unobserved_refresh"} {
+	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "resubscribe_fences_unobserved_commit", "bounded_admission", "unobserved_statistics", "unobserved_refresh"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t, &scriptedModel{})
 			t.Cleanup(func() {
@@ -97,6 +98,32 @@ func TestConversationPublication(t *testing.T) {
 				frame := update.Data.(*protocol.ConversationFrame)
 				if frame.Change.Kind != "statistics" || frame.Change.Data.(*protocol.ConversationStatistics).Responses != 1 {
 					t.Fatal("new subscriber missed statistics from an unobserved commit")
+				}
+				f.r.statisticsMu.Lock()
+				cached := len(f.r.statisticsHistory) == 1 && f.r.statisticsHistory[0].session == f.session.ID
+				f.r.statisticsMu.Unlock()
+				if !cached {
+					t.Fatal("completed statistics were not retained")
+				}
+				_ = reservation.Close()
+				second := canonical.NewRecord(turn, "message", &message, f.r.clock.Now())
+				second.Provenance.Author = "assistant"
+				if err := f.r.save(f.ctx, f.session.ID, second); err != nil {
+					t.Fatal(err)
+				}
+				unlock = f.r.LockPublication()
+				reservation = f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+				defer reservation.Close()
+				f.r.RequestStatisticsCommitted(f.session.ID)
+				stream = reservation.Subscribe(protocol.DefaultConversationSnapshot())
+				unlock()
+				if _, err := stream.Next(f.ctx); err != nil {
+					t.Fatal(err)
+				}
+				if update, err := stream.Next(f.ctx); err != nil {
+					t.Fatal(err)
+				} else if frame := update.Data.(*protocol.ConversationFrame); frame.Change.Kind != "statistics" || frame.Change.Data.(*protocol.ConversationStatistics).Responses != 2 {
+					t.Fatalf("resubscription published stale completed statistics: %+v", frame)
 				}
 				return
 			}
@@ -203,31 +230,62 @@ func TestConversationPublication(t *testing.T) {
 				}
 				return
 			}
-			var stale protocol.ConversationStatistics
+			stale := statisticsCompleted{session: f.session.ID}
+			var old protocol.ConversationStatistics
 			if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
 				var err error
-				stale, err = store.ReadAgentStatistics(f.ctx, db, f.session.ID)
+				old, stale.history, err = store.ReadAgentStatisticsReusing(f.ctx, db, f.session.ID, nil)
 				return err
 			}); err != nil {
 				t.Fatal(err)
 			}
+			stale.weight = stale.history.Weight()
 			f.r.statistics[f.session.ID] = false
-			unlock := f.r.LockPublication()
-			f.r.RequestStatisticsCommitted(f.session.ID)
-			unlock()
-			if f.r.statistics[f.session.ID] {
-				t.Fatal("unchanged snapshot request dirtied an existing reader")
-			}
-			if err := f.r.save(f.ctx, f.session.ID, record); err != nil {
-				t.Fatal(err)
-			}
-			if frame := next(); frame.Change.Kind != "entry" {
-				t.Fatal("statistics overtook the committed entry")
+			if scenario == "resubscribe_fences_unobserved_commit" {
+				_ = reservation.Close()
+				if f.r.feed.Observed(f.session.ID) {
+					t.Fatal("an observer survived the disconnect")
+				}
+				// A commit made without an observer need not dispatch a refresh.
+				unlock := f.r.LockPublication()
+				err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+					_, _, err := store.AppendCanonical(f.ctx, db, f.session.ID, record)
+					return err
+				})
+				if err != nil {
+					unlock()
+					t.Fatal(err)
+				}
+				reservation = f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+				defer reservation.Close()
+				err = f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+					history, err := store.ReadConversation(f.ctx, db, f.session.ID, nil, 20)
+					snapshot.Page, snapshot.Missing = history.Page, history.Missing
+					return err
+				})
+				if err != nil {
+					unlock()
+					t.Fatal(err)
+				}
+				f.r.RequestStatisticsCommitted(f.session.ID)
+				stream = reservation.Subscribe(snapshot)
+				unlock()
+				if update, err := stream.Next(f.ctx); err != nil || update.Kind != "conversation_snapshot" || len(snapshot.Page.Entries) != 1 || snapshot.Page.Entries[0].ID != record.ID {
+					t.Fatalf("new reservation did not see the unobserved commit: %v", err)
+				}
+			} else {
+				if err := f.r.save(f.ctx, f.session.ID, record); err != nil {
+					t.Fatal(err)
+				}
+				if frame := next(); frame.Change.Kind != "entry" {
+					t.Fatal("statistics overtook the committed entry")
+				}
 			}
 			before := f.r.feed.Sequence(f.session.ID)
-			if f.r.finishStatistics(f.session.ID, stale, nil) || f.r.feed.Sequence(f.session.ID) != before {
+			if f.r.finishStatistics(stale, old, nil) || f.r.feed.Sequence(f.session.ID) != before || len(f.r.statisticsHistory) != 0 {
 				t.Fatal("dirty statistical snapshot was published")
 			}
+			f.r.beginStatisticsRead(f.session.ID)
 			var current protocol.ConversationStatistics
 			if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
 				var err error
@@ -236,12 +294,89 @@ func TestConversationPublication(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if !f.r.finishStatistics(f.session.ID, current, nil) || current.Responses != 1 || next().Change.Kind != "statistics" {
+			if !f.r.finishStatistics(statisticsCompleted{session: f.session.ID}, current, nil) || current.Responses != 1 || next().Change.Kind != "statistics" {
 				t.Fatal("fresh aggregate did not follow its canonical entry")
 			}
 			if len(f.r.statistics) != 0 {
 				t.Fatal("completed statistics owner remained retained")
 			}
 		})
+	}
+}
+
+func TestConversationStatisticsChildAppend(t *testing.T) {
+	f := newFixture(t, &scriptedModel{})
+	t.Cleanup(func() {
+		f.r.cancel()
+		f.r.statisticsMu.Lock()
+		f.r.statisticsStopped = true
+		f.r.statisticsMu.Unlock()
+		f.r.statisticsOwners.Wait()
+	})
+	parent := f.submit("Delegate work")
+	var child *store.AgentInvocation
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		now := f.r.clock.Now()
+		invocation, _, err := store.ClaimNext(f.ctx, db, now)
+		if err != nil {
+			return err
+		}
+		if invocation == nil || invocation.Run.Turn != parent {
+			return errors.New("parent was not claimed")
+		}
+		call := canonical.ToolRequest{ID: "delegate", Name: "spawn_agent", Arguments: json.RawMessage(`{"task":"Child task","background":true}`)}
+		record := canonical.NewRecord(parent, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &call}), now)
+		record.Provenance.Author = "assistant"
+		if _, _, err := store.AppendCanonical(f.ctx, db, f.session.ID, record); err != nil {
+			return err
+		}
+		queued, _, err := store.DelegateAgent(f.ctx, db, f.node, parent, canonical.ToolIdentity{ID: &call.ID, Name: call.Name, Arguments: call.Arguments}, nil, true, now)
+		if err != nil {
+			return err
+		}
+		child, _, err = store.ClaimChild(f.ctx, db, queued.Run.Turn, now)
+		if err == nil && child == nil {
+			return errors.New("child was not claimed")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unlock := f.r.LockPublication()
+	reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+	defer reservation.Close()
+	f.r.RequestStatisticsCommitted(f.session.ID)
+	stream := reservation.Subscribe(protocol.DefaultConversationSnapshot())
+	unlock()
+	if _, err := stream.Next(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	next := func(want uint64) {
+		t.Helper()
+		update, err := stream.Next(f.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		frame, ok := update.Data.(*protocol.ConversationFrame)
+		if !ok || frame.Change.Kind != "statistics" {
+			t.Fatalf("statistics frame expected, got %+v", update)
+		}
+		result := frame.Change.Data.(*protocol.ConversationStatistics)
+		if result.Responses != 0 || result.Delegated.Responses != want || result.Observations.Children != 1 {
+			t.Fatalf("parent statistics = %+v, want %d delegated responses", result, want)
+		}
+	}
+	next(0)
+	message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Child response"))
+	input, output := uint64(30), uint64(3)
+	message.Usage = &canonical.Usage{Input: &input, Output: &output}
+	record := canonical.NewRecord(child.Run.Turn, "message", &message, f.r.clock.Now())
+	record.Provenance.Author = "assistant"
+	if err := f.r.save(f.ctx, child.Session.ID, record); err != nil {
+		t.Fatal(err)
+	}
+	next(1)
+	if f.r.feed.Observed(child.Session.ID) {
+		t.Fatal("test unexpectedly opened a child subscription")
 	}
 }

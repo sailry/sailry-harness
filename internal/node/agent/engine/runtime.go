@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
@@ -85,6 +84,7 @@ type Runtime struct {
 	publication       sync.Mutex
 	statisticsMu      sync.Mutex
 	statistics        map[protocol.SessionID]bool
+	statisticsHistory []statisticsCompleted
 	statisticsOwners  sync.WaitGroup
 	statisticsStopped bool
 }
@@ -432,51 +432,34 @@ func (r *Runtime) RefreshCommitted(session protocol.SessionID, changedChildren .
 	// Run transitions maintain the active draft feed independently. A later
 	// observer reserves and reads current durable state under publication.
 	if !r.feed.Observed(session) {
+		if len(changedChildren) > 0 {
+			r.refreshStatisticsForTurnsCommitted(session, changedChildren)
+		}
 		return
 	}
-	var history protocol.ConversationHistory
+	var activity store.ConversationActivity
 	if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
 		var err error
-		history, err = store.ReadConversation(r.ctx, db, session, nil, 20)
+		activity, err = store.ReadConversationActivity(r.ctx, db, session, 20, changedChildren...)
 		return err
 	}); err != nil {
 		return
 	}
-	for _, turn := range changedChildren {
-		if slices.ContainsFunc(history.Page.Children, func(child protocol.ConversationChild) bool { return child.Run.Turn == turn }) {
-			continue
-		}
-		// A long parent turn can push the delegation call off the newest page.
-		// Subscribers that loaded it apply the frame and others skip it, so a
-		// child's progress never reloads the parent's whole conversation.
-		var child protocol.ConversationChild
-		var found bool
-		if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
-			var err error
-			child, found, err = store.ReadConversationChild(r.ctx, db, turn)
-			return err
-		}); err != nil {
-			return
-		}
-		if found {
-			history.Page.Children = append(history.Page.Children, child)
-		}
-	}
-	for _, run := range history.Page.Runs {
+	for _, run := range activity.Runs {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "run", Data: run})
 	}
-	r.feed.Publish(session, protocol.ConversationChange{Kind: "queue", Data: history.Page.Queue})
-	for _, v := range history.Page.Approvals {
+	r.feed.Publish(session, protocol.ConversationChange{Kind: "queue", Data: activity.Queue})
+	for _, v := range activity.Approvals {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "approval", Data: v})
 	}
-	r.feed.PublishBackground(session, history.Page.Background)
-	for _, child := range history.Page.Children {
+	r.feed.PublishBackground(session, activity.Background)
+	for _, child := range activity.Children {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "child", Data: child})
 	}
-	for _, v := range history.Page.Questions {
+	for _, v := range activity.Questions {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "question", Data: v})
 	}
-	r.RefreshStatisticsCommitted(session)
+	r.refreshStatisticsForTurnsCommitted(session, changedChildren)
 }
 
 // OperationContext borrows a running turn's cancellation owner. The caller must
