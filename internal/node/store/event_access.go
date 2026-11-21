@@ -196,7 +196,36 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 	return personalAudience(ctx, db)
 }
 
-func audienceVisible(ctx context.Context, db *sql.Conn, a eventAudience, user protocol.User) (bool, error) {
+type eventVisibility struct {
+	ctx      context.Context
+	db       *sql.Conn
+	user     protocol.User
+	owners   map[protocol.UserID]bool
+	projects map[protocol.ProjectID]sql.NullBool
+}
+
+func (v *eventVisibility) owns(id *protocol.UserID) (bool, error) {
+	if id == nil {
+		return false, nil
+	}
+	if *id == v.user.ID && v.user.State == "active" {
+		return true, nil
+	}
+	if owned, ok := v.owners[*id]; ok {
+		return owned, nil
+	}
+	owner, err := ResolveUser(v.ctx, v.db, *id)
+	if err != nil {
+		return false, err
+	}
+	owned := owner.ID == v.user.ID
+	if v.owners != nil {
+		v.owners[*id] = owned
+	}
+	return owned, nil
+}
+
+func (v *eventVisibility) visible(a eventAudience) (bool, error) {
 	switch a.Kind {
 	case "host", "reset":
 		return true, nil
@@ -204,32 +233,30 @@ func audienceVisible(ctx context.Context, db *sql.Conn, a eventAudience, user pr
 		if a.Project == nil {
 			return false, nil
 		}
-		owned := false
-		if a.Owner != nil {
-			owner, err := ResolveUser(ctx, db, *a.Owner)
-			if err != nil {
-				return false, err
-			}
-			owned = owner.ID == user.ID
+		owned, err := v.owns(a.Owner)
+		if err != nil {
+			return false, err
 		}
 		if !a.Shared && !owned {
 			return false, nil
 		}
-		var allowed bool
-		err := db.QueryRowContext(ctx, "SELECT visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?2 FROM projects WHERE id=?1", a.Project.String(), user.ID.String()).Scan(&allowed)
-		if errors.Is(err, sql.ErrNoRows) {
+		current, ok := v.projects[*a.Project]
+		if !ok {
+			err = v.db.QueryRowContext(v.ctx, "SELECT visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?2 FROM projects WHERE id=?1", a.Project.String(), v.user.ID.String()).Scan(&current.Bool)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return false, err
+			}
+			current.Valid = err == nil
+			if v.projects != nil {
+				v.projects[*a.Project] = current
+			}
+		}
+		if !current.Valid {
 			return owned, nil
 		}
-		return allowed, err
+		return current.Bool, nil
 	case "user":
-		if a.Owner == nil {
-			return false, nil
-		}
-		owner, err := ResolveUser(ctx, db, *a.Owner)
-		if err != nil {
-			return false, err
-		}
-		return owner.ID == user.ID, nil
+		return v.owns(a.Owner)
 	}
 	return false, nil
 }
@@ -238,7 +265,11 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 	if a.Kind == "reset" {
 		return protocol.Event{Kind: "projection_invalidated"}, nil
 	}
+	visibility := eventVisibility{ctx: ctx, db: db, user: user}
 	if a.Kind == "members" {
+		// Members share this event's delivery snapshot, never a later cursor's.
+		visibility.owners = make(map[protocol.UserID]bool)
+		visibility.projects = make(map[protocol.ProjectID]sql.NullBool)
 		switch event.Kind {
 		case "sessions_removed", "sessions_reordered":
 			body, err := json.Marshal(event.Data)
@@ -251,7 +282,7 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 			}
 			filtered := make([]protocol.SessionID, 0, len(ids))
 			for _, id := range ids {
-				visible, err := audienceVisible(ctx, db, a.Members[id.String()], user)
+				visible, err := visibility.visible(a.Members[id.String()])
 				if err != nil {
 					return protocol.Event{}, err
 				}
@@ -275,7 +306,7 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 			}
 			filtered := make([]protocol.NotificationID, 0, len(payload.IDs))
 			for _, id := range payload.IDs {
-				visible, err := audienceVisible(ctx, db, a.Members[id.String()], user)
+				visible, err := visibility.visible(a.Members[id.String()])
 				if err != nil {
 					return protocol.Event{}, err
 				}
@@ -292,7 +323,7 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 		}
 		return protocol.Event{Kind: "cursor"}, nil
 	}
-	visible, err := audienceVisible(ctx, db, a, user)
+	visible, err := visibility.visible(a)
 	if err != nil {
 		return protocol.Event{}, err
 	}
@@ -302,7 +333,26 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 	return event, nil
 }
 
-// RefreshEventAccess rechecks buffered rows after another writer changes scope.
+// NextEvent pins only a cursor watermark across deliveries. The next row and
+// its current audience are read together in the caller's fresh transaction.
+func NextEvent(ctx context.Context, db *sql.Conn, node protocol.NodeID, after, through uint64) (uint64, *protocol.EventEnvelope, error) {
+	if after >= through {
+		err := db.QueryRowContext(ctx, "SELECT cursor FROM events WHERE cursor>?1 ORDER BY cursor DESC LIMIT 1", after).Scan(&through)
+		if errors.Is(err, sql.ErrNoRows) {
+			return after, nil, nil
+		}
+		if err != nil {
+			return through, nil, err
+		}
+	}
+	event, err := RefreshEventAccess(ctx, db, protocol.EventEnvelope{Node: node, Cursor: after + 1})
+	if err != nil {
+		return through, nil, err
+	}
+	return through, &event, nil
+}
+
+// RefreshEventAccess reads the canonical row by cursor and filters it for the current recipient.
 func RefreshEventAccess(ctx context.Context, db *sql.Conn, event protocol.EventEnvelope) (protocol.EventEnvelope, error) {
 	var body, scope []byte
 	if err := db.QueryRowContext(ctx, "SELECT body,audience FROM events WHERE cursor=?1", event.Cursor).Scan(&body, &scope); err != nil {

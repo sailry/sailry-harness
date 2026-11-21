@@ -20,7 +20,6 @@ type events struct {
 	initial *protocol.Snapshot
 	cursor  uint64
 	through uint64
-	pending []protocol.EventEnvelope
 }
 
 func (node *Node) subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
@@ -131,37 +130,14 @@ func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
 		return protocol.Update{Kind: "snapshot", Data: value}, nil
 	}
 	for {
-		if len(stream.pending) > 0 {
-			event := stream.pending[0]
-			if err := stream.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-				var err error
-				event, err = store.RefreshEventAccess(ctx, db, event)
-				return err
-			}); err != nil {
-				return protocol.Update{}, nodeFault(err)
-			}
-			stream.pending = stream.pending[1:]
-			if event.Cursor != stream.cursor+1 {
-				stream.pending = nil
-				stream.cursor = stream.through
-				return protocol.Update{Kind: "reset_required"}, nil
-			}
-			stream.cursor = event.Cursor
-			if event.Event.Kind == "projection_invalidated" {
-				stream.pending = nil
-				stream.through = 0
-				return protocol.Update{Kind: "reset_required"}, nil
-			}
-			return protocol.Update{Kind: "event", Data: event}, nil
-		}
 		if err := stream.node.begin(); err != nil {
 			return protocol.Update{}, err
 		}
-		var through uint64
-		var pending []protocol.EventEnvelope
+		through := stream.through
+		var event *protocol.EventEnvelope
 		err := stream.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
-			through, pending, err = store.EventPage(ctx, db, stream.node.ID(), stream.cursor, stream.through)
+			through, event, err = store.NextEvent(ctx, db, stream.node.ID(), stream.cursor, through)
 			return err
 		})
 		stream.node.work.Done()
@@ -169,22 +145,19 @@ func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
 			if ctx.Err() != nil {
 				return protocol.Update{}, ctx.Err()
 			}
-			stream.pending = nil
-			stream.cursor = stream.through
+			stream.cursor = max(stream.cursor, through)
 			stream.through = 0
 			return protocol.Update{Kind: "reset_required"}, nil
 		}
 		stream.through = through
-		stream.pending = pending
-		if len(pending) > 0 {
-			continue
+		if event != nil {
+			stream.cursor = event.Cursor
+			if event.Event.Kind == "projection_invalidated" {
+				stream.through = 0
+				return protocol.Update{Kind: "reset_required"}, nil
+			}
+			return protocol.Update{Kind: "event", Data: *event}, nil
 		}
-		if stream.cursor < through {
-			stream.cursor = through
-			stream.through = 0
-			return protocol.Update{Kind: "reset_required"}, nil
-		}
-		stream.through = 0
 		select {
 		case <-ctx.Done():
 			return protocol.Update{}, ctx.Err()
