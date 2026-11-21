@@ -114,8 +114,7 @@ func (a *App) hostActions() host.Actions {
 
 // selectConversation shows a conversation, revealing it in the sidebar.
 func (a *App) selectConversation(id string) {
-	a.Page = ConversationPage
-	a.Sidebar.Selected = id
+	a.OpenConversation(id)
 	if pr := a.Data.ProjectOf(id); pr != nil {
 		a.Sidebar.Reveal(pr.ID)
 	}

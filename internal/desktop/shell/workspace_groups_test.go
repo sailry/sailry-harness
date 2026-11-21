@@ -77,10 +77,10 @@ func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 	frame()
 	plainTitle(first.Title)
 	snapshot(t, tt, "workspace-single-title")
-	a.panes.Keep(session(first.ID))
+	a.OpenConversation(first.ID)
 	frame()
 	keptTab(first.Title)
-	a.Sidebar.Selected = second.ID
+	a.OpenConversation(second.ID)
 	frame()
 	for _, title := range []string{first.Title, second.Title} {
 		if _, ok := headerButton(tt, title); !ok {
@@ -150,7 +150,7 @@ func TestWorkspaceGroupButtons(t *testing.T) {
 	if a.panes.Active != session("b") || a.panes.Displayed() != first {
 		t.Fatalf("reordered group: active %v", a.panes.Active)
 	}
-	a.Sidebar.Selected = "e"
+	a.OpenConversation("e")
 	tt.Frame()
 	for _, number := range []int{1, 2} {
 		b, ok := headerButton(tt, i18n.In("en", "pane_group", "number", number))
@@ -158,28 +158,28 @@ func TestWorkspaceGroupButtons(t *testing.T) {
 			t.Fatalf("standalone group %d button: %+v", number, b)
 		}
 	}
-	// The conversation shown alone is the first tab, the shown one, and
-	// follows the selection rather than staying.
+	// The conversation opened alone is a tab, the shown one, and stays when
+	// another one opens.
 	if b, ok := headerButton(tt, "Conversation e"); !ok || !b.Checked {
 		t.Fatalf("standalone conversation has no shown tab: %+v", b)
 	}
 	snapshot(t, tt, "workspace-group-standalone")
 	a.Data.Unassigned = append(a.Data.Unassigned, &viewmodel.Conversation{ID: "f", Title: "Conversation f"})
-	a.Sidebar.Selected = "f"
+	a.OpenConversation("f")
 	tt.Frame()
 	tt.Frame()
-	if _, ok := headerButton(tt, "Conversation f"); !ok {
-		t.Fatal("the standalone tab did not follow the selection")
+	if b, ok := headerButton(tt, "Conversation f"); !ok || !b.Checked {
+		t.Fatalf("the opened conversation is not the shown tab: %+v", b)
 	}
-	if _, ok := headerButton(tt, "Conversation e"); ok {
-		t.Fatal("the previous standalone conversation kept a tab")
+	if b, ok := headerButton(tt, "Conversation e"); !ok || b.Checked {
+		t.Fatalf("the previously opened conversation lost its tab: %+v", b)
 	}
 	pressWorkspaceGroup(t, tt, 1)
 	if a.panes.Active != session("d") || a.panes.Displayed() != second {
 		t.Fatalf("returning from standalone: active %v", a.panes.Active)
 	}
-	if _, ok := headerButton(tt, "Conversation f"); ok {
-		t.Fatal("the standalone tab stayed after a group showed")
+	if b, ok := headerButton(tt, "Conversation f"); !ok || b.Checked {
+		t.Fatalf("the open tab left when a group showed: %+v", b)
 	}
 	// Switching only changes focus: both original trees remain intact.
 	if a.panes.Groups[0] != second || a.panes.Groups[1] != first {
@@ -214,13 +214,19 @@ func TestWorkspaceGroupTerminalFocus(t *testing.T) {
 
 func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
 	a, tt := workspaceGroupsFixture(t, 1280)
-	a.panes.Detach(session("d"))
+	first := a.panes.Groups[0]
+	if !a.panes.Detach(session("d")) {
+		t.Fatal("cannot dissolve the second group")
+	}
 	a.focusPane(session("e"))
 	tt.Frame()
-	// One remaining split still has an entry while a standalone view shows.
+	// One remaining split still has an entry while a standalone view without a tab shows.
+	if _, ok := headerButton(tt, "Conversation e"); ok {
+		t.Fatal("an implicit standalone selection opened a tab")
+	}
 	pressWorkspaceGroup(t, tt, 1)
-	if a.panes.Active != session("b") {
-		t.Fatalf("one saved group returned to %v", a.panes.Active)
+	if a.panes.Active != session("b") || a.Sidebar.Selected != "b" || a.panes.Displayed() != first {
+		t.Fatalf("one saved group: active %v, selected %q, original tree displayed %t", a.panes.Active, a.Sidebar.Selected, a.panes.Displayed() == first)
 	}
 	// With only the shown split left, its combined title replaces the tab.
 	if _, ok := headerButton(tt, i18n.In("en", "pane_group", "number", 1)); ok {
@@ -229,15 +235,19 @@ func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
 	if title, ok := tt.Find("Conversation a · Conversation b"); !ok || title.Y+title.H > HeaderHeight {
 		t.Fatalf("one shown split lost its title: %+v", title)
 	}
-	// A focus remembered before membership changed cannot focus a removed pane.
-	a.panes.Drop(session("a"), session("c"), panes.Bottom)
+	// Remove the remembered pane while the group is inactive.
+	if !a.panes.Drop(session("a"), session("c"), panes.Bottom) {
+		t.Fatal("cannot add a pane to the remaining group")
+	}
 	a.focusPane(session("b"))
-	a.panes.Detach(session("b"))
 	a.focusPane(session("e"))
+	if !a.panes.Detach(session("b")) {
+		t.Fatal("cannot detach the remembered pane")
+	}
 	tt.Frame()
 	pressWorkspaceGroup(t, tt, 1)
-	if a.panes.Active != session("a") || a.panes.Group(a.panes.Active) < 0 {
-		t.Fatalf("removed remembered pane kept focus: %v", a.panes.Active)
+	if a.panes.Active != session("a") || a.Sidebar.Selected != "a" || a.panes.Group(a.panes.Active) < 0 {
+		t.Fatalf("removed remembered pane kept focus: active %v, selected %q", a.panes.Active, a.Sidebar.Selected)
 	}
 }
 
@@ -278,16 +288,16 @@ func TestWorkspaceGroupsScrollInNarrowHeader(t *testing.T) {
 	snapshot(t, tt, "workspace-group-buttons-narrow")
 }
 
-// A sidebar click shows another conversation while a kept one runs: the
-// selection follows the click through background updates, a running session
-// is no tab of its own, and closing a tab that does not show keeps the
-// selection and the session.
+// A sidebar click opens another conversation's tab while an open one runs:
+// the selection follows the click through background updates, and closing
+// the running tab, which does not show, keeps the selection, the session and
+// its reply.
 func TestSidebarSelectionBesideRunningTab(t *testing.T) {
 	running := &viewmodel.Conversation{ID: "a", Title: "Conversation a", Status: viewmodel.Running}
 	idle := &viewmodel.Conversation{ID: "b", Title: "Conversation b"}
 	a := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{running, idle}})
 	a.focusPane(session("a"))
-	// Kept explicitly, as ⌘T, a double click or restored tabs keep it.
+	// Open already, as ⌘T, an earlier click or restored tabs leave it.
 	a.panes.Keep(session("a"))
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("en")
@@ -329,10 +339,10 @@ func TestSidebarSelectionBesideRunningTab(t *testing.T) {
 		settle(tt)
 	}
 	showsIdle("background update")
-	if !slices.Equal(a.panes.Kept, []panes.Target{session("a")}) {
-		t.Fatalf("background update changed the kept tabs: %v", a.panes.Kept)
+	if !slices.Equal(a.panes.Kept, []panes.Target{session("a"), session("b")}) {
+		t.Fatalf("background update changed the open tabs: %v", a.panes.Kept)
 	}
-	// Closing the kept tab that does not show leaves the selection.
+	// Closing the open tab that does not show leaves the selection.
 	b, _ := headerButton(tt, running.Title)
 	tt.RightClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
 	tt.Frame()
@@ -341,24 +351,178 @@ func TestSidebarSelectionBesideRunningTab(t *testing.T) {
 	}
 	settle(tt)
 	showsIdle("closing the running tab")
-	if len(a.panes.Kept) != 0 {
-		t.Fatalf("closed tab still kept: %v", a.panes.Kept)
+	if !slices.Equal(a.panes.Kept, []panes.Target{session("b")}) {
+		t.Fatalf("closed tab still open: %v", a.panes.Kept)
 	}
-	// Running alone is no tab: the shown conversation has the plain title.
-	for _, title := range []string{running.Title, idle.Title} {
-		if _, ok := headerButton(tt, title); ok {
-			t.Fatalf("a single shown conversation still has tab %q", title)
-		}
+	// The running session has no tab now; the clicked one's stays, alone.
+	if _, ok := headerButton(tt, running.Title); ok {
+		t.Fatal("the closed running tab is still in the band")
 	}
-	if bounds, ok := tt.Find(idle.Title); !ok || bounds.Y+bounds.H > HeaderHeight {
-		t.Fatalf("the shown conversation has no header title: %+v", bounds)
+	if b, ok := headerButton(tt, idle.Title); !ok || !b.Checked {
+		t.Fatalf("the single open tab is not shown: %+v", b)
 	}
 }
 
-// A passing tab is kept from its menu and stays when another conversation
-// shows; closing the shown one shows its neighbour, a group's menu undoes
-// the split, and the kept tabs are the window's preferences.
-func TestHeaderTabsKeep(t *testing.T) {
+// sidebarRow returns the sidebar's row of the conversation titled title.
+func sidebarRow(t *testing.T, tt *ui.Tester, title string) ui.AccessInfo {
+	t.Helper()
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleButton && info.Name == title && b.Y >= HeaderHeight && b.X < RailWidth+NavMax {
+			return info
+		}
+	}
+	t.Fatalf("no sidebar row %q", title)
+	return ui.AccessInfo{}
+}
+
+// A click on a sidebar row opens its conversation as a normal tab: one tab
+// shows alone, A, B and A again leave both, each once, and a session's tab
+// has only Close. Closing a running session's tab leaves its reply running,
+// and after the last tab closes neither frames, background updates nor a
+// selection the window falls back to open one again.
+func TestSidebarClicksOpenTabs(t *testing.T) {
+	data := func(status viewmodel.Status, ids ...string) *viewmodel.Data {
+		d := &viewmodel.Data{Workspace: &viewmodel.Workspace{}}
+		for _, id := range ids {
+			cv := &viewmodel.Conversation{ID: id, Title: "Conversation " + id}
+			if id == "a" {
+				cv.Status = status
+			}
+			d.Unassigned = append(d.Unassigned, cv)
+		}
+		return d
+	}
+	a := NewLive(data(viewmodel.Idle, "a", "b", "c"))
+	a.Sidebar.Selected = "a"
+	a.focusPane(session("a"))
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	settle(tt)
+	open := func(want ...string) {
+		t.Helper()
+		var targets []panes.Target
+		for _, id := range want {
+			targets = append(targets, session(id))
+		}
+		if !slices.Equal(a.panes.Kept, targets) {
+			t.Fatalf("open tabs %v, want %v", a.panes.Kept, targets)
+		}
+	}
+	shownTab := func(id string) {
+		t.Helper()
+		if b, ok := headerButton(tt, "Conversation "+id); !ok || !b.Checked || a.Sidebar.Selected != id || a.panes.Active != session(id) {
+			t.Fatalf("%q is not the shown tab: %+v, selected %q, active %v", id, b, a.Sidebar.Selected, a.panes.Active)
+		}
+	}
+	noTabs := func(when string) {
+		t.Helper()
+		for _, id := range []string{"a", "b", "c"} {
+			if _, ok := headerButton(tt, "Conversation "+id); ok {
+				t.Fatalf("%s: a tab for %q", when, id)
+			}
+		}
+	}
+	clickRow := func(id string) {
+		t.Helper()
+		row := sidebarRow(t, tt, "Conversation "+id)
+		tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		settle(tt)
+	}
+	tabMenu := func(id string) []string {
+		t.Helper()
+		b, ok := headerButton(tt, "Conversation "+id)
+		if !ok {
+			t.Fatalf("no tab %q", id)
+		}
+		tt.RightClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		tt.Frame()
+		return tt.Menu()
+	}
+	// The conversation the window started on was not opened: no tab.
+	open()
+	noTabs("start")
+	clickRow("a")
+	open("a")
+	shownTab("a")
+	clickRow("b")
+	open("a", "b")
+	shownTab("b")
+	clickRow("a")
+	open("a", "b")
+	shownTab("a")
+	if b, ok := headerButton(tt, "Conversation b"); !ok || b.Checked {
+		t.Fatalf("returning to a lost b's tab: %+v", b)
+	}
+	if items := tabMenu("b"); !slices.Equal(items, []string{i18n.In("en", "close")}) {
+		t.Fatalf("a session tab's menu: %q", items)
+	}
+	tt.CloseMenu()
+	// Closing the shown, running tab shows its neighbour; the reply runs on.
+	a.ApplyData(data(viewmodel.Running, "a", "b", "c"))
+	settle(tt)
+	tabMenu("a")
+	if err := tt.ChooseMenuItem(i18n.In("en", "close")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	open("b")
+	shownTab("b")
+	if cv := a.Data.Find("a"); cv == nil || cv.Status != viewmodel.Running {
+		t.Fatalf("closing the tab changed the running session: %+v", cv)
+	}
+	// The last tab closes to the plain title and stays closed.
+	tabMenu("b")
+	if err := tt.ChooseMenuItem(i18n.In("en", "close")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	for range 3 {
+		a.ApplyData(data(viewmodel.Running, "a", "b", "c"))
+		settle(tt)
+	}
+	open()
+	noTabs("the last tab closed")
+	if a.Sidebar.Selected != "b" {
+		t.Fatalf("closing the last tab left the conversation: %q", a.Sidebar.Selected)
+	}
+	// The shown conversation goes: the window falls back to another, which
+	// is not opened.
+	a.ApplyData(data(viewmodel.Running, "a", "c"))
+	settle(tt)
+	if a.Sidebar.Selected == "b" || a.Sidebar.Selected == "" {
+		t.Fatalf("no fallback selection: %q", a.Sidebar.Selected)
+	}
+	open()
+	noTabs("fallback selection")
+	// A click on the row shown without a tab opens it.
+	clickRow(a.Sidebar.Selected)
+	open(a.Sidebar.Selected)
+	shownTab(a.Sidebar.Selected)
+}
+
+// A new session's tab is its draft's until the Node creates it, then the
+// session's, in the same place.
+func TestDraftTabBecomesSession(t *testing.T) {
+	a := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{
+		{ID: "a", Title: "Conversation a"}, {ID: "draft/1"},
+	}})
+	a.OpenConversation("a")
+	a.OpenConversation("draft/1")
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	settle(tt)
+	a.ReplaceConversationID("draft/1", "created")
+	settle(tt)
+	want := []panes.Target{session("a"), session("created")}
+	if !slices.Equal(a.panes.Kept, want) || !slices.Equal(a.panes.order, want) || a.panes.Active != session("created") {
+		t.Fatalf("promoted draft: tabs %v, order %v, active %v", a.panes.Kept, a.panes.order, a.panes.Active)
+	}
+}
+
+// Opened tabs stay when another conversation opens; closing the shown one
+// shows its neighbour, a group's menu undoes the split, and the open tabs
+// are the window's preferences.
+func TestHeaderTabsOpen(t *testing.T) {
 	a, tt := workspaceGroupsFixture(t, 1280)
 	menu := func(title, item string) {
 		t.Helper()
@@ -376,22 +540,21 @@ func TestHeaderTabsKeep(t *testing.T) {
 	}
 	show := func(id string) {
 		t.Helper()
-		a.Sidebar.Selected = id
+		a.OpenConversation(id)
 		tt.Frame()
 		tt.Frame()
 	}
 	show("e")
-	menu("Conversation e", "workspace_tab_keep")
 	if !slices.Equal(a.panes.Kept, []panes.Target{session("e")}) {
-		t.Fatalf("kept %v", a.panes.Kept)
+		t.Fatalf("open %v", a.panes.Kept)
 	}
 	a.Data.Unassigned = append(a.Data.Unassigned, &viewmodel.Conversation{ID: "f", Title: "Conversation f"})
 	show("f")
 	if _, ok := headerButton(tt, "Conversation e"); !ok {
-		t.Fatal("the kept tab left when another conversation showed")
+		t.Fatal("the open tab left when another conversation showed")
 	}
 	if b, ok := headerButton(tt, "Conversation f"); !ok || !b.Checked {
-		t.Fatalf("the passing tab is not shown: %+v", b)
+		t.Fatalf("the opened tab is not shown: %+v", b)
 	}
 	// The tabs are in the order they opened: the groups, then e, then f.
 	group := func(n int) string { return i18n.In("en", "pane_group", "number", n) }
@@ -407,34 +570,31 @@ func TestHeaderTabsKeep(t *testing.T) {
 	if saved := a.prefs().TabOrder; len(saved) != 4 || saved[2] != session("e") || saved[3] != session("f") {
 		t.Fatalf("saved order %v", saved)
 	}
-	if saved := a.prefs().Tabs; !slices.Equal(saved, []panes.Target{session("e")}) {
+	if saved := a.prefs().Tabs; !slices.Equal(saved, []panes.Target{session("e"), session("f")}) {
 		t.Fatalf("saved tabs %v", saved)
 	}
 	restored := NewLive(a.Data)
 	restored.SetPrefs(a.prefs())
-	if !slices.Equal(restored.panes.Kept, []panes.Target{session("e")}) {
+	if !slices.Equal(restored.panes.Kept, []panes.Target{session("e"), session("f")}) {
 		t.Fatalf("restored tabs %v", restored.panes.Kept)
 	}
-	// The kept tab, shown, closes to the next tab: the passing one goes with
-	// it, so the first group shows.
+	// The open tab, shown, closes to the next tab.
 	show("e")
 	menu("Conversation e", "close")
-	if len(a.panes.Kept) != 0 || a.panes.Displayed() == nil {
-		t.Fatalf("closing the shown tab: kept %v, active %v", a.panes.Kept, a.panes.Active)
+	if !slices.Equal(a.panes.Kept, []panes.Target{session("f")}) || a.panes.Active != session("f") {
+		t.Fatalf("closing the shown tab: open %v, active %v", a.panes.Kept, a.panes.Active)
 	}
-	// ⌘W in a conversation standing alone closes its tab and stops keeping
-	// it; the session stays.
-	a.panes.Keep(session("e"))
-	show("e")
+	// ⌘W in a conversation standing alone closes its tab, and the tab before
+	// it, a group's, shows; the session stays.
 	// Choosing the tab puts the focus in the conversation.
-	b, _ := headerButton(tt, "Conversation e")
+	b, _ := headerButton(tt, "Conversation f")
 	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	tt.Frame()
-	if len(a.panes.Kept) != 0 || a.Data.Find("e") == nil {
-		t.Fatalf("⌘W on the tab: kept %v", a.panes.Kept)
+	if len(a.panes.Kept) != 0 || a.Data.Find("f") == nil || a.panes.Displayed() == nil {
+		t.Fatalf("⌘W on the tab: open %v, active %v", a.panes.Kept, a.panes.Active)
 	}
 	menu(i18n.In("en", "pane_group", "number", 1), "workspace_tab_unsplit")
 	if len(a.panes.Groups) != 1 {

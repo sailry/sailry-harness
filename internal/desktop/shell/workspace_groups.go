@@ -51,13 +51,14 @@ func (a *App) workspaceGroupTarget(group *panes.Node) panes.Target {
 }
 
 // headerTab is a tab of the title band: a split group, or a session or
-// terminal standing alone, kept or passing.
+// terminal standing alone. A session's tab is open until it is closed; an
+// independent terminal's is kept or passing.
 type headerTab struct {
 	group *panes.Node // a split group's, nil for one standing alone
 	index int         // the group's place in the workspace
 	alone panes.Target
-	// kept is a tab kept until closed; a passing tab names what shows
-	// alone, in italics, and goes with it.
+	// kept is a tab open until closed; a terminal's passing tab names the
+	// terminal shown alone, in italics, and goes with it.
 	kept, shown bool
 	title       string
 }
@@ -70,10 +71,11 @@ func (t headerTab) key() any {
 }
 
 // headerTabs are the conversation page's tabs, as an editor's, in the
-// order they opened: the kept ones, a passing one for what shows alone
-// otherwise, and the split groups. With nothing to show the band shows the
-// title. A kept target that joined a group shows in its group's tab, and
-// one not loaded yet is left out until it is.
+// order they opened: the open ones, a passing one for a terminal shown alone
+// otherwise, and the split groups. A session shown without having been
+// opened, as a selection the window fell back to, has none. With nothing to
+// show the band shows the title. An open target that joined a group shows in
+// its group's tab, and one not loaded yet is left out until it is.
 func (a *App) headerTabs(c *ui.Context) []headerTab {
 	w := &a.panes
 	if a.Page != ConversationPage {
@@ -93,7 +95,7 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 	for _, t := range kept {
 		tabs = append(tabs, headerTab{alone: t, kept: true, shown: t == alone, title: a.paneTitle(c, t)})
 	}
-	if alone != (panes.Target{}) && !slices.Contains(kept, alone) {
+	if alone.Kind == panes.Terminal && !slices.Contains(kept, alone) {
 		tabs = append(tabs, headerTab{alone: alone, shown: true, title: a.paneTitle(c, alone)})
 	}
 	active := w.Group(w.Active)
@@ -105,6 +107,25 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 	}
 	a.orderTabs(tabs)
 	return tabs
+}
+
+// OpenConversation opens session id as the user asked for it, from a sidebar
+// row, a link, search, a notification or another page: it shows on the
+// conversation page, in its split group when it is in one, and otherwise has
+// a tab until that is closed. A selection the window falls back to when data
+// changes is no open and adds no tab, so closing the last tab stays closed.
+func (a *App) OpenConversation(id string) {
+	a.Page = ConversationPage
+	a.Sidebar.Selected = id
+	a.openTab(session(id))
+}
+
+// openTab gives session t a tab of its own, once: a loaded session standing
+// alone. One in a split group is reached by the group's tab.
+func (a *App) openTab(t panes.Target) {
+	if a.Data.Find(t.ID) != nil && a.panes.Group(t) < 0 {
+		a.panes.Keep(t)
+	}
 }
 
 // orderTabs sorts the tabs by the order they opened in: each holds its
@@ -145,11 +166,11 @@ func (a *App) orderTabs(tabs []headerTab) {
 
 // workspaceGroupWidth is the tabs' width in the room the strip leaves, each
 // tab as wide as its title up to groupTabMax. More remain reachable
-// by horizontal scrolling rather than covering page actions. A lone entry
-// uses the page title unless it was kept and needs its close action.
+// by horizontal scrolling rather than covering page actions. A lone unkept
+// entry uses the page title only when it is already shown.
 func (a *App) workspaceGroupWidth(c *ui.Context, room float32) float32 {
 	tabs := a.headerTabs(c)
-	if len(tabs) == 0 || len(tabs) == 1 && !tabs[0].kept {
+	if len(tabs) == 0 || len(tabs) == 1 && tabs[0].shown && !tabs[0].kept {
 		return 0
 	}
 	width := float32(len(tabs)-1) * (2*kit.StripGap + 1)
@@ -179,11 +200,10 @@ func (a *App) groupTitle(c *ui.Context, group *panes.Node) string {
 
 // workspaceGroups are the band's tabs in the strip tabs' look, a short
 // divider between each two. A group's has the split mark and
-// its panes' titles; one standing alone its title and a close button, in
-// italics while it only passes. A double click keeps a passing tab, and
-// each has its system menu: keep or stop keeping and close, or undo the
-// split. Each uses MyGo's button input, so presses do not drag the title
-// bar.
+// its panes' titles; one standing alone its title and a close button, a
+// terminal's in italics while it only passes. Each has its system menu:
+// close, a terminal's also keep or stop keeping, or undo the split. Each
+// uses MyGo's button input, so presses do not drag the title bar.
 func (a *App) workspaceGroups(c *ui.Context, width float32) {
 	w := &a.panes
 	a.rememberGroupFocus(w.Active)
@@ -250,11 +270,13 @@ func (a *App) groupTab(c *ui.Context, b ui.Element, t headerTab, hovered bool) {
 	b.OnClick(func() { a.showTab(c, t) })
 }
 
-// aloneTab is the tab of a session or terminal standing alone: kept, or
-// passing in italics until a double click keeps it. Closing it stops
-// keeping it and, while it shows, shows its neighbour.
+// aloneTab is the tab of a session or terminal standing alone. A session's
+// is open until closed; a terminal's is kept, or passing in italics until a
+// double click keeps it. Closing it closes the tab, never the session's task
+// or the terminal, and, while it shows, shows its neighbour.
 func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab, hovered bool) {
-	if !t.kept {
+	terminal := t.alone.Kind == panes.Terminal
+	if terminal && !t.kept {
 		b.Italic()
 	}
 	close := func() { a.closeHeaderTab(c, t, tabs) }
@@ -266,22 +288,24 @@ func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTa
 	}
 	kit.StripTabBodyWith(c, b, lead, t.title, t.shown, hovered, i18n.T(c, "close"), close)
 	kit.Tooltip(c, b, t.title)
-	if b.DoubleClicked() {
+	if terminal && b.DoubleClicked() {
 		a.panes.Keep(t.alone)
 	}
 	b.ContextMenu(func(m *ui.Menu) {
-		keep := "workspace_tab_keep"
-		if t.kept {
-			keep = "workspace_tab_release"
-		}
-		if m.Item(i18n.T(c, keep)).Chosen() {
+		if terminal {
+			keep := "workspace_tab_keep"
 			if t.kept {
-				a.panes.Release(t.alone)
-			} else {
-				a.panes.Keep(t.alone)
+				keep = "workspace_tab_release"
 			}
+			if m.Item(i18n.T(c, keep)).Chosen() {
+				if t.kept {
+					a.panes.Release(t.alone)
+				} else {
+					a.panes.Keep(t.alone)
+				}
+			}
+			m.Separator()
 		}
-		m.Separator()
 		if m.Item(i18n.T(c, "close")).Chosen() {
 			close()
 		}
@@ -315,8 +339,8 @@ func (a *App) tabClosable() bool {
 }
 
 // closeShownTab is ⌘W on a session standing alone: its tab closes as its
-// close button does, kept no more, and the next tab shows. Only the
-// window's tab goes; the session runs on.
+// close button does and the next tab shows. Only the window's tab goes; the
+// session runs on.
 func (a *App) closeShownTab(c *ui.Context) {
 	tabs := a.headerTabs(c)
 	for _, t := range tabs {
@@ -327,8 +351,10 @@ func (a *App) closeShownTab(c *ui.Context) {
 	}
 }
 
-// closeHeaderTab closes a session's or terminal's tab: it is kept no more, and
-// when it is the one shown the next tab, or else the one before, shows.
+// closeHeaderTab closes a session's or terminal's tab, and when it is the one
+// shown the next tab, or else the one before, shows. With none left the
+// session stays shown under the plain title; nothing opens it again until
+// the user does.
 func (a *App) closeHeaderTab(c *ui.Context, t headerTab, tabs []headerTab) {
 	a.panes.Release(t.alone)
 	if !t.shown {

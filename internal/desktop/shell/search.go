@@ -81,7 +81,7 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 			}
 			list = append(list, Choice{ID: id, Label: sidebar.Title(c, cv), Icon: icons.Chat, Keywords: keys,
 				Selected: id == a.Sidebar.Selected && a.Page == ConversationPage, run: func() {
-					a.Page, a.Sidebar.Selected = ConversationPage, id
+					a.OpenConversation(id)
 				}})
 		}
 		return []Group{{Choices: list}}

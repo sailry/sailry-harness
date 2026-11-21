@@ -356,9 +356,11 @@ func TestDemoMode(t *testing.T) {
 		r.App.Navigate(shell.ConversationPage)
 		step()
 		for _, cv := range list {
-			// A row past its group's first five is behind Show more.
+			// A row past its group's first five is behind Show more: it opens
+			// as its row would, with a tab, since a bare selection has none
+			// and the band shows only the other tabs.
 			if tester.Click(cv.Title) != nil || r.App.Sidebar.Selected != cv.ID {
-				r.App.Sidebar.Selected = cv.ID
+				r.App.OpenConversation(cv.ID)
 			}
 			step()
 			if !tester.HasText(cv.Title) {

@@ -217,14 +217,15 @@ func testPaneNewTab(t *testing.T) {
 }
 
 // With the focus in the sidebar the conversation's keys go on to the window:
-// Cmd+T opens the panel's browser as before, and nothing opens a conversation.
+// Cmd+T opens the panel's browser as before, and nothing opens a conversation
+// beyond the tab the row's click opened.
 func testPaneKeysOutsideConversation(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "Port the neutral theme tokens")
 	settle(tt)
 	tt.Key(ui.Cmd, ui.KeyT)
 	settle(tt)
-	if a.Sidebar.Selected != themeChat || len(a.panes.Kept) != 0 || a.panes.Displayed() != nil {
+	if a.Sidebar.Selected != themeChat || !slices.Equal(a.panes.Kept, []panes.Target{session(themeChat)}) || a.panes.Displayed() != nil {
 		t.Fatalf("Cmd+T from the sidebar: selected %q, kept %v", a.Sidebar.Selected, a.panes.Kept)
 	}
 	if a.Panel.Offers(panel.Browser) && (!a.PanelOpen || a.Panel.Active.Kind != panel.Browser) {

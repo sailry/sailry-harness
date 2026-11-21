@@ -246,8 +246,7 @@ func (a *App) run(c *ui.Context, id string) {
 		}
 	case "conversation.previous", "conversation.next":
 		if next := adjacent(a, id == "conversation.next"); next != "" {
-			a.Page = ConversationPage
-			a.Sidebar.Selected = next
+			a.OpenConversation(next)
 		}
 	case "app.shortcuts":
 		a.Page = SettingsPage

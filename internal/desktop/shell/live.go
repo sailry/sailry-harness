@@ -94,6 +94,16 @@ func (a *App) ReplaceConversationID(before, after string) {
 	if a.panes.seen == before {
 		a.panes.seen = after
 	}
+	// The draft's tab and its place become the session's.
+	rename := func(list []panes.Target) {
+		for i, t := range list {
+			if t == session(before) {
+				list[i] = session(after)
+			}
+		}
+	}
+	rename(a.panes.Kept)
+	rename(a.panes.order)
 	if focus := a.panes.focus[session(before)]; focus != nil {
 		a.panes.focus[session(after)] = focus
 		delete(a.panes.focus, session(before))

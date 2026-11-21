@@ -599,22 +599,29 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 
 	// The empty conversation keeps its navigation and right-column toggles;
 	// the statistics package's context control waits for the first turn.
-	// A single draft shows its title without a workspace tab.
+	// New session opens the draft as a sidebar row does: its tab shows, named
+	// by the draft's title, and its close button belongs to the tab.
 	var header []ui.AccessInfo
-	title := false
-	for _, info := range tester.AccessAll() {
-		if info.Bounds.Y+info.Bounds.H > shell.HeaderHeight {
-			continue
-		}
-		if info.Role == ui.RoleText && info.Name == zh("conversation") {
-			title = true
-		}
-		if info.Role == ui.RoleButton {
-			header = append(header, info)
+	var tab ui.AccessInfo
+	inside := func(info ui.AccessInfo) bool {
+		b := tab.Bounds
+		return b.W > 0 && info.Bounds.X >= b.X && info.Bounds.X+info.Bounds.W <= b.X+b.W
+	}
+	nodes := tester.AccessAll()
+	for _, info := range nodes {
+		// The shown tab reports its state as the header's tabs do.
+		if info.Role == ui.RoleButton && info.Name == zh("conversation") && (info.Selected || info.Checked) && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+			tab = info
 		}
 	}
-	if !title {
-		t.Errorf("the draft has no title in the header")
+	if tab.Bounds.W == 0 {
+		t.Errorf("the draft has no shown tab in the header")
+	}
+	for _, info := range nodes {
+		if info.Bounds.Y+info.Bounds.H > shell.HeaderHeight || info.Role != ui.RoleButton || inside(info) {
+			continue
+		}
+		header = append(header, info)
 	}
 	names := func() (all []string) {
 		for _, info := range header {

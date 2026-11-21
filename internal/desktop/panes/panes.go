@@ -129,8 +129,9 @@ type Workspace struct {
 	Groups []*Node `json:"groups,omitempty"`
 	// Active is the focused pane, whose group the main column shows.
 	Active Target `json:"-"`
-	// Kept are the sessions and terminals kept as tabs beside the groups,
-	// in order; what shows alone otherwise has a passing tab only.
+	// Kept are the sessions open as tabs and the terminals kept as tabs
+	// beside the groups, in order; a terminal shown alone otherwise has a
+	// passing tab only.
 	Kept []Target `json:"kept,omitempty"`
 	// held are the groups as they were before Follow took out the panes
 	// that were not there, and shown is what that left (Follow).

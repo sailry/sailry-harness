@@ -199,7 +199,7 @@ func (a *App) demoProject(pr *viewmodel.Project) {
 		NewSession: func(pr *viewmodel.Project) { a.Sidebar.NewSession(pr) },
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
 			cv.Archived = false
-			a.Page, a.Sidebar.Selected = ConversationPage, cv.ID
+			a.OpenConversation(cv.ID)
 			done(true)
 		},
 		NewTerminal: a.demoTerminal,

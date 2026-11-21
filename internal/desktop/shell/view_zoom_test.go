@@ -108,8 +108,17 @@ func TestViewZoomAdaptsSidebar(t *testing.T) {
 		if seen[0] != z || !near(seen[1], 1280/z) {
 			t.Fatalf("%d%%: zoom %v, content %v wide", level, seen[0], seen[1])
 		}
+		button, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "shell_sessions"))
+		wantRail := float32(RailWidth)
+		if level == 150 {
+			wantRail = 72
+		}
+		if !ok || !near(button.Bounds.W, RailButton*z) || !near(2*button.Bounds.X+button.Bounds.W, wantRail) {
+			t.Errorf("%d%%: rail button %+v is not centered in %v window DIPs", level, button.Bounds, wantRail)
+		}
 		x, _ := handleCenter(t, tt, nav)
-		if i > 0 && x <= lastEdge || i == 0 && !near(x, navX) || x > navX+64 {
+		limit := navX + 56 + (wantRail - RailWidth) + (z - 1)
+		if i > 0 && x <= lastEdge || i == 0 && !near(x, navX) || x > limit && !near(x, limit) {
 			t.Errorf("%d%%: sidebar edge %v, previous %v, at 100%% %v", level, x, lastEdge, navX)
 		}
 		lastEdge = x
@@ -124,7 +133,9 @@ func TestViewZoomAdaptsSidebar(t *testing.T) {
 		}
 	}
 	// A drag moves the edge as far on the window as the pointer, and the
-	// width is saved at 100%.
+	// width is saved at 100%. Give the full drag room next to the 150% rail.
+	tt.SetSize(1320, 820)
+	settle(tt)
 	x, y := handleCenter(t, tt, nav)
 	tt.Press(x, y)
 	tt.Move(x+20, y)
@@ -136,6 +147,11 @@ func TestViewZoomAdaptsSidebar(t *testing.T) {
 	}
 	if got, _ := handleCenter(t, tt, nav); !near(got, x+40) {
 		t.Errorf("the dragged edge is at %v, want %v", got, x+40)
+	}
+	tt.SetSize(1280, 820)
+	settle(tt)
+	if got, _ := handleCenter(t, tt, nav); !near(got, 1280-MainMin-saved.PanelWidth) || !near(a.mainLayoutWidth*seen[0], MainMin) {
+		t.Errorf("the zoom allowance must yield at the main minimum: edge %v, main %v", got, a.mainLayoutWidth*seen[0])
 	}
 
 	// At the minimum Desktop width, preserve the fitted details and the main

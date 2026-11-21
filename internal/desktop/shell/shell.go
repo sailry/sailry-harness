@@ -519,12 +519,17 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	if f.showsPanel {
 		target = 1
 	}
+	rail := float32(RailWidth)
+	if z >= 1.5 {
+		// At 150% the 54-DIP buttons otherwise nearly fill the 56-DIP rail.
+		rail += min(16, max(w-rail-z-nav-f.panelW*target-MainMin, 0))
+	}
 	// The same conversation sidebar shows beside the host and project pages.
 	// At larger sizes it gets up to 56 extra window DIPs, but never at the
 	// expense of a fitted details column or the main column's minimum space.
 	switch a.Page {
 	case ConversationPage, HostPage, ProjectPage:
-		space := max(w-RailWidth-z-f.navWidth-f.panelW*target-MainMin, 0)
+		space := max(w-rail-z-f.navWidth-f.panelW*target-MainMin, 0)
 		f.navWidth += min(112*(z-1), space)
 		nav = f.navWidth * navTarget
 	}
@@ -541,10 +546,10 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 		f.details = root.AnimateTo("details", target, Motion)
 	}
 	// The panel's 1 DIP outline is the content's, z of the window's.
-	f.mainWidth = max(w-RailWidth-z-nav-f.panelW*target, 0)
-	actual := max(w-RailWidth-z-f.navWidth*f.nav-f.panelW*f.details, 0)
+	f.mainWidth = max(w-rail-z-nav-f.panelW*target, 0)
+	actual := max(w-rail-z-f.navWidth*f.nav-f.panelW*f.details, 0)
 	f.mainShift = (actual - f.mainWidth) / 2
-	f.rail, f.navWidth, f.panelW, f.mainWidth, f.mainShift = RailWidth/z, f.navWidth/z, f.panelW/z, f.mainWidth/z, f.mainShift/z
+	f.rail, f.navWidth, f.panelW, f.mainWidth, f.mainShift = rail/z, f.navWidth/z, f.panelW/z, f.mainWidth/z, f.mainShift/z
 	return f
 }
 
@@ -587,7 +592,8 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 	}
 	p := theme.Of(c)
 	if f.details >= 0.999 {
-		nav := f.navWidth * f.nav * f.zoom
+		// The fit helpers already subtract the base rail; count only its zoom allowance here.
+		nav := (f.navWidth*f.nav+f.rail)*f.zoom - RailWidth
 		width, reset := &a.PanelWidth, float32(PanelWidth)
 		clamp := func(v float32) float32 {
 			return ClampPanel(v, f.window, nav)

@@ -157,7 +157,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 		case n.Link != "":
 			a.openKnowledge(c, n.Node, n.Link)
 		case n.Session != "" && a.Data.Find(n.Session) != nil:
-			a.Page, a.Sidebar.Selected = ConversationPage, n.Session
+			a.OpenConversation(n.Session)
 		}
 	})
 }
@@ -327,7 +327,7 @@ func (a *App) avatar(c *ui.Context, cv *preview.Conversation, l lane) {
 			kit.Agent(c, cv.ID, color, false, 20)
 			kit.StatusRing(c, tone, p.Background).Absolute().Right(0).Bottom(0)
 		})
-	}).OnClick(func() { a.Page, a.Sidebar.Selected = ConversationPage, cv.ID })
+	}).OnClick(func() { a.OpenConversation(cv.ID) })
 	a.preview(c, b, cv)
 }
 
@@ -378,7 +378,7 @@ func (a *App) overflowRow(c *ui.Context, cv *preview.Conversation, l lane, open 
 		ui.Icon(c, glyph).FontSize(16).TextColor(color).Shrink(0)
 	}).OnClick(func() {
 		*open = false
-		a.Page, a.Sidebar.Selected = ConversationPage, cv.ID
+		a.OpenConversation(cv.ID)
 	})
 	a.preview(c, row, cv)
 }

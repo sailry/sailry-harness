@@ -497,7 +497,7 @@ func headerParity(t *testing.T) {
 	tt.Frame()
 	var row ui.AccessInfo
 	for _, e := range tt.AccessAll() {
-		if e.Role == ui.RoleButton && strings.HasPrefix(e.Name, child.Name+": ") {
+		if e.Role == ui.RoleButton && e.Name == child.Name {
 			row = e
 		}
 	}
