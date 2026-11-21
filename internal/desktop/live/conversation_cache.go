@@ -22,8 +22,9 @@ type conversationPresentation struct {
 	language   string
 	connection conversation.Connection
 	clocks     transcriptClocks
+	statistics *protocol.ConversationStatistics
 	mounted    bool
-	outgoing   *conversationOutgoing
+	overlay    *conversationOutgoing
 	requested  uint64
 	offline    bool
 }
@@ -89,6 +90,14 @@ func (r *Runtime) finishConversationFrame() {
 			delete(r.conversationCache, id)
 		}
 	}
+	for id, pending := range r.composerOutgoing {
+		if pending.turn == (protocol.TurnID{}) {
+			continue
+		}
+		if session, err := protocol.ParseSessionID(id); err == nil && !r.conversationSeen[session] {
+			r.discardOutgoing(id)
+		}
+	}
 	for cv, presentation := range r.conversationPresentations {
 		if presentation.mounted {
 			presentation.mounted = false
@@ -128,7 +137,7 @@ func (r *Runtime) carryConversationPresentations(previous *viewmodel.Data) {
 		return
 	}
 	for old, saved := range r.conversationPresentations {
-		if previous.Find(old.ID) != old || old.Offline || saved.generation == 0 || r.composerOutgoing[old.ID] != nil {
+		if previous.Find(old.ID) != old || old.Offline || saved.generation == 0 {
 			continue
 		}
 		cv := r.App.Data.Find(old.ID)
@@ -165,15 +174,23 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	if r.conversationCopies != nil {
 		copied = r.conversationCopies[id]
 	}
-	outgoing := r.composerOutgoing[cv.ID]
 	saved := r.conversationPresentations[cv]
-	if copied.generation != 0 && saved.generation == copied.generation && saved.language == language && saved.outgoing == outgoing && (!saved.offline || !r.controller.Connected()) {
+	statistics := state.Snapshot.Statistics
+	if copied.generation != 0 && saved.generation == copied.generation && saved.language == language &&
+		(saved.overlay == nil || saved.overlay == r.composerOutgoing[cv.ID]) && (!saved.offline || !r.controller.Connected()) {
 		// The Node's connection override is applied later in conversation.
 		// Restore the observed connection when that Node becomes available.
 		cv.Session.Connection = saved.connection
+		cv.Session.Loading = state.Loading
 		cv.Session.LoadingOlder, cv.Session.OlderFailed = state.LoadingOlder, state.OlderErr != nil
+		if saved.statistics != statistics {
+			cv.Session.Usage, saved.statistics = conversationUsage(statistics), statistics
+		}
 		if !saved.offline {
 			saved.clocks.advance(cv.Turns, now)
+		}
+		if overlay := r.projectOutgoing(cv, state.Snapshot.Page); overlay != nil || saved.overlay != r.composerOutgoing[cv.ID] {
+			saved.overlay = overlay
 		}
 		saved.mounted = true
 		r.conversationPresentations[cv] = saved
@@ -191,6 +208,7 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 			}
 			if saved.generation == 0 && len(cv.Turns) == 0 {
 				cv.Session.Loading = true
+				r.projectOutgoing(cv, protocol.ConversationPage{})
 			}
 			saved.mounted = true
 			r.saveConversationPresentation(cv, saved)
@@ -204,6 +222,9 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	v := &p.view
 	cv.Turns, cv.Session, cv.Waiting, cv.Queue = v.Turns, v.Session, v.Waiting, v.Queue
 	cv.Session.LoadingOlder, cv.Session.OlderFailed = state.LoadingOlder, state.OlderErr != nil
+	if p.state.Snapshot.Statistics != statistics {
+		cv.Session.Usage = conversationUsage(statistics)
+	}
 	p.clocks.advance(cv.Turns, now)
 	r.App.Messages.SetReferences(cv.ID, p.references)
 	r.bindAttachmentSources(cv.ID, state.Snapshot.Page, p.attachments)
@@ -213,8 +234,8 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	if p.blank && !state.LoadingOlder && state.OlderErr == nil {
 		r.async(func() { _ = r.controller.LoadBlankConversationTurn(r.ctx, id) })
 	}
-	presentation := conversationPresentation{mounted: true, generation: copied.generation, language: language, outgoing: outgoing,
-		connection: cv.Session.Connection, clocks: p.clocks}
+	presentation := conversationPresentation{mounted: true, generation: copied.generation, language: language, overlay: r.projectOutgoing(cv, p.state.Snapshot.Page),
+		connection: cv.Session.Connection, clocks: p.clocks, statistics: statistics}
 	r.saveConversationPresentation(cv, presentation)
 	return true
 }

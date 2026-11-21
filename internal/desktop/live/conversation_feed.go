@@ -166,7 +166,7 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 }
 
 func sameTranscriptSource(a, b client.ConversationState) bool {
-	return a.SameViewSnapshot(b) && a.Connected == b.Connected && a.Loading == b.Loading && a.Removed == b.Removed && a.Err == nil && b.Err == nil
+	return a.SameViewTranscript(b) && a.Connected == b.Connected && a.Loading == b.Loading && a.Removed == b.Removed && a.Err == nil && b.Err == nil
 }
 
 func (r *Runtime) takeConversationFeed(id protocol.SessionID, feed *conversationFeed) {
@@ -180,10 +180,12 @@ func (r *Runtime) takeConversationFeed(id protocol.SessionID, feed *conversation
 	}
 	copied := r.conversationCache[id]
 	state, previous := p.state, copied.state
+	if !state.SameViewSnapshot(previous) {
+		copied.composer = nil
+	}
 	if !sameTranscriptSource(state, previous) {
 		r.conversationVersion++
 		copied.generation = r.conversationVersion
-		copied.composer = nil
 		copied.prepared, copied.controls = nil, nil
 	}
 	copied.state, copied.ok = state, true

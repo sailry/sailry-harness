@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -17,14 +18,91 @@ func delegated(session protocol.Session) bool {
 	return session.Delegation != nil && *session.Delegation != nil
 }
 
-func (r *Runtime) childSession(page protocol.ConversationPage, parent protocol.SessionID, id string) (protocol.ConversationChild, protocol.Session, bool) {
-	for _, child := range client.LatestConversationChildren(page.Children) {
-		if child.Run.Session.String() == id {
-			session, valid := client.ConversationChildSession(r.snapshot(), parent, child)
-			return child, session, valid
-		}
+type liveChildScopes struct {
+	checks map[protocol.SessionID]*childOriginCheck
+	tabs   map[childTabKey]childTabScope
+}
+
+type childTabKey struct{ selected, node, id string }
+
+func (r *Runtime) childTabKey(id string) childTabKey {
+	key := childTabKey{selected: r.App.Sidebar.Selected, id: id}
+	if selected := r.App.Data.Find(key.selected); selected != nil {
+		key.node = selected.Node
 	}
-	return protocol.ConversationChild{}, protocol.Session{}, false
+	return key
+}
+
+type childTabScope struct {
+	node     protocol.NodeID
+	parent   protocol.SessionID
+	revision uint64
+	target   client.ConversationChildTarget
+}
+
+type childOriginCheck struct {
+	childTabScope
+	confirmed protocol.ConversationChild
+}
+
+func (check *childOriginCheck) matches(scope childTabScope) bool {
+	if check == nil || check.node != scope.node || check.parent != scope.parent || check.revision != scope.revision ||
+		check.target.Background == nil || scope.target.Background == nil {
+		return false
+	}
+	a, b := check.target, scope.target
+	return a.Background.Turn == b.Background.Turn && a.Background.Revision == b.Background.Revision && a.Child.Run.Turn == b.Child.Run.Turn &&
+		a.Child.Run.Sequence == b.Child.Run.Sequence && a.Child.Run.Revision == b.Child.Run.Revision && a.MatchesSession(b.Session)
+}
+
+// liveChildren exposes canonical and confirmed background children to the
+// composer, overview and approval lookup. A background edge supplies a turn
+// to verify, not permission to observe or control another session.
+func (r *Runtime) liveChildren(conversation protocol.ConversationSnapshot) []client.ConversationChildTarget {
+	targets := client.ConversationChildTargets(r.snapshot(), conversation)
+	verified := targets[:0]
+	for _, target := range targets {
+		if target.Background != nil {
+			if r.teams == nil {
+				continue
+			}
+			scope := childTabScope{node: conversation.Node, parent: conversation.Page.Session, revision: conversation.Page.Revision, target: target}
+			confirmed, ok := r.checkedChildOrigin(scope)
+			if !ok || !runStatus(confirmed.Run.Status).Active() {
+				continue
+			}
+			target.Child.Origin, target.Child.Name = confirmed.Origin, confirmed.Name
+		}
+		verified = append(verified, target)
+	}
+	return verified
+}
+
+func (r *Runtime) checkedChildOrigin(scope childTabScope) (protocol.ConversationChild, bool) {
+	checks := r.teams.childScopes.checks
+	id := scope.target.Session.ID
+	if !r.controller.Connected() || scope.node != r.controller.Target() {
+		delete(checks, id)
+		return protocol.ConversationChild{}, false
+	}
+	if check := checks[id]; check.matches(scope) {
+		return check.confirmed, check.confirmed.Run.Turn != (protocol.TurnID{})
+	}
+	if checks == nil {
+		checks = map[protocol.SessionID]*childOriginCheck{}
+		r.teams.childScopes.checks = checks
+	}
+	check := &childOriginCheck{childTabScope: scope}
+	checks[id] = check
+	if !r.async(func() {
+		child, err := r.controller.ConfirmConversationChild(r.ctx, scope.node, scope.revision, scope.target)
+		if err == nil {
+			r.enqueue(func(*ui.Context) { check.confirmed = child })
+		}
+	}) {
+		delete(checks, id)
+	}
+	return protocol.ConversationChild{}, false
 }
 
 func childTitle(page *protocol.ConversationPage, child protocol.ConversationChild, locale string) string {
@@ -58,64 +136,120 @@ func childTitle(page *protocol.ConversationPage, child protocol.ConversationChil
 	return i18n.In(locale, "chat_child")
 }
 
+func liveChildTitle(page *protocol.ConversationPage, target client.ConversationChildTarget, locale string) string {
+	if target.Background != nil && strings.TrimSpace(target.Background.Title) != "" {
+		if name := target.Child.Name; name != nil && strings.TrimSpace(*name) != "" && target.Child.Origin.Role != nil {
+			return *name + " " + target.Background.Title
+		}
+		return target.Background.Title
+	}
+	return childTitle(page, target.Child, locale)
+}
+
 func (r *Runtime) openLiveChild(parent *viewmodel.Conversation, id string) {
 	parentID, err := protocol.ParseSessionID(parent.ID)
-	if err != nil {
+	if err != nil || parent.Node != r.controller.Target().String() || r.conversationRuntime(parent, nil) != r || r.teams == nil {
 		return
 	}
-	state, _ := r.controller.Conversation(parentID)
-	child, session, ok := r.childSession(state.Snapshot.Page, parentID, id)
-	if !ok {
+	state, ready := r.controller.Conversation(parentID)
+	childID, parse := protocol.ParseSessionID(id)
+	target, found := client.ConversationChildOpenTarget(r.snapshot(), state.Snapshot, childID)
+	if parse != nil || childID.String() != id || !ready || state.Removed || !found {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "chat_child_unavailable")) })
 		return
 	}
-	selected, origin := r.App.Sidebar.Selected, r.App.Page
-	r.executeScoped("child-tab/"+id, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}, func(c *ui.Context, out protocol.Output, err error) {
-		if r.App.Sidebar.Selected != selected || r.App.Page != origin {
-			return
+	scope := childTabScope{node: state.Snapshot.Node, parent: parentID, revision: state.Snapshot.Page.Revision, target: target}
+	key, page := r.childTabKey(id), r.App.Page
+	busy := "child-tab/" + key.selected + "/" + id
+	if r.busy[busy] {
+		return
+	}
+	r.busy[busy] = true
+	if !r.async(func() {
+		target := scope.target
+		var out protocol.Output
+		var err error
+		if target.Background != nil || target.Child.Run.Turn == (protocol.TurnID{}) {
+			// Only a current proof can bridge the conversation observation.
+			var confirmed protocol.ConversationChild
+			confirmed, err = r.controller.ConfirmConversationChild(r.ctx, scope.node, scope.revision, target)
+			target.Child = confirmed
 		}
-		if err != nil {
-			r.reportKeys(c, err, "chat_child_unavailable", "chat_child_unavailable", "chat_child_unavailable")
-			return
+		if err == nil {
+			out, err = r.controller.Do(r.ctx, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: target.Session.ID}})
 		}
-		current, valid := detail[protocol.Session](out.Data)
-		if !valid || current.ID != session.ID || !delegated(current) || (*current.Delegation).Session != parentID {
-			kit.Toast(c, kit.Conflict, i18n.T(c, "chat_child_unavailable"))
-			return
-		}
-		r.admittedSessions[id] = current
-		r.teams.childParents[id] = parentID
-		var page *protocol.ConversationPage
-		if state, ready := r.controller.Conversation(parentID); ready {
-			page = &state.Snapshot.Page
-		}
-		r.App.RevealConversationPanel()
-		r.App.Panel.ShowChild(id, childTitle(page, child, c.Locale()))
-	})
+		r.enqueue(func(c *ui.Context) {
+			delete(r.busy, busy)
+			if r.childTabKey(id) != key || r.App.Page != page || r.conversationRuntime(parent, nil) != r {
+				return
+			}
+			if active := r.App.Data.Find(parent.ID); active != nil && active.Node != scope.node.String() {
+				return
+			}
+			if err != nil {
+				r.reportKeys(c, err, "chat_child_unavailable", "chat_child_unavailable", "chat_child_unavailable")
+				return
+			}
+			current, valid := detail[protocol.Session](out.Data)
+			fresh, ready := r.controller.Conversation(parentID)
+			listed, inScope := target.CheckScope(r.snapshot(), scope.node)
+			if out.Kind != "session" || !valid || !target.MatchesSession(current) || !ready || fresh.Removed ||
+				fresh.Snapshot.Node != scope.node || fresh.Snapshot.Page.Session != parentID || fresh.Snapshot.Page.Revision != scope.revision || !inScope {
+				kit.Toast(c, kit.Conflict, i18n.T(c, "chat_child_unavailable"))
+				return
+			}
+			r.admittedSessions[id] = current
+			r.teams.childParents[id] = parentID
+			target.Listed = listed
+			scope.target = target
+			tabs := &r.localRuntime().teams.childScopes.tabs
+			if *tabs == nil {
+				*tabs = map[childTabKey]childTabScope{}
+			}
+			for k := range *tabs {
+				if !r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: k.id}) {
+					delete(*tabs, k)
+				}
+			}
+			(*tabs)[key] = scope
+			r.App.RevealConversationPanel()
+			r.App.Panel.ShowChild(id, liveChildTitle(&fresh.Snapshot.Page, target, c.Locale()))
+		})
+	}) {
+		delete(r.busy, busy)
+	}
 }
 
 func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
-	if r.parent == nil {
-		for _, bound := range r.bindings {
-			if _, ok := bound.teams.childParents[id]; ok {
-				bound.renderLiveChild(c, id)
-				return
-			}
-		}
-	}
-	if r.teams == nil {
+	root := r.localRuntime()
+	if root.teams == nil {
 		return
 	}
-	parent, known := r.teams.childParents[id]
-	if !known {
+	key := r.childTabKey(id)
+	scope, known := root.teams.childScopes.tabs[key]
+	r = root.runtimeFor(scope.node.String())
+	if !known || r == nil {
 		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
 		return
 	}
-	r.watchChild(parent)
-	state, _ := r.conversationState(parent)
+	session, exists := r.session(id)
+	listed, inScope := scope.target.CheckScope(r.snapshot(), scope.node)
+	if !exists || !inScope || !scope.target.MatchesSession(session) {
+		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
+		return
+	}
+	if listed && !scope.target.Listed {
+		scope.target.Listed = true
+		root.teams.childScopes.tabs[key] = scope
+	}
+	r.watchChild(scope.parent)
+	state, ready := r.conversationState(scope.parent)
+	if !ready || state.Loading && state.Snapshot.Page.Revision == 0 {
+		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_reconnecting")}).Grow(1).Justify(ui.Center)
+		return
+	}
 	page := &state.Snapshot.Page
-	child, session, ok := r.childSession(*page, parent, id)
-	if !ok || !delegated(session) {
+	if state.Removed || state.Snapshot.Node != scope.node || page.Session != scope.parent || page.Revision != scope.revision {
 		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
 		return
 	}
@@ -127,7 +261,7 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 		cv = &viewmodel.Conversation{Node: r.controller.Target().String(), ID: id}
 		r.childConversations[session.ID] = cv
 	}
-	cv.Title = childTitle(page, child, c.Locale())
+	cv.Title = liveChildTitle(page, scope.target, c.Locale())
 	comp := r.App.Composer(id)
 	ctx, actions := r.conversation(c, cv, comp)
 	ctx.Readonly = true

@@ -181,14 +181,14 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 // reveals a failure with detail.
 func TestToolGroupRevealsFailureMessage(t *testing.T) {
 	s := New()
-	activity := true
+	display := toolsLive
 	calls := []Call{
 		{ID: "review", Name: "review_scope", Label: "Review scope", Running: true},
 		{ID: "read", Name: "read_file", Label: "Read file", Output: &Output{Text: "successful output"}},
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, activity)
+		s.tools(c, calls, display)
 	}, 600, 400)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
@@ -201,7 +201,7 @@ func TestToolGroupRevealsFailureMessage(t *testing.T) {
 	if tt.HasText(calls[0].Output.Failure) {
 		t.Fatalf("an active group opened on a failure: %q", tt.Texts())
 	}
-	activity = false
+	display = toolsRevealFailures
 	tt.Frame()
 	if !tt.HasText(calls[0].Output.Failure) || tt.HasText("successful output") {
 		t.Fatalf("the finished group's error did not open on its own: %q", tt.Texts())
@@ -245,7 +245,7 @@ func TestToolRowPathList(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, false)
+		s.tools(c, calls, toolsRevealFailures)
 	}, 900, 600)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -304,7 +304,7 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, true)
+		s.tools(c, calls, toolsLive)
 	}, 900, 600)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -495,7 +495,7 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 		s := New()
 		tt := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
-			s.tools(c, calls, true)
+			s.tools(c, calls, toolsLive)
 		}, 600, 400)
 		tt.SetLocale("en")
 		tt.SetPreferences(ui.Preferences{ReduceMotion: reduce})
@@ -533,17 +533,17 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 func TestFailedRowOpensAfterRun(t *testing.T) {
 	s := New()
 	calls := []Call{{ID: "run", Name: "run_command", Label: "Command", Detail: "make", Failed: true, Output: &Output{Failure: "exit status 2"}}}
-	activity := true
+	display := toolsLive
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, activity)
+		s.tools(c, calls, display)
 	}, 600, 400)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	if tt.HasText("exit status 2") {
 		t.Fatalf("an active failed command opened: %q", tt.Texts())
 	}
-	activity = false
+	display = toolsRevealFailures
 	tt.Frame()
 	if !tt.HasText("exit status 2") {
 		t.Fatalf("the finished failed command did not open: %q", tt.Texts())

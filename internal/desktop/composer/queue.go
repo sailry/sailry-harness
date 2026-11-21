@@ -22,11 +22,12 @@ import (
 // row starts with the same slot (queueLead), so the labels share one edge. A child
 // session's strip is read-only: Read opens the text with Copy, Close and
 // Remove, and nothing is sent ahead or dragged (live/queue/render.rs). Rows
-// come in and go out collapsing, as the strip does. The strip's first row
-// counts the messages and folds the rest away; it is folded until the user
-// unfolds it, for each conversation's composer. The strip lists queued
-// input only: a row says nothing about why it waits, and background results
-// held back from delivery are not rows (AGENTS.md, Removed UI).
+// fade in and out where the strip's own motion takes them. One message is its
+// row alone; from two, the strip's first row counts the messages and folds
+// the rest away; it is folded until the user unfolds it, for each
+// conversation's composer. The strip lists queued input only: a row says
+// nothing about why it waits, and background results held back from
+// delivery are not rows (AGENTS.md, Removed UI).
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {
@@ -38,13 +39,29 @@ type queueState struct {
 	original        string
 }
 
-// queueMotion is how rows and the strip come and go: Kit's normal
-// duration, collapsing and fading.
-var queueMotion = ui.ElementTransition{
+// trayMotion is how the tray comes, goes and changes height, in Kit's normal
+// duration: its lower edge stays on the surface while its upper edge rises or
+// falls, so it comes out from behind the surface and goes back there, fading.
+// It is the strip's one change of size; what is inside moves with it.
+var trayMotion = ui.ElementTransition{
 	Duration: 180 * time.Millisecond,
 	Ease:     ui.CubicBezier(0.2, 0, 0, 1),
-	Enter:    &ui.Motion{Collapse: true, Opacity: 0},
-	Exit:     &ui.Motion{Collapse: true, Opacity: 0},
+	Enter:    &ui.Motion{Collapse: true, YPercent: 100, Opacity: 0},
+	Exit:     &ui.Motion{Collapse: true, YPercent: 100, Opacity: 0},
+}
+
+// queueFade is how the header, the rows' body and the rows the strip lays
+// out itself come and go: fading in place, carried by the tray. A part the
+// layout moves inside the tray, as the body under a header appearing, moves
+// in step with the tray's height, so it holds still on the screen where
+// nothing else moves it.
+var queueFade = ui.ElementTransition{
+	Duration: trayMotion.Duration,
+	Ease:     trayMotion.Ease,
+	Position: true,
+	Colors:   true,
+	Enter:    &ui.Motion{Opacity: 0},
+	Exit:     &ui.Motion{Opacity: 0},
 }
 
 // queueLabel is a row's text: a continuation's marker, a notice's title,
@@ -69,52 +86,99 @@ func queueLabel(c *ui.Context, q Queued) string {
 // queueTray is 8 in from the surface's sides, padding 4, the top corners
 // rounded 2xl, a step lighter than the surface in a light theme, its lower
 // edge tucked a corner's radius behind the surface so no gap shows beside
-// the surface's rounded corners: the header naming how many messages
-// wait, which folds the tray to that one row and unfolds it again, then a
-// hairline and the rows, scrolling past 132 DIPs, or the editor of one of
-// them. The tray is folded until the user unfolds it (State.queueOpen), and
-// unfolded whatever that says while a message is edited, so an editor and
-// its draft are never hidden.
+// the surface's rounded corners. One message waiting is its row alone, with
+// its actions. From two, the header naming how many wait, which folds the
+// tray to that one row and unfolds it again, then a hairline and the rows,
+// scrolling past 132 DIPs, or the editor of one of them. The tray is folded
+// until the user unfolds it (State.queueOpen), and unfolded whatever that
+// says while a message is edited, so an editor and its draft are never
+// hidden.
+//
+// The tray hangs from the surface's edge (queue-edge), which stays where it
+// is as the dock grows and shrinks above the surface, so the tray's lower
+// edge holds still as it comes, goes or changes height, and a tray going
+// leaves from where it showed. Taken out of the flow for that, it takes its
+// room in the dock as the room above the edge (queue-room), as tall as the
+// tray showed last frame; a frame drawn with less room asks for the next.
+// The tray gone, the room closes over the tray's own duration and curve, as
+// the tray's copy goes, rather than at once: the transcript resting on the
+// dock follows it down instead of jumping.
 func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 	q := &s.queue
 	if q.editing != "" && !queued(ctx, q.editing) {
 		q.editing = "" // sent or removed meanwhile
 	}
+	p := theme.Of(c)
+	r := p.Radius2xl()
+	// The tray tucks behind the composer; a child session has none, so
+	// its tray is closed below too.
+	below, tuck := float32(0), r
+	if ctx.Child {
+		below, tuck = r, 0
+	}
+	shown := len(ctx.Queue) > 0 || q.editing != "" || ctx.Outgoing != nil
+	room := func() float32 { return max(s.queueBox.Bounds(c).H-tuck, 0) }
 	ui.Column(c.Key("queue-slot")).FillWidth().Children(func() {
-		if len(ctx.Queue) == 0 && q.editing == "" && ctx.Outgoing == nil {
-			return
+		reserve := ui.Box(c.Key("queue-room")).FillWidth()
+		var held float32
+		if shown {
+			held = reserve.Jump("room", room())
+		} else {
+			held = reserve.AnimateTo("room", 0, ui.Animation{Duration: trayMotion.Duration, Ease: trayMotion.Ease})
 		}
-		p := theme.Of(c)
-		r := p.Radius2xl()
-		// The tray tucks behind the composer; a child session has none, so
-		// its tray is closed below too.
-		below, tuck := float32(0), r
-		if ctx.Child {
-			below, tuck = r, 0
-		}
-		fill := p.Muted
-		if !p.Dark {
-			fill = fill.Alpha(0.5)
-		}
-		open := s.queueOpen || q.editing != ""
-		kit.Frost(c, ui.Column(c.Key("queue")).Margin(0, 8, -tuck, 8).Padding(4, 4, 4+tuck, 4).Radius(r, r, below, below), fill, kit.SurfaceTint).
-			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
-			s.queueHeader(c, ctx, open)
-			if !open {
+		reserve.Height(held)
+		ui.Column(c.Key("queue-edge")).FillWidth().Height(tuck).Margin(0, 0, -tuck, 0).Children(func() {
+			if !shown {
 				return
 			}
-			// The hairline 4 under the header, then the rows 4 under it,
-			// coming and going as the rows do.
-			ui.Column(c.Key("queue-body")).FillWidth().Shrink(0).Padding(4, 0, 0, 0).Gap(4).Transition(queueMotion).Children(func() {
-				ui.Divider(c.Key("queue-line")).Background(p.Border)
-				if q.editing != "" {
-					s.queueEditor(c, ctx, actions)
+			fill := p.Muted
+			if !p.Dark {
+				fill = fill.Alpha(0.5)
+			}
+			folds := waiting(ctx) > 1
+			open := !folds || s.queueOpen || q.editing != ""
+			tray := ui.Column(c.Key("queue")).Absolute().Left(8).Right(8).Bottom(0).Padding(4, 4, 4+tuck, 4).Radius(r, r, below, below)
+			kit.Frost(c, tray, fill, kit.SurfaceTint).Bind(&s.queueBox).Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).
+				Transition(trayMotion).DrawOver(func(*ui.Painter, ui.Rect) {
+				if d := room() - held; d > 0.5 || d < -0.5 {
+					c.Invalidate()
+				}
+			}).Children(func() {
+				if folds {
+					s.queueHeader(c, ctx, open)
+				}
+				if !open {
 					return
 				}
-				s.queueList(c, ctx, actions)
+				// The hairline 4 under the header, then the rows 4 under
+				// it; without a header, the rows alone.
+				body := ui.Column(c.Key("queue-body")).FillWidth().Shrink(0).Gap(4).Transition(queueFade)
+				if folds {
+					body.Padding(4, 0, 0, 0)
+				}
+				body.Children(func() {
+					if folds {
+						ui.Divider(c.Key("queue-line")).Background(p.Border)
+					}
+					if q.editing != "" {
+						s.queueEditor(c, ctx, actions)
+						return
+					}
+					s.queueList(c, ctx, actions)
+				})
 			})
 		})
 	})
+}
+
+// waiting is how many messages the tray lists: the queue's, and the one on
+// its way to it.
+func waiting(ctx *Context) int {
+	n := len(ctx.Queue)
+	if ctx.Outgoing != nil {
+		n++
+	}
+	return n
 }
 
 // queueHeader is the tray's first row, as high as a message's and quieter:
@@ -125,14 +189,10 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 // message is edited.
 func (s *State) queueHeader(c *ui.Context, ctx *Context, open bool) {
 	p := theme.Of(c)
-	n := len(ctx.Queue)
-	if ctx.Outgoing != nil {
-		n++ // on its way to the queue, and a row already
-	}
-	label := count(c, "queue_messages_one", "queue_messages_count", n)
+	label := count(c, "queue_messages_one", "queue_messages_count", waiting(ctx))
 	editing := s.queue.editing != ""
 	t := ui.ButtonBase(c.Key("queue-header")).Label(label).Expanded(open).Disabled(editing).FillWidth().MinWidth(0).Height(32).
-		PaddingX(8).Gap(8).Radius(p.Radius2xl()).Shrink(0).Justify(ui.Start).AlignItems(ui.Center).TextColor(p.MutedForeground)
+		PaddingX(8).Gap(8).Radius(p.Radius2xl()).Shrink(0).Justify(ui.Start).AlignItems(ui.Center).TextColor(p.MutedForeground).Transition(queueFade)
 	if !editing {
 		t.Cursor(ui.CursorPointer)
 		if t.Hovered() || t.FocusVisible() {
@@ -149,9 +209,10 @@ func (s *State) queueHeader(c *ui.Context, ctx *Context, open bool) {
 	}).OnClick(func() { s.queueOpen = !s.queueOpen })
 }
 
-// queueList is the tray's rows, scrolling past 132 DIPs.
+// queueList is the tray's rows, scrolling past 132 DIPs, moving in step with
+// the tray as the hairline over them comes or goes.
 func (s *State) queueList(c *ui.Context, ctx *Context, actions Actions) {
-	ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Gap(4).Children(func() {
+	ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Gap(4).Transition(queueFade).Children(func() {
 		if ctx.Child {
 			// Nothing is reordered from a child's strip.
 			for _, item := range ctx.Queue {
@@ -236,7 +297,7 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 	label := queueLabel(c, item)
 	blocked := queueBlocked(ctx)
 	row := ui.Row(c.Key(item.ID)).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
-		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion)
+		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueFade)
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
@@ -284,7 +345,7 @@ func (s *State) outgoingRow(c *ui.Context, item Queued) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
 	ui.Row(c.Key("outgoing")).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
-		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion).Children(func() {
+		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueFade).Children(func() {
 		queueLead(c, true, nil)
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 		if len(item.Attachments) > 0 {

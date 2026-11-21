@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"fmt"
 	"image"
 	"slices"
 	"testing"
@@ -153,6 +154,101 @@ func TestOverviewSectionDisclosure(t *testing.T) {
 				t.Fatalf("opening an asset: id=%q, open=%v, notifications=%v", asset, s.Open(), opened)
 			}
 		})
+	}
+}
+
+func TestOverviewChildRowsAndChangesFold(t *testing.T) {
+	en := func(key string) string { return i18n.In("en", key) }
+	working := en("chat_running")
+	var child, change string
+	o := &composer.Overview{
+		Session: true,
+		Children: []composer.OverviewChild{
+			{ID: "planner", Name: "Planner", Status: "chat_running", Running: true},
+			{ID: "reviewer", Name: "Reviewer", Status: "turn_completed", Completed: true},
+		},
+		Output: []composer.OverviewAsset{
+			{ID: "1", Name: "First artifact", Icon: icons.File},
+			{ID: "2", Name: "Second artifact", Icon: icons.File},
+			{ID: "3", Name: "Third artifact", Icon: icons.File},
+			{ID: "4", Name: "Last artifact", Icon: icons.File},
+		},
+		OpenChild:  func(id string) { child = id },
+		OpenAsset:  func(string) {},
+		OpenChange: func(_, path string) { change = path },
+	}
+	const files = 40
+	for i := range files {
+		o.Changes = append(o.Changes, composer.OverviewChange{Turn: "turn", Path: fmt.Sprintf("pkg/file%02d.go", i), Added: 1})
+	}
+	s := &composer.OverviewState{Docked: true}
+	tt := overviewSectionTester(s, o)
+	click := func(label string) {
+		t.Helper()
+		if err := tt.Click(label); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	press := func(r ui.Rect) {
+		tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+	}
+
+	// Subagent rows show no status text; their tooltips keep it accessible.
+	click(i18n.In("en", "subagent_count", "completed", 1, "total", 2))
+	if !tt.HasText("Planner") || !tt.HasText("Reviewer") || tt.HasText(working) {
+		t.Fatalf("subagent rows show a status text or lost their names: %q", tt.Texts())
+	}
+	planner, ok := tt.AccessByRole(ui.RoleButton, "Planner")
+	if !ok || planner.Description != working {
+		t.Fatalf("the running subagent lost its accessible status: %+v (found %v)", planner, ok)
+	}
+	if reviewer, ok := tt.AccessByRole(ui.RoleButton, "Reviewer"); !ok || reviewer.Description != en("turn_completed") {
+		t.Fatalf("the finished subagent lost its accessible status: %+v (found %v)", reviewer, ok)
+	}
+	press(planner.Bounds)
+	if child != "planner" {
+		t.Fatalf("a subagent row did not open its session: %q", child)
+	}
+
+	// Changes shown whole end in a fold row; Output stays capped.
+	fold, all, outputAll := en("chat_assets_fold"), en("chat_assets_all")+fmt.Sprintf(" %d", files), en("chat_assets_all")+" 4"
+	if _, ok := tt.AccessByRole(ui.RoleButton, fold); ok {
+		t.Fatal("a capped list shows a fold row")
+	}
+	click(all)
+	last := fmt.Sprintf("pkg/file%02d.go", files-1)
+	if tt.HasText(all) || !tt.HasText(outputAll) || tt.HasText("Last artifact") {
+		t.Fatalf("showing the changes whole changed another section: %q", tt.Texts())
+	}
+	tt.Scroll(200, 400, 0, 1000000)
+	tt.Frame()
+	end, ok := tt.AccessByRole(ui.RoleButton, last)
+	b, folds := tt.AccessByRole(ui.RoleButton, fold)
+	if !ok || !folds || b.Bounds.H <= 0 || b.Bounds.Y < end.Bounds.Y+end.Bounds.H {
+		t.Fatalf("no fold row after the last change at the scrolled end: last %+v, fold %+v (found %v)", end, b, folds)
+	}
+	press(b.Bounds)
+	if tt.HasText("file39.go") || !tt.HasText("file00.go") || !tt.HasText(outputAll) {
+		t.Fatalf("folding did not return the changes to their first rows: %q", tt.Texts())
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, fold); ok {
+		t.Fatal("the fold row stays on a capped list")
+	}
+	shown, ok := tt.AccessByRole(ui.RoleButton, all)
+	if !ok || !shown.Focused || shown.Bounds.H <= 0 || shown.Bounds.Y < 24 || shown.Bounds.Y+shown.Bounds.H > 24+740 {
+		t.Fatalf("the row showing the changes whole is not focused in view after folding: %+v (found %v)", shown, ok)
+	}
+
+	// The keyboard shows the list whole again from the focused row.
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !tt.HasText("file39.go") || tt.HasText(all) {
+		t.Fatalf("Enter did not show the changes whole: %q", tt.Texts())
+	}
+	if change != "" || s.Open() {
+		t.Fatalf("folding opened a change or the popover: %q, %v", change, s.Open())
 	}
 }
 

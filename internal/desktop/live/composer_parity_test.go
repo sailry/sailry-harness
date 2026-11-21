@@ -518,19 +518,15 @@ func childTray(t *testing.T) {
 			tester.Frame()
 		}
 	}
-	// A subagent's tray comes folded under its header, as any.
+	// A subagent's one queued message is its row alone, as any.
 	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
-		if _, ok := queueFolded(tester); ok {
+		if tester.HasText("Guidance for the subagent") {
 			break
 		}
 		settle()
 	}
-	settle() // the tray has come in: its header is where a click finds it
-	unfoldQueue(t, tester)
-	settle()
-	if !tester.HasText("Guidance for the subagent") {
-		t.Fatalf("the subagent's queue is not shown: %q", tester.Texts())
-	}
+	settle() // the tray has come in: its row is where a click finds it
+	singleQueued(t, tester, "Guidance for the subagent")
 	if !shown.Child || !shown.Readonly {
 		t.Fatalf("a subagent's session: child %v, read-only %v", shown.Child, shown.Readonly)
 	}

@@ -22,12 +22,12 @@ type conversationOutgoing struct {
 	restore    func(*ui.Context, error) bool
 }
 
-func (x *conversationActions) stageOutgoing(message composer.Message) {
+func (x *conversationActions) stageOutgoing(message composer.Message) *conversationOutgoing {
 	if x.r.composerOutgoing == nil {
 		x.r.composerOutgoing = map[string]*conversationOutgoing{}
 	}
 	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && pending.transcript {
-		return
+		return nil
 	}
 	input := conversation.Turn{ID: "outgoing/" + x.cv.ID, User: message.Text, Sent: time.Now(), InputOnly: true}
 	for _, attachment := range message.Attachments {
@@ -52,11 +52,41 @@ func (x *conversationActions) stageOutgoing(message composer.Message) {
 	}}
 	x.r.composerOutgoing[x.cv.ID] = pending
 	x.comp.HoldOutgoingAttachments(message.Attachments, func() bool { return x.r.composerOutgoing[x.cv.ID] == pending })
-	if _, err := protocol.ParseSessionID(x.cv.ID); err == nil {
-		x.r.invalidateConversationPresentation(x.cv)
-	}
 	x.r.projectOutgoing(x.cv, protocol.ConversationPage{})
 	x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
+	return pending
+}
+
+func (x *conversationActions) submitTurn(command protocol.Command, pending *conversationOutgoing, done func(protocol.Output, error)) {
+	id := x.cv.ID
+	request := x.turn(command, func(output protocol.Output, err error) {
+		if pending != nil && x.r.composerOutgoing[id] == pending {
+			ack, valid := detail[protocol.QueuedTurn](output.Data)
+			switch {
+			case err != nil:
+				x.r.discardOutgoing(id)
+			case pending.turn != (protocol.TurnID{}):
+				// The publication already identified this request.
+			case output.Kind == "queued_turn" && valid && ack.ID != (protocol.TurnID{}) && ack.Session.String() == id && ack.Request == pending.request:
+				pending.turn = ack.ID
+			default:
+				x.r.discardOutgoing(id)
+			}
+		}
+		done(output, err)
+	})
+	if request == (protocol.RequestID{}) {
+		// An identical command already in flight does not get another row.
+		x.r.discardCapturedOutgoing(id, pending)
+		return
+	}
+	if command.Kind == "queue_turn" || command.Kind == "guide_turn" {
+		pending = x.outgoing(*x.restore, command.Kind == "guide_turn")
+	}
+	if pending != nil {
+		pending.request = request
+		pending.restore = nil
+	}
 }
 
 // discardUnsubmitted removes input whose prerequisite failed before a turn
@@ -80,36 +110,100 @@ func (r *Runtime) failUnsubmitted(c *ui.Context, id string, err error) bool {
 
 func (r *Runtime) discardOutgoing(id string) {
 	if pending := r.composerOutgoing[id]; pending != nil {
-		if cv := r.App.Data.Find(id); cv != nil {
-			cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
+		if pending.transcript {
+			if cv := r.App.Data.Find(id); cv != nil {
+				cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
+			}
 		}
 		delete(r.composerOutgoing, id)
 	}
 }
 
-func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.ConversationPage) {
-	pending := r.composerOutgoing[cv.ID]
-	if pending == nil || !pending.transcript {
-		return
+func (r *Runtime) discardCapturedOutgoing(id string, pending *conversationOutgoing) {
+	if pending != nil && r.composerOutgoing[id] == pending {
+		r.discardOutgoing(id)
 	}
-	// A Node event can beat its command response. Match the immutable request,
-	// never the draft's text, so equal messages from other turns stay distinct.
-	if pending.turn == (protocol.TurnID{}) && pending.request != (protocol.RequestID{}) {
-		for _, item := range page.Queue.Items {
-			if item.Request != nil && *item.Request == pending.request {
-				pending.turn = item.Turn
-				break
+}
+
+// An event can beat its response. Match the original request in this session,
+// never message text or one of the unrelated queue/configuration revisions.
+func (r *Runtime) outgoingTurn(pending *conversationOutgoing, session string, page protocol.ConversationPage) protocol.TurnID {
+	if page.Session == (protocol.SessionID{}) || page.Session.String() != session {
+		return protocol.TurnID{}
+	}
+	if pending.turn != (protocol.TurnID{}) || pending.request == (protocol.RequestID{}) {
+		return pending.turn
+	}
+	for _, item := range page.Queue.Items {
+		if item.Request != nil && *item.Request == pending.request {
+			pending.turn = item.Turn
+			return pending.turn
+		}
+	}
+	for _, turn := range r.snapshot().Turns {
+		if turn.Session == page.Session && turn.Request == pending.request {
+			pending.turn = turn.ID
+			break
+		}
+	}
+	return pending.turn
+}
+
+func outgoingQueueShown(cv *viewmodel.Conversation, turn string) bool {
+	return slices.ContainsFunc(cv.Queue, func(queued composer.Queued) bool { return queued.ID == turn })
+}
+
+func outgoingInputShown(cv *viewmodel.Conversation, turn string) bool {
+	for _, row := range slices.Backward(cv.Turns) {
+		if len(row.Segments) == 0 {
+			if row.ID == turn && (row.User != "" || len(row.Images)+len(row.Files) > 0) {
+				return true
+			}
+			continue
+		}
+		for _, segment := range row.Segments {
+			if slices.ContainsFunc(segment.Inputs, func(input conversation.Input) bool {
+				return input.ID == turn && (input.User != "" || len(input.Images)+len(input.Files) > 0)
+			}) {
+				return true
 			}
 		}
-		for _, turn := range r.snapshot().Turns {
-			if turn.Session.String() == cv.ID && turn.Request == pending.request {
-				pending.turn = turn.ID
-				break
-			}
+	}
+	return false
+}
+
+func outgoingRemoved(page protocol.ConversationPage, turn protocol.TurnID) bool {
+	return slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+		return run.Turn == turn && run.Status == protocol.ConversationStatusCancelled
+	}) && !slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn == turn })
+}
+
+// projectOutgoing reconciles against the rows of the page actually presented.
+// It returns the overlay only if it modified the prepared rows.
+func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.ConversationPage) *conversationOutgoing {
+	pending := r.composerOutgoing[cv.ID]
+	if pending == nil {
+		return nil
+	}
+	turn := r.outgoingTurn(pending, cv.ID, page)
+	if !pending.transcript {
+		if turn != (protocol.TurnID{}) && (outgoingQueueShown(cv, turn.String()) || outgoingInputShown(cv, turn.String()) || outgoingRemoved(page, turn)) {
+			delete(r.composerOutgoing, cv.ID)
 		}
+		return nil
 	}
 	cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
-	if pending.turn != (protocol.TurnID{}) {
+	var overlay *conversationOutgoing
+	if turn != (protocol.TurnID{}) {
+		turnID := turn.String()
+		if outgoingRemoved(page, turn) || outgoingInputShown(cv, turnID) && (slices.ContainsFunc(page.Entries, func(entry protocol.ConversationEntry) bool {
+			return entry.Turn == turn && entry.Author == "user"
+		}) || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
+			return run.Turn == turn && run.Input != nil
+		})) {
+			delete(r.composerOutgoing, cv.ID)
+			return nil
+		}
 		// The Node admits every turn as a queued item and starts it from the
 		// queue. This message was sent while the conversation looked idle, so
 		// it starts next and keeps its place in the transcript, including
@@ -119,29 +213,23 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 		// still running makes it wait, so it moves to the tray where it stays
 		// editable and withdrawable.
 		for index, item := range page.Queue.Items {
-			if item.Turn != pending.turn || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
-				return run.Turn == pending.turn && (run.Status == "running" || run.Status == "stopping")
-			}) {
+			if item.Turn != turn || !outgoingQueueShown(cv, turnID) {
 				continue
 			}
 			ahead := slices.ContainsFunc(page.Queue.Items[:index], func(other protocol.ConversationPending) bool { return other.Guidance == nil })
 			if page.Queue.Paused || ahead || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
-				return run.Turn != pending.turn && run.Status == "running"
+				return run.Turn != turn && run.Status == "running"
 			}) {
 				delete(r.composerOutgoing, cv.ID)
-				return
+				return nil
 			}
-			cv.Queue = slices.DeleteFunc(cv.Queue, func(queued composer.Queued) bool { return queued.ID == pending.turn.String() })
-		}
-		for _, entry := range page.Entries {
-			if entry.Turn == pending.turn && entry.Author == "user" {
-				delete(r.composerOutgoing, cv.ID)
-				return
-			}
+			cv.Queue = slices.DeleteFunc(cv.Queue, func(queued composer.Queued) bool { return queued.ID == turnID })
+			overlay = pending
+			break
 		}
 		for index := range cv.Turns {
 			turn := &cv.Turns[index]
-			if turn.ID != pending.turn.String() {
+			if turn.ID != turnID {
 				continue
 			}
 			if turn.User == "" {
@@ -153,11 +241,12 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 			if len(turn.Images) == 0 && len(turn.Files) == 0 {
 				turn.Images, turn.Files = slices.Clone(pending.input.Images), slices.Clone(pending.input.Files)
 			}
-			return
+			return pending
 		}
 	}
 	// Until admission is observed only the user's own input is known. In
 	// particular, do not invent a running assistant or a successful outcome.
 	cv.Turns = append(cv.Turns, pending.input)
 	cv.Session.Loading = false
+	return overlay
 }

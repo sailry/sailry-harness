@@ -118,6 +118,54 @@ func TestConversationSwitchDoesNotWaitForPreparation(t *testing.T) {
 	})
 }
 
+func TestConversationFeedUpdatesStatisticsWithoutPreparingHistory(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		inventory, _ := liveChildFixture()
+		id := inventory.Sessions[0].ID
+		history := fragmentedSnapshot(inventory.Node, id, 1024, 128)
+		r, source, cv := childTestRuntime(t, inventory, history)
+		r.conversationWatches = map[protocol.SessionID]func(){}
+		r.startConversationFeed(id, "en")
+		t.Cleanup(func() { r.conversationWatches[id]() })
+		feed := r.conversationFeeds[id]
+		frame := func(wantPrepared bool) client.ConversationState {
+			t.Helper()
+			synctest.Wait()
+			if p := feed.latest.Load(); p == nil || (p.view.ID != "") != wantPrepared {
+				t.Fatalf("feed publication didn't match prepare=%t", wantPrepared)
+			}
+			return cacheTestFrame(t, r, cv, id)
+		}
+		initial := frame(true)
+		first := &cv.Turns[0]
+		sequence := initial.Snapshot.Sequence
+		apply := func(kind string, data any, wantPrepared bool) client.ConversationState {
+			sequence++
+			source.chat.updates <- protocol.Update{Kind: "conversation_frame", Data: protocol.ConversationFrame{
+				Node: inventory.Node, Session: id, Sequence: sequence, Change: protocol.ConversationChange{Kind: kind, Data: data},
+			}}
+			return frame(wantPrepared)
+		}
+		stats := protocol.DefaultConversationStatistics()
+		stats.Turns = 1
+		stats.Usage = &protocol.ConversationUsage{Input: 256, Output: 512}
+		after := apply("statistics", stats, false)
+		if &cv.Turns[0] != first || cv.Session.Usage == nil || cv.Session.Usage.Tokens != 768 || !after.SameViewTranscript(initial) || len(first.Reply.Blocks[0].Text) != 128<<10 {
+			t.Fatal("statistics did not update the meter independently of the retained long reply")
+		}
+		after = apply("statistics_failed", protocol.Fault{Code: protocol.ErrorCodeUnavailable}, false)
+		if &cv.Turns[0] != first || cv.Session.Usage != nil || after.StatisticsErr == nil {
+			t.Fatal("statistics failure changed the transcript or preserved a stale estimate")
+		}
+		run := history.Page.Runs[0]
+		run.FinishedMs = new(int64(9999))
+		apply("run", run, true)
+		if &cv.Turns[0] == first || cv.Turns[0].Reply.Finished.UnixMilli() != *run.FinishedMs {
+			t.Fatal("a real run change was not reprojected")
+		}
+	})
+}
+
 // The fixture distinguishes producing a large cold transcript from handing it
 // to the UI. It excludes layout/paint; the transcript benchmarks cover those.
 func BenchmarkConversationSwitchProjection(b *testing.B) {
@@ -148,4 +196,43 @@ func BenchmarkConversationSwitchProjection(b *testing.B) {
 			r.projectConversation(cv, id, state, time.Unix(20, 0), "en")
 		}
 	})
+}
+
+// Compare the previous full preparation with updating the same meter while
+// retaining the transcript. Transport, the reducer and painting are excluded.
+func BenchmarkConversationStatisticsPresentation(b *testing.B) {
+	id := protocol.SessionID{1}
+	history := fragmentedSnapshot(protocol.NodeID{1}, id, 1024, 128)
+	for _, test := range []struct {
+		name    string
+		prepare bool
+	}{{"full_prepare", true}, {"reuse_rows", false}} {
+		b.Run(test.name, func(b *testing.B) {
+			r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+			r.conversationFeeds = map[protocol.SessionID]*conversationFeed{id: {}}
+			r.conversationCache = map[protocol.SessionID]conversationCopy{}
+			cv := &viewmodel.Conversation{ID: id.String()}
+			state := client.ConversationState{Connected: true, Snapshot: history}
+			copied := conversationCopy{generation: 1, prepared: r.prepareConversation(id, state, "en")}
+			r.conversationCache[id] = copied
+			now := time.Unix(20, 0)
+			r.projectConversation(cv, id, state, now, "en")
+			stats := [2]protocol.ConversationStatistics{{Turns: 1}, {Turns: 2}}
+			n := 0
+			b.ReportAllocs()
+			for b.Loop() {
+				n ^= 1
+				state.Snapshot.Statistics = &stats[n]
+				if test.prepare {
+					copied.generation++
+					copied.prepared = r.prepareConversation(id, state, "en")
+					r.conversationCache[id] = copied
+				}
+				r.projectConversation(cv, id, state, now, "en")
+			}
+			if cv.Session.Usage == nil || cv.Session.Usage.Turns != n+1 || len(cv.Turns) != 1 || len(cv.Turns[0].Reply.Blocks[0].Text) != 128<<10 {
+				b.Fatal("fixture did not keep the same reply and update its statistics")
+			}
+		})
+	}
 }

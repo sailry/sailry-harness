@@ -68,10 +68,38 @@ func (clocks transcriptClocks) advance(turns []conversation.Turn, now time.Time)
 	}
 }
 
+func conversationUsage(statistics *protocol.ConversationStatistics) *conversation.Usage {
+	if statistics == nil {
+		return nil
+	}
+	u := &conversation.Usage{Turns: int(statistics.Turns)}
+	if statistics.Usage != nil {
+		u.Tokens = int(statistics.Usage.Input + statistics.Usage.Output)
+		u.Cached = int(statistics.Usage.CachedInput)
+	}
+	if statistics.Cost != nil {
+		u.Cost = float64(statistics.Cost.UsdMicros) / 1_000_000
+	}
+	if statistics.Generation != nil && statistics.Generation.ElapsedUs > 0 {
+		u.Speed = float64(statistics.Generation.OutputTokens) * 1_000_000 / float64(statistics.Generation.ElapsedUs)
+	}
+	context, limit := statistics.ContextTokens, statistics.ContextLimit
+	if context == nil {
+		context = statistics.ContextEstimate
+		if statistics.Budget != nil {
+			limit = &statistics.Budget.ContextLimit
+		}
+	}
+	if context != nil && limit != nil && *limit > 0 {
+		u.Context = float64(*context) / float64(*limit)
+	}
+	return u
+}
+
 func projectTranscript(state client.ConversationState, language string) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued, transcriptClocks) {
 	snapshot := state.Snapshot
 	page := snapshot.Page
-	session := conversation.Session{Loading: state.Loading, LoadingOlder: state.LoadingOlder, OlderFailed: state.OlderErr != nil}
+	session := conversation.Session{Loading: state.Loading, LoadingOlder: state.LoadingOlder, OlderFailed: state.OlderErr != nil, Usage: conversationUsage(snapshot.Statistics)}
 	if page.NextBefore != nil || len(snapshot.Missing) > 0 {
 		session.Older = 20
 	}
@@ -92,30 +120,6 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			// The runtime projects the actual Host connection separately.
 			session.Diagnostic = &conversation.Diagnostic{Title: "chat_sync_failed", Detail: state.Err.Error()}
 		}
-	}
-	if statistics := snapshot.Statistics; statistics != nil {
-		u := &conversation.Usage{Turns: int(statistics.Turns)}
-		if statistics.Usage != nil {
-			u.Tokens = int(statistics.Usage.Input + statistics.Usage.Output)
-			u.Cached = int(statistics.Usage.CachedInput)
-		}
-		if statistics.Cost != nil {
-			u.Cost = float64(statistics.Cost.UsdMicros) / 1_000_000
-		}
-		if statistics.Generation != nil && statistics.Generation.ElapsedUs > 0 {
-			u.Speed = float64(statistics.Generation.OutputTokens) * 1_000_000 / float64(statistics.Generation.ElapsedUs)
-		}
-		context, limit := statistics.ContextTokens, statistics.ContextLimit
-		if context == nil {
-			context = statistics.ContextEstimate
-			if statistics.Budget != nil {
-				limit = &statistics.Budget.ContextLimit
-			}
-		}
-		if context != nil && limit != nil && *limit > 0 {
-			u.Context = float64(*context) / float64(*limit)
-		}
-		session.Usage = u
 	}
 	runs := page.Runs
 	compareRuns := func(a, b protocol.ConversationRun) int {

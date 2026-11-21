@@ -266,13 +266,22 @@ func Rail(c *ui.Context) ui.Element {
 	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(railGap)
 }
 
-func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
-	if !activity && slices.ContainsFunc(calls, func(call Call) bool { return call.Running || call.AwaitingModel }) {
+type toolDisplay uint8
+
+const (
+	toolsFolded toolDisplay = iota
+	toolsLive
+	toolsRevealFailures
+)
+
+func (s *State) tools(c *ui.Context, calls []Call, display toolDisplay) {
+	if display != toolsLive && slices.ContainsFunc(calls, func(call Call) bool { return call.Running || call.AwaitingModel }) {
 		calls = slices.Clone(calls)
 		for index := range calls {
 			calls[index].Running, calls[index].AwaitingModel = false, false
 		}
 	}
+	foldFailures := display != toolsRevealFailures
 	ui.Column(c).Gap(railGap).Children(func() {
 		for first := 0; first < len(calls); {
 			end := first + 1
@@ -282,9 +291,9 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 				}
 			}
 			if end-first == 1 {
-				s.row(c, calls[first], activity)
+				s.row(c, calls[first], foldFailures)
 			} else {
-				s.toolGroup(c, calls[first:end], activity)
+				s.toolGroup(c, calls[first:end], foldFailures)
 			}
 			first = end
 		}
@@ -300,12 +309,10 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // A group discloses call headers. Individual rows still own their outputs.
 // Every call of a run joins it whatever its state, so a call that starts,
 // settles or fails stays in its place. The group is keyed by its first
-// call, which a growing run keeps. While the run is active a failure does
-// not open the group, so the transcript stays still as calls join it; the
-// finished turn reveals the failure.
-func (s *State) toolGroup(c *ui.Context, calls []Call, activity bool) {
+// call, which a growing run keeps.
+func (s *State) toolGroup(c *ui.Context, calls []Call, foldFailures bool) {
 	head := groupHead(calls)
-	failed := !activity && slices.ContainsFunc(calls, func(call Call) bool {
+	failed := !foldFailures && slices.ContainsFunc(calls, func(call Call) bool {
 		return (call.Failed || call.Warning) && toolErrorOpen(call) &&
 			(call.Load != nil || call.Output != nil && call.Output.Failure != "")
 	})
@@ -313,7 +320,7 @@ func (s *State) toolGroup(c *ui.Context, calls []Call, activity bool) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(ui.Element) {
 		for _, call := range calls {
-			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, activity) })
+			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, foldFailures) })
 		}
 	})
 }
@@ -333,9 +340,8 @@ func toolErrorOpen(call Call) bool {
 	return !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
 }
 
-// row is one call: its body is its output. Like a group, a failed row opens
-// on its own only once its run is no longer active.
-func (s *State) row(c *ui.Context, call Call, activity bool) {
+// row is one call: its body is its output.
+func (s *State) row(c *ui.Context, call Call, foldFailures bool) {
 	if call.Name == "generate_image" && call.Output != nil && len(call.Output.Images) > 0 {
 		// Generated pictures belong in the answer and output inventory. Keep the
 		// original references for reply embeds without repeating the preview here.
@@ -350,7 +356,7 @@ func (s *State) row(c *ui.Context, call Call, activity bool) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	s.wrapping(c, "tools-"+call.ID, false, !activity && toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
+	s.wrapping(c, "tools-"+call.ID, false, !foldFailures && toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func(rail ui.Element) {
 		if call.Load != nil {

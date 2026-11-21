@@ -3,6 +3,7 @@ package conversation_test
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -51,6 +52,50 @@ func linksTurns() []conversation.Turn {
 				"[code](src/main.go#L12) and [top](#intro).\n\n![plan](notes/plan.txt)\n\nThe end."},
 			{Kind: conversation.FilesBlock, Files: []conversation.File{{ID: "report", Path: "docs/report.md", Kind: conversation.MarkdownFile}}},
 		}}}}
+}
+
+func TestMarkdownLinkTooltip(t *testing.T) {
+	const (
+		locale     = "zh-CN"
+		sessionID  = "01234567-89ab-4def-8123-456789abcdef"
+		sessionURL = "sailry://session/" + sessionID
+		webURL     = "https://example.com/page"
+	)
+	for _, tc := range []struct{ name, dest, tip string }{
+		{"session", sessionURL, i18n.In(locale, "notification_open_conversation")},
+		{"web", webURL, webURL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := conversation.New()
+			s.SessionLink = func(dest string) bool { return dest == sessionURL }
+			var opened string
+			s.OpenLink = func(_ *ui.Context, _, dest string) bool { opened = dest; return true }
+			turns := []conversation.Turn{{ID: "link", User: "Show the link", Reply: conversation.Reply{Status: conversation.Completed,
+				Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: "See [the result](" + tc.dest + ")."}}}}}
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				ui.Column(c).Fill().Children(func() { conversation.View(c, s, "session", turns, nil, noActions{}) })
+			}, 900, 600)
+			tt.SetLocale(locale)
+			tt.Frame()
+			tt.Frame()
+			link, ok := tt.AccessByRole(ui.RoleLink, "")
+			if !ok || !link.Focusable {
+				t.Fatalf("no focusable reply link: %q", tt.Texts())
+			}
+			x, y := link.Bounds.X+link.Bounds.W/2, link.Bounds.Y+link.Bounds.H/2
+			tt.Move(x, y)
+			tt.Advance(time.Second)
+			tt.Frame()
+			if _, ok := tt.Find(tc.tip); !ok || tt.HasText("sailry://") || tt.HasText(sessionID) {
+				t.Errorf("hovering the link should show %q without a session address: %q", tc.tip, tt.Texts())
+			}
+			tt.ClickAt(x, y)
+			if opened != tc.dest {
+				t.Errorf("opened %q, want %q", opened, tc.dest)
+			}
+		})
+	}
 }
 
 // checkLinks is the transcript's side of the link rule: every link and file

@@ -190,10 +190,7 @@ func TestCallbackTurnsRetainRepliesStopAndUserQueue(t *testing.T) {
 	if len(cv.Queue) != 1 || cv.Queue[0].ID != queued.String() || cv.Queue[0].Notice {
 		t.Fatalf("wrong queue during automatic follow-up: %+v", cv.Queue)
 	}
-	unfoldQueue(t, tester)
-	if !tester.HasText("Real queued message") {
-		t.Fatalf("queued user text was hidden: %q", tester.Texts())
-	}
+	singleQueued(t, tester, "Real queued message")
 	press("queue_send_now", "guide_queued_turn")
 
 	frame("queue", protocol.ConversationQueue{Revision: 4, Items: page.Queue.Items[1:]})

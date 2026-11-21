@@ -106,7 +106,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		cv.Session.Connection = conversation.Connected
 	}
 	snapshot := r.snapshot()
-	var page protocol.ConversationPage
 	unsynced := false
 	hadTurns := len(cv.Turns) > 0
 	id, idErr := protocol.ParseSessionID(cv.ID)
@@ -122,7 +121,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			}
 		}
 		if state, ok := r.conversationState(id); ok {
-			page = state.Snapshot.Page
 			unsynced = !state.Connected
 			r.projectWatchedConversation(c, cv, id, state)
 			if state.Connected {
@@ -141,11 +139,12 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
+	} else {
+		r.projectOutgoing(cv, protocol.ConversationPage{})
 	}
 	cv.Session.ResolveImage = r.resolveConversationImage
 	cv.Session.ResolveViewerImage = r.resolveConversationViewerImage
 	cv.Session.Embed = func(_, dest, _ string, image bool) (conversation.Embed, bool) { return r.chatEmbed(cv, dest, image) }
-	r.projectOutgoing(cv, page)
 	if hadTurns != (len(cv.Turns) > 0) {
 		// The header above the transcript uses the presence of its rows.
 		c.Invalidate()
@@ -593,18 +592,19 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	sender := *x
 	sender.restore, sender.restoreDraft = &m, draft
 	x = &sender
+	var pending *conversationOutgoing
 	if !guide && !queue {
-		x.stageOutgoing(m)
+		pending = x.stageOutgoing(m)
 	}
 	if exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
-		x.r.discardUnsubmitted(x.cv.ID)
+		x.r.discardCapturedOutgoing(x.cv.ID, pending)
 		x.r.reportCreation(x.c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "legacy remote model sessions cannot start new turns on this Node"}})
 		failed()
 		return
 	}
 	config, _, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
-		x.r.discardUnsubmitted(x.cv.ID)
+		x.r.discardCapturedOutgoing(x.cv.ID, pending)
 		if exists {
 			x.r.report(x.c, err, "session_changed")
 		} else {
@@ -631,19 +631,15 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	if exists {
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
-			if guide || queue {
-				x.outgoing(m, guide)
-			}
 			if guide {
 				if run, ok := x.activeRun(); ok && acceptsGuidance(run) {
-					x.turn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, func(output protocol.Output, err error) {
+					x.submitTurn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, pending, func(output protocol.Output, err error) {
 						finish(output, err)
-						if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted {
+						if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted && queued.Session == session.ID && queued.ID != (protocol.TurnID{}) {
 							x.guided(queued.ID, run.Turn)
 						}
 					})
 				} else {
-					delete(x.r.composerOutgoing, x.cv.ID)
 					x.unavailable()
 					failed()
 				}
@@ -655,22 +651,19 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 				kind = "queue_turn"
 				data = protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}
 			}
-			x.turn(protocol.Command{Kind: kind, Data: data}, finish)
+			x.submitTurn(protocol.Command{Kind: kind, Data: data}, pending, finish)
 		}
 		x.r.withComposerConfig(session, config, func(session protocol.Session) {
 			x.r.withComposerTeam(session, x.comp, submit, failed)
 		}, failed)
 		return
 	}
-	x.r.discardUnsubmitted(x.cv.ID)
+	x.r.discardCapturedOutgoing(x.cv.ID, pending)
 	x.unavailable()
 	failed()
 }
 
 func (x *conversationActions) finishSubmission(output protocol.Output, draftSession, ok bool) {
-	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
-		delete(x.r.composerOutgoing, x.cv.ID)
-	}
 	if !ok {
 		return
 	}
@@ -680,7 +673,9 @@ func (x *conversationActions) finishSubmission(output protocol.Output, draftSess
 		x.comp.Draft = ""
 		x.comp.References = nil
 		x.comp.Attachments = nil
-		x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
+		if draftSession {
+			x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
+		}
 	} else if draftSession {
 		x.comp.Attachments = slices.DeleteFunc(x.comp.Attachments, func(a *composer.Attachment) bool {
 			return slices.Contains(files, a)

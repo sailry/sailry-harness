@@ -360,7 +360,6 @@ func TestConversationPresentationEditAndOutgoing(t *testing.T) {
 		r.composerOutgoing[cv.ID] = &conversationOutgoing{transcript: true, input: conversation.Turn{ID: "outgoing/fixture", User: "Pending input"}}
 		for range 2 {
 			r.projectConversation(cv, id, state, time.Unix(21, 0), "en")
-			r.projectOutgoing(cv, state.Snapshot.Page)
 			if len(cv.Turns) != 2 || cv.Turns[1].User != "Pending input" {
 				t.Fatal("an outgoing message disappeared or duplicated while history was retained")
 			}
@@ -385,6 +384,93 @@ func TestConversationPresentationEditAndOutgoing(t *testing.T) {
 		r.projectConversation(cv, id, loading, time.Unix(22, 0), "en")
 		if !cv.Session.Loading || len(cv.Turns) != 0 {
 			t.Fatal("a rejected outgoing message hid the initial loading state")
+		}
+	})
+}
+
+func TestComposerOutgoingACKWaitsForPreparedView(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		initial := cacheTestFrame(t, r, cv, id)
+		row := &cv.Turns[0]
+		feed := &conversationFeed{changed: make(chan struct{}, 1), taken: make(chan struct{}, 1)}
+		r.conversationFeeds = map[protocol.SessionID]*conversationFeed{id: feed}
+		r.busy = map[string]bool{}
+		first, second := protocol.TurnID{3}, protocol.TurnID{4}
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			var turn protocol.TurnID
+			switch input := request.Command.Data.(type) {
+			case protocol.CommandQueueTurnPayload:
+				turn = first
+				if input.Message.Text == "Second" {
+					turn = second
+				}
+			case protocol.CommandCompactContextPayload:
+				turn = protocol.TurnID{5}
+			default:
+				return link.Response{}, false
+			}
+			return link.Response{Output: protocol.Output{Kind: "queued_turn", Data: protocol.QueuedTurn{ID: turn, Session: id, Request: request.ID}}}, true
+		}
+		x := &conversationActions{r: r, cv: cv, comp: r.App.Composer(cv.ID)}
+		var acknowledged []string
+		send := func(text string) {
+			sender := *x
+			sender.comp.Draft = text
+			sender.restore, sender.restoreDraft = &composer.Message{Text: text}, composerFingerprint(sender.comp)
+			sender.submitTurn(protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
+				Session: id, ExpectedRevision: 1, Message: protocol.ConversationInput{Text: text},
+			}}, nil, func(output protocol.Output, err error) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				sender.finishSubmission(output, false, true)
+				acknowledged = append(acknowledged, text)
+			})
+		}
+		send("First")
+		r.workers.Wait() // the first ACK is posted, but the UI has not taken it
+		send("Second")
+		pending := r.composerOutgoing[cv.ID]
+		if pending == nil || pending.Text != "Second" || pending.request == (protocol.RequestID{}) {
+			t.Fatal("the newer send did not stage its captured request")
+		}
+		request := pending.request
+		send("Second")
+		x.turn(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: id, ExpectedRevision: 1}}, nil)
+		if r.composerOutgoing[cv.ID] != pending || pending.request != request {
+			t.Fatal("a duplicate or unrelated command changed the sending row")
+		}
+
+		r.workers.Wait()
+		for _, callback := range r.queue {
+			callback(nil)
+			if r.composerOutgoing[cv.ID] != pending {
+				t.Fatal("an ACK removed the newer row before the prepared view")
+			}
+		}
+		r.queue = nil
+		if !slices.Equal(acknowledged, []string{"First", "Second"}) || pending.turn != second || x.comp.Draft != "" {
+			t.Fatalf("the sends did not settle independently: %v, turn %v, draft %q", acknowledged, pending.turn, x.comp.Draft)
+		}
+		cacheTestFrame(t, r, cv, id)
+		if len(cv.Turns) != 1 || &cv.Turns[0] != row || r.composerOutgoing[cv.ID] != pending || feed.request.Load() != 0 {
+			t.Fatal("the sending row invalidated unchanged history or was lost after ACK")
+		}
+
+		updated := client.ConversationState{Connected: true, Snapshot: initial.Snapshot}
+		updated.Snapshot.Sequence++
+		updated.Snapshot.Page.Queue.Revision = 12
+		updated.Snapshot.Page.Queue.Items = []protocol.ConversationPending{{Turn: second, Kind: protocol.ConversationRunKindTask, Revision: 2, Preview: "Edited on the Node"}}
+		feed.latest.Store(r.prepareConversation(id, updated, "zh-CN"))
+		cacheTestFrame(t, r, cv, id)
+		if r.composerOutgoing[cv.ID] != pending || len(cv.Queue) != 0 || len(cv.Turns) != 1 || &cv.Turns[0] != row {
+			t.Fatal("a page not yet presented retired the sending row")
+		}
+		feed.latest.Store(r.prepareConversation(id, updated, "en"))
+		cacheTestFrame(t, r, cv, id)
+		if r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != second.String() || cv.Queue[0].Text != "Edited on the Node" {
+			t.Fatalf("the prepared queue did not replace its sending row: %+v", cv.Queue)
 		}
 	})
 }
@@ -534,6 +620,8 @@ func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source, old, id := cacheTestRuntime(t)
 		cacheTestFrame(t, r, old, id)
+		x := conversationActions{r: r, cv: old, comp: r.App.Composer(old.ID)}
+		x.stageOutgoing(composer.Message{Text: "Pending input"})
 		rows := &old.Turns[0]
 		rebuild := func() *viewmodel.Conversation {
 			r.beginConversationFrame()
@@ -546,7 +634,7 @@ func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
 		rebuilt := rebuild()
 		r.conversationSeen[id] = true
 		state, _ := r.conversationState(id)
-		if r.projectConversation(rebuilt, id, state, time.Unix(20, 0), "en") || len(rebuilt.Turns) != 1 || &rebuilt.Turns[0] != rows {
+		if r.projectConversation(rebuilt, id, state, time.Unix(20, 0), "en") || len(rebuilt.Turns) != 2 || &rebuilt.Turns[0] != rows || rebuilt.Turns[1].User != "Pending input" {
 			t.Fatal("an unchanged history was projected again for its rebuilt view")
 		}
 		r.finishConversationFrame()
@@ -560,13 +648,13 @@ func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
 		synctest.Wait()
 		old = rebuilt
 		rebuilt = rebuild()
-		if len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Latest input" || old.Turns != nil {
+		if len(rebuilt.Turns) != 2 || rebuilt.Turns[0].User != "Latest input" || rebuilt.Turns[1].User != "Pending input" || old.Turns != nil {
 			t.Fatalf("a directory rebuild projected history or held the old view: %#v", rebuilt.Turns)
 		}
 		r.conversationSeen[id] = true
 		state, _ = r.conversationState(id)
 		if !r.projectConversation(rebuilt, id, state, time.Unix(20, 0), "en") ||
-			len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Refreshed input" {
+			len(rebuilt.Turns) != 2 || rebuilt.Turns[0].User != "Refreshed input" || rebuilt.Turns[1].User != "Pending input" {
 			t.Fatalf("the visible frame did not project changed history: %#v", rebuilt.Turns)
 		}
 		r.finishConversationFrame()

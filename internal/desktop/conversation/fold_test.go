@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -48,6 +49,146 @@ func TestEarlierReplySegmentStaysOpenWhileTurnContinues(t *testing.T) {
 	if tester.HasText("history.go") || !tester.HasText("Earlier answer") {
 		t.Fatalf("folding the earlier segment did not hide only its work: %q", tester.Texts())
 	}
+}
+
+func TestCompletedTurnOpensToolResultsOnlyOnRowClick(t *testing.T) {
+	const (
+		groupA      = "Read source"
+		groupB      = "Search fixtures"
+		failedRow   = "Inspect workspace"
+		warningRow  = "Check fixtures"
+		standalone  = "Validate patch"
+		failure     = "Workspace inspection failed"
+		warning     = "Fixture validation rejected"
+		soloFailure = "Patch could not be validated"
+		outputA     = "Source excerpt"
+		outputB     = "Fixture matches"
+		reasoning   = "Plan the next query"
+		answer      = "Inspection complete"
+	)
+	loads := 0
+	turns := make([]Turn, 36)
+	for i := range turns[:len(turns)-1] {
+		id := fmt.Sprintf("Earlier message %02d", i)
+		turns[i] = Turn{ID: id, User: id, InputOnly: true, Controls: Controls{ReadOnly: true}}
+	}
+	tail := &turns[len(turns)-1]
+	*tail = Turn{ID: "tail", User: "Inspect the workspace", Reply: Reply{Status: Completed, Blocks: []Block{
+		{Kind: ToolsBlock, Calls: []Call{
+			{ID: "inspect", Label: failedRow, Failed: true, Output: &Output{}, Load: func(apply func(*Output)) func() {
+				loads++
+				apply(&Output{Failure: failure})
+				return nil
+			}},
+			{ID: "read", Label: groupA, Output: &Output{Text: outputA}},
+		}},
+		{Kind: ReasoningBlock, Text: reasoning},
+		{Kind: ToolsBlock, Calls: []Call{
+			{ID: "check", Label: warningRow, Warning: true, Output: &Output{Failure: warning, ToolFailure: true}},
+			{ID: "search", Label: groupB, Output: &Output{Text: outputB}},
+		}},
+		{Kind: ToolsBlock, Calls: []Call{{ID: "validate", Label: standalone, Standalone: true, Failed: true, Output: &Output{Failure: soloFailure}}}},
+		{Kind: TextBlock, Text: answer},
+	}}}
+	state, mounted := New(), true
+	tester := ui.NewTester(func(c *ui.Context) {
+		defer state.FinishFrame()
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() {
+			if mounted {
+				View(c, state, "session", turns, nil, still{})
+			}
+		})
+	}, 900, 800)
+	tester.SetLocale("en")
+	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tester.Frame()
+
+	completed := i18n.In("en", "turn_completed")
+	const (
+		folded = iota
+		summaries
+		groupARows
+		failedResult
+	)
+	check := func(stage string, depth, wantLoads int) {
+		t.Helper()
+		if loads != wantLoads {
+			t.Fatalf("%s: loaded tool details %d times, want %d", stage, loads, wantLoads)
+		}
+		rows := func(label string, expanded ...bool) {
+			t.Helper()
+			got := rowButtons(tester, label)
+			if len(got) != len(expanded) {
+				t.Fatalf("%s: %q has %d visible buttons, want %d: %q", stage, label, len(got), len(expanded), tester.Texts())
+			}
+			for i, want := range expanded {
+				if got[i].Expanded != want {
+					t.Fatalf("%s: %q button %d expanded = %t, want %t", stage, label, i, got[i].Expanded, want)
+				}
+			}
+		}
+		rows(i18n.In("en", StatusKey(tail.Reply.Status)), depth >= summaries)
+		if depth == folded {
+			rows(groupA)
+			rows(groupB)
+			rows(standalone)
+		} else {
+			rows(groupB, false)
+			rows(standalone, false)
+			if depth >= groupARows {
+				rows(groupA, true, false)
+				rows(failedRow, depth == failedResult)
+			} else {
+				rows(groupA, false)
+			}
+		}
+		for _, item := range []struct {
+			text string
+			show bool
+		}{
+			{answer, true}, {failedRow, depth >= groupARows}, {failure, depth == failedResult},
+			{warningRow, false}, {warning, false}, {soloFailure, false},
+			{outputA, false}, {outputB, false}, {reasoning, false},
+		} {
+			if tester.HasText(item.text) != item.show {
+				t.Fatalf("%s: %q visibility should be %t: %q", stage, item.text, item.show, tester.Texts())
+			}
+		}
+	}
+	click := func(label string) {
+		t.Helper()
+		clickRow(t, tester, label)
+		tester.Frame()
+	}
+	remount := func(s *State) {
+		mounted = false
+		tester.Frame()
+		state, mounted = s, true
+		tester.Frame()
+	}
+
+	check("initial mount", folded, 0)
+	click(completed)
+	check("opened Completed", summaries, 0)
+	click(groupA)
+	check("opened group A", groupARows, 0)
+	click(failedRow)
+	check("opened failed result", failedResult, 1)
+
+	remount(state)
+	check("remounted same state", failedResult, 2)
+
+	tail.Reply.Status = Running
+	remount(New())
+	check("mounted fresh running state", summaries, 2)
+	click(groupA)
+	check("opened group A while running", groupARows, 2)
+	tail.Reply.Status = Completed
+	tester.Frame()
+	check("finished without selecting the outer fold", folded, 2)
+	click(completed)
+	check("opened Completed after running", groupARows, 2)
 }
 
 func TestFoldedReplyMatchesExpandedBoundaries(t *testing.T) {

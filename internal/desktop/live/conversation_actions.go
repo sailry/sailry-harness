@@ -150,7 +150,7 @@ func (x *conversationActions) Decide(id string, decision composer.Decision, reas
 		kit.Toast(x.c, kit.Failed, i18n.T(x.c, "approval_busy"))
 		return
 	}
-	approval, _, ok := x.r.waitingApproval(x.cv.ID, id)
+	approval, _, ok := x.r.waitingApproval(x.cv.ID, id, x.r.controller.Conversation)
 	if !ok || f.settled[id] {
 		kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "approval_closed"))
 		return
@@ -621,7 +621,7 @@ func turnObserved(page protocol.ConversationPage) string {
 }
 
 // turn sends a command that adds to or replaces the session's turns.
-func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, error)) {
+func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, error)) protocol.RequestID {
 	id := x.cv.ID
 	encoded, _ := json.Marshal(command)
 	key := "turn/" + id + "\x00" + string(encoded)
@@ -636,16 +636,7 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			observed = retry.observed
 		}
 	}
-	pending := x.r.composerOutgoing[id]
-	var request protocol.RequestID
-	request = x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
-		if pending != nil && pending.transcript && x.r.composerOutgoing[id] == pending && command.Kind == "submit_turn" {
-			if err != nil {
-				x.r.discardOutgoing(id)
-			} else if turn, valid := detail[protocol.QueuedTurn](output.Data); valid && turn.ID != (protocol.TurnID{}) {
-				pending.turn = turn.ID
-			}
-		}
+	return x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
 		if request, uncertain := x.r.uncertain[key]; uncertain {
 			if x.r.turnRetries == nil {
 				x.r.turnRetries = map[string]turnRetry{}
@@ -663,9 +654,6 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			done(output, err)
 		}
 	})
-	if pending != nil && request != (protocol.RequestID{}) && (pending.transcript && command.Kind == "submit_turn" || !pending.transcript) {
-		pending.request = request
-	}
 }
 
 func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {

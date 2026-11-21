@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"image"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -90,8 +91,9 @@ func buttons(tt *ui.Tester, name string) (n int) {
 // The queue tray lists queued input only, for the demo's conversations as
 // for a live session's: each row is its text, with no word on why it waits,
 // and a conversation without queued input draws no tray, whatever
-// background work it holds. The tray's header counts the messages and folds
-// the rows away: folded until the user unfolds it (fold).
+// background work it holds. One message is its row alone; from two, the
+// tray's header counts the messages and folds the rows away: folded until
+// the user unfolds it (fold).
 func TestQueueTray(t *testing.T) {
 	for _, locale := range []string{"en", "zh-CN"} {
 		d := preview.Demo(locale, "local")
@@ -107,16 +109,18 @@ func TestQueueTray(t *testing.T) {
 					ctx.Activity.Connected = true
 					return ctx
 				})
-				// Folded, as a conversation starts: the header alone.
+				// Folded, as a conversation starts: the header alone, or one
+				// message's row without a header.
+				folds := len(cv.Queue) > 1
 				for _, q := range cv.Queue {
-					if q.Text != "" && !q.Notice && tt.HasText(q.Text) {
-						t.Errorf("the folded tray shows %q", q.Text)
+					if q.Text != "" && !q.Notice && tt.HasText(q.Text) == folds {
+						t.Errorf("%d queued: %q shown %v", len(cv.Queue), q.Text, !folds)
 					}
 				}
-				if header, ok := queueHeader(tt, locale, len(cv.Queue)); ok != (len(cv.Queue) > 0) || header.Expanded {
+				if header, ok := queueHeader(tt, locale, len(cv.Queue)); ok != folds || header.Expanded {
 					t.Errorf("header %+v, shown %v, for %d queued", header, ok, len(cv.Queue))
 				}
-				if len(cv.Queue) > 0 {
+				if folds {
 					fold(t, tt, locale, len(cv.Queue))
 				}
 				for _, q := range cv.Queue {
@@ -276,9 +280,9 @@ func foldTests(t *testing.T) {
 			want, not string
 		}{
 			{"en", 4, "4 queued messages", "1 queued message"},
-			{"en", 1, "1 queued message", "1 queued messages"},
+			{"en", 2, "2 queued messages", "1 queued message"},
 			{"zh-CN", 4, "4 条消息排队", ""},
-			{"zh-CN", 1, "1 条消息排队", ""},
+			{"zh-CN", 2, "2 条消息排队", ""},
 		} {
 			queue := four()[:row.n]
 			tt := tray(row.locale, view(&queue))
@@ -287,6 +291,17 @@ func foldTests(t *testing.T) {
 			}
 			if row.not != "" && tt.HasText(row.not) {
 				t.Errorf("%s, %d queued: the header says %q", row.locale, row.n, row.not)
+			}
+		}
+		// One message has no header to count it, in either language.
+		for _, locale := range []string{"en", "zh-CN"} {
+			queue := four()[:1]
+			tt := tray(locale, view(&queue))
+			if header, ok := queueHeader(tt, locale, 1); ok || tt.HasText(i18n.In(locale, "queue_messages_one")) {
+				t.Errorf("%s, 1 queued: a header %+v: %q", locale, header, tt.Texts())
+			}
+			if !tt.HasText(queue[0].Text) {
+				t.Errorf("%s, 1 queued: no row: %q", locale, tt.Texts())
 			}
 		}
 		// The same composer, as its queue grows and shrinks.
@@ -302,7 +317,7 @@ func foldTests(t *testing.T) {
 		}
 		queue = four()[:1]
 		settle(tt)
-		if !tt.HasText("1 queued message") || tt.HasText("4 queued messages") {
+		if tt.HasText("1 queued message") || tt.HasText("4 queued messages") || !tt.HasText(queue[0].Text) {
 			t.Errorf("1 queued: %q", tt.Texts())
 		}
 		// A message on its way is a row already, and counted.
@@ -634,6 +649,314 @@ func TestQueueLead(t *testing.T) {
 	if cv := preview.Demo("en", "local").Find(preview.DemoStart); !slices.ContainsFunc(cv.Queue, func(q composer.Queued) bool { return q.Notice }) {
 		t.Error("the demo's queue has no background notice")
 	}
+}
+
+// One message waiting is its row alone, with its actions and no header to
+// fold it; from two the header comes back, folded, and the fold the user
+// chose is kept across one and back. The row's editor and a child session's
+// Read work there as in an unfolded tray.
+func TestQueueOneMessage(t *testing.T) {
+	en := func(key string) string { return i18n.In("en", key) }
+	var queue []composer.Queued
+	state := composer.New(preview.DemoModel)
+	tt := trayOf(state, &owner{}, "en", func() *composer.Context {
+		return &composer.Context{Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
+	})
+	sends := buttons(tt, en("queue_send_now")) // the composer's own Send
+	single := func(step string) {
+		t.Helper()
+		if _, ok := queueHeader(tt, "en", 1); ok {
+			t.Errorf("%s: one message has a header: %q", step, tt.Texts())
+		}
+		if !tt.HasText(queue[0].Text) {
+			t.Errorf("%s: the message is not shown: %q", step, tt.Texts())
+		}
+		for key, want := range map[string]int{"queue_edit": 1, "queue_send_now": sends + 1, "queue_delete": 1, "queue_drag": 1} {
+			if n := buttons(tt, en(key)); n != want {
+				t.Errorf("%s: %d %q, want %d", step, n, en(key), want)
+			}
+		}
+	}
+	folded := func(step string, n int) {
+		t.Helper()
+		if header, ok := queueHeader(tt, "en", n); !ok || header.Expanded || tt.HasText(queue[0].Text) {
+			t.Errorf("%s: header %+v, found %v: %q", step, header, ok, tt.Texts())
+		}
+	}
+	if _, drawn := tt.Find(i18n.In("en", "queue_count", "count", 0)); drawn {
+		t.Fatalf("a tray without queued input: %q", tt.Texts())
+	}
+	queue = four()[:1]
+	settle(tt)
+	single("0 to 1")
+	queue = four()[:2]
+	settle(tt)
+	folded("1 to 2", 2)
+	queue = four()[:1]
+	settle(tt)
+	single("2 to 1")
+	queue = nil
+	settle(tt)
+	if _, drawn := tt.Find(i18n.In("en", "queue_count", "count", 0)); drawn || tt.HasText(four()[0].Text) {
+		t.Errorf("1 to 0: %q", tt.Texts())
+	}
+	// Unfolded at two, the tray is unfolded again when a second message
+	// comes back after one.
+	queue = four()[:2]
+	settle(tt)
+	fold(t, tt, "en", 2)
+	queue = four()[:1]
+	settle(tt)
+	single("unfolded 2 to 1")
+	queue = four()[:2]
+	settle(tt)
+	if header, ok := queueHeader(tt, "en", 2); !ok || !header.Expanded || !tt.HasText(queue[1].Text) {
+		t.Errorf("unfolded 1 to 2: header %+v, found %v: %q", header, ok, tt.Texts())
+	}
+
+	// The single row's editor, by its Edit: the draft kept while the
+	// queue changes under it, Escape back to the row.
+	queue = four()[:1]
+	settle(tt)
+	edit, _ := tt.AccessByRole(ui.RoleButton, en("queue_edit"))
+	tt.ClickAt(edit.Bounds.X+edit.Bounds.W/2, edit.Bounds.Y+edit.Bounds.H/2)
+	settle(tt)
+	tt.Type(" soon")
+	tt.Frame()
+	drafted := func() bool {
+		area, ok := tt.AccessByRole(ui.RoleTextField, en("queue_edit"))
+		return ok && strings.Contains(area.Value, " soon")
+	}
+	if !tt.HasText(en("queue_save")) || !drafted() {
+		t.Fatalf("no editor for the one message: %q", tt.Texts())
+	}
+	if _, ok := queueHeader(tt, "en", 1); ok {
+		t.Errorf("the one message's editor has a header: %q", tt.Texts())
+	}
+	queue = append(queue, four()[1])
+	settle(tt)
+	if !tt.HasText(en("queue_save")) || !drafted() {
+		t.Fatalf("a second message hid the editor or lost its draft: %q", tt.Texts())
+	}
+	if header, ok := queueHeader(tt, "en", 2); !ok || !header.Disabled || !header.Expanded {
+		t.Errorf("header over the editor: %+v, found %v", header, ok)
+	}
+	queue = queue[:1]
+	settle(tt)
+	if !state.Escape(&owner{}) {
+		t.Fatal("Escape did not close the editor")
+	}
+	settle(tt)
+	single("after Escape")
+
+	t.Run("a child session", func(t *testing.T) {
+		queue := four()[:1]
+		tt := tray("en", func() *composer.Context {
+			return &composer.Context{Child: true, Readonly: true, Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
+		})
+		if _, ok := queueHeader(tt, "en", 1); ok || !tt.HasText(queue[0].Text) || buttons(tt, en("queue_read")) != 1 || buttons(tt, en("queue_drag")) != 0 {
+			t.Errorf("the child's one message: %q", tt.Texts())
+		}
+	})
+}
+
+// motionTray draws the composer over ctx as tray does, with the desktop's
+// Reduce Motion set or not from the first frame, under a stand-in for the
+// transcript ("transcript"), which has the room the composer leaves.
+func motionTray(reduce bool, ctx func() *composer.Context) *ui.Tester {
+	state := composer.New(preview.DemoModel)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		kit.SetPreferences(c, kit.Preferences{})
+		ui.Column(c).Fill().Children(func() {
+			ui.Box(c.Key("transcript")).FillWidth().Grow(1).Label("transcript")
+			composer.View(c, state, ctx(), &owner{})
+		})
+	}, 760, 640, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduce}})
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+	return tt
+}
+
+// The tray's motion, frame by frame. Its lower edge stays on the surface as it
+// comes out from behind it, changes height and goes back behind it, and the
+// surface stays put. A copy going shows where the tray was until it is behind
+// the surface. The room the tray takes from the transcript follows its height
+// while it shows, and closes over the tray's own duration once it is gone, in
+// both cases on the way rather than at once. A message the Node takes over
+// from the one on its way, and a second message after one, move nothing, and
+// one more row while unfolded only lifts the rows. With Reduce Motion
+// everything is at once.
+func TestQueueMotion(t *testing.T) {
+	en := func(key string) string { return i18n.In("en", key) }
+	var queue []composer.Queued
+	var outgoing *composer.Queued
+	view := func() *composer.Context {
+		return &composer.Context{Queue: slices.Clone(queue), Outgoing: outgoing, Activity: composer.Activity{Connected: true}}
+	}
+	box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+	room := func(tt *ui.Tester) float32 {
+		r, _ := tt.Find("transcript")
+		return 640 - r.H
+	}
+	surface := func(tt *ui.Tester) ui.Rect {
+		input, ok := tt.Access(en("composer"))
+		if !ok {
+			t.Fatalf("no draft: %q", tt.Texts())
+		}
+		return input.Bounds
+	}
+	// step draws the change of state at its first frame and the frame after
+	// at, both on the way.
+	step := func(tt *ui.Tester, at time.Duration) {
+		tt.Frame()
+		tt.Advance(at)
+		tt.Frame()
+	}
+	near := func(a, b float32) bool { return a-b <= 0.5 && b-a <= 0.5 }
+	bottom := func(r ui.Rect) float32 { return r.Y + r.H }
+	snapshot := func(tt *ui.Tester) *image.RGBA {
+		img := tt.Image()
+		out := image.NewRGBA(img.Bounds())
+		copy(out.Pix, img.Pix)
+		return out
+	}
+
+	t.Run("in, and out from where it showed", func(t *testing.T) {
+		queue, outgoing = nil, nil
+		tt := motionTray(false, view)
+		draft, empty := surface(tt), room(tt)
+		outgoing = &composer.Queued{Text: "On its way"}
+		step(tt, 45*time.Millisecond)
+		mid, ok := box(tt)
+		midRoom := room(tt)
+		if !ok {
+			t.Fatalf("no tray coming in: %q", tt.Texts())
+		}
+		if s := surface(tt); s != draft {
+			t.Errorf("the surface moved from %+v to %+v as the tray came in", draft, s)
+		}
+		settle(tt)
+		end, _ := box(tt)
+		full := room(tt)
+		if !near(bottom(mid), bottom(end)) || mid.H <= 0 || mid.H >= end.H-1 {
+			t.Errorf("coming in at %+v, at rest %+v: not rising from its lower edge", mid, end)
+		}
+		if full <= empty || midRoom <= empty || midRoom >= full {
+			t.Errorf("room for the tray: %.1f, %.1f on the way, %.1f at rest", empty, midRoom, full)
+		}
+		if r, _ := tt.Find("transcript"); end.Y < r.Y+r.H-0.5 {
+			t.Errorf("the tray at %+v rises over the room it took, to %.1f", end, r.Y+r.H)
+		}
+		if s := surface(tt); s != draft {
+			t.Errorf("the surface moved from %+v to %+v", draft, s)
+		}
+
+		outgoing = nil
+		step(tt, 16*time.Millisecond)
+		going := snapshot(tt)
+		goingRoom := room(tt)
+		settle(tt)
+		if _, ok := box(tt); ok {
+			t.Fatalf("the tray stays: %q", tt.Texts())
+		}
+		if r := room(tt); !near(r, empty) || goingRoom <= empty || goingRoom >= full {
+			t.Errorf("the room as the tray went: %.1f, %.1f on the way, %.1f gone", full, goingRoom, r)
+		}
+		// The tray's upper third, over the surface, still shows the copy.
+		gone := tt.Image()
+		scale := float32(gone.Bounds().Dx()) / 760
+		shows := false
+		for y := int(end.Y * scale); y < int((end.Y+end.H/3)*scale) && !shows; y++ {
+			for x := int((end.X + 16) * scale); x < int((end.X+end.W-16)*scale); x++ {
+				if going.At(x, y) != gone.At(x, y) {
+					shows = true
+					break
+				}
+			}
+		}
+		if !shows {
+			t.Error("the tray going is gone at once, behind the surface")
+		}
+	})
+
+	t.Run("the Node's row takes over in place", func(t *testing.T) {
+		queue, outgoing = nil, &composer.Queued{Text: "On its way"}
+		tt := motionTray(false, view)
+		settle(tt)
+		was, _ := box(tt)
+		row, _ := tt.Find("On its way")
+		queue, outgoing = []composer.Queued{{ID: "x", Text: "On its way"}}, nil
+		step(tt, 45*time.Millisecond)
+		now, ok := box(tt)
+		label, shown := tt.Find("On its way")
+		if !ok || now != was || !shown || !near(label.Y, row.Y) {
+			t.Errorf("tray %+v then %+v, row %+v then %+v (%v)", was, now, row, label, shown)
+		}
+		settle(tt)
+		if n := buttons(tt, en("queue_drag")); n != 1 {
+			t.Errorf("the Node's row has %d handles", n)
+		}
+	})
+
+	t.Run("a second message after one, and back", func(t *testing.T) {
+		queue, outgoing = four()[:1], nil
+		tt := motionTray(false, view)
+		settle(tt)
+		was, _ := box(tt)
+		for _, n := range []int{2, 1} {
+			queue = four()[:n]
+			step(tt, 45*time.Millisecond)
+			now, ok := box(tt)
+			if !ok || !near(now.Y, was.Y) || !near(now.H, was.H) {
+				t.Errorf("to %d: the tray went from %+v to %+v", n, was, now)
+			}
+			settle(tt)
+		}
+	})
+
+	t.Run("unfolded, a second message lifts the first", func(t *testing.T) {
+		queue, outgoing = four()[:2], nil
+		tt := motionTray(false, view)
+		fold(t, tt, "en", 2)
+		queue = four()[:1]
+		settle(tt)
+		was, _ := box(tt)
+		first, _ := tt.Find(queue[0].Text)
+		queue = four()[:2]
+		step(tt, 45*time.Millisecond)
+		mid, _ := box(tt)
+		moving, _ := tt.Find(queue[0].Text)
+		settle(tt)
+		end, _ := box(tt)
+		lifted, _ := tt.Find(queue[0].Text)
+		if !near(bottom(mid), bottom(end)) || !near(bottom(was), bottom(end)) || mid.H <= was.H || mid.H >= end.H {
+			t.Errorf("the tray from %+v by %+v to %+v", was, mid, end)
+		}
+		if lifted.Y >= first.Y || moving.Y > first.Y+0.5 || moving.Y < lifted.Y-0.5 {
+			t.Errorf("the first row from %.1f by %.1f to %.1f", first.Y, moving.Y, lifted.Y)
+		}
+	})
+
+	t.Run("Reduce Motion", func(t *testing.T) {
+		queue, outgoing = nil, nil
+		tt := motionTray(true, view)
+		empty := room(tt)
+		queue = four()[:1]
+		tt.Frame()
+		now, ok := box(tt)
+		nowRoom := room(tt)
+		settle(tt)
+		end, _ := box(tt)
+		if !ok || now != end || !near(nowRoom, room(tt)) || nowRoom <= empty {
+			t.Errorf("the tray at once %+v, at rest %+v; room %.1f then %.1f", now, end, nowRoom, room(tt))
+		}
+		queue = nil
+		tt.Frame()
+		if _, ok := tt.Find(i18n.In("en", "queue_count", "count", 1)); ok || !near(room(tt), empty) {
+			t.Errorf("the tray did not go at once: room %.1f, was %.1f: %q", room(tt), empty, tt.Texts())
+		}
+	})
 }
 
 func diff(a, b uint32) uint32 {

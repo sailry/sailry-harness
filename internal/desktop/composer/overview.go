@@ -98,6 +98,9 @@ type OverviewState struct {
 	folded map[string]bool
 	// all are the sections shown whole past their first rows.
 	all map[string]bool
+	// refolded is the section just folded back to its first rows, whose
+	// row showing it whole takes the focus and comes into view once.
+	refolded string
 	// Docked means the conversation has room for the overview column.
 	Docked bool
 }
@@ -290,7 +293,10 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 			return ui.Text(c, text).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 		}
 		// capped lists a section's first rows, then a row showing it whole.
-		capped := func(key string, n int, item func(i int)) {
+		// A foldable section shown whole ends in a row folding it back, so a
+		// long list scrolled to its end need not be scrolled back up; the row
+		// showing it whole then takes the focus and comes into view.
+		capped := func(key string, n int, foldable bool, item func(i int)) {
 			shown := n
 			if n > overviewRows && !s.all[key] {
 				shown = overviewRows
@@ -298,12 +304,29 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 			for i := range shown {
 				item(i)
 			}
-			if shown < n {
+			refolded := s.refolded == key
+			if refolded {
+				s.refolded = ""
+			}
+			switch {
+			case shown < n:
 				all := i18n.T(c, "chat_assets_all") + " " + strconv.Itoa(n)
-				expand("all-"+key, all, key, func() {
+				b := expand("all-"+key, all, key, func() {
 					ui.Icon(c, icons.ChevronDown).FontSize(15).Shrink(0)
 					name(all)
 				}).TextColor(p.MutedForeground)
+				if refolded {
+					b.AutoFocus().ScrollIntoView()
+				}
+			case foldable && n > overviewRows:
+				fold := i18n.T(c, "chat_assets_fold")
+				ghost("fold-"+key, fold, func() {
+					ui.Icon(c, icons.ChevronUp).FontSize(15).Shrink(0)
+					name(fold)
+				}).TextColor(p.MutedForeground).OnClick(func() {
+					delete(s.all, key)
+					s.refolded = key
+				})
 			}
 		}
 		tally := func(text string) func() {
@@ -363,17 +386,16 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 					if label == "" {
 						label = i18n.T(c, "chat_child")
 					}
-					status := i18n.T(c, k.Status)
-					row("child-"+k.ID, label+": "+status, func() {
+					b := row("child-"+k.ID, label, func() {
 						kit.RoleIdenticon(c, k.ID, k.Avatar, k.Running, 16)
 						name(label)
-						switch {
-						case k.Completed:
+						if k.Completed {
 							ui.Icon(c, icons.Check).FontSize(16).Shrink(0).TextColor(p.Success)
-						default:
-							ui.Text(c, status).FontSize(13).SingleLine().Shrink(0).TextColor(p.MutedForeground)
 						}
 					}, func() { o.OpenChild(k.ID) })
+					if k.Status != "" {
+						kit.Tooltip(c, b, i18n.T(c, k.Status))
+					}
 				}
 			})
 		}
@@ -383,7 +405,7 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 				added, removed = added+ch.Added, removed+ch.Removed
 			}
 			section("changes", "chat_assets_changes", func() { lines(c, added, removed) }, func() {
-				capped("changes", len(o.Changes), func(i int) {
+				capped("changes", len(o.Changes), true, func(i int) {
 					ch := o.Changes[i]
 					file := path.Base(ch.Path)
 					b := row("change-"+ch.Path, ch.Path, func() {
@@ -416,12 +438,12 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 		}
 		if len(o.Output) > 0 {
 			section("output", "chat_assets_output", nil, func() {
-				capped("output", len(o.Output), func(i int) { asset(o.Output[i]) })
+				capped("output", len(o.Output), false, func(i int) { asset(o.Output[i]) })
 			})
 		}
 		if n := len(o.Sources) + len(o.Citations); n > 0 {
 			section("sources", "chat_assets_sources", nil, func() {
-				capped("sources", n, func(i int) {
+				capped("sources", n, false, func(i int) {
 					if i < len(o.Sources) {
 						asset(o.Sources[i])
 						return

@@ -15,11 +15,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// queueFolded is the folded queue tray's header: the tray is folded until the
-// user unfolds it.
-func queueFolded(tt *ui.Tester) (header ui.AccessInfo, ok bool) {
+// queueHeader is the queue tray's header, folded or not, named by how many
+// messages wait. Two or more have one; one message is its row alone, so a
+// header named for one is found too, as the regression it would be.
+func queueHeader(tt *ui.Tester, folded bool) (header ui.AccessInfo, ok bool) {
 	for _, e := range tt.AccessAll() {
-		if e.Role != ui.RoleButton || e.Expanded {
+		if e.Role != ui.RoleButton || folded && e.Expanded {
 			continue
 		}
 		for _, locale := range []string{"en", "zh-CN"} {
@@ -35,6 +36,22 @@ func queueFolded(tt *ui.Tester) (header ui.AccessInfo, ok bool) {
 		}
 	}
 	return header, false
+}
+
+// queueFolded is the folded queue tray's header: from two messages, the tray
+// is folded until the user unfolds it.
+func queueFolded(tt *ui.Tester) (ui.AccessInfo, bool) { return queueHeader(tt, true) }
+
+// singleQueued fails unless the tray shows one message as its row alone,
+// text, with no header to fold it.
+func singleQueued(t *testing.T, tt *ui.Tester, text string) {
+	t.Helper()
+	if header, ok := queueHeader(tt, false); ok {
+		t.Fatalf("one queued message has a header %+v: %q", header, tt.Texts())
+	}
+	if !tt.HasText(text) {
+		t.Fatalf("the one queued message %q is not shown: %q", text, tt.Texts())
+	}
 }
 
 // unfoldQueue clicks the folded tray's header, which shows its rows: at its
@@ -170,7 +187,8 @@ func TestQueueStates(t *testing.T) {
 	// Background results held back from delivery are not queue rows
 	// (AGENTS.md, Removed UI). The strip is drawn over the projection of a page
 	// that holds one of each kind: with a queued message it is that one row,
-	// and without one there is no strip, and no result's title shows.
+	// without a header, and without one there is no strip, and no result's
+	// title shows.
 	t.Run("held results are not rows", func(t *testing.T) {
 		var titles []string
 		held := func(queued bool) protocol.ConversationPage {
@@ -204,11 +222,11 @@ func TestQueueStates(t *testing.T) {
 				tester.SetLocale("en")
 				tester.Frame()
 				tester.Frame()
-				if _, folded := queueFolded(tester); folded != row.queued {
-					t.Fatalf("a folded tray %v, queued %v: %q", folded, row.queued, tester.Texts())
+				if header, ok := queueHeader(tester, false); ok {
+					t.Fatalf("a queue header %+v, queued %v: %q", header, row.queued, tester.Texts())
 				}
 				if row.queued {
-					unfoldQueue(t, tester)
+					singleQueued(t, tester, "Next")
 				}
 				// The strip is named by its count: one row, or no strip.
 				strips := 0

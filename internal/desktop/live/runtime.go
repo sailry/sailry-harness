@@ -256,14 +256,12 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 		previous := copied.state
 		copied.state, copied.ok = r.controller.ConversationView(id, previous)
 		current := copied.state
-		// A page request's loading flag changes before any history arrives.
-		// Keep the projected rows and update the pagination indicator in place.
-		pagingOnly := current.SameViewSnapshot(previous) && current.LoadingOlder != previous.LoadingOlder &&
-			current.Connected && previous.Connected && !current.Loading && !previous.Loading && current.Err == nil && previous.Err == nil
-		if !pagingOnly {
+		if !current.SameViewSnapshot(previous) {
+			copied.composer = nil
+		}
+		if !sameTranscriptSource(current, previous) {
 			r.conversationVersion++
 			copied.generation = r.conversationVersion
-			copied.composer = nil
 		}
 		copied.stale = false
 		r.conversationCopies[id] = copied
@@ -1269,8 +1267,7 @@ func (r *Runtime) selectPendingSession() {
 	if r.pendingSession == "" || r.App.Data.Find(r.pendingSession) == nil {
 		return
 	}
-	r.App.Page = shell.ConversationPage
-	r.App.Sidebar.Selected = r.pendingSession
+	r.App.OpenConversation(r.pendingSession)
 	r.pendingSession = ""
 }
 

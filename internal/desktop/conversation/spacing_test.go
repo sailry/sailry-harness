@@ -58,7 +58,7 @@ func TestReplyContentSpacing(t *testing.T) {
 				tester := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Light)
 					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
-					state.tools(c, calls, true)
+					state.tools(c, calls, toolsLive)
 				}, 900, 700)
 				tester.SetLocale("en")
 				tester.Frame()

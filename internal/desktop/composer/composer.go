@@ -108,7 +108,8 @@ type State struct {
 	in         interaction
 	act        activity
 	queue      queueState
-	queueOpen  bool // the queue tray's rows show: folded until the user unfolds it; kept while the queue empties
+	queueOpen  bool      // the queue tray's rows show: folded until the user unfolds it; kept while the queue empties
+	queueBox   ui.Handle // the queue tray, whose height last frame is the room it takes over the surface
 	ref        refState
 	caret      int // a caret to put in the draft next frame, -1 for none
 	focus      bool

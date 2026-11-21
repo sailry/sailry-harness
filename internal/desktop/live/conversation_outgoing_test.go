@@ -368,26 +368,51 @@ func TestOutgoingLandedBeforeResponse(t *testing.T) {
 	defer controller.Close()
 	r := &Runtime{controller: controller, snapshotRead: true, snapshotCopy: snapshot}
 	pending := &conversationOutgoing{Queued: composer.Queued{Text: "day?", Guided: true}}
+	cv := &viewmodel.Conversation{ID: session.String()}
+	r.composerOutgoing = map[string]*conversationOutgoing{cv.ID: pending}
 	page := protocol.DefaultConversationPage()
 	page.Session = session
-	if r.outgoingLanded(pending, page) {
+	project := func() {
+		cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		r.projectOutgoing(cv, page)
+	}
+	project()
+	if r.composerOutgoing[cv.ID] != pending {
 		t.Fatal("an unsent message landed")
 	}
 	pending.request = request
-	if r.outgoingLanded(pending, page) {
+	project()
+	if r.composerOutgoing[cv.ID] != pending {
 		t.Fatal("a message the Node has not shown landed")
 	}
 	page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "day?"}}
-	if !r.outgoingLanded(pending, page) {
+	project()
+	if r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != turn.String() {
 		t.Fatal("a queued row repeated the sending row")
 	}
+	pending.turn = protocol.TurnID{}
+	r.composerOutgoing[cv.ID] = pending
 	page.Queue.Items = nil
 	r.snapshotCopy.Turns = []protocol.TurnSummary{{ID: turn, Session: session, Request: request}}
-	if r.outgoingLanded(pending, page) {
+	owner := protocol.TurnID{5}
+	page.Runs = []protocol.ConversationRun{
+		{Session: session, Turn: owner, Sequence: 1, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning},
+		{Session: session, Turn: turn, Sequence: 2, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusCompleted, Joined: &owner},
+	}
+	project()
+	if r.composerOutgoing[cv.ID] != pending {
 		t.Fatal("a turn without its entry landed")
 	}
 	page.Entries = []protocol.ConversationEntry{{Turn: turn, ID: "guidance", Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "day?"}}}}
-	if !r.outgoingLanded(pending, page) {
+	project()
+	if r.composerOutgoing[cv.ID] != nil || len(cv.Turns) != 1 || cv.Turns[0].User != "day?" {
 		t.Fatal("consumed guidance repeated the sending row")
+	}
+	r.composerOutgoing[cv.ID] = pending
+	page.Entries = nil
+	page.Runs[1].Status, page.Runs[1].Joined = protocol.ConversationStatusCancelled, nil
+	project()
+	if r.composerOutgoing[cv.ID] != nil {
+		t.Fatal("an explicitly removed turn left a sending row")
 	}
 }

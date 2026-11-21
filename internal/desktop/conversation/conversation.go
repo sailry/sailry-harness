@@ -213,9 +213,21 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	s.md.ShareSelection = true
 	kit.BindMermaid(&s.md, drawMermaidChart)
 	bindMath(&s.md)
-	s.md.LinkIcon = nil
-	if s.SessionLink != nil {
-		s.md.LinkIcon = sessionIcon(c, s.SessionLink)
+	s.md.LinkIcon, s.md.Preview = nil, nil
+	if sessionLink := s.SessionLink; sessionLink != nil {
+		s.md.LinkIcon = sessionIcon(c, sessionLink)
+		s.md.Preview = func(c *ui.Context, dest string) func(ui.Element) {
+			if !sessionLink(dest) {
+				return nil
+			}
+			return func(tip ui.Element) {
+				t := c.Theme()
+				kit.Floating(c, tip).Radius(theme.Of(c).Radius).
+					MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).FontSize(t.FontSize-1).
+					Margin(0, 0, t.Space(1.5), 0).
+					Children(func() { ui.Text(c, i18n.T(c, "notification_open_conversation")) })
+			}
+		}
 	}
 	if sess != nil && sess.Loading {
 		s.navigated = nil
@@ -617,7 +629,14 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
 	live := latest && active && r.Status != Unsynced
-	toolActivity := r.Status == Running || r.Status == Stopping
+	answerTools := toolsRevealFailures
+	if r.Status == Running || r.Status == Stopping {
+		answerTools = toolsLive
+	}
+	workTools := answerTools
+	if r.Status == Completed {
+		workTools = toolsFolded
+	}
 	gap := float32(8)
 	if parts.hasWork {
 		gap = workGap
@@ -670,7 +689,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				ui.Divider(c).Background(p.Border)
 				if parts.hasWork && workOpen {
 					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, toolActivity, r.Phase, actions)
+						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, workTools, r.Phase, actions)
 					})
 				}
 			})
@@ -681,7 +700,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, key, answer, live, toolActivity, r.Phase, actions)
+				s.blocks(c, key, answer, live, answerTools, r.Phase, actions)
 			})
 		}
 		if latest && !active && r.Changes != nil {
@@ -697,7 +716,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		}
 		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
-				s.blocks(c, key+"-errors", parts.failures, false, false, PhaseNone, actions)
+				s.blocks(c, key+"-errors", parts.failures, false, toolsFolded, PhaseNone, actions)
 			})
 		}
 		if latest && !active {
@@ -707,7 +726,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 }
 
 // blocks builds blocks in transcript order.
-func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, toolActivity bool, phase Phase, actions Actions) {
+func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, toolRows toolDisplay, phase Phase, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	for i, b := range blocks {
@@ -725,7 +744,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, t
 					})
 				})
 			case ToolsBlock:
-				s.tools(c, b.Calls, toolActivity)
+				s.tools(c, b.Calls, toolRows)
 			case QuestionBlock:
 				s.question(c, b.Question)
 			case ChildrenBlock:

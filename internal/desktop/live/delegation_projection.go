@@ -1,14 +1,15 @@
 package live
 
 import (
+	"slices"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"time"
-
-	"github.com/egoist/mygo/ui"
 )
 
 func (r *Runtime) watchChild(id protocol.SessionID) {
@@ -38,20 +39,21 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		return
 	}
 	snapshot := r.snapshot()
-	runs := map[string]protocol.ConversationRun{}
+	targets := map[string]client.ConversationChildTarget{}
 	models := map[string]conversation.Child{}
-	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		childSession, valid := client.ConversationChildSession(snapshot, session.ID, child)
-		if !valid {
-			continue
-		}
+	for _, target := range r.liveChildren(state.Snapshot) {
+		child, childSession := target.Child, target.Session
 		id := childSession.ID.String()
-		runs[id] = child.Run
-		models[id] = conversation.Child{Model: childSession.Config.Model, Effort: effortName(childSession.Config.Effort), Avatar: childAvatar(snapshot.Roles, child)}
+		targets[id] = target
+		avatar := childAvatar(snapshot.Roles, child)
+		if target.Listed {
+			models[id] = conversation.Child{Model: childSession.Config.Model, Effort: effortName(childSession.Config.Effort), Avatar: avatar}
+		}
 		if child.Run.Status == "queued" || child.Run.Status == "running" || child.Run.Status == "stopping" {
 			if child.Run.Status == protocol.ConversationStatusRunning {
-				view := childView(&state.Snapshot.Page, child, childSession, language)
-				view.Avatar = models[id].Avatar
+				view := childView(nil, child, childSession, language)
+				view.Title = liveChildTitle(&state.Snapshot.Page, target, language)
+				view.Avatar = avatar
 				view.Unsynced = !state.Connected
 				ctx.Activity.Children = append(ctx.Activity.Children, view)
 			}
@@ -67,7 +69,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 						continue
 					}
 					view := projectApproval(approval, callAt(details.Snapshot.Page, approval.Entry, approval.Index), language)
-					view.Child = childTitle(&state.Snapshot.Page, child, language)
+					view.Child = liveChildTitle(&state.Snapshot.Page, target, language)
 					ctx.Interactions.Approvals = append(ctx.Interactions.Approvals, view)
 				}
 			}
@@ -77,19 +79,28 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		comp.ActivityCallbacks = &composer.ActivityCallbacks{}
 	}
 	comp.ActivityCallbacks.ChildElapsed = func(id string, now time.Time) string {
-		run, ok := runs[id]
+		target, ok := targets[id]
 		if !ok {
 			return ""
 		}
-		return childElapsed(run, now)
+		return childElapsed(target.Child.Run, now)
 	}
 	comp.ActivityCallbacks.ChildBusy = func(id string) bool {
-		run, ok := runs[id]
-		return ok && r.childStops[run.Turn]
+		target, ok := targets[id]
+		return ok && (!target.Listed || r.childStops[target.Child.Run.Turn])
 	}
 	comp.ActivityCallbacks.StopChild = func(id string) {
-		if run, ok := runs[id]; ok {
-			r.stopChild(session.ID, run)
+		if target, ok := targets[id]; ok && target.Listed {
+			if target.Background != nil {
+				fresh, ready := r.controller.Conversation(session.ID)
+				if !ready || fresh.Snapshot.Page.Revision != state.Snapshot.Page.Revision ||
+					!slices.ContainsFunc(r.liveChildren(fresh.Snapshot), func(current client.ConversationChildTarget) bool {
+						return current.Child.Run.Turn == target.Child.Run.Turn && target.MatchesSession(current.Session)
+					}) {
+					return
+				}
+			}
+			r.stopChild(session.ID, target.Child.Run)
 		}
 	}
 	enrichChildModels(cv, models)
