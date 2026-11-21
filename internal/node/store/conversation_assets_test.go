@@ -217,10 +217,31 @@ func TestConversationAssetInventory(t *testing.T) {
 		var branch protocol.Session
 		var oldImage protocol.ConversationImage
 		var newest uint64
+		attachment := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: protocol.AttachmentSpec{
+			Worktree: session.Worktree, Name: "source.txt", MediaType: "text/plain", Size: 1, Revision: strings.Repeat("a", 64),
+		}}
 		artifact := protocol.ArtifactSummary{ID: protocol.NewArtifactID(), Kind: protocol.ArtifactKindDocument, Session: session.ID, Turn: turn, Package: protocol.PluginReference{Name: "document-fixture", Digest: strings.Repeat("a", 64)}, Title: "HTML report", Revision: 1, Size: 16}
 		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			user := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Text(0, "See [Input](input.txt)"))), now)
+			if _, err := db.ExecContext(ctx, "UPDATE worktrees SET path='/fixture/source' WHERE id=?1", session.Worktree.String()); err != nil {
+				return err
+			}
+			if err := InsertAttachment(ctx, db, node, attachment); err != nil {
+				return err
+			}
+			if err := BindTurnAttachments(ctx, db, turn, []protocol.AttachmentID{attachment.ID}); err != nil {
+				return err
+			}
+			user := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User,
+				canonical.Text(0, "[Reference context](hidden-reference.pdf)"),
+				canonical.Text(1, "[Capability context](hidden-capability.pdf)"),
+				canonical.Text(2, "[Notice context](hidden-notice.pdf)"),
+				canonical.Text(3, "See [Input](/fixture/source/input.txt)"),
+				canonical.Block{Index: 4, Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: "sailry-attachment://" + attachment.ID.String()}}},
+			)), now)
 			user.Provenance.Author = "user"
+			user.Metadata.Input = &canonical.Input{CapabilityPart: ptr(uint64(1)), NoticePart: ptr(uint64(2)), References: []protocol.ConversationReference{
+				{Target: protocol.ConversationReferenceTarget{Kind: "file", Data: ptr("referenced.md")}, Label: "Referenced file"},
+			}}
 			if _, _, err := AppendCanonical(ctx, db, session.ID, user); err != nil {
 				return err
 			}
@@ -258,6 +279,13 @@ func TestConversationAssetInventory(t *testing.T) {
 			}
 			branch, _, err = forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: session.ID, Through: turn, ExpectedRevision: session.Revision})
 			if err != nil {
+				return err
+			}
+			branch.Worktree = protocol.NewWorktreeID()
+			if _, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,path,main) VALUES(?1,'/fixture/branch',0)", branch.Worktree.String()); err != nil {
+				return err
+			}
+			if _, _, err = reviseSession(ctx, db, branch); err != nil {
 				return err
 			}
 			current, err := ReadSession(ctx, db, session.ID)
@@ -350,6 +378,15 @@ func TestConversationAssetInventory(t *testing.T) {
 			if err != nil || len(filtered.Groups) != 1 || filtered.Groups[0].Kind != kind {
 				return fmt.Errorf("resource filter changed: %+v, %v", filtered, err)
 			}
+			resource := filtered.Groups[0]
+			want := []protocol.ConversationAssetsTarget{
+				{Kind: "file", Data: &protocol.ConversationAssetsTargetFilePayload{Path: "input.txt"}},
+				{Kind: "attachment", Data: &attachment},
+				{Kind: "file", Data: &protocol.ConversationAssetsTargetFilePayload{Path: "referenced.md"}},
+			}
+			if resource.Worktree != session.Worktree || !reflect.DeepEqual(resource.Items, want) {
+				return fmt.Errorf("fork resource targets lost origin scope: %+v", resource)
+			}
 			plain := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_response", Data: &canonical.ToolResponse{ID: "write", Result: canonical.Payload{Value: json.RawMessage(`{"kind":"file_written","data":{"path":"source.go","revision":"captured","size":1}}`)}}})), now)
 			items, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"))
 			if err != nil || len(items) != 0 {
@@ -368,4 +405,167 @@ func TestConversationAssetInventory(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestConversationAssetStoredToolFormats(t *testing.T) {
+	t.Parallel()
+	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	const file = `{"kind":"file","path":"report.pdf","mime":"application/pdf"}`
+	const content = `{"version":1,"blocks":[` + file + `]}`
+	const wrapped = `{"sailry_content":` + content + `}`
+	const imageContent = `{"version":1,"blocks":[{"kind":"image","index":0},` + file + `]}`
+	tests := []struct {
+		name   string
+		format canonical.ToolFormat
+		value  string
+		slot   string
+		hidden bool
+		items  []string
+	}{
+		{name: "direct", value: wrapped, items: []string{"file"}},
+		{name: "JSON structured", value: `{"structuredContent":` + wrapped + `}`, items: []string{"file"}},
+		{name: "JSON output", value: `{"output":` + wrapped + `}`, items: []string{"file"}},
+		{name: "MCP structured", format: canonical.MCP, value: `{"structuredContent":` + wrapped + `}`, items: []string{"file"}},
+		{name: "MCP structured output", format: canonical.MCP, value: `{"structuredContent":{"output":` + wrapped + `}}`, items: []string{"file"}},
+		{name: "MCP error output", format: canonical.MCPError, value: `{"output":` + wrapped + `}`, items: []string{"file"}},
+		{name: "JSON structured null falls back", value: `{"structuredContent":{"sailry_content":null},"output":` + wrapped + `}`, items: []string{"file"}},
+		{name: "JSON direct null takes precedence", value: `{"sailry_content":null,"output":` + wrapped + `}`},
+		{name: "MCP structured null takes precedence", format: canonical.MCP, value: `{"structuredContent":null,"output":` + wrapped + `}`},
+		{name: "escaped key", value: `{"log":"` + strings.Repeat("x", 8<<10) + `","sailry\u005fcontent":` + content + `}`, items: []string{"file"}},
+		{name: "missing text", value: `{"sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/text"},` + file + `]}}`},
+		{name: "captured text", value: `{"output":{"sailry_content":{"version":1,"blocks":[{"kind":"text","path":"/detail"},` + file + `]},"detail":null}}`, slot: "/output/detail", items: []string{"file"}},
+		{name: "legacy root image", value: `{"inline_data":[{"data":null}],"sailry_content":` + imageContent + `}`, slot: "/inline_data/0/data", items: []string{"image", "file"}},
+		{name: "legacy typed image", value: `{"kind":"computer","data":{"inline\u005fdata":[{"data":null}]}}`, slot: "/data/inline_data/0/data", items: []string{"image"}},
+		{name: "captured context", hidden: true, value: `{"inline_data":[{"data":null}],"sailry_content":` + imageContent + `}`, slot: "/inline_data/0/data", items: []string{"file"}},
+	}
+	sequences := make([]uint64, len(tests))
+	imageBytes := []byte("fixture media")
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		digest, err := PutBlob(ctx, db, imageBytes)
+		if err != nil {
+			return err
+		}
+		for i, test := range tests {
+			payload := canonical.Payload{Value: json.RawMessage(test.value)}
+			if test.slot != "" {
+				payload.Assets = []canonical.BinarySlot{{Pointer: test.slot, Asset: canonical.AssetRef{Digest: digest, Mime: "image/png", Size: uint64(len(imageBytes))}, Encoding: canonical.Base64}}
+			}
+			hydrated, err := HydrateCanonicalPayload(ctx, db, payload)
+			if err != nil {
+				return err
+			}
+			revision, err := encode(agentJSON(hydrated))
+			if err != nil {
+				return err
+			}
+			response := &canonical.ToolResponse{ID: fmt.Sprint(i), Name: "fixture_publish", Status: canonical.ToolSuccess, Format: test.format, Revision: fmt.Sprintf("%x", blake3.Sum256(revision)), Result: payload}
+			message := canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: response})
+			record := canonical.NewRecord(turn, "message", &message, now)
+			record.Provenance.Author = "tool"
+			if test.hidden {
+				message.Content = append(message.Content, canonical.Text(1, "![Hidden](hidden.png)"))
+				message.PartCount++
+				record.Provenance.Author = "system"
+				record.Metadata.Context = &canonical.Context{Captured: true}
+			}
+			if sequences[i], err = insertConversationAssetFixture(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		page, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 50})
+		if err != nil {
+			return err
+		}
+		groupIndex := 0
+		for i := len(tests) - 1; i >= 0; i-- {
+			test := tests[i]
+			if len(test.items) == 0 {
+				continue
+			}
+			if groupIndex >= len(page.Groups) || page.Groups[groupIndex].Sequence != sequences[i] {
+				return fmt.Errorf("%s: missing or out of order in inventory: %+v", test.name, page.Groups)
+			}
+			items := page.Groups[groupIndex].Items
+			if len(items) != len(test.items) {
+				return fmt.Errorf("%s: unexpected targets: %+v", test.name, items)
+			}
+			for j, item := range items {
+				if item.Kind != test.items[j] {
+					return fmt.Errorf("%s: target %d = %s, want %s", test.name, j, item.Kind, test.items[j])
+				}
+				switch value := item.Data.(type) {
+				case *protocol.ConversationAssetsTargetFilePayload:
+					if value.Path != "report.pdf" {
+						return fmt.Errorf("%s: unexpected publication %q", test.name, value.Path)
+					}
+				case *protocol.ConversationImage:
+					body, err := ReadCanonicalImage(ctx, db, session.ID, *value)
+					if err != nil || !bytes.Equal(body, imageBytes) {
+						return fmt.Errorf("%s: legacy image bytes = %q, error = %v", test.name, body, err)
+					}
+				}
+			}
+			groupIndex++
+		}
+		if page.NextBefore != nil || groupIndex != len(page.Groups) {
+			return fmt.Errorf("unexpected trailing inventory: %+v", page)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConversationAssetCursorUsesStoredBytes(t *testing.T) {
+	t.Parallel()
+	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	value := json.RawMessage(`{"kind":"command_result","data":{"stdout":{"text":"` + strings.Repeat("x", 4<<20) + `"}}}`)
+	var newest, oldest uint64
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		old := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "[Old](old.pdf)"))), now)
+		old.Provenance.Author = "assistant"
+		var err error
+		if oldest, err = insertConversationAssetFixture(ctx, db, session.ID, old); err != nil {
+			return err
+		}
+		response := &canonical.ToolResponse{ID: "log", Name: "fixture_output", Status: canonical.ToolSuccess, Revision: fmt.Sprintf("%x", blake3.Sum256(value)), Result: canonical.Payload{Value: value}}
+		message := canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: response}, canonical.Text(1, "[New](new.pdf)"))
+		record := canonical.NewRecord(turn, "message", &message, now)
+		record.Provenance.Author = "tool"
+		newest, err = insertConversationAssetFixture(ctx, db, session.ID, record)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		page, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20})
+		if err != nil {
+			return err
+		}
+		if len(page.Groups) != 1 || page.Groups[0].Sequence != newest || page.NextBefore == nil || *page.NextBefore != newest {
+			return fmt.Errorf("stored bytes no longer cap inventory pages: %+v", page)
+		}
+		next, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Before: page.NextBefore})
+		if err != nil {
+			return err
+		}
+		if len(next.Groups) != 1 || next.Groups[0].Sequence != oldest || next.NextBefore != nil || next.Revision != page.Revision {
+			return fmt.Errorf("byte-capped cursor did not resume at the next record: %+v", next)
+		}
+		kind := protocol.ConversationAssetsKindResource
+		filtered, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Kind: &kind})
+		if err != nil || len(filtered.Groups) != 0 || filtered.NextBefore == nil || *filtered.NextBefore != newest {
+			return fmt.Errorf("kind filter changed the byte-capped cursor: %+v, %v", filtered, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

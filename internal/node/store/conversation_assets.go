@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -50,10 +51,10 @@ func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.
 		body     []byte
 	}
 	records := []event{}
-	bytes := 0
+	storedBytes := 0
 	more := false
 	for rows.Next() {
-		if len(records) == 256 || bytes >= 4*1024*1024 {
+		if len(records) == 256 || storedBytes >= 4*1024*1024 {
 			more = true
 			break
 		}
@@ -63,7 +64,7 @@ func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.
 			return page, err
 		}
 		records = append(records, value)
-		bytes += len(value.body)
+		storedBytes += len(value.body)
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return page, err
@@ -213,7 +214,7 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 						targets.file(path)
 						break
 					}
-					for index, asset := range agentImageAssets(value) {
+					for index, asset := range conversationAssetImages(value) {
 						if err := targets.image(record, worktree, part, uint64(index), asset); err != nil {
 							return nil, err
 						}
@@ -234,7 +235,7 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 	}
 	for _, block := range message.Content {
 		response, ok := block.Data.(*canonical.ToolResponse)
-		if !ok {
+		if !ok || !conversationAssetResultMayContain(response.Result.Value, `"sailry_content"`) {
 			continue
 		}
 		hydrated, err := HydrateCanonicalPayload(ctx, db, response.Result)
@@ -242,15 +243,10 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 			return nil, err
 		}
 		raw := rawAgentTool{Presentation: protocol.ToolPresentationContent, Result: &hydrated, Format: response.Format}
-		for index, asset := range agentImageAssets(response) {
-			if !supportedAgentImage(asset) {
-				continue
+		for index, asset := range conversationAssetImages(response) {
+			if supportedAgentImage(asset) {
+				raw.Images = append(raw.Images, protocol.ConversationImage{Index: uint64(index)})
 			}
-			image, err := describeAgentImage(record.Turn, worktree, record.ID, block.Index, uint64(index), asset)
-			if err != nil {
-				return nil, err
-			}
-			raw.Images = append(raw.Images, image)
 		}
 		if content := raw.content(); content != nil {
 			for _, item := range content.Blocks {
@@ -268,6 +264,23 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 		}
 	}
 	return targets.items, targets.err
+}
+
+func conversationAssetResultMayContain(value json.RawMessage, key string) bool {
+	value = bytes.TrimSpace(value)
+	// Binary slots replace an existing value with a string or byte array. They
+	// cannot introduce a key or turn a non-object into a result envelope.
+	// A Unicode escape can spell a key without the literal marker.
+	return len(value) > 0 && value[0] == '{' && (bytes.Contains(value, []byte(key)) || bytes.Contains(value, []byte(`\u`)))
+}
+
+func conversationAssetImages(response *canonical.ToolResponse) []canonical.AssetRef {
+	if response.Format == canonical.JSON && len(response.Result.Assets) != 0 && !conversationAssetResultMayContain(response.Result.Value, `"inline_data"`) {
+		attachments := *response
+		attachments.Result.Assets = nil
+		return agentImageAssets(&attachments)
+	}
+	return agentImageAssets(response)
 }
 
 func generatedImageAssetFile(response *canonical.ToolResponse) (string, bool) {
