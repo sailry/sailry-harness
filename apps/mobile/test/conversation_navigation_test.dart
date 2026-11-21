@@ -11,8 +11,10 @@ import 'package:sailry_bridge/bridge.dart';
 import 'package:sailry_mobile/content/markdown.dart';
 import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
 import 'package:sailry_mobile/features/conversations/live/connection_status.dart';
+import 'package:sailry_mobile/features/conversations/live/glass_chip.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
+import 'package:sailry_mobile/features/conversations/live/queue.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/conversations/live/timeline.dart';
 import 'package:sailry_mobile/features/conversations/message_composer.dart';
@@ -512,6 +514,100 @@ void main() {
       await release(tester, session);
     },
   );
+
+  testWidgets('the live queue leads the activity row on a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final connection = _LifecycleConnection();
+    final initial = conversation(unread: false);
+    final commands = <Map<String, dynamic>>[];
+    final host = HostConnection.test(
+      id: 'target',
+      label: 'Host',
+      connection: connection,
+      command: (kind, data) async {
+        expect(kind, 'set_queue_paused');
+        commands.add(data!);
+        return {};
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: initial,
+        ),
+      ),
+    );
+    expect(connection.watchOptions, [(referenceRows: true, recent: true)]);
+    final feed = connection.feeds.single;
+    const queued = 'Check the narrow layout';
+    void publishQueue({required bool paused}) {
+      final view = _transcript('session', 'Initial body');
+      final Map<String, dynamic> page = view['snapshot']['page'];
+      page['background'] = [
+        {'id': 'task', 'state': 'running', 'kind': {'kind': 'command'}},
+      ];
+      page['queue'] = {
+        'revision': paused ? 8 : 7,
+        'paused': paused,
+        'items': [
+          {'turn': 'next', 'kind': 'task', 'revision': 1, 'preview': queued},
+        ],
+      };
+      feed.publish(view);
+    }
+
+    publishQueue(paused: false);
+    await tester.pumpAndSettle();
+    final translate = tester.element(find.byType(LiveConversationPage)).tr;
+    final row = find.byType(ComposerChipRow);
+    expect(row, findsOneWidget);
+    Finder inRow(Finder matching) =>
+        find.descendant(of: row, matching: matching).hitTestable();
+    final chip = inRow(find.byType(QueueChip));
+    final background = inRow(find.text(translate('activityBackground')));
+    expect(chip, findsOneWidget);
+    expect(background, findsOneWidget);
+    expect(tester.getCenter(chip).dx, lessThan(tester.getCenter(background).dx));
+
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+    expect(find.text(queued), findsOneWidget);
+    final pause = find
+        .widgetWithText(OutlinedButton, translate('pauseQueue'))
+        .hitTestable();
+    expect(tester.widget<OutlinedButton>(pause).onPressed, isNotNull);
+    await tester.tap(pause);
+    await tester.pumpAndSettle();
+    expect(commands, [
+      {'session': 'session', 'expected_revision': 7, 'paused': true},
+    ]);
+
+    publishQueue(paused: true);
+    await tester.pumpAndSettle();
+    final resume = find.widgetWithText(OutlinedButton, translate('resumeQueue'));
+    expect(tester.widget<OutlinedButton>(resume).onPressed, isNotNull);
+    Navigator.of(tester.element(find.byType(LiveQueue))).pop();
+    await tester.pumpAndSettle();
+    expect(tester.widget<QueueChip>(chip).state, (
+      count: 1,
+      paused: true,
+      guiding: false,
+    ));
+    expect(connection.watches, ['session']);
+    expect(feed.closes, 0);
+    await release(tester, session);
+    expect(feed.closes, 1);
+    expect(feed.disposals, 1);
+  });
 
   for (final terminal in ['revoked', 'removed', 'terminated']) {
     testWidgets(

@@ -70,19 +70,24 @@ class _Activity {
       ports.isEmpty;
 }
 
-/// One row of chips above the composer; each opens the grouped activity sheet.
+/// One row of chips above the composer; activity chips open the grouped
+/// activity sheet.
 class ActivityStrip extends StatefulWidget {
   const ActivityStrip({
     super.key,
     required this.host,
     required this.session,
     required this.updates,
+    this.queue,
     this.onOpenChild,
   });
 
   final HostConnection host;
   final Map<String, dynamic> session;
   final ValueListenable<Map<String, dynamic>> updates;
+
+  /// The queue chip leads the same row.
+  final Widget? queue;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
   @override
@@ -165,74 +170,62 @@ class _ActivityStripState extends State<ActivityStrip> {
     listenable: _changes,
     builder: (context, _) {
       final activity = _activity();
-      if (activity.isEmpty && _status.entries.isEmpty) {
+      if (activity.isEmpty && _status.entries.isEmpty && widget.queue == null) {
         return const SizedBox.shrink();
       }
       final colors = Theme.of(context).colorScheme;
       final progress = activity.progress;
       final ports = activity.ports;
-      // The chips start at the leading edge however few there are.
-      return Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              spacing: 8,
-              children: [
-                if (_status.entries.isNotEmpty) StatusChips(feed: _status),
-                if (progress != null)
-                  _Chip(
-                    label: context.tr('activityProgress'),
-                    compact: true,
-                    leading: SizedBox.square(
-                      dimension: 15,
-                      child: CircularProgressIndicator(
-                        value:
-                            progressCounts(progress).$1 /
-                            progressCounts(progress).$2,
-                        strokeWidth: 2.5,
-                        color: colors.onSurface,
-                        backgroundColor: colors.outlineVariant,
-                      ),
-                    ),
-                    value:
-                        '${progressCounts(progress).$1}/${progressCounts(progress).$2}',
-                    onPressed: _open,
-                  ),
-                if (activity.children.isNotEmpty)
-                  _Chip(
-                    icon: 'spark',
-                    running: true,
-                    label: context.tr('conversationChild'),
-                    value: '${activity.children.length}',
-                    onPressed: _open,
-                  ),
-                if (activity.background.isNotEmpty || activity.held.isNotEmpty)
-                  _Chip(
-                    icon: 'clock',
-                    running: activity.background.isNotEmpty,
-                    label: context.tr('activityBackground'),
-                    value:
-                        '${activity.background.length + activity.held.length}',
-                    onPressed: _open,
-                  ),
-                if (ports.isNotEmpty)
-                  _Chip(
-                    icon: 'globe',
-                    label: context.tr('activityPorts'),
-                    compact: true,
-                    value: [
-                      ':${object(ports.first['service'])['port']}',
-                      if (ports.length > 1) '+${ports.length - 1}',
-                    ].join(' '),
-                    onPressed: _open,
-                  ),
-              ],
+      return ComposerChipRow(
+        children: [
+          ?widget.queue,
+          if (_status.entries.isNotEmpty) StatusChips(feed: _status),
+          if (progress != null)
+            _Chip(
+              label: context.tr('activityProgress'),
+              compact: true,
+              leading: SizedBox.square(
+                dimension: 15,
+                child: CircularProgressIndicator(
+                  value:
+                      progressCounts(progress).$1 / progressCounts(progress).$2,
+                  strokeWidth: 2.5,
+                  color: colors.onSurface,
+                  backgroundColor: colors.outlineVariant,
+                ),
+              ),
+              value:
+                  '${progressCounts(progress).$1}/${progressCounts(progress).$2}',
+              onPressed: _open,
             ),
-          ),
-        ),
+          if (activity.children.isNotEmpty)
+            _Chip(
+              icon: 'spark',
+              running: true,
+              label: context.tr('conversationChild'),
+              value: '${activity.children.length}',
+              onPressed: _open,
+            ),
+          if (activity.background.isNotEmpty || activity.held.isNotEmpty)
+            _Chip(
+              icon: 'clock',
+              running: activity.background.isNotEmpty,
+              label: context.tr('activityBackground'),
+              value: '${activity.background.length + activity.held.length}',
+              onPressed: _open,
+            ),
+          if (ports.isNotEmpty)
+            _Chip(
+              icon: 'globe',
+              label: context.tr('activityPorts'),
+              compact: true,
+              value: [
+                ':${object(ports.first['service'])['port']}',
+                if (ports.length > 1) '+${ports.length - 1}',
+              ].join(' '),
+              onPressed: _open,
+            ),
+        ],
       );
     },
   );

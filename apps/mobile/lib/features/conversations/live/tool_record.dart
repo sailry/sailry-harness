@@ -5,7 +5,6 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'change_preview.dart';
-import 'command_detail.dart';
 import 'presentation.dart';
 import 'question.dart';
 import 'tool_display.dart';
@@ -40,7 +39,6 @@ class ToolRecord extends StatefulWidget {
     super.key,
     required this.call,
     this.background,
-    this.openCommandDetail,
     required this.page,
     required this.session,
     required this.command,
@@ -53,7 +51,6 @@ class ToolRecord extends StatefulWidget {
   });
   final Map<String, dynamic> call;
   final Map<String, dynamic>? background;
-  final OpenCommandDetail? openCommandDetail;
   final Map<String, dynamic> page;
   final Map<String, dynamic> session;
   final ConversationCommand command;
@@ -96,16 +93,14 @@ class _ToolRecordState extends State<ToolRecord> {
   bool get _permissionDenied =>
       object(widget.call['failure'])['code'] == 'permission_denied';
 
-  // Approvals use loaded arguments. A failed call only needs a detail read
-  // when its summary cannot explain the failure.
+  // Approvals use loaded arguments. A failure reads as its summary message or
+  // a short label, so the transcript never loads a raw result.
   void _select({bool retry = false}) {
-    final call = widget.call;
-    final pending = object(call['approval'])['state'] == 'pending';
-    final needsResult = call['error_detail'] == true;
+    final pending = object(widget.call['approval'])['state'] == 'pending';
     final selected =
         widget.enabled &&
         widget.interactive &&
-        (pending || needsResult) &&
+        pending &&
         TickerMode.valuesOf(context).enabled;
     if (!selected && !_tracking) return;
     _tracking = selected;
@@ -155,11 +150,14 @@ class _ToolRecordState extends State<ToolRecord> {
     final approvalView = object(call['approval_view']);
     final enabled = widget.enabled && !_busy;
     final colors = Theme.of(context).colorScheme;
-    final failed = _failed;
+    // A command's row state is its outcome; other tools keep the message.
+    final failed = _failed && !commandTool(call, widget.background);
     final failure = failed ? text(call['error']).trim() : '';
-    final rawFailure = failed && failure.isEmpty && !_permissionDenied
-        ? rawToolResult(call)
-        : '';
+    final failureLabel = failure.isNotEmpty
+        ? failure.split('\n').first
+        : toolStateLabel(object(call['row'])['state']) == null
+        ? context.tr(_permissionDenied ? 'failureDenied' : 'toolFailed')
+        : null;
     // One glass card; code reads as plain monospace text inside it rather
     // than a second framed block.
     Widget card(List<Widget> children) => Padding(
@@ -208,31 +206,26 @@ class _ToolRecordState extends State<ToolRecord> {
         ToolHeading(
           call: call,
           background: widget.background,
-          openCommandDetail: widget.openCommandDetail,
           running:
               widget.continuing ||
               call['state'] == 'running' ||
               widget.enabled && widget.background?['state'] == 'running',
         ),
-        if (failed)
+        if (failed && failureLabel != null)
           Padding(
-            padding: const EdgeInsets.only(left: 24, top: 4, bottom: 8),
-            child: rawFailure.isNotEmpty
-                ? code(rawFailure)
-                : SelectableText(
-                    failure.isNotEmpty
-                        ? failure
-                        : context.tr(
-                            _permissionDenied ? 'failureDenied' : 'toolFailed',
-                          ),
-                    style: TextStyle(
-                      fontSize: transcriptFontSize,
-                      color: rowColor(
-                        context,
-                        toolFailed(call) ? RowTone.failed : RowTone.pending,
-                      ),
-                    ),
-                  ),
+            padding: const EdgeInsets.only(left: 24, bottom: 4),
+            child: Text(
+              failureLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: transcriptFontSize,
+                color: rowColor(
+                  context,
+                  toolFailed(call) ? RowTone.failed : RowTone.pending,
+                ),
+              ),
+            ),
           ),
         if (pendingApproval)
           card([

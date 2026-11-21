@@ -1,17 +1,32 @@
 import 'package:flutter/material.dart';
 
-import '../../../content/code.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
-import '../../../ui/kit.dart';
 import 'background_data.dart';
-import 'command_detail.dart';
 import 'tool_display.dart';
 import 'tool_row.dart';
 
 bool pendingTool(Map<String, dynamic> call) =>
     object(call['approval'])['state'] == 'pending' ||
     object(object(call['question'])['state'])['kind'] == 'pending';
+
+/// A shell command, whether it ran in the foreground or started a background
+/// task. Its row shows the command line alone.
+bool commandTool(Map<String, dynamic> call, Map<String, dynamic>? background) =>
+    background != null ||
+    call['name'] == 'run_command' ||
+    call['command_detail'] != null ||
+    object(object(call['resolved'])['command']).isNotEmpty;
+
+/// The short label for a Client row state; running and returned rows have none.
+String? toolStateLabel(Object? state) => switch (state) {
+  'failed' => 'toolFailed',
+  'denied' => 'failureDenied',
+  'interrupted' => 'backgroundInterrupted',
+  'not_executed' => 'conversationStepSkipped',
+  'pending' => 'conversationToolWaiting',
+  _ => null,
+};
 
 String _title(BuildContext context, Map<String, dynamic> call) {
   final label = object(call['row'])['label'];
@@ -23,19 +38,18 @@ String _title(BuildContext context, Map<String, dynamic> call) {
       : name;
 }
 
-/// A call's row, including any background command it started.
+/// A call's single row, including any background command it started. Rows
+/// carry a short state, never arguments, output or an expansion.
 class ToolHeading extends StatelessWidget {
   const ToolHeading({
     super.key,
     required this.call,
     this.running,
     this.background,
-    this.openCommandDetail,
   });
   final Map<String, dynamic> call;
   final bool? running;
   final Map<String, dynamic>? background;
-  final OpenCommandDetail? openCommandDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -57,60 +71,41 @@ class ToolHeading extends StatelessWidget {
         : waiting || warning
         ? RowTone.pending
         : RowTone.normal;
-    final title = _title(context, call);
     final outcomeLabel = outcome != null
         ? context.tr(backgroundLabel(outcome))
         : task?['state'] == 'running'
         ? context.tr('running')
         : null;
     final exit = task?['exit_code'];
-    final status = outcomeLabel != null && exit is int && exit != 0
+    final rowState = toolStateLabel(row['state']);
+    final command = commandTool(call, task);
+    // A command shows no message, so its failure always carries a label.
+    final state = outcomeLabel != null && exit is int && exit != 0
         ? '$outcomeLabel ($exit)'
-        : outcomeLabel;
-    final hold = task != null && backgroundHeld(task)
-        ? context.tr(backgroundHoldLabel(task['hold']))
-        : null;
+        : outcomeLabel ??
+              (task != null && backgroundHeld(task)
+                  ? context.tr('backgroundHeld')
+                  : rowState != null
+                  ? context.tr(rowState)
+                  : command && (failed || warning)
+                  ? context.tr('toolFailed')
+                  : null);
     final detail = text(object(row['detail'])['text']);
-    final summary = text(task?['summary']);
-    final hasSummary = summary.trim().isNotEmpty;
-    final open = openCommandDetail;
-    final inspectable = hasSummary || hold != null || open != null;
+    final line = command
+        ? detail
+              .split('\n')
+              .map((line) => line.trim())
+              .firstWhere((line) => line.isNotEmpty, orElse: () => '')
+        : '';
     return Semantics(
-      value: failed && status == null ? context.tr('toolFailed') : null,
+      value: failed && state == null ? context.tr('toolFailed') : null,
       child: ToolRow(
         leading: (color) => toolIcon(call, color),
-        label: title,
-        detail: [?status, if (detail.isNotEmpty) detail].join(' · '),
+        label: line.isNotEmpty ? line : _title(context, call),
+        detail: command || detail.isEmpty ? null : detail,
+        state: state,
         tone: tone,
         running: active,
-        action: inspectable
-            ? AppIcon('chevron', size: 12, color: rowColor(context, tone))
-            : null,
-        onTap: inspectable
-            ? () {
-                final retained = Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  spacing: 8,
-                  children: [
-                    if (status != null || open != null)
-                      Text(status ?? context.tr('backgroundUnknown')),
-                    if (hold != null) Text(hold),
-                    if (hasSummary) CodeBlock(summary),
-                  ],
-                );
-                showAppSheet(
-                  context,
-                  title,
-                  child: open == null
-                      ? retained
-                      : CommandDetailBody(
-                          open: open,
-                          fallback: retained,
-                          hold: hold,
-                        ),
-                );
-              }
-            : null,
       ),
     );
   }

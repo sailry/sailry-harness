@@ -58,47 +58,77 @@ class TaskProgress extends StatelessWidget {
                 shrinkWrap: true,
                 padding: EdgeInsets.zero,
                 itemCount: steps.length,
+                // One line per step: the icon carries its state, which
+                // remains spoken with the step.
                 itemBuilder: (context, index) {
                   final step = steps[index];
-                  final done = ['completed', 'skipped'].contains(step['state']);
-                  final label = context.tr(switch (step['state']) {
+                  final state = step['state'];
+                  final done = ['completed', 'skipped'].contains(state);
+                  final description = text(step['description']);
+                  final label = context.tr(switch (state) {
                     'completed' => 'completed',
                     'in_progress' => 'running',
                     'skipped' => 'conversationStepSkipped',
                     _ => 'conversationToolWaiting',
                   });
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    leading: step['state'] == 'in_progress'
-                        ? SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(
-                              value: MediaQuery.disableAnimationsOf(context)
-                                  ? .75
-                                  : null,
-                              strokeWidth: 2,
-                              color: colors.onSurfaceVariant,
+                  final muted = done
+                      ? colors.onSurfaceVariant
+                      : colors.onSurface;
+                  return Semantics(
+                    key: ValueKey('progress-step-$index'),
+                    label: '$description, $label',
+                    excludeSemantics: true,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      child: Row(
+                        spacing: 10,
+                        children: [
+                          SizedBox.square(
+                            dimension: 16,
+                            child: state == 'in_progress'
+                                ? Padding(
+                                    padding: const EdgeInsets.all(1),
+                                    child: CircularProgressIndicator(
+                                      value:
+                                          MediaQuery.disableAnimationsOf(
+                                            context,
+                                          )
+                                          ? .75
+                                          : null,
+                                      strokeWidth: 2,
+                                      color: colors.onSurfaceVariant,
+                                    ),
+                                  )
+                                : AppIcon(
+                                    switch (state) {
+                                      'completed' => 'check',
+                                      'skipped' => 'arrow',
+                                      _ => 'clock',
+                                    },
+                                    size: 16,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                          ),
+                          Expanded(
+                            child: DefaultTextStyle.merge(
+                              maxLines: 1,
+                              softWrap: false,
+                              style: TextStyle(
+                                decoration: done
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                color: muted,
+                              ),
+                              child: ActivityText(
+                                description,
+                                active: index == active,
+                                color: muted,
+                              ),
                             ),
-                          )
-                        : AppIcon(done ? 'check' : 'clock', size: 18),
-                    title: DefaultTextStyle.merge(
-                      style: TextStyle(
-                        decoration: done ? TextDecoration.lineThrough : null,
-                        color: done
-                            ? colors.onSurfaceVariant
-                            : colors.onSurface,
-                      ),
-                      child: ActivityText(
-                        text(step['description']),
-                        active: index == active,
-                        overflow: TextOverflow.visible,
-                        color: done
-                            ? colors.onSurfaceVariant
-                            : colors.onSurface,
+                          ),
+                        ],
                       ),
                     ),
-                    subtitle: Text(label),
                   );
                 },
               ),

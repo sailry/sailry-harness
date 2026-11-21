@@ -14,8 +14,8 @@ extension _HistoryActions on _LiveConversationPageState {
       _canUseHistory &&
       _session['delegation'] == null &&
       _session['archived'] != true &&
-      objects(object(_page['queue'])['items']).isEmpty &&
-      !objects(_page['runs']).any(activeRun);
+      (object(_page['queue'])['items'] as List? ?? const []).isEmpty &&
+      _transcript.latestActive == null;
 
   Future<bool> _historyCommand(String kind, Map<String, dynamic> data) =>
       _finishHistory(() => _history.submit(kind, data));
@@ -55,12 +55,10 @@ extension _HistoryActions on _LiveConversationPageState {
   Future<void> _turnAction(String action, String turn) async {
     if (!_canUseHistory || action != 'fork' && !_canChangeHistory) return;
     final page = _page;
-    final run = objects(
-      page['runs'],
-    ).where((run) => run['turn'] == turn).firstOrNull;
+    final run = _transcript.runOf(turn);
     if (run == null || activeRun(run)) return;
     if (action == 'edit' && !editableTurn(run)) return;
-    final head = objects(page['runs']).last['turn'];
+    final head = _transcript.runs.last['turn'];
     final revision = page['revision'];
     final sessionRevision = _session['revision'];
     final input = sentInput(page, turn);
@@ -99,7 +97,7 @@ extension _HistoryActions on _LiveConversationPageState {
             },
             onSubmit: (value) async {
               if (!_canChangeHistory ||
-                  objects(_page['runs']).lastOrNull?['turn'] != head ||
+                  _transcript.runs.lastOrNull?['turn'] != head ||
                   _page['revision'] != revision ||
                   _session['revision'] != sessionRevision) {
                 _failure(context.tr('conversationConflict'));
@@ -140,7 +138,7 @@ extension _HistoryActions on _LiveConversationPageState {
         if (!mounted || confirmed != true) return;
         if (!_canChangeHistory ||
             _page['revision'] != revision ||
-            objects(_page['runs']).lastOrNull?['turn'] != head) {
+            _transcript.runs.lastOrNull?['turn'] != head) {
           _failure(context.tr('conversationConflict'));
           return;
         }
@@ -164,7 +162,7 @@ extension _HistoryActions on _LiveConversationPageState {
       return;
     }
     _reveal = (turn: text(result['turn']), revision: result['revision'] as int);
-    if (objects(_page['runs']).any((run) => run['turn'] == _reveal!.turn)) {
+    if (_transcript.containsTurn(_reveal!.turn)) {
       _revealMessage();
     } else {
       try {
@@ -186,7 +184,7 @@ extension _HistoryActions on _LiveConversationPageState {
       _failure(context.tr('messageSearchStale'));
       return;
     }
-    if (!objects(_page['runs']).any((run) => run['turn'] == target.turn)) {
+    if (!_transcript.containsTurn(target.turn)) {
       if (_view.value['older_error'] != null) {
         _reveal = null;
         _failure(context.tr('conversationFailed'));
@@ -221,15 +219,19 @@ extension _HistoryActions on _LiveConversationPageState {
       return;
     }
     if (!_scroll.hasClients) return;
-    final turns = _view.value['timeline'] as List? ?? const [];
-    final goal = turns.indexOf(owner);
-    final shown = turns.indexWhere(
-      (turn) => _turnKeys[turn]?.currentContext != null,
-    );
-    if (goal < 0) return;
+    final goal = _transcript.positionOf(owner);
+    if (goal == null) return;
+    int? shown;
+    for (final item in _turnKeys.entries) {
+      if (item.value.currentContext == null) continue;
+      final position = _transcript.positionOf(item.key);
+      if (position != null && (shown == null || position < shown)) {
+        shown = position;
+      }
+    }
     final position = _scroll.position;
     // Older turns sit at larger offsets in the reversed transcript.
-    final step = shown < 0 || goal < shown
+    final step = shown == null || goal < shown
         ? position.viewportDimension
         : -position.viewportDimension;
     final next = (position.pixels + step).clamp(

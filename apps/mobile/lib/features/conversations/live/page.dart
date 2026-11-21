@@ -23,6 +23,7 @@ import 'configuration.dart';
 import 'connection_status.dart';
 import 'conversation_terminals.dart';
 import 'draft_attachments.dart';
+import 'glass_chip.dart' show ComposerChipRow;
 import 'turn_draft.dart';
 import 'queue.dart';
 import 'guidance.dart';
@@ -31,6 +32,7 @@ import 'history_write.dart';
 import 'presentation.dart';
 import 'tool_output.dart';
 import 'timeline.dart';
+import 'transcript_index.dart';
 import 'statistics.dart';
 import 'message_data.dart';
 import 'message_editor.dart';
@@ -71,6 +73,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   final _scroll = ScrollController();
   double? _returnOffset;
   final _view = ValueNotifier<Map<String, dynamic>>({});
+  var _transcript = TranscriptIndex(const {});
   Future<ConversationUpdates?>? _observation;
   Future<void> _released = Future.value();
   ConversationUpdates? _updates;
@@ -139,11 +142,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     return widget.initialSession;
   }
 
-  Map<String, dynamic> get _snapshot => object(_view.value['snapshot']);
-  Map<String, dynamic> get _page => object(_snapshot['page']);
-  List<Map<String, dynamic>> get _active => objects(
-    _page['runs'],
-  ).where((run) => ['running', 'stopping'].contains(run['status'])).toList();
+  Map<String, dynamic> get _snapshot => _transcript.snapshot;
+  Map<String, dynamic> get _page => _transcript.page;
+  List<Map<String, dynamic>> get _active => _transcript.active;
 
   @override
   void initState() {
@@ -253,6 +254,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _stopWatching();
     _turnKeys.clear();
     _reveal = null;
+    _transcript = TranscriptIndex(const {});
     _view.value = const {};
     _artifactActions.changed();
   }
@@ -305,8 +307,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       while (ownsObservation()) {
         final payload = await updates.next();
         if (!mounted || !ownsObservation()) return;
-        final value = await _decode(payload);
+        final transcript = await _decode(payload);
         if (!mounted || !ownsObservation()) return;
+        final value = transcript.view;
         final fault = value['error'];
         if (value['removed'] == true) {
           _endOwner(fault);
@@ -338,6 +341,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         final detailErrors = newDetailErrors(_view.value, value).toList();
+        _transcript = transcript;
         _view.value = mergeToolDetails(_view.value, value);
         _submission.observe(object(_view.value['guidance']));
         if (statisticsError != null &&
@@ -355,8 +359,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           );
         }
         _artifactActions.changed();
-        final turns = {for (final run in objects(_page['runs'])) run['turn']};
-        _turnKeys.removeWhere((turn, _) => !turns.contains(turn));
+        _turnKeys.removeWhere((turn, _) => !transcript.containsTurn(turn));
         _revealMessage();
         if ((following || _returnOffset != null) && _reveal == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -429,8 +432,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     if (!_scroll.hasClients) {
       if (_settled &&
           _view.value['connected'] == true &&
-          objects(_page['runs']).isEmpty &&
-          objects(_snapshot['drafts']).isEmpty) {
+          _transcript.runs.isEmpty &&
+          (_snapshot['drafts'] as List? ?? const []).isEmpty) {
         _returnOffset = null;
       }
       return;
@@ -445,18 +448,17 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     if (offset != position.pixels) position.jumpTo(offset);
     // Client may still be recovering older pages after the first snapshot.
     if (desired == offset ||
-        _page['next_before'] == null && objects(_snapshot['missing']).isEmpty) {
+        !_hasOlder) {
       _returnOffset = null;
     }
   }
 
-  /// Large snapshots decode on a worker isolate; the result is transferred
-  /// back without copying. Updates stay strictly ordered by the caller's loop.
-  static Future<Map<String, dynamic>> _decode(String payload) async => object(
-    payload.length < 32 * 1024
-        ? jsonDecode(payload)
-        : await Isolate.run(() => jsonDecode(payload)),
-  );
+  /// Prepare the timeline lookups in the same isolate that parses the packet.
+  static Future<TranscriptIndex> _decode(String payload) async {
+    TranscriptIndex decode() =>
+        TranscriptIndex(jsonDecode(payload) as Map<String, dynamic>);
+    return payload.length < 32 * 1024 ? decode() : await Isolate.run(decode);
+  }
 
   void _trackTools(Object owner, List<Map<String, dynamic>> calls, bool retry) {
     final selection = _toolSelection.update(owner, calls, retry: retry);
@@ -946,11 +948,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                     ),
                             )
                           : connected &&
-                                objects(_page['entries']).isEmpty &&
-                                objects(_page['runs']).isEmpty &&
-                                objects(
-                                  object(view['snapshot'])['drafts'],
-                                ).isEmpty
+                                (_page['entries'] as List? ?? const []).isEmpty &&
+                                _transcript.runs.isEmpty &&
+                                (_snapshot['drafts'] as List? ?? const []).isEmpty
                           ? CustomScrollView(
                               slivers: [
                                 SliverFillRemaining(
@@ -1007,7 +1007,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                     ),
                                   ),
                               ],
-                              view: view,
+                              transcript: _transcript,
+                              connected: view['connected'] == true,
                               session: _session,
                               host: widget.host,
                               command: _command,
@@ -1062,13 +1063,11 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                     host: widget.host,
                     session: _session,
                     updates: _view,
+                    queue: queue,
                     onOpenChild: _openChild,
-                  ),
-                if (delegated && queue != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                    child: queue,
-                  ),
+                  )
+                else if (queue != null)
+                  ComposerChipRow(children: [queue]),
                 if (!delegated)
                   MessageComposer(
                     controller: _draft,
@@ -1092,12 +1091,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                     onAttachment: (_) => _attach(),
                     onStop: _stop,
                     onSend: _send,
-                    priority: queue == null
-                        ? null
-                        : Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: queue,
-                          ),
                   ),
               ],
             ),

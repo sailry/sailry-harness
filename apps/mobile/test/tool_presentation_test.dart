@@ -8,6 +8,7 @@ import 'package:sailry_mobile/features/conversations/live/tool_record.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_output.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_row.dart';
+import 'package:sailry_mobile/l10n/strings.dart';
 
 void main() {
   test('renders Client rows with their citation offsets', () {
@@ -165,56 +166,80 @@ void main() {
     }
   });
 
-  testWidgets('tool errors show the message or load the original result', (
+  testWidgets('tool errors keep one short line and never load the result', (
     tester,
   ) async {
     const message = 'The reviewed path is missing';
     const path = 'src/review.dart';
     const raw = {'provider_reply': 'original result'};
     final selections = <List<Map<String, dynamic>>>[];
-    Future<void> show({String? error, bool loaded = false}) =>
-        tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: ToolRecord(
-                call: {
-                  'name': 'fixture_tool',
-                  'state': 'returned',
-                  'source': {'entry': 'call', 'index': 0},
-                  'response': {'entry': 'result', 'index': 0},
-                  'failure': {'origin': 'tool'},
-                  'error': ?error,
-                  if (error == null) 'error_detail': true,
-                  'row': {
-                    'warning': true,
-                    'detail': {'text': path},
-                  },
-                  if (loaded) 'detail': {'result': raw},
-                },
-                page: const {},
-                session: const {'id': 'session'},
-                command: (kind, _) async => fail('Unexpected command: $kind'),
-                enabled: true,
-                toolOutput: (_, calls, _) => selections.add(calls),
-              ),
-            ),
+    Future<void> show({
+      String? error,
+      bool loaded = false,
+      String name = 'fixture_tool',
+      Map<String, dynamic> row = const {},
+    }) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ToolRecord(
+            call: {
+              'name': name,
+              'state': 'returned',
+              'source': {'entry': 'call', 'index': 0},
+              'response': {'entry': 'result', 'index': 0},
+              'failure': {'origin': 'tool'},
+              'error': ?error,
+              if (error == null) 'error_detail': true,
+              'row': {
+                'warning': true,
+                'detail': {'text': path},
+                ...row,
+              },
+              if (loaded) 'detail': {'result': raw},
+            },
+            page: const {},
+            session: const {'id': 'session'},
+            command: (kind, _) async => fail('Unexpected command: $kind'),
+            enabled: true,
+            toolOutput: (_, calls, _) => selections.add(calls),
           ),
-        );
+        ),
+      ),
+    );
     final rawText = const JsonEncoder.withIndent('  ').convert(raw);
 
-    await show(error: message, loaded: true);
+    await show(error: '$message\nwith a second line', loaded: true);
     expect(find.text(message), findsOneWidget);
+    expect(find.textContaining('second line'), findsNothing);
     expect(tester.widget<ToolRow>(find.byType(ToolRow)).detail, path);
     expect(find.text(rawText), findsNothing);
     expect(selections, isEmpty);
 
     await show();
-    expect(selections.single, hasLength(1));
+    expect(selections, isEmpty);
+    expect(find.text(tr('toolFailed')), findsOneWidget);
     expect(find.text(rawText), findsNothing);
 
     await show(loaded: true);
-    expect(find.text(rawText), findsOneWidget);
-    expect(find.text(message), findsNothing);
+    expect(find.text(rawText), findsNothing);
+    expect(selections, isEmpty);
+
+    // A denied call reads as its row state alone.
+    await show(row: {'state': 'denied'});
+    expect(
+      tester.widget<ToolRow>(find.byType(ToolRow)).state,
+      tr('failureDenied'),
+    );
+    expect(find.text(tr('failureDenied')), findsOneWidget);
+
+    // A command is its command line and a short state, without a message.
+    await show(error: 'exit status 2', name: 'run_command');
+    final command = tester.widget<ToolRow>(find.byType(ToolRow));
+    expect(command.label, path);
+    expect(command.detail, isNull);
+    expect(command.state, tr('toolFailed'));
+    expect(command.onTap, isNull);
+    expect(find.text('exit status 2'), findsNothing);
   });
 
   test("reads captured approval arguments and summarized question inputs", () {

@@ -26,6 +26,8 @@ class GlassChip extends StatelessWidget {
           child: Center(
             widthFactor: 1,
             child: DefaultTextStyle.merge(
+              maxLines: 1,
+              softWrap: false,
               style: TextStyle(
                 fontSize: transcriptFontSize,
                 color: colors.onSurfaceVariant,
@@ -37,4 +39,23 @@ class GlassChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The single line of chips above the composer. Narrow screens scroll it
+/// horizontally instead of wrapping, and chips start at the leading edge.
+class ComposerChipRow extends StatelessWidget {
+  const ComposerChipRow({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: AlignmentDirectional.centerStart,
+    child: SingleChildScrollView(
+      key: const ValueKey('composer-chips'),
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+      child: Row(spacing: 8, children: children),
+    ),
+  );
 }

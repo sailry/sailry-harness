@@ -57,29 +57,26 @@ class QueueChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final count = '${state.count}';
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: Semantics(
-        label: describe(state, context.tr),
-        button: true,
+    return Semantics(
+      label: describe(state, context.tr),
+      button: true,
+      onTap: onOpen,
+      excludeSemantics: true,
+      child: GlassChip(
         onTap: onOpen,
-        excludeSemantics: true,
-        child: GlassChip(
-          onTap: onOpen,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            spacing: 6,
-            children: [
-              AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
-              if (state.paused)
-                Text(context.tr('queuePaused').replaceAll('{count}', count))
-              else ...[
-                Text(context.tr('queueShort')),
-                Text(count, style: TextStyle(color: colors.onSurface)),
-              ],
-              if (state.guiding) const GuidanceStatus(state: 'pending'),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 6,
+          children: [
+            AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
+            if (state.paused)
+              Text(context.tr('queuePaused').replaceAll('{count}', count))
+            else ...[
+              Text(context.tr('queueShort')),
+              Text(count, style: TextStyle(color: colors.onSurface)),
             ],
-          ),
+            if (state.guiding) const GuidanceStatus(state: 'pending'),
+          ],
         ),
       ),
     );

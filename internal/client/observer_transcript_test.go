@@ -37,7 +37,7 @@ func TestTranscriptRetriesUseModelRequestIdentity(t *testing.T) {
 				})
 			}
 			for _, referenceRows := range []bool{false, true} {
-				rows := collectTranscriptRows(snapshot, nil, turn, referenceRows)
+				rows := collectTranscriptRows(indexTranscriptSources(snapshot, nil), turn, referenceRows)
 				if len(rows) != test.want {
 					t.Fatalf("retry request identity changed its rows: %+v", rows)
 				}
@@ -173,6 +173,60 @@ func TestObserverTranscriptReferences(t *testing.T) {
 	}
 }
 
+func TestMobileTranscriptProjectsForegroundWaiting(t *testing.T) {
+	snapshot := conversationFixture()
+	turn := snapshot.Page.Runs[0].Turn
+	var calls, results []protocol.ConversationPart
+	for index, background := range []bool{false, true} {
+		id := fmt.Sprintf("spawn-%d", index)
+		calls = append(calls, protocol.ConversationPart{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{
+			ID: &id, Name: "spawn_agent", Summary: &protocol.ToolDetailSummary{Delegation: protocol.ToolDetailDelegation{Background: background}},
+		}})
+		results = append(results, protocol.ConversationPart{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{ID: &id, Name: "spawn_agent"}})
+		snapshot.Page.Children = append(snapshot.Page.Children, protocol.ConversationChild{
+			Run:    protocol.ConversationRun{Session: protocol.SessionID{byte(index + 2)}, Turn: protocol.TurnID{byte(index + 2)}, Kind: "task", Status: "running", Sequence: uint64(index + 1)},
+			Origin: protocol.Delegation{Session: snapshot.Page.Session, Turn: turn, Entry: "spawn", Index: uint64(index)},
+		})
+	}
+	snapshot.Page.Entries = append(snapshot.Page.Entries,
+		protocol.ConversationEntry{ID: "spawn", Turn: turn, Sequence: 2, Author: "assistant", Parts: calls},
+		protocol.ConversationEntry{ID: "result", Turn: turn, Sequence: 3, Author: "tool", Parts: results},
+	)
+	for _, test := range []struct {
+		name   string
+		change func(*protocol.ConversationSnapshot)
+		wait   int
+	}{
+		{"returned tool batch", nil, 1},
+		{"pending tool batch", func(value *protocol.ConversationSnapshot) {
+			value.Page.Entries = value.Page.Entries[:2]
+		}, 0},
+		{"streaming parent", func(value *protocol.ConversationSnapshot) {
+			value.Drafts = []protocol.ConversationDraft{{ID: "draft", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Streaming reply"}}}}
+		}, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := snapshot
+			if test.change != nil {
+				test.change(&current)
+			}
+			_, _, projected := projectTranscript(current, ToolCalls(current.Page), nil, true)
+			segments, ok := projected[turn.String()].([]transcriptSegment)
+			if !ok || len(segments) != 1 {
+				t.Fatalf("expected one parent segment, got %+v", projected)
+			}
+			waiting := segments[0].Waiting
+			if test.wait == 0 {
+				if waiting != nil {
+					t.Fatalf("waiting = %d; want absent", *waiting)
+				}
+			} else if waiting == nil || *waiting != test.wait {
+				t.Fatalf("waiting = %v; want %d foreground child", waiting, test.wait)
+			}
+		})
+	}
+}
+
 func BenchmarkObserverTranscriptJSON(b *testing.B) {
 	text := strings.Repeat("Synthetic reply 😀\n", 64)
 	thinking := strings.Repeat("Synthetic reasoning\n", 64)
@@ -214,6 +268,37 @@ func BenchmarkObserverTranscriptJSON(b *testing.B) {
 					}
 					b.ReportMetric(float64(len(body)), "json-B/op")
 				})
+			}
+		})
+	}
+}
+
+func BenchmarkMobileTranscriptProjection(b *testing.B) {
+	for _, turns := range []int{64, 1024, 4096} {
+		b.Run(fmt.Sprintf("%d_turns", turns), func(b *testing.B) {
+			snapshot := protocol.DefaultConversationSnapshot()
+			var calls []ToolCall
+			for i := range turns {
+				turn := protocol.TurnID{byte(i + 1), byte((i + 1) >> 8)}
+				id := fmt.Sprintf("answer/%d", i)
+				snapshot.Page.Runs = append(snapshot.Page.Runs, protocol.ConversationRun{Turn: turn, Sequence: uint64(i + 1), Kind: "task", Status: "completed"})
+				snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{
+					ID: id, Turn: turn, Sequence: uint64(i + 1), Author: "assistant", Parts: []protocol.ConversationPart{
+						{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{Name: "read_file"}},
+						{Kind: "text", Data: "Synthetic reply"},
+					},
+				})
+				calls = append(calls, ToolCall{Turn: turn, Source: toolReference{Entry: id}, Name: "read_file", State: "returned"})
+			}
+			last := &snapshot.Page.Runs[turns-1]
+			last.Status = "running"
+			snapshot.Drafts = []protocol.ConversationDraft{{ID: "draft", Turn: last.Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Streaming reply"}}}}
+			b.ReportAllocs()
+			for b.Loop() {
+				timeline, _, segments := projectTranscript(snapshot, calls, nil, true)
+				if len(timeline) != turns || len(segments[last.Turn.String()].([]transcriptSegment)[0].Rows) != 3 {
+					b.Fatal("lost projected turns or rows")
+				}
 			}
 		})
 	}

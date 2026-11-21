@@ -1,17 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
+import 'package:sailry_mobile/features/conversations/live/glass_chip.dart'
+    show ComposerChipRow;
+import 'package:sailry_mobile/features/conversations/live/queue.dart'
+    show QueueChip;
+import 'package:sailry_mobile/features/conversations/message_composer.dart';
+import 'package:sailry_mobile/features/conversations/user_message.dart';
+import 'package:sailry_mobile/ui/kit.dart';
 
 import '../../l10n/strings.dart';
-import 'package:sailry_mobile/ui/kit.dart';
 import '../resources/git_page.dart';
 import '../resources/resources_page.dart';
 import '../terminal/terminal_page.dart';
 import 'conversation_timeline.dart';
-import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
 import 'queue_sheet.dart';
-import 'package:sailry_mobile/features/conversations/message_composer.dart';
-import 'package:sailry_mobile/features/conversations/user_message.dart';
 
 class ConversationPage extends StatefulWidget {
   const ConversationPage({
@@ -513,16 +517,7 @@ class _ConversationPageState extends State<ConversationPage> {
         ],
       );
     } else if (_queue.isNotEmpty) {
-      content = Row(
-        children: [
-          main(
-            'clock',
-            '${context.tr('queueShort')}  ${_queue.length}',
-            _queueSheet,
-          ),
-          const AppIcon('chevron', size: 14),
-        ],
-      );
+      return null;
     } else if (widget.sample &&
         !_stopped &&
         !_denied &&
@@ -715,18 +710,36 @@ class _ConversationPageState extends State<ConversationPage> {
           ),
         ],
       ),
-      composer: MessageComposer(
-        controller: _draft,
-        attached: _attached,
-        attachmentLabel: context.tr('attachment'),
-        busy: _busy,
-        priority: _priority(context),
-        onAttachment: (value) => setState(() => _attached = value),
-        onStop: () {
-          _pause();
-          setState(() => _stopped = true);
-        },
-        onSend: _send,
+      composer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_queue.isNotEmpty)
+            ComposerChipRow(
+              children: [
+                QueueChip(
+                  state: (
+                    count: _queue.length,
+                    paused: _queuePaused,
+                    guiding: false,
+                  ),
+                  onOpen: _queueSheet,
+                ),
+              ],
+            ),
+          MessageComposer(
+            controller: _draft,
+            attached: _attached,
+            attachmentLabel: context.tr('attachment'),
+            busy: _busy,
+            priority: _priority(context),
+            onAttachment: (value) => setState(() => _attached = value),
+            onStop: () {
+              _pause();
+              setState(() => _stopped = true);
+            },
+            onSend: _send,
+          ),
+        ],
       ),
     );
   }

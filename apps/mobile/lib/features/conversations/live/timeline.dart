@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
@@ -46,7 +44,8 @@ import '../../resources/artifact/submission.dart';
 class LiveTimeline extends StatefulWidget {
   const LiveTimeline({
     super.key,
-    required this.view,
+    required this.transcript,
+    required this.connected,
     required this.controller,
     required this.padding,
     this.older = const [],
@@ -66,7 +65,8 @@ class LiveTimeline extends StatefulWidget {
     this.artifactChanges,
     this.toolOutput,
   });
-  final Map<String, dynamic> view;
+  final TranscriptIndex transcript;
+  final bool connected;
   final ScrollController controller;
   final EdgeInsets padding;
 
@@ -96,18 +96,10 @@ class LiveTimeline extends StatefulWidget {
 
 class _LiveTimelineState extends State<LiveTimeline> {
   final _documents = <String, FileDocument>{};
-  TranscriptIndex? _index;
-
-  TranscriptIndex get _transcript {
-    final index = _index;
-    if (index != null && identical(index.view, widget.view)) return index;
-    return _index = TranscriptIndex(widget.view);
-  }
 
   @override
   Widget build(BuildContext context) {
-    final view = widget.view;
-    final transcript = _transcript;
+    final transcript = widget.transcript;
     final session = widget.session;
     final host = widget.host;
     final command = widget.command;
@@ -119,7 +111,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final page = transcript.page;
     final runs = transcript.timeline;
     final colors = Theme.of(context).colorScheme;
-    final connected = host.connected && view['connected'] == true;
+    final connected = host.connected && widget.connected;
     Widget part(
       Map<String, dynamic> entry,
       Map<String, dynamic> part,
@@ -249,7 +241,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
         case 'tool_result':
           final call = transcript.call(entry['id'], index);
           if (call == null) return const SizedBox.shrink();
-          final commandDetail = object(call['command_detail']);
           return ToolRecord(
             key: ValueKey((
               'tool',
@@ -259,12 +250,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
             )),
             call: call,
             background: transcript.backgroundOf(call),
-            openCommandDetail:
-                connected && !host.isDemo && commandDetail.isNotEmpty
-                ? () => host.connection.openCommandDetail(
-                    reference: jsonEncode(commandDetail),
-                  )
-                : null,
             page: page,
             session: session,
             command: command,
@@ -602,12 +587,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
 
     final older = widget.older;
     // Index 0 is the bottom of the reversed transcript.
-    final positions = <Key, int>{
-      for (final (position, run) in runs.indexed)
-        _turnItemKey(run): runs.length - 1 - position,
-      for (final (position, item) in older.indexed)
-        if (item.key case final Key key) key: runs.length + position,
-    };
     return VisualScope(
       child: CustomScrollView(
         controller: widget.controller,
@@ -625,7 +604,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                     }
                     final run = runs[runs.length - 1 - position];
                     return KeyedSubtree(
-                      key: _turnItemKey(run),
+                      key: _TurnItemKey(run['turn'] as String),
                       child: KeyedSubtree(
                         key:
                             turnKey?.call(run['turn'] as String) ??
@@ -635,7 +614,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
                     );
                   },
                   childCount: runs.length + older.length,
-                  findChildIndexCallback: (key) => positions[key],
+                  findChildIndexCallback: (key) {
+                    if (key is _TurnItemKey) {
+                      final position = transcript.positionOf(key.value);
+                      return position == null ? null : runs.length - 1 - position;
+                    }
+                    final index = older.indexWhere((item) => item.key == key);
+                    return index < 0 ? null : runs.length + index;
+                  },
                 ),
               ),
             ),
@@ -646,7 +632,9 @@ class _LiveTimelineState extends State<LiveTimeline> {
   }
 }
 
-Key _turnItemKey(Map<String, dynamic> run) => ValueKey(('turn', run['turn']));
+class _TurnItemKey extends ValueKey<String> {
+  const _TurnItemKey(super.value);
+}
 
 bool _modelRetry(Map<String, dynamic> part) {
   final data = object(part['data']);

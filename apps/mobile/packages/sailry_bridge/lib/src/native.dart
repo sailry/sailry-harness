@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 
@@ -233,9 +234,11 @@ class NativeBridge {
     return _shutdown!.future;
   }
 
-  void _complete(int request, Pointer<Uint8> data, int length) {
+  void _complete(int request, Pointer<Uint8> data, int length) async {
     try {
-      final result = _decode(data, length);
+      final result = length < 32 * 1024
+          ? _decode(data, length)
+          : await _decodeLarge(data.address, length);
       if (result.closed) {
         _finalCount = int.parse(result.count!);
       } else {
@@ -254,7 +257,12 @@ class NativeBridge {
     }
   }
 
-  CompletionEnvelope _decode(Pointer<Uint8> data, int length) =>
+  // The native callback transfers ownership of its buffer until sailry_free.
+  // Only its address and length enter the worker; shutdown counts it after use.
+  static Future<CompletionEnvelope> _decodeLarge(int address, int length) =>
+      Isolate.run(() => _decode(Pointer<Uint8>.fromAddress(address), length));
+
+  static CompletionEnvelope _decode(Pointer<Uint8> data, int length) =>
       CompletionEnvelope.fromJson(
         jsonDecode(utf8.decode(data.asTypedList(length)))
             as Map<String, dynamic>,

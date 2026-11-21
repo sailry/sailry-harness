@@ -3,58 +3,69 @@ import '../../../runtime/json.dart';
 import 'message_data.dart';
 import 'turn_frame.dart';
 
+Map<String, dynamic> _record(Object? value) =>
+    value is Map<String, dynamic> ? value : object(value);
+
+List<Map<String, dynamic>> _records(Object? value) =>
+    value is List ? value.cast<Map<String, dynamic>>() : const [];
+
 /// Lookups over one Client projection, built once per update so each lazily
 /// built turn avoids rescanning every call, entry and child. This indexes the
 /// Client's output for presentation; it never reassociates or reduces it.
 class TranscriptIndex {
   TranscriptIndex(this.view)
-    : snapshot = object(view['snapshot']),
-      calls = objects(view['calls']),
-      children = object(object(view['children'])['sessions']),
-      _segments = object(view['segments']) {
-    page = object(snapshot['page']);
-    runs = objects(page['runs']);
-    // Client selects visible response owners in shared execution order.
-    final byTurn = {for (final run in runs) run['turn']: run};
-    timeline = [
-      for (final turn in (view['timeline'] as List? ?? const []))
-        if (byTurn[turn] case final Map<String, dynamic> run) run,
-    ];
-    childRecords = objects(page['children']);
-    latest = timeline.where((run) => run['kind'] != 'compaction').lastOrNull;
+    : snapshot = _record(view['snapshot']),
+      calls = _records(view['calls']),
+      children = _record(_record(view['children'])['sessions']),
+      _segments = _record(view['segments']) {
+    page = _record(snapshot['page']);
+    runs = _records(page['runs']);
+    childRecords = _records(page['children']);
     for (final run in runs) {
       _runs.putIfAbsent(run['turn'], () => run);
-      for (final notice in objects(run['notices'])) {
+      if (activeRun(run)) {
+        latestActive = run;
+        if (run['status'] != 'queued') active.add(run);
+      }
+      for (final notice in _records(run['notices'])) {
         if (notice['id'] case final String id) {
           _background.putIfAbsent(id, () => notice);
         }
       }
     }
-    for (final task in objects(page['background'])) {
+    // Client selects visible response owners in shared execution order.
+    for (final turn in (view['timeline'] as List? ?? const [])) {
+      if (_runs[turn] case final run?) {
+        _positions[turn] = timeline.length;
+        timeline.add(run);
+        if (run['kind'] != 'compaction') latest = run;
+      }
+    }
+    for (final task in _records(page['background'])) {
       if (task['id'] case final String id) _background[id] = task;
     }
-    for (final entry in objects(page['entries'])) {
+    for (final entry in _records(page['entries'])) {
       _entries[entry['id']] = entry;
       (_turnEntries[entry['turn']] ??= []).add(entry);
     }
-    for (final draft in objects(snapshot['drafts'])) {
+    for (final draft in _records(snapshot['drafts'])) {
       _drafts[draft['id']] = draft;
       (_turnDrafts[draft['turn']] ??= []).add(draft);
     }
     for (final call in calls) {
-      final source = object(call['source']);
+      final source = _record(call['source']);
       _sources.putIfAbsent((source['entry'], source['index']), () => call);
       (_turnCalls[call['turn']] ??= []).add(call);
     }
-    for (final item in objects(view['images'])) {
-      _images[(item['call'], item['index'])] = object(item['image']);
+    for (final item in _records(view['images'])) {
+      _images[(item['call'], item['index'])] = _record(item['image']);
     }
     for (final reference in children.values) {
-      final index = object(reference)['index'];
+      final index = _record(reference)['index'];
       if (index is! int || index >= childRecords.length) continue;
       final child = childRecords[index];
-      if (activeRun(object(child['run']))) {
-        _activeChildTurns.add(object(child['origin'])['turn']);
+      if (activeRun(_record(child['run']))) {
+        _activeChildTurns.add(_record(child['origin'])['turn']);
       }
     }
   }
@@ -65,7 +76,9 @@ class TranscriptIndex {
   late final List<Map<String, dynamic>> runs;
 
   /// Runs in transcript order.
-  late List<Map<String, dynamic>> timeline;
+  final timeline = <Map<String, dynamic>>[];
+  final active = <Map<String, dynamic>>[];
+  Map<String, dynamic>? latestActive;
   final List<Map<String, dynamic>> calls;
 
   /// Child session references keyed by session, as delivered by Client.
@@ -73,10 +86,11 @@ class TranscriptIndex {
   late final List<Map<String, dynamic>> childRecords;
 
   /// The newest run that is not a compaction.
-  late final Map<String, dynamic>? latest;
+  Map<String, dynamic>? latest;
 
   final Map<String, dynamic> _segments;
   final _runs = <Object?, Map<String, dynamic>>{};
+  final _positions = <Object?, int>{};
   final _entries = <Object?, Map<String, dynamic>>{};
   final _drafts = <Object?, Map<String, dynamic>>{};
   final _turnEntries = <Object?, List<Map<String, dynamic>>>{};
@@ -86,6 +100,12 @@ class TranscriptIndex {
   final _activeChildTurns = <Object?>{};
   final _images = <(Object?, Object?), Map<String, dynamic>>{};
   final _background = <String, Map<String, dynamic>>{};
+
+  bool containsTurn(Object? turn) => _runs.containsKey(turn);
+
+  Map<String, dynamic>? runOf(Object? turn) => _runs[turn];
+
+  int? positionOf(Object? turn) => _positions[turn];
 
   /// The conversation image Client resolved for a reply's reference.
   Map<String, dynamic>? image(ImageReference reference) =>

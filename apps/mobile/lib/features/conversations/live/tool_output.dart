@@ -48,13 +48,6 @@ class ToolSelection {
 Map<String, dynamic>? toolDetail(Map<String, dynamic> call) =>
     call['detail'] is Map ? object(call['detail']) : null;
 
-String rawToolResult(Map<String, dynamic> call) {
-  final result = toolDetail(call)?['result'];
-  if (result is String) return result.trim().isEmpty ? '' : result;
-  if (result == null) return '';
-  return const JsonEncoder.withIndent('  ').convert(result);
-}
-
 bool detailFailed(Map<String, dynamic> call) {
   final state = object(call['detail_state']);
   return state['kind'] == 'failed' && state['retrying'] != true;
