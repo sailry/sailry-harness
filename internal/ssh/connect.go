@@ -119,7 +119,7 @@ func keepAlive(client *cryptossh.Client, interval time.Duration, misses int) {
 }
 
 func Connect(ctx context.Context, profile protocol.SshProfile, credential protocol.SshCredential) (*cryptossh.Client, error) {
-	scoped, cancel := context.WithTimeout(ctx, 30*time.Second)
+	scoped, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	auth, release, err := authentication(scoped, profile.Authentication, credential)
 	if err != nil {
@@ -129,34 +129,67 @@ func Connect(ctx context.Context, profile protocol.SshProfile, credential protoc
 	address := net.JoinHostPort(profile.Host, strconv.Itoa(int(profile.Port)))
 	connection, err := (&net.Dialer{}).DialContext(scoped, "tcp", address)
 	if err != nil {
-		return nil, unavailable("SSH connection could not be established")
+		reason := connectionReason(scoped, err, protocol.SSHDialFailed, protocol.SSHDialTimeout, protocol.SSHDialCancelled)
+		return nil, connectionFault(protocol.ErrorCodeUnavailable, "SSH connection could not be established", reason)
 	}
-	stop := context.AfterFunc(scoped, func() { _ = connection.Close() })
-	transport, channels, requests, err := cryptossh.NewClientConn(connection, address, clientConfig(profile, auth))
-	if !stop() {
+	return connectClient(scoped, connection, address, profile, auth)
+}
+
+func connectClient(ctx context.Context, connection net.Conn, address string, profile protocol.SshProfile, auth cryptossh.AuthMethod) (*cryptossh.Client, error) {
+	config := clientConfig(profile, auth)
+	authenticating := false
+	config.AuthCallback = func(*cryptossh.ClientAuthContext) (cryptossh.AuthMethod, error) {
+		authenticating = true
+		return nil, nil
+	}
+	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	transport, channels, requests, err := cryptossh.NewClientConn(connection, address, config)
+	interrupted := !stop() || ctx.Err() != nil
+	if interrupted || err != nil {
 		if transport != nil {
 			_ = transport.Close()
 		}
 		_ = connection.Close()
-		return nil, unavailable("SSH connection was interrupted")
-	}
-	if err != nil {
-		_ = connection.Close()
 		var required *HostKeyRequired
-		if errors.As(err, &required) {
+		if !interrupted && errors.As(err, &required) {
 			return nil, required
 		}
-		return nil, unavailable("SSH authentication or handshake failed")
+		message := "SSH authentication or handshake failed"
+		if interrupted {
+			message = "SSH connection was interrupted"
+		}
+		if authenticating {
+			reason := connectionReason(ctx, err, protocol.SSHAuthFailed, protocol.SSHAuthTimeout, protocol.SSHAuthCancelled)
+			return nil, connectionFault(protocol.ErrorCodeUnavailable, message, reason)
+		}
+		reason := connectionReason(ctx, err, protocol.SSHHandshakeFailed, protocol.SSHHandshakeTimeout, protocol.SSHHandshakeCancelled)
+		return nil, connectionFault(protocol.ErrorCodeUnavailable, message, reason)
 	}
 	client := cryptossh.NewClient(transport, channels, requests)
 	go keepAlive(client, keepaliveInterval, keepaliveMisses)
 	return client, nil
 }
 
+func connectionReason(ctx context.Context, err error, failed, timeout, cancelled protocol.SSHFailureReason) protocol.SSHFailureReason {
+	var networkError net.Error
+	switch {
+	case ctx.Err() == context.Canceled || errors.Is(err, context.Canceled):
+		return cancelled
+	case ctx.Err() == context.DeadlineExceeded, errors.Is(err, context.DeadlineExceeded), errors.As(err, &networkError) && networkError.Timeout():
+		return timeout
+	default:
+		return failed
+	}
+}
+
+func connectionFault(code protocol.ErrorCode, message string, reason protocol.SSHFailureReason) *protocol.Fault {
+	return &protocol.Fault{Code: code, Message: message, SSHReason: reason}
+}
+
 func authentication(ctx context.Context, kind protocol.SshAuthentication, credential protocol.SshCredential) (cryptossh.AuthMethod, func(), error) {
 	release := func() {}
 	if credential.Kind != string(kind) {
-		return nil, release, invalid("SSH credential authentication does not match")
+		return nil, release, connectionFault(protocol.ErrorCodeInvalidRequest, "SSH credential authentication does not match", protocol.SSHCredentialInvalid)
 	}
 	var key string
 	var passphrase *protocol.Secret
@@ -185,11 +218,11 @@ func authentication(ctx context.Context, kind protocol.SshAuthentication, creden
 	if credential.Kind == "agent" {
 		path := os.Getenv("SSH_AUTH_SOCK")
 		if path == "" {
-			return nil, release, unavailable("SSH agent is unavailable")
+			return nil, release, connectionFault(protocol.ErrorCodeUnavailable, "SSH agent is unavailable", protocol.SSHAgentUnavailable)
 		}
 		connection, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 		if err != nil {
-			return nil, release, unavailable("SSH agent is unavailable")
+			return nil, release, connectionFault(protocol.ErrorCodeUnavailable, "SSH agent is unavailable", protocol.SSHAgentUnavailable)
 		}
 		stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 		return cryptossh.PublicKeysCallback(agent.NewClient(connection).Signers), func() { stop(); _ = connection.Close() }, nil
@@ -202,31 +235,32 @@ func authentication(ctx context.Context, kind protocol.SshAuthentication, creden
 		signer, err = cryptossh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(passphrase.Expose()))
 	}
 	if err != nil {
-		return nil, release, invalid("SSH private key or passphrase is invalid")
+		return nil, release, connectionFault(protocol.ErrorCodeInvalidRequest, "SSH private key or passphrase is invalid", protocol.SSHCredentialInvalid)
 	}
 	return cryptossh.PublicKeys(signer), release, nil
 }
 
 func privateKeyFile(path string) (string, error) {
+	failure := connectionFault(protocol.ErrorCodeUnavailable, "SSH key file is unavailable", protocol.SSHKeyFileUnavailable)
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", unavailable("SSH key file is unavailable")
+			return "", failure
 		}
 		path = home + strings.TrimPrefix(path, "~")
 	}
 	metadata, err := os.Stat(path)
 	if err != nil || !metadata.Mode().IsRegular() {
-		return "", unavailable("SSH key file is unavailable")
+		return "", failure
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return "", unavailable("SSH key file is unavailable")
+		return "", failure
 	}
 	defer file.Close()
 	body, err := io.ReadAll(io.LimitReader(file, 65537))
 	if err != nil || len(body) > 65536 {
-		return "", unavailable("SSH key file is unavailable")
+		return "", failure
 	}
 	return string(body), nil
 }

@@ -150,13 +150,14 @@ func TestSSHInstallationContracts(t *testing.T) {
 			results []error
 			tried   []string
 			message string
+			reason  protocol.SSHFailureReason
 		}{
-			{"first ticket", []string{"", "", "a"}, []error{nil}, []string{"a"}, ""},
-			{"refused once", []string{"a", "a", "b"}, []error{refused, refused, nil}, []string{"a", "a", "b"}, ""},
-			{"unreachable once", []string{"a", "a"}, []error{errors.New("no route"), nil}, []string{"a", "a"}, ""},
-			{"always refused", []string{"a", "b", "c", "d", "e", "f"}, []error{refused, refused, refused, refused, refused, nil}, []string{"a", "b", "c", "d", "e"}, "Host installed but pairing could not be confirmed"},
-			{"trust unconfirmed", []string{"a", "b"}, []error{unknown("trust could not be confirmed"), nil}, []string{"a"}, "trust could not be confirmed"},
-			{"never published", nil, nil, nil, "Host service started but pairing is unavailable; inspect the host service"},
+			{"first ticket", []string{"", "", "a"}, []error{nil}, []string{"a"}, "", ""},
+			{"refused once", []string{"a", "a", "b"}, []error{refused, refused, nil}, []string{"a", "a", "b"}, "", ""},
+			{"unreachable once", []string{"a", "a"}, []error{errors.New("no route"), nil}, []string{"a", "a"}, "", ""},
+			{"always refused", []string{"a", "b", "c", "d", "e", "f"}, []error{refused, refused, refused, refused, refused, nil}, []string{"a", "b", "c", "d", "e"}, "Host installed but pairing could not be confirmed", protocol.SSHPairingUnconfirmed},
+			{"trust unconfirmed", []string{"a", "b"}, []error{unknown("trust could not be confirmed"), nil}, []string{"a"}, "trust could not be confirmed", protocol.SSHPairingUnconfirmed},
+			{"never published", nil, nil, nil, "Host service started but pairing is unavailable; inspect the host service", protocol.SSHBootstrapTicketUnavailable},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				reads, waits := 0, 0
@@ -184,7 +185,7 @@ func TestSSHInstallationContracts(t *testing.T) {
 					return
 				}
 				var fault *protocol.Fault
-				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || fault.Message != row.message {
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || fault.Message != row.message || fault.SSHReason != row.reason {
 					t.Fatalf("pairing failure: %v", err)
 				}
 				if reads > 90 || waits > 90 {

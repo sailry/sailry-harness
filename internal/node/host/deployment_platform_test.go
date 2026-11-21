@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,25 @@ import (
 // deploymentSSH answers exec requests in process and records every command;
 // no shell, installer or file-transfer subsystem runs.
 func deploymentSSH(t *testing.T, version string, answer func(string) (string, string, uint32)) (*cryptossh.Client, func() []string) {
+	t.Helper()
+	return deploymentSSHExec(t, version, func(command string, channel cryptossh.Channel, request *cryptossh.Request) {
+		_ = request.Reply(true, nil)
+		stdout, stderr, status := answer(command)
+		deploymentSSHResult(channel, stdout, stderr, status)
+	})
+}
+
+func deploymentSSHResult(channel cryptossh.Channel, stdout, stderr string, status uint32) {
+	if n, err := io.WriteString(channel, stdout); err != nil || n != len(stdout) {
+		return
+	}
+	if n, err := io.WriteString(channel.Stderr(), stderr); err != nil || n != len(stderr) {
+		return
+	}
+	_, _ = channel.SendRequest("exit-status", false, cryptossh.Marshal(struct{ Status uint32 }{status}))
+}
+
+func deploymentSSHExec(t *testing.T, version string, exec func(string, cryptossh.Channel, *cryptossh.Request)) (*cryptossh.Client, func() []string) {
 	t.Helper()
 	signer, err := cryptossh.NewSignerFromKey(ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)))
 	if err != nil {
@@ -78,11 +98,7 @@ func deploymentSSH(t *testing.T, version string, answer func(string) (string, st
 						_ = request.Reply(false, nil)
 						return
 					}
-					_ = request.Reply(true, nil)
-					stdout, stderr, status := answer(payload.Value)
-					_, _ = io.WriteString(channel, stdout)
-					_, _ = io.WriteString(channel.Stderr(), stderr)
-					_, _ = channel.SendRequest("exit-status", false, cryptossh.Marshal(struct{ Status uint32 }{status}))
+					exec(payload.Value, channel, request)
 					return
 				}
 			}()
@@ -170,20 +186,133 @@ func TestSSHPlatformDetectionKeepsPOSIX(t *testing.T) {
 }
 
 func TestSSHPlatformDetectionKeepsFailure(t *testing.T) {
-	connection, commands := deploymentSSH(t, "SSH-2.0-fixture", func(command string) (string, string, uint32) {
+	connection, commands := deploymentSSHExec(t, "SSH-2.0-fixture", func(command string, channel cryptossh.Channel, request *cryptossh.Request) {
 		if command == "uname -s; uname -m" {
-			return "", "uname unavailable", 127
+			_ = request.Reply(true, nil)
+			deploymentSSHResult(channel, "", "uname unavailable", 127)
+			return
 		}
-		return "", "cmd unavailable", 127
+		_ = request.Reply(false, nil)
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, err := detectPlatform(ctx, connection)
 	var fault *protocol.Fault
-	if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "Host installation command failed: uname unavailable" {
+	if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable || fault.SSHReason != protocol.SSHCommandNonzeroExit || fault.Message != "Host installation command failed" {
 		t.Fatalf("non-Windows failure was replaced: %v", err)
 	}
 	if !slices.Equal(commands(), []string{"uname -s; uname -m", "cmd.exe /d /c ver"}) {
 		t.Fatalf("unexpected detection commands: %q", commands())
+	}
+}
+
+func TestSSHStagingGuidanceIsFixed(t *testing.T) {
+	for _, test := range []struct {
+		name, stderr, message string
+	}{
+		{"missing python", "python3 is required\n", "Host installation command failed: python3 is required"},
+		{"private stderr", "python3 is required\n/private/remote-home", "Host installation command failed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connection, _ := deploymentSSH(t, "SSH-2.0-fixture", func(string) (string, string, uint32) {
+				return "", test.stderr, 1
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			_, err := commandSSH(ctx, connection, sshStaging, stageCommand, nil)
+			var fault *protocol.Fault
+			if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable || fault.SSHReason != protocol.SSHCommandNonzeroExit || fault.Message != test.message {
+				t.Fatalf("staging fault = %v", err)
+			}
+		})
+	}
+}
+
+func TestSSHInstallationFaults(t *testing.T) {
+	root := ArtifactRoot
+	ArtifactRoot = t.TempDir()
+	t.Cleanup(func() { ArtifactRoot = root })
+	const platform = "uname -s; uname -m"
+	const paths = "printf '%s\\n' \"$HOME\"; uname -s; id -u"
+	const installer = "sh -s"
+	const bootstrap = "cat '/home/fixture/.sailry-host/bootstrap.ticket' 2>/dev/null"
+	for _, test := range []struct {
+		name, command string
+		reply         string
+		code          protocol.ErrorCode
+		reason        protocol.SSHFailureReason
+		calls         []string
+	}{
+		{"probe exit 73", paths, "rollback", protocol.ErrorCodeUnavailable, protocol.SSHCommandNonzeroExit, []string{platform, paths}},
+		{"probe without exit", paths, "missing", protocol.ErrorCodeUnavailable, protocol.SSHCommandExitMissing, []string{platform, paths}},
+		{"exec rejected", installer, "rejected", protocol.ErrorCodeUnavailable, protocol.SSHCommandRejected, []string{platform, paths, installer}},
+		{"exec receipt lost", installer, "receipt", protocol.ErrorCodeOutcomeUnknown, protocol.SSHCommandReceiptLost, []string{platform, paths, installer}},
+		{"installer without exit", installer, "missing", protocol.ErrorCodeOutcomeUnknown, protocol.SSHCommandExitMissing, []string{platform, paths, installer}},
+		{"malformed installer result", installer, "malformed", protocol.ErrorCodeOutcomeUnknown, protocol.SSHCommandResultUnavailable, []string{platform, paths, installer}},
+		{"installer killed", installer, "signal", protocol.ErrorCodeOutcomeUnknown, protocol.SSHCommandInterrupted, []string{platform, paths, installer}},
+		{"ordinary installer failure", installer, "nonzero", protocol.ErrorCodeUnavailable, protocol.SSHCommandNonzeroExit, []string{platform, paths, installer}},
+		{"installer rollback unconfirmed", installer, "rollback", protocol.ErrorCodeOutcomeUnknown, protocol.SSHInstallRollbackUnconfirmed, []string{platform, paths, installer}},
+		{"installer output truncated", installer, "truncated", protocol.ErrorCodeOutcomeUnknown, protocol.SSHCommandOutputTruncated, []string{platform, paths, installer}},
+		{"bootstrap receipt lost after install", bootstrap, "receipt", protocol.ErrorCodeOutcomeUnknown, protocol.SSHBootstrapTicketUnavailable, []string{platform, paths, installer, bootstrap}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connection, commands := deploymentSSHExec(t, "SSH-2.0-fixture", func(command string, channel cryptossh.Channel, request *cryptossh.Request) {
+				if command == test.command {
+					switch test.reply {
+					case "rejected":
+						_ = request.Reply(false, nil)
+						return
+					case "receipt":
+						return
+					}
+					_ = request.Reply(true, nil)
+					_, _ = io.Copy(io.Discard, channel)
+					switch test.reply {
+					case "malformed":
+						_, _ = channel.SendRequest("exit-status", false, []byte{0})
+					case "signal":
+						_, _ = channel.SendRequest("exit-signal", false, cryptossh.Marshal(struct {
+							Signal     string
+							CoreDumped bool
+							Error      string
+							Language   string
+						}{Signal: "KILL"}))
+					case "nonzero":
+						deploymentSSHResult(channel, "", "fixture failure", 1)
+					case "rollback":
+						deploymentSSHResult(channel, "", "fixture recovery failure", 73)
+					case "truncated":
+						deploymentSSHResult(channel, strings.Repeat("x", 3<<20), "", 0)
+					}
+					return
+				}
+				if command != platform && command != paths && command != installer {
+					_ = request.Reply(false, nil)
+					return
+				}
+				_ = request.Reply(true, nil)
+				switch command {
+				case platform:
+					deploymentSSHResult(channel, "Linux\nx86_64\n", "", 0)
+				case paths:
+					deploymentSSHResult(channel, "/home/fixture\nLinux\n1000\n", "", 0)
+				case installer:
+					_, _ = io.Copy(io.Discard, channel)
+					deploymentSSHResult(channel, "", "", 0)
+				}
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			caller := protocol.NodeID{1}
+			request := protocol.NewRequest(caller, protocol.Command{Kind: "install_host", Data: protocol.CommandInstallHostPayload{}})
+			outcome, err := NewInstallations(DeploymentOptions{}).Execute(ctx, connection, nil, caller, request.ID, nil, nil)
+			var fault *protocol.Fault
+			if outcome.Kind != "" || !errors.As(err, &fault) || fault.Code != test.code || fault.SSHReason != test.reason {
+				t.Fatalf("install_host = %+v, fault = %+v, want %s/%s", outcome, fault, test.code, test.reason)
+			}
+			if got := commands(); !slices.Equal(got, test.calls) {
+				t.Fatalf("install_host sent %q, want %q", got, test.calls)
+			}
+		})
 	}
 }

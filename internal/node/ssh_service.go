@@ -57,7 +57,7 @@ func (node *Node) runHost(ctx context.Context, caller protocol.NodeID, request p
 		if errors.As(err, &required) {
 			return protocol.Output{Kind: "ssh_outcome", Data: required.Outcome()}, nil
 		}
-		return protocol.Output{}, err
+		return protocol.Output{}, sshConnectionFailure(scoped, err)
 	}
 	defer connection.Close()
 	if request.Command.Kind == "check_ssh" {

@@ -108,7 +108,7 @@ func windowsPlatform(platform string) bool {
 // Windows SSH server. Native Windows shells may not have uname; the server
 // banner or a read-only cmd probe identifies them before installation starts.
 func detectPlatform(ctx context.Context, connection *cryptossh.Client) (string, string, error) {
-	platform, err := commandSSH(ctx, connection, "uname -s; uname -m", nil)
+	platform, err := commandSSH(ctx, connection, sshProbe, "uname -s; uname -m", nil)
 	if err == nil {
 		var target, turso string
 		target, turso, err = targetPlatform(platform)
@@ -124,7 +124,7 @@ func detectPlatform(ctx context.Context, connection *cryptossh.Client) (string, 
 	}
 	// ver is a cmd builtin, so invoke cmd explicitly even when the SSH
 	// account's configured shell is PowerShell.
-	version, probeErr := commandSSH(ctx, connection, "cmd.exe /d /c ver", nil)
+	version, probeErr := commandSSH(ctx, connection, sshProbe, "cmd.exe /d /c ver", nil)
 	if probeErr == nil && strings.Contains(version, "Microsoft Windows") {
 		return "", "", unavailable(protocol.SSHWindowsDesktopRequired)
 	}
@@ -155,7 +155,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	owner.Progress(caller, request, "detecting")
 	target, turso, err := detectPlatform(ctx, connection)
 	if err != nil {
-		return protocol.SshOutcome{}, err
+		return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
 	}
 	root, err := artifactDirectory(target)
 	if err != nil {
@@ -163,7 +163,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	}
 	paths, err := owner.remotePaths(ctx, connection)
 	if err != nil {
-		return protocol.SshOutcome{}, err
+		return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
 	}
 	// A build that carries locally built artifacts for the target uploads
 	// them; every other build installs its own version from the release feed.
@@ -194,10 +194,19 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	return protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: address.ID}}, nil
 }
 
+func installPreflightFailure(ctx context.Context, err error) error {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "Host installation cancelled"}
+	}
+	return err
+}
+
 // stageCommand makes the remote staging directory. The installer script
 // needs python3, so its absence fails here, before anything is uploaded,
 // and names the cause.
-const stageCommand = "umask 077; command -v python3 >/dev/null || { echo 'python3 is required' >&2; exit 1; }; mktemp -d /tmp/sailry-bootstrap-XXXXXX"
+const stageCommand = "umask 077; command -v python3 >/dev/null || { echo '" + stagePythonRequired + "' >&2; exit 1; }; mktemp -d /tmp/sailry-bootstrap-XXXXXX"
+
+const stagePythonRequired = "python3 is required"
 
 // installLocal verifies and uploads the locally built Host artifacts of the
 // target, then activates them with the embedded deployment scripts.
@@ -236,7 +245,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 		}
 		installedVersion = identity.Version
 	}
-	stage, err := commandSSH(ctx, connection, stageCommand, nil)
+	stage, err := commandSSH(ctx, connection, sshStaging, stageCommand, nil)
 	if err != nil {
 		return err
 	}
@@ -248,26 +257,26 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	cleanupStage := true
 	defer func() {
 		if cleanupStage && ctx.Err() == nil {
-			_, _ = commandSSH(ctx, connection, "rm -rf -- "+quotedStage, nil)
+			_, _ = commandSSH(ctx, connection, sshStaging, "rm -rf -- "+quotedStage, nil)
 		}
 	}()
 	owner.Progress(caller, request, "installing")
 	for _, input := range []*artifact{binary, database, seal} {
 		destination, _ := shellQuote(stage + "/" + input.name)
-		if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, input.file); err != nil {
+		if _, err := commandSSH(ctx, connection, sshStaging, "umask 077; set -C; cat > "+destination, input.file); err != nil {
 			return err
 		}
 	}
 	service, _ := deploymentSources.ReadFile("deployment/service.sh")
 	destination, _ := shellQuote(stage + "/service.sh")
-	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
+	if _, err := commandSSH(ctx, connection, sshStaging, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
 		return err
 	}
 	script, err := deploymentScript(stage, binary, database, seal, paths, installedVersion, selection)
 	if err != nil {
 		return err
 	}
-	if _, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(script)); err != nil {
+	if _, err := commandSSH(ctx, connection, sshInstaller, "sh -s", strings.NewReader(script)); err != nil {
 		// Only an installer whose outcome is unknown may still need the
 		// stage: it holds the backup of the files it replaced.
 		var fault *protocol.Fault
@@ -300,7 +309,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 	var installedVersion string
 	if expected != nil {
 		source, _ := deploymentSources.ReadFile("deployment/identity.py")
-		body, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
+		body, err := commandSSH(ctx, connection, sshProbe, "sh -s", strings.NewReader(releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
 		if err != nil {
 			return err
 		}
@@ -333,7 +342,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 		script = "export SAILRY_HOST_EXPECT_CURRENT_VERSION=" + quoted + "\n" + script
 	}
 	owner.Progress(caller, request, "installing")
-	_, err = commandSSH(ctx, connection, "sh -s", strings.NewReader(script))
+	_, err = commandSSH(ctx, connection, sshInstaller, "sh -s", strings.NewReader(script))
 	return err
 }
 
@@ -350,7 +359,7 @@ func (owner *Installations) remotePaths(ctx context.Context, connection *cryptos
 		}
 		return owner.options, nil
 	}
-	body, err := commandSSH(ctx, connection, "printf '%s\\n' \"$HOME\"; uname -s; id -u", nil)
+	body, err := commandSSH(ctx, connection, sshProbe, "printf '%s\\n' \"$HOME\"; uname -s; id -u", nil)
 	if err != nil {
 		return DeploymentOptions{}, err
 	}
@@ -376,7 +385,7 @@ func inspectInstalled(ctx context.Context, connection *cryptossh.Client, paths D
 	}
 	profile, _ := shellQuote(paths.Profile)
 	source, _ := deploymentSources.ReadFile("deployment/identity.py")
-	body, err := commandSSH(ctx, connection, "python3 -I - "+root+" "+profile, strings.NewReader(string(source)))
+	body, err := commandSSH(ctx, connection, sshProbe, "python3 -I - "+root+" "+profile, strings.NewReader(string(source)))
 	if err != nil {
 		return installedIdentity{}, err
 	}
@@ -449,7 +458,7 @@ const pairingAttempts = 5
 func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *link.Link, profile string) (link.EndpointAddress, error) {
 	ticketPath, _ := shellQuote(profile + "/bootstrap.ticket")
 	read := func() (string, error) {
-		result, err := runSSH(ctx, connection, "cat "+ticketPath+" 2>/dev/null", nil)
+		result, err := runSSH(ctx, connection, sshProbe, "cat "+ticketPath+" 2>/dev/null", nil)
 		if err != nil {
 			return "", err
 		}
@@ -465,7 +474,7 @@ func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *
 		}
 		info, err := endpoint.Inspect(ctx, address)
 		if err != nil || !info.Execution {
-			return address, unknown("installed endpoint does not provide a Node")
+			return address, installFault(protocol.ErrorCodeOutcomeUnknown, "installed endpoint does not provide a Node", protocol.SSHPairingUnconfirmed)
 		}
 		return address, nil
 	}
@@ -483,7 +492,7 @@ func pairBootstrap(ctx context.Context, read func() (string, error), pair func(s
 	for attempt := 0; attempt < 90; attempt++ {
 		ticket, err := read()
 		if err != nil {
-			return link.EndpointAddress{}, unknown("Host installed but its bootstrap ticket could not be read")
+			return link.EndpointAddress{}, installFault(protocol.ErrorCodeOutcomeUnknown, "Host installed but its bootstrap ticket could not be read", protocol.SSHBootstrapTicketUnavailable)
 		}
 		if ticket != "" {
 			address, err := pair(ticket)
@@ -492,20 +501,22 @@ func pairBootstrap(ctx context.Context, read func() (string, error), pair func(s
 			}
 			var settled *protocol.Fault
 			if errors.As(err, &settled) && settled.Code == protocol.ErrorCodeOutcomeUnknown {
-				return address, err
+				failure := *settled
+				failure.SSHReason = protocol.SSHPairingUnconfirmed
+				return address, &failure
 			}
 			if failures++; failures == pairingAttempts {
 				break
 			}
 		}
 		if err := wait(ctx); err != nil {
-			return link.EndpointAddress{}, err
+			return link.EndpointAddress{}, installFault(protocol.ErrorCodeOutcomeUnknown, "Host installation interrupted; inspect the Host before retrying", protocol.SSHPairingUnconfirmed)
 		}
 	}
 	if failures > 0 {
-		return link.EndpointAddress{}, unknown("Host installed but pairing could not be confirmed")
+		return link.EndpointAddress{}, installFault(protocol.ErrorCodeOutcomeUnknown, "Host installed but pairing could not be confirmed", protocol.SSHPairingUnconfirmed)
 	}
-	return link.EndpointAddress{}, unknown("Host service started but pairing is unavailable; inspect the host service")
+	return link.EndpointAddress{}, installFault(protocol.ErrorCodeOutcomeUnknown, "Host service started but pairing is unavailable; inspect the host service", protocol.SSHBootstrapTicketUnavailable)
 }
 
 // confirmUpdate waits for the updated Host to answer with this release. The
@@ -517,7 +528,7 @@ func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.N
 		endpoint.Disconnect(expected)
 		peers, err := endpoint.Peers(ctx)
 		if err != nil {
-			return unknown("Host update was started but reconnection could not be confirmed")
+			return installFault(protocol.ErrorCodeOutcomeUnknown, "Host update was started but reconnection could not be confirmed", protocol.SSHUpdateUnconfirmed)
 		}
 		for _, address := range peers {
 			if address.ID != expected {
@@ -529,10 +540,10 @@ func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.N
 			}
 		}
 		if err := waitProbe(ctx); err != nil {
-			return err
+			break
 		}
 	}
-	return unknown("Host update was started but reconnection could not be confirmed")
+	return installFault(protocol.ErrorCodeOutcomeUnknown, "Host update was started but reconnection could not be confirmed", protocol.SSHUpdateUnconfirmed)
 }
 
 func waitProbe(ctx context.Context) error {
@@ -540,7 +551,7 @@ func waitProbe(ctx context.Context) error {
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return unknown("Host installation interrupted; inspect the Host before retrying")
+		return ctx.Err()
 	case <-timer.C:
 		return nil
 	}

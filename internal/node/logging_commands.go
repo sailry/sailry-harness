@@ -234,6 +234,12 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 		return
 	}
 	diagnostic := fault.Details != nil && fault.Details.Kind == "system_diagnostic"
+	if kind == "check_ssh" || kind == "install_host" {
+		if stage := fault.SSHReason.Stage(); stage != "" {
+			span.Set(slog.String("stage", stage))
+			span.Set(slog.String("reason", string(fault.SSHReason)))
+		}
+	}
 	if report, found := faultDiagnostic(fault); found {
 		if report.Cause != nil {
 			span.Set(slog.String("cause_code", string(*report.Cause)))
@@ -306,7 +312,7 @@ func reportFault(span *logging.Span, kind string, original *protocol.Fault, plug
 	switch kind {
 	case "guide_queued_turn", "send_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused",
 		"create_directory", "rename_entry", "trash_entry", "copy_entry_to", "move_entry_to", "finish_file_upload", "restore_file_checkpoint", "apply_turn_hunk",
-		"register_worktree", "move_conversation":
+		"register_worktree", "move_conversation", "check_ssh", "install_host":
 	default:
 		if !fileTextMutation(kind) && !workspaceGitWrite(kind) && transientCommands[kind] != controllerRead &&
 			!(pluginCompletion && reportablePluginCompletion(original)) {
