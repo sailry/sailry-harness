@@ -310,7 +310,8 @@ export function readUsageInventory(node?:string):Promise<{node:string;projects:{
  * A legacy `cached_input` of zero without `cached_input_reported: true` is treated as unknown.
  * In totals, groups and point metrics, a nonzero `incomplete_token_responses` decimal string means
  * `tokens` is null. `token_subtotal` sums responses reporting both counts and is absent if none did.
- * Point `models` also cover only those responses; coverage is reported for the point, not per model. */
+ * Point `models` also cover only those responses; coverage is reported for the point, not per model.
+ * Optional `throughput` sums reported output tokens and full measured request time, including time to first output. */
 export function readUsageChoices(query:UsageQuery,node?:string):Promise<Record<string,unknown>>;
 /** all combines connected usage sources; only model names and the global request cursor may filter across Nodes. Project, worktree and provider IDs require all=false and their owning node. */
 export function watchUsage(query:UsageQuery,all:boolean,node?:string):void;

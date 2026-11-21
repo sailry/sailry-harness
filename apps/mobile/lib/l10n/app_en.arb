@@ -131,7 +131,7 @@
   "conversationStatsCacheRate": "Cache hits",
   "conversationStatsCost": "Estimated cost",
   "conversationStatsCostCoverage": "Cost coverage",
-  "conversationStatsSpeed": "Generation speed",
+  "conversationStatsSpeed": "End-to-end output rate",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -791,7 +791,7 @@
   "usageRange1y": "1 year",
   "usageReasoning": "Reasoning",
   "usageHitRate": "Cache hit rate",
-  "usageSpeed": "Average speed",
+  "usageSpeed": "End-to-end rate",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "Partial",
   "usageTrend": "Token trend",

@@ -364,6 +364,74 @@ func TestDecodeGenerationRequiresMatchedTiming(t *testing.T) {
 	}
 }
 
+func TestAgentThroughputUsesMatchedFullRequestDurations(t *testing.T) {
+	t.Parallel()
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		count := ptr[uint64]
+		image, vision := protocol.MediaKindImage, protocol.MediaKindVision
+		requests := []struct {
+			input, output, reasoning *uint64
+			elapsed, first           *uint64
+			media                    *protocol.MediaKind
+		}{
+			{count(1), count(150), count(110), count(10_000_000), count(9_800_000), nil},
+			{nil, count(18), nil, count(2_000_000), nil, nil},
+			{count(1), count(0), nil, count(4_000_000), count(4_000_000), nil},
+			{count(1), count(1000), nil, nil, count(10), nil},
+			{count(1), count(2000), nil, count(0), nil, nil},
+			{count(1), nil, nil, count(100_000_000), nil, nil},
+			{count(1), count(5000), nil, count(1_000_000), nil, &image},
+			{count(1), count(32), nil, count(4_000_000), nil, &vision},
+			{count(1), count(100), nil, count(2), count(3), nil},
+		}
+		for _, request := range requests {
+			message := canonical.NewMessage(canonical.Assistant)
+			message.Usage = &canonical.Usage{Input: request.input, Output: request.output, Reasoning: request.reasoning}
+			record := canonical.NewRecord(turn, "message", &message, now)
+			record.Metadata.Execution = &canonical.Execution{Media: request.media, Timing: &canonical.Timing{ElapsedUs: request.elapsed, FirstTokenUs: request.first}}
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+		}
+		stats, err := ReadAgentStatistics(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
+		query := protocol.DefaultUsageQuery()
+		query.StartMs, query.EndMs, query.Dimension = now.UnixMilli(), now.Add(time.Minute).UnixMilli(), protocol.UsageDimensionModel
+		report, err := readAgentUsage(ctx, db, node, query)
+		if err != nil {
+			return err
+		}
+		if len(report.Groups) != 1 || len(report.Days) != 1 || len(report.Recent) != 1 {
+			return fmt.Errorf("unexpected usage buckets: groups=%d days=%d recent=%d", len(report.Groups), len(report.Days), len(report.Recent))
+		}
+		// All completions share the same timestamp. Each measured response contributes its own duration.
+		want := protocol.UsageGeneration{OutputTokens: 200, ElapsedUs: 20_000_000, Responses: 4}
+		for surface, got := range map[string]*protocol.UsageGeneration{
+			"session": stats.Throughput, "report": report.Totals.Throughput, "group": report.Groups[0].Metrics.Throughput,
+			"day": report.Days[0].Metrics.Throughput, "recent": report.Recent[0].Metrics.Throughput,
+		} {
+			if got == nil || *got != want {
+				return fmt.Errorf("%s throughput = %+v, want %+v", surface, got, want)
+			}
+		}
+		if stats.Responses != uint64(len(requests)) || stats.IncompleteTokenResponses != 2 || report.Totals.Responses != stats.Responses || report.Totals.IncompleteTokenResponses != 2 {
+			return fmt.Errorf("metered responses=%d, incomplete=%d, report=%+v", stats.Responses, stats.IncompleteTokenResponses, report.Totals)
+		}
+		decode := protocol.UsageGeneration{OutputTokens: 40, ElapsedUs: 200_000, Responses: 1}
+		if stats.Generation == nil || *stats.Generation != decode || report.Totals.Generation == nil || *report.Totals.Generation != decode {
+			return fmt.Errorf("decode samples: session=%+v report=%+v, want %+v", stats.Generation, report.Totals.Generation, decode)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDelegatedStatistics(t *testing.T) {
 	t.Parallel()
 	storage, node, session, parent, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -421,6 +489,10 @@ func TestDelegatedStatistics(t *testing.T) {
 		delegated := result.Delegated
 		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 6600 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 15 {
 			t.Fatalf("delegated totals = %#v", delegated)
+		}
+		want := protocol.UsageGeneration{OutputTokens: 900, ElapsedUs: 21, Responses: 3}
+		if delegated.Throughput == nil || *delegated.Throughput != want {
+			t.Fatalf("delegated throughput = %+v, want %+v", delegated.Throughput, want)
 		}
 		own, err := ReadAgentStatistics(ctx, db, children[0].Session.ID)
 		if err != nil {

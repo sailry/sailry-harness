@@ -699,7 +699,7 @@ abstract class AppLocalizations {
   /// No description provided for @conversationStatsSpeed.
   ///
   /// In en, this message translates to:
-  /// **'Generation speed'**
+  /// **'End-to-end output rate'**
   String get conversationStatsSpeed;
 
   /// No description provided for @conversationStatsSpeedValue.
@@ -3825,7 +3825,7 @@ abstract class AppLocalizations {
   /// No description provided for @usageSpeed.
   ///
   /// In en, this message translates to:
-  /// **'Average speed'**
+  /// **'End-to-end rate'**
   String get usageSpeed;
 
   /// No description provided for @usageSpeedUnit.

@@ -180,6 +180,9 @@ func demoStatistics(view *viewmodel.Conversation, model string) *protocol.Conver
 		first = (420 + 90*(turns%4)) * 1000
 		response = first * 2 / 5
 		elapsed = first + generating/turns
+		if generating > 0 {
+			statistics.Throughput = &protocol.UsageGeneration{ElapsedUs: generating + first*turns, OutputTokens: output, Responses: turns}
+		}
 		statistics.FirstTokenUs = &first
 		wait := first - response
 		observed.Latency = protocol.ConversationObservationLatency{ResponseUs: &response, PairedResponseUs: &response, FirstTokenUs: &first, WaitingUs: &wait, ElapsedUs: &elapsed}

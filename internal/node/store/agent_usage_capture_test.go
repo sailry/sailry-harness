@@ -205,7 +205,12 @@ func TestCanonicalUsageReportsIncompleteHelperResponses(t *testing.T) {
 		for _, test := range []struct {
 			purpose canonical.Purpose
 			usage   *canonical.Usage
-		}{{canonical.PurposeSearch, nil}, {canonical.PurposeMain, &canonical.Usage{}}, {canonical.PurposeMain, &canonical.Usage{Input: ptr(uint64(99))}}} {
+		}{
+			{canonical.PurposeSearch, nil},
+			{canonical.PurposeMain, &canonical.Usage{}},
+			{canonical.PurposeMain, &canonical.Usage{Input: ptr(uint64(99))}},
+			{canonical.PurposeMain, &canonical.Usage{Output: ptr(uint64(88))}},
+		} {
 			message := canonical.NewMessage(canonical.Assistant)
 			message.Usage = test.usage
 			record := canonical.NewRecord(turn, "message", &message, now)
@@ -237,7 +242,7 @@ func TestCanonicalUsageReportsIncompleteHelperResponses(t *testing.T) {
 				t.Errorf("statistics read %d usage rows, want %d", next.work.usageRows, wantDelta)
 			}
 			sessionMetrics := protocol.UsageMetrics{Responses: statistics.Responses, Tokens: statistics.Usage,
-				Cost: statistics.Cost, Generation: statistics.Generation, IncompleteTokenResponses: statistics.IncompleteTokenResponses}
+				Cost: statistics.Cost, Generation: statistics.Generation, Throughput: statistics.Throughput, IncompleteTokenResponses: statistics.IncompleteTokenResponses}
 			query := protocol.DefaultUsageQuery()
 			query.StartMs, query.EndMs, query.Dimension = now.UnixMilli(), now.Add(time.Minute).UnixMilli(), protocol.UsageDimensionModel
 			output, err := ReadAgentCommand(ctx, db, node, protocol.Command{Kind: "read_usage", Data: &query})
@@ -296,13 +301,15 @@ func TestCanonicalUsageReportsIncompleteHelperResponses(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check(protocol.UsageMetrics{Responses: 3, IncompleteTokenResponses: 3, Generation: &protocol.UsageGeneration{ElapsedUs: 6, Responses: 1}},
+	check(protocol.UsageMetrics{Responses: 3, IncompleteTokenResponses: 3,
+		Generation: &protocol.UsageGeneration{ElapsedUs: 6, Responses: 1}, Throughput: &protocol.UsageGeneration{ElapsedUs: 10, Responses: 1}},
 		map[string]protocol.ConversationUsage{}, 3)
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error { return appendRequest(db, 3) }); err != nil {
 		t.Fatal(err)
 	}
 	check(protocol.UsageMetrics{Responses: 4, IncompleteTokenResponses: 3, Tokens: &requests[3].present,
 		Generation: &protocol.UsageGeneration{ElapsedUs: 12, OutputTokens: 2, Responses: 2},
+		Throughput: &protocol.UsageGeneration{ElapsedUs: 20, OutputTokens: 2, Responses: 2},
 		Cost:       &protocol.UsageCost{UsdMicros: 8, Responses: 1, Breakdown: &protocol.UsageCostBreakdown{Input: 4, Output: 4}}},
 		map[string]protocol.ConversationUsage{"search": requests[3].present}, 1)
 }

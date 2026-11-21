@@ -458,6 +458,14 @@ func (r *usageRecord) add(target *protocol.UsageMetrics) {
 	target.Tokens.Output += r.tokens.Output
 	target.Tokens.CachedInput += r.tokens.CachedInput
 	target.Tokens.Reasoning += r.tokens.Reasoning
+	if r.elapsed > 0 && r.first <= r.elapsed {
+		if target.Throughput == nil {
+			target.Throughput = &protocol.UsageGeneration{}
+		}
+		target.Throughput.ElapsedUs += r.elapsed
+		target.Throughput.OutputTokens += r.tokens.Output
+		target.Throughput.Responses++
+	}
 	if r.elapsed > r.first {
 		if target.Generation == nil {
 			target.Generation = &protocol.UsageGeneration{}

@@ -101,7 +101,7 @@ void main() {
   });
 
   group('format', () {
-    test("compacts counts costs and measured speed", () {
+    test("compacts counts and costs", () {
       for (final (actual, expected, reason) in <(Object?, Object?, String)>[
         (compact(null), isNull, "compacts and groups counts"),
         (compact(999), '999', "compacts and groups counts"),
@@ -111,17 +111,6 @@ void main() {
         (grouped(12), '12', "compacts and groups counts"),
         (amount(38429999), '38.42', "truncates amounts to cents"),
         (amount(1234), '0.00', "truncates amounts to cents"),
-        (
-          tokenSpeed({'elapsed_us': 2000000, 'output_tokens': 84}),
-          '42.0',
-          "derives speed from timed output",
-        ),
-        (
-          tokenSpeed({'elapsed_us': 0, 'output_tokens': 84}),
-          isNull,
-          "derives speed from timed output",
-        ),
-        (tokenSpeed(null), isNull, "derives speed from timed output"),
       ]) {
         expect(actual, expected, reason: reason);
       }
@@ -143,7 +132,16 @@ void main() {
                 'reasoning': 5,
               },
               'cost': {'usd_micros': 1500000, 'responses': 3},
-              'generation': {'elapsed_us': 1000000, 'output_tokens': 20},
+              'generation': {
+                'elapsed_us': 1000000,
+                'output_tokens': 20,
+                'responses': 2,
+              },
+              'throughput': {
+                'elapsed_us': 2500000,
+                'output_tokens': 20,
+                'responses': 2,
+              },
             });
             expect(overview.tokens!.parts, [100, 0, 20], reason: caseName);
             expect(overview.total, 120, reason: caseName);
@@ -151,7 +149,7 @@ void main() {
             expect(overview.hit, 100, reason: caseName);
             expect(overview.cost, '1.50', reason: caseName);
             expect(overview.partial, isTrue, reason: caseName);
-            expect(overview.speed, '20.0', reason: caseName);
+            expect(overview.speed, '8.0', reason: caseName);
           },
         ),
         (
@@ -168,6 +166,36 @@ void main() {
       ]) {
         run(caseName);
       }
+    });
+
+    test('leaves speed unknown without a complete throughput sample', () {
+      const legacy = {
+        'elapsed_us': 1000000,
+        'output_tokens': 20,
+        'responses': 1,
+      };
+      final totals = {'responses': 1, 'generation': legacy};
+      expect(UsageOverview(totals).speed, isNull);
+
+      for (final throughput in [
+        null,
+        {...legacy, 'elapsed_us': 0},
+        {...legacy, 'responses': 0},
+        {'elapsed_us': 1000000, 'responses': 1},
+      ]) {
+        expect(
+          UsageOverview({...totals, 'throughput': throughput}).speed,
+          isNull,
+        );
+      }
+
+      expect(
+        UsageOverview({
+          'responses': 1,
+          'throughput': {...legacy, 'output_tokens': 0},
+        }).speed,
+        '0.0',
+      );
     });
   });
 

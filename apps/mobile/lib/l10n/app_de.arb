@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "Cache-Treffer",
   "conversationStatsCost": "Geschätzte Kosten",
   "conversationStatsCostCoverage": "Kostendeckung",
-  "conversationStatsSpeed": "Generationsgeschwindigkeit",
+  "conversationStatsSpeed": "Ende-zu-Ende-Ausgaberate",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1 Jahr",
   "usageReasoning": "Reasoning",
   "usageHitRate": "Cache-Trefferquote",
-  "usageSpeed": "Durchschnittstempo",
+  "usageSpeed": "Ende-zu-Ende-Rate",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "Teilweise",
   "usageTrend": "Token-Verlauf",

@@ -45,6 +45,15 @@ func packageCount(n int) string {
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
+func demoTPS(cv *viewmodel.Conversation) string {
+	stats := demoStatistics(cv, "")
+	if stats == nil || stats.Throughput == nil {
+		return "—"
+	}
+	rate := stats.Throughput
+	return fmt.Sprintf("%.1f tok/s", float64(rate.OutputTokens)*1_000_000/float64(rate.ElapsedUs))
+}
+
 // subagentTokens are the tokens the subagents of a demo conversation used
 // beside the session's own: a quarter of the session's for one that ran to
 // its end, half of that for one running or stopped, none for one queued.
@@ -406,7 +415,7 @@ func TestDemoMode(t *testing.T) {
 				step()
 			}
 			if usage := cv.Session.Usage; composed && usage != nil {
-				speed := fmt.Sprintf("%.1f/s", usage.Speed)
+				speed := demoTPS(cv)
 				tokens := packageCount(usage.Tokens + subagentTokens(cv))
 				if !until(func() bool { return shows(tokens) && shows(speed) }) {
 					t.Errorf("%s: the context bar lacks the figures %s and %s: %q", cv.ID, tokens, speed, tester.Texts())
@@ -568,6 +577,10 @@ func TestDemoMode(t *testing.T) {
 			math.Abs(float64(generation.OutputTokens)*1_000_000/float64(generation.ElapsedUs)-71.4) > 0.001 {
 			t.Errorf("the speed is recorded as %+v", generation)
 		}
+		if total := got.Throughput; total == nil || total.OutputTokens != 6025 || total.Responses != 2 ||
+			got.Generation == nil || total.ElapsedUs != got.Generation.ElapsedUs+1_200_000 {
+			t.Errorf("the throughput is recorded as %+v", total)
+		}
 		// The context, the model it was measured with and the model's budget:
 		// compaction at four fifths of the window.
 		if got.ContextTokens == nil || *got.ContextTokens != 48000 || got.ContextLimit == nil || *got.ContextLimit != 200000 ||
@@ -654,7 +667,7 @@ func TestDemoMode(t *testing.T) {
 		// than input is all of the input; without a speed, a window or a
 		// model none of what follows from them is recorded.
 		bare := demoStatistics(&viewmodel.Conversation{Session: conversation.Session{Usage: &conversation.Usage{Tokens: 800, Cached: 5000}}}, "")
-		if bare.Usage.Input != 700 || bare.Usage.CachedInput != 700 || bare.Generation != nil || bare.ContextTokens != nil || bare.ContextLimit != nil ||
+		if bare.Usage.Input != 700 || bare.Usage.CachedInput != 700 || bare.Generation != nil || bare.Throughput != nil || bare.ContextTokens != nil || bare.ContextLimit != nil ||
 			bare.Budget != nil || bare.ContextModel != nil || bare.LastCompaction != nil || bare.FirstTokenUs != nil ||
 			len(bare.Observations.Recent) != 0 || bare.Observations.Children != 0 || bare.Delegated.Tokens != nil || bare.Delegated.Cost != nil {
 			t.Errorf("a bare usage is recorded as %+v, %+v", bare, bare.Usage)
@@ -784,7 +797,7 @@ func TestDemoMode(t *testing.T) {
 		if delegated != 18075 || price(micros) != "0.03" || price(share) != "0.01" || price(micros+share) != "0.04" {
 			t.Fatalf("the subagents of the demo's first conversation have %d tokens at $%s", delegated, price(share))
 		}
-		figures := []string{packageCount(usage.Tokens + delegated), fmt.Sprintf("%.1f/s", usage.Speed), price(micros + share),
+		figures := []string{packageCount(usage.Tokens + delegated), demoTPS(cv), price(micros + share),
 			fmt.Sprintf("%.0f%%", 100*float64(usage.Cached)/float64(input))}
 		checkMissing := func(figure string) bool { return !tester.HasText(figure) }
 		// The statistics package publishes when its contribution mounts. Draw
@@ -830,7 +843,7 @@ func TestDemoMode(t *testing.T) {
 			settle()
 		}
 		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
-		hover(figures[1], "Generation speed", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
+		hover(figures[1], "End-to-end TPS", "Timed responses", "Timed output tokens", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
 		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
@@ -1253,6 +1266,15 @@ func TestDemoMode(t *testing.T) {
 			if responses == 0 || len(groups) != 3 || at(groups[0], "name") != preview.DemoProvider || len(days) != 30 || len(records) != 20 ||
 				at(records[0], "provider_name") != preview.DemoProvider || at(report, "node") != node {
 				t.Fatalf("the demo's usage holds %d responses in %d groups, %d days and %d records on %v", responses, len(groups), len(days), len(records), at(report, "node"))
+			}
+			full, _ := at(report, "totals", "throughput", "elapsed_us").(string)
+			generation, _ := at(report, "totals", "generation", "elapsed_us").(string)
+			timed, _ := at(report, "totals", "throughput", "responses").(string)
+			fullUs, fullErr := strconv.ParseUint(full, 10, 64)
+			generationUs, generationErr := strconv.ParseUint(generation, 10, 64)
+			timedResponses, timedErr := strconv.ParseUint(timed, 10, 64)
+			if fullErr != nil || generationErr != nil || timedErr != nil || fullUs <= generationUs || timedResponses == 0 || timedResponses > responses {
+				t.Errorf("the demo's usage reports %v throughput and %v generation", at(report, "totals", "throughput"), at(report, "totals", "generation"))
 			}
 			inventory, err := ask("readUsageInventory", quote(node))
 			providers, _ := at(inventory, "providers").([]any)

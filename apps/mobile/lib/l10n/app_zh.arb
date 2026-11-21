@@ -254,7 +254,7 @@
   "conversationStatsCacheRate": "缓存命中",
   "conversationStatsCost": "预估费用",
   "conversationStatsCostCoverage": "费用覆盖",
-  "conversationStatsSpeed": "生成速度",
+  "conversationStatsSpeed": "全程输出速率",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -403,7 +403,7 @@
   "usageRange1y": "1 年",
   "usageReasoning": "推理",
   "usageHitRate": "缓存命中率",
-  "usageSpeed": "平均速度",
+  "usageSpeed": "全程输出速率",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "部分",
   "usageTrend": "Token 趋势",

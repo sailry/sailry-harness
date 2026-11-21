@@ -324,7 +324,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationStatsCostCoverage => 'Couverture des coûts';
 
   @override
-  String get conversationStatsSpeed => 'Vitesse de génération';
+  String get conversationStatsSpeed => 'Débit de sortie de bout en bout';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1959,7 +1959,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get usageHitRate => 'Taux de succès du cache';
 
   @override
-  String get usageSpeed => 'Vitesse moyenne';
+  String get usageSpeed => 'Débit de bout en bout';
 
   @override
   String get usageSpeedUnit => 'tok/s';

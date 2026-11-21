@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "Hits de cache",
   "conversationStatsCost": "Coût estimatif",
   "conversationStatsCostCoverage": "Couverture des coûts",
-  "conversationStatsSpeed": "Vitesse de génération",
+  "conversationStatsSpeed": "Débit de sortie de bout en bout",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1 an",
   "usageReasoning": "Raisonnement",
   "usageHitRate": "Taux de succès du cache",
-  "usageSpeed": "Vitesse moyenne",
+  "usageSpeed": "Débit de bout en bout",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "Partiel",
   "usageTrend": "Évolution des tokens",

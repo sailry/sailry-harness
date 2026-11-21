@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "Hits de caché",
   "conversationStatsCost": "Costo estimado",
   "conversationStatsCostCoverage": "Cobertura de costos",
-  "conversationStatsSpeed": "Velocidad de generación",
+  "conversationStatsSpeed": "Tasa de salida de extremo a extremo",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1 año",
   "usageReasoning": "Razonamiento",
   "usageHitRate": "Tasa de aciertos de caché",
-  "usageSpeed": "Velocidad media",
+  "usageSpeed": "Tasa con espera",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "Parcial",
   "usageTrend": "Tendencia de tokens",

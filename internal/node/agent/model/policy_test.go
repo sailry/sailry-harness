@@ -82,6 +82,32 @@ func finishPart() fantasy.StreamPart {
 func textPart(text string) fantasy.StreamPart {
 	return fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, Delta: text}
 }
+
+func TestAttemptTimingIncludesDispatchAndStreamTail(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	timer := &policyClock{}
+	advance := func(delay time.Duration) {
+		if err := timer.Sleep(ctx, delay); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := &policyModel{onCall: func(int) { advance(17 * time.Second) }, responses: [][]fantasy.StreamPart{{textPart("answer"), finishPart()}}}
+	var observed Attempt
+	err := Run(ctx, fake, fantasy.Call{}, Main, timer, func(attempt Attempt) error { observed = attempt; return nil }, func(part fantasy.StreamPart) bool {
+		if part.Type == fantasy.StreamPartTypeFinish {
+			advance(4 * time.Second)
+		}
+		return true
+	}, nil)
+	if err != nil || observed.FirstToken == nil {
+		t.Fatalf("attempt timing = %+v, error %v", observed, err)
+	}
+	if wait, tail := observed.FirstToken.Sub(observed.Started), observed.Finished.Sub(*observed.FirstToken); wait < 17*time.Second || tail < 4*time.Second {
+		t.Fatalf("first token wait = %s, stream tail = %s", wait, tail)
+	}
+}
+
 func TestRetryTransient(t *testing.T) {
 	for _, test := range []struct {
 		name string

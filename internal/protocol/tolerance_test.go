@@ -584,3 +584,35 @@ func TestUsageTokenCoverageWire(t *testing.T) {
 		t.Fatalf("mixed metrics = %+v, error %v, want %+v", mixed, err, metrics)
 	}
 }
+
+func TestUsageThroughputWire(t *testing.T) {
+	t.Parallel()
+	legacy := []byte(`{"turns":1,"responses":2,"generation":{"elapsed_us":100000,"output_tokens":60,"responses":1}}`)
+	var stats ConversationStatistics
+	var metrics UsageMetrics
+	for _, target := range []any{&stats, &metrics} {
+		if err := DecodeAs(PeerData, legacy, target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if stats.Throughput != nil || metrics.Throughput != nil || stats.Generation == nil || metrics.Generation == nil {
+		t.Fatalf("legacy decode samples gained full request throughput: session=%+v metrics=%+v", stats, metrics)
+	}
+	want := &UsageGeneration{ElapsedUs: 2_000_000, OutputTokens: 100, Responses: 1}
+	stats.Throughput, metrics.Throughput = want, want
+	stats.Delegated = metrics
+	body, err := json.Marshal(stats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old struct {
+		Generation *UsageGeneration `json:"generation"`
+	}
+	if err = DecodeObject(body, &old, []string{"generation"}, false); err != nil || !reflect.DeepEqual(old.Generation, metrics.Generation) {
+		t.Fatalf("legacy generation = %+v, error %v", old.Generation, err)
+	}
+	var decoded ConversationStatistics
+	if err = DecodeAs(PeerData, body, &decoded); err != nil || !reflect.DeepEqual(decoded.Throughput, want) || !reflect.DeepEqual(decoded.Delegated, metrics) {
+		t.Fatalf("session rate samples from wire = %+v and %+v, error %v", decoded.Throughput, decoded.Delegated, err)
+	}
+}

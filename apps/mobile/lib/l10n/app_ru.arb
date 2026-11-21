@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "Поиски в кэше",
   "conversationStatsCost": "Сметные расходы",
   "conversationStatsCostCoverage": "Покрытие расходов",
-  "conversationStatsSpeed": "Скорость генерации",
+  "conversationStatsSpeed": "Скорость вывода с учётом ожидания",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1 год",
   "usageReasoning": "Рассуждение",
   "usageHitRate": "Доля попаданий в кэш",
-  "usageSpeed": "Средняя скорость",
+  "usageSpeed": "Скорость с ожиданием",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "Частично",
   "usageTrend": "Динамика Token",

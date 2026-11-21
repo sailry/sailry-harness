@@ -311,7 +311,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationStatsCostCoverage => 'コストキャピタル';
 
   @override
-  String get conversationStatsSpeed => '発生速度';
+  String get conversationStatsSpeed => '待ち時間込みの出力速度';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1916,7 +1916,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get usageHitRate => 'キャッシュヒット率';
 
   @override
-  String get usageSpeed => '平均速度';
+  String get usageSpeed => '待ち時間込みの速度';
 
   @override
   String get usageSpeedUnit => 'tok/s';

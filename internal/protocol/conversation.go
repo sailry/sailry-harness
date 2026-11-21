@@ -1203,6 +1203,7 @@ type ConversationStatistics struct {
 	FirstTokenUs       *uint64                        `json:"first_token_us"`
 	Cost               *UsageCost                     `json:"cost"`
 	Generation         *UsageGeneration               `json:"generation"`
+	Throughput         *UsageGeneration               `json:"throughput,omitempty"`
 	Delegated          UsageMetrics                   `json:"delegated"`
 
 	// IncompleteTokenResponses counts own responses left out of the Usage subtotal.

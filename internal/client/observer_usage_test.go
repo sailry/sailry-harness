@@ -53,3 +53,28 @@ func TestUsageSummaryRejectsIncompleteTokenResponseOverflow(t *testing.T) {
 		t.Fatalf("overflowed usage summary = %+v, %v", summary, err)
 	}
 }
+
+func TestUsageSummaryMergesThroughputAcrossNodes(t *testing.T) {
+	t.Parallel()
+	decoded := &protocol.UsageGeneration{ElapsedUs: 100_000, OutputTokens: 150, Responses: 1}
+	slow := &protocol.UsageGeneration{ElapsedUs: 10_000_000, OutputTokens: 150, Responses: 1}
+	fast := &protocol.UsageGeneration{ElapsedUs: 2_000_000, OutputTokens: 90, Responses: 2}
+	var sources []usageSource
+	for i, throughput := range []*protocol.UsageGeneration{slow, nil, fast} {
+		node := protocol.NodeID{byte(i + 1)}
+		metrics := protocol.UsageMetrics{Responses: 4, Generation: decoded, Throughput: throughput}
+		points := []protocol.UsagePoint{{StartMs: 0, Metrics: metrics}}
+		report := &protocol.UsageReport{Node: node, Totals: metrics, Days: points, Recent: points}
+		sources = append(sources, usageSource{Node: node, Entry: node, View: usageView{Report: report}})
+	}
+	result, err := summarizeUsage(sources)
+	if err != nil || result == nil || len(result.Days) != 1 || len(result.Recent) != 1 {
+		t.Fatalf("merged reports = %+v, error %v", result, err)
+	}
+	want := protocol.UsageGeneration{ElapsedUs: 12_000_000, OutputTokens: 240, Responses: 3}
+	for _, metrics := range []protocol.UsageMetrics{result.Totals, result.Days[0].Metrics, result.Recent[0].Metrics} {
+		if metrics.Responses != 12 || metrics.Throughput == nil || *metrics.Throughput != want {
+			t.Fatalf("responses=%d, throughput=%+v, want 12 and %+v", metrics.Responses, metrics.Throughput, want)
+		}
+	}
+}

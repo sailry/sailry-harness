@@ -311,7 +311,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationStatsCostCoverage => '비용 범위';
 
   @override
-  String get conversationStatsSpeed => '생성 속도';
+  String get conversationStatsSpeed => '첫 토큰 대기를 포함한 출력 속도';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1917,7 +1917,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get usageHitRate => '캐시 적중률';
 
   @override
-  String get usageSpeed => '평균 속도';
+  String get usageSpeed => '대기 포함 출력 속도';
 
   @override
   String get usageSpeedUnit => 'tok/s';

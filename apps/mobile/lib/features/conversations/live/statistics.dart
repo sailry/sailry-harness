@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
+import '../../usage_throughput.dart';
 
 /// Presentation of Node-owned totals, independent of loaded message pages.
 class ConversationStatistics extends StatelessWidget {
@@ -25,19 +26,9 @@ class ConversationStatistics extends StatelessWidget {
     }
     final usage = object(data['usage']);
     final cost = object(data['cost']);
-    final generation = object(data['generation']);
+    final throughput = readThroughput(data['throughput']);
     final responses = number(data['responses']);
     final turns = number(data['turns']);
-    final elapsed = number(generation['elapsed_us']);
-    final speed = elapsed > 0
-        ? context
-              .tr('conversationStatsSpeedValue')
-              .replaceAll(
-                '{value}',
-                (number(generation['output_tokens']) * 1000000 / elapsed)
-                    .toStringAsFixed(1),
-              )
-        : null;
     final cache = number(usage['input']) > 0
         ? '${(100 * number(usage['cached_input']) / number(usage['input'])).toStringAsFixed(0)}%'
         : null;
@@ -96,11 +87,16 @@ class ConversationStatistics extends StatelessWidget {
       (
         'conversationStatsGenerationGroup',
         [
-          if (speed != null) ...[
-            ('conversationStatsSpeed', speed),
+          if (throughput != null) ...[
+            (
+              'conversationStatsSpeed',
+              context
+                  .tr('conversationStatsSpeedValue')
+                  .replaceAll('{value}', throughput.rate),
+            ),
             (
               'conversationStatsTimingCoverage',
-              '${number(generation['responses'])} / $responses',
+              '${throughput.responses} / $responses',
             ),
           ],
         ],

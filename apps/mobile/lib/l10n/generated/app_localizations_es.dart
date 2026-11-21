@@ -321,7 +321,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationStatsCostCoverage => 'Cobertura de costos';
 
   @override
-  String get conversationStatsSpeed => 'Velocidad de generación';
+  String get conversationStatsSpeed => 'Tasa de salida de extremo a extremo';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1954,7 +1954,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get usageHitRate => 'Tasa de aciertos de caché';
 
   @override
-  String get usageSpeed => 'Velocidad media';
+  String get usageSpeed => 'Tasa con espera';
 
   @override
   String get usageSpeedUnit => 'tok/s';

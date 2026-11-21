@@ -20,10 +20,11 @@ const (
 	agentUsagePair   = agentUsageInput + `>=0 AND ` + agentUsageOutput + `>=0`
 )
 
-// Media and search record their calls explicitly, even without a token pair.
-// Other requests can contain an empty usage value on an unmetered attempt.
+// A partial token count identifies an ordinary request only with a measured
+// duration. Media and search explicitly record individual calls.
 const agentReportableUsage = agentUsageObject + ` AND ((` + agentUsagePair + `)
- OR ((json_extract(e.body,'$.metadata.execution.media') IS NOT NULL OR json_extract(e.body,'$.metadata.execution.purpose')='search')
+ OR ((json_extract(e.body,'$.metadata.execution.media') IS NOT NULL OR json_extract(e.body,'$.metadata.execution.purpose')='search'
+ OR (json_extract(e.body,'$.metadata.execution.timing.elapsed_us')>0 AND coalesce(` + agentUsageInput + `,` + agentUsageOutput + `) IS NOT NULL))
  AND coalesce(` + agentUsageInput + `,0)>=0 AND coalesce(` + agentUsageOutput + `,0)>=0))`
 
 const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,

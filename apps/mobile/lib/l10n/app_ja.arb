@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "キャッシュヒット",
   "conversationStatsCost": "推定費用",
   "conversationStatsCostCoverage": "コストキャピタル",
-  "conversationStatsSpeed": "発生速度",
+  "conversationStatsSpeed": "待ち時間込みの出力速度",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1 年",
   "usageReasoning": "推論",
   "usageHitRate": "キャッシュヒット率",
-  "usageSpeed": "平均速度",
+  "usageSpeed": "待ち時間込みの速度",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "一部",
   "usageTrend": "Token 推移",

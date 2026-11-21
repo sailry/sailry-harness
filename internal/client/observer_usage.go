@@ -404,20 +404,8 @@ func addUsageMetrics(target *protocol.UsageMetrics, value protocol.UsageMetrics)
 			return err
 		}
 	}
-	if value.Generation != nil {
-		if target.Generation == nil {
-			target.Generation = &protocol.UsageGeneration{}
-		}
-		for _, field := range []struct {
-			target *uint64
-			value  uint64
-		}{
-			{&target.Generation.ElapsedUs, value.Generation.ElapsedUs}, {&target.Generation.OutputTokens, value.Generation.OutputTokens}, {&target.Generation.Responses, value.Generation.Responses},
-		} {
-			if err := addUsageCounter(field.target, field.value); err != nil {
-				return err
-			}
-		}
+	if !protocol.AddUsageGeneration(&target.Generation, value.Generation) || !protocol.AddUsageGeneration(&target.Throughput, value.Throughput) {
+		return fault(protocol.ErrorCodeInvalidRequest, "usage overview exceeds the counter limit")
 	}
 	if value.Cost != nil {
 		if target.Cost == nil {

@@ -165,14 +165,15 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if stored.Output != nil && elapsedKnown && firstKnown {
 			generation = tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
 		}
-		if e = addUsageMetrics(&report.Totals, complete, cost, generation); e != nil {
+		throughput := usageThroughput(stored.Output, row.elapsed, row.first, row.media)
+		if e = addUsageMetrics(&report.Totals, complete, cost, generation, throughput); e != nil {
 			return report, e
 		}
-		if e = addUsageMetrics(&group.Metrics, complete, cost, generation); e != nil {
+		if e = addUsageMetrics(&group.Metrics, complete, cost, generation, throughput); e != nil {
 			return report, e
 		}
 		day := int((usageFloor(ms, 86400000, offset) - report.Days[0].StartMs) / 86400000)
-		if e = addUsageMetrics(&report.Days[day].Metrics, complete, cost, generation); e != nil {
+		if e = addUsageMetrics(&report.Days[day].Metrics, complete, cost, generation, throughput); e != nil {
 			return report, e
 		}
 		if complete != nil {
@@ -180,7 +181,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		}
 		if ms >= recentStart {
 			bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
-			if e = addUsageMetrics(&report.Recent[bucket].Metrics, complete, cost, generation); e != nil {
+			if e = addUsageMetrics(&report.Recent[bucket].Metrics, complete, cost, generation, throughput); e != nil {
 				return report, e
 			}
 			if complete != nil {
@@ -440,7 +441,18 @@ func agentUsageTokens(usage canonical.Usage) protocol.ConversationUsage {
 	return protocol.ConversationUsage{Input: optionalUint(usage.Input), Output: optionalUint(usage.Output), CachedInput: optionalUint(usage.CacheRead), Reasoning: optionalUint(usage.Reasoning)}
 }
 
-func addUsageMetrics(target *protocol.UsageMetrics, tokens *protocol.ConversationUsage, cost *protocol.UsageCost, generation *protocol.UsageGeneration) error {
+func usageThroughput(output *uint64, elapsed, first sql.NullInt64, media sql.NullString) *protocol.UsageGeneration {
+	if output == nil || !elapsed.Valid || elapsed.Int64 <= 0 || first.Valid && first.Int64 > elapsed.Int64 {
+		return nil
+	}
+	// Vision inspection returns model text. Other media helpers return generated assets.
+	if media.Valid && media.String != string(protocol.MediaKindVision) {
+		return nil
+	}
+	return &protocol.UsageGeneration{ElapsedUs: uint64(elapsed.Int64), OutputTokens: *output, Responses: 1}
+}
+
+func addUsageMetrics(target *protocol.UsageMetrics, tokens *protocol.ConversationUsage, cost *protocol.UsageCost, generation, throughput *protocol.UsageGeneration) error {
 	target.Responses++
 	if tokens == nil {
 		target.IncompleteTokenResponses++
@@ -453,16 +465,8 @@ func addUsageMetrics(target *protocol.UsageMetrics, tokens *protocol.Conversatio
 		target.Tokens.CachedInput += tokens.CachedInput
 		target.Tokens.Reasoning += tokens.Reasoning
 	}
-	if generation != nil {
-		if target.Generation == nil {
-			target.Generation = &protocol.UsageGeneration{}
-		}
-		if math.MaxUint64-target.Generation.ElapsedUs < generation.ElapsedUs {
-			return invalid("usage duration exceeds the counter limit")
-		}
-		target.Generation.ElapsedUs += generation.ElapsedUs
-		target.Generation.OutputTokens += generation.OutputTokens
-		target.Generation.Responses++
+	if !protocol.AddUsageGeneration(&target.Generation, generation) || !protocol.AddUsageGeneration(&target.Throughput, throughput) {
+		return invalid("usage rate exceeds the counter limit")
 	}
 	if cost != nil {
 		if target.Cost == nil {

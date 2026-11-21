@@ -124,7 +124,7 @@
   "conversationStatsCacheRate": "캐시 히트",
   "conversationStatsCost": "예상 비용",
   "conversationStatsCostCoverage": "비용 범위",
-  "conversationStatsSpeed": "생성 속도",
+  "conversationStatsSpeed": "첫 토큰 대기를 포함한 출력 속도",
   "conversationStatsSpeedValue": "{value} tok/s",
   "@conversationStatsSpeedValue": {
     "placeholders": {
@@ -744,7 +744,7 @@
   "usageRange1y": "1년",
   "usageReasoning": "추론",
   "usageHitRate": "캐시 적중률",
-  "usageSpeed": "평균 속도",
+  "usageSpeed": "대기 포함 출력 속도",
   "usageSpeedUnit": "tok/s",
   "usageCostPartial": "일부",
   "usageTrend": "Token 추이",

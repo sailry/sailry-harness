@@ -182,7 +182,8 @@ func (usage *agentStatisticsUsage) extend(ctx context.Context, db *sql.Conn, ran
 		if row.usage.Output != nil {
 			generation = tokens.DecodeGeneration(usageTime(row.elapsed), usageTime(row.first), row.reasoningStreamed)
 		}
-		if err = addUsageMetrics(&usage.metrics, complete, cost, generation); err != nil {
+		throughput := usageThroughput(row.usage.Output, row.elapsed, row.first, row.media)
+		if err = addUsageMetrics(&usage.metrics, complete, cost, generation, throughput); err != nil {
 			return err
 		}
 	}
@@ -197,6 +198,10 @@ func cloneAgentStatisticsUsage(result protocol.UsageMetrics) protocol.UsageMetri
 	if result.Generation != nil {
 		generation := *result.Generation
 		result.Generation = &generation
+	}
+	if result.Throughput != nil {
+		throughput := *result.Throughput
+		result.Throughput = &throughput
 	}
 	if result.Cost != nil {
 		cost := *result.Cost

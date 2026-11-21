@@ -308,7 +308,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationStatsCostCoverage => '费用覆盖';
 
   @override
-  String get conversationStatsSpeed => '生成速度';
+  String get conversationStatsSpeed => '全程输出速率';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1911,7 +1911,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get usageHitRate => '缓存命中率';
 
   @override
-  String get usageSpeed => '平均速度';
+  String get usageSpeed => '全程输出速率';
 
   @override
   String get usageSpeedUnit => 'tok/s';
@@ -2598,7 +2598,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationStatsCostCoverage => '費用覆蓋';
 
   @override
-  String get conversationStatsSpeed => '生成速度';
+  String get conversationStatsSpeed => '全程輸出速率';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -4201,7 +4201,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get usageHitRate => '快取命中率';
 
   @override
-  String get usageSpeed => '平均速度';
+  String get usageSpeed => '全程輸出速率';
 
   @override
   String get usageSpeedUnit => 'tok/s';

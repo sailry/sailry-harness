@@ -4,6 +4,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"math"
 )
 
 type UsageQuery struct {
@@ -207,6 +208,8 @@ type UsageMetrics struct {
 	Tokens     *ConversationUsage `json:"tokens"`
 	Cost       *UsageCost         `json:"cost"`
 	Generation *UsageGeneration   `json:"generation"`
+	// Throughput pairs upstream output with full request durations, including first-token waits.
+	Throughput *UsageGeneration `json:"throughput,omitempty"`
 
 	// IncompleteTokenResponses counts responses left out of the Tokens subtotal.
 	IncompleteTokenResponses uint64 `json:"incomplete_token_responses,omitempty"`
@@ -297,6 +300,26 @@ type UsageGeneration struct {
 	ElapsedUs    uint64 `json:"elapsed_us"`
 	OutputTokens uint64 `json:"output_tokens"`
 	Responses    uint64 `json:"responses"`
+}
+
+// AddUsageGeneration merges matched samples and reports whether their counters fit.
+func AddUsageGeneration(total **UsageGeneration, value *UsageGeneration) bool {
+	if value == nil {
+		return true
+	}
+	if *total == nil {
+		copy := *value
+		*total = &copy
+		return true
+	}
+	v := *total
+	if value.ElapsedUs > math.MaxUint64-v.ElapsedUs || value.OutputTokens > math.MaxUint64-v.OutputTokens || value.Responses > math.MaxUint64-v.Responses {
+		return false
+	}
+	v.ElapsedUs += value.ElapsedUs
+	v.OutputTokens += value.OutputTokens
+	v.Responses += value.Responses
+	return true
 }
 
 // DecodeGeneration pairs measured output counts with time after first output.

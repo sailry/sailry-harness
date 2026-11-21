@@ -4,6 +4,8 @@
 // summary,breakdown}.js) so both controllers show the same figures.
 import 'dart:convert';
 import 'dart:math' as math;
+
+import '../usage_throughput.dart';
 import 'live.dart';
 
 const _minute = 60000;
@@ -91,14 +93,6 @@ String? amount(int? micros) => micros == null
     ? null
     : '${micros ~/ 1000000}.${(micros % 1000000 ~/ 10000).toString().padLeft(2, '0')}';
 
-/// Average output tokens per second over timed responses.
-String? tokenSpeed(Map<String, dynamic>? generation) {
-  final elapsed = integer(generation?['elapsed_us']);
-  if (elapsed <= 0) return null;
-  return (integer(generation?['output_tokens']) * 1000000 / elapsed)
-      .toStringAsFixed(1);
-}
-
 /// Disjoint token parts: cached input capped at input, uncached input and output.
 class TokenStack {
   const TokenStack(this.cache, this.input, this.output);
@@ -137,9 +131,7 @@ class UsageOverview {
           ? null
           : ratio(tokens.cache, tokens.cache + tokens.input),
       responses: responses,
-      speed: tokenSpeed(
-        totals['generation'] is Map ? object(totals['generation']) : null,
-      ),
+      speed: readThroughput(totals['throughput'])?.rate,
       cost: cost == null ? null : amount(integer(cost['usd_micros'])),
       priced: priced,
       partial: cost != null && priced < responses,

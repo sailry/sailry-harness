@@ -318,7 +318,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationStatsCostCoverage => 'Покрытие расходов';
 
   @override
-  String get conversationStatsSpeed => 'Скорость генерации';
+  String get conversationStatsSpeed => 'Скорость вывода с учётом ожидания';
 
   @override
   String conversationStatsSpeedValue(String value) {
@@ -1947,7 +1947,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get usageHitRate => 'Доля попаданий в кэш';
 
   @override
-  String get usageSpeed => 'Средняя скорость';
+  String get usageSpeed => 'Скорость с ожиданием';
 
   @override
   String get usageSpeedUnit => 'tok/s';

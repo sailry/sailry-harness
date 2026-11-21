@@ -237,7 +237,7 @@ func ReadAgentStatisticsReusing(ctx context.Context, db *sql.Conn, session proto
 	metrics := next.usage[0].metrics
 	result.Responses, result.Usage = metrics.Responses, metrics.Tokens
 	result.IncompleteTokenResponses = metrics.IncompleteTokenResponses
-	result.Cost, result.Generation = metrics.Cost, metrics.Generation
+	result.Cost, result.Generation, result.Throughput = metrics.Cost, metrics.Generation, metrics.Throughput
 	result.Delegated = next.usage[1].metrics
 
 	rebuildCalls := newObservation || next.untrackedCalls || (changes.captures || changes.rounds) && result.Observations.Calls != 0
