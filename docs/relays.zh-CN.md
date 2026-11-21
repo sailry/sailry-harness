@@ -28,13 +28,14 @@ sailry link --data-dir <profile> --relay <preset-id|direct|custom> [--address <�
 
 ### 获取程序
 
-官方中继安装包还没有发布到 GitHub Release，请从本仓库构建：
+每个[版本发布](https://github.com/sailry/sailry-harness/releases/latest)都附带 `sailry-relay-linux-amd64.tar.gz` 和 `sailry-relay-linux-arm64.tar.gz`，以及对应的 `SHA256SUMS-relay-linux-<架构>` 校验文件。按服务器架构下载并解压：
 
 ```sh
-just relay-build linux amd64   # 或 arm64
+curl -fLO https://github.com/sailry/sailry-harness/releases/latest/download/sailry-relay-linux-amd64.tar.gz
+tar -xzf sailry-relay-linux-amd64.tar.gz
 ```
 
-产物在 `.runtime/relay-build/linux-amd64/sailry-libp2p-relay`。要构建发布用的压缩包，运行 `bash cmd/sailry-libp2p-relay/package-linux.sh amd64`，会在 `.runtime/relay/linux-amd64/` 下生成 `sailry-relay-linux-amd64.tar.gz` 和 `SHA256SUMS-relay-linux-amd64`，压缩包内含 `sailry-relay` 及许可证。
+压缩包内含 `sailry-relay` 及许可证。也可以从本仓库自行构建：运行 `bash cmd/sailry-libp2p-relay/package-linux.sh amd64`，会在 `.runtime/relay/linux-amd64/` 下生成同样的压缩包。
 
 ### 配置
 
@@ -90,7 +91,7 @@ sudo ./sailry-relay daemon install --config ./relay.toml
 
 ### 更新
 
-中继安装包发布后，`sudo sailry-relay daemon update` 会校验 SHA-256 后安装更新的稳定版。离线时用 `sudo sailry-relay daemon update <程序> --sha256 <摘要>`，摘要是解压后可执行文件的，不是压缩包的。更新只替换程序，然后重启中继并确认 PeerID 不变；失败时恢复原来的程序。`relay.toml` 和身份文件不会被改动。
+`sudo sailry-relay daemon update` 会校验 SHA-256 后安装更新的稳定版。离线时用 `sudo sailry-relay daemon update <程序> --sha256 <摘要>`，摘要是解压后可执行文件的，不是压缩包的。更新只替换程序，然后重启中继并确认 PeerID 不变；失败时恢复原来的程序。`relay.toml` 和身份文件不会被改动。
 
 ## 排查问题
 

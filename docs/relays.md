@@ -43,18 +43,18 @@ the relay does not open ports itself.
 
 ### Get the program
 
-Official relay packages are not published in a GitHub Release yet. Build one from
-a checkout of this repository:
+Each [release](https://github.com/sailry/sailry-harness/releases/latest) includes
+`sailry-relay-linux-amd64.tar.gz` and `sailry-relay-linux-arm64.tar.gz`, each with a
+`SHA256SUMS-relay-linux-<arch>` file. Download the one for your server and extract it:
 
 ```sh
-just relay-build linux amd64   # or arm64
+curl -fLO https://github.com/sailry/sailry-harness/releases/latest/download/sailry-relay-linux-amd64.tar.gz
+tar -xzf sailry-relay-linux-amd64.tar.gz
 ```
 
-This writes `.runtime/relay-build/linux-amd64/sailry-libp2p-relay`. To build the
-release archive instead, run `bash cmd/sailry-libp2p-relay/package-linux.sh amd64`;
-it writes `sailry-relay-linux-amd64.tar.gz` and its `SHA256SUMS-relay-linux-amd64`
-under `.runtime/relay/linux-amd64/`. The archive contains `sailry-relay` and its
-licenses.
+The archive contains `sailry-relay` and its licenses. To build from a checkout of
+this repository instead, run `bash cmd/sailry-libp2p-relay/package-linux.sh amd64`;
+it writes the same archive under `.runtime/relay/linux-amd64/`.
 
 ### Configure
 
@@ -128,7 +128,7 @@ let the panel handle restarts and startup. Do not also install the systemd servi
 
 ### Update
 
-Once relay packages are published, `sudo sailry-relay daemon update` installs a
+`sudo sailry-relay daemon update` installs a
 newer stable release after checking its SHA-256. Offline, use
 `sudo sailry-relay daemon update <binary> --sha256 <digest>` with the digest of
 the extracted executable. An update replaces only the program, restarts the
