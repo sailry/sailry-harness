@@ -90,12 +90,14 @@ func (r *Runtime) finishConversationFrame() {
 			delete(r.conversationCache, id)
 		}
 	}
-	for id, pending := range r.composerOutgoing {
-		if pending.turn == (protocol.TurnID{}) {
-			continue
-		}
-		if session, err := protocol.ParseSessionID(id); err == nil && !r.conversationSeen[session] {
-			r.discardOutgoing(id)
+	for _, outgoing := range []map[string]*conversationOutgoing{r.composerOutgoing, r.composerTrayOutgoing} {
+		for id, pending := range outgoing {
+			if pending.turn == (protocol.TurnID{}) {
+				continue
+			}
+			if session, err := protocol.ParseSessionID(id); err == nil && !r.conversationSeen[session] {
+				r.discardCapturedOutgoing(id, pending)
+			}
 		}
 	}
 	for cv, presentation := range r.conversationPresentations {

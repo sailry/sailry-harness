@@ -434,7 +434,7 @@ func composerParityCommands(t *testing.T) {
 	if !tester.HasText("Outgoing message") {
 		t.Errorf("no outgoing row: %q", tester.Texts())
 	}
-	delete(r.composerOutgoing, cv.ID)
+	delete(r.composerTrayOutgoing, cv.ID)
 
 	// A stale command or skill is one the conversation offers no more.
 	offered := &composer.Context{Commands: []composer.Reference{{Source: "plugin-contribution", ID: "kept", Kind: composer.Prompt}},

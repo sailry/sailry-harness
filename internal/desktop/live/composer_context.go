@@ -142,7 +142,7 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 	x.settleGuidance()
 	x.reportHalt()
 	x.reportUsage()
-	if pending := r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
+	if pending := r.composerTrayOutgoing[x.cv.ID]; pending != nil {
 		outgoing := pending.Queued
 		if outgoing.Text == "" {
 			outgoing.Text = i18n.T(x.c, "chat_attachment_count", "count", len(outgoing.Attachments))
@@ -153,13 +153,12 @@ func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Con
 
 // outgoing shows m in the queue tray until the prepared view can take over.
 func (x *conversationActions) outgoing(m composer.Message, guide bool) *conversationOutgoing {
-	if x.r.composerOutgoing == nil {
-		x.r.composerOutgoing = map[string]*conversationOutgoing{}
+	if x.r.composerTrayOutgoing == nil {
+		x.r.composerTrayOutgoing = map[string]*conversationOutgoing{}
 	}
-	x.r.discardOutgoing(x.cv.ID)
 	// A message of files alone is named by their count, in the frame.
 	pending := &conversationOutgoing{Queued: composer.Queued{Text: strings.TrimSpace(m.Text), Guided: guide, Attachments: m.Attachments}}
-	x.r.composerOutgoing[x.cv.ID] = pending
+	x.r.composerTrayOutgoing[x.cv.ID] = pending
 	return pending
 }
 

@@ -15,18 +15,17 @@ import (
 // input belongs to the composer, not to this local turn.
 type conversationOutgoing struct {
 	composer.Queued
-	input      conversation.Turn
-	request    protocol.RequestID
-	turn       protocol.TurnID
-	transcript bool
-	restore    func(*ui.Context, error) bool
+	input   conversation.Turn
+	request protocol.RequestID
+	turn    protocol.TurnID
+	restore func(*ui.Context, error) bool
 }
 
 func (x *conversationActions) stageOutgoing(message composer.Message) *conversationOutgoing {
 	if x.r.composerOutgoing == nil {
 		x.r.composerOutgoing = map[string]*conversationOutgoing{}
 	}
-	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && pending.transcript {
+	if x.r.composerOutgoing[x.cv.ID] != nil {
 		return nil
 	}
 	input := conversation.Turn{ID: "outgoing/" + x.cv.ID, User: message.Text, Sent: time.Now(), InputOnly: true}
@@ -38,12 +37,22 @@ func (x *conversationActions) stageOutgoing(message composer.Message) *conversat
 				width, height := ui.ImageSize(image.Source)
 				image.Width, image.Height = int(width), int(height)
 			}
+			if attachment.ImageRevision != "" {
+				// This session's thumbnail cache owns the draft's bitmap and
+				// releases it once no tile shows it. Resolve it by the same key,
+				// which the user entry uses too, instead of holding its pixels.
+				image.Source, image.OriginalRevision = nil, attachment.ImageRevision
+			} else if x.r.attachments != nil {
+				if record := x.r.attachments.items[attachment]; record != nil && record.ready != nil {
+					image.OriginalRevision = record.ready.Spec.Revision
+				}
+			}
 			input.Images = append(input.Images, image)
 		} else {
 			input.Files = append(input.Files, file)
 		}
 	}
-	pending := &conversationOutgoing{input: input, transcript: true, restore: func(c *ui.Context, err error) bool {
+	pending := &conversationOutgoing{input: input, restore: func(c *ui.Context, err error) bool {
 		if x.restore == nil || x.restoreDraft == composerFingerprint(x.comp) {
 			return false
 		}
@@ -60,17 +69,17 @@ func (x *conversationActions) stageOutgoing(message composer.Message) *conversat
 func (x *conversationActions) submitTurn(command protocol.Command, pending *conversationOutgoing, done func(protocol.Output, error)) {
 	id := x.cv.ID
 	request := x.turn(command, func(output protocol.Output, err error) {
-		if pending != nil && x.r.composerOutgoing[id] == pending {
+		if pending != nil && (x.r.composerOutgoing[id] == pending || x.r.composerTrayOutgoing[id] == pending) {
 			ack, valid := detail[protocol.QueuedTurn](output.Data)
 			switch {
 			case err != nil:
-				x.r.discardOutgoing(id)
+				x.r.discardCapturedOutgoing(id, pending)
 			case pending.turn != (protocol.TurnID{}):
 				// The publication already identified this request.
 			case output.Kind == "queued_turn" && valid && ack.ID != (protocol.TurnID{}) && ack.Session.String() == id && ack.Request == pending.request:
 				pending.turn = ack.ID
 			default:
-				x.r.discardOutgoing(id)
+				x.r.discardCapturedOutgoing(id, pending)
 			}
 		}
 		done(output, err)
@@ -92,7 +101,7 @@ func (x *conversationActions) submitTurn(command protocol.Command, pending *conv
 // discardUnsubmitted removes input whose prerequisite failed before a turn
 // request was sent; its captured draft remains in the composer.
 func (r *Runtime) discardUnsubmitted(id string) {
-	if pending := r.composerOutgoing[id]; pending != nil && pending.transcript && pending.request == (protocol.RequestID{}) {
+	if pending := r.composerOutgoing[id]; pending != nil && pending.request == (protocol.RequestID{}) {
 		r.discardOutgoing(id)
 	}
 }
@@ -101,7 +110,7 @@ func (r *Runtime) discardUnsubmitted(id string) {
 // but keep its input available even if the composer now has another draft.
 func (r *Runtime) failUnsubmitted(c *ui.Context, id string, err error) bool {
 	pending := r.composerOutgoing[id]
-	if pending == nil || !pending.transcript || pending.request != (protocol.RequestID{}) {
+	if pending == nil || pending.request != (protocol.RequestID{}) {
 		return false
 	}
 	r.discardOutgoing(id)
@@ -110,18 +119,21 @@ func (r *Runtime) failUnsubmitted(c *ui.Context, id string, err error) bool {
 
 func (r *Runtime) discardOutgoing(id string) {
 	if pending := r.composerOutgoing[id]; pending != nil {
-		if pending.transcript {
-			if cv := r.App.Data.Find(id); cv != nil {
-				cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
-			}
+		if cv := r.App.Data.Find(id); cv != nil {
+			cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
 		}
 		delete(r.composerOutgoing, id)
 	}
 }
 
 func (r *Runtime) discardCapturedOutgoing(id string, pending *conversationOutgoing) {
-	if pending != nil && r.composerOutgoing[id] == pending {
+	if pending == nil {
+		return
+	}
+	if r.composerOutgoing[id] == pending {
 		r.discardOutgoing(id)
+	} else if r.composerTrayOutgoing[id] == pending {
+		delete(r.composerTrayOutgoing, id)
 	}
 }
 
@@ -174,24 +186,27 @@ func outgoingInputShown(cv *viewmodel.Conversation, turn string) bool {
 
 func outgoingRemoved(page protocol.ConversationPage, turn protocol.TurnID) bool {
 	return slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
-		return run.Turn == turn && run.Status == protocol.ConversationStatusCancelled
+		// A rejection before claim retains the input in the queue. Removing
+		// that item drops its input while leaving the failed run in history.
+		return run.Turn == turn && (run.Status == protocol.ConversationStatusCancelled ||
+			run.Status == protocol.ConversationStatusFailed && run.StartedMs == nil)
 	}) && !slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn == turn })
 }
 
 // projectOutgoing reconciles against the rows of the page actually presented.
 // It returns the overlay only if it modified the prepared rows.
 func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.ConversationPage) *conversationOutgoing {
+	if pending := r.composerTrayOutgoing[cv.ID]; pending != nil {
+		if turn := r.outgoingTurn(pending, cv.ID, page); turn != (protocol.TurnID{}) &&
+			(outgoingQueueShown(cv, turn.String()) || outgoingInputShown(cv, turn.String()) || outgoingRemoved(page, turn)) {
+			delete(r.composerTrayOutgoing, cv.ID)
+		}
+	}
 	pending := r.composerOutgoing[cv.ID]
 	if pending == nil {
 		return nil
 	}
 	turn := r.outgoingTurn(pending, cv.ID, page)
-	if !pending.transcript {
-		if turn != (protocol.TurnID{}) && (outgoingQueueShown(cv, turn.String()) || outgoingInputShown(cv, turn.String()) || outgoingRemoved(page, turn)) {
-			delete(r.composerOutgoing, cv.ID)
-		}
-		return nil
-	}
 	cv.Turns = slices.DeleteFunc(cv.Turns, func(turn conversation.Turn) bool { return turn.ID == pending.input.ID })
 	var overlay *conversationOutgoing
 	if turn != (protocol.TurnID{}) {
@@ -201,6 +216,7 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 		}) || slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 			return run.Turn == turn && run.Input != nil
 		})) {
+			r.adoptOutgoingImageFacts(cv.ID, pending.input.Images)
 			delete(r.composerOutgoing, cv.ID)
 			return nil
 		}
@@ -249,4 +265,34 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 	cv.Turns = append(cv.Turns, pending.input)
 	cv.Session.Loading = false
 	return overlay
+}
+
+// adoptOutgoingImageFacts gives the user entry its sent preview's layout and
+// original revision so the tile neither collapses to a placeholder nor jumps.
+// Only facts move, and only to this session's registered attachment of that
+// revision. The preview's pixels stay with their owner; the entry's thumbnail
+// loads through the session's budgeted cache.
+func (r *Runtime) adoptOutgoingImageFacts(session string, images []conversation.Image) {
+	if r.attachments == nil {
+		return
+	}
+	cache := r.attachmentImages(session)
+	for _, image := range images {
+		if image.ID == "" || image.Width <= 0 || image.Height <= 0 || image.OriginalRevision == "" {
+			continue
+		}
+		key := attachmentKey(session, image.ID)
+		descriptor, ok := r.attachments.files[key]
+		if !ok || descriptor.attachment == nil || descriptor.attachment.Spec.Revision != image.OriginalRevision {
+			continue
+		}
+		if _, known := cache.facts[key]; known {
+			continue
+		}
+		if previous, tracked := cache.sources[key]; tracked && !previous.sameImageSource(descriptor) {
+			continue
+		}
+		cache.sources[key] = descriptor
+		cache.facts[key] = attachmentImageFacts{image.Width, image.Height, image.OriginalRevision}
+	}
 }

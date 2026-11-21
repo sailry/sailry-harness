@@ -357,7 +357,7 @@ func TestConversationPresentationEditAndOutgoing(t *testing.T) {
 		if cv.Turns[0].Editing != nil {
 			t.Fatal("cancelled edit remained on a retained completed turn")
 		}
-		r.composerOutgoing[cv.ID] = &conversationOutgoing{transcript: true, input: conversation.Turn{ID: "outgoing/fixture", User: "Pending input"}}
+		r.composerOutgoing[cv.ID] = &conversationOutgoing{input: conversation.Turn{ID: "outgoing/fixture", User: "Pending input"}}
 		for range 2 {
 			r.projectConversation(cv, id, state, time.Unix(21, 0), "en")
 			if len(cv.Turns) != 2 || cv.Turns[1].User != "Pending input" {
@@ -431,21 +431,21 @@ func TestComposerOutgoingACKWaitsForPreparedView(t *testing.T) {
 		send("First")
 		r.workers.Wait() // the first ACK is posted, but the UI has not taken it
 		send("Second")
-		pending := r.composerOutgoing[cv.ID]
+		pending := r.composerTrayOutgoing[cv.ID]
 		if pending == nil || pending.Text != "Second" || pending.request == (protocol.RequestID{}) {
 			t.Fatal("the newer send did not stage its captured request")
 		}
 		request := pending.request
 		send("Second")
 		x.turn(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: id, ExpectedRevision: 1}}, nil)
-		if r.composerOutgoing[cv.ID] != pending || pending.request != request {
+		if r.composerTrayOutgoing[cv.ID] != pending || pending.request != request {
 			t.Fatal("a duplicate or unrelated command changed the sending row")
 		}
 
 		r.workers.Wait()
 		for _, callback := range r.queue {
 			callback(nil)
-			if r.composerOutgoing[cv.ID] != pending {
+			if r.composerTrayOutgoing[cv.ID] != pending {
 				t.Fatal("an ACK removed the newer row before the prepared view")
 			}
 		}
@@ -454,7 +454,7 @@ func TestComposerOutgoingACKWaitsForPreparedView(t *testing.T) {
 			t.Fatalf("the sends did not settle independently: %v, turn %v, draft %q", acknowledged, pending.turn, x.comp.Draft)
 		}
 		cacheTestFrame(t, r, cv, id)
-		if len(cv.Turns) != 1 || &cv.Turns[0] != row || r.composerOutgoing[cv.ID] != pending || feed.request.Load() != 0 {
+		if len(cv.Turns) != 1 || &cv.Turns[0] != row || r.composerTrayOutgoing[cv.ID] != pending || feed.request.Load() != 0 {
 			t.Fatal("the sending row invalidated unchanged history or was lost after ACK")
 		}
 
@@ -464,12 +464,12 @@ func TestComposerOutgoingACKWaitsForPreparedView(t *testing.T) {
 		updated.Snapshot.Page.Queue.Items = []protocol.ConversationPending{{Turn: second, Kind: protocol.ConversationRunKindTask, Revision: 2, Preview: "Edited on the Node"}}
 		feed.latest.Store(r.prepareConversation(id, updated, "zh-CN"))
 		cacheTestFrame(t, r, cv, id)
-		if r.composerOutgoing[cv.ID] != pending || len(cv.Queue) != 0 || len(cv.Turns) != 1 || &cv.Turns[0] != row {
+		if r.composerTrayOutgoing[cv.ID] != pending || len(cv.Queue) != 0 || len(cv.Turns) != 1 || &cv.Turns[0] != row {
 			t.Fatal("a page not yet presented retired the sending row")
 		}
 		feed.latest.Store(r.prepareConversation(id, updated, "en"))
 		cacheTestFrame(t, r, cv, id)
-		if r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != second.String() || cv.Queue[0].Text != "Edited on the Node" {
+		if r.composerTrayOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != second.String() || cv.Queue[0].Text != "Edited on the Node" {
 			t.Fatalf("the prepared queue did not replace its sending row: %+v", cv.Queue)
 		}
 	})

@@ -171,8 +171,10 @@ func (s *State) files(c *ui.Context, key string, list []File, actions Actions) {
 
 // thumbnails are a message's pictures: Kit's Images, rounded, wrapping, a
 // Skeleton while one loads; one opens the image viewer on the gallery of
-// them all. A single picture keeps its proportions up to 240 DIPs; several
-// are equal squares, cropped to cover, so mixed sizes form an even grid.
+// them all. A single picture keeps its proportions up to 240 DIPs and is never
+// enlarged; several are equal squares, cropped to cover, so mixed sizes form an
+// even grid. The user's own picture of unknown size holds a still 48-DIP
+// placeholder until its size is known.
 func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	// A picture that cannot show is a line of text, not an empty frame.
 	resolve, session := s.resolveImage, s.renderSession
@@ -203,7 +205,7 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 			tile = 112
 		}
 		kit.ImageGroup(c, row, s.viewOf(session), shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
-			props := kit.ImageProps{Alt: im.Name}
+			props := kit.ImageProps{Alt: im.Name, QuietLoading: end}
 			if resolve != nil && im.Source == nil {
 				props.SourceInView = func() ui.ImageSource { return resolve(session, im).Source }
 				props.OpenWhileLoading = im.OriginalRevision != ""
@@ -213,8 +215,14 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 				return im.Source, props
 			}
 			w, h := float32(im.Width), float32(im.Height)
+			if (w <= 0 || h <= 0) && im.Source != nil {
+				w, h = ui.ImageSize(im.Source)
+			}
 			if w <= 0 || h <= 0 {
 				w, h = thumbMax, thumbMax
+				if end {
+					w, h = 48, 48
+				}
 			}
 			k := min(1, thumbMax/max(w, h))
 			props.Width, props.Height = w*k, h*k

@@ -28,7 +28,8 @@
 // Changes: a click calls OnOpen, and ImageGroup opens the caller's Viewer,
 // which the caller draws with ImageViewer once; Fill for a box the caller
 // sizes; Radius; the frame and the failed placeholder in the palette's muted
-// and border colors; a nil source loads as Kit's Skeleton;
+// and border colors; a nil source loads as Kit's Skeleton, still and muted
+// with QuietLoading;
 // internal/desktop/icons; Lobe's download hook is the viewer's Save.
 
 package kit
@@ -65,6 +66,8 @@ type ImageProps struct {
 	Radius  float32
 	// Loading shows a Skeleton in the box, as a nil source does.
 	Loading bool
+	// QuietLoading uses a stationary, muted placeholder for transient previews.
+	QuietLoading bool
 	// SourceInView resolves pixels for a sized tile only when it is in view.
 	SourceInView func() ui.ImageSource
 	// OpenWhileLoading keeps a known image actionable if its pixels are gone.
@@ -97,8 +100,13 @@ func Image(c *ui.Context, src ui.ImageSource, p ImageProps) ui.Element {
 	if radius == 0 {
 		radius = pal.RadiusLg
 	}
+	placeholder := SkeletonProps{Radius: radius, Secondary: p.QuietLoading}
+	if p.QuietLoading {
+		placeholder.Animation = SkeletonStatic
+	}
 	if p.SourceInView == nil && (p.Loading || src == nil) && !p.Failed {
-		s := Skeleton(c, SkeletonProps{Width: w, Height: h, Radius: radius})
+		placeholder.Width, placeholder.Height = w, h
+		s := Skeleton(c, placeholder)
 		if p.Fill {
 			s.Fill()
 		}
@@ -153,7 +161,7 @@ func Image(c *ui.Context, src ui.ImageSource, p ImageProps) ui.Element {
 	}
 	root.Children(func() {
 		if loading {
-			Skeleton(c, SkeletonProps{Radius: radius}).Fill()
+			Skeleton(c, placeholder).Fill()
 		} else if p.Failed {
 			imageFallback(c, pal, w, h, sized)
 		} else {

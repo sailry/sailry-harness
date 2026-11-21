@@ -85,6 +85,18 @@ func TestOutgoingMessageProjection(t *testing.T) {
 	if len(cv.Turns) != 2 || cv.Turns[1].ID != turn.String() || cv.Turns[1].User != message.Text || !cv.Turns[1].Reply.Status.Active() || len(cv.Turns[1].Files) != 1 {
 		t.Fatal("run arriving before its input did not adopt the captured message", cv.Turns)
 	}
+	t.Run("a second send keeps the first message with its reply", func(t *testing.T) {
+		const guidance = "A second message"
+		actions.outgoing(composer.Message{Text: guidance}, true).request = protocol.RequestID{8}
+		defer delete(r.composerTrayOutgoing, cv.ID)
+		project()
+		ctx := &composer.Context{Queue: cv.Queue}
+		r.projectComposerQueue(actions, ctx)
+		if len(cv.Turns) != 2 || !cv.Running() || cv.Turns[1].User != message.Text || len(cv.Turns[1].Files) != 1 ||
+			ctx.Outgoing == nil || ctx.Outgoing.Text != guidance {
+			t.Fatalf("guidance displaced the running turn's captured input: turns=%+v outgoing=%+v", cv.Turns, ctx.Outgoing)
+		}
+	})
 	page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Kind: "task", Preview: message.Text}}
 	project()
 	if len(cv.Turns) != 2 || cv.Turns[1].User != message.Text || r.composerOutgoing[cv.ID] == nil {
@@ -180,6 +192,30 @@ func TestOutgoingMessageProjection(t *testing.T) {
 			}
 		}
 		page.Queue.Paused = false
+	})
+	t.Run("removal before showing a failed queue item clears the local input", func(t *testing.T) {
+		pending := actions.stageOutgoing(message)
+		pending.request = request
+		r.snapshotCopy.Turns = []protocol.TurnSummary{{ID: turn, Session: session, Request: request}}
+		page.Entries = nil
+		page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Kind: "task", Status: protocol.ConversationStatusQueued}}
+		page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: message.Text}}
+		project()
+		// The run update can arrive ahead of the queue update that pauses for
+		// unrecorded input. Another controller removes the item before that
+		// paused queue reaches this transcript's prepared view.
+		page.Runs[0].Status = protocol.ConversationStatusFailed
+		page.Runs[0].FinishedMs = new(int64(20_000))
+		project()
+		if r.composerOutgoing[cv.ID] != pending || !outgoingInputShown(cv, turn.String()) {
+			t.Fatal("the failed run update dropped the input while its queue item was still present", cv.Turns)
+		}
+		page.Queue.Paused = true
+		page.Queue.Items = nil
+		project()
+		if r.composerOutgoing[cv.ID] != nil || outgoingInputShown(cv, turn.String()) {
+			t.Fatal("removing input that failed before claim retained its local projection", cv.Turns)
+		}
 	})
 }
 
@@ -369,7 +405,7 @@ func TestOutgoingLandedBeforeResponse(t *testing.T) {
 	r := &Runtime{controller: controller, snapshotRead: true, snapshotCopy: snapshot}
 	pending := &conversationOutgoing{Queued: composer.Queued{Text: "day?", Guided: true}}
 	cv := &viewmodel.Conversation{ID: session.String()}
-	r.composerOutgoing = map[string]*conversationOutgoing{cv.ID: pending}
+	r.composerTrayOutgoing = map[string]*conversationOutgoing{cv.ID: pending}
 	page := protocol.DefaultConversationPage()
 	page.Session = session
 	project := func() {
@@ -377,21 +413,21 @@ func TestOutgoingLandedBeforeResponse(t *testing.T) {
 		r.projectOutgoing(cv, page)
 	}
 	project()
-	if r.composerOutgoing[cv.ID] != pending {
+	if r.composerTrayOutgoing[cv.ID] != pending {
 		t.Fatal("an unsent message landed")
 	}
 	pending.request = request
 	project()
-	if r.composerOutgoing[cv.ID] != pending {
+	if r.composerTrayOutgoing[cv.ID] != pending {
 		t.Fatal("a message the Node has not shown landed")
 	}
 	page.Queue.Items = []protocol.ConversationPending{{Turn: turn, Request: &request, Kind: "task", Preview: "day?"}}
 	project()
-	if r.composerOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != turn.String() {
+	if r.composerTrayOutgoing[cv.ID] != nil || len(cv.Queue) != 1 || cv.Queue[0].ID != turn.String() {
 		t.Fatal("a queued row repeated the sending row")
 	}
 	pending.turn = protocol.TurnID{}
-	r.composerOutgoing[cv.ID] = pending
+	r.composerTrayOutgoing[cv.ID] = pending
 	page.Queue.Items = nil
 	r.snapshotCopy.Turns = []protocol.TurnSummary{{ID: turn, Session: session, Request: request}}
 	owner := protocol.TurnID{5}
@@ -400,19 +436,22 @@ func TestOutgoingLandedBeforeResponse(t *testing.T) {
 		{Session: session, Turn: turn, Sequence: 2, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusCompleted, Joined: &owner},
 	}
 	project()
-	if r.composerOutgoing[cv.ID] != pending {
+	if r.composerTrayOutgoing[cv.ID] != pending {
 		t.Fatal("a turn without its entry landed")
 	}
 	page.Entries = []protocol.ConversationEntry{{Turn: turn, ID: "guidance", Author: "user", Parts: []protocol.ConversationPart{{Kind: "text", Data: "day?"}}}}
 	project()
-	if r.composerOutgoing[cv.ID] != nil || len(cv.Turns) != 1 || cv.Turns[0].User != "day?" {
+	if r.composerTrayOutgoing[cv.ID] != nil || len(cv.Turns) != 1 || cv.Turns[0].User != "day?" {
 		t.Fatal("consumed guidance repeated the sending row")
 	}
-	r.composerOutgoing[cv.ID] = pending
 	page.Entries = nil
-	page.Runs[1].Status, page.Runs[1].Joined = protocol.ConversationStatusCancelled, nil
-	project()
-	if r.composerOutgoing[cv.ID] != nil {
-		t.Fatal("an explicitly removed turn left a sending row")
+	page.Runs[1].Joined = nil
+	for _, status := range []protocol.ConversationStatus{protocol.ConversationStatusCancelled, protocol.ConversationStatusFailed} {
+		r.composerTrayOutgoing[cv.ID] = pending
+		page.Runs[1].Status = status
+		project()
+		if r.composerTrayOutgoing[cv.ID] != nil {
+			t.Fatalf("an explicitly removed %s turn left a sending row", status)
+		}
 	}
 }

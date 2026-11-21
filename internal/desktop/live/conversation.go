@@ -235,8 +235,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort})
 	// A new turn needs a configured model and no creation under way; the
 	// running reply's guidance uses that turn's.
-	outgoing := r.composerOutgoing[cv.ID]
-	ctx.SendBlocked = ctx.SendBlocked || !comp.Running && (err != nil || r.conversationCreating[cv.ID] || outgoing != nil && outgoing.transcript)
+	ctx.SendBlocked = ctx.SendBlocked || !comp.Running && (err != nil || r.conversationCreating[cv.ID] || r.composerOutgoing[cv.ID] != nil)
 	ctx.SelectModel = func() {
 		r.openNodeSettings(settings.Providers)
 	}
