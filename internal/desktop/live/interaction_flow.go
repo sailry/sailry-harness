@@ -151,13 +151,13 @@ func (x *conversationActions) interactive() bool {
 
 // waitingApproval finds a pending approval of the conversation or of one of
 // its subagents, with the page that holds its call.
-func (r *Runtime) waitingApproval(conversation, id string) (protocol.ConversationApproval, protocol.ConversationPage, bool) {
+func (r *Runtime) waitingApproval(conversation, id string, read func(protocol.SessionID) (client.ConversationState, bool)) (protocol.ConversationApproval, protocol.ConversationPage, bool) {
 	parent, ok := r.session(conversation)
 	if !ok {
 		return protocol.ConversationApproval{}, protocol.ConversationPage{}, false
 	}
-	state, ok := r.controller.Conversation(parent.ID)
-	if !ok {
+	state, ok := read(parent.ID)
+	if !ok || state.Removed {
 		return protocol.ConversationApproval{}, protocol.ConversationPage{}, false
 	}
 	for _, approval := range state.Snapshot.Page.Approvals {
@@ -168,17 +168,16 @@ func (r *Runtime) waitingApproval(conversation, id string) (protocol.Conversatio
 	if delegated(parent) {
 		return protocol.ConversationApproval{}, protocol.ConversationPage{}, false
 	}
-	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		session, valid := client.ConversationChildSession(r.snapshot(), parent.ID, child)
-		if !valid {
+	for _, target := range r.liveChildren(state.Snapshot) {
+		if !target.Listed {
 			continue
 		}
-		details, ready := r.controller.Conversation(session.ID)
-		if !ready {
+		details, ready := read(target.Session.ID)
+		if !ready || details.Removed {
 			continue
 		}
 		for _, approval := range details.Snapshot.Page.Approvals {
-			if approval.ID.String() == id && childApproval(approval, session.ID) {
+			if approval.ID.String() == id && childApproval(approval, target.Session.ID) {
 				return approval, details.Snapshot.Page, true
 			}
 		}
@@ -241,7 +240,7 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 		if f.settled[view.ID] {
 			continue
 		}
-		if approval, page, ok := r.waitingApproval(cv.ID, view.ID); ok {
+		if approval, page, ok := r.waitingApproval(cv.ID, view.ID, r.conversationState); ok {
 			view = r.approvalDetails(f, view, approval, page, locale)
 			view.Disabled = !connected || f.approval != nil || !slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 				return run.Turn == approval.Turn && run.Status == "running"

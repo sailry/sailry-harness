@@ -1189,6 +1189,10 @@ provider_oauth_editor_version: Editor-Version
 provider_oauth_editor_plugin_version: Editor-Pluginversion
 provider_headers: Eigene Request-Header
 provider_headers_invalid: Jeder Header mit Wert braucht einen Namen
+provider_billing_rate: Billing rate
+provider_billing_rate_hint: Percentage of API pricing used for cost estimates
+provider_billing_rate_invalid: Billing rate must be a number of 0 or more with up to two decimals
+provider_billing_rate_unsupported: This host's version doesn't support billing rates. Other settings were saved
 provider_models: Modelle
 provider_discover: Modelle aktualisieren
 provider_querying: Abfrage läuft

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -142,6 +143,23 @@ type providerSaveTarget struct {
 
 type providerSaveBatch map[string]*providerSaveTarget
 
+// errProviderBillingRateDropped marks a save a Host applied without the
+// billing rate it was sent: a Node older than the field ignores it and saves
+// the rest, so the returned provider is the only evidence.
+var errProviderBillingRateDropped = errors.New("provider save returned another billing rate")
+
+// providerSaveKeptRate verifies an explicit rate. An omitted rate leaves the
+// Node's current value alone, including on another member of a channel group.
+func providerSaveKeptRate(sent, saved *uint32) bool {
+	return sent == nil || saved != nil && *sent == *saved
+}
+
+// providerRequestRate is the billing rate a retained save request sent.
+func providerRequestRate(request protocol.Request) (*uint32, bool) {
+	payload, ok := detail[protocol.CommandSaveProviderPayload](request.Command.Data)
+	return payload.Provider.BillingRateBps, ok
+}
+
 func providerSaveIntent(d settings.ProviderDraft) [sha256.Size]byte {
 	d.Channel.Group, d.Group = "", ""
 	d.Channel.Targets, d.Targets = nil, nil
@@ -173,6 +191,12 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 	intent := providerSaveIntent(d)
 	reported := false
 	report := func(c *ui.Context, err error, unknown string) {
+		if errors.Is(err, errProviderBillingRateDropped) {
+			reported = true
+			kit.Toast(c, kit.Failed, i18n.T(c, "provider_billing_rate_unsupported"))
+			kit.RecordFailure("desktop", "provider_billing_rate_unsupported", kit.Failed, err)
+			return
+		}
 		if err != nil {
 			reported = true
 			root.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
@@ -238,6 +262,16 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 					case client.RequestApplied:
 						saved, ok := detail[protocol.ConversationProvider](output.Data)
 						if ok && output.Kind == "provider" && saved.ID == target.id {
+							sent, decoded := providerRequestRate(request)
+							if decoded && !providerSaveKeptRate(sent, saved.BillingRateBps) {
+								// Applied at this revision, but not as asked: the next
+								// save expects the revision and sends the rate again.
+								target.request, target.saved, target.intent = nil, &saved, [sha256.Size]byte{}
+								owner.refreshProviderSnapshot()
+								report(c, errProviderBillingRateDropped, unknown)
+								done(settings.ProviderSaveResult{Failed: []string{node}, TargetRevisions: map[string]uint64{node: saved.Revision}})
+								return
+							}
 							target.request, target.saved, target.intent = nil, &saved, target.requestIntent
 							owner.refreshProviderSnapshot()
 							batch.save(root, d, finished)
@@ -472,7 +506,15 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 					owner.authorizations.savedProviders[id.String()] = saved
 					members[member.Node] = member
 					result.TargetRevisions[node] = saved.Revision
-					result.Succeeded = append(result.Succeeded, node)
+					if providerSaveKeptRate(copy.BillingRateBps, saved.BillingRateBps) {
+						result.Succeeded = append(result.Succeeded, node)
+					} else {
+						// The provider exists at the returned revision, so a retry
+						// expects it; without the intent the retry is sent again.
+						target.intent = [sha256.Size]byte{}
+						result.Failed = append(result.Failed, node)
+						err = errProviderBillingRateDropped
+					}
 					owner.refreshProviderSnapshot()
 				}
 				report(c, err, unknown)

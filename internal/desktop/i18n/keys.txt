@@ -1208,6 +1208,10 @@ provider_oauth_editor_version
 provider_oauth_editor_plugin_version
 provider_headers
 provider_headers_invalid
+provider_billing_rate
+provider_billing_rate_hint
+provider_billing_rate_invalid
+provider_billing_rate_unsupported
 provider_models
 provider_discover
 provider_querying

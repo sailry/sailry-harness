@@ -125,7 +125,10 @@ type Channel struct {
 	// APIVersion is the Azure OpenAI API version, "" for every other API.
 	APIVersion string
 	// Headers are the request headers an API-key channel adds to model calls.
-	Headers                   map[string]string
+	Headers map[string]string
+	// BillingRateBps is an API-key channel's billing rate in basis points of
+	// the API price, 10000 for 100%; nil bills at 100%.
+	BillingRateBps            *uint32
 	Auth                      Auth
 	Enabled, KeySet, SignedIn bool
 	AccountPending            bool // Saved OAuth credential whose metadata is being resolved.

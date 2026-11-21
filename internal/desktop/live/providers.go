@@ -603,6 +603,9 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 		}
 		ch.APIVersion = azureVersion(p)
 		ch.Headers = maps.Clone(p.Headers)
+		if p.Authentication == protocol.AuthenticationApiKey {
+			ch.BillingRateBps = cloneBillingRate(p.BillingRateBps)
+		}
 		for _, quota := range snapshot.ProviderQuotas {
 			if quota.Provider == p.ID && p.Credential != nil && quota.Credential == *p.Credential {
 				value := &viewmodel.Quota{FiveHour: -1, SevenDay: -1}
@@ -657,6 +660,14 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 		channels = append(channels, ch)
 	}
 	return channels
+}
+
+func cloneBillingRate(bps *uint32) *uint32 {
+	if bps == nil {
+		return nil
+	}
+	value := *bps
+	return &value
 }
 
 // azureVersion is the API version an Azure OpenAI provider was saved with.
@@ -803,6 +814,12 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	p.Headers = nil
 	if p.Authentication == protocol.AuthenticationApiKey {
 		p.Headers = maps.Clone(d.Channel.Headers)
+	}
+	// The Node keeps a billing rate on API-key providers alone; a draft that
+	// leaves it out bills at 100%.
+	p.BillingRateBps = nil
+	if p.Authentication == protocol.AuthenticationApiKey {
+		p.BillingRateBps = cloneBillingRate(d.Channel.BillingRateBps)
 	}
 	old := p.Models
 	p.Models = nil

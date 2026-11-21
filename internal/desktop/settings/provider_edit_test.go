@@ -306,14 +306,11 @@ func TestProviderMenuCanRemoveLegacyHostChannel(t *testing.T) {
 func TestProviderSaveCopiesStaticChannelsAndKeepsOAuthOnOwner(t *testing.T) {
 	newEditor := func(m *Model, auth preview.Auth) *providerEditor {
 		e := &m.provider
-		e.open = true
-		e.generation = 1
+		e.addOn(m, "node-a")
+		e.configure(preview.Method{ID: "fixture", Name: "Fixture", API: "responses", Auth: auth})
 		e.id = "fixture-provider"
-		e.owner = "node-a"
 		e.targets = []string{"node-a", "node-b"}
 		e.targetRevisions = map[string]uint64{"node-a": 2, "node-b": 3}
-		e.name = "Fixture"
-		e.method = preview.Method{ID: "fixture", API: "responses", Auth: auth}
 		e.models = []modelDraft{{id: "fixture-model", context: "4096", model: preview.ChannelModel{Output: 1024}}}
 		return e
 	}

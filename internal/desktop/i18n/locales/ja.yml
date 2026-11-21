@@ -1189,6 +1189,10 @@ provider_oauth_editor_version: エディタバージョン
 provider_oauth_editor_plugin_version: エディタプラグインバージョン
 provider_headers: カスタムリクエストヘッダー
 provider_headers_invalid: 値のあるヘッダーには名前が必要です
+provider_billing_rate: Billing rate
+provider_billing_rate_hint: Percentage of API pricing used for cost estimates
+provider_billing_rate_invalid: Billing rate must be a number of 0 or more with up to two decimals
+provider_billing_rate_unsupported: This host's version doesn't support billing rates. Other settings were saved
 provider_models: モデル
 provider_discover: 更新モデル
 provider_querying: クエリ実行中

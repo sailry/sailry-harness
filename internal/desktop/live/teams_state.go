@@ -24,6 +24,7 @@ type teamState struct {
 	settingsUnknown *protocol.TeamSettings
 	composers       map[string]*teamComposer
 	childParents    map[string]protocol.SessionID
+	childScopes     liveChildScopes
 	skills          map[protocol.PluginReference]protocol.PluginInfo
 	skillReads      map[protocol.PluginReference]bool
 	skillFailures   map[protocol.PluginReference]bool

@@ -825,6 +825,10 @@ provider_azure_ai_hint: https://resource.services.ai.azure.com/models
 provider_cloud_required: 请填写云渠道配置
 provider_headers: "自定义请求头"
 provider_headers_invalid: "有值的请求头需要填写名称"
+provider_billing_rate: 计费倍率
+provider_billing_rate_hint: "按 API 价格的百分比估算费用"
+provider_billing_rate_invalid: "计费倍率需为不小于 0 的数字，最多两位小数"
+provider_billing_rate_unsupported: "该主机版本不支持计费倍率，其他设置已保存"
 provider_metadata_fill: 补全信息
 provider_deployment_id: 部署名
 provider_xai: xAI

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -81,14 +80,14 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 	connected := r.controller.Connected()
 	if state, ready := r.conversationState(session.ID); ready {
 		page := &state.Snapshot.Page
-		for _, child := range client.LatestConversationChildren(page.Children) {
+		roles := r.snapshot().Roles
+		for _, target := range r.liveChildren(state.Snapshot) {
+			child := target.Child
 			if child.Run.Status != protocol.ConversationStatusRunning {
 				continue
 			}
-			if childSession, valid := client.ConversationChildSession(r.snapshot(), session.ID, child); valid {
-				view.Children = append(view.Children, composer.OverviewChild{ID: childSession.ID.String(),
-					Name: childTitle(page, child, c.Locale()), Status: "chat_running", Running: true, Avatar: childAvatar(r.snapshot().Roles, child)})
-			}
+			view.Children = append(view.Children, composer.OverviewChild{ID: target.Session.ID.String(),
+				Name: liveChildTitle(page, target, c.Locale()), Status: "chat_running", Running: true, Avatar: childAvatar(roles, child)})
 		}
 		if read.revision != page.Revision || read.inventory != state.InventoryVersion {
 			if read.revision != page.Revision {

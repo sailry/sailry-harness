@@ -943,9 +943,12 @@ func TestProviderEditor(t *testing.T) {
 	})
 	t.Run("removed model row", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
-		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true,
-			models: []modelDraft{{open: true}, {open: true}}}
-		undoAfterRemove(t, func(c *ui.Context) { providerEditorDialog(c, m) }, "provider_model_id", "settings_delete")
+		e := &m.provider
+		e.add(m)
+		e.configure(preview.Method{Name: "Provider", Auth: preview.AuthKey})
+		e.keySet = true
+		e.models = []modelDraft{{open: true}, {open: true}}
+		undoAfterRemove(t, func(c *ui.Context) { providerEditorDialog(c, m) }, "provider_model_id", "settings_delete", 1400)
 		if len(m.provider.models) != 1 || m.provider.models[0].id != "second" {
 			t.Errorf("undo in the row that moved up left models %+v", m.provider.models)
 		}
@@ -978,10 +981,14 @@ func TestProviderEditor(t *testing.T) {
 		m.Live = true
 		var saved []ProviderDraft
 		m.ProviderActions.Save = func(d ProviderDraft, _ func(ProviderSaveResult)) { saved = append(saved, d) }
-		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true, models: draftsOf([]preview.ChannelModel{
+		e := &m.provider
+		e.add(m)
+		e.configure(preview.Method{Name: "Provider", Auth: preview.AuthKey})
+		e.keySet = true
+		e.models = draftsOf([]preview.ChannelModel{
 			{ID: "hosted", Context: 128000, Tools: true, Outputs: []string{"text", "audio"}, Generates: []string{viewmodel.GenerateImageTool, viewmodel.GenerateSpeech}},
 			{ID: "plain", Context: 128000, Vision: true},
-		})}
+		})
 		for i := range m.provider.models {
 			m.provider.models[i].open = true
 		}
@@ -1175,8 +1182,10 @@ func TestProviderEditor(t *testing.T) {
 		}
 	})
 	t.Run("context_limits", func(t *testing.T) {
+		editor := providerEditor{keySet: true}
+		editor.configure(preview.Method{Name: "Provider", Auth: preview.AuthKey})
 		for _, value := range []string{"", "0", "-1", "4295095296", "not a limit"} {
-			editor := providerEditor{name: "Provider", keySet: true, models: []modelDraft{{id: "model", context: value}}}
+			editor.models = []modelDraft{{id: "model", context: value}}
 			if got := editor.Check(); got != "provider_limits_invalid" {
 				t.Fatalf("context %q: %q", value, got)
 			}
@@ -1376,7 +1385,7 @@ func TestConnectors(t *testing.T) {
 	t.Run("removed argument row", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.mcp = mcpEditor{open: true, name: "files", command: "npx", args: []string{"", ""}}
-		undoAfterRemove(t, func(c *ui.Context) { mcpDialog(c, m) }, "mcp_argument", "mcp_remove_argument")
+		undoAfterRemove(t, func(c *ui.Context) { mcpDialog(c, m) }, "mcp_argument", "mcp_remove_argument", 900)
 		if !slices.Equal(m.mcp.args, []string{"second"}) {
 			t.Errorf("undo in the row that moved up left arguments %q", m.mcp.args)
 		}
@@ -1384,7 +1393,7 @@ func TestConnectors(t *testing.T) {
 	t.Run("removed variable row", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.mcp = mcpEditor{open: true, name: "files", command: "npx", slots: []preview.EnvVar{{}, {}}}
-		undoAfterRemove(t, func(c *ui.Context) { mcpDialog(c, m) }, "mcp_slot_value", "mcp_remove_slot")
+		undoAfterRemove(t, func(c *ui.Context) { mcpDialog(c, m) }, "mcp_slot_value", "mcp_remove_slot", 900)
 		if len(m.mcp.slots) != 1 || m.mcp.slots[0].Value != "second" {
 			t.Errorf("undo in the row that moved up left variables %+v", m.mcp.slots)
 		}
@@ -1915,9 +1924,9 @@ func TestConnectors(t *testing.T) {
 // list, removes the first and undoes in the row that moved up, which must
 // keep its own text: the caller checks the list holds "second" alone. field
 // and remove are the i18n keys of a row's input and remove button.
-func undoAfterRemove(t *testing.T, draw func(*ui.Context), field, remove string) {
+func undoAfterRemove(t *testing.T, draw func(*ui.Context), field, remove string, height int) {
 	t.Helper()
-	tt := ui.NewTesterWith(draw, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt := ui.NewTesterWith(draw, 900, height, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	tt.Advance(time.Second)

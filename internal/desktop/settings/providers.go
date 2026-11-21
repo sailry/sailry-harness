@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // The Providers page (settings/providers): the model catalog with the
@@ -536,12 +538,16 @@ type providerEditor struct {
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
 	headers             []header  // an API-key channel's request headers, a row each
 	headersRemoved      int       // header rows taken out, part of a row's identity
-	advanced            bool
-	models              []modelDraft
-	removed             int // models taken out, part of a model row's identity (mcpEditor.removed)
-	def                 int
-	probing             bool
-	saving              bool // probing is the save's, not a discovery's
+	// billingRate is an API-key channel's billing rate as the percent typed;
+	// billingRateBase is the saved rate, nil for a channel without one.
+	billingRate     string
+	billingRateBase *uint32
+	advanced        bool
+	models          []modelDraft
+	removed         int // models taken out, part of a model row's identity (mcpEditor.removed)
+	def             int
+	probing         bool
+	saving          bool // probing is the save's, not a discovery's
 	// returnTo reopens the welcome guide from the first step's Back, when
 	// the guide opened the editor; nil otherwise.
 	returnTo func()
@@ -608,6 +614,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
 	e.headers = headerRows(ch.Headers)
+	e.billingRate, e.billingRateBase = formatBillingRate(ch.BillingRateBps), cloneBillingRate(ch.BillingRateBps)
 	if m.Live && !ch.ConfigurationReadOnly && (ch.Auth == preview.AuthKey || ch.Auth == viewmodel.AuthOptionalKey && ch.KeySet) && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
@@ -773,6 +780,10 @@ func (e *providerEditor) configure(x preview.Method) {
 	e.models, e.def = nil, 0
 	e.oauth = x.OAuth
 	e.apiVersion = ""
+	// A rate typed for another method stays, as the headers do.
+	if e.billingRate == "" {
+		e.billingRate = formatBillingRate(nil)
+	}
 	if e.azure() {
 		e.apiVersion = azureDefaultVersion
 	}
@@ -920,6 +931,82 @@ func (e *providerEditor) keyUpdate() string {
 
 func (e *providerEditor) login() bool { return e.method.Login != "" }
 
+// billsByRate reports a channel that saves its own billing rate: one the
+// Node keeps as API-key authentication, by a key, an optional key or a
+// package preset without one. Sign-ins and plugin connections have none.
+func (e *providerEditor) billsByRate() bool {
+	switch e.method.Auth {
+	case preview.AuthKey, viewmodel.AuthOptionalKey, preview.AuthNone, viewmodel.AuthUnresolved:
+		return !e.login()
+	}
+	return false
+}
+
+// billingRateValue is the rate a save sends: nil where the channel has none
+// or still bills at the 100% it never saved, else the typed rate.
+func (e *providerEditor) billingRateValue() *uint32 {
+	if !e.billsByRate() {
+		return nil
+	}
+	bps, _ := parseBillingRate(e.billingRate)
+	if e.billingRateBase == nil && bps == protocol.DefaultBillingRateBps {
+		return nil
+	}
+	return &bps
+}
+
+func cloneBillingRate(bps *uint32) *uint32 {
+	if bps == nil {
+		return nil
+	}
+	value := *bps
+	return &value
+}
+
+// formatBillingRate is a rate in basis points as the percent the form shows,
+// with the decimals it has: 10000 is "100", 1250 "12.5", nil "100".
+func formatBillingRate(bps *uint32) string {
+	value := protocol.DefaultBillingRateBps
+	if bps != nil {
+		value = *bps
+	}
+	text := strconv.FormatUint(uint64(value/100), 10)
+	if fraction := value % 100; fraction != 0 {
+		text += "." + strings.TrimRight(fmt.Sprintf("%02d", fraction), "0")
+	}
+	return text
+}
+
+// parseBillingRate reads a typed percent, a trailing % allowed, into basis
+// points. ok is false for a sign, more than two decimals or more than a
+// uint32 holds.
+func parseBillingRate(text string) (bps uint32, ok bool) {
+	text = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), "%"))
+	whole, fraction, _ := strings.Cut(text, ".")
+	digits := func(s string) bool {
+		return !strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' })
+	}
+	if whole+fraction == "" || len(fraction) > 2 || !digits(whole) || !digits(fraction) {
+		return 0, false
+	}
+	var value uint64
+	if whole != "" {
+		n, err := strconv.ParseUint(whole, 10, 64)
+		if err != nil || n > math.MaxUint32 {
+			return 0, false
+		}
+		value = n * 100
+	}
+	if fraction != "" {
+		n, _ := strconv.ParseUint(fraction+strings.Repeat("0", 2-len(fraction)), 10, 64)
+		value += n
+	}
+	if value > math.MaxUint32 {
+		return 0, false
+	}
+	return uint32(value), true
+}
+
 // Check validates the editor's configuration: the i18n key of the problem, or
 // "".
 func (e *providerEditor) Check() string {
@@ -938,6 +1025,11 @@ func (e *providerEditor) Check() string {
 	if !e.login() {
 		if _, ok := parseHeaders(e.headers); !ok {
 			return "provider_headers_invalid"
+		}
+	}
+	if e.billsByRate() {
+		if _, ok := parseBillingRate(e.billingRate); !ok {
+			return "provider_billing_rate_invalid"
 		}
 	}
 	if len(e.models) == 0 && !e.login() {
@@ -1037,12 +1129,13 @@ func (e *providerEditor) save(m *Model) string {
 		brand = e.brand.ID
 	}
 	route := e.current()
+	rate := e.billingRateValue()
 	if m.Live && m.ProviderActions.Save != nil {
 		if e.probing {
 			return ""
 		}
 		e.probing, e.saving = true, true
-		channel := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		channel := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def, BillingRateBps: rate}
 		if e.azure() {
 			channel.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
@@ -1115,12 +1208,13 @@ func (e *providerEditor) save(m *Model) string {
 		if !e.login() {
 			ch.Headers, _ = parseHeaders(e.headers)
 		}
+		ch.BillingRateBps = rate
 		ch.KeySet = ch.KeySet || e.key != ""
 		return ""
 	}
 	id := fmt.Sprintf("%s-%d", e.method.ID, len(m.Channels)+1)
 	m.Channels = append(m.Channels, preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
-		API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def})
+		API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def, BillingRateBps: rate})
 	if e.login() {
 		node := e.owner
 		if len(targets) > 0 {
@@ -1412,6 +1506,10 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			})
 			b.Children(func() { ui.Text(c, t("provider_get_key")).FontSize(12).TextColor(p.Link) })
 		}
+		if e.billsByRate() {
+			label := t("provider_billing_rate")
+			kit.Field(c, "billing-rate", label, t("provider_billing_rate_hint"), func() { billingRateInput(c, e, label) })
+		}
 		if e.method.OAuth != ([4]string{}) || !e.login() {
 			// A disclosure: the chevron turns down while the settings show.
 			label, chevron := t("provider_oauth_advanced"), icons.ChevronRight
@@ -1515,6 +1613,21 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				providerModel(c, m, e, i)
 			}
 		}, nil)
+	})
+}
+
+// billingRateInput is the rate's number input with % at its end, marked
+// invalid while the text is not a rate; the draft stays as typed. MyGo has
+// no trailing input slot, so the sign sits over the input's end padding as
+// SecretInput's reveal button does, passing pointer input to the field.
+func billingRateInput(c *ui.Context, e *providerEditor, label string) {
+	_, valid := parseBillingRate(e.billingRate)
+	ui.Box(c.Key("billing-rate")).FillWidth().Children(func() {
+		ui.TextInput(c.Key("input"), &e.billingRate).Label(label + " (%)").Placeholder(formatBillingRate(nil)).
+			Invalid(!valid).PaddingEnd(32).FillWidth().Disabled(e.probing)
+		ui.Row(c.Key("unit")).Absolute().Top(0).Bottom(0).End(12).AlignItems(ui.Center).IgnoreInput(true).Children(func() {
+			ui.Text(c, "%").FontSize(14).TextColor(theme.Of(c).MutedForeground)
+		})
 	})
 }
 

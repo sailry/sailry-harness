@@ -1189,6 +1189,10 @@ provider_oauth_editor_version: 编辑器版本
 provider_oauth_editor_plugin_version: 编辑器插件版本
 provider_headers: 自定义请求头
 provider_headers_invalid: 有值的请求头需要填写名称
+provider_billing_rate: 计费倍率
+provider_billing_rate_hint: 按 API 价格的百分比估算费用
+provider_billing_rate_invalid: 计费倍率需为不小于 0 的数字，最多两位小数
+provider_billing_rate_unsupported: 该主机版本不支持计费倍率，其他设置已保存
 provider_models: 模型
 provider_discover: 更新模型
 provider_querying: 查询中
