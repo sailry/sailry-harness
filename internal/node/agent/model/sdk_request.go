@@ -16,6 +16,7 @@ import (
 
 func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, error) {
 	body := map[string]any{"model": config.Model, "stream": true}
+	var generatedResponsesInput []any
 	switch config.Kind {
 	case "anthropic":
 		messages, system := []any{}, []any{}
@@ -172,7 +173,7 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 				}
 			}
 		}
-		body["input"], body["store"] = input, false
+		body["store"] = false
 		if call.MaxOutputTokens != nil {
 			body["max_output_tokens"] = *call.MaxOutputTokens
 		}
@@ -206,10 +207,12 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 			}
 			if text := wireString(body["instructions"]); text != "" && !configured && !patched && (options == nil || options.Instructions == nil) {
 				developer := map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": text}}}
-				body["input"] = slices.Insert(input, 0, any(developer))
+				input = slices.Insert(input, 0, any(developer))
 				delete(body, "instructions")
 			}
 		}
+		body["input"] = input
+		generatedResponsesInput = input
 		body["tools"] = genericTools(call, true)
 	case "google":
 		delete(body, "model")
@@ -430,6 +433,9 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 	}
 	for _, key := range config.Remove {
 		delete(body, key)
+	}
+	if len(generatedResponsesInput) > 0 && body["prompt"] == nil && responsesExplicitCache(body["prompt_cache_options"]) {
+		markResponsesCacheBreakpoints(generatedResponsesInput)
 	}
 	if config.Kind == "anthropic" && len(wireArray(body["tools"])) > 0 && body["tool_choice"] == nil {
 		body["tool_choice"] = map[string]any{"type": "auto"}
