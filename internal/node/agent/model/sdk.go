@@ -3,7 +3,6 @@ package model
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -337,8 +336,8 @@ func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
 
 func (emitter *sdkEmitter) fail(cause error) {
 	if emitter.ctx.Err() == nil && emitter.facts.status == 0 {
-		if certificate, ok := errors.AsType[*tls.CertificateVerificationError](cause); ok {
-			emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: InvalidRequest, Message: "model connection failed: " + transportCause(certificate)}})
+		if failure := certificateVerificationFailure(cause); failure != nil {
+			emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: failure})
 			return
 		}
 		// No HTTP response reached this transport, so a completion event was not yet expected.

@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,7 +241,10 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 
 func isTCPDialTimeout(err error) bool {
 	op, ok := errors.AsType[*net.OpError](err)
-	if !ok || op.Op != "dial" || (op.Net != "tcp" && op.Net != "tcp4" && op.Net != "tcp6") {
+	if ok && op != nil && op.Op == "proxyconnect" && op.Net == "tcp" {
+		op, ok = op.Err.(*net.OpError)
+	}
+	if !ok || op == nil || op.Op != "dial" || (op.Net != "tcp" && op.Net != "tcp4" && op.Net != "tcp6") {
 		return false
 	}
 	// DNS failures from DialContext do not have a resolved TCP address.
@@ -248,9 +252,16 @@ func isTCPDialTimeout(err error) bool {
 	return ok && address != nil && op.Timeout()
 }
 
+func certificateVerificationFailure(err error, secrets ...protocol.Secret) *Failure {
+	if certificate, ok := errors.AsType[*tls.CertificateVerificationError](err); ok && certificate != nil {
+		return &Failure{Kind: InvalidRequest, Message: "model connection failed: " + transportCause(certificate, secrets...)}
+	}
+	return nil
+}
+
 // transportCause is a transport error's own text, without the request URL a
 // url.Error repeats, on one line of at most 200 characters.
-func transportCause(err error) string {
+func transportCause(err error, secrets ...protocol.Secret) string {
 	if err == nil {
 		return ""
 	}
@@ -258,7 +269,7 @@ func transportCause(err error) string {
 	if errors.As(err, &request) {
 		err = request.Err
 	}
-	text := strings.Join(strings.Fields(err.Error()), " ")
+	text := strings.Join(strings.Fields(safeDiagnostic(err.Error(), secrets)), " ")
 	if runes := []rune(text); len(runes) > 200 {
 		text = string(runes[:200]) + "…"
 	}

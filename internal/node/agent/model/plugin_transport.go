@@ -147,6 +147,11 @@ func (model *pluginModel) send(ctx context.Context, prepared protocol.PluginMode
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if response == nil {
+			if failure := certificateVerificationFailure(err, model.capture.Secrets...); failure != nil {
+				return nil, failure
+			}
+		}
 		return nil, &Failure{Kind: Network, Message: "model connection failed", tcpDialTimeout: response == nil && isTCPDialTimeout(err)}
 	}
 	response.Body = &pluginResponseBody{ReadCloser: response.Body, timer: timer, cancel: cancel}

@@ -21,9 +21,12 @@ func fixtureTCPDialTimeout() *net.OpError {
 }
 
 func TestMainTCPDialTimeoutStopsAfterThreeAttempts(t *testing.T) {
-	for _, provider := range []string{"responses", "chat", "anthropic", "google", "plugin"} {
+	for _, provider := range []string{"responses", "chat", "anthropic", "google", "plugin", "plugin proxy"} {
 		t.Run(provider, func(t *testing.T) {
-			timeout := fixtureTCPDialTimeout()
+			var timeout error = fixtureTCPDialTimeout()
+			if provider == "plugin proxy" {
+				timeout = &net.OpError{Op: "proxyconnect", Net: "tcp", Err: timeout}
+			}
 			requests := 0
 			transport := pluginRoundTripper(func(request *http.Request) (*http.Response, error) {
 				requests++
@@ -36,7 +39,7 @@ func TestMainTCPDialTimeoutStopsAfterThreeAttempts(t *testing.T) {
 			var call fantasy.Call
 			var err error
 			diagnostic := timeout.Error()
-			if provider == "plugin" {
+			if provider == "plugin" || provider == "plugin proxy" {
 				plugin, binding, _ := pluginFixture(t, `export function prepare(input) { return {method:"POST",url:input.endpoint,body:"{}"}; }`, transport)
 				language = plugin
 				call, err = BuildCall(binding, Request{System: "fixture"})
@@ -105,6 +108,12 @@ func TestMainTCPDialTimeoutStreakResets(t *testing.T) {
 
 func TestTCPDialTimeoutScope(t *testing.T) {
 	dial := fixtureTCPDialTimeout()
+	proxy := func(cause error) error {
+		return &url.Error{Op: "Post", URL: "https://fixture.invalid", Err: &net.OpError{Op: "proxyconnect", Net: "tcp", Err: cause}}
+	}
+	dns := &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsTimeout: true}}
+	refused := &net.OpError{Op: "dial", Net: "tcp", Addr: dial.Addr, Err: syscall.ECONNREFUSED}
+	read := &net.OpError{Op: "read", Net: "tcp", Addr: dial.Addr, Err: dial.Err}
 	for _, test := range []struct {
 		name    string
 		purpose Purpose
@@ -112,10 +121,14 @@ func TestTCPDialTimeoutScope(t *testing.T) {
 		partial bool
 	}{
 		{name: "summary", purpose: SummaryPurpose, err: dial},
-		{name: "DNS", purpose: Main, err: &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsTimeout: true}}},
-		{name: "refused", purpose: Main, err: &net.OpError{Op: "dial", Net: "tcp", Addr: dial.Addr, Err: syscall.ECONNREFUSED}},
+		{name: "DNS", purpose: Main, err: dns},
+		{name: "refused", purpose: Main, err: refused},
 		{name: "TLS", purpose: Main, err: &url.Error{Op: "Post", URL: "https://fixture.invalid", Err: fmt.Errorf("TLS handshake: %w", context.DeadlineExceeded)}},
-		{name: "read", purpose: Main, err: &net.OpError{Op: "read", Net: "tcp", Addr: dial.Addr, Err: dial.Err}},
+		{name: "read", purpose: Main, err: read},
+		{name: "proxy DNS", purpose: Main, err: proxy(dns)},
+		{name: "proxy refused", purpose: Main, err: proxy(refused)},
+		{name: "proxy read", purpose: Main, err: proxy(read)},
+		{name: "proxy deadline without dial", purpose: Main, err: proxy(dial.Err)},
 		{name: "truncation", purpose: Main, err: io.ErrUnexpectedEOF, partial: true},
 		{name: "after response", purpose: Main, err: &fantasy.ProviderError{StatusCode: http.StatusOK, Cause: dial}},
 		{name: "after output", purpose: Main, err: dial, partial: true},
