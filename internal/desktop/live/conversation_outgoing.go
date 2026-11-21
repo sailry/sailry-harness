@@ -248,14 +248,15 @@ func (r *Runtime) projectOutgoing(cv *viewmodel.Conversation, page protocol.Conv
 			if turn.ID != turnID {
 				continue
 			}
-			if turn.User == "" {
-				turn.User = pending.input.User
-			}
+			// Until the claimed input arrives, the queue may only supply a
+			// clipped preview. Keep this sender's full text and image facts.
+			turn.User = pending.input.User
 			if turn.Sent.IsZero() {
 				turn.Sent = pending.input.Sent
 			}
-			if len(turn.Images) == 0 && len(turn.Files) == 0 {
-				turn.Images, turn.Files = slices.Clone(pending.input.Images), slices.Clone(pending.input.Files)
+			if len(pending.input.Images)+len(pending.input.Files) != 0 {
+				turn.Images = append(turn.Images[:0], pending.input.Images...)
+				turn.Files = append(turn.Files[:0], pending.input.Files...)
 			}
 			return pending
 		}

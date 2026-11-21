@@ -148,16 +148,26 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		slices.SortStableFunc(runs, compareRuns)
 	}
 	owners := turnOwners(runs)
-	pending := map[protocol.TurnID]bool{}
-	for _, p := range page.Queue.Items {
-		pending[p.Turn] = true
+	inputs := client.TranscriptInputs(page)
+	waiting := make(map[protocol.TurnID]*protocol.ConversationPending, len(page.Queue.Items))
+	for i := range page.Queue.Items {
+		item := &page.Queue.Items[i]
+		waiting[item.Turn] = item
 	}
 	var turns []conversation.Turn
 	var clocks transcriptClocks
 	positions := map[protocol.TurnID]int{}
 	for _, r := range runs {
-		if owners[r.Turn] != r.Turn || r.Status == "queued" && pending[r.Turn] {
+		if owners[r.Turn] != r.Turn {
 			continue
+		}
+		message := r.Kind == protocol.ConversationRunKindTask && !r.Notice && r.Continuation == nil
+		if r.Status == protocol.ConversationStatusQueued {
+			// The run precedes its queue publication. A guidance preview is
+			// already filled then, but TranscriptInputs excludes it until joined.
+			if waiting[r.Turn] != nil || message && len(inputs[r.Turn]) == 0 {
+				continue
+			}
 		}
 		if r.Status == "continued" && r.Continuation != nil && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == r.Turn && e.Author != "user" }) {
 			continue
@@ -185,8 +195,6 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		// prompt, which is input for the model.
 		if r.Continuation != nil {
 			t.Marker = continuationMarker(r.Continuation)
-		} else if !r.Notice && r.Input != nil {
-			t.User = r.Input.Message.Text
 		}
 		if r.Kind == "compaction" {
 			t.Compaction = &conversation.Compaction{State: conversation.Compacted}
@@ -212,6 +220,14 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		}
 		positions[r.Turn] = len(turns)
 		turns = append(turns, t)
+		if r.Status == protocol.ConversationStatusRunning || r.Status == protocol.ConversationStatusStopping {
+			// The first running frame can precede its user entry. Carry the
+			// admitted preview across the handoff from the tray in that frame.
+			if item := waiting[r.Turn]; item != nil && message && len(inputs[r.Turn]) == 0 {
+				inputs[r.Turn] = []client.TranscriptInput{{Turn: r.Turn, Message: protocol.ConversationInput{Text: item.Preview}, Attachments: item.Attachments}}
+			}
+			delete(waiting, r.Turn)
+		}
 	}
 	texts := make([]transcriptText, len(turns))
 	associations := map[toolPendingKey][]toolAssociation{}
@@ -231,7 +247,6 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	}
 	// started is the background task each call started, by the call's row.
 	started := map[string]string{}
-	inputs := client.TranscriptInputs(page)
 	type inputPosition struct {
 		turn     protocol.TurnID
 		sequence uint64
@@ -250,6 +265,11 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			t.Segments = []conversation.Segment{{}}
 		}
 		for _, value := range values {
+			if value.Canonical {
+				// The entry can precede the Joined run. The recipient owns the
+				// input here on the first frame that can actually display it.
+				delete(waiting, value.Turn)
+			}
 			input := conversation.Input{ID: value.Turn.String(), User: value.Message.Text}
 			if value.TimestampMs != 0 {
 				input.Sent = time.UnixMilli(value.TimestampMs)
@@ -601,12 +621,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
-		// A turn that started is in the transcript, not waiting any more.
-		// Guidance a run consumed has its user entry before the queue update
-		// that removes it arrives; it shows once, in the transcript.
-		if slices.ContainsFunc(page.Runs, func(r protocol.ConversationRun) bool {
-			return r.Turn == item.Turn && (r.Status == "running" || r.Status == "stopping")
-		}) || slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == item.Turn && e.Author == "user" }) {
+		if waiting[item.Turn] == nil {
 			continue
 		}
 		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
