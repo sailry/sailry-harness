@@ -15,17 +15,17 @@ import (
 type delegatedChild struct {
 	// root is the main session that owns the child. A successor inherits its
 	// place through the chain of the child it follows.
-	root      protocol.SessionID
-	parent    protocol.TurnID
-	session   protocol.SessionID
-	turn      protocol.TurnID
-	sequence  uint64
-	ctx       context.Context
-	cancel    context.CancelFunc
-	started   bool
-	released  bool
-	delivered bool
-	overlap   bool
+	root       protocol.SessionID
+	parent     protocol.TurnID
+	session    protocol.SessionID
+	turn       protocol.TurnID
+	sequence   uint64
+	ctx        context.Context
+	cancel     context.CancelFunc
+	stopParent func() bool
+	started    bool
+	released   bool
+	overlap    bool
 	// detached children left a turn that made no further model call. Their
 	// results follow up like a background child's.
 	detached  bool
@@ -103,7 +103,7 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode child
 		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background, overlap: mode == childOverlap}
 		if !background {
 			// A foreground child ends with its turn unless the turn detached it.
-			context.AfterFunc(parent, func() {
+			child.stopParent = context.AfterFunc(parent, func() {
 				r.mu.Lock()
 				detached := child.detached
 				r.mu.Unlock()
@@ -353,9 +353,6 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 		}
 		pending := false
 		for _, child := range children {
-			if child.delivered {
-				continue
-			}
 			var state store.ChildState
 			unlock := r.LockPublication()
 			r.mu.Lock()
@@ -422,17 +419,14 @@ func (r *Runtime) settleForeground(x *execution) error {
 // of being cancelled with the turn.
 func (r *Runtime) detachForeground(x *execution) error {
 	r.mu.Lock()
-	var children []*delegatedChild
-	var turns []protocol.TurnID
-	for _, child := range x.foreground {
-		if !child.delivered {
-			children = append(children, child)
-			turns = append(turns, child.turn)
-		}
-	}
+	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
 	if len(children) == 0 {
 		return nil
+	}
+	turns := make([]protocol.TurnID, len(children))
+	for i, child := range children {
+		turns[i] = child.turn
 	}
 	unlock := r.LockPublication()
 	defer unlock()
@@ -451,6 +445,7 @@ func (r *Runtime) detachForeground(x *execution) error {
 	x.foreground = slices.DeleteFunc(x.foreground, func(child *delegatedChild) bool { return slices.Contains(children, child) })
 	for _, child := range children {
 		child.detached, child.released = true, true
+		child.unlinkParent()
 		for current := child.successor; current != nil; current = current.successor {
 			current.detached = true
 		}
@@ -487,14 +482,19 @@ func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *p
 func (r *Runtime) markCollectedChild(x *execution, session protocol.SessionID, turn *protocol.TurnID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, child := range x.foreground {
-		current := child
-		for current.successor != nil {
-			current = current.successor
+	x.foreground = slices.DeleteFunc(x.foreground, func(child *delegatedChild) bool {
+		if child.session != session || turn == nil || child.last().turn != *turn {
+			return false
 		}
-		if child.session == session && turn != nil && current.turn == *turn {
-			child.delivered = true
-		}
+		child.unlinkParent()
+		return true
+	})
+}
+
+func (c *delegatedChild) unlinkParent() {
+	if c.stopParent != nil {
+		c.stopParent()
+		c.stopParent = nil
 	}
 }
 
@@ -530,13 +530,9 @@ func (r *Runtime) cancelForeground(x *execution) bool {
 	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
 	var ids []string
-	var stopped []*delegatedChild
 	for _, child := range children {
-		if !child.delivered {
-			child.cancel()
-			ids = append(ids, child.session.String())
-			stopped = append(stopped, child)
-		}
+		child.cancel()
+		ids = append(ids, child.session.String())
 	}
 	if len(ids) > 0 {
 		value := &canonical.Note{Note: canonical.OperationNote{Kind: "subagents_cancelled", Data: &canonical.SubagentsCancelled{Sessions: ids}}}
@@ -545,7 +541,7 @@ func (r *Runtime) cancelForeground(x *execution) bool {
 		record.Metadata.Runtime = &canonical.Runtime{Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
 		_ = r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
 	}
-	settled := r.settleChildren(x, stopped)
+	settled := r.settleChildren(x, children)
 	r.Wake()
 	return settled
 }

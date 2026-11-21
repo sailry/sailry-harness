@@ -25,6 +25,7 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 	}
 	f.r.workers.Wait()
 	child := parent.foreground[0]
+	stopParent := child.stopParent
 	record := canonical.NewRecord(parent.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(0, spawn, result)), f.r.clock.Now())
 	record.Provenance.Author = "tool"
 	if err := f.r.save(parent.ctx, parent.inv.Session.ID, record); err != nil {
@@ -51,6 +52,12 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 	}
 	if err := f.r.runTools(parent, f.state(), []canonical.ToolRequest{wait}); err != nil {
 		t.Fatal(err)
+	}
+	if len(parent.foreground) != 0 {
+		t.Fatal("parent retained the collected foreground child")
+	}
+	if stopParent() {
+		t.Fatal("the collected child still had a parent cancellation callback")
 	}
 	if delivered, err := f.r.foregroundStep(parent, true); err != nil || delivered {
 		t.Fatalf("collected foreground result was delivered again: %t, %v", delivered, err)
