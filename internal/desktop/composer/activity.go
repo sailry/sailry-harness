@@ -193,7 +193,7 @@ func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.changes = !s.act.changes })
 	placeStart(kit.Popover(c, b, &s.act.changes, func() {
 		// The files' count leads; the totals end the line, over the rows'.
-		ui.Row(c.Key("totals")).Gap(8).Padding(0, 4, 4, 4).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key("totals")).Gap(8).Padding(6, 4, 8, 4).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(13).SingleLine().TextColor(p.MutedForeground)
 			ui.Spacer(c)
 			ui.Textf(c, "+%d", ch.Added).FontSize(13).FontWeight(600).SingleLine().TextColor(p.Success)
@@ -214,7 +214,7 @@ func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 				actions.OpenChange(f.Path)
 			})
 		}
-	}), b, 320, 8, 0)
+	}), b, 384, 8, 0)
 }
 
 // tone is a segment's color.
@@ -580,7 +580,7 @@ func (s *State) subagentRow(c *ui.Context, k conversation.Child, name string, li
 	row := kit.Ghost(c.Key(k.ID), name, false).Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
 		Children(func() {
 			kit.RoleIdenticon(c, k.ID, k.Avatar, live && !k.Unsynced && k.Status.Active(), 16)
-			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(theme.Of(c).MutedForeground)
 			if live && !k.Unsynced && s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
 				if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {
 					ui.Text(c, elapsed).FontSize(12).Shrink(0).TextColor(theme.Of(c).MutedForeground)

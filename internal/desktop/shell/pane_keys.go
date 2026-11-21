@@ -223,7 +223,7 @@ func (a *App) enlargedPane(c *ui.Context) {
 	h := w.handle(t)
 	col := ui.Column(c.Key("enlarged")).Absolute().Top(enlargedInset).Left(enlargedInset).Right(enlargedInset).Bottom(enlargedInset).
 		ZIndex(3).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Clip()
-	kit.FloatingWithTint(c, col, 0.96)
+	kit.Frost(c, col.Radius(p.RadiusLg).Border(1, p.SidebarBorder), p.Background, kit.SurfaceTint)
 	a.pane(c, col, h, true, func() {
 		if w.Group(t) >= 0 {
 			a.closePane(c, t)
