@@ -25,12 +25,17 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw}, model.Unavailable, diagnostic+" (HTTP 200)")
+	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw}, model.Unavailable, diagnostic+" (HTTP 200)", model.MainRetries)
 }
 
 func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
 	reset := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
-	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error())
+	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error(), model.MainRetries)
+}
+
+func TestHTTP524RecoveryDoesNotReplayTools(t *testing.T) {
+	const diagnostic = "origin timed out (HTTP 524)"
+	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 524, Message: diagnostic}, model.Unavailable, diagnostic, 1)
 }
 
 func TestAttemptPricesAreFrozenAndCountedOnce(t *testing.T) {
@@ -126,7 +131,7 @@ func TestAttemptPricesAreFrozenAndCountedOnce(t *testing.T) {
 	}
 }
 
-func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKind, diagnostic string) {
+func checkModelFailureRecovery(t *testing.T, failure *fantasy.ProviderError, kind model.FailureKind, diagnostic string, retryLimit int) {
 	t.Helper()
 	for _, recovers := range []bool{true, false} {
 		t.Run(fmt.Sprintf("recovers_%t", recovers), func(t *testing.T) {
@@ -136,7 +141,7 @@ func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKi
 				return ToolResult{Value: map[string]bool{"ok": true}}
 			})
 			m := &scriptedModel{scripts: []script{response(call("committed", "probe", `{}`), finish())}}
-			failures := model.MainRetries + 1
+			failures := retryLimit + 1
 			if recovers {
 				failures = 1
 			}
@@ -152,7 +157,7 @@ func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKi
 			f := newFixture(t, m, probe)
 			f.start()
 			turn := f.submit("Task")
-			waits, status := model.MainRetries, protocol.ConversationStatusFailed
+			waits, status := retryLimit, protocol.ConversationStatusFailed
 			if recovers {
 				waits, status = 1, protocol.ConversationStatusCompleted
 			}
@@ -190,7 +195,7 @@ func checkModelFailureRecovery(t *testing.T, failure error, kind model.FailureKi
 				}
 				if execution := record.Metadata.Execution; execution != nil && execution.Retry != nil {
 					retries++
-					if retry := execution.Retry; retry.Status == nil || *retry.Status != 200 || retry.Code == nil || *retry.Code != string(kind) || retry.Error == nil || *retry.Error != diagnostic {
+					if retry := execution.Retry; retry.Limit == nil || *retry.Limit != uint64(retryLimit) || retry.Status == nil || int(*retry.Status) != failure.StatusCode || retry.Code == nil || *retry.Code != string(kind) || retry.Error == nil || *retry.Error != diagnostic {
 						t.Fatalf("retry lost the provider error or actual HTTP status: %+v", retry)
 					}
 					if message.Usage != nil && !reflect.DeepEqual(*message.Usage, canonical.Usage{}) {

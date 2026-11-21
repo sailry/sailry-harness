@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -8,13 +9,21 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	"github.com/sailry/sailry-harness/internal/node/agent/clock"
 )
 
-const retryWaitBudget = 10 * time.Minute
+const (
+	retryWaitBudget            = 10 * time.Minute
+	mainTCPDialTimeoutAttempts = 3
+	statusOriginTimeout        = 524
+)
 
 type retryPolicy struct {
 	network, overloaded backoff.ExponentialBackOff
 	waited              time.Duration
+	dialTimeouts        uint64
+	originDeadline      time.Time
+	retryAt             time.Time
 }
 
 func newRetryPolicy() retryPolicy {
@@ -27,7 +36,47 @@ func newRetryPolicy() retryPolicy {
 	return policy
 }
 
-func (policy *retryPolicy) next(failure *Failure, now time.Time) (time.Duration, bool) {
+func (policy *retryPolicy) limit(purpose Purpose, attempt Attempt, streamed bool) uint64 {
+	if purpose == Main && attempt.Failure.tcpDialTimeout && !streamed && attempt.RequestSentUs == nil && attempt.Status == nil {
+		policy.dialTimeouts++
+		return min(MainRetries, attempt.Index+mainTCPDialTimeoutAttempts-policy.dialTimeouts)
+	}
+	policy.dialTimeouts = 0
+	if attempt.Status != nil && *attempt.Status == statusOriginTimeout {
+		if !policy.originDeadline.IsZero() {
+			return attempt.Index
+		}
+		policy.originDeadline = attempt.RequestStarted.Add(retryWaitBudget)
+		return min(MainRetries, attempt.Index+1)
+	}
+	return MainRetries
+}
+
+func (policy *retryPolicy) fits(ctx context.Context, attempt Attempt, now time.Time, delay time.Duration) bool {
+	deadline, bounded := ctx.Deadline()
+	if policy.originDeadline.IsZero() {
+		return !bounded || delay < deadline.Sub(now)
+	}
+	// An origin timeout has already consumed wall time. Later failures on the
+	// same request share the remaining window, even if the HTTP status changes.
+	remaining := policy.originDeadline.Sub(now)
+	if bounded {
+		remaining = min(remaining, deadline.Sub(now))
+	}
+	return delay < remaining && attempt.Finished.Sub(attempt.Started) < remaining-delay
+}
+
+// An admitted retry after a 524 has the remaining request window to start
+// producing output. A productive stream keeps its ordinary idle timeout.
+func (policy *retryPolicy) firstOutputTimer(start time.Time, cancel context.CancelFunc) *time.Timer {
+	if policy.originDeadline.IsZero() {
+		return nil
+	}
+	return time.AfterFunc(policy.originDeadline.Sub(start), cancel)
+}
+
+func (policy *retryPolicy) next(ctx context.Context, attempt Attempt, now time.Time) (time.Duration, bool) {
+	failure := attempt.Failure
 	schedule := &policy.network
 	if failure.Kind == RateLimited || failure.overloaded {
 		schedule = &policy.overloaded
@@ -36,8 +85,31 @@ func (policy *retryPolicy) next(failure *Failure, now time.Time) (time.Duration,
 	// local wait within its cap; a provider's minimum may still exceed it.
 	delay := min(schedule.NextBackOff(), schedule.MaxInterval)
 	delay = max(delay, retryHint(failure, now))
+	if !policy.originDeadline.IsZero() {
+		policy.retryAt = now.Add(delay)
+	}
 	// Never shorten the provider's minimum to fit the remaining budget.
-	return delay, delay <= retryWaitBudget-policy.waited
+	return delay, delay <= retryWaitBudget-policy.waited && policy.fits(ctx, attempt, now, delay)
+}
+
+func (policy *retryPolicy) wait(ctx context.Context, timer clock.Clock, attempt Attempt) (bool, error) {
+	delay := *attempt.RetryDelay
+	// Persisting the retry also lets time pass toward the gateway's minimum.
+	now := timer.Now()
+	if !policy.retryAt.IsZero() {
+		delay = max(0, policy.retryAt.Sub(now))
+	}
+	if !policy.fits(ctx, attempt, now, delay) {
+		return false, ctx.Err()
+	}
+	if err := timer.Sleep(ctx, delay); err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	policy.waited += delay
+	return policy.fits(ctx, attempt, timer.Now(), 0), nil
 }
 
 func retryHint(failure *Failure, now time.Time) time.Duration {

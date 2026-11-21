@@ -86,8 +86,6 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 // the request's cumulative wait budget, regardless of the transient cause.
 const MainRetries = 9
 
-const mainTCPDialTimeoutAttempts = 3
-
 // Run uses reset to discard provisional output before replaying an interrupted attempt.
 // Without it, main output that escaped to the consumer cannot be retried safely.
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool, reset func()) error {
@@ -98,7 +96,6 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	nextModel := languageModel
 	var releaseFallback func()
 	var secrets []protocol.Secret
-	var dialTimeouts uint64
 	if sdk != nil {
 		secrets = append(secrets, sdk.config.Protection...)
 		if sdk.config.Key != "" {
@@ -111,6 +108,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		}
 		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now(), RetryLimit: MainRetries}
 		owner, cancel := context.WithCancel(ctx)
+		firstOutputTimer := schedule.firstOutputTimer(attempt.Started, cancel)
 		owner, capture := captureAttempt(owner, call, timer, attempt.Started)
 		stream, err := nextModel.Stream(owner, call)
 		var pending []fantasy.StreamPart
@@ -124,7 +122,14 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				if metadata, ok := part.ProviderMetadata[responseMetadataKey].(*responseMetadata); ok {
 					attempt.Status = metadata.Status
 				}
-				if attempt.FirstToken == nil && firstTokenPart(part) {
+				firstOutput := attempt.FirstToken == nil && firstTokenPart(part)
+				if firstOutputTimer != nil && (firstOutput || part.Type == fantasy.StreamPartTypeFinish) {
+					if !firstOutputTimer.Stop() {
+						break
+					}
+					firstOutputTimer = nil
+				}
+				if firstOutput {
 					first := timer.Now()
 					attempt.FirstToken = &first
 				}
@@ -151,11 +156,12 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				}
 			}
 		}
+		waitExhausted := firstOutputTimer != nil && !firstOutputTimer.Stop() && !released
 		if err == nil && !finished {
 			err = io.ErrUnexpectedEOF
 		}
 		if ctx.Err() != nil {
-			err = ctx.Err()
+			err, waitExhausted = ctx.Err(), false
 		}
 		cancel()
 		if releaseFallback != nil {
@@ -164,22 +170,25 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		}
 		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
-		exhausted, waitExhausted := false, false
+		exhausted := false
 		if err != nil {
 			attempt.Failure = Classify(err, secrets...)
+			if waitExhausted {
+				if attempt.Failure.Kind == Cancelled || attempt.Failure.truncated {
+					attempt.Failure = &Failure{Kind: Network, Message: "Model retry timed out waiting for output after HTTP 524"}
+				}
+				waitExhausted = attempt.Failure.Retryable()
+			}
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
 			}
-			if !released && (!escaped || reset != nil) && attempt.Failure.Retryable() && ctx.Err() == nil {
-				if purpose == Main && attempt.Failure.tcpDialTimeout && !streamed && attempt.RequestSentUs == nil && attempt.Status == nil {
-					dialTimeouts++
-					attempt.RetryLimit = min(attempt.RetryLimit, index+(mainTCPDialTimeoutAttempts-dialTimeouts))
-				} else {
-					dialTimeouts = 0
-				}
+			committed := finished && !buffered && yield != nil
+			canReplay := !released && !committed && (!escaped || reset != nil)
+			if !waitExhausted && canReplay && attempt.Failure.Retryable() && ctx.Err() == nil {
+				attempt.RetryLimit = schedule.limit(purpose, attempt, streamed)
 				if index >= attempt.RetryLimit {
 					exhausted = true
-				} else if delay, allowed := schedule.next(attempt.Failure, timer.Now()); allowed {
+				} else if delay, allowed := schedule.next(ctx, attempt, timer.Now()); allowed {
 					attempt.RetryDelay = &delay
 				} else {
 					waitExhausted = true
@@ -209,20 +218,23 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 			return nil
 		}
-		if attempt.RetryDelay == nil {
-			if exhausted || waitExhausted {
-				// Observations retain the provider failure. Only the terminal
-				// result names the exhausted recovery for the turn's final fault.
-				failure := *attempt.Failure
-				failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
-				return &failure
+		if attempt.RetryDelay != nil {
+			ready, waitErr := schedule.wait(ctx, timer, attempt)
+			if waitErr != nil {
+				return Classify(waitErr)
 			}
+			waitExhausted = !ready
+		}
+		if exhausted || waitExhausted {
+			// Observations retain the provider failure. Only the terminal
+			// result names the exhausted recovery for the turn's final fault.
+			failure := *attempt.Failure
+			failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
+			return &failure
+		}
+		if attempt.RetryDelay == nil {
 			return attempt.Failure
 		}
-		if err := timer.Sleep(ctx, *attempt.RetryDelay); err != nil {
-			return Classify(err)
-		}
-		schedule.waited += *attempt.RetryDelay
 		if sdk != nil && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
 			// Spend one admitted retry on HTTP/1.1 without pinning an HTTP/2-only origin to it.
 			if fallback, release := sdk.http1Fallback(); fallback != nil {
