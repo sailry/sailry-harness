@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -594,7 +593,9 @@ func (r *Runtime) saveWithProvider(ctx context.Context, session protocol.Session
 		return err
 	}
 	r.publish()
+	turns := make([]protocol.TurnID, len(entries))
 	for i, entry := range entries {
+		turns[i] = entry.Turn
 		runtime := records[i].Metadata.Runtime
 		if records[i].Kind != "compaction" && runtime != nil && !runtime.UserVisible {
 			r.feed.Publish(session, protocol.ConversationChange{Kind: "hidden", Data: protocol.ConversationChangeHiddenPayload{Turn: entry.Turn, ID: entry.ID}})
@@ -604,12 +605,6 @@ func (r *Runtime) saveWithProvider(ctx context.Context, session protocol.Session
 	}
 	if queue != nil {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "queue", Data: *queue})
-	}
-	turns := make([]protocol.TurnID, 0, len(entries))
-	for _, entry := range entries {
-		if !slices.Contains(turns, entry.Turn) {
-			turns = append(turns, entry.Turn)
-		}
 	}
 	r.refreshStatisticsForTurnsCommitted(session, turns)
 	return nil

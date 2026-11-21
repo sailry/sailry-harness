@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -222,7 +223,7 @@ func TestConversationPublication(t *testing.T) {
 			}
 			if scenario == "bounded_admission" {
 				for range statisticsCapacity {
-					f.r.statistics[protocol.NewSessionID()] = false
+					f.r.statistics[protocol.NewSessionID()] = statisticsFlight{}
 				}
 				f.r.RefreshStatistics(f.session.ID)
 				if len(f.r.statistics) != statisticsCapacity || next().Change.Kind != "statistics_failed" {
@@ -240,7 +241,7 @@ func TestConversationPublication(t *testing.T) {
 				t.Fatal(err)
 			}
 			stale.weight = stale.history.Weight()
-			f.r.statistics[f.session.ID] = false
+			f.r.beginStatisticsRead(f.session.ID)
 			if scenario == "resubscribe_fences_unobserved_commit" {
 				_ = reservation.Close()
 				if f.r.feed.Observed(f.session.ID) {
@@ -315,6 +316,7 @@ func TestConversationStatisticsChildAppend(t *testing.T) {
 	})
 	parent := f.submit("Delegate work")
 	var child *store.AgentInvocation
+	var unrelated protocol.SessionID
 	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
 		now := f.r.clock.Now()
 		invocation, _, err := store.ClaimNext(f.ctx, db, now)
@@ -335,23 +337,45 @@ func TestConversationStatisticsChildAppend(t *testing.T) {
 			return err
 		}
 		child, _, err = store.ClaimChild(f.ctx, db, queued.Run.Turn, now)
-		if err == nil && child == nil {
+		if err != nil {
+			return err
+		}
+		if child == nil {
 			return errors.New("child was not claimed")
+		}
+		if _, _, err := store.FinishTurn(f.ctx, db, parent, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		request := protocol.NewRequest(f.node, protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &f.session.Config}})
+		output, _, err := store.ExecuteCommand(f.ctx, db, f.node, f.node, f.r.profile, request, store.PreparedPaths{})
+		if err == nil {
+			unrelated = output.Data.(protocol.Session).ID
 		}
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	unlock := f.r.LockPublication()
-	reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
-	defer reservation.Close()
-	f.r.RequestStatisticsCommitted(f.session.ID)
-	stream := reservation.Subscribe(protocol.DefaultConversationSnapshot())
-	unlock()
-	if _, err := stream.Next(f.ctx); err != nil {
-		t.Fatal(err)
+	fork := f.command("fork_conversation", &protocol.CommandForkConversationPayload{Session: f.session.ID, Through: parent, ExpectedRevision: f.session.Revision}).Data.(protocol.Session)
+	observe := func(session protocol.SessionID, requestStatistics bool) link.Subscription {
+		t.Helper()
+		unlock := f.r.LockPublication()
+		reservation := f.r.feed.Reserve(session, make(chan struct{}))
+		t.Cleanup(func() { _ = reservation.Close() })
+		if requestStatistics {
+			f.r.RequestStatisticsCommitted(session)
+		}
+		snapshot := protocol.DefaultConversationSnapshot()
+		snapshot.Page.Session = session
+		stream := reservation.Subscribe(snapshot)
+		unlock()
+		if _, err := stream.Next(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+		return stream
 	}
-	next := func(want uint64) {
+	parentStream, forkStream := observe(f.session.ID, true), observe(fork.ID, true)
+	observe(unrelated, false)
+	next := func(stream link.Subscription, want uint64) protocol.ConversationStatistics {
 		t.Helper()
 		update, err := stream.Next(f.ctx)
 		if err != nil {
@@ -363,19 +387,91 @@ func TestConversationStatisticsChildAppend(t *testing.T) {
 		}
 		result := frame.Change.Data.(*protocol.ConversationStatistics)
 		if result.Responses != 0 || result.Delegated.Responses != want || result.Observations.Children != 1 {
-			t.Fatalf("parent statistics = %+v, want %d delegated responses", result, want)
+			t.Fatalf("session %s statistics = %+v, want %d delegated responses", frame.Session, result, want)
+		}
+		return *result
+	}
+	old := next(parentStream, 0)
+	next(forkStream, 0)
+	// Leave a pre-commit parent read in flight until the dependency resolves.
+	f.r.beginStatisticsRead(f.session.ID)
+	parentBefore, unrelatedBefore := f.r.feed.Sequence(f.session.ID), f.r.feed.Sequence(unrelated)
+
+	// Hold every storage lease after the write so the dependency read cannot
+	// run, while the commit and its publication are free to finish.
+	type blockedStorage struct {
+		lease *store.Exclusive
+		err   error
+	}
+	blocked := make(chan blockedStorage)
+	f.r.publish = func() {
+		lease, err := f.db.Node.Exclusive(f.ctx)
+		select {
+		case blocked <- blockedStorage{lease, err}:
+		case <-f.ctx.Done():
+			if lease != nil {
+				_ = lease.Close()
+			}
 		}
 	}
-	next(0)
 	message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Child response"))
 	input, output := uint64(30), uint64(3)
 	message.Usage = &canonical.Usage{Input: &input, Output: &output}
 	record := canonical.NewRecord(child.Run.Turn, "message", &message, f.r.clock.Now())
 	record.Provenance.Author = "assistant"
-	if err := f.r.save(f.ctx, child.Session.ID, record); err != nil {
+	saved := make(chan error, 1)
+	go func() { saved <- f.r.save(f.ctx, child.Session.ID, record) }()
+	var lease *store.Exclusive
+	select {
+	case value := <-blocked:
+		if value.err != nil {
+			t.Fatal(value.err)
+		}
+		lease = value.lease
+		defer lease.Close()
+	case err := <-saved:
+		t.Fatalf("save missed its committed publication: %v", err)
+	case <-f.ctx.Done():
+		t.Fatal("save did not reach committed publication")
+	}
+	select {
+	case err := <-saved:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-f.ctx.Done():
+		t.Fatal("save waited for its blocked dependency lookup")
+	}
+	stale := statisticsCompleted{session: f.session.ID}
+	if f.r.finishStatistics(stale, old, nil) || f.r.feed.Sequence(f.session.ID) != parentBefore {
+		t.Fatal("a pre-commit dependent statistics snapshot published before dependency resolution")
+	}
+	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
-	next(1)
+	next(forkStream, 1)
+	if f.r.finishStatistics(stale, old, nil) || f.r.feed.Sequence(f.session.ID) != parentBefore {
+		t.Fatal("dependency resolution did not dirty the parent's in-flight snapshot")
+	}
+	f.r.beginStatisticsRead(f.session.ID)
+	var current protocol.ConversationStatistics
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		current, err = store.ReadAgentStatistics(f.ctx, db, f.session.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !f.r.finishStatistics(statisticsCompleted{session: f.session.ID}, current, nil) {
+		t.Fatal("the refreshed parent statistics did not publish")
+	}
+	next(parentStream, 1)
+	f.r.statisticsMu.Lock()
+	_, pending := f.r.statistics[unrelated]
+	f.r.statisticsMu.Unlock()
+	if pending || f.r.feed.Sequence(unrelated) != unrelatedBefore {
+		t.Fatal("the dependency lookup refreshed an unrelated conversation")
+	}
 	if f.r.feed.Observed(child.Session.ID) {
 		t.Fatal("test unexpectedly opened a child subscription")
 	}
