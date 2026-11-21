@@ -124,7 +124,10 @@ func (node *Node) executeHost(ctx context.Context, caller protocol.NodeID, reque
 	configuration := request.Command.Kind == "save_ssh" || request.Command.Kind == "trust_ssh" || request.Command.Kind == "remove_ssh"
 	if !configuration {
 		operationErr = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			return node.authorizeCommandDB(ctx, db, caller, request)
+			if err := node.authorizeCommandDB(ctx, db, caller, request); err != nil {
+				return err
+			}
+			return node.validatePluginRequestDB(ctx, db, caller, request)
 		})
 		if operationErr == nil {
 			output, operationErr = node.runHost(ctx, caller, request)

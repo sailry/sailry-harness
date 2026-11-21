@@ -25,19 +25,9 @@ type connectionToolCall struct {
 	trust   *protocol.SshTrust
 }
 
-// connectionBound names the kind of connection resource a conversation is
-// bound to, or nothing for an unbound conversation.
-func connectionBound(inv *store.AgentInvocation) string {
-	if inv.Turn.Config.Resource == nil {
-		return ""
-	}
-	return inv.Turn.Config.Resource.Kind
-}
-
 // connectionTools binds the captured database and SSH operations of a turn.
-// The connections a turn may reach are captured once here: this Node's SSH
-// profiles for an SSH assistant, the bound database, or the connections shared
-// with a project conversation. The store repeats that decision for every call.
+// The connections a turn may reach are captured once here. The store repeats
+// the sharing decision for every call.
 func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocation, catalog *operations.Catalog) ([]engine.Tool, error) {
 	var declarations []operations.Declaration
 	for _, declaration := range catalog.Tools {

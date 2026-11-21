@@ -23,7 +23,7 @@ import (
 // sandbox is the effective command sandbox: the setting on a supported OS
 // outside Full permission. Commands reread the setting, so a change during the
 // turn appears in the next captured environment.
-func Environment(now time.Time, model, shell string, project, sandbox bool) string {
+func Environment(now time.Time, model, shell string, project, commands, sandbox bool) string {
 	osName := runtime.GOOS
 	if osName == "darwin" {
 		osName = "macos"
@@ -40,11 +40,19 @@ func Environment(now time.Time, model, shell string, project, sandbox bool) stri
 	encoded, _ := json.Marshal(model)
 	value := fmt.Sprintf("Session environment\nOS: %s\nArchitecture: %s\nDate: %s\nModel: %s", osName, arch, now.Format("2006-01-02 (UTC-07:00)"), encoded)
 	if project {
+		value += fmt.Sprintf("\nWorking directory: . (current project directory)\nCommand shell: %q", shell)
+	} else if commands {
+		value += "\nWorking directory: . (session workspace)"
+	}
+	if project || commands {
 		state := "disabled"
 		if sandbox {
 			state = "enabled"
 		}
-		value += fmt.Sprintf("\nWorking directory: . (current project directory)\nCommand shell: %q\nCommand sandbox: %s\nGit snapshot: unavailable", shell, state)
+		value += "\nCommand sandbox: " + state
+	}
+	if project {
+		value += "\nGit snapshot: unavailable"
 	}
 	return value
 }

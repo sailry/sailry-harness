@@ -150,7 +150,7 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	}
 	script := &workspaceScript{}
 	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationWriteFile && tool.Available(true) {
+		if tool.Operation == protocol.ToolOperationWriteFile && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
 			script.name = tool.Name
 			break
 		}

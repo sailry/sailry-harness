@@ -56,11 +56,7 @@ func CaptureCatalog(ctx context.Context, profile string, references []protocol.P
 			} else if tool.Description != nil {
 				spec.Description = *tool.Description
 			}
-			contexts := make([]string, len(tool.Contexts))
-			for index, context := range tool.Contexts {
-				contexts[index] = string(context)
-			}
-			result.Tools = append(result.Tools, Declaration{Spec: spec, Owner: reference, Name: Alias(reference.Name, tool.Name), Exposed: tool.Name, Initial: tool.Initial, Script: info.Extension.Host != nil && tool.Handler != nil, Contexts: contexts, Presentation: tool.Presentation, Grouping: tool.Grouping, Display: tool.Display})
+			result.Tools = append(result.Tools, Declaration{Spec: spec, Owner: reference, Name: Alias(reference.Name, tool.Name), Exposed: tool.Name, Initial: tool.Initial, Script: info.Extension.Host != nil && tool.Handler != nil, Contexts: tool.Contexts, Presentation: tool.Presentation, Grouping: tool.Grouping, Display: tool.Display})
 		}
 	}
 	return result, nil

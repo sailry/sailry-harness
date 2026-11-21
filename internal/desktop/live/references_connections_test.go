@@ -50,8 +50,8 @@ func testConnectionReferences(t *testing.T) {
 		if got := names(inProject); got != "billing cache ssh:build " {
 			t.Fatal("project scope", got)
 		}
-		if got := names(connectionScope{}); got != "" {
-			t.Fatal("a conversation without a project listed connections", got)
+		if got := names(connectionScope{}); got != "billing " {
+			t.Fatal("ordinary conversation sharing", got)
 		}
 		bound := connectionScope{project: &project, resource: &protocol.ConnectionResource{Kind: "database", Data: protocol.DatabaseID{4}}}
 		if got := names(bound); got != "private " {
@@ -60,6 +60,31 @@ func testConnectionReferences(t *testing.T) {
 		host := protocol.SshID{2}
 		if got := names(connectionScope{resource: &protocol.ConnectionResource{Kind: "ssh", Data: &host}}); got != "ssh:foreign " {
 			t.Fatal("bound SSH scope", got)
+		}
+	})
+	t.Run("ordinary draft submits global connection references", func(t *testing.T) {
+		ordinary := connectionScope{}
+		local := snapshot
+		local.Ssh = append([]protocol.SshProfile{{ID: protocol.SshID{3}, Name: "shared host", Sharing: global}}, snapshot.Ssh...)
+		pages := databasePageRows(referenceDatabases(local, ordinary))
+		hosts := sshReferenceRows(referenceSsh(local, ordinary))
+		if len(pages) != 1 || len(hosts) != 1 || hosts[0].Label != "shared host" {
+			t.Fatalf("ordinary picker: databases=%v ssh=%v", pages, hosts)
+		}
+		id, _, ok := parseDatabasePage(pages[0].ID)
+		if !ok || id != billing.ID {
+			t.Fatal("ordinary picker lost the global database")
+		}
+		current := databaseCatalogRows(billing, nil, protocol.DatabaseCatalog{})[0]
+		current.Label, current.Key = current.Insert, false
+		input := conversationInput(composer.Message{Text: "inspect", References: []composer.Reference{current, hosts[0]}})
+		if len(input.References) != 2 || input.References[0].Target.Kind != "database" || input.References[1].Target.Kind != "ssh" {
+			t.Fatalf("ordinary draft submission: %+v", input.References)
+		}
+		for _, ref := range input.References {
+			if _, _, ok := connectionReferenceDetails(local, ordinary, ref.Target); !ok {
+				t.Fatalf("ordinary sent reference unavailable: %+v", ref)
+			}
 		}
 	})
 	t.Run("rows insert protocol targets", func(t *testing.T) {

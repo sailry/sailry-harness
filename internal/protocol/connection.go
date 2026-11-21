@@ -2,6 +2,8 @@
 
 package protocol
 
+import "slices"
+
 type ConnectionResource struct {
 	Kind string
 	Data any
@@ -26,6 +28,27 @@ func (value *ConnectionResource) DecodeJSON(decoder *Decoder) error {
 type ConnectionSharing struct {
 	Kind string
 	Data any
+}
+
+// ConnectionSharingPermits checks the explicit sharing of an unbound connection.
+func ConnectionSharingPermits(project *ProjectID, sharing *ConnectionSharing) bool {
+	if sharing == nil {
+		return false
+	}
+	switch sharing.Kind {
+	case "global":
+		return true
+	case "projects":
+		if project != nil && *project != (ProjectID{}) {
+			switch projects := sharing.Data.(type) {
+			case []ProjectID:
+				return slices.Contains(projects, *project)
+			case *[]ProjectID:
+				return projects != nil && slices.Contains(*projects, *project)
+			}
+		}
+	}
+	return false
 }
 
 var connectionSharingVariants = variantFactories{"global": nil,

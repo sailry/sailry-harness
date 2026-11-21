@@ -989,7 +989,7 @@ func TestLocalModelOCR(t *testing.T) {
 	}
 	script := &officeScript{}
 	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationReadOffice && tool.Available(true) {
+		if tool.Operation == protocol.ToolOperationReadOffice && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
 			script.name = tool.Name
 			break
 		}

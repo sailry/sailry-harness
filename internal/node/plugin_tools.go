@@ -132,37 +132,15 @@ func selectedMCPTool(invocation *store.AgentInvocation, info protocol.PluginInfo
 	return declaration, true
 }
 
-// An assistant's bound resource adds specialized tools to the ordinary
-// conversation context; it does not replace local workspace capabilities.
 func availableOperationTool(invocation *store.AgentInvocation, declaration operations.Declaration) bool {
-	project := invocation.Worktree.Project != nil
-	return declaration.Available(project, connectionBound(invocation)) ||
-		invocation.Turn.Config.Assistant != nil && declaration.Available(project)
+	return protocol.ToolContextAvailable(declaration.Contexts, invocation.Worktree.Project, invocation.Turn.Config)
 }
 
 func availablePluginTool(invocation *store.AgentInvocation, tool protocol.ToolDeclaration) bool {
 	if len(tool.Platforms) > 0 && !slices.Contains(tool.Platforms, runtime.GOOS) {
 		return false
 	}
-	if len(tool.Contexts) == 0 {
-		return true
-	}
-	resource := protocol.PluginConversationResourcePlugin
-	if invocation.Worktree.Project != nil {
-		resource = protocol.PluginConversationResourceWorkspace
-	}
-	if invocation.Turn.Config.Assistant != nil && slices.Contains(tool.Contexts, resource) {
-		return true
-	}
-	if invocation.Turn.Config.Resource != nil {
-		switch invocation.Turn.Config.Resource.Kind {
-		case "database":
-			resource = protocol.PluginConversationResourceDatabase
-		case "ssh":
-			resource = protocol.PluginConversationResourceSsh
-		}
-	}
-	return slices.Contains(tool.Contexts, resource)
+	return protocol.ToolContextAvailable(tool.Contexts, invocation.Worktree.Project, invocation.Turn.Config)
 }
 
 func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.PluginReference, server string, lease *mcp.Lease, descriptor *sdk.Tool, declaration *protocol.ToolDeclaration, options protocol.PluginMcpOptions) (engine.Tool, error) {

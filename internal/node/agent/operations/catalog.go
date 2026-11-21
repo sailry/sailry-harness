@@ -37,7 +37,7 @@ type Declaration struct {
 	Exposed      string
 	Initial      bool
 	Script       bool
-	Contexts     []string
+	Contexts     []protocol.PluginConversationResource
 	Presentation protocol.ToolPresentation
 	Grouping     protocol.ToolGrouping
 	Display      *protocol.ToolDisplay
@@ -62,13 +62,13 @@ type manifestTool struct {
 	Handler     *struct {
 		Operation protocol.ToolOperation `json:"operation"`
 	} `json:"handler"`
-	Initial              bool                      `json:"initial"`
-	Contexts             []string                  `json:"contexts"`
-	Platforms            []string                  `json:"platforms"`
-	PlatformDescriptions map[string]string         `json:"platform_descriptions"`
-	Presentation         protocol.ToolPresentation `json:"presentation"`
-	Grouping             protocol.ToolGrouping     `json:"grouping"`
-	Display              *protocol.ToolDisplay     `json:"display"`
+	Initial              bool                                  `json:"initial"`
+	Contexts             []protocol.PluginConversationResource `json:"contexts"`
+	Platforms            []string                              `json:"platforms"`
+	PlatformDescriptions map[string]string                     `json:"platform_descriptions"`
+	Presentation         protocol.ToolPresentation             `json:"presentation"`
+	Grouping             protocol.ToolGrouping                 `json:"grouping"`
+	Display              *protocol.ToolDisplay                 `json:"display"`
 }
 
 var Bundled = sync.OnceValues(load)
@@ -165,26 +165,6 @@ func Alias(owner, name string) string {
 	return "plugin_" + hex.EncodeToString(digest[:8]) + "_" + name
 }
 
-// Available reports whether the declaration's contexts admit a conversation.
-// bound names the kind of the connection resource the conversation is bound
-// to: "database", "ssh", or nothing for an unbound conversation.
-func (d Declaration) Available(project bool, bound ...string) bool {
-	if len(d.Contexts) == 0 {
-		return true
-	}
-	resource := ""
-	if len(bound) > 0 {
-		resource = bound[0]
-	}
-	context := "plugin"
-	switch {
-	case resource != "":
-		context = resource
-	case project:
-		context = "workspace"
-	}
-	return !(project && resource != "") && slices.Contains(d.Contexts, context)
-}
 func packageDigest(tree fs.FS) (string, error) {
 	var names []string
 	err := fs.WalkDir(tree, ".", func(name string, entry fs.DirEntry, err error) error {

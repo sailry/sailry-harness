@@ -203,24 +203,8 @@ func connectionSaveFixture(t *testing.T, node *Node, scope protocol.PluginContex
 	ctx := t.Context()
 	request := protocol.NewRequest(node.ID(), command)
 	request.Plugin = &scope
-	approval := protocol.DefaultConversationApproval()
-	approval.ID, approval.Session, approval.Turn = protocol.NewApprovalID(), *scope.Session, *scope.Turn
-	approval.State, approval.Source = protocol.ConversationApprovalStateApproved, protocol.ConversationApprovalSourceUser
 	binding := store.ApprovalBinding{Owner: scope.Package, Tool: declaration.Name, Operation: &declaration.Operation}
-	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		body, err := json.Marshal(approval)
-		if err != nil {
-			return err
-		}
-		bound, err := json.Marshal(binding)
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,?3,?4,?5,?6,1)", approval.ID.String(), approval.Turn.String(), request.ID.String(), body, bound, request.ID.String())
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	approval := claimedConnectionSave(t, node, request, binding)
 	if err := node.validatePluginRequest(ctx, node.ID(), request); err != nil {
 		t.Fatalf("approved save failed read-only preflight: %v", err)
 	}
@@ -228,7 +212,7 @@ func connectionSaveFixture(t *testing.T, node *Node, scope protocol.PluginContex
 		t.Helper()
 		var body string
 		if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			return db.QueryRowContext(ctx, "SELECT prepared FROM agent_approvals WHERE id=?1", approval.ID.String()).Scan(&body)
+			return db.QueryRowContext(ctx, "SELECT prepared FROM agent_approvals WHERE id=?1", approval.String()).Scan(&body)
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -279,13 +263,36 @@ func connectionSaveFixture(t *testing.T, node *Node, scope protocol.PluginContex
 	return response
 }
 
+func claimedConnectionSave(t *testing.T, node *Node, request protocol.Request, binding store.ApprovalBinding) protocol.ApprovalID {
+	t.Helper()
+	ctx := t.Context()
+	approval := protocol.DefaultConversationApproval()
+	approval.ID, approval.Session, approval.Turn = protocol.NewApprovalID(), *request.Plugin.Session, *request.Plugin.Turn
+	approval.State, approval.Source = protocol.ConversationApprovalStateApproved, protocol.ConversationApprovalSourceUser
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		body, err := json.Marshal(approval)
+		if err != nil {
+			return err
+		}
+		bound, err := json.Marshal(binding)
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,?3,?4,?5,?6,1)", approval.ID.String(), approval.Turn.String(), request.ID.String(), body, bound, request.ID.String())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return approval.ID
+}
+
 func testDatabaseSaveProof(t *testing.T, node *Node, inv *store.AgentInvocation, declarations map[protocol.ToolOperation]operations.Declaration) {
 	t.Helper()
 	ctx := t.Context()
 	declaration := declarations[protocol.ToolOperationSaveDatabaseConnection]
 	scope := protocol.PluginContext{Package: declaration.Owner, Turn: &inv.Run.Turn, Session: &inv.Session.ID, Worktree: &inv.Session.Worktree, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 	password := protocol.NewSecret("database-save-proof-secret")
-	profile := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "", ReadOnly: true, Connection: protocol.DatabaseConnection{Kind: "network", Data: &protocol.DatabaseConnectionNetworkPayload{
+	profile := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "", ReadOnly: true, Sharing: &protocol.ConnectionSharing{Kind: "projects", Data: []protocol.ProjectID{*inv.Session.Project}}, Connection: protocol.DatabaseConnection{Kind: "network", Data: &protocol.DatabaseConnectionNetworkPayload{
 		Engine: protocol.DatabaseEnginePostgres, Host: "proof.fixture.test", Port: 5432, Username: "reader", Database: "app", Tls: protocol.DatabaseTlsRequire,
 	}}}
 	command := protocol.Command{Kind: "save_database", Data: &protocol.CommandSaveDatabasePayload{Profile: profile, Password: &password}}

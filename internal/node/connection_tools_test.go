@@ -54,7 +54,33 @@ var connectionOperations = []protocol.ToolOperation{
 	protocol.ToolOperationListSshConnections, protocol.ToolOperationSaveSshConnection, protocol.ToolOperationRunSsh, protocol.ToolOperationTransferSsh,
 }
 
+func connectionModelConfig(t *testing.T, node *Node) protocol.SessionConfig {
+	t.Helper()
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Revision, provider.Enabled, provider.Name = protocol.NewProviderID(), 1, true, "Fixture"
+	provider.Api, provider.Authentication = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey
+	provider.Endpoint, provider.DefaultModel = "http://fixture.invalid/v1", "fixture"
+	selected := protocol.DefaultConversationModel()
+	selected.ID, selected.Context, selected.Output, selected.Tools = "fixture", 32000, 8000, true
+	provider.Models = []protocol.ConversationModel{selected}
+	ctx := t.Context()
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		body, err := json.Marshal(map[string]any{"id": provider.ID, "provider": provider, "listed": true, "authorizations": map[string]any{}, "quota": nil})
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "INSERT INTO providers(id,body) VALUES(?1,?2)", provider.ID.String(), body)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Permission, config.Mode = provider.ID, "fixture", protocol.PermissionAsk, protocol.WorkModeCode
+	return config
+}
+
 func testConnectionTools(t *testing.T) {
+	t.Run("detached", testDetachedConnectionTools)
 	t.Run("classification", func(t *testing.T) {
 		readOnly := []protocol.ToolOperation{protocol.ToolOperationListDatabaseConnections, protocol.ToolOperationListSshConnections,
 			protocol.ToolOperationBrowseDatabase, protocol.ToolOperationQueryDatabase}
@@ -69,34 +95,6 @@ func testConnectionTools(t *testing.T) {
 		}
 		if operations.ConnectionOperation(protocol.ToolOperationWriteFile) {
 			t.Error("a file operation was classified as a connection operation")
-		}
-	})
-
-	t.Run("contexts", func(t *testing.T) {
-		database := operations.Declaration{Contexts: []string{"workspace", "database"}}
-		for _, entry := range []struct {
-			name        string
-			declaration operations.Declaration
-			project     bool
-			bound       string
-			available   bool
-		}{
-			{"unrestricted in a database conversation", operations.Declaration{}, false, "database", true},
-			{"database tool in a project", database, true, "", true},
-			{"database tool in a database conversation", database, false, "database", true},
-			{"database tool in an SSH conversation", database, false, "ssh", false},
-			{"database tool in a plain conversation", database, false, "", false},
-			{"workspace tool in a database conversation", operations.Declaration{Contexts: []string{"workspace"}}, false, "database", false},
-			{"plugin tool in a plain conversation", operations.Declaration{Contexts: []string{"plugin"}}, false, "", true},
-			{"plugin tool in an SSH conversation", operations.Declaration{Contexts: []string{"plugin"}}, false, "ssh", false},
-			{"bound resource inside a project", database, true, "database", false},
-		} {
-			if got := entry.declaration.Available(entry.project, entry.bound); got != entry.available {
-				t.Errorf("%s: available = %v", entry.name, got)
-			}
-		}
-		if !database.Available(true) || database.Available(false) {
-			t.Error("the unbound form no longer follows the project rule")
 		}
 	})
 
@@ -152,32 +150,7 @@ func testConnectionTools(t *testing.T) {
 	})
 	ctx := t.Context()
 	project := commandFixture(t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: "Fixture", Path: root, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance()}}).Data.(protocol.Project)
-	provider := protocol.DefaultConversationProvider()
-	provider.ID = protocol.NewProviderID()
-	provider.Revision = 1
-	provider.Enabled = true
-	provider.Name = "Fixture"
-	provider.Api = protocol.ConversationModelApiChatCompletions
-	provider.Authentication = protocol.AuthenticationApiKey
-	provider.Endpoint = "http://fixture.invalid/v1"
-	provider.DefaultModel = "fixture"
-	selected := protocol.DefaultConversationModel()
-	selected.ID = "fixture"
-	selected.Context = 32000
-	selected.Output = 8000
-	selected.Tools = true
-	provider.Models = []protocol.ConversationModel{selected}
-	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		body, err := json.Marshal(map[string]any{"id": provider.ID, "provider": provider, "listed": true, "authorizations": map[string]any{}, "quota": nil})
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "INSERT INTO providers(id,body) VALUES(?1,?2)", provider.ID.String(), body)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := connectionModelConfig(t, node)
 
 	const databasePassword, sshPassword = "fixture-database-password", "fixture-ssh-password"
 	network := func(host string) protocol.DatabaseConnection {
@@ -205,11 +178,6 @@ func testConnectionTools(t *testing.T) {
 		t.Fatalf("saved SSH connection = %#v", output)
 	}
 
-	config := protocol.DefaultSessionConfig()
-	config.Provider = provider.ID
-	config.Model = "fixture"
-	config.Permission = protocol.PermissionAsk
-	config.Mode = protocol.WorkModeCode
 	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 	commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Inspect the database"}}})
 	select {
@@ -370,7 +338,7 @@ func testConnectionTools(t *testing.T) {
 			{"project", inv, func(protocol.ToolOperation) bool { return true }},
 			{"database", conversation(false, &protocol.ConnectionResource{Kind: "database", Data: shared.ID}), databaseKind},
 			{"ssh", conversation(false, &protocol.ConnectionResource{Kind: "ssh", Data: bastion.ID}), func(operation protocol.ToolOperation) bool { return !databaseKind(operation) }},
-			{"plain", conversation(false, nil), func(protocol.ToolOperation) bool { return false }},
+			{"plain", conversation(false, nil), func(protocol.ToolOperation) bool { return true }},
 		} {
 			bound := bind(t, entry.inv)
 			for _, operation := range connectionOperations {

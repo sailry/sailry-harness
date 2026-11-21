@@ -97,7 +97,7 @@ func TestChildApprovalPath(t *testing.T) {
 	}
 	script := &delegationScript{root: t.TempDir(), children: map[protocol.SessionID]*workspaceScript{}}
 	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationWriteFile && tool.Available(true) {
+		if tool.Operation == protocol.ToolOperationWriteFile && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
 			script.write = tool.Name
 			break
 		}

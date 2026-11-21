@@ -156,8 +156,8 @@ func ConnectionCommand(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 }
 
 // ConnectionCreated reports whether this turn's package created the target
-// through its own approved and completed save. Such a connection is available
-// in the same turn before another admission captures its new identifier.
+// through its own approved and completed save. The proof is valid in that turn
+// while the connection still exists with the sharing of the approved creation.
 func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, owner protocol.PluginReference, target protocol.ConnectionResource) (bool, error) {
 	if _, err := activeAgentRun(ctx, db, turn); err != nil {
 		return false, err
@@ -169,6 +169,14 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if capture.Config.Resource != nil && (capture.Config.Resource.Kind != "ssh" || target.Kind != "ssh") {
 		return false, nil
 	}
+	kind, identity, valid := connectionIdentity(target)
+	if !valid {
+		return false, nil
+	}
+	sharing, exists, err := connectionSharing(ctx, db, target)
+	if err != nil || !exists {
+		return false, err
+	}
 	node, err := nodeIdentity(ctx, db)
 	if err != nil {
 		return false, err
@@ -178,7 +186,6 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		return false, err
 	}
 	defer rows.Close()
-	kind, identity, valid := connectionIdentity(target)
 	for rows.Next() {
 		var body, bound []byte
 		var result string
@@ -208,7 +215,7 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		if err := json.Unmarshal([]byte(result), &outcome); err != nil {
 			return false, fault(protocol.ErrorCodeInternal, "stored request outcome is invalid")
 		}
-		if !valid || outcome.Ok == nil {
+		if outcome.Ok == nil {
 			continue
 		}
 		switch kind {
@@ -216,14 +223,14 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 			command, issued := dispatchValue[protocol.CommandSaveDatabasePayload](request.Command.Data)
 			saved, completed := dispatchValue[protocol.DatabaseProfile](outcome.Ok.Data)
 			if *binding.Operation == protocol.ToolOperationSaveDatabaseConnection && request.Command.Kind == "save_database" && issued && completed && command.ExpectedRevision == 0 &&
-				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 {
+				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 && sameConnectionSharing(sharing, saved.Sharing) {
 				return true, nil
 			}
 		case "ssh":
 			command, issued := dispatchValue[protocol.CommandSaveSshPayload](request.Command.Data)
 			saved, completed := dispatchValue[protocol.SshProfile](outcome.Ok.Data)
 			if *binding.Operation == protocol.ToolOperationSaveSshConnection && request.Command.Kind == "save_ssh" && issued && completed && command.ExpectedRevision == 0 &&
-				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 {
+				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 && sameConnectionSharing(sharing, saved.Sharing) {
 				return true, nil
 			}
 		}
@@ -238,16 +245,22 @@ func checkConnection(ctx context.Context, db *sql.Conn, turn protocol.TurnID, ow
 	if err != nil {
 		return err
 	}
+	if containsConnection(captured, target) {
+		session, err := ReadSession(ctx, db, run.Session)
+		if err != nil {
+			return err
+		}
+		sharing, exists, err := connectionSharing(ctx, db, target)
+		if err != nil {
+			return err
+		}
+		if exists && ConnectionPermits(session.Config.Resource, session.Project, target, sharing) {
+			return nil
+		}
+	}
 	created, err := ConnectionCreated(ctx, db, turn, owner, target)
 	if err != nil || created {
 		return err
-	}
-	catalog, err := ReadConnectionCatalog(ctx, db, run.Session)
-	if err != nil {
-		return err
-	}
-	if containsConnection(captured, target) && containsConnection(catalog.Resources(), target) {
-		return nil
 	}
 	return fault(protocol.ErrorCodePermissionDenied, "connection is not available to this turn")
 }

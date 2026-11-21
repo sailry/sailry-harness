@@ -49,14 +49,7 @@ func (scope connectionScope) allows(kind string, id any, sharing *protocol.Conne
 		}
 		return false
 	}
-	if scope.project == nil || sharing == nil {
-		return false
-	}
-	if sharing.Kind == "global" {
-		return true
-	}
-	projects, _ := detail[[]protocol.ProjectID](sharing.Data)
-	return slices.Contains(projects, *scope.project)
+	return protocol.ConnectionSharingPermits(scope.project, sharing)
 }
 
 func referenceDatabases(snapshot protocol.Snapshot, scope connectionScope) []protocol.DatabaseProfile {

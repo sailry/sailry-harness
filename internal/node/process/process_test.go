@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -14,6 +15,24 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestCommandDirectoryUsesAdmittedRoot(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "subdir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, cwd := range []string{"", "subdir"} {
+		directory, err := commandDirectory(Launch{Root: root, Cwd: cwd, Access: protocol.ProcessAccessWorkspace})
+		if want := filepath.Join(resolved, cwd); err != nil || directory != want {
+			t.Errorf("command directory with cwd %q = %q, %v, want %q", cwd, directory, err, want)
+		}
+	}
+}
 
 func TestForegroundStdin(t *testing.T) {
 	var received string

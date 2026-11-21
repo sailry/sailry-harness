@@ -158,15 +158,18 @@ func TestEnvironmentReportsCommandSandbox(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
 	for _, sandbox := range []bool{false, true} {
-		want := "\nCommand sandbox: disabled\n"
+		want := "\nCommand sandbox: disabled"
 		if sandbox {
-			want = "\nCommand sandbox: enabled\n"
+			want = "\nCommand sandbox: enabled"
 		}
-		if value := Environment(now, "model", "/bin/sh", true, sandbox); !strings.Contains(value, want) {
-			t.Fatalf("sandbox=%t: %q", sandbox, value)
+		if value := Environment(now, "model", "/bin/sh", true, false, sandbox); !strings.Contains(value, want+"\nGit snapshot: unavailable") {
+			t.Fatalf("project sandbox=%t: %q", sandbox, value)
+		}
+		if value := Environment(now, "model", "/bin/sh", false, true, sandbox); !strings.Contains(value, "\nWorking directory: . (session workspace)"+want) || strings.Contains(value, "Git snapshot:") {
+			t.Fatalf("session sandbox=%t: %q", sandbox, value)
 		}
 	}
-	if value := Environment(now, "model", "/bin/sh", false, true); strings.Contains(value, "Command sandbox") {
-		t.Fatalf("an environment without a project reported a command sandbox: %q", value)
+	if value := Environment(now, "model", "/bin/sh", false, false, true); strings.Contains(value, "Command sandbox:") || strings.Contains(value, "Working directory:") {
+		t.Fatalf("an environment without workspace commands reported command context: %q", value)
 	}
 }

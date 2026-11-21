@@ -68,27 +68,36 @@ func connectionSharing(ctx context.Context, db *sql.Conn, resource protocol.Conn
 	return nil, false, invalid("invalid connection resource")
 }
 
+func sameConnectionSharing(left, right *protocol.ConnectionSharing) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	if left.Kind != right.Kind {
+		return false
+	}
+	switch left.Kind {
+	case "global":
+		return true
+	case "projects":
+		leftProjects, leftValid := dispatchValue[[]protocol.ProjectID](left.Data)
+		rightProjects, rightValid := dispatchValue[[]protocol.ProjectID](right.Data)
+		return leftValid && rightValid && slices.Equal(leftProjects, rightProjects)
+	default:
+		return false
+	}
+}
+
 // ConnectionPermits is the execution Node's sharing decision. An SSH
 // conversation's primary connection is its default, not an access boundary:
 // it can manage this Node's saved SSH profiles. Database conversations keep
-// their resource boundary; project conversations use their sharing rules.
+// their resource boundary. Unbound conversations use explicit sharing.
 func ConnectionPermits(bound *protocol.ConnectionResource, project *protocol.ProjectID, target protocol.ConnectionResource, sharing *protocol.ConnectionSharing) bool {
 	if bound != nil {
 		kind, id, valid := connectionIdentity(target)
 		primaryKind, primaryID, primaryValid := connectionIdentity(*bound)
 		return valid && primaryValid && (primaryKind == "ssh" && kind == "ssh" || primaryKind == kind && primaryID == id)
 	}
-	if project == nil || sharing == nil {
-		return false
-	}
-	switch sharing.Kind {
-	case "global":
-		return true
-	case "projects":
-		projects, _ := dispatchValue[[]protocol.ProjectID](sharing.Data)
-		return slices.Contains(projects, *project)
-	}
-	return false
+	return protocol.ConnectionSharingPermits(project, sharing)
 }
 
 // connectionWorkspace returns the one scratch worktree every conversation

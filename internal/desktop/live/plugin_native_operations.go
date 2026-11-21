@@ -117,7 +117,7 @@ func pluginNativeOperations(catalog []protocol.PluginInfo, project *protocol.Pro
 			action := pluginNativeOperationAction(*operation)
 			if available[*operation] || !pluginNativePackageAvailable(info) ||
 				action != "" && !slices.Contains(extension.Actions, action) ||
-				len(tool.Platforms) != 0 || !pluginNativeToolContext(tool.Contexts, project, config.Resource) ||
+				len(tool.Platforms) != 0 || !protocol.ToolContextAvailable(tool.Contexts, project, config) ||
 				config.Resource != nil && config.Assistant == nil && len(tool.Contexts) == 0 {
 				continue
 			}
@@ -143,33 +143,6 @@ func pluginNativeOperations(catalog []protocol.PluginInfo, project *protocol.Pro
 
 func pluginNativePackageAvailable(info protocol.PluginInfo) bool {
 	return info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible"
-}
-
-func pluginNativeToolContext(contexts []protocol.PluginConversationResource, project *protocol.ProjectID, resource *protocol.ConnectionResource) bool {
-	if len(contexts) == 0 {
-		return true
-	}
-	for _, kind := range contexts {
-		switch kind {
-		case protocol.PluginConversationResourcePlugin:
-			if project == nil && resource == nil {
-				return true
-			}
-		case protocol.PluginConversationResourceWorkspace:
-			if project != nil && resource == nil {
-				return true
-			}
-		case protocol.PluginConversationResourceDatabase:
-			if project == nil && resource != nil && resource.Kind == "database" {
-				return true
-			}
-		case protocol.PluginConversationResourceSsh:
-			if project == nil && resource != nil && resource.Kind == "ssh" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func pluginNativeOperationAction(operation protocol.ToolOperation) protocol.PluginAction {

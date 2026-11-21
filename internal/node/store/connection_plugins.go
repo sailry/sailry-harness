@@ -178,6 +178,28 @@ func PluginConnectionAction(ctx context.Context, db *sql.Conn, request protocol.
 	case scope.Turn != nil && scope.Session == nil:
 		return "", false, connectionDenied("connection tool requires a captured session")
 	}
+	if scope.Turn != nil {
+		var sharing *protocol.ConnectionSharing
+		switch request.Command.Kind {
+		case "save_database":
+			input, valid := dispatchValue[protocol.CommandSaveDatabasePayload](request.Command.Data)
+			if !valid {
+				return "", false, invalid("database configuration command expected")
+			}
+			sharing = input.Profile.Sharing
+		case "save_ssh":
+			input, valid := dispatchValue[protocol.CommandSaveSshPayload](request.Command.Data)
+			if !valid {
+				return "", false, invalid("SSH configuration command expected")
+			}
+			sharing = input.Profile.Sharing
+		default:
+			return action, true, nil
+		}
+		if err := checkConnectionSaveSharing(ctx, db, *scope.Turn, *target, creation, sharing); err != nil {
+			return "", false, err
+		}
+	}
 	return action, true, nil
 }
 
@@ -227,19 +249,21 @@ func CheckPluginConnectionTarget(ctx context.Context, db *sql.Conn, scope protoc
 		if scope.Session == nil || run.Session != *scope.Session || scope.Worktree == nil || run.Worktree != *scope.Worktree {
 			return connectionDenied("connection turn belongs to another resource")
 		}
+	}
+	sharing, exists, err := connectionSharing(ctx, db, target)
+	if err != nil {
+		return err
+	}
+	if (exists || scope.Turn == nil) && ConnectionPermits(bound, project, target, sharing) {
+		return nil
+	}
+	if exists && scope.Turn != nil {
 		created, err := ConnectionCreated(ctx, db, *scope.Turn, scope.Package, target)
 		if err != nil || created {
 			return err
 		}
 	}
-	sharing, _, err := connectionSharing(ctx, db, target)
-	if err != nil {
-		return err
-	}
-	if !ConnectionPermits(bound, project, target, sharing) {
-		return connectionDenied("connection is not available to this captured resource")
-	}
-	return nil
+	return connectionDenied("connection is not available to this captured resource")
 }
 
 // FilterPluginDatabases keeps the profiles a plugin scope may reach.

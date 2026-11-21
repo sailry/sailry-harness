@@ -66,10 +66,11 @@ func (r *Runtime) openReference(session string, turn protocol.TurnID, ref protoc
 			r.App.Navigate(shell.HostPage)
 			return
 		case "ssh", "database":
-			scope := connectionScope{}
-			if current, ok := r.session(session); ok {
-				scope.project, scope.resource = current.Project, current.Config.Resource
+			current, ok := r.session(session)
+			if !ok {
+				break
 			}
+			scope := connectionScope{project: current.Project, resource: current.Config.Resource}
 			if key, body, ok := connectionReferenceDetails(snapshot, scope, ref.Target); ok {
 				r.App.Messages.ShowReference(session, ref.Label, i18n.T(c, key), "```text\n"+body+"\n```")
 				return

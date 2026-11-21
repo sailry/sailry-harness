@@ -389,3 +389,20 @@ func connectionTurnSharing(ctx context.Context, db *sql.Conn, turn protocol.Turn
 	}
 	return &protocol.ConnectionSharing{Kind: "projects", Data: []protocol.ProjectID{*session.Project}}, nil
 }
+
+func checkConnectionSaveSharing(ctx context.Context, db *sql.Conn, turn protocol.TurnID, target protocol.ConnectionResource, creation bool, sharing *protocol.ConnectionSharing) error {
+	var permitted *protocol.ConnectionSharing
+	var err error
+	if creation {
+		permitted, err = connectionTurnSharing(ctx, db, turn)
+	} else {
+		permitted, _, err = connectionSharing(ctx, db, target)
+	}
+	if err != nil {
+		return err
+	}
+	if !sameConnectionSharing(sharing, permitted) {
+		return connectionDenied("connection sharing changes require a controller view")
+	}
+	return nil
+}

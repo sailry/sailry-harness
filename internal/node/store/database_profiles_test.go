@@ -385,22 +385,43 @@ func testConnectionWorkspaces(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	project := protocol.NewProjectID()
+	var project, otherProject protocol.ProjectID
+	projectRoot, otherRoot := t.TempDir(), t.TempDir()
 	database := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Local", Connection: databaseFixtureSqlite(filepath.Join(t.TempDir(), "app.db")), Sharing: &protocol.ConnectionSharing{Kind: "global"}}
 	private := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Private", Connection: databaseFixtureSqlite(filepath.Join(t.TempDir(), "private.db"))}
-	var remote protocol.SshProfile
+	listed := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Project", Connection: databaseFixtureSqlite(filepath.Join(t.TempDir(), "project.db"))}
+	var remote, sharedSsh protocol.SshProfile
 	write(t, func(db *sql.Conn) error {
-		for _, profile := range []protocol.DatabaseProfile{database, private} {
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, fixture := range []struct {
+			id   *protocol.ProjectID
+			root string
+		}{{&project, projectRoot}, {&otherProject, otherRoot}} {
+			output, _, err := createProject(ctx, db, user.ID, protocol.ProjectsDraft{Name: "Fixture", Appearance: protocol.DefaultProjectsAppearance()}, PreparedPaths{Path: fixture.root})
+			if err != nil {
+				return err
+			}
+			*fixture.id = output.Data.(protocol.Project).ID
+		}
+		listed.Sharing = &protocol.ConnectionSharing{Kind: "projects", Data: []protocol.ProjectID{project}}
+		for _, profile := range []protocol.DatabaseProfile{database, private, listed} {
 			if _, _, err := databaseFixtureSave(ctx, db, profile, 0, nil); err != nil {
 				return err
 			}
 		}
 		secret := "ssh-login-secret"
-		var err error
 		remote, err = databaseFixtureSsh(ctx, db, protocol.SshProfile{ID: protocol.NewSshID(), Name: "Remote", Host: "remote.example", Port: 22, Username: "deploy", Authentication: protocol.SshAuthenticationPassword}, 0, &secret)
+		if err != nil {
+			return err
+		}
+		sharedSsh, err = databaseFixtureSsh(ctx, db, protocol.SshProfile{ID: protocol.NewSshID(), Name: "Shared SSH", Host: "shared.example", Port: 22, Username: "deploy", Authentication: protocol.SshAuthenticationPassword, Sharing: database.Sharing}, 0, &secret)
 		return err
 	})
 	databaseTarget, privateTarget, sshTarget := databaseResource(database.ID), databaseResource(private.ID), sshResource(remote.ID)
+	listedTarget, sharedSshTarget := databaseResource(listed.ID), sshResource(sharedSsh.ID)
 
 	t.Run("workspace reuse", func(t *testing.T) {
 		rows := []struct {
@@ -476,28 +497,38 @@ func testConnectionWorkspaces(t *testing.T) {
 	})
 
 	t.Run("sharing decision", func(t *testing.T) {
-		other := protocol.NewProjectID()
-		global := &protocol.ConnectionSharing{Kind: "global"}
-		listed := &protocol.ConnectionSharing{Kind: "projects", Data: &[]protocol.ProjectID{project}}
+		global := database.Sharing
+		decoded := &protocol.ConnectionSharing{Kind: "projects", Data: &[]protocol.ProjectID{project}}
+		emptyProject := protocol.ProjectID{}
 		rows := []struct {
 			name    string
 			bound   *protocol.ConnectionResource
 			project *protocol.ProjectID
+			target  protocol.ConnectionResource
 			sharing *protocol.ConnectionSharing
 			allowed bool
 		}{
-			{"bound to the target", &databaseTarget, nil, nil, true},
-			{"bound to another resource", &sshTarget, &project, global, false},
-			{"project with global sharing", nil, &project, global, true},
-			{"project in the list", nil, &project, listed, true},
-			{"project outside the list", nil, &other, listed, false},
-			{"project without sharing", nil, &project, nil, false},
-			{"unassigned conversation", nil, nil, global, false},
+			{"database bound to a private target", &privateTarget, nil, privateTarget, nil, true},
+			{"database bound to another database", &privateTarget, nil, databaseTarget, global, false},
+			{"database bound with global SSH", &privateTarget, nil, sharedSshTarget, global, false},
+			{"SSH primary with another private SSH", &sharedSshTarget, nil, sshTarget, nil, true},
+			{"SSH primary with a global database", &sshTarget, nil, databaseTarget, global, false},
+			{"project with global sharing", nil, &project, databaseTarget, global, true},
+			{"project in the list", nil, &project, listedTarget, listed.Sharing, true},
+			{"project in the decoded list", nil, &project, listedTarget, decoded, true},
+			{"project outside the list", nil, &otherProject, listedTarget, decoded, false},
+			{"zero project is not a listed project", nil, &emptyProject, listedTarget, &protocol.ConnectionSharing{Kind: "projects", Data: []protocol.ProjectID{emptyProject}}, false},
+			{"project without sharing", nil, &project, privateTarget, nil, false},
+			{"unassigned conversation with global sharing", nil, nil, databaseTarget, global, true},
+			{"unassigned conversation with global SSH", nil, nil, sharedSshTarget, global, true},
+			{"unassigned conversation with listed sharing", nil, nil, listedTarget, decoded, false},
+			{"unassigned conversation without sharing", nil, nil, privateTarget, nil, false},
+			{"unassigned conversation with private SSH", nil, nil, sshTarget, nil, false},
 		}
 		for _, row := range rows {
 			t.Run(row.name, func(t *testing.T) {
-				if ConnectionPermits(row.bound, row.project, databaseTarget, row.sharing) != row.allowed {
-					t.Fatal("sharing decision changed")
+				if got := ConnectionPermits(row.bound, row.project, row.target, row.sharing); got != row.allowed {
+					t.Fatalf("connection permitted = %v, want %v", got, row.allowed)
 				}
 			})
 		}
@@ -506,7 +537,7 @@ func testConnectionWorkspaces(t *testing.T) {
 	t.Run("session binding", func(t *testing.T) {
 		write(t, func(db *sql.Conn) error {
 			config := used.Config
-			config.Resource = &databaseTarget
+			config.Resource = &privateTarget
 			absent, missing := config, databaseResource(protocol.NewDatabaseID())
 			absent.Resource = &missing
 			if _, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &absent}); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
@@ -517,38 +548,72 @@ func testConnectionWorkspaces(t *testing.T) {
 				return err
 			}
 			bound := output.Data.(protocol.Session)
-			workspace, err := connectionWorkspace(ctx, db, storage.Profile, databaseTarget)
+			workspace, err := connectionWorkspace(ctx, db, storage.Profile, privateTarget)
 			if err != nil {
 				return err
 			}
-			if bound.Project != nil || bound.Worktree != workspace || bound.Config.Resource == nil || !sameConnection(*bound.Config.Resource, databaseTarget) {
+			if bound.Project != nil || bound.Worktree != workspace || bound.Config.Resource == nil || !sameConnection(*bound.Config.Resource, privateTarget) {
 				return fmt.Errorf("bound session changed: %+v", bound)
 			}
 			stored, err := ReadSession(ctx, db, bound.ID)
 			if err != nil {
 				return err
 			}
-			if stored.Worktree != workspace || stored.Config.Resource == nil || !sameConnection(*stored.Config.Resource, databaseTarget) {
+			if stored.Worktree != workspace || stored.Config.Resource == nil || !sameConnection(*stored.Config.Resource, privateTarget) {
 				return fmt.Errorf("binding was not stored")
 			}
-			catalog, err := ReadConnectionCatalog(ctx, db, bound.ID)
+			checkCatalog := func(session protocol.SessionID, binding *protocol.ConnectionResource, expected ...protocol.ConnectionResource) error {
+				catalog, err := ReadConnectionCatalog(ctx, db, session)
+				if err != nil {
+					return err
+				}
+				if binding == nil && catalog.Bound != nil || binding != nil && (catalog.Bound == nil || !sameConnection(*binding, *catalog.Bound)) {
+					return fmt.Errorf("catalog for %s has wrong binding: %+v", session, catalog.Bound)
+				}
+				resources := catalog.Resources()
+				if len(resources) != len(expected) {
+					return fmt.Errorf("catalog for %s contains %v, want %v", session, resources, expected)
+				}
+				for _, target := range expected {
+					if !containsConnection(resources, target) {
+						return fmt.Errorf("catalog for %s omits %v: %v", session, target, resources)
+					}
+				}
+				return nil
+			}
+			if err := checkCatalog(bound.ID, &privateTarget, privateTarget); err != nil {
+				return err
+			}
+			if err := checkCatalog(used.ID, nil, databaseTarget, sharedSshTarget); err != nil {
+				return err
+			}
+			for _, fixture := range []struct {
+				project  protocol.ProjectID
+				expected []protocol.ConnectionResource
+			}{
+				{project, []protocol.ConnectionResource{databaseTarget, sharedSshTarget, listedTarget}},
+				{otherProject, []protocol.ConnectionResource{databaseTarget, sharedSshTarget}},
+			} {
+				output, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Project: &fixture.project, Config: &used.Config})
+				if err != nil {
+					return err
+				}
+				if err := checkCatalog(output.Data.(protocol.Session).ID, nil, fixture.expected...); err != nil {
+					return err
+				}
+			}
+			config.Resource = &sshTarget
+			output, _, err = createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &config})
 			if err != nil {
 				return err
 			}
-			if catalog.Bound == nil || len(catalog.Databases) != 1 || catalog.Databases[0].ID != database.ID || len(catalog.Ssh) != 0 || len(catalog.Resources()) != 1 {
-				return fmt.Errorf("bound catalog exposes other connections")
-			}
-			catalog, err = ReadConnectionCatalog(ctx, db, used.ID)
-			if err == nil && len(catalog.Resources()) != 0 {
-				err = fmt.Errorf("unassigned conversation sees shared connections")
-			}
-			return err
+			return checkCatalog(output.Data.(protocol.Session).ID, &sshTarget, sshTarget, sharedSshTarget)
 		})
 	})
 
 	t.Run("captured turn access", func(t *testing.T) {
 		owner := protocol.PluginReference{Name: "fixture", Digest: strings.Repeat("a", 64)}
-		captured := []protocol.ConnectionResource{databaseTarget, privateTarget, sshTarget}
+		captured := []protocol.ConnectionResource{databaseTarget, privateTarget, listedTarget, sshTarget, sharedSshTarget}
 		write(t, func(db *sql.Conn) error {
 			created, err := ConnectionCreated(ctx, db, turn, owner, databaseTarget)
 			if err != nil || created {
@@ -557,7 +622,7 @@ func testConnectionWorkspaces(t *testing.T) {
 			// An approved save is kept by digest in the ledger; the approval
 			// keeps the command without its password and still proves creation.
 			password, operation := protocol.NewSecret("created-connection-password"), protocol.ToolOperationSaveDatabaseConnection
-			added := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Created", Connection: databaseFixtureSqlite(filepath.Join(t.TempDir(), "created.db"))}
+			added := protocol.DatabaseProfile{ID: protocol.NewDatabaseID(), Name: "Created", Connection: databaseFixtureNetwork("created.example")}
 			save := protocol.NewRequest(node, protocol.Command{Kind: "save_database", Data: protocol.CommandSaveDatabasePayload{Profile: added, Password: &password}})
 			scope := protocol.DefaultPluginContext()
 			scope.Package, scope.Turn, scope.Session = owner, &turn, &used.ID
@@ -589,8 +654,11 @@ func testConnectionWorkspaces(t *testing.T) {
 			if err = RecordConnectionSave(ctx, db, save); err != nil {
 				return err
 			}
-			added.Revision = 1
-			if err = admission.Complete(ctx, db, node, save.ID, link.Response{Output: protocol.Output{Kind: "database_profile", Data: added}}); err != nil {
+			output, _, err := ExecuteDatabaseCommand(ctx, db, save.Command)
+			if err != nil {
+				return err
+			}
+			if err = admission.Complete(ctx, db, node, save.ID, link.Response{Output: output}); err != nil {
 				return err
 			}
 			var ledger, kept []byte
@@ -600,20 +668,57 @@ func testConnectionWorkspaces(t *testing.T) {
 			if !strings.HasPrefix(string(ledger), "credential-v1:") || strings.Contains(string(kept), password.Expose()) || !strings.Contains(string(kept), added.ID.String()) {
 				return fmt.Errorf("approved save was stored as %s and %s", ledger, kept)
 			}
-			if created, err = ConnectionCreated(ctx, db, turn, owner, databaseResource(added.ID)); err != nil || !created {
+			addedTarget := databaseResource(added.ID)
+			if created, err = ConnectionCreated(ctx, db, turn, owner, addedTarget); err != nil || !created {
 				return fmt.Errorf("an approved completed save does not count as created: %v", err)
 			}
 			if created, err = ConnectionCreated(ctx, db, turn, owner, databaseTarget); err != nil || created {
 				return fmt.Errorf("another connection counts as created: %v", err)
 			}
+			otherOwner := protocol.PluginReference{Name: owner.Name, Digest: strings.Repeat("b", 64)}
+			if created, err = ConnectionCreated(ctx, db, turn, otherOwner, addedTarget); err != nil || created {
+				return fmt.Errorf("another package version inherited the creation proof: %v", err)
+			}
+			if _, _, err := databaseFixtureSave(ctx, db, added, 1, nil); err != nil {
+				return err
+			}
+			if created, err = ConnectionCreated(ctx, db, turn, owner, addedTarget); err != nil || !created {
+				return fmt.Errorf("an edit preserving sharing invalidated the creation proof: %v", err)
+			}
+			added.Sharing = listed.Sharing
+			if _, _, err := databaseFixtureSave(ctx, db, added, 2, nil); err != nil {
+				return err
+			}
+			if _, err := ConnectionCommand(ctx, db, turn, owner, &addedTarget, ConnectionAction{Kind: ConnectionBrowse}, nil); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+				return fmt.Errorf("a creation proof survived a sharing change: %v", err)
+			}
+			if _, _, err := ExecuteDatabaseCommand(ctx, db, protocol.Command{Kind: "remove_database", Data: protocol.CommandRemoveDatabasePayload{Profile: added.ID, ExpectedRevision: 3}}); err != nil {
+				return err
+			}
+			if created, err = ConnectionCreated(ctx, db, turn, owner, addedTarget); err != nil || created {
+				return fmt.Errorf("a removed connection still counts as created: %v", err)
+			}
 			statuses, err := ConnectionStatuses(ctx, db, turn, owner, captured, captured)
-			if err != nil || len(statuses) != 0 {
-				return fmt.Errorf("an unassigned turn reached connections: %v, %d", err, len(statuses))
+			if err != nil || len(statuses) != 2 || !sameConnection(statuses[0].Target, databaseTarget) || !sameConnection(statuses[1].Target, sharedSshTarget) {
+				return fmt.Errorf("unassigned turn status = %v, %v", statuses, err)
 			}
 			timeout := uint64(1000)
 			query := ConnectionAction{Kind: ConnectionQuery, Sql: "SELECT 1", RowLimit: 10, TimeoutMs: &timeout}
-			if _, err := ConnectionCommand(ctx, db, turn, owner, &privateTarget, query, captured); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
-				return fmt.Errorf("an unshared connection was reachable: %v", err)
+			command, err := ConnectionCommand(ctx, db, turn, owner, &databaseTarget, query, captured)
+			if input, valid := dispatchValue[protocol.CommandQueryDatabasePayload](command.Data); err != nil || command.Kind != "query_database" || !valid || input.Profile != database.ID || input.ExpectedRevision != 1 {
+				return fmt.Errorf("the captured global database returned %v, %v", command, err)
+			}
+			command, err = ConnectionCommand(ctx, db, turn, owner, &sharedSshTarget, ConnectionAction{Kind: ConnectionRun, Command: "true"}, captured)
+			if input, valid := dispatchValue[protocol.CommandRunSshPayload](command.Data); err != nil || command.Kind != "run_ssh" || !valid || input.Profile != sharedSsh.ID || input.ExpectedRevision != sharedSsh.Revision {
+				return fmt.Errorf("the captured global SSH connection returned %v, %v", command, err)
+			}
+			if _, err := ConnectionCommand(ctx, db, turn, owner, &sshTarget, ConnectionAction{Kind: ConnectionRun}, captured); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+				return fmt.Errorf("the private SSH connection was reachable: %v", err)
+			}
+			for _, target := range []protocol.ConnectionResource{privateTarget, listedTarget} {
+				if _, err := ConnectionCommand(ctx, db, turn, owner, &target, query, captured); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+					return fmt.Errorf("an unshared connection was reachable: %v", err)
+				}
 			}
 			if _, err := ConnectionCommand(ctx, db, turn, owner, nil, query, captured); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
 				return fmt.Errorf("a missing target was accepted: %v", err)
