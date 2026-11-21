@@ -44,7 +44,9 @@ func (reports *interfaceReports) start(control *telemetry.Control) {
 		return
 	}
 	control.ReportCrash(reports.crash)
-	reports.watchdog = telemetry.NewWatchdog(telemetry.WatchdogOptions{Ping: mygo.RunOnMain, Directory: reports.directory, Control: control})
+	reports.watchdog = telemetry.NewWatchdog(telemetry.WatchdogOptions{
+		Ping: mygo.RunOnMain, ProbeNativeWindow: nativeWindowProbe(), Directory: reports.directory, Control: control,
+	})
 	mygo.Power.OnSuspend(func() { reports.watchdog.Suspended(true) })
 	mygo.Power.OnResume(func() { reports.watchdog.Suspended(false) })
 }

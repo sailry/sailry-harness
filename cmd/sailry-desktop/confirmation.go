@@ -8,8 +8,8 @@ import (
 )
 
 // nativeConfirmations attaches every confirmation to its owning native window.
-// Dialog.Message waits on the system dialog, so only its result returns to the
-// UI thread; the frame and the asynchronous operation stay independently alive.
+// The worker lets the originating frame return. MyGo presents the dialog on
+// the UI thread, where Windows runs its own message loop until dismissal.
 func nativeConfirmations(entry *desktopWindow) kit.ConfirmationPresenter {
 	return func(request kit.Confirmation, answer func(int)) {
 		go func() {

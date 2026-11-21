@@ -89,6 +89,8 @@ func run() error {
 	}
 
 	var windows []*desktopWindow
+	windowPrefs := windowPreferences{write: shell.SavePrefs}
+	defer windowPrefs.flush()
 	var active *desktopWindow
 	var speech *reader.Service
 	system := systemShortcuts{register: mygo.GlobalShortcut.Register, unregister: mygo.GlobalShortcut.Unregister}
@@ -198,15 +200,12 @@ func run() error {
 		app.OnMode = func(mode theme.Mode) {
 			mygo.Theme.SetSource(map[theme.Mode]mygo.ThemeSource{theme.System: mygo.ThemeSystem, theme.Light: mygo.ThemeLight, theme.Dark: mygo.ThemeDark}[mode])
 		}
-		directory, pathErr := mygo.App.Path(mygo.PathUserData)
-		if pathErr == nil {
-			app.SetPrefs(shell.LoadPrefs(directory))
+		if windowPrefs.directory != "" {
+			app.SetPrefs(windowPrefs.load())
 		}
 		entry.save = func() {
-			if directory != "" {
-				if err := shell.SavePrefs(directory, app.Prefs()); err != nil {
-					log.Printf("window preferences: %v", err)
-				}
+			if windowPrefs.directory != "" {
+				windowPrefs.save(app.Prefs())
 			}
 		}
 		present := nativeConfirmations(entry)
@@ -354,6 +353,7 @@ func run() error {
 	}
 	var composition error
 	mygo.App.WhenReady(func() {
+		windowPrefs.directory, _ = mygo.App.Path(mygo.PathUserData)
 		if backend.Preferences != nil {
 			mygo.App.SetLocale(preferenceLocale(backend.Preferences.Data.Language))
 		}
@@ -441,6 +441,7 @@ func run() error {
 					}
 				}
 			}
+			windowPrefs.flush()
 			if err := backend.Close(); err != nil {
 				log.Printf("Node shutdown: %v", err)
 			}

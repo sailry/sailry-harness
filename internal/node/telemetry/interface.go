@@ -284,6 +284,9 @@ type WatchdogOptions struct {
 	// Ping runs done on the interface thread without drawing anything. It
 	// may block until done has run.
 	Ping func(done func())
+	// ProbeNativeWindow samples native message dispatch after a hang stack
+	// is captured. A bounded probe returns (replied, measured).
+	ProbeNativeWindow func() (bool, bool)
 	// Directory is the application's log directory.
 	Directory string
 	// Control sends the report; nil sends nothing.
@@ -410,6 +413,26 @@ func (w *Watchdog) watch() {
 func (w *Watchdog) hang() {
 	buffer := make([]byte, stackLimit)
 	reduced := reduce(buffer[:runtime.Stack(buffer, true)])
+	if probe := w.options.ProbeNativeWindow; probe != nil {
+		status := "native_window.unavailable\n"
+		if replied, measured := probe(); measured {
+			status = "native_window.timeout\n"
+			if replied {
+				status = "native_window.replied\n"
+			}
+		}
+		// The interface may have recovered since the stack was taken. This
+		// watch loop cannot post a new heartbeat until hang returns.
+		w.mu.Lock()
+		waiting := w.waiting
+		w.mu.Unlock()
+		if waiting {
+			status += "heartbeat.pending\n"
+		} else {
+			status += "heartbeat.recovered\n"
+		}
+		reduced = append([]byte(status), reduced...)
+	}
 	// A trace that cannot be kept is still reported.
 	_ = os.WriteFile(filepath.Join(w.options.Directory, HangFile), reduced, 0o600)
 	w.options.Control.report("hang", reduced)
