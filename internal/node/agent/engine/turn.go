@@ -492,7 +492,7 @@ func (r *Runtime) turn(x *execution) error {
 				}
 			}
 		}
-		if !compacted && shouldCompact(binding, state, inv.CompactionPercent) {
+		if !compacted && shouldCompact(binding, state, inv.Compaction) {
 			if err = r.compact(x, binding, state, false); err != nil {
 				return err
 			}

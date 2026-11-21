@@ -132,7 +132,7 @@ type turnSettings struct {
 	turn       protocol.QueuedTurn
 	provider   []byte
 	hooks      []byte
-	compaction uint8
+	compaction CompactionPolicy
 	media      []byte
 }
 
@@ -222,11 +222,9 @@ func captureTurnSettings(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	if settings.provider, err = encode(captured); err != nil {
 		return settings, err
 	}
-	compaction, err := ReadCompaction(ctx, db)
-	if err != nil {
+	if settings.compaction, err = readCompactionPolicy(ctx, db); err != nil {
 		return settings, err
 	}
-	settings.compaction = compaction.Percent
 	if settings.hooks, err = captureHooks(ctx, db); err != nil {
 		return settings, err
 	}
@@ -247,7 +245,7 @@ func readTurnSettings(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (
 	if err != nil {
 		return settings, err
 	}
-	err = db.QueryRowContext(ctx, "SELECT provider,hooks,compaction_percent,media FROM agent_runs WHERE turn=?1", turn.String()).Scan(&settings.provider, &settings.hooks, &settings.compaction, &settings.media)
+	err = db.QueryRowContext(ctx, "SELECT provider,hooks,compaction_percent,media,compaction_default FROM agent_runs WHERE turn=?1", turn.String()).Scan(&settings.provider, &settings.hooks, &settings.compaction.Percent, &settings.media, &settings.compaction.UseDefault)
 	return settings, err
 }
 
@@ -264,7 +262,7 @@ func saveTurnSettings(ctx context.Context, db *sql.Conn, turn protocol.TurnID, s
 	if _, err = db.ExecContext(ctx, "UPDATE turns SET revision=?2,plugins=?3,roles=?4 WHERE id=?1", turn.String(), settings.turn.Revision, plugins, roles); err != nil {
 		return err
 	}
-	if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET provider=?2,hooks=?3,compaction_percent=?4,media=?5 WHERE turn=?1", turn.String(), settings.provider, settings.hooks, settings.compaction, settings.media); err != nil {
+	if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET provider=?2,hooks=?3,compaction_percent=?4,media=?5,compaction_default=?6 WHERE turn=?1", turn.String(), settings.provider, settings.hooks, settings.compaction.Percent, settings.media, settings.compaction.UseDefault); err != nil {
 		return err
 	}
 	run, err := ReadAgentRun(ctx, db, turn)
@@ -321,7 +319,7 @@ func insertAgentTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeID, 
 	if err != nil {
 		return value, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,media) VALUES(?1,?2,?3,?4,?5,?6,?7)", value.ID.String(), ready, body, settings.provider, settings.hooks, settings.compaction, settings.media); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,media,compaction_default) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", value.ID.String(), ready, body, settings.provider, settings.hooks, settings.compaction.Percent, settings.media, settings.compaction.UseDefault); err != nil {
 		return value, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", session.ID.String(), value.ID.String()); err != nil {
@@ -421,7 +419,7 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	var path string
 	var project sql.NullString
 	var main bool
-	if err = db.QueryRowContext(ctx, "SELECT a.hooks,a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main,a.media FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&hookSettings, &provider, &inv.CompactionPercent, &instructions, &caller, &path, &project, &main, &media); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT a.hooks,a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main,a.media,a.compaction_default FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&hookSettings, &provider, &inv.Compaction.Percent, &instructions, &caller, &path, &project, &main, &media, &inv.Compaction.UseDefault); err != nil {
 		return nil, nil, err
 	}
 	if media != nil {

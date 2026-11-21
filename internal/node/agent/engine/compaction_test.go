@@ -222,7 +222,7 @@ func TestCompactionHandoff(t *testing.T) {
 			if request.MaxOutputTokens == nil || *request.MaxOutputTokens != row.output || !strings.Contains(system, row.target) || !strings.Contains(system, row.cutoff) {
 				t.Fatalf("%d window: output limit %v or prompt limits are wrong", row.context, request.MaxOutputTokens)
 			}
-			budget := store.AgentCompactionBudget(binding.Provider.Models[0], 80)
+			budget := store.AgentCompactionBudget(binding.Provider.Models[0], store.CompactionPolicy{Percent: 80, UseDefault: true})
 			if int64(budget.SummaryOutput) != row.output || budget.SummaryInput != uint64(row.context)-uint64(row.output) || budget.OutputReserve != 64000 {
 				t.Fatalf("%d window: reported budget = %+v", row.context, budget)
 			}
@@ -351,7 +351,7 @@ func TestCompactionHandoff(t *testing.T) {
 			}
 			return *last.Metadata.Compaction.Failure
 		}
-		if !shouldCompact(binding, state, 80) {
+		if !shouldCompact(binding, state, x.inv.Compaction) {
 			t.Fatal("fixture is not over its threshold")
 		}
 		for attempt := 1; attempt <= 2; attempt++ {
@@ -363,14 +363,14 @@ func TestCompactionHandoff(t *testing.T) {
 		if failure := fail(true); failure.Paused || failure.Source != protocol.ConversationCompactionSourceManual {
 			t.Fatalf("manual failure = %+v", failure)
 		}
-		if !shouldCompact(binding, f.state(), 80) {
+		if !shouldCompact(binding, f.state(), x.inv.Compaction) {
 			t.Fatal("two automatic failures paused the threshold")
 		}
 		if failure := fail(false); !failure.Paused {
 			t.Fatal("the third failure does not say automatic compaction is paused")
 		}
 		paused := f.state()
-		if shouldCompact(binding, paused, 80) {
+		if shouldCompact(binding, paused, x.inv.Compaction) {
 			t.Fatal("the threshold still compacts after three automatic failures")
 		}
 		// Another model starts again; the threshold itself is not what stopped it.

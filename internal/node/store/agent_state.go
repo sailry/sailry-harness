@@ -32,7 +32,7 @@ type AgentInvocation struct {
 	EffectiveCredential  *protocol.CredentialRef
 	AuthorizationFailure *protocol.Fault
 	Instructions         []AgentInstruction
-	CompactionPercent    uint8
+	Compaction           CompactionPolicy
 	// Media holds the per-purpose model assignments frozen at admission.
 	Media MediaCapture
 	// Assistant is the declaration frozen by the turn's assistant binding.

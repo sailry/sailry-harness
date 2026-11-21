@@ -7,6 +7,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+type CompactionPolicy struct {
+	Percent    uint8
+	UseDefault bool
+}
+
+func (policy CompactionPolicy) WindowTrigger(contextLimit uint32) uint64 {
+	return uint64(contextLimit) * uint64(policy.Percent) / 100
+}
+
+func readCompactionPolicy(ctx context.Context, db *sql.Conn) (CompactionPolicy, error) {
+	settings, err := ReadCompaction(ctx, db)
+	return CompactionPolicy{Percent: settings.Percent, UseDefault: settings.Revision == 0}, err
+}
+
 func ReadCompaction(ctx context.Context, db *sql.Conn) (protocol.ConversationCompactionSettings, error) {
 	value, err := readPersonalSetting[protocol.ConversationCompactionSettings](ctx, db, "compaction")
 	if err != nil {

@@ -259,6 +259,11 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := InitializeIdentity(ctx, connection); err != nil {
 			return err
 		}
+		if definition.plan.added[schemaObject{"agent_runs", "compaction_default"}] {
+			if err := backfillCompactionDefaults(ctx, connection); err != nil {
+				return err
+			}
+		}
 		if definition.state == schemaFresh || definition.plan.created["plugin_user_installations"] {
 			if err := initializePluginUsers(ctx, connection); err != nil {
 				return err

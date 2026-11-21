@@ -361,8 +361,8 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 		return empty, nil, err
 	}
 	var caller, instructions []byte
-	var percent uint8
-	if err = db.QueryRowContext(ctx, "SELECT t.caller,t.instructions,a.compaction_percent FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1", inherit.String()).Scan(&caller, &instructions, &percent); err != nil {
+	var compaction CompactionPolicy
+	if err = db.QueryRowContext(ctx, "SELECT t.caller,t.instructions,a.compaction_percent,a.compaction_default FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1", inherit.String()).Scan(&caller, &instructions, &compaction.Percent, &compaction.UseDefault); err != nil {
 		return empty, nil, err
 	}
 	if guidance != nil {
@@ -429,7 +429,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if err != nil {
 		return empty, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input,media) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", turn.ID.String(), ready, body, providerBody, hooks, percent, input, media); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,input,media,compaction_default) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)", turn.ID.String(), ready, body, providerBody, hooks, compaction.Percent, input, media, compaction.UseDefault); err != nil {
 		return empty, nil, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", session.ID.String(), turn.ID.String()); err != nil {

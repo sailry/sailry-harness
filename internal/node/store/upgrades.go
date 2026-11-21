@@ -107,6 +107,34 @@ func applyUpgrades(ctx context.Context, connection *sql.Conn) error {
 	return nil
 }
 
+func backfillCompactionDefaults(ctx context.Context, connection *sql.Conn) error {
+	// v0.2.6 froze 80 for both the default and an explicit 80%. A saved
+	// setting could have changed since admission, so only its absence is
+	// evidence of the default. Earlier upgrades assigned missing turn owners
+	// to the local user, so require a matching capture origin when any user
+	// has saved a setting. Guidance and children can inherit other captures.
+	_, err := connection.ExecContext(ctx, `UPDATE agent_runs SET compaction_default=1
+		WHERE compaction_percent=80 AND (
+			(NOT EXISTS(SELECT 1 FROM compaction_settings WHERE singleton=1)
+			 AND NOT EXISTS(SELECT 1 FROM user_personal_settings WHERE kind='compaction'))
+			OR (
+				CASE WHEN json_valid(body) THEN json_extract(body,'$.guidance') IS NULL ELSE 0 END
+				AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=agent_runs.turn)
+				AND turn IN (
+					SELECT t.id FROM turns t
+					JOIN users u ON u.id=t.user AND u.state='active'
+					JOIN identity_turn_origins origin ON origin.turn=t.id AND origin.user=u.id
+					JOIN identity_storage_origin legacy ON legacy.singleton=1
+					WHERE CASE WHEN u.id=legacy.user
+						THEN NOT EXISTS(SELECT 1 FROM compaction_settings WHERE singleton=1)
+						ELSE NOT EXISTS(SELECT 1 FROM user_personal_settings s WHERE s.user=u.id AND s.kind='compaction')
+					END
+				)
+			)
+		)`)
+	return err
+}
+
 func upgradeToolMetadata(ctx context.Context, connection *sql.Conn) error {
 	var pending bool
 	if err := connection.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM node WHERE singleton=1 AND tool_metadata_names=0)").Scan(&pending); err != nil || !pending {

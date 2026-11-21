@@ -63,14 +63,14 @@ func pendingTokens(records []canonical.Record) uint64 {
 func compactionUsage(record canonical.Record) bool {
 	return record.Kind == "compaction" || record.Metadata.Execution != nil && record.Metadata.Execution.Purpose != nil && *record.Metadata.Execution.Purpose == canonical.PurposeCompaction
 }
-func shouldCompact(binding model.Binding, state store.AgentState, percent uint8) bool {
+func shouldCompact(binding model.Binding, state store.AgentState, policy store.CompactionPolicy) bool {
 	last := lastMessage(state.Records)
 	if last == nil || last.Role == canonical.Assistant {
 		return false
 	}
 	selected := capturedModel(binding)
 	limit := uint64(selected.Context)
-	budget := store.AgentCompactionBudget(selected, percent)
+	budget := store.AgentCompactionBudget(selected, policy)
 	if budget == nil || budget.TriggerTokens == 0 || budget.TriggerTokens >= limit {
 		return false
 	}
@@ -147,6 +147,40 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if !useful {
 		return nil
 	}
+	var preserved *canonical.Record
+	var retainMedia bool
+	if !manual {
+		if latest, _ := latestCompactionInput(selection.Tail); latest < 0 {
+			if latest, processed := latestCompactionInput(selection.Prefix); latest >= 0 {
+				preserved = &selection.Prefix[latest]
+				retainMedia = keepRecent || !processed
+			}
+		}
+	}
+	output := model.OutputLimit(binding, true)
+	cap := handoff.Cap(uint64(selected.Context), uint64(output))
+	if policy := x.inv.Compaction; !manual && keepRecent && policy.UseDefault && selected.CompactionTokens == nil {
+		var reclaimable []canonical.Record
+		for _, record := range selection.Prefix {
+			if compactionUsage(record) || record.Metadata.Runtime != nil && record.Metadata.Runtime.TurnContext || preserved != nil && record.ID == preserved.ID {
+				continue
+			}
+			reclaimable = append(reclaimable, record)
+		}
+		removable := pendingTokens(reclaimable)
+		if removable <= cap {
+			return nil
+		}
+		// Defer the soft trigger if the fixed prompt and retained history would
+		// still be over it. Near the window limit, any useful reduction counts.
+		trigger := store.AgentCompactionBudget(selected, policy).TriggerTokens
+		if windowTrigger := policy.WindowTrigger(selected.Context); trigger < windowTrigger {
+			count := contextTokens(state.Records)
+			if count <= windowTrigger && count > trigger && count-trigger > removable-cap {
+				return nil
+			}
+		}
+	}
 	summaryID := protocol.NewRequestID().String()
 	if !manual {
 		progress, _ := json.Marshal(map[string]any{"type": "compacting", "started_ms": r.clock.Now().UnixMilli()})
@@ -157,7 +191,6 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		return err
 	}
 	summaryBinding := model.Summary(binding)
-	output := model.OutputLimit(summaryBinding, true)
 	requestText := handoff.Request
 	if manual && strings.TrimSpace(x.inv.Message.Text) != "" {
 		requestText += "\n\nUser focus for the handoff:\n" + x.inv.Message.Text
@@ -240,7 +273,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if limited {
 		return failed(protocol.ConversationCompactionStageSummary, protocol.ConversationCompactionReasonTruncatedSummary, fmt.Errorf("compaction summary reached its output limit"))
 	}
-	summary, err := handoff.Parse(text.String(), handoff.Cap(uint64(selected.Context), uint64(output)))
+	summary, err := handoff.Parse(text.String(), cap)
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonUnexpectedOutput
 		if strings.TrimSpace(text.String()) == "" {
@@ -282,64 +315,22 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		record.Metadata.Execution = last.Metadata.Execution
 	}
 	records = append(records, record)
-	if len(selection.Tail) > 0 {
-		// The original tail remains after Boundary. Projection puts the new
-		// summary before it, so no copied messages or synthetic reply is needed.
-		return r.saveWithProvider(x.ctx, x.inv.Session.ID, &summaryBinding.Provider, records...)
-	}
-	// The continuation is a runtime notice, not an assistant statement or user
-	// input. Automatic compaction interrupts work in progress, so it always
-	// asks the model to keep working; only a user-requested compaction ends at
-	// a natural conversation boundary.
-	continuation := "Context was compacted. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue calling tools as necessary to complete the task."
-	if manual {
-		continuation = "Context was compacted at the user's request. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue from the summarized context."
-	}
-	continuation = "<sailry-runtime-continuation>" + continuation + "</sailry-runtime-continuation>"
-	var preserved *canonical.Record
-	var preservedInput *canonical.Message
-	retainMedia := true
-	if !manual {
-		visible := handoff.Visible(state.Records)
-		summaries := map[string]bool{}
-		for _, record := range state.Records {
-			if record.Kind == "compaction" {
-				summaries[record.ID] = true
-			}
+	if len(selection.Tail) == 0 {
+		continuation := "Context was compacted. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue calling tools as necessary to complete the task."
+		if manual {
+			continuation = "Context was compacted at the user's request. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue from the summarized context."
 		}
-		for i := len(visible) - 1; i >= 0; i-- {
-			if summaries[visible[i].ID] || compactionUsage(visible[i]) || visible[i].Metadata.Runtime != nil && visible[i].Metadata.Runtime.TurnContext {
-				continue
-			}
-			candidate, _, _ := visible[i].ModelContent()
-			if candidate != nil && candidate.Role == canonical.Assistant && candidate.Error == nil {
-				retainMedia = false
-			}
-			if candidate != nil && candidate.Role == canonical.User && !containsTool(candidate) {
-				for _, block := range candidate.Content {
-					switch block.Kind {
-					case "text", "image", "document", "file":
-						preserved, preservedInput = &visible[i], candidate
-					}
-					if preserved != nil {
-						break
-					}
-				}
-				if preserved != nil {
-					break
-				}
-			}
-		}
+		continuation = "<sailry-runtime-continuation>" + continuation + "</sailry-runtime-continuation>"
+		continued := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, continuation)), r.clock.Now())
+		continued.Provenance.Author = "assistant"
+		notice := runtime
+		notice.TurnContext = true
+		continued.Metadata.Runtime = &notice
+		records = append(records, continued)
 	}
-	continued := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, continuation)), r.clock.Now())
-	continued.Provenance.Author = "assistant"
-	notice := runtime
-	notice.TurnContext = true
-	continued.Metadata.Runtime = &notice
-	records = append(records, continued)
 	if preserved != nil {
 		var blocks []canonical.Block
-		for _, block := range preservedInput.Content {
+		for _, block := range preserved.Message().Content {
 			switch block.Kind {
 			case "text":
 			case "image", "document", "file":
@@ -352,15 +343,44 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 			block.Index = uint64(len(blocks))
 			blocks = append(blocks, block)
 		}
-		// Pending attachments keep their original turn binding, including when
-		// guidance joined this run. Already processed media stays in history.
-		carry := canonical.NewRecord(preserved.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
-		carry.Provenance.Author = "assistant"
-		carry.Metadata.Runtime = &runtime
-		records = append(records, carry)
+		if len(blocks) > 0 {
+			// A split can cover the current user input. Keep its exact content
+			// and original attachment binding alongside the retained exchanges.
+			carry := canonical.NewRecord(preserved.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
+			carry.Provenance.Author = "assistant"
+			carry.Metadata.Runtime = &runtime
+			records = append(records, carry)
+		}
 	}
 	return r.saveWithProvider(x.ctx, x.inv.Session.ID, &summaryBinding.Provider, records...)
 }
+
+func latestCompactionInput(records []canonical.Record) (index int, processed bool) {
+	for i := len(records) - 1; i >= 0; i-- {
+		record := records[i]
+		if compactionUsage(record) || record.Metadata.Runtime != nil && record.Metadata.Runtime.TurnContext {
+			continue
+		}
+		message := record.Message()
+		if message == nil {
+			continue
+		}
+		if message.Role == canonical.Assistant && message.Error == nil {
+			processed = true
+		}
+		if message.Role != canonical.User || containsTool(message) {
+			continue
+		}
+		for _, block := range message.Content {
+			switch block.Kind {
+			case "text", "image", "document", "file":
+				return i, processed
+			}
+		}
+	}
+	return -1, processed
+}
+
 func containsTool(message *canonical.Message) bool {
 	for _, block := range message.Content {
 		if block.Kind == "tool_request" || block.Kind == "tool_response" {

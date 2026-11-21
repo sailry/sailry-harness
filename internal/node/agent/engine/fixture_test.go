@@ -109,7 +109,12 @@ type engineFixture struct {
 
 func newFixture(t *testing.T, m *scriptedModel, tools ...Tool) *engineFixture {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	return newFixtureWithTimeout(t, m, 5*time.Second, tools...)
+}
+
+func newFixtureWithTimeout(t *testing.T, m *scriptedModel, timeout time.Duration, tools ...Tool) *engineFixture {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	t.Cleanup(cancel)
 	profile, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

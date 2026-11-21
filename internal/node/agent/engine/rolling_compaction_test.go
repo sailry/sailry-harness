@@ -144,12 +144,16 @@ func TestRollingCompactionAdvancesWithinOneLongToolTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := f.state()
-	if len(after.Records) != len(before.Records)+1 || m.count() != 1 {
-		t.Fatal("one long tool turn did not compact its completed prefix")
+	if len(after.Records) != len(before.Records)+2 || m.count() != 1 {
+		t.Fatalf("compaction appended %d records and made %d requests, want checkpoint, carried input and one request", len(after.Records)-len(before.Records), m.count())
 	}
 	summary := after.Records[len(before.Records)]
 	projected := model.VisibleRecords(after.Records)
-	if summary.Data.(*canonical.Compaction).Boundary != old[1].ID || len(projected) != 3 || projected[0].ID != summary.ID || !reflect.DeepEqual(projected[1:], tail) || !reflect.DeepEqual(model.Answered(projected), projected) {
+	if summary.Data.(*canonical.Compaction).Boundary != old[1].ID || len(projected) != 4 || projected[0].ID != summary.ID || !reflect.DeepEqual(projected[1:3], tail) || !reflect.DeepEqual(model.Answered(projected), projected) {
 		t.Fatal("long-turn compaction split or copied the newest tool exchange")
+	}
+	carried := projected[3].Message()
+	if carried == nil || carried.Role != canonical.User || len(carried.Content) != 1 || carried.Content[0].Data.(*canonical.TextContent).Text != "Original task" {
+		t.Fatal("long-turn compaction did not carry the original user input")
 	}
 }

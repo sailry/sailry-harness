@@ -549,9 +549,12 @@ Delegated children can record and restore their own plan only when their role
 explicitly selects that tool.
 Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
-Automatic compaction uses the captured model and defaults to 80% of its context
-window. Summaries preserve original records and raw tool output. Context-length
-failures allow up to two reactive compactions.
+Automatic compaction uses the captured model and the lower of 80% of its context
+window and 128,000 tokens by default. An explicit model token limit or saved
+percentage takes precedence. If the fixed prompt and retained history would
+still exceed the soft trigger, a useful reduction can wait until the window's
+percentage threshold. Summaries preserve original records and raw tool output.
+Context-length failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
 Edits save when the editor loses focus, using that Node's revision.
@@ -579,6 +582,7 @@ can exceed that soft target. The summary is projected before
 that tail even though its checkpoint is appended later in storage. Summaries
 contain attachment references rather than payloads and use no tool definitions;
 loaded tool declarations are retained only where used or discovered in the tail.
+An automatic cut within the current turn carries its user input and attachments.
 An overflow recovery may summarize the full visible history while carrying the
 latest user request and its pending attachments. The previous summary is never
 silently omitted to make the summary request fit. A failed request leaves the

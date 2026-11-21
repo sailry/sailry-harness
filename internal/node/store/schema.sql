@@ -336,7 +336,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     input BLOB DEFAULT NULL,
     hooks BLOB NOT NULL,
     compaction_percent INTEGER NOT NULL DEFAULT 80 CHECK(compaction_percent BETWEEN 1 AND 99),
-    media BLOB DEFAULT NULL
+    media BLOB DEFAULT NULL,
+    compaction_default INTEGER NOT NULL DEFAULT 0 CHECK(compaction_default IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS agent_events (
     sequence INTEGER PRIMARY KEY,

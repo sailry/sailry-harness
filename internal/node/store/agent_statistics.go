@@ -210,13 +210,16 @@ func cloneAgentStatisticsUsage(result protocol.UsageMetrics) protocol.UsageMetri
 }
 
 // AgentCompactionBudget describes the same captured threshold used by execution.
-func AgentCompactionBudget(selected protocol.ConversationModel, percent uint8) *protocol.ConversationCompactionBudget {
+func AgentCompactionBudget(selected protocol.ConversationModel, policy CompactionPolicy) *protocol.ConversationCompactionBudget {
 	if selected.Context == 0 {
 		return nil
 	}
-	trigger := uint64(selected.Context) * uint64(percent) / 100
+	const defaultWorkingSet = 128_000
+	trigger := policy.WindowTrigger(selected.Context)
 	if selected.CompactionTokens != nil {
 		trigger = uint64(*selected.CompactionTokens)
+	} else if policy.UseDefault {
+		trigger = min(trigger, defaultWorkingSet)
 	}
 	binding := model.Binding{Config: protocol.SessionConfig{Model: selected.ID}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{selected}}}
 	output := uint32(model.OutputLimit(binding, true))
@@ -225,12 +228,12 @@ func AgentCompactionBudget(selected protocol.ConversationModel, percent uint8) *
 
 func agentStatisticsBudget(ctx context.Context, db *sql.Conn, session protocol.Session) (*protocol.ConversationCompactionBudget, error) {
 	var provider, config []byte
-	var percent uint8
-	err := db.QueryRowContext(ctx, `SELECT r.provider,revision.config,r.compaction_percent FROM agent_runs r JOIN turns t ON t.id=r.turn
+	var policy CompactionPolicy
+	err := db.QueryRowContext(ctx, `SELECT r.provider,revision.config,r.compaction_percent,r.compaction_default FROM agent_runs r JOIN turns t ON t.id=r.turn
  JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
  LEFT JOIN agent_pending pending ON pending.turn=r.turn
  WHERE t.session=?1 AND json_extract(r.body,'$.status') IN ('running','stopping','queued')
- ORDER BY CASE WHEN json_extract(r.body,'$.status')='queued' THEN 1 ELSE 0 END,pending.position,t.rowid LIMIT 1`, session.ID.String()).Scan(&provider, &config, &percent)
+ ORDER BY CASE WHEN json_extract(r.body,'$.status')='queued' THEN 1 ELSE 0 END,pending.position,t.rowid LIMIT 1`, session.ID.String()).Scan(&provider, &config, &policy.Percent, &policy.UseDefault)
 	var selected *protocol.ConversationProvider
 	if err == nil {
 		if len(provider) > 0 {
@@ -253,23 +256,21 @@ func agentStatisticsBudget(ctx context.Context, db *sql.Conn, session protocol.S
 				selected = saved.Provider
 			}
 		}
-		settings, e := ReadCompaction(ctx, db)
-		if e != nil {
-			return nil, e
+		if policy, err = readCompactionPolicy(ctx, db); err != nil {
+			return nil, err
 		}
-		percent = settings.Percent
 	} else {
 		return nil, err
 	}
 	if selected != nil {
 		if i := slices.IndexFunc(selected.Models, func(m protocol.ConversationModel) bool { return m.ID == session.Config.Model }); i >= 0 {
-			return AgentCompactionBudget(selected.Models[i], percent), nil
+			return AgentCompactionBudget(selected.Models[i], policy), nil
 		}
 		if len(selected.Models) == 0 && session.Config.Model != "" {
 			// A provider without a model list runs any name on a derived window.
 			unlisted := protocol.DefaultConversationModel()
 			unlisted.ID, unlisted.Context = session.Config.Model, model.ContextLimit(model.Binding{Provider: *selected, Config: session.Config})
-			return AgentCompactionBudget(unlisted, percent), nil
+			return AgentCompactionBudget(unlisted, policy), nil
 		}
 	}
 	return nil, nil

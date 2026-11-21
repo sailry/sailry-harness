@@ -835,7 +835,7 @@ func TestCompactionAtThreshold(t *testing.T) {
 			// it contributes no tokens and cannot change the exact boundary.
 			usage.Message().Role = canonical.User
 			state := store.AgentState{Records: []canonical.Record{usage, input}}
-			if got := shouldCompact(binding, state, row.percent); got != row.want {
+			if got := shouldCompact(binding, state, store.CompactionPolicy{Percent: row.percent, UseDefault: true}); got != row.want {
 				t.Fatalf("threshold=%v, want %v", got, row.want)
 			}
 		})
@@ -848,7 +848,7 @@ func TestCompactionAtThreshold(t *testing.T) {
 		for tokens, want := range map[uint64]bool{102400: false, 102401: true} {
 			usage := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User), manualNow())
 			usage.Message().Usage = &canonical.Usage{Total: &tokens}
-			if got := shouldCompact(binding, store.AgentState{Records: []canonical.Record{usage}}, 80); got != want {
+			if got := shouldCompact(binding, store.AgentState{Records: []canonical.Record{usage}}, store.CompactionPolicy{Percent: 80, UseDefault: true}); got != want {
 				t.Fatalf("threshold at %d = %v, want %v", tokens, got, want)
 			}
 		}
