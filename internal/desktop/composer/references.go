@@ -77,6 +77,17 @@ func parseTrigger(text string, caret int) trigger {
 // token is a reference's text in the draft.
 func token(r Reference) string { return "@" + strings.TrimPrefix(r.Label, "@") }
 
+// rowKey keys a picker row by its owning page's Source, its Kind and its ID
+// together, so rows from independent owners that share a bare ID (a files
+// row and a same-named plugin) never collide into one framework state.
+type rowKey struct {
+	source string
+	kind   ReferenceKind
+	id     string
+}
+
+func refKey(r Reference) rowKey { return rowKey{source: r.Source, kind: r.Kind, id: r.ID} }
+
 // active are the references whose chip is still in the draft.
 func (s *State) active() []Reference {
 	var out []Reference
@@ -445,7 +456,7 @@ func (s *State) referenceRow(c *ui.Context, ctx *Context, actions Actions, r Ref
 	st := &s.ref
 	selected := i == st.sel
 	name := label(c, r)
-	b := ui.ButtonBase(c.Key(r.ID)).Label(name).FillWidth().Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
+	b := ui.ButtonBase(c.Key(refKey(r))).Label(name).FillWidth().Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
 		AlignItems(ui.Center).Role(ui.RoleOption).AccessSelected(selected).TabStop(false)
 	if b.Hovered() {
 		x, y, _ := b.PointerPosition()
