@@ -1119,6 +1119,10 @@ dependency or microphone permission; audio and video attachments remain supporte
 `--preview` opens no profile and starts no Node. Explicit
 acceptance and replay run in isolated processes; their limits and commands are in
 [CONTRIBUTING.md](CONTRIBUTING.md#manual-acceptance).
+The standalone Host runs the `cache-tools` acceptance experiment in its test
+Node. The Node captures the selected channel and keeps its credentials local to
+the standard Responses SDK transport. The experiment reports per-request usage
+without creating a conversation.
 
 Mobile reserves pairing code `888888` for a local demonstration host with the
 ordinary host presentation. Flutter persists this choice separately from Link
