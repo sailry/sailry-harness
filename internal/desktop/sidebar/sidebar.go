@@ -59,7 +59,8 @@ type State struct {
 
 	renaming         string // the conversation renamed in place
 	draft            string // its title as typed
-	drawn            bool   // its input is built, in its first row, this frame
+	drawn            bool   // its input has been built this frame
+	renameKind       rowKind
 	renameTarget     *viewmodel.Conversation
 	renamePending    bool
 	renameGeneration uint64
@@ -445,6 +446,7 @@ const (
 	rowPlain  rowKind = iota // chats without a project
 	rowTree                  // under a project, on the tree guide
 	rowPinned                // pinned: the project's name, and drags to reorder
+	rowAny    rowKind = -1   // use the first visible copy
 )
 
 // RowKey keys a session's element among its siblings: its host and its ID,
@@ -455,23 +457,26 @@ func RowKey(cv *preview.Conversation) any { return rowKey{cv.Node, cv.ID} }
 type rowKey struct{ node, id string }
 
 // conversation is a session row: its status, title and age, and on hover a
-// pin and an archive button. A double click keeps its tab open. Its right-
-// click menu is the system's; the pointer resting on it shows its details in
-// a card. It drags onto the workspace to open in a split, wearing the drag
-// preview's look.
+// pin and an archive button. Double-clicking the title edits it in place.
+// Its right-click menu is the system's and its details show in a hover card.
+// It drags onto the workspace to open in a split, wearing the drag preview's look.
 func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind) {
 	p := theme.Of(c)
-	if s.renamingRow(cv) && !s.drawn {
-		s.drawn = true
-		s.renameRow(c, cv)
-		return
-	}
+	editing := s.renamingRow(cv) && !s.drawn && (s.renameKind == rowAny || s.renameKind == kind)
 	selected := cv == s.current
 	title := Title(c, cv)
-	b := ui.ButtonBase(c.Key(RowKey(cv))).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
+	row := c.Key(RowKey(cv))
+	var b ui.Element
+	if editing {
+		s.drawn = true
+		b = ui.Row(row).Center().Shrink(0)
+	} else {
+		b = ui.ButtonBase(row).Label(title)
+	}
+	b.Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered := b.Hovered()
 	b.Background(p.SidebarItem(selected, hovered))
-	if selected {
+	if selected && !editing {
 		b.AccessSelected(true)
 	}
 	text := p.MutedForeground
@@ -481,21 +486,24 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	case hovered || cv.Status == preview.Running:
 		text = p.SidebarForeground
 	}
-	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title, Node: cv.Node})
-	switch {
-	case kind == rowPinned:
-		s.reorder(c, b, cv, func(source *preview.Conversation) bool { return source.Pinned },
-			func(source *preview.Conversation, after bool) { s.MovePin(source, cv, after) })
-	case kind == rowTree && s.sort() == SortCreated:
-		// The manual order is the Node's, which only the creation order
-		// shows.
-		s.reorder(c, b, cv, func(source *preview.Conversation) bool { return s.sessionDrag(source, cv) },
-			func(source *preview.Conversation, after bool) { s.MoveSession(source, cv, after) })
-	}
-	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
-	s.details(c, b, cv)
-	if kit.DragChip(c, b, title) {
-		return
+	if !editing {
+		b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title, Node: cv.Node})
+		switch {
+		case kind == rowPinned:
+			s.reorder(c, b, cv, func(source *preview.Conversation) bool { return source.Pinned },
+				func(source *preview.Conversation, after bool) { s.MovePin(source, cv, after) })
+		case kind == rowTree && s.sort() == SortCreated:
+			// The manual order is the Node's, which only the creation order
+			// shows.
+			s.reorder(c, b, cv, func(source *preview.Conversation) bool { return s.sessionDrag(source, cv) },
+				func(source *preview.Conversation, after bool) { s.MoveSession(source, cv, after) })
+		}
+		b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
+		s.details(c, b, cv)
+		if kit.DragChip(c, b, title) {
+			return
+		}
+		b.OnClick(func() { s.show(cv) })
 	}
 	b.TextColor(text).Children(func() {
 		if cv.Offline {
@@ -504,7 +512,14 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		} else {
 			status(c, cv.Status)
 		}
-		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
+		if editing {
+			s.renameTitle(c, cv, text)
+		} else {
+			name := kit.Level(c, ui.Text(c.Key("title"), title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
+			if !cv.Archived && b.DoubleClicked() && name.Hovered() {
+				s.startRename(cv, kind)
+			}
+		}
 		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)
 		}
@@ -536,7 +551,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			}
 			ui.Text(c, ageAt(c, cv.Updated, now)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
 		}
-	}).OnClick(func() { s.show(cv) })
+	})
 }
 
 func (s *State) nonMainWorktree(cv *preview.Conversation) bool {

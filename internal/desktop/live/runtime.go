@@ -533,13 +533,17 @@ func (r *Runtime) drain(c *ui.Context) {
 		}
 	}
 	owner := r.selectedRuntime()
+	if owner != r {
+		r.clearWorkspaceSelection()
+	}
+	for _, bound := range r.bindings {
+		if owner != bound {
+			bound.clearWorkspaceSelection()
+		}
+	}
 	if owner != nil {
 		owner.workspaceFrame(c)
 	} else {
-		if r.workspace != nil {
-			r.releaseSelectedWorkspace()
-			r.workspace.selected = protocol.WorktreeID{}
-		}
 		r.App.Panel.Actions = nil
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		r.App.Panel.Session = false
@@ -637,6 +641,7 @@ func (r *Runtime) finishFrame() {
 			delete(r.conversationWatches, id)
 		}
 	}
+	r.pruneWorkspaceCheckpoints()
 	// A watched conversation's Removed is only absence from a snapshot, which
 	// a withdrawn permission also causes; the Node's removal event forgets.
 	removed, next := r.controller.RemovedSessions(r.removedRead)

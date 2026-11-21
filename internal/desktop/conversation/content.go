@@ -93,12 +93,9 @@ func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 			f.Image = &image
 		}
 		if f.Image != nil && f.Image.Source != nil && f.Kind != ImageFile {
-			t := kit.Image(c.Key("thumb"), f.Image.Source, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless,
+			kit.Image(c.Key("thumb"), f.Image.Source, kit.ImageProps{Fill: true, Height: 200, Contain: true, Variant: kit.ImageBorderless,
 				Alt: i18n.T(c, "artifact_open"), OnOpen: open}).
-				FillWidth().Radius(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border)
-			// A page's picture is a glimpse of it, cropped to cover: at its
-			// own proportions a wide card would stand taller than the reply.
-			t.Height(200)
+				FillWidth().Padding(12).Radius(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border)
 		}
 		ui.Row(c).FillWidth().MinWidth(0).Padding(8).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Height(56).Grow(1).MinWidth(0).Gap(12).PaddingX(8).AlignItems(ui.Center).Children(func() {

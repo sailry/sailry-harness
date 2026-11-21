@@ -181,7 +181,7 @@ func (p *workspaceProject) openWorktree(c *ui.Context, path string) {
 	}
 	comp := r.App.Composer(id)
 	if _, exists := r.session(id); !exists {
-		r.selectDraftWorktree(comp, path)
+		p.selectDraftWorktree(comp, path)
 		return
 	}
 	if !r.canMoveWorkspace(id, comp) {

@@ -11,7 +11,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // notice tells that an action would leave the preview: it would write
@@ -507,7 +506,12 @@ func (s *State) remove(pr *preview.Project) {
 
 // StartRename edits a conversation's title in place.
 func (s *State) StartRename(cv *preview.Conversation) {
+	s.startRename(cv, rowAny)
+}
+
+func (s *State) startRename(cv *preview.Conversation, kind rowKind) {
 	s.renaming, s.draft = cv.ID, cv.Title
+	s.renameKind = kind
 	s.renameTarget = cv
 	s.renamePending = false
 	s.renameGeneration++
@@ -519,11 +523,9 @@ func (s *State) renamingRow(cv *preview.Conversation) bool {
 	return s.renaming != "" && s.renameTarget != nil && RowKey(s.renameTarget) == RowKey(cv)
 }
 
-// renameRow is the row of the conversation renamed: an input with its
-// title, which Enter or leaving it keeps, and Escape gives up. An empty
-// title stays in the input with a toast.
-func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
-	p := theme.Of(c)
+// renameTitle takes the title's place in the row. Enter or leaving it keeps
+// a valid title, and Escape gives up.
+func (s *State) renameTitle(c *ui.Context, cv *preview.Conversation, text ui.Color) {
 	commit := func() {
 		if !s.renamingRow(cv) || s.renamePending {
 			return
@@ -549,26 +551,21 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 		}
 		cv.Title, s.renaming = title, ""
 	}
-	ui.Row(c.Key(RowKey(cv))).Height(rowHeight).PaddingStart(indent - 6).PaddingEnd(4).Children(func() {
-		in := ui.TextInputBase(c.Key("rename"), &s.draft).Grow(1).Height(24).PaddingX(6).Radius(p.Radius).
-			Border(1, p.Ring).Background(p.Background).TextColor(p.Foreground).FontSize(14).
-			Label(i18n.T(c, "workspace_rename")).AutoFocus().Disabled(s.renamePending)
-		in.OnSubmit(commit)
-		if in.Shortcut(0, ui.KeyEscape) {
+	in := ui.TextInputBase(c.Key("rename"), &s.draft).Grow(1).Shrink(1).FontSize(14).
+		TextColor(text).CaretColor(text).FocusRing(false).
+		Label(i18n.T(c, "workspace_rename")).AutoFocus().Disabled(s.renamePending)
+	kit.Level(c, in, 14, cv.Title)
+	in.OnSubmit(commit)
+	if in.Shortcut(0, ui.KeyEscape) {
+		s.renaming = ""
+	}
+	if in.FocusLeft() && s.renamingRow(cv) && !s.renamePending {
+		if _, ok := ValidTitle(s.draft); ok {
+			commit()
+		} else {
 			s.renaming = ""
 		}
-		if in.FocusLeft() && s.renamingRow(cv) && !s.renamePending {
-			// Leaving the input keeps a valid title and gives up an empty one.
-			if title, ok := ValidTitle(s.draft); ok {
-				if s.Actions != nil && s.Actions.Rename != nil {
-					commit()
-					return
-				}
-				cv.Title = title
-			}
-			s.renaming = ""
-		}
-	})
+	}
 }
 
 // dialogs are the sidebar's project editor and its confirmation.

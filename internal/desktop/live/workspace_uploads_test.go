@@ -321,7 +321,8 @@ func testWorkspaceUploads(t *testing.T) {
 		}
 		// A restored file no longer matches its checkpoint, so a later Undo continues after it.
 		restored, changed := protocol.CheckpointID{1}, protocol.CheckpointID{2}
-		p.checkpointOrder = map[string][]protocol.ConversationCheckpointFile{"turn": {{ID: restored, Worktree: worktree, Path: "restored"}, {ID: changed, Worktree: worktree, Path: "changed"}}}
+		checkpoints := p.sessionCheckpoints(session)
+		checkpoints.files["turn"] = []protocol.ConversationCheckpointFile{{ID: restored, Worktree: worktree, Path: "restored"}, {ID: changed, Worktree: worktree, Path: "changed"}}
 		undo := func(finish func(bool)) { p.restoreTurn(session, "turn", "", finish) }
 		if ok, sent := run(undo); ok || sent != restored.String()+","+changed.String() {
 			t.Fatal("failed Undo =", ok, sent)
@@ -329,26 +330,26 @@ func testWorkspaceUploads(t *testing.T) {
 		transport.mu.Lock()
 		transport.conflict = false
 		transport.mu.Unlock()
-		if ok, sent := run(undo); !ok || sent != changed.String() || !p.undone("turn")[""] || len(p.restoreBatches) != 0 {
+		if ok, sent := run(undo); !ok || sent != changed.String() || !checkpoints.undone("turn", worktree)[""] || len(p.restoreBatches) != 0 {
 			t.Fatal("Undo after its failure =", ok, sent)
 		}
 		// The card reads the Node's list: a file is undone once each of its
 		// changes was restored, the turn once every file in this worktree is.
 		other := protocol.NewWorktreeID()
-		p.checkpointOrder = map[string][]protocol.ConversationCheckpointFile{"listed": {
+		checkpoints.files["listed"] = []protocol.ConversationCheckpointFile{
 			{ID: protocol.CheckpointID{3}, Worktree: worktree, Path: "once", Restored: true},
 			{ID: protocol.CheckpointID{4}, Worktree: worktree, Path: "twice", Restored: true},
 			{ID: protocol.CheckpointID{5}, Worktree: worktree, Path: "twice"},
 			{ID: protocol.CheckpointID{6}, Worktree: other, Path: "elsewhere"},
-		}}
-		if got := p.undone("listed"); len(got) != 1 || !got["once"] {
+		}
+		if got := checkpoints.undone("listed", worktree); len(got) != 1 || !got["once"] {
 			t.Fatal("partly restored turn =", got)
 		}
-		p.checkpointOrder["listed"][2].Restored = true
-		if got := p.undone("listed"); len(got) != 3 || !got["once"] || !got["twice"] || !got[""] {
+		checkpoints.files["listed"][2].Restored = true
+		if got := checkpoints.undone("listed", worktree); len(got) != 3 || !got["once"] || !got["twice"] || !got[""] {
 			t.Fatal("restored turn =", got)
 		}
-		if got := p.undone("unread"); len(got) != 0 {
+		if got := checkpoints.undone("unread", worktree); len(got) != 0 {
 			t.Fatal("turn without checkpoints =", got)
 		}
 	})

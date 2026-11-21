@@ -92,18 +92,34 @@ func workspaceChanges(status protocol.GitStatus) *composer.Changes {
 	return value
 }
 func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context) {
-	r.workspaceFrame(nil)
+	if r.workspace == nil {
+		r.initWorkspace()
+	}
+	r.projectWorkspaceLocations()
 	session, ok := r.session(cv.ID)
 	if !ok {
 		session, ok = r.draftWorkspaceSession(cv.ID)
 	}
 	var p *workspaceProject
 	if ok {
-		p = r.workspace.projects[session.Worktree]
+		if worktree, found := r.workspaceWorktree(session.Worktree); found {
+			p = r.workspaceFor(worktree)
+		}
 	}
 	if p == nil {
 		ctx.Repository = composer.Repository{Kind: composer.Unavailable}
+		comp.ActivityCallbacks = nil
 		return
+	}
+	if r.controller.Connected() {
+		if !p.statusKnown {
+			p.inspectGit()
+		}
+		if session.ID != (protocol.SessionID{}) {
+			if state, observed := r.conversationState(session.ID); observed && state.Connected {
+				p.readPageResources(state.Snapshot.Page)
+			}
+		}
 	}
 	for index := range ctx.Projects {
 		for _, project := range r.App.Data.Projects {
@@ -132,10 +148,13 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		if _, exists := r.session(id); exists {
 			r.selectConversationWorktree(id, comp, relative)
 		} else {
-			r.selectDraftWorktree(comp, relative)
+			p.selectDraftWorktree(comp, relative)
 		}
 	}, WorktreeLabel: func(relative string) string {
 		for _, project := range r.App.Data.Projects {
+			if project.ID != comp.Project || project.Host != "" && project.Host != r.controller.Target().String() {
+				continue
+			}
 			for _, tree := range project.Worktrees {
 				if tree.Path == relative && tree.Branch != "" {
 					return tree.Branch
@@ -144,13 +163,18 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		}
 		return relative
 	}}
+	checkpoints := p.checkpointSessions[session.ID]
+	if checkpoints == nil {
+		return
+	}
 	for index := range cv.Turns {
 		turn := &cv.Turns[index]
-		changes, loaded := p.turnChanges[turn.ID]
+		changes, loaded := checkpoints.changes[turn.ID]
 		if !loaded {
+			turn.Reply.Changes = nil
 			continue
 		}
-		turn.Reply.Changes = &conversation.Changes{Files: changes, Undone: p.undone(turn.ID)}
+		turn.Reply.Changes = &conversation.Changes{Files: changes, Undone: checkpoints.undone(turn.ID, p.owner.ID)}
 	}
 }
 
@@ -278,13 +302,13 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 		return
 	}
 	p.reviewTarget = &workspaceTurnReview{turn: id, path: path}
-	p.read("review-turn/"+turn, protocol.Command{Kind: "read_turn_diff", Data: protocol.CommandReadTurnDiffPayload{Session: session.ID, Turn: id}}, func(c *ui.Context, out protocol.Output) {
+	p.read("review-turn/"+session.ID.String()+"/"+turn, protocol.Command{Kind: "read_turn_diff", Data: protocol.CommandReadTurnDiffPayload{Session: session.ID, Turn: id}}, func(c *ui.Context, out protocol.Output) {
 		value, ok := detail[protocol.ConversationCheckpointTurnDiff](out.Data)
-		if !ok || p.session != session.ID || p.reviewTarget == nil || p.reviewTarget.turn != id {
+		if !ok || p.session != session.ID || r.App.Sidebar.Selected != session.ID.String() || r.selectedRuntime() != r || p.reviewTarget == nil || p.reviewTarget.turn != id {
 			return
 		}
 		changes := workspaceTurnFiles(value)
-		p.turnChanges[turn] = workspaceTurnSummary(value)
+		p.sessionCheckpoints(session.ID).recordChanges(turn, workspaceTurnSummary(value))
 		p.turnView = &id
 		for _, file := range value.Files {
 			p.panel.SetGitDiffState(file.Path, "all", panel.GitDiffState{Binary: file.Binary, Partial: file.Truncated})
@@ -353,11 +377,11 @@ func (r *Runtime) undoWorkspaceTurn(x *conversationActions, turn, relative strin
 // undone once every change the turn made to it was restored, and the turn
 // (the empty path) once every file is. It is the same after a restart, a
 // session switch and on another controller.
-func (p *workspaceProject) undone(turn string) map[string]bool {
+func (c *workspaceCheckpoints) undone(turn string, worktree protocol.WorktreeID) map[string]bool {
 	var out map[string]bool
 	all := false
-	for _, file := range p.checkpointOrder[turn] {
-		if file.Worktree != p.owner.ID {
+	for _, file := range c.files[turn] {
+		if file.Worktree != worktree {
 			continue
 		}
 		if out == nil {
@@ -379,10 +403,13 @@ func (p *workspaceProject) undone(turn string) map[string]bool {
 	return out
 }
 func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relative string, done func(bool)) {
+	checkpoints := p.checkpointSessions[session]
 	commands := []protocol.Command{}
-	for _, file := range p.checkpointOrder[turn] {
-		if file.Worktree == p.owner.ID && (relative == "" || file.Path == relative) {
-			commands = append(commands, protocol.Command{Kind: "restore_file_checkpoint", Data: protocol.CommandRestoreFileCheckpointPayload{Session: session, Checkpoint: file.ID, Worktree: p.owner.ID}})
+	if checkpoints != nil {
+		for _, file := range checkpoints.files[turn] {
+			if file.Worktree == p.owner.ID && (relative == "" || file.Path == relative) {
+				commands = append(commands, protocol.Command{Kind: "restore_file_checkpoint", Data: protocol.CommandRestoreFileCheckpointPayload{Session: session, Checkpoint: file.ID, Worktree: p.owner.ID}})
+			}
 		}
 	}
 	if len(commands) == 0 {
@@ -412,10 +439,12 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 	p.fileCommandsFinish(batch, commands, done, func() {
 		delete(p.restoreBatches, key)
 		// The Node answered every restore; its list says the same when read again.
-		for i := range p.checkpointOrder[turn] {
-			file := &p.checkpointOrder[turn][i]
-			if file.Worktree == p.owner.ID && (relative == "" || file.Path == relative) {
-				file.Restored = true
+		if current := p.checkpointSessions[session]; current != nil {
+			for i := range current.files[turn] {
+				file := &current.files[turn][i]
+				if file.Worktree == p.owner.ID && (relative == "" || file.Path == relative) {
+					file.Restored = true
+				}
 			}
 		}
 		p.refresh()
@@ -428,16 +457,16 @@ func (r *Runtime) createComposerWorktree(x *conversationActions) {
 	}
 	r.openManagedConversation(x.cv, captured, false, func(tree protocol.Worktree) { x.comp.Worktree = tree.Path })
 }
-func (r *Runtime) selectDraftWorktree(comp *composer.State, relative string) {
+func (p *workspaceProject) selectDraftWorktree(comp *composer.State, relative string) {
+	r := p.runtime
+	if p.owner.Project == nil || p.owner.Project.String() != comp.Project {
+		return
+	}
 	for _, tree := range r.snapshot().Worktrees {
 		if tree.Path == relative && tree.Project != nil && tree.Project.String() == comp.Project {
 			comp.Worktree = relative
 			return
 		}
-	}
-	p := r.workspace.projects[r.workspace.selected]
-	if p == nil || p.owner.Project == nil {
-		return
 	}
 	comp.Worktree = p.owner.Path
 	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *p.owner.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {

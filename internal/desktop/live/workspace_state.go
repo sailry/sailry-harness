@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -56,7 +55,7 @@ type workspaceProject struct {
 	statusKnown              bool
 	worktrees                protocol.GitWorktrees
 	locationsLoaded          bool
-	turnChanges              map[string][]conversation.ChangedFile
+	checkpointSessions       map[protocol.SessionID]*workspaceCheckpoints
 	reviewTurns              map[string]protocol.TurnID
 	turnView                 *protocol.TurnID
 	reviewTarget             *workspaceTurnReview
@@ -78,7 +77,6 @@ type workspaceProject struct {
 	diffContents             map[string][]viewmodel.Hunk
 	manualDiffs              map[string]workspaceGitDiff
 	resourceSignature        string
-	resourceRuns             map[protocol.TurnID]protocol.ConversationStatus
 	resourceOlder            bool
 	restoreBatches           map[string]*fileBatch
 	uncertainOperations      map[string]protocol.Command
@@ -88,8 +86,6 @@ type workspaceProject struct {
 	directoryPages           map[string]protocol.Directory
 	directoryEntries         map[string][]protocol.FileEntry
 	directoryStates          map[string]panel.DirectoryState
-	checkpoints              map[string]protocol.ConversationCheckpointFile
-	checkpointOrder          map[string][]protocol.ConversationCheckpointFile
 	documents                map[string]uint32
 	documentImages           map[string]*documentImages
 	artifacts                map[string]protocol.ArtifactSummary
@@ -162,20 +158,19 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
 	}
 	if !ok {
-		r.releaseSelectedWorkspace()
-		r.workspace.selected = protocol.WorktreeID{}
+		r.clearWorkspaceSelection()
 		r.App.Panel.Actions = nil
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		return
 	}
 	worktree, found := r.workspaceWorktree(session.Worktree)
 	if !found {
-		r.releaseSelectedWorkspace()
-		r.workspace.selected = protocol.WorktreeID{}
+		r.clearWorkspaceSelection()
 		r.App.Panel.Actions = nil
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		return
 	}
+	changed := r.workspace.selected != session.Worktree || r.workspace.session != session.ID
 	if r.workspace.selected != session.Worktree {
 		r.releaseSelectedWorkspace()
 	}
@@ -184,16 +179,17 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	if project == nil {
 		project = r.workspaceFor(worktree)
 	}
-	if project.session != session.ID {
+	if changed || project.session != session.ID {
 		project.session = session.ID
 		project.data.Checkpoints = nil
+		if checkpoints := project.checkpointSessions[session.ID]; checkpoints != nil {
+			project.data.Checkpoints = checkpoints.history
+		}
 		project.data.Documents = nil
-		project.checkpoints = map[string]protocol.ConversationCheckpointFile{}
-		project.checkpointOrder = map[string][]protocol.ConversationCheckpointFile{}
 		project.documents = map[string]uint32{}
 		project.hunks = map[string]protocol.ConversationCheckpointHunkReview{}
 		project.resourceSignature = ""
-		project.turnChanges = map[string][]conversation.ChangedFile{}
+		project.resourceOlder = false
 		project.reviewTurns = map[string]protocol.TurnID{}
 		project.turnView = nil
 		project.reviewTarget = nil
@@ -231,14 +227,15 @@ func (p *workspaceProject) resourceFrame() {
 	}
 	if !p.initialized {
 		p.initialized = true
-		p.refresh()
+		p.refreshFiles()
+		p.readGit()
 	}
 }
 func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
 		return project
 	}
-	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]conversation.ChangedFile{}, reviewTurns: map[string]protocol.TurnID{}}
+	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, reviewTurns: map[string]protocol.TurnID{}}
 	project.panel = panel.NewLiveProject(worktree.ID.String(), project.data, project.actions())
 	project.panel.DocumentsLocked = r.documentsLocked
 	r.workspace.projects[worktree.ID] = project
@@ -248,6 +245,17 @@ func (r *Runtime) releaseSelectedWorkspace() {
 	if old := r.selectedWorkspace(); old != nil && old != r.localRuntime().resourcePage.shown {
 		old.releaseView()
 	}
+}
+
+func (r *Runtime) clearWorkspaceSelection() {
+	if r.workspace != nil {
+		r.releaseSelectedWorkspace()
+		r.workspace.selected, r.workspace.session = protocol.WorktreeID{}, protocol.SessionID{}
+	}
+}
+
+func (p *workspaceProject) selectedSession(session protocol.SessionID) bool {
+	return p.runtime.selectedWorkspace() == p && p.session == session
 }
 
 func (p *workspaceProject) releaseView() {
@@ -465,6 +473,10 @@ func (p *workspaceProject) refresh() {
 	p.refreshFiles()
 	p.readGit()
 
+	if checkpoints := p.checkpointSessions[p.session]; checkpoints != nil {
+		clear(checkpoints.runs)
+	}
+	p.resourceOlder = false
 	p.readSessionResources()
 }
 func (p *workspaceProject) readDirectory(directory string, refresh bool) {
@@ -693,6 +705,9 @@ func (p *workspaceProject) readGit() {
 		}
 	}
 	p.diffs = map[string]bool{}
+	p.inspectGit()
+}
+func (p *workspaceProject) inspectGit() {
 	p.read("git-status", protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
 		if value, ok := detail[protocol.GitStatus](out.Data); ok {
 			p.status = value

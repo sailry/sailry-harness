@@ -10,6 +10,7 @@ import (
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -120,7 +121,6 @@ func (p *workspaceProject) readSessionResources() {
 	if p.session == (protocol.SessionID{}) {
 		return
 	}
-	p.resourceRuns, p.resourceOlder = map[protocol.TurnID]protocol.ConversationStatus{}, false
 	p.readArtifacts(p.session, nil, nil)
 	if state, ok := p.runtime.conversationState(p.session); ok {
 		p.readPageResources(state.Snapshot.Page)
@@ -130,7 +130,7 @@ func (p *workspaceProject) readSessionResources() {
 // readPageResources loads checkpoint summaries for newly observed completed runs.
 func (p *workspaceProject) readPageResources(page protocol.ConversationPage) {
 	for _, run := range page.Runs {
-		p.readRunResources(p.session, run)
+		p.readRunResources(page.Session, run)
 	}
 }
 
@@ -150,9 +150,10 @@ func (p *workspaceProject) readCheckpointHistory(page protocol.ConversationPage)
 // resourcesLoading reports whether the session's checkpoints or documents
 // are being read, so their tab shows a spinner instead of its empty state.
 func (p *workspaceProject) resourcesLoading(kind panel.Kind) bool {
-	prefixes := []string{"checkpoints/", "older-resources/"}
+	session := p.session.String() + "/"
+	prefixes := []string{checkpointReadPrefix(p.session), "older-resources/" + session}
 	if kind == panel.Documents {
-		prefixes = []string{"artifacts/"}
+		prefixes = []string{"artifacts/" + p.session.String()}
 	}
 	for key := range p.loading {
 		for _, prefix := range prefixes {
@@ -193,7 +194,7 @@ func (p *workspaceProject) readOlderResources(session protocol.SessionID, before
 	}
 	p.read("older-resources/"+session.String()+"/"+before.String(), protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session, Before: before, Limit: 100}}, func(c *ui.Context, out protocol.Output) {
 		history, ok := detail[protocol.ConversationHistory](out.Data)
-		if !ok || session != p.session {
+		if !ok || !p.selectedSession(session) {
 			return
 		}
 		page := history.Page
@@ -212,13 +213,11 @@ func (p *workspaceProject) readRunResources(session protocol.SessionID, run prot
 	if run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping {
 		return
 	}
-	if p.resourceRuns[run.Turn] == run.Status {
+	checkpoints := p.sessionCheckpoints(session)
+	if checkpoints.runs[run.Turn] == run.Status {
 		return
 	}
-	if p.resourceRuns == nil {
-		p.resourceRuns = map[protocol.TurnID]protocol.ConversationStatus{}
-	}
-	p.resourceRuns[run.Turn] = run.Status
+	checkpoints.runs[run.Turn] = run.Status
 	title := run.Turn.String()
 	if run.Input != nil && strings.TrimSpace(run.Input.Message.Text) != "" {
 		title = strings.SplitN(run.Input.Message.Text, "\n", 2)[0]
@@ -310,13 +309,13 @@ func (p *workspaceProject) readDocument(id string) {
 	})
 }
 func (p *workspaceProject) readCheckpointPage(session protocol.SessionID, turn protocol.TurnID, title string, started time.Time, before *protocol.CheckpointID, accumulated []protocol.ConversationCheckpointFile) {
-	key := "checkpoints/" + turn.String()
+	key := checkpointReadPrefix(session) + turn.String()
 	if before != nil {
 		key += "/" + before.String()
 	}
 	p.read(key, protocol.Command{Kind: "list_file_checkpoints", Data: protocol.CommandListFileCheckpointsPayload{Session: session, Turn: turn, Before: before, Limit: 100}}, func(c *ui.Context, out protocol.Output) {
 		value, ok := detail[protocol.ConversationCheckpointPage](out.Data)
-		if !ok || p.session != session {
+		if !ok || value.Session != session || value.Turn != turn {
 			return
 		}
 		accumulated = append(accumulated, value.Files...)
@@ -324,31 +323,25 @@ func (p *workspaceProject) readCheckpointPage(session protocol.SessionID, turn p
 			p.readCheckpointPage(session, turn, title, started, value.Next, accumulated)
 			return
 		}
-		p.checkpointOrder[turn.String()] = append([]protocol.ConversationCheckpointFile(nil), accumulated...)
+		checkpoints := p.sessionCheckpoints(session)
+		checkpoints.files[turn.String()] = accumulated
 		files := []string{}
 		for _, file := range accumulated {
 			if file.Worktree != p.owner.ID {
 				continue
 			}
-			p.checkpoints[file.ID.String()] = file
 			files = append(files, file.Path)
 		}
 		if len(files) == 0 {
 			return
 		}
 		checkpoint := viewmodel.Checkpoint{ID: turn.String(), Turn: title, Time: started, Files: files}
-		found := false
-		for i := range p.data.Checkpoints {
-			if p.data.Checkpoints[i].ID == checkpoint.ID {
-				p.data.Checkpoints[i] = checkpoint
-				found = true
-			}
-		}
-		if !found {
-			p.data.Checkpoints = append(p.data.Checkpoints, checkpoint)
-		}
+		checkpoints.record(checkpoint)
 		p.readCheckpointFigures(session, turn)
-		sort.SliceStable(p.data.Checkpoints, func(i, j int) bool { return p.data.Checkpoints[i].Time.After(p.data.Checkpoints[j].Time) })
+		if !p.selectedSession(session) {
+			return
+		}
+		p.data.Checkpoints = checkpoints.history
 		if relative := p.panel.Git.Change(); relative != "" && relative != ":changes" {
 			p.readTurnHunks(relative)
 		}
@@ -361,8 +354,12 @@ func (p *workspaceProject) hunkReviewTurn(relative string) (protocol.TurnID, boo
 	if selected, exists := p.reviewTurns[relative]; exists {
 		return selected, true
 	}
+	checkpoints := p.checkpointSessions[p.session]
+	if checkpoints == nil {
+		return protocol.TurnID{}, false
+	}
 	for _, checkpoint := range p.data.Checkpoints {
-		for _, file := range p.checkpointOrder[checkpoint.ID] {
+		for _, file := range checkpoints.files[checkpoint.ID] {
 			if file.Path == relative && file.Worktree == p.owner.ID {
 				return file.Turn, true
 			}
@@ -462,12 +459,12 @@ func workspaceHunkMatch(displayed viewmodel.Hunk, reviews []protocol.Conversatio
 	return matched
 }
 func (p *workspaceProject) readCheckpointFigures(session protocol.SessionID, turn protocol.TurnID) {
-	key := "checkpoint-figures/" + session.String() + "/" + turn.String()
+	key := checkpointReadPrefix(session) + turn.String() + "/diff"
 	if p.loading[key] {
 		return
 	}
 	p.loading[key] = true
-	p.runtime.executeScoped(key, protocol.Command{Kind: "read_turn_diff", Data: protocol.CommandReadTurnDiffPayload{Session: session, Turn: turn}}, func(c *ui.Context, out protocol.Output, err error) {
+	p.runtime.executeScoped("workspace-read/"+p.owner.ID.String()+"/"+key, protocol.Command{Kind: "read_turn_diff", Data: protocol.CommandReadTurnDiffPayload{Session: session, Turn: turn}}, func(c *ui.Context, out protocol.Output, err error) {
 		delete(p.loading, key)
 		if err != nil {
 			if faultCode(err) != protocol.ErrorCodeBusy {
@@ -476,20 +473,99 @@ func (p *workspaceProject) readCheckpointFigures(session protocol.SessionID, tur
 			return
 		}
 		value, ok := detail[protocol.ConversationCheckpointTurnDiff](out.Data)
-		if !ok || p.session != session {
+		if !ok || value.Session != session || value.Turn != turn {
 			return
 		}
-		changes := workspaceTurnSummary(value)
-		p.turnChanges[turn.String()] = changes
-		added, removed := 0, 0
-		for _, file := range changes {
-			added += file.Added
-			removed += file.Removed
-		}
-		for i := range p.data.Checkpoints {
-			if p.data.Checkpoints[i].ID == turn.String() {
-				p.data.Checkpoints[i].Added, p.data.Checkpoints[i].Removed = added, removed
+		p.sessionCheckpoints(session).recordChanges(turn.String(), workspaceTurnSummary(value))
+	})
+}
+
+func checkpointReadPrefix(session protocol.SessionID) string {
+	return "checkpoints/" + session.String() + "/"
+}
+
+func (r *Runtime) pruneWorkspaceCheckpoints() {
+	if r.workspace == nil {
+		return
+	}
+	for id, project := range r.workspace.projects {
+		for session := range project.checkpointSessions {
+			if r.conversationSeen[session] || id == r.workspace.selected && session == r.workspace.session {
+				continue
+			}
+			prefix := checkpointReadPrefix(session)
+			if project.checkpointReadsPending(prefix) {
+				continue
+			}
+			delete(project.checkpointSessions, session)
+			if project.session == session {
+				project.data.Checkpoints = nil
+			}
+			for key := range project.failedReads {
+				if strings.HasPrefix(key, prefix) {
+					delete(project.failedReads, key)
+				}
 			}
 		}
-	})
+	}
+}
+
+func (p *workspaceProject) checkpointReadsPending(prefix string) bool {
+	for key := range p.loading {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Checkpoint reads are shared by a session's transcript and history, but a
+// worktree's details panel only presents the selected session's history.
+type workspaceCheckpoints struct {
+	runs    map[protocol.TurnID]protocol.ConversationStatus
+	files   map[string][]protocol.ConversationCheckpointFile
+	changes map[string][]conversation.ChangedFile
+	history []viewmodel.Checkpoint
+}
+
+func (p *workspaceProject) sessionCheckpoints(session protocol.SessionID) *workspaceCheckpoints {
+	checkpoints := p.checkpointSessions[session]
+	if checkpoints == nil {
+		if p.checkpointSessions == nil {
+			p.checkpointSessions = map[protocol.SessionID]*workspaceCheckpoints{}
+		}
+		checkpoints = &workspaceCheckpoints{runs: map[protocol.TurnID]protocol.ConversationStatus{}, files: map[string][]protocol.ConversationCheckpointFile{}, changes: map[string][]conversation.ChangedFile{}}
+		p.checkpointSessions[session] = checkpoints
+	}
+	return checkpoints
+}
+
+func (c *workspaceCheckpoints) record(checkpoint viewmodel.Checkpoint) {
+	checkpoint.Added, checkpoint.Removed = checkpointTotals(c.changes[checkpoint.ID])
+	for i := range c.history {
+		if c.history[i].ID == checkpoint.ID {
+			c.history[i] = checkpoint
+			return
+		}
+	}
+	c.history = append(c.history, checkpoint)
+	sort.SliceStable(c.history, func(i, j int) bool { return c.history[i].Time.After(c.history[j].Time) })
+}
+
+func (c *workspaceCheckpoints) recordChanges(turn string, changes []conversation.ChangedFile) {
+	c.changes[turn] = changes
+	for i := range c.history {
+		if c.history[i].ID == turn {
+			c.history[i].Added, c.history[i].Removed = checkpointTotals(changes)
+			return
+		}
+	}
+}
+
+func checkpointTotals(changes []conversation.ChangedFile) (added, removed int) {
+	for _, file := range changes {
+		added += file.Added
+		removed += file.Removed
+	}
+	return added, removed
 }

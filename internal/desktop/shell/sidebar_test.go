@@ -24,6 +24,7 @@ func TestSidebarSessions(t *testing.T) {
 	t.Run("SidebarOpensConversation", testSidebarOpensConversation)
 	t.Run("SidebarShowMore", testSidebarShowMore)
 	t.Run("SidebarMenuPinsAndRenames", testSidebarMenuPinsAndRenames)
+	t.Run("SidebarDoubleClickRenamesInPlace", testSidebarDoubleClickRenamesInPlace)
 	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
 	t.Run("SidebarReordersPins", testSidebarReordersPins)
 	t.Run("SidebarReordersSessions", testSidebarReordersSessions)
@@ -511,6 +512,68 @@ func testSidebarMenuPinsAndRenames(t *testing.T) {
 	tt.Frame()
 	if cv.Title != "Theme tokens" {
 		t.Errorf("rename gave %q", cv.Title)
+	}
+}
+
+func testSidebarDoubleClickRenamesInPlace(t *testing.T) {
+	a := New(preview.Load())
+	cv := a.Data.Find("sailry-go/theme")
+	a.Sidebar.TogglePin(cv)
+	var saved []string
+	a.Sidebar.Actions = &sidebar.Actions{Rename: func(target *viewmodel.Conversation, title string, done func(bool)) {
+		if target != cv {
+			t.Errorf("rename targeted %v, want %v", target.ID, cv.ID)
+		}
+		saved = append(saved, title)
+		target.Title = title
+		done(true)
+	}}
+	tt := ui.NewTesterWith(a.View, 1280, 1280, opaque)
+	tt.SetLocale("en")
+	settle(tt)
+	original := cv.Title
+	rows := sidebarNamed(tt, original)
+	if len(rows) != 2 {
+		t.Fatalf("expected a pinned row and a project row, got %v", rows)
+	}
+	field := i18n.In("en", "workspace_rename")
+	row := rows[1].Bounds
+	x, y := row.X+row.W/4, row.Y+row.H/2
+	tt.Move(x, y)
+	const clickGap = time.Second / 60
+	tt.ClickAt(x, y)
+	tt.Advance(clickGap)
+	if _, editing := tt.AccessByRole(ui.RoleTextField, field); editing || a.Sidebar.Selected != cv.ID {
+		t.Fatalf("single click selected %q with editor open = %v", a.Sidebar.Selected, editing)
+	}
+	tt.ClickAt(x, y)
+	tt.Frame()
+	in, ok := tt.AccessByRole(ui.RoleTextField, field)
+	if !ok || !in.Focused || in.Value != original {
+		t.Fatalf("double click opened field = %v, focused = %v, with title %q, want %q", ok, in.Focused, in.Value, original)
+	}
+	if in.Bounds.X <= row.X || in.Bounds.Y < row.Y || in.Bounds.X+in.Bounds.W > row.X+row.W || in.Bounds.Y+in.Bounds.H > row.Y+row.H {
+		t.Fatalf("editor bounds %v are outside the project row %v", in.Bounds, row)
+	}
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("Discard this")
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if _, editing := tt.AccessByRole(ui.RoleTextField, field); editing || cv.Title != original || len(saved) != 0 {
+		t.Fatalf("Escape left the editor open = %v, title %q, saved %q", editing, cv.Title, saved)
+	}
+
+	tt.Advance(time.Second)
+	tt.ClickAt(x, y)
+	tt.Advance(clickGap)
+	tt.ClickAt(x, y)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("  Updated theme tokens  ")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if _, editing := tt.AccessByRole(ui.RoleTextField, field); editing || cv.Title != "Updated theme tokens" || !slices.Equal(saved, []string{"Updated theme tokens"}) {
+		t.Fatalf("Enter left the editor open = %v, title %q, saved %q", editing, cv.Title, saved)
 	}
 }
 
