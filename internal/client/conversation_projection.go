@@ -23,6 +23,10 @@ type ConversationProjection struct {
 	statisticsErr  error
 	hidden         map[string]bool
 	revealed       map[string]protocol.ConversationEntry
+	// toolActivityHidden reports that the last applied frame removed only a
+	// provisional tool-start draft. The Node never persists such a draft, so
+	// the canonical asset inventory cannot have changed.
+	toolActivityHidden bool
 }
 
 // Reveals outside the loaded extent wait for pagination, so their sequence
@@ -85,6 +89,7 @@ func (p *ConversationProjection) Reconnect(generation uint64) error {
 }
 
 func (p *ConversationProjection) Apply(generation uint64, update protocol.Update) (Apply, error) {
+	p.toolActivityHidden = false
 	if generation != p.generation {
 		return Ignored, nil
 	}
@@ -226,6 +231,8 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		})
 		if canonical || draftCount-len(v.Drafts) != 1 || !isTransientToolActivityDraft(removed) {
 			p.hidden[x.ID] = true
+		} else {
+			p.toolActivityHidden = true
 		}
 		delete(p.revealed, x.ID)
 	case "run":

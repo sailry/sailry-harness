@@ -502,7 +502,7 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 	applied, err := w.projection.Apply(generation, update)
 	if err == nil && applied == Applied {
 		w.viewVersion++
-		if changesConversationInventory(update) {
+		if changesConversationInventory(update) && !w.projection.toolActivityHidden {
 			c.conversationInventory++
 			w.state.InventoryVersion = c.conversationInventory
 		}

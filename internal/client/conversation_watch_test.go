@@ -466,6 +466,23 @@ func TestConversationInventoryVersionFollowsAcceptedHistory(t *testing.T) {
 	check(committed, Applied, true)
 	check(committed, Ignored, false)
 	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: "outside-page"}, true)
+	activity := protocol.ConversationDraft{ID: "activity", Turn: turn, Author: "sailry", Parts: []protocol.ConversationPart{
+		{Kind: "resource", Data: json.RawMessage(`{"type":"tool_started","id":"call","name":"read_file"}`)},
+	}}
+	frame("delta", activity, false)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: activity.ID}, false)
+	// The draft is gone: the same ID may now name an unloaded canonical entry.
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: activity.ID}, true)
+	frame("delta", protocol.ConversationDraft{ID: "pending", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "x"}}}, false)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: "pending"}, true)
+	progress := protocol.ConversationDraft{ID: "compacting", Turn: turn, Author: "sailry", Parts: []protocol.ConversationPart{
+		{Kind: "resource", Data: json.RawMessage(`{"type":"compacting","started_ms":1}`)},
+	}}
+	frame("delta", progress, false)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: progress.ID}, true)
+	frame("delta", activity, false)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: entry.ID}, true)
+	frame("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: activity.ID}, false)
 	frame("revealed", entry, true)
 	frame("future_change", protocol.UnknownVariant(`{"kind":"future_change"}`), true)
 	check(protocol.Update{Kind: "reset_required"}, Recover, false)
