@@ -591,8 +591,10 @@ hydrates eligible tool results after selecting its visible, answered history.
 Hidden history is filtered before materialization. In ordinary main requests,
 older tool pages can be shortened at answered batch boundaries when cumulative
 output reaches 96 KiB or observed input reaches half the model window. With
-exact output recovery available, eligible large file, search and session history
-pages are represented by their original result references and pagination facts.
+exact output recovery available, eligible older tool results use a short receipt
+with the original call and revision. File and history pages retain pagination
+facts. Successful command receipts retain the exit status and stream references.
+After a checkpoint, new batches can also shorten the retained history tail.
 The latest batch, errors and media keep their normal projection. A session
 overview returns bounded intent and reply excerpts with evidence locations;
 turn usage can be read directly without loading tool payloads. A new checkpoint resets this

@@ -59,7 +59,10 @@ func TestProcessedSessionPages(t *testing.T) {
 	const revision uint64 = 9007199254740991
 	const nextEntry uint64 = 604
 	body := strings.Repeat("Archived result text. ", 300)
-	entries := []any{map[string]any{"id": "entry", "parts": []any{map[string]any{"kind": "text", "data": body}}}}
+	entries := []any{map[string]any{"id": "entry", "parts": []any{
+		map[string]any{"kind": "text", "data": body},
+		map[string]any{"kind": "resource", "data": map[string]any{"type": "tool_result", "result": map[string]any{"error": "archived data"}}},
+	}}}
 	run := map[string]any{"turn": turn, "error": nil}
 	runs := []any{run}
 	truncatedEntries, truncatedInputs := []string{"entry"}, []protocol.TurnID{turn}
@@ -150,6 +153,184 @@ func TestProcessedSessionKeepsDiagnostics(t *testing.T) {
 			onlyResponse(&record).Name = "read_session"
 			if _, ok := Processed(record, record); ok {
 				t.Fatal("history containing critical metadata was shortened")
+			}
+		})
+	}
+}
+
+func TestProcessedRecoverableResults(t *testing.T) {
+	const originalCall = "stored-call"
+	body := strings.Repeat("bulk evidence from an old result\n", 52)
+	web := protocol.WebPage{
+		Url: "https://example.invalid/docs", Status: 200, ContentType: "text/plain", Content: body,
+		Untrusted: true, Truncated: true, NextOffset: new(uint64(20000)),
+	}
+	diff := protocol.GitDiff{Path: "file.go", Scope: protocol.GitDiffScopeAll, Text: body, Additions: 32}
+	textResult := map[string]any{"content": []any{map[string]any{
+		"type": "text", "text": encoded(map[string]any{"snapshot": body, "error": "text from a rendered window"}),
+	}}, "isError": false}
+	for _, fixture := range []struct {
+		name   string
+		value  any
+		format canonical.ToolFormat
+		want   string
+		facts  map[string]any
+	}{
+		{"web page", protocol.Output{Kind: "web_page", Data: web}, canonical.JSON, "web_page", map[string]any{"url": web.Url, "untrusted": true, "next_offset": 20000}},
+		{"web search", map[string]any{"results": []any{map[string]string{"snippet": body}}, "untrusted": true}, canonical.JSON, "json", map[string]any{"untrusted": true}},
+		{"git status", map[string]any{"branch": "main", "entries": []any{map[string]string{"path": body}}}, canonical.JSON, "json", map[string]any{"branch": "main"}},
+		{"git diff", protocol.Output{Kind: "git_diff", Data: diff}, canonical.JSON, "git_diff", map[string]any{"path": diff.Path, "additions": 32}},
+		{"plain text", body, canonical.JSON, "text", nil},
+		{"JSON array", []string{body, body}, canonical.JSON, "json", map[string]any{"items": 2}},
+		{"desktop MCP", textResult, canonical.MCP, "mcp", nil},
+		{"desktop JSON wrapper", textResult, canonical.JSON, "mcp", nil},
+		{"structured only MCP", map[string]any{"content": []any{}, "structuredContent": map[string]string{"path": "file.go", "body": body}}, canonical.MCP, "mcp", map[string]any{"path": "file.go"}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			source := resultRecord(originalCall, fixture.value, fixture.format)
+			original := string(onlyResponse(&source).Result.Value)
+			visible := clone(source)
+			tool := onlyResponse(&visible)
+			tool.ID, tool.OriginalID = "repaired-call", originalCall
+			short, ok := Processed(visible, source)
+			if !ok {
+				t.Fatal("recoverable result was not shortened")
+			}
+			result := onlyResponse(&short)
+			summary := object(decode(result.Result.Value))
+			ref := object(summary["output"])
+			if result.Format != canonical.JSON || result.ID != tool.ID || result.OriginalID != originalCall || result.Revision != tool.Revision ||
+				len(result.Result.Value) > processedMaxBytes || len(result.Result.Value) >= len(original) || strings.Contains(string(result.Result.Value), "bulk evidence") ||
+				summary["processed"] != fixture.want || ref["call"] != originalCall || ref["revision"] != tool.Revision {
+				t.Fatalf("invalid projection: %s", result.Result.Value)
+			}
+			for key, want := range fixture.facts {
+				if encoded(summary[key]) != encoded(want) {
+					t.Errorf("%s = %v, want %v", key, summary[key], want)
+				}
+			}
+			projected := new(Cache).Project([]canonical.Record{short})
+			if again, changed := Processed(visible, source); !changed || encoded(again) != encoded(short) ||
+				!strings.Contains(string(onlyResponse(&projected[0]).Result.Value), "read_tool_output") ||
+				string(onlyResponse(&source).Result.Value) != original || string(tool.Result.Value) != original {
+				t.Fatal("projection was unstable, lost its reference, or mutated its source")
+			}
+		})
+	}
+}
+
+func TestProcessedKeepsProtectedResults(t *testing.T) {
+	body := strings.Repeat("important evidence\n", 90)
+	mcp := func(part map[string]any, failed bool) map[string]any {
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": body}, part}, "isError": failed}
+	}
+	for _, fixture := range []struct {
+		name   string
+		value  any
+		format canonical.ToolFormat
+	}{
+		{"diagnostics", map[string]any{"result": body, "diagnostics": []string{"permission denied"}}, canonical.JSON},
+		{"unknown tagged result", map[string]any{"kind": "unrecognized", "data": body}, canonical.JSON},
+		{"unknown format", body, canonical.ToolFormat("unknown")},
+		{"MCP error", mcp(map[string]any{"type": "text", "text": "failure"}, true), canonical.MCP},
+		{"JSON-wrapped MCP error", mcp(map[string]any{"type": "text", "text": "failure"}, true), canonical.JSON},
+		{"MCP media", mcp(map[string]any{"type": "image", "data": "aW1hZ2U=", "mimeType": "image/png"}, false), canonical.MCP},
+		{"MCP unknown content", mcp(map[string]any{"type": "extension"}, false), canonical.MCP},
+		{"MCP hidden content", mcp(map[string]any{"type": "text", "text": "user only", "annotations": map[string]any{"audience": []string{"user"}}}, false), canonical.MCP},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			source := resultRecord("stored-call", fixture.value, fixture.format)
+			if _, ok := Processed(source, source); ok {
+				t.Fatal("protected result acquired a replacement reference")
+			}
+		})
+	}
+	source := resultRecord("stored-call", map[string]string{"result": body}, canonical.JSON)
+	filtered := clone(source)
+	onlyResponse(&filtered).Result.Value = json.RawMessage(encoded(map[string]string{"result": body + " filtered"}))
+	if _, ok := Processed(filtered, source); ok {
+		t.Fatal("a modified projection acquired a reference to unfiltered evidence")
+	}
+}
+
+func TestProcessedCommandRecovery(t *testing.T) {
+	const call, storedCall = "repaired-command", "stored-command"
+	id := protocol.NewRequestID().String()
+	body := strings.Repeat("stdout content\n", 130)
+	retained := map[string]any{"id": id, "stdout": map[string]any{
+		"tail": "retained-only tail content", "tail_offset": 65536, "total_bytes": 66000, "retained_end": 66000,
+	}}
+	success := map[string]any{"kind": "exited", "data": 0}
+	for _, fixture := range []struct {
+		name      string
+		tool      string
+		kind      string
+		outcome   map[string]any
+		body      string
+		truncated bool
+		retained  map[string]any
+		want      bool
+	}{
+		{"retained success", "run_command", "command_result", success, body, true, retained, true},
+		{"plain capture", "run_command", "command_result", map[string]any{"exit_code": 0}, body, false, nil, true},
+		{"nonzero exit", "run_command", "command_result", map[string]any{"kind": "exited", "data": 1}, body, false, nil, false},
+		{"command timeout", "run_command", "command_result", map[string]any{"kind": "timed_out"}, body, false, retained, false},
+		{"async wait timeout", "read_command", "command_output", success, body, false, retained, false},
+		{"truncated capture without stream ID", "run_command", "command_result", success, body, true, nil, false},
+		{"only retained reference", "run_command", "command_result", success, "", true, map[string]any{"id": id, "stdout": map[string]any{"tail": body}}, false},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			capture := map[string]any{
+				"outcome": fixture.outcome,
+				"stdout":  map[string]any{"text": fixture.body, "truncated": fixture.truncated},
+				"stderr":  map[string]any{"text": "", "truncated": false},
+			}
+			const diagnostic = "Warning: one package was skipped."
+			if fixture.want {
+				object(capture["stderr"])["text"] = diagnostic
+			}
+			if fixture.kind == "command_output" {
+				delete(capture, "outcome")
+				capture["wait"] = protocol.ProcessWaitDeadline
+			}
+			value := map[string]any{"kind": fixture.kind, "data": capture}
+			if fixture.retained != nil {
+				value["sailry_command"] = fixture.retained
+			}
+			original := resultRecord(storedCall, value, canonical.JSON)
+			source := onlyResponse(&original)
+			source.Name = fixture.tool
+			repaired := clone(original)
+			tool := onlyResponse(&repaired)
+			tool.ID, tool.OriginalID = call, storedCall
+			short, ok := Processed(repaired, original)
+			if ok != fixture.want {
+				t.Fatalf("changed = %t, want %t", ok, fixture.want)
+			}
+			if !ok {
+				return
+			}
+			result := onlyResponse(&short)
+			got := object(decode(result.Result.Value))
+			data, ref := object(got["data"]), object(got["output"])
+			stdout := object(data["stdout"])
+			if got["processed"] != "command_result" || encoded(data["outcome"]) != encoded(fixture.outcome) ||
+				ref["call"] != storedCall || ref["revision"] != source.Revision || stdout["truncated"] != fixture.truncated ||
+				encoded(stdout["bytes"]) != encoded(len(body)) || object(data["stderr"])["text"] != diagnostic ||
+				strings.Contains(string(result.Result.Value), "stdout content") {
+				t.Fatalf("projection lost outcome, reference or capture metadata, or kept duplicate text: %s", result.Result.Value)
+			}
+			if fixture.retained != nil {
+				streams := object(got["sailry_command"])
+				retainedStdout := object(streams["stdout"])
+				if streams["id"] != id || encoded(retainedStdout["tail_offset"]) != "65536" ||
+					encoded(retainedStdout["retained_end"]) != "66000" || retainedStdout["tail"] != nil {
+					t.Fatalf("projection lost the retained stream reference or its bounds: %s", result.Result.Value)
+				}
+			}
+			projected := new(Cache).Project([]canonical.Record{short})
+			if string(onlyResponse(&projected[0]).Result.Value) != string(result.Result.Value) {
+				t.Fatal("command projection changed the recovery summary")
 			}
 		})
 	}

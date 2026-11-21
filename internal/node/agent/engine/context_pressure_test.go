@@ -138,6 +138,99 @@ func TestContextPressureIgnoresObservationsBeforeCheckpoint(t *testing.T) {
 	}
 }
 
+func TestContextPressureRetainedTailAfterCheckpoint(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		retained int
+		input    uint64
+		shorten  bool
+	}{
+		{"new window pressure", 2, 32000, true},
+		{"new byte pressure", 12, 1000, true},
+		{"below threshold with hidden pressure", 2, 1000, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			history := pressureExchange(0, 60000, "covered.go")
+			boundary := history[len(history)-1].ID
+			var retainedBytes int
+			for step := 1; step <= test.retained; step++ {
+				exchange := pressureExchange(step, 40000, fmt.Sprintf("retained-%d.go", step))
+				result := exchange[1].Message().Content[0].Data.(*canonical.ToolResponse)
+				retainedBytes += min(len(result.Result.Value), output.MaxBytes)
+				history = append(history, exchange...)
+			}
+			history = append(history, canonical.Record{ID: "summary", Turn: protocol.TurnID{1}, Kind: "compaction", Data: &canonical.Compaction{
+				Boundary: boundary, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, "Retained evidence")),
+			}})
+			var hiddenBytes int
+			for step := test.retained + 1; step <= test.retained+12; step++ {
+				exchange := pressureExchange(step, 60000, fmt.Sprintf("hidden-%d.go", step))
+				result := exchange[1].Message().Content[0].Data.(*canonical.ToolResponse)
+				hiddenBytes += min(len(result.Result.Value), output.MaxBytes)
+				for i := range exchange {
+					exchange[i].Metadata.Runtime = &canonical.Runtime{AgentVisible: false}
+				}
+				history = append(history, exchange...)
+			}
+			if hiddenBytes < toolOutputPressureBytes {
+				t.Fatal("hidden fixture does not cross the byte threshold")
+			}
+			var cache output.Cache
+			baseline := new(output.Cache).Project(model.VisibleAnsweredRecords(history))
+			if !reflect.DeepEqual(pressureProjection(history, &cache, true), baseline) {
+				t.Fatal("checkpoint replay used old or hidden pressure")
+			}
+
+			newest := pressureExchange(test.retained+13, test.input, "newest.go")
+			newestResult := newest[1].Message().Content[0].Data.(*canonical.ToolResponse)
+			bytePressure := retainedBytes+min(len(newestResult.Result.Value), output.MaxBytes) >= toolOutputPressureBytes
+			if bytePressure != (test.retained == 12) {
+				t.Fatal("fixture does not isolate window and byte pressure")
+			}
+			history = append(history, newest...)
+			original, err := json.Marshal(history)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := new(output.Cache).Project(model.VisibleAnsweredRecords(history))
+			after := pressureProjection(history, &cache, true)
+			if len(after) != 1+2*(test.retained+1) || len(after) != len(before) {
+				t.Fatal("pressure changed the visible retained tail")
+			}
+			if !reflect.DeepEqual(after, pressureProjection(history, new(output.Cache), true)) {
+				t.Fatal("checkpoint replay differs between warm and cold projections")
+			}
+			shortened := 0
+			for i, record := range before {
+				message := record.Message()
+				if !test.shorten || message == nil || message.Role != canonical.User || record.ID == newest[1].ID {
+					if !reflect.DeepEqual(record, after[i]) {
+						t.Fatal("pressure changed the summary, a call, the newest batch, or below-threshold evidence")
+					}
+					continue
+				}
+				source := message.Content[0].Data.(*canonical.ToolResponse)
+				result := after[i].Message().Content[0].Data.(*canonical.ToolResponse)
+				var receipt struct {
+					Processed string                             `json:"processed"`
+					Output    protocol.ToolOutputOutputReference `json:"output"`
+				}
+				if err := json.Unmarshal(result.Result.Value, &receipt); err != nil || receipt.Processed != "file_lines" ||
+					receipt.Output.Call != source.ID || receipt.Output.Revision != source.Revision || result.ID != source.ID {
+					t.Fatal("new pressure did not retain a recoverable receipt for the old tail")
+				}
+				shortened++
+			}
+			if test.shorten && shortened != test.retained {
+				t.Fatal("new pressure did not recover the entire visible retained tail")
+			}
+			if updated, err := json.Marshal(history); err != nil || !bytes.Equal(updated, original) {
+				t.Fatal("pressure changed canonical or hidden history")
+			}
+		})
+	}
+}
+
 func BenchmarkContextPressureHistoryReplay(b *testing.B) {
 	session, turn := protocol.SessionID{1}, protocol.TurnID{1}
 	page := protocol.DefaultConversationSearchPage()

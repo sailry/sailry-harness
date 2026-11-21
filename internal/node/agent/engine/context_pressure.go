@@ -16,9 +16,10 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 	if !slices.ContainsFunc(tools, func(t fantasy.FunctionTool) bool { return t.Name == "read_tool_output" }) {
 		return
 	}
+	checkpoint := -1
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Kind == "compaction" {
-			history = history[i+1:]
+			checkpoint = i
 			break
 		}
 	}
@@ -33,7 +34,7 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 		if batchBytes == 0 {
 			return
 		}
-		if olderBytes > 0 && (olderBytes+batchBytes >= toolOutputPressureBytes || windowPressure && !usedWindowPressure) {
+		if batchStart > checkpoint && olderBytes > 0 && (olderBytes+batchBytes >= toolOutputPressureBytes || windowPressure && !usedWindowPressure) {
 			for _, original := range history[start:batchStart] {
 				if j, ok := positions[original.ID]; ok {
 					if shortened, ok := output.Processed(projected[j], original); ok {
