@@ -14,10 +14,11 @@ import (
 // 1 DIP edge a step off that surface. No background or shadow. It is the
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
-	return floating(c, el, FloatingTint)
+	return FloatingWithTint(c, el, FloatingTint)
 }
 
-func floating(c *ui.Context, el ui.Element, tint float32) ui.Element {
+// FloatingWithTint sets how strongly the panel color covers its blurred backdrop.
+func FloatingWithTint(c *ui.Context, el ui.Element, tint float32) ui.Element {
 	p := theme.Of(c)
 	surface := p.Floating().Over(Opaque(p.Background))
 	if p.Dark {

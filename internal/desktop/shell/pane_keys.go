@@ -24,7 +24,7 @@ import (
 // same focus (focusedConversationPane). Cmd stands for Ctrl off macOS.
 
 // WindowMinimize is the Window menu's Minimize: its key enlarges the focused
-// conversation pane, and minimizes the window anywhere else.
+// conversation pane in a split, and minimizes the window anywhere else.
 const WindowMinimize = "window.minimize"
 
 // splitKeys put a new conversation on a side of the focused one, with
@@ -57,7 +57,7 @@ func (a *App) paneKeys(c *ui.Context, e ui.Element, t panes.Target) {
 	if e.Shortcut(ui.Cmd, ui.KeyT) && !c.ShortcutRepeated() {
 		a.newConversationTab(t)
 	}
-	if e.Shortcut(ui.Cmd, ui.KeyM) && !c.ShortcutRepeated() {
+	if a.panes.Group(t) >= 0 && e.Shortcut(ui.Cmd, ui.KeyM) && !c.ShortcutRepeated() {
 		a.toggleEnlarged(c, t)
 	}
 	for _, k := range splitKeys {
@@ -171,17 +171,17 @@ func (a *App) paneSizeButton(c *ui.Context, t panes.Target, enlarged bool) {
 // conversation, as another one is chosen or the page changes.
 func (a *App) followEnlarged() {
 	w := &a.panes
-	if e := w.enlarged; e != (panes.Target{}) && (a.Page != ConversationPage || w.Active != e || !a.paneExists(e)) {
+	if e := w.enlarged; e != (panes.Target{}) && (a.Page != ConversationPage || w.Active != e || w.Group(e) < 0 || !a.paneExists(e)) {
 		w.enlarged = panes.Target{}
 	}
 }
 
-// minimize is the Window menu's Minimize: in the focused conversation its
+// minimize is the Window menu's Minimize: in a focused split conversation its
 // key enlarges the pane; anywhere else, and under a dialog, the window
 // minimizes as the system item would.
 func (a *App) minimize(c *ui.Context) {
 	if !a.dialog() {
-		if t, ok := a.focusedConversationPane(c); ok {
+		if t, ok := a.focusedConversationPane(c); ok && a.panes.Group(t) >= 0 {
 			a.toggleEnlarged(c, t)
 			return
 		}
@@ -223,7 +223,7 @@ func (a *App) enlargedPane(c *ui.Context) {
 	h := w.handle(t)
 	col := ui.Column(c.Key("enlarged")).Absolute().Top(enlargedInset).Left(enlargedInset).Right(enlargedInset).Bottom(enlargedInset).
 		ZIndex(3).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Clip()
-	kit.Floating(c, col)
+	kit.FloatingWithTint(c, col, 0.96)
 	a.pane(c, col, h, true, func() {
 		if w.Group(t) >= 0 {
 			a.closePane(c, t)

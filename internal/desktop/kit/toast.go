@@ -132,7 +132,7 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 	var root ui.Element
 	lane.Children(func() {
 		parts := ui.ToastBase(c, t)
-		root = floating(c, parts.Root.MinWidth(toastMin).MaxWidthPercent(100).TransformOrigin(0.5, 0).Clip(), toastTint).FontSize(14)
+		root = FloatingWithTint(c, parts.Root.MinWidth(toastMin).MaxWidthPercent(100).TransformOrigin(0.5, 0).Clip(), toastTint).FontSize(14)
 	})
 	root.Transition(toastEnter)
 	height := heights[t.ID]

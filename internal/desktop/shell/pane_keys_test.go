@@ -23,6 +23,7 @@ func TestConversationPaneKeys(t *testing.T) {
 	t.Run("NewTab", testPaneNewTab)
 	t.Run("OutsideConversation", testPaneKeysOutsideConversation)
 	t.Run("Enlarge", testPaneEnlarge)
+	t.Run("SingleConversationDoesNotEnlarge", testSingleConversationDoesNotEnlarge)
 	t.Run("EnlargeButtons", testPaneEnlargeButtons)
 	t.Run("MinimizeOutsideConversation", testMinimizeOutsideConversation)
 	t.Run("FreshFromDraft", testPaneKeysFreshFromDraft)
@@ -278,6 +279,23 @@ func testPaneEnlarge(t *testing.T) {
 	tt.Frame()
 	if a.panes.enlarged != (panes.Target{}) {
 		t.Errorf("another active pane left %v enlarged", a.panes.enlarged)
+	}
+}
+
+func testSingleConversationDoesNotEnlarge(t *testing.T) {
+	a, tt := newTester(t)
+	click(t, tt, i18n.In("en", "composer"))
+	tt.Key(ui.Cmd, ui.KeyM)
+	tt.Frame()
+	if a.panes.enlarged != (panes.Target{}) {
+		t.Fatal("a single conversation captured the pane enlarge shortcut")
+	}
+	minimized := 0
+	a.minimizeWindow = func() { minimized++ }
+	a.Do(WindowMinimize)
+	tt.Frame()
+	if minimized != 1 || a.panes.enlarged != (panes.Target{}) {
+		t.Fatalf("Minimize in single pane: minimized %d, enlarged %v", minimized, a.panes.enlarged)
 	}
 }
 
