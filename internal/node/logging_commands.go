@@ -32,8 +32,8 @@ const (
 	traced
 	// slow reads are recorded only when slow, failed or uncertain.
 	slow
-	// workspaceRead uses the slow policy without adding automatic reports for controller reads.
-	workspaceRead
+	// controllerRead uses the slow policy for reads whose controller reports failures.
+	controllerRead
 	// readOnly commands return, probe or cancel a read and store nothing.
 	readOnly
 	// transfer commands open or cancel a byte stream. The durable command
@@ -57,7 +57,7 @@ var transientCommands = func() map[string]observation {
 			"read_tool_output", "read_tool_detail", "read_session", "read_plugin_callback", "read_plugin_value", "read_plugin_conversation_value",
 			"list_ssh", "list_databases", "list_plugin_models", "read_model_catalog", "read_model_scores", "read_project_catalog",
 		},
-		workspaceRead: {"list_directory", "inspect_git", "list_worktrees", "search_files"},
+		controllerRead: {"list_directory", "inspect_git", "list_worktrees", "search_files", "discover_models"},
 		transfer: {
 			"open_port", "cancel_port", "download_ssh_file", "stage_ssh_upload", "upload_plugin", "download_backup", "upload_backup",
 			"download_file", "upload_file", "upload_attachment", "download_attachment", "download_image", "cancel_file_transfer",
@@ -71,7 +71,7 @@ var transientCommands = func() map[string]observation {
 			"inspect_plugin_upload", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_mcp", "list_plugin_keys",
 			"search_plugin_values", "resolve_plugin_model", "read_plugin_connection", "read_plugin_view", "list_roles", "list_teams",
 			"read_compaction_settings", "read_team_settings", "list_providers", "read_provider_key", "list_channel_presets",
-			"request_provider_http", "discover_models", "list_associated_sessions", "read_usage", "read_activity",
+			"request_provider_http", "list_associated_sessions", "read_usage", "read_activity",
 			"search_conversation", "list_conversation_assets", "list_file_checkpoints", "read_turn_diff", "read_turn_hunks",
 			"read_queued_turn", "list_terminals", "list_terminal_tools", "list_commands", "read_command", "read_terminal_settings",
 			"read_power_settings", "read_telemetry_settings", "send_diagnostics", "read_network_settings", "list_network_presets", "probe_network",
@@ -158,7 +158,7 @@ func (node *Node) attachLogging() {
 	logging.SetReport(func(level slog.Level, fields logging.Fields) {
 		// Use the command, not an operation named by a callback diagnostic.
 		name, _ := fields["command"].(string)
-		if transientCommands[name] != workspaceRead {
+		if transientCommands[name] != controllerRead {
 			node.telemetry.Record(level, fields)
 		}
 	})
@@ -181,13 +181,13 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 	var sourceKind string
 	switch {
 	case name == "read_plugin_conversation_value":
-		name = "read_conversation_value"
+		sourceKind, name = name, "read_conversation_value"
 	case class == changing || class == traced || class == slow:
 	case request.Plugin != nil:
 		// Only classified reads and other known transient commands reach this
 		// branch. Keep their kind locally without changing remote grouping.
 		sourceKind, name = name, "plugin_command"
-	case class == workspaceRead:
+	case class == controllerRead:
 	default:
 		return nil
 	}
@@ -219,7 +219,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 		return logging.NewSpan("command", attrs...)
 	case request.Plugin != nil:
 		return logging.NewBackground("command", attrs...)
-	case class == slow || class == workspaceRead:
+	case class == slow || class == controllerRead:
 		return logging.NewQuery("command", attrs...)
 	}
 	return logging.NewSpan("command", attrs...)
@@ -287,9 +287,19 @@ func faultDiagnostic(fault *protocol.Fault) (protocol.NotificationSystemSystemDi
 	return protocol.NotificationSystemSystemDiagnostic{}, false
 }
 
+func reportablePluginCompletion(fault *protocol.Fault) bool {
+	switch fault.Code {
+	case protocol.ErrorCodeInternal, protocol.ErrorCodeOutcomeUnknown:
+		return true
+	case protocol.ErrorCodeUnavailable:
+		return fault.Details == nil || fault.Details.Kind != "network"
+	}
+	return false
+}
+
 // reportFault correlates a single failure delivery, not the durable request.
 // Never modify a fault owned by a stored receipt, shared result or handler.
-func reportFault(span *logging.Span, kind string, original *protocol.Fault) *protocol.Fault {
+func reportFault(span *logging.Span, kind string, original *protocol.Fault, pluginCompletion bool) *protocol.Fault {
 	if original.Code == protocol.ErrorCodeCancelled {
 		return original
 	}
@@ -298,13 +308,22 @@ func reportFault(span *logging.Span, kind string, original *protocol.Fault) *pro
 		"create_directory", "rename_entry", "trash_entry", "copy_entry_to", "move_entry_to", "finish_file_upload", "restore_file_checkpoint", "apply_turn_hunk",
 		"register_worktree", "move_conversation":
 	default:
-		if !fileTextMutation(kind) && !workspaceGitWrite(kind) && transientCommands[kind] != workspaceRead {
+		if !fileTextMutation(kind) && !workspaceGitWrite(kind) && transientCommands[kind] != controllerRead &&
+			!(pluginCompletion && reportablePluginCompletion(original)) {
 			return original
 		}
 	}
 	f := *original
 	f.ReportRef = uuid.NewString()
 	span.Set(slog.String("report_ref", f.ReportRef))
+	if f.Details != nil && f.Details.Kind == "model_request" {
+		if details, ok := dispatchPayload[protocol.FaultDetailsModelRequestPayload](f.Details.Data); ok {
+			switch details.Reason {
+			case protocol.ModelFailureRequest, protocol.ModelFailureUnauthorized, protocol.ModelFailureRateLimited:
+				span.Set(slog.String("cause_category", string(details.Reason)))
+			}
+		}
+	}
 	return &f
 }
 
@@ -328,7 +347,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		if fault == nil {
 			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
 		} else if !abandoned {
-			if delivered := reportFault(span, kind, fault); delivered != fault {
+			if delivered := reportFault(span, kind, fault, false); delivered != fault {
 				fault, err = delivered, delivered
 			}
 		}
@@ -350,7 +369,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		case result.Fault != nil:
 			abandoned := !accepted.Receipt.Durable && ctx.Err() != nil
 			if !abandoned {
-				result.Fault = reportFault(span, kind, result.Fault)
+				result.Fault = reportFault(span, kind, result.Fault, request.Plugin != nil)
 			}
 			span.Set(slog.String("command_stage", "completion"))
 			rejectCommand(span, kind, result.Fault, abandoned)

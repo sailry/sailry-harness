@@ -46,11 +46,11 @@ func TestCommandLogClassification(t *testing.T) {
 			t.Errorf("transientCommands names %s, which is not a registered command", kind)
 		}
 	}
-	if total := durable + counts[changing] + counts[traced] + counts[slow] + counts[workspaceRead] + counts[readOnly] + counts[transfer] + counts[interactive]; total != len(registered) || durable == 0 || counts[changing] == 0 {
+	if total := durable + counts[changing] + counts[traced] + counts[slow] + counts[controllerRead] + counts[readOnly] + counts[transfer] + counts[interactive]; total != len(registered) || durable == 0 || counts[changing] == 0 {
 		t.Errorf("classified %d of %d commands", total, len(registered))
 	}
-	t.Logf("%d commands: %d durable and %d transient recorded as changes, %d traced reads, %d slow reads, %d workspace reads, %d read-only, %d transfers, %d interactive",
-		len(registered), durable, counts[changing], counts[traced], counts[slow], counts[workspaceRead], counts[readOnly], counts[transfer], counts[interactive])
+	t.Logf("%d commands: %d durable and %d transient recorded as changes, %d traced reads, %d slow reads, %d controller reads, %d read-only, %d transfers, %d interactive",
+		len(registered), durable, counts[changing], counts[traced], counts[slow], counts[controllerRead], counts[readOnly], counts[transfer], counts[interactive])
 
 	// Payload-dependent reads retain their corresponding observation policy.
 	if class := commandObservation(protocol.Command{Kind: "dispatch", Data: protocol.CommandDispatchPayload{Action: protocol.DispatchCommand{Kind: "list_jobs"}}}); class != readOnly {

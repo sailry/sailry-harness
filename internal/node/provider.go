@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
@@ -33,7 +34,7 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 			// Discovery captures no model selection; the agent's session lists them.
 			binding.Session = protocol.NewSessionID()
 			if catalog, err = model.DiscoverACP(ctx, binding, agent); err != nil {
-				return nil, err
+				return nil, providerDiscoveryFault(err)
 			}
 		} else {
 			capture, err := node.capturePluginModel(ctx, binding)
@@ -41,7 +42,7 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 				return nil, err
 			}
 			if catalog, err = model.DiscoverPlugin(ctx, binding, capture); err != nil {
-				return nil, err
+				return nil, providerDiscoveryFault(err)
 			}
 		}
 		output := protocol.Output{Kind: "discovered_models", Data: catalog}
@@ -51,6 +52,23 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 	work.Client = node.auth.client
 	return providers.Run(ctx, *work)
 }
+
+func providerDiscoveryFault(err error) error {
+	var failure *model.Failure
+	if !errors.As(err, &failure) || failure == nil {
+		return err
+	}
+	if failure.Kind == model.Cancelled {
+		return &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "model discovery cancelled"}
+	}
+	safe := *failure
+	safe.Message = "provider model discovery failed"
+	if safe.Kind == model.NotConfigured {
+		safe.Message = "provider model discovery is not configured"
+	}
+	return model.Fault(&safe)
+}
+
 func (node *Node) readProvider(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
 	prepared, err := node.prepareProvider(ctx, caller, request)
 	if err != nil {

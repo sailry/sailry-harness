@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -109,18 +110,75 @@ func TestDispatchReportRef(t *testing.T) {
 func TestReportFaultScope(t *testing.T) {
 	original := protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "private detail")
 	for _, kind := range []string{"guide_queued_turn", "create_managed_worktree", "register_worktree", "move_conversation", "list_worktrees", "search_files", "finish_file_upload"} {
-		got := reportFault(logging.NewQuery("command"), kind, original)
+		got := reportFault(logging.NewQuery("command"), kind, original, false)
 		if got == original || original.ReportRef != "" || !logging.ValidReportRef(got.ReportRef) || got.Code != original.Code || got.Message != original.Message || got.ConfigurationReason() != original.ConfigurationReason() {
 			t.Errorf("%s changed or failed to correlate its fault: %+v", kind, *got)
 		}
 	}
 	for _, kind := range []string{"snapshot", "read_git_diff", "fork_conversation_at"} {
-		if got := reportFault(logging.NewQuery("command"), kind, original); got != original || got.ReportRef != "" {
+		if got := reportFault(logging.NewQuery("command"), kind, original, false); got != original || got.ReportRef != "" {
 			t.Errorf("uncorrelated %s = %+v", kind, *got)
 		}
 	}
 	cancelled := &protocol.Fault{Code: protocol.ErrorCodeCancelled}
-	if got := reportFault(logging.NewQuery("command"), "write_file", cancelled); got != cancelled || got.ReportRef != "" {
+	if got := reportFault(logging.NewQuery("command"), "write_file", cancelled, false); got != cancelled || got.ReportRef != "" {
 		t.Errorf("cancelled command = %+v", *got)
+	}
+}
+
+func TestPluginCompletionReportRef(t *testing.T) {
+	closeLog, err := logging.Install(filepath.Join(t.TempDir(), "profile"), "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeLog()
+	var recorded logging.Fields
+	logging.SetReport(func(_ slog.Level, values logging.Fields) { recorded = values })
+	defer logging.SetReport(nil)
+	node := &Node{profile: &Profile{}, logs: true}
+	plugin := protocol.DefaultPluginContext()
+	plugin.Package.Name = "private.plugin"
+	const kind = "read_file"
+	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: kind, Data: protocol.CommandReadFilePayload{Path: "/private/path"}})
+	request.Plugin = &plugin
+
+	for _, test := range []struct {
+		stage string
+		code  protocol.ErrorCode
+		kind  string
+		want  bool
+	}{
+		{stage: "completion", code: protocol.ErrorCodeUnavailable, want: true},
+		{stage: "completion", code: protocol.ErrorCodeInternal, want: true},
+		{stage: "completion", code: protocol.ErrorCodeOutcomeUnknown, want: true},
+		{stage: "completion", code: protocol.ErrorCodeUnavailable, kind: "network"},
+		{stage: "completion", code: protocol.ErrorCodeNotFound},
+		{stage: "admission", code: protocol.ErrorCodeUnavailable},
+	} {
+		span := node.commandSpan(node.ID(), request)
+		span.Set(slog.String("command_stage", test.stage))
+		original := &protocol.Fault{Code: test.code, Message: "private provider address and stderr"}
+		if test.kind != "" {
+			original.Details = &protocol.FaultDetails{Kind: test.kind}
+		}
+		fault := reportFault(span, kind, original, test.stage == "completion")
+		recorded = nil
+		rejectCommand(span, kind, fault, false)
+		if (fault != original) != test.want || logging.ValidReportRef(fault.ReportRef) != test.want || original.ReportRef != "" {
+			t.Fatalf("%s %s (%s): unexpected reference %q", test.stage, test.code, test.kind, fault.ReportRef)
+		}
+		var ref any
+		if test.want {
+			ref = fault.ReportRef
+		}
+		if recorded["source_kind"] != kind || recorded["command"] != "plugin_command" || recorded["code"] != string(test.code) ||
+			recorded["command_stage"] != test.stage || recorded["detail"] != nil || recorded["report_ref"] != ref {
+			t.Fatalf("local plugin record = %v", recorded)
+		}
+		remote := logging.Remote(recorded)
+		if remote["operation"] != "plugin_command" || remote["package"] != "third_party" || remote["source_kind"] != nil ||
+			remote["request"] != nil || remote["detail"] != nil || remote["report_ref"] != ref {
+			t.Fatalf("remote plugin fields = %v", remote)
+		}
 	}
 }
