@@ -72,11 +72,12 @@ func browserChrome(t *testing.T) {
 			return r.browserView(c, id)
 		},
 		Page: r.browserPage,
-		Navigate: func(id, address string) {
+		Navigate: func(id, address string) bool {
 			navigated = append(navigated, address)
 			tab := r.browserTabFor(id)
 			tab.url, tab.title = address, ""
 			tab.begin()
+			return true
 		},
 		Back: func(string) {}, Forward: func(string) {},
 		Reload:   func(id string) { reloads++; r.browser.tabs[id].begin() },

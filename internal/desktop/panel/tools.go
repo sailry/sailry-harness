@@ -17,7 +17,7 @@ type page struct {
 	address string
 	history []string
 	at      int    // the index in history shown, -1 for none
-	shown   string // address last copied from the live page
+	shown   string // address last copied from the live page or submitted
 	// field is the live tab's address field, for its focus.
 	field ui.Handle
 }

@@ -33,7 +33,7 @@ type BrowserPage struct {
 type BrowserActions struct {
 	View     func(*ui.Context, string) bool
 	Page     func(string) BrowserPage
-	Navigate func(id, address string)
+	Navigate func(id, address string) bool // whether the request was accepted
 	Back     func(string)
 	Forward  func(string)
 	Reload   func(string)
@@ -94,10 +94,6 @@ func (s *State) liveBrowser(c *ui.Context, t Tab) {
 	a := s.BrowserActions
 	b := s.pageOf(t.ID)
 	page := a.Page(t.ID)
-	// The field follows the page, but never under the user's typing.
-	if b.shown != page.Address && !c.Focused(b.field) {
-		b.shown, b.address = page.Address, page.Address
-	}
 	if s.focusAddress && t == s.Active {
 		s.focusAddress = false
 		b.field.Focus(c)
@@ -134,18 +130,26 @@ func (s *State) liveBrowser(c *ui.Context, t Tab) {
 				kit.Action(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), page.Address == "").OnClick(reload)
 			}
 			label := i18n.T(c, "browser_address")
-			ui.TextInput(c.Key("address"), &b.address).Placeholder(label).Label(label).Grow(1).Height(28).Bind(&b.field).
-				OnSubmit(func() {
-					address, ok := BrowserDestination(b.address)
-					if !ok {
-						if strings.TrimSpace(b.address) != "" {
-							kit.Toast(c, kit.Failed, i18n.T(c, "browser_invalid_address"))
-						}
-						return
+			field := ui.TextInput(c.Key("address"), &b.address).Placeholder(label).Label(label).Grow(1).Height(28).Bind(&b.field)
+			if b.shown != page.Address && !field.Changed() && b.address == b.shown && !field.Composing() {
+				b.shown, b.address = page.Address, page.Address
+				c.Invalidate()
+			}
+			if b.address != b.shown {
+				field.OnShortcut(0, ui.KeyEscape, func() { b.shown, b.address = page.Address, page.Address })
+			}
+			field.OnSubmit(func() {
+				address, ok := BrowserDestination(b.address)
+				if !ok {
+					if strings.TrimSpace(b.address) != "" {
+						kit.Toast(c, kit.Failed, i18n.T(c, "browser_invalid_address"))
 					}
-					b.address = address
-					a.Navigate(t.ID, address)
-				})
+					return
+				}
+				if a.Navigate(t.ID, address) {
+					b.shown, b.address = address, address
+				}
+			})
 			if a.Pick != nil {
 				pick := "browser_annotate"
 				if page.Picking {

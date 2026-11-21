@@ -327,6 +327,89 @@ func (probe *BrowserTabProbe) Run(ctx context.Context, window *mygo.Window, base
 		return fmt.Errorf("the page's user agent is %q: %v", agent, err)
 	}
 
+	// Real in-page navigation, with no address submission or forced frame.
+	route := base + "/history"
+	if err := act(func(actions *panel.BrowserActions) { actions.Navigate(id, route) }); err != nil {
+		return err
+	}
+	if err := settle("history fixture", route, true, false, nil); err != nil {
+		return err
+	}
+	fetched = requests("/history")
+	if href, err := evaluate(`document.querySelector("h1").textContent = "Updated"; document.title = "Content updated"; return location.href`); err != nil || href != route {
+		return fmt.Errorf("the content-only update reports URL %v: %v", href, err)
+	}
+	if err := until("content-only update", func(page panel.BrowserPage) bool { return page.Address == route && page.Title == "Content updated" }); err != nil {
+		return err
+	}
+	replaced := route + "?route=replaced"
+	fragment := replaced + "#fragment"
+	for _, step := range []struct{ label, script, address string }{
+		{"pushState", `history.pushState(null, "", "?route=pushed")`, route + "?route=pushed"},
+		{"replaceState", `history.replaceState(null, "", "?route=replaced")`, replaced},
+		{"hash change", `location.hash = "fragment"`, fragment},
+	} {
+		if href, err := evaluate(step.script + "; return location.href"); err != nil || href != step.address {
+			return fmt.Errorf("%s: the page reports URL %v, want %s: %v", step.label, href, step.address, err)
+		}
+		if err := settle(step.label, step.address, true, false, nil); err != nil {
+			return err
+		}
+	}
+	for _, step := range []struct{ label, script, address string }{
+		{"same-document Back", `history.back()`, replaced},
+		{"same-document Forward", `history.forward()`, fragment},
+	} {
+		if _, err := evaluate(step.script); err != nil {
+			return fmt.Errorf("%s: %w", step.label, err)
+		}
+		if err := until(step.label, func(page panel.BrowserPage) bool {
+			return !page.Loading && page.Error == "" && page.Address == step.address
+		}); err != nil {
+			return err
+		}
+	}
+	other, ran := browserMain(ctx, func() panel.Tab {
+		other := runtime.App.Panel.AddBrowser(true)
+		runtime.wake()
+		return other
+	})
+	if !ran {
+		return ctx.Err()
+	}
+	backgroundRoute := route + "?route=background"
+	if href, err := evaluate(`history.replaceState(null, "", "?route=background"); return location.href`); err != nil || href != backgroundRoute {
+		return fmt.Errorf("the background page reports URL %v, want %s: %v", href, backgroundRoute, err)
+	}
+	if err := settle("background URL update", backgroundRoute, true, false, nil); err != nil {
+		return err
+	}
+	if current, err := observe(); err != nil || current.active != other || current.page.Title != "Content updated" {
+		return fmt.Errorf("background navigation: active tab %+v, page %+v: %v", current.active, current.page, err)
+	}
+	if _, ran := browserMain(ctx, func() bool {
+		runtime.App.Panel.Show(opened)
+		runtime.App.Panel.Close(other)
+		runtime.wake()
+		return true
+	}); !ran {
+		return ctx.Err()
+	}
+	if _, err := evaluate(`setTimeout(() => document.querySelector("#redirect").click(), 50)`); err != nil {
+		return fmt.Errorf("click the redirect link: %w", err)
+	}
+	if err := until("redirect reached its final page", func(page panel.BrowserPage) bool {
+		return !page.Loading && page.Error == "" && page.Address == base+"/history-final" && page.Title == "Browser probe redirected"
+	}); err != nil {
+		return err
+	}
+	if got := requests("/history"); got != fetched {
+		return fmt.Errorf("same-document navigation fetched /history %d times, %d before navigation", got, fetched)
+	}
+	if redirect, final := requests("/history-redirect"), requests("/history-final"); redirect != 1 || final != 1 {
+		return fmt.Errorf("the redirect and destination received %d and %d requests, want one each", redirect, final)
+	}
+
 	// A slow page: loading from the first frame after Enter, with the
 	// address, until the response; Stop ends a load without a failure.
 	slow := base + "/slow"
@@ -486,33 +569,4 @@ func (probe *BrowserTabProbe) Run(ctx context.Context, window *mygo.Window, base
 		return err
 	}
 	return nil
-}
-
-// Visit loads an outside address in a new browser tab and reports how the
-// load ended. It needs the network, so it is evidence, not a check.
-func (probe *BrowserTabProbe) Visit(ctx context.Context, address string) string {
-	runtime := probe.Runtime
-	id, ran := browserMain(ctx, func() string {
-		runtime.App.Panel.New(panel.Browser)
-		id := runtime.App.Panel.Active.ID
-		runtime.App.Panel.BrowserActions.Navigate(id, address)
-		runtime.wake()
-		return id
-	})
-	if !ran {
-		return ctx.Err().Error()
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		page, ran := browserMain(ctx, func() panel.BrowserPage { return runtime.browserPage(id) })
-		if !ran {
-			return ctx.Err().Error()
-		}
-		if page.Address != "" && !page.Loading || time.Now().After(deadline) {
-			return fmt.Sprintf("%s ended at %s, title %q, loading %v, error %q", address, page.Address, page.Title, page.Loading, page.Error)
-		}
-		if !browserSleep(ctx, 100*time.Millisecond) {
-			return ctx.Err().Error()
-		}
-	}
 }

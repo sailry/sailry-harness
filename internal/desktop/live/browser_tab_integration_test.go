@@ -99,8 +99,10 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 		tab.loading, tab.failure = false, ""
 	}
 	actions := runtime.App.Panel.BrowserActions
-	actions.Navigate = func(id, address string) {
-		production.Navigate(id, address)
+	actions.Navigate = func(id, address string) bool {
+		if !production.Navigate(id, address) {
+			return false
+		}
 		// After the production load took the address, as OnDidNavigate.
 		runtime.enqueue(func(*ui.Context) {
 			tab := runtime.browser.tabs[id]
@@ -116,6 +118,7 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 			past.at++
 			sync(id)
 		})
+		return true
 	}
 	actions.Back = func(id string) { histories[id].at--; sync(id) }
 	actions.Forward = func(id string) { histories[id].at++; sync(id) }

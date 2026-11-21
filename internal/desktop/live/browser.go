@@ -27,6 +27,7 @@ type browserState struct {
 	window    *mygo.Window
 	available bool
 	tabs      map[string]*browserTab
+	watching  bool
 	serving   map[*Runtime]context.CancelFunc
 	documents map[string]*documentView
 	sources   map[string]documentSource
@@ -67,6 +68,62 @@ func (tab *browserTab) begin() { tab.loading, tab.failure, tab.started = true, "
 
 // failed reports whether the tab's page failed to load.
 func (tab *browserTab) failed() bool { return tab.failure != "" }
+
+func (tab *browserTab) syncLocation(page *mygo.Page) bool {
+	back, forward := page.CanGoBack(), page.CanGoForward()
+	changed := tab.back != back || tab.forward != forward
+	tab.back, tab.forward = back, forward
+	if address := page.URL(); !tab.failed() && address != tab.url && browserAddress(address) {
+		tab.url = address
+		tab.endPick()
+		changed = true
+	}
+	return changed
+}
+
+// MyGo exposes document commits, but no event for same-document URL and
+// history changes. Read the native state even when the tab is not mounted.
+func (r *Runtime) watchBrowserNavigation() {
+	state := r.browser
+	if state.watching {
+		return
+	}
+	state.watching = true
+	time.AfterFunc(250*time.Millisecond, func() {
+		if r.ctx.Err() != nil {
+			return
+		}
+		mygo.RunOnMain(func() {
+			state.watching = false
+			if r.ctx.Err() != nil || r.browser != state || state.window.IsDestroyed() {
+				return
+			}
+			watching, changed := false, false
+			for _, tab := range state.tabs {
+				if tab.view == nil || tab.view.IsDestroyed() {
+					continue
+				}
+				watching = true
+				page := tab.view.Page()
+				// Give a requested navigation time to start before reading
+				// back the previous page. A same-document step may never load.
+				if page.IsLoading() || tab.loading && time.Since(tab.started) <= time.Second {
+					continue
+				}
+				if tab.syncLocation(page) || tab.loading {
+					changed = true
+				}
+				tab.loading = false
+			}
+			if changed {
+				r.wake()
+			}
+			if watching {
+				r.watchBrowserNavigation()
+			}
+		})
+	})
+}
 
 // SetWebViewWindow gives the window whose native UI shows the browser tabs
 // and the session documents. Without it both keep their fallbacks.
@@ -146,14 +203,6 @@ func (r *Runtime) browserFrame() {
 			// Its conversation left the screen and keeps the page: the
 			// selection ends, as the reference's does with its browser's view.
 			tab.endPick()
-		}
-	}
-	for _, tab := range state.tabs {
-		// A step inside one document (a fragment, a script's history entry)
-		// ends without a load event: the page itself says it is not loading.
-		if tab.loading && tab.view != nil && !tab.view.IsDestroyed() && time.Since(tab.started) > time.Second && !tab.view.Page().IsLoading() {
-			tab.loading = false
-			tab.back, tab.forward = tab.view.Page().CanGoBack(), tab.view.Page().CanGoForward()
 		}
 	}
 	if persistent := r.browserPersistent(); persistent != state.persistent {
@@ -269,23 +318,34 @@ func (r *Runtime) browserPopup(source *browserTab, address string, gesture bool)
 // for is a new tab.
 func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 	tab.endPick()
-	tab.url, tab.title = address, ""
+	reuse := tab.view != nil && !tab.view.IsDestroyed()
+	before, _, _ := strings.Cut(tab.url, "#")
+	after, _, _ := strings.Cut(address, "#")
+	if !reuse || before != after {
+		tab.title = ""
+	}
+	tab.url = address
 	tab.begin()
-	if tab.view != nil && !tab.view.IsDestroyed() {
-		if err := tab.view.Page().LoadURL(address); err != nil {
-			tab.loading, tab.failure = false, "browser_load_failed"
+	if !reuse {
+		view, err := r.browser.window.NewWebView(mygo.WebViewOptions{Page: mygo.PageOptions{Untrusted: true, Session: r.browserSession(),
+			UserAgentSuffix: browserAgent(), DevTools: mygo.DevToolsEnabled}})
+		if err != nil {
+			tab.loading, tab.failure = false, "browser_unavailable"
 			return err
 		}
-		return nil
+		tab.view = view
+		r.browserNavigationEvents(tab)
+		r.watchBrowserNavigation()
 	}
-	view, err := r.browser.window.NewWebView(mygo.WebViewOptions{URL: address, Page: mygo.PageOptions{Untrusted: true, Session: r.browserSession(),
-		UserAgentSuffix: browserAgent(), DevTools: mygo.DevToolsEnabled}})
-	if err != nil {
-		tab.loading, tab.failure = false, "browser_unavailable"
+	if err := tab.view.Page().LoadURL(address); err != nil {
+		tab.loading, tab.failure = false, "browser_load_failed"
 		return err
 	}
-	tab.view = view
-	page := view.Page()
+	return nil
+}
+
+func (r *Runtime) browserNavigationEvents(tab *browserTab) {
+	page := tab.view.Page()
 	page.SetWindowOpenHandler(func(request mygo.WindowOpenRequest) *mygo.WindowOptions {
 		// The WebView of the new tab is made before the next frame builds.
 		r.enqueue(func(*ui.Context) {
@@ -320,7 +380,8 @@ func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 	})
 	page.OnDidFinishLoad(func() {
 		tab.loading = false
-		history()
+		tab.syncLocation(page)
+		r.wake()
 	})
 	page.OnDidFailLoad(func(failure *mygo.LoadError) {
 		// WebKit reports a navigation replaced by another, or stopped, as
@@ -341,7 +402,6 @@ func (r *Runtime) browserLoad(tab *browserTab, address string) error {
 		tab.title = event.Title
 		r.wake()
 	})
-	return nil
 }
 
 func (r *Runtime) browserView(c *ui.Context, id string) bool {
@@ -384,23 +444,25 @@ func (r *Runtime) browserPage(id string) panel.BrowserPage {
 		Loading: tab.loading, Error: tab.failure, Picking: tab.pick != nil}
 }
 
-func (r *Runtime) browserNavigate(id, address string) {
+func (r *Runtime) browserNavigate(id, address string) bool {
 	if r.browser == nil || !r.browser.available {
 		r.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "browser page is unavailable"))
-		return
+		return false
 	}
-	if !browserAddress(strings.TrimSpace(address)) {
+	address = strings.TrimSpace(address)
+	if !browserAddress(address) {
 		r.Report(pluginNativeFault(protocol.ErrorCodeInvalidRequest, "browser URL must use HTTP or HTTPS without embedded credentials"))
-		return
+		return false
 	}
 	// The WebView is made before the next frame builds, not inside this one.
 	r.enqueue(func(*ui.Context) {
 		if tab := r.browserTabFor(id); tab != nil {
 			// A page that cannot be made is the tab's failed state, which
 			// its body shows: no toast repeats it.
-			_ = r.browserLoad(tab, strings.TrimSpace(address))
+			_ = r.browserLoad(tab, address)
 		}
 	})
+	return true
 }
 
 // browserStop stops the load under way: the page keeps what it has.

@@ -50,6 +50,15 @@ func main() {
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		writer.Header().Set("Cache-Control", "no-store")
 		switch request.URL.Path {
+		case "/history":
+			fmt.Fprint(writer, `<!doctype html><title>Browser history fixture</title><h1 id="fragment">History</h1><a id="redirect" href="/history-redirect">Redirect</a>`)
+			return
+		case "/history-redirect":
+			http.Redirect(writer, request, "/history-final", http.StatusFound)
+			return
+		case "/history-final":
+			fmt.Fprint(writer, `<!doctype html><title>Browser probe redirected</title><h1>Redirected</h1>`)
+			return
 		case "/slow":
 			// Long enough for the chrome to show the load.
 			time.Sleep(1500 * time.Millisecond)
@@ -95,8 +104,6 @@ func main() {
 					err = fmt.Errorf("browser tab: %w", err)
 				} else {
 					fmt.Printf("Browser tab probe passed: %d fetches of / and %d of /next\n", requests("/"), requests("/next"))
-					// The reported page, when the network reaches it.
-					fmt.Println("Outside page:", tab.Visit(ctx, "https://www.baidu.com/"))
 				}
 			}
 			result <- err
