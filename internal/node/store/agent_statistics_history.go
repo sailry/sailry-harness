@@ -234,7 +234,8 @@ func ReadAgentStatisticsReusing(ctx context.Context, db *sql.Conn, session proto
 			return result, nil, err
 		}
 	}
-	metrics := next.usage[0].metrics
+	ownUsage := next.usage[0]
+	metrics := ownUsage.metrics
 	result.Responses, result.Usage = metrics.Responses, metrics.Tokens
 	result.IncompleteTokenResponses = metrics.IncompleteTokenResponses
 	result.Cost, result.Generation, result.Throughput = metrics.Cost, metrics.Generation, metrics.Throughput
@@ -269,6 +270,10 @@ func ReadAgentStatisticsReusing(ctx context.Context, db *sql.Conn, session proto
 	}
 	if rebuildCalls || changes.events || changes.outcomes || len(eventRanges) != 0 {
 		next.events.apply(&result.Observations, next.turns)
+	}
+	result.Observations.CacheRead = nil
+	if metrics.Tokens != nil && ownUsage.cacheReported == metrics.Responses {
+		result.Observations.CacheRead = &metrics.Tokens.CachedInput
 	}
 
 	if newContext || changes.captures {

@@ -95,7 +95,8 @@ func (p *agentStatisticsPricing) read(ctx context.Context, db *sql.Conn, key age
 }
 
 type agentStatisticsUsage struct {
-	metrics protocol.UsageMetrics
+	metrics       protocol.UsageMetrics
+	cacheReported uint64
 	// Effective catalog prices, including a missing price, for legacy rows only.
 	prices map[agentStatisticsPriceKey]pricedChannel
 }
@@ -162,6 +163,9 @@ func (usage *agentStatisticsUsage) extend(ctx context.Context, db *sql.Conn, ran
 		var complete *protocol.ConversationUsage
 		if row.usage.Input != nil && row.usage.Output != nil {
 			complete = &tokens
+			if row.usage.CacheRead != nil {
+				usage.cacheReported++
+			}
 		}
 		if row.usage.Pricing == nil && tokenPricedMedia(row.media.String) && complete != nil {
 			key := agentStatisticsPriceKey{api: row.api.String, model: row.model, preset: row.preset}

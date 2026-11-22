@@ -226,11 +226,11 @@ const agentStatisticEventsQuery = `SELECT e.turn,json_object(
  ON e.turn=json_extract(h.value,'$.turn') AND e.sequence>json_extract(h.value,'$.after') ORDER BY e.sequence`
 
 type agentStatisticEventTotals struct {
-	phases                                                   map[string]protocol.ConversationObservationPhases
-	replies                                                  map[string]bool
-	tools                                                    map[string]uint64
-	compactions                                              uint64
-	usageCount, cacheCount, reasoningCount, cache, reasoning uint64
+	phases                                map[string]protocol.ConversationObservationPhases
+	replies                               map[string]bool
+	tools                                 map[string]uint64
+	compactions                           uint64
+	usageCount, reasoningCount, reasoning uint64
 }
 
 func (totals *agentStatisticEventTotals) extend(ctx context.Context, db *sql.Conn, session protocol.SessionID, ranges []agentStatisticsRange, work *agentStatisticsWork) error {
@@ -279,10 +279,6 @@ func (totals *agentStatisticEventTotals) extend(ctx context.Context, db *sql.Con
 		}
 		if usage := event.Usage; usage != nil {
 			totals.usageCount++
-			if usage.CacheRead != nil {
-				totals.cacheCount++
-				totals.cache = addAgentStatistic(totals.cache, *usage.CacheRead)
-			}
 			if usage.Reasoning != nil {
 				totals.reasoningCount++
 				totals.reasoning = addAgentStatistic(totals.reasoning, *usage.Reasoning)
@@ -312,10 +308,7 @@ func (totals *agentStatisticEventTotals) apply(result *protocol.ConversationObse
 	if result.Tools == nil {
 		result.Tools = map[string]uint64{}
 	}
-	result.CacheRead, result.Reasoning = nil, nil
-	if totals.usageCount > 0 && totals.cacheCount == totals.usageCount {
-		result.CacheRead = &totals.cache
-	}
+	result.Reasoning = nil
 	if totals.usageCount > 0 && totals.reasoningCount == totals.usageCount {
 		result.Reasoning = &totals.reasoning
 	}
