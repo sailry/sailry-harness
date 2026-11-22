@@ -252,6 +252,7 @@ knowledge_slide: Слайд %{slide}
 workspace_archive: Архивировать сеанс
 session_delete: Удалить сеанс
 session_delete_named: Навсегда удалить сеанс “%{name}” и его субагентов
+session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: Файлы его личной рабочей области также будут удалены
 session_delete_private_named: Безвозвратно удалить «%{name}», его субагентов и файлы личной рабочей области
 workspace_rename: Переименовать

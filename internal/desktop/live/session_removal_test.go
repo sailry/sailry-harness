@@ -64,6 +64,178 @@ func TestSessionRemovalInspectsOriginalRequestAcrossRevisionChange(t *testing.T)
 	}
 }
 
+func TestSelectedSessionRemovalBatchesByNode(t *testing.T) {
+	local := selectionSnapshot("Shared ID", "Local first", "Local second")
+	local.Sessions[1].Revision = 5
+	w := selectionWindow(t, local)
+	r := w.r
+	remote := selectionSnapshot("Remote first", "Remote second", "Remote child")
+	remote.Node = protocol.NodeID{2}
+	remote.Sessions[0].Revision = 7
+	remote.Sessions[1].ID, remote.Sessions[1].Revision = protocol.SessionID{8}, 9
+	remote.Sessions[2].ID = protocol.SessionID{9}
+	child := remote.Sessions[2].ID
+	peer := &selectionTestTransport{
+		conversationTestTransport: conversationTestTransport{snapshot: remote},
+		node:                      &conversationTestSubscription{updates: make(chan protocol.Update, 1), closed: make(chan struct{})},
+	}
+	peer.handle = func(req protocol.Request) (link.Response, bool) {
+		if req.Command.Kind != "remove_sessions" {
+			return link.Response{}, false
+		}
+		return link.Response{Output: protocol.Output{Kind: "sessions_removed", Data: []protocol.SessionID{remote.Sessions[0].ID, remote.Sessions[1].ID, child}}}, true
+	}
+	w.source.mu.Lock()
+	w.source.handle = func(req protocol.Request) (link.Response, bool) {
+		if req.Command.Kind != "remove_sessions" {
+			return link.Response{}, false
+		}
+		return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict}}, true
+	}
+	w.source.mu.Unlock()
+	peer.node.updates <- protocol.Update{Kind: "snapshot", Data: remote}
+	controller := client.New(peer)
+	if err := controller.Start(r.ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = controller.Close() })
+	r.bindings = map[string]*Runtime{remote.Node.String(): r.newBinding(controller)}
+	r.changed()
+	w.window.Frame()
+
+	draft := r.createDraftIn(nil)
+	draft.Node = protocol.NodeID{3}.String()
+	var kept []panes.Target
+	for _, row := range local.Sessions {
+		kept = append(kept, panes.Target{Kind: panes.Session, ID: row.ID.String()})
+	}
+	childTab := panes.Target{Kind: panes.Session, ID: child.String()}
+	prefs := r.App.Prefs()
+	prefs.Tabs = append(slices.Clone(kept), childTab)
+	r.App.SetPrefs(prefs)
+	if !slices.Contains(r.App.Prefs().Tabs, childTab) {
+		t.Fatal("the remote child did not have a tab")
+	}
+
+	localExpected := []protocol.SessionRevision{
+		{Session: local.Sessions[1].ID, Revision: 4},
+		{Session: local.Sessions[2].ID, Revision: local.Sessions[2].Revision},
+	}
+	remoteExpected := []protocol.SessionRevision{
+		{Session: remote.Sessions[0].ID, Revision: remote.Sessions[0].Revision},
+		{Session: remote.Sessions[1].ID, Revision: remote.Sessions[1].Revision},
+	}
+	row := func(node protocol.NodeID, entry protocol.SessionRevision) *viewmodel.Conversation {
+		return &viewmodel.Conversation{Node: node.String(), ID: entry.Session.String(), Revision: entry.Revision}
+	}
+	r.App.Sidebar.Actions.Delete([]*viewmodel.Conversation{
+		row(local.Node, localExpected[0]), row(remote.Node, remoteExpected[0]),
+		{ID: draft.ID, Node: draft.Node}, row(local.Node, localExpected[1]), row(remote.Node, remoteExpected[1]),
+	})
+	r.workers.Wait()
+	w.window.Frame()
+
+	checkBatch := func(source *selectionTestTransport, node protocol.NodeID, want []protocol.SessionRevision) {
+		t.Helper()
+		source.mu.Lock()
+		defer source.mu.Unlock()
+		var batches int
+		for _, req := range source.requests {
+			switch req.Command.Kind {
+			case "remove_session":
+				t.Errorf("sent an individual removal to %s", req.Target)
+			case "remove_sessions":
+				batches++
+				got := req.Command.Data.(protocol.CommandRemoveSessionsPayload).Expected
+				if req.Target != node || !slices.Equal(got, want) {
+					t.Errorf("submitted %v on %s, want %v on %s", got, req.Target, want, node)
+				}
+			}
+		}
+		if batches != 1 {
+			t.Errorf("submitted %d batches on %s, want 1", batches, node)
+		}
+	}
+	checkBatch(w.source, local.Node, localExpected)
+	checkBatch(peer, remote.Node, remoteExpected)
+	if r.App.Data.Find(draft.ID) != nil {
+		t.Fatal("the draft was not removed locally")
+	}
+	tabs := r.App.Prefs().Tabs
+	for _, tab := range kept {
+		if !slices.Contains(tabs, tab) {
+			t.Errorf("lost the tab for surviving local session %s", tab.ID)
+		}
+	}
+	if slices.Contains(tabs, childTab) {
+		t.Fatal("the remote cascade left a tab for a removed session")
+	}
+}
+
+func TestSelectedSessionRemovalRecoversOnlyMatchingTargets(t *testing.T) {
+	snapshot := selectionSnapshot("First", "Second", "Third")
+	w := selectionWindow(t, snapshot)
+	r := w.r
+	var removals, inspections []protocol.Request
+	w.source.mu.Lock()
+	w.source.handle = func(req protocol.Request) (link.Response, bool) {
+		switch req.Command.Kind {
+		case "remove_sessions":
+			removals = append(removals, req)
+			if len(removals) == 1 {
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}}, true
+			}
+			return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict}}, true
+		case "inspect_request":
+			inspections = append(inspections, req)
+			query := req.Command.Data.(protocol.CommandInspectRequestPayload)
+			outcome := protocol.RequestOutcome{Kind: "admitted"}
+			if len(inspections) > 1 {
+				outcome = protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict}}}
+			}
+			return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: outcome}}}, true
+		}
+		return link.Response{}, false
+	}
+	w.source.mu.Unlock()
+	var rows []*viewmodel.Conversation
+	for _, session := range snapshot.Sessions {
+		rows = append(rows, &viewmodel.Conversation{Node: snapshot.Node.String(), ID: session.ID.String(), Revision: session.Revision})
+	}
+	remove := func(rows ...*viewmodel.Conversation) {
+		r.App.Sidebar.Actions.Delete(rows)
+		r.workers.Wait()
+		w.window.Frame()
+	}
+	remove(rows[0], rows[1])
+	if len(removals) != 1 || len(inspections) != 1 || len(r.sessionRemovals) != 1 {
+		t.Fatalf("uncertain batch: %d removals, %d inspections, %d pending", len(removals), len(inspections), len(r.sessionRemovals))
+	}
+	remove(rows[0], rows[2])
+	if len(removals) != 1 || len(inspections) != 1 || len(r.sessionRemovals) != 1 {
+		t.Fatal("a different selection ran or inspected the unresolved batch")
+	}
+	rows[0].Revision++
+	rows[1].Revision++
+	remove(rows[1], rows[0])
+	if len(removals) != 1 || len(inspections) != 2 || len(r.sessionRemovals) != 0 {
+		t.Fatalf("matching batch: %d removals, %d inspections, %d pending", len(removals), len(inspections), len(r.sessionRemovals))
+	}
+	for _, req := range inspections {
+		if got := req.Command.Data.(protocol.CommandInspectRequestPayload).ID; got != removals[0].ID {
+			t.Errorf("inspected %s, want the original request %s", got, removals[0].ID)
+		}
+	}
+	remove(rows[0], rows[2])
+	if len(removals) != 2 || removals[1].ID == removals[0].ID || len(inspections) != 2 {
+		t.Fatalf("new batch: %d removals, %d inspections", len(removals), len(inspections))
+	}
+	want := []protocol.SessionRevision{{Session: snapshot.Sessions[0].ID, Revision: rows[0].Revision}, {Session: snapshot.Sessions[2].ID, Revision: rows[2].Revision}}
+	if got := removals[1].Command.Data.(protocol.CommandRemoveSessionsPayload).Expected; !slices.Equal(got, want) {
+		t.Fatalf("new batch sent %v, want %v", got, want)
+	}
+}
+
 type slowRemovalTransport struct {
 	*selectionTestTransport
 	started    chan protocol.Request

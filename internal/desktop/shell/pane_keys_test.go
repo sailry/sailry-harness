@@ -410,7 +410,7 @@ func TestViewZoomKeysReserved(t *testing.T) {
 		if err := tt.RightClick("Port the neutral theme tokens"); err != nil {
 			t.Fatal(err)
 		}
-		if err := tt.ChooseMenuItem(i18n.In("en", "workspace_archive")); err != nil {
+		if err := tt.ChooseMenuItem(i18n.In("en", "session_delete")); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()

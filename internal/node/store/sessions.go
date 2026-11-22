@@ -424,32 +424,42 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 	if _, err := checkedSession(ctx, db, id, expected); err != nil {
 		return protocol.Output{}, nil, err
 	}
-	ids := []protocol.SessionID{id}
-	seen := map[protocol.SessionID]bool{id: true}
-	for index := 0; index < len(ids); index++ {
-		rows, err := db.QueryContext(ctx, "SELECT child.session FROM agent_delegations d JOIN turns child ON child.id=d.turn JOIN turns parent ON parent.id=d.parent_turn WHERE parent.session=?1", ids[index].String())
-		if err != nil {
-			return protocol.Output{}, nil, err
+	return removeSessionTrees(ctx, db, []protocol.SessionID{id}, nil)
+}
+
+func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildren []protocol.SessionID) (protocol.Output, []protocol.Event, error) {
+	ids := make([]protocol.SessionID, 0, len(roots))
+	seen := make(map[protocol.SessionID]bool, len(roots))
+	for _, root := range roots {
+		if seen[root] {
+			continue
 		}
-		for rows.Next() {
-			var text string
-			if err := rows.Scan(&text); err != nil {
-				rows.Close()
-				return protocol.Output{}, nil, err
-			}
-			child, err := protocol.ParseSessionID(text)
+		seen[root] = true
+		ids = append(ids, root)
+		for index := len(ids) - 1; index < len(ids); index++ {
+			children, err := readTexts(ctx, db, "SELECT child.session FROM agent_delegations d JOIN turns child ON child.id=d.turn JOIN turns parent ON parent.id=d.parent_turn WHERE parent.session=?1", ids[index].String())
 			if err != nil {
-				rows.Close()
 				return protocol.Output{}, nil, err
 			}
-			if !seen[child] {
-				seen[child] = true
-				ids = append(ids, child)
+			for _, text := range children {
+				child, err := protocol.ParseSessionID(text)
+				if err != nil {
+					return protocol.Output{}, nil, err
+				}
+				if !seen[child] {
+					seen[child] = true
+					ids = append(ids, child)
+				}
 			}
 		}
-		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-			return protocol.Output{}, nil, err
+	}
+	for _, id := range selectedChildren {
+		if !seen[id] {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 		}
+	}
+	if len(ids) == 0 {
+		return protocol.Output{Kind: "sessions_removed", Data: ids}, []protocol.Event{}, nil
 	}
 	private := []protocol.ProviderID{}
 	for _, id := range ids {
@@ -488,6 +498,10 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 }
 
 func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.SessionRevision, removing bool) (protocol.Output, []protocol.Event, error) {
+	if removing && len(expected) == 1 {
+		entry := expected[0]
+		return removeSession(ctx, db, entry.Session, entry.Revision)
+	}
 	seen := map[protocol.SessionID]bool{}
 	values := make([]protocol.Session, 0, len(expected))
 	for _, entry := range expected {
@@ -495,24 +509,37 @@ func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.Sessio
 			return protocol.Output{}, nil, invalid("session batch contains duplicate sessions")
 		}
 		seen[entry.Session] = true
-		value, err := checkedSession(ctx, db, entry.Session, entry.Revision)
+		var value protocol.Session
+		var err error
+		if removing {
+			value, err = ReadSession(ctx, db, entry.Session)
+			if err == nil {
+				err = checkRevision(value.Revision, entry.Revision)
+			}
+		} else {
+			value, err = checkedSession(ctx, db, entry.Session, entry.Revision)
+		}
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		values = append(values, value)
 	}
+	if removing {
+		roots := make([]protocol.SessionID, 0, len(values))
+		var selectedChildren []protocol.SessionID
+		for _, value := range values {
+			if value.Delegation == nil {
+				roots = append(roots, value.ID)
+			} else {
+				selectedChildren = append(selectedChildren, value.ID)
+			}
+		}
+		return removeSessionTrees(ctx, db, roots, selectedChildren)
+	}
 	changes := []protocol.Event{}
 	archived := []protocol.Session{}
-	removed := []protocol.SessionID{}
 	for _, value := range values {
-		if removing {
-			output, events, err := removeSession(ctx, db, value.ID, value.Revision)
-			if err != nil {
-				return protocol.Output{}, nil, err
-			}
-			removed = append(removed, output.Data.([]protocol.SessionID)...)
-			changes = append(changes, events...)
-		} else if value.Archived {
+		if value.Archived {
 			archived = append(archived, value)
 		} else {
 			output, events, err := archiveSession(ctx, db, protocol.CommandSetSessionArchivedPayload{Session: value.ID, ExpectedRevision: value.Revision, Archived: true})
@@ -522,9 +549,6 @@ func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.Sessio
 			archived = append(archived, output.Data.(protocol.Session))
 			changes = append(changes, events...)
 		}
-	}
-	if removing {
-		return protocol.Output{Kind: "sessions_removed", Data: removed}, changes, nil
 	}
 	return protocol.Output{Kind: "sessions_archived", Data: archived}, changes, nil
 }

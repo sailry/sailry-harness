@@ -252,6 +252,7 @@ knowledge_slide: Slide %{slide}
 workspace_archive: Archive session
 session_delete: Delete session
 session_delete_named: Delete “%{name}” and its subagents permanently
+session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: Its private workspace files are deleted too
 session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
 workspace_rename: Rename

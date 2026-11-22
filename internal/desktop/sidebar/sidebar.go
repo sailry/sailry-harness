@@ -47,6 +47,7 @@ type State struct {
 	selection rowKey
 	// current is the selected conversation as this build's rows show it.
 	current *viewmodel.Conversation
+	rows    sidebarSelection
 	// shown is set when the sidebar opens a conversation, also the selected
 	// one; the shell takes it to go back to the conversation.
 	shown bool
@@ -217,6 +218,7 @@ func (s *State) Order() []string {
 func View(c *ui.Context, s *State) {
 	s.drawn = false
 	s.current = s.Current()
+	s.syncRows(s.current)
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
 		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
 		if v := theme.Of(c).Variant; v != nil {
@@ -463,7 +465,7 @@ type rowKey struct{ node, id string }
 func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind) {
 	p := theme.Of(c)
 	editing := s.renamingRow(cv) && !s.drawn && (s.renameKind == rowAny || s.renameKind == kind)
-	selected := cv == s.current
+	position := sessionPosition{selectionKey(cv), kind}
 	title := Title(c, cv)
 	row := c.Key(RowKey(cv))
 	var b ui.Element
@@ -471,10 +473,18 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		s.drawn = true
 		b = ui.Row(row).Center().Shrink(0)
 	} else {
-		b = ui.ButtonBase(row).Label(title)
+		b = ui.ButtonBase(row).Label(title).ContextMenu(func(m *ui.Menu) {
+			wasSelected := s.rows.Has(position.key)
+			s.sessionMenu(c, m, cv)
+			if !wasSelected && s.rows.Has(position.key) {
+				s.rows.anchor = position
+				c.Invalidate()
+			}
+		})
 	}
 	b.Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered := b.Hovered()
+	selected := s.rows.Has(position.key)
 	b.Background(p.SidebarItem(selected, hovered))
 	if selected && !editing {
 		b.AccessSelected(true)
@@ -498,12 +508,11 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			s.reorder(c, b, cv, func(source *preview.Conversation) bool { return s.sessionDrag(source, cv) },
 				func(source *preview.Conversation, after bool) { s.MoveSession(source, cv, after) })
 		}
-		b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
 		s.details(c, b, cv)
 		if kit.DragChip(c, b, title) {
 			return
 		}
-		b.OnClick(func() { s.show(cv) })
+		b.OnClick(func() { s.clickRow(cv, position, b.ClickModifiers()) })
 	}
 	b.TextColor(text).Children(func() {
 		if cv.Offline {
@@ -516,7 +525,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			s.renameTitle(c, cv, text)
 		} else {
 			name := kit.Level(c, ui.Text(c.Key("title"), title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
-			if !cv.Archived && b.DoubleClicked() && name.Hovered() {
+			if !cv.Archived && b.DoubleClicked() && !selectingRows(c.Modifiers()|b.ClickModifiers()) && name.Hovered() {
 				s.startRename(cv, kind)
 			}
 		}

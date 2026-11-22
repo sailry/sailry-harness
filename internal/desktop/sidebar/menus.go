@@ -25,12 +25,20 @@ func (s *State) notice(c *ui.Context) {
 	}
 }
 
-// sessionMenu is a session row's right-click menu, the system's, with the
+func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
+	if targets := s.menuTargets(cv); len(targets) > 1 {
+		s.BatchSessionMenu(c, m, targets)
+		return
+	}
+	s.SessionMenu(c, m, cv)
+}
+
+// SessionMenu is a single session's right-click menu, the system's, with the
 // reference's items in its order. Actions on the preview's rows change them
 // in memory; the rest tell the preview notice. The demo, which says nothing
 // of itself, forks in memory and leaves out what needs a Node or the system:
 // Export, Open folder and New window.
-func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
+func (s *State) SessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if cv.Archived {
 		s.archivedMenu(c, m, cv)
@@ -137,10 +145,36 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 	}
 }
 
-// SessionMenu is the right-click menu of a session's row outside the
-// sidebar, as a project page's record.
-func (s *State) SessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation) {
-	s.sessionMenu(c, m, cv)
+// BatchSessionMenu builds the shared menu for a selection of sessions.
+func (s *State) BatchSessionMenu(c *ui.Context, m *ui.Menu, targets []*preview.Conversation) {
+	switch len(targets) {
+	case 0:
+		return
+	case 1:
+		s.SessionMenu(c, m, targets[0])
+		return
+	}
+	var active, archived bool
+	for _, cv := range targets {
+		if cv.Archived {
+			archived = true
+		} else {
+			active = true
+		}
+	}
+	if active && m.Item(i18n.T(c, "workspace_archive")).ID("archive").Disabled(!slices.ContainsFunc(targets, s.canArchive)).Chosen() {
+		for _, cv := range targets {
+			s.archive(c, cv)
+		}
+	}
+	if archived && m.Item(i18n.T(c, "backup_unarchive")).ID("unarchive").Chosen() {
+		for _, cv := range targets {
+			s.unarchive(cv)
+		}
+	}
+	if m.Item(i18n.T(c, "session_delete")).ID("delete").Chosen() {
+		s.confirmDelete(c, targets...)
+	}
 }
 
 // archivedMenu is an archived session's menu: it has no row to rename or
@@ -162,21 +196,6 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 			c.WriteClipboard(cv.ID)
 		}
 	})
-}
-
-func (s *State) confirmDelete(c *ui.Context, cv *preview.Conversation) {
-	message := "session_delete_named"
-	if s.Data.ProjectHolding(cv) == nil {
-		message = "session_delete_private_named"
-	}
-	run := func() { s.deletePreview(cv) }
-	if s.Actions != nil && s.Actions.Delete != nil {
-		remove := s.Actions.Delete
-		target := preview.Conversation{ID: cv.ID, Node: cv.Node, Revision: cv.Revision}
-		run = func() { remove(&target) }
-	}
-	s.confirm = confirm{open: true, title: i18n.T(c, "session_delete"),
-		message: i18n.T(c, message, "name", Title(c, cv)), action: i18n.T(c, "settings_delete"), run: run}
 }
 
 // ProjectActions fills the project page's More menu with the project's
@@ -409,6 +428,9 @@ func (s *State) canArchive(cv *preview.Conversation) bool {
 }
 
 func (s *State) unarchive(cv *preview.Conversation) {
+	if cv == nil || !cv.Archived {
+		return
+	}
 	if s.Actions != nil && s.Actions.Unarchive != nil {
 		s.Actions.Unarchive(cv)
 	} else if s.Actions == nil {
@@ -416,47 +438,17 @@ func (s *State) unarchive(cv *preview.Conversation) {
 	}
 }
 
-// archive asks before archiving. The open transcript and its selection stay
-// bound to the same session when its navigation row leaves the active list.
 func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 	if !s.canArchive(cv) {
 		return
 	}
-	if s.Actions != nil && s.Actions.Archive != nil {
-		s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "session_archive_named", "name", Title(c, cv)), action: i18n.T(c, "workspace_archive"), run: func() {
-			if s.canArchive(cv) {
-				s.Actions.Archive(cv)
-			}
-		}}
-		return
-	}
-	// The demo asks as the application does.
-	message, action := i18n.T(c, "workspace_memory_only"), i18n.T(c, "workspace_confirm")
-	if kit.Demo(c) {
-		message, action = i18n.T(c, "session_archive_named", "name", Title(c, cv)), i18n.T(c, "workspace_archive")
-	}
-	s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: message,
-		action: action, run: func() {
-			if s.canArchive(cv) {
-				cv.Archived = true
-			}
-		}}
-}
-
-func (s *State) deletePreview(cv *preview.Conversation) {
-	selected := s.Current() == cv
-	drop := func(list []*preview.Conversation) []*preview.Conversation {
-		return slices.DeleteFunc(list, func(x *preview.Conversation) bool { return x == cv })
-	}
-	for _, p := range s.Data.Projects {
-		p.Conversations = drop(p.Conversations)
-	}
-	s.Data.Unassigned = drop(s.Data.Unassigned)
-	if selected {
-		s.SelectOn("", "")
-		if ids := s.Order(); len(ids) > 0 {
-			s.SelectOn("", ids[0])
-		}
+	switch {
+	case s.Actions == nil:
+		cv.Archived = true
+	case s.Actions.Archive != nil:
+		s.Actions.Archive(cv)
+	default:
+		s.notice(c)
 	}
 }
 
@@ -564,17 +556,6 @@ func (s *State) renameTitle(c *ui.Context, cv *preview.Conversation, text ui.Col
 			commit()
 		} else {
 			s.renaming = ""
-		}
-	}
-}
-
-// dialogs are the sidebar's project editor and its confirmation.
-func (s *State) dialogs(c *ui.Context) {
-	s.editorDialog(c)
-	if s.confirm.open {
-		if kit.AlertDialog(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
-			s.confirm.action) == 1 {
-			s.confirm.run()
 		}
 	}
 }

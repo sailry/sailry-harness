@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,6 +12,117 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
+
+func TestRemoveSessionsOverlappingSelection(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"parent first", "child first"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			storage, node, parent, parentTurn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+			ctx := t.Context()
+			var children [2]AgentInvocation
+			var unrelated protocol.SessionID
+			if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &parent.Config})
+				if err != nil {
+					return err
+				}
+				unrelated = out.Data.(protocol.Session).ID
+				for i := range children {
+					call, err := delegationFixtureCall(ctx, db, parentTurn, "spawn_agent", map[string]any{"task": "Child task"}, now)
+					if err != nil {
+						return err
+					}
+					children[i], _, err = DelegateAgent(ctx, db, node, parentTurn, call, nil, false, now)
+					if err != nil {
+						return err
+					}
+					turn := children[i].Run.Turn
+					if _, err := ReleaseChildren(ctx, db, parentTurn, []protocol.TurnID{turn}); err != nil {
+						return err
+					}
+					if claimed, _, err := ClaimChild(ctx, db, turn, now); err != nil || claimed == nil {
+						return fmt.Errorf("child was not claimed: %v", err)
+					}
+				}
+				if _, _, err := FinishTurn(ctx, db, children[0].Run.Turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+					return err
+				}
+				_, _, err = FinishTurn(ctx, db, parentTurn, protocol.ConversationStatusCompleted, nil, now)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			remove := func(expected []protocol.SessionRevision) (out protocol.Output, events []protocol.Event, err error) {
+				request := protocol.NewRequest(node, protocol.Command{Kind: "remove_sessions", Data: &protocol.CommandRemoveSessionsPayload{Expected: expected}})
+				err = storage.Node.Write(ctx, func(db *sql.Conn) error {
+					out, events, err = ExecuteCommand(ctx, db, node, node, storage.Profile, request, PreparedPaths{})
+					return err
+				})
+				return out, events, err
+			}
+			reject := func(expected []protocol.SessionRevision, code protocol.ErrorCode) {
+				t.Helper()
+				if _, events, err := remove(expected); !providerFixtureFault(err, code) || len(events) != 0 {
+					t.Fatalf("remove sessions returned %v with events %v, want %s", err, events, code)
+				}
+			}
+			child := children[0].Session
+			parentRevision := protocol.SessionRevision{Session: parent.ID, Revision: parent.Revision}
+			childRevision := protocol.SessionRevision{Session: child.ID, Revision: child.Revision}
+			expected := []protocol.SessionRevision{parentRevision, childRevision}
+			childIndex := 1
+			if name == "child first" {
+				expected[0], expected[1] = expected[1], expected[0]
+				childIndex = 0
+			}
+			reject([]protocol.SessionRevision{childRevision}, protocol.ErrorCodePermissionDenied)
+			stale := slices.Clone(expected)
+			stale[childIndex].Revision++
+			reject(stale, protocol.ErrorCodeRevisionConflict)
+			reject(expected, protocol.ErrorCodeBusy)
+
+			if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				_, _, err := FinishTurn(ctx, db, children[1].Run.Turn, protocol.ConversationStatusCompleted, nil, now)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			out, events, err := remove(expected)
+			if err != nil || len(events) != 1 {
+				t.Fatalf("remove sessions returned %v with events %v", err, events)
+			}
+			want := []protocol.SessionID{parent.ID, child.ID, children[1].Session.ID}
+			assertRemoved := func(kind string, data any) {
+				t.Helper()
+				ids, ok := data.([]protocol.SessionID)
+				if !ok || kind != "sessions_removed" || len(ids) != len(want) {
+					t.Fatalf("removed %s %v, want %v", kind, data, want)
+				}
+				for _, id := range want {
+					if !slices.Contains(ids, id) {
+						t.Fatalf("removed %v, want %v", ids, want)
+					}
+				}
+			}
+			assertRemoved(out.Kind, out.Data)
+			assertRemoved(events[0].Kind, events[0].Data)
+			if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+				sessions, err := ReadSessions(ctx, db)
+				if err != nil {
+					return err
+				}
+				if len(sessions) != 1 || sessions[0].ID != unrelated {
+					return fmt.Errorf("sessions after deletion: %v, want only %s", sessions, unrelated)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestRemovedSessionStorage(t *testing.T) {
 	t.Parallel()

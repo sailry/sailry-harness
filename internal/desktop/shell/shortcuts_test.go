@@ -384,32 +384,6 @@ func TestMenuCommandsScoped(t *testing.T) {
 	}
 	// KEY-002: any modal dialog holds the menu's commands, also one the shell
 	// does not open itself, and they run again once it closed.
-	t.Run("sidebar confirmation", func(t *testing.T) {
-		a, tt := newTester(t)
-		if err := tt.RightClick("Port the neutral theme tokens"); err != nil {
-			t.Fatal(err)
-		}
-		if err := tt.ChooseMenuItem(i18n.In("en", "workspace_archive")); err != nil {
-			t.Fatal(err)
-		}
-		tt.Frame()
-		if !tt.HasText(i18n.In("en", "workspace_memory_only")) {
-			t.Fatalf("no archive confirmation: %q", tt.Texts())
-		}
-		a.Do("app.settings")
-		a.Do(CloseFocused.ID)
-		tt.Frame()
-		if a.Page != ConversationPage {
-			t.Fatalf("Settings opened behind the confirmation: page %q", a.Page)
-		}
-		tt.Key(0, ui.KeyEscape)
-		settle(tt)
-		a.Do("app.settings")
-		tt.Frame()
-		if a.Page != SettingsPage {
-			t.Fatalf("Settings stayed held after the dialog closed: page %q", a.Page)
-		}
-	})
 	t.Run("delete confirmation", func(t *testing.T) {
 		a, tt := newTester(t)
 		if err := tt.RightClick("Port the neutral theme tokens"); err != nil {
@@ -421,9 +395,17 @@ func TestMenuCommandsScoped(t *testing.T) {
 		tt.Frame()
 		a.Do("conversation.new")
 		a.Do("app.settings")
+		a.Do(CloseFocused.ID)
 		tt.Frame()
 		if a.Page != ConversationPage || a.Sidebar.Selected == "" || a.Data.Find("sailry-go/theme") == nil {
 			t.Fatalf("a menu command ran behind the confirmation: page %q, selected %q", a.Page, a.Sidebar.Selected)
+		}
+		tt.Key(0, ui.KeyEscape)
+		settle(tt)
+		a.Do("app.settings")
+		tt.Frame()
+		if a.Page != SettingsPage {
+			t.Fatalf("Settings stayed held after the dialog closed: page %q", a.Page)
 		}
 	})
 }

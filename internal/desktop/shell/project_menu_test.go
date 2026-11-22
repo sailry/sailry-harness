@@ -413,8 +413,7 @@ func TestProjectMenu(t *testing.T) {
 	}
 
 	// Every other item of a session's menu changes the demo's memory: pin,
-	// read state, the copies, rename, and archive and delete after their
-	// confirmation.
+	// read state, the copies, rename, archive, and confirmed deletion.
 	t.Run("SessionItems", func(t *testing.T) {
 		a, tt := demo(t)
 		cv := a.Data.Find(name + "/flaky-test")
@@ -454,10 +453,6 @@ func TestProjectMenu(t *testing.T) {
 		}
 		title = cv.Title
 		choose(t, tt, title, en("workspace_archive"))
-		if !tt.HasText(en("session_archive_named", "name", title)) || cv.Archived {
-			t.Fatalf("Archive did not ask: %q", tt.Texts())
-		}
-		last(t, tt, en("workspace_archive"))
 		if !cv.Archived || a.Data.Find(a.Sidebar.Selected) == nil {
 			t.Fatalf("Archive: archived %v, selected %q", cv.Archived, a.Sidebar.Selected)
 		}

@@ -266,6 +266,7 @@ knowledge_slide
 workspace_archive
 session_delete
 session_delete_named
+session_delete_many_confirm
 session_delete_private_files
 session_delete_private_named
 workspace_rename

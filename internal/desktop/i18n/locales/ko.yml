@@ -252,6 +252,7 @@ knowledge_slide: 슬라이드 %{slide}
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
+session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: 비공개 작업 공간 파일도 함께 삭제됩니다
 session_delete_private_named: “%{name}”, 하위 에이전트 및 비공개 작업 공간 파일을 영구 삭제
 workspace_rename: 이름 바꾸기

@@ -38,6 +38,8 @@ type backupSettingsState struct {
 	busy    bool
 	work    string
 	archive string
+	// The window keeps in-flight and unresolved unarchives across host bindings.
+	unarchives map[protocol.NodeID]*backupUnarchives
 	// retry is whether the storage save sent last is a request the Node
 	// has not confirmed (client.Retained), which the same save sends again.
 	retry bool
@@ -138,8 +140,9 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 		return
 	}
 	s := &owner.backupSettings
-	state.actions.ArchiveBusy = s.busy || s.archive != ""
-	root.showBackupWork(s.work, s.archive)
+	archive := owner.backupArchiveWork()
+	state.actions.ArchiveBusy = s.busy || archive != ""
+	root.showBackupWork(s.work, archive)
 	m.Backup.Pending = state.actions.ArchiveBusy || !s.known || state.actions.Status != ""
 	if state.actions.Status != "" {
 		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = nil, false, false, false
@@ -227,7 +230,7 @@ func backupSessions(sessions []protocol.Session, untitled string) (archived []vi
 }
 
 // backupRevisions are the sessions a bulk command names at the revisions
-// the page saw; archived ones only when they are removed.
+// the page saw. Archiving excludes sessions that are already archived.
 func backupRevisions(sessions []protocol.Session, archived bool) []protocol.SessionRevision {
 	expected := []protocol.SessionRevision{}
 	for _, session := range sessions {
@@ -475,7 +478,7 @@ func (r *Runtime) acceptBackupRead(value protocol.BackupSettings) {
 func (r *Runtime) saveBackupSchedule(now time.Time) {
 	s := &r.backupSettings
 	model := r.backupModel()
-	if !s.known || s.busy || s.archive != "" || s.reading {
+	if !s.known || s.busy || r.backupArchiveWork() != "" || s.reading {
 		return
 	}
 	draft, saved := backupScheduleOf(model.Draft), backupScheduleOf(model.Saved)
@@ -539,24 +542,23 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 	ready := func() *Runtime {
 		owner := current()
 		if owner == nil || owner.machineSettingsStatus() != "" || owner.backupSettings.busy ||
-			owner.backupSettings.archive != "" || !owner.backupSettings.known {
+			owner.backupArchiveWork() != "" || !owner.backupSettings.known {
 			return nil
 		}
 		return owner
 	}
 	archiveReady := func() *Runtime {
-		if owner := current(); owner != nil && !owner.backupSettings.busy && owner.backupSettings.archive == "" {
+		if owner := current(); owner != nil && !owner.backupSettings.busy && owner.backupArchiveWork() == "" {
 			return owner
 		}
 		return nil
 	}
-	session := func(owner *Runtime, id string) (protocol.Session, bool) {
-		for _, session := range owner.snapshot().Sessions {
-			if session.ID.String() == id {
-				return session, true
+	unarchive := func(ids []string, operation string) {
+		if owner := archiveReady(); owner != nil {
+			if expected := owner.backupArchiveSelection(ids); len(expected) != 0 {
+				owner.submitUnarchives(expected, operation)
 			}
 		}
-		return protocol.Session{}, false
 	}
 	picker := func(key string) {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
@@ -702,14 +704,8 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "backup_restart_invalid")) })
 			})
 		},
-		Unarchive: func(id string) {
-			if owner := archiveReady(); owner != nil {
-				if session, found := session(owner, id); found && session.Archived {
-					command := protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: session.Revision, Archived: false}}
-					owner.submitArchive(command, "backup_unarchived", "unarchive/"+id)
-				}
-			}
-		},
+		Unarchive:     func(id string) { unarchive([]string{id}, "unarchive/"+id) },
+		UnarchiveMany: func(ids []string) { unarchive(ids, "unarchive-many") },
 		PrepareDelete: func(id string) func() {
 			owner := archiveReady()
 			if owner == nil {
@@ -724,23 +720,26 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				}
 				command = protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
 			} else {
-				row, found := session(owner, id)
-				if !found || !row.Archived {
+				expected := owner.backupArchiveSelection([]string{id})
+				if len(expected) == 0 {
 					return nil
 				}
-				command = protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: row.ID, ExpectedRevision: row.Revision}}
+				command = protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: expected[0].Session, ExpectedRevision: expected[0].Revision}}
 				operation += "/" + id
 			}
-			return func() {
-				if owner.submitRemoval(command, func(c *ui.Context, err error) {
-					if owner.backupSettings.archive == operation {
-						owner.backupSettings.archive = ""
-					}
-					reportArchiveResult(c, "backup_deleted", err)
-				}) {
-					owner.backupSettings.archive = operation
-				}
+			return func() { owner.submitBackupDeletion(command, operation) }
+		},
+		PrepareDeleteMany: func(ids []string) func() {
+			owner := archiveReady()
+			if owner == nil {
+				return nil
 			}
+			expected := owner.backupArchiveSelection(ids)
+			if len(expected) == 0 {
+				return nil
+			}
+			command := protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
+			return func() { owner.submitBackupDeletion(command, "delete-many") }
 		},
 		ArchiveAll: func() {
 			if owner := archiveReady(); owner != nil {

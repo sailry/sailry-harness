@@ -309,7 +309,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 		CaptureSelection: func() { r.CaptureSelection(nil) }}
 	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Messages.SessionLink = func(link string) bool { return client.SessionLink(normalizeLink(link)) != nil }
-	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Unarchive: r.unarchive, Read: r.read, Delete: r.removeSession,
+	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Unarchive: r.unarchive, Read: r.read, Delete: r.removeSessions,
 		Pin: r.pin, MovePin: r.movePin, MoveSession: r.moveSession, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenHost: r.App.OpenHost, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
@@ -1001,23 +1001,6 @@ func (r *Runtime) read(cv *viewmodel.Conversation, read bool) {
 		return
 	}
 	r.command(protocol.Command{Kind: "set_session_read", Data: protocol.CommandSetSessionReadPayload{Session: id, ExpectedRevision: cv.AttentionRevision, Read: read}}, "session_changed", nil)
-}
-func (r *Runtime) removeSession(cv *viewmodel.Conversation) {
-	if owner := r.conversationRuntime(cv, nil); owner == nil {
-		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
-		return
-	} else if owner != r {
-		owner.removeSession(cv)
-		return
-	}
-	id, err := protocol.ParseSessionID(cv.ID)
-	if err != nil {
-		r.removeDraft(cv.ID)
-		return
-	}
-	r.submitRemoval(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: cv.Revision}}, func(c *ui.Context, err error) {
-		r.report(c, err, "session_changed")
-	})
 }
 
 // forgetRemovedSessions takes sessions this runtime's Node confirmed removed

@@ -252,6 +252,7 @@ knowledge_slide: Diapositive %{slide}
 workspace_archive: Archiver la session
 session_delete: Supprimer la session
 session_delete_named: Supprimer définitivement la session « %{name} » et ses sous-agents
+session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: Les fichiers de son espace de travail privé sont aussi supprimés
 session_delete_private_named: Supprimer définitivement « %{name} », ses sous-agents et les fichiers de son espace de travail privé
 workspace_rename: Renommer

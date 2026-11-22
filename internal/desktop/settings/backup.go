@@ -10,16 +10,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 var backupMessages = Messages{"backup_saved", "backup_failed", "backup_conflict", "backup_unknown"}
 
 // backupDialogs are the Backup page's dialogs: the storage editor with
 // its draft, the archived sessions and deleting every session. The live
-// page adds the stored backups, the restore form and deleting one session.
+// page adds the stored backups, the restore form and deleting selected sessions.
 type backupDialogs struct {
 	editing, archives, deleting bool
 	draft                       BackupTarget
+	archiveSelection            kit.RowSelection[string]
 	// unconfirmed is whether the storage dialog's save did not succeed;
 	// with BackupActions.Retry its draft is locked and Save reads Retry.
 	unconfirmed bool
@@ -30,6 +32,7 @@ type backupDialogs struct {
 	restore            BackupRestore
 	removing           bool
 	removedTitle       string
+	removedCount       int
 	remove             func()
 	// removedPrivate is a session without a project, whose private
 	// workspace is deleted with it.
@@ -150,11 +153,16 @@ func backup(c *ui.Context, m *Model) {
 		a.Restart(d.restart)
 	}
 	if d.removing && a != nil {
-		message := "session_delete_named"
-		if d.removedPrivate {
-			message = "session_delete_private_named"
+		var message string
+		switch {
+		case d.removedCount > 1:
+			message = i18n.T(c, "session_delete_many_confirm", "count", d.removedCount)
+		case d.removedPrivate:
+			message = i18n.T(c, "session_delete_private_named", "name", d.removedTitle)
+		default:
+			message = i18n.T(c, "session_delete_named", "name", d.removedTitle)
 		}
-		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), a.confirmOnHost(c, i18n.T(c, message, "name", d.removedTitle)),
+		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), a.confirmOnHost(c, message),
 			t("settings_cancel"), t("backup_delete")) == 1 {
 			if d.remove != nil {
 				d.remove()
@@ -412,10 +420,11 @@ func storageDialog(c *ui.Context, m *Model) {
 	}).Width(min(600, width(c)-48)).Label(title)
 }
 
-// archivesDialog is the archived sessions, each unarchived or deleted.
+// archivesDialog lists archived sessions with individual and selection actions.
 func archivesDialog(c *ui.Context, m *Model) {
 	d := &m.backups
 	if !d.archives {
+		d.archiveSelection.Reset()
 		return
 	}
 	p := theme.Of(c)
@@ -425,32 +434,16 @@ func archivesDialog(c *ui.Context, m *Model) {
 	kit.Dialog(c.Key("archives"), &d.archives, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		if len(m.Archived) == 0 {
+			d.archiveSelection.Reset()
 			kit.Result(c, kit.ResultProps{Icon: icons.Archive, Title: t("backup_no_archived"), Card: true})
 		} else {
-			ui.Scroll(c.Key("list")).Grow(1).Shrink(1).Dividers(1, p.Border).Children(func() {
+			order := make([]string, 0, len(m.Archived))
+			for _, a := range m.Archived {
+				order = append(order, a.ID)
+			}
+			ui.Scroll(c.Key("list")).Role(ui.RoleList).Grow(1).Shrink(1).Dividers(1, p.Border).Children(func() {
 				for _, a := range m.Archived {
-					// A session that never ran has no date.
-					at := ""
-					if !a.At.IsZero() {
-						at = a.At.Format(time.DateOnly)
-					}
-					kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, at) }, nil, func() {
-						kit.TextActionBusy(c.Key("unarchive"), t("backup_unarchive"), locked, m.Busy[BusyBackup+"unarchive/"+a.ID]).OnClick(func() {
-							if x := m.BackupActions; x != nil {
-								x.Unarchive(a.ID)
-								return
-							}
-							notice(c)
-						})
-						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), locked, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
-							if actions := m.BackupActions; actions != nil && actions.PrepareDelete != nil {
-								d.remove = actions.PrepareDelete(a.ID)
-								d.removedTitle, d.removedPrivate, d.removing = a.Title, a.Private, d.remove != nil
-								return
-							}
-							notice(c)
-						})
-					})
+					archiveRow(c, m, a, order, locked)
 				}
 			})
 		}
@@ -458,4 +451,83 @@ func archivesDialog(c *ui.Context, m *Model) {
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { d.archives = false })
 		})
 	}).Width(min(560, width(c)-48)).Label(title)
+}
+
+func archiveRow(c *ui.Context, m *Model, a viewmodel.Archived, order []string, locked bool) {
+	p := theme.Of(c)
+	unarchiveLabel, deleteLabel := i18n.T(c, "backup_unarchive"), i18n.T(c, "backup_delete")
+	at := ""
+	if !a.At.IsZero() {
+		at = a.At.Format(time.DateOnly)
+	}
+	row := kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, at) }, nil, func() {
+		kit.TextActionBusy(c.Key("unarchive"), unarchiveLabel, locked, m.Busy[BusyBackup+"unarchive/"+a.ID]).OnClick(func() {
+			m.unarchiveSelection(c, []string{a.ID})
+		})
+		kit.TextActionBusy(c.Key("delete"), deleteLabel, locked, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
+			m.prepareArchiveDeletion(c, a, []string{a.ID})
+		})
+	}).Focusable().Role(ui.RoleListItem).Label(a.Title).Cursor(ui.CursorPointer)
+	selection := &m.backups.archiveSelection
+	if row.Clicked() {
+		selection.Click(a.ID, order, row.ClickModifiers())
+	}
+	menuTargets := ui.Local(row, "archive-menu-targets", func() []string { return nil })
+	row.ContextMenu(func(menu *ui.Menu) {
+		unarchive := menu.Item(unarchiveLabel).Disabled(locked)
+		remove := menu.Item(deleteLabel).Danger().Disabled(locked)
+		switch {
+		case unarchive.Chosen():
+			m.unarchiveSelection(c, *menuTargets)
+		case remove.Chosen():
+			m.prepareArchiveDeletion(c, a, *menuTargets)
+		default:
+			// MyGo rebuilds the native menu on choice, so keep its opening targets.
+			wasSelected := selection.Has(a.ID)
+			*menuTargets = selection.Context(a.ID, order)
+			if !wasSelected {
+				c.Invalidate()
+			}
+		}
+	})
+	selected := selection.Has(a.ID)
+	row.AccessSelected(selected)
+	if selected {
+		row.Background(p.Selected()).Radius(p.Radius)
+	}
+}
+
+func (m *Model) unarchiveSelection(c *ui.Context, ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	a := m.BackupActions
+	switch {
+	case len(ids) == 1 && a != nil && a.Unarchive != nil:
+		a.Unarchive(ids[0])
+	case len(ids) > 1 && a != nil && a.UnarchiveMany != nil:
+		a.UnarchiveMany(ids)
+	default:
+		notice(c)
+	}
+}
+
+func (m *Model) prepareArchiveDeletion(c *ui.Context, session viewmodel.Archived, ids []string) {
+	d, a := &m.backups, m.BackupActions
+	if len(ids) == 0 || d.removing {
+		return
+	}
+	var remove func()
+	switch {
+	case len(ids) == 1 && a != nil && a.PrepareDelete != nil:
+		remove = a.PrepareDelete(ids[0])
+	case len(ids) > 1 && a != nil && a.PrepareDeleteMany != nil:
+		remove = a.PrepareDeleteMany(ids)
+	default:
+		notice(c)
+	}
+	if remove != nil {
+		d.removedTitle, d.removedPrivate, d.removedCount = session.Title, session.Private, len(ids)
+		d.remove, d.removing = remove, true
+	}
 }

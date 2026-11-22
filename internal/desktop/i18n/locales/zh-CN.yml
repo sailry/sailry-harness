@@ -252,6 +252,7 @@ knowledge_slide: 第 %{slide} 张
 workspace_archive: 归档会话
 session_delete: 删除会话
 session_delete_named: 删除“%{name}”及其子智能体，无法恢复
+session_delete_many_confirm: 永久删除选中的 %{count} 个会话及其子智能体和私有工作区文件？
 session_delete_private_files: 其私有工作区中的文件也会一并删除
 session_delete_private_named: 删除“%{name}”、其子智能体和私有工作区文件，无法恢复
 workspace_rename: 重命名

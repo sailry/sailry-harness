@@ -43,6 +43,7 @@ type projectOverview struct {
 	node, project string
 	tab           int
 	search        string
+	selection     kit.RowSelection[string]
 	pending       bool
 	opening       string // the session row whose opening is pending
 	initialize    bool
@@ -171,6 +172,7 @@ func (a *App) projectView(c *ui.Context) {
 // card, rows apart by hairlines, the empty state inside it).
 func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, state *projectOverview) {
 	ui.Column(c.Key("project-records")).FillWidth().Gap(12).Padding(16, 0, 0, 0).Children(func() {
+		previousTab := state.tab
 		ui.Row(c.Key("toolbar")).Gap(16).Wrap().Children(func() {
 			tabs := []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "project_archived")}
 			if state.actions.Terminals != nil {
@@ -183,6 +185,9 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 			label := i18n.T(c, "search")
 			ui.SearchField(c.Key("search"), &state.search).Placeholder(label).Label(label).Width(240).MinWidth(0)
 		})
+		if state.tab != previousTab {
+			state.selection.Reset()
+		}
 		query := strings.ToLower(strings.TrimSpace(state.search))
 		matches := func(title, path string) bool {
 			return query == "" || strings.Contains(strings.ToLower(title), query) || strings.Contains(strings.ToLower(path), query)
@@ -205,11 +210,13 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 					continue
 				}
 				rows = append(rows, func() {
-					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, nil).
+					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, false, nil).
 						Disabled(state.actions.OpenTerminal == nil).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
 				})
 			}
 		}
+		var order []string
+		visible := make(map[string]*viewmodel.Conversation)
 		for _, session := range sessions {
 			if session.Archived != archived || (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
 				continue
@@ -223,10 +230,29 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 				continue
 			}
 			id := session.Node + "/" + session.ID
+			order = append(order, id)
+			visible[id] = session
 			rows = append(rows, func() {
-				projectRecord(c, id, title, path, nil, state.pending && state.opening == id, project).
-					Disabled(state.pending || state.actions.OpenSession == nil).
-					ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
+				selected := state.selection.Has(id)
+				row := projectRecord(c, id, title, path, nil, state.pending && state.opening == id, selected, project).
+					Disabled(state.pending || state.actions.OpenSession == nil)
+				row.ContextMenu(func(m *ui.Menu) {
+					keys := state.selection.Context(id, order)
+					if !selected {
+						c.Invalidate()
+					}
+					targets := make([]*viewmodel.Conversation, 0, len(keys))
+					for _, key := range keys {
+						targets = append(targets, visible[key])
+					}
+					a.Sidebar.BatchSessionMenu(c, m, targets)
+				})
+				row.OnClick(func() {
+					if mods := c.Modifiers(); mods&(ui.Ctrl|ui.Cmd|ui.Shift) != 0 {
+						state.selection.Click(id, order, mods)
+						return
+					}
+					state.selection.Reset()
 					state.pending, state.opening = true, id
 					state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
 				})
@@ -246,11 +272,14 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 // title over the path, and the neutral hover fill across the card. A
 // session's row leads with its project's glyph (user decision 2026-11-12)
 // in place of icon.
-func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy bool, project *viewmodel.Project) ui.Element {
+func projectRecord(c *ui.Context, key, title, path string, icon *ui.SVG, busy, selected bool, project *viewmodel.Project) ui.Element {
 	palette := theme.Of(c)
 	row := ui.ButtonBase(c.Key(key)).Label(title).Padding(kit.RowPad, 16).Margin(0, -16).Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).
 		Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(palette.SurfaceForeground)
-	if row.Hovered() {
+	switch {
+	case selected:
+		row.Background(palette.Selected()).AccessSelected(true)
+	case row.Hovered():
 		row.Background(palette.Hover)
 	}
 	return row.Children(func() {

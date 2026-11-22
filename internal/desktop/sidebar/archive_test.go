@@ -75,24 +75,24 @@ func TestSidebarArchiveMode(t *testing.T) {
 	}
 }
 
-func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
+func TestSidebarArchiveGuardAndDirectDispatch(t *testing.T) {
 	for _, scenario := range []struct {
-		name          string
-		status        viewmodel.Status
-		queue         []composer.Queued
-		busy          bool
-		wantPrompt    bool
-		busyAtConfirm bool
+		name    string
+		status  viewmodel.Status
+		queue   []composer.Queued
+		offline bool
+		busy    bool
+		allowed bool
 	}{
 		{name: "running", status: viewmodel.Running},
 		{name: "waiting", status: viewmodel.Waiting},
 		{name: "held queue", queue: []composer.Queued{{}}},
+		{name: "offline", offline: true},
 		{name: "new Node activity", busy: true},
-		{name: "idle", wantPrompt: true},
-		{name: "work admitted during confirmation", wantPrompt: true, busyAtConfirm: true},
+		{name: "idle", allowed: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			cv := &viewmodel.Conversation{ID: "first", Title: "First session", Status: scenario.status, Queue: scenario.queue}
+			cv := &viewmodel.Conversation{ID: "first", Title: "First session", Status: scenario.status, Queue: scenario.queue, Offline: scenario.offline}
 			other := &viewmodel.Conversation{ID: "other", Title: "Other session"}
 			data := &viewmodel.Data{Workspace: &viewmodel.Workspace{}, Projects: []*viewmodel.Project{
 				{ID: "first-project", Name: "First project", Conversations: []*viewmodel.Conversation{cv}},
@@ -100,10 +100,9 @@ func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
 			}}
 			s := New(data, other.ID)
 			s.Reveal("first-project")
-			busy := scenario.busy
 			var archived *viewmodel.Conversation
 			s.Actions = &Actions{
-				CanArchive: func(target *viewmodel.Conversation) bool { return target != cv || !busy },
+				CanArchive: func(target *viewmodel.Conversation) bool { return target != cv || !scenario.busy },
 				Archive:    func(target *viewmodel.Conversation) { archived = target },
 			}
 			ask := false
@@ -134,37 +133,19 @@ func TestSidebarArchiveGuardAndCapturedTarget(t *testing.T) {
 			}
 			x, y := button.X+button.W/2, button.Y+button.H/2
 			tt.Press(x, y)
-			if rowFocused := tt.Focused(cv.Title); rowFocused == scenario.wantPrompt {
-				t.Fatalf("pressing %q focused row=%t, want button enabled=%t", label, rowFocused, scenario.wantPrompt)
+			if rowFocused := tt.Focused(cv.Title); rowFocused == scenario.allowed {
+				t.Fatalf("pressing %q focused row=%t, want button enabled=%t", label, rowFocused, scenario.allowed)
 			}
 			tt.Release(x, y)
-			if s.confirm.open != scenario.wantPrompt || archived != nil || s.Selected != other.ID {
-				t.Fatalf("archive click: prompt=%t archived=%p selected=%q", s.confirm.open, archived, s.Selected)
-			}
-			if !scenario.wantPrompt {
+			var want *viewmodel.Conversation
+			if scenario.allowed {
+				want = cv
+			} else {
 				ask = true
 				tt.Frame()
-				if s.confirm.open || archived != nil {
-					t.Fatal("archive handler accepted a busy session")
-				}
-				return
 			}
-			confirm, ok := tt.AccessByRole(ui.RoleButton, label)
-			if !ok || !tt.HasText(i18n.In("en", "session_archive_named", "name", cv.Title)) {
-				t.Fatal("missing archive confirmation for the clicked session")
-			}
-			busy = scenario.busyAtConfirm
-			b := confirm.Bounds
-			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
-			if s.confirm.open || s.Selected != other.ID || data.ProjectOf(cv.ID) != data.Projects[0] {
-				t.Fatal("confirming archive did not close the prompt and preserve selection and ownership")
-			}
-			if busy {
-				if archived != nil {
-					t.Fatal("work admitted during confirmation was archived")
-				}
-			} else if archived != cv {
-				t.Fatal("confirmation did not archive its captured target")
+			if archived != want || s.confirm.open || s.Selected != other.ID || data.ProjectOf(cv.ID) != data.Projects[0] {
+				t.Fatalf("archive click: target=%p want=%p prompt=%t selected=%q", archived, want, s.confirm.open, s.Selected)
 			}
 		})
 	}
@@ -175,8 +156,53 @@ func TestPreviewArchiveRetainsSelection(t *testing.T) {
 	s := New(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv, {ID: "other", Title: "Other project session"}}}, cv.ID)
 	tt := ui.NewTester(func(c *ui.Context) { s.archive(c, cv) }, 300, 200)
 	tt.Frame()
-	s.confirm.run()
-	if !cv.Archived || s.Selected != cv.ID {
-		t.Fatal("archiving navigated away from the open transcript")
+	if !cv.Archived || s.confirm.open || s.Selected != cv.ID {
+		t.Fatal("archiving did not update the session directly and preserve its selection")
+	}
+}
+
+func TestSidebarBatchArchiveAndRestore(t *testing.T) {
+	local := &viewmodel.Conversation{Node: "local", ID: "shared"}
+	remote := &viewmodel.Conversation{Node: "remote", ID: "shared"}
+	running := &viewmodel.Conversation{Node: "remote", ID: "busy", Status: viewmodel.Running}
+	targets := []*viewmodel.Conversation{local, remote, running}
+	s := New(&viewmodel.Data{Unassigned: targets}, "")
+	var archived, restored []*viewmodel.Conversation
+	s.Actions = &Actions{
+		Archive: func(cv *viewmodel.Conversation) {
+			archived = append(archived, cv)
+			cv.Archived = true
+		},
+		Unarchive: func(cv *viewmodel.Conversation) {
+			restored = append(restored, cv)
+			cv.Archived = false
+		},
+	}
+	const label = "Selected sessions"
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.ButtonBase(c.Key("selection")).Label(label).Size(160, 28).ContextMenu(func(m *ui.Menu) {
+			s.BatchSessionMenu(c, m, targets)
+		})
+	}, 300, 200)
+	tt.SetLocale("en")
+	tt.Frame()
+	choose := func(key string) {
+		t.Helper()
+		if err := tt.RightClick(label); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem(i18n.In("en", key)); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	want := []*viewmodel.Conversation{local, remote}
+	choose("workspace_archive")
+	if s.confirm.open || !slices.Equal(archived, want) || running.Archived {
+		t.Fatalf("archive dispatched to %v, want scoped idle sessions %v without confirmation", archived, want)
+	}
+	choose("backup_unarchive")
+	if s.confirm.open || !slices.Equal(restored, want) || local.Archived || remote.Archived {
+		t.Fatalf("restore dispatched to %v, want archived sessions %v without confirmation", restored, want)
 	}
 }

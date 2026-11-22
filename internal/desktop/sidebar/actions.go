@@ -16,8 +16,9 @@ type Actions struct {
 	CanArchive func(*viewmodel.Conversation) bool
 	Unarchive  func(*viewmodel.Conversation)
 	Read       func(*viewmodel.Conversation, bool)
-	Delete     func(*viewmodel.Conversation)
-	Pin        func(*viewmodel.Conversation)
+	// Delete receives the host, ID and revision of every confirmed session.
+	Delete func([]*viewmodel.Conversation)
+	Pin    func(*viewmodel.Conversation)
 	// MovePin saves the pinned order with source before or after target,
 	// each on its own host.
 	MovePin func(source, target *viewmodel.Conversation, after bool)
