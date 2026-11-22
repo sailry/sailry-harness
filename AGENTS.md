@@ -95,6 +95,21 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
   generate the embedded English and Simplified Chinese catalogs. Other Unicode
   belongs only in intentional fixtures or localized resources.
 
+## GUI resource lifetime and copying
+
+- Give every subscription, callback, timer, decoded image, editor buffer and
+  native handle an owner. Release it when the owner closes, changes scope or is
+  replaced. Cancel outstanding reads and prevent late results from restoring
+  retired content. Preserve independently owned drafts and admitted operations.
+- Keep large lists lazy and cache reusable content within an explicit budget.
+  Evict by revision, scope, age or size as appropriate. Rendering an unchanged
+  frame must reuse its projection. Append deltas and share immutable values
+  where safe. Copy or serialize at the boundary that requires isolation.
+- Verify a changed hot path with repeated updates or open/close cycles on the
+  same fixture. Check ownership counts after close and measure allocation per
+  update separately from live heap after GC and process footprint. See
+  [GUI resource ownership](ARCHITECTURE.md#gui-resource-ownership).
+
 ## Runtime and packages
 
 - Sailry owns the agent loop, tools, approvals, persistence and delegation.

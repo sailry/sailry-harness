@@ -978,6 +978,25 @@ presentation needs them. Floating surfaces remain Kit's frost; right-click menus
 and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
 Toasts display outcomes. Interactive recovery belongs to the original surface.
 
+### GUI resource ownership
+
+A mounted window, pane or route owns its subscriptions and presentation state.
+Closing or replacing it releases its listeners, pending reads, decoded assets
+and native view handles. An asynchronous completion must still match its owner
+and resource revision before it can publish a result. The Node owns committed
+history and admitted work. The draft controller owns unsaved edits across
+navigation. A view can release its copy independently of either owner.
+
+Long lists render the visible rows and a bounded look-ahead. A scroll anchor,
+selection or history cursor can restore navigation after heavier row state is
+released. Caches that outlive a view need an owner, an eviction bound and a key
+that includes the resource scope. A data change should rebuild only the affected
+projection. Transfer immutable snapshots across asynchronous boundaries and
+reuse them across unchanged frames. Keep a detached copy where a consumer can
+mutate data, retain a borrowed buffer or cross a trust boundary.
+
+### Conversation layout
+
 Conversations center the messages and composer in the whole main pane. The
 transcript's scroll viewport fills that pane, with its scrollbar at the right
 edge. Wide panes show an activity card in the transcript's right margin, with a
