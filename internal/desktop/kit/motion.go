@@ -8,6 +8,9 @@ import (
 	"hash/fnv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -62,9 +65,87 @@ type Sweep struct {
 type sweepLabelKey struct{}
 
 type sweepLabel struct {
-	text   string
-	font   ui.Font
-	layout *ui.TextLayout
+	span      ui.Span
+	font      ui.Font
+	direction ui.Direction
+	width, x  float32
+	layout    *ui.TextLayout
+}
+
+// MyGo does not expose the layout of a SingleLine element to DrawOver.
+// Shape its displayed line on width or style changes, then reuse it on every
+// pass. The wrap check uses the same font fallback and line breaking as RichText.
+func (l *sweepLabel) fit(span ui.Span, font ui.Font, direction ui.Direction, width float32) {
+	width = max(width, 1)
+	if l.layout != nil && l.span == span && l.font == font && l.direction == direction && l.width == width {
+		return
+	}
+	*l = sweepLabel{span: span, font: font, direction: direction, width: width}
+	shape := ui.TextShape{Direction: direction, Width: width}
+	layout := ui.ShapeRichTextWith([]ui.Span{span}, font, shape)
+	lines := layout.Lines()
+	if len(lines) == 1 {
+		// Keep the plain-label fast path when its geometry matches RichText.
+		if (span.Size == 0 || span.Size == font.Size) && span == (ui.Span{Text: span.Text, Size: span.Size}) &&
+			strings.TrimSpace(span.Text) == span.Text && !lines[0].RTL && direction != ui.RightToLeft {
+			layout = ui.ShapeText(span.Text, font, 0)
+		}
+		l.layout = layout
+		return
+	}
+
+	// SingleLine reserves the theme-sized ellipsis and retains whole graphemes
+	// from the first paragraph. The visible ellipsis takes the last span's font.
+	paragraph, _, _ := strings.Cut(span.Text, "\n")
+	paragraph = strings.TrimSuffix(paragraph, "\r")
+	span.Text = sweepPrefix(paragraph, font, span, layout, width)
+	if span.Text == "" {
+		span = ui.Span{Text: "…"}
+	} else {
+		span.Text += "…"
+	}
+	l.layout = ui.ShapeRichText([]ui.Span{span}, font, 0)
+	if direction == ui.RightToLeft || lines[0].RTL {
+		w, _ := l.layout.Size()
+		l.x = width - w
+	}
+}
+
+func sweepPrefix(text string, font ui.Font, span ui.Span, layout *ui.TextLayout, width float32) string {
+	markWidth, _ := ui.ShapeText("…", font, 0).Size()
+	if span.Font != "" {
+		font.Family = span.Font
+	}
+	if span.Size != 0 {
+		font.Size = span.Size
+	}
+	font.Weight, font.Italic, font.Features = span.Weight, span.Italic, span.Features
+	if span.Lang != "" {
+		font.Lang = span.Lang
+	}
+	advances := make([]float32, utf8.RuneCountInString(text))
+	for _, glyph := range ui.Shape(text, font) {
+		advances[glyph.Cluster] += glyph.Advance
+	}
+	var used float32
+	units, index, cut := 0, 0, 0
+	next := layout.NextBoundary(0)
+	for i, r := range text {
+		if units == next {
+			if used+markWidth > width {
+				break
+			}
+			cut = i
+			next = layout.NextBoundary(units)
+		}
+		used += advances[index]
+		units += utf16.RuneLen(r)
+		index++
+	}
+	if used+markWidth <= width {
+		cut = len(text)
+	}
+	return strings.TrimRightFunc(text[:cut], unicode.IsSpace)
 }
 
 // Frame makes row the box the band crosses. Call it on the row's element
@@ -77,18 +158,9 @@ func (s *Sweep) Frame(row ui.Element) {
 	}
 }
 
-// Text draws the band over e, a single-line text of span's text, font,
-// size and color. Without a Frame, the band crosses e alone. The band is
-// the span drawn again by the painter, as a RichText: its line starts from
-// the theme's font size, the strut, whatever the span's. So e must be laid
-// out the same way, as ui.RichText(c, span) with no font size of its own,
-// which Shimmer builds and LevelSpan levels. A plain ui.Text agrees with
-// it only at the theme's own size and font. Smaller, its baseline is its
-// own size's and the band's the strut's, about 2 DIPs lower at 12 under
-// 14; larger, it has half its font's line gap above it, where the font has
-// one, and the band's line, grown past the strut, has none; in another
-// font the ascents differ. The glyphs then sit off the band's and the
-// text looks doubled or heavier as the band passes.
+// Text draws the band over e, a ui.RichText(c, span).SingleLine() with
+// the theme's font and size as its base style, so the text and band use
+// the same baseline. Without a Frame, the band crosses e alone.
 func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 	if c.Preferences().ReduceMotion || span.Text == "" {
 		return e
@@ -103,16 +175,11 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 		}
 	}
 	const layers = 12
-	span.Color = hi.Alpha(peak / layers)
-	// A plain label at the theme's size has the same strut as RichText.
-	// Reuse its geometry across the clips and paint color separately.
-	// ShapeText preserves trailing whitespace, unlike RichText.
+	color := hi.Alpha(peak / layers)
+	span.Color = ui.Transparent
 	font := ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize, Lang: c.Locale()}
-	var label *sweepLabel
-	if (span.Size == font.Size || span.Size == 0) && span == (ui.Span{Text: span.Text, Size: span.Size, Color: span.Color}) &&
-		strings.TrimSpace(span.Text) == span.Text && !strings.ContainsAny(span.Text, "\r\n") {
-		label = ui.Local(e, sweepLabelKey{}, func() sweepLabel { return sweepLabel{} })
-	}
+	direction := c.Direction()
+	label := ui.Local(e, sweepLabelKey{}, func() sweepLabel { return sweepLabel{} })
 	return e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 		visible := visibleMotionRect(pt, r)
 		if visible.W <= 0 || visible.H <= 0 {
@@ -146,9 +213,7 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 		}
 		pt.AnimationFrameRate(FPS)
 		center := origin + float32(elapsed)/float32(sweepPeriod)*travel
-		if label != nil && (label.text != span.Text || label.font != font) {
-			*label = sweepLabel{text: span.Text, font: font, layout: ui.ShapeText(span.Text, font, 0)}
-		}
+		label.fit(span, font, direction, r.W)
 		pt.Clip(r, 0, func() {
 			for i := range layers {
 				half := spread / 2 * (1 - float32(i)/layers)
@@ -156,11 +221,7 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 					break // all remaining clips are narrower
 				}
 				pt.Clip(ui.Rect{X: center - half, Y: r.Y, W: 2 * half, H: r.H}, 0, func() {
-					if label != nil {
-						pt.TextLayout(label.layout, r.X, r.Y, span.Color)
-					} else {
-						pt.RichText(r.X, r.Y, 0, span)
-					}
+					pt.TextLayout(label.layout, r.X+label.x, r.Y, color)
 				})
 			}
 		})

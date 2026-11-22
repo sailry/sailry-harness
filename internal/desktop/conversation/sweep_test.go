@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -129,6 +130,77 @@ func TestRunningToolRowsSweep(t *testing.T) {
 		lit := sweeps(t, sweepTurn(ExecutingTool, append([]Block{progress}, tools...)...), nil, head, "a.go", "b.go")
 		expectSweeps(t, lit, map[string]bool{head: true, "a.go": true, "b.go": true})
 	})
+}
+
+func TestRunningCommandSweepPreservesEllipsis(t *testing.T) {
+	for _, tc := range []struct {
+		locale, label, detail string
+	}{
+		{"en", "Command", `go test ./internal/desktop/kit ./internal/desktop/live`},
+		{"zh-CN", "命令", `printf '%s\n' '测试运行中的命令行扫光和省略号，保留可见文字的完整字形'`},
+	} {
+		t.Run(tc.locale, func(t *testing.T) {
+			call := Call{ID: "command", Name: "run_command", Label: tc.label, Icon: "square-terminal",
+				Detail: tc.detail, Code: true, Running: true, Terminal: true, Output: &Output{Text: "working", Command: true}}
+			state := New()
+			var naturalWidth float32
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Dark)
+				naturalWidth, _ = c.MeasureText(0, ui.Span{Text: tc.detail, Font: "monospace", Size: textSize(c) - 1})
+				ui.Column(c).Fill().Padding(8).Background(theme.Of(c).Background).Children(func() { state.row(c, call, false) })
+			}, 760, 40)
+			tester.SetLocale(tc.locale)
+			for _, width := range []int{760, 180, 241, 760} {
+				tester.SetSize(width, 40)
+				tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+				r, ok := tester.Find(tc.detail)
+				if !ok || r.W < 40 || r.X+r.W > float32(width) {
+					t.Fatalf("width %d: command detail has unexpected bounds %+v (found %v)", width, r, ok)
+				}
+				if (r.W+1 < naturalWidth) != (width < 760) {
+					t.Fatalf("width %d: command box %v, natural text width %v", width, r.W, naturalWidth)
+				}
+				still := tester.Image()
+				background := still.RGBAAt(0, 0)
+				left, right := int(math.Ceil(float64(r.X))), int(math.Floor(float64(r.X+r.W)))
+				top, bottom := int(math.Ceil(float64(r.Y))), int(math.Floor(float64(r.Y+r.H)))
+				lastInk := left
+				for y := top; y < bottom; y++ {
+					for x := left; x < right; x++ {
+						if still.RGBAAt(x, y) != background {
+							lastInk = max(lastInk, x)
+						}
+					}
+				}
+				if lastInk <= left {
+					t.Fatalf("width %d: no visible command text", width)
+				}
+				tester.SetPreferences(ui.Preferences{})
+				litPrefix, litEnd, spill := false, false, 0
+				for range 20 {
+					tester.Advance(100 * time.Millisecond)
+					frame := tester.Image()
+					for y := top; y < bottom; y++ {
+						for x := left; x < right; x++ {
+							base := still.RGBAAt(x, y)
+							if base == frame.RGBAAt(x, y) {
+								continue
+							}
+							if base == background {
+								spill++
+							} else {
+								litPrefix = litPrefix || x < (left+lastInk)/2
+								litEnd = litEnd || x == lastInk
+							}
+						}
+					}
+				}
+				if spill != 0 || !litPrefix || !litEnd {
+					t.Errorf("width %d: prefix lit %t, end lit %t, %d changes on background pixels", width, litPrefix, litEnd, spill)
+				}
+			}
+		})
+	}
 }
 
 // While the model's next output is awaited, every call of the returned batch
