@@ -49,7 +49,6 @@ type Instruction struct {
 }
 type Catalog struct {
 	Packages        []Package
-	resourceMu      sync.Mutex
 	ArtifactClasses map[string][]string
 	References      []protocol.PluginReference
 	Tools           []Declaration

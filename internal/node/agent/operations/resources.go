@@ -20,7 +20,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"go.yaml.in/yaml/v3"
-	"lukechampine.com/blake3"
 )
 
 const SkillBytes = 128 * 1024
@@ -39,7 +38,6 @@ type Package struct {
 }
 
 type Resources struct {
-	catalog  *Catalog
 	profile  string
 	packages []Package
 }
@@ -52,7 +50,7 @@ func CaptureResources(ctx context.Context, profile string, references []protocol
 	if err != nil {
 		return nil, err
 	}
-	value := &Resources{catalog: catalog, profile: profile}
+	value := &Resources{profile: profile}
 	for _, reference := range references {
 		index := slices.IndexFunc(catalog.Packages, func(p Package) bool {
 			return p.Reference.Name == reference.Name && p.Reference.Digest == reference.Digest
@@ -219,103 +217,49 @@ func (r *Resources) Read(ctx context.Context, key, relative string) (SkillText, 
 	return SkillText{Content: string(data), Directory: filepath.Join(directory, "skills", name)}, nil
 }
 
-// materialize exposes embedded resources through the existing profile package
-// location. It never installs, updates or overwrites an existing package file.
 func (r *Resources) materialize(ctx context.Context, p Package) (string, error) {
 	if p.directory != "" {
 		return p.directory, nil
 	}
-	r.catalog.resourceMu.Lock()
-	defer r.catalog.resourceMu.Unlock()
-	directory, err := filepath.Abs(filepath.Join(r.profile, "plugins", "packages", p.Reference.Digest))
-	if err != nil {
-		return "", err
-	}
-	root, err := r.packageRoot(p.Reference.Digest)
-	if err != nil {
-		return "", err
-	}
-	defer root.Close()
-	err = fs.WalkDir(p.tree, ".", func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err = ctx.Err(); err != nil {
-			return err
-		}
-		if name == "." {
-			return nil
-		}
-		target := filepath.FromSlash(name)
-		if entry.IsDir() {
-			if err := root.Mkdir(target, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-				return err
-			}
-			info, err := root.Lstat(target)
-			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return resourceFault(protocol.ErrorCodeUnavailable, "plugin resource directory changed")
-			}
-			return nil
-		}
-		data, err := fs.ReadFile(p.tree, name)
-		if err != nil {
-			return err
-		}
-		file, err := root.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if errors.Is(err, os.ErrExist) {
-			info, e := root.Lstat(target)
-			if e != nil || !info.Mode().IsRegular() {
-				return resourceFault(protocol.ErrorCodeUnavailable, "plugin resource changed")
-			}
-			current, e := root.ReadFile(target)
-			if e != nil || blake3.Sum256(current) != blake3.Sum256(data) {
-				return resourceFault(protocol.ErrorCodeUnavailable, "plugin resource changed")
-			}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		_, writeErr := file.Write(data)
-		closeErr := file.Close()
-		return errors.Join(writeErr, closeErr)
-	})
-	return directory, err
-}
-
-func (r *Resources) packageRoot(digest string) (*os.Root, error) {
 	if err := core.PrivateDirectory(r.profile); err != nil {
-		return nil, err
+		return "", err
 	}
-	root, err := os.OpenRoot(r.profile)
+	profile, err := filepath.Abs(r.profile)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	for _, name := range []string{"plugins", "packages", digest} {
-		if err := root.Mkdir(name, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-			root.Close()
-			return nil, err
+	parent := profile
+	for _, name := range []string{"plugins", "packages"} {
+		parent = filepath.Join(parent, name)
+		info, err := os.Lstat(parent)
+		if errors.Is(err, os.ErrNotExist) {
+			break
 		}
-		info, err := root.Lstat(name)
-		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			root.Close()
-			return nil, resourceFault(protocol.ErrorCodeUnavailable, "plugin resource directory changed")
-		}
-		child, err := root.OpenRoot(name)
 		if err != nil {
-			root.Close()
-			return nil, err
+			return "", err
 		}
-		opened, err := child.Stat(".")
-		if err != nil || !os.SameFile(info, opened) {
-			child.Close()
-			root.Close()
-			return nil, resourceFault(protocol.ErrorCodeUnavailable, "plugin resource directory changed")
+		if !info.IsDir() {
+			return "", resourceFault(protocol.ErrorCodeUnavailable, "plugin resource directory changed")
 		}
-		root.Close()
-		root = child
 	}
-	return root, nil
+	manager := plugins.NewManager(profile)
+	directory, err := manager.PackageRoot(p.Reference)
+	if err == nil {
+		_, err = manager.CapturedInfo(ctx, p.Reference)
+		return directory, err
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	// Publish missing bundled content without changing the user's installation record.
+	info, err := manager.InstallBundled(ctx, p.Reference.Name)
+	if err != nil {
+		return "", err
+	}
+	if info.Summary.Digest != p.Reference.Digest {
+		return "", resourceFault(protocol.ErrorCodeUnavailable, "bundled plugin differs from the admitted package")
+	}
+	return manager.PackageRoot(p.Reference)
 }
 
 func discoverSkills(tree fs.FS) []protocol.PluginSkill {

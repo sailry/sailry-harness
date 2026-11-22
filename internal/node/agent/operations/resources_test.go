@@ -10,21 +10,30 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestSkillLoad(t *testing.T) {
 	document := "\ufeff\n---\nname: inspect\ndescription: Inspect bounded resources\nmetadata:\n  display-name.zh-CN: 检查\n...\n\n# Instructions\nKeep the complete document Ω\n"
 	tree := fstest.MapFS{"skills/inspect/SKILL.md": {Data: []byte(document)}, "skills/inspect/docs/guide.txt": {Data: []byte("complete text 界🙂\n")}, "skills/inspect/binary": {Data: []byte{0xff, 0xfe}}, "skills/inspect/large": {Data: []byte(strings.Repeat("x", SkillBytes+1))}}
-	digest, err := packageDigest(tree)
-	if err != nil {
-		t.Fatal(err)
-	}
 	skills := discoverSkills(tree)
 	if len(skills) != 1 || skills[0].DisplayLocales["zh-CN"] != "检查" {
 		t.Fatal("skill metadata", skills)
 	}
-	resources := &Resources{catalog: &Catalog{}, profile: filepath.Join(t.TempDir(), "profile"), packages: []Package{{Reference: protocol.PluginReference{Name: "fixture", Digest: digest}, Skills: skills, tree: tree}}}
+	tree["plugin.json"] = &fstest.MapFile{Data: []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fixture","version":"1.0.0","description":"Fixture"}`)}
+	source, profile := t.TempDir(), t.TempDir()
+	if err := os.CopyFS(source, tree); err != nil {
+		t.Fatal(err)
+	}
+	info, err := plugins.NewManager(profile).Install(t.Context(), source, "", "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, err := CaptureResources(t.Context(), profile, []protocol.PluginReference{plugins.PackageReference(info)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	value, err := resources.Read(t.Context(), "fixture:inspect", "SKILL.md")
 	if err != nil || value.Content != document || !filepath.IsAbs(value.Directory) {
 		t.Fatal(value, err)
@@ -103,6 +112,67 @@ func TestSkillLoad(t *testing.T) {
 			t.Fatal("pinned bundled skill-only fixture is missing")
 		}
 	})
+}
+
+// Cancel at the first context check after a package file has reached disk.
+// Neither the name of the in-progress directory nor filesystem timing matters.
+type cancelDuringPackageWrite struct {
+	context.Context
+	cancel context.CancelFunc
+	store  string
+}
+
+func (c cancelDuringPackageWrite) Err() error {
+	dirs, _ := os.ReadDir(c.store)
+	for _, dir := range dirs {
+		if entries, _ := os.ReadDir(filepath.Join(c.store, dir.Name())); len(entries) > 0 {
+			c.cancel()
+			break
+		}
+	}
+	return c.Context.Err()
+}
+
+func TestBundledSkillPublication(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.Mkdir(profile, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager := plugins.NewManager(profile)
+	info, err := manager.InspectBundled(t.Context(), "brief")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := plugins.PackageReference(info)
+	resources, err := CaptureResources(t.Context(), profile, []protocol.PluginReference{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(profile, "plugins", "packages")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if _, err := resources.Read(cancelDuringPackageWrite{ctx, cancel, store}, "brief:brief", "SKILL.md"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("read interrupted during publication: %v", err)
+	}
+	if entries, err := os.ReadDir(store); err != nil || len(entries) != 0 {
+		t.Fatalf("interrupted publication left %v: %v", entries, err)
+	}
+	if _, err := resources.Read(t.Context(), "brief:brief", "SKILL.md"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CapturedInfo(t.Context(), ref); err != nil {
+		t.Fatal("retry did not publish the captured package:", err)
+	}
+	manifest := filepath.Join(store, ref.Digest, "plugin.json")
+	if err := os.Remove(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resources.Read(t.Context(), "brief:brief", "SKILL.md"); err == nil {
+		t.Fatal("read accepted a damaged published package")
+	}
+	if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read modified an existing package: %v", err)
+	}
 }
 
 func TestModeMapping(t *testing.T) {
