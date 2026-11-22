@@ -137,6 +137,7 @@ func (r *Runtime) closePluginViews() {
 	}
 	if r.parent == nil {
 		state.closed = true
+		root.showPluginDetails(nil)
 	}
 	for key, mounted := range state.mounts {
 		if r.parent == nil || mounted.owner == r {
@@ -183,6 +184,9 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 			(r.App.Page != shell.SettingsPage || r.App.Settings.Section != section) {
 			r.closePluginSchema(section, schema)
 		}
+	}
+	if r.App.PluginFeature() == "" {
+		r.showPluginDetails(nil)
 	}
 	for key, mounted := range state.mounts {
 		mounted.seen = false
@@ -271,11 +275,11 @@ func (r *Runtime) pluginViewCurrent(mounted *pluginMountedView) bool {
 	if mounted.key.role == "settings" && !root.pluginSettingsRetained(mounted) {
 		return false
 	}
-	if mounted.disconnected {
-		return true
-	}
 	if mounted.key.role == "navigation" && !root.pluginNavigationRetained(mounted) {
 		return false
+	}
+	if mounted.disconnected {
+		return true
 	}
 	if mounted.key.role == "contribution" {
 		owner := root.pluginViews.registries[mounted.key.scope]
@@ -508,6 +512,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
 	if mounted.activityVisible != nil {
 		mounted.activityVisible(false)
+		mounted.activityVisible = nil
 	}
 	mounted.cancel()
 	if mounted.runtime != nil {
@@ -518,7 +523,15 @@ func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
 		_ = mounted.host.Close()
 		mounted.host = nil
 	}
+	mounted.bundle = nil
+	mounted.components = nil
+	mounted.headerFilters, mounted.headerBody, mounted.headerOverflow = nil, "", false
+	mounted.details, mounted.navigation, mounted.detailsHeading, mounted.workspaceLayout = nil, nil, nil, nil
+	mounted.projectedWorkspace = desktopplugins.WorkspaceLayout{}
 	mounted.loading = false
+	if forget {
+		delete(r.localRuntime().pluginViews.failures, mounted.key)
+	}
 	if mounted.registry != nil {
 		if forget {
 			_, _ = mounted.registry.Hooks(mounted.scope.Package, nil)

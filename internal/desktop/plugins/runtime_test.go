@@ -26,25 +26,29 @@ import (
 func TestRuntimeLifecycle(t *testing.T) {
 	t.Run("disconnect retains presentation without execution", func(t *testing.T) {
 		_, mounted := runtimeFixture(t, `
-import {View,div} from "gpui-kit";
-import {Button} from "gpui-component";
+import {View,div,image} from "gpui-kit";
+import {Button,Checkbox} from "gpui-component";
 export default class extends View {
   init(){this.count=0;}
-  render(){return div().child(new Button("retained").label("Retained "+this.count).on_click((event,cx)=>{this.count++;cx.notify();}));}
+  render(){return div()
+    .child(new Button("retained").label("Retained "+this.count).on_click((event,cx)=>{this.count++;cx.notify();}))
+    .child(new Checkbox("choice").label("Choice").checked(true))
+    .child(image("dev.sailry.platform/desktop/mark.svg"));}
 }`, RuntimeBindings{})
+		mounted.bundle.Files["dev.sailry.platform/desktop/mark.svg"] = `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8"><rect width="8" height="8" fill="red"/></svg>`
 		var renderErr error
 		tester := ui.NewTester(func(view *ui.Context) {
 			theme.Apply(view, "", theme.Light)
 			_, renderErr = mounted.Render(view)
 		}, 420, 260)
 		tester.Frame()
-		if renderErr != nil || !tester.HasText("Retained 0") {
+		if renderErr != nil || !tester.HasText("Retained 0") || len(mounted.images) != 1 || len(mounted.toggles) != 1 {
 			t.Fatalf("initial presentation is missing: %v", renderErr)
 		}
 		callback := mounted.last.Children[0].Callbacks["on_click"]
 		mounted.Suspend()
 		tester.Frame()
-		if renderErr != nil || !tester.HasText("Retained 0") || mounted.engine != nil || mounted.Pending() != 0 {
+		if renderErr != nil || !tester.HasText("Retained 0") || mounted.engine != nil || mounted.Pending() != 0 || len(mounted.images) != 1 || len(mounted.toggles) != 1 {
 			t.Fatalf("disconnect lost the presentation or retained execution: %v", renderErr)
 		}
 		if err := mounted.Dispatch(callback, json.RawMessage(`{}`)); err == nil {
@@ -53,6 +57,16 @@ export default class extends View {
 		tester.Frame()
 		if renderErr != nil || !tester.HasText("Retained 0") {
 			t.Fatalf("late callback changed the retained presentation: %v", renderErr)
+		}
+		if err := mounted.runtime.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if len(mounted.runtime.mounts) != 0 || len(mounted.images) != 0 || len(mounted.toggles) != 0 || len(mounted.widgetIDs) != 0 || mounted.last != nil || mounted.focusContext != nil {
+			t.Fatal("closing the suspended view retained its presentation resources")
+		}
+		tester.Frame()
+		if renderErr == nil || tester.HasText("Retained 0") || mounted.focusContext != nil {
+			t.Fatalf("a stale render restored the closed view: %v", renderErr)
 		}
 	})
 	t.Run("retained view and real frame events", func(t *testing.T) {

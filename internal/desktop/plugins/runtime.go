@@ -574,6 +574,9 @@ func (mounted *Mounted) Close() error {
 	mounted.Suspend()
 	mounted.closed = true
 	mounted.last = nil
+	mounted.bundle = Bundle{}
+	mounted.inputs, mounted.toggles, mounted.popovers, mounted.selectors = nil, nil, nil, nil
+	mounted.widgetIDs, mounted.nativeText, mounted.scrollBoxes, mounted.images = nil, nil, nil, nil
 	delete(mounted.runtime.mounts, mounted)
 	return nil
 }
@@ -587,6 +590,11 @@ func (runtime *Runtime) Close() error {
 	for mounted := range runtime.mounts {
 		result = errors.Join(result, mounted.Close())
 	}
+	runtime.modules, runtime.components = nil, nil
+	runtime.bindings.Components = nil
+	runtime.bindings.Modules = nil
+	runtime.bindings.Contributions = ContributionHooks{}
+	runtime.bindings.BindActions = nil
 	return result
 }
 

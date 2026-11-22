@@ -129,10 +129,28 @@ func (binding *NativeBinding) close() {
 	for _, secret := range binding.state.secrets {
 		secret.value = ""
 	}
-	binding.state.text = map[string]*textDraft{}
-	binding.state.secrets = map[string]*secretDraft{}
+	clear(binding.state.text)
+	clear(binding.state.dates)
+	clear(binding.state.sliders)
+	clear(binding.state.secrets)
+	clear(binding.state.queues)
+	clear(binding.state.tables)
+	clear(binding.state.trees)
+	clear(binding.state.modals)
+	clear(binding.state.pickers)
+	clear(binding.state.measure)
+	clear(binding.state.loadMore)
 	clear(binding.state.droppedFiles)
+	clear(binding.state.hoverGroups)
 	clear(binding.state.actionElements)
+	clear(binding.state.booleans)
+	clear(binding.state.strings)
+	clear(binding.state.collapses)
+	binding.state.focus = ""
+	binding.state.detailsHeading = nil
+	binding.state.workspace = WorkspaceLayout{}
+	binding.state.shortcuts = nil
+	binding.state.header = nil
 	binding.state.mu.Unlock()
 	binding.state.workers.Wait()
 	if binding.Release != nil {
@@ -172,6 +190,9 @@ func (binding *NativeBinding) queue(name string, capacity int) *nativeQueue {
 	}
 	binding.state.mu.Lock()
 	defer binding.state.mu.Unlock()
+	if binding.state.ctx.Err() != nil {
+		return nil
+	}
 	queue, exists := binding.state.queues[name]
 	if !exists {
 		queue = &nativeQueue{events: make(chan json.RawMessage, capacity), pending: make(chan struct{}, 1)}
@@ -186,8 +207,12 @@ func (binding *NativeBinding) emit(name string, value any) {
 		return
 	}
 	queue := binding.queue(name, 32)
+	if queue == nil {
+		return
+	}
 	select {
 	case <-binding.state.ctx.Done():
+		return
 	case queue.events <- json.RawMessage(body):
 	default:
 	}
@@ -203,8 +228,11 @@ func (binding *NativeBinding) emitGuaranteed(name string, value any) {
 		return
 	}
 	queue := binding.queue(name, 32)
+	if queue == nil {
+		return
+	}
 	binding.state.mu.Lock()
-	if binding.state.closed {
+	if binding.state.ctx.Err() != nil {
 		binding.state.mu.Unlock()
 		return
 	}
@@ -225,6 +253,9 @@ func (binding *NativeBinding) emitGuaranteed(name string, value any) {
 
 func (binding *NativeBinding) next(ctx context.Context, name string) (json.RawMessage, error) {
 	queue := binding.queue(name, 32)
+	if queue == nil {
+		return nil, binding.state.ctx.Err()
+	}
 	select {
 	case queue.pending <- struct{}{}:
 		defer func() { <-queue.pending }()

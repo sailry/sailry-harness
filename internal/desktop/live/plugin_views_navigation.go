@@ -241,13 +241,13 @@ func (r *Runtime) pluginSettingsRetained(mounted *pluginMountedView) bool {
 }
 
 func (r *Runtime) pluginNavigationRetained(mounted *pluginMountedView) bool {
-	for _, entry := range r.localRuntime().pluginViews.navigation {
-		if entry.owner == mounted.owner && entry.info.Summary.Name == mounted.scope.Package.Name &&
-			pluginScopeIdentity(entry.owner.controller.Target(), entry.scope) == mounted.key.scope {
-			return true
-		}
+	root := r.localRuntime()
+	entry := root.pluginViews.navigation[root.App.PluginFeature()]
+	if entry.owner != mounted.owner || entry.info.Summary.Name != mounted.scope.Package.Name ||
+		pluginScopeIdentity(entry.owner.controller.Target(), entry.scope) != mounted.key.scope {
+		return false
 	}
-	return false
+	return entry.options.Target != protocol.PluginDesktopNavigationTargetWorktree || desktopPlugin(entry.info) || root.selectedRuntime() == entry.owner
 }
 
 func (r *Runtime) selectPluginView(id string) bool {
@@ -275,7 +275,7 @@ func (r *Runtime) selectPluginView(id string) bool {
 		delete(root.pluginViews.mounts, key)
 		delete(root.pluginViews.failures, key)
 	}
-	if mounted := root.ensurePluginView(nil, entry.owner, entry.info, entry.scope, "navigation", nil); mounted != nil && mounted.host != nil {
+	if mounted := root.pluginViews.mounts[key]; mounted != nil && mounted.host != nil && root.pluginViewCurrent(mounted) {
 		mounted.host.Enter()
 	}
 	return true
@@ -353,14 +353,13 @@ func (r *Runtime) showPluginDetails(mounted *pluginMountedView) {
 		}
 	}
 	if mounted != nil && mounted.navigation != nil {
-		render := mounted.navigation
 		navigation = func(view *ui.Context) {
-			if !current() {
+			if !current() || mounted.navigation == nil {
 				return
 			}
 			target := view.Key(mounted.generation)
 			ui.Column(target).Fill().MinWidth(0).MinHeight(0).Disabled(mounted.disconnected).DimDisabled(false).Children(func() {
-				if err := render(target); err != nil {
+				if err := mounted.navigation(target); err != nil {
 					r.failPluginView(view, mounted, err, "plugin_callback_failed")
 				}
 			})
@@ -377,14 +376,13 @@ func (r *Runtime) showPluginDetails(mounted *pluginMountedView) {
 				}
 			}
 		}
-		render := mounted.details
 		details = func(view *ui.Context) {
-			if !current() {
+			if !current() || mounted.details == nil {
 				return
 			}
 			target := view.Key(mounted.generation)
 			ui.Column(target).Fill().MinWidth(0).MinHeight(0).Disabled(mounted.disconnected).DimDisabled(false).Children(func() {
-				if err := render(target); err != nil {
+				if err := mounted.details(target); err != nil {
 					r.failPluginView(view, mounted, err, "plugin_callback_failed")
 				}
 			})

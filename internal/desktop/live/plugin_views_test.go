@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -31,12 +32,15 @@ type pluginViewTestNode struct {
 	snapshot protocol.Snapshot
 	bundle   chan link.Response
 	reads    chan protocol.Request
+	updates  chan protocol.Update
+	files    chan *pluginViewTestSubscription
 }
 
 type pluginViewTestSubscription struct {
 	initial *protocol.Snapshot
 	closed  chan struct{}
 	once    sync.Once
+	updates <-chan protocol.Update
 }
 
 func (source *pluginViewTestNode) Open(context.Context, protocol.NodeID, protocol.StreamID) (link.Stream, error) {
@@ -58,12 +62,21 @@ func (source *pluginViewTestNode) Dispatch(_ context.Context, _ protocol.NodeID,
 	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: source.bundle}, nil
 }
 
-func (source *pluginViewTestNode) Subscribe(_ context.Context, _ protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+func (source *pluginViewTestNode) Subscribe(ctx context.Context, _ protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "files" && source.files != nil {
+		stream := &pluginViewTestSubscription{closed: make(chan struct{})}
+		select {
+		case source.files <- stream:
+			return stream, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if topic.Kind != "node" {
 		return nil, errors.New("fixture supports only Node observation")
 	}
 	initial := source.snapshot
-	return &pluginViewTestSubscription{initial: &initial, closed: make(chan struct{})}, nil
+	return &pluginViewTestSubscription{initial: &initial, closed: make(chan struct{}), updates: source.updates}, nil
 }
 
 func (subscription *pluginViewTestSubscription) Next(ctx context.Context) (protocol.Update, error) {
@@ -73,6 +86,8 @@ func (subscription *pluginViewTestSubscription) Next(ctx context.Context) (proto
 		return protocol.Update{Kind: "snapshot", Data: initial}, nil
 	}
 	select {
+	case update := <-subscription.updates:
+		return update, nil
 	case <-ctx.Done():
 		return protocol.Update{}, ctx.Err()
 	case <-subscription.closed:
@@ -125,6 +140,24 @@ func pluginViewRunQueue(root *Runtime) {
 	}
 }
 
+func openPluginViewTestPage(t *testing.T, root *Runtime, info protocol.PluginInfo, scope protocol.PluginContext) *pluginMountedView {
+	t.Helper()
+	root.pluginViews.navigation["fixture"] = pluginNavigationEntry{owner: root, info: info, scope: scope}
+	root.App.SetPluginFeatures([]shell.Feature{{ID: "fixture", Label: "Fixture view", Icon: icons.Puzzle, DefaultPinned: true}})
+	tester := ui.NewTester(root.App.View, 960, 600)
+	tester.Frame()
+	if err := tester.Click("Fixture view"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	key := pluginMountKey{scope: pluginScopeIdentity(root.controller.Target(), scope), role: "navigation", name: scope.Package.Name}
+	mounted := root.pluginViews.mounts[key]
+	if mounted == nil {
+		t.Fatal("the fixture's view did not mount")
+	}
+	return mounted
+}
+
 func pluginViewRejectedIntent(t *testing.T, root *Runtime, scope protocol.PluginContext, presentation string) {
 	t.Helper()
 	result := make(chan error, 1)
@@ -157,8 +190,7 @@ func testPluginViewOwnership(t *testing.T) {
 		root := pluginViewFixture(t, source)
 		scope := protocol.DefaultPluginContext()
 		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "workspace"
-		root.pluginViews.navigation["fixture"] = pluginNavigationEntry{owner: root, info: info, scope: scope}
-		mounted := root.ensurePluginView(nil, root, info, scope, "navigation", nil)
+		mounted := openPluginViewTestPage(t, root, info, scope)
 		key := mounted.key
 		tester := ui.NewTesterWith(func(view *ui.Context) {
 			theme.Apply(view, "", theme.Light)
@@ -422,11 +454,7 @@ func testPluginViewOwnership(t *testing.T) {
 		root := pluginViewFixture(t, source)
 		scope := protocol.DefaultPluginContext()
 		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "workspace"
-		root.pluginViews.navigation["fixture"] = pluginNavigationEntry{owner: root, info: info, scope: scope}
-		mounted := root.ensurePluginView(nil, root, info, scope, "navigation", nil)
-		if mounted == nil {
-			t.Fatal("the fixture's view is not mounted")
-		}
+		mounted := openPluginViewTestPage(t, root, info, scope)
 		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_view", Data: protocol.PluginDesktopBundle{
 			Package: scope.Package, Entry: "dev.sailry.platform/desktop/main.js",
 			Files: map[string]string{"dev.sailry.platform/desktop/main.js": `import {View} from "gpui-kit";export default class extends View{render(){throw new Error("fixture render failed");}}`},

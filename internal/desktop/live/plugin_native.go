@@ -60,7 +60,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		artifactWatch: &pluginNativeArtifactWatch{changed: make(chan struct{})},
 		toasts:        map[string]uint64{},
 	}
-	binding.Post = state.post
+	binding.Post = state.enqueue
 	binding.Invalidate = r.localRuntime().wake
 	binding.Theme = func() json.RawMessage {
 		state.mu.Lock()
@@ -129,6 +129,13 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 }
 
 func (state *pluginNativeState) post(apply func(*ui.Context)) bool {
+	if post := state.native.Post; post != nil {
+		return post(apply)
+	}
+	return state.enqueue(apply)
+}
+
+func (state *pluginNativeState) enqueue(apply func(*ui.Context)) bool {
 	if state.native.Context.Err() != nil || state.runtime.ctx.Err() != nil {
 		return false
 	}

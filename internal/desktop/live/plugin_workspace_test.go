@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -45,12 +46,11 @@ func TestPluginWorkspaceSlots(t *testing.T) {
 	}
 	mounted := makeMount(1, "First")
 	root.pluginViews.mounts[key] = mounted
-	root.App.Navigate(shell.PluginPage)
+	root.App.SetPluginFeatures([]shell.Feature{{ID: "fixture", Label: "Fixture workspace", Icon: icons.Puzzle, DefaultPinned: true}})
 	root.App.Hooks.PluginPage = func(view *ui.Context, _ string) {
 		ui.Text(view, "Workspace content")
 		root.showPluginDetails(root.pluginViews.mounts[key])
 	}
-	root.showPluginDetails(mounted)
 	tester := ui.NewTesterWith(func(view *ui.Context) {
 		clear(calls)
 		root.App.View(view)
@@ -60,6 +60,10 @@ func TestPluginWorkspaceSlots(t *testing.T) {
 			}
 		}
 	}, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	tester.Frame()
+	if err := tester.Click("Fixture workspace"); err != nil {
+		t.Fatal(err)
+	}
 	for range 3 {
 		tester.Frame()
 	}

@@ -18,8 +18,10 @@ import (
 )
 
 func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
-	mounted.focusContext = context
-	if mounted.suspended && !mounted.closed {
+	if mounted.closed {
+		return ui.Element{}, errors.New("plugin view is closed")
+	}
+	if mounted.suspended {
 		if mounted.last == nil {
 			return ui.Box(context), nil
 		}
@@ -29,6 +31,7 @@ func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
 		}
 		return element, err
 	}
+	mounted.focusContext = context
 	if err := mounted.pump(false); err != nil {
 		return ui.Element{}, err
 	}
@@ -55,6 +58,9 @@ func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
 }
 
 func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElement) (ui.Element, error) {
+	if mounted.closed {
+		return ui.Element{}, nil
+	}
 	if element == nil {
 		return ui.Element{}, errors.New("plugin element is missing")
 	}
@@ -77,6 +83,9 @@ func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElemen
 	var resultErr error
 	parent := mounted.scrollAxes(element)
 	children := func() {
+		if mounted.closed {
+			return
+		}
 		before := mounted.keyboard
 		mounted.keyboard = keys
 		defer func() { mounted.keyboard = before }()

@@ -118,6 +118,10 @@ func (binding *NativeBinding) publishDroppedFiles(tree, target string, paths []s
 	}
 	identity := protocol.NewRequestID().String()
 	binding.state.mu.Lock()
+	if binding.state.ctx.Err() != nil {
+		binding.state.mu.Unlock()
+		return
+	}
 	binding.state.droppedFiles[identity] = append([]string{}, paths...)
 	binding.state.mu.Unlock()
 	body, err := hostJSON(map[string]any{"tree": tree, "id": target, "kind": "external_drop", "files": identity})
@@ -125,6 +129,9 @@ func (binding *NativeBinding) publishDroppedFiles(tree, target string, paths []s
 		return
 	}
 	queue := binding.queue("tree", 32)
+	if queue == nil {
+		return
+	}
 	select {
 	case queue.events <- body:
 		if binding.Invalidate != nil {

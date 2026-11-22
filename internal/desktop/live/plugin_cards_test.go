@@ -108,8 +108,12 @@ func testPluginCardRevisit(t *testing.T) {
 		node, session, worktree, turn := protocol.NodeID{1}, protocol.SessionID{2}, protocol.WorktreeID{3}, protocol.TurnID{4}
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model, config.Mode, config.Permission = protocol.ProviderID{5}, "fixture", "code", "ask"
+		installed := protocol.DefaultPluginInfo().Summary
+		installed.Name, installed.Digest, installed.Enabled = "fixture-card", strings.Repeat("a", 64), true
+		installed.Compatibility.Kind = "compatible"
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
+		snapshot.Plugins = []protocol.PluginSummary{installed}
 		snapshot.Sessions = []protocol.Session{{ID: session, Worktree: worktree, Revision: 1, Config: config, Roles: protocol.DefaultRoleSnapshot()}}
 		history := protocol.DefaultConversationSnapshot()
 		history.Node, history.Sequence, history.Page.Session, history.Page.Revision = node, 1, session, 1
@@ -141,7 +145,7 @@ func testPluginCardRevisit(t *testing.T) {
 		summary := protocol.DefaultPluginCardSummary()
 		summary.Node, summary.Worktree = node, worktree
 		summary.Receipt = protocol.PluginCardReceipt{Session: session, Turn: turn, Call: protocol.RequestID{6}}
-		summary.Package = protocol.PluginReference{Name: "fixture-card", Digest: strings.Repeat("a", 64)}
+		summary.Package = packageReference(installed)
 		summary.Key, summary.Fallback.Label = "fixture", "Card fallback"
 		card := &pluginCardInstance{key: pluginCardKey{node: node, receipt: summary.Receipt}, owner: root, summary: summary, reference: summary.Package}
 		root.initPluginCards().cards[card.key] = card
