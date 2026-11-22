@@ -223,6 +223,9 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 	if command.Kind == "read_project_catalog" || command.Kind == "read_worktree_catalog" {
 		return node.readWorkspaceCatalog(ctx, command)
 	}
+	if node.codeIndex == nil && codeIndexCommand(command.Kind) {
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: codeIndexUnavailable}
+	}
 	access := core.FileAccessForRequest(request, request.Plugin != nil)
 	registrations := node.locks.registrations.Load()
 	source, root, err := node.workspaceRoots(ctx, command, request.Plugin != nil)

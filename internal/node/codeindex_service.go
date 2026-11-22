@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/node/codeindex"
+	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -28,7 +28,7 @@ type codeQueryKey struct {
 
 // codeIndexControls owns the code index service and its admitted queries.
 type codeIndexControls struct {
-	service *codeindex.Service
+	service codeindexapi.Service
 
 	mu      sync.Mutex
 	running map[codeQueryKey]context.CancelFunc
@@ -44,23 +44,40 @@ func codeIndexCommand(kind string) bool {
 	return false
 }
 
+func codeIndexOperation(operation protocol.ToolOperation) bool {
+	switch operation {
+	case protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode:
+		return true
+	}
+	return false
+}
+
+const codeIndexUnavailable = "code index is unavailable on this Node"
+
 // initCodeIndex starts the index service on the workspace watch owner and
 // applies the saved enablement.
-func (node *Node) initCodeIndex(ctx context.Context) error {
+func (node *Node) initCodeIndex(ctx context.Context, factory codeindexapi.Factory) error {
+	if factory == nil {
+		return nil
+	}
 	watch := func(ctx context.Context, root string, worktree protocol.WorktreeID) (link.Subscription, error) {
 		return node.watches.observe(ctx, root, node.ID(), worktree, false, func(paths []string) {
 			node.codeIndex.service.Observed(worktree, paths)
 		})
 	}
+	service := factory(node.profile.Ownership.Path, watch)
+	if service == nil {
+		return nil
+	}
 	node.codeIndex = &codeIndexControls{
-		service:   codeindex.New(node.profile.Ownership.Path, watch),
+		service:   service,
 		running:   map[codeQueryKey]context.CancelFunc{},
 		cancelled: map[codeQueryKey]time.Time{},
 	}
 	return node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		settings, err := store.ReadCodeIndexSettings(ctx, db)
 		if err == nil {
-			node.codeIndex.service.Configure(settings.Enabled)
+			service.Configure(settings.Enabled)
 		}
 		return err
 	})
@@ -87,6 +104,9 @@ func (node *Node) refreshCodeIndex() {
 
 // removeCodeIndexes deletes the derived caches of removed worktrees.
 func (node *Node) removeCodeIndexes(worktrees ...protocol.WorktreeID) {
+	if node.codeIndex == nil {
+		return
+	}
 	for _, worktree := range worktrees {
 		_ = node.codeIndex.service.Remove(worktree)
 	}
@@ -95,6 +115,9 @@ func (node *Node) removeCodeIndexes(worktrees ...protocol.WorktreeID) {
 // removeProjectCodeIndexes deletes the caches of a removed project. Project
 // removal retains history and its worktree rows.
 func (node *Node) removeProjectCodeIndexes(command protocol.Command) {
+	if node.codeIndex == nil {
+		return
+	}
 	input, ok := command.Data.(*protocol.CommandRemoveProjectPayload)
 	if !ok {
 		return

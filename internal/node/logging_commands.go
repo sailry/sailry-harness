@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/node/codeindex"
+	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -250,9 +250,12 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
+	if codeIndexCommand(kind) && fault.Code == protocol.ErrorCodeUnavailable && fault.Message == codeIndexUnavailable {
+		expected = true
+	}
 	switch kind {
 	case "search_code", "outline_code", "graph_code":
-		if codeindex.ReaderWaitExpired(fault) {
+		if codeindexapi.ReaderWaitExpired(fault) {
 			span.Set(slog.String("reason_code", "code_reader_wait"))
 			expected = true
 		}

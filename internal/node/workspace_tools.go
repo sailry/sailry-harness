@@ -58,6 +58,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	var tools []engine.Tool
 	for _, declaration := range declarations {
 		packaged := declaration.Owner.Name != ""
+		if node.codeIndex == nil && codeIndexOperation(declaration.Operation) {
+			continue
+		}
 		if declaration.Owner.Name == "commands" && operations.LegacyCommandTool(declaration.Name) != "" {
 			continue
 		}

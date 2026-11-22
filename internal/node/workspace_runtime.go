@@ -59,7 +59,7 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 		err = node.initWeb(ctx, options)
 	}
 	if err == nil {
-		err = node.initCodeIndex(ctx)
+		err = node.initCodeIndex(ctx, options.CodeIndex)
 	}
 	if err != nil {
 		_ = node.closeWorkspace()

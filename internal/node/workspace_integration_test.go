@@ -138,15 +138,6 @@ func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 			t.Fatalf("a failed save was applied: revision %d, was %d", saved.Revision, sandbox.Revision)
 		}
 	})
-	t.Run("saved code index setting applies before completion", func(t *testing.T) {
-		node := nodeFixture(t)
-		session := sessionFixture(t, node)
-		commandFixture(t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Enabled: false}}})
-		result := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: session.Worktree, Query: protocol.CodeIndexSearch{Query: "main", Limit: 1}}}))
-		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeNotConfigured {
-			t.Fatalf("search after disabling = %#v", result)
-		}
-	})
 	t.Run("caller scoped cancellation and public fetch boundary", func(t *testing.T) {
 		started := make(chan struct{})
 		cancelled := make(chan struct{})

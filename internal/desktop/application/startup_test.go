@@ -65,7 +65,7 @@ func TestDesktopStartupLogUnavailable(t *testing.T) {
 	previous := os.Stderr
 	os.Stderr = stderr
 	t.Cleanup(func() { os.Stderr = previous; _ = stderr.Close() })
-	backend, err := openBackend(t.Context(), startupOptions{}, identity.Desktop{DefaultProfile: profile})
+	backend, err := openBackend(t.Context(), startupOptions{}, identity.Desktop{DefaultProfile: profile}, nil)
 	if backend != nil {
 		_ = backend.Close()
 		t.Fatal("started a second Node in the profile")
@@ -95,7 +95,7 @@ func TestPreviewFlagNoNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		backend, err := openBackend(context.Background(), options, identity.Desktop{DefaultProfile: path})
+		backend, err := openBackend(context.Background(), options, identity.Desktop{DefaultProfile: path}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

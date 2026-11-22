@@ -84,6 +84,16 @@ func TestBeforeModelResultsKeepRecentCompleteResultsOfThisTurn(t *testing.T) {
 	}
 }
 
+func pluginSelectedOperations(info protocol.PluginInfo, names []string) []protocol.ToolOperation {
+	var declarations []protocol.ToolDeclaration
+	for _, declaration := range info.Extension.Tools {
+		if slices.Contains(names, declaration.Name) {
+			declarations = append(declarations, declaration)
+		}
+	}
+	return pluginToolOperations(declarations)
+}
+
 func TestPluginTurnInput(t *testing.T) {
 	delegate, apply, query, transfer := protocol.ToolOperationDelegateAgent, protocol.ToolOperationApplyRoles, protocol.ToolOperationQueryDatabase, protocol.ToolOperationTransferSsh
 	options := json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"depth":{"type":"string","default":"quick"},"strict":{"type":"boolean"}},"required":[],"additionalProperties":false}`)

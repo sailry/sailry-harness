@@ -71,6 +71,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	names := []string{}
 	// A directly bound resource still uses the captured package's scoped host tools.
 	coreCommands := invocation.Turn.Config.Resource == nil || invocation.Turn.Config.Assistant != nil
+	withoutIndex := node.codeIndex == nil
 	for _, declaration := range info.Extension.Tools {
 		if info.Summary.Name == "progress" && declaration.Name == operations.UpdatePlanTool ||
 			coreCommands && info.Summary.Name == "commands" && operations.IsCommandTool(declaration.Name) {
@@ -78,6 +79,22 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			continue
 		}
 		if declaration.Handler != nil && availablePluginTool(invocation, declaration) {
+			if withoutIndex {
+				handler := declaration.Handler
+				if declaration.Operation != nil && codeIndexOperation(*declaration.Operation) || handler.Operation != nil && codeIndexOperation(*handler.Operation) {
+					continue
+				}
+				if handler.Flow != nil && slices.ContainsFunc(handler.Flow.Operations, codeIndexOperation) {
+					if info.Summary.Name != "code" || declaration.Name != "code_pipeline" {
+						continue
+					}
+					var ok bool
+					declaration, ok = fileOnlyCodePipeline(declaration)
+					if !ok {
+						continue
+					}
+				}
+			}
 			if operation := declaration.Handler.Operation; operation != nil && (*operation == protocol.ToolOperationDelegateAgent || *operation == protocol.ToolOperationGuideAgent) &&
 				!store.DelegationAvailable(invocation.Session, invocation.Turn) {
 				continue
@@ -113,12 +130,19 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	instruction := ""
 	if info.Extension.Instructions != nil {
 		instruction = *info.Extension.Instructions
+		if withoutIndex && info.Summary.Name == "code" {
+			pipeline := operations.Alias("code", "code_pipeline")
+			invocation.Instructions = slices.DeleteFunc(slices.Clone(invocation.Instructions), func(captured store.AgentInstruction) bool {
+				return captured.Text == instruction && slices.Contains(captured.AnyTools, pipeline)
+			})
+			instruction = ""
+		}
 	}
 	overrides := map[string]json.RawMessage{}
 	var turnInstruction prompt.Part
 	var contextParts []string
 	if host.Turn != nil {
-		selected := pluginSelectedOperations(info, names)
+		selected := pluginToolOperations(declarations)
 		input, err := pluginTurnInput(invocation, info, names, selected)
 		if err != nil {
 			return nil, err
@@ -283,14 +307,39 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	return tools, nil
 }
 
-// pluginSelectedOperations lists every operation the selected tools can reach:
-// the tool's own, its handler's and each operation of its flow.
-func pluginSelectedOperations(info protocol.PluginInfo, names []string) []protocol.ToolOperation {
+func fileOnlyCodePipeline(declaration protocol.ToolDeclaration) (protocol.ToolDeclaration, bool) {
+	handler := *declaration.Handler
+	flow := *handler.Flow
+	flow.Operations = slices.DeleteFunc(slices.Clone(flow.Operations), codeIndexOperation)
+	if len(flow.Operations) == 0 {
+		return declaration, false
+	}
+	var schema map[string]any
+	if json.Unmarshal(handler.Parameters, &schema) != nil {
+		return declaration, false
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	steps, _ := properties["steps"].(map[string]any)
+	items, _ := steps["items"].(map[string]any)
+	stepProperties, _ := items["properties"].(map[string]any)
+	operation, ok := stepProperties["operation"].(map[string]any)
+	if !ok {
+		return declaration, false
+	}
+	operation["enum"] = flow.Operations
+	parameters, err := json.Marshal(schema)
+	if err != nil {
+		return declaration, false
+	}
+	handler.Flow, handler.Parameters = &flow, parameters
+	declaration.Handler = &handler
+	declaration.Description = new("Chain dependent file reads and return only the selected final data (16 KiB). Use from_previous to bind at least one argument per follow-up, such as the first path from files.find to files.read_lines. Use ordinary calls for independent reads.")
+	return declaration, true
+}
+
+func pluginToolOperations(declarations []protocol.ToolDeclaration) []protocol.ToolOperation {
 	var selected []protocol.ToolOperation
-	for _, declaration := range info.Extension.Tools {
-		if !slices.Contains(names, declaration.Name) {
-			continue
-		}
+	for _, declaration := range declarations {
 		if declaration.Operation != nil {
 			selected = append(selected, *declaration.Operation)
 		}

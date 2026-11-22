@@ -78,8 +78,8 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 		if response := send(other, command); response.Fault == nil || response.Fault.Code != protocol.ErrorCodePermissionDenied {
 			t.Fatalf("non-administrator code index write: %+v", response)
 		}
-		if response := send(owner, command); response.Fault != nil {
-			t.Fatalf("administrator code index write: %+v", response)
+		if response := send(owner, command); response.Fault == nil || response.Fault.Code != protocol.ErrorCodeUnavailable {
+			t.Fatalf("administrator code index write on a Node without the service: %+v", response)
 		}
 	})
 	t.Run("only administrators manage Node hooks and personal instructions", func(t *testing.T) {

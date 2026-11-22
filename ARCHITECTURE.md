@@ -72,6 +72,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `cmd/sailry-desktop`, `internal/assembly/desktop` | Official product identity and native page selection |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
 | `modules/*/desktop` | Native workspace and settings pages selected at build time |
+| `modules/code-index/node` | Optional code index engine selected by the Desktop and Host entry points |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
 | `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
 | [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
@@ -325,9 +326,15 @@ enables the same full-text index implementation as the Rust database.
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
-files and configuration are independent. Code queries use live source by
-default. An outline parses one file. Search and graph queries select candidates
-by scope and lexical matches, and hold their parsed rows only for the query.
+files and configuration are independent. Official Desktop and Host supply the
+code index to each Node at startup. Forks may omit it. The
+`sailry_no_code_index` build tag omits gotreesitter. A Node without the service
+reports code queries and index settings as unavailable, preserves saved
+settings, and offers plain file tools and file-only pipelines.
+
+Code queries use live source by default. An outline parses one file. Search and
+graph queries select candidates by scope and lexical matches, and hold their
+parsed rows only for the query.
 The live scan bounds the number of files parsed, source bytes examined, result
 rows and elapsed scan time. Results report incomplete coverage when bounds or
 graph selection leave part of the worktree unchecked.

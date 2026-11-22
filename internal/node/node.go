@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
 	"github.com/sailry/sailry-harness/internal/node/files"
@@ -158,6 +159,7 @@ type Options struct {
 	LocalModels     localmodels.Options
 	Power           power.Backend
 	Telemetry       telemetry.Options
+	CodeIndex       codeindexapi.Factory
 	knowledge       func(*knowledgeservice.Options)
 }
 

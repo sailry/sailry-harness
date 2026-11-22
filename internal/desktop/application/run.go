@@ -23,13 +23,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/identity"
+	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 )
 
 type Options struct {
-	Identity identity.Desktop
-	Assembly shell.Assembly
+	Identity  identity.Desktop
+	Assembly  shell.Assembly
+	CodeIndex codeindexapi.Factory
 	// MyGo uses NativeName for preferences and its instance lock. An empty
 	// value keeps the name MyGo derives from the bundle or executable.
 	NativeName string
@@ -73,7 +75,7 @@ func Run(args []string, config Options) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	backend, err := openBackend(ctx, options, product)
+	backend, err := openBackend(ctx, options, product, config.CodeIndex)
 	if err != nil {
 		return reportStartFailure(name, err)
 	}
