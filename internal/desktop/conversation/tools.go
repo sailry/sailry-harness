@@ -354,18 +354,25 @@ func (s *State) row(c *ui.Context, call Call, foldFailures bool) {
 	s.wrapping(c, "tools-"+call.ID, false, !foldFailures && toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func(rail ui.Element) {
+		visible := (call.Load != nil || call.BackgroundDetail != nil) && rail.InView()
 		if call.Load != nil {
+			card = nil
 			state := ui.Local(rail, "tool-detail", func() disclosureDetail { return disclosureDetail{} })
-			if output := state.read(call); output != nil {
-				value := *output
-				if call.Output != nil {
-					value.Images = call.Output.Images
+			if visible {
+				if output := state.read(call); output != nil {
+					card = s.toolCards[s.renderSession][call.ID]
+					value := *output
+					if call.Output != nil {
+						value.Images = call.Output.Images
+					}
+					call.Output = &value
 				}
-				call.Output = &value
+			} else if state.active != nil {
+				state.Close()
 			}
 		}
 		var detail BackgroundDetail
-		if call.BackgroundDetail != nil {
+		if visible && call.BackgroundDetail != nil {
 			detail = call.BackgroundDetail()
 		}
 		if detail.Output != nil {
@@ -385,8 +392,8 @@ func (s *State) row(c *ui.Context, call Call, foldFailures bool) {
 	})
 }
 
-// The open rail owns the formatted result. MyGo closes its local state when
-// the disclosure or virtualized row leaves the tree.
+// The visible, open rail owns the formatted result. MyGo can keep a focused
+// row in the tree offscreen, so the rail also releases its detail when clipped.
 type disclosureDetail struct {
 	revision string
 	active   *bool
@@ -404,6 +411,10 @@ func (d *disclosureDetail) read(call Call) *Output {
 				d.output = output
 			}
 		})
+	}
+	if d.output != nil && d.output.AttachCards != nil {
+		d.output.AttachCards()
+		d.output.AttachCards = nil
 	}
 	return d.output
 }

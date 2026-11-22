@@ -109,7 +109,10 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				call.DetailRevision = ref.Revision
 				call.Load = func(apply func(*conversation.Output)) func() {
 					ctx, cancel := context.WithCancel(r.ctx)
-					r.async(func() {
+					if !r.async(func() {
+						if ctx.Err() != nil {
+							return
+						}
 						value, cached := r.controller.ConversationDetail(ref)
 						var err error
 						if !cached {
@@ -123,7 +126,18 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 								r.loadRetainedCommand(ctx, binding, projected.Output)
 							}
 						}
-						content := value.Content
+						if ctx.Err() != nil {
+							return
+						}
+						output := projected.Output
+						if output != nil {
+							cards := toolPluginCards(value.Content)
+							output.AttachCards = func() {
+								if ctx.Err() == nil {
+									r.bindPluginCards(session, id, cards)
+								}
+							}
+						}
 						r.enqueue(func(c *ui.Context) {
 							if ctx.Err() != nil {
 								return
@@ -132,10 +146,11 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 								r.report(c, err, "session_changed")
 								return
 							}
-							r.bindPluginCards(session, id, content)
-							apply(projected.Output)
+							apply(output)
 						})
-					})
+					}) {
+						cancel()
+					}
 					return cancel
 				}
 			}

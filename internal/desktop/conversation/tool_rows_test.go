@@ -145,7 +145,7 @@ func TestToolCommandShowsOnlyOutput(t *testing.T) {
 
 func TestOpenToolDetailLifetime(t *testing.T) {
 	var reads []func(*Output)
-	var cancels int
+	var cancels, attachments int
 	call := Call{ID: "example", Label: "Tool", DetailRevision: "one", Output: &Output{}, Load: func(apply func(*Output)) func() {
 		reads = append(reads, apply)
 		return func() { cancels++ }
@@ -174,19 +174,21 @@ func TestOpenToolDetailLifetime(t *testing.T) {
 	if len(reads) != 1 {
 		t.Fatalf("open reads = %d", len(reads))
 	}
-	reads[0](&Output{Text: "first result"})
+	attach := func() { attachments++ }
+	reads[0](&Output{Text: "first result", AttachCards: attach})
 	frame()
-	if !tester.HasText("first result") || len(reads) != 1 {
+	if !tester.HasText("first result") || len(reads) != 1 || attachments != 1 {
 		t.Fatal("open detail not retained")
 	}
+	reads[0](&Output{Text: "replaced result", AttachCards: attach})
 	call.DetailRevision = "two"
 	frame()
 	if len(reads) != 2 || cancels != 1 {
 		t.Fatalf("revision reads %d cancels %d", len(reads), cancels)
 	}
-	reads[0](&Output{Text: "stale result"})
+	reads[0](&Output{Text: "stale result", AttachCards: attach})
 	frame()
-	if tester.HasText("first result") || tester.HasText("stale result") {
+	if tester.HasText("first result") || tester.HasText("stale result") || tester.HasText("replaced result") || attachments != 1 {
 		t.Fatal("stale revision retained")
 	}
 	toggle()
@@ -198,9 +200,10 @@ func TestOpenToolDetailLifetime(t *testing.T) {
 		t.Fatalf("reopen reads = %d", len(reads))
 	}
 	mounted = false
+	reads[2](&Output{Text: "unmounted result", AttachCards: attach})
 	frame()
-	if cancels != 3 {
-		t.Fatalf("unmount cancels = %d", cancels)
+	if cancels != 3 || attachments != 1 || tester.HasText("unmounted result") {
+		t.Fatalf("unmount cancels = %d, card attachments = %d", cancels, attachments)
 	}
 }
 

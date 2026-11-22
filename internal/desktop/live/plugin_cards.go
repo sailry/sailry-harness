@@ -89,40 +89,51 @@ func (r *Runtime) initPluginCards() *pluginCardState {
 	return root.pluginCards
 }
 
-func (r *Runtime) bindPluginCards(session, callID string, content *protocol.ToolContent) {
-	root, state := r.localRuntime(), r.initPluginCards()
+func toolPluginCards(content *protocol.ToolContent) []protocol.PluginCardSummary {
+	var cards []protocol.PluginCardSummary
+	if content != nil {
+		for index, block := range content.Blocks {
+			if block.Kind == "card" {
+				if summary, valid := detail[protocol.PluginCardSummary](block.Data); valid && int(summary.Receipt.Block) == index && nodeplugins.CardSummaryValid(summary) {
+					cards = append(cards, summary)
+				}
+			}
+		}
+	}
+	return cards
+}
+
+func (r *Runtime) bindPluginCards(session, callID string, summaries []protocol.PluginCardSummary) {
+	root := r.localRuntime()
+	if len(summaries) == 0 && root.pluginCards == nil {
+		return
+	}
+	state := r.initPluginCards()
 	if state.closed {
 		return
 	}
 	call := pluginCardCallKey{node: r.controller.Target(), session: session, call: callID}
 	var keys []pluginCardKey
-	if content != nil {
-		for index, block := range content.Blocks {
-			if block.Kind != "card" {
-				continue
-			}
-			summary, valid := detail[protocol.PluginCardSummary](block.Data)
-			if !valid || summary.Node != call.node || summary.Receipt.Session.String() != session ||
-				int(summary.Receipt.Block) != index || !nodeplugins.CardSummaryValid(summary) {
-				continue
-			}
-			key := pluginCardKey{node: summary.Node, receipt: summary.Receipt}
-			card := state.cards[key]
-			if card != nil && !reflect.DeepEqual(card.summary, summary) {
-				root.suspendPluginCard(card)
-				delete(state.cards, key)
-				card = nil
-			}
-			if card == nil {
-				body, err := json.Marshal(summary)
-				if err != nil || json.Unmarshal(body, &summary) != nil {
-					continue
-				}
-				card = &pluginCardInstance{key: key, owner: r, summary: summary, reference: summary.Package}
-				state.cards[key] = card
-			}
-			keys = append(keys, key)
+	for _, summary := range summaries {
+		if summary.Node != call.node || summary.Receipt.Session.String() != session {
+			continue
 		}
+		key := pluginCardKey{node: summary.Node, receipt: summary.Receipt}
+		card := state.cards[key]
+		if card != nil && !reflect.DeepEqual(card.summary, summary) {
+			root.suspendPluginCard(card)
+			delete(state.cards, key)
+			card = nil
+		}
+		if card == nil {
+			body, err := json.Marshal(summary)
+			if err != nil || json.Unmarshal(body, &summary) != nil {
+				continue
+			}
+			card = &pluginCardInstance{key: key, owner: r, summary: summary, reference: summary.Package}
+			state.cards[key] = card
+		}
+		keys = append(keys, key)
 	}
 	for _, previous := range state.calls[call] {
 		if !slices.Contains(keys, previous) {

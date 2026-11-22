@@ -288,10 +288,17 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	summarized := raw.Presentation == protocol.ToolPresentationSummary || raw.Presentation == protocol.ToolPresentationHidden
 	value.HasDetails = raw.Result != nil && (value.Diagnostics || len(raw.Images) > 0 || value.Progress != nil || !summarized && (raw.Display != nil && raw.Display.RawResult || visible))
 	if content != nil {
-		for _, block := range content.Blocks {
-			if block.Kind == "file" || block.Kind == "artifact" || block.Kind == "card" {
+		for index, block := range content.Blocks {
+			switch block.Kind {
+			case "file", "artifact":
+				value.Publications = append(value.Publications, protocol.ToolDetailPublication{Index: uint64(index), Block: block})
+				fallthrough
+			case "card":
 				value.Published = true
 			}
+		}
+		if value.Published && value.Publications == nil {
+			value.Publications = []protocol.ToolDetailPublication{}
 		}
 		// A publication's cards are read from its details, so a result of
 		// cards alone, as present_files returns, still has them.

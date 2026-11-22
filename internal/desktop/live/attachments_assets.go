@@ -18,6 +18,7 @@ import (
 
 type attachmentPublication struct {
 	session        protocol.SessionID
+	cancel         context.CancelFunc
 	loading, ready bool
 	checkedCache   bool
 	failed         bool
@@ -63,8 +64,6 @@ func sentAttachmentImages(turn *conversation.Turn) {
 	turn.Files = files
 }
 
-// projectConversationAssets projects only publication metadata. Raw tool details
-// remain in Client's bounded shared cache; file bytes load only for previews.
 func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state client.ConversationState, parts []attachmentPart) {
 	if r.attachments == nil {
 		return
@@ -115,22 +114,24 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 		}
 		ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(pi), Call: result.ID, Revision: result.Summary.Revision}
 		key := fmt.Sprintf("publication/%s/%s/%d/%s", page.Session, entry.ID, pi, result.Summary.Revision)
-		retained[key] = true
-		publication := r.attachments.publications[key]
-		if publication == nil {
-			publication = &attachmentPublication{session: page.Session}
-			r.attachments.publications[key] = publication
-		}
-		if !publication.ready && !publication.loading && !publication.failed && (prefetch || !publication.checkedCache) {
-			publication.loading, publication.checkedCache = true, true
-			ctx := r.ctx
-			if prefetch {
-				ctx = r.attachmentImages(cv.ID).ctx
+		var items []attachmentPublishedItem
+		if result.Summary.Publications != nil {
+			items = projectPublishedItems(ref, location.worktree, result.Summary.Publications)
+		} else {
+			retained[key] = true
+			publication := r.attachments.publications[key]
+			if publication == nil {
+				publication = &attachmentPublication{session: page.Session}
+				r.attachments.publications[key] = publication
 			}
-			r.loadAttachmentPublication(ctx, key, ref, location.worktree, publication, prefetch)
+			if !publication.ready && !publication.loading && !publication.failed && (prefetch || !publication.checkedCache) {
+				publication.loading, publication.checkedCache = true, true
+				r.loadAttachmentPublication(key, ref, location.worktree, publication, prefetch)
+			}
+			items = publication.items
 		}
-		for index := len(publication.items) - 1; index >= 0; index-- {
-			item := publication.items[index]
+		for index := len(items) - 1; index >= 0; index-- {
+			item := items[index]
 			dedupe := location.turn + "/file/" + item.descriptor.path
 			if item.descriptor.artifact != nil {
 				dedupe = location.turn + "/document/" + item.descriptor.artifact.ID.String()
@@ -158,31 +159,51 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 		index := positions[turn]
 		cv.Turns[index].Reply.Blocks = append(cv.Turns[index].Reply.Blocks, published...)
 	}
+	r.pruneAttachmentPublications(page.Session, retained)
+}
+
+func (r *Runtime) pruneAttachmentPublications(session protocol.SessionID, retained map[string]bool) {
+	if r.attachments == nil {
+		return
+	}
 	for key, publication := range r.attachments.publications {
-		if publication.session == page.Session && !retained[key] {
+		if publication.session == session && !retained[key] {
+			if publication.cancel != nil {
+				publication.cancel()
+			}
 			delete(r.attachments.publications, key)
 		}
 	}
 }
-func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref protocol.ToolDetailReference, worktree protocol.WorktreeID, publication *attachmentPublication, fetch bool) {
-	r.async(func() {
-		var loaded protocol.ToolDetail
+func (r *Runtime) loadAttachmentPublication(key string, ref protocol.ToolDetailReference, worktree protocol.WorktreeID, publication *attachmentPublication, fetch bool) {
+	ctx, cancel := context.WithCancel(r.attachments.ctx)
+	publication.cancel = cancel
+	if !r.async(func() {
+		loaded, found := r.controller.ConversationDetail(ref)
 		var err error
-		var found bool
-		if fetch {
-			loaded, err = r.controller.ReadConversationDetail(ctx, ref)
+		if fetch && !found {
+			loaded, err = r.controller.ReadToolDetail(ctx, ref)
 			found = err == nil
-		} else {
-			loaded, found = r.controller.ConversationDetail(ref)
+		}
+		if ctx.Err() != nil {
+			return
 		}
 		var items []attachmentPublishedItem
-		if found {
-			items = projectPublishedItems(ref, worktree, loaded)
+		if found && loaded.Content != nil {
+			var publications []protocol.ToolDetailPublication
+			for index, block := range loaded.Content.Blocks {
+				if block.Kind == "file" || block.Kind == "artifact" {
+					publications = append(publications, protocol.ToolDetailPublication{Index: uint64(index), Block: block})
+				}
+			}
+			items = projectPublishedItems(ref, worktree, publications)
 		}
 		r.enqueue(func(c *ui.Context) {
 			if ctx.Err() != nil || r.attachments.publications[key] != publication {
 				return
 			}
+			cancel()
+			publication.cancel = nil
 			publication.loading, publication.failed = false, err != nil
 			if err != nil {
 				r.downloadOutcome(c, err)
@@ -198,15 +219,16 @@ func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref
 				}
 			}
 		})
-	})
-}
-func projectPublishedItems(ref protocol.ToolDetailReference, worktree protocol.WorktreeID, loaded protocol.ToolDetail) []attachmentPublishedItem {
-	items := []attachmentPublishedItem{}
-	if loaded.Content == nil {
-		return items
+	}) {
+		cancel()
+		publication.cancel, publication.loading = nil, false
 	}
-	for index, block := range loaded.Content.Blocks {
-		id := fmt.Sprintf("published/%s/%s/%d/%d", ref.Turn, ref.Entry, ref.Index, index)
+}
+func projectPublishedItems(ref protocol.ToolDetailReference, worktree protocol.WorktreeID, publications []protocol.ToolDetailPublication) []attachmentPublishedItem {
+	var items []attachmentPublishedItem
+	for _, publication := range publications {
+		block := publication.Block
+		id := fmt.Sprintf("published/%s/%s/%d/%d", ref.Turn, ref.Entry, ref.Index, publication.Index)
 		switch block.Kind {
 		case "file":
 			file, ok := detail[protocol.ToolContentFile](block.Data)

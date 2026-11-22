@@ -64,6 +64,14 @@ type ToolDetailSummary struct {
 	// Task is the id of the background task the call started: a command
 	// that was sent to the background. It is absent for any other call.
 	Task *string `json:"task,omitempty"`
+	// Publications identifies file and artifact blocks by their index in the detail.
+	// An empty list also covers a card-only publication. Older peers omit it.
+	Publications []ToolDetailPublication `json:"publications,omitzero"`
+}
+
+type ToolDetailPublication struct {
+	Index uint64           `json:"index"`
+	Block ToolContentBlock `json:"block"`
 }
 
 func DefaultToolDetailSummary() ToolDetailSummary {

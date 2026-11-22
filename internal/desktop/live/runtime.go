@@ -409,6 +409,7 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.closed = true
+	r.queue = nil
 	r.mu.Unlock()
 	if r.updates != nil {
 		// A closing window no longer needs to acknowledge an installation's

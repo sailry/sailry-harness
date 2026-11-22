@@ -574,11 +574,6 @@ func (r *Runtime) pruneAttachmentImages() {
 		}
 		state.releaseImageSession(cache)
 		delete(state.imageSessions, session)
-		for key, publication := range state.publications {
-			if publication.session.String() == session {
-				delete(state.publications, key)
-			}
-		}
 	}
 	root := r.localRuntime()
 	if state.thumbnailPixels < before && root.attachments != nil && root.attachments.thumbnailBudgetBlocked {

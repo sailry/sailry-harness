@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -69,6 +70,23 @@ func TestReadToolDetailWithoutExpandableCard(t *testing.T) {
 				t.Fatalf("an unretained or nonexpandable card entered the presentation cache: %v", err)
 			}
 		})
+	}
+}
+
+func TestReadToolDetailStopsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ref := toolDetailReferenceFixture()
+	reads := 0
+	transport := toolDetailTransportFixture(t, ref, func(protocol.CommandReadToolDetailPayload) protocol.ToolDetailPage {
+		reads++
+		cancel()
+		return protocol.ToolDetailPage{Reference: ref, TotalBytes: 40, Text: "{", NextOffset: new(uint64(1))}
+	})
+	controller := New(transport)
+	defer controller.Close()
+	if _, err := controller.ReadToolDetail(ctx, ref); err == nil || reads != 1 {
+		t.Fatalf("cancelled transfer made %d reads, error %v", reads, err)
 	}
 }
 

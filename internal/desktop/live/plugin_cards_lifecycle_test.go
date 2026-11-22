@@ -121,9 +121,9 @@ export default class extends View {
 		Preferences: preferences.Open(t.TempDir() + "/preferences.json")}
 	defer root.closePluginCards()
 	const callID = "fixture-call"
-	root.bindPluginCards(session.String(), callID, &protocol.ToolContent{
+	root.bindPluginCards(session.String(), callID, toolPluginCards(&protocol.ToolContent{
 		Version: 1, Blocks: []protocol.ToolContentBlock{{Kind: "card", Data: captured}},
-	})
+	}))
 	key := pluginCardKey{node: node, receipt: captured.Receipt}
 	card := root.pluginCards.cards[key]
 	if card == nil {

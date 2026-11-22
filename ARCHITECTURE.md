@@ -1074,9 +1074,14 @@ queue. Taking a publication transfers its mutable rows to one presentation.
 A directory refresh transfers unchanged rows to the rebuilt view. Elapsed labels
 update without rebuilding history; controls and mutable overlays still refresh.
 An unmounted transcript releases its observation, widget list and row frame.
-Transcript attachment sources and inactive plugin card bindings follow the
-loaded range. Open file previews retain their own sources, and card
-authorization recovery keeps its original request identity.
+The visible disclosure owns its formatted tool detail and cancels its read when
+it closes or scrolls out of view. Desktop can reuse an existing Client detail. An
+expansion cache miss reads the captured revision without filling the Client
+cache. Transcript attachment sources and inactive plugin card bindings follow
+the loaded range. The Node's tool summary includes published file and artifact
+descriptors. Older peers can require a detail read to recover those descriptors.
+Open file previews retain their own sources, and card authorization recovery
+keeps its original request identity.
 Desktop requests a small derivative for conversation image cards. The Node
 checks the source and access even on a derivative cache hit. It bounds preparation
 and retains encoded derivatives by source digest and requested size. The stream's

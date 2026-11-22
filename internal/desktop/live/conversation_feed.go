@@ -101,6 +101,7 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 		}
 		r.App.Messages.SetReferences(id.String(), nil)
 		r.replaceTranscriptAttachmentSources(id)
+		r.pruneAttachmentPublications(id, nil)
 		r.pruneConversationCards(id, nil)
 		delete(r.conversationFeeds, id)
 		delete(r.conversationCache, id)

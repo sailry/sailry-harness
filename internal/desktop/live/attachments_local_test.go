@@ -200,9 +200,9 @@ func TestAttachmentSourceProjection(t *testing.T) {
 			for index, entry := range snapshot.Page.Entries[1:] {
 				ref := protocol.ToolDetailReference{Session: session, Turn: turn, Entry: entry.ID, Revision: summary.Revision}
 				revision := []string{"older-file", "newer-file"}[index]
-				detail := protocol.ToolDetail{Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{{Kind: "file", Data: protocol.ToolContentFile{Path: "output/report.pdf", Mime: "application/pdf", Revision: &revision}}}}}
+				publications := []protocol.ToolDetailPublication{{Block: protocol.ToolContentBlock{Kind: "file", Data: protocol.ToolContentFile{Path: "output/report.pdf", Mime: "application/pdf", Revision: &revision}}}}
 				key := fmt.Sprintf("publication/%s/%s/0/%s", session, entry.ID, summary.Revision)
-				r.attachments.publications[key] = &attachmentPublication{session: session, ready: true, items: projectPublishedItems(ref, worktree, detail)}
+				r.attachments.publications[key] = &attachmentPublication{session: session, ready: true, items: projectPublishedItems(ref, worktree, publications)}
 			}
 		}
 		state := client.ConversationState{Snapshot: snapshot}
@@ -286,10 +286,10 @@ func TestAttachmentSourceProjection(t *testing.T) {
 	observed := "published"
 	ref := protocol.ToolDetailReference{Session: session, Turn: protocol.NewTurnID(), Entry: "captured-response", Index: 2}
 	artifact := protocol.ArtifactSummary{ID: protocol.NewArtifactID(), Session: protocol.NewSessionID(), Turn: ref.Turn, Title: "Report", Revision: 3}
-	published := projectPublishedItems(ref, worktree, protocol.ToolDetail{Content: &protocol.ToolContent{Blocks: []protocol.ToolContentBlock{
-		{Kind: "file", Data: &protocol.ToolContentFile{Path: "output/chart.png", Mime: "image/png", Revision: &observed}},
-		{Kind: "artifact", Data: &protocol.ToolContentBlockArtifactPayload{Artifact: artifact}},
-	}}})
+	published := projectPublishedItems(ref, worktree, []protocol.ToolDetailPublication{
+		{Index: 1, Block: protocol.ToolContentBlock{Kind: "file", Data: &protocol.ToolContentFile{Path: "output/chart.png", Mime: "image/png", Revision: &observed}}},
+		{Index: 3, Block: protocol.ToolContentBlock{Kind: "artifact", Data: &protocol.ToolContentBlockArtifactPayload{Artifact: artifact}}},
+	})
 	observed = "changed"
 	if len(published) != 2 || !published[0].image || published[0].descriptor.worktree != worktree || *published[0].descriptor.revision != "published" || published[1].descriptor.session != session || *published[1].descriptor.artifact != artifact {
 		t.Fatalf("published cards lost captured worktree, revision or fork scope: %+v", published)

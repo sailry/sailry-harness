@@ -84,7 +84,7 @@ func replaceJSONSlot(value any, parts []string, replacement any) error {
 	}
 	return invalid("binary slot does not exist")
 }
-func utf8TextPage(text string, offset, limit uint64) (string, *uint64, error) {
+func utf8TextPage(text []byte, offset, limit uint64) (string, *uint64, error) {
 	if offset > uint64(len(text)) || limit == 0 {
 		return "", nil, invalid("output page is invalid")
 	}
@@ -99,14 +99,14 @@ func utf8TextPage(text string, offset, limit uint64) (string, *uint64, error) {
 		end--
 	}
 	if end == offset && end < uint64(len(text)) {
-		_, width := utf8.DecodeRuneInString(text[offset:])
+		_, width := utf8.DecodeRune(text[offset:])
 		end += uint64(width)
 	}
 	var next *uint64
 	if end < uint64(len(text)) {
 		next = &end
 	}
-	return text[offset:end], next, nil
+	return string(text[offset:end]), next, nil
 }
 func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.CommandReadToolDetailPayload) (protocol.ToolDetailPage, error) {
 	value := protocol.DefaultToolDetailPage()
@@ -178,7 +178,7 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 		value.Offset = *input.Cursor
 	}
 	value.TotalBytes = uint64(len(encoded))
-	value.Text, value.NextOffset, err = utf8TextPage(string(encoded), value.Offset, input.Limit)
+	value.Text, value.NextOffset, err = utf8TextPage(encoded, value.Offset, input.Limit)
 	if err == nil && uint64(len(value.Text)) > input.Limit {
 		return value, invalid("tool detail limit splits a Unicode character")
 	}
@@ -249,7 +249,7 @@ func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.Comma
 		return page, err
 	}
 	page.Turn, page.TotalBytes = resolved.Turn, uint64(len(resolved.Value))
-	page.Text, page.NextOffset, err = utf8TextPage(string(resolved.Value), input.Offset, min(input.Limit, 32*1024))
+	page.Text, page.NextOffset, err = utf8TextPage(resolved.Value, input.Offset, min(input.Limit, 32*1024))
 	return page, err
 }
 

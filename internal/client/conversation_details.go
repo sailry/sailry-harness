@@ -96,6 +96,9 @@ func (c *Client) ReadToolDetail(ctx context.Context, ref protocol.ToolDetailRefe
 	var data []byte
 	var total *uint64
 	for {
+		if err := ctx.Err(); err != nil {
+			return protocol.ToolDetail{}, err
+		}
 		var cursor *uint64
 		if len(data) > 0 {
 			offset := uint64(len(data))
@@ -103,6 +106,9 @@ func (c *Client) ReadToolDetail(ctx context.Context, ref protocol.ToolDetailRefe
 		}
 		out, err := c.Do(ctx, protocol.Command{Kind: "read_tool_detail", Data: protocol.CommandReadToolDetailPayload{Session: ref.Session, Turn: ref.Turn, Entry: ref.Entry, Index: ref.Index, Call: ref.Call, ExpectedRevision: ref.Revision, Cursor: cursor, Limit: 64 * 1024}})
 		if err != nil {
+			return protocol.ToolDetail{}, err
+		}
+		if err := ctx.Err(); err != nil {
 			return protocol.ToolDetail{}, err
 		}
 		p, err := payload[protocol.ToolDetailPage](out.Data)
@@ -131,6 +137,9 @@ func (c *Client) ReadToolDetail(ctx context.Context, ref protocol.ToolDetailRefe
 	if allocation > conversationDetailLimit {
 		return protocol.ToolDetail{}, fault(protocol.ErrorCodeInvalidRequest, detailMemoryLimit)
 	}
+	if err := ctx.Err(); err != nil {
+		return protocol.ToolDetail{}, err
+	}
 	return value, nil
 }
 
@@ -142,6 +151,10 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 	allocation := retainedDetailBytes(reflect.ValueOf(value)) + retainedDetailBytes(reflect.ValueOf(ref))
 	key := detailKey(ref)
 	c.conversationMu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.conversationMu.Unlock()
+		return protocol.ToolDetail{}, err
+	}
 	if !c.currentConversationDetail(ref) {
 		c.conversationMu.Unlock()
 		return protocol.ToolDetail{}, fault(protocol.ErrorCodeRevisionConflict, "tool detail changed during transfer")
