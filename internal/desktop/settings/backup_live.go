@@ -60,11 +60,12 @@ type BackupActions struct {
 	// use, which is kept beside it, and starts the application again. It is
 	// offered after a restore while Restartable: the page shows this
 	// Desktop's own Node.
-	Restart           func(target string)
-	Restartable       bool
-	Unarchive, Delete func(id string)
-	ArchiveAll        func()
-	DeleteAll         func()
+	Restart     func(target string)
+	Restartable bool
+	Unarchive   func(id string)
+	ArchiveAll  func()
+	// PrepareDelete captures the shown host and revisions before confirmation; an empty ID means all sessions.
+	PrepareDelete func(id string) func()
 
 	// Archive access follows the session's scope rather than backup status.
 	ArchiveUnavailable, ArchiveBusy bool

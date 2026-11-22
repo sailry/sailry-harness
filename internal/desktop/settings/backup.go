@@ -24,12 +24,13 @@ type backupDialogs struct {
 	// with BackupActions.Retry its draft is locked and Save reads Retry.
 	unconfirmed bool
 	// keeping is the retention awaiting its confirmation.
-	keeping               bool
-	keep                  int
-	records, restoring    bool
-	restore               BackupRestore
-	removing              bool
-	removed, removedTitle string
+	keeping            bool
+	keep               int
+	records, restoring bool
+	restore            BackupRestore
+	removing           bool
+	removedTitle       string
+	remove             func()
 	// removedPrivate is a session without a project, whose private
 	// workspace is deleted with it.
 	removedPrivate bool
@@ -130,9 +131,12 @@ func backup(c *ui.Context, m *Model) {
 			t("settings_cancel"), t("backup_delete_all_action")) == 1 {
 			if a == nil {
 				notice(c)
-			} else {
-				a.DeleteAll()
+			} else if d.remove != nil {
+				d.remove()
 			}
+		}
+		if !d.deleting {
+			d.remove = nil
 		}
 	}
 	// Destructive: the backups are named and their deletion said once.
@@ -152,7 +156,12 @@ func backup(c *ui.Context, m *Model) {
 		}
 		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), a.confirmOnHost(c, i18n.T(c, message, "name", d.removedTitle)),
 			t("settings_cancel"), t("backup_delete")) == 1 {
-			a.Delete(d.removed)
+			if d.remove != nil {
+				d.remove()
+			}
+		}
+		if !d.removing {
+			d.remove = nil
 		}
 	}
 }
@@ -266,7 +275,16 @@ func backupArchiveRows(c *ui.Context, m *Model) {
 	})
 	kit.Entry(c, "delete-all", func() { ui.Text(c, t("backup_delete_all")).FontSize(14) }, func() {
 		noSessions := m.Live && m.Sessions == 0 && len(m.Archived) == 0
-		kit.DangerBusy(c.Key("action"), t("backup_delete_all_action"), m.Busy[BusyBackup+"delete"]).Height(28).Disabled(locked || noSessions || m.Busy[BusyBackup+"delete"]).OnClick(func() { d.deleting = true })
+		kit.DangerBusy(c.Key("action"), t("backup_delete_all_action"), m.Busy[BusyBackup+"delete"]).Height(28).Disabled(locked || noSessions || m.Busy[BusyBackup+"delete"]).OnClick(func() {
+			if a == nil {
+				d.deleting = true
+				return
+			}
+			if a.PrepareDelete != nil {
+				d.remove = a.PrepareDelete("")
+				d.deleting = d.remove != nil
+			}
+		})
 	}, nil)
 }
 
@@ -425,8 +443,9 @@ func archivesDialog(c *ui.Context, m *Model) {
 							notice(c)
 						})
 						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), locked, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
-							if m.BackupActions != nil {
-								d.removed, d.removedTitle, d.removedPrivate, d.removing = a.ID, a.Title, a.Private, true
+							if actions := m.BackupActions; actions != nil && actions.PrepareDelete != nil {
+								d.remove = actions.PrepareDelete(a.ID)
+								d.removedTitle, d.removedPrivate, d.removing = a.Title, a.Private, d.remove != nil
 								return
 							}
 							notice(c)

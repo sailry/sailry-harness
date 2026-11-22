@@ -169,8 +169,14 @@ func (s *State) confirmDelete(c *ui.Context, cv *preview.Conversation) {
 	if s.Data.ProjectHolding(cv) == nil {
 		message = "session_delete_private_named"
 	}
+	run := func() { s.deletePreview(cv) }
+	if s.Actions != nil && s.Actions.Delete != nil {
+		remove := s.Actions.Delete
+		target := preview.Conversation{ID: cv.ID, Node: cv.Node, Revision: cv.Revision}
+		run = func() { remove(&target) }
+	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "session_delete"),
-		message: i18n.T(c, message, "name", Title(c, cv)), action: i18n.T(c, "settings_delete"), run: func() { s.delete(cv) }}
+		message: i18n.T(c, message, "name", Title(c, cv)), action: i18n.T(c, "settings_delete"), run: run}
 }
 
 // ProjectActions fills the project page's More menu with the project's
@@ -437,13 +443,7 @@ func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 		}}
 }
 
-// delete takes a conversation out of the preview's memory
-// (RemoveSession); its split pane leaves with it.
-func (s *State) delete(cv *preview.Conversation) {
-	if s.Actions != nil && s.Actions.Delete != nil {
-		s.Actions.Delete(cv)
-		return
-	}
+func (s *State) deletePreview(cv *preview.Conversation) {
 	selected := s.Current() == cv
 	drop := func(list []*preview.Conversation) []*preview.Conversation {
 		return slices.DeleteFunc(list, func(x *preview.Conversation) bool { return x == cv })

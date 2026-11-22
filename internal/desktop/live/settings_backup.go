@@ -710,11 +710,35 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				}
 			}
 		},
-		Delete: func(id string) {
-			if owner := archiveReady(); owner != nil {
-				if session, found := session(owner, id); found && session.Archived {
-					command := protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: session.Revision}}
-					owner.submitArchive(command, "backup_deleted", "delete/"+id)
+		PrepareDelete: func(id string) func() {
+			owner := archiveReady()
+			if owner == nil {
+				return nil
+			}
+			var command protocol.Command
+			operation := "delete"
+			if id == "" {
+				expected := backupRevisions(owner.snapshot().Sessions, true)
+				if len(expected) == 0 {
+					return nil
+				}
+				command = protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
+			} else {
+				row, found := session(owner, id)
+				if !found || !row.Archived {
+					return nil
+				}
+				command = protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: row.ID, ExpectedRevision: row.Revision}}
+				operation += "/" + id
+			}
+			return func() {
+				if owner.submitRemoval(command, func(c *ui.Context, err error) {
+					if owner.backupSettings.archive == operation {
+						owner.backupSettings.archive = ""
+					}
+					reportArchiveResult(c, "backup_deleted", err)
+				}) {
+					owner.backupSettings.archive = operation
 				}
 			}
 		},
@@ -723,14 +747,6 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				if expected := backupRevisions(owner.snapshot().Sessions, false); len(expected) != 0 {
 					command := protocol.Command{Kind: "archive_sessions", Data: protocol.CommandArchiveSessionsPayload{Expected: expected}}
 					owner.submitArchive(command, "backup_archived", "archive")
-				}
-			}
-		},
-		DeleteAll: func() {
-			if owner := archiveReady(); owner != nil {
-				if expected := backupRevisions(owner.snapshot().Sessions, true); len(expected) != 0 {
-					command := protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
-					owner.submitArchive(command, "backup_deleted", "delete")
 				}
 			}
 		},
@@ -772,16 +788,18 @@ func (r *Runtime) forgetBackupStorage() {
 func (r *Runtime) submitArchive(command protocol.Command, done, operation string) {
 	s := &r.backupSettings
 	s.archive = operation
-	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+	r.execute(command, func(c *ui.Context, _ protocol.Output, err error) {
 		s.archive = ""
-		outcome, key := kit.Done, done
-		if err != nil {
-			outcome, key = backupSessionFailure(err)
-		} else {
-			r.forgetRemovedOutput(output)
-		}
-		kit.Toast(c, outcome, i18n.T(c, key))
+		reportArchiveResult(c, done, err)
 	})
+}
+
+func reportArchiveResult(c *ui.Context, done string, err error) {
+	outcome, key := kit.Done, done
+	if err != nil {
+		outcome, key = backupSessionFailure(err)
+	}
+	kit.Toast(c, outcome, i18n.T(c, key))
 }
 
 // backupPassphrase is a typed passphrase; blank uses the Node's saved one.
