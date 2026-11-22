@@ -75,7 +75,7 @@ func (projection *terminalProjection) apply(update protocol.Update) (Apply, erro
 			return projection.recover()
 		}
 		projection.snapshot, projection.fresh, projection.recovery = &snapshot, false, false
-		return projection.keep(snapshot.Screen, true), nil
+		return projection.keep(&snapshot.Screen, true), nil
 	case "terminal_frame":
 		frame, err := payload[protocol.TerminalFrame](update.Data)
 		if err != nil {
@@ -132,7 +132,7 @@ func (projection *terminalProjection) apply(update protocol.Update) (Apply, erro
 		previous := current.Screen.VT
 		restart := screen.VT != nil && (previous == nil ||
 			previous.Viewport.Columns != screen.VT.Viewport.Columns || previous.Viewport.Rows != screen.VT.Viewport.Rows)
-		if projection.keep(screen, restart) == Recover {
+		if projection.keep(&screen, restart) == Recover {
 			return Recover, nil
 		}
 		projection.snapshot = &protocol.TerminalSnapshot{Node: frame.Node, Info: frame.Info, Sequence: frame.Sequence, Screen: screen}
@@ -146,20 +146,23 @@ func (projection *terminalProjection) apply(update protocol.Update) (Apply, erro
 // keep adds an applied screen's VT bytes to those not yet taken. Past the
 // bound the bytes are dropped and the subscription recovers: its next
 // snapshot starts the terminal over.
-func (projection *terminalProjection) keep(screen protocol.TerminalScreen, restart bool) Apply {
-	if screen.VT == nil {
+func (projection *terminalProjection) keep(screen *protocol.TerminalScreen, restart bool) Apply {
+	vt := screen.VT
+	if vt == nil {
 		projection.pending, projection.restart = nil, false
 		return Applied
 	}
+	// Only pending owns stream bytes; the snapshot needs the viewport for the next frame.
+	screen.VT = &protocol.TerminalVT{Viewport: vt.Viewport}
 	if restart {
-		projection.pending, projection.restart = append(protocol.Bytes(nil), screen.VT.Bytes...), true
+		projection.pending, projection.restart = append(protocol.Bytes(nil), vt.Bytes...), true
 		return Applied
 	}
-	if len(projection.pending)+len(screen.VT.Bytes) > terminalMaxPending {
+	if len(projection.pending)+len(vt.Bytes) > terminalMaxPending {
 		projection.pending, projection.restart, projection.stalled, projection.recovery = nil, false, true, true
 		return Recover
 	}
-	projection.pending = append(projection.pending, screen.VT.Bytes...)
+	projection.pending = append(projection.pending, vt.Bytes...)
 	return Applied
 }
 

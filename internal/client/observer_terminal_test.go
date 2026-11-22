@@ -272,8 +272,15 @@ func TestTerminalProjectionKeepsStreamBytes(t *testing.T) {
 	take("", false, 2)
 	projection.reconnect()
 	// A starting frame is kept whatever its size.
-	apply(terminalTestSnapshot(node, id, 1, 0, terminalTestStream(30, full+"m")), Applied)
+	start := terminalTestStream(30, full+"m")
+	apply(terminalTestSnapshot(node, id, 1, 0, start), Applied)
 	take(full+"m", true, 0)
+	if len(start.VT.Bytes) != len(full)+1 {
+		t.Fatal("consuming the stream modified the source snapshot")
+	}
+	if n := len(projection.snapshot.Screen.VT.Bytes); n != 0 || projection.pending != nil {
+		t.Fatalf("projection retained %d source bytes after delivery", n)
+	}
 }
 
 func TestTerminalScreenValidation(t *testing.T) {

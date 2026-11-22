@@ -26,9 +26,7 @@ type filePreview struct {
 
 func (r *Runtime) beginFilePreview(file conversation.File, callbacks fileview.Callbacks) (*filePreview, context.Context) {
 	root := r.localRuntime()
-	if previous := root.filePreview; previous != nil && previous.cancel != nil {
-		previous.cancel()
-	}
+	root.invalidateFilePreview(nil)
 	ctx, cancel := context.WithCancel(r.ctx)
 	preview := &filePreview{owner: r, open: true, file: file, callbacks: callbacks, cancel: cancel}
 	root.filePreview = preview
@@ -44,9 +42,7 @@ func (r *Runtime) invalidateFilePreview(worktree *protocol.WorktreeID) {
 	if preview.cancel != nil {
 		preview.cancel()
 	}
-	preview.open = false
-	preview.file = conversation.File{}
-	preview.callbacks = fileview.Callbacks{}
+	*preview = filePreview{}
 	root.filePreview = nil
 }
 
@@ -125,13 +121,14 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context, func(c
 // stops a read still running.
 func (r *Runtime) renderFilePreview(c *ui.Context) {
 	preview := r.localRuntime().filePreview
-	if preview == nil || !preview.open {
+	if preview == nil {
 		return
 	}
-	fileview.Dialog(c, "file-preview", &preview.view, preview.file, &preview.open, preview.callbacks)
-	if !preview.open && preview.cancel != nil {
-		preview.cancel()
-		preview.cancel = nil
+	if preview.open {
+		fileview.Dialog(c, "file-preview", &preview.view, preview.file, &preview.open, preview.callbacks)
+	}
+	if !preview.open {
+		r.localRuntime().invalidateFilePreview(nil)
 	}
 }
 

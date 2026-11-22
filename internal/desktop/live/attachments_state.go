@@ -71,7 +71,6 @@ type attachmentState struct {
 	files                  map[string]attachmentDescriptor
 	publications           map[string]*attachmentPublication
 	previews               map[string]attachmentDescriptor
-	previewGeneration      map[string]uint64
 	previewContent         map[string]protocol.ArtifactContent
 	previewDocuments       map[string]*documentPreview
 	documents              map[string]*attachmentDocumentImage
@@ -91,7 +90,7 @@ type attachmentState struct {
 
 func (r *Runtime) initAttachments() {
 	ctx, cancel := context.WithCancel(r.ctx)
-	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewGeneration: map[string]uint64{}, previewContent: map[string]protocol.ArtifactContent{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
+	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewContent: map[string]protocol.ArtifactContent{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
 	if r.parent != nil && r.parent.attachments != nil {
 		r.attachments.imageSlots = r.parent.attachments.imageSlots
 	}

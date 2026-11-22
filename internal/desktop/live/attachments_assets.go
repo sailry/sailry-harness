@@ -139,7 +139,9 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 				continue
 			}
 			seen[dedupe] = true
-			r.attachments.files[attachmentKey(cv.ID, item.file.ID)] = item.descriptor
+			source := attachmentKey(cv.ID, item.file.ID)
+			r.attachments.files[source] = item.descriptor
+			r.trackTranscriptAttachment(page.Session, source)
 			if artifact := item.descriptor.artifact; artifact != nil && artifact.Kind == protocol.ArtifactKindPreview {
 				item.file.Image = &conversation.Image{ID: item.file.ID, Name: item.file.Name()}
 			}

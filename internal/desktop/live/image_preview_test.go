@@ -9,9 +9,11 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -93,8 +95,30 @@ func TestOverviewImagesUseViewer(t *testing.T) {
 				if !copied {
 					t.Fatal("image toolbar did not use the captured source descriptor")
 				}
+				preview.open = false
+				r.renderFilePreview(nil)
+				if r.filePreview != nil || preview.file.Image != nil || len(owner.attachments.previews) != 0 {
+					t.Fatalf("closed image viewer retained window=%v, image=%v, descriptors=%d", r.filePreview != nil, preview.file.Image != nil, len(owner.attachments.previews))
+				}
 			})
 		})
+	}
+}
+
+func TestEscapeReleasesFilePreview(t *testing.T) {
+	r := &Runtime{ctx: t.Context()}
+	preview, ctx := r.beginFilePreview(conversation.File{ID: "preview", Path: "notes.txt", Text: "sample", Kind: conversation.TextFile, State: conversation.PreviewReady}, fileview.Callbacks{})
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		r.renderFilePreview(c)
+	}, 800, 600)
+	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tester.Frame()
+	tester.Key(0, ui.KeyEscape)
+	tester.Frame()
+	tester.Frame()
+	if r.filePreview != nil || preview.file.Text != "" || ctx.Err() != context.Canceled {
+		t.Fatalf("closed preview retained window=%v, text=%d, context=%v", r.filePreview != nil, len(preview.file.Text), ctx.Err())
 	}
 }
 

@@ -51,6 +51,26 @@ func cloneAttachmentRevision(value *string) *string {
 
 type attachmentPart struct{ entry, part int }
 
+func (r *Runtime) trackTranscriptAttachment(session protocol.SessionID, key string) {
+	if feed := r.conversationFeeds[session]; feed != nil {
+		if feed.sources == nil {
+			feed.sources = map[string]attachmentDescriptor{}
+		}
+		feed.sources[key] = r.attachments.files[key]
+	}
+}
+
+func (r *Runtime) replaceTranscriptAttachmentSources(session protocol.SessionID) {
+	if feed := r.conversationFeeds[session]; feed != nil {
+		for key, source := range feed.sources {
+			if r.attachments.files[key] == source {
+				delete(r.attachments.files, key)
+			}
+		}
+		feed.sources = nil
+	}
+}
+
 func attachmentParts(page protocol.ConversationPage) []attachmentPart {
 	var parts []attachmentPart
 	for i, entry := range page.Entries {
@@ -79,16 +99,22 @@ func (r *Runtime) bindAttachmentSources(session string, page protocol.Conversati
 	if err != nil {
 		return
 	}
+	registerAttachment := func(attachment protocol.Attachment) {
+		r.registerConversationAttachment(session, attachment)
+		r.trackTranscriptAttachment(owner, attachmentKey(session, attachment.ID.String()))
+	}
 	registerImage := func(value protocol.ConversationImage) {
 		attachment := value.Attachment
-		r.attachments.files[attachmentKey(session, attachment.ID.String())] = attachmentDescriptor{session: owner, worktree: attachment.Spec.Worktree, name: attachment.Spec.Name, mime: attachment.Spec.MediaType, attachment: &attachment, image: &value}
+		key := attachmentKey(session, attachment.ID.String())
+		r.attachments.files[key] = attachmentDescriptor{session: owner, worktree: attachment.Spec.Worktree, name: attachment.Spec.Name, mime: attachment.Spec.MediaType, attachment: &attachment, image: &value}
+		r.trackTranscriptAttachment(owner, key)
 	}
 	for _, source := range parts {
 		part := page.Entries[source.entry].Parts[source.part]
 		switch part.Kind {
 		case "attachment":
 			if value, ok := detail[protocol.Attachment](part.Data); ok {
-				r.registerConversationAttachment(session, value)
+				registerAttachment(value)
 			}
 		case "image":
 			if value, ok := detail[protocol.ConversationImage](part.Data); ok {
@@ -105,13 +131,13 @@ func (r *Runtime) bindAttachmentSources(session string, page protocol.Conversati
 	for _, run := range page.Runs {
 		if run.Input != nil {
 			for _, attachment := range run.Input.Attachments {
-				r.registerConversationAttachment(session, attachment)
+				registerAttachment(attachment)
 			}
 		}
 	}
 	for _, queued := range page.Queue.Items {
 		for _, attachment := range queued.Attachments {
-			r.registerConversationAttachment(session, attachment)
+			registerAttachment(attachment)
 		}
 	}
 }
@@ -534,6 +560,11 @@ func (r *Runtime) pruneAttachmentImages() {
 				}
 			}
 			for key := range cache.sources {
+				if _, exists := state.files[key]; !exists {
+					delete(cache.facts, key)
+					delete(cache.failed, key)
+					delete(cache.missing, key)
+				}
 				if _, known := cache.facts[key]; !known && cache.images[key] == nil && cache.loading[key] == nil && !cache.failed[key] && !cache.missing[key] {
 					delete(cache.sources, key)
 				}

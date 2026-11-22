@@ -47,16 +47,15 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 // showCapturedPreview loads a captured file into its preview, as it opens or
 // as its document shows another version.
 func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachmentDescriptor) {
-	r.attachments.previewGeneration[file.ID]++
-	generation := r.attachments.previewGeneration[file.ID]
 	file.State = conversation.PreviewLoading
 	ctx := r.attachments.ctx
 	var preview *filePreview
 	var tab *documentPreview
 	var document *documentImages
 	if file.Kind == conversation.ImageFile {
-		r.attachments.previews[file.ID] = descriptor
-		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: r.localRuntime().ArtifactImageAction})
+		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: func(action kit.ImageAction, _ conversation.Image) {
+			r.enqueue(func(c *ui.Context) { r.attachmentImageDescriptorAction(c, action, descriptor) })
+		}})
 		preview.worktree = descriptor.worktree
 	} else {
 		if r.attachments.previewDocuments == nil {
@@ -69,7 +68,7 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 		} else if tab.loading != nil {
 			tab.loading.cancel()
 		}
-		version := fmt.Sprint(generation)
+		var version string
 		if descriptor.revision != nil {
 			version = *descriptor.revision
 		} else if descriptor.artifact != nil {
@@ -94,7 +93,7 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 			content.Html = document.inlineHTML(content.Html)
 		}
 		r.enqueue(func(c *ui.Context) {
-			if r.attachments.previewGeneration[file.ID] != generation || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
 			if preview != nil {
@@ -104,12 +103,13 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 				}
 				if err != nil {
 					r.downloadOutcome(c, err)
-					preview.cancel()
-					preview.open = false
-					root.filePreview = nil
+					root.invalidateFilePreview(nil)
 				} else {
 					preview.file = loaded
 				}
+				return
+			}
+			if tab.loading != document {
 				return
 			}
 			tab.loading = nil
@@ -187,7 +187,6 @@ func (r *Runtime) forgetDocumentPreview(id string) {
 	delete(r.attachments.previewDocuments, id)
 	delete(r.attachments.previewContent, id)
 	delete(r.attachments.previews, id)
-	r.attachments.previewGeneration[id]++
 	app := r.localRuntime().App
 	app.DropPanelTab(panel.Tab{Kind: panel.Artifact, ID: id})
 	app.Panel.ForgetArtifact(id)
