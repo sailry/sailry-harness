@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
+	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 
@@ -51,7 +54,7 @@ func (node *Node) initPython(ctx context.Context, configured *python.Options) er
 	if err := manager.Configure(settings.Index); err != nil {
 		return err
 	}
-	return node.retainPackagePython(ctx)
+	return node.retainPackagePython(ctx, true)
 }
 
 func (node *Node) packageRequirements(ctx context.Context, info protocol.PluginInfo) (*python.Requirements, error) {
@@ -60,8 +63,7 @@ func (node *Node) packageRequirements(ctx context.Context, info protocol.PluginI
 	}
 	reference := plugins.PackageReference(info)
 	content, err := node.plugins.manager.ReadResource(ctx, reference, "requirements.txt", 512*1024)
-	var fault *protocol.Fault
-	if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeNotFound {
+	if errors.Is(err, plugins.ErrResourceMissing) {
 		return nil, nil
 	}
 	if err != nil {
@@ -82,7 +84,9 @@ func (node *Node) preparePackagePython(ctx context.Context, info protocol.Plugin
 	return ready.Close, nil
 }
 
-func (node *Node) retainPackagePython(ctx context.Context) error {
+func (node *Node) retainPackagePython(ctx context.Context, startup bool) error {
+	node.plugins.inventoryMu.Lock()
+	defer node.plugins.inventoryMu.Unlock()
 	var infos []protocol.PluginInfo
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		users, err := store.ListUsers(ctx, db)
@@ -104,17 +108,76 @@ func (node *Node) retainPackagePython(ctx context.Context) error {
 		return err
 	}
 	var retained []python.Requirements
+	node.plugins.mu.Lock()
+	unavailable := maps.Clone(node.plugins.unavailable)
+	node.plugins.mu.Unlock()
+	if unavailable == nil {
+		unavailable = make(map[string]struct{})
+	}
+	installed := make(map[string]protocol.PluginInfo, len(infos))
 	for _, info := range infos {
-		requirements, err := node.packageRequirements(ctx, info)
-		if err != nil {
-			return err
+		digest := info.Summary.Digest
+		if _, ok := installed[digest]; !ok || info.Origin != nil && info.Origin.Kind == "bundled" {
+			installed[digest] = info
 		}
+	}
+	incomplete := false
+	for _, info := range installed {
+		reference := plugins.PackageReference(info)
+		requirements, err := node.checkInstalledPackage(ctx, info)
+		if err != nil && startup && info.Origin != nil && info.Origin.Kind == "bundled" && ctx.Err() == nil {
+			if _, restoreErr := node.plugins.manager.RestoreBundled(ctx, reference); restoreErr == nil {
+				requirements, err = node.checkInstalledPackage(ctx, info)
+			} else {
+				logUnavailablePackage(reference, "bundled plugin restoration failed", restoreErr)
+			}
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			incomplete = true
+			if _, known := unavailable[reference.Digest]; !known {
+				logUnavailablePackage(reference, "installed plugin package is unavailable", err)
+			}
+			unavailable[reference.Digest] = struct{}{}
+			continue
+		}
+		delete(unavailable, reference.Digest)
 		if requirements != nil {
 			retained = append(retained, *requirements)
 		}
 	}
-	node.plugins.python.Retain(retained)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	node.plugins.mu.Lock()
+	node.plugins.unavailable = unavailable
+	node.plugins.mu.Unlock()
+	if incomplete {
+		node.plugins.python.SuspendCollection()
+	} else {
+		node.plugins.python.Retain(retained)
+	}
 	return nil
+}
+
+func (node *Node) checkInstalledPackage(ctx context.Context, info protocol.PluginInfo) (*python.Requirements, error) {
+	if info.Skill != nil {
+		return nil, node.plugins.manager.VerifyPackage(ctx, plugins.PackageReference(info))
+	}
+	return node.packageRequirements(ctx, info)
+}
+
+func logUnavailablePackage(reference protocol.PluginReference, message string, err error) {
+	fault := nodeFault(err).(*protocol.Fault)
+	code, reason := fault.Code, fault.Message
+	if errors.Is(err, fs.ErrNotExist) {
+		code, reason = protocol.ErrorCodeNotFound, "plugin package file is missing"
+	} else if errors.Is(err, fs.ErrPermission) {
+		code, reason = protocol.ErrorCodePermissionDenied, "plugin package file cannot be accessed"
+	}
+	slog.Warn(message, "plugin", reference.Name, "digest", reference.Digest, "code", code, "reason", reason)
 }
 
 type pythonEvents struct {

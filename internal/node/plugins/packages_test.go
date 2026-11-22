@@ -365,11 +365,7 @@ func TestBundledPackageContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		root, err := manager.PackageRoot(PackageReference(info))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := verifyPublished(t.Context(), root, info.Summary.Digest); err != nil {
+		if err := manager.VerifyPackage(t.Context(), PackageReference(info)); err != nil {
 			t.Fatal(err)
 		}
 	}

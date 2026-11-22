@@ -26,16 +26,17 @@ import (
 
 // Options exposes the actual model and clock boundaries to deterministic tests.
 type Options struct {
-	Python            *python.Manager
-	ValidateWorktree  func(context.Context, protocol.WorktreeID) error
-	Attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
-	AttachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
-	Clock             clock.Clock
-	Model             func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	AuthorizeProvider func(context.Context, *store.AgentInvocation) error
-	Tools             []Tool
-	ToolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
-	HooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
+	Python             *python.Manager
+	ValidateWorktree   func(context.Context, protocol.WorktreeID) error
+	Attachment         func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
+	AttachmentBytes    func(context.Context, protocol.Attachment) ([]byte, error)
+	Clock              clock.Clock
+	Model              func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	AuthorizeProvider  func(context.Context, *store.AgentInvocation) error
+	Tools              []Tool
+	ToolsForTurn       func(context.Context, *store.AgentInvocation) ([]Tool, error)
+	HooksForTurn       func(context.Context, *store.AgentInvocation) *hooks.Binding
+	PluginAvailability func(protocol.PluginReference) error
 	// AfterTurn, when set, runs after a main task turn's end is stored. It
 	// receives the settled run and what the execution observed.
 	AfterTurn func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
@@ -147,7 +148,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	if options.Model == nil {
 		options.Model = model.New
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(store.WithPluginAvailability(context.Background(), options.PluginAvailability))
 	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
 }
 

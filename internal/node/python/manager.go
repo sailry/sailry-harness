@@ -332,6 +332,13 @@ func (manager *Manager) Retain(requirements []Requirements) {
 	manager.retained = true
 }
 
+// SuspendCollection keeps environments whose requirements could not be read.
+func (manager *Manager) SuspendCollection() {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	manager.retained = false
+}
+
 func (manager *Manager) Collect(ctx context.Context, current string) error {
 	manager.runtimeMu.Lock()
 	runtime := manager.runtime

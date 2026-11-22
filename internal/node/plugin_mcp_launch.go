@@ -61,6 +61,9 @@ func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo
 	}
 	prepared.User = user.String()
 	prepared.Package, prepared.Server, prepared.Options = plugins.PackageReference(info), name, mcp.ServerOptions(server)
+	if err := node.checkPluginAvailability(prepared.Package); err != nil {
+		return prepared, err
+	}
 	prepared.Launch.Kind = server.Kind
 	prepared.Authorization = map[string]any{"settings": settings.Secrets}
 	if err := plugins.ValidateMCPServer(server); err != nil {

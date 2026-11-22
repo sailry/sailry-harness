@@ -9,6 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+var ErrResourceMissing = &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "plugin resource is missing"}
+
 func (manager *Manager) captured(ctx context.Context, reference protocol.PluginReference) ([]packageEntry, error) {
 	directory, err := manager.PackageRoot(reference)
 	if err != nil {
@@ -29,9 +31,14 @@ func (manager *Manager) captured(ctx context.Context, reference protocol.PluginR
 		return nil, err
 	}
 	if len(issues) != 0 || digestPackage(entries) != reference.Digest {
-		return nil, packageFault("immutable plugin package content changed")
+		return nil, errPackageChanged
 	}
 	return entries, nil
+}
+
+func (manager *Manager) VerifyPackage(ctx context.Context, reference protocol.PluginReference) error {
+	_, err := manager.captured(ctx, reference)
+	return err
 }
 
 func (manager *Manager) CapturedInfo(ctx context.Context, reference protocol.PluginReference) (protocol.PluginInfo, error) {

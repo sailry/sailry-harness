@@ -177,6 +177,7 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 		return nil
 	}
 	reference := plugins.PackageReference(*info)
+	unavailable := node.pluginUnavailable(reference.Digest)
 	user, err := node.pluginRuntimeUser(ctx)
 	if err != nil {
 		return err
@@ -203,7 +204,7 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 			entry.Allowed = allowed
 		}
 		entry.Availability = protocol.PluginMcpAvailabilityAvailable
-		if info.Summary.Compatibility.Kind != "compatible" {
+		if unavailable || info.Summary.Compatibility.Kind != "compatible" {
 			entry.Availability = protocol.PluginMcpAvailabilityUnavailable
 		} else if !info.Summary.Enabled {
 			entry.Availability = protocol.PluginMcpAvailabilityPackageDisabled
@@ -228,7 +229,7 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 		entry.Runtime = node.plugins.mcp.Status(reference, entry.Name, user.String())
 		launched = launched || entry.Transport == protocol.PluginMcpTransportStdio && entry.Availability == protocol.PluginMcpAvailabilityAvailable
 	}
-	if info.Settings == nil && !launched {
+	if unavailable || (info.Settings == nil && !launched) {
 		return nil
 	}
 	declared, err := node.declaredPluginMCP(ctx, reference)

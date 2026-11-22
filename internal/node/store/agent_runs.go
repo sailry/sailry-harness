@@ -33,8 +33,9 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.P
 		}
 		references = []protocol.PluginReference{}
 		for _, info := range infos {
-			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" {
-				references = append(references, protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision})
+			reference := plugins.PackageReference(info)
+			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" && checkPluginAvailability(ctx, reference) == nil {
+				references = append(references, reference)
 			}
 		}
 	}
@@ -44,6 +45,9 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.P
 			return nil, err
 		}
 		reference := plugins.PackageReference(owner)
+		if err := checkPluginAvailability(ctx, reference); err != nil {
+			return nil, err
+		}
 		if index := slices.IndexFunc(references, func(candidate protocol.PluginReference) bool { return candidate.Name == reference.Name }); index >= 0 {
 			references[index] = reference
 		} else {
@@ -393,6 +397,11 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	queued, err := queuedInvocationInput(ctx, db, turn)
 	if err != nil {
 		return nil, nil, err
+	}
+	for _, reference := range queued.Turn.Plugins {
+		if err := checkPluginAvailability(ctx, reference); err != nil {
+			return rejectInvocationCapture(ctx, db, turn, err, now)
+		}
 	}
 	run, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {

@@ -171,7 +171,11 @@ func capturePackage(ctx context.Context, tree fs.FS, open func(string) (io.ReadC
 				return &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "plugin source changed while being captured"}
 			}
 		}
-		captured.data, err = io.ReadAll(io.LimitReader(file, MaxPackageBytes-total+1))
+		var content bytes.Buffer
+		// ReadFrom needs room for its final EOF read even when the size is exact.
+		content.Grow(int(max(metadata.Size(), 0)) + bytes.MinRead)
+		_, err = content.ReadFrom(io.LimitReader(file, MaxPackageBytes-total+1))
+		captured.data = content.Bytes()
 		if local, ok := file.(*os.File); ok && err == nil {
 			after, inspectErr := local.Stat()
 			if inspectErr != nil || int64(len(captured.data)) != metadata.Size() || after.Size() != metadata.Size() || metadata.Mode() != after.Mode() || !metadata.ModTime().Equal(after.ModTime()) {
@@ -199,7 +203,17 @@ func capturePackage(ctx context.Context, tree fs.FS, open func(string) (io.ReadC
 }
 
 func digestPackage(entries []packageEntry) string {
+	size := 0
+	for _, entry := range entries {
+		size += 8 + len(entry.name)
+		if entry.directory {
+			size += len("directory")
+		} else {
+			size += len("file") + 1 + 8 + len(entry.data)
+		}
+	}
 	var encoded bytes.Buffer
+	encoded.Grow(size)
 	var length [8]byte
 	for _, entry := range entries {
 		binary.LittleEndian.PutUint64(length[:], uint64(len(entry.name)))
@@ -391,6 +405,10 @@ func (manager *Manager) InstallBundled(ctx context.Context, name string) (protoc
 }
 
 func (manager *Manager) publish(ctx context.Context, entries []packageEntry, issues []protocol.PluginIssue, name string, origin protocol.PluginOrigin) (protocol.PluginInfo, error) {
+	return manager.publishPackage(ctx, entries, issues, name, origin, false)
+}
+
+func (manager *Manager) publishPackage(ctx context.Context, entries []packageEntry, issues []protocol.PluginIssue, name string, origin protocol.PluginOrigin, repair bool) (protocol.PluginInfo, error) {
 	info, err := describePackage(entries, issues, name)
 	if err != nil {
 		return info, err
@@ -412,66 +430,36 @@ func (manager *Manager) publish(ctx context.Context, entries []packageEntry, iss
 	if err := EnsureCompatible(info.Summary.Compatibility); err != nil {
 		return info, err
 	}
-	packages := filepath.Join(manager.profile, "plugins", "packages")
-	if err := os.MkdirAll(packages, 0o700); err != nil {
-		return info, err
-	}
-	target := filepath.Join(packages, info.Summary.Digest)
-	if _, err := os.Lstat(target); err == nil {
-		if err := verifyPublished(ctx, target, info.Summary.Digest); err != nil {
-			return info, err
-		}
-		return info, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return info, err
-	}
-	staging, err := os.MkdirTemp(packages, ".staging-")
-	if err != nil {
-		return info, err
-	}
-	defer os.RemoveAll(staging)
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return info, err
-		}
-		filename := filepath.Join(staging, filepath.FromSlash(entry.name))
-		if entry.directory {
-			err = os.MkdirAll(filename, 0o700)
-		} else {
-			mode := fs.FileMode(0o600)
-			if entry.executable {
-				mode = 0o700
-			}
-			err = os.WriteFile(filename, entry.data, mode)
-		}
-		if err != nil {
-			return info, err
-		}
-	}
-	if err := os.Rename(staging, target); err != nil {
-		if verifyErr := verifyPublished(ctx, target, info.Summary.Digest); verifyErr != nil {
-			return info, err
-		}
-	}
-	return info, nil
+	return info, manager.publishEntries(ctx, entries, info.Summary.Digest, repair)
 }
 
-func verifyPublished(ctx context.Context, directory, expected string) error {
-	metadata, err := os.Lstat(directory)
-	if err != nil || !metadata.IsDir() || metadata.Mode()&fs.ModeSymlink != 0 {
-		return packageFault("immutable plugin package is unavailable")
+func verifyPublished(ctx context.Context, parent *os.Root, name, expected string) error {
+	metadata, err := parent.Lstat(name)
+	if err != nil {
+		return err
 	}
-	root, err := os.OpenRoot(directory)
+	if !metadata.IsDir() {
+		return errPackageUnavailable
+	}
+	root, err := parent.OpenRoot(name)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	if info, err := root.Stat("."); err != nil {
+		return err
+	} else if !os.SameFile(metadata, info) {
+		return packageFault("plugin package moved while being verified")
+	}
 	entries, issues, err := capturePackage(ctx, root.FS(), func(name string) (io.ReadCloser, error) { return root.Open(name) })
 	if err != nil {
+		if fault, ok := errors.AsType[*protocol.Fault](err); ok && fault.Code == protocol.ErrorCodeInvalidRequest {
+			return errPackageChanged
+		}
 		return err
 	}
 	if len(issues) != 0 || digestPackage(entries) != expected {
-		return packageFault("immutable plugin package content changed")
+		return errPackageChanged
 	}
 	return nil
 }
@@ -487,7 +475,7 @@ func (manager *Manager) PackageRoot(reference protocol.PluginReference) (string,
 		return "", err
 	}
 	if !metadata.IsDir() || metadata.Mode()&fs.ModeSymlink != 0 {
-		return "", packageFault("immutable plugin package is unavailable")
+		return "", errPackageUnavailable
 	}
 	return directory, nil
 }
@@ -548,7 +536,7 @@ func readCapturedResource(entries []packageEntry, name string, limit int) ([]byt
 		}
 		return entry.data, nil
 	}
-	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "plugin resource is missing"}
+	return nil, ErrResourceMissing
 }
 
 func (manager *Manager) InstallArchive(ctx context.Context, reader io.ReaderAt, size int64, name string) (protocol.PluginInfo, error) {

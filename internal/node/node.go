@@ -247,7 +247,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.mediaPoll = model.MediaVideoPoll
 	options.Telemetry.RetryDirectory = filepath.Join(profile.Ownership.Path, "tmp")
 	value.telemetry = newTelemetry(options.Telemetry)
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn, PluginAvailability: value.checkPluginAvailability})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()
@@ -856,7 +856,7 @@ func (node *Node) run(lane *commandLane) {
 
 // commandContext uses the Node lifetime and only the admitted actor's values.
 func (node *Node) commandContext(job commandJob) context.Context {
-	ctx := store.WithUser(node.ctx, job.user)
+	ctx := store.WithPluginAvailability(store.WithUser(node.ctx, job.user), node.checkPluginAvailability)
 	if job.scope != nil {
 		if storage, ok := store.CapturedUserFromContext(job.scope); ok {
 			ctx = store.WithCapturedUser(ctx, storage)
