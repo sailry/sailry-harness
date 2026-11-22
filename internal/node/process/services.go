@@ -14,7 +14,8 @@ import (
 // Service announcements are candidates from complete output lines, not port scans.
 type serviceScanner struct {
 	escape         byte
-	prefix         []byte
+	scheme         string
+	matched        int
 	candidate      []byte
 	oversized      bool
 	pending, found []protocol.ProcessService
@@ -69,33 +70,45 @@ func (scanner *serviceScanner) text(value byte) {
 }
 
 func (scanner *serviceScanner) plain(value byte) {
-	if value <= 32 || value == 127 || strings.ContainsRune("<>\"'`", rune(value)) {
-		if scanner.candidate != nil && !scanner.oversized && len(scanner.found)+len(scanner.pending) < 16 {
+	if scanner.candidate == nil {
+		scanner.matchScheme(value)
+	} else if value <= 32 || value == 127 || strings.ContainsRune("<>\"'`", rune(value)) {
+		if !scanner.oversized && len(scanner.found)+len(scanner.pending) < 16 {
 			if service, ok := parseService(string(scanner.candidate)); ok && !slices.ContainsFunc(scanner.found, func(found protocol.ProcessService) bool { return found.Port == service.Port }) && !slices.ContainsFunc(scanner.pending, func(found protocol.ProcessService) bool { return found.Port == service.Port }) {
 				scanner.pending = append(scanner.pending, service)
 			}
 		}
-		scanner.candidate, scanner.prefix, scanner.oversized = nil, nil, false
-		if value == '\n' || value == '\r' {
-			scanner.found = append(scanner.found, scanner.pending...)
-			scanner.pending = nil
-		}
+		scanner.candidate, scanner.oversized = nil, false
+	} else if len(scanner.candidate) < 2048 {
+		scanner.candidate = append(scanner.candidate, value)
+	} else {
+		scanner.oversized = true
+	}
+	if value == '\n' || value == '\r' {
+		scanner.found = append(scanner.found, scanner.pending...)
+		scanner.pending = nil
+	}
+}
+
+func (scanner *serviceScanner) matchScheme(value byte) {
+	if value == 'h' {
+		scanner.scheme, scanner.matched = "http://", 1
 		return
 	}
-	if scanner.candidate != nil {
-		if len(scanner.candidate) < 2048 {
-			scanner.candidate = append(scanner.candidate, value)
-		} else {
-			scanner.oversized = true
-		}
+	if scanner.matched == 0 {
 		return
 	}
-	scanner.prefix = append(scanner.prefix, value)
-	for !strings.HasPrefix("http://", string(scanner.prefix)) && !strings.HasPrefix("https://", string(scanner.prefix)) {
-		scanner.prefix = scanner.prefix[1:]
+	if scanner.matched == len("http") && value == 's' {
+		scanner.scheme = "https://"
 	}
-	if string(scanner.prefix) == "http://" || string(scanner.prefix) == "https://" {
-		scanner.candidate, scanner.prefix = scanner.prefix, nil
+	if value != scanner.scheme[scanner.matched] {
+		scanner.matched = 0
+		return
+	}
+	scanner.matched++
+	if scanner.matched == len(scanner.scheme) {
+		scanner.candidate = []byte(scanner.scheme)
+		scanner.matched = 0
 	}
 }
 
