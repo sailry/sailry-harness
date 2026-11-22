@@ -18,6 +18,7 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind = 1
+		m.PackageActions = &settings.PackageActions{Catalog: r.packageCatalogService()}
 		hubReady := make(chan struct{})
 		failPage := false
 		defer func() {
@@ -52,7 +53,8 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 			return link.Response{Output: protocol.Output{Kind: "skill_catalog", Data: page}}
 		}
 		tester := pluginUpdateQueueTester(r)
-		r.searchPackageMarket(1, 0, "", false)
+		r.App.SyncNativePages()
+		scope := r.App.Settings.MarketScope()
 		synctest.Wait()
 		tester.Frame()
 		if m.MarketLoad.Loading || !m.MarketLoad.Loaded || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "skills_sh/pdf" {
@@ -72,14 +74,14 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 			t.Fatalf("a finished search must have a next page: more %v, failed %v, busy %v", m.MarketMore, m.MarketFailed, m.Busy)
 		}
 		m.MarketQuery = "draft"
-		r.loadMoreMarket()
+		scope.More()
 		synctest.Wait()
 		m.MarketQuery = ""
 		if len(source.sent("search_skill_catalog")) != 2 {
 			t.Fatal("a query the Node has not searched paged the previous results")
 		}
 		failPage = true
-		r.loadMoreMarket()
+		scope.More()
 		if !m.MarketPaging || m.MarketPagingFailed || !m.Busy[settings.BusyMarket] {
 			t.Fatalf("a continuation must enter the loading state: paging %v, failed %v, busy %v", m.MarketPaging, m.MarketPagingFailed, m.Busy)
 		}
@@ -88,14 +90,14 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 		if len(source.sent("search_skill_catalog")) != 3 || len(m.MarketSkills) != 2 || !m.MarketMore || m.MarketPaging || !m.MarketPagingFailed || m.MarketFailed || m.Busy[settings.BusyMarket] || !tester.HasText("invalid fixture page") {
 			t.Fatalf("a failed page must keep its cursor and pause pagination: %+v, more %v, paging %v, failed %v, busy %v", m.MarketSkills, m.MarketMore, m.MarketPaging, m.MarketPagingFailed, m.Busy)
 		}
-		r.loadMoreMarket()
-		r.loadMoreMarket()
+		scope.More()
+		scope.More()
 		synctest.Wait()
 		tester.Frame()
 		if len(source.sent("search_skill_catalog")) != 4 || len(m.MarketSkills) != 3 || m.MarketSkills[2].ID != "skillhub/next" || m.MarketMore || m.MarketPaging || m.MarketPagingFailed {
 			t.Fatalf("retry should fetch only the pending source once: %+v", m.MarketSkills)
 		}
-		r.searchPackageMarket(1, 0, "", true)
+		scope.Retry()
 		synctest.Wait()
 		tester.Frame()
 		commands := source.sent("search_skill_catalog")
@@ -108,7 +110,8 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 				t.Fatalf("refresh did not request a fresh first page: %+v", input)
 			}
 		}
-		r.searchPackageMarket(1, 0, "other", true)
+		m.MarketQuery = "other"
+		scope.Retry()
 		synctest.Wait()
 		tester.Frame()
 		if m.MarketLoad.Loading || m.MarketLoad.Loaded || len(m.MarketSkills) != 0 || !m.MarketFailed || m.MarketMore {
@@ -124,6 +127,7 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind, m.MarketSkillSource = 1, settings.SkillMarketSkillsSh
+		m.PackageActions = &settings.PackageActions{Catalog: r.packageCatalogService()}
 		var requests []protocol.CommandSearchSkillCatalogPayload
 		unavailable := true
 		source.respond = func(request protocol.Request) link.Response {
@@ -155,15 +159,16 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 		}
 		tester := pluginUpdateQueueTester(r)
 		search := func() {
-			r.searchPackageMarket(m.MarketKind, marketSource(m), m.MarketQuery, false)
+			r.App.SyncNativePages()
 			synctest.Wait()
 			tester.Frame()
 		}
 		search()
+		scope := r.App.Settings.MarketScope()
 		if len(requests) != 1 || requests[0].Source != protocol.PluginSkillcatalogSourceSkillsSh || len(m.MarketSkills) != 0 || !m.MarketMore {
 			t.Fatalf("selected source did not preserve paging through filtered entries: %+v, %+v", requests, m.MarketSkills)
 		}
-		r.loadMoreMarket()
+		scope.More()
 		if m.MarketLoad.Loading || !m.MarketPaging {
 			t.Fatalf("an empty page needs a pagination footer, not the first-page skeleton: %+v, paging %v", m.MarketLoad, m.MarketPaging)
 		}
@@ -172,7 +177,7 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 		if len(requests) != 2 || requests[1].Page != 2 || len(m.MarketSkills) != 0 || !m.MarketMore || !m.MarketPagingFailed {
 			t.Fatalf("an unavailable page with cached cards must keep its cursor for retry: %+v, %+v", requests, m.MarketSkills)
 		}
-		r.loadMoreMarket()
+		scope.More()
 		synctest.Wait()
 		tester.Frame()
 		if len(requests) != 3 || requests[2].Source != protocol.PluginSkillcatalogSourceSkillsSh || requests[2].Page != 2 || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "code-review" {

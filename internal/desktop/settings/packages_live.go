@@ -12,6 +12,7 @@ type SkillSourceDraft struct {
 }
 
 type PackageActions struct {
+	Catalog        *PackageCatalogService
 	Selection      *SkillSelection
 	CheckUpdates   func(viewmodel.PackageKind)
 	Update         func([]string)

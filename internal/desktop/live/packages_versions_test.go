@@ -22,7 +22,7 @@ func TestPluginVersionProjection(t *testing.T) {
 			compatible,
 			{Version: "0.9.0", Withdrawn: true, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}, ReleaseNotes: &protocol.PluginCatalogReleaseNotes{Text: "Historical notes"}},
 		}}
-	market := catalogPackageView(entry, "zh-CN", 0)
+	market := catalogPackageView(entry, "zh-CN", protocol.PluginCatalogSourceOfficial)
 	if !market.Installable || market.Version != compatible.Version || market.MarketVersion != latest || market.Requires != "" || market.Unsupported != "" {
 		t.Fatalf("compatible catalog default is %+v", market)
 	}
@@ -71,7 +71,7 @@ func TestPluginVersionProjection(t *testing.T) {
 		})
 	}
 	entry.CompatibleVersion = nil
-	if view := catalogPackageView(entry, "en", 0); view.Installable || view.Unsupported == "" {
+	if view := catalogPackageView(entry, "en", protocol.PluginCatalogSourceOfficial); view.Installable || view.Unsupported == "" {
 		t.Fatalf("unsupported catalog without compatible history is installable: %+v", view)
 	}
 }

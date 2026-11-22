@@ -43,17 +43,17 @@ func TestNativePageAssembly(t *testing.T) {
 
 			full.SetFeaturePreferences(append(slices.Clone(mode.core), ids[1], ids[0], ids[2]), map[string]bool{ids[0]: false, ids[1]: true})
 			order, pins := full.FeaturePreferences()
+			prefsDir := t.TempDir()
 			restore := func(from, to *shell.App) {
 				if !from.Preview {
 					order, pins := from.FeaturePreferences()
 					to.SetFeaturePreferences(order, pins)
 					return
 				}
-				dir := t.TempDir()
-				if err := shell.SavePrefs(dir, from.Prefs()); err != nil {
+				if err := shell.SavePrefs(prefsDir, from.Prefs()); err != nil {
 					t.Fatal(err)
 				}
-				to.SetPrefs(shell.LoadPrefs(dir))
+				to.SetPrefs(shell.LoadPrefs(prefsDir))
 			}
 			restore(full, without)
 			tester := nativePageTester(without)

@@ -2,13 +2,16 @@ package live
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -83,12 +86,18 @@ func splitCheckpointPath(session protocol.SessionID) string {
 }
 
 func TestVisibleSplitShowsFinishedTurnDiffWithoutFocus(t *testing.T) {
-	for _, separateHosts := range []bool{false, true} {
-		name := "shared-worktree"
-		if separateHosts {
-			name = "separate-hosts"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		separateHosts bool
+		omitResources bool
+	}{
+		{"default/shared-worktree", false, false},
+		{"default/separate-hosts", true, false},
+		{"without-files-and-git/shared-worktree", false, true},
+		{"without-files-and-git/separate-hosts", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			separateHosts := test.separateHosts
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			tree := protocol.Worktree{ID: protocol.WorktreeID{1}, Path: "/workspace", Main: true}
@@ -114,7 +123,13 @@ func TestVisibleSplitShowsFinishedTurnDiffWithoutFocus(t *testing.T) {
 			}
 			prefs := preferences.Open(t.TempDir() + "/preferences.json")
 			prefs.Data.WelcomeSeen = new(true)
-			root, err := NewWithPreferences(ctx, start(local), prefs)
+			pages := desktop.Harness()
+			if test.omitResources {
+				pages = slices.DeleteFunc(pages, func(page shell.NativePage) bool {
+					return page.Page == shell.FilesPage || page.Page == shell.GitPage
+				})
+			}
+			root, err := NewWithPreferences(ctx, start(local), prefs, pages...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,6 +141,11 @@ func TestVisibleSplitShowsFinishedTurnDiffWithoutFocus(t *testing.T) {
 				root.project()
 			}
 			app := root.App
+			for _, page := range []shell.Page{shell.FilesPage, shell.GitPage} {
+				if app.NativePageEnabled(page) != !test.omitResources {
+					t.Fatalf("unexpected availability of %q", page)
+				}
+			}
 			layout := app.Prefs()
 			layout.Panes = []*panes.Node{selectionSplit(panes.Target{Kind: panes.Session, ID: first.ID.String()}, panes.Target{Kind: panes.Session, ID: second.ID.String()})}
 			app.SetPrefs(layout)

@@ -1,4 +1,4 @@
-package live
+package desktop
 
 import (
 	"bytes"
@@ -46,18 +46,17 @@ func newMarketImages() *marketImages {
 		client: web.NewPublicHTTPSClient(marketImageDeadline, marketImageRedirects)}
 }
 
-// marketImage is the picture at address once fetched, else nil while it is
+// image is the picture at address once fetched, else nil while it is
 // fetched or when it could not be. Call it on the UI thread.
-func (r *Runtime) marketImage(address string) *ui.Bitmap {
-	root := r.localRuntime()
-	if !root.showingMarket() {
+func (c *catalogController) image(address string) *ui.Bitmap {
+	if !c.visible() {
 		return nil
 	}
-	if root.packages.images == nil {
-		root.packages.images = newMarketImages()
-		context.AfterFunc(root.ctx, root.packages.images.client.CloseIdleConnections)
+	if c.images == nil {
+		c.images = newMarketImages()
+		context.AfterFunc(c.service.Context, c.images.client.CloseIdleConnections)
 	}
-	images := root.packages.images
+	images := c.images
 	if entry, exists := images.entries[address]; exists {
 		return entry.bitmap
 	}
@@ -68,9 +67,9 @@ func (r *Runtime) marketImage(address string) *ui.Bitmap {
 	}
 	entry := &marketImage{}
 	images.entries[address] = entry
-	root.async(func() {
-		bitmap, _ := images.fetch(root.ctx, address)
-		root.enqueue(func(*ui.Context) {
+	c.service.Run(func() {
+		bitmap, _ := images.fetch(c.service.Context, address)
+		c.service.Enqueue(func(*ui.Context) {
 			// A pruned entry stays released; the card asks again when shown.
 			if images.entries[address] == entry {
 				entry.bitmap, entry.done = bitmap, true
@@ -111,9 +110,9 @@ func (images *marketImages) fetch(ctx context.Context, address string) (*ui.Bitm
 	return ui.DecodeBitmapScaled(data, marketImageEdge)
 }
 
-// pruneMarketImages releases the pictures no card in addresses names.
-func (r *Runtime) pruneMarketImages(addresses map[string]bool) {
-	images := r.localRuntime().packages.images
+// pruneImages releases the pictures no card in addresses names.
+func (c *catalogController) pruneImages(addresses map[string]bool) {
+	images := c.images
 	if images == nil {
 		return
 	}

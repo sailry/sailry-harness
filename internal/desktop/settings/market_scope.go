@@ -1,9 +1,12 @@
 package settings
 
 import (
+	"context"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Skill market source choices, in the order shown in the selector.
@@ -12,6 +15,32 @@ const (
 	SkillMarketSkillsSh
 	SkillMarketSkillhub
 )
+
+// PackageCatalogService exposes shared package operations to the optional page.
+// Node returns a stable scope for the selected package target, or nil.
+type PackageCatalogService struct {
+	Node         func() *PackageCatalogNode
+	ThemeCatalog func(refresh bool) (rows []viewmodel.MarketTheme, loading, loaded bool)
+	InstallTheme func(string)
+	Context      context.Context
+	Run          func(func()) bool
+	Enqueue      func(func(*ui.Context))
+}
+
+type PackageCatalogNode struct {
+	Context         context.Context
+	Run             func(func()) bool
+	SearchPlugins   func(context.Context, protocol.CommandSearchPluginCatalogPayload) (protocol.PluginCatalogPage, error)
+	SearchSkills    func(context.Context, protocol.CommandSearchSkillCatalogPayload) (protocol.PluginSkillcatalogPage, error)
+	RememberPlugins func(protocol.PluginCatalogSource, []protocol.PluginCatalogEntry)
+	RememberSkills  func([]protocol.PluginSkillcatalogEntry)
+	ProjectPlugins  func([]viewmodel.Package)
+	ProjectSkills   func([]viewmodel.Skill)
+	Revision        func() uint64
+	Locale          func() string
+	InstallPlugin   func(string)
+	InstallSkill    func(string)
+}
 
 // MarketCatalog is the search and result state shared with the scoped package service.
 type MarketCatalog struct {

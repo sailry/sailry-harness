@@ -35,9 +35,17 @@ func (r *Runtime) readInstalledThemes() {
 				packages = append(packages, snapshot.Package)
 			}
 			theme.SetInstalled(packages)
-			r.projectMarketThemes()
 		})
 	})
+}
+
+func (r *Runtime) themeCatalogView(refresh bool) ([]viewmodel.MarketTheme, bool, bool) {
+	state := r.packages
+	if refresh || !state.themeRead {
+		r.readThemeCatalog(false)
+	}
+	loading := state.themeBusy["catalog"]
+	return r.themeCatalogRows(), loading, state.themeRead && !loading
 }
 
 func (r *Runtime) readThemeCatalog(force bool) {
@@ -49,23 +57,16 @@ func (r *Runtime) readThemeCatalog(force bool) {
 	state.themeBusy["catalog"] = true
 	root.App.Settings.SetBusy(settings.BusyThemes, true)
 	state.themeRead = true
-	if root.App.Settings.MarketKind == 2 {
-		root.App.Settings.MarketLoad.Loading, root.App.Settings.MarketLoad.Loaded = true, false
-	}
 	r.async(func() {
 		listing, err := state.market.List(r.ctx, force)
 		r.enqueue(func(c *ui.Context) {
 			delete(state.themeBusy, "catalog")
 			root.App.Settings.SetBusy(settings.BusyThemes, false)
-			if root.App.Settings.MarketKind == 2 {
-				root.App.Settings.MarketLoad.Loading, root.App.Settings.MarketLoad.Loaded = false, true
-			}
 			if err != nil {
 				kit.Fail(c, kit.Failed, "market_themes_failed", err)
 				return
 			}
 			state.themeCatalog = listing
-			r.projectMarketThemes()
 			if listing.Unavailable {
 				kit.Toast(c, kit.Failed, i18n.T(c, "market_themes_failed"))
 			} else if force {
@@ -82,17 +83,13 @@ func (r *Runtime) readThemeCatalog(force bool) {
 	})
 }
 
-func (r *Runtime) projectMarketThemes() {
-	root := r.localRuntime()
-	if root.packages == nil {
-		return
-	}
-	listing := root.packages.themeCatalog
+func (r *Runtime) themeCatalogRows() []viewmodel.MarketTheme {
+	listing := r.packages.themeCatalog
 	rows := make([]viewmodel.MarketTheme, 0, len(listing.Themes))
 	for _, entry := range listing.Themes {
 		pkg := theme.Find(entry.ID)
 		installed := pkg.ID == entry.ID
-		row := viewmodel.MarketTheme{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Installed: installed, Builtin: installed, Current: root.App.Theme == entry.ID}
+		row := viewmodel.MarketTheme{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Installed: installed, Builtin: installed, Current: r.App.Theme == entry.ID}
 		if description := entry.DescriptionLocales[i18n.Match(r.packageLocale())]; description != "" {
 			row.Description = description
 		}
@@ -103,7 +100,7 @@ func (r *Runtime) projectMarketThemes() {
 		if installed {
 			row.Update = entry.Newer(pkg)
 		}
-		if _, exists := root.packages.themes[entry.ID]; exists {
+		if _, exists := r.packages.themes[entry.ID]; exists {
 			row.Builtin = false
 		}
 		rows = append(rows, row)
@@ -117,10 +114,10 @@ func (r *Runtime) projectMarketThemes() {
 			present = present || row.ID == pkg.ID
 		}
 		if !present {
-			rows = append(rows, viewmodel.MarketTheme{ID: pkg.ID, Name: pkg.Name, Description: pkg.Description, Dark: pkg.Dark != nil, Light: pkg.Light != nil, Installed: true, Current: root.App.Theme == pkg.ID})
+			rows = append(rows, viewmodel.MarketTheme{ID: pkg.ID, Name: pkg.Name, Description: pkg.Description, Dark: pkg.Dark != nil, Light: pkg.Light != nil, Installed: true, Current: r.App.Theme == pkg.ID})
 		}
 	}
-	root.App.Settings.Themes = rows
+	return rows
 }
 
 func (r *Runtime) installMarketTheme(id string) {

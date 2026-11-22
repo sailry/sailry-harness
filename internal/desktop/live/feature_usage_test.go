@@ -132,7 +132,7 @@ func testFeatureUsage(t *testing.T) {
 		}
 		brand := "ailogo:github"
 		logo := &protocol.PluginDesktopNavigation{Label: "GitHub", Icon: &protocol.PluginDesktopIcon{Kind: "Name", Data: &brand}}
-		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "github", Display: logo}, "en", 0); view.Icon != brand || view.Tint != "" {
+		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "github", Display: logo}, "en", protocol.PluginCatalogSourceOfficial); view.Icon != brand || view.Tint != "" {
 			t.Errorf("a brand package's view carries %q %q", view.Icon, view.Tint)
 		}
 		display := &protocol.PluginDesktopNavigation{Label: "Scheduled tasks", Icon: &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}}
@@ -141,7 +141,7 @@ func testFeatureUsage(t *testing.T) {
 		if view := packageView(declared, "en"); view.Icon != calendar || view.Tint != "amber" || view.Name != "Scheduled tasks" {
 			t.Errorf("an installed package's view lost its icon or tint: %q %q", view.Icon, view.Tint)
 		}
-		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "scheduled-tasks", Display: display, Tint: &tint}, "en", 0); view.Icon != calendar || view.Tint != "amber" {
+		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "scheduled-tasks", Display: display, Tint: &tint}, "en", protocol.PluginCatalogSourceOfficial); view.Icon != calendar || view.Tint != "amber" {
 			t.Errorf("a catalog entry's view lost its icon or tint: %q %q", view.Icon, view.Tint)
 		}
 		own := protocol.PluginDesktopIconSvgPayload{Svg: `<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>`}

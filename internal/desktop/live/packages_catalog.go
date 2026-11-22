@@ -99,24 +99,19 @@ func applyPackageUpdate(row *viewmodel.Package, info protocol.PluginInfo, report
 	includeInstalledPackageVersion(row)
 }
 
-func (r *Runtime) projectPluginMarket() {
-	if r.localRuntime().packageOwner() != r {
-		return
-	}
-	for index := range r.App.Settings.MarketPlugins {
-		row := &r.App.Settings.MarketPlugins[index]
+func (r *Runtime) projectCatalogPluginRows(rows []viewmodel.Package) {
+	for index := range rows {
+		row := &rows[index]
 		entry, known := r.packages.catalog[row.ID]
 		if !known {
 			continue
 		}
 		id, name := row.ID, row.ID
-		source := 0
-		if r.packages.catalogSources[id] == protocol.PluginCatalogSourceThirdParty {
-			source = 1
-		}
+		source := r.packages.catalogSources[id]
 		*row = catalogPackageView(entry, r.packageLocale(), source)
+		sourceLabel := row.Source
 		info, inspected := r.packages.catalogInfos[id]
-		if inspected && source == 0 {
+		if inspected && source == protocol.PluginCatalogSourceOfficial {
 			selection, err := officialPackageSelection(info)
 			candidate := entry.CompatibleVersion
 			if err != nil || candidate == nil || stringValue(info.Summary.Version) != candidate.Version || selection.Source.Commit != candidate.Commit {
@@ -133,7 +128,7 @@ func (r *Runtime) projectPluginMarket() {
 		} else {
 			row.Installed = false
 		}
-		row.ID, row.InstallName, row.Source = id, name, catalogPackageView(entry, r.packageLocale(), source).Source
+		row.ID, row.InstallName, row.Source = id, name, sourceLabel
 		row.Host = r.packageHostLabel()
 		applyPackageCatalog(row, entry, r.packageLocale())
 		if current, installed := r.packages.infos[name]; installed {
@@ -170,7 +165,7 @@ func (r *Runtime) readInstalledCatalogCandidates(entries []protocol.PluginCatalo
 }
 
 func (r *Runtime) readCatalogInformation(entry protocol.PluginCatalogEntry, done func()) {
-	generation := r.packages.marketGeneration
+	generation := r.packages.catalogRevisions[entry.ID]
 	source := r.packages.catalogSources[entry.ID]
 	if source == protocol.PluginCatalogSourceOfficial && entry.CompatibleVersion == nil {
 		if done != nil {
@@ -212,7 +207,7 @@ func (r *Runtime) readCatalogInformation(entry protocol.PluginCatalogEntry, done
 			delete(r.packages.reads, key)
 			waiters := r.packages.catalogWaiters[key]
 			delete(r.packages.catalogWaiters, key)
-			if r.packages.marketGeneration == generation {
+			if r.packages.catalogRevisions[entry.ID] == generation {
 				if err == nil {
 					r.packages.catalogInfos[entry.ID] = info
 					delete(r.packages.failures, key)
@@ -319,43 +314,6 @@ func (r *Runtime) installedCatalogSkill(entry protocol.PluginSkillcatalogEntry) 
 		}
 	}
 	return "", protocol.PluginInfo{}, false
-}
-
-func (r *Runtime) projectSkillMarket() {
-	if r.localRuntime().packageOwner() != r {
-		return
-	}
-	for index := range r.App.Settings.MarketSkills {
-		row := &r.App.Settings.MarketSkills[index]
-		entry, known := r.packages.skillCatalog[row.ID]
-		name, info, installed := r.installedCatalogSkill(entry)
-		row.Installed, row.Update = known && installed, false
-		if report, exists := r.packages.updates[name]; row.Installed && exists {
-			row.Update = !info.Summary.Pinned && samePackageVersion(info.Summary, report.Current) && packageUpdateAvailable(report)
-		}
-	}
-}
-
-func (r *Runtime) readMarketSkillUpdates() {
-	var names []string
-	for _, entry := range r.packages.skillCatalog {
-		name, info, installed := r.installedCatalogSkill(entry)
-		if !installed || info.Skill == nil {
-			continue
-		}
-		names = append(names, name)
-	}
-	r.readPackageUpdates(names)
-}
-
-func (r *Runtime) readMarketPluginUpdates() {
-	var names []string
-	for _, row := range r.App.Settings.MarketPlugins {
-		if row.Installed {
-			names = append(names, row.InstallName)
-		}
-	}
-	r.readPackageUpdates(names)
 }
 
 func (r *Runtime) readPackageUpdates(names []string) {

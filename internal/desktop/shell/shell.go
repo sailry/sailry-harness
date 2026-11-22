@@ -179,6 +179,7 @@ type App struct {
 	clock time.Time
 
 	nativePages    []NativePage
+	nativePageSync []func()
 	features       []string // saved rail order, including unavailable features
 	pluginFeatures map[string]Feature
 	pluginPage     string
@@ -377,6 +378,7 @@ func (a *App) View(c *ui.Context) {
 	a.MountPanel()
 	a.followSelection()
 	a.followPanes()
+	a.SyncNativePages()
 	a.handOverFocus(c)
 	a.panes.enlargedFrame = a.panes.enlarged
 	if target := a.panes.enlargedFocus; target != (panes.Target{}) {

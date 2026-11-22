@@ -2,12 +2,10 @@ package live
 
 import (
 	"errors"
-	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -192,11 +190,7 @@ func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocum
 			}
 			body := skillBody(document.Content)
 			r.packages.documents[id] = body
-			for _, list := range [][]viewmodel.Skill{r.App.Settings.SkillList, r.App.Settings.MarketSkills} {
-				if index := slices.IndexFunc(list, func(row viewmodel.Skill) bool { return row.ID == id }); index >= 0 {
-					list[index].Content = body
-				}
-			}
+			r.App.Settings.SetSkillContent(id, body)
 			done("", "")
 		})
 	}) {

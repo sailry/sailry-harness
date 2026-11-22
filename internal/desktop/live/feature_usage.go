@@ -21,9 +21,6 @@ import (
 var pageFeatures = map[shell.Page]protocol.FeatureUse{
 	shell.ConversationPage:  protocol.FeatureUsePageConversation,
 	shell.ActivityPage:      protocol.FeatureUsePageActivity,
-	shell.FilesPage:         protocol.FeatureUsePageFiles,
-	shell.GitPage:           protocol.FeatureUsePageGit,
-	shell.MarketPage:        protocol.FeatureUsePageMarket,
 	shell.HostPage:          protocol.FeatureUsePageHost,
 	shell.SettingsPage:      protocol.FeatureUsePageSettings,
 	shell.NotificationsPage: protocol.FeatureUsePageNotifications,
@@ -153,6 +150,8 @@ func (r *Runtime) countFrame() {
 		if paged {
 			if current.Page == shell.PluginPage {
 				features = append(features, r.pluginPageFeature(current.PluginPage))
+			} else if feature := r.App.NativePageUsage(); feature != "" {
+				features = append(features, feature)
 			} else if feature, known := pageFeatures[current.Page]; known && r.countedPage(current.Page) {
 				features = append(features, feature)
 			}

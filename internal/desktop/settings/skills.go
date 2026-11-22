@@ -57,6 +57,17 @@ func (m *Model) skill(id string) *preview.Skill {
 	return nil
 }
 
+func (m *Model) SetSkillContent(id, content string) {
+	for _, list := range [][]preview.Skill{m.SkillList, m.MarketSkills} {
+		for i := range list {
+			if list[i].ID == id {
+				list[i].Content = content
+				break
+			}
+		}
+	}
+}
+
 func skillSource(c *ui.Context, s *preview.Skill) string {
 	if s.Package != "" {
 		return i18n.T(c, "skills_package_source", "name", s.Package)

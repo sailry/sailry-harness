@@ -5,12 +5,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func Page() shell.NativePage {
 	return shell.NativePage{
 		Page:     shell.FilesPage,
 		Feature:  shell.Feature{ID: "page:files", Icon: icons.Folder, Label: "files", DefaultPinned: true},
+		Usage:    protocol.FeatureUsePageFiles,
 		Resource: panel.Files,
 		Render: func(c *ui.Context, app *shell.App) {
 			app.RenderResource(c, func(project *panel.Project) { Render(c, project) })

@@ -1,8 +1,6 @@
-package live
+package desktop
 
 import (
-	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -15,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-var skillMarketSources = [...]struct {
+var skillSources = [...]struct {
 	option int
 	source protocol.PluginSkillcatalogSource
 	label  string
@@ -24,19 +22,19 @@ var skillMarketSources = [...]struct {
 	{settings.SkillMarketSkillhub, protocol.PluginSkillcatalogSourceSkillhub, "skill_source_hub"},
 }
 
-func (r *Runtime) searchSkillMarket(selection int, query string, force bool, generation uint64) {
-	var pages [len(skillMarketSources)]uint32
-	for index, source := range skillMarketSources {
-		if selection == settings.SkillMarketAll || selection == source.option {
+func (c *catalogController) searchSkills(force bool) {
+	var pages [len(skillSources)]uint32
+	for index, source := range skillSources {
+		if c.query.source == settings.SkillMarketAll || c.query.source == source.option {
 			pages[index] = 1
 		}
 	}
-	r.publishSkillMarket()
-	r.readSkillMarketPages(query, force, generation, pages)
+	c.publishSkills()
+	c.readSkillPages(pages, false, force)
 }
 
-func (r *Runtime) skillMarketNextPages() (pages [len(skillMarketSources)]uint32) {
-	for index, page := range r.packages.skillMarketPages {
+func (c *catalogController) nextSkillPages() (pages [len(skillSources)]uint32) {
+	for index, page := range c.skillPages {
 		if page.Next != nil && *page.Next > page.Page {
 			pages[index] = *page.Next
 		}
@@ -44,30 +42,21 @@ func (r *Runtime) skillMarketNextPages() (pages [len(skillMarketSources)]uint32)
 	return pages
 }
 
-func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint64, pages [len(skillMarketSources)]uint32) {
-	ctx, cancel := context.WithCancel(r.ctx)
-	state := r.packages
-	state.marketCancel = cancel
-	m := r.App.Settings.Model
-	paging := m.MarketPaging
+func (c *catalogController) readSkillPages(pages [len(skillSources)]uint32, paging, force bool) {
+	ctx := c.start(paging)
+	query, owner, m := c.query, c.owner, c.model
 	if !paging {
 		m.MarketLoad.Loading, m.MarketLoad.Loaded = len(m.MarketSkills) == 0, len(m.MarketSkills) > 0
 	}
-	m.SetBusy(settings.BusyMarket, true)
 	remaining := 0
 	available := false
 	for index, number := range pages {
 		if number == 0 {
 			continue
 		}
-		remaining++
-		source := skillMarketSources[index]
-		r.async(func() {
-			out, err := r.controller.Do(ctx, protocol.Command{Kind: "search_skill_catalog", Data: protocol.CommandSearchSkillCatalogPayload{Source: source.source, Query: query, Page: number, Force: force}})
-			page, valid := detail[protocol.PluginSkillcatalogPage](out.Data)
-			if err == nil && (!valid || out.Kind != "skill_catalog" || page.Page != number || page.Next != nil && *page.Next <= number) {
-				err = errors.New("unexpected skill catalog response")
-			}
+		source := skillSources[index]
+		if owner.Run(func() {
+			page, err := owner.SearchSkills(ctx, protocol.CommandSearchSkillCatalogPayload{Source: source.source, Query: query.text, Page: number, Force: force})
 			if err == nil {
 				page.Entries = slices.DeleteFunc(slices.Clone(page.Entries), pluginMarketSkill)
 				// A page-scoped query filters a leaderboard page locally. Stop
@@ -76,8 +65,8 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 					page.Next = nil
 				}
 			}
-			r.enqueue(func(c *ui.Context) {
-				if ctx.Err() != nil || !r.showingMarket() || state.marketGeneration != generation || r.packageOwner() != r || m.MarketKind != 1 {
+			c.service.Enqueue(func(view *ui.Context) {
+				if !c.current(ctx, owner, query) {
 					return
 				}
 				remaining--
@@ -87,10 +76,10 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 					// the failed page even if the Node has cached cards for it.
 					if !page.Unavailable || !paging && len(page.Entries) > 0 {
 						if paging {
-							page.Entries = append(state.skillMarketPages[index].Entries, page.Entries...)
+							page.Entries = append(c.skillPages[index].Entries, page.Entries...)
 						}
-						state.skillMarketPages[index] = page
-						r.publishSkillMarket()
+						c.skillPages[index] = page
+						c.publishSkills()
 					}
 				}
 				if err != nil || page.Unavailable {
@@ -99,21 +88,27 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 					} else {
 						m.MarketFailed = true
 					}
-					reason := i18n.T(c, "unavailable")
+					reason := i18n.T(view, "unavailable")
 					if err != nil {
-						reason = faultDetail(err)
+						reason = err.Error()
 					}
-					kit.Error(c, i18n.T(c, source.label), reason)
+					kit.Error(view, i18n.T(view, source.label), reason)
 				}
 				if !paging {
 					m.MarketLoad.Loading = len(m.MarketSkills) == 0 && remaining > 0
 					m.MarketLoad.Loaded = available || len(m.MarketSkills) > 0
 				}
 				if remaining == 0 {
-					r.cancelMarketSearch()
+					c.stop()
 				}
 			})
-		})
+		}) {
+			remaining++
+		}
+	}
+	if remaining == 0 {
+		c.stop()
+		m.MarketLoad.Loading = false
 	}
 }
 
@@ -123,20 +118,31 @@ func pluginMarketSkill(entry protocol.PluginSkillcatalogEntry) bool {
 	return entry.Package != nil || entry.Bundled || strings.EqualFold(entry.Origin, repository)
 }
 
-func (r *Runtime) publishSkillMarket() {
-	m, state := r.App.Settings.Model, r.packages
-	locale := i18n.Match(r.packageLocale())
+func (c *catalogController) publishSkills() {
+	m := c.model
+	locale := i18n.Match(c.owner.Locale())
 	m.MarketSkills = nil
-	seen := map[string]bool{}
-	for _, page := range state.skillMarketPages {
+	seen, pictures := map[string]bool{}, map[string]bool{}
+	var entries []protocol.PluginSkillcatalogEntry
+	for _, page := range c.skillPages {
 		for _, entry := range page.Entries {
 			if seen[entry.ID] {
 				continue
 			}
 			seen[entry.ID] = true
-			state.skillCatalog[entry.ID] = entry
-			row := viewmodel.Skill{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Origin: entry.Origin, Content: state.documents[entry.ID],
-				Publisher: stringValue(entry.Publisher), Avatar: stringValue(entry.Avatar), Installs: entry.Installs, Stars: entry.Stars, Verified: entry.Verified}
+			entries = append(entries, entry)
+			row := viewmodel.Skill{ID: entry.ID, Name: entry.Name, Origin: entry.Origin,
+				Installs: entry.Installs, Stars: entry.Stars, Verified: entry.Verified}
+			if entry.Description != nil {
+				row.Description = *entry.Description
+			}
+			if entry.Publisher != nil {
+				row.Publisher = *entry.Publisher
+			}
+			if entry.Avatar != nil {
+				row.Avatar = *entry.Avatar
+				pictures[row.Avatar] = true
+			}
 			if entry.DisplayName != nil {
 				row.Name = *entry.DisplayName
 			}
@@ -149,15 +155,8 @@ func (r *Runtime) publishSkillMarket() {
 			m.MarketSkills = append(m.MarketSkills, row)
 		}
 	}
-	pictures := map[string]bool{}
-	for _, row := range m.MarketSkills {
-		pictures[row.Avatar] = row.Avatar != ""
-	}
-	r.pruneMarketImages(pictures)
-	m.MarketMore = false
-	for _, page := range state.skillMarketPages {
-		m.MarketMore = m.MarketMore || page.Next != nil && *page.Next > page.Page
-	}
-	r.projectSkillMarket()
-	r.readMarketSkillUpdates()
+	c.pruneImages(pictures)
+	m.MarketMore = c.nextSkillPages() != [len(skillSources)]uint32{}
+	c.owner.RememberSkills(entries)
+	c.projectRows()
 }

@@ -5,13 +5,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func Page() shell.NativePage {
 	return shell.NativePage{
-		Page:     shell.GitPage,
-		Feature:  shell.Feature{ID: "page:git", Icon: icons.Network, Label: "git", DefaultPinned: true},
-		Resource: panel.Changes,
+		Page:              shell.GitPage,
+		Feature:           shell.Feature{ID: "page:git", Icon: icons.Network, Label: "git", DefaultPinned: true},
+		Usage:             protocol.FeatureUsePageGit,
+		Resource:          panel.Changes,
+		CheckpointHistory: true,
 		Render: func(c *ui.Context, app *shell.App) {
 			app.RenderResource(c, func(project *panel.Project) { render(c, project) })
 		},

@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // NativePage contributes a window-local rail destination and its content.
@@ -15,8 +16,14 @@ type NativePage struct {
 	Page    Page
 	Feature Feature
 	Render  func(*ui.Context, *App)
+	Usage   protocol.FeatureUse
+	// Bind returns a window-local frame callback. visible reports whether this
+	// route is active in the live window, including between frames.
+	Bind func(app *App, visible func() bool) func()
 	// Resource shares a workspace panel tab's project and the shell's layout.
 	Resource panel.Kind
+	// CheckpointHistory requests older checkpoints for the shown workspace.
+	CheckpointHistory bool
 	// RenderDetails and BindKeys are optional resource callbacks. The shell
 	// calls them with the current workspace project when it is available.
 	RenderDetails func(*ui.Context, *App, *panel.Project)
@@ -46,6 +53,11 @@ func (a *App) installPages(pages []NativePage) {
 			panic(fmt.Sprintf("shell: duplicate native page rail ID %q", p.Feature.ID))
 		}
 		a.nativePages = append(a.nativePages, p)
+		if !a.Preview && p.Bind != nil {
+			if sync := p.Bind(a, func() bool { return a.Page == p.Page && !a.DemoOn() }); sync != nil {
+				a.nativePageSync = append(a.nativePageSync, sync)
+			}
+		}
 	}
 	a.features = a.mergeFeatureOrder(nil)
 	for _, p := range a.nativePages {
@@ -74,8 +86,29 @@ func (a *App) pageForFeature(id string) *NativePage {
 // NativePageEnabled reports whether the assembly contributed this page.
 func (a *App) NativePageEnabled(p Page) bool { return a.nativePage(p) != nil }
 
+// SyncNativePages delivers shared live state to the installed page controllers.
+func (a *App) SyncNativePages() {
+	for _, sync := range a.nativePageSync {
+		sync()
+	}
+}
+
+// NativePageUsage returns the counter declared by the current native page.
+func (a *App) NativePageUsage() protocol.FeatureUse {
+	if page := a.nativePage(a.Page); page != nil {
+		return page.Usage
+	}
+	return ""
+}
+
 // ResourceKind identifies the workspace view used by the current page.
 func (a *App) ResourceKind() panel.Kind { return a.paged() }
+
+// ResourceCheckpointHistory reports whether this view needs checkpoint history.
+func (a *App) ResourceCheckpointHistory() bool {
+	page := a.nativePage(a.Page)
+	return page != nil && page.Resource != "" && page.CheckpointHistory
+}
 
 func (a *App) hasPage(p Page) bool {
 	switch p {

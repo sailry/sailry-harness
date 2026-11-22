@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Page contributes the market with renderer state owned by each window.
@@ -21,6 +22,8 @@ func Page() shell.NativePage {
 	return shell.NativePage{
 		Page:    shell.MarketPage,
 		Feature: shell.Feature{ID: "page:settings_plugins", Icon: icons.Puzzle, Label: "market_title", Last: true, DefaultPinned: true},
+		Usage:   protocol.FeatureUsePageMarket,
+		Bind:    bindCatalog,
 		Render: func(c *ui.Context, a *shell.App) {
 			r := ui.Local(c.Root(), rendererKey{}, func() renderer { return renderer{} })
 			r.render(c, a.Settings.MarketScope())

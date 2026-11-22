@@ -17,9 +17,7 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
 		m := r.App.Settings.Model
 		m.MarketSource, m.MarketQuery = 1, "fixture"
-		m.PackageActions = &settings.PackageActions{}
-		r.bindMarketActions(m.PackageActions)
-		scope := r.App.Settings.MarketScope()
+		m.PackageActions = &settings.PackageActions{Catalog: r.packageCatalogService()}
 		failPage := true
 		source.respond = func(request protocol.Request) link.Response {
 			input, _ := detail[protocol.CommandSearchPluginCatalogPayload](request.Command.Data)
@@ -37,7 +35,8 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 		}
 		tester := pluginUpdateQueueTester(r)
 		r.App.Navigate(shell.MarketPage)
-		r.marketPageFrame(r)
+		r.App.SyncNativePages()
+		scope := r.App.Settings.MarketScope()
 		synctest.Wait()
 		tester.Frame()
 		if len(source.sent("search_plugin_catalog")) != 1 || !m.MarketMore || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" {
@@ -65,7 +64,7 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 			t.Fatalf("refresh did not replace the first page: %+v, failed %v", m.MarketPlugins, m.MarketFailed)
 		}
 		r.App.Navigate(shell.SettingsPage)
-		r.marketPageFrame(r)
+		r.App.SyncNativePages()
 		scope.More()
 		scope.Retry()
 		synctest.Wait()

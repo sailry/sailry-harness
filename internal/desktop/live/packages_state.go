@@ -39,13 +39,11 @@ type packageState struct {
 	catalogInfos       map[string]protocol.PluginInfo
 	catalogWaiters     map[string][]func()
 	skillCatalog       map[string]protocol.PluginSkillcatalogEntry
+	catalogNode        *settings.PackageCatalogNode
+	catalogRevisions   map[string]uint64
+	catalogProjection  uint64
 	updateChecks       map[string]string
 	documents          map[string]string
-	marketKey          string
-	marketGeneration   uint64
-	marketCancel       context.CancelFunc
-	pluginMarketNext   uint32
-	skillMarketPages   [len(skillMarketSources)]protocol.PluginSkillcatalogPage
 	requests           map[string]protocol.Request
 	pending            map[string]protocol.Request
 	tasks              []protocol.InstallationTask
@@ -74,14 +72,13 @@ type packageState struct {
 	terminals          map[string]*liveTerminal
 	skillOperation     *skillSourceOperation
 	configuration      uint64
-	images             *marketImages
 }
 
 func newPackageState() *packageState {
 	return &packageState{
 		infos: map[string]protocol.PluginInfo{}, removed: map[string]uint64{}, reads: map[string]bool{}, failures: map[string]string{},
 		updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
-		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
+		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, catalogRevisions: map[string]uint64{}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
 		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
 	}
@@ -96,6 +93,7 @@ func (r *Runtime) initB8Packages() {
 	m := r.App.Settings.Model
 	m.Indexes = []string{"pypi.org", "mirrors.aliyun.com", "mirrors.tencent.com", "pypi.tuna.tsinghua.edu.cn", "custom"}
 	m.PackageActions = &settings.PackageActions{
+		Catalog: r.packageCatalogService(),
 		CheckUpdates: func(kind viewmodel.PackageKind) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.checkPackageUpdates(kind)
@@ -189,9 +187,6 @@ func (r *Runtime) initB8Packages() {
 		},
 		About: func() { r.App.Settings.Open(settings.About); r.App.Navigate(shell.SettingsPage) },
 	}
-	if r.App.NativePageEnabled(shell.MarketPage) {
-		r.bindMarketActions(m.PackageActions)
-	}
 	m.AppearanceActions = &settings.AppearanceActions{
 		Installed:    func(id string) bool { _, exists := r.packages.themes[id]; return exists },
 		CheckUpdates: func() { r.readThemeCatalog(true) }, Import: r.importTheme, Export: r.exportTheme, Uninstall: r.uninstallTheme,
@@ -201,6 +196,7 @@ func (r *Runtime) initB8Packages() {
 	r.initLiveTerminals()
 	r.readInstalledThemes()
 	r.packagesFrame(nil)
+	r.App.SyncNativePages()
 }
 
 // packageOwner is the explicitly selected Node for package management.
@@ -237,7 +233,6 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	if changed {
 		if previousNode := root.packages.selectedNode; previousNode != "" {
 			if previous := root.runtimeFor(previousNode); previous != nil && previous.packages != nil {
-				previous.cancelMarketSearch()
 				if m.PythonStatus == "" {
 					previous.packages.pythonDraft = m.Python
 				}
@@ -245,24 +240,15 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		}
 		root.packages.selectedNode = node
 		root.packages.configuration++
-		m.MarketPlugins, m.MarketSkills = nil, nil
-		m.MarketPaging, m.MarketPagingFailed = false, false
 		m.CloseDetails()
 		m.CloseManagedPackageDialogs()
 	}
 	root.projectPythonSettings(owner, changed)
 	if owner == nil {
-		m.Packages, m.SkillList, m.MarketPlugins, m.MarketSkills = nil, nil, nil, nil
-		if m.MarketKind != 2 {
-			m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
-			m.MarketMore, m.MarketFailed = false, false
-		}
+		m.Packages, m.SkillList = nil, nil
 	} else {
-		if changed {
-			owner.packages.marketKey = ""
-		}
 		// Rebuilding every frame allocated the whole package list each time.
-		key := packageProjection{owner.controller.Revision(), owner.packageLocale(), root.showingMarket(), m.MarketKind}
+		key := packageProjection{owner.controller.Revision(), owner.packageLocale()}
 		if changed || owner.packages.projected != key {
 			owner.packages.projected = key
 			owner.projectPackages()
@@ -271,18 +257,14 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 			owner.observeInstallations()
 		}
 	}
-	root.marketPageFrame(owner)
 	r.projectInstallations()
-	r.projectMarketThemes()
 }
 
 // packageProjection is the input of a frame's package projection besides
-// package results: the Client revision, the package locale and the page.
+// package results: the Client revision and package locale.
 type packageProjection struct {
 	revision uint64
 	locale   string
-	market   bool
-	kind     int
 }
 
 func (r *Runtime) projectPythonSettings(owner *Runtime, changed bool) {
@@ -379,24 +361,7 @@ func (r *Runtime) projectPackages() {
 	sort.Slice(packages, func(first, second int) bool { return packages[first].Name < packages[second].Name })
 	sort.Slice(skills, func(first, second int) bool { return skills[first].Name < skills[second].Name })
 	r.App.Settings.Packages, r.App.Settings.SkillList = packages, skills
-	if !r.showingMarket() {
-		return
-	}
-	var catalogEntries []protocol.PluginCatalogEntry
-	for _, row := range r.App.Settings.MarketPlugins {
-		if entry, known := state.catalog[row.ID]; known {
-			catalogEntries = append(catalogEntries, entry)
-		}
-	}
-	r.readInstalledCatalogCandidates(catalogEntries)
-	r.projectPluginMarket()
-	r.projectSkillMarket()
-	switch r.App.Settings.MarketKind {
-	case 0:
-		r.readMarketPluginUpdates()
-	case 1:
-		r.readMarketSkillUpdates()
-	}
+	state.catalogProjection++
 }
 
 func (r *Runtime) packageHostLabel() string {
