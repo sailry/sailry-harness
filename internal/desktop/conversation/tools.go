@@ -337,7 +337,10 @@ func groupHead(calls []Call) Call {
 }
 
 func toolErrorOpen(call Call) bool {
-	return !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
+	if call.Restored || call.Pending {
+		return false
+	}
+	return call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != ""
 }
 
 // row is one call: its body is its output.

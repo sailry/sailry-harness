@@ -25,6 +25,12 @@ type ConversationState struct {
 	entryEpoch       *byte
 	viewVersion      uint64
 	transcript       uint64
+	liveStart        *uint64
+}
+
+// LiveEntry reports whether a canonical sequence belongs to the live tail.
+func (s ConversationState) LiveEntry(sequence uint64) bool {
+	return s.liveStart != nil && sequence >= *s.liveStart
 }
 
 type conversationWatch struct {
@@ -121,6 +127,7 @@ func (w *conversationWatch) readState(previous *ConversationState) ConversationS
 	if snapshot == nil {
 		return s
 	}
+	s.liveStart = w.projection.liveStart
 	if previous != nil {
 		if w.projection.entryEpoch == nil {
 			w.projection.entryEpoch = new(byte)

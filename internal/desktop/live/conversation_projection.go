@@ -367,7 +367,8 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if entry.Author == "tool" && entry.Turn == owner && t.Reply.Status == conversation.Running {
 			collect = &batch
 		}
-		phase := projectParts(&t.Reply, &texts[position], entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t), collect)
+		restored := t.Reply.Status != conversation.Completed && !state.LiveEntry(entry.Sequence)
+		phase := projectParts(&t.Reply, &texts[position], entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t), collect, restored)
 		clocks.record(position, time.Time{}, phase)
 		if len(batch) > 0 {
 			awaitingModel[position] = batch
@@ -412,7 +413,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if position, ok := positions[owner]; ok {
 			t := &turns[position]
 			blockCount := len(t.Reply.Blocks)
-			phase := projectParts(&t.Reply, &texts[position], draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil)
+			phase := projectParts(&t.Reply, &texts[position], draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil, false)
 			clocks.record(position, time.Time{}, phase)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
@@ -897,7 +898,7 @@ func (text *transcriptText) append(reply *conversation.Reply, value string, from
 	block.Text = text.builder.String()
 }
 
-func projectParts(reply *conversation.Reply, text *transcriptText, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int, toolBatch *[]*conversation.Call) time.Time {
+func projectParts(reply *conversation.Reply, text *transcriptText, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int, toolBatch *[]*conversation.Call, restored bool) time.Time {
 	var compacting time.Time
 	for index, part := range parts {
 		switch part.Kind {
@@ -940,7 +941,7 @@ func projectParts(reply *conversation.Reply, text *transcriptText, parts []proto
 					continue
 				}
 				call := projectCall(source.Name, source.Summary, language)
-				call.ID = id
+				call.ID, call.Restored = id, restored
 				call.Standalone = source.Grouping == "standalone"
 				call.Terminal = terminalInteraction(source.Name)
 				if !reply.Status.Active() {
@@ -998,7 +999,7 @@ func projectParts(reply *conversation.Reply, text *transcriptText, parts []proto
 					call = &reply.Blocks[len(reply.Blocks)-1].Calls[0]
 				}
 				projected := projectCall(result.Name, result.Summary, language)
-				projected.ID = call.ID
+				projected.ID, projected.Restored = call.ID, restored
 				projected.Standalone, projected.Terminal = call.Standalone, terminalInteraction(result.Name)
 				*call = projected
 				call.Running = false

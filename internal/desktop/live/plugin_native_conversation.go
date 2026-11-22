@@ -179,7 +179,7 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 // history lists.
 func (state *pluginNativeState) assistantSessions(like protocol.Session) []protocol.Session {
 	var sessions []protocol.Session
-	all := state.runtime.snapshot().Sessions
+	all := state.runtime.visibleSessions()
 	for index := len(all) - 1; index >= 0; index-- {
 		session := all[index]
 		assistant := session.Config.Assistant

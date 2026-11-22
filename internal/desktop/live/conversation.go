@@ -362,7 +362,7 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 	}
 	refs := []composer.Reference{{ID: "context", Kind: composer.Page, Label: "reference_context", Key: true, Group: "reference_group_context", Icon: icons.Folder, Children: locations}}
 	var sessions []composer.Reference
-	for _, s := range snapshot.Sessions {
+	for _, s := range r.filterRemovedSessions(snapshot.Sessions) {
 		if s.ID.String() == cv.ID || s.Archived {
 			continue
 		}

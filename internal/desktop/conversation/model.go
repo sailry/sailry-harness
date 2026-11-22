@@ -377,6 +377,9 @@ type Call struct {
 	// waits for the model's next output: its row keeps the running sweep in
 	// its settled color. The projection sets it; the view does not infer it.
 	AwaitingModel bool
+	// Restored keeps details from an unfinished run's loaded history folded
+	// by default, even when the call failed.
+	Restored bool `json:"-"`
 	// Standalone calls start their own block. Terminal calls belong to the
 	// interaction area, for example a question or a plan review.
 	Standalone, Terminal bool
