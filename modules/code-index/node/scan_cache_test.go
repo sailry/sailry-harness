@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -154,14 +155,24 @@ func TestQuietScanDiscovery(t *testing.T) {
 	}
 }
 
-func TestReplaceWhileCheckingDoesNotCommitStaleParse(t *testing.T) {
+func TestChangeWhileCheckingDoesNotCommitStaleParse(t *testing.T) {
 	f := newFixture(t)
 	f.write("one.rs", "pub fn before() {}\n")
 	initial := f.search("before")
 	f.write("one.rs", "pub fn middle() {}\n")
-	replacement := filepath.Join(filepath.Dir(f.root), "next.rs")
-	if err := os.WriteFile(replacement, []byte("pub fn latest() {}\n"), 0o600); err != nil {
-		t.Fatal(err)
+	path := filepath.Join(f.root, "one.rs")
+	change := func() error {
+		const latest = "pub fn latest() { /* edited */ }\n"
+		if runtime.GOOS == "windows" {
+			// An open destination cannot be replaced by os.Rename on Windows.
+			// Write a different size to detect the change without relying on mtime.
+			return os.WriteFile(path, []byte(latest), 0o600)
+		}
+		replacement := filepath.Join(filepath.Dir(f.root), "next.rs")
+		if err := os.WriteFile(replacement, []byte(latest), 0o600); err != nil {
+			return err
+		}
+		return os.Rename(replacement, path)
 	}
 	started, resume := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -195,7 +206,7 @@ func TestReplaceWhileCheckingDoesNotCommitStaleParse(t *testing.T) {
 		t.Fatalf("query ended before inspecting the changed file: %+v", result)
 	}
 	graph := f.graph(graphQuery("map", ""))
-	err := os.Rename(replacement, filepath.Join(f.root, "one.rs"))
+	err := change()
 	close(resume)
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +217,6 @@ func TestReplaceWhileCheckingDoesNotCommitStaleParse(t *testing.T) {
 	}
 	latest := f.search("latest")
 	if latest.Partial || names2(latest.Symbols) != "latest" || latest.IndexRevision != initial.IndexRevision+1 {
-		t.Fatalf("replacement did not resume: %+v", latest)
+		t.Fatalf("index did not recover after the change: %+v", latest)
 	}
 }
