@@ -241,17 +241,14 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 			s.Open, s.pinned = !s.Open, !s.Open
 		})
 	panel := kit.Popover(c, b, &s.Open, func() {
-		_, window := c.Size()
-		id := "summary-scroll"
 		if s.Expanded {
-			id = "sections"
+			contextFull(c, s, d)
+			return
 		}
-		ui.Scroll(c.Key(id)).FillWidth().MaxHeight(min(usagePanelHeight, max(window-usagePanelRoom, usagePanelLeast))).
+		_, window := c.Size()
+		ui.Scroll(c.Key("summary-scroll")).FillWidth().MaxHeight(min(usagePanelHeight, max(window-usagePanelRoom, usagePanelLeast))).
 			PaddingX(16).Children(func() {
 			contextSummary(c, d)
-			if s.Expanded {
-				contextDetails(c, s, d)
-			}
 		})
 		contextToggle(c, s)
 	})

@@ -127,8 +127,10 @@ func TestContextMeterExpands(t *testing.T) {
 		{"meter_total_cache", "50% · 51.4k / 102.7k"},
 	}
 	wantMeterRows(t, tt, rows)
-	if slices.Contains(texts, i18n.In("en", "meter_session_usage")) || tt.HasText("≈ $0.14") {
-		t.Errorf("the summary shows the details: %q", texts)
+	for _, key := range []string{"meter_session_usage", "meter_details", "meter_session_time", "meter_connection"} {
+		if label := i18n.In("en", key); slices.Contains(texts, label) {
+			t.Errorf("the summary shows %q from the details", label)
+		}
 	}
 	details, ok := tt.Access(i18n.In("en", "meter_show_details"))
 	if !ok {
@@ -140,23 +142,32 @@ func TestContextMeterExpands(t *testing.T) {
 		t.Fatalf("Show details left the popover open %v, expanded %v", s.Open, s.Expanded)
 	}
 	texts = tt.Texts()
-	wantMeterRows(t, tt, rows)
 	for _, row := range rows {
-		if label := i18n.In("en", row[0]); count(texts, label) != 1 {
-			t.Errorf("after expansion, expected one %q: %q", label, texts)
+		if label := i18n.In("en", row[0]); slices.Contains(texts, label) {
+			t.Errorf("the expanded view still shows the summary row %q", label)
 		}
 	}
-	for _, key := range []string{"meter_session_usage", "meter_output", "meter_tool_calls", "meter_session_time", "meter_connection", "meter_hide_details"} {
+	for _, key := range []string{"meter_session_usage", "meter_input", "meter_output", "meter_tool_calls", "meter_session_time", "meter_connection"} {
 		if !slices.Contains(texts, i18n.In("en", key)) {
 			t.Errorf("the details lack %q: %q", i18n.In("en", key), texts)
 		}
 	}
-	for _, want := range []string{"Until compaction 752.8k", "Output reserve 128k", "2 turns · ≈ $0.14", "222", "1.74 s", "3.81 s", "14.37 s"} {
+	for _, key := range []string{"meter_title", "meter_cache_hit"} {
+		label := i18n.In("en", key)
+		if bar, ok := tt.AccessByRole(ui.RoleGroup, label); !ok || bar.Offscreen || bar.Bounds.W <= 0 || bar.Bounds.H <= 0 {
+			t.Errorf("the details lack the %q bar: %+v", label, bar)
+		}
+	}
+	for _, want := range []string{"claude-sonnet-5-5", "47.2k", "/ 1M", "4.7%", "Until compaction 752.8k", "Output reserve 128k",
+		"2 turns · ≈ $0.14", "102.7k", "222", "50%", "1.74 s", "3.81 s", "14.37 s", "12.19 s"} {
 		if !slices.Contains(texts, want) {
 			t.Errorf("the details lack %q: %q", want, texts)
 		}
 	}
-	less, _ := tt.Access(i18n.In("en", "meter_hide_details"))
+	less, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "meter_hide_details"))
+	if !ok {
+		t.Fatalf("no Show less: %q", texts)
+	}
 	tt.ClickAt(less.Bounds.X+less.Bounds.W/2, less.Bounds.Y+less.Bounds.H/2)
 	meterSettle(tt)
 	if s.Expanded {

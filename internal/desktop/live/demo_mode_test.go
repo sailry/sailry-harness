@@ -246,18 +246,17 @@ func TestDemoMode(t *testing.T) {
 		}
 		return ui.AccessInfo{}, false
 	}
-	pressPanel := func(locale string, at ui.AccessInfo) {
+	pressContextButton := func(at ui.AccessInfo) {
 		tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
 		for range 4 {
 			tester.Advance(250 * time.Millisecond)
 			tester.Frame()
 		}
+	}
+	pressPanel := func(locale string, at ui.AccessInfo) {
+		pressContextButton(at)
 		if details, ok := tester.Access(i18n.In(locale, "meter_show_details")); ok {
-			tester.ClickAt(details.Bounds.X+details.Bounds.W/2, details.Bounds.Y+details.Bounds.H/2)
-			for range 4 {
-				tester.Advance(250 * time.Millisecond)
-				tester.Frame()
-			}
+			pressContextButton(details)
 		}
 	}
 	// tour opens every demo conversation in the window's language and, on
@@ -845,7 +844,7 @@ func TestDemoMode(t *testing.T) {
 			settle()
 		}
 		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
-		hover(figures[1], "End-to-end TPS", "TTFT", "600.0 ms")
+		hover(figures[1], "End-to-end TPS", "Average TTFT", "Latest generation TPS", "Latest request TTFT", "600.0 ms")
 		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
@@ -858,22 +857,11 @@ func TestDemoMode(t *testing.T) {
 		if !ok || panel.Disabled || panel.Expanded {
 			t.Fatalf("the composer's context meter: found %v, %+v", ok, panel)
 		}
-		pressPanel("en", panel)
+		pressContextButton(panel)
 		settle()
-		if opened, _ := contextPanel("en"); !opened.Expanded || opened.Disabled || !tester.HasText(contextPanelSection["en"]) {
-			t.Errorf("the context panel: expanded %v, disabled %v, texts %q", opened.Expanded, opened.Disabled, tester.Texts())
+		if opened, _ := contextPanel("en"); !opened.Expanded || opened.Disabled || !tester.HasText("Show details") {
+			t.Errorf("the context summary: open %v, disabled %v, texts %q", opened.Expanded, opened.Disabled, tester.Texts())
 		}
-		if shown := marked(); shown != "" {
-			t.Errorf("the context panel names the demo: %q", shown)
-		}
-		// Its tool calls are the ones the transcript shows.
-		if calls := demoTools(cv.Turns); len(calls) == 0 || !tester.HasText("Tool calls") {
-			t.Errorf("the context panel counts the tool calls %v: %q", calls, tester.Texts())
-		}
-		// It draws every section a session's does: the context of the model
-		// the composer is set to with the compaction threshold and the
-		// output reserve, the usage with its tool calls and subagents, the
-		// active time by phase and the connection's averages.
 		shows := func(where string, rows ...string) {
 			t.Helper()
 			for _, row := range rows {
@@ -913,12 +901,24 @@ func TestDemoMode(t *testing.T) {
 		}
 		occupied := int(usage.Context * float64(usage.Window))
 		count := conversation.Count
-		shows("of the first conversation", r.App.Composer(cv.ID).Model,
+		shows("in the summary", r.App.Composer(cv.ID).Model,
 			"Tokens used", count(occupied), "Tokens remaining", count(usage.Window-occupied), "Window limit", count(usage.Window),
 			"Automatic compaction", count(usage.Window*4/5), "Last request cache hit", "86% · 38.8k / 45k",
-			"Session cache hit", fmt.Sprintf("%s · %s / %s", figures[3], count(usage.Cached), count(input)),
-			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details",
-			"Session usage", fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Output", count(usage.Tokens/demoOutputShare), "Subagents",
+			"Session cache hit", fmt.Sprintf("%s · %s / %s", figures[3], count(usage.Cached), count(input)))
+		if tester.HasText(contextPanelSection["en"]) {
+			t.Error("the context summary shows session usage details")
+		}
+		fold(t, "Show details")
+		if tester.HasText("Tokens remaining") || tester.HasText("Last request cache hit") {
+			t.Error("the expanded context panel shows the summary rows")
+		}
+		if calls := demoTools(cv.Turns); len(calls) == 0 || !tester.HasText("Tool calls") {
+			t.Errorf("the context panel counts the tool calls %v: %q", calls, tester.Texts())
+		}
+		shows("in the expanded view", r.App.Composer(cv.ID).Model, count(occupied), "/ "+count(usage.Window),
+			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details", "Show less",
+			"Session usage", fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros),
+			"Input", count(input), "Cache hit", "Output", count(usage.Tokens/demoOutputShare), "Subagents",
 			"Active time", "Wait", "Reply", "Tools", "Other", "Generation speed "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
 			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
@@ -990,7 +990,7 @@ func TestDemoMode(t *testing.T) {
 				r.App.Sidebar.Selected = cv.ID
 				settle()
 			})
-			const short = 640
+			const short = 440
 			tester.SetSize(1280, short)
 			settle()
 			r.App.Messages.List(handbook.ID).ScrollTo(0, ui.Start)
@@ -1016,21 +1016,22 @@ func TestDemoMode(t *testing.T) {
 				t.Fatal("the latest compaction is visible before scrolling the short context panel")
 			}
 			b := details.Bounds
-			var latest ui.AccessInfo
-			var visible bool
 			for range 6 {
 				tester.Scroll(b.X+b.W/2, b.Y+b.H/2, 0, 100)
-				if latest, visible = panelRow(label); visible {
+				if _, visible := panelRow(label); visible {
 					break
 				}
 			}
-			if !visible {
+			if _, visible := panelRow(label); !visible {
 				t.Fatalf("the latest compaction is out of view after scrolling: %q", tester.Texts())
 			}
 			if at, visible := markerInView(); visible {
 				t.Fatalf("scrolling the context panel also revealed the transcript marker at %v", at)
 			}
-			pressRow(latest)
+			if err := tester.Click(label); err != nil {
+				t.Fatal(err)
+			}
+			settle()
 			if at, visible := markerInView(); !visible || tester.HasText("Could not open the record") {
 				t.Errorf("the latest compaction opened the transcript at %v, visible %v: %q", at, visible, tester.Texts())
 			}
