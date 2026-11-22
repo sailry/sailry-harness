@@ -1,36 +1,51 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'features/conversations/tasks_page.dart';
-import 'features/notifications/delivery.dart';
-import 'features/resources/hosts_page.dart';
-import 'features/resources/projects_page.dart';
-import 'features/settings/settings_page.dart';
-import 'features/updates/presentation.dart';
-import 'features/updates/service.dart';
-import 'ui/app_background.dart';
-import 'ui/kit.dart';
-import 'ui/theme.dart';
-import 'ui/toast.dart';
-import 'runtime/session.dart';
-import 'runtime/preferences.dart';
-import 'l10n/strings.dart';
-import 'l10n/language.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'features/notifications/delivery.dart';
+import 'features/resources/contributions.dart';
+import 'features/updates/presentation.dart';
+import 'features/updates/service.dart';
+import 'l10n/language.dart';
+import 'l10n/strings.dart';
+import 'runtime/preferences.dart';
+import 'runtime/session.dart';
+import 'shell/assembly.dart';
+import 'shell/shell.dart';
+import 'ui/app_background.dart';
+import 'ui/icons.dart';
+import 'ui/theme.dart';
+import 'ui/toast.dart';
+
+void runSailryApp(MobileAssembly assembly) {
+  WidgetsFlutterBinding.ensureInitialized();
+  registerIconLicense();
+  runApp(SailryApp(assembly: assembly));
+}
+
 class SailryApp extends StatefulWidget {
-  const SailryApp({super.key, this.session, this.preferences, this.updates});
+  const SailryApp({
+    super.key,
+    required this.assembly,
+    this.session,
+    this.preferences,
+    this.updates,
+  });
+
+  final MobileAssembly assembly;
   final AppSession? session;
   final SharedPreferencesAsync? preferences;
   final AppUpdates? updates;
+
   @override
   State<SailryApp> createState() => _SailryAppState();
 }
 
 class _SailryAppState extends State<SailryApp> {
-  AppSession? _session;
-  AppUpdates? _updates;
+  late final AppSession _session;
+  late final AppUpdates? _updates;
   final _navigator = GlobalKey<NavigatorState>();
   late final _preferences = AppPreferences(
     preferences: widget.preferences,
@@ -43,7 +58,7 @@ class _SailryAppState extends State<SailryApp> {
     super.initState();
     _updates = widget.updates ?? (widget.session == null ? AppUpdates() : null);
     _session = widget.session ?? AppSession();
-    if (widget.session == null) unawaited(_session!.start());
+    if (widget.session == null) unawaited(_session.start());
     _preferences.addListener(_refreshPreferences);
     if (_persist) unawaited(_preferences.load());
   }
@@ -63,7 +78,7 @@ class _SailryAppState extends State<SailryApp> {
     _preferences.removeListener(_refreshPreferences);
     _preferences.dispose();
     FToast().removeQueuedCustomToasts();
-    if (widget.session == null) _session?.dispose();
+    if (widget.session == null) _session.dispose();
     if (widget.updates == null) _updates?.dispose();
     super.dispose();
   }
@@ -86,11 +101,11 @@ class _SailryAppState extends State<SailryApp> {
         // The toast overlay retains its initial child. Observe the session
         // inside that subtree so pairing updates the mounted application frame.
         ListenableBuilder(
-          listenable: _session!,
+          listenable: _session,
           child: navigator,
           builder: (context, child) {
-            _session?.background.localize(context.tr);
-            _session?.localize(context.tr);
+            _session.background.localize(context.tr);
+            _session.localize(context.tr);
             return ColoredBox(
               color: Theme.of(context).colorScheme.surface,
               child: Center(
@@ -105,140 +120,28 @@ class _SailryAppState extends State<SailryApp> {
       ),
       home: _home(),
     );
-    return _session == null
-        ? app
-        : SessionScope(session: _session!, child: app);
+    return ProjectResourcesScope(
+      features: widget.assembly.resources,
+      child: SessionScope(session: _session, child: app),
+    );
   }
 
   Widget _home() {
-    Widget home = _Shell(
-      language: _preferences.language,
-      onLanguageChanged: _preferences.setLanguage,
-      themeMode: _preferences.mode,
-      onThemeChanged: _preferences.setTheme,
-      brand: _preferences.brand,
-      onBrandChanged: _preferences.setBrand,
-      notifications: _preferences.notifications,
-      onNotificationsChanged: _preferences.setNotifications,
-      updates: _updates,
-    );
-    if (_session != null) {
-      home = NotificationDelivery(
-        session: _session!,
-        enabled:
-            _preferences.notifications &&
-            (!_persist ||
-                _preferences.loaded ||
-                _preferences.notificationsEdited),
-        child: home,
-      );
-    }
-    if (_updates != null) {
-      home = UpdateDelivery(updates: _updates!, child: home);
-    }
-    return home;
-  }
-}
-
-class _Shell extends StatefulWidget {
-  const _Shell({
-    required this.language,
-    required this.onLanguageChanged,
-    required this.themeMode,
-    required this.onThemeChanged,
-    required this.brand,
-    required this.onBrandChanged,
-    required this.notifications,
-    required this.onNotificationsChanged,
-    required this.updates,
-  });
-  final AppLanguage language;
-  final ValueChanged<AppLanguage> onLanguageChanged;
-  final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onThemeChanged;
-  final Brand brand;
-  final ValueChanged<Brand> onBrandChanged;
-  final bool notifications;
-  final ValueChanged<bool> onNotificationsChanged;
-  final AppUpdates? updates;
-  @override
-  State<_Shell> createState() => _ShellState();
-}
-
-class _ShellState extends State<_Shell> {
-  int _index = 0;
-  int _taskRoute = 0;
-  String _taskFilter = 'all';
-  bool _sessionsOnly = false;
-  @override
-  Widget build(BuildContext context) {
-    final session = AppSession.maybeOf(context);
-    return Scaffold(
-      extendBody: true,
-      backgroundColor: Colors.transparent,
-      body: SlidableAutoCloseBehavior(
-        child: session != null && !session.ready && session.error != null
-            ? PageFrame(
-                title: context.tr('brand'),
-                failure: FailureState(
-                  message: context.tr('startupFailed'),
-                  onRetry: session.start,
-                ),
-                child: const SizedBox.shrink(),
-              )
-            : IndexedStack(
-                index: _index,
-                children:
-                    <Widget>[
-                          TasksPage(
-                            key: ValueKey(_taskRoute),
-                            initialFilter: _taskFilter,
-                            sessionsOnly: _sessionsOnly,
-                          ),
-                          HostsPage(
-                            onBrowse: (kind) => setState(() {
-                              _taskRoute++;
-                              _taskFilter = kind == 'terminals'
-                                  ? 'terminal'
-                                  : 'all';
-                              _sessionsOnly = kind == 'sessions';
-                              _index = 0;
-                            }),
-                          ),
-                          const ProjectsPage(),
-                          SettingsPage(
-                            updates: widget.updates,
-                            language: widget.language,
-                            onLanguageChanged: widget.onLanguageChanged,
-                            themeMode: widget.themeMode,
-                            onThemeChanged: widget.onThemeChanged,
-                            brand: widget.brand,
-                            onBrandChanged: widget.onBrandChanged,
-                            notifications: widget.notifications,
-                            onNotificationsChanged:
-                                widget.onNotificationsChanged,
-                          ),
-                        ].indexed
-                        .map(
-                          (entry) => TickerMode(
-                            enabled: entry.$1 == _index,
-                            child: entry.$2,
-                          ),
-                        )
-                        .toList(),
-              ),
-      ),
-      bottomNavigationBar: FloatingNavigation(
-        selected: _index,
-        onSelected: (index) => setState(() {
-          if (index == 0 && (_taskFilter != 'all' || _sessionsOnly)) {
-            _taskRoute++;
-            _taskFilter = 'all';
-            _sessionsOnly = false;
-          }
-          _index = index;
-        }),
+    final home = NotificationDelivery(
+      session: _session,
+      enabled:
+          _preferences.notifications &&
+          (!_persist ||
+              _preferences.loaded ||
+              _preferences.notificationsEdited),
+      child: MobileShell(
+        assembly: widget.assembly,
+        preferences: _preferences,
+        updates: _updates,
       ),
     );
+    return _updates == null
+        ? home
+        : UpdateDelivery(updates: _updates, child: home);
   }
 }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_mobile/assembly/harness.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
+import 'package:sailry_mobile/features/resources/contributions.dart';
 import 'package:sailry_mobile/features/resources/files_page.dart';
+import 'package:sailry_mobile/features/resources/git/overview_card.dart';
 import 'package:sailry_mobile/features/resources/git_page.dart';
-import 'package:sailry_mobile/features/resources/overview_cards.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
@@ -55,14 +57,17 @@ HostConnection source({CommandHandler? command}) => HostConnection.test(
   },
 );
 
-Widget screen(AppSession session, Widget child) => SessionScope(
-  session: session,
-  child: MaterialApp(
-    theme: SailryTheme.of(Brightness.light),
-    locale: const Locale('en'),
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: Scaffold(body: child),
+Widget screen(AppSession session, Widget child) => ProjectResourcesScope(
+  features: harnessAssembly.resources,
+  child: SessionScope(
+    session: session,
+    child: MaterialApp(
+      theme: SailryTheme.of(Brightness.light),
+      locale: const Locale('en'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      home: Scaffold(body: child),
+    ),
   ),
 );
 

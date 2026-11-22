@@ -6,14 +6,9 @@ import '../../runtime/json.dart';
 import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import '../conversations/live/project_bar.dart';
-import '../conversations/live/terminal_tasks.dart';
-import '../terminal/terminal_page.dart';
-import 'files_page.dart';
-import 'git/summary.dart';
-import 'git_page.dart';
+import 'contributions.dart';
 import 'host/host_sheet.dart';
 import 'overview_cards.dart';
-import 'ports_page.dart';
 import 'project_form.dart';
 import 'workspace.dart';
 
@@ -59,13 +54,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
   bool get _fixedScope => widget.hostId != null || widget.worktreeId != null;
   bool get _workspaceSelectable => !_fixedScope || widget.projectId != null;
   String? _selectedProjectTree;
-  final _git = GitSummary();
-
-  @override
-  void dispose() {
-    _git.dispose();
-    super.dispose();
-  }
+  int _revision = 0;
 
   Future<void> _host() async {
     final session = AppSession.of(context);
@@ -144,10 +133,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
     if (mounted && id != null) session.selectWorkspace(host.id, id);
   }
 
-  /// Returning from a resource page refreshes the Git summary it may change.
   Future<void> _open(Widget page) async {
     await pushPage(context, page);
-    if (mounted) _git.load();
+    if (mounted) setState(() => _revision++);
   }
 
   @override
@@ -161,9 +149,15 @@ class _ResourcesPageState extends State<ResourcesPage> {
       widget.hostId,
       _selectedProjectTree ?? widget.worktreeId,
     );
-    final ready = host != null && host.connected && target != null;
-    final worktree = ready ? text(target.worktree['id']) : null;
-    _git.track(ready ? host : null, worktree);
+    final features = ProjectResourcesScope.of(context);
+    final view = host != null && host.connected && target != null
+        ? (
+            host: host,
+            worktree: text(target.worktree['id']),
+            open: _open,
+            revision: _revision,
+          )
+        : null;
     return PageFrame(
       title: context.tr('resources'),
       // A project's resources belong to one host; name it under the title.
@@ -192,28 +186,19 @@ class _ResourcesPageState extends State<ResourcesPage> {
           ? EmptyState(message: context.tr('resourceNoWorkspace'))
           : null,
       actions: [
-        if (ready)
-          RoundButton(
-            icon: 'terminal',
-            tooltip: context.tr('terminal'),
-            onPressed: () => pushPage(
-              context,
-              TerminalPage(hostId: host.id, worktreeId: worktree),
-            ),
-          ),
+        if (view != null)
+          for (final feature in features)
+            if (feature.action case final build?) build(context, view),
         // Keep host choice available while no workspace is usable.
-        if (!ready && !_fixedScope && session.hosts.isNotEmpty)
+        if (view == null && !_fixedScope && session.hosts.isNotEmpty)
           RoundButton(
             icon: 'server',
             tooltip: context.tr('selectHost'),
             onPressed: _host,
           ),
       ],
-      child: ready
-          ? ListenableBuilder(
-              listenable: Listenable.merge([_git, host.ports]),
-              builder: (context, _) => _overview(host, target),
-            )
+      child: view != null && target != null
+          ? _overview(view, target, features)
           : host != null && host.connected && _workspaceSelectable
           ? ProjectBar(
               project: null,
@@ -225,66 +210,47 @@ class _ResourcesPageState extends State<ResourcesPage> {
     );
   }
 
-  Widget _overview(HostConnection host, ResourceTarget target) {
-    final worktree = text(target.worktree['id']);
+  Widget _overview(
+    ProjectResourceView view,
+    ResourceTarget target,
+    List<ProjectResourceFeature> features,
+  ) {
+    final host = view.host;
     final project = objects(host.snapshot['projects'])
         .where((project) => project['id'] == target.worktree['project'])
         .firstOrNull;
     final name = project != null && target.worktree['main'] == true
         ? text(project['name'])
         : worktreeLabel(target.worktree);
-    final running = objects(host.snapshot['terminals'])
-        .where(
-          (terminal) =>
-              terminal['worktree'] == worktree &&
-              terminalStatus(terminal) == 'running',
-        )
-        .length;
-    final ports = host.ports.entries.length;
-    final branch = _git.status?['branch'] as String?;
+    Widget heading(String? detail) => ProjectBar(
+      project: {...?project, 'name': name},
+      detail: detail,
+      onTap: _workspaceSelectable ? () => _workspace(host) : null,
+    );
+    final header = features
+        .map((feature) => feature.header)
+        .whereType<ProjectResourceHeader>()
+        .firstOrNull;
+    final entries = features
+        .map((feature) => feature.entry)
+        .whereType<ProjectResourceEntry>()
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ProjectBar(
-          project: {...?project, 'name': name},
-          detail: branch,
-          onTap: _workspaceSelectable ? () => _workspace(host) : null,
-        ),
-        GitOverviewCard(
-          summary: _git,
-          onOpen: () => _open(GitPage(hostId: host.id, worktreeId: worktree)),
-        ),
-        const SizedBox(height: 12),
-        ResourceEntries(
-          entries: [
-            (
-              icon: 'folder',
-              label: context.tr('files'),
-              detail: null,
-              onTap: () =>
-                  _open(FilesPage(hostId: host.id, worktreeId: worktree)),
+        header == null ? heading(null) : header(view, heading),
+        if (entries.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ListenableBuilder(
+            listenable: Listenable.merge([
+              for (final feature in features)
+                if (feature.entryChanges case final listen?) listen(view),
+            ]),
+            builder: (context, _) => ResourceEntries(
+              entries: [for (final build in entries) build(context, view)],
             ),
-            (
-              icon: 'terminal',
-              label: context.tr('terminal'),
-              detail: running == 0
-                  ? null
-                  : context
-                        .tr('terminalRunningCount')
-                        .replaceAll('{count}', '$running'),
-              onTap: () => pushPage(
-                context,
-                TerminalPage(hostId: host.id, worktreeId: worktree),
-              ),
-            ),
-            (
-              icon: 'globe',
-              label: context.tr('activityPorts'),
-              detail: ports == 0 ? null : '$ports',
-              onTap: () => pushPage(context, PortsPage(host: host)),
-            ),
-          ],
-        ),
+          ),
+        ],
       ],
     );
   }

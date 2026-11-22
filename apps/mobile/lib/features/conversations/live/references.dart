@@ -1,15 +1,15 @@
-import '../../resources/file_page.dart';
 import 'package:flutter/material.dart';
 
 import '../../../content/attachment.dart';
+import '../../../content/paths.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
-import '../../../content/paths.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
+import '../../resources/contributions.dart';
 import '../../resources/file_navigation.dart';
-import '../../resources/files_page.dart';
+import '../../resources/file_page.dart';
 
 class MessageReferences extends StatelessWidget {
   const MessageReferences({
@@ -117,14 +117,15 @@ class MessageReferences extends StatelessWidget {
               return;
             }
             if (target['kind'] == 'directory') {
-              await pushPage(
-                context,
-                FilesPage(
-                  hostId: host.id,
-                  worktreeId: worktree,
-                  initialDirectory: path,
-                ),
-              );
+              final open = ProjectResourcesScope.of(context)
+                  .map((feature) => feature.openDirectory)
+                  .whereType<OpenDirectory>()
+                  .firstOrNull;
+              if (open == null) {
+                showToast(context, context.tr('fileLinkUnavailable'));
+                return;
+              }
+              await open(context, host, worktree, path);
             } else {
               await openResourceFile(
                 context,

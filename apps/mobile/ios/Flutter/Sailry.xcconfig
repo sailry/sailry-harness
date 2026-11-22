@@ -1,5 +1,7 @@
 // The script phase publishes every requested architecture at this declared
 // output path; the target-wide script phase has no single CURRENT_ARCH slice.
+SAILRY_HARNESS_ROOT = $(SRCROOT)/../../..
+SAILRY_HARNESS_REVISION =
 SAILRY_NATIVE_DIR = $(BUILT_PRODUCTS_DIR)/SailryNative
 LIBRARY_SEARCH_PATHS = $(inherited) "$(SAILRY_NATIVE_DIR)"
 OTHER_LDFLAGS = $(inherited) -Wl,-force_load,"$(SAILRY_NATIVE_DIR)/libsailry_mobile.a" -Wl,-exported_symbol,_sailry_open -Wl,-exported_symbol,_sailry_invoke -Wl,-exported_symbol,_sailry_subscribe -Wl,-exported_symbol,_sailry_cancel -Wl,-exported_symbol,_sailry_free -Wl,-exported_symbol,_sailry_close -framework CoreFoundation -framework Security -lresolv

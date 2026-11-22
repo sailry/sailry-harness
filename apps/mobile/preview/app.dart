@@ -82,6 +82,12 @@ class _Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<_Shell> {
+  static const _items = <NavigationItem>[
+    (id: 'chat', icon: 'chat', label: 'chat'),
+    (id: 'hosts', icon: 'server', label: 'hosts'),
+    (id: 'projects', icon: 'folder', label: 'projects'),
+    (id: 'settings', icon: 'settings', label: 'settings'),
+  ];
   int _index = 0;
   int _taskRoute = 0;
   String _taskFilter = 'all';
@@ -132,8 +138,10 @@ class _ShellState extends State<_Shell> {
         ),
       ),
       bottomNavigationBar: FloatingNavigation(
-        selected: _index,
-        onSelected: (index) => setState(() {
+        items: _items,
+        selected: _items[_index].id,
+        onSelected: (id) => setState(() {
+          final index = _items.indexWhere((item) => item.id == id);
           if (index == 0 && (_taskFilter != 'all' || _sessionsOnly)) {
             _taskRoute++;
             _taskFilter = 'all';

@@ -521,18 +521,20 @@ Future<T?> pushPage<T>(BuildContext context, Widget page) => Navigator.of(
   context,
 ).push<T>(CupertinoPageRoute<T>(builder: (_) => AppBackground(child: page)));
 
+typedef NavigationItem = ({String id, String icon, String label});
+
 class FloatingNavigation extends StatelessWidget {
   const FloatingNavigation({
     super.key,
+    required this.items,
     required this.selected,
     required this.onSelected,
   });
-  final int selected;
-  final ValueChanged<int> onSelected;
+  final List<NavigationItem> items;
+  final String selected;
+  final ValueChanged<String> onSelected;
   @override
   Widget build(BuildContext context) {
-    const icons = ['chat', 'server', 'folder', 'settings'];
-    const labels = ['chat', 'hosts', 'projects', 'settings'];
     final colors = Theme.of(context).colorScheme;
     final brand = SailryTheme.brand(context);
     return SafeArea(
@@ -548,71 +550,71 @@ class FloatingNavigation extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: 52),
             child: Row(
               spacing: 3,
-              children: List.generate(
-                labels.length,
-                (index) => Expanded(
-                  // Each tab names itself under its icon; the selected one
-                  // takes the brand color.
-                  child: Semantics(
-                    selected: selected == index,
-                    label: context.tr(labels[index]),
-                    excludeSemantics: true,
-                    child: TextButton(
-                      key: ValueKey('tab-$index'),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 5,
-                        ),
-                        visualDensity: VisualDensity.standard,
-                        alignment: Alignment.center,
-                        minimumSize: const Size(0, 52),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        backgroundColor: selected == index
-                            ? brand.selection
-                            : Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.horizontal(
-                            left: Radius.circular(index == 0 ? 26 : 18),
-                            right: Radius.circular(
-                              index == labels.length - 1 ? 26 : 18,
+              children: [
+                for (final (index, item) in items.indexed)
+                  Expanded(
+                    // Each tab names itself under its icon; the selected one
+                    // takes the brand color.
+                    child: Semantics(
+                      selected: selected == item.id,
+                      label: context.tr(item.label),
+                      excludeSemantics: true,
+                      child: TextButton(
+                        key: ValueKey('tab-${item.id}'),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 2,
+                            vertical: 5,
+                          ),
+                          visualDensity: VisualDensity.standard,
+                          alignment: Alignment.center,
+                          minimumSize: const Size(0, 52),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          backgroundColor: selected == item.id
+                              ? brand.selection
+                              : Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.horizontal(
+                              left: Radius.circular(index == 0 ? 26 : 18),
+                              right: Radius.circular(
+                                index == items.length - 1 ? 26 : 18,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      onPressed: () => onSelected(index),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        spacing: 2,
-                        children: [
-                          AppIcon(
-                            icons[index],
-                            size: 20,
-                            color: selected == index
-                                ? brand.color
-                                : colors.onSurfaceVariant,
-                          ),
-                          Text(
-                            context.tr(labels[index]),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              height: 1.2,
-                              fontWeight: selected == index
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: selected == index
+                        onPressed: () => onSelected(item.id),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          spacing: 2,
+                          children: [
+                            AppIcon(
+                              item.icon,
+                              size: 20,
+                              color: selected == item.id
                                   ? brand.color
                                   : colors.onSurfaceVariant,
                             ),
-                          ),
-                        ],
+                            Text(
+                              context.tr(item.label),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                height: 1.2,
+                                fontWeight: selected == item.id
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: selected == item.id
+                                    ? brand.color
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
+              ],
             ),
           ),
         ),

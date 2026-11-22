@@ -17,7 +17,7 @@ class GitSummary extends ChangeNotifier {
 
   /// Switches to [worktree] without notifying, so it is safe during build.
   void track(HostConnection? host, String? worktree) {
-    if (host?.id == _host?.id && worktree == _worktree) return;
+    if (host == _host && worktree == _worktree) return;
     _host = host;
     _worktree = worktree;
     _generation++;

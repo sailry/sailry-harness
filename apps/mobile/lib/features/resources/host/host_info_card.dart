@@ -278,11 +278,11 @@ Color statusDotColor(BuildContext context, HostStatus status) =>
 
 /// Project, session, terminal and port counts separated by short hairlines.
 class CountsCard extends StatelessWidget {
-  const CountsCard({super.key, required this.host, required this.onOpen});
+  const CountsCard({super.key, required this.host, required this.action});
   final HostConnection host;
 
   /// Receives projects, sessions, terminals or ports.
-  final ValueChanged<String> onOpen;
+  final VoidCallback? Function(String) action;
 
   @override
   Widget build(BuildContext context) {
@@ -315,7 +315,7 @@ class CountsCard extends StatelessWidget {
                   child: InkWell(
                     key: ValueKey('host-$kind'),
                     borderRadius: BorderRadius.circular(16),
-                    onTap: () => onOpen(kind),
+                    onTap: action(kind),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
                       child: Column(

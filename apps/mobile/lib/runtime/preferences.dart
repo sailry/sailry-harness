@@ -11,6 +11,7 @@ class AppPreferences extends ChangeNotifier {
     this.onError,
   }) : _provided = preferences;
 
+  static const _routeKey = 'navigation.route';
   final SharedPreferencesAsync? _provided;
   late final _preferences = _provided ?? SharedPreferencesAsync();
   final bool persist;
@@ -18,12 +19,16 @@ class AppPreferences extends ChangeNotifier {
   ThemeMode mode = ThemeMode.dark;
   Brand brand = Brand.orange;
   AppLanguage language = AppLanguage.chinese;
+  String? _route;
+  String? get route => _route;
   bool notifications = true;
   bool loaded = false;
   bool notificationsEdited = false;
   bool _themeEdited = false;
   bool _brandEdited = false;
   bool _languageEdited = false;
+  bool _routeEdited = false;
+  Future<void> _routeWrite = Future.value();
   bool _closed = false;
 
   Future<void> load() async {
@@ -34,6 +39,7 @@ class AppPreferences extends ChangeNotifier {
       final language = await _preferences.getString('language');
       final notifications =
           await _preferences.getBool('notifications.in_app') ?? true;
+      final route = await _preferences.getString(_routeKey);
       if (_closed) return;
       if (!_themeEdited) {
         mode =
@@ -46,6 +52,7 @@ class AppPreferences extends ChangeNotifier {
             Brand.orange;
       }
       if (!notificationsEdited) this.notifications = notifications;
+      if (!_routeEdited) _route = route;
       if (!_languageEdited) {
         this.language =
             AppLanguage.values
@@ -99,6 +106,19 @@ class AppPreferences extends ChangeNotifier {
     notifications = enabled;
     notifyListeners();
     await _save(() => _preferences.setBool('notifications.in_app', enabled));
+  }
+
+  Future<void> setRoute(String id) {
+    if (_closed) return Future.value();
+    _routeEdited = true;
+    if (_route != id) {
+      _route = id;
+      notifyListeners();
+    }
+    _routeWrite = _routeWrite.then(
+      (_) => _save(() => _preferences.setString(_routeKey, id)),
+    );
+    return _routeWrite;
   }
 
   @override

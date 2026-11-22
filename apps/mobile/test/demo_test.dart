@@ -8,6 +8,7 @@ import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sailry_mobile/app.dart';
+import 'package:sailry_mobile/assembly/harness.dart';
 import 'package:sailry_mobile/demo/connection.dart';
 import 'package:sailry_mobile/features/conversations/live/creation_draft.dart';
 import 'package:sailry_mobile/features/conversations/live/modes.dart';
@@ -271,7 +272,9 @@ void main() {
       preferences: preferences,
     );
     final demo = await session.pairPin('888888');
-    await tester.pumpWidget(SailryApp(session: session));
+    await tester.pumpWidget(
+      SailryApp(assembly: harnessAssembly, session: session),
+    );
     await tester.pump();
     expect(find.text(tr('demoConversationTitle')), findsOneWidget);
 
@@ -537,11 +540,13 @@ void main() {
       savedPeers: (_) async => false,
       initialize: () async => fail('Demo initialized native transport'),
     );
-    await tester.pumpWidget(SailryApp(session: session, updates: updates));
+    await tester.pumpWidget(
+      SailryApp(assembly: harnessAssembly, session: session, updates: updates),
+    );
     await session.start(path: '/isolated/controller');
     await tester.pumpAndSettle();
     expect(checks, 0);
-    await tester.tap(find.byKey(const ValueKey('tab-1')));
+    await tester.tap(find.byKey(const ValueKey('tab-hosts')));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(tr('pair')));
     // The PIN field has a repeating cursor animation.
@@ -565,7 +570,7 @@ void main() {
     expect(find.text('MacBook Pro'), findsOneWidget);
     expect(find.text('macOS 26.1'), findsWidgets);
     expect(find.textContaining('demonstration'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('tab-0')));
+    await tester.tap(find.byKey(const ValueKey('tab-chat')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.text(tr('demoConversationTitle')).first);

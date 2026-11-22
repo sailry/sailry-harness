@@ -15,7 +15,15 @@ require(System.getenv("SAILRY_ANDROID_RELEASE") != "1" || hasReleaseSigning) {
     "Android distribution requires release signing credentials"
 }
 
-val sailryJniDir = rootProject.file("../../../.runtime/native/android-mobile-jni")
+val harnessRoot = rootProject.file(providers.environmentVariable("SAILRY_HARNESS_ROOT").orElse("../../..").get())
+val checkedOutRevision = providers.exec {
+    workingDir(harnessRoot)
+    commandLine("git", "--no-pager", "rev-parse", "--verify", "HEAD")
+}.standardOutput.asText.map { it.trim() }
+val harnessRevision = providers.environmentVariable("SAILRY_HARNESS_REVISION").orElse(checkedOutRevision)
+val sailryJniDir = rootProject.file(providers.environmentVariable("SAILRY_NATIVE_DIR")
+    .orElse(File(harnessRoot, ".runtime/native/android-mobile-jni").path).get())
+val nativeBuilder = rootProject.file("../tool/build_native.sh")
 
 android {
     namespace = "com.sailry.sailry_mobile"
@@ -80,21 +88,24 @@ val nativeAbis = nativePlatforms.map {
     }
 }
 val prepareSailryNative = tasks.register("prepareSailryNative") {
-    val sourceRoot = rootProject.file("../../..")
-    inputs.files(fileTree(File(sourceRoot, "internal/client")), fileTree(File(sourceRoot, "internal/link")),
-        fileTree(File(sourceRoot, "internal/protocol")), fileTree(File(sourceRoot, "internal/mobile")),
-        fileTree(File(sourceRoot, "assets/catalogs")), fileTree(File(sourceRoot, "cmd/sailry-mobile")),
-        File(sourceRoot, "go.mod"), File(sourceRoot, "go.sum"))
+    inputs.files(nativeBuilder, fileTree(File(harnessRoot, "internal")),
+        fileTree(File(harnessRoot, "assets/catalogs")), fileTree(File(harnessRoot, "cmd/sailry-mobile")),
+        File(harnessRoot, "go.mod"), File(harnessRoot, "go.sum"))
+    inputs.property("harnessRoot", harnessRoot.absolutePath)
+    inputs.property("harnessRevision", harnessRevision)
+    inputs.property("checkedOutRevision", checkedOutRevision)
     inputs.property("abis", nativeAbis.joinToString(","))
     inputs.property("ndkVersion", flutter.ndkVersion)
     outputs.files(nativeAbis.map { File(sailryJniDir, "$it/libsailry_mobile.so") })
     doLast {
         nativeAbis.forEach { abi ->
             providers.exec {
-                workingDir(sourceRoot)
                 environment("ANDROID_NDK_HOME", androidComponents.sdkComponents.ndkDirectory.get().asFile.absolutePath)
                 environment("SAILRY_ANDROID_API", android.defaultConfig.minSdk.toString())
-                commandLine("sh", "cmd/sailry-mobile/build.sh", "android", abi)
+                environment("SAILRY_HARNESS_ROOT", harnessRoot.absolutePath)
+                environment("SAILRY_HARNESS_REVISION", harnessRevision.get())
+                environment("SAILRY_NATIVE_DIR", sailryJniDir.absolutePath)
+                commandLine("sh", nativeBuilder.absolutePath, "android", abi)
             }.result.get().assertNormalExitValue()
         }
     }

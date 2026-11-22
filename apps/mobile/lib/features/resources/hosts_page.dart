@@ -6,9 +6,7 @@ import 'pair_form.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import 'resources_page.dart';
-import 'projects_page.dart';
 import 'ports_page.dart';
-import '../conversations/tasks_page.dart';
 import 'host/host_info_card.dart';
 import 'host/host_sheet.dart';
 import 'host/host_tabs.dart';
@@ -16,8 +14,9 @@ import 'host/metric_history.dart';
 import 'host/resource_cards.dart';
 
 class HostsPage extends StatefulWidget {
-  const HostsPage({super.key, this.onBrowse});
-  final ValueChanged<String>? onBrowse;
+  const HostsPage({super.key, this.onBrowseTasks, this.projectList});
+  final ValueChanged<String>? onBrowseTasks;
+  final Widget? Function(HostConnection host)? projectList;
   @override
   State<HostsPage> createState() => _HostsPageState();
 }
@@ -120,24 +119,16 @@ class _HostsPageState extends State<HostsPage> {
 
   void _select() => showHostSheet(context, onPair: _pair);
 
-  void _browse(String kind) {
-    final host = _host!;
-    if (kind == 'ports') {
-      pushPage(context, PortsPage(host: host));
-    } else if (kind == 'projects') {
-      pushPage(context, ProjectsPage(host: host));
-    } else if (widget.onBrowse != null) {
-      widget.onBrowse!(kind);
-    } else {
-      pushPage(
-        context,
-        TasksPage(
-          initialFilter: kind == 'terminals' ? 'terminal' : 'all',
-          sessionsOnly: kind == 'sessions',
-        ),
-      );
-    }
-  }
+  VoidCallback? _browse(HostConnection host, String kind) =>
+      switch ((kind, widget.projectList, widget.onBrowseTasks)) {
+        ('ports', _, _) => () => pushPage(context, PortsPage(host: host)),
+        ('projects', final build?, _) => () {
+          final page = build(host);
+          if (page != null) pushPage(context, page);
+        },
+        ('sessions' || 'terminals', _, final browse?) => () => browse(kind),
+        _ => null,
+      };
 
   /// Keeps the host switcher above a state so another host stays reachable.
   Widget _blocked(HostConnection host, Widget state) => Column(
@@ -220,7 +211,7 @@ class _HostsPageState extends State<HostsPage> {
               const SizedBox(height: 14),
               HostInfoCard(host: host, metrics: _metrics, history: _history),
               gap,
-              CountsCard(host: host, onOpen: _browse),
+              CountsCard(host: host, action: (kind) => _browse(host, kind)),
               if (_metrics.isNotEmpty) ...[
                 gap,
                 TrendCard(history: _history),
