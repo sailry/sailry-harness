@@ -3,7 +3,7 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## [0.2.8](https://github.com/sailry/sailry-harness/releases/tag/v0.2.8) — 2026-11-23
+## [0.2.9](https://github.com/sailry/sailry-harness/releases/tag/v0.2.9) — 2026-11-23
 
 - Open workspace text in the built-in editor with one click, including files without a recognized extension. Keep unsupported files selected in the file list and refresh file lists in place.
 - Keep tool groups and command output collapsed until opened. Release unused tool details, conversation history, terminal frames, and plugin views. Reduce copying during streamed updates.
