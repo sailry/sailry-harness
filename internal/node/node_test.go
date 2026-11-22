@@ -925,15 +925,23 @@ func TestArchiveAndRemoveEvents(t *testing.T) {
 	}
 	commandFixture(t, node, protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: []protocol.SessionRevision{{Session: first.ID, Revision: 2}, {Session: second.ID, Revision: 2}}}})
 	value = snapshotFixture(t, node)
-	if len(value.Sessions) != 0 || value.Cursor != baseline+5 {
+	if len(value.Sessions) != 0 || value.Cursor != baseline+4 {
 		t.Fatalf("remove snapshot = %#v", value)
 	}
 	missing := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: first.ID}}))
 	if missing.Fault == nil || missing.Fault.Code != protocol.ErrorCodeNotFound {
 		t.Fatal("removed session remains readable")
 	}
+	attentionCursor := baseline + 3
 	var revisions int
 	if err := node.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
+		_, events, err := store.EventPage(context.Background(), db, node.ID(), attentionCursor, value.Cursor)
+		if err != nil {
+			return err
+		}
+		if len(events) != 1 || events[0].Event.Kind != "sessions_removed" || !reflect.DeepEqual(events[0].Event.Data, []protocol.SessionID{first.ID, second.ID}) {
+			t.Fatalf("batch removal events = %#v", events)
+		}
 		return db.QueryRowContext(context.Background(), "SELECT count(*) FROM session_revisions").Scan(&revisions)
 	}); err != nil {
 		t.Fatal(err)
