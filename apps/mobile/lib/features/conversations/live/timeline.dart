@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderSliverList;
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
@@ -596,7 +597,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           SliverAlignEnd(
             sliver: SliverPadding(
               padding: widget.padding,
-              sliver: SliverList(
+              sliver: _TranscriptSliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, position) {
                     if (position >= runs.length) {
@@ -617,7 +618,9 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   findChildIndexCallback: (key) {
                     if (key is _TurnItemKey) {
                       final position = transcript.positionOf(key.value);
-                      return position == null ? null : runs.length - 1 - position;
+                      return position == null
+                          ? null
+                          : runs.length - 1 - position;
                     }
                     final index = older.indexWhere((item) => item.key == key);
                     return index < 0 ? null : runs.length + index;
@@ -629,6 +632,34 @@ class _LiveTimelineState extends State<LiveTimeline> {
         ],
       ),
     );
+  }
+}
+
+class _TranscriptSliverList extends SliverList {
+  const _TranscriptSliverList({required super.delegate});
+
+  @override
+  RenderSliverList createRenderObject(BuildContext context) =>
+      _RenderTranscriptSliverList(
+        childManager: context as SliverMultiBoxAdaptorElement,
+      );
+}
+
+class _RenderTranscriptSliverList extends RenderSliverList {
+  _RenderTranscriptSliverList({required super.childManager});
+
+  @override
+  void performLayout() {
+    final first = firstChild;
+    // The standard list walks back from its last layout. At offset zero an
+    // entirely offscreen range can instead be rebuilt from the newest turn.
+    if (constraints.scrollOffset == 0 &&
+        first != null &&
+        indexOf(first) > 0 &&
+        (childScrollOffset(first) ?? 0) > constraints.remainingCacheExtent) {
+      collectGarbage(childCount, 0);
+    }
+    super.performLayout();
   }
 }
 

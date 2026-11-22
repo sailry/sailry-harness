@@ -48,19 +48,26 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   ModalRoute<dynamic>? _route;
   Animation<double>? _cover;
   bool _ticking = true;
+  bool _catalogDirty = true;
   Widget? _catalog;
+  (AppLocalizations?, ColorScheme)? _catalogAppearance;
 
   bool get _previewActive =>
       _ticking && _route?.isCurrent != false && _cover?.isDismissed != false;
+
+  bool _admitPreview() {
+    if (_previewActive) return true;
+    // A deferred preview also needs an update when the catalog itself is unchanged.
+    _catalogDirty = true;
+    return false;
+  }
 
   @override
   void initState() {
     super.initState();
     widget.session.addListener(_changed);
     // One page clock refreshes relative row times and day sections.
-    _clock = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted && _previewActive) setState(() {});
-    });
+    _clock = Timer.periodic(const Duration(minutes: 1), (_) => _changed());
   }
 
   @override
@@ -69,7 +76,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     if (oldWidget.session != widget.session) {
       oldWidget.session.removeListener(_changed);
       widget.session.addListener(_changed);
+      _catalogDirty = true;
     }
+    if (oldWidget.sessionsOnly != widget.sessionsOnly) _catalogDirty = true;
   }
 
   @override
@@ -86,11 +95,19 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   }
 
   void _changed() {
+    _catalogDirty = true;
     if (mounted && _previewActive) setState(() {});
   }
 
   void _uncovered(AnimationStatus status) {
-    if (status.isDismissed) _changed();
+    if (status.isDismissed && mounted && _previewActive) setState(() {});
+  }
+
+  void _updateControls(VoidCallback update) {
+    setState(() {
+      update();
+      _catalogDirty = true;
+    });
   }
 
   @override
@@ -224,11 +241,25 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     // SessionScope may rebuild the parent while another route is visible. Keep
     // the existing rows through that route and its return transition, then
     // project the latest catalog once without replaying intermediate updates.
-    if (!_previewActive && _catalog != null) return _catalog!;
-    return _catalog = _buildCatalog(context);
+    final appearance = (
+      Localizations.of<AppLocalizations>(context, AppLocalizations),
+      Theme.of(context).colorScheme,
+    );
+    if (_catalog != null &&
+        (!_previewActive ||
+            (!_catalogDirty && _catalogAppearance == appearance))) {
+      return _catalog!;
+    }
+    _catalogDirty = !_previewActive;
+    _catalogAppearance = appearance;
+    return _catalog = _buildCatalog(context, context.tr, appearance.$2);
   }
 
-  Widget _buildCatalog(BuildContext context) {
+  Widget _buildCatalog(
+    BuildContext context,
+    Translator translate,
+    ColorScheme colors,
+  ) {
     final selected = widget.session.selectedHost;
     final hosts = [?selected];
     final projectId = widget.session.selectedProjectId;
@@ -259,7 +290,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ).toLowerCase().contains(_search.toLowerCase()))
           (host, session),
     ];
-    final colors = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final groups = groupTasks(
       tasks,
@@ -291,6 +321,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         sessions.isNotEmpty ||
         allTerminals.isNotEmpty;
     final connected = hosts.any((host) => host.connected);
+    final hasHosts = widget.session.hosts.isNotEmpty;
     // A project belongs to the selected host; the unscoped filters summarize
     // every paired host.
     final statusHosts = projectId == null || projectId == unassignedProject
@@ -310,7 +341,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 child: AppIcon('search'),
               ),
             ),
-            onChanged: (value) => setState(() => _search = value),
+            onChanged: (value) => _updateControls(() => _search = value),
           ),
           const SizedBox(height: 16),
         ],
@@ -386,18 +417,58 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         if (taskFilters.contains(_filter))
           TaskFilters(
             selected: _filter,
-            onSelected: (filter) => setState(() => _filter = filter),
-            onArchive: () => setState(() => _filter = 'archived'),
+            onSelected: (filter) => _updateControls(() => _filter = filter),
+            onArchive: () => _updateControls(() => _filter = 'archived'),
           )
         else
           TaskScope(
             label: context.tr(
               _filter == 'archived' ? 'archiveTab' : 'terminal',
             ),
-            onClose: () => setState(() => _filter = 'all'),
+            onClose: () => _updateControls(() => _filter = 'all'),
           ),
       ],
     );
+    final rows = <(Key, Widget Function(Key))>[
+      for (final (group, items) in groups) ...[
+        (ValueKey(group), (key) => _GroupTitle(translate(group.key), key: key)),
+        for (final (index, (host, session)) in items.indexed)
+          (
+            ValueKey((host.id, session['id'])),
+            (key) => _sessionRow(
+              key,
+              host,
+              session,
+              colors: colors,
+              translate: translate,
+              lane: laneOf(session),
+              now: now,
+              divider: index < items.length - 1,
+            ),
+          ),
+      ],
+      if (terminals.isNotEmpty) ...[
+        (
+          const ValueKey('terminals'),
+          (key) => _GroupTitle(translate('terminal'), key: key),
+        ),
+        for (final (index, (host, terminal)) in terminals.indexed)
+          (
+            ValueKey(('terminal', host.id, terminal['id'])),
+            (key) => _terminalRow(
+              key,
+              host,
+              terminal,
+              colors: colors,
+              translate: translate,
+              divider: index < terminals.length - 1,
+            ),
+          ),
+      ],
+    ];
+    final rowIndices = {
+      for (final (index, (key, _)) in rows.indexed) key: index,
+    };
     return PageFrame(
       title: context.tr('brand'),
       subtitle: statusHosts.isEmpty
@@ -409,18 +480,19 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       onRefresh: hosts.isEmpty ? null : _refresh,
       failure: !connected && !hasCatalog
           ? HostState(
-              added: selected != null,
+              added: hasHosts,
               failure: selected?.error,
-              // The first screen offers pairing, so an offline or missing
-              // host is not a dead end.
-              action: FilledButton(
-                onPressed: widget.session.ready ? _pair : null,
-                child: Text(context.tr('pair')),
-              ),
+              showFailureReason: true,
+              action: !hasHosts && widget.session.ready
+                  ? FilledButton(
+                      onPressed: _pair,
+                      child: Text(context.tr('pair')),
+                    )
+                  : null,
             )
           : null,
       actions: [
-        if (widget.session.hosts.isNotEmpty)
+        if (hasHosts)
           RoundButton(
             icon: 'server',
             tooltip: context.tr('selectHost'),
@@ -447,7 +519,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           RoundButton(
             icon: _searching ? 'close' : 'search',
             tooltip: context.tr('searchTasks'),
-            onPressed: () => setState(() {
+            onPressed: () => _updateControls(() {
               _searching = !_searching;
               if (!_searching) _search = '';
             }),
@@ -474,98 +546,111 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             )
           : null,
       pinned: _searching ? null : controls,
-      child: SlidableAutoCloseBehavior(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_searching) ...[controls, const SizedBox(height: 8)],
-            for (final (group, items) in groups) ...[
-              _GroupTitle(context.tr(group.key)),
-              for (final (index, (host, session)) in items.indexed)
-                Slidable(
-                  key: ValueKey((host.id, session['id'])),
-                  endActionPane: ActionPane(
-                    motion: const DrawerMotion(),
-                    extentRatio: .46,
-                    children: [
-                      SwipeAction(
-                        onPressed: host.connected
-                            ? (_) => _archive(host, session)
-                            : null,
-                        color: colors.secondaryContainer,
-                        foreground: colors.onSecondaryContainer,
-                        icon: Icons.archive_outlined,
-                        label: context.tr(
-                          session['archived'] == true
-                              ? 'restore'
-                              : 'archiveShort',
-                        ),
-                      ),
-                      SwipeAction(
-                        onPressed: host.connected
-                            ? (_) => _delete(host, session)
-                            : null,
-                        color: colors.error,
-                        foreground: colors.onError,
-                        icon: Icons.delete_outline,
-                        label: context.tr('delete'),
-                      ),
-                    ],
-                  ),
-                  child: ConversationTask(
-                    key: ValueKey(('preview', host.id, session['id'])),
-                    host: host,
-                    session: session,
-                    lane: laneOf(session),
-                    now: now,
-                    previewActive: () => _previewActive,
-                    divider: index < items.length - 1,
-                    project:
-                        objects(host.snapshot['projects'])
-                            .where(
-                              (project) => project['id'] == session['project'],
-                            )
-                            .firstOrNull ??
-                        {},
-                  ),
-                ),
-            ],
-            if (terminals.isNotEmpty) ...[
-              _GroupTitle(context.tr('terminal')),
-              for (final (index, (host, terminal)) in terminals.indexed)
-                Slidable(
-                  key: ValueKey(('terminal', host.id, terminal['id'])),
-                  endActionPane: ActionPane(
-                    motion: const DrawerMotion(),
-                    extentRatio: .24,
-                    children: [
-                      SwipeAction(
-                        onPressed: host.connected
-                            ? (_) => _closeTerminal(host, terminal)
-                            : null,
-                        color: colors.error,
-                        foreground: colors.onError,
-                        icon: Icons.close,
-                        label: context.tr('close'),
-                      ),
-                    ],
-                  ),
-                  child: TerminalTask(
-                    host: host,
-                    terminal: terminal,
-                    divider: index < terminals.length - 1,
-                  ),
-                ),
-            ],
+      sliver: SlidableAutoCloseBehavior(
+        child: SliverMainAxisGroup(
+          slivers: [
+            if (_searching)
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 8),
+                sliver: SliverToBoxAdapter(child: controls),
+              ),
+            SliverList.builder(
+              itemCount: rows.length,
+              findChildIndexCallback: (key) => rowIndices[key],
+              itemBuilder: (_, index) {
+                final (key, build) = rows[index];
+                return build(key);
+              },
+            ),
           ],
         ),
       ),
     );
   }
+
+  Widget _sessionRow(
+    Key key,
+    HostConnection host,
+    Map<String, dynamic> session, {
+    required ColorScheme colors,
+    required Translator translate,
+    required String lane,
+    required DateTime now,
+    required bool divider,
+  }) {
+    return Slidable(
+      key: key,
+      endActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        extentRatio: .46,
+        children: [
+          SwipeAction(
+            onPressed: host.connected ? (_) => _archive(host, session) : null,
+            color: colors.secondaryContainer,
+            foreground: colors.onSecondaryContainer,
+            icon: Icons.archive_outlined,
+            label: translate(
+              session['archived'] == true ? 'restore' : 'archiveShort',
+            ),
+          ),
+          SwipeAction(
+            onPressed: host.connected ? (_) => _delete(host, session) : null,
+            color: colors.error,
+            foreground: colors.onError,
+            icon: Icons.delete_outline,
+            label: translate('delete'),
+          ),
+        ],
+      ),
+      child: ConversationTask(
+        key: ValueKey(('preview', host.id, session['id'])),
+        host: host,
+        session: session,
+        lane: lane,
+        now: now,
+        admitPreview: _admitPreview,
+        divider: divider,
+        project:
+            objects(host.snapshot['projects'])
+                .where((project) => project['id'] == session['project'])
+                .firstOrNull ??
+            {},
+      ),
+    );
+  }
+
+  Widget _terminalRow(
+    Key key,
+    HostConnection host,
+    Map<String, dynamic> terminal, {
+    required ColorScheme colors,
+    required Translator translate,
+    required bool divider,
+  }) {
+    return Slidable(
+      key: key,
+      endActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        extentRatio: .24,
+        children: [
+          SwipeAction(
+            onPressed: host.connected
+                ? (_) => _closeTerminal(host, terminal)
+                : null,
+            color: colors.error,
+            foreground: colors.onError,
+            icon: Icons.close,
+            label: translate('close'),
+          ),
+        ],
+      ),
+      child: TerminalTask(host: host, terminal: terminal, divider: divider),
+    );
+  }
 }
 
 class _GroupTitle extends StatelessWidget {
-  const _GroupTitle(this.label);
+  const _GroupTitle(this.label, {super.key});
   final String label;
 
   @override

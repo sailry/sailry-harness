@@ -28,6 +28,41 @@ void main() {
   // The default test surface is 800x600, so 40% of the screen is 240.
   const bound = 240.0;
 
+  testWidgets(
+    'collapsed steps mount on demand and retain their scroll offset',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StepDisclosure(
+              key: const ValueKey('steps'),
+              label: '40 steps',
+              children: _steps(40),
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(StepList, skipOffstage: false), findsNothing);
+
+      final header = find.text('40 steps');
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(find.text('step 39').hitTestable(), findsOneWidget);
+
+      await tester.drag(find.byType(ListView), const Offset(0, 5 * _rowHeight));
+      await tester.pumpAndSettle();
+      final earlier = find.text('step 34').hitTestable();
+      final reading = tester.getTopLeft(earlier);
+
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(earlier, findsNothing);
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(earlier), reading);
+    },
+  );
+
   testWidgets('a short process keeps its natural height', (tester) async {
     await _show(tester, 3);
     await tester.pumpAndSettle();

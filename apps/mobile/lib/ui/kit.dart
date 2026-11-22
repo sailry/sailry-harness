@@ -126,7 +126,8 @@ class PageFrame extends StatelessWidget {
   const PageFrame({
     super.key,
     required this.title,
-    required this.child,
+    this.child = const SizedBox.shrink(),
+    this.sliver,
     this.actions = const [],
     this.scroll = true,
     this.loading = false,
@@ -143,6 +144,7 @@ class PageFrame extends StatelessWidget {
   final String title;
   final List<Widget> actions;
   final Widget child;
+  final Widget? sliver;
   final bool scroll;
   final bool loading;
   final EdgeInsetsGeometry padding;
@@ -244,7 +246,7 @@ class PageFrame extends StatelessWidget {
                           ),
                           child: failure,
                         )
-                      : empty != null
+                      : empty != null || sliver != null
                       ? refreshable(
                           top,
                           CustomScrollView(
@@ -253,18 +255,25 @@ class PageFrame extends StatelessWidget {
                                 ScrollViewKeyboardDismissBehavior.onDrag,
                             slivers: [
                               SliverPadding(
-                                padding: padding.add(EdgeInsets.only(top: top)),
-                                sliver: SliverToBoxAdapter(child: child),
-                              ),
-                              SliverFillRemaining(
-                                hasScrollBody: false,
-                                child: Padding(
-                                  padding: padding.add(
-                                    EdgeInsets.only(bottom: bottomInset),
+                                padding: padding.add(
+                                  EdgeInsets.only(
+                                    top: top,
+                                    bottom: empty == null ? bottomInset : 0,
                                   ),
-                                  child: empty,
                                 ),
+                                sliver:
+                                    sliver ?? SliverToBoxAdapter(child: child),
                               ),
+                              if (empty != null)
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: Padding(
+                                    padding: padding.add(
+                                      EdgeInsets.only(bottom: bottomInset),
+                                    ),
+                                    child: empty,
+                                  ),
+                                ),
                             ],
                           ),
                         )

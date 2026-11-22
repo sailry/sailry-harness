@@ -266,6 +266,52 @@ Map<String, dynamic> _transcript(
 }
 
 void main() {
+  testWidgets('an update near the tail preserves an active drag', (
+    tester,
+  ) async {
+    final connection = _LifecycleConnection();
+    final item = conversation(unread: false);
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      connection: connection,
+      snapshot: {
+        'sessions': [item],
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: item,
+        ),
+      ),
+    );
+    final feed = connection.feeds.single;
+    feed.publish(_transcript('session', 'First reply', count: 48));
+    await tester.pumpAndSettle();
+    final list = find.byType(LiveTimeline);
+    final scroll = tester.widget<LiveTimeline>(list).controller;
+    final drag = await tester.startGesture(tester.getCenter(list));
+    await drag.moveBy(const Offset(0, 30));
+    await drag.moveBy(const Offset(0, 18));
+    await tester.pump();
+    final before = scroll.offset;
+    expect(before, inExclusiveRange(0, 96));
+    feed.publish(_transcript('session', 'Updated reply', count: 48));
+    await tester.pump();
+    await tester.pump();
+    expect(scroll.offset, closeTo(before, 0.5));
+    await drag.moveBy(const Offset(0, 35));
+    await tester.pump();
+    expect(scroll.offset, greaterThan(before + 20));
+    await drag.up();
+    await release(tester, session);
+  });
+
   testWidgets('retry refreshes a non-recovering conversation in place', (
     tester,
   ) async {
@@ -553,7 +599,11 @@ void main() {
       final view = _transcript('session', 'Initial body');
       final Map<String, dynamic> page = view['snapshot']['page'];
       page['background'] = [
-        {'id': 'task', 'state': 'running', 'kind': {'kind': 'command'}},
+        {
+          'id': 'task',
+          'state': 'running',
+          'kind': {'kind': 'command'},
+        },
       ];
       page['queue'] = {
         'revision': paused ? 8 : 7,
@@ -576,7 +626,10 @@ void main() {
     final background = inRow(find.text(translate('activityBackground')));
     expect(chip, findsOneWidget);
     expect(background, findsOneWidget);
-    expect(tester.getCenter(chip).dx, lessThan(tester.getCenter(background).dx));
+    expect(
+      tester.getCenter(chip).dx,
+      lessThan(tester.getCenter(background).dx),
+    );
 
     await tester.tap(chip);
     await tester.pumpAndSettle();
@@ -593,7 +646,10 @@ void main() {
 
     publishQueue(paused: true);
     await tester.pumpAndSettle();
-    final resume = find.widgetWithText(OutlinedButton, translate('resumeQueue'));
+    final resume = find.widgetWithText(
+      OutlinedButton,
+      translate('resumeQueue'),
+    );
     expect(tester.widget<OutlinedButton>(resume).onPressed, isNotNull);
     Navigator.of(tester.element(find.byType(LiveQueue))).pop();
     await tester.pumpAndSettle();

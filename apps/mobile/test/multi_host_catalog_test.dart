@@ -569,14 +569,16 @@ void main() {
     tester.view.viewInsets = const FakeViewPadding(bottom: 232);
     await tester.pumpAndSettle();
 
-    final top = tester.getTopLeft(row).dy;
-    await tester.dragFrom(const Offset(320, 109), const Offset(0, -75));
-    await tester.pumpAndSettle();
-    expect(
-      row.hitTestable().evaluate().isNotEmpty ||
-          tester.getTopLeft(row).dy < top,
-      isTrue,
-    );
+    final scroll = Scrollable.of(
+      tester.element(find.byType(TextField)),
+    ).position;
+    final initialOffset = scroll.pixels;
+    for (var i = 0; i < 5 && row.hitTestable().evaluate().isEmpty; i++) {
+      await tester.dragFrom(const Offset(320, 109), const Offset(0, -75));
+      await tester.pumpAndSettle();
+    }
+    expect(scroll.pixels, greaterThan(initialOffset));
+    expect(row.hitTestable(), findsOneWidget);
     await release(tester, session);
   });
 }

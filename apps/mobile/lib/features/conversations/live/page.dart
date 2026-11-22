@@ -10,6 +10,7 @@ import 'package:sailry_bridge/bridge.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import '../../../ui/connection_status.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import '../../resources/resources_page.dart';
@@ -244,7 +245,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void _endOwner([Object? fault]) {
     if (_closed || _ownerEnded) return;
     _ownerEnded = true;
-    _error = fault is Map ? fault['message'] : fault;
+    _error = fault;
     _returnOffset = null;
     _discardView();
     setState(() {});
@@ -337,7 +338,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final following =
             _returnOffset == null &&
             (!_scroll.hasClients ||
-                _scroll.position.extentBefore < _followDistance);
+                (_scroll.position.extentBefore == 0 &&
+                    !_scroll.position.isScrollingNotifier.value));
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         final detailErrors = newDetailErrors(_view.value, value).toList();
@@ -439,6 +441,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       return;
     }
     final position = _scroll.position;
+    if (position.isScrollingNotifier.value) return;
     final saved = _returnOffset;
     if (saved == null && !following) return;
     final desired = position.minScrollExtent + (saved ?? 0);
@@ -447,8 +450,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         .toDouble();
     if (offset != position.pixels) position.jumpTo(offset);
     // Client may still be recovering older pages after the first snapshot.
-    if (desired == offset ||
-        !_hasOlder) {
+    if (desired == offset || !_hasOlder) {
       _returnOffset = null;
     }
   }
@@ -753,32 +755,20 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             ? null
             : QueueChip(state: queued, onOpen: _queue);
         final delegated = _session['delegation'] != null;
-        final fault = object(view['error']);
-        final hostFault = object(widget.host.error);
-        final faults = [fault, hostFault].where((error) => error.isNotEmpty);
-        final displayed =
-            faults
-                .where(
-                  (error) => !['unavailable', 'busy'].contains(error['code']),
-                )
-                .firstOrNull ??
-            faults.firstOrNull;
-        final version = faults.map(versionMismatchKey).nonNulls.firstOrNull;
-        final reason =
-            (version == null ? null : context.tr(version)) ??
-            displayed?['message'] as String? ??
-            _error?.toString() ??
-            hostFault['message'] as String? ??
-            widget.host.error?.toString();
+        final fault = view['error'];
+        final hostFault = widget.host.connected ? null : widget.host.error;
+        final observedFaults = [fault, hostFault].nonNulls;
+        final faults = [_error, ...observedFaults].nonNulls;
+        final failureKey = faults.isEmpty
+            ? null
+            : faults.map(connectionFailureKey).nonNulls.firstOrNull ??
+                  'connectionFailureUnknown';
         // These are the observer's retryable faults, not an application retry loop.
         final reconnecting =
             !_ownerEnded &&
             _error == null &&
-            (widget.host.error == null || hostFault.isNotEmpty) &&
-            [fault, hostFault].every(
-              (error) =>
-                  error.isEmpty ||
-                  ['unavailable', 'busy'].contains(error['code']),
+            observedFaults.every(
+              (error) => const {'unavailable', 'busy'}.contains(object(error)['code']),
             );
         final retry =
             !_ownerEnded && !_retrying && (!_watching || _updates != null)
@@ -793,9 +783,14 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final loading =
             !_ownerEnded &&
             _snapshot.isEmpty &&
-            reason == null &&
+            faults.isEmpty &&
             widget.host.connected;
         final unavailable = !connected;
+        final hasTranscript =
+            (_page['entries'] as List? ?? const []).isNotEmpty ||
+            _transcript.runs.isNotEmpty ||
+            (_snapshot['drafts'] as List? ?? const []).isNotEmpty;
+        final showConnectionBanner = unavailable && hasTranscript;
         // A pending watch or refresh reads as reconnecting rather than a retry.
         final recovering = !_ownerEnded && (reconnecting || retry == null);
         final hasBanner =
@@ -888,7 +883,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           bodyBuilder: (context, bottomInset) => LayoutBuilder(
             builder: (context, constraints) => Column(
               children: [
-                if (hasBanner)
+                if (hasBanner || showConnectionBanner)
                   SizedBox(height: ConversationFrame.contentInset(context)),
                 if (_historyPending != null)
                   MaterialBanner(
@@ -925,11 +920,15 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                       ),
                     ],
                   ),
+                if (hasTranscript)
+                  ConnectionBanner(
+                    visible: showConnectionBanner,
+                    reconnecting: recovering,
+                    failureKey: failureKey,
+                    onRetry: retry,
+                  ),
                 Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      unavailable && _snapshot.isEmpty
+                  child: unavailable && !hasTranscript
                           ? Padding(
                               padding: EdgeInsets.only(
                                 top: ConversationFrame.contentInset(context),
@@ -943,14 +942,11 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                     )
                                   : DisconnectedState(
                                       reconnecting: recovering,
-                                      reason: reason,
+                                      failureKey: failureKey,
                                       onRetry: retry,
                                     ),
                             )
-                          : connected &&
-                                (_page['entries'] as List? ?? const []).isEmpty &&
-                                _transcript.runs.isEmpty &&
-                                (_snapshot['drafts'] as List? ?? const []).isEmpty
+                          : connected && !hasTranscript
                           ? CustomScrollView(
                               slivers: [
                                 SliverFillRemaining(
@@ -979,7 +975,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                               controller: _scroll,
                               padding: EdgeInsets.fromLTRB(
                                 20,
-                                hasBanner
+                                hasBanner || showConnectionBanner
                                     ? 0
                                     : ConversationFrame.contentInset(context),
                                 20,
@@ -1026,21 +1022,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                               turnKey: (turn) =>
                                   _turnKeys.putIfAbsent(turn, GlobalKey.new),
                             ),
-                      Positioned(
-                        top: hasBanner
-                            ? 0
-                            : ConversationFrame.contentInset(context),
-                        left: 0,
-                        right: 0,
-                        child: ConnectionBanner(
-                          visible: unavailable && _snapshot.isNotEmpty,
-                          reconnecting: recovering,
-                          reason: reason,
-                          onRetry: retry,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ],
             ),

@@ -24,6 +24,7 @@ class StepDisclosure extends StatefulWidget {
 
 class _StepDisclosureState extends State<StepDisclosure> {
   final _controller = ExpansibleController();
+  bool _hasExpanded = false;
 
   /// An explicit identifier keeps unrelated scrollables in the turn from
   /// sharing storage, which an ancestor [PageStorageKey] would cause.
@@ -71,8 +72,12 @@ class _StepDisclosureState extends State<StepDisclosure> {
         onTap: _controller.toggle,
       ),
     ),
-    bodyBuilder: (context, animation) =>
-        RowBranch(children: [StepList(children: widget.children)]),
+    bodyBuilder: (context, animation) {
+      if (_controller.isExpanded) _hasExpanded = true;
+      return _hasExpanded
+          ? RowBranch(children: [StepList(children: widget.children)])
+          : const SizedBox.shrink();
+    },
   );
 }
 

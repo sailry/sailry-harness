@@ -64,8 +64,8 @@ class ConversationTask extends StatefulWidget {
     required this.lane,
     required this.project,
     required this.now,
+    required this.admitPreview,
     this.divider = true,
-    this.previewActive,
   });
   final HostConnection host;
   final Map<String, dynamic> session;
@@ -76,8 +76,7 @@ class ConversationTask extends StatefulWidget {
   final DateTime now;
   final bool divider;
 
-  /// A covered task list keeps its rows without continuing background reads.
-  final bool Function()? previewActive;
+  final bool Function() admitPreview;
 
   @override
   State<ConversationTask> createState() => _ConversationTaskState();
@@ -107,7 +106,6 @@ class _ConversationTaskState extends State<ConversationTask> {
   }
 
   void _refresh() {
-    if (widget.previewActive?.call() == false) return;
     // Read markers, titles and configuration revisions do not change history.
     // Run transitions and queue/wait changes still refresh the committed preview.
     final activity = object(widget.session['activity']);
@@ -122,7 +120,7 @@ class _ConversationTaskState extends State<ConversationTask> {
       activity['waiting'],
       activity['queued'],
     ]);
-    if (stamp == _stamp) return;
+    if (stamp == _stamp || !widget.admitPreview()) return;
     _stamp = stamp;
     final request = ++_request;
     _failed = false;
@@ -152,7 +150,7 @@ class _ConversationTaskState extends State<ConversationTask> {
             .where((entry) => entry['turn'] == turn)
             .firstOrNull?['sequence'];
         while (mounted && request == _request) {
-          if (widget.previewActive?.call() == false) {
+          if (!widget.admitPreview()) {
             _stamp = null;
             return;
           }
@@ -179,13 +177,13 @@ class _ConversationTaskState extends State<ConversationTask> {
       }
       if (mounted && request == _request) {
         _preview = preview;
-        if (widget.previewActive?.call() != false) setState(() {});
+        if (widget.admitPreview()) setState(() {});
       }
     } catch (error) {
       debugPrint('Conversation preview unavailable: $error');
       if (mounted && request == _request) {
         _failed = true;
-        if (widget.previewActive?.call() != false) setState(() {});
+        if (widget.admitPreview()) setState(() {});
       }
     }
   }
