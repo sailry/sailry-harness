@@ -22,6 +22,8 @@ const (
 	historyStub   = 3
 )
 
+const contextTPSLabel = "TPS"
+
 // contextFull is every section in a scroll, then Show less.
 func contextFull(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	_, window := c.Size()
@@ -296,19 +298,17 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 	if chosen == nil {
 		s.Selected = ""
 	}
-	fields := func(step *ContextStep) []string {
-		parts := []string{strings.ReplaceAll(i18n.T(c, "meter_step"), "%{count}", fmt.Sprint(step.Step)), tokenLabel(step.Tokens, step.Estimated)}
-		if step.Model != "" {
-			parts = append(parts, step.Model)
-		}
-		speed, first := "—", "—"
+	fields := func(step *ContextStep) (title, tokens, tps, ttft string) {
+		speed, first := contextUnknown, contextUnknown
 		if step.Speed != nil {
 			speed = fmt.Sprintf("%.1f", *step.Speed)
 		}
 		if step.FirstTokenUs != nil {
 			first = contextDuration(c, *step.FirstTokenUs)
 		}
-		return append(parts, "TPS "+speed, i18n.T(c, "meter_first_response")+" "+first)
+		title = strings.ReplaceAll(i18n.T(c, "meter_step"), "%{count}", fmt.Sprint(step.Step))
+		tokens = tokenLabel(step.Tokens, step.Estimated)
+		return title, tokens, contextTPSLabel + " " + speed, i18n.T(c, "meter_first_response") + " " + first
 	}
 	ui.Row(c.Key("history")).FillWidth().Height(historyHeight).Gap(4).AlignItems(ui.End).Children(func() {
 		for i := range historySlots {
@@ -325,7 +325,12 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 			if step.Tokens != nil && *step.Tokens > 0 {
 				height = max(historyStub, float32(*step.Tokens)/float32(peak)*historyHeight)
 			}
-			label := strings.Join(fields(step), "  ")
+			title, tokens, tps, ttft := fields(step)
+			labels := []string{title, tokens}
+			if step.Model != "" {
+				labels = append(labels, step.Model)
+			}
+			label := strings.Join(append(labels, tps, ttft), "  ")
 			b := ui.ButtonBase(c.Key("step/" + step.ID)).Label(label).Grow(1).Basis(0).Height(historyHeight).
 				Cursor(ui.CursorPointer).AccessSelected(chosen == step)
 			kit.ChartTooltip(c, b, stepTip(c, step))
@@ -341,10 +346,22 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 		}
 	})
 	if chosen != nil {
-		ui.Row(c.Key("chosen")).FillWidth().MinWidth(0).Wrap().GapX(10).GapY(3).Children(func() {
-			for _, field := range fields(chosen) {
-				ui.Text(c, field).MinWidth(0).FontSize(12).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
-			}
+		title, tokens, tps, ttft := fields(chosen)
+		field := func(text string) ui.Element {
+			return ui.Text(c, text).FontSize(12).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
+		}
+		ui.Column(c.Key("chosen")).FillWidth().MinWidth(0).Gap(3).Children(func() {
+			ui.Row(c.Key("identity")).FillWidth().MinWidth(0).Gap(10).Children(func() {
+				field(title).Shrink(0)
+				field(tokens).Shrink(0)
+				if chosen.Model != "" {
+					field(chosen.Model).Shrink(1).MinWidth(0)
+				}
+			})
+			ui.Row(c.Key("timing")).FillWidth().MinWidth(0).Gap(10).Children(func() {
+				field(tps)
+				field(ttft)
+			})
 		})
 	}
 	return chosen
@@ -361,7 +378,7 @@ func stepTip(c *ui.Context, step *ContextStep) kit.ChartTip {
 		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: i18n.T(c, "meter_model"), Value: step.Model})
 	}
 	if step.Speed != nil {
-		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: "TPS", Value: fmt.Sprintf("%.1f", *step.Speed)})
+		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: contextTPSLabel, Value: fmt.Sprintf("%.1f", *step.Speed)})
 	}
 	if step.FirstTokenUs != nil {
 		tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: i18n.T(c, "meter_first_response"), Value: contextDuration(c, *step.FirstTokenUs)})
@@ -484,7 +501,7 @@ func contextTiming(c *ui.Context, d *ContextStats) {
 			}
 		})
 		if d.Speed != nil && d.Response != nil {
-			ui.Text(c.Key("speed"), fmt.Sprintf("%s %.1f %s", i18n.T(c, "meter_output_speed"), *d.Speed, i18n.T(c, "meter_speed_unit"))).
+			ui.Text(c.Key("speed"), fmt.Sprintf("%s %.1f %s", contextTPSLabel, *d.Speed, i18n.T(c, "meter_speed_unit"))).
 				FontSize(12).TextColor(p.MutedForeground).SingleLine()
 		}
 	})
@@ -517,7 +534,7 @@ func contextConnection(c *ui.Context, d *ContextStats) {
 		figures = append(figures, contextFigure{label: i18n.T(c, "meter_api_response"), value: contextDuration(c, *d.Response),
 			note: i18n.T(c, "meter_headers_note"), color: latencyColor(p, *d.Response, responseSlow, responseVerySlow)})
 	case d.Speed != nil:
-		figures = append(figures, contextFigure{label: i18n.T(c, "meter_output_speed"),
+		figures = append(figures, contextFigure{label: contextTPSLabel,
 			value: fmt.Sprintf("%.1f %s", *d.Speed, i18n.T(c, "meter_speed_unit"))})
 	}
 	if d.FirstToken != nil {

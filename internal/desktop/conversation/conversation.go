@@ -633,14 +633,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
 	live := latest && active && r.Status != Unsynced
-	answerTools := toolsRevealFailures
-	if r.Status == Running || r.Status == Stopping {
-		answerTools = toolsLive
-	}
-	workTools := answerTools
-	if r.Status == Completed {
-		workTools = toolsFolded
-	}
+	shimmerTools := r.Status == Running || r.Status == Stopping
 	gap := float32(8)
 	if parts.hasWork {
 		gap = workGap
@@ -693,7 +686,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				ui.Divider(c).Background(p.Border)
 				if parts.hasWork && workOpen {
 					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, workTools, r.Phase, actions)
+						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, shimmerTools, r.Phase, actions)
 					})
 				}
 			})
@@ -704,7 +697,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, key, answer, live, answerTools, r.Phase, actions)
+				s.blocks(c, key, answer, live, shimmerTools, r.Phase, actions)
 			})
 		}
 		if latest && !active && r.Changes != nil {
@@ -720,7 +713,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		}
 		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
-				s.blocks(c, key+"-errors", parts.failures, false, toolsFolded, PhaseNone, actions)
+				s.blocks(c, key+"-errors", parts.failures, false, false, PhaseNone, actions)
 			})
 		}
 		if latest && !active {
@@ -756,7 +749,7 @@ func streamSource(c *ui.Context, row ui.Element, src string, streaming bool) str
 }
 
 // blocks builds blocks in transcript order.
-func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, toolRows toolDisplay, phase Phase, actions Actions) {
+func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, shimmerTools bool, phase Phase, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	for i, b := range blocks {
@@ -777,7 +770,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 					})
 				})
 			case ToolsBlock:
-				s.tools(c, b.Calls, toolRows)
+				s.tools(c, b.Calls, shimmerTools)
 			case QuestionBlock:
 				s.question(c, b.Question)
 			case ChildrenBlock:

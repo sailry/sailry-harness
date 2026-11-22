@@ -124,8 +124,10 @@ func TestRestoredUnfinishedTurnExpandsOnlyProcess(t *testing.T) {
 			run.Status = protocol.ConversationStatusCancelled
 			frame("run", run)
 			show()
-			visible(true, liveFailure, failed, commandFail, "First worker", "Second worker")
-			visible(false, failure)
+			visible(true, liveLabel, failed, commandFail, "First worker", "Second worker")
+			visible(false, liveFailure, failure)
+			click(liveLabel)
+			visible(true, liveFailure)
 		})
 	}
 }

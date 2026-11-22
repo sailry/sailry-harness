@@ -15,14 +15,13 @@ func TestToolRowsKeepExecutionInput(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		call Call
-		open bool
 	}{
-		{"failed", Call{Failed: true}, true},
-		{"denied", Call{State: Denied, Warning: true}, false},
-		{"interrupted", Call{State: StateInterrupted, Warning: true}, false},
-		{"not_executed", Call{State: NotExecuted, Warning: true}, false},
-		{"tool_failure", Call{Warning: true}, true},
-		{"background", Call{Background: &Background{Outcome: OutcomeFailed, Waiting: true}}, false},
+		{"failed", Call{Failed: true}},
+		{"denied", Call{State: Denied, Warning: true}},
+		{"interrupted", Call{State: StateInterrupted, Warning: true}},
+		{"not_executed", Call{State: NotExecuted, Warning: true}},
+		{"tool_failure", Call{Warning: true}},
+		{"background", Call{Background: &Background{Outcome: OutcomeFailed, Waiting: true}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call := test.call
@@ -37,11 +36,11 @@ func TestToolRowsKeepExecutionInput(t *testing.T) {
 				theme.Apply(c, "", theme.Light)
 				palette := theme.Of(c)
 				status, danger, warning = rowColor(palette, call), palette.Danger, palette.Warning
-				state.row(c, call, false)
+				state.row(c, call)
 			}, 900, 300)
 			tester.SetLocale("zh-CN")
 			tester.Frame()
-			if !tester.HasText("Command") || !tester.HasText(command) || tester.HasText(raw) != test.open {
+			if !tester.HasText("Command") || !tester.HasText(command) || tester.HasText(raw) {
 				t.Fatalf("row lost its execution input or has the wrong default disclosure: %q", tester.Texts())
 			}
 			for _, key := range []string{"tool_failed", "approval_rejected", "tool_interrupted", "tool_not_executed", "background_result_waiting"} {
@@ -52,12 +51,10 @@ func TestToolRowsKeepExecutionInput(t *testing.T) {
 			if call.Failed && status != danger || (call.State != StateNone || call.Background != nil) && status != warning {
 				t.Fatal("hiding status text changed the failure or warning color")
 			}
-			if !test.open {
-				if err := tester.Click("Command"); err != nil {
-					t.Fatal(err)
-				}
-				tester.Frame()
+			if err := tester.Click("Command"); err != nil {
+				t.Fatal(err)
 			}
+			tester.Frame()
 			if !tester.HasText(raw) || !tester.HasText(command) || tester.HasText(call.Error) {
 				t.Fatalf("expanded output changed the original result or replaced the execution input: %q", tester.Texts())
 			}
@@ -71,11 +68,18 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	state := New()
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		state.row(c, call, false)
+		state.row(c, call)
 	}, 900, 300)
 	tester.Frame()
+	if tester.HasText(failure) || !tester.HasText(call.Detail) {
+		t.Fatalf("failed row did not show just its input: %q", tester.Texts())
+	}
+	if err := tester.Click("Command"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
 	if !tester.HasText(failure) || !tester.HasText(call.Detail) {
-		t.Fatalf("failed row did not open onto its message: %q", tester.Texts())
+		t.Fatalf("opening the failed row lost its input or message: %q", tester.Texts())
 	}
 	if err := tester.Click("Command"); err != nil {
 		t.Fatal(err)
@@ -125,7 +129,7 @@ func TestToolCommandShowsOnlyOutput(t *testing.T) {
 			state := New()
 			tester := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
-				state.row(c, call, false)
+				state.row(c, call)
 			}, 900, 300)
 			tester.SetLocale("zh-CN")
 			tester.Frame()
@@ -155,7 +159,7 @@ func TestOpenToolDetailLifetime(t *testing.T) {
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		if mounted {
-			state.row(c, call, false)
+			state.row(c, call)
 		}
 	}, 640, 400)
 	frame := func() { tester.Frame() }
@@ -212,7 +216,7 @@ func TestFoldedToolImageIsResolvedOnlyWhenShown(t *testing.T) {
 	state := New()
 	var reads int
 	state.resolveImage = func(session string, image Image) Image { reads++; return image }
-	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); state.row(c, call, false) }, 640, 400)
+	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); state.row(c, call) }, 640, 400)
 	tester.Frame()
 	if reads != 0 {
 		t.Fatal("folded tool requested its bitmap")

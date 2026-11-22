@@ -159,13 +159,17 @@ func contextStats(s *protocol.ConversationStatistics, model string, limit uint32
 			d.Phases = append(d.Phases, conversation.ContextPhase{Key: phase.key, Micros: *phase.value, Chart: phase.chart})
 		}
 	}
-	if g := s.Generation; g != nil && g.ElapsedUs > 0 {
-		speed := float64(g.OutputTokens) * 1_000_000 / float64(g.ElapsedUs)
+	if throughput := s.Throughput; throughput != nil && throughput.ElapsedUs > 0 {
+		speed := modelTPS(throughput.OutputTokens, throughput.ElapsedUs)
 		d.Speed = &speed
 	}
 	d.PairedResponse, d.WaitingAfterResponse = o.Latency.PairedResponseUs, o.Latency.WaitingUs
 	d.Response, d.FirstToken, d.Elapsed = o.Latency.ResponseUs, o.Latency.FirstTokenUs, o.Latency.ElapsedUs
 	return d
+}
+
+func modelTPS(outputTokens, elapsedUs uint64) float64 {
+	return float64(outputTokens) * 1_000_000 / float64(elapsedUs)
 }
 
 // contextCategories are the context's categories in the meter's order, with
@@ -201,10 +205,6 @@ func contextSteps(recent []protocol.ConversationObservationRequest) []conversati
 			attempt := request.Attempts[len(request.Attempts)-1]
 			step.Complete = attempt.CompleteContext
 			step.FirstTokenUs = attempt.FirstTokenUs
-			if generation := attempt.Usage.DecodeGeneration(attempt.ElapsedUs, attempt.FirstTokenUs, attempt.ReasoningStreamed); generation != nil {
-				rate := float64(generation.OutputTokens) * 1_000_000 / float64(generation.ElapsedUs)
-				step.Speed = &rate
-			}
 			whole, known := uint64(0), true
 			for _, category := range contextCategories {
 				part := conversation.ContextPart{Key: category.key, Chart: category.chart}
@@ -224,6 +224,11 @@ func contextSteps(recent []protocol.ConversationObservationRequest) []conversati
 			if u := attempt.Usage; u != nil {
 				total := u.Input + u.Output
 				step.Tokens = &total
+				if elapsed := attempt.ElapsedUs; elapsed != nil && *elapsed > 0 &&
+					(step.FirstTokenUs == nil || *step.FirstTokenUs <= *elapsed) {
+					speed := modelTPS(u.Output, *elapsed)
+					step.Speed = &speed
+				}
 			} else if attempt.CompleteContext && known {
 				step.Tokens, step.Estimated = &whole, true
 			}

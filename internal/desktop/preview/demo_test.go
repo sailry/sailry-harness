@@ -39,6 +39,7 @@ var unshown = map[string]string{
 	"conversation.Session.Embed":               "the owning Node's image and workspace lookup",
 	"conversation.Call.DetailRevision":         "the live revision used to invalidate a loaded disclosure",
 	"conversation.Call.Load":                   "a live disclosure's request",
+	"conversation.Output.AttachCards":          "binds live result cards when its disclosure opens",
 	"conversation.Output.Copy":                 "reads live retained output from the owning Node",
 	"conversation.Turn.InputOnly":              "optimistic input while awaiting admission on a live host",
 	"composer.Attachment.Chip":                 "set by a pick in the live browser, which binds the file to its chip",

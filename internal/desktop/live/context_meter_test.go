@@ -26,7 +26,8 @@ func meterStatistics() *protocol.ConversationStatistics {
 	s.ContextTokens, s.ContextLimit, s.ContextModel = pointer(uint64(47_200)), pointer(uint32(1_000_000)), pointer("sonnet")
 	s.Budget = &protocol.ConversationCompactionBudget{Model: "sonnet", ContextLimit: 1_000_000, TriggerTokens: 800_000, OutputReserve: 128_000}
 	s.Cost = &protocol.UsageCost{UsdMicros: 141_234, Responses: 3}
-	s.Generation = &protocol.UsageGeneration{ElapsedUs: 2_000_000, OutputTokens: 40}
+	s.Generation = &protocol.UsageGeneration{ElapsedUs: 2_000_000, OutputTokens: 40, Responses: 1}
+	s.Throughput = &protocol.UsageGeneration{ElapsedUs: 12_000_000, OutputTokens: 222, Responses: 3}
 	s.Observations.Tools = map[string]uint64{"plugin_0123456789abcdef_read": 2, "read": 1, "mcp_search_0123456789abcdef01234567": 1}
 	s.Observations.Phases.WaitingUs = pointer(uint64(1_000))
 	request := func(turn byte, index, input uint64) protocol.ConversationObservationRequest {
@@ -63,8 +64,8 @@ func TestContextStats(t *testing.T) {
 	if len(d.Tools) != 2 || d.Tools[0].Name != "read" || d.Tools[0].Count != 3 || *d.ToolCalls != 4 {
 		t.Errorf("tools %+v (%d calls), want read 3 then search 1", d.Tools, *d.ToolCalls)
 	}
-	if d.Cost != "0.14" || d.Speed == nil || *d.Speed != 20 {
-		t.Errorf("cost %q, speed %v", d.Cost, d.Speed)
+	if d.Cost != "0.14" {
+		t.Errorf("cost %q, want 0.14", d.Cost)
 	}
 }
 
@@ -202,22 +203,84 @@ func TestContextStatsPairedLatency(t *testing.T) {
 	}
 }
 
+func TestDesktopTPSUsesThroughput(t *testing.T) {
+	s := meterStatistics()
+	for _, tc := range []struct {
+		name       string
+		throughput *protocol.UsageGeneration
+		want       *float64
+	}{
+		{name: "full elapsed", throughput: s.Throughput, want: pointer(18.5)},
+		{name: "zero output", throughput: &protocol.UsageGeneration{ElapsedUs: 1_000_000, Responses: 1}, want: pointer(0.0)},
+		{name: "legacy generation only"},
+		{name: "zero elapsed", throughput: &protocol.UsageGeneration{OutputTokens: 222, Responses: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s.Throughput = tc.throughput
+			d := contextStats(s, "sonnet", 200_000, false)
+			wantUsage := 0.0
+			if tc.want == nil {
+				if d.Speed != nil {
+					t.Errorf("context TPS = %v, want unknown", *d.Speed)
+				}
+			} else {
+				wantUsage = *tc.want
+				if d.Speed == nil || *d.Speed != wantUsage {
+					t.Errorf("context TPS = %v, want %v", d.Speed, wantUsage)
+				}
+			}
+			if got := conversationUsage(s).Speed; got != wantUsage {
+				t.Errorf("conversation TPS = %v, want %v", got, wantUsage)
+			}
+		})
+	}
+}
+
 func TestContextStepTimingUsesSelectedAttempt(t *testing.T) {
 	s := meterStatistics()
-	old := &s.Observations.Recent[0].Attempts[0]
-	old.FirstTokenUs, old.ElapsedUs = pointer(uint64(3)), pointer(uint64(8))
 	request := &s.Observations.Recent[2]
-	latest := request.Attempts[0]
-	latest.FirstTokenUs, latest.ElapsedUs = pointer(uint64(500_000)), pointer(uint64(2_500_000))
-	latest.Usage = &protocol.ConversationUsage{Output: 150, Reasoning: 30}
-	request.Attempts = []protocol.ConversationObservationAttempt{*old, latest}
-	steps := contextSteps(s.Observations.Recent)
-	if steps[0].Speed != nil || steps[0].FirstTokenUs != nil || steps[1].Speed == nil || *steps[1].Speed != 60 || steps[1].FirstTokenUs == nil || *steps[1].FirstTokenUs != 500_000 {
-		t.Fatalf("per-step request timing = %+v", steps)
-	}
-	request.Attempts[1].Usage = nil
-	steps = contextSteps(s.Observations.Recent)
-	if steps[1].Speed != nil || steps[1].FirstTokenUs == nil || *steps[1].FirstTokenUs != 500_000 {
-		t.Fatal("first-token measurement must survive missing usage without borrowing speed from a retry")
+	old, latest := request.Attempts[0], request.Attempts[0]
+	old.FirstTokenUs, old.ElapsedUs = pointer(uint64(100_000)), pointer(uint64(500_000))
+	old.Usage = &protocol.ConversationUsage{Output: 45}
+	latest.ReasoningReported = true
+	request.Attempts = []protocol.ConversationObservationAttempt{old, latest}
+
+	usage := &protocol.ConversationUsage{Output: 1236, Reasoning: 236}
+	first, elapsed := pointer(uint64(5_000_000)), pointer(uint64(31_500_000))
+	rate := pointer(1236.0 / 31.5)
+	for _, tc := range []struct {
+		name           string
+		usage          *protocol.ConversationUsage
+		first, elapsed *uint64
+		want           *float64
+	}{
+		{name: "full elapsed includes reasoning", usage: usage, first: first, elapsed: elapsed, want: rate},
+		{name: "TTFT equals elapsed", usage: usage, first: elapsed, elapsed: elapsed, want: rate},
+		{name: "missing TTFT", usage: usage, elapsed: elapsed, want: rate},
+		{name: "impossible TTFT", usage: usage, first: pointer(*elapsed + 1), elapsed: elapsed},
+		{name: "missing elapsed", usage: usage, first: first},
+		{name: "zero elapsed", usage: usage, elapsed: pointer(uint64(0))},
+		{name: "missing usage", first: first, elapsed: elapsed},
+		{name: "zero output", usage: &protocol.ConversationUsage{}, first: first, elapsed: elapsed, want: pointer(0.0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempt := &request.Attempts[1]
+			attempt.Usage, attempt.FirstTokenUs, attempt.ElapsedUs = tc.usage, tc.first, tc.elapsed
+			steps := contextSteps(s.Observations.Recent)
+			if len(steps) != 2 || steps[0].Speed != nil || steps[0].FirstTokenUs != nil {
+				t.Fatalf("unexpected step history: %+v", steps)
+			}
+			step := steps[1]
+			if step.FirstTokenUs != tc.first {
+				t.Errorf("step TTFT = %v, want the latest attempt's %v", step.FirstTokenUs, tc.first)
+			}
+			if tc.want == nil {
+				if step.Speed != nil {
+					t.Errorf("step TPS = %v, want unknown", *step.Speed)
+				}
+			} else if step.Speed == nil || *step.Speed != *tc.want {
+				t.Errorf("step TPS = %v, want %v", step.Speed, *tc.want)
+			}
+		})
 	}
 }

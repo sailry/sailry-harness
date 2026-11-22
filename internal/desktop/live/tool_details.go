@@ -175,7 +175,6 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 	projected.ID = call.ID
 	projected.Pending = call.Pending
 	projected.Running = call.Running
-	projected.Restored = call.Restored
 	projected.Standalone, projected.Terminal = call.Standalone, call.Terminal
 	projected.Background = call.Background
 	if !projected.Failed {

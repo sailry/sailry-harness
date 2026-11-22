@@ -28,7 +28,7 @@ func TestGeneratedImagePreviewOnlyInAnswer(t *testing.T) {
 			tester := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				ui.Column(c).Fill().Children(func() {
-					state.row(c.Key("process"), call, false)
+					state.row(c.Key("process"), call)
 					if test.answer {
 						state.thumbnails(c.Key("answer"), "answer-images", []Image{picture}, false)
 					}

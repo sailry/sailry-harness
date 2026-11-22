@@ -12,18 +12,21 @@ import (
 // all of them.
 func TestUnfinishedTurnOpensAllParts(t *testing.T) {
 	read := func(id, path string) Block {
-		return Block{Kind: ToolsBlock, Calls: []Call{{ID: id, Name: "read", Label: "Read file", Detail: path, Code: true, Output: &Output{Text: path}}}}
+		return Block{Kind: ToolsBlock, Calls: []Call{{ID: id, Name: "read", Label: "Read file", Detail: path, Code: true, Output: &Output{Text: "contents of " + path}}}}
 	}
-	for _, status := range []RunStatus{Running, Completed, Cancelled, Interrupted, Failed} {
+	for _, status := range []RunStatus{Running, Stopping, Completed, Cancelled, Interrupted, Failed} {
 		turn := Turn{ID: "t", User: "Go", Reply: Reply{Status: status, Blocks: []Block{read("a", "a.go"), {Kind: TextBlock, Text: "said"}, read("b", "b.go")}},
 			Segments: []Segment{{From: 0, Inputs: []Input{{ID: "t", User: "Go"}}}, {From: 2, Inputs: []Input{{ID: "m", User: "more"}}}}}
 		s := New()
 		tt := ui.NewTester(func(c *ui.Context) { View(c, s, "s", []Turn{turn}, nil, still{}) }, 900, 700)
 		tt.SetLocale("en")
 		tt.Frame()
-		earlier, latest := status != Completed, status != Completed
-		if tt.HasText("a.go") != earlier || !tt.HasText("said") || tt.HasText("b.go") != latest {
-			t.Fatalf("status %d: earlier part %v, latest work %v, want %v and %v: %q", status, tt.HasText("a.go"), tt.HasText("b.go"), earlier, latest, tt.Texts())
+		wantOpen := status != Completed
+		if tt.HasText("a.go") != wantOpen || !tt.HasText("said") || tt.HasText("b.go") != wantOpen {
+			t.Fatalf("status %d: want both process sections open=%v and the answer visible: %q", status, wantOpen, tt.Texts())
+		}
+		if tt.HasText("contents of a.go") || tt.HasText("contents of b.go") {
+			t.Fatalf("status %d: a tool result opened with its process section: %q", status, tt.Texts())
 		}
 	}
 }

@@ -177,37 +177,51 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 	}
 }
 
-// A group stays closed while its run is active, and the finished turn
-// reveals a failure with detail.
-func TestToolGroupRevealsFailureMessage(t *testing.T) {
+func TestFailedToolGroupRequiresManualDisclosure(t *testing.T) {
+	const failure = "the plugin could not read the changes\nCode: changes_unavailable"
 	s := New()
-	display := toolsLive
+	loads := 0
 	calls := []Call{
 		{ID: "review", Name: "review_scope", Label: "Review scope", Running: true},
 		{ID: "read", Name: "read_file", Label: "Read file", Output: &Output{Text: "successful output"}},
 	}
+	turns := []Turn{{ID: "run", User: "Review", Reply: Reply{Status: Running, Phase: ExecutingTool,
+		Blocks: []Block{{Kind: ToolsBlock, Calls: calls}}}}}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, display)
-	}, 600, 400)
+		View(c, s, "session", turns, nil, still{})
+	}, 900, 700)
+	tt.SetLocale("en")
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
-	if tt.HasText("Review scope") {
+	if !tt.HasText("Read file") || tt.HasText("Review scope") {
 		t.Fatalf("consecutive calls were not folded: %q", tt.Texts())
 	}
 	calls[0].Running, calls[0].Failed = false, true
-	calls[0].Output = &Output{Failure: "the plugin could not read the changes\nCode: changes_unavailable", ToolFailure: true}
-	tt.Frame()
-	if tt.HasText(calls[0].Output.Failure) {
-		t.Fatalf("an active group opened on a failure: %q", tt.Texts())
+	calls[0].Output = &Output{}
+	calls[0].Load = func(apply func(*Output)) func() {
+		loads++
+		apply(&Output{Failure: failure})
+		return nil
 	}
-	display = toolsRevealFailures
+	turns[0].Reply.Status, turns[0].Reply.Phase = Failed, PhaseNone
 	tt.Frame()
-	if !tt.HasText(calls[0].Output.Failure) || tt.HasText("successful output") {
-		t.Fatalf("the finished group's error did not open on its own: %q", tt.Texts())
+	if !tt.HasText("Read file") || tt.HasText("Review scope") || tt.HasText(failure) || loads != 0 {
+		t.Fatalf("the failed run did not keep the group folded: %q, %d detail loads", tt.Texts(), loads)
 	}
-	if !slices.ContainsFunc(tt.Texts(), func(text string) bool { return strings.Contains(text, "Code: changes_unavailable") }) {
-		t.Fatalf("the group's error lost its code: %q", tt.Texts())
+	if err := tt.Click("Read file"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Review scope") || tt.HasText(failure) || loads != 0 {
+		t.Fatalf("opening the group did not leave the tool result folded: %q, %d detail loads", tt.Texts(), loads)
+	}
+	if err := tt.Click("Review scope"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText(failure) || tt.HasText("successful output") || loads != 1 {
+		t.Fatalf("opening the failed tool did not reveal just its result: %q, %d detail loads", tt.Texts(), loads)
 	}
 }
 
@@ -245,9 +259,10 @@ func TestToolRowPathList(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, toolsRevealFailures)
+		s.tools(c, calls, false)
 	}, 900, 600)
 	tt.SetLocale("en")
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	// The two calls fold together, the failure included, under one header.
 	if textCount(tt, "Find files") != 0 || tt.HasText("b/three.go") || textCount(tt, "Find more") != 1 {
@@ -257,11 +272,13 @@ func TestToolRowPathList(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if tt.HasText("a/one.go") || tt.HasText("aggregate") {
-		t.Fatalf("closed rows show their paths: %q", tt.Texts())
+	if tt.HasText("a/one.go") || tt.HasText("aggregate") || tt.HasText("b/three.go") || tt.HasText("partial listing") {
+		t.Fatalf("opening the group exposed results from closed rows: %q", tt.Texts())
 	}
+	clickRow(t, tt, "Find more")
+	tt.Frame()
 	if !tt.HasText("b/three.go") || !tt.HasText("partial listing") || !tt.HasText("One folder was skipped") || tt.HasText("Partial results") {
-		t.Fatalf("a failed path list lost its default details: %q", tt.Texts())
+		t.Fatalf("opening a failed path list lost its details: %q", tt.Texts())
 	}
 	if err := tt.Click("Find files"); err != nil {
 		t.Fatal(err)
@@ -304,7 +321,7 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, toolsLive)
+		s.tools(c, calls, true)
 	}, 900, 600)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -495,7 +512,7 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 		s := New()
 		tt := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
-			s.tools(c, calls, toolsLive)
+			s.tools(c, calls, true)
 		}, 600, 400)
 		tt.SetLocale("en")
 		tt.SetPreferences(ui.Preferences{ReduceMotion: reduce})
@@ -528,24 +545,29 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 	}
 }
 
-// A failed command stays closed while its run is active, and the finished
-// turn reveals its failure.
-func TestFailedRowOpensAfterRun(t *testing.T) {
+func TestFailedCommandStaysFoldedAfterStop(t *testing.T) {
+	const failure = "exit status 2"
 	s := New()
-	calls := []Call{{ID: "run", Name: "run_command", Label: "Command", Detail: "make", Failed: true, Output: &Output{Failure: "exit status 2"}}}
-	display := toolsLive
+	call := Call{ID: "command", Name: "run_command", Label: "Command", Detail: "make", Code: true, Standalone: true, Failed: true, Output: &Output{Failure: failure, Command: true}}
+	turns := []Turn{{ID: "run", User: "Build", Reply: Reply{Blocks: []Block{{Kind: ToolsBlock, Calls: []Call{call}}}}}}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		s.tools(c, calls, display)
-	}, 600, 400)
+		View(c, s, "session", turns, nil, still{})
+	}, 900, 700)
+	tt.SetLocale("en")
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
-	tt.Frame()
-	if tt.HasText("exit status 2") {
-		t.Fatalf("an active failed command opened: %q", tt.Texts())
+	for _, status := range []RunStatus{Running, Stopping, Cancelled} {
+		turns[0].Reply.Status = status
+		tt.Frame()
+		if !tt.HasText(call.Label) || !tt.HasText(call.Detail) || tt.HasText(failure) {
+			t.Fatalf("status %d did not show just the command summary: %q", status, tt.Texts())
+		}
 	}
-	display = toolsRevealFailures
+	if err := tt.Click(call.Label); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
-	if !tt.HasText("exit status 2") {
-		t.Fatalf("the finished failed command did not open: %q", tt.Texts())
+	if !tt.HasText(call.Detail) || !tt.HasText(failure) {
+		t.Fatalf("opening the command lost its input or failure: %q", tt.Texts())
 	}
 }

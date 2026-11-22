@@ -2,6 +2,7 @@ package conversation_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,7 +160,7 @@ func TestContextMeterExpands(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"claude-sonnet-5-5", "47.2k", "/ 1M", "4.7%", "Until compaction 752.8k", "Output reserve 128k",
-		"2 turns · ≈ $0.14", "102.7k", "222", "50%", "1.74 s", "3.81 s", "14.37 s", "12.19 s"} {
+		"2 turns · ≈ $0.14", "102.7k", "222", "50%", "1.74 s", "3.81 s", "14.37 s", "12.19 s", "TPS 18.8 tok/s"} {
 		if !slices.Contains(texts, want) {
 			t.Errorf("the details lack %q: %q", want, texts)
 		}
@@ -261,22 +262,52 @@ func TestContextMeterHover(t *testing.T) {
 // A step of the history chooses the details' categories; again, the whole.
 func TestContextMeterStep(t *testing.T) {
 	s := &conversation.ContextMeterState{Open: true, Expanded: true}
-	tt := meterTester(t, s, meterStats())
+	d := meterStats()
+	d.Steps[0].Model = "gpt-6.2-astra"
+	tt := meterTester(t, s, d)
 	meterSettle(tt)
-	step := "Step 1  20k  TPS 18.8  TTFT 120.0 ms"
-	bar, ok := tt.Access(step)
-	if !ok {
-		t.Fatalf("no step bar %q: %q", step, tt.Texts())
+	stepBar := func() ui.Rect {
+		t.Helper()
+		step := "Step 1  20k  " + d.Steps[0].Model + "  TPS 18.8  TTFT 120.0 ms"
+		bar, ok := tt.Access(step)
+		if !ok {
+			t.Fatalf("no step bar %q: %q", step, tt.Texts())
+		}
+		return bar.Bounds
 	}
-	tt.ClickAt(bar.Bounds.X+bar.Bounds.W/2, bar.Bounds.Y+bar.Bounds.H-1)
+	bar := stepBar()
+	tt.ClickAt(bar.X+bar.W/2, bar.Y+bar.H-1)
+	tt.Move(0, 0)
 	meterSettle(tt)
-	if !tt.HasText("TPS 18.8") || !tt.HasText("TTFT 120.0 ms") {
-		t.Fatalf("missing selected step measurements: %q", tt.Texts())
-	}
 	if s.Selected != "a" {
 		t.Fatalf("the step chosen is %q, want a", s.Selected)
 	}
-	tt.ClickAt(bar.Bounds.X+bar.Bounds.W/2, bar.Bounds.Y+bar.Bounds.H-1)
+	textBounds := func(text string) ui.Rect {
+		t.Helper()
+		bounds, ok := tt.Find(text)
+		if !ok || bounds.W <= 0 || bounds.H <= 0 {
+			t.Fatalf("missing selected step field %q: %q", text, tt.Texts())
+		}
+		return bounds
+	}
+	for _, model := range []string{d.Steps[0].Model, strings.Repeat("provider-long-model-", 8)} {
+		d.Steps[0].Model = model
+		meterSettle(tt)
+		title, tokens, modelText := textBounds("Step 1"), textBounds("20k"), textBounds(model)
+		tps, ttft := textBounds("TPS 18.8"), textBounds("TTFT 120.0 ms")
+		bar = stepBar()
+		if title.Y < bar.Y+bar.H || tokens.Y != title.Y || modelText.Y != title.Y || tokens.X < title.X+title.W || modelText.X < tokens.X+tokens.W {
+			t.Errorf("identity fields are not ordered on one line below the bar: bar %v, title %v, tokens %v, model %v", bar, title, tokens, modelText)
+		}
+		if tps.Y < title.Y+title.H || ttft.Y != tps.Y || ttft.X < tps.X+tps.W {
+			t.Errorf("TPS and TTFT do not share a second line: title %v, TPS %v, TTFT %v", title, tps, ttft)
+		}
+		window, ok := tt.AccessByRole(ui.RoleGroup, i18n.In("en", "meter_title"))
+		if !ok || modelText.X+modelText.W > window.Bounds.X+window.Bounds.W+1 {
+			t.Errorf("model extends beyond the context meter: model %v, context bar %v", modelText, window.Bounds)
+		}
+	}
+	tt.ClickAt(bar.X+bar.W/2, bar.Y+bar.H-1)
 	meterSettle(tt)
 	if s.Selected != "" {
 		t.Errorf("a second click kept step %q", s.Selected)

@@ -25,7 +25,7 @@ func TestProjectToolDetailKeepsCanonicalStateAndImages(t *testing.T) {
 			background := &conversation.Background{Running: true}
 			image := conversation.Image{ID: "fixture-image", Name: "fixture.png", Width: 4, Height: 4}
 			call := conversation.Call{ID: "fixture-call", Name: "run_command", State: test.state, Pending: test.pending,
-				Running: true, Restored: true, Standalone: true, Terminal: true, Background: background, Output: &conversation.Output{Images: []conversation.Image{image}}}
+				Running: true, Standalone: true, Terminal: true, Background: background, Output: &conversation.Output{Images: []conversation.Image{image}}}
 			summary := protocol.DefaultToolDetailSummary()
 			summary.HasDetails = true
 			summary.Failure = &protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime}
@@ -40,9 +40,6 @@ func TestProjectToolDetailKeepsCanonicalStateAndImages(t *testing.T) {
 			ProjectToolDetail(&call, &summary, loaded, "en")
 			if call.ID != "fixture-call" || call.Name != "run_command" || !call.Standalone || !call.Terminal || call.Background != background || call.Pending != test.pending {
 				t.Fatal("loaded details changed canonical identity or interaction state")
-			}
-			if !call.Restored {
-				t.Fatal("loaded details lost their restored disclosure default")
 			}
 			if call.Label != "Fixture command" || call.Detail != "printf fixture" || !call.Code || call.Output == nil || call.Output.Text != "fixture" || !call.Output.Command || !reflect.DeepEqual(call.Output.Paths, []string{"fixture.txt"}) || !reflect.DeepEqual(call.Output.Images, []conversation.Image{image}) {
 				t.Fatalf("loaded content was not projected consistently: %+v", call)

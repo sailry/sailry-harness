@@ -919,7 +919,7 @@ func TestDemoMode(t *testing.T) {
 			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details", "Show less",
 			"Session usage", fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros),
 			"Input", count(input), "Cache hit", "Output", count(usage.Tokens/demoOutputShare), "Subagents",
-			"Active time", "Wait", "Reply", "Tools", "Other", "Generation speed "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
+			"Active time", "Wait", "Reply", "Tools", "Other", "TPS "+demoTPS(cv),
 			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
 		// Its folds: what the context divides into, the tool calls by name
