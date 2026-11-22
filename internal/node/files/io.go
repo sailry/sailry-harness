@@ -8,11 +8,11 @@ import (
 const boundedReadChunkSize = 64 << 10
 
 func readBounded(ctx context.Context, reader io.Reader, limit int) ([]byte, error) {
-	return readBoundedWithScratch(ctx, reader, limit, make([]byte, boundedReadChunkSize))
+	return readBoundedWithScratch(ctx, reader, limit, make([]byte, boundedReadChunkSize), nil)
 }
 
-func readBoundedWithScratch(ctx context.Context, reader io.Reader, limit int, scratch []byte) ([]byte, error) {
-	var data []byte
+func readBoundedWithScratch(ctx context.Context, reader io.Reader, limit int, scratch, data []byte) ([]byte, error) {
+	data = data[:0]
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err

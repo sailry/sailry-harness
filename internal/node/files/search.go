@@ -56,7 +56,7 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 	}
 	limit := min(input.Limit, uint64(protocol.MAX_SEARCH_MATCHES))
 	position := uint64(0)
-	var scratch []byte
+	var scratch, data []byte
 	report, e := files.VisitFiles(ctx, input.Path, globs, func(directory *os.Root, name, relative string, metadata fs.FileInfo) (bool, error) {
 		if fileTypes != nil && !fileTypes.Match(relative, "") {
 			return true, nil
@@ -77,7 +77,7 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 		if scratch == nil {
 			scratch = make([]byte, boundedReadChunkSize)
 		}
-		data, e := readBoundedWithScratch(ctx, handle, 64*1024*1024, scratch)
+		data, e = readBoundedWithScratch(ctx, handle, 64*1024*1024, scratch, data)
 		handle.Close()
 		if e != nil {
 			out.Skipped++
@@ -121,7 +121,7 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 				for !utf8.ValidString(line[:end]) {
 					end--
 				}
-				out.Matches = append(out.Matches, protocol.SearchMatch{Path: relative, LineNumber: value.number, Line: line[:end], Matched: value.matched, Truncated: end < len(line)})
+				out.Matches = append(out.Matches, protocol.SearchMatch{Path: relative, LineNumber: value.number, Line: strings.Clone(line[:end]), Matched: value.matched, Truncated: end < len(line)})
 			}
 			position++
 		}
