@@ -421,6 +421,8 @@ type Output struct {
 	Command bool
 	// Copy reads the complete retained command when Text is only a preview.
 	Copy func(context.Context) `json:"-"`
+	// AttachCards binds cards when this result reaches its open disclosure.
+	AttachCards func() `json:"-"`
 	// Paths lists the files a search or read touched.
 	Paths []string
 	Diff  *Diff

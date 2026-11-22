@@ -176,8 +176,8 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element 
 }
 
 // CodeBlock is the Markdown hook (Options.CodeBlock) for code in
-// messages and documents: the language and Copy over a read-only editor
-// highlighting by the fence's language. Copy is an icon button, named by
+// messages and documents: the language and Copy over MyGo's incremental,
+// highlighted Markdown body. Copy is an icon button, named by
 // its tooltip, in place of MyGo's CopyButton, which has the icon and a
 // text: it copies the block's code and confirms with the app's toast, as
 // its other copy buttons, and waits for a block still being written to
@@ -195,8 +195,7 @@ func CodeBlock(c *ui.Context, b *markdown.CodeBlockView) {
 				Copied(c)
 			})
 		})
-		body := ui.Column(c).Padding(4, 0, 8, 4)
-		Code(c, body, b.Code(), CodeOptions{Language: editor.LanguageNamed(b.Language), Tint: true})
+		b.Body(c)
 	})
 }
 

@@ -3,6 +3,8 @@ package kit
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,13 +75,13 @@ func TestSweepSleepsBetweenPasses(t *testing.T) {
 			witnessPaints(c, &paints)
 		})
 	}, 400, 32)
-	nextMotionPhase(tt, 2*time.Second, 1850*time.Millisecond)
+	nextMotionPhase(tt, sweepPeriod, sweepPeriod*7/8)
 	paints = 0
-	tt.Advance(270 * time.Millisecond)
+	tt.Advance(sweepPeriod / 4)
 	if paints != 0 || tt.FramePending() {
 		t.Fatal("sweep repainting after it has left the label")
 	}
-	tt.Advance(500 * time.Millisecond)
+	tt.Advance(sweepPeriod / 4)
 	if paints == 0 || !tt.FramePending() {
 		t.Fatal("sweep did not wake on re-entering the label")
 	}
@@ -107,6 +109,87 @@ func TestShortSweepCrossesGlyphsOnWideRows(t *testing.T) {
 	}
 }
 
+func TestSweepSoftBandPreservesBase(t *testing.T) {
+	for _, style := range []theme.Mode{theme.Light, theme.Dark} {
+		for _, width := range []int{180, 480} {
+			t.Run(fmt.Sprintf("%v/%d", style, width), func(t *testing.T) {
+				animated := false
+				tt := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", style)
+					p := theme.Of(c)
+					ui.Column(c).Fill().Background(p.Background).Children(func() {
+						span := ui.Span{Text: strings.Repeat("m", 80), Font: "monospace", Size: 14, Color: p.MutedForeground}
+						e := ui.RichText(c, span).SingleLine().FillWidth()
+						if animated {
+							var sw Sweep
+							sw.Text(c, e, span)
+						}
+					})
+				}, width, 32)
+				tt.Frame()
+				base := bytes.Clone(tt.Image().Pix)
+				animated = true
+				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+				tt.Frame()
+				if !bytes.Equal(base, tt.Image().Pix) || tt.FramePending() {
+					t.Fatal("reduced motion changed the base text or requested animation")
+				}
+				tt.SetPreferences(ui.Preferences{})
+				tt.Frame()
+				nextMotionPhase(tt, sweepPeriod, 0)
+				tt.Frame()
+				if !bytes.Equal(base, tt.Image().Pix) {
+					t.Fatal("resting sweep changed the theme's base text")
+				}
+				nextMotionPhase(tt, sweepPeriod, sweepPeriod/2)
+				tt.Frame()
+				image := tt.Image()
+				lit := bytes.Clone(image.Pix)
+				left, right, centerPeak, edgePeak := width, -1, 0, 0
+				for y := 0; y < image.Bounds().Dy(); y++ {
+					for x := 0; x < width; x++ {
+						o := y*image.Stride + x*4
+						delta := 0
+						for channel := range 3 {
+							delta = max(delta, int(math.Abs(float64(int(lit[o+channel])-int(base[o+channel])))))
+						}
+						if delta == 0 {
+							continue
+						}
+						if bytes.Equal(base[o:o+3], base[:3]) {
+							t.Fatal("highlight escaped the visible glyphs")
+						}
+						left, right = min(left, x), max(right, x)
+						distance := math.Abs(float64(x)+0.5-float64(width)/2) / float64(width)
+						if distance < 0.05 {
+							centerPeak = max(centerPeak, delta)
+						} else if distance > 0.2 && distance < 0.3 {
+							edgePeak = max(edgePeak, delta)
+						}
+					}
+				}
+				if band := float64(right-left+1) / float64(width); band < 0.4 || band > 0.65 {
+					t.Fatalf("highlight width = %.2f of the label; want a broad, bounded band", band)
+				}
+				if edgePeak == 0 || float64(edgePeak) >= float64(centerPeak)*0.65 {
+					t.Fatalf("highlight edge = %d, center = %d; want soft edges", edgePeak, centerPeak)
+				}
+				tt.Advance(1500 * time.Millisecond)
+				tt.Frame()
+				if !bytes.Equal(lit, tt.Image().Pix) {
+					t.Fatal("sweep did not repeat after 1.5 seconds")
+				}
+				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+				tt.Frame()
+				tt.Advance(2 * sweepPeriod)
+				if !bytes.Equal(base, tt.Image().Pix) || tt.FramePending() {
+					t.Fatal("reduced motion retained the highlight or its animation")
+				}
+			})
+		}
+	}
+}
+
 func TestSweepRetainedLabelMatchesRichText(t *testing.T) {
 	var label string
 	build := func(explicitWeight bool) *ui.Tester {
@@ -126,7 +209,7 @@ func TestSweepRetainedLabelMatchesRichText(t *testing.T) {
 		label = text
 		for _, tt := range []*ui.Tester{plain, rich} {
 			tt.Frame()
-			nextMotionPhase(tt, 2*time.Second, 750*time.Millisecond)
+			nextMotionPhase(tt, sweepPeriod, sweepPeriod/2)
 			tt.Frame()
 		}
 		if !bytes.Equal(plain.Image().Pix, rich.Image().Pix) {

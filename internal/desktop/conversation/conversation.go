@@ -729,6 +729,32 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	})
 }
 
+// MyGo reshapes an open Markdown paragraph for each distinct source. Batch
+// rapid appends to longer replies without delaying short, slow or final text.
+const streamPreviewInterval = 80 * time.Millisecond
+
+type streamPreview struct {
+	shown string
+	next  time.Time
+}
+
+func streamSource(c *ui.Context, row ui.Element, src string, streaming bool) string {
+	p := ui.Local(row, "stream-preview", func() streamPreview { return streamPreview{} })
+	if !streaming || len(src) < 1024 {
+		*p = streamPreview{}
+		return src
+	}
+	if src != p.shown {
+		now := c.Now()
+		if now.Before(p.next) && strings.HasPrefix(src, p.shown) {
+			c.After(p.next.Sub(now))
+			return p.shown
+		}
+		p.shown, p.next = src, now.Add(streamPreviewInterval)
+	}
+	return src
+}
+
 // blocks builds blocks in transcript order.
 func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, toolRows toolDisplay, phase Phase, actions Actions) {
 	p := theme.Of(c)
@@ -736,10 +762,13 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 	for i, b := range blocks {
 		key := fmt.Sprintf("%s-%d", turn, i)
 		last := i == len(blocks)-1
-		ui.Column(c.Key(key)).Children(func() {
+		row := ui.Column(c.Key(key))
+		row.Children(func() {
 			switch b.Kind {
 			case TextBlock:
-				s.span(kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last && phase == Generating, Options: &s.md}), 0, 0, 0)
+				streaming := continuing && last && phase == Generating
+				text := streamSource(c, row, b.Text, streaming)
+				s.span(kit.Markdown(c, text, kit.MarkdownProps{Variant: kit.Chat, Animated: streaming, Options: &s.md}), 0, 0, 0)
 			case ReasoningBlock:
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last && phase == Thinking}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {

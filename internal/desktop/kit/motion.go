@@ -21,7 +21,7 @@ import (
 // than built from Element.Loop, which runs at the display's rate.
 const FPS = 60
 
-const sweepPeriod = 2 * time.Second
+const sweepPeriod = 1500 * time.Millisecond
 
 func visibleMotionRect(p *ui.Painter, r ui.Rect) ui.Rect {
 	v := p.Visible()
@@ -39,7 +39,7 @@ func EaseOutCubic(t float32) float32 {
 	return 1 - u*u*u
 }
 
-// Shimmer is a label with a highlight sweeping across it every 2 s, as Kit's
+// Shimmer is a label with a highlight sweeping across it every 1.5 s, as Kit's
 // ShimmerText marks the running activity. It is a Sweep of its own; the
 // texts of one row share one with Sweep.Text.
 func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Element {
@@ -49,11 +49,11 @@ func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Elemen
 }
 
 // Sweep is one shimmer band across a row (Kit's ShimmerText): 12 clipped
-// layers of a highlight 0.3 of the row wide, peaking at 0.75 (light) or 0.6
-// (dark) opacity, crossing the row every 2 s. Every text given to Text
-// shows the part of the band over it, each in its own font and color, so
-// the band moves across them as one; what is not given (an icon) has
-// none. The band is placed in the row's box, which Frame records as the
+// layers form a soft highlight 0.6 of the row wide, crossing it every 1.5 s.
+// Smoothstep opacity eases the edges into the unchanged base text color.
+// Every text given to Text shows the part of the band over it, each in its
+// own font and color, so the band moves across them as one; what is not
+// given (an icon) has none. The band is placed in the row's box, which Frame records as the
 // row paints: paint only, nothing is rebuilt. Custom drawing: MyGo has no
 // text highlight that moves. It draws at FPS and stays still with Reduce
 // Motion.
@@ -175,7 +175,14 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 		}
 	}
 	const layers = 12
-	color := hi.Alpha(peak / layers)
+	var colors [layers]ui.Color
+	var previous float32
+	for i := range layers {
+		t := float32(i+1) / layers
+		opacity := t * t * (3 - 2*t)
+		colors[i] = hi.Alpha(peak * (opacity - previous))
+		previous = opacity
+	}
 	span.Color = ui.Transparent
 	font := ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize, Lang: c.Locale()}
 	direction := c.Direction()
@@ -189,7 +196,7 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 		if row.W <= 0 {
 			row = r
 		}
-		spread := 0.3 * row.W
+		spread := 0.6 * row.W
 		origin, travel := row.X-spread, row.W+2*spread
 		// The band moves linearly. Wake when its leading edge next enters
 		// this visible text box, not at every refresh across the row's gaps.
@@ -221,7 +228,7 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 					break // all remaining clips are narrower
 				}
 				pt.Clip(ui.Rect{X: center - half, Y: r.Y, W: 2 * half, H: r.H}, 0, func() {
-					pt.TextLayout(label.layout, r.X+label.x, r.Y, color)
+					pt.TextLayout(label.layout, r.X+label.x, r.Y, colors[i])
 				})
 			}
 		})

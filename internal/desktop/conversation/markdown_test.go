@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -26,6 +27,50 @@ const gfmReply = "Intro\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n" +
 	"```go\nfunc main() {}\n```\n\n" +
 	"Inline $y^2$ here.\n\n" +
 	"> [!NOTE]\n> An alert.\n"
+
+func TestLiveMarkdownBatchesLongAppends(t *testing.T) {
+	s := conversation.New()
+	base := strings.Repeat("existing text ", 96) + "end"
+	turns := []conversation.Turn{{ID: "stream", User: "Question", Reply: conversation.Reply{
+		Status: conversation.Running, Phase: conversation.Generating,
+		Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: base}},
+	}}}
+	var sess conversation.Session
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		defer s.FinishFrame()
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() {
+			conversation.View(c, s, "stream", turns, &sess, noActions{})
+			conversation.Navigation(c, s)
+		})
+	}, 900, 460, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	b := &turns[0].Reply.Blocks[0]
+	if !tt.HasText(base) {
+		t.Fatal("first stream revision was not displayed immediately")
+	}
+	for range 8 {
+		b.Text += " append"
+		tt.Frame()
+	}
+	if tt.HasText(" append") {
+		t.Fatal("rapid appends reshaped the paragraph before the display deadline")
+	}
+	tt.Advance(120 * time.Millisecond)
+	if !tt.HasText(b.Text) {
+		t.Fatal("last append did not become visible without another input event")
+	}
+	b.Text = "# Replacement\n\n" + base
+	tt.Frame()
+	if n, _ := roles(tt, ui.RoleHeading); n == 0 || tt.HasText(" append") {
+		t.Fatal("replacement was not rendered as Markdown immediately")
+	}
+	b.Text += "\n\n# Finished"
+	turns[0].Reply.Status = conversation.Completed
+	tt.Frame()
+	if n, _ := roles(tt, ui.RoleHeading); n != 2 || !tt.HasText("Finished") || tt.HasText("# Finished") {
+		t.Fatal("completion did not immediately flush formatted Markdown")
+	}
+}
 
 // roles counts the elements of a role, and those among them checked.
 func roles(tt *ui.Tester, role ui.Role) (n, checked int) {
@@ -86,8 +131,8 @@ func checkMarkdown(t *testing.T) {
 		if _, ok := tt.AccessByRole(ui.RoleImage, "flowchart"); !ok || pictures(tt) != 2 {
 			t.Errorf("%d pictures, flowchart %v: want the formula and the flowchart", pictures(tt), ok)
 		}
-		if a, ok := tt.AccessByRole(ui.RoleTextField, "Code editor"); !ok || a.Value != "func main() {}" || !slices.Contains(texts, "go") {
-			t.Errorf("the Go block: %v %q", ok, a.Value)
+		if !slices.Contains(texts, "func main() {}") || !slices.Contains(texts, "go") {
+			t.Errorf("the Go block is missing its highlighted body or language: %q", texts)
 		}
 	}
 	t.Run("completed", func(t *testing.T) {
@@ -118,6 +163,7 @@ func checkMarkdown(t *testing.T) {
 				Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: text}}}}}
 			ui.Column(c).Fill().Children(func() { conversation.View(c, s, "gfm", turns, nil, noActions{}) })
 		}, 900, 1400)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 		tt.SetLocale("en")
 		delimiters := 0
 		for i, r := range gfmReply {

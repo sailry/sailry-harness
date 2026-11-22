@@ -28,7 +28,7 @@
 // the unset Theme, Reveal, code renderers and a document's HTML; the variants' themes from
 // the palette rather than Lobe's type scale; code blocks as CodeBlock rather
 // than Highlighter and Snippet; no wrapping column, the view being MyGo's
-// own; text shown as it comes rather than paced (see streamReveal).
+// own; short streamed blocks use MyGo's character reveal.
 
 package kit
 
@@ -72,10 +72,14 @@ type MarkdownProps struct {
 // shared are the Options of views given none, by variant.
 var shared [2]markdown.Options
 
-// streamReveal shows streamed text as it comes: MyGo's paced reveal asks
-// for frames at the display's rate (Context.AnimationFrame has no rate),
-// past the FPS cap, so the source's own arrival paces it.
-var streamReveal = markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}
+// MyGo reshapes a paragraph on every reveal frame. Cap the source being
+// paced, including its old prefix, so large blocks keep the caller's cadence.
+const streamRevealLimit = 1024
+
+var (
+	streamReveal = markdown.Reveal{Unit: markdown.ByCharacter}
+	staticReveal = markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}
+)
 
 // Markdown shows src, MyGo's markdown.View, or markdown.Stream while
 // Animated: CommonMark with MyGo's extensions, selectable and copying as
@@ -88,8 +92,13 @@ func Markdown(c *ui.Context, src string, p MarkdownProps) ui.Element {
 	if o.Theme == nil || isMarkdownTheme(o.Theme) {
 		o.Theme = MarkdownTheme(c, p.Variant)
 	}
-	if o.Reveal == nil {
+	if o.Reveal == nil || o.Reveal == &streamReveal || o.Reveal == &staticReveal {
 		o.Reveal = &streamReveal
+		// MyGo's ReduceMotion disables fading, but still paces characters.
+		// Finished revisions also flush immediately instead of replaying history.
+		if !p.Animated || c.Preferences().ReduceMotion || len(src) >= streamRevealLimit {
+			o.Reveal = &staticReveal
+		}
 	}
 	if o.CodeBlock == nil {
 		o.CodeBlock = CodeBlock
