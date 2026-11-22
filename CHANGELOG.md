@@ -3,6 +3,15 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.8](https://github.com/sailry/sailry-harness/releases/tag/v0.2.8) — 2026-11-23
+
+- Open workspace text in the built-in editor with one click, including files without a recognized extension. Keep unsupported files selected in the file list and refresh file lists in place.
+- Keep tool groups and command output collapsed until opened. Release unused tool details, conversation history, terminal frames, and plugin views. Reduce copying during streamed updates.
+- Show context capacity, cache hits, and two rows of request details in the desktop context meter. The meter and Statistics calculate TPS over the full request and show time to first token separately.
+- Add multi-selection to desktop session lists. Preserve mobile scroll position during conversation updates and restore session information after reconnecting.
+- Let delegated turns inherit the parent session's available tools within the selected role and approval limits.
+- Let downstream builds choose desktop modules, mobile pages, project resources, and the code index at build time. Relay packages are published through [Sailry Relay](https://github.com/sailry/sailry-relay/releases).
+
 ## [0.2.7](https://github.com/sailry/sailry-harness/releases/tag/v0.2.7) — 2026-11-22
 
 - Keep sent messages in the correct queue or transcript while admission and history updates arrive, and resume queued inputs after stopping a turn.
