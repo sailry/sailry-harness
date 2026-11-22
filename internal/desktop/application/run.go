@@ -384,12 +384,7 @@ func Run(args []string, config Options) error {
 			show := func(opts mygo.NotificationOptions) error { return mygo.NewNotification(opts).ShowContext(ctx) }
 			notifier.SetNotify(func(id, title, body, session string) {
 				opts := mygo.NotificationOptions{ID: id, Title: title, Body: body, Group: session}
-				result := func(err error) {
-					if err != nil && ctx.Err() == nil {
-						log.Printf("desktop notification: %v", err)
-						notifier.Undelivered(id)
-					}
-				}
+				result := func(err error) { completeSystemNotification(ctx, id, err, notifier.Undelivered) }
 				if noticeTray != nil {
 					result(noticeTray.replace(opts, show))
 				} else {

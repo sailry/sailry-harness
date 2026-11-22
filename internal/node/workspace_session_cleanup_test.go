@@ -11,6 +11,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestWorktreeCleanupCooldown(t *testing.T) {
+	var kept keptWorktrees
+	first, second := protocol.NewWorktreeID(), protocol.NewWorktreeID()
+	now := time.Now()
+	deadline := kept.remember(first, now)
+	if !kept.contains(first, now.Add(2*time.Second)) || kept.contains(second, now) {
+		t.Fatal("a recent failure should defer only the same target")
+	}
+	kept.remember(second, deadline)
+	if kept.contains(first, deadline) || !kept.contains(second, deadline) {
+		t.Fatal("an expired worktree should be available for the next cleanup")
+	}
+}
+
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestRemovedSessionWorkspace(t *testing.T) {
 	t.Parallel()

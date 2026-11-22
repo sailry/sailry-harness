@@ -103,6 +103,26 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 	}
 }
 func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+	value, err := s.readStatusSnapshot(ctx, root)
+	var failure *protocol.Fault
+	if errors.As(err, &failure) && failure.Code == protocol.ErrorCodeConflict &&
+		(failure.GitInspectionReason == protocol.GitInspectionIndexChanged || failure.GitInspectionReason == protocol.GitInspectionHeadChanged) {
+		if stopped := checkContext(ctx); stopped != nil {
+			return protocol.GitStatus{}, statusFailure(stopped, protocol.GitInspectionDeadlineExceeded)
+		}
+		resampled, readErr := s.readStatusSnapshot(ctx, root)
+		if readErr == nil && resampled.Kind == protocol.RepositoryKindDirectory {
+			// The repository disappeared between reads; no Git snapshot was verified.
+			return protocol.GitStatus{}, err
+		}
+		return resampled, readErr
+	}
+	return value, err
+}
+
+func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol.GitStatus, error) {
 	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		if _, e := os.Lstat(filepath.Join(root, ".git")); errors.Is(e, os.ErrNotExist) {
@@ -122,14 +142,12 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	if err != nil {
 		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionFilterConfigReadFailed)
 	}
-	limited, cancel := context.WithTimeout(ctx, readTimeout)
-	defer cancel()
 	// Git runs the conversions of the paths it has to read again, as git status
 	// does. A required filter that cannot run fails the whole status, which
 	// then answers without the configured filter programs.
-	capture, err := s.command(limited, root, StatusArgs(nil), nil, true)
-	if err != nil && len(drivers) > 0 && limited.Err() == nil {
-		capture, err = s.command(limited, root, StatusArgs(drivers), nil, true)
+	capture, err := s.command(ctx, root, StatusArgs(nil), nil, true)
+	if err != nil && len(drivers) > 0 && ctx.Err() == nil {
+		capture, err = s.command(ctx, root, StatusArgs(drivers), nil, true)
 	}
 	if err != nil {
 		return protocol.GitStatus{}, statusCommandFailure(err, capture)
@@ -138,21 +156,6 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 	if err != nil {
 		return protocol.GitStatus{}, err
 	}
-	next, err := indexRevision(root, r)
-	if err != nil {
-		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionIndexRecheckFailed)
-	}
-	if next != revision {
-		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionIndexChanged)
-	}
-	afterHead, err := head(r)
-	if err != nil {
-		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionHeadRecheckFailed)
-	}
-	if !sameString(beforeHead.Head, afterHead.Head) || !sameString(beforeHead.Branch, afterHead.Branch) {
-		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionHeadChanged)
-	}
-	result.IndexRevision = ptr(revision)
 	// Line statistics read the HEAD tree and the index once for the whole status.
 	var tree *object.Tree
 	var staged map[string]*idxfmt.Entry
@@ -186,7 +189,7 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 			}
 		}
 		if len(paths) > 0 {
-			counting, stop := context.WithDeadline(limited, budget)
+			counting, stop := context.WithDeadline(ctx, budget)
 			driven = s.filtered(counting, root, r, paths)
 			paths = slices.DeleteFunc(paths, func(path string) bool { return driven[path] })
 			ids = s.storedIDs(counting, root, paths, statLimit)
@@ -194,7 +197,7 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		}
 	}
 	for _, entry := range result.Entries {
-		if err := checkContext(limited); err != nil {
+		if err := checkContext(ctx); err != nil {
 			return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionDeadlineExceeded)
 		}
 		path, e := safePath(root, entry.Path)
@@ -245,6 +248,22 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 		}
 		filtered = append(filtered, entry)
 	}
+	next, err := indexRevision(root, r)
+	if err != nil {
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionIndexRecheckFailed)
+	}
+	if next != revision {
+		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionIndexChanged)
+	}
+	afterHead, err := head(r)
+	if err != nil {
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionHeadRecheckFailed)
+	}
+	if !sameString(result.Head, beforeHead.Head) || !sameString(result.Branch, beforeHead.Branch) ||
+		!sameString(result.Head, afterHead.Head) || !sameString(result.Branch, afterHead.Branch) {
+		return protocol.GitStatus{}, statusFault(protocol.ErrorCodeConflict, "Git metadata changed during status inspection", protocol.GitInspectionHeadChanged)
+	}
+	result.IndexRevision = ptr(revision)
 	result.Entries = filtered
 	return result, nil
 }
@@ -304,10 +323,10 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 	if !utf8.Valid(data) {
 		return result, statusFault(protocol.ErrorCodeUnavailable, "Git status contains unsupported path encoding", protocol.GitInspectionUnsupportedEncoding)
 	}
-	headers := 0
+	oidHeaders, branchHeaders := 0, 0
 	for _, record := range strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00") {
 		if h, ok := strings.CutPrefix(record, "# branch.oid "); ok {
-			headers++
+			oidHeaders++
 			if h != "(initial)" {
 				result.Head = ptr(h)
 				result.Kind = protocol.RepositoryKindReady
@@ -315,7 +334,7 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 			continue
 		}
 		if b, ok := strings.CutPrefix(record, "# branch.head "); ok {
-			headers++
+			branchHeaders++
 			if b != "(detached)" {
 				result.Branch = ptr(b)
 			}
@@ -371,7 +390,7 @@ func ParseStatus(data []byte, truncated bool) (protocol.GitStatus, error) {
 		}
 		result.Entries = append(result.Entries, entry)
 	}
-	if headers != 2 {
+	if oidHeaders != 1 || branchHeaders != 1 {
 		return result, statusFault(protocol.ErrorCodeUnavailable, "incomplete Git status headers", protocol.GitInspectionIncompleteHeaders)
 	}
 	sort.Slice(result.Entries, func(i, j int) bool { return result.Entries[i].Path < result.Entries[j].Path })

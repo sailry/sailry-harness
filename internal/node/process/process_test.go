@@ -56,6 +56,47 @@ func TestForegroundStdin(t *testing.T) {
 	}
 }
 
+func TestCompletedRunnerReleasesInputWhileReceiptIsPending(t *testing.T) {
+	runnerDone, released, gate := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	service, err := New(Options{Profile: t.TempDir(), Run: func(ctx context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		select {
+		case <-runnerDone:
+		case <-ctx.Done():
+		}
+		emit(protocol.ProcessOutputOutputStreamStdout, []byte("done"))
+		return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000,
+		Environment: map[string]string{"FIXTURE": "value"}, Release: func() { close(released) }, CompletionGate: gate}
+	if _, err := service.Start(launch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Write(launch.Session, launch.ID, "unread", nil); err != nil {
+		t.Fatal(err)
+	}
+	close(runnerDone)
+	<-released
+	if n, err := service.Write(launch.Session, launch.ID, "too late", nil); n != 0 || err == nil {
+		t.Errorf("accepted input after the runner exited: %d bytes, %v", n, err)
+	}
+	service.mu.Lock()
+	entry := service.entries[launch.ID]
+	if entry.input != nil || entry.launch.Environment != nil || entry.launch.Release != nil {
+		t.Errorf("stopped runner retains %d queued inputs, environment=%t, release callback=%t", len(entry.input), entry.launch.Environment != nil, entry.launch.Release != nil)
+	}
+	service.mu.Unlock()
+	close(gate)
+	<-entry.done
+	snapshot, err := service.Read(launch.Session, launch.ID)
+	if err != nil || snapshot.Info.Status.Kind != "finished" || snapshot.Stdout.Text != "done" {
+		t.Fatalf("completed command no longer readable: %+v, %v", snapshot, err)
+	}
+}
+
 func TestStopTransientKeepsServices(t *testing.T) {
 	stopped := make(chan string, 2)
 	service, err := New(Options{Profile: t.TempDir(), Run: func(ctx context.Context, launch Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {

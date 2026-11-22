@@ -3,13 +3,47 @@ package node
 import (
 	"database/sql"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+const worktreeCleanupCooldown = time.Minute
+
+// Concurrent session removals and the startup sweep can select the same target.
+// Only automatic cleanup consults this state; no timer schedules another removal.
+type keptWorktrees struct {
+	mu        sync.Mutex
+	until     map[protocol.WorktreeID]time.Time
+	nextPrune time.Time
+}
+
+func (kept *keptWorktrees) contains(id protocol.WorktreeID, now time.Time) bool {
+	kept.mu.Lock()
+	defer kept.mu.Unlock()
+	return now.Before(kept.until[id])
+}
+
+func (kept *keptWorktrees) remember(id protocol.WorktreeID, now time.Time) time.Time {
+	kept.mu.Lock()
+	defer kept.mu.Unlock()
+	until := now.Add(worktreeCleanupCooldown)
+	if kept.until == nil {
+		kept.until = make(map[protocol.WorktreeID]time.Time)
+	}
+	if !now.Before(kept.nextPrune) {
+		maps.DeleteFunc(kept.until, func(_ protocol.WorktreeID, deadline time.Time) bool { return !now.Before(deadline) })
+		kept.nextPrune = until
+	}
+	kept.until[id] = until
+	return until
+}
 
 // removeSessionWorkspaces removes what removed sessions alone used. The
 // private workspace of a session without a project goes with the session. A
@@ -35,11 +69,13 @@ func (node *Node) removeSessionWorkspaces(sessions []protocol.SessionID) {
 		return
 	}
 	profile := node.profile.Ownership.Path
+	attempted := make(map[protocol.WorktreeID]bool)
 	for _, leftover := range leftovers {
 		switch tree := leftover.Worktree; {
 		case tree.Project == nil && tree.Path == core.SessionWorkspace(profile, leftover.Session):
 			node.removePrivateWorkspace(leftover.Session, tree.Path)
-		case tree.Project != nil:
+		case tree.Project != nil && !attempted[tree.ID]:
+			attempted[tree.ID] = true
 			node.removeUnusedWorktree(tree)
 		}
 	}
@@ -67,6 +103,9 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 	// A project command waits too, so the path read below stays the root.
 	release := node.locks.change(tree.Path)
 	defer release()
+	if node.keptWorktrees.contains(tree.ID, time.Now()) {
+		return
+	}
 	var capture store.WorkspaceGitCapture
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
@@ -79,11 +118,13 @@ func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
 	path := capture.Worktree.Path
 	status, err := node.git.Status(ctx, path)
 	if err != nil || status.Head == nil || status.Branch == nil {
+		node.keptWorktrees.remember(tree.ID, time.Now())
 		return
 	}
 	node.transfers.Remove(path)
 	if err := node.git.RemoveWorktree(ctx, path, *status.Head, *status.Branch); err != nil {
-		slog.Info("managed worktree kept", "worktree", tree.ID.String(), "reason", err)
+		until := node.keptWorktrees.remember(tree.ID, time.Now())
+		slog.Info("managed worktree kept", "worktree", tree.ID.String(), "path", path, "reason", err, "auto_cleanup_not_before", until)
 		return
 	}
 	node.watches.remove(path)

@@ -302,6 +302,9 @@ func (s *Service) finish(root string, args []string, read bool, result CommandRe
 		code := protocol.ErrorCodeInvalidRequest
 		message := strings.ToLower(string(result.Stderr))
 		switch {
+		case len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" && result.ExitCode == 128 &&
+			strings.TrimSpace(message) == "fatal: working trees containing submodules cannot be moved or removed":
+			return result, fault(protocol.ErrorCodeConflict, "Git refused to remove a worktree containing submodules (exit 128); inspect the submodule checkouts")
 		// Git's own lock failure, not any message naming a file such as Cargo.lock.
 		case strings.Contains(message, ".lock': file exists"):
 			code = protocol.ErrorCodeBusy

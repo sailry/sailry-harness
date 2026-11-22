@@ -247,16 +247,17 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		}()
 		return run(ctx, entry.launch, func(kind protocol.ProcessOutputOutputStream, value []byte) { s.append(entry, kind, value) }, entry.input)
 	}()
-	entry.launch.Stdin = ""
 	s.mu.Lock()
+	release := entry.launch.Release
+	entry.input, entry.launch.Stdin, entry.launch.Environment, entry.launch.Release = nil, "", nil, nil
 	// Once the runner has stopped producing output, choose the final capture
 	// mode before a competing foreground-to-background promotion can enter.
 	entry.settling = true
 	info, background, explicit := entry.info, entry.background, entry.explicit
 	s.mu.Unlock()
 	// Input files and the power hold belong to the native runner's lifetime.
-	if entry.launch.Release != nil {
-		entry.launch.Release()
+	if release != nil {
+		release()
 	}
 	if idle != nil {
 		idle()
@@ -660,7 +661,7 @@ func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input
 	if target != nil && target.entry != entry {
 		return 0, changedControlTarget()
 	}
-	if entry.info.Status.Kind != "running" {
+	if entry.settling || entry.info.Status.Kind != "running" {
 		return 0, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command input is closed"}
 	}
 	if input == "" {

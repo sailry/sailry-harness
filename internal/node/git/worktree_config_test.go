@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,6 +155,7 @@ func TestServiceReadWorktreeConfigGuards(t *testing.T) {
 				}
 			}
 			writeWorktreeReadFixture(t, filepath.Join(admin, "config"), config)
+			statusCalls := 0
 			s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
 				switch {
 				case name == "bare_worktree" && slices.Contains(args, "rev-parse"):
@@ -165,11 +167,17 @@ func TestServiceReadWorktreeConfigGuards(t *testing.T) {
 				case slices.Contains(args, "config"):
 					return CommandResult{Stdout: []byte("local\x00core.repositoryformatversion\n0\x00local\x00extensions.worktreeconfig\ntrue\x00")}, nil
 				case slices.Equal(args, StatusArgs(nil)):
+					statusCalls++
 					var err error
 					if name == "changed_HEAD" {
 						err = os.WriteFile(filepath.Join(admin, "HEAD"), []byte("ref: refs/heads/unborn\n"), 0600)
 					} else {
-						err = os.Remove(filepath.Join(admin, "index"))
+						index := filepath.Join(admin, "index")
+						from, to := index, index+".saved"
+						if statusCalls == 2 {
+							from, to = to, from
+						}
+						err = os.Rename(from, to)
 					}
 					return CommandResult{Stdout: []byte("# branch.oid " + commit + "\x00# branch.head main\x00")}, err
 				default:
@@ -194,7 +202,14 @@ func TestServiceReadWorktreeConfigGuards(t *testing.T) {
 				}
 			default:
 				_, err := s.Read(context.Background(), root, protocol.Command{Kind: "inspect_git"})
-				requireFault(t, err, protocol.ErrorCodeConflict)
+				want := protocol.GitInspectionHeadChanged
+				if name == "changed_index" {
+					want = protocol.GitInspectionIndexChanged
+				}
+				var f *protocol.Fault
+				if !errors.As(err, &f) || f.Code != protocol.ErrorCodeConflict || f.GitInspectionReason != want || statusCalls != 2 {
+					t.Fatalf("%d status calls, fault %+v, want 2 calls and conflict/%s", statusCalls, f, want)
+				}
 			}
 		})
 	}

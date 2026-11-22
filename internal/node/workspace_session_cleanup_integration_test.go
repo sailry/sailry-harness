@@ -4,10 +4,12 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -88,5 +90,60 @@ func TestRemovedSessionManagedWorktree(t *testing.T) {
 	acceptanceEventually(t, "a worktree goes with its last session", func() bool {
 		_, err := os.Lstat(shared.Path)
 		return os.IsNotExist(err) && !registered(shared.ID)
+	})
+
+	t.Run("one attempt per protected worktree", func(t *testing.T) {
+		protected, other := managed("submodules"), managed("batch-clean")
+		module, _ := codeProject(t, map[string]string{"file": "module contents"})
+		git := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", args...)
+			cmd.Dir = protected.Path
+			cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("fixture git %s: %v\n%s", args[0], err, out)
+			}
+		}
+		git("clone", "--no-local", "--", module, "module")
+		git("submodule", "add", "--", module, "module")
+		git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Add submodule")
+		a, b, c := session(protected), session(protected), session(other)
+		acceptanceDo[[]protocol.SessionID](t, node, protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: []protocol.SessionRevision{
+			{Session: a.ID, Revision: a.Revision}, {Session: b.ID, Revision: b.Revision}, {Session: c.ID, Revision: c.Revision},
+		}}})
+		attempts := func() int {
+			return strings.Count(node.git.Output(root), "> git worktree remove -- "+protected.Path+"\n")
+		}
+		acceptanceEventually(t, "the other worktree is collected", func() bool { return !registered(other.ID) && attempts() > 0 })
+		if got := attempts(); got != 1 || !registered(protected.ID) {
+			t.Fatalf("shared submodule worktree: %d Git removal attempts, registered=%t", got, registered(protected.ID))
+		}
+		node.removeSessionWorkspaces([]protocol.SessionID{a.ID, b.ID})
+		if got := attempts(); got != 1 {
+			t.Fatalf("an overlapping cleanup retried the same target: %d Git removal attempts", got)
+		}
+		status, err := node.git.Status(t.Context(), protected.Path)
+		if err != nil || status.Head == nil || status.Branch == nil {
+			t.Fatalf("protected checkout has no branch or HEAD: %v", err)
+		}
+		manual := protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: protected.ID, ExpectedHead: *status.Head, ExpectedBranch: *status.Branch}}
+		_, failure := acceptanceCall[json.RawMessage](t, node, manual)
+		if failure == nil || failure.Code != protocol.ErrorCodeConflict || !strings.Contains(failure.Message, "submodules") {
+			t.Fatalf("manual removal must report Git's submodule protection: %v", failure)
+		}
+		if body, err := os.ReadFile(filepath.Join(protected.Path, "module", "file")); err != nil || string(body) != "module contents" {
+			t.Fatalf("submodule checkout not preserved: %q, %v", body, err)
+		}
+		// Preserve the independent submodule checkout outside the worktree, as a user could.
+		if err := os.Rename(filepath.Join(protected.Path, "module"), filepath.Join(t.TempDir(), "preserved")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(protected.Path, "module"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		acceptanceDo[json.RawMessage](t, node, manual)
+		if got := attempts(); got != 3 || registered(protected.ID) {
+			t.Fatalf("manual removal after preserving the submodule: %d total attempts, registered=%t", got, registered(protected.ID))
+		}
 	})
 }
