@@ -150,7 +150,7 @@ func TestRunningCommandSweepPreservesEllipsis(t *testing.T) {
 				ui.Column(c).Fill().Padding(8).Background(theme.Of(c).Background).Children(func() { state.row(c, call) })
 			}, 760, 40)
 			tester.SetLocale(tc.locale)
-			for _, width := range []int{760, 180, 241, 760} {
+			for _, width := range []int{760, 200, 241, 760} {
 				tester.SetSize(width, 40)
 				tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 				r, ok := tester.Find(tc.detail)
