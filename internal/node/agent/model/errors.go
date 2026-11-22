@@ -183,7 +183,9 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 				message = "Model request failed"
 			}
 			if status > 0 {
-				message = fmt.Sprintf("%s (HTTP %d)", message, status)
+				if status < 200 || status >= 300 {
+					message = fmt.Sprintf("%s (HTTP %d)", message, status)
+				}
 			} else if code != "" {
 				message = code + ": " + message
 			}

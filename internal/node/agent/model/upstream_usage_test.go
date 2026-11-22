@@ -115,7 +115,7 @@ func TestSDKUpstreamUsageMissingRecovery(t *testing.T) {
 					if err != nil {
 						t.Fatalf("a later successful response did not recover: %v", err)
 					}
-				} else if failure := Classify(err); failure == nil || failure.Kind != Unavailable || !failure.Exhausted || failure.WaitExhausted || failure.Message != reportedUsageMissingDiagnostic+" (HTTP 200)" {
+				} else if failure := Classify(err); failure == nil || failure.Kind != Unavailable || !failure.Exhausted || failure.WaitExhausted || failure.Message != reportedUsageMissingDiagnostic {
 					t.Fatalf("an unresolved settlement failure was hidden or lost its retry limit: %+v", failure)
 				}
 				if int(requests.Load()) != wantAttempts || len(attempts) != wantAttempts || len(timer.delays) != wantAttempts-1 || resets != wantAttempts-1 {
@@ -132,7 +132,7 @@ func TestSDKUpstreamUsageMissingRecovery(t *testing.T) {
 						t.Fatalf("recovery lost request identity or the actual HTTP status: %+v", attempt)
 					}
 					if index < wantFailures {
-						if attempt.Failure == nil || attempt.Failure.Kind != Unavailable || attempt.Failure.Message != reportedUsageMissingDiagnostic+" (HTTP 200)" || !reflect.DeepEqual(attempt.Usage, canonical.Usage{}) {
+						if attempt.Failure == nil || attempt.Failure.Kind != Unavailable || attempt.Failure.Message != reportedUsageMissingDiagnostic || !reflect.DeepEqual(attempt.Usage, canonical.Usage{}) {
 							t.Fatalf("failed attempt lost its diagnostic or invented usage: %+v", attempt)
 						}
 					} else if attempt.Failure != nil {

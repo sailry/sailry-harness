@@ -25,7 +25,7 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw}, model.Unavailable, diagnostic+" (HTTP 200)", model.MainRetries)
+	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 200, ResponseBody: raw}, model.Unavailable, diagnostic, model.MainRetries)
 }
 
 func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
