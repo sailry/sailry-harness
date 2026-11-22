@@ -66,10 +66,8 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 		return p.Danger
 	case call.Pending || flagged(call):
 		return p.Warning
-	case call.Running:
-		return p.MutedForeground.Mix(p.Foreground, 0.35)
 	}
-	return p.MutedForeground
+	return p.MutedForeground.Alpha(0.65)
 }
 
 // flagged gives denied, interrupted and unexecuted calls and background
@@ -99,9 +97,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	size := textSize(c)
 	color := rowColor(p, call)
 	quiet := !call.Failed && !call.Pending && !flagged(call)
-	if hovered && quiet {
-		color = p.Foreground
-	}
+
 	icon := icons.ByName(call.Icon)
 	if call.Pending {
 		icon = icons.Help
@@ -131,11 +127,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	}
 	detail, code := call.Detail, call.Code
 	if detail != "" {
-		dc := p.MutedForeground.Alpha(0.65)
-		if !quiet {
-			dc = color
-		}
-		span := ui.Span{Text: detail, Size: size, Color: dc}
+		span := ui.Span{Text: detail, Size: size, Color: color}
 		if code {
 			span.Font, span.Size = "monospace", size-1
 		}
@@ -752,10 +744,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 	running := slices.ContainsFunc(kids, func(k Child) bool { return !k.Unsynced && k.Status.Active() })
 	label := i18n.T(c, "subagent_count", "completed", done, "total", total)
 	s.disclosure(c, "children-"+cmp.Or(kids[0].Turn, kids[0].ID), func(hovered, open bool, sw *kit.Sweep) {
-		color := p.MutedForeground
-		if hovered {
-			color = p.Foreground
-		}
+		color := p.MutedForeground.Alpha(0.65)
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
 				kit.RoleIdenticon(c.Key(cmp.Or(k.Turn, k.ID)), k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
@@ -788,15 +777,12 @@ func child(c *ui.Context, k Child, actions Actions) {
 	if title == "" {
 		title = i18n.T(c, "chat_child")
 	}
-	color := p.MutedForeground
+	color := p.MutedForeground.Alpha(0.65)
 	if k.Status == ChildFailed || k.Status == ChildInterrupted {
 		color = p.Danger
 	}
 	b := ui.ButtonBase(c.Key("child-" + cmp.Or(k.Turn, k.ID))).Label(title).Height(rowHeight(size)).Gap(8).AlignSelf(ui.Start).Justify(ui.Start).Cursor(ui.CursorPointer)
 	hovered := b.Hovered()
-	if hovered && color == p.MutedForeground {
-		color = p.Foreground
-	}
 	b.Children(func() {
 		if k.Status == ChildContinued {
 			ui.Icon(c, icons.ArrowRight).FontSize(rowIcon(size)).TextColor(color)

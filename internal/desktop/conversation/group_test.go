@@ -349,11 +349,11 @@ func testRowColor(t *testing.T) {
 		call Call
 		want ui.Color
 	}{
-		{"settled", Call{}, p.MutedForeground},
-		{"running", Call{Running: true}, p.MutedForeground.Mix(p.Foreground, 0.35)},
+		{"settled", Call{}, p.MutedForeground.Alpha(0.65)},
+		{"running", Call{Running: true}, p.MutedForeground.Alpha(0.65)},
 		{"awaiting approval", Call{Pending: true}, p.Warning},
 		{"interrupted", Call{Warning: true, State: NotExecuted}, p.Warning},
-		{"tool error", Call{Warning: true}, p.MutedForeground},
+		{"tool error", Call{Warning: true}, p.MutedForeground.Alpha(0.65)},
 		{"failed", Call{Failed: true}, p.Danger},
 	} {
 		t.Run(row.name, func(t *testing.T) {
