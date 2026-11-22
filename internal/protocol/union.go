@@ -25,18 +25,10 @@ func MarshalUnion(tag, content, kind string, value any, variants map[string]func
 		}
 		return json.Marshal(map[string]string{tag: kind})
 	}
-	expected := reflect.TypeOf(factory()).Elem()
-	actual := reflect.ValueOf(value)
-	if !actual.IsValid() {
-		if expected.Kind() != reflect.Pointer {
-			return nil, fmt.Errorf("missing content for variant %q", kind)
-		}
-	} else if actual.Type() != expected && actual.Type() != reflect.PointerTo(expected) {
-		return nil, fmt.Errorf("invalid content type for variant %q", kind)
-	} else if actual.Kind() == reflect.Pointer && actual.IsNil() && expected.Kind() != reflect.Pointer {
-		return nil, fmt.Errorf("missing content for variant %q", kind)
+	if err := ValidateVariantPayload(kind, value, factory); err != nil {
+		return nil, err
 	}
-	if actual.IsValid() {
+	if actual := reflect.ValueOf(value); actual.IsValid() {
 		value = normalizeCollectionValue(actual).Interface()
 	}
 	if tag == "" {
@@ -62,6 +54,21 @@ func MarshalUnion(tag, content, kind string, value any, variants map[string]func
 	}
 	fields[tag] = encoded
 	return json.Marshal(fields)
+}
+
+func ValidateVariantPayload(kind string, value any, factory func() any) error {
+	expected := reflect.TypeOf(factory()).Elem()
+	actual := reflect.ValueOf(value)
+	if !actual.IsValid() {
+		if expected.Kind() != reflect.Pointer {
+			return fmt.Errorf("missing content for variant %q", kind)
+		}
+	} else if actual.Type() != expected && actual.Type() != reflect.PointerTo(expected) {
+		return fmt.Errorf("invalid content type for variant %q", kind)
+	} else if actual.Kind() == reflect.Pointer && actual.IsNil() && expected.Kind() != reflect.Pointer {
+		return fmt.Errorf("missing content for variant %q", kind)
+	}
+	return nil
 }
 
 // checkJSONNulls applies the null, numeric token and fixed-length rules to a

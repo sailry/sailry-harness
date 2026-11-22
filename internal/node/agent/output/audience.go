@@ -12,7 +12,7 @@ import (
 // Audience returns an independent record with user-only image and MCP content
 // removed. Record membership and the latest compaction boundary stay with callers.
 func Audience(record canonical.Record) canonical.Record {
-	record = clone(record)
+	record = cloneRecord(record, false)
 	filterAudience(&record, true)
 	return record
 }

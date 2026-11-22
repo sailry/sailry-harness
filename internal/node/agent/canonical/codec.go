@@ -29,20 +29,28 @@ func joinObjects(left, right []byte) ([]byte, error) {
 	if len(right) == 2 {
 		return left, nil
 	}
-	out := append([]byte{}, left[:len(left)-1]...)
+	out := make([]byte, 0, len(left)+len(right)-1)
+	out = append(out, left[:len(left)-1]...)
 	out = append(out, ',')
 	out = append(out, right[1:]...)
 	return out, nil
 }
 func tagged(tag, kind string, data any, variants map[string]func() any) ([]byte, error) {
-	if _, err := protocol.MarshalUnion(tag, "", kind, data, variants); err != nil {
-		return nil, err
+	factory, known := variants[kind]
+	if !known {
+		if _, err := protocol.MarshalUnion(tag, "", kind, data, variants); err != nil {
+			return nil, err
+		}
+	} else if factory != nil {
+		if err := protocol.ValidateVariantPayload(kind, data, factory); err != nil {
+			return nil, err
+		}
 	}
 	head, err := json.Marshal(map[string]string{tag: kind})
 	if err != nil {
 		return nil, err
 	}
-	if variants[kind] == nil {
+	if factory == nil {
 		return head, nil
 	}
 	body, err := json.Marshal(data)

@@ -94,8 +94,8 @@ func resultEnvelope(response *canonical.ToolResponse) map[string]any {
 	return envelope
 }
 
-// Tool payload bytes are borrowed until Project selects the final output.
-func cloneRecord(record canonical.Record) canonical.Record {
+// Project borrows tool payloads until it selects the final output.
+func cloneRecord(record canonical.Record, borrowToolValues bool) canonical.Record {
 	msg := record.Message()
 	if msg == nil {
 		return clone(record)
@@ -105,7 +105,7 @@ func cloneRecord(record canonical.Record) canonical.Record {
 	record.Data = &shell
 	copied := clone(record)
 	out := copied.Message()
-	if msg.Content != nil {
+	if len(msg.Content) != 0 || borrowToolValues && msg.Content != nil {
 		out.Content = make([]canonical.Block, len(msg.Content))
 	}
 	for i, block := range msg.Content {
@@ -117,8 +117,16 @@ func cloneRecord(record canonical.Record) canonical.Record {
 		fields := *tool
 		fields.Result.Value = nil
 		fields = clone(fields)
-		fields.Result.Value = tool.Result.Value
-		fields.OriginalID = tool.OriginalID
+		if borrowToolValues {
+			fields.Result.Value = tool.Result.Value
+			fields.OriginalID = tool.OriginalID
+		} else {
+			raw, err := json.Marshal(tool.Result.Value)
+			if err != nil {
+				panic(err)
+			}
+			fields.Result.Value = raw
+		}
 		block.Data = &fields
 		out.Content[i] = block
 	}
@@ -131,7 +139,7 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 	}
 	projected := make([]canonical.Record, len(records))
 	for i := range records {
-		projected[i] = cloneRecord(records[i])
+		projected[i] = cloneRecord(records[i], true)
 	}
 	visible := map[string]bool{}
 	for _, record := range projected {

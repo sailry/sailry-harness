@@ -82,7 +82,7 @@ func ExtendAgentState(ctx context.Context, db *sql.Conn, session protocol.Sessio
 		return value, 0, err
 	}
 	for rows.Next() {
-		var body []byte
+		var body sql.RawBytes
 		if err = rows.Scan(&value.sequence, &body); err != nil {
 			rows.Close()
 			return value, 0, err

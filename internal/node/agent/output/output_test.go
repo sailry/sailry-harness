@@ -228,3 +228,22 @@ func TestUnchangedResultOwnsProjectedBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestAudienceOwnsUnchangedToolOutput(t *testing.T) {
+	record := resultRecord("plain", nil, canonical.JSON)
+	original := onlyResponse(&record)
+	original.Result.Value = json.RawMessage(`{ "value": "<file>" }`)
+	metadata := map[string]json.RawMessage{"source": json.RawMessage(`"local"`)}
+	original.Meta = &metadata
+
+	projected := Audience(record)
+	response := onlyResponse(&projected)
+	if string(response.Result.Value) != `{"value":"\u003cfile\u003e"}` || response.Revision != original.Revision {
+		t.Fatalf("unexpected projected response: %+v", response)
+	}
+	response.Result.Value[0] = '!'
+	(*response.Meta)["source"][1] = '!'
+	if string(original.Result.Value) != `{ "value": "<file>" }` || string(metadata["source"]) != `"local"` {
+		t.Fatal("audience projection modified canonical output")
+	}
+}
