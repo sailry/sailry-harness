@@ -14,6 +14,7 @@ goarch := if arch() == "aarch64" { "arm64" } else if arch() == "x86_64" { "amd64
 native := justfile_directory() / ".runtime/native" / goos + "-" + goarch
 turso := if os() == "macos" { "libturso_sync_sdk_kit.dylib" } else if os() == "windows" { "turso_sync_sdk_kit.dll" } else { "libturso_sync_sdk_kit.so" }
 profiles := justfile_directory() / ".runtime/profiles"
+relay := justfile_directory() / "../sailry-relay"
 
 # List the recipes.
 default:
@@ -36,9 +37,9 @@ host name="host" *options: native
     go build -o .runtime/sailry-host ./cmd/sailry-host
     .runtime/sailry-host --data-dir {{ quote(profiles / name) }} {{ options }}
 
-# Build the standalone data relay for the local or supplied Go target.
-relay-build target_os=goos target_arch=goarch:
-    GOOS={{ quote(target_os) }} GOARCH={{ quote(target_arch) }} go build -trimpath -o {{ quote(".runtime/relay-build/" + target_os + "-" + target_arch + "/sailry-libp2p-relay" + if target_os == "windows" { ".exe" } else { "" }) }} ./cmd/sailry-libp2p-relay
+# Build the standalone data relay from its checkout for the local or supplied Go target.
+relay-build target_os=goos target_arch=goarch source=relay:
+    GOWORK=off GOOS={{ quote(target_os) }} GOARCH={{ quote(target_arch) }} go -C {{ quote(source / "data-relay") }} build -mod=readonly -trimpath -o {{ quote(justfile_directory() / (".runtime/relay-build/" + target_os + "-" + target_arch + "/sailry-libp2p-relay" + if target_os == "windows" { ".exe" } else { "" })) }} ./cmd/sailry-relay
 
 # Test a dedicated profile; --start=false attaches to its running Host.
 [positional-arguments]
@@ -83,7 +84,7 @@ tools:
     @echo "Go: go1.27.3 pinned"; go version
     @echo "Rust: 1.98.0 pinned in native/turso/rust-toolchain.toml"; cd native/turso && (rustc --version || echo "rustc is not installed")
     @echo "Flutter: $(cat apps/mobile/.flutter-version) pinned in apps/mobile/.flutter-version"; flutter --version || echo "flutter is not installed"
-    @echo "Node.js: 22.13.0 or newer for services/pairing-relay and plugin tests"; node --version || echo "node is not installed"
+    @echo "Node.js: 22.13.0 or newer for pairing relay and plugin tests"; node --version || echo "node is not installed"
     @just --version
 
 # Generate the desktop catalogs from the source catalogs in locales/.
@@ -127,12 +128,11 @@ test-plugins:
     node --experimental-vm-modules scripts/check-packages.mjs
     python3 scripts/test.py
 
-# Typecheck and test the pairing service.
-[working-directory('services/pairing-relay')]
-test-pairing-relay:
-    pnpm install --frozen-lockfile --ignore-scripts
-    pnpm typecheck
-    pnpm test
+# Typecheck and test the pairing service in a standalone sailry-relay checkout.
+test-pairing-relay source=relay:
+    pnpm --dir {{ quote(source / "pairing") }} install --frozen-lockfile --ignore-scripts
+    pnpm --dir {{ quote(source / "pairing") }} typecheck
+    pnpm --dir {{ quote(source / "pairing") }} test
 
 # List phones and running simulators recognized by Flutter.
 mobile-devices:

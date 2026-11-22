@@ -116,9 +116,9 @@ jobs:
           done < <(jq -r '.files[] | .filename, (.previous_filename // empty)' "$comparison")
           gh api --paginate "repos/$GH_REPO/actions/runs/$REUSE_RUN/artifacts?per_page=100" --jq '.artifacts[]' |
             jq -se --arg tag "$GITHUB_REF_NAME" '
-              [.[] | select(.expired == false and (.name | startswith("release-relay-linux-"))) | .name] |
-              sort == ["release-relay-linux-amd64-\($tag)", "release-relay-linux-arm64-\($tag)"]
-            ' >/dev/null || { echo 'Cannot reuse release without both Linux relay packages for this tag' >&2; exit 1; }
+              [.[] | select(.expired == false and (.name | startswith("release-relay-bridge-linux-"))) | .name] |
+              sort == ["release-relay-bridge-linux-amd64-\($tag)", "release-relay-bridge-linux-arm64-\($tag)"]
+            ' >/dev/null || { echo 'Cannot reuse release without both Linux relay bridge packages for this tag' >&2; exit 1; }
           printf 'Reusing checks and non-macOS packages from run %s at %s\n' "$REUSE_RUN" "$source"
           printf 'run=%s\n' "$REUSE_RUN" >> "$GITHUB_OUTPUT"
 
@@ -315,21 +315,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
-    runs-on: ubuntu-24.04
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Read Relay bridge commit
+        id: bridge
+        shell: bash
+        run: |
+          commit=$(<.github/relay-bridge.commit)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'Set .github/relay-bridge.commit to the complete Relay bridge commit ID' >&2; exit 1; }
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          repository: sailry/sailry-relay
+          ref: ${{ steps.bridge.outputs.commit }}
+          path: .runtime/relay-source
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
-          go-version-file: go.mod
-      - name: Relay
+          go-version-file: .runtime/relay-source/data-relay/go.mod
+          cache-dependency-path: .runtime/relay-source/data-relay/compat/harness/go.sum
+      - name: Build Relay 0.2.8 bridge
+        working-directory: .runtime/relay-source
         env:
           ARCH: ${{ matrix.arch }}
-        run: bash cmd/sailry-libp2p-relay/package-linux.sh "$ARCH"
+          RELAY_COMMIT: ${{ steps.bridge.outputs.commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELAY_COMMIT"
+          bash data-relay/scripts/package-linux.sh "$ARCH" --harness-bridge
+          stage=$(mktemp -d "$RUNNER_TEMP/relay-bridge-XXXXXX")
+          trap 'rm -rf -- "$stage"' EXIT
+          tar -xzf ".runtime/relay-bridge/linux-$ARCH/sailry-relay-linux-$ARCH.tar.gz" -C "$stage" sailry-relay
+          version=$("$stage/sailry-relay" --version)
+          test "$version" = 'Sailry Relay 0.2.8' || { echo "Unexpected relay bridge version: $version" >&2; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-relay-linux-${{ matrix.arch }}-${{ github.ref_name }}
-          path: .runtime/relay/linux-${{ matrix.arch }}/
+          name: release-relay-bridge-linux-${{ matrix.arch }}-${{ github.ref_name }}
+          path: .runtime/relay-source/.runtime/relay-bridge/linux-${{ matrix.arch }}/
           include-hidden-files: true
           if-no-files-found: error
           compression-level: 0

@@ -4,8 +4,7 @@ These are the Go modules linked into the shipped binaries, taken from
 `go list -deps` for `cmd/sailry-desktop` and `cmd/sailry-host` (macOS, Linux and
 Windows) and `cmd/sailry-mobile` (Android and iOS) at the versions pinned in
 `go.mod`. Modules that `go.mod` lists only for tests or tools are not linked and
-are not listed. See [Standalone relay](#standalone-relay) for its additional
-dependency.
+are not listed.
 
 Every module keeps its own license. The license column names the license
 texts found in the notice files at the root of each module in the Go module
@@ -279,10 +278,5 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 
 ## Standalone relay
 
-The Linux `sailry-relay` package collects the notices for
-`cmd/sailry-libp2p-relay` from the target's Go dependency graph. The relay's
-additional TOML dependency is:
-
-| Module | Version | License | Notice files |
-| --- | --- | --- | --- |
-| [`github.com/pelletier/go-toml/v2`](https://github.com/pelletier/go-toml/tree/v2.4.3) | v2.4.3 | MIT | [`LICENSE`](https://github.com/pelletier/go-toml/blob/v2.4.3/LICENSE) |
+The [Relay repository](https://github.com/sailry/sailry-relay) collects the Go
+licenses and notices for its own release and the Harness migration bridge.

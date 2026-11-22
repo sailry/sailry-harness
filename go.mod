@@ -50,7 +50,6 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multistream v0.6.1
-	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/nikolalohinski/gonja/v2 v2.5.1
 	github.com/odvcencio/gotreesitter v0.57.0
 	github.com/openai/openai-go/v3 v3.98.0

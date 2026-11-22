@@ -43,18 +43,21 @@ the relay does not open ports itself.
 
 ### Get the program
 
-Each [release](https://github.com/sailry/sailry-harness/releases/latest) includes
+Each [release](https://github.com/sailry/sailry-relay/releases/latest) includes
 `sailry-relay-linux-amd64.tar.gz` and `sailry-relay-linux-arm64.tar.gz`, each with a
 `SHA256SUMS-relay-linux-<arch>` file. Download the one for your server and extract it:
 
 ```sh
-curl -fLO https://github.com/sailry/sailry-harness/releases/latest/download/sailry-relay-linux-amd64.tar.gz
+curl -fLO https://github.com/sailry/sailry-relay/releases/latest/download/sailry-relay-linux-amd64.tar.gz
 tar -xzf sailry-relay-linux-amd64.tar.gz
 ```
 
-The archive contains `sailry-relay` and its licenses. To build from a checkout of
-this repository instead, run `bash cmd/sailry-libp2p-relay/package-linux.sh amd64`;
-it writes the same archive under `.runtime/relay/linux-amd64/`.
+The archive contains `sailry-relay` and its licenses. Build instructions are in
+[the Relay repository](https://github.com/sailry/sailry-relay). For existing
+systemd installations through v0.2.7, run `daemon update` to install the bridge
+once it is available on the Harness release feed. Run it again to install the
+independent stable Relay release. The same service, config and `link.key` carry
+across both upgrades. BaoTa installations use the existing panel supervisor.
 
 ### Configure
 

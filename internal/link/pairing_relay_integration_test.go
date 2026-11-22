@@ -12,30 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/crypto"
-	ma "github.com/multiformats/go-multiaddr"
-
-	"github.com/sailry/sailry-harness/internal/link/peerrelay"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestPairPINConnectsAcrossDifferentRelays(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	key, _, err := crypto.GenerateEd25519Key(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicRelay, err := peerrelay.New(peerrelay.Config{
-		PrivateKey: key,
-		ListenAddr: ma.StringCast("/ip4/127.0.0.1/tcp/0"),
-		Public:     true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = publicRelay.Close() })
-	hostRelay := publicRelay.Addr().String()
+	hostRelay, hostCounter := startLibp2pTestRelay(t, 11)
 	clientRelay, clientCounter := startLibp2pTestRelay(t, 12)
 	if hostRelay == clientRelay {
 		t.Fatal("relay fixtures unexpectedly share an address")
@@ -127,7 +110,7 @@ func TestPairPINConnectsAcrossDifferentRelays(t *testing.T) {
 	assertLibp2pTestPhysicalPath(t, client, hostAddress.ID, "relay")
 	paths := client.endpoint.(*libp2pEndpoint).host.Network().ConnsToPeer(libp2pTestPeerID(t, hostAddress.ID))
 	for _, path := range paths {
-		if !path.IsClosed() && path.RemoteMultiaddr().String() == circuit && clientCounter.connects.Load() == clientCircuits {
+		if !path.IsClosed() && path.RemoteMultiaddr().String() == circuit && hostCounter.connects.Load() > 0 && clientCounter.connects.Load() == clientCircuits {
 			return
 		}
 	}

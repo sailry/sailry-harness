@@ -145,7 +145,7 @@ do not use them for routine automated checks. Tests use `t.TempDir()`.
 | `internal/{protocol,link,client,core,node,...}` | Backend packages ([ARCHITECTURE.md](ARCHITECTURE.md#components-and-dependencies)) |
 | `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries |
 | `native/` | Pinned native libraries and their build inputs |
-| `services/pairing-relay` | Short-code rendezvous service, separate from the encrypted libp2p data relay |
+| [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Short-code rendezvous service, separate from the encrypted libp2p data relay |
 | `.runtime/` | Ignored fixed-purpose experiments, libraries and test profiles |
 
 ## Checks
@@ -328,9 +328,7 @@ Linux and Android packages and does not repeat the successful TestFlight upload.
 Reused artifacts retain their original source revision; the repaired macOS
 packages record the new revision.
 
-`pairing-relay.yml` tests `services/pairing-relay` when it changes; a manual
-run tests and then deploys to the chosen EdgeOne environment; production
-deploys only from the default branch. `website.yml`
+The Relay repository tests and deploys its pairing service. `website.yml`
 asks the website repository to rebuild when the documents it reads change on
 main.
 
@@ -670,15 +668,13 @@ distinct relay identities. The updater retains an existing service's arguments;
 replace a retired HTTPS `--relay` argument with a libp2p multiaddr or `--internet`
 before upgrading. Old peer addresses need refreshing after both ends upgrade.
 
-Build the standalone relay with `just relay-build linux amd64` (or `arm64`).
-The recipe writes `.runtime/relay-build/<goos>-<goarch>/sailry-libp2p-relay`.
-To build a Linux release package locally, run
-`bash cmd/sailry-libp2p-relay/package-linux.sh amd64` (or `arm64`) from the
-repository root. It writes `sailry-relay-linux-<arch>.tar.gz` and
-`SHA256SUMS-relay-linux-<arch>` under `.runtime/relay/linux-<arch>/`. The archive
-contains `sailry-relay`, `LICENSE`, `NOTICE` and the linked Go notices in
-`licenses/`. No official GitHub Release containing these relay assets has been
-published yet; use a local build until they are published.
+Build the data relay and test the pairing service in the [Relay repository](https://github.com/sailry/sailry-relay).
+`just test-pairing-relay` runs against the adjacent Relay checkout. Pass the checkout path to test another revision.
+Harness releases in the migration window package the v0.2.8 bridge from the
+Relay commit pinned in `.github/relay-bridge.commit`. The legacy updater accepts
+this binary under its original program identity. The next `daemon update`
+checks the independent Relay release feed. Publish the pinned Relay source and
+independent release assets before issuing a Harness release with the bridge.
 
 `sailry-relay start` runs in the foreground. It reads the file passed with
 `--config`, or `./relay.toml` if no path is passed. For a public TCP relay, use

@@ -52,7 +52,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/protocol` | Commands, events, IDs, snapshots, faults, capabilities and JSON decoding |
 | `internal/protocol/wire` | Envelopes, framing, compression and snapshot paging |
 | `internal/link` | Identity, pairing, authenticated transport, receipt, reconnect and local transport |
-| `internal/link/peerrelay`, `cmd/sailry-libp2p-relay` | Standalone Circuit Relay v2 with private device allowlists or bounded public access |
+| [Relay data service](https://github.com/sailry/sailry-relay/tree/main/data-relay) | Independently deployed Circuit Relay v2 with private device allowlists or bounded public access |
 | `internal/client` | Typed commands, projections, ordering, deduplication, request and snapshot recovery |
 | `internal/node` | Startup, admission, configuration, execution and resource-service composition |
 | `internal/node/agent` | Turn engine, canonical records, prompt, model adapters, tools and streaming feed |
@@ -74,7 +74,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `modules/{files,git,market}/desktop` | Native management page contributions selected at build time |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
 | `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
-| `services/pairing-relay` | Expiring short-code ticket exchange |
+| [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
 
 The principal dependency direction is:
 
@@ -1411,7 +1411,7 @@ HTML are untrusted. Native permissions remain the operating system's responsibil
 
 The checkout contains the Flutter controller (`apps/mobile`), native build inputs
 and locks (`native`), SDK and schemas (`sdk`, `schemas`), source locale catalogs
-(`locales`), user guides (`docs`) and the pairing service. Product copy is generated
+(`locales`) and user guides (`docs`). The pairing service ships from the Relay repository. Product copy is generated
 into `internal/desktop/i18n`. Imported code and resources retain their notices in
 source, `NOTICE` and `third_party_licenses`; the application license does not replace
 them. Profiles, credentials, runtime logs and build artifacts are not source.

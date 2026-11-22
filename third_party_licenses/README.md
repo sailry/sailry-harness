@@ -45,7 +45,6 @@ single owning package, and this index lists every location.
 | miniaudio capture header | `native/capture/SOURCE` |
 | Historical Iroh interoperation fixtures (not shipped) | `native/iroh/SOURCE`, `native/iroh/Cargo.lock` |
 | Mobile icons, visuals and project monsters | `apps/mobile/assets/icons/`, `apps/mobile/assets/visuals/licenses/`, `apps/mobile/third_party_licenses/` |
-| Pairing service | `services/pairing-relay/LICENSE`, `services/pairing-relay/NOTICE` |
 | Official plugins and themes | Each package under `plugins/` and `themes/` |
 
 Release packaging collects the license files of the linked Go modules and of the
