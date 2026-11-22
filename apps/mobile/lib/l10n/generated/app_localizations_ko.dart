@@ -120,10 +120,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationReconnectingHint => '호스트 응답을 기다리는 중';
 
   @override
-  String get conversationUnavailableHint => '메시지를 불러올 수 없음';
+  String get connectionFailureNetwork => '네트워크에 연결할 수 없습니다';
 
   @override
-  String get connectionDetails => '세부 정보';
+  String get connectionFailureHost => '호스트가 제시간에 응답하지 않았습니다';
+
+  @override
+  String get connectionFailureAuthentication => '호스트 인증에 실패했습니다';
+
+  @override
+  String get connectionFailureUnknown => '연결 실패 원인을 확인할 수 없습니다';
 
   @override
   String get conversationFailed => '작업 실패; 다시 시도하기';

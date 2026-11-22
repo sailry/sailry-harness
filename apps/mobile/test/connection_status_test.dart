@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_bridge/bridge.dart';
 import 'package:sailry_mobile/features/conversations/live/connection_status.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/ui/connection_status.dart';
 import 'package:sailry_mobile/ui/theme.dart';
-
-const _reason = 'relay closed: 503';
 
 Future<void> _show(
   WidgetTester tester,
@@ -28,31 +26,6 @@ Future<void> _show(
 String _en(WidgetTester tester, String key) =>
     tester.element(find.byType(Scaffold)).tr(key);
 
-Future<void> _expectDetailsSheet(WidgetTester tester) async {
-  await tester.pumpAndSettle();
-  expect(find.widgetWithText(SelectableText, _reason), findsOneWidget);
-  final copied = <String>[];
-  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-    SystemChannels.platform,
-    (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied.add((call.arguments as Map)['text'] as String);
-      }
-      return null;
-    },
-  );
-  addTearDown(
-    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      null,
-    ),
-  );
-  await tester.tap(find.byTooltip(_en(tester, 'copy')));
-  await tester.pump();
-  expect(copied, [_reason]);
-  await tester.pump(const Duration(seconds: 3));
-}
-
 bool _live(WidgetTester tester, Finder finder) => tester
     .widgetList<Semantics>(
       find.ancestor(of: finder, matching: find.byType(Semantics)),
@@ -60,7 +33,7 @@ bool _live(WidgetTester tester, Finder finder) => tester
     .any((semantics) => semantics.properties.liveRegion == true);
 
 void main() {
-  testWidgets('banner retries, opens details and animates in and out', (
+  testWidgets('banner shows a safe failure reason and animates in and out', (
     tester,
   ) async {
     var retries = 0;
@@ -68,7 +41,7 @@ void main() {
         ConnectionBanner(
           visible: visible,
           reconnecting: reconnecting,
-          reason: _reason,
+          failureKey: reconnecting ? null : 'connectionFailureNetwork',
           onRetry: () => retries++,
         );
     await _show(tester, banner(visible: false));
@@ -85,10 +58,10 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, _en(tester, 'retry')));
     expect(retries, 1);
 
-    await tester.tap(line);
-    await _expectDetailsSheet(tester);
-    await tester.tapAt(const Offset(4, 4));
+    expect(find.text(_en(tester, 'connectionFailureNetwork')), findsOneWidget);
+    await tester.tap(line, warnIfMissed: false);
     await tester.pumpAndSettle();
+    expect(find.byType(SelectableText), findsNothing);
 
     // The spinner never settles, so these steps pump fixed durations.
     await _show(tester, banner(visible: true, reconnecting: true));
@@ -132,7 +105,7 @@ void main() {
     );
   });
 
-  testWidgets('empty state retries or shows progress, with details', (
+  testWidgets('empty state shows failure or progress without details', (
     tester,
   ) async {
     var retries = 0;
@@ -140,7 +113,7 @@ void main() {
       tester,
       DisconnectedState(
         reconnecting: false,
-        reason: _reason,
+        failureKey: 'connectionFailureAuthentication',
         onRetry: () => retries++,
       ),
     );
@@ -148,20 +121,14 @@ void main() {
     expect(title, findsOneWidget);
     expect(_live(tester, title), isTrue);
     expect(
-      find.text(_en(tester, 'conversationUnavailableHint')),
+      find.text(_en(tester, 'connectionFailureAuthentication')),
       findsOneWidget,
     );
     await tester.tap(find.widgetWithText(FilledButton, _en(tester, 'retry')));
     expect(retries, 1);
-    await tester.tap(find.text(_en(tester, 'connectionDetails')));
-    await _expectDetailsSheet(tester);
-    await tester.tapAt(const Offset(4, 4));
-    await tester.pumpAndSettle();
+    expect(find.text('Details'), findsNothing);
 
-    await _show(
-      tester,
-      const DisconnectedState(reconnecting: true, reason: _reason),
-    );
+    await _show(tester, const DisconnectedState(reconnecting: true));
     expect(find.text(_en(tester, 'conversationReconnecting')), findsOneWidget);
     expect(
       find.text(_en(tester, 'conversationReconnectingHint')),
@@ -169,11 +136,59 @@ void main() {
     );
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.byType(FilledButton), findsNothing);
-    expect(find.text(_en(tester, 'connectionDetails')), findsOneWidget);
+    expect(find.text('Details'), findsNothing);
 
     await _show(tester, const DisconnectedState(reconnecting: false));
     expect(find.byType(FilledButton), findsNothing);
-    expect(find.text(_en(tester, 'connectionDetails')), findsNothing);
+    expect(find.text(_en(tester, 'connectionFailureUnknown')), findsOneWidget);
+  });
+
+  test('connection failure labels use evidence from Client and the bridge', () {
+    expect(
+      connectionFailureKey({
+        'code': 'unavailable',
+        'message': 'dial tcp 192.0.2.24:42: connect: network is unreachable',
+      }),
+      'connectionFailureNetwork',
+    );
+    expect(
+      connectionFailureKey(
+        const BridgeFailure(
+          code: 'unavailable',
+          message: 'read tcp 192.0.2.24:42: i/o timeout',
+        ),
+      ),
+      'connectionFailureHost',
+    );
+    expect(
+      connectionFailureKey({
+        'code': 'permission_denied',
+        'message': 'libp2p peer identity could not be verified',
+      }),
+      'connectionFailureAuthentication',
+    );
+    expect(
+      connectionFailureKey({
+        'code': 'permission_denied',
+        'message': 'peer revoked access',
+      }),
+      'failureDenied',
+    );
+    expect(
+      connectionFailureKey({
+        'code': 'unavailable',
+        'message': 'Link protocol version mismatch',
+        'details': {'kind': 'version_mismatch', 'update_host': true},
+      }),
+      'hostUpdateRequired',
+    );
+    expect(
+      connectionFailureKey({
+        'code': 'unavailable',
+        'message': 'Link connection is unavailable',
+      }),
+      isNull,
+    );
   });
 
   test("separates routes and observed latency through disconnect", () {

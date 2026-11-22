@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
-import '../../../ui/toast.dart';
 
 /// Disclosure state is presentation only; Client owns subscription recovery.
 class ErrorDetails extends StatelessWidget {
@@ -34,68 +32,27 @@ class ErrorDetails extends StatelessWidget {
   );
 }
 
-Future<void> showConnectionDetails(BuildContext context, String reason) =>
-    showAppSheet(
-      context,
-      context.tr('connectionDetails'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr('connectionDetails'),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              Builder(
-                builder: (context) => IconButton(
-                  tooltip: context.tr('copy'),
-                  icon: const AppIcon('copy', size: 18),
-                  onPressed: () async {
-                    var notice = 'copied';
-                    try {
-                      await Clipboard.setData(ClipboardData(text: reason));
-                    } catch (_) {
-                      notice = 'copyFailed';
-                    }
-                    if (context.mounted) showToast(context, context.tr(notice));
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SelectableText(
-            reason,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-
-/// A one-line notice pinned over the transcript while history stays visible.
+/// A compact notice above the transcript viewport.
 class ConnectionBanner extends StatelessWidget {
   const ConnectionBanner({
     super.key,
     required this.visible,
     required this.reconnecting,
-    this.reason,
+    this.topInset = 0,
+    this.failureKey,
     this.onRetry,
   });
 
   final bool visible;
   final bool reconnecting;
-  final String? reason;
+  final double topInset;
+  final String? failureKey;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final reason = this.reason;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     return AnimatedSwitcher(
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
@@ -114,7 +71,7 @@ class ConnectionBanner extends StatelessWidget {
           ? const SizedBox(width: double.infinity)
           : Padding(
               key: const ValueKey('connection-banner'),
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: EdgeInsets.fromLTRB(16, topInset + 4, 16, 8),
               child: Semantics(
                 liveRegion: true,
                 child: Surface(
@@ -125,9 +82,6 @@ class ConnectionBanner extends StatelessWidget {
                     !reconnecting && onRetry != null ? 4 : 14,
                     4,
                   ),
-                  onTap: reason == null
-                      ? null
-                      : () => showConnectionDetails(context, reason),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(minHeight: 36),
                     child: Row(
@@ -144,15 +98,26 @@ class ConnectionBanner extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: Text(
-                            context.tr(
-                              reconnecting
-                                  ? 'conversationReconnecting'
-                                  : 'conversationUnavailable',
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodyMedium,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.tr(
+                                  reconnecting
+                                      ? 'conversationReconnecting'
+                                      : 'conversationUnavailable',
+                                ),
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              if (failureKey case final key?)
+                                Text(
+                                  context.tr(key),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                         if (!reconnecting && onRetry != null)
@@ -178,19 +143,18 @@ class DisconnectedState extends StatelessWidget {
   const DisconnectedState({
     super.key,
     required this.reconnecting,
-    this.reason,
+    this.failureKey,
     this.onRetry,
   });
 
   final bool reconnecting;
-  final String? reason;
+  final String? failureKey;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final reason = this.reason;
     final tint = reconnecting ? colors.primary : colors.error;
     return Center(
       child: SingleChildScrollView(
@@ -228,9 +192,10 @@ class DisconnectedState extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 context.tr(
-                  reconnecting
-                      ? 'conversationReconnectingHint'
-                      : 'conversationUnavailableHint',
+                  failureKey ??
+                      (reconnecting
+                          ? 'conversationReconnectingHint'
+                          : 'connectionFailureUnknown'),
                 ),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -242,16 +207,6 @@ class DisconnectedState extends StatelessWidget {
                 FilledButton(
                   onPressed: onRetry,
                   child: Text(context.tr('retry')),
-                ),
-              ],
-              if (reason != null) ...[
-                const SizedBox(height: 8),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: colors.onSurfaceVariant,
-                  ),
-                  onPressed: () => showConnectionDetails(context, reason),
-                  child: Text(context.tr('connectionDetails')),
                 ),
               ],
             ],

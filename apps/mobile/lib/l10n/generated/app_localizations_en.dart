@@ -122,10 +122,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationReconnectingHint => 'Waiting for the host to respond';
 
   @override
-  String get conversationUnavailableHint => 'Couldn\'t load messages';
+  String get connectionFailureNetwork => 'The network is unreachable';
 
   @override
-  String get connectionDetails => 'Details';
+  String get connectionFailureHost => 'The host did not respond in time';
+
+  @override
+  String get connectionFailureAuthentication => 'Host authentication failed';
+
+  @override
+  String get connectionFailureUnknown => 'Couldn’t determine the cause';
 
   @override
   String get conversationFailed => 'Operation failed; retry';

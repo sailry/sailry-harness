@@ -117,10 +117,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationReconnectingHint => '正在等待主机响应';
 
   @override
-  String get conversationUnavailableHint => '无法加载消息';
+  String get connectionFailureNetwork => '网络无法访问';
 
   @override
-  String get connectionDetails => '详情';
+  String get connectionFailureHost => '主机未及时响应';
+
+  @override
+  String get connectionFailureAuthentication => '主机身份验证失败';
+
+  @override
+  String get connectionFailureUnknown => '暂无法确定连接失败的原因';
 
   @override
   String get conversationFailed => '操作失败，请重试';
@@ -2407,10 +2413,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationReconnectingHint => '正在等待主機回應';
 
   @override
-  String get conversationUnavailableHint => '無法載入訊息';
+  String get connectionFailureNetwork => '無法存取網路';
 
   @override
-  String get connectionDetails => '詳情';
+  String get connectionFailureHost => '主機未及時回應';
+
+  @override
+  String get connectionFailureAuthentication => '主機身分驗證失敗';
+
+  @override
+  String get connectionFailureUnknown => '暫時無法確定連線失敗的原因';
 
   @override
   String get conversationFailed => '操作失敗，請重試';

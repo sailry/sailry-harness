@@ -23,7 +23,7 @@ import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
-import 'package:sailry_mobile/ui/kit.dart' show pushPage;
+import 'package:sailry_mobile/ui/kit.dart' show EmptyState, pushPage;
 import 'package:sailry_mobile/ui/theme.dart';
 
 Map<String, dynamic> conversation({
@@ -341,6 +341,8 @@ void main() {
     final retry = find.widgetWithText(FilledButton, translate('retry'));
     MessageComposer composer() => tester.widget(find.byType(MessageComposer));
     expect(retry, findsOneWidget);
+    expect(find.text(translate('connectionFailureUnknown')), findsOneWidget);
+    expect(find.text('Details'), findsNothing);
     expect(composer().enabled, isFalse);
     expect(connection.watches, ['session']);
     expect(connection.refreshes, isEmpty);
@@ -350,6 +352,57 @@ void main() {
     expect(connection.watches, ['session']);
     expect(retry, findsNothing);
     expect(composer().enabled, isTrue);
+    await release(tester, session);
+  });
+
+  testWidgets('a loaded chat without messages reconnects in the empty state', (
+    tester,
+  ) async {
+    final connection = _LifecycleConnection();
+    final initial = conversation(unread: false);
+    final host = HostConnection.test(
+      id: 'entry/target',
+      label: 'Host',
+      connection: connection,
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: initial,
+        ),
+      ),
+    );
+    final feed = connection.feeds.single;
+    feed.publish({
+      'connected': true,
+      'snapshot': {'page': <String, dynamic>{}},
+    });
+    await tester.pumpAndSettle();
+    final translate = tester.element(find.byType(LiveConversationPage)).tr;
+    expect(
+      find.widgetWithText(EmptyState, translate('conversationEmpty')),
+      findsOneWidget,
+    );
+
+    feed.publish({
+      'connected': false,
+      'error': {
+        'code': 'unavailable',
+        'message': 'dial tcp 192.0.2.24:42: connect: network is unreachable',
+      },
+    });
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(DisconnectedState), findsOneWidget);
+    expect(find.byType(ConnectionBanner), findsNothing);
+    expect(find.text(translate('conversationReconnecting')), findsOneWidget);
+    expect(find.text(translate('connectionFailureNetwork')), findsOneWidget);
+    expect(find.textContaining('192.0.2.24'), findsNothing);
+    expect(find.text('Details'), findsNothing);
     await release(tester, session);
   });
 
@@ -713,7 +766,12 @@ void main() {
         feed.publish({'connected': false, 'error': outage});
         // The reconnecting banner's spinner never settles.
         await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 300));
         expect(_message('Owned transcript'), findsOneWidget);
+        expect(
+          tester.getRect(find.byType(ConnectionBanner)).bottom,
+          lessThanOrEqualTo(tester.getRect(find.byType(LiveTimeline)).top),
+        );
         expect(
           find.descendant(
             of: find.byType(ConnectionBanner),

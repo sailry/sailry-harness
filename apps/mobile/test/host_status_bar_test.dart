@@ -129,9 +129,27 @@ void main() {
     expect(find.byKey(const ValueKey('host-row-Studio')), findsOneWidget);
   });
 
-  testWidgets('no hosts hide the bar', (tester) async {
+  testWidgets('an unpaired session list offers host pairing', (tester) async {
     await show(tester, []);
     expect(find.byType(LiveTasksPage), findsOneWidget);
     expect(find.byType(HostStatusBar), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Connect host'), findsOneWidget);
+  });
+
+  testWidgets('offline paired host shows a safe reason without pairing', (
+    tester,
+  ) async {
+    await show(tester, [
+      HostConnection.test(id: 'Studio', label: 'Studio', connected: false)
+        ..error = {
+          'code': 'unavailable',
+          'message': 'dial tcp 192.0.2.24:42: i/o timeout',
+        },
+    ]);
+    expect(find.text('Host is offline'), findsOneWidget);
+    expect(find.text('The host did not respond in time'), findsOneWidget);
+    expect(find.text('Connect host'), findsNothing);
+    expect(find.textContaining('192.0.2.24'), findsNothing);
+    expect(find.byType(HostStatusBar), findsOneWidget);
   });
 }

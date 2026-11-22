@@ -8,12 +8,14 @@ class FailureState extends StatelessWidget {
   const FailureState({
     super.key,
     required this.message,
+    this.description,
     this.icon = 'server',
     this.onRetry,
     this.action,
   }) : assert(onRetry == null || action == null);
 
   final String message;
+  final String? description;
   final String icon;
   final VoidCallback? onRetry;
   final Widget? action;
@@ -30,6 +32,7 @@ class FailureState extends StatelessWidget {
         liveRegion: true,
         child: EmptyState(
           message: message,
+          description: description,
           icon: icon,
           action:
               action ??

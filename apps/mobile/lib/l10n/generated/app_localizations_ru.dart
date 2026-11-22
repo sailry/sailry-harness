@@ -122,10 +122,17 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationReconnectingHint => 'Ожидание ответа хоста';
 
   @override
-  String get conversationUnavailableHint => 'Не удалось загрузить сообщения';
+  String get connectionFailureNetwork => 'Сеть недоступна';
 
   @override
-  String get connectionDetails => 'Подробности';
+  String get connectionFailureHost => 'Хост не ответил вовремя';
+
+  @override
+  String get connectionFailureAuthentication =>
+      'Не удалось подтвердить подлинность хоста';
+
+  @override
+  String get connectionFailureUnknown => 'Не удалось определить причину сбоя';
 
   @override
   String get conversationFailed => 'Операция не удалась; повторите попытку';

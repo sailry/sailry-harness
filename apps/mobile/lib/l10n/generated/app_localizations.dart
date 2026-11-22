@@ -318,17 +318,29 @@ abstract class AppLocalizations {
   /// **'Waiting for the host to respond'**
   String get conversationReconnectingHint;
 
-  /// No description provided for @conversationUnavailableHint.
+  /// No description provided for @connectionFailureNetwork.
   ///
   /// In en, this message translates to:
-  /// **'Couldn\'t load messages'**
-  String get conversationUnavailableHint;
+  /// **'The network is unreachable'**
+  String get connectionFailureNetwork;
 
-  /// No description provided for @connectionDetails.
+  /// No description provided for @connectionFailureHost.
   ///
   /// In en, this message translates to:
-  /// **'Details'**
-  String get connectionDetails;
+  /// **'The host did not respond in time'**
+  String get connectionFailureHost;
+
+  /// No description provided for @connectionFailureAuthentication.
+  ///
+  /// In en, this message translates to:
+  /// **'Host authentication failed'**
+  String get connectionFailureAuthentication;
+
+  /// No description provided for @connectionFailureUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t determine the cause'**
+  String get connectionFailureUnknown;
 
   /// No description provided for @conversationFailed.
   ///

@@ -6,11 +6,13 @@ class EmptyState extends StatelessWidget {
   const EmptyState({
     super.key,
     required this.message,
+    this.description,
     this.icon = 'folder',
     this.action,
   });
 
   final String message;
+  final String? description;
   final String icon;
   final Widget? action;
 
@@ -34,6 +36,16 @@ class EmptyState extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
+          if (description case final description?) ...[
+            const SizedBox(height: 6),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
           if (action != null) ...[const SizedBox(height: 20), action!],
         ],
       ),

@@ -122,11 +122,19 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationReconnectingHint => 'Warten auf Antwort des Hosts';
 
   @override
-  String get conversationUnavailableHint =>
-      'Nachrichten konnten nicht geladen werden';
+  String get connectionFailureNetwork => 'Das Netzwerk ist nicht erreichbar';
 
   @override
-  String get connectionDetails => 'Details';
+  String get connectionFailureHost =>
+      'Der Host hat nicht rechtzeitig geantwortet';
+
+  @override
+  String get connectionFailureAuthentication =>
+      'Authentifizierung des Hosts fehlgeschlagen';
+
+  @override
+  String get connectionFailureUnknown =>
+      'Die Ursache konnte nicht ermittelt werden';
 
   @override
   String get conversationFailed =>

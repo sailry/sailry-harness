@@ -123,11 +123,16 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationReconnectingHint => 'Aguardando resposta do host';
 
   @override
-  String get conversationUnavailableHint =>
-      'Não foi possível carregar as mensagens';
+  String get connectionFailureNetwork => 'A rede está inacessível';
 
   @override
-  String get connectionDetails => 'Detalhes';
+  String get connectionFailureHost => 'O host não respondeu a tempo';
+
+  @override
+  String get connectionFailureAuthentication => 'Falha na autenticação do host';
+
+  @override
+  String get connectionFailureUnknown => 'Não foi possível determinar a causa';
 
   @override
   String get conversationFailed => 'Operação falhou; tente novamente';

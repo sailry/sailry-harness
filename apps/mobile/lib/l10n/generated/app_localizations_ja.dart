@@ -119,10 +119,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationReconnectingHint => 'ホストの応答を待っています';
 
   @override
-  String get conversationUnavailableHint => 'メッセージを読み込めません';
+  String get connectionFailureNetwork => 'ネットワークに接続できません';
 
   @override
-  String get connectionDetails => '詳細';
+  String get connectionFailureHost => 'ホストから時間内に応答がありませんでした';
+
+  @override
+  String get connectionFailureAuthentication => 'ホストの認証に失敗しました';
+
+  @override
+  String get connectionFailureUnknown => '接続できなかった原因を特定できません';
 
   @override
   String get conversationFailed => '操作に失敗しました。やり直します';

@@ -761,14 +761,16 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final faults = [_error, ...observedFaults].nonNulls;
         final failureKey = faults.isEmpty
             ? null
-            : faults.map(connectionFailureKey).nonNulls.firstOrNull ??
+            : faults.map(versionMismatchKey).nonNulls.firstOrNull ??
+                  faults.map(connectionFailureKey).nonNulls.firstOrNull ??
                   'connectionFailureUnknown';
         // These are the observer's retryable faults, not an application retry loop.
         final reconnecting =
             !_ownerEnded &&
             _error == null &&
             observedFaults.every(
-              (error) => const {'unavailable', 'busy'}.contains(object(error)['code']),
+              (error) =>
+                  const {'unavailable', 'busy'}.contains(object(error)['code']),
             );
         final retry =
             !_ownerEnded && !_retrying && (!_watching || _updates != null)
@@ -883,7 +885,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           bodyBuilder: (context, bottomInset) => LayoutBuilder(
             builder: (context, constraints) => Column(
               children: [
-                if (hasBanner || showConnectionBanner)
+                if (hasBanner)
                   SizedBox(height: ConversationFrame.contentInset(context)),
                 if (_historyPending != null)
                   MaterialBanner(
@@ -924,104 +926,108 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                   ConnectionBanner(
                     visible: showConnectionBanner,
                     reconnecting: recovering,
+                    topInset: hasBanner
+                        ? 0
+                        : ConversationFrame.contentInset(context),
                     failureKey: failureKey,
                     onRetry: retry,
                   ),
                 Expanded(
                   child: unavailable && !hasTranscript
-                          ? Padding(
-                              padding: EdgeInsets.only(
-                                top: ConversationFrame.contentInset(context),
-                                bottom: bottomInset,
+                      ? Padding(
+                          padding: EdgeInsets.only(
+                            top: ConversationFrame.contentInset(context),
+                            bottom: bottomInset,
+                          ),
+                          child: loading
+                              ? LoadingOverlay(
+                                  loading: true,
+                                  label: context.tr('conversationLoading'),
+                                  child: const SizedBox.expand(),
+                                )
+                              : DisconnectedState(
+                                  reconnecting: recovering,
+                                  failureKey: failureKey,
+                                  onRetry: retry,
+                                ),
+                        )
+                      : connected && !hasTranscript
+                      ? CustomScrollView(
+                          slivers: [
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: EmptyState(
+                                icon: 'chat',
+                                message: context.tr('conversationEmpty'),
                               ),
-                              child: loading
-                                  ? LoadingOverlay(
-                                      loading: true,
-                                      label: context.tr('conversationLoading'),
-                                      child: const SizedBox.expand(),
-                                    )
-                                  : DisconnectedState(
-                                      reconnecting: recovering,
-                                      failureKey: failureKey,
-                                      onRetry: retry,
+                            ),
+                          ],
+                        )
+                      : !_settled
+                      ? Padding(
+                          padding: EdgeInsets.only(
+                            top: ConversationFrame.contentInset(context),
+                            bottom: bottomInset,
+                          ),
+                          child: LoadingOverlay(
+                            loading: true,
+                            label: context.tr('conversationLoading'),
+                            child: const SizedBox.expand(),
+                          ),
+                        )
+                      : LiveTimeline(
+                          key: ValueKey((widget.host.id, widget.sessionId)),
+                          controller: _scroll,
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            hasBanner || showConnectionBanner
+                                ? 0
+                                : ConversationFrame.contentInset(context),
+                            20,
+                            bottomInset + 8,
+                          ),
+                          older: [
+                            if (view['older_error'] != null)
+                              Text(
+                                key: const ValueKey('older-error'),
+                                context.tr(
+                                  connectionFailureKey(view['older_error']) ??
+                                      'conversationFailed',
+                                ),
+                              ),
+                            if (_hasOlder && view['loading_older'] == true)
+                              const Padding(
+                                key: ValueKey('older'),
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                            )
-                          : connected && !hasTranscript
-                          ? CustomScrollView(
-                              slivers: [
-                                SliverFillRemaining(
-                                  hasScrollBody: false,
-                                  child: EmptyState(
-                                    icon: 'chat',
-                                    message: context.tr('conversationEmpty'),
                                   ),
                                 ),
-                              ],
-                            )
-                          : !_settled
-                          ? Padding(
-                              padding: EdgeInsets.only(
-                                top: ConversationFrame.contentInset(context),
-                                bottom: bottomInset,
                               ),
-                              child: LoadingOverlay(
-                                loading: true,
-                                label: context.tr('conversationLoading'),
-                                child: const SizedBox.expand(),
-                              ),
-                            )
-                          : LiveTimeline(
-                              key: ValueKey((widget.host.id, widget.sessionId)),
-                              controller: _scroll,
-                              padding: EdgeInsets.fromLTRB(
-                                20,
-                                hasBanner || showConnectionBanner
-                                    ? 0
-                                    : ConversationFrame.contentInset(context),
-                                20,
-                                bottomInset + 8,
-                              ),
-                              older: [
-                                if (view['older_error'] != null)
-                                  Text(
-                                    key: const ValueKey('older-error'),
-                                    object(view['older_error'])['message']
-                                            as String? ??
-                                        context.tr('conversationFailed'),
-                                  ),
-                                if (_hasOlder && view['loading_older'] == true)
-                                  const Padding(
-                                    key: ValueKey('older'),
-                                    padding: EdgeInsets.symmetric(vertical: 12),
-                                    child: Center(
-                                      child: SizedBox.square(
-                                        dimension: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                              transcript: _transcript,
-                              connected: view['connected'] == true,
-                              session: _session,
-                              host: widget.host,
-                              command: _command,
-                              onPlanFeedback: _sendPlanFeedback,
-                              pendingPlanFeedback: _pendingPlanFeedback,
-                              toolOutput: _trackTools,
-                              onOpenChild: _openChild,
-                              onOpenLink: _openReplyLink,
-                              onTurnAction: _canUseHistory ? _turnAction : null,
-                              canChangeHistory: _canChangeHistory,
-                              sending: _sending || _pendingSend != null,
-                              artifactActions: _artifactActions,
-                              artifactChanges: _view,
-                              canRestore: () => _canChangeHistory,
-                              turnKey: (turn) =>
-                                  _turnKeys.putIfAbsent(turn, GlobalKey.new),
-                            ),
+                          ],
+                          transcript: _transcript,
+                          connected: view['connected'] == true,
+                          session: _session,
+                          host: widget.host,
+                          command: _command,
+                          onPlanFeedback: _sendPlanFeedback,
+                          pendingPlanFeedback: _pendingPlanFeedback,
+                          toolOutput: _trackTools,
+                          onOpenChild: _openChild,
+                          onOpenLink: _openReplyLink,
+                          onTurnAction: _canUseHistory ? _turnAction : null,
+                          canChangeHistory: _canChangeHistory,
+                          sending: _sending || _pendingSend != null,
+                          artifactActions: _artifactActions,
+                          artifactChanges: _view,
+                          canRestore: () => _canChangeHistory,
+                          turnKey: (turn) =>
+                              _turnKeys.putIfAbsent(turn, GlobalKey.new),
+                        ),
                 ),
               ],
             ),
