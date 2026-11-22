@@ -844,7 +844,7 @@ func TestDemoMode(t *testing.T) {
 			settle()
 		}
 		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
-		hover(figures[1], "End-to-end TPS", "Average TTFT", "Latest generation TPS", "Latest request TTFT", "600.0 ms")
+		hover(figures[1], "End-to-end TPS", "Average TTFT", "Latest end-to-end TPS", "Latest request TTFT", "600.0 ms")
 		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
