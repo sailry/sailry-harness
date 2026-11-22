@@ -118,7 +118,7 @@ func enclosed(name string) bool {
 // extract unpacks the verified archive into destination and validates the
 // bundle. os.Root refuses every entry that would leave the destination,
 // through a symbolic link included.
-func extract(archive string, release Release, destination string) (string, error) {
+func (c *Config) extract(archive string, release Release, destination string) (string, error) {
 	rejected := failure("updates_package_invalid", "the update package could not be extracted")
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
@@ -136,7 +136,7 @@ func extract(archive string, release Release, destination string) (string, error
 		}
 	}
 	bundle := filepath.Join(destination, release.Bundle)
-	return bundle, validate(bundle, release)
+	return bundle, c.validateBundle(bundle, release)
 }
 
 func extractEntry(root *os.Root, entry *zip.File) error {
@@ -193,7 +193,7 @@ type build struct {
 // validate checks an extracted or installed bundle against the signed
 // release: its executable's architecture, build metadata and, on macOS, its
 // plist and code signature.
-func validate(root string, release Release) error {
+func (c *Config) validateBundle(root string, release Release) error {
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return failure("updates_package_invalid", "the update has no application bundle")
 	}
@@ -227,7 +227,7 @@ func validate(root string, release Release) error {
 	if !macos {
 		return nil
 	}
-	if err := validatePlist(root, release); err != nil {
+	if err := c.validatePlist(root, release); err != nil {
 		return err
 	}
 	if runtime.GOOS == "darwin" {
@@ -247,7 +247,7 @@ var verifyCodeSignature = func(root string) error {
 	return nil
 }
 
-func validatePlist(root string, release Release) error {
+func (c *Config) validatePlist(root string, release Release) error {
 	version, err := semver.StrictNewVersion(release.Version)
 	if err != nil {
 		return failure("updates_package_invalid", "invalid application version")
@@ -264,7 +264,8 @@ func validatePlist(root string, release Release) error {
 	if err != nil {
 		return failure("updates_package_invalid", "the application plist is invalid")
 	}
-	if values["CFBundleIdentifier"] != "ai.sailry.desktop" || values["CFBundleExecutable"] != "sailry-desktop" ||
+	product := c.packageIdentity()
+	if values["CFBundleIdentifier"] != product.ID || values["CFBundleExecutable"] != product.Executable ||
 		values["CFBundleShortVersionString"] != fmt.Sprintf("%d.%d.%d", version.Major(), version.Minor(), version.Patch()) ||
 		values["LSMinimumSystemVersion"] != release.MinimumSystem {
 		return failure("updates_package_invalid", "the application plist differs from signed update metadata")

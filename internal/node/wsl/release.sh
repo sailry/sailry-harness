@@ -4,7 +4,7 @@ command -v curl >/dev/null
 command -v bash >/dev/null
 install_stage="$(mktemp -d "${TMPDIR:-/tmp}/sailry-bootstrap-XXXXXX")"
 trap 'rm -rf -- "$install_stage"' EXIT
-install_release="https://github.com/sailry/sailry-harness/releases/download/v$install_version"
+install_release="$install_downloads/v$install_version"
 for install_asset in install-host.sh SHA256SUMS-installer; do
   curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
     "$install_release/$install_asset" --output "$install_stage/$install_asset"

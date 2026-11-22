@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 // Kind is where an update stands.
@@ -44,13 +46,14 @@ type Notice struct {
 
 // Options binds the service to the running Desktop.
 type Options struct {
-	Version   string         // the running application version
-	Directory string         // the updater's cache, beside the preferences
-	Profile   string         // the local Node's data profile
-	Channel   func() Channel // the saved channel, or InitialChannel when nil
-	Stop      func() error   // stops the local Node before replacement
-	Quit      func()         // ends the application after a handoff
-	Changed   func()         // wakes the interface from background work
+	Version   string                  // the running application version
+	Release   identity.DesktopRelease // the product's build-owned source, keys and package identity
+	Directory string                  // the updater's cache, beside the preferences
+	Profile   string                  // the local Node's data profile
+	Channel   func() Channel          // the saved channel, or InitialChannel when nil
+	Stop      func() error            // stops the local Node before replacement
+	Quit      func()                  // ends the application after a handoff
+	Changed   func()                  // wakes the interface from background work
 }
 
 // Service is the update state machine. Its methods return at once; network
@@ -94,7 +97,13 @@ func New(options Options) *Service {
 		channel := InitialChannel(options.Version)
 		options.Channel = func() Channel { return channel }
 	}
-	return &Service{options: options, stop: func() {}, done: make(chan struct{}), release: ReleaseConfig, installed: installedBundle, exchange: exchangeBundles, relaunch: relaunch, client: newClient}
+	return &Service{
+		options: options, stop: func() {}, done: make(chan struct{}), exchange: exchangeBundles, relaunch: relaunch, client: newClient,
+		release: func(channel Channel, version string) (Config, error) {
+			return releaseConfig(options.Release, channel, version)
+		},
+		installed: func() (string, error) { return installedBundle(options.Release.Package) },
+	}
 }
 
 // Snapshot is the current state and the last failure.
@@ -185,7 +194,7 @@ func (s *Service) Startup() {
 	go func() {
 		defer s.work.Done()
 		installed, _ := s.installed()
-		key, err := readReceipt(s.options.Directory, installed, s.options.Version)
+		key, err := readReceipt(s.options.Directory, installed, s.options.Version, s.options.Release.Package.Name+".app")
 		s.mu.Lock()
 		if err != nil {
 			s.failed(err)
@@ -426,7 +435,7 @@ func (s *Service) install(update *staged, config *Config, installed, root string
 	if err := verifyArchive(update.archive, release, config.Keys); err != nil {
 		return false, err
 	}
-	if err := validate(filepath.Join(update.directory, "contents", release.Bundle), release); err != nil {
+	if err := config.validateBundle(filepath.Join(update.directory, "contents", release.Bundle), release); err != nil {
 		return false, err
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {

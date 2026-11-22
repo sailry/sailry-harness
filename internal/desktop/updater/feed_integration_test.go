@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 // TestUpdaterLocalFeed installs a release from a local feed signed with a
@@ -116,7 +118,7 @@ func TestUpdaterLocalFeed(t *testing.T) {
 
 		// The next start of the new version acknowledges the receipt once
 		// and removes the retained original.
-		next := New(Options{Version: "1.1.0", Directory: root})
+		next := New(Options{Version: "1.1.0", Release: identity.OfficialDesktop().Release, Directory: root})
 		t.Cleanup(next.Close)
 		next.installed = func() (string, error) { return installed, nil }
 		next.Startup()
@@ -140,7 +142,7 @@ func TestUpdaterLocalFeed(t *testing.T) {
 		service, _, installed, root := start(t, "1.0.0")
 		service.Install()
 		settle(service)
-		next := New(Options{Version: "1.0.0", Directory: root})
+		next := New(Options{Version: "1.0.0", Release: identity.OfficialDesktop().Release, Directory: root})
 		t.Cleanup(next.Close)
 		next.installed = func() (string, error) { return installed, nil }
 		next.Startup()

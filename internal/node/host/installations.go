@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,6 +25,11 @@ type DeploymentOptions struct {
 	Profile     string
 	ServicePath string
 	CommandPath string
+	Release     identity.HostRelease
+}
+
+func (options DeploymentOptions) isolated() bool {
+	return options.ProgramRoot != "" || options.Profile != "" || options.ServicePath != "" || options.CommandPath != ""
 }
 
 type Installations struct {

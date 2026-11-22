@@ -314,6 +314,11 @@ exec /bin/mv "$@"
 
 func freshHostInstaller(t *testing.T) (directory, home, installer, tools string) {
 	t.Helper()
+	return freshHostInstallerForVersion(t, link.ProductVersion)
+}
+
+func freshHostInstallerForVersion(t *testing.T, version string) (directory, home, installer, tools string) {
+	t.Helper()
 	directory = t.TempDir()
 	home = filepath.Join(directory, "home")
 	tools = filepath.Join(directory, "bin")
@@ -335,7 +340,7 @@ func freshHostInstaller(t *testing.T) (directory, home, installer, tools string)
 	// every service, identity and network command below is a local fixture.
 	write(installer, strings.ReplaceAll(string(script), "$HOME", "$SAILRY_INSTALL_FIXTURE_HOME"))
 	files := map[string][]byte{
-		"sailry-host":           []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
+		"sailry-host":           []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + version + "'\n"),
 		"python/bin/python3.12": []byte("#!/bin/sh\nexec python3 \"$@\"\n"),
 	}
 	for _, name := range []string{"sailry", "service.sh"} {

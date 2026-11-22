@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -135,7 +136,7 @@ func validateUpdate(identity installedIdentity, node protocol.NodeID, target str
 	if identity.Node != node {
 		return &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "SSH endpoint belongs to another Host"}
 	}
-	current := strings.TrimPrefix(identity.Version, "Sailry Host ")
+	current := strings.TrimPrefix(identity.Version, officialVersionPrefix)
 	if current == identity.Version || !semver.IsValid("v"+current) || !semver.IsValid("v"+target) {
 		return unavailable("installed Host version could not be verified")
 	}
@@ -149,6 +150,8 @@ func sameRelease(current *string, target string) bool {
 	return current != nil && semver.IsValid("v"+*current) && semver.IsValid("v"+target) && semver.Compare("v"+*current, "v"+target) == 0
 }
 
+const officialVersionPrefix = identity.OfficialHostVersionTag
+
 func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.Client, endpoint *link.Link, caller protocol.NodeID, request protocol.RequestID, expected *protocol.NodeID, selection *protocol.NetworkSelection) (protocol.SshOutcome, error) {
 	ctx, cancel := context.WithTimeout(ctx, 600*time.Second)
 	defer cancel()
@@ -157,18 +160,29 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	if err != nil {
 		return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
 	}
-	root, err := artifactDirectory(target)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
 	paths, err := owner.remotePaths(ctx, connection)
 	if err != nil {
 		return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
 	}
-	// A build that carries locally built artifacts for the target uploads
-	// them; every other build installs its own version from the release feed.
-	if _, missing := os.Lstat(filepath.Join(root, "sailry-host")); errors.Is(missing, fs.ErrNotExist) {
-		err = owner.installRelease(ctx, connection, caller, request, expected, selection)
+	version := link.ProductVersion
+	checkRelease := owner.options.Release.Published()
+	// Explicit official Host selection always uses its published repository.
+	var root string
+	published := checkRelease
+	if !published {
+		root, err = artifactDirectory(target)
+		if err != nil {
+			return protocol.SshOutcome{}, err
+		}
+		_, missing := os.Lstat(filepath.Join(root, "sailry-host"))
+		published = errors.Is(missing, fs.ErrNotExist)
+	}
+	if published {
+		version, err = wsl.ResolveRelease(ctx, owner.options.Release)
+		if err != nil {
+			return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
+		}
+		err = owner.installRelease(ctx, connection, caller, request, expected, selection, version)
 	} else {
 		err = owner.installLocal(ctx, connection, caller, request, root, target, turso, paths, expected, selection)
 	}
@@ -177,12 +191,15 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	}
 	owner.Progress(caller, request, "pairing")
 	if expected != nil {
-		if err := confirmUpdate(ctx, endpoint, *expected); err != nil {
+		if err := confirmUpdate(ctx, endpoint, *expected, version); err != nil {
 			return protocol.SshOutcome{}, err
 		}
 		return protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: *expected}}, nil
 	}
-	address, err := pairInstalled(ctx, connection, endpoint, paths.Profile)
+	if !checkRelease {
+		version = ""
+	}
+	address, err := pairInstalled(ctx, connection, endpoint, paths.Profile, version)
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}
@@ -295,15 +312,15 @@ if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
     echo 'Managed Host program files are unavailable' >&2; exit 1
   fi
 fi
-"$install_root/python/bin/python3.12" -I - "$install_root" "$HOME/.sailry-host" <<'SAILRY_IDENTITY'
+"$install_root/python/bin/python3.12" -I - "$install_root" "$HOME/` + identity.OfficialHostProfile + `" <<'SAILRY_IDENTITY'
 `
 
-// installRelease installs or updates this application version from the
+// installRelease installs or updates the selected Host version from the
 // published release feed. The bootstrap verifies install-host.sh against
 // SHA256SUMS-installer; the installer verifies the target's archive against
 // SHA256SUMS-<triple>. WSL installation runs the same bootstrap.
-func (owner *Installations) installRelease(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
-	if owner.options != (DeploymentOptions{}) {
+func (owner *Installations) installRelease(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, expected *protocol.NodeID, selection *protocol.NetworkSelection, version string) error {
+	if owner.options.isolated() {
 		return invalid("isolated Host deployment requires locally built Host artifacts")
 	}
 	var installedVersion string
@@ -317,7 +334,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 		if json.Unmarshal([]byte(body), &identity) != nil {
 			return unavailable("managed Host identity could not be verified")
 		}
-		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
+		if err := validateUpdate(identity, *expected, version); err != nil {
 			return err
 		}
 		installedVersion = identity.Version
@@ -330,7 +347,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 		}
 		selection = &protocol.NetworkSelection{Kind: "custom", Data: custom}
 	}
-	script, err := wsl.ReleaseScript(link.ProductVersion, expected != nil, selection)
+	script, err := wsl.ReleaseScript(version, expected != nil, selection)
 	if err != nil {
 		return err
 	}
@@ -347,8 +364,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 }
 
 func (owner *Installations) remotePaths(ctx context.Context, connection *cryptossh.Client) (DeploymentOptions, error) {
-	configured := owner.options.ProgramRoot != "" || owner.options.Profile != "" || owner.options.ServicePath != "" || owner.options.CommandPath != ""
-	if configured {
+	if owner.options.isolated() {
 		if owner.options.ProgramRoot == "" || owner.options.Profile == "" || owner.options.ServicePath == "" || owner.options.CommandPath == "" {
 			return DeploymentOptions{}, invalid("Host deployment requires all isolated managed paths")
 		}
@@ -368,7 +384,7 @@ func (owner *Installations) remotePaths(ctx context.Context, connection *cryptos
 		return DeploymentOptions{}, unavailable("Host managed installation paths could not be verified")
 	}
 	home := values[0]
-	paths := DeploymentOptions{ProgramRoot: home + "/.local/lib/sailry", Profile: home + "/.sailry-host", ServicePath: home + "/.config/systemd/user/sailry-host.service", CommandPath: home + "/.local/bin/sailry"}
+	paths := DeploymentOptions{ProgramRoot: home + "/.local/lib/sailry", Profile: home + "/" + identity.OfficialHostProfile, ServicePath: home + "/.config/systemd/user/sailry-host.service", CommandPath: home + "/.local/bin/sailry"}
 	if values[1] == "Linux" && values[2] == "0" {
 		paths.ProgramRoot, paths.ServicePath, paths.CommandPath = "/usr/local/libexec/sailry", "/etc/systemd/system/sailry-host.service", "/usr/local/bin/sailry"
 	}
@@ -455,7 +471,7 @@ func deploymentScript(stage string, binary, database, seal *artifact, paths Depl
 // Host it installed.
 const pairingAttempts = 5
 
-func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *link.Link, profile string) (link.EndpointAddress, error) {
+func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *link.Link, profile, version string) (link.EndpointAddress, error) {
 	ticketPath, _ := shellQuote(profile + "/bootstrap.ticket")
 	read := func() (string, error) {
 		result, err := runSSH(ctx, connection, sshProbe, "cat "+ticketPath+" 2>/dev/null", nil)
@@ -475,6 +491,9 @@ func pairInstalled(ctx context.Context, connection *cryptossh.Client, endpoint *
 		info, err := endpoint.Inspect(ctx, address)
 		if err != nil || !info.Execution {
 			return address, installFault(protocol.ErrorCodeOutcomeUnknown, "installed endpoint does not provide a Node", protocol.SSHPairingUnconfirmed)
+		}
+		if version != "" && (!sameRelease(info.SoftwareVersion, version) || info.Compatibility() != nil) {
+			return address, installFault(protocol.ErrorCodeOutcomeUnknown, "installed endpoint does not provide the expected compatible Host release", protocol.SSHPairingUnconfirmed)
 		}
 		return address, nil
 	}
@@ -523,7 +542,7 @@ func pairBootstrap(ctx context.Context, read func() (string, error), pair func(s
 // update replaced the Host process, so the connection cached before it is
 // dropped first, and again after every probe that did not confirm: a probe
 // that reached the old process must not leave its connection for the next.
-func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.NodeID) error {
+func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.NodeID, version string) error {
 	for attempt := 0; attempt < 90; attempt++ {
 		endpoint.Disconnect(expected)
 		peers, err := endpoint.Peers(ctx)
@@ -535,7 +554,7 @@ func confirmUpdate(ctx context.Context, endpoint *link.Link, expected protocol.N
 				continue
 			}
 			info, err := endpoint.Inspect(ctx, address)
-			if err == nil && info.Execution && sameRelease(info.SoftwareVersion, link.ProductVersion) {
+			if err == nil && info.Execution && sameRelease(info.SoftwareVersion, version) && info.Compatibility() == nil {
 				return nil
 			}
 		}

@@ -16,6 +16,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node/admission"
@@ -139,22 +140,24 @@ var _ link.Handler = (*Node)(nil)
 
 // Options injects native process and clock boundaries for deterministic owners.
 type Options struct {
-	Headless       bool
-	MCP            *mcp.Options
-	Python         *python.Options
-	DispatchClock  clockwork.Clock
-	Network        *link.NetworkScope
-	HostDeployment *host.DeploymentOptions
-	Model          func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	Fetch          web.FetchOptions
-	Search         web.SearchOptions
-	Environment    *process.Environment
-	Git            workspacegit.Options
-	Process        process.Options
-	LocalModels    localmodels.Options
-	Power          power.Backend
-	Telemetry      telemetry.Options
-	knowledge      func(*knowledgeservice.Options)
+	Headless        bool
+	MCP             *mcp.Options
+	Python          *python.Options
+	DispatchClock   clockwork.Clock
+	Network         *link.NetworkScope
+	HostDeployment  *host.DeploymentOptions
+	HostRelease     identity.HostRelease
+	SoftwareVersion string
+	Model           func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Fetch           web.FetchOptions
+	Search          web.SearchOptions
+	Environment     *process.Environment
+	Git             workspacegit.Options
+	Process         process.Options
+	LocalModels     localmodels.Options
+	Power           power.Backend
+	Telemetry       telemetry.Options
+	knowledge       func(*knowledgeservice.Options)
 }
 
 func Start(ctx context.Context, path string) (*Node, error) {
@@ -238,10 +241,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.removeExternalBrowserProfiles(ctx)
 	value.networkDirectory = &networkDirectory{}
 	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
-	value.initHost()
-	if options.HostDeployment != nil {
-		value.hostInstalls = host.NewInstallations(*options.HostDeployment)
-	}
+	value.initHost(options)
 	value.modelFactory = options.Model
 	value.mediaPoll = model.MediaVideoPoll
 	options.Telemetry.RetryDirectory = filepath.Join(profile.Ownership.Path, "tmp")
@@ -290,7 +290,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.startMCP()
 	value.sweepSessionWorkspaces()
 	if options.Network != nil {
-		if err := value.bindNetwork(ctx, *options.Network); err != nil {
+		if err := value.bindNetwork(ctx, *options.Network, options.SoftwareVersion); err != nil {
 			_ = value.Stop(context.Background())
 			return nil, err
 		}

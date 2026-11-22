@@ -137,7 +137,7 @@ func TestSSHInstallationContracts(t *testing.T) {
 		}
 	}
 	// The release feed installs only into the installer's own managed paths.
-	if err := NewInstallations(paths).installRelease(context.Background(), nil, node, request.ID, nil, nil); err == nil {
+	if err := NewInstallations(paths).installRelease(context.Background(), nil, node, request.ID, nil, nil, link.ProductVersion); err == nil {
 		t.Fatal("release installation accepted isolated managed paths")
 	}
 	t.Run("bootstrap pairing", func(t *testing.T) {

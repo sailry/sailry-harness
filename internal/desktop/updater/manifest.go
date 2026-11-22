@@ -197,7 +197,7 @@ func (c *Config) validate(release Release) error {
 	if err := c.validateURL(release.URL); err != nil {
 		return err
 	}
-	bundle, executable, err := layout(release.Target)
+	bundle, executable, err := c.layout(release.Target)
 	if err != nil {
 		return err
 	}
@@ -209,12 +209,13 @@ func (c *Config) validate(release Release) error {
 	return nil
 }
 
-func layout(target string) (bundle, executable string, err error) {
+func (c *Config) layout(target string) (bundle, executable string, err error) {
+	product := c.packageIdentity()
 	switch target {
 	case "aarch64-apple-darwin", "x86_64-apple-darwin":
-		return "Sailry.app", "Contents/MacOS/sailry-desktop", nil
+		return product.Name + ".app", "Contents/MacOS/" + product.Executable, nil
 	case "aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc":
-		return "Sailry", "sailry-desktop.exe", nil
+		return product.Name, product.Executable + ".exe", nil
 	}
 	return "", "", failure("updates_platform", "unsupported desktop update target")
 }

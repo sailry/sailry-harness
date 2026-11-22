@@ -188,7 +188,8 @@ func TestWSLDiscovery(t *testing.T) {
 		custom := protocol.NetworkSelection{Kind: "custom", Data: &protocol.NetworkSelectionCustomPayload{Relays: []string{relay}}}
 		script, err := ReleaseScript("0.1.0", false, &custom)
 		prefix := "install_version='0.1.0'\ninstall_update=0\nset -- '--relay' 'https://relay.example/it'\"'\"'s\r\nnext'\n"
-		if err != nil || script != prefix+normalize(releaseSource) {
+		source := "install_downloads='https://github.com/sailry/sailry-harness/releases/download'\n" + normalize(releaseSource)
+		if err != nil || script != prefix+source {
 			t.Fatalf("custom script %q, error %v", script, err)
 		}
 		script, err = ReleaseScript("0.1.0", false, &protocol.NetworkSelection{Kind: "direct"})
@@ -196,11 +197,11 @@ func TestWSLDiscovery(t *testing.T) {
 			t.Fatalf("iroh script %q, error %v", script, err)
 		}
 		script, err = ReleaseScript("0.1.0", false, nil)
-		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=0\nset -- \nset -eu\n") {
+		if err != nil || script != "install_version='0.1.0'\ninstall_update=0\nset -- \n"+source {
 			t.Fatalf("default script %q, error %v", script, err)
 		}
 		script, err = ReleaseScript("0.1.0", true, nil)
-		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=1\nset -- \nset -eu\n") {
+		if err != nil || script != "install_version='0.1.0'\ninstall_update=1\nset -- \n"+source {
 			t.Fatalf("update script %q, error %v", script, err)
 		}
 		custom.Data = &protocol.NetworkSelectionCustomPayload{Relays: []string{"https://relay.example/\x00"}}

@@ -27,7 +27,7 @@ type receipt struct {
 // readReceipt acknowledges the previous installation's receipt: it is moved
 // aside, then reported as the notice key of a completed update or as the
 // failure it recorded. No receipt is no notice.
-func readReceipt(directory, installed, running string) (string, error) {
+func readReceipt(directory, installed, running, bundle string) (string, error) {
 	path := filepath.Join(directory, "receipt.json")
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -88,7 +88,7 @@ func readReceipt(directory, installed, running string) (string, error) {
 		return "", failure("updates_restart_failed", "the recorded update does not match the running application")
 	}
 	if value.Backup != nil {
-		cleanup(*value.Backup, installed)
+		cleanup(*value.Backup, installed, bundle)
 	}
 	return "updates_completed", nil
 }
@@ -102,13 +102,13 @@ func deref(value *string, fallback string) string {
 
 // cleanup deletes the retained original only when it is provably the backup
 // this updater made beside the installed bundle.
-func cleanup(backup, installed string) {
+func cleanup(backup, installed, bundle string) {
 	directory := func(path string) bool {
 		info, err := os.Lstat(path)
 		return err == nil && info.IsDir()
 	}
-	if installed == "" || !filepath.IsAbs(backup) || !strings.HasPrefix(filepath.Base(backup), ".sailry-update-backup-") ||
-		!directory(backup) || !directory(filepath.Join(backup, "Sailry.app")) {
+	if installed == "" || !packageComponent(bundle) || !filepath.IsAbs(backup) || !strings.HasPrefix(filepath.Base(backup), ".sailry-update-backup-") ||
+		!directory(backup) || !directory(filepath.Join(backup, bundle)) {
 		log.Printf("desktop update: backup kept unverified")
 		return
 	}

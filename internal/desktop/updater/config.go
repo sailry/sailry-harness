@@ -5,7 +5,6 @@ package updater
 
 import (
 	"crypto/ed25519"
-	_ "embed"
 	"net/url"
 	"runtime"
 	"strings"
@@ -13,21 +12,16 @@ import (
 	"filippo.io/edwards25519"
 	"github.com/Masterminds/semver/v3"
 	"github.com/MoeForge/moego/base64"
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 const (
 	// Releases and Downloads are the official release source.
-	Releases    = "https://api.github.com/repos/sailry/sailry-harness/releases"
-	Downloads   = "https://github.com/sailry/sailry-harness/releases/download"
+	Releases    = identity.OfficialReleases
+	Downloads   = identity.OfficialDownloads
 	maxManifest = 1024 * 1024
 	maxArchive  = 2 * 1024 * 1024 * 1024
 )
-
-// Release-owned trust configuration. Runtime environment variables cannot
-// replace its keys.
-//
-//go:embed update-public-keys.txt
-var publicKeys string
 
 // Failure is an update failure: its i18n key and the detail for the dialog.
 type Failure struct {
@@ -80,6 +74,7 @@ type Config struct {
 	Target    string
 	Version   string
 	System    string
+	Package   identity.DesktopPackage
 	local     bool // tests admit plain HTTP on the loopback interface
 }
 
@@ -96,7 +91,11 @@ func Target() string {
 
 // ReleaseConfig is the official configuration for the running version.
 func ReleaseConfig(channel Channel, version string) (Config, error) {
-	keys, err := parseKeys(publicKeys)
+	return releaseConfig(identity.OfficialDesktop().Release, channel, version)
+}
+
+func releaseConfig(release identity.DesktopRelease, channel Channel, version string) (Config, error) {
+	config, err := releaseInputs(release)
 	if err != nil {
 		return Config{}, err
 	}
@@ -104,7 +103,41 @@ func ReleaseConfig(channel Channel, version string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{Source: Releases, Downloads: Downloads, Channel: channel, Keys: keys, Target: Target(), Version: version, System: system}, nil
+	config.Channel, config.Target, config.Version, config.System = channel, Target(), version, system
+	return config, nil
+}
+
+func releaseInputs(release identity.DesktopRelease) (Config, error) {
+	if release.Package.ID == "" || !packageComponent(release.Package.Name) || !packageComponent(release.Package.Executable) {
+		return Config{}, failure("updates_source_unready", "invalid configured desktop package identity")
+	}
+	keys, err := parseKeys(release.PublicKeys)
+	if err != nil {
+		return Config{}, err
+	}
+	config := Config{Source: release.Source, Downloads: release.Downloads, Keys: keys, Package: release.Package}
+	for _, address := range []string{config.Source, config.Downloads} {
+		if err := config.validateURL(address); err != nil {
+			return Config{}, err
+		}
+	}
+	if strings.Contains(config.Downloads, "?") || strings.HasSuffix(config.Downloads, "/") {
+		return Config{}, failure("updates_source_unready", "invalid configured release download base")
+	}
+	return config, nil
+}
+
+func (c *Config) packageIdentity() identity.DesktopPackage {
+	if c.Package == (identity.DesktopPackage{}) {
+		return identity.OfficialDesktop().Release.Package
+	}
+	return c.Package
+}
+
+func packageComponent(value string) bool {
+	return safeRelative(value) && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
+	}) == -1
 }
 
 func parseKeys(encoded string) ([]ed25519.PublicKey, error) {

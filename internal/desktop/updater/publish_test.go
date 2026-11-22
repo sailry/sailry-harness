@@ -35,17 +35,17 @@ func TestPublishedRelease(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := publish(foreignPrivate, keys, "1.1.0", t.TempDir(), unsigned); err == nil {
+	config := Config{Downloads: Downloads, Channel: Stable, Keys: keys, Target: fixtureTarget, Version: "1.0.0", System: "14.2"}
+	if err := publish(foreignPrivate, &config, "1.1.0", t.TempDir(), unsigned); err == nil {
 		t.Fatal("a key outside the trusted keys signed a release")
 	}
-	if err := publish(private, keys, "1.1.0", output, unsigned); err != nil {
+	if err := publish(private, &config, "1.1.0", output, unsigned); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := os.ReadFile(filepath.Join(output, "update-v1.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := Config{Downloads: Downloads, Channel: Stable, Keys: keys, Target: fixtureTarget, Version: "1.0.0", System: "14.2"}
 	key := func(err error) string {
 		if err == nil {
 			return ""
@@ -70,7 +70,7 @@ func TestPublishedRelease(t *testing.T) {
 	if err := verifyArchive(archive, release, keys); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := extract(archive, release, t.TempDir()); err != nil {
+	if _, err := config.extract(archive, release, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	var described Release

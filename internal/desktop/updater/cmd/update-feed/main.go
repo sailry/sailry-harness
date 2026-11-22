@@ -8,7 +8,7 @@
 // The output directory receives Sailry-<target>.zip, its .update.json and
 // update-v1.json; existing files are never replaced. The publisher key is
 // the base64 seed in SAILRY_UPDATE_SIGNING_KEY and must belong to
-// internal/desktop/updater/update-public-keys.txt.
+// internal/identity/update-public-keys.txt.
 package main
 
 import (

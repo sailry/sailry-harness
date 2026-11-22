@@ -18,6 +18,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/MoeForge/moego/base64"
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 // The publisher's side of the signed update-v1 format, run by the release
@@ -30,18 +31,22 @@ import (
 // update-v1.json. unsigned maps each macOS target to the ZIP of its sealed,
 // signed application. seed is the trusted publisher key's 32-byte seed.
 func Publish(seed []byte, version, directory string, unsigned map[string]string) error {
-	keys, err := parseKeys(publicKeys)
+	return PublishRelease(identity.OfficialDesktop().Release, seed, version, directory, unsigned)
+}
+
+func PublishRelease(product identity.DesktopRelease, seed []byte, version, directory string, unsigned map[string]string) error {
+	config, err := releaseInputs(product)
 	if err != nil {
 		return err
 	}
 	if len(seed) != ed25519.SeedSize {
 		return errors.New("the update signing key must have 32 bytes")
 	}
-	return publish(ed25519.NewKeyFromSeed(seed), keys, version, directory, unsigned)
+	return publish(ed25519.NewKeyFromSeed(seed), &config, version, directory, unsigned)
 }
 
-func publish(key ed25519.PrivateKey, keys []ed25519.PublicKey, version, directory string, unsigned map[string]string) error {
-	if !slices.ContainsFunc(keys, func(trusted ed25519.PublicKey) bool { return trusted.Equal(key.Public()) }) {
+func publish(key ed25519.PrivateKey, config *Config, version, directory string, unsigned map[string]string) error {
+	if !slices.ContainsFunc(config.Keys, func(trusted ed25519.PublicKey) bool { return trusted.Equal(key.Public()) }) {
 		return errors.New("the update signing key is outside the trusted public keys")
 	}
 	parsed, err := semver.StrictNewVersion(version)
@@ -53,23 +58,23 @@ func publish(key ed25519.PrivateKey, keys []ed25519.PublicKey, version, director
 	if !slices.Equal(targets, []string{"aarch64-apple-darwin", "x86_64-apple-darwin"}) {
 		return errors.New("a release needs the archives of both macOS targets")
 	}
-	release := published{version: parsed, downloads: Downloads + "/v" + version}
+	release := published{version: parsed, downloads: config.Downloads + "/v" + version}
 	var signed payload
 	for _, target := range targets {
-		minimum, err := minimumSystem(unsigned[target])
+		bundle, executable, err := config.layout(target)
 		if err != nil {
 			return err
 		}
-		name := "Sailry-" + target + ".zip"
+		minimum, err := minimumSystem(unsigned[target], bundle)
+		if err != nil {
+			return err
+		}
+		name := config.packageIdentity().Name + "-" + target + ".zip"
 		path := filepath.Join(directory, name)
 		if err := signedCopy(key, unsigned[target], path); err != nil {
 			return err
 		}
 		digest, size, err := measure(path)
-		if err != nil {
-			return err
-		}
-		bundle, executable, err := layout(target)
 		if err != nil {
 			return err
 		}
@@ -95,19 +100,19 @@ func publish(key ed25519.PrivateKey, keys []ed25519.PublicKey, version, director
 	catalog = append(catalog, '\n')
 
 	// The updater's own checks must accept what was written.
-	if err := release.authenticate(catalog, &Config{Keys: keys}); err != nil {
+	if err := release.authenticate(catalog, config); err != nil {
 		return err
 	}
 	for _, entry := range signed.Releases {
 		path := filepath.Join(directory, entry.Name)
-		if err := verifyArchive(path, entry, keys); err != nil {
+		if err := verifyArchive(path, entry, config.Keys); err != nil {
 			return err
 		}
 		work, err := os.MkdirTemp("", "sailry-update-")
 		if err != nil {
 			return err
 		}
-		_, err = extract(path, entry, work)
+		_, err = config.extract(path, entry, work)
 		if removal := os.RemoveAll(work); err == nil {
 			err = removal
 		}
@@ -169,14 +174,14 @@ func signedCopy(key ed25519.PrivateKey, source, destination string) error {
 
 // minimumSystem reads the system version the packaged application declares,
 // which the updater compares with the signed metadata.
-func minimumSystem(archive string) (string, error) {
+func minimumSystem(archive, bundle string) (string, error) {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
 		return "", err
 	}
 	defer reader.Close()
 	for _, entry := range reader.File {
-		if entry.Name != "Sailry.app/Contents/Info.plist" {
+		if entry.Name != bundle+"/Contents/Info.plist" {
 			continue
 		}
 		source, err := entry.Open()
@@ -194,7 +199,7 @@ func minimumSystem(archive string) (string, error) {
 		}
 		return values["LSMinimumSystemVersion"], nil
 	}
-	return "", errors.New("the archive holds no Sailry.app")
+	return "", fmt.Errorf("the archive holds no %s", bundle)
 }
 
 func measure(path string) (string, uint64, error) {

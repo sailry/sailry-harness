@@ -66,11 +66,11 @@ func replace(update *staged, config *Config, installed string, exchange func(str
 	if err != nil {
 		return "", ioFailure(err)
 	}
-	if err := copyTree(installed, filepath.Join(backup, "Sailry.app")); err != nil {
+	if err := copyTree(installed, filepath.Join(backup, release.Bundle)); err != nil {
 		_ = os.RemoveAll(backup)
 		return "", err
 	}
-	if err := swap(update, installed, parent, exchange); err != nil {
+	if err := config.swap(update, installed, parent, exchange); err != nil {
 		return "", failure("updates_install_uncertain", fmt.Sprintf("application installation failed; original retained at %s: %v", backup, err))
 	}
 	return backup, nil
@@ -78,13 +78,13 @@ func replace(update *staged, config *Config, installed string, exchange func(str
 
 // swap extracts and validates the bundle on the installed volume before
 // atomically exchanging it with the installed bundle.
-func swap(update *staged, installed, parent string, exchange func(string, string) error) error {
+func (c *Config) swap(update *staged, installed, parent string, exchange func(string, string) error) error {
 	work, err := os.MkdirTemp(parent, ".sailry-update-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(work)
-	bundle, err := extract(update.archive, update.selection.Release, work)
+	bundle, err := c.extract(update.archive, update.selection.Release, work)
 	if err != nil {
 		return err
 	}

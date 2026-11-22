@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 const fixtureTarget = "aarch64-apple-darwin"
@@ -212,12 +213,18 @@ func bundleFiles(target, version, minimum string) map[string][]byte {
 
 func bundleArchive(t *testing.T, target, version, minimum string) []byte {
 	t.Helper()
+	return bundleArchiveFor(t, target, version, minimum, identity.OfficialDesktop().Release.Package)
+}
+
+func bundleArchiveFor(t *testing.T, target, version, minimum string, product identity.DesktopPackage) []byte {
+	t.Helper()
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 	modified := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	files := bundleFiles(target, version, minimum)
+	files["Contents/Info.plist"] = []byte(strings.NewReplacer("ai.sailry.desktop", product.ID, "sailry-desktop", product.Executable).Replace(string(files["Contents/Info.plist"])))
 	for _, name := range []string{"Contents/Info.plist", "Contents/MacOS/sailry-desktop", "Contents/Resources/build.json"} {
-		header := &zip.FileHeader{Name: "Sailry.app/" + name, Method: zip.Deflate, Modified: modified}
+		header := &zip.FileHeader{Name: product.Name + ".app/" + strings.ReplaceAll(name, "sailry-desktop", product.Executable), Method: zip.Deflate, Modified: modified}
 		header.SetMode(0o644)
 		if strings.Contains(name, "MacOS") {
 			header.SetMode(0o755)
@@ -230,7 +237,7 @@ func bundleArchive(t *testing.T, target, version, minimum string) []byte {
 			t.Fatal(err)
 		}
 	}
-	resource := &zip.FileHeader{Name: "Sailry.app/Contents/Resources/current.json", Modified: modified}
+	resource := &zip.FileHeader{Name: product.Name + ".app/Contents/Resources/current.json", Modified: modified}
 	content := []byte("build.json")
 	if runtime.GOOS == "windows" {
 		// Windows does not extract Unix symbolic links. The portable fixture

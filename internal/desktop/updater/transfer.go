@@ -230,7 +230,7 @@ func download(ctx context.Context, client *http.Client, config *Config, selectio
 	if err := os.Mkdir(contents, 0o700); err != nil {
 		return nil, ioFailure(err)
 	}
-	if _, err := extract(archive, release, contents); err != nil {
+	if _, err := config.extract(archive, release, contents); err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil {

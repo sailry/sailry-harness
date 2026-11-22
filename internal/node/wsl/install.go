@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/mod/semver"
@@ -18,7 +19,8 @@ var preflightSource string
 //go:embed release.sh
 var releaseSource string
 
-const ticketScript = "cat \"$HOME/.sailry-host/bootstrap.ticket\" 2>/dev/null || test ! -e \"$HOME/.sailry-host/bootstrap.ticket\"\n"
+const ticketPath = "$HOME/" + identity.OfficialHostProfile + "/bootstrap.ticket"
+const ticketScript = "cat \"" + ticketPath + "\" 2>/dev/null || test ! -e \"" + ticketPath + "\"\n"
 
 // ConfigureNetwork applies and confirms the selected network on a paired
 // Host. It is the Host deployment's implementation shared with SSH.
@@ -44,7 +46,13 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 	if ctx.Err() != nil {
 		return protocol.HostInstallationOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "WSL Host installation was cancelled"}
 	}
-	version := link.ProductVersion
+	version, err := ResolveRelease(ctx, installation.service.release)
+	if err != nil {
+		if ctx.Err() != nil {
+			return protocol.HostInstallationOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "WSL Host installation was cancelled"}
+		}
+		return protocol.HostInstallationOutcome{}, err
+	}
 	release, err := ReleaseScript(version, false, network)
 	if err != nil {
 		return protocol.HostInstallationOutcome{}, err
@@ -146,6 +154,9 @@ func (installation *Installation) pair(ctx context.Context, executable string, a
 	if !info.Execution || !current {
 		return protocol.HostInstallationOutcome{}, unknown("Installed endpoint does not provide the expected Host release")
 	}
+	if err := info.Compatibility(); err != nil {
+		return protocol.HostInstallationOutcome{}, unknown("Installed Host protocol is incompatible; inspect the distribution service")
+	}
 	if network != nil && configure(ctx, endpoint, address, installation.key.request, *network) != nil {
 		return protocol.HostInstallationOutcome{Kind: "network_unconfirmed", Data: protocol.HostInstallationOutcomeNetworkUnconfirmedPayload{Node: address.ID, Selection: *network}}, nil
 	}
@@ -162,6 +173,9 @@ func launchArguments(distribution string) []string {
 // whether it updates an installed Host, and the network arguments forwarded
 // to the Host installer. SSH Add Host runs the same script.
 func ReleaseScript(version string, update bool, network *protocol.NetworkSelection) (string, error) {
+	if !validReleaseVersion(version) {
+		return "", invalid("invalid target Host version")
+	}
 	arguments := []string{}
 	if network != nil {
 		switch network.Kind {
@@ -191,7 +205,8 @@ func ReleaseScript(version string, update bool, network *protocol.NetworkSelecti
 	if update {
 		mode = "1"
 	}
-	return "install_version='" + version + "'\ninstall_update=" + mode + "\nset -- " + strings.Join(arguments, " ") + "\n" + normalize(releaseSource), nil
+	return "install_version='" + version + "'\ninstall_update=" + mode + "\nset -- " + strings.Join(arguments, " ") +
+		"\ninstall_downloads='" + identity.OfficialDownloads + "'\n" + normalize(releaseSource), nil
 }
 
 // normalize undoes checkout line-ending conversion of an embedded script and

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,8 +25,9 @@ type active struct {
 
 // Service tracks active WSL Host installations for progress and cancellation.
 type Service struct {
-	mu     sync.Mutex
-	active map[installKey]*active
+	mu      sync.Mutex
+	active  map[installKey]*active
+	release identity.HostRelease
 }
 
 // Installation is one registered installation. Close releases its registration.
@@ -44,7 +46,11 @@ type source struct {
 }
 
 func NewService() *Service {
-	return &Service{active: map[installKey]*active{}}
+	return NewServiceForRelease(identity.HostRelease{})
+}
+
+func NewServiceForRelease(release identity.HostRelease) *Service {
+	return &Service{active: map[installKey]*active{}, release: release}
 }
 
 // List reports the registered distributions and their WSL versions.

@@ -5,11 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"golang.org/x/sys/unix"
 )
 
 // installedBundle is the application bundle the running executable belongs to.
-func installedBundle() (string, error) {
+func installedBundle(product identity.DesktopPackage) (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", ioFailure(err)
@@ -21,8 +22,20 @@ func installedBundle() (string, error) {
 		if !strings.HasSuffix(root, ".app") {
 			continue
 		}
-		if filepath.Join(root, "Contents", "MacOS", "sailry-desktop") != executable {
+		if filepath.Join(root, "Contents", "MacOS", product.Executable) != executable {
 			return "", failure("updates_bundle_required", "the executable is outside the expected application bundle")
+		}
+		plist, err := confined(root, filepath.Join(root, "Contents", "Info.plist"))
+		if err != nil {
+			return "", err
+		}
+		data, err := readLimited(plist, 128*1024)
+		if err != nil {
+			return "", err
+		}
+		values, err := plistStrings(data)
+		if err != nil || values["CFBundleIdentifier"] != product.ID || values["CFBundleExecutable"] != product.Executable {
+			return "", failure("updates_bundle_required", "the running application bundle does not match the configured identity")
 		}
 		return root, nil
 	}
