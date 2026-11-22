@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/binary"
+	"runtime"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
@@ -10,11 +11,18 @@ import (
 
 const compressedFlag uint32 = 1 << 31
 const minimumCompressedBytes = 1024
+const frameEncoderConcurrency = 8
+const frameEncoderWindow = 1 << 20
 
-// One codec serves every frame: EncodeAll and DecodeAll are safe for concurrent
-// use and neither starts a goroutine, so the codecs are never closed.
+// EncodeAll retains a history buffer for each worker that encodes multi-block
+// frames. Bound both the pool and its history to limit retained memory.
 var frameEncoder = sync.OnceValues(func() (*zstd.Encoder, error) {
-	return zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)))
+	return zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)),
+		zstd.WithEncoderConcurrency(min(runtime.GOMAXPROCS(0), frameEncoderConcurrency)),
+		zstd.WithWindowSize(frameEncoderWindow),
+		zstd.WithLowerEncoderMem(true),
+	)
 })
 
 var frameDecoder = sync.OnceValues(func() (*zstd.Decoder, error) {
