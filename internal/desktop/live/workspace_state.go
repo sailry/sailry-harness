@@ -83,6 +83,7 @@ type workspaceProject struct {
 	uncertainCallbacks       map[string]func(*ui.Context, protocol.Output)
 	searchCancel             context.CancelFunc
 	searchGeneration         uint64
+	openingFile              *workspaceFileOpen
 	directoryPages           map[string]protocol.Directory
 	directoryEntries         map[string][]protocol.FileEntry
 	directoryStates          map[string]panel.DirectoryState
@@ -180,6 +181,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project = r.workspaceFor(worktree)
 	}
 	if changed || project.session != session.ID {
+		project.cancelFileOpen()
 		project.session = session.ID
 		project.data.Checkpoints = nil
 		if checkpoints := project.checkpointSessions[session.ID]; checkpoints != nil {
@@ -268,6 +270,7 @@ func (p *workspaceProject) releaseView() {
 		p.cancel = nil
 	}
 	p.panel.ResetFileSearch()
+	p.cancelFileOpen()
 	p.stopGitRefreshTimer()
 	p.pruneClosedContent()
 }
@@ -325,6 +328,7 @@ func (r *Runtime) closeWorkspace() {
 		project.closeDocumentImages()
 		project.stopGitRefreshTimer()
 		project.panel.ResetFileSearch()
+		project.cancelFileOpen()
 		if project.cancel != nil {
 			project.cancel()
 		}
@@ -336,9 +340,9 @@ func (r *Runtime) closeWorkspace() {
 func (p *workspaceProject) actions() *panel.Actions {
 	return &panel.Actions{
 		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
-		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
+		ReadFile: p.readFile, OpenFile: func(path string) bool { p.openWorkspaceFile(path, 0); return true }, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
 		DocumentMarkdown: p.documentMarkdown,
-		Search:           p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
+		Search:           p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openWorkspaceFile, Pending: p.pendingWorkspaceOperations,
 		GitHistory: p.gitHistoryMore,
 		PendingGit: p.pendingGitOperations,
 		Loading:    p.resourcesLoading,
@@ -929,7 +933,5 @@ func (r *Runtime) openWorkspaceFile(sessionID protocol.SessionID, worktreeID pro
 	if project == nil {
 		return
 	}
-	project.panel.FileOpen(relative)
-	r.App.RevealConversationPanel()
-	r.App.Panel.Show(panel.Tab{Kind: panel.Files, ID: relative})
+	project.openWorkspaceFile(relative, 0)
 }

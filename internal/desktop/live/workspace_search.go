@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"mime"
-	"path"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -73,24 +70,4 @@ func (p *workspaceProject) searchFiles(query panel.SearchQuery, done func(panel.
 			done(result)
 		})
 	})
-}
-func (p *workspaceProject) openFileAt(relative string, line int) {
-	p.panel.FileOpenAt(relative, line)
-	p.showItem(panel.Files, relative)
-}
-func (p *workspaceProject) openFileKind(relative string) bool {
-	media := mime.TypeByExtension(strings.ToLower(path.Ext(relative)))
-	kind := attachmentFileKind(relative, media)
-	if strings.EqualFold(path.Ext(relative), ".ipynb") || kind == conversation.TextFile || kind == conversation.CodeFile || kind == conversation.MarkdownFile {
-		return false
-	}
-	if p.runtime.attachments == nil {
-		return false
-	}
-	descriptor := attachmentDescriptor{session: p.session, worktree: p.owner.ID, path: relative, name: path.Base(relative), mime: media}
-	if source, ok := p.files[relative]; ok {
-		descriptor.revision = source.Revision
-	}
-	p.runtime.openCapturedFilePreview(p.owner.ID.String(), conversation.File{ID: relative, Path: relative, Kind: kind}, descriptor)
-	return true
 }

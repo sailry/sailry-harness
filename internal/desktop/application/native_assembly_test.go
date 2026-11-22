@@ -80,7 +80,7 @@ func (n *assemblyTestNode) Dispatch(_ context.Context, _ protocol.NodeID, reques
 		if n.readFile != nil {
 			file = n.readFile()
 		}
-		response.Output = protocol.Output{Kind: "file", Data: file}
+		response.Output = protocol.Output{Kind: "file_content", Data: file}
 	default:
 		response.Fault = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture command is unavailable"}
 	}

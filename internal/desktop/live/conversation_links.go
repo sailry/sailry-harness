@@ -243,9 +243,7 @@ func (r *Runtime) openFileLink(c *ui.Context, session, link string, external, li
 			failed("files_open_failed")
 			return
 		}
-		if !project.openFileKind(target.path) {
-			project.openFileAt(target.path, target.line)
-		}
+		project.openWorkspaceFile(target.path, target.line)
 	case local && r.attachments.native.OpenLocal != nil:
 		// resolveFileLink keeps a Windows drive path as "/C:/…".
 		localPath := target.path

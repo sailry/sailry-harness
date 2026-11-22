@@ -977,6 +977,12 @@ func TestComposerSendRouting(t *testing.T) {
 				transport.snapshot.Sessions = append(transport.snapshot.Sessions, protocol.Session{ID: backup, Revision: 1, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()})
 				transport.handle = func(request protocol.Request) (link.Response, bool) {
 					switch request.Command.Kind {
+					case "read_file":
+						input, _ := detail[protocol.CommandReadFilePayload](request.Command.Data)
+						if input.Worktree == worktree && input.Path == "src/main.go" {
+							return link.Response{Output: protocol.Output{Kind: "file_content", Data: protocol.FileContent{Path: input.Path, Text: "package main\n"}}}, true
+						}
+						return link.Response{}, false
 					case "download_file":
 						input, _ := detail[protocol.CommandDownloadFilePayload](request.Command.Data)
 						externalDownloads = append(externalDownloads, input)
@@ -1492,6 +1498,7 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 				// A workspace file link shows the session's workspace and opens the file there at its line.
 				clickLink("source", 0)
+				settle()
 				if tab := r.App.Panel.Active; r.workspace == nil || r.workspace.projects[worktree] == nil || tab.Kind != panel.Files || tab.ID != "src/main.go" {
 					t.Fatalf("a workspace file link opened %+v", tab)
 				}

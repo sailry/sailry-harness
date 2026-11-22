@@ -48,7 +48,7 @@ func (state *pluginNativeState) fileOperations() {
 				state.runtime.packageReport(view, err)
 				return
 			}
-			project.openFileKind(name)
+			project.openWorkspaceFile(name, 0)
 		})
 	}
 	operations["sailry/ui.openFile"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
@@ -71,9 +71,7 @@ func (state *pluginNativeState) fileOperations() {
 			if err != nil {
 				return nil, err
 			}
-			if !project.openFileKind(name) {
-				project.openFileAt(name, line)
-			}
+			project.openWorkspaceFile(name, line)
 			return pluginNativeJSON(true)
 		})
 	}

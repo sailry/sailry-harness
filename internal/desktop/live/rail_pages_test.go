@@ -215,7 +215,7 @@ func railPages(t *testing.T) {
 		t.Fatalf("the Files page did not show the chosen file: %v", pr)
 	}
 	// A search result opens on the page, not in the panel behind it.
-	r.workspace.projects[session.Worktree].openFileAt("notes.txt", 2)
+	pr.Actions.OpenFileAt("notes.txt", 2)
 	wait("the search result on the Files page", func() bool { return code("rail changed line") })
 	if pr.Files.File() != "notes.txt" || app.Page != shell.FilesPage || app.PanelOpen {
 		t.Fatalf("the search result: file %q, page %q, panel %v", pr.Files.File(), app.Page, app.PanelOpen)
