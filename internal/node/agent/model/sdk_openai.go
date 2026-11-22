@@ -78,6 +78,7 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 	tail := &responsesSSEBody{}
 	stream := service.NewStreaming(ctx, responses.ResponseNewParams{}, option.WithRequestBody("application/json", raw),
 		option.WithMiddleware(func(request *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			request = withPreparedRequestObservation(request, raw)
 			response, err := next(request)
 			if err == nil && response != nil && response.Body != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
 				mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -87,6 +89,50 @@ const maxFailureBody = 1024 * 1024
 
 type sourceBodyKey struct{}
 
+type preparedRequestObservationKey struct{}
+
+// preparedRequestObservation ties pre-encoded JSON to the SDK request that owns it.
+// RoundTrip reuses it only for observation while that request's identity is intact.
+type preparedRequestObservation struct {
+	raw           []byte
+	method        string
+	target        url.URL
+	body          io.ReadCloser
+	contentLength int64
+}
+
+func withPreparedRequestObservation(request *http.Request, raw []byte) *http.Request {
+	if request == nil || request.URL == nil {
+		return request
+	}
+	prepared := preparedRequestObservation{
+		raw:           raw,
+		method:        request.Method,
+		target:        *request.URL,
+		body:          request.Body,
+		contentLength: request.ContentLength,
+	}
+	return request.WithContext(context.WithValue(request.Context(), preparedRequestObservationKey{}, prepared))
+}
+
+func preparedRequestObservationBody(request *http.Request) ([]byte, bool) {
+	prepared, ok := request.Context().Value(preparedRequestObservationKey{}).(preparedRequestObservation)
+	if !ok || request.URL == nil || prepared.method != http.MethodPost || request.Method != prepared.method ||
+		*request.URL != prepared.target || request.ContentLength != prepared.contentLength ||
+		request.ContentLength != int64(len(prepared.raw)) || request.Body == nil || request.Body == http.NoBody ||
+		!sameRequestBody(request.Body, prepared.body) {
+		return nil, false
+	}
+	return prepared.raw, true
+}
+
+func sameRequestBody(left, right io.ReadCloser) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return reflect.ValueOf(left).Comparable() && reflect.ValueOf(right).Comparable() && left == right
+}
+
 // stallTimeout is how long a model response may send nothing, counted from
 // the request and again from each read. It is the reference's read timeout.
 const stallTimeout = 600 * time.Second
@@ -139,7 +185,9 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 		request.ContentLength = int64(len(raw))
 		request.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(raw)), nil }
 	}
-	if request.GetBody != nil {
+	if raw, ok := preparedRequestObservationBody(request); ok {
+		capturePrepared(request.Context(), raw, true)
+	} else if request.GetBody != nil {
 		body, err := request.GetBody()
 		if err != nil {
 			return nil, err
