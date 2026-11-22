@@ -1,7 +1,6 @@
 package live
 
 import (
-	"slices"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -40,19 +39,26 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 	}
 	snapshot := r.snapshot()
 	targets := map[string]client.ConversationChildTarget{}
-	models := map[string]conversation.Child{}
-	for _, target := range r.liveChildren(state.Snapshot) {
+	var models map[protocol.SessionID]childModel
+	if read := r.overviews[session.ID]; r.conversationCopies != nil && read != nil {
+		models = read.childModels
+		clear(models)
+	}
+	for target := range r.liveChildren(state) {
 		child, childSession := target.Child, target.Session
-		id := childSession.ID.String()
-		targets[id] = target
 		avatar := childAvatar(snapshot.Roles, child)
 		if target.Listed {
-			models[id] = conversation.Child{Model: childSession.Config.Model, Effort: effortName(childSession.Config.Effort), Avatar: avatar}
+			if models == nil {
+				models = make(map[protocol.SessionID]childModel)
+			}
+			models[childSession.ID] = childModel{childSession.Config.Model, effortName(childSession.Config.Effort), avatar}
 		}
-		if child.Run.Status == "queued" || child.Run.Status == "running" || child.Run.Status == "stopping" {
+		if runStatus(child.Run.Status).Active() {
+			targets[childSession.ID.String()] = target
+			title := liveChildTitle(&state.Snapshot.Page, target, language)
 			if child.Run.Status == protocol.ConversationStatusRunning {
 				view := childView(nil, child, childSession, language)
-				view.Title = liveChildTitle(&state.Snapshot.Page, target, language)
+				view.Title = title
 				view.Avatar = avatar
 				view.Unsynced = !state.Connected
 				ctx.Activity.Children = append(ctx.Activity.Children, view)
@@ -69,11 +75,21 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 						continue
 					}
 					view := projectApproval(approval, callAt(details.Snapshot.Page, approval.Entry, approval.Index), language)
-					view.Child = liveChildTitle(&state.Snapshot.Page, target, language)
+					view.Child = title
 					ctx.Interactions.Approvals = append(ctx.Interactions.Approvals, view)
 				}
 			}
 		}
+	}
+	enrichChildModels(cv, models)
+	if read := r.overviews[session.ID]; r.conversationCopies != nil && read != nil {
+		read.childModels = nil
+		if len(models) > 0 && len(models) <= liveChildProjectionLimit {
+			read.childModels = models
+		}
+	}
+	if len(targets) == 0 {
+		return
 	}
 	if comp.ActivityCallbacks == nil {
 		comp.ActivityCallbacks = &composer.ActivityCallbacks{}
@@ -89,21 +105,25 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		target, ok := targets[id]
 		return ok && (!target.Listed || r.childStops[target.Child.Run.Turn])
 	}
+	parent, revision := session.ID, state.Snapshot.Page.Revision
 	comp.ActivityCallbacks.StopChild = func(id string) {
 		if target, ok := targets[id]; ok && target.Listed {
 			if target.Background != nil {
-				fresh, ready := r.controller.Conversation(session.ID)
-				if !ready || fresh.Snapshot.Page.Revision != state.Snapshot.Page.Revision ||
-					!slices.ContainsFunc(r.liveChildren(fresh.Snapshot), func(current client.ConversationChildTarget) bool {
-						return current.Child.Run.Turn == target.Child.Run.Turn && target.MatchesSession(current.Session)
-					}) {
+				fresh, ready := r.controller.Conversation(parent)
+				if !ready || fresh.Snapshot.Page.Revision != revision {
 					return
 				}
+				for current := range r.liveChildren(fresh) {
+					if current.Child.Run.Turn == target.Child.Run.Turn && target.MatchesSession(current.Session) {
+						r.stopChild(parent, target.Child.Run)
+						return
+					}
+				}
+				return
 			}
-			r.stopChild(session.ID, target.Child.Run)
+			r.stopChild(parent, target.Child.Run)
 		}
 	}
-	enrichChildModels(cv, models)
 }
 
 // childApproval reports whether the parent's conversation decides a child's
@@ -179,7 +199,9 @@ func transcriptChild(page *protocol.ConversationPage, child protocol.Conversatio
 	return view
 }
 
-func enrichChildModels(cv *viewmodel.Conversation, views map[string]conversation.Child) {
+type childModel struct{ model, effort, avatar string }
+
+func enrichChildModels(cv *viewmodel.Conversation, views map[protocol.SessionID]childModel) {
 	if len(views) == 0 {
 		return
 	}
@@ -187,8 +209,10 @@ func enrichChildModels(cv *viewmodel.Conversation, views map[string]conversation
 		for bi := range cv.Turns[ti].Reply.Blocks {
 			for ci := range cv.Turns[ti].Reply.Blocks[bi].Children {
 				child := &cv.Turns[ti].Reply.Blocks[bi].Children[ci]
-				if view, ok := views[child.ID]; ok {
-					child.Model, child.Effort, child.Avatar = view.Model, view.Effort, view.Avatar
+				if id, err := protocol.ParseSessionID(child.ID); err == nil {
+					if view, ok := views[id]; ok {
+						child.Model, child.Effort, child.Avatar = view.model, view.effort, view.avatar
+					}
 				}
 			}
 		}

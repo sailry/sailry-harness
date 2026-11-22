@@ -41,6 +41,33 @@ type interactionAttempt struct {
 	done     func(protocol.Output)
 }
 
+const (
+	approvalDetailCacheLimit = 16
+	approvalDetailTextLimit  = 64 << 10
+)
+
+type approvalDetailProjection struct {
+	session    protocol.SessionID
+	generation uint64
+	locale     string
+	view       composer.Approval
+}
+
+func cacheableApprovalDetail(view composer.Approval) bool {
+	size := len(view.ID) + len(view.Title) + len(view.Context) + len(view.Description) + len(view.Prefix)
+	if trust := view.Trust; trust != nil {
+		size += len(trust.Host) + len(trust.Algorithm) + len(trust.Fingerprint)
+	}
+	size += cap(view.Notices)*16 + cap(view.Changes)*64
+	for _, notice := range view.Notices {
+		size += len(notice)
+	}
+	for _, change := range view.Changes {
+		size += len(change.Path) + len(change.Destination)
+	}
+	return size <= approvalDetailTextLimit
+}
+
 func (r *Runtime) interactionFlow(id string) *interactionFlow {
 	if r.interactionFlows == nil {
 		r.interactionFlows = map[string]*interactionFlow{}
@@ -168,7 +195,7 @@ func (r *Runtime) waitingApproval(conversation, id string, read func(protocol.Se
 	if delegated(parent) {
 		return protocol.ConversationApproval{}, protocol.ConversationPage{}, false
 	}
-	for _, target := range r.liveChildren(state.Snapshot) {
+	for target := range r.liveChildren(state) {
 		if !target.Listed {
 			continue
 		}
@@ -233,6 +260,15 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 		}
 	}
 	listed := map[string]bool{}
+	var read *overviewRead
+	if r.conversationCopies != nil {
+		if session, err := protocol.ParseSessionID(cv.ID); err == nil {
+			read = r.overviews[session]
+			if read == nil && len(ctx.Interactions.Approvals) != 0 {
+				read = r.overviewReadFor(session)
+			}
+		}
+	}
 	f.listed = ctx.Interactions.Approvals
 	approvals := make([]composer.Approval, 0, len(ctx.Interactions.Approvals))
 	for _, view := range ctx.Interactions.Approvals {
@@ -241,10 +277,12 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 			continue
 		}
 		if approval, page, ok := r.waitingApproval(cv.ID, view.ID, r.conversationState); ok {
-			view = r.approvalDetails(f, view, approval, page, locale)
+			view = r.approvalDetails(read, f, view, approval, page, locale)
 			view.Disabled = !connected || f.approval != nil || !slices.ContainsFunc(page.Runs, func(run protocol.ConversationRun) bool {
 				return run.Turn == approval.Turn && run.Status == "running"
 			})
+		} else if read != nil {
+			delete(read.approvals, view.ID)
 		}
 		if a := f.approval; a != nil && a.id == view.ID {
 			view.Busy, view.Again = a.busy, again(a)
@@ -257,6 +295,13 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 		approvals = append(approvals, receipt)
 	}
 	ctx.Interactions.Approvals = approvals
+	if read != nil {
+		for id := range read.approvals {
+			if !listed[id] || f.settled[id] {
+				delete(read.approvals, id)
+			}
+		}
+	}
 	q := ctx.Interactions.Question
 	if q != nil {
 		listed[q.ID] = true
@@ -292,7 +337,19 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 
 // approvalDetails projects the approval from its call's details once they are
 // read, reading them when they are not.
-func (r *Runtime) approvalDetails(f *interactionFlow, view composer.Approval, approval protocol.ConversationApproval, page protocol.ConversationPage, locale string) composer.Approval {
+func (r *Runtime) approvalDetails(read *overviewRead, f *interactionFlow, view composer.Approval, approval protocol.ConversationApproval, page protocol.ConversationPage, locale string) composer.Approval {
+	var generation uint64
+	if read != nil {
+		generation = r.conversationCopies[page.Session].generation
+		if cached, ok := read.approvals[view.ID]; ok {
+			if generation != 0 && cached.generation == generation && cached.session == page.Session && cached.locale == locale {
+				fresh := cached.view
+				fresh.Child = view.Child
+				return fresh
+			}
+			delete(read.approvals, view.ID)
+		}
+	}
 	call := callAt(page, approval.Entry, approval.Index)
 	if call == nil || call.Summary == nil || !call.Summary.HasDetails {
 		return view
@@ -304,6 +361,14 @@ func (r *Runtime) approvalDetails(f *interactionFlow, view composer.Approval, ap
 		detailed := *call
 		detailed.Summary = &summary
 		fresh := projectApproval(approval, &detailed, locale)
+		if generation != 0 && len(read.approvals) < approvalDetailCacheLimit && cacheableApprovalDetail(fresh) {
+			if read.approvals == nil {
+				read.approvals = make(map[string]approvalDetailProjection)
+			}
+			// Preserve only what the card draws, without keeping the tool payload
+			// or its history alive after the approval or session disappears.
+			read.approvals[view.ID] = approvalDetailProjection{session: page.Session, generation: generation, locale: locale, view: fresh}
+		}
 		fresh.Child = view.Child
 		return fresh
 	}

@@ -1,6 +1,7 @@
 package live
 
 import (
+	"iter"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -55,33 +56,72 @@ func (check *childOriginCheck) matches(scope childTabScope) bool {
 		a.Child.Run.Sequence == b.Child.Run.Sequence && a.Child.Run.Revision == b.Child.Run.Revision && a.MatchesSession(b.Session)
 }
 
+const liveChildProjectionLimit = 256
+
+type liveChildProjection struct {
+	generation, inventory uint64
+	targets               []client.ConversationChildTarget
+}
+
+// The mounted session can reuse the inventory join, but hidden sessions and
+// asynchronous origin proofs are checked against each use of the candidates.
+func (r *Runtime) childCandidates(state client.ConversationState) []client.ConversationChildTarget {
+	page := &state.Snapshot.Page
+	if len(page.Children) == 0 && len(page.Background) == 0 {
+		if read := r.overviews[page.Session]; read != nil {
+			read.children = nil
+		}
+		return nil
+	}
+	snapshot, inventory := r.snapshotAt()
+	copied := r.conversationCopies[page.Session]
+	if copied.generation == 0 || !state.SameViewTranscript(copied.state) {
+		return client.ConversationChildTargets(snapshot, state.Snapshot)
+	}
+	read := r.overviewReadFor(page.Session)
+	if cached := read.children; cached != nil && cached.inventory == inventory && cached.generation == copied.generation {
+		return cached.targets
+	}
+	targets := client.ConversationChildTargets(snapshot, state.Snapshot)
+	read.children = nil
+	if len(targets) <= liveChildProjectionLimit {
+		read.children = &liveChildProjection{generation: copied.generation, inventory: inventory, targets: targets}
+	}
+	return targets
+}
+
 // liveChildren exposes canonical and confirmed background children to the
 // composer, overview and approval lookup. A background edge supplies a turn
 // to verify, not permission to observe or control another session.
-func (r *Runtime) liveChildren(conversation protocol.ConversationSnapshot) []client.ConversationChildTarget {
-	if r.sessionHidden(conversation.Page.Session) {
-		return nil
-	}
-	targets := client.ConversationChildTargets(r.snapshot(), conversation)
-	verified := targets[:0]
-	for _, target := range targets {
-		if r.sessionHidden(target.Session.ID) {
-			continue
+func (r *Runtime) liveChildren(state client.ConversationState) iter.Seq[client.ConversationChildTarget] {
+	node, parent, revision := state.Snapshot.Node, state.Snapshot.Page.Session, state.Snapshot.Page.Revision
+	return func(yield func(client.ConversationChildTarget) bool) {
+		if state.Removed || r.sessionHidden(parent) {
+			if read := r.overviews[parent]; read != nil {
+				read.children = nil
+			}
+			return
 		}
-		if target.Background != nil {
-			if r.teams == nil {
+		for _, target := range r.childCandidates(state) {
+			if r.sessionHidden(target.Session.ID) {
 				continue
 			}
-			scope := childTabScope{node: conversation.Node, parent: conversation.Page.Session, revision: conversation.Page.Revision, target: target}
-			confirmed, ok := r.checkedChildOrigin(scope)
-			if !ok || !runStatus(confirmed.Run.Status).Active() {
-				continue
+			if target.Background != nil {
+				if r.teams == nil {
+					continue
+				}
+				scope := childTabScope{node: node, parent: parent, revision: revision, target: target}
+				confirmed, ok := r.checkedChildOrigin(scope)
+				if !ok || !runStatus(confirmed.Run.Status).Active() {
+					continue
+				}
+				target.Child.Origin, target.Child.Name = confirmed.Origin, confirmed.Name
 			}
-			target.Child.Origin, target.Child.Name = confirmed.Origin, confirmed.Name
+			if !yield(target) {
+				return
+			}
 		}
-		verified = append(verified, target)
 	}
-	return verified
 }
 
 func (r *Runtime) checkedChildOrigin(scope childTabScope) (protocol.ConversationChild, bool) {

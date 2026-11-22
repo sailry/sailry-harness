@@ -147,11 +147,12 @@ func childTestRuntime(t *testing.T, snapshot protocol.Snapshot, history protocol
 	app.PanelOpen = false
 	r := &Runtime{App: app, ctx: t.Context(), controller: controller, teams: newTeamState(),
 		busy: map[string]bool{}, admittedSessions: map[string]protocol.Session{}}
-	release, err := controller.WatchConversation(t.Context(), history.Page.Session, func() {})
+	release, err := controller.WatchConversation(t.Context(), history.Page.Session, func() { r.conversationChanged(history.Page.Session) })
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(release)
+	r.conversationWatches = map[protocol.SessionID]func(){history.Page.Session: release}
 	synctest.Wait()
 	if state, ok := controller.Conversation(history.Page.Session); !ok || !state.Connected || state.Err != nil {
 		t.Fatalf("parent observation not ready: %+v", state)
@@ -245,7 +246,7 @@ func TestLiveChildObservationsCanArriveInEitherOrder(t *testing.T) {
 					synctest.Wait()
 				}
 				state, _ := r.controller.Conversation(history.Page.Session)
-				targets := r.liveChildren(state.Snapshot)
+				targets := slices.Collect(r.liveChildren(state))
 				if len(targets) != 1 || !targets[0].Listed || !targets[0].MatchesSession(child) {
 					t.Fatal("both observations did not converge to the same child")
 				}
@@ -296,9 +297,12 @@ func TestOffTailLiveChildUsesOnlyItsParentTurn(t *testing.T) {
 		var overview *composer.Overview
 		var activity *composer.Context
 		frame := childTestFrame(r, func(c *ui.Context) {
+			r.beginConversationFrame()
+			r.conversationSeen[history.Page.Session] = true
 			activity = &composer.Context{}
 			r.projectChildComposer(cv, r.App.Composer(cv.ID), activity, c.Locale())
 			overview = r.sessionOverview(c, cv)
+			r.finishConversationFrame()
 		})
 		frame.Frame()
 		synctest.Wait()
@@ -337,6 +341,89 @@ func TestOffTailLiveChildUsesOnlyItsParentTurn(t *testing.T) {
 		frame.Frame()
 		if r.App.PanelOpen || len(source.requests) != 4 || source.requests[3].Command.Kind != "read_turn" {
 			t.Fatal("stale display proof admitted a child read after rewind")
+		}
+	})
+}
+
+func TestLiveChildRedrawRefreshesOwningNode(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		localInventory, localHistory := liveChildFixture()
+		local, _, localView := childTestRuntime(t, localInventory, localHistory)
+		remoteInventory, remoteHistory := liveChildFixture()
+		remoteInventory.Node, remoteHistory.Node = protocol.NodeID{2}, protocol.NodeID{2}
+		remoteInventory.Sessions[1].Config.Model = "remote model"
+		remote, source, remoteView := childTestRuntime(t, remoteInventory, remoteHistory)
+		remote.parent, remote.App = local, local.App
+		local.bindings = map[string]*Runtime{remoteView.Node: remote}
+
+		var activity composer.Context
+		var overview *composer.Overview
+		owner, view := local, localView
+		show := true
+		frame := childTestFrame(local, func(c *ui.Context) {
+			local.beginConversationFrame()
+			remote.beginConversationFrame()
+			if show {
+				owner.conversationSeen[localHistory.Page.Session] = true
+				owner.projectChildComposer(view, local.App.Composer(view.ID), &activity, c.Locale())
+				overview = local.sessionOverview(c, view)
+			}
+			local.finishConversationFrame()
+			remote.finishConversationFrame()
+		})
+		assertModel := func(want string) {
+			t.Helper()
+			if len(activity.Activity.Children) != 1 || activity.Activity.Children[0].Model != want || len(overview.Children) != 1 {
+				t.Fatalf("child projection did not show model %q: %v, %v", want, activity.Activity.Children, overview.Children)
+			}
+		}
+		frame.Frame()
+		assertModel("fixture")
+		owner, view = remote, remoteView
+		frame.Frame()
+		assertModel("remote model")
+		if len(local.overviews) != 0 {
+			t.Fatal("switching Node retained the previous conversation projection")
+		}
+
+		child := remoteInventory.Sessions[1]
+		local.confirmedRemovals = map[protocol.NodeID]map[protocol.SessionID]bool{remoteInventory.Node: {child.ID: true}}
+		frame.Frame()
+		if len(activity.Activity.Children) != 0 || len(overview.Children) != 0 {
+			t.Fatal("a hidden child remained visible through a cached projection")
+		}
+		local.confirmedRemovals = nil
+		child.Revision++
+		child.Config.Model = "updated remote model"
+		source.node.updates <- protocol.Update{Kind: "event", Data: protocol.EventEnvelope{
+			Node: remoteInventory.Node, Cursor: remoteInventory.Cursor + 1, Event: protocol.Event{Kind: "session_changed", Data: child},
+		}}
+		synctest.Wait()
+		frame.Frame()
+		assertModel(child.Config.Model)
+
+		run := remoteHistory.Page.Children[0]
+		run.Run.Status, run.Run.FinishedMs = protocol.ConversationStatusCompleted, new(int64(1))
+		source.chat.updates <- protocol.Update{Kind: "conversation_frame", Data: protocol.ConversationFrame{
+			Node: remoteHistory.Node, Session: remoteHistory.Page.Session, Sequence: remoteHistory.Sequence + 1,
+			Change: protocol.ConversationChange{Kind: "child", Data: run},
+		}}
+		synctest.Wait()
+		frame.Frame()
+		if len(activity.Activity.Children) != 0 || len(overview.Children) != 0 {
+			t.Fatal("child completion did not refresh the mounted peer conversation")
+		}
+		for range 3 {
+			show = false
+			frame.Frame()
+			if len(remote.overviews) != 0 || len(remote.conversationCache) != 0 {
+				t.Fatal("unmount retained the conversation projection")
+			}
+			show = true
+			frame.Frame()
+			if len(remote.overviews) != 1 || len(activity.Activity.Children) != 0 {
+				t.Fatal("remount did not show the current child state")
+			}
 		}
 	})
 }

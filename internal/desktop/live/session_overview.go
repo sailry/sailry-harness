@@ -18,9 +18,13 @@ import (
 // overviewLimit is how many asset groups one read of the overview asks for.
 const overviewLimit = 20
 
-// overviewRead is a session's asset inventory as the overview popover read
-// it: the groups of one structural history revision, newest first, while mounted.
+// overviewRead owns a mounted session's header and composer projections. Its
+// asset inventory belongs to one structural history revision, newest first.
 type overviewRead struct {
+	children    *liveChildProjection
+	childModels map[protocol.SessionID]childModel
+	approvals   map[string]approvalDetailProjection
+
 	open bool
 	// revision guards pagination; inventory also changes on canonical commits
 	// that do not replace history. Draft and statistics frames affect neither.
@@ -59,6 +63,18 @@ func (o *overviewRead) discardInventory() {
 	o.loadedRevision, o.loadedInventory = 0, 0
 }
 
+func (r *Runtime) overviewReadFor(session protocol.SessionID) *overviewRead {
+	if r.overviews == nil {
+		r.overviews = map[protocol.SessionID]*overviewRead{}
+	}
+	read := r.overviews[session]
+	if read == nil {
+		read = &overviewRead{}
+		r.overviews[session] = read
+	}
+	return read
+}
+
 // sessionOverview is the header's overview of conversation cv: the running
 // subagents, the current turn's progress and cited pages from the
 // transcript, and the Host's inventory of outputs and sources.
@@ -74,20 +90,13 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 	if !ok {
 		return &composer.Overview{}
 	}
-	if r.overviews == nil {
-		r.overviews = map[protocol.SessionID]*overviewRead{}
-	}
-	read := r.overviews[session.ID]
-	if read == nil {
-		read = &overviewRead{}
-		r.overviews[session.ID] = read
-	}
+	read := r.overviewReadFor(session.ID)
 	view := &composer.Overview{Session: true}
 	connected := r.controller.Connected()
 	if state, ready := r.conversationState(session.ID); ready {
 		page := &state.Snapshot.Page
 		roles := r.snapshot().Roles
-		for _, target := range r.liveChildren(state.Snapshot) {
+		for target := range r.liveChildren(state) {
 			child := target.Child
 			if child.Run.Status != protocol.ConversationStatusRunning {
 				continue
