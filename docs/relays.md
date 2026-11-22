@@ -53,11 +53,7 @@ tar -xzf sailry-relay-linux-amd64.tar.gz
 ```
 
 The archive contains `sailry-relay` and its licenses. Build instructions are in
-[the Relay repository](https://github.com/sailry/sailry-relay). For existing
-systemd installations through v0.2.7, run `daemon update` to install the bridge
-once it is available on the Harness release feed. Run it again to install the
-independent stable Relay release. The same service, config and `link.key` carry
-across both upgrades. BaoTa installations use the existing panel supervisor.
+[the Relay repository](https://github.com/sailry/sailry-relay).
 
 ### Configure
 

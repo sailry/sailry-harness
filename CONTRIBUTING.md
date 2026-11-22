@@ -670,11 +670,6 @@ before upgrading. Old peer addresses need refreshing after both ends upgrade.
 
 Build the data relay and test the pairing service in the [Relay repository](https://github.com/sailry/sailry-relay).
 `just test-pairing-relay` runs against the adjacent Relay checkout. Pass the checkout path to test another revision.
-Harness releases in the migration window package the v0.2.8 bridge from the
-Relay commit pinned in `.github/relay-bridge.commit`. The legacy updater accepts
-this binary under its original program identity. The next `daemon update`
-checks the independent Relay release feed. Publish the pinned Relay source and
-independent release assets before issuing a Harness release with the bridge.
 
 `sailry-relay start` runs in the foreground. It reads the file passed with
 `--config`, or `./relay.toml` if no path is passed. For a public TCP relay, use
@@ -735,8 +730,8 @@ reads the installed file, not a separate source copy supplied at install time.
 only `status` can run without root. `stop` does not disable the service at the
 next boot.
 
-Once the assets are published, `sudo /usr/local/bin/sailry-relay daemon update`
-checks the public GitHub Release for a newer stable version and verifies its
+`sudo /usr/local/bin/sailry-relay daemon update` checks the Relay repository
+for a newer stable release and verifies its
 Linux architecture archive against the published SHA-256. It does not use
 GitHub tokens or support multi-token fallback. For an offline update, use
 `sudo sailry-relay daemon update <binary> --sha256 <digest>` with the SHA-256

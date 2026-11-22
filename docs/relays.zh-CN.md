@@ -35,7 +35,7 @@ curl -fLO https://github.com/sailry/sailry-relay/releases/latest/download/sailry
 tar -xzf sailry-relay-linux-amd64.tar.gz
 ```
 
-压缩包内含 `sailry-relay` 和许可证。构建说明见[中继仓库](https://github.com/sailry/sailry-relay)。使用 v0.2.7 或更早版本的 systemd 实例，在 Harness 发布桥接包后先运行一次 `daemon update` 安装桥接版本，再运行一次升级到独立仓库的稳定版。两次升级都沿用原服务、配置和 `link.key`。宝塔部署继续使用原有面板托管。
+压缩包内含 `sailry-relay` 和许可证。构建说明见[中继仓库](https://github.com/sailry/sailry-relay)。
 
 ### 配置
 
