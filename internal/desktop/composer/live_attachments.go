@@ -62,6 +62,15 @@ func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
 	s.attachPaths(c, paths, actions)
 }
 
+func (s *State) DetachAttachment(a *Attachment) {
+	if i := slices.Index(s.Attachments, a); i >= 0 {
+		s.Attachments = slices.Delete(s.Attachments, i, i+1)
+		if slices.Contains(s.view.Images, a) {
+			s.view.close()
+		}
+	}
+}
+
 // AttachElement adds the attachments of an element picked in the browser,
 // its picture and its page context, behind one chip named label at the end
 // of the draft: all of them or, over the limit, none. They have no cards

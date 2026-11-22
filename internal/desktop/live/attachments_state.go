@@ -200,6 +200,9 @@ func (r *Runtime) attachmentsCommitted(attachments []*composer.Attachment) {
 			if record.ready != nil && record.worktree == (protocol.WorktreeID{}) {
 				delete(r.attachments.files, attachmentKey(record.conversation, record.ready.ID.String()))
 			}
+			if record.composer != nil {
+				record.composer.ReleaseCommittedAttachment(attachment)
+			}
 			delete(r.attachments.items, attachment)
 		}
 	}
@@ -256,13 +259,7 @@ func (r *Runtime) attachmentOutcome(c *ui.Context, err error) {
 	kit.RecordFailure("desktop", key, outcome, err, attrs...)
 }
 func (r *Runtime) removeDraftAttachment(attachment *composer.Attachment, record *attachmentRecord) {
-	items := record.composer.Attachments
-	for index, item := range items {
-		if item == attachment {
-			record.composer.Attachments = append(items[:index:index], items[index+1:]...)
-			break
-		}
-	}
+	record.composer.DetachAttachment(attachment)
 	if record.ready != nil && record.worktree == (protocol.WorktreeID{}) {
 		delete(r.attachments.files, attachmentKey(record.conversation, record.ready.ID.String()))
 	}

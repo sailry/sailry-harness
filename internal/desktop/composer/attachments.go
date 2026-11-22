@@ -2,6 +2,7 @@ package composer
 
 import (
 	"fmt"
+	"image"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,6 +22,8 @@ import (
 
 // seq numbers the attachments the composer makes.
 var seq int
+
+const pastedImageThumbnailEdge = 480
 
 // add makes the draft's attachments of files and hands each to the backend.
 // A batch that would pass the limit is refused whole, with the limit's toast
@@ -91,7 +94,7 @@ func (s *State) paste(c *ui.Context, text string, actions Actions) bool {
 			}
 			// Named in the frame, which knows the language.
 			a := &Attachment{Name: "." + image.extension, Mime: string(image.format), Size: int64(len(data)), Data: data}
-			if b, err := ui.DecodeBitmap(data); err == nil {
+			if b, err := ui.DecodeBitmapScaled(data, pastedImageThumbnailEdge); err == nil {
 				a.Image = b
 			}
 			list = append(list, a)
@@ -184,15 +187,48 @@ func status(c *ui.Context, a *Attachment) string {
 	return ""
 }
 
+type attachmentViewer struct {
+	kit.Viewer[*Attachment]
+	originalFor *Attachment
+	original    *ui.Bitmap
+}
+
+func (v *attachmentViewer) releaseOriginal() {
+	if v.original != nil {
+		v.original.Update(image.NewRGBA(image.Rectangle{}))
+	}
+	v.originalFor, v.original = nil, nil
+}
+
+func (v *attachmentViewer) close() {
+	v.releaseOriginal()
+	v.Viewer = kit.Viewer[*Attachment]{}
+}
+
+func (s *State) viewerImage(a *Attachment) ui.ImageSource {
+	v := &s.view
+	if v.originalFor != a {
+		v.releaseOriginal()
+		v.originalFor = a
+		w, h := ui.ImageSize(a.Image)
+		if len(a.Data) > 0 && a.ImageRevision == "" && max(w, h) == pastedImageThumbnailEdge {
+			v.original, _ = ui.DecodeBitmap(a.Data)
+		}
+	}
+	if v.original != nil {
+		return v.original
+	}
+	if s.attachmentCallbacks != nil && s.attachmentCallbacks.ViewerImage != nil {
+		return s.attachmentCallbacks.ViewerImage(a)
+	}
+	return a.Image
+}
+
 // attachments is Kit's AttachmentGroup, a row of cards scrolling sideways,
 // its ends fading into the surface.
 func (s *State) attachments(c *ui.Context, actions Actions) {
-	kit.ImageViewer(c, &s.view, func(a *Attachment) kit.ViewerItem {
-		source := a.Image
-		if s.attachmentCallbacks != nil && s.attachmentCallbacks.ViewerImage != nil {
-			source = s.attachmentCallbacks.ViewerImage(a)
-		}
-		return kit.ViewerItem{Source: source, Name: a.Name}
+	kit.ImageViewer(c, &s.view.Viewer, func(a *Attachment) kit.ViewerItem {
+		return kit.ViewerItem{Source: s.viewerImage(a), Name: a.Name}
 	}, func(action kit.ImageAction, a *Attachment) {
 		if s.attachmentCallbacks != nil && s.attachmentCallbacks.Image != nil {
 			s.attachmentCallbacks.Image(action, a)
@@ -200,6 +236,9 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 		}
 		kit.PreviewNotice(c)
 	})
+	if !s.view.Open && s.view.originalFor != nil {
+		s.view.close()
+	}
 	// A file behind a chip of the draft has no card.
 	var cards []*Attachment
 	for _, a := range s.Attachments {
@@ -358,12 +397,7 @@ func (s *State) remove(a *Attachment, actions Actions) {
 		s.attachmentCallbacks.Remove(a)
 		return
 	}
-	for i, x := range s.Attachments {
-		if x == a {
-			s.Attachments = append(s.Attachments[:i:i], s.Attachments[i+1:]...)
-			break
-		}
-	}
+	s.DetachAttachment(a)
 	if !held {
 		actions.Discard(a)
 	}

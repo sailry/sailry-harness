@@ -47,6 +47,19 @@ func (s *State) HoldOutgoingAttachments(files []*Attachment, pending func() bool
 	s.recovery.outgoing, s.recovery.pending = slices.Clone(files), pending
 }
 
+func (s *State) ReleaseCommittedAttachment(a *Attachment) {
+	if slices.Contains(s.view.Images, a) {
+		s.view.close()
+	}
+	r := &s.recovery
+	if i := slices.Index(r.outgoing, a); i >= 0 {
+		r.outgoing = slices.Delete(r.outgoing, i, i+1)
+		if len(r.outgoing) == 0 {
+			r.outgoing, r.pending = nil, nil
+		}
+	}
+}
+
 func (s *State) holdsDraftAttachment(a *Attachment) bool {
 	r := &s.recovery
 	return r.pending != nil && r.pending() && slices.Contains(r.outgoing, a) ||

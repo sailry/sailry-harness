@@ -86,8 +86,8 @@ type State struct {
 	Dictation               Dictation
 	recovery                draftRecovery
 
-	view   kit.Viewer[*Attachment] // the image viewer over the draft's pictures
-	picker bool                    // the model controls are open
+	view   attachmentViewer // the image viewer over the draft's pictures
+	picker bool             // the model controls are open
 	layer  layer
 	member string // the team member whose model the controls set
 	family string // the picker's rail choice, "" for all
@@ -211,6 +211,7 @@ func (s *State) Reply(models []Model, text string) Message {
 func (s *State) clear() {
 	s.Draft, s.Attachments, s.References = "", nil, nil
 	s.ref = refState{}
+	s.view.close()
 }
 
 // hasInput reports whether the draft has anything to send: text, a file or a
@@ -243,6 +244,7 @@ func (s *State) deliverable(ctx *Context) bool {
 func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 	for len(s.later) > 0 {
 		next := s.later[0]
+		s.later[0] = nil
 		s.later = s.later[1:]
 		next(c)
 	}
@@ -305,7 +307,8 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	if v := p.Variant; v != nil {
 		fill = v.Composer.Background.Or(fill)
 	}
-	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), fill, kit.SurfaceTint)
+	surface := ui.Column(c.Key(s)).OnUnmount(s.view.close).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl())
+	surface = kit.Frost(c, surface, fill, kit.SurfaceTint)
 	if v := p.Variant; v != nil {
 		if w := v.Composer.BorderWidth; w > 0 {
 			edge, radius := v.Composer.Border.Or(p.Input), p.Radius2xl()
