@@ -53,7 +53,7 @@ const (
 	programIdle  = 10 * time.Minute
 )
 
-func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) error {
+func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) (startupErr error) {
 	options := mcp.Options{}
 	if configured != nil {
 		options = *configured
@@ -71,6 +71,11 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		controls.warm = make(chan struct{}, 1)
 	}
 	node.plugins = controls
+	defer func() {
+		if startupErr != nil {
+			startupErr = errors.Join(startupErr, node.closePlugins())
+		}
+	}()
 	node.collectPlugins(ctx)
 	var users []protocol.User
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
