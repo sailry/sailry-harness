@@ -112,11 +112,13 @@ class CodeBlock extends StatelessWidget {
   const CodeBlock(
     this.text, {
     super.key,
+    this.displayText,
     this.language,
     this.title,
     this.style,
   });
   final String text;
+  final String? displayText;
   final String? language;
   final String? title;
   final TextStyle? style;
@@ -144,7 +146,11 @@ class CodeBlock extends StatelessWidget {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.all(12),
-              child: CodeText(text, language: language, style: style),
+              child: CodeText(
+                displayText ?? text,
+                language: language,
+                style: style,
+              ),
             ),
           ),
         ),

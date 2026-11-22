@@ -6,21 +6,17 @@ import '../../usage_throughput.dart';
 
 /// Presentation of Node-owned totals, independent of loaded message pages.
 class ConversationStatistics extends StatelessWidget {
-  const ConversationStatistics({
-    super.key,
-    required this.data,
-    this.failed = false,
-  });
+  const ConversationStatistics({super.key, required this.data, this.statusKey});
 
   final Map<String, dynamic>? data;
-  final bool failed;
+  final String? statusKey;
 
   @override
   Widget build(BuildContext context) {
     final data = this.data;
     if (data == null) {
-      if (failed) {
-        return const SizedBox.shrink();
+      if (statusKey case final key?) {
+        return Semantics(liveRegion: true, child: Text(context.tr(key)));
       }
       return const Center(child: CircularProgressIndicator());
     }

@@ -263,7 +263,11 @@ class DemoConnection implements Connection {
     final entries = objects(page['entries']);
     return {
       'connected': true,
-      'snapshot': {'page': page, 'drafts': <dynamic>[]},
+      'snapshot': {
+        'page': page,
+        'drafts': <dynamic>[],
+        'statistics': {'turns': runs.length, 'responses': runs.length},
+      },
       'timeline': runs.map((run) => run['turn']).toList(),
       'segments': {
         for (final run in runs)
@@ -296,7 +300,6 @@ class DemoConnection implements Connection {
           ],
       },
       'calls': <dynamic>[],
-      'statistics': {'turns': runs.length, 'responses': runs.length},
     };
   }
 

@@ -15,6 +15,7 @@ import 'package:sailry_mobile/features/conversations/live/glass_chip.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
 import 'package:sailry_mobile/features/conversations/live/queue.dart';
+import 'package:sailry_mobile/features/conversations/live/statistics.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/conversations/live/timeline.dart';
 import 'package:sailry_mobile/features/conversations/message_composer.dart';
@@ -309,6 +310,205 @@ void main() {
     await tester.pump();
     expect(scroll.offset, greaterThan(before + 20));
     await drag.up();
+    await release(tester, session);
+  });
+
+  testWidgets('open usage sheet follows disconnect and statistics updates', (
+    tester,
+  ) async {
+    final connection = _LifecycleConnection();
+    final item = conversation(unread: false);
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      connection: connection,
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: item,
+        ),
+      ),
+    );
+    final feed = connection.feeds.single;
+    final view = _transcript('session', 'Reply');
+    final snapshot = view['snapshot'] as Map<String, dynamic>;
+    snapshot.remove('statistics');
+    feed.publish(view);
+    await tester.pumpAndSettle();
+
+    final sheet = find.byType(ConversationStatistics);
+    Finder inSheet(Finder matching) =>
+        find.descendant(of: sheet, matching: matching);
+    final progress = inSheet(find.byType(CircularProgressIndicator));
+    final reconnecting = inSheet(find.text('Reconnecting'));
+    await tester.tap(find.byKey(const ValueKey('conversation-info')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(progress, findsOneWidget);
+
+    host
+      ..connected = false
+      ..notifyListeners();
+    await tester.pump();
+    expect(progress, findsNothing);
+    expect(reconnecting, findsOneWidget);
+
+    feed.publish({
+      'connected': false,
+      'error': {'code': 'unavailable', 'message': 'Network is down'},
+    });
+    await tester.pump();
+    host
+      ..connected = true
+      ..notifyListeners();
+    await tester.pump();
+    expect(reconnecting, findsOneWidget);
+    expect(progress, findsNothing);
+
+    feed.publish(view);
+    await tester.pump();
+    expect(progress, findsOneWidget);
+
+    feed.publish({
+      ...view,
+      'statistics_error': {'code': 'unavailable', 'message': 'Read failed'},
+    });
+    await tester.pump();
+    expect(progress, findsNothing);
+    expect(inSheet(find.text('Could not load')), findsOneWidget);
+
+    snapshot['statistics'] = <String, dynamic>{};
+    feed.publish(view);
+    await tester.pump();
+    expect(inSheet(find.text('No usage yet')), findsOneWidget);
+
+    snapshot['statistics'] = {'turns': 23};
+    feed.publish(view);
+    await tester.pumpAndSettle();
+    expect(inSheet(find.text('23')), findsOneWidget);
+    expect(connection.watches, ['session']);
+    expect(feed.closes, 0);
+
+    Navigator.of(tester.element(sheet)).pop();
+    await tester.pumpAndSettle();
+    expect(sheet, findsNothing);
+    await tester.tap(find.byKey(const ValueKey('conversation-info')));
+    await tester.pumpAndSettle();
+    expect(inSheet(find.text('23')), findsOneWidget);
+    expect(connection.watches, ['session']);
+    expect(feed.closes, 0);
+
+    await release(tester, session);
+  });
+
+  testWidgets('bridge read failure reaches an already open usage sheet', (
+    tester,
+  ) async {
+    final connection = _LifecycleConnection();
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      connection: connection,
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: conversation(unread: false),
+        ),
+      ),
+    );
+    final feed = connection.feeds.single;
+    final sheet = find.byType(ConversationStatistics);
+    final progress = find.descendant(
+      of: sheet,
+      matching: find.byType(CircularProgressIndicator),
+    );
+    await tester.tap(find.byKey(const ValueKey('conversation-info')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(progress, findsOneWidget);
+
+    feed.fail(const BridgeFailure(code: 'internal', message: 'Read failed'));
+    await tester.pumpAndSettle();
+    expect(progress, findsNothing);
+    expect(
+      find.descendant(of: sheet, matching: find.text('Could not load')),
+      findsOneWidget,
+    );
+    expect(feed.closes, 1);
+    expect(feed.disposals, 1);
+    await release(tester, session);
+  });
+
+  testWidgets('opening another conversation retires the previous usage sheet', (
+    tester,
+  ) async {
+    final connection = _LifecycleConnection();
+    final first = conversation(unread: false);
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      connection: connection,
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: first,
+        ),
+      ),
+    );
+    final previous = connection.feeds.single;
+    previous.publish(_transcript('session', 'First reply'));
+    await tester.pumpAndSettle();
+    final info = find.byKey(const ValueKey('conversation-info'));
+    final sheet = find.byType(ConversationStatistics);
+    await tester.tap(info);
+    await tester.pumpAndSettle();
+    expect(sheet, findsOneWidget);
+
+    unawaited(
+      pushPage<void>(
+        tester.element(sheet),
+        LiveConversationPage(
+          host: host,
+          sessionId: 'second',
+          initialSession: {...first, 'id': 'second', 'title': 'Second chat'},
+        ),
+      ),
+    );
+    await tester.pump();
+    final current = connection.feeds.last;
+    expect(connection.watches, ['session', 'second']);
+    current.publish(_transcript('second', 'Second reply', count: 2));
+    await tester.pumpAndSettle();
+
+    await tester.tap(info);
+    await tester.pumpAndSettle();
+    final count = find.descendant(of: sheet, matching: find.text('2'));
+    expect(count, findsOneWidget);
+    previous.publish(_transcript('session', 'Earlier reply changed', count: 3));
+    await tester.pumpAndSettle();
+    expect(count, findsOneWidget);
+    final navigator = Navigator.of(tester.element(sheet));
+    navigator.pop();
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+
     await release(tester, session);
   });
 
@@ -794,6 +994,10 @@ void main() {
         expect(_message('Recovered transcript'), findsOneWidget);
         expect(connection.watches, ['session']);
 
+        await tester.tap(find.byKey(const ValueKey('conversation-info')));
+        await tester.pumpAndSettle();
+        expect(find.byType(ConversationStatistics), findsOneWidget);
+
         feed.lateDelivery = terminal != 'terminated';
         switch (terminal) {
           case 'revoked':
@@ -819,10 +1023,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(feed.closes, 1);
         expect(feed.disposals, 1);
+        expect(find.byType(BottomSheet), findsNothing);
         expect(find.byType(LiveTimeline), findsNothing);
         if (feed.lateDelivery) {
           feed.publish(_transcript('session', 'Late private transcript'));
           await tester.pumpAndSettle();
+          expect(find.byType(ConversationStatistics), findsNothing);
           expect(find.byType(LiveTimeline), findsNothing);
         }
         expect(connection.watches, ['session']);

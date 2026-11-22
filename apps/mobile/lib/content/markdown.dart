@@ -371,6 +371,7 @@ class _CodeBuilder extends MarkdownElementBuilder {
     final language = tag?.startsWith('language-') == true
         ? tag!.substring(9)
         : null;
+    final source = element.textContent;
     return switch (language) {
       'chart' => DecoratedBox(
         decoration: BoxDecoration(
@@ -383,7 +384,15 @@ class _CodeBuilder extends MarkdownElementBuilder {
         kind: VisualKind.mermaid,
         source: element.textContent,
       ),
-      _ => CodeBlock(element.textContent, language: language),
+      _ => CodeBlock(
+        source,
+        // Markdown adds a line terminator; only its display omits that one
+        // newline. Intentional blank lines and the copied source stay intact.
+        displayText: source.endsWith('\n')
+            ? source.substring(0, source.length - 1)
+            : source,
+        language: language,
+      ),
     };
   }
 }

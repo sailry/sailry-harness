@@ -577,6 +577,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(LiveConversationPage), findsOneWidget);
     expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('conversation-info')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text(tr('conversationStatsTurns')), findsOneWidget);
+    expect(find.text(tr('conversationStatsResponses')), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    Navigator.of(tester.element(find.byType(BottomSheet))).pop();
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('conversation-settings')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('configuration-mode')), findsOneWidget);

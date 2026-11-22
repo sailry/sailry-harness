@@ -44,6 +44,8 @@ import '../../resources/artifact/submission.dart';
 
 part 'history_actions.dart';
 
+typedef _StatisticsState = ({Map<String, dynamic>? data, String? statusKey});
+
 class LiveConversationPage extends StatefulWidget {
   const LiveConversationPage({
     super.key,
@@ -74,6 +76,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   final _scroll = ScrollController();
   double? _returnOffset;
   final _view = ValueNotifier<Map<String, dynamic>>({});
+  ValueNotifier<_StatisticsState>? _statisticsSheet;
+  ModalRoute<dynamic>? _statisticsRoute;
   var _transcript = TranscriptIndex(const {});
   Future<ConversationUpdates?>? _observation;
   Future<void> _released = Future.value();
@@ -222,6 +226,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       return;
     }
     _acknowledge();
+    _updateStatistics();
     if (mounted) setState(() {});
   }
 
@@ -252,6 +257,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   }
 
   void _discardView() {
+    _dismissStatistics(_statisticsRoute);
     _stopWatching();
     _turnKeys.clear();
     _reveal = null;
@@ -332,6 +338,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             (fault == null || code == 'unavailable' || code == 'busy')) {
           // A recovering observation can begin without a snapshot on the same owner.
           _view.value = {..._view.value, 'connected': false, 'error': fault};
+          _updateStatistics();
           _artifactActions.changed();
           continue;
         }
@@ -345,8 +352,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final detailErrors = newDetailErrors(_view.value, value).toList();
         _transcript = transcript;
         _view.value = mergeToolDetails(_view.value, value);
+        _updateStatistics();
         _submission.observe(object(_view.value['guidance']));
-        if (statisticsError != null &&
+        if (_statisticsSheet == null &&
+            statisticsError != null &&
             jsonEncode(statisticsError) !=
                 jsonEncode(previousStatisticsError)) {
           showToast(
@@ -375,6 +384,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         _endOwner(error);
       } else {
         setState(() => _error = error);
+        _updateStatistics();
         _artifactActions.changed();
       }
     } finally {
@@ -512,6 +522,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   @override
   void dispose() {
     _closed = true;
+    _dismissStatistics(_statisticsRoute);
     WidgetsBinding.instance.removeObserver(this);
     widget.host.removeListener(_hostChanged);
     _directory?.removeListener(_directoryChanged);
@@ -731,6 +742,95 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     return true;
   }
 
+  _StatisticsState _statisticsState() {
+    final view = _view.value;
+    final statistics = _snapshot['statistics'];
+    if (statistics is Map<String, dynamic>) {
+      return (data: statistics, statusKey: null);
+    }
+    if (statistics != null ||
+        view['statistics_error'] != null ||
+        _error != null) {
+      return (data: null, statusKey: 'settingsLoadFailed');
+    }
+    final fault =
+        view['error'] ?? (widget.host.connected ? null : widget.host.error);
+    if (!widget.host.connected ||
+        fault != null ||
+        (view['connected'] == false && _snapshot.isNotEmpty)) {
+      final code = fault is BridgeFailure ? fault.code : object(fault)['code'];
+      final recovering =
+          fault == null || const {'unavailable', 'busy'}.contains(code);
+      return (
+        data: null,
+        statusKey: recovering
+            ? 'conversationReconnecting'
+            : 'conversationUnavailable',
+      );
+    }
+    return (data: null, statusKey: null);
+  }
+
+  void _updateStatistics() {
+    final sheet = _statisticsSheet;
+    if (sheet != null && !_closed && !_ownerEnded && !_covered) {
+      sheet.value = _statisticsState();
+    }
+  }
+
+  void _showStatistics() {
+    if (_closed || _ownerEnded || _covered || _statisticsSheet != null) return;
+    final sheet = ValueNotifier(_statisticsState());
+    _statisticsSheet = sheet;
+    void release() {
+      if (!identical(_statisticsSheet, sheet)) return;
+      _statisticsRoute = null;
+      _statisticsSheet = null;
+      sheet.dispose();
+    }
+
+    unawaited(
+      showAppSheet<void>(
+        context,
+        context.tr('conversationStats'),
+        child: Builder(
+          builder: (context) {
+            final route = ModalRoute.of(context)!;
+            if (_statisticsRoute == null) {
+              _statisticsRoute = route;
+              unawaited(route.completed.then((_) => release()));
+            }
+            if (_closed ||
+                _ownerEnded ||
+                _covered ||
+                (!route.isCurrent &&
+                    route.animation?.status != AnimationStatus.reverse)) {
+              _dismissStatistics(route);
+              return const SizedBox.shrink();
+            }
+            return ValueListenableBuilder(
+              valueListenable: sheet,
+              builder: (context, state, _) => ConversationStatistics(
+                data: state.data,
+                statusKey: state.statusKey,
+              ),
+            );
+          },
+        ),
+      ).then((_) {
+        if (_statisticsRoute == null) release();
+      }),
+    );
+  }
+
+  void _dismissStatistics(ModalRoute<dynamic>? route) {
+    if (route == null || !route.isActive) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (route.isActive) route.navigator?.removeRoute(route);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   void _configuration() => showAppSheet(
     context,
     context.tr('modelPicker'),
@@ -822,24 +922,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                     style: actionStyle,
                     icon: const AppIcon('info', size: 18),
                     tooltip: context.tr('conversationStats'),
-                    onPressed: () => showAppSheet(
-                      context,
-                      context.tr('conversationStats'),
-                      child: ValueListenableBuilder(
-                        valueListenable: _view,
-                        builder: (context, view, _) {
-                          final statistics = object(
-                            view['snapshot'],
-                          )['statistics'];
-                          return ConversationStatistics(
-                            failed: view['statistics_error'] != null,
-                            data: statistics == null
-                                ? null
-                                : object(statistics),
-                          );
-                        },
-                      ),
-                    ),
+                    onPressed: _ownerEnded ? null : _showStatistics,
                   ),
                   IconButton(
                     style: actionStyle,
