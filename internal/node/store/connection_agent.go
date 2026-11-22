@@ -29,6 +29,15 @@ func (catalog ConnectionCatalog) Resources() []protocol.ConnectionResource {
 	return resources
 }
 
+func (catalog *ConnectionCatalog) Restrict(targets []protocol.ConnectionResource) {
+	catalog.Databases = slices.DeleteFunc(catalog.Databases, func(profile protocol.DatabaseProfile) bool {
+		return !containsConnection(targets, databaseResource(profile.ID))
+	})
+	catalog.Ssh = slices.DeleteFunc(catalog.Ssh, func(profile protocol.SshProfile) bool {
+		return !containsConnection(targets, sshResource(profile.ID))
+	})
+}
+
 func ReadConnectionCatalog(ctx context.Context, db *sql.Conn, id protocol.SessionID) (ConnectionCatalog, error) {
 	session, err := ReadSession(ctx, db, id)
 	if err != nil {

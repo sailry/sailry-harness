@@ -37,7 +37,7 @@ func (node *Node) agentTools(inv *store.AgentInvocation) ([]engine.Tool, error) 
 	if !restricted {
 		declared = append(declared, node.skillManager(inv), node.mcpManager(inv), node.pluginManager(inv))
 	}
-	if !restricted && (inv.Session.Delegation == nil || *inv.Session.Delegation == nil) && inv.Worktree.Project != nil {
+	if !restricted && inv.Worktree.Project != nil {
 		declared = append(declared, node.catalogTools(inv)...)
 	}
 	tools := make([]engine.Tool, 0, len(declared))

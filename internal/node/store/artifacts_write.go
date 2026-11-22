@@ -35,13 +35,6 @@ func authorizeArtifactWrite(ctx context.Context, db *sql.Conn, request protocol.
 	if captured == nil || captured.Turn == nil || captured.Session == nil || captured.Worktree == nil || captured.Invocation != nil {
 		return draft, fault(protocol.ErrorCodePermissionDenied, "artifact writes require an admitted plugin turn")
 	}
-	owner, err := ReadSession(ctx, db, *captured.Session)
-	if err != nil {
-		return draft, err
-	}
-	if owner.Delegation != nil && *owner.Delegation != nil {
-		return draft, fault(protocol.ErrorCodePermissionDenied, "delegated sessions cannot write artifacts")
-	}
 	run, err := visibleAgentRun(ctx, db, *captured.Session, *captured.Turn)
 	if err != nil {
 		return draft, err

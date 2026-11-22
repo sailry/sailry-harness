@@ -69,9 +69,6 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			!strings.HasPrefix(string(declaration.Operation), "artifacts.") {
 			continue
 		}
-		if declaration.Operation == protocol.ToolOperationWriteArtifact && inv.Session.Delegation != nil {
-			continue
-		}
 		var schema map[string]any
 		if err = json.Unmarshal(declaration.Parameters, &schema); err != nil {
 			return nil, err

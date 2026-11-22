@@ -157,34 +157,3 @@ func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool 
 	}
 	return false
 }
-
-// roleAllowsTool selects a child's tools. A role's tool list is exact. Without
-// one the child keeps the standard catalog: the reference and skill tools,
-// package tools whose every declared operation is standard, and hosted script
-// tools that are read-only.
-func roleAllowsTool(role *protocol.RoleProfile, tool Tool) bool {
-	if tool.Definition.Name == "read_tool_output" || tool.Definition.Name == "tool_search" {
-		return true
-	}
-	if role != nil && role.Tools != nil {
-		return slices.ContainsFunc(*role.Tools, func(selection protocol.PluginConversationTool) bool { return roleToolMatches(selection, tool) })
-	}
-	if tool.Binding == nil {
-		return slices.Contains([]string{"list_sessions", "read_session", "search_session", "load_skill", "read_skill_resource", operations.UpdatePlanTool}, tool.Definition.Name)
-	}
-	if tool.Hosted {
-		return tool.ReadOnly
-	}
-	declared := declaredOperations(tool)
-	return len(declared) != 0 && !slices.ContainsFunc(declared, func(operation protocol.ToolOperation) bool { return !standardOperation(operation) })
-}
-
-// standardOperation reports whether a child without a tool list may run the
-// operation.
-func standardOperation(operation protocol.ToolOperation) bool {
-	switch operation {
-	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles, protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges, protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode, protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff, protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand, protocol.ToolOperationFetchWeb, protocol.ToolOperationSearchWeb, protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationCreateDirectory, protocol.ToolOperationReadOffice, protocol.ToolOperationReadNotebook, protocol.ToolOperationEditNotebook, protocol.ToolOperationReadArtifact, protocol.ToolOperationListArtifacts, protocol.ToolOperationListArtifactRevisions, protocol.ToolOperationReadGitLog, protocol.ToolOperationReadGitShow, protocol.ToolOperationReadGitBlame, protocol.ToolOperationListGitChanges, protocol.ToolOperationReadGitChange, protocol.ToolOperationListWorktrees, protocol.ToolOperationProgress, protocol.ToolOperationListRoles:
-		return true
-	}
-	return false
-}

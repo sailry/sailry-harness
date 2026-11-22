@@ -130,6 +130,16 @@ type Lease struct {
 	closeErr   error
 }
 
+// AuthorityKey identifies the destination and authorization without retaining
+// the lease or exposing its credentials.
+type AuthorityKey struct {
+	key connectionKey
+}
+
+func (lease *Lease) AuthorityKey() AuthorityKey {
+	return AuthorityKey{key: lease.connection.key}
+}
+
 func New(ctx context.Context, options Options) *Pool {
 	if options.Clock == nil {
 		options.Clock = clockwork.NewRealClock()

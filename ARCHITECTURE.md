@@ -547,8 +547,7 @@ no tool instructions. Named context sections append changed values. New user
 input refreshes the last successfully recorded unfinished plan. The deferred
 tool catalog is emitted on change or when its last copy is no longer visible.
 Leading `update_plan` receipts are recorded before the rest of the tool batch.
-Delegated children can record and restore their own plan only when their role
-explicitly selects that tool.
+Delegated children with the plan tool record and restore their own plan.
 Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
 Automatic compaction starts at the earlier of 80% of the captured model's window
@@ -670,10 +669,18 @@ coordination under the same permission model. Package modes map to a core mode
 without escalating access.
 `spawn_agent`, `guide_agent` and `wait_agent` use the same execution and history
 path. Collaborate can delegate with a single selected model. A child without
-a role inherits that model and its captured scope and permission when team instructions
-allow roleless delegation. Code Review requires a tool-capable captured role for
-new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
-selection supplies named roles and optional model overrides. Read-only roles use Plan.
+a role inherits that model when team instructions allow roleless delegation.
+The Node binds tools to the child's own turn and worktree within the same
+project. By default the child inherits the parent turn's captured tools,
+including deferred tools and package tools. Child scheduling tools are excluded.
+The parent's captured schemas, connection targets and MCP bindings bound the
+child's calls. Explicit role tool lists narrow the catalog further. Read-only
+roles use Plan, and the child's effects follow its own approval and connection
+checks. Assistant selectors prioritize initial tools within this catalog.
+Guidance for an active child uses that task's capture. A new task for an idle
+child uses the admitting parent's capture and keeps the child's original role.
+Team selection supplies named roles and optional model overrides. Code Review
+requires a tool-capable captured role for new assignments when the roster is populated.
 Team settings control child concurrency, with a default of eight per root session.
 In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
 parent by default. A model's `guide_agent` call does the same when it starts a

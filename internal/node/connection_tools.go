@@ -40,15 +40,12 @@ func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocatio
 	if len(declarations) == 0 {
 		return nil, nil
 	}
-	var captured []protocol.ConnectionResource
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		reachable, err := store.ReadConnectionCatalog(ctx, db, inv.Session.ID)
-		captured = reachable.Resources()
-		return err
-	})
+	reachable, err := node.connectionCatalog(ctx, inv)
 	if err != nil {
 		return nil, err
 	}
+	captured := reachable.Resources()
+	inv.ConnectionTargets = captured
 	var tools []engine.Tool
 	for _, declaration := range declarations {
 		var schema map[string]any
@@ -136,6 +133,19 @@ func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocatio
 
 func connectionFault(code protocol.ErrorCode, message string) *protocol.Fault {
 	return &protocol.Fault{Code: code, Message: message}
+}
+
+func (node *Node) connectionCatalog(ctx context.Context, inv *store.AgentInvocation) (store.ConnectionCatalog, error) {
+	var reachable store.ConnectionCatalog
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		reachable, err = store.ReadConnectionCatalog(ctx, db, inv.Session.ID)
+		return err
+	})
+	if inv.ConnectionTargets != nil || inv.Session.Delegation != nil {
+		reachable.Restrict(inv.ConnectionTargets)
+	}
+	return reachable, err
 }
 
 // connectionCommand translates model arguments into the protocol command the
@@ -370,12 +380,7 @@ func (node *Node) connectionResult(ctx context.Context, inv *store.AgentInvocati
 // turn may reach, limited to the kinds the package's selected operations use.
 func (node *Node) connectionTurnInput(ctx context.Context, inv *store.AgentInvocation, selected []protocol.ToolOperation) (map[string]any, error) {
 	databases, ssh := []any{}, []any{}
-	var reachable store.ConnectionCatalog
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		reachable, err = store.ReadConnectionCatalog(ctx, db, inv.Session.ID)
-		return err
-	})
+	reachable, err := node.connectionCatalog(ctx, inv)
 	if err != nil {
 		return nil, err
 	}

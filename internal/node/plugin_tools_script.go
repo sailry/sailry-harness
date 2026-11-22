@@ -192,8 +192,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			SchemaJSON: handler.Parameters, ReadOnly: readOnly, Deferred: !declaration.Initial, Approval: !readOnly,
 			Binding:     &store.ApprovalBinding{Owner: owner.scope.Package, Tool: plugins.ToolAlias(info.Summary.Name, declaration.Name), Operation: handler.Operation},
 			Instruction: strings.TrimSpace(instruction)}
-		tool.Hosted = handler.Operation == nil && handler.Flow == nil
-		if tool.Hosted {
+		if handler.Operation == nil && handler.Flow == nil {
 			// A plain handler acts only through its package's own grants, each
 			// checked when the script dispatches, so the call itself asks for
 			// nothing unless the package declares that it needs the user's

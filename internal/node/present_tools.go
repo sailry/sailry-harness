@@ -23,10 +23,9 @@ const presentFilesDescription = "Deliver finished files to the user as file card
 const presentFilesSchema = `{"type":"object","additionalProperties":false,"required":["paths"],"properties":{"paths":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"string","description":"Relative to the session worktree, with forward slashes"}}}}`
 
 // presentTools offers the conversation's explicit delivery: each named
-// worktree file becomes a file card and a published output. A delegated
-// child reports to its parent, so it delivers nothing to the user.
+// worktree file becomes a file card and a published output.
 func (node *Node) presentTools(inv *store.AgentInvocation) ([]engine.Tool, error) {
-	if inv.Session.Delegation != nil && *inv.Session.Delegation != nil || inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil {
+	if inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil {
 		return nil, nil
 	}
 	var schema map[string]any

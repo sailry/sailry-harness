@@ -32,6 +32,8 @@ type delegatedChild struct {
 	successor *delegatedChild
 	// A queued successor owns its predecessor's commands even before it starts.
 	commandsInherited bool
+	tools             inheritedTools
+	connections       []protocol.ConnectionResource
 }
 
 type collectedChild struct {
@@ -60,6 +62,9 @@ func (r *Runtime) activitySignal() <-chan struct{} {
 // and handoff finish, even if the calling tool stops waiting for the receipt.
 // arguments are the ones that execute and name the child's workspace.
 func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode childMode, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
+	if x.delegationTools == nil {
+		return toolFault(&protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "parent tool capture is unavailable"})
+	}
 	parent, release, ok := r.BeginOperation(x.inv.Run.Turn)
 	if !ok {
 		return invalidTool("parent execution has ended")
@@ -100,7 +105,11 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode child
 		}
 		background := mode == childBackground
 		childContext, cancel := context.WithCancel(r.ctx)
-		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background, overlap: mode == childOverlap}
+		child := &delegatedChild{
+			root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence,
+			ctx: childContext, cancel: cancel, released: background, overlap: mode == childOverlap,
+			tools: x.delegationTools, connections: x.inv.ConnectionTargets,
+		}
 		if !background {
 			// A foreground child ends with its turn unless the turn detached it.
 			child.stopParent = context.AfterFunc(parent, func() {

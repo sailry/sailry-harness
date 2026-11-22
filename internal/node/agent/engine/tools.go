@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -57,19 +58,17 @@ type Tool struct {
 	BindDelegation    func(Tool) Tool
 	// Guidance makes BindDelegation receive guide_agent instead of spawn_agent.
 	Guidance bool
-	// Hosted marks a package tool whose script runs with neither a bound
-	// operation nor a flow, within the package's declared actions. Flow lists
-	// the operations a flow tool may run. A child without a tool list keeps
-	// such tools by these declarations.
-	Hosted bool
-	Flow   []protocol.ToolOperation
+	// Flow lists the operations a package flow may run.
+	Flow []protocol.ToolOperation
 	// Exposed is the name an MCP tool is offered under when no other tool
 	// owns it. A package tool is offered under its declared name.
-	Exposed string
+	Exposed      string
+	MCPAuthority mcp.AuthorityKey
 	// SearchLabels are the captured display labels and translations used only
 	// for discovery. They do not enlarge the model's tool declarations.
 	SearchLabels []string
 	schema       *jsonschema.Schema
+	parentSchema *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
@@ -95,6 +94,10 @@ type ToolResult struct {
 }
 
 func (r *Runtime) captureTools(x *execution) error {
+	child := x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil
+	if child && x.parentTools == nil {
+		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "parent tool capture is unavailable"}
+	}
 	x.tools = append([]Tool(nil), r.tools...)
 	if r.toolsForTurn != nil {
 		scoped, err := r.toolsForTurn(x.ctx, x.inv)
@@ -104,13 +107,6 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.tools = append(x.tools, scoped...)
 	}
 	builtins := r.builtins(x)
-	if x.inv.Session.Delegation != nil {
-		// The title and the question belong to the conversation the user
-		// reads. A child has neither, so a role cannot select them.
-		builtins = slices.DeleteFunc(builtins, func(tool Tool) bool {
-			return tool.Definition.Name == "set_session_title" || tool.Definition.Name == "ask_user"
-		})
-	}
 	x.tools = append(builtins, x.tools...)
 	for index := range x.tools {
 		if bind := x.tools[index].BindDelegation; bind != nil {
@@ -129,15 +125,20 @@ func (r *Runtime) captureTools(x *execution) error {
 			x.toolCleanup = append(x.toolCleanup, tool.Close)
 		}
 	}
-	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+	if child {
+		x.tools = x.parentTools.restrict(x.tools)
 		if x.childRole != nil && x.childRole.Tools != nil {
 			for _, selection := range *x.childRole.Tools {
 				if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return roleToolMatches(selection, tool) }) {
 					return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "role references an unavailable tool"}
 				}
 			}
+			x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool {
+				return tool.Definition.Name != "read_tool_output" && !slices.ContainsFunc(*x.childRole.Tools, func(selection protocol.PluginConversationTool) bool {
+					return roleToolMatches(selection, tool)
+				})
+			})
 		}
-		x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool { return !roleAllowsTool(x.childRole, tool) })
 	}
 	if err := r.deferTools(x); err != nil {
 		return err
@@ -161,6 +162,9 @@ func (r *Runtime) captureTools(x *execution) error {
 			return err
 		}
 		tool.schema = schema
+	}
+	if delegationAvailable(x) {
+		x.delegationTools = captureInheritedTools(x.tools)
 	}
 	return nil
 }
@@ -186,16 +190,14 @@ func (r *Runtime) closeTools(x *execution) error {
 	return nil
 }
 
-// deferTools keeps the everyday worktree capabilities on the first request
-// and leaves every other captured tool discoverable, as the source selection
-// does. A child whose role lists its tools defers nothing. Until here
-// Deferred carries the declaration: a package tool that
-// is not deferred declared itself initial.
+// deferTools keeps a default child's initial and discoverable tools in the
+// same places as the parent's. A role with an explicit list defers nothing.
 func (r *Runtime) deferTools(x *execution) error {
-	child := x.inv.Session.Delegation != nil
-	if child && x.childRole != nil && x.childRole.Tools != nil {
+	if x.parentTools != nil {
+		explicit := x.childRole != nil && x.childRole.Tools != nil
 		for index := range x.tools {
-			x.tools[index].Deferred = false
+			tool := &x.tools[index]
+			tool.Deferred = !explicit && x.parentTools[tool.Definition.Name].deferred
 		}
 		return nil
 	}
@@ -215,10 +217,6 @@ func (r *Runtime) deferTools(x *execution) error {
 		switch {
 		case tool.Delegation && role:
 			tool.Deferred = false
-		case child && slices.ContainsFunc(declaredOperations(*tool), func(operation protocol.ToolOperation) bool {
-			return operation == protocol.ToolOperationFetchWeb || operation == protocol.ToolOperationSearchWeb
-		}):
-			tool.Deferred = true
 		case tool.Binding == nil || tool.Binding.Owner.Name == "":
 			// The Node's own tools state their rule where they are built.
 			// The session history tools are discoverable.
@@ -226,8 +224,7 @@ func (r *Runtime) deferTools(x *execution) error {
 				tool.Deferred = true
 			}
 		default:
-			// A declared initial tool starts visible only to the main agent.
-			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred && !child)
+			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred)
 		}
 	}
 	return nil
@@ -354,6 +351,9 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	}
 	x.observedMu.Unlock()
 	// Mark every allowed call before requesting the first approval.
+	planning := x.inv.Turn.Config.Mode == protocol.WorkModePlan
+	child := x.inv.Session.Delegation != nil
+	readOnlyChild := child && (planning || x.childRole != nil && x.childRole.ReadOnly)
 	for i, call := range calls {
 		if step.Err() != nil {
 			break
@@ -369,9 +369,10 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
 			continue
 		}
-		// A planning turn still writes the conversation's own artifacts.
-		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" &&
-			!(tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact) {
+		// A main planning turn can ask the user and write its own artifacts.
+		planException := !child && (tool.Delegation || call.Name == "ask_user" ||
+			tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact)
+		if !tool.ReadOnly && (readOnlyChild || planning && !planException) {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
 			continue
 		}
@@ -387,6 +388,10 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
 			continue
 		}
+		if tool.parentSchema != nil && tool.parentSchema.Validate(arguments) != nil {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "tool arguments exceed the parent turn capture"}}
+			continue
+		}
 		if tool.ObserveHistory != nil {
 			tool.ObserveHistory(state.Records)
 		}
@@ -399,7 +404,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 				continue
 			}
 		}
-		if asks[i] = tool.Approval || tool.Confirm != nil && tool.Confirm(call); !asks[i] {
+		confirm := tool.Confirm != nil && !tool.Approval && tool.Confirm(call)
+		if readOnlyChild && confirm {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
+			continue
+		}
+		if asks[i] = tool.Approval || confirm; !asks[i] {
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
 		}

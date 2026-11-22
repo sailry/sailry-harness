@@ -47,6 +47,9 @@ func delegationFixture(t *testing.T, models ...*scriptedModel) (*engineFixture, 
 	if err := f.r.save(ctx, inv.Session.ID, inputRecord(turn, inv.Message, f.r)); err != nil {
 		t.Fatal(err)
 	}
+	if err := f.r.captureTools(x); err != nil {
+		t.Fatal(err)
+	}
 	return f, x
 }
 
@@ -355,8 +358,8 @@ func TestDelegationHandoff(t *testing.T) {
 				t.Fatal(err)
 			}
 			followup := f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: recipient.Turn, ExpectedRevision: recipient.Revision, Message: protocol.ConversationInput{Text: "Second final-boundary input"}}).Data.(protocol.QueuedTurn)
-			if language.count() != 1 {
-				t.Fatal("guidance began while its recipient was still running")
+			if calls := language.count(); calls != 1 {
+				t.Fatalf("expected only the recipient's model call before settlement, got %d calls", calls)
 			}
 			f.r.mu.Lock()
 			owner := f.r.active[recipient.Turn]

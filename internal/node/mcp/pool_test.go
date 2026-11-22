@@ -39,6 +39,9 @@ func TestMCPPoolKey(t *testing.T) {
 	if first.connection != second.connection || opened.Load() != 1 {
 		t.Fatal("identical captured configurations did not share their MCP owner")
 	}
+	if first.AuthorityKey() != second.AuthorityKey() {
+		t.Fatal("identical leases have distinct delegated authority")
+	}
 	tools, err := first.List(t.Context())
 	if err != nil || len(tools) != 1 || tools[0].Name != "echo" {
 		t.Fatalf("captured server tools=%v error=%v", tools, err)
@@ -101,6 +104,9 @@ func TestMCPPoolKey(t *testing.T) {
 			}
 			if current.connection == first.connection {
 				t.Fatal("a changed capture reused another MCP authority")
+			}
+			if current.AuthorityKey() == first.AuthorityKey() {
+				t.Fatal("a changed capture matched the original delegated authority")
 			}
 			if err := current.Close(); err != nil {
 				t.Fatal(err)

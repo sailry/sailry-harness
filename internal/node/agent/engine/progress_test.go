@@ -83,12 +83,17 @@ func TestChildRestoresCompactedPlanOnlyWithItsPlanTool(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := &scriptedModel{scripts: []script{response(text("Acknowledged"), finish())}}
 			f, x, binding, _ := compactionFixture(t, m)
+			if err := f.r.captureTools(x); err != nil {
+				t.Fatal(err)
+			}
+			x.parentTools = captureInheritedTools(x.tools)
 			delegation := &protocol.Delegation{}
 			x.inv.Session.Delegation = &delegation
+			tools := []protocol.PluginConversationTool{}
 			if selected {
-				tools := []protocol.PluginConversationTool{{Kind: "builtin", Data: &protocol.PluginConversationToolBuiltinPayload{Name: operations.UpdatePlanTool}}}
-				x.childRole = &protocol.RoleProfile{Tools: &tools}
+				tools = append(tools, protocol.PluginConversationTool{Kind: "builtin", Data: &protocol.PluginConversationToolBuiltinPayload{Name: operations.UpdatePlanTool}})
 			}
+			x.childRole = &protocol.RoleProfile{Tools: &tools}
 			if err := f.r.captureTools(x); err != nil {
 				t.Fatal(err)
 			}

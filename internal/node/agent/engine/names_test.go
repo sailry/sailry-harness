@@ -26,8 +26,6 @@ func packageTool(owner, name string, operation protocol.ToolOperation, initial b
 	tool.Binding = &store.ApprovalBinding{Owner: protocol.PluginReference{Name: owner}, Tool: tool.Definition.Name}
 	if operation != "" {
 		tool.Binding.Operation = &operation
-	} else {
-		tool.Hosted = true
 	}
 	return tool
 }
@@ -173,15 +171,20 @@ func TestToolSelectionAndNames(t *testing.T) {
 			t.Fatalf("stored calls=%v", stored)
 		}
 	})
-	t.Run("a child has no parent-only built-ins and a listed role defers nothing", func(t *testing.T) {
+	t.Run("a child inherits parent tools and a listed role defers nothing", func(t *testing.T) {
 		fixture, x := delegationFixture(t)
-		delegation := &protocol.Delegation{}
-		x.inv.Session.Delegation = &delegation
 		fixture.r.tools = []Tool{
 			packageTool("files", "read_file", protocol.ToolOperationReadFile, false, done),
 			packageTool("files", "delete_file", protocol.ToolOperationDeleteFile, false, done),
 			packageTool("memory", "search_memory", "", true, done),
 		}
+		if err := fixture.r.captureTools(x); err != nil {
+			t.Fatal(err)
+		}
+		x.parentTools = captureInheritedTools(x.tools)
+		delegation := &protocol.Delegation{}
+		x.inv.Session.Delegation = &delegation
+		fixture.r.tools = append(fixture.r.tools, packageTool("fixture", "child_only", protocol.ToolOperationReadFile, true, done))
 		capture := func(role *protocol.RoleProfile) (visible, deferred []string, err error) {
 			x.childRole = role
 			if err = fixture.r.captureTools(x); err != nil {
@@ -200,10 +203,9 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// A declared initial tool starts visible only to the main agent.
-		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), "tool_search", callToolName}) ||
-			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
-			t.Fatalf("standard child visible=%v deferred=%v", visible, deferred)
+		if !slices.Equal(visible, []string{"set_session_title", "ask_user", operations.UpdatePlanTool, "read_tool_output", operations.Alias("files", "read_file"), operations.Alias("memory", "search_memory"), "tool_search", callToolName}) ||
+			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file")}) {
+			t.Fatalf("default child visible=%v deferred=%v", visible, deferred)
 		}
 		selection := func(kind string, data any) protocol.PluginConversationTool {
 			return protocol.PluginConversationTool{Kind: kind, Data: data}
@@ -221,12 +223,15 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if err != nil || !slices.Equal(visible, []string{operations.UpdatePlanTool, "read_tool_output"}) || len(deferred) != 0 {
 			t.Fatalf("legacy plan selector visible=%v deferred=%v error=%v", visible, deferred, err)
 		}
-		for _, name := range []string{"ask_user", "set_session_title", "list_subagents"} {
-			parentOnly := []protocol.PluginConversationTool{selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: name})}
-			_, _, err = capture(&protocol.RoleProfile{Tools: &parentOnly})
+		for _, unavailable := range []protocol.PluginConversationTool{
+			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "list_subagents"}),
+			selection("package", &protocol.PluginConversationToolPackagePayload{Package: "fixture", Name: "child_only"}),
+		} {
+			tools := []protocol.PluginConversationTool{unavailable}
+			_, _, err = capture(&protocol.RoleProfile{Tools: &tools})
 			var failure *protocol.Fault
 			if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeNotConfigured || failure.Message != "role references an unavailable tool" {
-				t.Fatalf("a role gave %s to a child: %v", name, err)
+				t.Fatalf("a role gave %v to a child: %v", unavailable.Data, err)
 			}
 		}
 	})

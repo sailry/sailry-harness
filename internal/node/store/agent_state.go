@@ -37,6 +37,9 @@ type AgentInvocation struct {
 	Media MediaCapture
 	// Assistant is the declaration frozen by the turn's assistant binding.
 	Assistant *protocol.PluginConversationDeclaration
+	// ConnectionTargets bounds the existing profiles reachable by this turn.
+	// A delegated turn starts with its parent's capture, including an empty one.
+	ConnectionTargets []protocol.ConnectionResource
 }
 type AgentState struct {
 	Session protocol.Session
