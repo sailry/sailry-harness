@@ -146,13 +146,13 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 		width = narrowChip
 	}
 	if len(ctx.Models) == 0 {
-		// model_label without a configuration: the chip reads Select model
-		// and opens the Node's model settings.
-		label := i18n.T(c, "composer_select_model")
-		kit.GhostLook(c, ui.ButtonBase(c.Key("model")), false).Label(label).Height(32).PaddingX(10).Gap(8).Radius(16).
-			MaxWidth(width).MinWidth(0).Shrink(1).Disabled(ctx.Readonly || ctx.SelectModel == nil).
-			Children(func() { ui.Text(c, label).FontSize(14).LineHeight(20.0 / 14).SingleLine().Shrink(1).MinWidth(0) }).
-			OnClick(func() { ctx.SelectModel() })
+		if ctx.SelectModel != nil {
+			label := i18n.T(c, "composer_select_model")
+			kit.GhostLook(c, ui.ButtonBase(c.Key("model")), false).Label(label).Height(32).PaddingX(10).Gap(8).Radius(16).
+				MaxWidth(width).MinWidth(0).Shrink(1).Disabled(ctx.Readonly).
+				Children(func() { ui.Text(c, label).FontSize(14).LineHeight(20.0 / 14).SingleLine().Shrink(1).MinWidth(0) }).
+				OnClick(ctx.SelectModel)
+		}
 		return
 	}
 	team := s.team(ctx)
@@ -281,6 +281,7 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 	// The main page has the team row's divider (1, and a gap of 8); the
 	// team list is as tall as its rows, the model picker the full height.
 	h := float32(108 + teamRow + 9)
+	var manageTeams func()
 	switch s.layer {
 	case layerModels:
 		// As tall as ten rows, less in a window
@@ -288,9 +289,13 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 		_, wh := c.Size()
 		h = max(panelHeight/2, min(panelHeight, wh-pickerReserve))
 	case layerTeams:
-		// Back 28, the rows 32 each, the divider 1 + 8, Manage 32, 4 apart.
 		rows := 1 + len(ctx.Teams)
-		h = min(float32(28+32*rows+9+32+4*(rows+2)), panelHeight)
+		h = float32(28 + (32+4)*rows)
+		if owner, ok := actions.(interface{ CanManageTeams() bool }); ok && owner.CanManageTeams() {
+			manageTeams = actions.ManageTeams
+			h += 9 + 32 + 8
+		}
+		h = min(h, panelHeight)
 	}
 	body := ui.Column(c.Key("model-controls")).Height(h).Clip().AlignItems(ui.Center).Gap(8).
 		Disabled(ctx.Readonly || s.TeamLocked)
@@ -306,7 +311,7 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 		case layerModels:
 			s.modelPicker(c, ctx)
 		case layerTeams:
-			s.teamList(c, ctx, actions)
+			s.teamList(c, ctx, manageTeams)
 		default:
 			s.mainPanel(c, ctx)
 		}
@@ -572,11 +577,10 @@ func avatar(c *ui.Context, icon *ui.SVG, fill ui.Color, size float32, selected, 
 	})
 }
 
-// teamList is Model only, the default team and the teams with their member
-// counts, then Manage teams. The chosen one is told as the picker's rows
-// are, by the neutral Palette.Selected alone, with no check; assistive
-// technology has it as selected.
-func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
+// teamList shows Model only, the teams with their member counts and Manage
+// teams when available. Like the model picker, the selected row uses the
+// neutral Palette.Selected fill and is marked selected for assistive technology.
+func (s *State) teamList(c *ui.Context, ctx *Context, manage func()) {
 	p := theme.Of(c)
 	row := func(key, name string, face func(), count int, selected bool, pick func()) {
 		b := kit.Ghost(c.Key(key), name, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
@@ -617,12 +621,15 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 				s.Team, s.member, s.layer = t.ID, "", layerMain
 			})
 		}
-		ui.Box(c).FillWidth().Height(1).Margin(4, 0).Background(p.Border).Shrink(0)
-		kit.Ghost(c.Key("manage"), i18n.T(c, "composer_team_manage"), false).FillWidth().Height(32).PaddingX(8).Gap(8).
-			Justify(ui.Start).TextColor(p.MutedForeground).Children(func() {
-			ui.Box(c).Size(member, member).Shrink(0).Center().Children(func() { ui.Icon(c, icons.Settings).FontSize(16) })
-			ui.Text(c, i18n.T(c, "composer_team_manage")).FontSize(14).SingleLine()
-		}).OnClick(actions.ManageTeams)
+		if manage != nil {
+			label := i18n.T(c, "composer_team_manage")
+			ui.Box(c).FillWidth().Height(1).Margin(4, 0).Background(p.Border).Shrink(0)
+			kit.Ghost(c.Key("manage"), label, false).FillWidth().Height(32).PaddingX(8).Gap(8).
+				Justify(ui.Start).TextColor(p.MutedForeground).Children(func() {
+				ui.Box(c).Size(member, member).Shrink(0).Center().Children(func() { ui.Icon(c, icons.Settings).FontSize(16) })
+				ui.Text(c, label).FontSize(14).SingleLine()
+			}).OnClick(manage)
+		}
 	})
 }
 

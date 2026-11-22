@@ -29,7 +29,7 @@ func TestFilesPageUsesScopedWorkspaceAndRetainsDraft(t *testing.T) {
 			project.SetFileWritable(path, true)
 		}
 	}}
-	app := shell.NewLive(data, files.Page())
+	app := shell.NewLiveWithAssembly(data, shell.Assemble(files.Register))
 	app.Hooks.ResourceWorkspace = func(got shell.ResourceTarget) *panel.Project {
 		if got == target {
 			return project

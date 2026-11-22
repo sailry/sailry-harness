@@ -5,11 +5,6 @@ activity: 活動看板
 files: 檔案
 git: Git
 settings: 設定
-market_title: 市場
-market_details: 詳情
-market_verified: 已驗證
-market_installs: 安裝量
-market_stars: 收藏
 search: 搜尋
 sidebar_toggle: 展開或摺疊導航
 more: 更多操作
@@ -100,15 +95,9 @@ welcome_review_prompt: 請審查當前專案的改動，重點檢查潛在問題
 welcome_plan: 制定計劃
 welcome_plan_detail: 理清目標與步驟
 welcome_plan_prompt: 請幫我為接下來的開發工作制定分步驟的計劃
-provider_channels: 渠道
-provider_list_search: 搜尋供應商或模型
 settings_add: 新增
 settings_edit: 編輯
 settings_delete: 刪除
-provider_model_count: '%{count} 個模型'
-provider_enabled: 啟用供應商
-provider_status_missing_key: 缺少金鑰
-provider_status_signed_out: 未登入
 provider_auth_oauth: OAuth
 provider_auth_key: API 金鑰
 provider_auth_plugin: 外掛
@@ -118,7 +107,6 @@ plugins_configure: 設定
 plugins_uninstall: 解除安裝
 plugins_install: 安裝
 plugins_information: 資訊
-plugins_none: 暫無外掛
 composer: 描述你想完成的任務…
 composer_attachment: 新增附件
 send: 傳送
@@ -205,7 +193,6 @@ close: 關閉
 shell_sessions: 會話
 notifications: 通知
 hosts: 主機
-host_add: 新增主機
 sidebar_host_update: 更新
 local_host_name: 本地
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: 開啟資料夾
 shortcut_previous_conversation: 上一個對話
 shortcut_next_conversation: 下一個對話
 shortcut_sync: 重新整理主機狀態
-workspace_host: 主機資訊
 connection_action_edit: 編輯
 reference_back: 返回上一級
 connection_search_empty: 無匹配結果
@@ -373,7 +359,6 @@ project_duplicate_path: 此主機已新增相同路徑的專案
 project_clone_required: 請填寫名稱、儲存庫和儲存位置
 settings_cancel: 取消
 settings_save_preview: 儲存示例
-connection_no_projects: 暫無專案
 workspace_project: 專案概覽
 resource_browser: 瀏覽器
 terminal: 終端
@@ -844,19 +829,8 @@ configuration_read_failed: 無法讀取檔案
 configuration_area_search: 網頁搜尋
 configuration_area_compaction: 上下文壓縮
 files_upload_picker: 無法開啟檔案選擇視窗
-connection_route_p2p: P2P
-connection_route_relay: 中繼
-connections_device: 裝置 %{id}
-connections_hosts: 主機
-connections_mobile: 移動端
-connections_bidirectional: 雙向
-connections_legacy_bidirectional: 舊版雙向
-connections_only_host: 僅主機
-connections_only_controller: 僅控制端
 connections_direction_saved: 已更新裝置存取方向
 connections_offline: 離線
-connections_online: 線上
-connections_revoke_confirm: 要解除此配對嗎？移除使用者的最後一台裝置後，其資料將無法透過任何裝置存取。
 dictation_access: 麥克風權限
 dictation_access_granted: 已授權
 dictation_access_hint: 為當前應用允許訪問，返回後自動檢測
@@ -870,40 +844,13 @@ dictation_microphone_default: 系統預設
 dictation_microphone_label: 麥克風
 dictation_model_name: SenseVoice INT8
 form_name_hint: 輸入名稱
-form_passphrase_hint: 私鑰口令（可選）
 form_private_key_hint: 貼上私鑰
-form_value_hint: 輸入值
-form_variable_hint: 如 LANG
-hooks_add: 新增 Hook
-hooks_after_tool: 工具執行後
-hooks_before_tool: 工具執行前
-hooks_command: 命令
-hooks_configure: 設定 Hook
 hooks_conflict: Hook 已變更，請重新載入後儲存
-hooks_consent: 這些指令碼會在「%{host}」上所有會話的後續回合中執行。每個指令碼都在其任務的工作樹中執行。
-hooks_empty: 尚無 Hook
-hooks_enable: 啟用 Hook
-hooks_enabled: 啟用
 hooks_failed: 無法儲存 Hook
-hooks_invalid: 命令或逾時無效
-hooks_name: 名稱
-hooks_phase: 階段
-hooks_remove: 移除 Hook
 hooks_saved: Hook 已儲存
-hooks_scope_workspace: 指令碼可寫入任務的工作樹。網路存取已封鎖。
-hooks_scripts: 指令碼
 hooks_settings: Hook
 hooks_settings_description: 設定此執行主機的指令碼
-hooks_timeout: 逾時（ms）
-hooks_turn_end: 回合結束
 hooks_unknown: 儲存結果不確定，請重試原請求
-host_install: 安裝並連線
-host_pairing_hint: 連線已安裝 Sailry 的裝置
-host_pairing_mode: 配對碼
-host_ssh_mode: 透過 SSH 安裝
-host_install_hint: 在伺服器上安裝 Sailry 並連線
-host_ssh_agent_hint: 使用此電腦 SSH Agent 中已載入的金鑰登入
-ssh_authentication: 認證方式
 connection: 主機管理
 knowledge_downloading: 下載中
 knowledge_install: 安裝
@@ -921,17 +868,8 @@ message_display_detailed: 詳細
 model_library_select: 選擇
 model_library_selected: 已選擇
 model_library_source: 來源
-pairing_connect: 連線裝置
-pairing_local_code: 本機配對碼
-pairing_pin_hint: 輸入 6 位配對碼
-pairing_preview_disabled: UI 預覽不連線真實裝置。使用 --data-dir 啟動服務模式後可配對。
-pairing_relay_address: 中繼位址
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定義
 pairing_relay_direct: 直連（區域網路）
-pairing_relay_server: 連線伺服器
-pairing_share: 分享本機
-pairing_share_hint: 在另一臺裝置的「遠端連線」中輸入配對碼
 permission_check: 檢查
 permission_disk_help: 若列表中沒有 Sailry，點選 + 新增或將應用拖入列表
 permission_full_disk: 完全磁碟訪問
@@ -961,15 +899,7 @@ power_settings_conflict: 設定已變更，請重新載入
 power_settings_failed: 無法載入或儲存防休眠設定
 power_settings_saved: 已儲存
 power_settings_unknown: 儲存結果未知，請重新載入確認
-runtime_ocr: 文字辨識
-runtime_ocr_enable: 啟用 OCR
-runtime_ocr_model: OCR 模型
 runtime_python: Python
-runtime_python_bundled: 內建
-runtime_python_custom: 自訂
-runtime_python_custom_url: 套件來源 URL
-runtime_python_index: 套件來源
-runtime_python_version: 版本
 sandbox_settings_conflict: 命令沙箱設定已變更，請重新載入
 sandbox_settings_failed: 無法讀取或儲存命令沙箱設定
 sandbox_settings_saved: 已儲存
@@ -998,9 +928,6 @@ settings_decision_description: 設定本機決策模型
 settings_dictation_description: 在本機識別語音，結果填入訊息草稿
 settings_empty: 暫無內容
 settings_execution: 執行
-settings_font_default: 預設
-settings_font_family: 字型
-settings_font_size: 字號
 settings_general_description: 管理通知偏好和裝置配對服務
 settings_global_commands: 全域性命令
 settings_knowledge_description: 所選主機上的知識庫
@@ -1028,8 +955,6 @@ settings_notify_failed: 任務失敗通知
 settings_notify_system: 系統通知
 settings_ocr: OCR
 settings_ocr_description: 設定文字辨識
-settings_paste_description: 貼上多行內容前確認
-settings_paste_protection: 多行貼上保護
 settings_permissions_description: Sailry 的系統訪問權限
 settings_runtime: 執行環境
 settings_runtime_description: 設定目前 Node
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: 效能指示器
 settings_skills_description: 管理可供會話使用的技能
 settings_teams_description: 子智能體的角色和團隊
 settings_terminal_description: 終端環境與顯示偏好
-settings_terminal_display: 顯示與輸入
 settings_toast_description: 應用內提示訊息保持顯示的時間
 settings_toast_duration: 提示顯示時長
 shortcut_activate: 顯示 Sailry
@@ -1083,19 +1007,10 @@ telemetry_send_action: 傳送診斷資訊
 telemetry_support: 支援
 telemetry_title: 診斷與隱私
 telemetry_unknown: 結果未知，請重新載入確認
-terminal_environment: 全域性環境變數
-terminal_environment_add: 新增環境變數
 terminal_input: 輸入
 terminal_settings_conflict: 終端設定已更新，當前修改已保留
 terminal_settings_failed: 無法讀取或儲存終端設定
 terminal_settings_unknown: 無法確認儲存結果，請重新載入核對
-terminal_shell: 預設 Shell
-terminal_shell_default: 跟隨主機預設
-terminal_shell_group: Shell
-terminal_value: 變數值
-terminal_variable: 變數名
-terminal_variable_duplicate: 變數名已存在
-terminal_variable_invalid: 變數名無效，或屬於應用保留項、程式碼載入變數
 updates_channel: 更新頻道
 updates_channel_experience: 體驗版
 updates_channel_stable: 正式版
@@ -1125,118 +1040,20 @@ authorization_cancel: 取消
 compaction_settings_failed: 無法儲存壓縮設定
 compaction_settings_conflict: 壓縮設定已變更，請重試
 compaction_settings_unknown: 儲存結果未確認，請重試
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: 暫無供應商
-provider_login_callback_required: 輸入瀏覽器傳回的授權碼或重新導向 URL
-provider_delete_title: 刪除供應商
-provider_remove_effect: 移除後，會話需重新選擇供應商
-provider_catalog_never: 未更新
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: 已更新
-provider_catalog: 模型資料
-provider_catalog_update: 更新
-provider_catalog_status: 模型後設資料
-provider_scores: 模型評分
-provider_catalog_last_update: 上次更新
-provider_compaction_threshold: 壓縮閾值
 provider_all: 全部類型
 provider_type: 供應商型別
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: 尚未配置模型
-provider_connect: 連線賬號
-provider_reconnect: 登入
 provider_access_key: API 金鑰
-provider_access_no_key: 無需 API 金鑰
 provider_access_cloud: 雲端服務憑證
-provider_name_required: 請填寫供應商名稱
-provider_endpoint_required: 請輸入有效的 API 端點
-provider_key_required: 請填寫金鑰
-provider_model_required: 請新增模型並填寫模型 ID
-provider_model_duplicate: 模型 ID 不能重複
-provider_limits_invalid: 上下文容量需為正整數，且不小於模型輸出上限
 provider_access_endpoint: 自訂介面地址
-provider_add_title: 新增供應商
-provider_choose_method: 選擇接入方式
-provider_configure: 設定供應商
-provider_edit_title: 編輯供應商
 provider_step_back: 上一步
-provider_save: 儲存
-provider_save_login: 儲存並登入
 provider_access_login: 帳號登入
-provider_name_hint: 輸入供應商名稱
-provider_api: API 協定
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: 服務
-provider_metered: 按量
-provider_coding: 編碼套餐
-provider_region: 區域
-provider_region_china: 中國
-provider_region_global: 全球
-provider_endpoint: API 端點
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: 輸入 API Key
-provider_api_key: API 金鑰
-provider_get_key: 取得 API 金鑰
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: 高階設定
-provider_oauth_catalog_version: 模型目錄相容版本
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: 編輯器版本
-provider_oauth_editor_plugin_version: 編輯器外掛版本
-provider_headers: 自訂請求標頭
-provider_headers_invalid: 有值的請求標頭需要填寫名稱
-provider_billing_rate: 計費倍率
-provider_billing_rate_hint: 以 API 定價的百分比估算費用
-provider_billing_rate_invalid: 計費倍率須為大於或等於 0 的數值，最多可輸入兩位小數
 provider_billing_rate_unsupported: 此主機版本不支援計費倍率，其他設定已儲存
-provider_models: 模型
-provider_discover: 更新模型
-provider_querying: 查詢中
-provider_discovered_preview: 已合併示例模型，保留手動新增的模型和預設選擇
-provider_add_model: 新增模型
-provider_new_model: 新模型
-provider_model_default: 預設
-provider_set_default: 設為預設
-provider_default: 預設模型
-provider_model_id: 模型 ID
-provider_deployment_id: 部署名
-provider_api_version: API 版本
-form_api_version_hint: 如 2024-10-21
-provider_cloud_required: 請填寫雲端供應商配置
-form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
-form_tokens_hint: Token 數量
-provider_efforts: 推理強度
-provider_effort_default: 預設強度
-provider_effort_placeholder: 強度或 Token budget
-provider_effort_invalid: 推理強度無效，請檢查名稱、重複項和 API 支援
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: 自動
-knowledge_settings: 預設設定
-knowledge_default_model: 向量模型
-knowledge_keyword_only: 僅關鍵字
 knowledge_collections: 集合
-knowledge_collection_pending: 等待索引
-knowledge_collection_unavailable: 儲存主機無法使用
-knowledge_collection_indexing: 索引中 · %{count} 項
-knowledge_collection_ready: 已是最新 · %{count} 項
-knowledge_collection_paused: 已暫停
-knowledge_collection_failed: 失敗 · %{reason}
-knowledge_collection_failures: '%{count} 項未索引 · %{reason}'
-knowledge_pause: 暫停
-knowledge_resume: 繼續
-knowledge_update: 更新
-runtime_decision: 決策
-runtime_decision_model: 模型
-runtime_decision_enable: 啟用決策
-local_models_none: 無
 connector_oauth: OAuth
 connector_application: 應用程式憑證
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: 外掛已停用
 connector_account_disabled: 帳號已停用
 connector_configuration_required: 需要設定
 connector_unavailable: 無法使用
-connector_search: 搜尋連接器
-connector_all_methods: 所有方式
-connector_filter: 驗證方式
-mcp_add: 新增 MCP
-connector_preview: 預覽
-connector_empty: 暫無連線
-connector_remove: 刪除
-connector_remove_effect: 刪除「%{name}」？設定和憑證將被移除
 connector_removed: 已刪除
-connector_mcp_connecting: 連線中
 connector_mcp_failed: 連線失敗
 connector_connected: 已連線
-connector_mcp_tools: '%{n} 個工具'
-connector_connect: 連線
-connector_account_enabled: 啟用帳號
-connector_server_allowed: 啟用服務
 connector_saved: 已儲存
-connector_details: 詳細資訊
-connector_configure: 設定
-connector_confirm: 確認
-connector_bind: 綁定
-connector_reauthorize: 重新授權
-connector_add_credentials: 新增憑證
-connector_probe: 檢查
-connector_mcp_reconnect: 重新連線
-connector_add: 新增連接器
-connector_added: 已新增
-connector_choose_account: 選擇要綁定的帳號
-connector_browser: 在瀏覽器中授權
-form_secret_hint: 輸入憑據
-connector_register: 建立應用程式
-connector_authorize: 授權
-mcp_invalid: 檢查名稱、連線資訊和變數設定
-connector_mcp_server: 伺服器
 market_details_tools: 工具
-connector_mcp_updated_at: 更新時間
-connector_mcp_error: 錯誤
-mcp_edit: 配置 MCP
-mcp_transport: 連線方式
-plugins_stdio: 標準輸入輸出
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: 命令
-mcp_command_hint: npx、uvx 或可執行命令
-mcp_arguments: 引數
-mcp_argument: 引數值
-mcp_remove_argument: 移除引數
-mcp_add_argument: 新增引數
 mcp_url: 服務 URL
-mcp_url_hint: https://example.com/mcp
-mcp_environment: 環境變數
-mcp_add_environment: 新增環境變數
-mcp_headers: 請求頭
 mcp_add_header: 新增請求頭
 mcp_slot_name: 名稱
-mcp_secret_saved: 已儲存憑據，留空保留
 mcp_show_secret: 顯示憑據
 mcp_hide_secret: 隱藏憑據
-connector_no_auth: 無需驗證
-connector_mcp_status: 狀態
-connector_mcp_updated: 更新於 %{time}
-plugins_settings_reload: 重新讀取
-plugins_settings_diagnostics: 詳情
 mcp_slot_value: 值
-mcp_remove_slot: 移除此項
 mcp_configuration_saved: 已儲存 MCP 配置
 mcp_oauth_callback_failed: 無法接收授權回撥，請重試
 mcp_oauth_failed: 授權失敗，請重試
@@ -1325,86 +1088,18 @@ role_duplicate: 標識已存在
 teams_settings_failed: 無法儲存並行數
 teams_settings_conflict: 設定已變更，請重新載入後儲存
 teams_settings_unknown: 儲存結果未知，請重試確認
-role_preset_review: 程式碼審查
-role_review_description: 審查變更並回報有證據的問題
-role_prompt_review: |-
-    審查指定範圍內的程式碼和變更，重點檢查正確性、邊界條件、迴歸風險和現有規範。
-    先閱讀相關實現與測試，再報告有證據支援的問題，註明位置、影響和建議。不要自行修改檔案；沒有發現問題時如實說明。
-role_preset_implement: 開發實現
-role_implement_description: 完成聚焦的變更並驗證
-role_prompt_implement: |-
-    完成交付範圍內的實現，先理解現有架構、程式碼規範和驗收要求。
-    複用已有能力，保持改動聚焦，驗證受影響的行為。報告實際完成的內容、檢查結果和仍存在的限制。
-role_preset_test: 測試驗證
-role_test_description: 執行檢查並回報驗證結果
-role_prompt_test: |-
-    驗證指定的變更或行為。先找出相關的現有測試和檢查，執行涵蓋該範圍的最小集合，只有在要求時才補充測試。
-    回報實際執行的命令、結果和失敗原因。不要為了讓檢查通過而修改實作程式碼。
 role_preset_docs: 文件撰寫
 role_docs_description: 撰寫和更新專案文件
 role_prompt_docs: |-
     為指定範圍撰寫或更新文件。先閱讀相關程式碼和現有文件，沿用它們的結構和術語，保持內容簡潔準確。
     回報修改了哪些檔案，以及無法確認的內容。
-role_preset_plan: 方案規劃
-role_plan_description: 拆解實作步驟，釐清相依關係與驗收條件
-role_prompt_plan: 整理現有行為和限制，找出影響設計的關鍵選擇。將方案拆成可驗證的步驟，寫明相依關係與驗收方法，標示需要主代理確認的假設。保留專案檔案原樣。
-role_preset_frontend: UI 設計與實作
-role_frontend_description: 設計版面、視覺層次與互動，並完成介面實作
-role_prompt_frontend: 依現有設計系統梳理操作流程，設計並實作版面、視覺層次與互動。依情境處理鍵盤操作、載入及錯誤狀態，檢查支援的視窗尺寸；有參考圖時逐項比對。
-role_preset_troubleshoot: 難題攻堅
-role_troubleshoot_description: 解決複雜實作，接手多次嘗試仍未解決的問題
-role_prompt_troubleshoot: 負責複雜實作，或接手已嘗試兩三次仍未解決的問題。檢視先前的證據與嘗試，驗證關鍵假設，完成必要的實作或修正，並依原始條件驗證。回報修改內容、驗證結果與剩餘限制。
-role_model_hint_review: 跨模組審查可選推理能力強的模型（例如 Opus），例如檢查父工作階段取消後子智能體是否停止。
-role_model_hint_implement: 範圍明確的修改可選均衡型程式設計模型（例如 Sonnet），例如新增設定欄位並儲存設定。
-role_model_hint_test: 執行特定回歸測試可選快速模型（例如 Haiku）；排查涉及時序的測試可選推理能力強的模型。
-role_model_hint_plan: 涉及設計取捨可選推理能力強的模型（例如 Opus），例如規劃保留既有工作階段的歷程資料遷移。
-role_model_hint_frontend: 介面開發可選均衡型程式設計模型（例如 Sonnet）；需要比對設定面板與截圖時，選支援圖片輸入的模型。
-role_model_hint_troubleshoot: 難以重現的問題可選推理能力強的模型（例如 Opus），例如找出捲動長對話時記憶體用量激增的原因。
-team_role_one: 1 個角色
-team_role_count: '%{count} 個角色'
 teams_concurrency: 子智能體並行數
-teams_concurrency_description: 每個對話同時執行的子智能體上限
 teams_roles: 角色
-team_new: 新增團隊
-role_new: 新增角色
-team_delete: 刪除團隊
-team_delete_prompt: 刪除團隊「%{name}」？其中的角色會保留
 team_deleted: 已刪除團隊
-teams_role_delete_prompt: 刪除角色「%{name}」？它會從所有團隊中移除
 teams_role_deleted: 已刪除角色
-team_builtin: 內建
 team_default: 預設團隊
-team_default_description: 包含所有角色，跟隨對話模型
-team_follow_conversation: 跟隨對話
-teams_roles_empty: 沒有角色
-role_inherit: 繼承會話模型
-teams_read_only: 唯讀
-role_effort_inherit: 自動
-team_edit: 編輯團隊
-teams_description: 描述
-team_lead_model: 組長模型
-team_lead_instructions: 組長提示詞
-team_members: 成員
-team_members_empty: 還沒有角色
-teams_follow_lead: 跟隨組長
-team_member_remove: 移出團隊
-team_add_role: 新增角色
-team_duplicate: 複製為新團隊
-team_copy_name: '%{name} 副本'
-team_create: 建立
 team_saved: 已儲存團隊
-teams_role_edit: 編輯角色
-role_presets: 預設
-role_id: 標識
-teams_key_hint: 例如 code-reviewer
-teams_model: 模型
-role_instructions: 提示詞
-role_save: 儲存
 teams_role_saved: 已儲存角色
-role_avatar: 頭像
-role_avatar_seed: 頭像 %{seed}
-role_avatar_shuffle: 換一批
-role_avatar_none: 預設頭像
 market_plugin_details: 外掛詳情
 market_skill_details: 技能詳情
 market_skill_document_failed: 無法載入技能文件
@@ -1450,23 +1145,11 @@ market_category_development: 開發
 market_category_automation: 自動化
 market_category_data: 資料
 market_category_entertainment: 娛樂
-market_plugins: 外掛
-market_skills: 技能
-market_themes: 主題
-market_kind: 市集類型
-market_search_plugins: 搜尋外掛
-market_search_skills: 搜尋技能
-market_search_themes: 搜尋主題
-market_source_official: 官方
-market_source_community: 社群
-market_all: 全部
-market_installed_only: 只看已安裝
 market_theme_current: 使用中
 market_details_source_official: 官方目錄
 market_details_source_community: 社群
 skills_no_matches: 沒有匹配的技能
 market_theme_apply: 套用
-market_no_themes: 沒有符合的主題
 market_theme_builtin: 內建
 plugins_settings_title: 外掛配置
 plugins_failed: 外掛操作失敗
@@ -1525,30 +1208,11 @@ plugins_update_version: 更新至 %{version}
 plugins_updates_later: 稍後
 plugins_updates_selected: 更新（%{count}）
 plugins_retry: 重試
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: 目錄
-skill_source_archive: 壓縮檔
-skill_source_link_invalid: 請輸入技能詳情頁 URL
 skills_package_source: 來自外掛 %{name}
-skills_search: 搜尋技能
 skills_install: 安裝技能
-skills_remove_effect: 解除安裝 %{name}，已開始的任務不受影響
 settings_update: 更新
-skills_manage_package: 管理外掛
-skill_source_reimport: 重新匯入
-skill_source_origin: 來源
-skill_source_git_help: 輸入 Git 儲存庫，可指定參照和技能目錄
-skills_subdirectory: 子目錄（可選）
-skills_path_hint: 可選
-skill_source_skills_help: 輸入 skills.sh 詳情 URL，尋找對應原始碼技能
-skill_source_link: 技能 URL
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: 輸入 skillhub.cn 詳情 URL，安裝經過驗證的技能套件
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: 選擇資料夾
-skill_source_choose_archive: 選擇壓縮檔
 git_diff: 差異
 git_diff_side_by_side: 並排
 git_diff_inline: 內嵌
@@ -1567,14 +1231,12 @@ model_library_speech: 語音模型
 model_library_decision: 決策
 onboarding_title: 歡迎使用 %{app}
 onboarding_description: 連接一個模型即可開始
-onboarding_host_unavailable: 主機暫不可用
 workspace_host_status: 未連線 · UI 預覽
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主機
 workspace_worktrees: 工作樹
 workspace_sessions: 會話
-host_runtime_loading: 正在讀取執行環境（示例）
 host_version: 主機版本
 host_uptime: 執行時長
 host_protocol: 協議版本
@@ -1921,7 +1583,6 @@ notebook_cell: 儲存格 %{number}
 notebook_empty: 沒有儲存格
 git_diff_binary: 二進位制無法顯示差異
 git_diff_partial: 差異較大，僅顯示部分內容
-hooks_scope_windows: 指令碼使用目前 Windows 命令原則
 teams_role_conflict: 角色已變更，請重新開啟
 team_conflict: 團隊已變更，請重新開啟
 role_model_unavailable: 所選模型或供應商不可用
@@ -1939,11 +1600,8 @@ host_install_installing: 安裝主機服務
 host_install_pairing: 正在配對
 host_install_unknown: 安裝結果未確認，請檢查主機後重試
 host_ssh_windows_pairing: 在 Windows 上請安裝並開啟 Sailry 桌面版，再使用配對碼新增主機。
-host_step_connect: 連線主機
-host_step_pair: 配對
 model_effort: 強度
 host_network_conflict: 網路設定已變更，請重試
-host_network_edit: 編輯主機
 host_network_failed: 無法切換網路
 host_network_load_failed: 無法載入網路設定
 host_network_saved: 網路已切換
@@ -1954,9 +1612,6 @@ host_update_restart: 此 Host 將重新啟動，執行中的任務將停止
 host_updated: Host 已更新
 pairing_failed: 配對失敗，請檢查配對碼或網路後重試
 pairing_invalid_endpoint: 請輸入有效的 HTTPS 配對服務 URL
-pairing_preparing: 正在準備連線…
-pairing_refresh_hint: 60 秒內有效，到期自動更新
-pairing_relay_checking: 正在探測
 pairing_relay_failed: 無法連線中繼，請檢查 URL 後重試
 pairing_relay_invalid: 請輸入有效的中繼位址
 pairing_relay_ready: 中繼已連線
@@ -1967,7 +1622,6 @@ settings_retry: 重試
 ssh_key_changed: 主機金鑰已變化，請核對指紋
 ssh_trust: 信任
 ssh_trust_title: 信任主機金鑰
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: 無法讀取主機執行資訊
 live_metrics_loading: 正在讀取指標
 live_metrics_error: 無法讀取主機指標
@@ -1995,14 +1649,6 @@ authorization_connected: 已連線
 connector_bound: 已綁定
 connector_checked: 連線正常
 connector_mcp_reconnected: 已連線，%{n} 個工具
-connector_consent_effect: 允許變更後的連線權限
-connector_changed_origins: 來源
-connector_changed_scopes: 權限範圍
-connector_changed_client: 用戶端
-connector_changed_flow: 登入流程
-connector_changed_targets: 憑證目標
-connector_changed_mcp: MCP 服務
-connector_changed_source: 外掛來源
 appearance_up_to_date: 佈景主題已是最新
 appearance_updates_available: 有可用更新
 market_themes_failed: 無法載入主題
@@ -2170,51 +1816,26 @@ updates_profile_inside: 資料目錄位於 %{app} 應用內，請移出後再更
 compatibility_update_unavailable: 此版本暫不可自動更新
 settings_media: 媒體模型
 settings_media_description: 管理影像、音訊和影片任務使用的模型
-provider_cap_text: 文字
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: 識圖
-provider_cap_tools: 工具
-provider_cap_reasoning: 推理
 provider_cap_image: 生圖
 provider_cap_video: 生影片
 media_speech_synthesis: 語音合成
-media_model_unavailable: 模型不可用
 media_conflict: 配置已變更，請重新選擇
 media_unknown: 儲存結果未確認，請檢視當前配置
 media_failed: 儲存失敗
-provider_capabilities: 能力
 provider_cap_understands: 理解
 provider_cap_can: 支援
-provider_cap_generates: 生成
 media_image: 圖片
 media_video: 影片
 media_speech: 語音
-media_follow: 跟隨對話模型
 media_load_failed: 無法讀取媒體模型
 market_load_more: 載入更多
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: 尚無歷史記錄
 panel_documents_empty: 尚無文件
-connections_copy_id: 複製 ID
 host_check_status: 檢查狀態
 ssh_agent_short: SSH Agent
 ssh_keep_credential: 留空保留已儲存的憑據
 ssh_busy: 正在處理其他連線，請稍後重試
-connection_scope: 使用範圍
-connection_private: 私有使用
-connection_global: 全域性共享
-connection_projects: 專案共享
-host_wsl: WSL
-host_wsl_distribution: 發行版
-host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 與 systemd
-host_wsl_empty: 尚未安裝 WSL2 發行版
 host_wsl_load_failed: 無法載入 WSL 發行版
 files_unsaved: 有未儲存的修改
 files_unsaved_description: 關閉前要儲存變更嗎？
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: 回覆已先結束，已排入新訊息
 queue_halt_interrupted: 回覆已中斷，佇列中的訊息已保留
 queue_halt_unsent: 訊息未送出，已保留在佇列中
 usage_read_failed: 無法讀取用量，請重試
+usage_duration_ms: '%{value} ms'
 chat_output_limit: 回覆已達輸出上限
 chat_turn_limit: 已達操作次數上限，已停止
 start_failed: '%{app} 無法啟動'
@@ -2383,10 +2005,6 @@ content_link_address: 連結位址
 content_link_edit: 編輯連結
 content_image_address: 圖片位址
 content_image_alt: 替代文字
-runtime_python_preparing: 正在準備
-python_creating: 準備相依套件
-python_installing: 安裝相依套件
-python_validating: 檢查相依套件
 port_count: '%{count} 個連接埠'
 queue_messages_one: 1 則訊息排隊中
 queue_messages_count: '%{count} 則訊息排隊中'
@@ -2470,7 +2088,6 @@ meter_speed: 速度
 meter_model: 模型
 meter_show_details: 顯示詳情
 meter_hide_details: 收起
-configuration_follow_from_source: 來自控制端
 personal_kv_conflict: 個人資料衝突
 personal_kv_conflict_description: 控制端已保留其目前的值。本機排程和已完成的操作仍保留。
 resource_offline: 離線

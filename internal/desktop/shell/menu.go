@@ -6,7 +6,6 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -23,8 +22,8 @@ import (
 // the focused live editor. Logs stays disabled without a live log folder
 // (Hooks.OpenLogs). Help also opens the welcome guide.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
-	name := cmp.Or(a.Settings.ProductName, i18n.In(lang, "app"))
-	t := func(key string) string { return i18n.In(lang, key, "app", name) }
+	name := cmp.Or(a.Settings.ProductName, a.translations.In(lang, "app"))
+	t := func(key string) string { return a.translations.In(lang, key, "app", name) }
 	a.menuKeys = nil
 	item := func(label, id string) *mygo.MenuItem {
 		it := &mygo.MenuItem{ID: id, Label: t(label), Click: func(*mygo.MenuItem, *mygo.Window) { send(id) }}
@@ -89,7 +88,10 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	if a.Feedback != "" {
 		help = append(help, item("menu_feedback", "help.feedback"))
 	}
-	help = append(help, logs, sep(), item("onboarding_title", "app.welcome"))
+	help = append(help, logs)
+	if a.hasWelcome() {
+		help = append(help, sep(), item("onboarding_title", "app.welcome"))
+	}
 	return []*mygo.MenuItem{
 		{Label: name, Submenu: []*mygo.MenuItem{
 			item("menu_about", "app.about"),

@@ -128,7 +128,7 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 					}})
 			}
 		}
-		for _, page := range a.Settings.PluginPages() {
+		for _, page := range a.Settings.ContributedPages(c) {
 			section := page.Section
 			list = append(list, Choice{ID: string(section), Label: page.Label, Icon: page.Icon,
 				Selected: a.Page == SettingsPage && a.Settings.Section == section, run: func() {

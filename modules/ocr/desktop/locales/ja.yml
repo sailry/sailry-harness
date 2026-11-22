@@ -1,0 +1,4 @@
+runtime_ocr: "文字認識"
+runtime_ocr_enable: "OCR を有効化"
+runtime_ocr_model: "OCR モデル"
+search_driver_auto: "自動"

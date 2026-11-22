@@ -52,7 +52,6 @@ func TestPluginSettingsViewRecovery(t *testing.T) {
 			}
 
 			section := pluginSettingsSection(root, info)
-			root.App.Settings.Open(section)
 			root.App.Navigate(shell.SettingsPage)
 			reference := packageReference(info.Summary)
 			key := pluginMountKey{scope: pluginScopeKey{node: snapshot.Node, surface: "settings"}, role: "settings", name: reference.Name}
@@ -107,6 +106,8 @@ func TestPluginSettingsViewRecovery(t *testing.T) {
 				}
 			}
 
+			tester.Frame()
+			root.App.Settings.Open(section)
 			tester.Frame()
 			completeRead(link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture view temporarily unavailable"}})
 			failed := root.pluginViews.mounts[key]

@@ -5,11 +5,6 @@ activity: アクティビティボード
 files: ファイル
 git: Git
 settings: 設定
-market_title: マーケット
-market_details: 詳細
-market_verified: 認証済み
-market_installs: インストール数
-market_stars: スター
 search: 検索
 sidebar_toggle: ナビゲーションを展開または折り畳む
 more: アクションを追加
@@ -100,15 +95,9 @@ welcome_review_prompt: 現在のプロジェクトの変更を見直し、潜在
 welcome_plan: 計画を立てろ
 welcome_plan_detail: 目標とステップを明確にする
 welcome_plan_prompt: 次の開発作業の 段階的な計画を作る手伝いを
-provider_channels: チャネル
-provider_list_search: プロバイダまたはモデルを検索
 settings_add: 追加
 settings_edit: 編集
 settings_delete: 削除
-provider_model_count: '%{count}のモデル'
-provider_enabled: プロバイダを有効にする
-provider_status_missing_key: キー未設定
-provider_status_signed_out: 未ログイン
 provider_auth_oauth: OAuth
 provider_auth_key: API キー
 provider_auth_plugin: プラグイン
@@ -118,7 +107,6 @@ plugins_configure: 設定
 plugins_uninstall: アンインストール
 plugins_install: インストール
 plugins_information: 情報
-plugins_none: プラグインなし
 composer: 何を達成したいかを説明してください
 composer_attachment: 添付ファイルを追加
 send: 送信
@@ -205,7 +193,6 @@ close: 閉じる
 shell_sessions: チャット
 notifications: 通知
 hosts: ホスト
-host_add: ホストを追加
 sidebar_host_update: 更新
 local_host_name: ローカル
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: フォルダを開く
 shortcut_previous_conversation: 前の会話
 shortcut_next_conversation: 次の会話
 shortcut_sync: 同期
-workspace_host: ホスト情報
 connection_action_edit: 編集
 reference_back: 戻る
 connection_search_empty: マッチしません
@@ -373,7 +359,6 @@ project_duplicate_path: このホストには既にこのパスにプロジェ�
 project_clone_required: 名前、リポジトリ、目的地を入力
 settings_cancel: キャンセル
 settings_save_preview: プレビューを保存
-connection_no_projects: プロジェクトなし
 workspace_project: プロジェクト概要
 resource_browser: ブラウザー
 terminal: ターミナル
@@ -844,19 +829,8 @@ configuration_read_failed: ファイルを読み取れません
 configuration_area_search: ウェブ検索
 configuration_area_compaction: コンテキスト圧縮
 files_upload_picker: ファイル選択ツールを開けませんでした
-connection_route_p2p: P2P
-connection_route_relay: Relay
-connections_device: デバイス %{id}
-connections_hosts: ホスト
-connections_mobile: モバイル
-connections_bidirectional: 双方向
-connections_legacy_bidirectional: 従来の双方向
-connections_only_host: ホストのみ
-connections_only_controller: コントローラーのみ
 connections_direction_saved: デバイスのアクセス方向を更新しました
 connections_offline: オフライン
-connections_online: オンライン
-connections_revoke_confirm: このペアリングを削除しますか？ユーザーの最後のデバイスを削除すると、そのデータにはどのデバイスからもアクセスできなくなります。
 dictation_access: マイクアクセス
 dictation_access_granted: 許可
 dictation_access_hint: このアプリケーションのアクセスを許可します。戻ったら再確認します
@@ -870,40 +844,13 @@ dictation_microphone_default: システムデフォルト
 dictation_microphone_label: マイク
 dictation_model_name: SenseVoice INT8
 form_name_hint: 名前
-form_passphrase_hint: 秘密鍵パスフレーズ (オプション)
 form_private_key_hint: 秘密鍵を貼り付け
-form_value_hint: 値を入力
-form_variable_hint: 例えば LANG
-hooks_add: Hook を追加
-hooks_after_tool: ツール実行後
-hooks_before_tool: ツール実行前
-hooks_command: コマンド
-hooks_configure: Hook を設定
 hooks_conflict: Hook が変更されました。再読み込みして保存してください
-hooks_consent: '%{host} 上のすべての会話で、今後のターンにこれらのスクリプトを実行します。各スクリプトはタスクのワークツリーで実行されます。'
-hooks_empty: Hook はありません
-hooks_enable: Hook を有効化
-hooks_enabled: 有効
 hooks_failed: Hook を保存できませんでした
-hooks_invalid: コマンドまたはタイムアウトが無効です
-hooks_name: 名前
-hooks_phase: タイミング
-hooks_remove: Hook を削除
 hooks_saved: Hook を保存しました
-hooks_scope_workspace: スクリプトはタスクのワークツリーに書き込めます。ネットワークアクセスはブロックされます。
-hooks_scripts: スクリプト
 hooks_settings: Hook
 hooks_settings_description: この実行ホストのスクリプトを設定
-hooks_timeout: タイムアウト（ms）
-hooks_turn_end: ターン終了
 hooks_unknown: 保存結果が不明です。元の要求を再試行してください
-host_install: インストールと接続
-host_pairing_hint: 既存の Sailry デバイスに接続
-host_pairing_mode: ペアリングコード
-host_ssh_mode: SSH でインストール
-host_install_hint: サーバーに Sailry をインストールして接続
-host_ssh_agent_hint: このコンピューターの SSH エージェントに読み込まれた鍵を使用
-ssh_authentication: 認証
 connection: コネクション
 knowledge_downloading: ダウンロード中
 knowledge_install: インストール
@@ -921,17 +868,8 @@ message_display_detailed: 詳細
 model_library_select: 選択
 model_library_selected: 選択済み
 model_library_source: ソース
-pairing_connect: デバイスを接続
-pairing_local_code: ローカルペアリングコード
-pairing_pin_hint: 6 桁のペアリングコードを入力
-pairing_preview_disabled: UI プレビューは実際のデバイスを接続しません。ペアを作成するには --data-dir を起動してください
-pairing_relay_address: リレーアドレス
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: カスタム
 pairing_relay_direct: 直接接続のみ（LAN）
-pairing_relay_server: 接続サーバ
-pairing_share: このデバイスを共有
-pairing_share_hint: 他のデバイスのリモート接続でこのコードを入力
 permission_check: 確認
 permission_disk_help: Sailry が欠けている場合は、+ で追加するか、アプリケーションをリストにドラッグします
 permission_full_disk: フルディスクアクセス
@@ -961,15 +899,7 @@ power_settings_conflict: 設定が変更されました。再読み込みして�
 power_settings_failed: スリープ設定を読み込みまたは保存できませんでした
 power_settings_saved: 保存しました
 power_settings_unknown: 保存結果が不明です。再読み込みで確認してください
-runtime_ocr: 文字認識
-runtime_ocr_enable: OCR を有効化
-runtime_ocr_model: OCR モデル
 runtime_python: Python
-runtime_python_bundled: 内蔵
-runtime_python_custom: カスタム
-runtime_python_custom_url: パッケージソースのURL
-runtime_python_index: パッケージソース
-runtime_python_version: バージョン
 sandbox_settings_conflict: コマンドサンドボックスの設定が変更されました。再読み込みしてください
 sandbox_settings_failed: コマンドサンドボックスの設定を読み込みまたは保存できませんでした
 sandbox_settings_saved: 保存済み
@@ -998,9 +928,6 @@ settings_decision_description: ローカル判断モデルを設定
 settings_dictation_description: メッセージの草稿にローカルに書き込む
 settings_empty: アイテムなし
 settings_execution: 実行
-settings_font_default: デフォルト
-settings_font_family: フォント
-settings_font_size: フォントサイズ
 settings_general_description: 通知とデバイスペアリングサービスの管理Name
 settings_global_commands: グローバルコマンド
 settings_knowledge_description: 選択したホストのナレッジ
@@ -1028,8 +955,6 @@ settings_notify_failed: タスク失敗通知
 settings_notify_system: システム通知
 settings_ocr: OCR
 settings_ocr_description: 文字認識を設定
-settings_paste_description: 複数行を貼り付ける前に確認する(M)
-settings_paste_protection: マルチラインペースト保護
 settings_permissions_description: Sailryのシステムアクセス
 settings_runtime: 実行環境
 settings_runtime_description: この Node を設定
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: パフォーマンスインジケーター
 settings_skills_description: セッションに利用可能なスキルを管理
 settings_teams_description: サブエージェントのロールとチーム
 settings_terminal_description: ターミナル環境と表示
-settings_terminal_display: ディスプレイと入力
 settings_toast_description: アプリケーション内通知が表示される期間
 settings_toast_duration: 通知の持続時間
 shortcut_activate: Sailry を表示
@@ -1083,19 +1007,10 @@ telemetry_send_action: 診断情報を送信
 telemetry_support: サポート
 telemetry_title: 診断とプライバシー
 telemetry_unknown: 結果は不明です。再読み込みして確認してください
-terminal_environment: 大域環境変数
-terminal_environment_add: 環境変数を追加
 terminal_input: 入力
 terminal_settings_conflict: ターミナルの設定が変更されました。編集は保持されますName
 terminal_settings_failed: ターミナルの設定を読み込みまたは保存できませんでした
 terminal_settings_unknown: 結果を確認せずに保存します。再読み込みして確認してください
-terminal_shell: デフォルトの Shell
-terminal_shell_default: ホストデフォルト
-terminal_shell_group: Shell
-terminal_value: 値
-terminal_variable: 変数名
-terminal_variable_duplicate: 変数は既に存在します
-terminal_variable_invalid: 不正な変数名、予約設定、コードロード変数
 updates_channel: 更新チャネル
 updates_channel_experience: 体験版
 updates_channel_stable: 正式版
@@ -1125,118 +1040,20 @@ authorization_cancel: キャンセル
 compaction_settings_failed: 圧縮設定を保存できませんでした
 compaction_settings_conflict: 圧縮設定が変更されました。再試行してください
 compaction_settings_unknown: 保存結果を確認できません。再試行してください
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: プロバイダなし
-provider_login_callback_required: ブラウザーから返された認証コードまたはリダイレクトURLを入力してください
-provider_delete_title: プロバイダを削除
-provider_remove_effect: セッションは他のプロバイダを選択する必要があります
-provider_catalog_never: 更新されていません
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: 更新
-provider_catalog: モデルデータ
-provider_catalog_update: 更新
-provider_catalog_status: モデルメタデータ
-provider_scores: モデル評価
-provider_catalog_last_update: 最終更新日
-provider_compaction_threshold: 圧縮しきい値
 provider_all: すべての種類
 provider_type: プロバイダタイプ
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: モデルが設定されていません
-provider_connect: アカウントを接続
-provider_reconnect: ログイン
 provider_access_key: API キー
-provider_access_no_key: API キー不要
 provider_access_cloud: クラウド認証情報
-provider_name_required: プロバイダ名を入力
-provider_endpoint_required: 有効な API エンドポイントを入力
-provider_key_required: キーを入力
-provider_model_required: モデルを追加してそのIDを入力
-provider_model_duplicate: モデル ID は一意でなければなりません
-provider_limits_invalid: コンテキスト限界は出力限界と同じ大きさの正整数でなければなりません
 provider_access_endpoint: カスタムエンドポイント
-provider_add_title: プロバイダを追加
-provider_choose_method: 接続方法を選択
-provider_configure: プロバイダを設定
-provider_edit_title: プロバイダを編集
 provider_step_back: 戻る
-provider_save: 保存
-provider_save_login: 保存してログイン
 provider_access_login: アカウントでログイン
-provider_name_hint: プロバイダ名を入力
-provider_api: APIプロトコル
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: サービス
-provider_metered: 従量制
-provider_coding: コーディングプラン
-provider_region: リージョン
-provider_region_china: 中国
-provider_region_global: グローバル
-provider_endpoint: API エンドポイント
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: キー API を入力
-provider_api_key: API キー
-provider_get_key: APIキーを取得
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: 詳細設定
-provider_oauth_catalog_version: カタログ版
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: エディタバージョン
-provider_oauth_editor_plugin_version: エディタプラグインバージョン
-provider_headers: カスタムリクエストヘッダー
-provider_headers_invalid: 値のあるヘッダーには名前が必要です
-provider_billing_rate: 課金倍率
-provider_billing_rate_hint: API 料金に対する割合（%）で費用を見積もります
-provider_billing_rate_invalid: 課金倍率には 0 以上で小数点以下 2 桁までの数値を入力してください
 provider_billing_rate_unsupported: このバージョンのホストでは課金倍率を設定できません。他の設定は保存されました
-provider_models: モデル
-provider_discover: 更新モデル
-provider_querying: クエリ実行中
-provider_discovered_preview: プレビューモデルを統合しました。手動モデルとデフォルトの選択は保持されます
-provider_add_model: モデルを追加
-provider_new_model: 新しいモデル
-provider_model_default: デフォルト
-provider_set_default: デフォルトとして設定
-provider_default: デフォルトモデル
-provider_model_id: モデルID
-provider_deployment_id: デプロイメント名
-provider_api_version: APIバージョン
-form_api_version_hint: 例えば 2024年10月21日
-provider_cloud_required: クラウドプロバイダの設定を入力
-form_model_hint: モデルID
 provider_context: コンテキスト制限 (Token)
-form_tokens_hint: Token 数
-provider_efforts: 推論努力
-provider_effort_default: デフォルトの努力
-provider_effort_placeholder: 強度または Token 予算
-provider_effort_invalid: 無効な推論努力;名前、重複、API サポートをチェック
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: 自動
-knowledge_settings: 既定の設定
-knowledge_default_model: ベクトルモデル
-knowledge_keyword_only: キーワードのみ
 knowledge_collections: コレクション
-knowledge_collection_pending: インデックス待ち
-knowledge_collection_unavailable: ストレージホストを利用できません
-knowledge_collection_indexing: インデックス作成中 · %{count} 件
-knowledge_collection_ready: 最新 · %{count} 件
-knowledge_collection_paused: 一時停止中
-knowledge_collection_failed: 失敗 · %{reason}
-knowledge_collection_failures: '%{count} 件未インデックス · %{reason}'
-knowledge_pause: 一時停止
-knowledge_resume: 再開
-knowledge_update: 更新
-runtime_decision: 判断
-runtime_decision_model: モデル
-runtime_decision_enable: 判断を有効にする
-local_models_none: なし
 connector_oauth: OAuth
 connector_application: アプリ認証情報
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: プラグインは無効
 connector_account_disabled: アカウントは無効
 connector_configuration_required: 設定が必要
 connector_unavailable: 利用不可
-connector_search: コネクターを検索
-connector_all_methods: すべての方法
-connector_filter: 認証方法
-mcp_add: 追加MCP
-connector_preview: プレビュー
-connector_empty: 接続なし
-connector_remove: 削除
-connector_remove_effect: 「%{name}」を削除しますか？設定と認証情報が削除されます
 connector_removed: 削除しました
-connector_mcp_connecting: 接続中
 connector_mcp_failed: 接続に失敗
 connector_connected: 接続済み
-connector_mcp_tools: '%{n} 個のツール'
-connector_connect: 接続
-connector_account_enabled: アカウントを有効化
-connector_server_allowed: サーバーを有効化
 connector_saved: 保存しました
-connector_details: 詳細
-connector_configure: 設定
-connector_confirm: 確認
-connector_bind: 関連付け
-connector_reauthorize: 再認証
-connector_add_credentials: 認証情報を追加
-connector_probe: 確認
-connector_mcp_reconnect: 再接続
-connector_add: コネクターを追加
-connector_added: 追加済み
-connector_choose_account: 連携するアカウントを選択
-connector_browser: ブラウザーで認可
-form_secret_hint: クレジット情報を入力
-connector_register: アプリを作成
-connector_authorize: 認可
-mcp_invalid: 名前、接続、変数をチェック
-connector_mcp_server: サーバー
 market_details_tools: ツール
-connector_mcp_updated_at: 更新日時
-connector_mcp_error: エラー
-mcp_edit: MCP を設定
-mcp_transport: 交通
-plugins_stdio: 標準入出力
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: コマンド
-mcp_command_hint: npx uvx あるいは実行ファイル
-mcp_arguments: 引数
-mcp_argument: 引数値
-mcp_remove_argument: 引数を削除
-mcp_add_argument: 引数を追加
 mcp_url: サーバ URL
-mcp_url_hint: https://example.com/mcp
-mcp_environment: 環境変数
-mcp_add_environment: 環境変数を追加
-mcp_headers: ヘッダー
 mcp_add_header: ヘッダを追加
 mcp_slot_name: 名前
-mcp_secret_saved: クレジット情報を保存しました。保持するには空にしてください
 mcp_show_secret: 認証情報を表示
 mcp_hide_secret: 認証情報を隠す
-connector_no_auth: 認証不要
-connector_mcp_status: 状態
-connector_mcp_updated: 更新日時 %{time}
-plugins_settings_reload: 再読み込み
-plugins_settings_diagnostics: 詳細
 mcp_slot_value: 値
-mcp_remove_slot: アイテムを削除
 mcp_configuration_saved: MCP 設定を保存
 mcp_oauth_callback_failed: 認証コールバックを受信できませんでした。もう一度試してください
 mcp_oauth_failed: 認証に失敗しました。もう一度試してください
@@ -1325,86 +1088,18 @@ role_duplicate: 識別子は既に存在します
 teams_settings_failed: 同時実行数を保存できませんでした
 teams_settings_conflict: 設定が変更されました。再読み込みして保存してください
 teams_settings_unknown: 保存結果が不明です。再試行して確認してください
-role_preset_review: コードレビュー
-role_review_description: 変更をレビューし、根拠のある指摘を報告します
-role_prompt_review: |-
-    コードの正確性，エッジケース，回帰リスク，既存の慣習に焦点を当て，割り当てられた範囲内でコードと変更をレビューする。
-    まず関連する実装とテストを読み，次にエビデンスに基づいた発見を位置，影響，および勧告と共に報告する。 問題が見つからない場合は明示的に表示します。
-role_preset_implement: 実装
-role_implement_description: 範囲を絞った変更を実装して検証します
-role_prompt_implement: |-
-    まず，既存のアーキテクチャ，コード化規約，受容要求を理解し，指定された実装を完了する。
-    既存の機能を再利用し，変更に焦点を当て，影響を受けた挙動を検証する。 完成したこと，実際のチェック，残っている制限を報告する。
-role_preset_test: 検証
-role_test_description: チェックを実行し、検証結果を報告します
-role_prompt_test: |-
-    割り当てられた変更や動作を検証してください。関連する既存のテストやチェックを探し、対象範囲をカバーする最小限のものを実行し、求められた場合にのみテストを追加してください。
-    実行したコマンド、結果、失敗とその考えられる原因を報告してください。チェックを通すために実装コードを変更しないでください。
 role_preset_docs: ドキュメント
 role_docs_description: プロジェクトのドキュメントを作成・更新します
 role_prompt_docs: |-
     割り当てられた範囲のドキュメントを作成または更新してください。まず関連するコードと既存のドキュメントを読み、その構成と用語に従い、簡潔かつ正確に書いてください。
     変更したファイルと、確認できなかった事項を報告してください。
-role_preset_plan: 実装計画
-role_plan_description: 実装手順と受け入れ条件を整理する
-role_prompt_plan: 現在の動作と制約を調べ、設計に影響する選択肢を整理する。検証可能な手順に分け、依存関係と確認方法を示す。主担当の判断が必要な前提を明記し、プロジェクトのファイルは変更しない。
-role_preset_frontend: UI 設計・実装
-role_frontend_description: 画面構成、視覚的な階層、操作を設計して実装する
-role_prompt_frontend: 既存のデザインシステムに沿って画面構成、視覚的な階層、操作を設計し、実装する。必要に応じてキーボード操作、読み込み中とエラー時の表示を扱う。対応するウィンドウサイズで確認し、参考画像があれば照合する。
-role_preset_troubleshoot: 難題解決
-role_troubleshoot_description: 複雑な実装や、複数回試しても解決しない課題を引き受ける
-role_prompt_troubleshoot: 複雑な実装、または二、三回の試行で解決しなかった課題を担当する。これまでの結果を確認して重要な仮説を検証し、必要な実装や修正を行う。元の条件で検証し、変更、結果、残った制約を報告する。
-role_model_hint_review: 親セッションの停止が子エージェントに伝わるかなど、複数モジュールのレビューには推論に強いモデル（例：Opus）が適している。
-role_model_hint_implement: 設定項目の追加と保存など、範囲が明確な変更にはバランス型のコーディングモデル（例：Sonnet）が適している。
-role_model_hint_test: 対象を絞った回帰テストには高速モデル（例：Haiku）、タイミングに依存するテストの調査には推論に強いモデルが適している。
-role_model_hint_plan: 既存のセッションを保持する履歴移行など、設計上の選択を伴う計画には推論に強いモデル（例：Opus）が適している。
-role_model_hint_frontend: 画面の実装にはバランス型のコーディングモデル（例：Sonnet）が適している。設定画面をスクリーンショットと照合する場合は画像入力に対応したモデルを選ぶ。
-role_model_hint_troubleshoot: 長い会話のスクロール時に生じるメモリ使用量の急増など、再現が難しい障害には推論に強いモデル（例：Opus）が適している。
-team_role_one: 1 ロール
-team_role_count: '%{count} ロール'
 teams_concurrency: サブエージェントの同時実行数
-teams_concurrency_description: 会話ごとに同時実行できるサブエージェントの上限
 teams_roles: ロール
-team_new: 新規チーム
-role_new: 新規ロール
-team_delete: チームを削除
-team_delete_prompt: チーム「%{name}」を削除しますか？ロールは残ります
 team_deleted: チームを削除しました
-teams_role_delete_prompt: ロール「%{name}」を削除しますか？すべてのチームから外れます
 teams_role_deleted: ロールを削除しました
-team_builtin: 組み込み
 team_default: デフォルトチーム
-team_default_description: すべてのロールを含み、会話のモデルに従います
-team_follow_conversation: 会話に従う
-teams_roles_empty: ロールはありません
-role_inherit: セッションモデルを継承
-teams_read_only: 読み取り専用
-role_effort_inherit: 自動
-team_edit: チームを編集
-teams_description: 説明
-team_lead_model: リーダーのモデル
-team_lead_instructions: リーダーのプロンプト
-team_members: メンバー
-team_members_empty: ロールはまだありません
-teams_follow_lead: リーダーに従う
-team_member_remove: チームから外す
-team_add_role: ロールを追加
-team_duplicate: 複製
-team_copy_name: '%{name} のコピー'
-team_create: 作成
 team_saved: チームを保存しました
-teams_role_edit: ロールを編集
-role_presets: プリセット
-role_id: 識別子
-teams_key_hint: '例: code-reviewer'
-teams_model: モデル
-role_instructions: 指示
-role_save: 保存
 teams_role_saved: ロールを保存しました
-role_avatar: アバター
-role_avatar_seed: アバター %{seed}
-role_avatar_shuffle: シャッフル
-role_avatar_none: デフォルト
 market_plugin_details: プラグイン詳細
 market_skill_details: スキル詳細
 market_skill_document_failed: スキルのドキュメントを読み込めませんでした
@@ -1450,23 +1145,11 @@ market_category_development: 開発
 market_category_automation: 自動化
 market_category_data: データ
 market_category_entertainment: エンタメ
-market_plugins: プラグイン
-market_skills: スキル
-market_themes: テーマ
-market_kind: マーケットの種類
-market_search_plugins: プラグインを検索
-market_search_skills: スキルを検索
-market_search_themes: テーマを検索
-market_source_official: 公式
-market_source_community: コミュニティ
-market_all: すべて
-market_installed_only: インストール済みのみ
 market_theme_current: 使用中
 market_details_source_official: 公式カタログ
 market_details_source_community: コミュニティ
 skills_no_matches: マッチングスキルなし
 market_theme_apply: 適用
-market_no_themes: 一致するテーマがありません
 market_theme_builtin: 内蔵
 plugins_settings_title: プラグイン設定
 plugins_failed: プラグイン操作に失敗しました
@@ -1525,30 +1208,11 @@ plugins_update_version: '%{version}に更新'
 plugins_updates_later: 後で
 plugins_updates_selected: 更新（%{count}）
 plugins_retry: 再試行
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: フォルダー
-skill_source_archive: アーカイブ
-skill_source_link_invalid: スキルの詳細ページのURLを入力してください
 skills_package_source: プラグイン %{name} から
-skills_search: 検索能力
 skills_install: インストールスキル
-skills_remove_effect: アンインストール %{name};実行中のタスクには影響しません
 settings_update: 更新
-skills_manage_package: プラグインの管理
-skill_source_reimport: 再インポート
-skill_source_origin: 取得元
-skill_source_git_help: Git リポジトリを入力します。参照とスキルのディレクトリは任意です
-skills_subdirectory: サブディレクトリ (オプション)
-skills_path_hint: 任意
-skill_source_skills_help: skills.sh の詳細 URL を入力し、元のスキルを検索します
-skill_source_link: スキルのURL
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: skillhub.cn の詳細 URL を入力し、検証済みパッケージをインストールします
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: フォルダーを選択
-skill_source_choose_archive: アーカイブを選択
 git_diff: 差分
 git_diff_side_by_side: 左右に並べる
 git_diff_inline: インライン
@@ -1567,14 +1231,12 @@ model_library_speech: 音声モデル
 model_library_decision: 判断
 onboarding_title: '%{app} へようこそ'
 onboarding_description: モデルを接続して始めましょう
-onboarding_host_unavailable: ホストを利用できません
 workspace_host_status: UI プレビューを切断
 local_host_detail: macOS · aarch64 · プレビュー
 remote_host_detail: Linux · x86_64 · プレビュー
 host_update: 更新ホスト
 workspace_worktrees: ワークツリー
 workspace_sessions: セッション
-host_runtime_loading: ランタイムを読み込み中 (プレビュー)
 host_version: ホスト版
 host_uptime: 稼働時間
 host_protocol: プロトコルバージョン
@@ -1921,7 +1583,6 @@ notebook_cell: セル %{number}
 notebook_empty: セルがありません
 git_diff_binary: バイナリ diff を表示できません
 git_diff_partial: 部分差分
-hooks_scope_windows: スクリプトは現在の Windows コマンドポリシーを使用します
 teams_role_conflict: ロールが変更されました。開き直してください
 team_conflict: チームが変更されました。開き直してください
 role_model_unavailable: 選択したモデルまたはプロバイダは利用できません
@@ -1939,11 +1600,8 @@ host_install_installing: ホストをインストール中
 host_install_pairing: ペアリング
 host_install_unknown: インストール結果が確認されていません。ホストをチェックしてやり直してください
 host_ssh_windows_pairing: Windows では Sailry Desktop をインストールして開き、ペアリングコードでホストを追加してください。
-host_step_connect: ホストに接続
-host_step_pair: ペアリング
 model_effort: 強度
 host_network_conflict: ネットワーク設定が変更されました。再試行してください
-host_network_edit: ホストを編集
 host_network_failed: ネットワークを変更できませんでした
 host_network_load_failed: ネットワーク設定を読み込めませんでした
 host_network_saved: ネットワークを変更しました
@@ -1954,9 +1612,6 @@ host_update_restart: この Host は再起動し、実行中のタスクは停�
 host_updated: Host を更新しました
 pairing_failed: ペアリングに失敗しました。コードまたはネットワークを確認し、やり直してください
 pairing_invalid_endpoint: 有効な HTTPS ペアリングサービス URL を入力
-pairing_preparing: 接続を準備中
-pairing_refresh_hint: 60 秒間有効。有効期限が過ぎると更新されます
-pairing_relay_checking: チェッキングリレー
 pairing_relay_failed: リレーに接続できませんでした。URLを確認してやり直してください
 pairing_relay_invalid: 有効なリレーアドレスを入力してください
 pairing_relay_ready: リレー接続
@@ -1967,7 +1622,6 @@ settings_retry: 再試行
 ssh_key_changed: ホストキーが変更されました。指紋を確認してください
 ssh_trust: 信頼
 ssh_trust_title: 信頼ホスト鍵
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: ホストのランタイムを読み込めませんでした
 live_metrics_loading: メトリクスを読み込み中
 live_metrics_error: ホストのメトリクスを読み込めませんでした
@@ -1995,14 +1649,6 @@ authorization_connected: 接続しました
 connector_bound: 関連付けました
 connector_checked: 接続は正常です
 connector_mcp_reconnected: 接続済み、%{n} 個のツール
-connector_consent_effect: 変更された接続の権限を許可
-connector_changed_origins: オリジン
-connector_changed_scopes: 権限範囲
-connector_changed_client: クライアント
-connector_changed_flow: ログイン方式
-connector_changed_targets: 認証情報の送信先
-connector_changed_mcp: MCP サーバー
-connector_changed_source: パッケージの取得元
 appearance_up_to_date: テーマは最新です
 appearance_updates_available: 更新があります
 market_themes_failed: テーマを読み込めませんでした
@@ -2170,51 +1816,26 @@ updates_profile_inside: データプロファイルは %{app} の中にありま
 compatibility_update_unavailable: このバージョンはまだ自動更新できません
 settings_media: メディアモデル
 settings_media_description: 画像、オーディオ、ビデオタスクのモデルを管理します
-provider_cap_text: テキスト
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: ビジョン
-provider_cap_tools: ツール
-provider_cap_reasoning: 推論
 provider_cap_image: イメージ生成
 provider_cap_video: ビデオ生成
 media_speech_synthesis: 音声合成
-media_model_unavailable: モデルが利用できません
 media_conflict: 設定が変更されました。もう一度選択してください
 media_unknown: 保存結果が不明です。現在の設定を確認してください
 media_failed: 保存に失敗
-provider_capabilities: 機能
 provider_cap_understands: 理解
 provider_cap_can: 対応
-provider_cap_generates: 生成
 media_image: 画像
 media_video: 動画
 media_speech: 音声
-media_follow: 会話モデルに従う
 media_load_failed: メディアモデルを読み込めませんでした
 market_load_more: さらに読み込む
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: 履歴はまだありません
 panel_documents_empty: ドキュメントはまだありません
-connections_copy_id: ID をコピー
 host_check_status: 状態を確認
 ssh_agent_short: エージェント
 ssh_keep_credential: 保存したクレジット情報を保持するには空にしてください
 ssh_busy: 別の接続が忙しいので、すぐにやり直します
-connection_scope: 範囲
-connection_private: 非公開
-connection_global: グローバル共有
-connection_projects: プロジェクト共有
-host_wsl: WSL
-host_wsl_distribution: ディストリビューション
-host_wsl_requirement: WSL2、GNU Linux x64/arm64、systemd が必要です
-host_wsl_empty: WSL2 ディストリビューションが未インストールです
 host_wsl_load_failed: WSL ディストリビューションを読み込めません
 files_unsaved: 未保存の変更
 files_unsaved_description: 閉じる前に変更を保存しますか？
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: 返信が先に終了したため、新しいメッセ�
 queue_halt_interrupted: 返信が中断されました。キューのメッセージは保持されています
 queue_halt_unsent: メッセージは送信されず、キューに保持されています
 usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
+usage_duration_ms: '%{value} ms'
 chat_output_limit: 出力上限で返信が途切れました
 chat_turn_limit: 操作回数の上限で停止しました
 start_failed: '%{app} を起動できませんでした'
@@ -2383,10 +2005,6 @@ content_link_address: リンクアドレス
 content_link_edit: リンクを編集
 content_image_address: 画像アドレス
 content_image_alt: 代替テキスト
-runtime_python_preparing: 準備中
-python_creating: 依存関係を準備中
-python_installing: 依存関係をインストール中
-python_validating: 依存関係を確認中
 port_count: '%{count} 個のポート'
 queue_messages_one: 1 件のメッセージがキューにあります
 queue_messages_count: '%{count} 件のメッセージがキューにあります'
@@ -2470,7 +2088,6 @@ meter_speed: 速度
 meter_model: モデル
 meter_show_details: 詳細を表示
 meter_hide_details: 折りたたむ
-configuration_follow_from_source: コントローラーから
 personal_kv_conflict: 個人データの競合
 personal_kv_conflict_description: コントローラーは現在の値を保持しました。ローカルのスケジュールと完了した操作は保持されています。
 resource_offline: オフライン

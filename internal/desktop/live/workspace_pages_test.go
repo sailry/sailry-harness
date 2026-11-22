@@ -31,7 +31,7 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 	remoteProject := &viewmodel.Project{ID: projectID.String(), Host: remoteNode.String(), Name: "Runner", Path: main}
 	chat := &viewmodel.Conversation{ID: "draft/local", Node: localNode.String(), Title: "Local draft"}
 	localProject.Conversations = []*viewmodel.Conversation{chat}
-	app := shell.NewLive(&viewmodel.Data{Projects: []*viewmodel.Project{localProject, remoteProject}, Workspace: &viewmodel.Workspace{}}, desktop.Harness()...)
+	app := shell.NewLiveWithAssembly(&viewmodel.Data{Projects: []*viewmodel.Project{localProject, remoteProject}, Workspace: &viewmodel.Workspace{}}, desktop.Harness())
 	app.Sidebar.Selected = chat.ID
 	composer := app.Composer(chat.ID)
 	composer.Draft = "Keep this input"

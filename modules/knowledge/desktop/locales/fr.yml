@@ -1,0 +1,13 @@
+knowledge_settings: "Valeurs par défaut"
+knowledge_default_model: "Modèle vectoriel"
+knowledge_keyword_only: "Mots-clés uniquement"
+knowledge_collection_pending: En attente d’indexation
+knowledge_collection_unavailable: Node de stockage indisponible
+knowledge_collection_indexing: Indexation · %{count} éléments
+knowledge_collection_ready: À jour · %{count} éléments
+knowledge_collection_paused: En pause
+knowledge_collection_failed: Échec · %{reason}
+knowledge_collection_failures: '%{count} non indexés · %{reason}'
+knowledge_pause: Suspendre
+knowledge_resume: Reprendre
+knowledge_update: Mettre à jour

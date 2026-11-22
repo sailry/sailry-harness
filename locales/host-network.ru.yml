@@ -1,13 +1,7 @@
-host_network_edit: "Изменить хост"
 host_network_saved: "Сеть изменена"
 host_network_failed: "Не удалось изменить сеть"
 host_network_unknown: "Не удалось подтвердить изменение сети"
 host_network_conflict: "Настройки сети изменились; повторите попытку"
 host_network_unavailable: "Настройки сети недоступны"
 host_network_load_failed: "Не удалось загрузить настройки сети"
-host_pairing_mode: "Код сопряжения"
-host_pairing_hint: "Подключить устройство с Sailry"
 host_setup_unconfirmed: "Настройка не подтверждена, сначала проверьте хост"
-host_ssh_mode: Установка через SSH
-host_install_hint: Установите Sailry на сервер и подключитесь
-host_ssh_agent_hint: Использовать ключи, загруженные в SSH-агент этого компьютера

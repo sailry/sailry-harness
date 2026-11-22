@@ -9,6 +9,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// NativePage contributes a body to the standard settings page frame.
+type NativePage struct {
+	Section Section
+	Group   string
+	Icon    *ui.SVG
+	Order   uint16
+	Render  func(*ui.Context, *State)
+}
+
 type PluginPage struct {
 	Section     Section
 	Label       string
@@ -36,28 +45,18 @@ func (m *Model) packageTargetOffline() bool {
 
 func (section Section) navigationOrder() uint16 {
 	switch section {
-	case General, Providers, Terminal, Permissions:
+	case General, Permissions:
 		return 100
-	case Connectors:
-		return 150
-	case Teams:
-		return 155
 	case Plugins:
 		return 160
-	case Skills:
-		return 170
-	case Knowledge, Media, Appearance, Connections:
+	case Appearance:
 		return 200
-	case Backup, Decision, Conversation:
+	case Backup, Conversation:
 		return 300
 	case Shortcuts:
 		return 400
-	case Hooks, Dictation:
+	case Dictation:
 		return 500
-	case Runtime:
-		return 600
-	case OCR:
-		return 700
 	case Experimental:
 		// After every page of its group but About, which ends the navigation.
 		return 65000
@@ -85,35 +84,126 @@ func settingsGroupNavigation(view *ui.Context, group string, core []Item, pages 
 	return entries
 }
 
+// SetNativePages replaces the native settings contributions.
+func (state *State) SetNativePages(pages []NativePage) {
+	previous := state.HasSection(state.Section)
+	state.nativePages = slices.Clone(pages)
+	if previous && !state.HasSection(state.Section) {
+		state.Open(General)
+	}
+}
+
+// NativePageState returns the window's state for a native page, creating it on first use.
+func (state *State) NativePageState(section Section, create func() any) any {
+	if value, ok := state.nativeState[section]; ok {
+		return value
+	}
+	value := create()
+	if state.nativeState == nil {
+		state.nativeState = make(map[Section]any)
+	}
+	state.nativeState[section] = value
+	return value
+}
+
 func (state *State) SetPluginPages(pages []PluginPage) {
-	previous := slices.ContainsFunc(state.pluginPages, func(page PluginPage) bool { return page.Section == state.Section })
+	previous := state.HasSection(state.Section)
 	state.pluginPages = slices.Clone(pages)
-	if previous && !slices.ContainsFunc(pages, func(page PluginPage) bool { return page.Section == state.Section }) {
+	if previous && !state.HasSection(state.Section) {
 		state.Open(Plugins)
 	}
 }
 
-// PluginPages returns the pages available in settings navigation and search.
+// PluginPages returns the plugin pages available in settings navigation and search.
 func (state *State) PluginPages() []PluginPage {
 	pages := slices.Clone(state.pluginPages)
 	return slices.DeleteFunc(pages, func(page PluginPage) bool { return page.ContentOnly })
 }
 
-func settingsNavigation(view *ui.Context, state *State, section Section, label string, icon *ui.SVG) {
+// HasSection reports whether the section can be opened, including content-only plugin pages.
+func (state *State) HasSection(section Section) bool {
+	_, _, ok := state.lookupSection(section)
+	return ok
+}
+
+func (state *State) lookupSection(section Section) (*NativePage, *PluginPage, bool) {
+	if section == "" {
+		return nil, nil, false
+	}
+	if builtInSection(section) {
+		return nil, nil, true
+	}
+	if i := slices.IndexFunc(state.nativePages, func(page NativePage) bool { return page.Section == section }); i >= 0 {
+		return &state.nativePages[i], nil, true
+	}
+	if i := slices.IndexFunc(state.pluginPages, func(page PluginPage) bool { return page.Section == section }); i >= 0 {
+		return nil, &state.pluginPages[i], true
+	}
+	return nil, nil, false
+}
+
+func (state *State) activePage() (Section, *NativePage, *PluginPage) {
+	native, plugin, ok := state.lookupSection(state.Section)
+	if !ok {
+		return General, nil, nil
+	}
+	return state.Section, native, plugin
+}
+
+func builtInSection(section Section) bool {
+	for _, group := range Groups {
+		if slices.ContainsFunc(group.Items, func(item Item) bool { return item.Section == section }) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContributedPages returns the localized navigation and search entries. Open and Page handle rendering.
+func (state *State) ContributedPages(c *ui.Context) []PluginPage {
+	pages := make([]PluginPage, 0, len(state.nativePages)+len(state.pluginPages))
+	seen := make(map[Section]bool, cap(pages))
+	add := func(page PluginPage) {
+		if page.Section == "" || seen[page.Section] || builtInSection(page.Section) {
+			return
+		}
+		seen[page.Section] = true
+		if page.ContentOnly {
+			return
+		}
+		for _, group := range Groups {
+			if group.Title == page.Group {
+				pages = append(pages, page)
+				return
+			}
+		}
+	}
+	for _, page := range state.nativePages {
+		add(PluginPage{
+			Section: page.Section, Label: i18n.T(c, string(page.Section)), Icon: page.Icon,
+			Group: page.Group, Order: page.Order,
+		})
+	}
+	for _, page := range state.pluginPages {
+		add(page)
+	}
+	return pages
+}
+
+func settingsNavigation(view *ui.Context, state *State, page PluginPage, selected bool) {
 	palette := theme.Of(view)
-	selected := section == state.Section
-	button := ui.ButtonBase(view.Key(string(section))).Label(label).Height(28).PaddingX(8).Gap(8).Radius(palette.Radius).
+	button := ui.ButtonBase(view.Key(string(page.Section))).Label(page.Label).Height(28).PaddingX(8).Gap(8).Radius(palette.Radius).
 		Justify(ui.Start).TextColor(palette.SidebarForeground)
 	button.Background(palette.SidebarItem(selected, button.Hovered())).AccessSelected(selected)
 	if selected {
 		button.TextColor(palette.SidebarAccentForeground)
 	}
 	button.Children(func() {
-		ui.Icon(view, icon).FontSize(16)
-		ui.Text(view, label).FontSize(14).SingleLine()
-		if section == About && state.Updater.Attention() {
+		ui.Icon(view, page.Icon).FontSize(16)
+		ui.Text(view, page.Label).FontSize(14).SingleLine()
+		if page.Section == About && state.Updater.Attention() {
 			ui.Spacer(view)
 			ui.Box(view.Key("update")).Size(6, 6).Radius(3).Background(palette.Danger).Shrink(0)
 		}
-	}).OnClick(func() { state.Open(section) })
+	}).OnClick(func() { state.Open(page.Section) })
 }

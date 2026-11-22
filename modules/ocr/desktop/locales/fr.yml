@@ -1,0 +1,4 @@
+runtime_ocr: "Reconnaissance de texte"
+runtime_ocr_enable: "Activer OCR"
+runtime_ocr_model: "Modèle OCR"
+search_driver_auto: "Automatique"

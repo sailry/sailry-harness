@@ -1,0 +1,13 @@
+knowledge_settings: "Standardwerte"
+knowledge_default_model: "Vektormodell"
+knowledge_keyword_only: "Nur Stichwörter"
+knowledge_collection_pending: Wartet auf Indexierung
+knowledge_collection_unavailable: Speicher-Node nicht verfügbar
+knowledge_collection_indexing: Indexierung · %{count} Elemente
+knowledge_collection_ready: Aktuell · %{count} Elemente
+knowledge_collection_paused: Pausiert
+knowledge_collection_failed: Fehlgeschlagen · %{reason}
+knowledge_collection_failures: '%{count} nicht indexiert · %{reason}'
+knowledge_pause: Pausieren
+knowledge_resume: Fortsetzen
+knowledge_update: Aktualisieren

@@ -1,0 +1,13 @@
+knowledge_settings: "Padrões"
+knowledge_default_model: "Modelo vetorial"
+knowledge_keyword_only: "Somente palavras-chave"
+knowledge_collection_pending: Aguardando indexação
+knowledge_collection_unavailable: Node de armazenamento indisponível
+knowledge_collection_indexing: Indexando · %{count} itens
+knowledge_collection_ready: Atualizado · %{count} itens
+knowledge_collection_paused: Pausado
+knowledge_collection_failed: Falha · %{reason}
+knowledge_collection_failures: '%{count} não indexados · %{reason}'
+knowledge_pause: Pausar
+knowledge_resume: Retomar
+knowledge_update: Atualizar

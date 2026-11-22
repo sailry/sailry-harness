@@ -110,9 +110,9 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 			{Node: beta.controller.Target().String(), Name: "Beta", Connected: true},
 		}
 	}
-	root.App.Settings.ManagedNode = alpha.controller.Target().String()
-	root.App.Settings.Open(section)
-	root.App.Navigate(shell.SettingsPage)
+	if !root.openPluginSettings(alpha, alphaVersion) || root.App.Page != shell.SettingsPage || root.App.Settings.Section != section {
+		t.Fatalf("opening the plugin settings selected page %v and section %q", root.App.Page, root.App.Settings.Section)
+	}
 	tester := ui.NewTester(func(view *ui.Context) {
 		theme.Apply(view, "", theme.Light)
 		root.mu.Lock()

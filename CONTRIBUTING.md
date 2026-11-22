@@ -5,9 +5,10 @@ code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
 ## Scope
 
-The checkout is self-contained: locale sources live in `locales/`, plugin SDK
-declarations in `sdk/`, and official packages in the pinned submodules. Setup,
-generation, builds and tests do not read another project directory.
+The checkout is self-contained: shared locale sources live in `locales/`, module
+locale sources in `modules/<name>/desktop/locales/`, plugin SDK declarations in
+`sdk/`, and official packages in the pinned submodules. Setup, generation, builds
+and tests do not read another project directory.
 
 Keep changes within the requested scope. For fixes, include a reproduction and
 evidence of the corrected behavior. Keep local commits cohesive with imperative
@@ -51,7 +52,8 @@ Their README and AGENTS files cover package maintenance. Commit package changes
 there first, then the reviewed Gitlink here; publishing is a separate, explicitly
 authorized action. Never replace a pin with an unreviewed remote tip.
 
-Generate the desktop catalogs from the local source catalogs:
+Generate the shared Desktop catalogs from `locales/` using the key list in
+`internal/desktop/i18n/keys.txt`:
 
 ```sh
 unset GOROOT
@@ -59,8 +61,10 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 go generate ./internal/desktop/i18n
 ```
 
-Each key is defined in one source file per language. Edit its existing definition
-when changing copy; the generator rejects duplicate keys.
+Edit a module's copy in `modules/<name>/desktop/locales/<language>.yml`. Each
+module embeds these sources and contributes its `Locales` filesystem to the
+Desktop assembly. A key belongs to one catalog. Missing translations fall
+back to English.
 
 The model metadata snapshot is maintained by `.github/workflows/model-catalog.yml`
 every six hours and can also be refreshed manually:

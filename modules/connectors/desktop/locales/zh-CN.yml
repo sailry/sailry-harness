@@ -1,0 +1,62 @@
+connector_search: "搜索连接器"
+connector_all_methods: "全部方式"
+connector_filter: "认证方式"
+mcp_add: 添加 MCP
+connector_preview: "预览"
+connector_empty: "暂无连接"
+connector_remove: "删除"
+connector_remove_effect: "删除“%{name}”？配置和凭据将被移除"
+connector_mcp_connecting: "连接中"
+connector_mcp_tools: "%{n} 个工具"
+connector_connect: "连接"
+connector_account_enabled: "启用账号"
+connector_server_allowed: "启用服务"
+connector_details: "详情"
+connector_configure: "配置"
+connector_confirm: "确认"
+connector_bind: "绑定"
+connector_reauthorize: "重新授权"
+connector_add_credentials: "添加凭据"
+connector_probe: "检查"
+connector_mcp_reconnect: "重新连接"
+connector_add: "添加连接器"
+connector_added: "已添加"
+connector_choose_account: "选择要绑定的账号"
+connector_browser: "在浏览器中授权"
+form_secret_hint: 输入凭据
+connector_register: "创建应用"
+connector_authorize: "授权"
+mcp_invalid: 检查名称、连接信息和变量设置
+connector_mcp_server: "服务器"
+connector_mcp_updated_at: "更新时间"
+connector_mcp_error: "错误"
+mcp_edit: 配置 MCP
+mcp_transport: 连接方式
+plugins_stdio: 标准输入输出
+plugins_http: Streamable HTTP
+plugins_sse: SSE
+mcp_command: 命令
+mcp_command_hint: npx、uvx 或可执行命令
+mcp_arguments: 参数
+mcp_argument: 参数值
+mcp_remove_argument: 移除参数
+mcp_add_argument: 添加参数
+mcp_url_hint: https://example.com/mcp
+mcp_environment: 环境变量
+mcp_add_environment: 添加环境变量
+mcp_headers: 请求头
+mcp_secret_saved: 已保存，留空保留
+connector_no_auth: "无需认证"
+connector_mcp_status: "状态"
+connector_mcp_updated: "更新于 %{time}"
+plugins_settings_reload: 重新读取
+plugins_settings_diagnostics: 详情
+mcp_remove_slot: 移除此项
+connector_consent_effect: 允许更改后的连接权限
+connector_changed_origins: 来源
+connector_changed_scopes: 权限范围
+connector_changed_client: 客户端
+connector_changed_flow: 登录流程
+connector_changed_targets: 凭据目标
+connector_changed_mcp: MCP 服务
+connector_changed_source: 插件来源

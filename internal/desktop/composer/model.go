@@ -56,8 +56,8 @@ type Context struct {
 	// available, or a request is under way. Stop is not held by it. An empty
 	// draft, files in transfer and an empty Models block Send by themselves.
 	SendBlocked bool
-	// SelectModel opens the Node's model settings from the chip that reads
-	// Select model while Models is empty; nil leaves that chip disabled.
+	// SelectModel opens the Node's model settings while Models is empty;
+	// nil omits the setup control.
 	SelectModel func()
 	// PluginModes are the enabled packages' conversation modes, after the
 	// built-in ones in the mode menu, the compact settings and the Shift+Tab

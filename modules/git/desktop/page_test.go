@@ -36,11 +36,11 @@ func TestGitOpenSourceUsesRegisteredFilesPage(t *testing.T) {
 			var read string
 			project := panel.NewLiveProject(target.Worktree, workspace, &panel.Actions{ReadFile: func(path string) { read = path }})
 			project.SetGitState(panel.GitState{Known: true, Head: true})
-			pages := []shell.NativePage{git.Page()}
+			modules := []shell.Module{git.Register}
 			if test.filesPage {
-				pages = append(pages, files.Page())
+				modules = append(modules, files.Register)
 			}
-			app := shell.NewLive(data, pages...)
+			app := shell.NewLiveWithAssembly(data, shell.Assemble(modules...))
 			app.Hooks.ResourceWorkspace = func(got shell.ResourceTarget) *panel.Project {
 				if got == target {
 					return project

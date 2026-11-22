@@ -89,8 +89,8 @@ func (m *Model) CloseModelDialogs() {
 	m.library, m.info, m.dropping = library{}, nil, nil
 }
 
-// modelAction runs a live action; in the preview it is preview_notice.
-func (m *Model) modelAction(c *ui.Context, run func(*ModelActions)) {
+// RunModelAction runs a live action or shows the preview notice.
+func (m *Model) RunModelAction(c *ui.Context, run func(*ModelActions)) {
 	if !m.Live {
 		notice(c)
 	} else if m.ModelActions != nil {

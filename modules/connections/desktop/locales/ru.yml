@@ -1,0 +1,47 @@
+host_add: "Добавить хост"
+workspace_host: "Информация о хосте"
+connection_no_projects: "Нет проектов"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "Устройство %{id}"
+connections_hosts: "Хосты"
+connections_mobile: "Мобильный"
+connections_bidirectional: Двусторонний
+connections_legacy_bidirectional: Двусторонний (устаревший)
+connections_only_host: Только хост
+connections_only_controller: Только контроллер
+connections_online: "В сети"
+connections_revoke_confirm: "Удаление пары требует повторного подключения"
+form_passphrase_hint: "Пароль для закрытого ключа (необязательно)"
+host_install: "Установка и подключение"
+host_pairing_hint: "Подключить устройство с Sailry"
+host_pairing_mode: "Код сопряжения"
+host_ssh_mode: Установка через SSH
+host_install_hint: Установите Sailry на сервер и подключитесь
+host_ssh_agent_hint: Использовать ключи, загруженные в SSH-агент этого компьютера
+ssh_authentication: "Аутентификация"
+pairing_connect: "Подключить устройство"
+pairing_local_code: "Локальный код сопряжения"
+pairing_pin_hint: "Введите 6-значный парольный код"
+pairing_preview_disabled: "Предварительный просмотр пользовательского интерфейса не подключает реальные устройства; начните с --data-dir для создания пары"
+pairing_relay_address: "Адрес ретранслятора"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "Сервер подключения"
+pairing_share: "Поделиться этим устройством"
+pairing_share_hint: "Введите этот код в Удаленные подключения на другом устройстве"
+host_runtime_loading: "Чтение времени выполнения (предварительный просмотр)"
+host_step_connect: "Подключение к хосту"
+host_step_pair: "Сопряжение"
+host_network_edit: "Изменить хост"
+pairing_preparing: "Подготовка соединения"
+pairing_refresh_hint: "Действует в течение 60 секунд; обновляется по истечении срока действия"
+pairing_relay_checking: "Проверка реле"
+connections_copy_id: Копировать ID
+connection_scope: "Область"
+connection_private: "Приватный"
+connection_global: "Глобальный обмен"
+connection_projects: "Обмен проектами"
+host_wsl: "WSL"
+host_wsl_distribution: "Дистрибутив"
+host_wsl_requirement: "Требуются WSL2, GNU Linux x64/arm64 и systemd"
+host_wsl_empty: "Нет установленных дистрибутивов WSL2"

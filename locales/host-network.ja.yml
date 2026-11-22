@@ -1,13 +1,7 @@
-host_network_edit: "ホストを編集"
 host_network_saved: "ネットワークを変更しました"
 host_network_failed: "ネットワークを変更できませんでした"
 host_network_unknown: "ネットワークの変更を確認できませんでした"
 host_network_conflict: "ネットワーク設定が変更されました。再試行してください"
 host_network_unavailable: "ネットワーク設定は利用できません"
 host_network_load_failed: "ネットワーク設定を読み込めませんでした"
-host_pairing_mode: "ペアリングコード"
-host_pairing_hint: "既存の Sailry デバイスに接続"
 host_setup_unconfirmed: "ホストの設定を確認できません。先にホストを確認してください"
-host_ssh_mode: SSH でインストール
-host_install_hint: サーバーに Sailry をインストールして接続
-host_ssh_agent_hint: このコンピューターの SSH エージェントに読み込まれた鍵を使用

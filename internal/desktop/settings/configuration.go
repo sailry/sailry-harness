@@ -172,7 +172,7 @@ func configurationDialog(c *ui.Context, m *Model) {
 				}
 			})
 		}
-		footer(c, action, func() { d.open = false }, func() {
+		DialogFooter(c, action, func() { d.open = false }, func() {
 			if busy {
 				return
 			}

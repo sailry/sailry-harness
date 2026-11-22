@@ -73,32 +73,31 @@ func (m *Model) ConfirmConnectorConsent(target string, changes []string, apply f
 	}
 }
 
-// OpenMCPConfiguration shows the saved configuration in the server's editor.
-// Only the editor waiting for this service takes it: one closed while it
-// waited, or opened on another service since, is left as it is.
-func (m *Model) OpenMCPConfiguration(configuration MCPConfiguration) {
-	e := &m.mcp
-	if !e.loading || e.original != configuration.Service.ID || !e.open && !e.deferred {
-		return
-	}
-	if len(configuration.Service.Servers) == 0 {
-		e.loading = false
-		return
-	}
-	m.editServer(&configuration.Service, configuration.Saved)
-	m.mcp.declared = configuration.Declared
+// ConnectorPageState receives configuration results and closes editors on a Node change.
+type ConnectorPageState interface {
+	OpenMCPConfiguration(MCPConfiguration)
+	FailMCPConfiguration(id, detail string)
+	CloseDialogs()
 }
 
-// FailMCPConfiguration leaves the editor waiting for the service unloaded,
-// with the reason for its diagnostics: Reload reads again.
+func (m *Model) OpenMCPConfiguration(configuration MCPConfiguration) {
+	if page := m.ConnectorPageState; page != nil {
+		page.OpenMCPConfiguration(configuration)
+	}
+}
+
 func (m *Model) FailMCPConfiguration(id, detail string) {
-	if m.mcp.loading && m.mcp.original == id {
-		m.mcp.loading, m.mcp.unread, m.mcp.detail = false, true, detail
+	if page := m.ConnectorPageState; page != nil {
+		page.FailMCPConfiguration(id, detail)
 	}
 }
 
 // CloseManagedNodeDialogs drops editors bound to the previous settings owner.
 func (m *Model) CloseManagedNodeDialogs() {
-	m.connector, m.mcp, m.connDetails, m.connRemoving = connectorEditor{}, mcpEditor{}, "", ""
-	m.teamEdit, m.roleEdit, m.teamRemoving, m.roleRemoving = teamEditor{}, roleEditor{}, "", ""
+	if page := m.ConnectorPageState; page != nil {
+		page.CloseDialogs()
+	}
+	if m.TeamPageState != nil {
+		m.TeamPageState.CloseDialogs()
+	}
 }

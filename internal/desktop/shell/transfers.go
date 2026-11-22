@@ -22,8 +22,8 @@ func (a *App) startDownload(name string) {
 // downloadDialog plays the transfer and shows its dialog; as it finishes, a
 // toast tells the outcome: canceled, or that the preview saved nothing.
 func (a *App) downloadDialog(c *ui.Context) {
-	if a.Page != SettingsPage || a.Settings.Section != settings.Providers {
-		settings.ProviderLoginDialog(c, a.Settings.Model)
+	if a.ProviderUI != nil && (a.Page != SettingsPage || a.Settings.Section != settings.Providers) {
+		a.ProviderUI.LoginDialog(c)
 	}
 	if !a.Preview {
 		if a.Hooks.DownloadDialog != nil {

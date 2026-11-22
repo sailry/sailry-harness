@@ -19,6 +19,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -247,7 +248,9 @@ func firstRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func firstRun(t *testing.T) {
 	}, 1280, 820, liveTesterOptions("SAILRY_UI_SHOTS"))
 	tester.SetLocale("en")
 	liveTesterScale(tester, "SAILRY_UI_SHOTS")
-	text := func(key string) string { return i18n.In("en", key) }
+	text := func(key string) string { return catalog.In("en", key) }
 	sent := func() []string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -436,7 +439,7 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
-	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate, &flying, &resourceClients)
+	firstRunChinese(t, r, tester, catalog, func() *ui.Context { return view }, settle, sent, &gate, &flying, &resourceClients)
 	if count("refresh_model_catalog") != 1 {
 		t.Fatalf("the first visit sent %d automatic catalog refreshes", count("refresh_model_catalog"))
 	}
@@ -455,7 +458,7 @@ func firstRun(t *testing.T) {
 	// second press sends nothing, and the answer gives the button back.
 	update := func() ui.AccessInfo {
 		t.Helper()
-		info, ok := tester.AccessByRole(ui.RoleButton, i18n.In("zh-CN", "provider_catalog_update"))
+		info, ok := tester.AccessByRole(ui.RoleButton, catalog.In("zh-CN", "provider_catalog_update"))
 		if !ok {
 			t.Fatalf("no Update button: %q", tester.Texts())
 		}
@@ -495,7 +498,7 @@ func firstRun(t *testing.T) {
 // ring, the header's buttons, New session's refocus, a plugin page entered
 // once, and no English where the catalog has Chinese. It is a step of
 // firstRun; SAILRY_UI_SHOTS names a directory that receives its frames.
-func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
+func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, catalog *i18n.Catalog, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
 	// shots saves the frame in the light and the dark theme.
 	shots := func(name string) {
 		dir := os.Getenv("SAILRY_UI_SHOTS")
@@ -525,11 +528,11 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 		tester.SetDark(false)
 		settle()
 	}
-	zh := func(key string) string { return i18n.In("zh-CN", key) }
-	// english are the catalog's English texts that have a Chinese one.
+	zh := func(key string, args ...any) string { return catalog.In("zh-CN", key, args...) }
+	// english are the shared keys' English texts that have a Chinese one.
 	english := map[string]string{}
 	for _, key := range i18n.Keys("en") {
-		if en := i18n.In("en", key); en != zh(key) {
+		if en := catalog.In("en", key); en != zh(key) {
 			english[en] = key
 		}
 	}
@@ -698,9 +701,9 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 1100)
 	shots("settings-providers-empty")
 	tester.SetSize(1280, 820)
-	firstRunConnectors(t, r, tester, settle, sent, shots)
-	firstRunLocation(t, r, tester, settle, shots)
-	firstRunProjects(t, r, tester, settle, sent, shots, hold, flying, resourceClients)
+	firstRunConnectors(t, r, tester, zh, settle, sent, shots)
+	firstRunLocation(t, r, tester, zh, settle, shots)
+	firstRunProjects(t, r, tester, zh, settle, sent, shots, hold, flying, resourceClients)
 }
 
 // firstRunProjects adds, edits and removes a project through the editor
@@ -708,8 +711,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 // in-app picker lists a real directory tree through browse_files, Save is
 // pending while the Node works, and a second real Node bound as a remote
 // Host is browsed through its own controller. It is a step of firstRun.
-func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
-	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
+func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(string, ...any) string, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
 	count := func(kind string) (n int) {
 		for _, name := range sent() {
 			if name == kind {
@@ -1080,8 +1082,7 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 // draft, and the project with its branch on one line in a Git project. The
 // worktrees package's own project control is not drawn beside the native
 // one. It is a step of firstRun.
-func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), shots func(string)) {
-	zh := func(key string) string { return i18n.In("zh-CN", key) }
+func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, zh func(string, ...any) string, settle func(), shots func(string)) {
 	// controls are the context bar's controls: its small menu buttons.
 	controls := func() (bar []ui.AccessInfo) {
 		for _, info := range tester.AccessAll() {
@@ -1156,9 +1157,8 @@ func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 // added by hand, served in this process: each row's own status, the menu of
 // the actions it has, and what each item does. It is a step of
 // firstRunChinese and reaches no outside endpoint.
-func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string)) {
+func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(string, ...any) string, settle func(), sent func() []string, shots func(string)) {
 	t.Setenv("SAILRY_HELPERS_DIR", t.TempDir()) // no computer helper, as a run from source
-	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
 	count := func(kind string) (n int) {
 		for _, name := range sent() {
 			if name == kind {

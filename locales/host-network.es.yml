@@ -1,13 +1,7 @@
-host_network_edit: "Editar host"
 host_network_saved: "Red cambiada"
 host_network_failed: "No se pudo cambiar la red"
 host_network_unknown: "No se pudo confirmar el cambio de red"
 host_network_conflict: "La configuración de red cambió; vuelve a intentarlo"
 host_network_unavailable: "La configuración de red no está disponible"
 host_network_load_failed: "No se pudo cargar la configuración de red"
-host_pairing_mode: "Código de enlace"
-host_pairing_hint: "Conectar un dispositivo Sailry existente"
 host_setup_unconfirmed: "Configuración sin confirmar, comprueba primero el host"
-host_ssh_mode: Instalar por SSH
-host_install_hint: Instala Sailry en un servidor y conéctate
-host_ssh_agent_hint: Usar las claves cargadas en el agente SSH de este equipo

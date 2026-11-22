@@ -29,7 +29,7 @@ import (
 
 type Options struct {
 	Identity identity.Desktop
-	Assembly []shell.NativePage
+	Assembly shell.Assembly
 	// MyGo uses NativeName for preferences and its instance lock. An empty
 	// value keeps the name MyGo derives from the bundle or executable.
 	NativeName string
@@ -186,9 +186,9 @@ func Run(args []string, config Options) error {
 	openWindow = func(sessionID string) error {
 		entry := &desktopWindow{}
 		if options.Preview {
-			entry.app = shell.New(preview.Load(), config.Assembly...)
+			entry.app = shell.NewWithAssembly(preview.Load(), config.Assembly)
 		} else {
-			runtime, err := live.NewWithPreferences(ctx, backend.Client, backend.Preferences, config.Assembly...)
+			runtime, err := live.NewWithAssembly(ctx, backend.Client, backend.Preferences, config.Assembly)
 			if err != nil {
 				return err
 			}

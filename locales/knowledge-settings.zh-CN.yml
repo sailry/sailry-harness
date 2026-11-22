@@ -1,8 +1,5 @@
 settings_knowledge: "知识库"
 settings_knowledge_description: "所选主机上的知识库"
-knowledge_settings: "默认设置"
-knowledge_default_model: "向量模型"
-knowledge_keyword_only: "仅关键词"
 knowledge_models: "模型"
 knowledge_model_granite: "Granite 多语言"
 knowledge_model_bge: "BGE 中文小模型"

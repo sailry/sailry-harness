@@ -1,0 +1,4 @@
+runtime_ocr: "Распознавание текста"
+runtime_ocr_enable: "Включить OCR"
+runtime_ocr_model: "Модель OCR"
+search_driver_auto: "Автоматически"

@@ -72,12 +72,6 @@ type TerminalHost struct {
 	Shell int
 }
 
-// HookSettings are a project's hooks: on or off, and their scripts.
-type HookSettings struct {
-	Enabled bool
-	Scripts []preview.Hook
-}
-
 // Python is the host's package index: an index of Indexes, the last being a
 // custom URL.
 type Python struct {
@@ -237,43 +231,25 @@ type Model struct {
 	MediaOptions     []viewmodel.MediaOption
 	MediaUnavailable [4]bool
 	SaveMedia        func()
-	expanded         string // the channel whose models show
-	provider         providerEditor
-	login            *Authorization
-	loginFor         string
-	loginWarning     loginWarning
-	removing         string
 
-	// Connectors and MCP: the services, the connector types plugins declare, the
-	// host's CLI accounts, the search and the method filter (of
-	// connectorMethods).
-	Services     []preview.Service
-	ConnTypes    []preview.ConnectorType
-	ConnAccounts []string
-	ConnQuery    string
-	ConnMethod   int
-	connector    connectorEditor
-	mcp          mcpEditor
-	connDetails  string
-	connRemoving string
 
-	// Teams: the teams, the roles, the child concurrency and the tab (0 teams, 1
-	// roles).
-	Teams        []preview.Team
-	Roles        []preview.Role
-	Concurrency  Stored[float64]
-	TeamTab      int
-	teamEdit     teamEditor
-	roleEdit     roleEditor
-	teamRemoving string
-	roleRemoving string
+	// Connectors and MCP: the services, declared types, and CLI accounts.
+	Services           []preview.Service
+	ConnTypes          []preview.ConnectorType
+	ConnAccounts       []string
+	ConnectorPageState ConnectorPageState
+
+	Teams         []preview.Team
+	Roles         []preview.Role
+	Concurrency   Stored[float64]
+	TeamPageState TeamPageState
 
 	// Installed packages, installed skills, and the profile's themes.
-	Packages   []preview.Package
-	SkillList  []preview.Skill
-	Themes     []preview.MarketTheme
-	Library    []preview.LibraryModel
-	SkillQuery string
+	Packages       []preview.Package
+	SkillList      []preview.Skill
+	Themes         []preview.MarketTheme
+	Library        []preview.LibraryModel
+	SkillPageState SkillPageState
 	MarketCatalog
 	// LibraryLoad is the model library's search: placeholder rows before
 	// its first page, a spinner over the results after. LibraryMore marks
@@ -291,8 +267,6 @@ type Model struct {
 	updates       pluginUpdates
 	checked       bool // the plugins' update check ran: its updates show in the header
 	uninstalling  string
-	skillAdd      skillInstall
-	skillRemoving string
 	library       library
 
 	// Busy names the operations in flight (BusyCatalog and the like): each
@@ -327,8 +301,8 @@ type Model struct {
 	// Hooks (hooks/*).
 	Hooks       Stored[HookSettings]
 	HooksStatus string
-	hook        hookEditor
-	consent     consent
+	// HookPageState holds the mounted page's drafts across navigation.
+	HookPageState any
 
 	// Runtime and OCR (runtime/*, models/*).
 	PythonVersion string

@@ -1,0 +1,4 @@
+runtime_decision: "Decisions"
+runtime_decision_model: "Model"
+runtime_decision_enable: "Enable decisions"
+local_models_none: "None"

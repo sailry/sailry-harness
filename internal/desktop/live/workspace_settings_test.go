@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -34,7 +35,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 }
 
 func testHostHooksSettings(t *testing.T) {
-	app := shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())
 	fixture := func(index byte, administrator bool) (*Runtime, *settingsTestTransport) {
 		t.Helper()
 		snapshot := protocol.DefaultSnapshot()

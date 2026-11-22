@@ -79,7 +79,7 @@ func selectionWindow(t *testing.T, snapshot protocol.Snapshot) selectionTestWind
 	}
 	prefs := preferences.Open(filepath.Join(t.TempDir(), "desktop", "preferences.json"))
 	prefs.Data.WelcomeSeen = new(true)
-	r, err := NewWithPreferences(ctx, controller, prefs, desktop.Harness()...)
+	r, err := NewWithAssembly(ctx, controller, prefs, desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}

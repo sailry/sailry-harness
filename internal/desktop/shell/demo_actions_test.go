@@ -245,9 +245,19 @@ func TestDemoActions(t *testing.T) {
 		if !a.PanelOpen || a.Panel.Active.Kind != panel.Browser {
 			t.Fatalf("Open service showed %+v", a.Panel.Active)
 		}
+		assembly := TestHarnessAssembly()
+		a.translations = i18n.New(assembly.Locales...)
+		a.Settings.SetNativePages(assembly.SettingsPages)
 		act(func(x *actions) { x.ManageTeams() })
 		if a.Page != SettingsPage || a.Settings.Section != settings.Teams {
 			t.Fatalf("Manage teams showed page %q", a.Page)
+		}
+		a.Settings.SetNativePages(nil)
+		a.translations = i18n.New()
+		a.Navigate(ConversationPage)
+		act(func(x *actions) { x.ManageTeams() })
+		if a.Page != ConversationPage {
+			t.Fatalf("Manage teams without Teams showed page %q", a.Page)
 		}
 	})
 

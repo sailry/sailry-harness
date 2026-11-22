@@ -5,11 +5,6 @@ activity: 活动看板
 files: 文件
 git: Git
 settings: 设置
-market_title: 市场
-market_details: 详情
-market_verified: 已验证
-market_installs: 安装量
-market_stars: 收藏
 search: 搜索
 sidebar_toggle: 展开或折叠导航
 more: 更多操作
@@ -100,15 +95,9 @@ welcome_review_prompt: 请审查当前项目的改动，重点检查潜在问题
 welcome_plan: 制定计划
 welcome_plan_detail: 理清目标与步骤
 welcome_plan_prompt: 请帮我为接下来的开发工作制定分步骤的计划
-provider_channels: 渠道
-provider_list_search: 搜索渠道或模型
 settings_add: 添加
 settings_edit: 编辑
 settings_delete: 删除
-provider_model_count: '%{count} 个模型'
-provider_enabled: 启用渠道
-provider_status_missing_key: 缺少密钥
-provider_status_signed_out: 未登录
 provider_auth_oauth: OAuth
 provider_auth_key: API 密钥
 provider_auth_plugin: 插件
@@ -118,7 +107,6 @@ plugins_configure: 配置
 plugins_uninstall: 卸载
 plugins_install: 安装
 plugins_information: 信息
-plugins_none: 暂无插件
 composer: 描述你想完成的任务…
 composer_attachment: 添加附件
 send: 发送
@@ -205,7 +193,6 @@ close: 关闭
 shell_sessions: 会话
 notifications: 通知
 hosts: 主机
-host_add: 添加主机
 sidebar_host_update: 更新
 local_host_name: 本地
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: 打开文件夹
 shortcut_previous_conversation: 上一个对话
 shortcut_next_conversation: 下一个对话
 shortcut_sync: 刷新主机状态
-workspace_host: 主机信息
 connection_action_edit: 编辑
 reference_back: 返回上一级
 connection_search_empty: 无匹配结果
@@ -373,7 +359,6 @@ project_duplicate_path: 此主机已添加相同路径的项目
 project_clone_required: 请填写名称、仓库和保存位置
 settings_cancel: 取消
 settings_save_preview: 保存示例
-connection_no_projects: 暂无项目
 workspace_project: 项目概览
 resource_browser: 浏览器
 terminal: 终端
@@ -844,19 +829,8 @@ configuration_read_failed: 无法读取文件
 configuration_area_search: 网页搜索
 configuration_area_compaction: 上下文压缩
 files_upload_picker: 无法打开文件选择窗口
-connection_route_p2p: P2P
-connection_route_relay: 中继
-connections_device: 设备 %{id}
-connections_hosts: 主机
-connections_mobile: 移动端
-connections_bidirectional: 双向
-connections_legacy_bidirectional: 旧版双向
-connections_only_host: 仅主机
-connections_only_controller: 仅控制端
 connections_direction_saved: 已更新设备访问方向
 connections_offline: 离线
-connections_online: 在线
-connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。
 dictation_access: 麦克风权限
 dictation_access_granted: 已授权
 dictation_access_hint: 为当前应用允许访问，返回后自动检测
@@ -870,40 +844,13 @@ dictation_microphone_default: 系统默认
 dictation_microphone_label: 麦克风
 dictation_model_name: SenseVoice INT8
 form_name_hint: 输入名称
-form_passphrase_hint: 私钥口令（可选）
 form_private_key_hint: 粘贴私钥
-form_value_hint: 输入值
-form_variable_hint: 如 LANG
-hooks_add: 添加钩子
-hooks_after_tool: 工具执行后
-hooks_before_tool: 工具执行前
-hooks_command: 命令
-hooks_configure: 配置钩子
 hooks_conflict: 钩子已更改，请重新加载后保存
-hooks_consent: 这些脚本会在「%{host}」上所有会话的后续回合中运行。每个脚本都在其任务的工作树中执行。
-hooks_empty: 暂无钩子
-hooks_enable: 启用钩子
-hooks_enabled: 启用
 hooks_failed: 无法保存钩子
-hooks_invalid: 命令或超时无效
-hooks_name: 名称
-hooks_phase: 阶段
-hooks_remove: 移除钩子
 hooks_saved: 钩子已保存
-hooks_scope_workspace: 脚本可写入任务的工作树。网络访问被阻止。
-hooks_scripts: 脚本
 hooks_settings: 钩子
 hooks_settings_description: 配置此执行主机的脚本
-hooks_timeout: 超时（ms）
-hooks_turn_end: 回合结束
 hooks_unknown: 保存结果不确定，请重试原请求
-host_install: 安装并连接
-host_pairing_hint: 连接已安装 Sailry 的设备
-host_pairing_mode: 配对码
-host_ssh_mode: SSH 安装
-host_install_hint: 在服务器上安装 Sailry 并连接
-host_ssh_agent_hint: 使用此电脑 SSH Agent 中已加载的密钥登录
-ssh_authentication: 认证方式
 connection: 主机管理
 knowledge_downloading: 下载中
 knowledge_install: 安装
@@ -921,17 +868,8 @@ message_display_detailed: 详细
 model_library_select: 选择
 model_library_selected: 已选择
 model_library_source: 来源
-pairing_connect: 连接设备
-pairing_local_code: 本机配对码
-pairing_pin_hint: 输入 6 位配对码
-pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。
-pairing_relay_address: 中继地址
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定义
 pairing_relay_direct: 直连（局域网）
-pairing_relay_server: 连接服务器
-pairing_share: 分享本机
-pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
 permission_check: 检查
 permission_disk_help: 若列表中没有 Sailry，点击 + 添加或将应用拖入列表
 permission_full_disk: 完全磁盘访问
@@ -961,15 +899,7 @@ power_settings_conflict: 设置已更改，请重新加载
 power_settings_failed: 无法加载或保存防休眠设置
 power_settings_saved: 已保存
 power_settings_unknown: 保存结果未知，请重新加载确认
-runtime_ocr: 文字识别
-runtime_ocr_enable: 启用 OCR
-runtime_ocr_model: OCR 模型
 runtime_python: Python
-runtime_python_bundled: 内置
-runtime_python_custom: 自定义
-runtime_python_custom_url: 软件包源地址
-runtime_python_index: 软件包源
-runtime_python_version: 版本
 sandbox_settings_conflict: 命令沙箱设置已更改，请重新加载
 sandbox_settings_failed: 无法读取或保存命令沙箱设置
 sandbox_settings_saved: 已保存
@@ -998,9 +928,6 @@ settings_decision_description: 配置本地决策模型
 settings_dictation_description: 在本机识别语音，结果填入消息草稿
 settings_empty: 暂无内容
 settings_execution: 执行
-settings_font_default: 默认
-settings_font_family: 字体
-settings_font_size: 字号
 settings_general_description: 管理通知偏好和设备配对服务
 settings_global_commands: 全局命令
 settings_knowledge_description: 所选主机上的知识库
@@ -1028,8 +955,6 @@ settings_notify_failed: 任务失败通知
 settings_notify_system: 系统通知
 settings_ocr: OCR
 settings_ocr_description: 配置文字识别
-settings_paste_description: 粘贴多行内容前确认
-settings_paste_protection: 多行粘贴保护
 settings_permissions_description: Sailry 的系统访问权限
 settings_runtime: 运行时
 settings_runtime_description: 配置当前节点
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: 性能指示器
 settings_skills_description: 管理可供会话使用的技能
 settings_teams_description: 子智能体的角色和团队
 settings_terminal_description: 终端环境与显示偏好
-settings_terminal_display: 显示与输入
 settings_toast_description: 应用内提示消息保持显示的时间
 settings_toast_duration: 提示显示时长
 shortcut_activate: 显示 Sailry
@@ -1083,19 +1007,10 @@ telemetry_send_action: 发送诊断信息
 telemetry_support: 支持
 telemetry_title: 诊断与隐私
 telemetry_unknown: 结果未知，请重新加载确认
-terminal_environment: 全局环境变量
-terminal_environment_add: 添加环境变量
 terminal_input: 输入
 terminal_settings_conflict: 终端设置已更新，当前修改已保留
 terminal_settings_failed: 无法读取或保存终端设置
 terminal_settings_unknown: 无法确认保存结果，请重新加载核对
-terminal_shell: 默认 Shell
-terminal_shell_default: 跟随主机默认
-terminal_shell_group: Shell
-terminal_value: 变量值
-terminal_variable: 变量名
-terminal_variable_duplicate: 变量名已存在
-terminal_variable_invalid: 变量名无效，或属于应用保留项、代码加载变量
 updates_channel: 更新通道
 updates_channel_experience: 体验版
 updates_channel_stable: 正式版
@@ -1125,118 +1040,20 @@ authorization_cancel: 取消
 compaction_settings_failed: 无法保存压缩设置
 compaction_settings_conflict: 压缩设置已更改，请重试
 compaction_settings_unknown: 保存结果未确认，请重试
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: 暂无渠道
-provider_login_callback_required: 输入浏览器返回的授权码或回调地址
-provider_delete_title: 删除渠道
-provider_remove_effect: 移除后，会话需重新选择供应商
-provider_catalog_never: 未更新
-provider_catalog_bundled: 内置数据
 provider_catalog_required: 请先更新模型数据
-provider_catalog_updated: 已更新
-provider_catalog: 模型数据
-provider_catalog_update: 更新
-provider_catalog_status: 模型元数据
-provider_scores: 模型评分
-provider_catalog_last_update: 上次更新
-provider_compaction_threshold: 压缩阈值
 provider_all: 全部类型
 provider_type: 渠道类型
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: 尚未配置模型
-provider_connect: 连接账号
-provider_reconnect: 登录
 provider_access_key: API 密钥
-provider_access_no_key: 无需 API 密钥
 provider_access_cloud: 云服务凭据
-provider_name_required: 请填写渠道名称
-provider_endpoint_required: 请输入有效的接口地址
-provider_key_required: 请填写密钥
-provider_model_required: 请添加模型并填写模型 ID
-provider_model_duplicate: 模型 ID 不能重复
-provider_limits_invalid: 上下文容量需为正整数，且不小于模型输出上限
 provider_access_endpoint: 自定义接口地址
-provider_add_title: 添加渠道
-provider_choose_method: 选择接入方式
-provider_configure: 配置渠道
-provider_edit_title: 编辑渠道
 provider_step_back: 上一步
-provider_save: 保存
-provider_save_login: 保存并登录
 provider_access_login: 账号登录
-provider_name_hint: 输入渠道名称
-provider_api: 接口协议
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: 服务
-provider_metered: 按量
-provider_coding: 编码套餐
-provider_region: 区域
-provider_region_china: 中国
-provider_region_global: 全球
-provider_endpoint: 接口地址
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: 输入 API Key
-provider_api_key: API 密钥
-provider_get_key: 获取密钥
-provider_hosts: 主机
-provider_host_required: 请选择主机。账号登录渠道只能归属一台主机。
 provider_on_host: 位于 {host}
-provider_oauth_advanced: 高级设置
-provider_oauth_catalog_version: 模型目录兼容版本
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: 编辑器版本
-provider_oauth_editor_plugin_version: 编辑器插件版本
-provider_headers: 自定义请求头
-provider_headers_invalid: 有值的请求头需要填写名称
-provider_billing_rate: 计费倍率
-provider_billing_rate_hint: 按 API 价格的百分比估算费用
-provider_billing_rate_invalid: 计费倍率需为不小于 0 的数字，最多两位小数
 provider_billing_rate_unsupported: 该主机版本不支持计费倍率，其他设置已保存
-provider_models: 模型
-provider_discover: 更新模型
-provider_querying: 查询中
-provider_discovered_preview: 已合并示例模型，保留手动添加的模型和默认选择
-provider_add_model: 添加模型
-provider_new_model: 新模型
-provider_model_default: 默认
-provider_set_default: 设为默认
-provider_default: 默认模型
-provider_model_id: 模型 ID
-provider_deployment_id: 部署名
-provider_api_version: API 版本
-form_api_version_hint: 如 2024-10-21
-provider_cloud_required: 请填写云渠道配置
-form_model_hint: 模型 ID
 provider_context: 上下文容量（Tokens）
-form_tokens_hint: Token 数量
-provider_efforts: 推理强度
-provider_effort_default: 默认强度
-provider_effort_placeholder: 强度或 Token budget
-provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: 自动
-knowledge_settings: 默认设置
-knowledge_default_model: 向量模型
-knowledge_keyword_only: 仅关键词
 knowledge_collections: 集合
-knowledge_collection_pending: 等待索引
-knowledge_collection_unavailable: 存储主机不可用
-knowledge_collection_indexing: 索引中 · %{count} 项
-knowledge_collection_ready: 已是最新 · %{count} 项
-knowledge_collection_paused: 已暂停
-knowledge_collection_failed: 失败 · %{reason}
-knowledge_collection_failures: '%{count} 项未索引 · %{reason}'
-knowledge_pause: 暂停
-knowledge_resume: 继续
-knowledge_update: 更新
-runtime_decision: 决策
-runtime_decision_model: 模型
-runtime_decision_enable: 启用决策
-local_models_none: 无
 connector_oauth: OAuth
 connector_application: 应用凭据
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: 插件已停用
 connector_account_disabled: 账号已停用
 connector_configuration_required: 需要配置
 connector_unavailable: 不可用
-connector_search: 搜索连接器
-connector_all_methods: 全部方式
-connector_filter: 认证方式
-mcp_add: 添加 MCP
-connector_preview: 预览
-connector_empty: 暂无连接
-connector_remove: 删除
-connector_remove_effect: 删除“%{name}”？配置和凭据将被移除
 connector_removed: 已删除
-connector_mcp_connecting: 连接中
 connector_mcp_failed: 连接失败
 connector_connected: 已连接
-connector_mcp_tools: '%{n} 个工具'
-connector_connect: 连接
-connector_account_enabled: 启用账号
-connector_server_allowed: 启用服务
 connector_saved: 已保存
-connector_details: 详情
-connector_configure: 配置
-connector_confirm: 确认
-connector_bind: 绑定
-connector_reauthorize: 重新授权
-connector_add_credentials: 添加凭据
-connector_probe: 检查
-connector_mcp_reconnect: 重新连接
-connector_add: 添加连接器
-connector_added: 已添加
-connector_choose_account: 选择要绑定的账号
-connector_browser: 在浏览器中授权
-form_secret_hint: 输入凭据
-connector_register: 创建应用
-connector_authorize: 授权
-mcp_invalid: 检查名称、连接信息和变量设置
-connector_mcp_server: 服务器
 market_details_tools: 工具
-connector_mcp_updated_at: 更新时间
-connector_mcp_error: 错误
-mcp_edit: 配置 MCP
-mcp_transport: 连接方式
-plugins_stdio: 标准输入输出
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: 命令
-mcp_command_hint: npx、uvx 或可执行命令
-mcp_arguments: 参数
-mcp_argument: 参数值
-mcp_remove_argument: 移除参数
-mcp_add_argument: 添加参数
 mcp_url: 服务地址
-mcp_url_hint: https://example.com/mcp
-mcp_environment: 环境变量
-mcp_add_environment: 添加环境变量
-mcp_headers: 请求头
 mcp_add_header: 添加请求头
 mcp_slot_name: 名称
-mcp_secret_saved: 已保存，留空保留
 mcp_show_secret: 显示凭据
 mcp_hide_secret: 隐藏凭据
-connector_no_auth: 无需认证
-connector_mcp_status: 状态
-connector_mcp_updated: 更新于 %{time}
-plugins_settings_reload: 重新读取
-plugins_settings_diagnostics: 详情
 mcp_slot_value: 值
-mcp_remove_slot: 移除此项
 mcp_configuration_saved: 已保存 MCP 配置
 mcp_oauth_callback_failed: 无法接收授权回调，请重试
 mcp_oauth_failed: 授权失败，请重试
@@ -1325,86 +1088,18 @@ role_duplicate: 标识已存在
 teams_settings_failed: 无法保存并发数
 teams_settings_conflict: 设置已变更，请重新加载后保存
 teams_settings_unknown: 保存结果未知，请重试确认
-role_preset_review: 代码审查
-role_review_description: 审查变更并报告有证据的问题
-role_prompt_review: |-
-    审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
-    先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
-role_preset_implement: 开发实现
-role_implement_description: 完成聚焦的改动并验证
-role_prompt_implement: |-
-    完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
-    复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
-role_preset_test: 测试验证
-role_test_description: 运行检查并报告验证结果
-role_prompt_test: |-
-    验证指定的改动或行为。先找到相关的现有测试和检查，运行覆盖该范围的最小集合，只有在要求时才补充测试。
-    报告实际执行的命令、结果和失败原因。不要为了让检查通过而修改实现代码。
 role_preset_docs: 文档编写
 role_docs_description: 编写和更新项目文档
 role_prompt_docs: |-
     为指定范围编写或更新文档。先阅读相关代码和现有文档，沿用它们的结构和术语，保持内容简洁准确。
     报告修改了哪些文件，以及无法确认的内容。
-role_preset_plan: 方案规划
-role_plan_description: 拆分实施步骤，明确依赖和验收条件
-role_prompt_plan: 梳理现有行为和约束，找出影响设计的关键选择。把方案拆成可验证的步骤，写清依赖和验收方法，标出需要主代理确认的假设。保留项目文件原样。
-role_preset_frontend: UI 设计与实现
-role_frontend_description: 设计布局、视觉层级和交互，并完成界面实现
-role_prompt_frontend: 结合现有设计系统梳理使用流程，设计布局、视觉层级和交互，并完成实现。按场景处理键盘操作、加载和错误状态，在支持的窗口尺寸下核验效果；有参考图时逐项对照。
-role_preset_troubleshoot: 难题攻坚
-role_troubleshoot_description: 解决复杂实现，接手多次尝试仍未解决的问题
-role_prompt_troubleshoot: 承接复杂实现，或接手已尝试两三次仍未解决的问题。先核对已有证据和尝试，验证关键假设，完成必要的实现或修复，再按原始条件验证。报告改动、验证结果和剩余限制。
-role_model_hint_review: 跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子智能体是否停止。
-role_model_hint_implement: 范围明确的改动可选均衡型编程模型（如 Sonnet），例如新增设置项并保存配置。
-role_model_hint_test: 运行定向回归测试可选快速模型（如 Haiku）；排查时序相关的测试可选强推理模型。
-role_model_hint_plan: 涉及设计取舍可选强推理模型（如 Opus），例如规划保留既有会话的历史数据迁移。
-role_model_hint_frontend: 界面开发可选均衡型编程模型（如 Sonnet）；需要对照截图核验设置面板时，选支持图片输入的模型。
-role_model_hint_troubleshoot: 难复现的问题可选强推理模型（如 Opus），例如定位滚动长会话时的内存峰值。
-team_role_one: 1 个角色
-team_role_count: '%{count} 个角色'
 teams_concurrency: 子智能体并发数
-teams_concurrency_description: 每个会话同时运行的子智能体上限
 teams_roles: 角色
-team_new: 新建团队
-role_new: 新建角色
-team_delete: 删除团队
-team_delete_prompt: 删除团队“%{name}”？其中的角色会保留
 team_deleted: 团队已删除
-teams_role_delete_prompt: 删除角色“%{name}”？它会从所有团队中移除
 teams_role_deleted: 角色已删除
-team_builtin: 内置
 team_default: 默认团队
-team_default_description: 包含全部角色，跟随对话模型
-team_follow_conversation: 跟随对话
-teams_roles_empty: 暂无角色
-role_inherit: 继承会话模型
-teams_read_only: 只读
-role_effort_inherit: 自动
-team_edit: 编辑团队
-teams_description: 描述
-team_lead_model: 组长模型
-team_lead_instructions: 组长提示词
-team_members: 成员
-team_members_empty: 还没有角色
-teams_follow_lead: 跟随组长
-team_member_remove: 移出团队
-team_add_role: 添加角色
-team_duplicate: 复制为新团队
-team_copy_name: '%{name} 副本'
-team_create: 创建
 team_saved: 团队已保存
-teams_role_edit: 编辑角色
-role_presets: 预设
-role_id: 标识
-teams_key_hint: 如 code-reviewer
-teams_model: 模型
-role_instructions: 提示词
-role_save: 保存
 teams_role_saved: 角色已保存
-role_avatar: 头像
-role_avatar_seed: 头像 %{seed}
-role_avatar_shuffle: 换一批
-role_avatar_none: 默认头像
 market_plugin_details: 插件详情
 market_skill_details: 技能详情
 market_skill_document_failed: 无法加载技能文档
@@ -1450,23 +1145,11 @@ market_category_development: 开发
 market_category_automation: 自动化
 market_category_data: 数据
 market_category_entertainment: 娱乐
-market_plugins: 插件
-market_skills: 技能
-market_themes: 主题
-market_kind: 市场类型
-market_search_plugins: 搜索插件
-market_search_skills: 搜索技能
-market_search_themes: 搜索主题
-market_source_official: 官方
-market_source_community: 社区
-market_all: 全部
-market_installed_only: 只看已安装
 market_theme_current: 使用中
 market_details_source_official: 官方目录
 market_details_source_community: 社区
 skills_no_matches: 没有匹配的技能
 market_theme_apply: 应用
-market_no_themes: 暂无匹配主题
 market_theme_builtin: 内置
 plugins_settings_title: 插件配置
 plugins_failed: 插件操作失败
@@ -1525,30 +1208,11 @@ plugins_update_version: 更新至 %{version}
 plugins_updates_later: 稍后
 plugins_updates_selected: 更新（%{count}）
 plugins_retry: 重试
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: 目录
-skill_source_archive: 压缩包
-skill_source_link_invalid: 请输入技能详情页链接
 skills_package_source: 来自插件 %{name}
-skills_search: 搜索技能
 skills_install: 安装技能
-skills_remove_effect: 卸载 %{name}，已开始的任务不受影响
 settings_update: 更新
-skills_manage_package: 管理插件
-skill_source_reimport: 重新导入
-skill_source_origin: 来源
-skill_source_git_help: 输入 Git 仓库，可指定引用和技能目录
-skills_subdirectory: 子目录（可选）
-skills_path_hint: 可选
-skill_source_skills_help: 输入 skills.sh 详情链接，查找对应源码技能
-skill_source_link: 技能链接
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: 输入 skillhub.cn 详情链接，安装经过校验的技能包
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: 选择文件夹
-skill_source_choose_archive: 选择压缩包
 git_diff: 差异
 git_diff_side_by_side: 并排
 git_diff_inline: 内联
@@ -1567,14 +1231,12 @@ model_library_speech: 语音模型
 model_library_decision: 决策
 onboarding_title: 欢迎使用 %{app}
 onboarding_description: 连接一个模型就可以开始
-onboarding_host_unavailable: 主机暂不可用
 workspace_host_status: 未连接 · UI 预览
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主机
 workspace_worktrees: 工作树
 workspace_sessions: 会话
-host_runtime_loading: 正在读取运行环境（示例）
 host_version: 主机版本
 host_uptime: 运行时长
 host_protocol: 协议版本
@@ -1921,7 +1583,6 @@ notebook_cell: 单元格 %{number}
 notebook_empty: 没有单元格
 git_diff_binary: 二进制无法显示差异
 git_diff_partial: 差异较大，仅显示部分内容
-hooks_scope_windows: 脚本使用当前 Windows 命令策略
 teams_role_conflict: 角色已变更，请重新打开
 team_conflict: 团队已变更，请重新打开
 role_model_unavailable: 所选模型或供应商不可用
@@ -1939,11 +1600,8 @@ host_install_installing: 安装主机服务
 host_install_pairing: 正在配对
 host_install_unknown: 安装结果未确认，请检查主机后重试
 host_ssh_windows_pairing: 请在 Windows 主机安装并打开 Sailry 桌面版，再使用配对码添加。
-host_step_connect: 连接主机
-host_step_pair: 配对
 model_effort: 强度
 host_network_conflict: 网络设置已变化，请重试
-host_network_edit: 编辑主机
 host_network_failed: 无法切换网络
 host_network_load_failed: 无法加载网络设置
 host_network_saved: 网络已切换
@@ -1954,9 +1612,6 @@ host_update_restart: 此 Host 将重启，运行中的任务将停止
 host_updated: Host 已更新
 pairing_failed: 配对失败，请检查配对码或网络后重试
 pairing_invalid_endpoint: 请输入有效的 HTTPS 配对服务地址
-pairing_preparing: 正在准备连接…
-pairing_refresh_hint: 60 秒内有效，到期自动更新
-pairing_relay_checking: 正在探测
 pairing_relay_failed: 无法连接中继，请检查地址后重试
 pairing_relay_invalid: 请输入有效的中继地址
 pairing_relay_ready: 中继已连接
@@ -1967,7 +1622,6 @@ settings_retry: 重试
 ssh_key_changed: 主机密钥已变化，请核对指纹
 ssh_trust: 信任
 ssh_trust_title: 信任主机密钥
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: 无法读取主机运行信息
 live_metrics_loading: 正在读取指标
 live_metrics_error: 无法读取主机指标
@@ -1995,14 +1649,6 @@ authorization_connected: 已连接
 connector_bound: 已绑定
 connector_checked: 连接正常
 connector_mcp_reconnected: 已连接，%{n} 个工具
-connector_consent_effect: 允许更改后的连接权限
-connector_changed_origins: 来源
-connector_changed_scopes: 权限范围
-connector_changed_client: 客户端
-connector_changed_flow: 登录流程
-connector_changed_targets: 凭据目标
-connector_changed_mcp: MCP 服务
-connector_changed_source: 插件来源
 appearance_up_to_date: 主题已是最新
 appearance_updates_available: 有可用更新
 market_themes_failed: 无法加载主题
@@ -2170,51 +1816,26 @@ updates_profile_inside: 数据目录位于 %{app} 应用内，请移出后再更
 compatibility_update_unavailable: 此版本暂不可自动更新
 settings_media: 媒体模型
 settings_media_description: 管理图像、音频和视频任务使用的模型
-provider_cap_text: 文本
-provider_cap_input: 输入
-provider_cap_output: 原生输出
-provider_cap_audio_input: 音频
-provider_cap_pdf: PDF
-provider_cap_functions: 功能
-provider_cap_follow_catalog: 跟随模型目录
-provider_cap_input_hint: 模型支持的输入。附件能否直传还取决于接口和文件格式。
-provider_cap_catalog_unknown: 模型目录暂无该渠道下这个模型的输入信息。
 provider_cap_vision: 识图
-provider_cap_tools: 工具
-provider_cap_reasoning: 推理
 provider_cap_image: 生图
 provider_cap_video: 生视频
 media_speech_synthesis: 语音合成
-media_model_unavailable: 模型不可用
 media_conflict: 配置已变更，请重新选择
 media_unknown: 保存结果未确认，请查看当前配置
 media_failed: 保存失败
-provider_capabilities: 能力
 provider_cap_understands: 理解
 provider_cap_can: 支持
-provider_cap_generates: 生成
 media_image: 图片
 media_video: 视频
 media_speech: 语音
-media_follow: 跟随对话模型
 media_load_failed: 无法读取媒体模型
 market_load_more: 加载更多
-skill_catalog_load_failed: 无法加载技能
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
-connections_copy_id: 复制 ID
 host_check_status: 检查状态
 ssh_agent_short: SSH Agent
 ssh_keep_credential: 留空保留已保存的凭据
 ssh_busy: 正在处理其他连接，请稍后重试
-connection_scope: 使用范围
-connection_private: 私有使用
-connection_global: 全局共享
-connection_projects: 项目共享
-host_wsl: WSL
-host_wsl_distribution: 发行版
-host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 和 systemd
-host_wsl_empty: 未安装 WSL2 发行版
 host_wsl_load_failed: 无法加载 WSL 发行版
 files_unsaved: 有未保存的修改
 files_unsaved_description: 关闭前保存修改？
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: 回复已结束，已排队为新消息
 queue_halt_interrupted: 回复已中断，排队消息已保留
 queue_halt_unsent: 消息未发送，已保留在队列中
 usage_read_failed: 无法读取用量，请重试
+usage_duration_ms: '%{value} ms'
 chat_output_limit: 回复已达输出上限
 chat_turn_limit: 已达操作次数上限，已停止
 start_failed: '%{app} 无法启动'
@@ -2383,10 +2005,6 @@ content_link_address: 链接地址
 content_link_edit: 编辑链接
 content_image_address: 图片地址
 content_image_alt: 替代文本
-runtime_python_preparing: 正在准备
-python_creating: 准备依赖
-python_installing: 安装依赖
-python_validating: 检查依赖
 port_count: '%{count} 个端口'
 queue_messages_one: 1 条消息排队
 queue_messages_count: '%{count} 条消息排队'
@@ -2470,7 +2088,6 @@ meter_speed: 速度
 meter_model: 模型
 meter_show_details: 显示详情
 meter_hide_details: 收起
-configuration_follow_from_source: 来自控制端
 personal_kv_conflict: 个人数据冲突
 personal_kv_conflict_description: 已保留控制端当前值。本机调度和已完成的操作仍保留。
 resource_offline: 离线

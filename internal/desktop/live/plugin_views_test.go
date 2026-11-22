@@ -201,8 +201,6 @@ func testPluginViewOwnership(t *testing.T) {
 		root.packages.infos[info.Summary.Name] = info
 		section := pluginSettingsSection(root, info)
 		root.App.Navigate(shell.SettingsPage)
-		root.App.Settings.Open(section)
-		source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
 		tester := ui.NewTesterWith(func(view *ui.Context) {
 			theme.Apply(view, "", theme.Light)
 			root.mu.Lock()
@@ -217,6 +215,9 @@ func testPluginViewOwnership(t *testing.T) {
 			kit.ToastHost(view)
 		}, 960, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tester.SetLocale("en")
+		tester.Frame()
+		root.App.Settings.Open(section)
+		source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
 		tester.Frame()
 		failed := root.pluginViews.schemas[section]
 		root.workers.Wait()

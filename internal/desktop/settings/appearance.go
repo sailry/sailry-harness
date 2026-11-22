@@ -88,7 +88,7 @@ func appearance(c *ui.Context, look Look, m *Model) {
 		details(c, d, look)
 		if pkg := d.removing; pkg != nil {
 			open := true
-			if confirm(c, "remove-theme", &open, i18n.T(c, "appearance_uninstall"), i18n.T(c, "appearance_remove", "name", pkg.Name), i18n.T(c, "appearance_uninstall")) {
+			if Confirm(c, "remove-theme", &open, i18n.T(c, "appearance_uninstall"), i18n.T(c, "appearance_remove", "name", pkg.Name), i18n.T(c, "appearance_uninstall")) {
 				if d.actions != nil && d.actions.Uninstall != nil {
 					d.actions.Uninstall(pkg, func(ok bool) {
 						if ok && *look.Theme == pkg.ID {

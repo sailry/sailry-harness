@@ -70,7 +70,7 @@ func railPagesSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile), desktop.Harness()...)
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}

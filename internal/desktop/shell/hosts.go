@@ -84,6 +84,9 @@ func (a *App) openHost(id string, update bool) {
 // addHost is Add host (Shell::add_host): the Connections page's add dialog,
 // which settings draws.
 func (a *App) addHost() {
+	if !a.Settings.HasSection(settings.Connections) {
+		return
+	}
 	a.Navigate(SettingsPage)
 	a.Settings.Open(settings.Connections)
 	a.Settings.AddHost()
@@ -138,7 +141,7 @@ func (a *App) hostMenu(c *ui.Context, m *kit.Menu) {
 		return
 	}
 	actions := a.hostActions()
-	if (a.Hooks.EditHost != nil || !a.Demo()) && m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+	if a.Settings.HasSection(settings.Connections) && (a.Hooks.EditHost != nil || !a.Demo()) && m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
 		if a.Hooks.EditHost != nil {
 			a.Hooks.EditHost(a.Host)
 		} else {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -177,7 +178,8 @@ func TestSettingsTarget(t *testing.T) {
 		}
 		defer controllers[index].Close()
 	}
-	root, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	root, err := NewWithAssembly(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,8 +550,12 @@ func TestSettingsTarget(t *testing.T) {
 		var actions shell.ConversationActions
 		conversationView := ui.NewTester(func(c *ui.Context) { ctx, actions = root.conversation(c, cv, comp) }, 320, 240)
 		conversationView.Frame()
-		if liveActions, ok := actions.(*conversationActions); !ok || liveActions.r != remote {
+		liveActions, ok := actions.(*conversationActions)
+		if !ok || liveActions.r != remote {
 			t.Fatal("the fixture draft did not execute on the remote host")
+		}
+		if ctx.SelectModel == nil || !liveActions.CanManageTeams() {
+			t.Fatal("the assembled settings links are unavailable")
 		}
 		for _, link := range []struct {
 			section settings.Section
@@ -566,6 +572,20 @@ func TestSettingsTarget(t *testing.T) {
 			if root.App.Host != nodes[2].String() {
 				t.Fatal("a settings link changed the monitored host")
 			}
+		}
+		m.SetNativePages(nil)
+		defer m.SetNativePages(assembly.SettingsPages)
+		root.App.Navigate(shell.ConversationPage)
+		m.ManagedNode = nodes[2].String()
+		section := m.Section
+		ctx.SelectModel()
+		actions.ManageTeams()
+		if root.App.Page != shell.ConversationPage || m.Section != section || m.ManagedNode != nodes[2].String() {
+			t.Fatalf("an unavailable link changed navigation: page %s, section %s, host %q", root.App.Page, m.Section, m.ManagedNode)
+		}
+		conversationView.Frame()
+		if ctx.SelectModel != nil || actions.(*conversationActions).CanManageTeams() {
+			t.Fatal("the conversation offers links to omitted settings pages")
 		}
 	})
 	t.Run("custom prompt is loaded on demand and scoped to the selected host", func(t *testing.T) {
@@ -797,7 +817,7 @@ func TestGlobalSettingsFramesIgnoreMonitoredHost(t *testing.T) {
 	transport.snapshot.Node = protocol.NodeID{1}
 	controller := client.New(transport)
 	defer controller.Close()
-	root := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	root := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
 	remote := &Runtime{parent: root, App: root.App}
 	root.terminalSettings.known = true
 	root.terminalSettings.model = settings.Stored[settings.TerminalHost]{Revision: 3}

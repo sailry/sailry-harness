@@ -290,7 +290,12 @@ func (r *Runtime) openPluginSettings(owner *Runtime, info protocol.PluginInfo) b
 	if !localPluginSettings(info) {
 		root.selectPackageSettingsNode(owner)
 	}
-	root.App.Settings.Open(pluginSettingsSection(owner, info))
+	section := pluginSettingsSection(owner, info)
+	root.projectPluginSettings(nil)
+	if root.pluginViews.settings[section].owner != owner {
+		return false
+	}
+	root.App.Settings.Open(section)
 	root.App.Navigate(shell.SettingsPage)
 	return true
 }

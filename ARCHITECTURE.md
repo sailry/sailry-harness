@@ -71,7 +71,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/acceptance`, `internal/desktop/acceptance` | Explicit conversation acceptance and recorded UI replay |
 | `cmd/sailry-desktop`, `internal/assembly/desktop` | Official product identity and native page selection |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
-| `modules/{files,git,market}/desktop` | Native management page contributions selected at build time |
+| `modules/*/desktop` | Native workspace and settings pages selected at build time |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
 | `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
 | [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
@@ -895,8 +895,11 @@ Workspace content,
 navigation and details project into the shell's common columns; shell layout owns
 resizing, dividers and visibility. SSH and database workflows use package
 surfaces and reusable native components. The official assembly supplies fresh native
-page contributions to each window. Forks can supply their own page list to the
-application runner. Files and Git share the core panel editing state; their
+workspace and settings contributions to each window. Settings navigation and
+search combine these pages with the selected Node's plugin pages. Each source
+updates its own entries. The composer reads model and team choices from the
+Node regardless of which management pages the product includes. Files and Git
+share the core panel editing state; their
 full-page resource lists use the shell's details column, width and fold toggle,
 while conversation tabs retain their compact adaptive layout. Files and Git
 share their own project and worktree selection per window. Their breadcrumb

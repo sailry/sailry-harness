@@ -228,7 +228,7 @@ func plugins(c *ui.Context, s *State) {
 	pluginUpdatesDialog(c, m)
 	if p := m.pkg(m.uninstalling); p != nil {
 		open := true
-		if confirm(c, "uninstall", &open, t("plugins_uninstall"), t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
+		if Confirm(c, "uninstall", &open, t("plugins_uninstall"), t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
 			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
 				id := p.ID
 				details := s.Details
@@ -280,7 +280,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 		}
 		kit.MenuButton(c.Key("menu"), "plugin-menu-"+p.ID, func(b ui.Element) {
 			kit.IconLook(c, b, icons.Ellipsis, t("more"), "", 28, false)
-		}, func(menu *Menu) {
+		}, func(menu *kit.Menu) {
 			if menu.Item(t("plugins_information")).Icon(icons.Info).Chosen() {
 				s.ShowDetails(DetailPlugin, p.ID)
 			}
@@ -410,7 +410,7 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 				})
 			}
 		})
-		footer(c, t("settings_save"), m.ClosePackageConfiguration, func() {
+		DialogFooter(c, t("settings_save"), m.ClosePackageConfiguration, func() {
 			if !e.open || e.pending {
 				return
 			}
@@ -487,7 +487,7 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 					})
 				})
 			}
-			footer(c, title, func() { e.open = false }, func() {
+			DialogFooter(c, title, func() { e.open = false }, func() {
 				if e.pending {
 					return
 				}
@@ -511,9 +511,9 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 		}).Width(min(520, width(c)-48)).Label(title)
 		return
 	}
-	draftDialog(c, "plugin-install", &e.open, "plugins_install", []field{
-		{label: "plugins_package", hint: "form_package_hint", value: &e.pkg},
-		{label: "plugins_directory", hint: "form_directory_hint", value: &e.directory},
+	DraftDialog(c, "plugin-install", &e.open, "plugins_install", []DraftField{
+		{Label: "plugins_package", Hint: "form_package_hint", Value: &e.pkg},
+		{Label: "plugins_directory", Hint: "form_directory_hint", Value: &e.directory},
 	}, func() string {
 		if strings.TrimSpace(e.pkg) == "" {
 			return "plugins_package_required"

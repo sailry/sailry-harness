@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"context"
 	"slices"
 	"testing"
@@ -61,7 +62,7 @@ func TestSavedConnectionRelayUsesShortAddressAndKeepsPin(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			saved := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{row.primary, backup}}}
-			r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+			r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
 			model := &settings.NetworkEditor{}
 			picker := r.newConnectionPicker(nil, model, &saved)
 			t.Cleanup(picker.close)
@@ -88,7 +89,7 @@ func TestConnectionCatalogKeepsOnlyFixedChoicesAndPreservesRoutes(t *testing.T) 
 	preset := protocol.NetworkPreset{ID: "region", Label: protocol.PluginDesktopNavigation{Label: "Region"}, Selection: protocol.NetworkSelection{
 		Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"/dns4/listed.example/tcp/4001" + peer}},
 	}}
-	r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	r := &Runtime{ctx: t.Context(), connections: &connectionState{}, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
 	model := &settings.NetworkEditor{}
 	picker := r.newConnectionPicker(nil, model, &saved)
 	t.Cleanup(func() {
@@ -230,7 +231,7 @@ func TestSaveConnectionNetworkPinsCurrentCustomDraft(t *testing.T) {
 	local := protocol.NodeID{1}
 	controller := client.New(link.NewLocal(local, local, source))
 	defer controller.Close()
-	r := &Runtime{ctx: t.Context(), controller: controller, connections: &connectionState{}, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	r := &Runtime{ctx: t.Context(), controller: controller, connections: &connectionState{}, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
 	r.App.Page = shell.SettingsPage
 	r.App.Settings.Open(settings.Connections)
 	ctx, cancel := context.WithCancel(r.ctx)

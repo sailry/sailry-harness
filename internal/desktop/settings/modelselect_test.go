@@ -1,16 +1,13 @@
 package settings
 
 import (
-	"image/png"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // The settings pages' model fields are kit.ModelSelect: they name a model
@@ -55,50 +52,6 @@ func TestModelFields(t *testing.T) {
 		return nil, preview.ChannelModel{}
 	}
 
-	t.Run("role model", func(t *testing.T) {
-		m := NewModel(preview.SettingsData())
-		ch, x := channel(t, m)
-		id := ch.ID + "/" + x.ID
-		model, effort := "", ""
-		features := map[string]string{"speed": "fast"}
-		w := show(t, func(c *ui.Context) {
-			modelField(c, m, "model", "Model", "role_inherit", &model, &effort, &features)
-		})
-		follow, auto := i18n.In("en", "role_inherit"), i18n.In("en", "role_effort_inherit")
-		if trigger, _ := w.AccessByRole(ui.RoleButton, "Model"); trigger.Value != follow {
-			t.Fatalf("no model reads %q, want %q", trigger.Value, follow)
-		}
-		click(w, ui.RoleButton, "Model")
-		if w.HasText(id) || w.HasText(ch.ID) || !w.HasText(ch.Name) {
-			t.Errorf("the popover names ids or no channel: %q", w.Texts())
-		}
-		// Another model starts from Auto and without the old one's features.
-		click(w, ui.RoleOption, x.Name)
-		if model != id || effort != "" || features != nil {
-			t.Fatalf("chose %q at %q with %v, want %q at Auto", model, effort, features, id)
-		}
-		level := x.Efforts[len(x.Efforts)-1]
-		click(w, ui.RoleOption, level)
-		if model != id || effort != level {
-			t.Fatalf("chose %q at %q, want %q at %q", model, effort, id, level)
-		}
-		if trigger, _ := w.AccessByRole(ui.RoleButton, "Model"); trigger.Value != x.Name+" · "+level {
-			t.Errorf("the field reads %q", trigger.Value)
-		}
-		// An effort of the same model keeps its features.
-		features = map[string]string{"speed": "fast"}
-		click(w, ui.RoleButton, "Model")
-		click(w, ui.RoleOption, auto)
-		if model != id || effort != "" || features["speed"] != "fast" {
-			t.Errorf("Auto set %q at %q with %v", model, effort, features)
-		}
-		click(w, ui.RoleButton, "Model")
-		click(w, ui.RoleOption, follow)
-		if model != "" || effort != "" || features != nil {
-			t.Errorf("following set %q at %q with %v", model, effort, features)
-		}
-	})
-
 	t.Run("local model", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		lm := &LocalModels{Model: -1, Models: []preview.LocalModel{
@@ -107,10 +60,12 @@ func TestModelFields(t *testing.T) {
 			{ID: "b", Name: "Beta", Status: preview.ModelInstalled},
 		}}
 		lm.Enabled.Draft = true
+		catalog := i18n.New(os.DirFS("../../../modules/ocr/desktop"))
 		w := show(t, func(c *ui.Context) {
-			localModels(c, m, lm, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
+			i18n.Bind(c, catalog)
+			LocalModelLibrary(c, m, lm, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
 		})
-		label, none := i18n.In("en", "runtime_ocr_model"), i18n.In("en", "search_driver_auto")
+		label, none := catalog.In("en", "runtime_ocr_model"), catalog.In("en", "search_driver_auto")
 		if trigger, _ := w.AccessByRole(ui.RoleButton, label); trigger.Value != none {
 			t.Fatalf("no model reads %q, want %q", trigger.Value, none)
 		}
@@ -174,47 +129,4 @@ func TestModelFields(t *testing.T) {
 			t.Errorf("stored %q, want %q", field.Value, unknown)
 		}
 	})
-
-	// For review, with SAILRY_SNAPSHOTS set: the Media models page with a
-	// row's models open, and a role's model with its efforts, at 2x under
-	// .runtime/ui-shots/model-select.
-	if os.Getenv("SAILRY_SNAPSHOTS") == "" {
-		return
-	}
-	shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots", "model-select")
-	if err := os.MkdirAll(shots, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, mode := range []theme.Mode{theme.Dark, theme.Light} {
-		suffix := map[theme.Mode]string{theme.Light: "light", theme.Dark: "dark"}[mode]
-		m := NewModel(preview.SettingsData())
-		ch, x := channel(t, m)
-		model, effort := ch.ID+"/"+x.ID, x.Efforts[len(x.Efforts)-1]
-		var features map[string]string
-		for name, shot := range map[string]struct {
-			view func(c *ui.Context)
-			open string
-		}{
-			"settings-media": {func(c *ui.Context) { mediaModels(c, m) }, i18n.In("en", "media_image")},
-			"settings-role":  {func(c *ui.Context) { modelField(c, m, "model", "Model", "role_inherit", &model, &effort, &features) }, "Model"},
-		} {
-			tt := ui.NewTesterWith(func(c *ui.Context) {
-				theme.Apply(c, "", mode)
-				ui.Column(c).Fill().Padding(24).Background(theme.Of(c).Background).Children(func() { shot.view(c) })
-			}, 760, 560, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
-			tt.SetLocale("en")
-			tt.SetScale(2)
-			tt.Frame()
-			click(window{tt, t}, ui.RoleButton, shot.open)
-			tt.Frame()
-			out, err := os.Create(filepath.Join(shots, name+"-"+suffix+".png"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := png.Encode(out, tt.Image()); err != nil {
-				t.Fatal(err)
-			}
-			out.Close()
-		}
-	}
 }

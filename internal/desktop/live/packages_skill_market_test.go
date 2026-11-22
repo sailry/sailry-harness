@@ -14,7 +14,7 @@ import (
 func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
-		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
+		r.App = shell.NewLiveWithAssembly(r.App.Data, desktop.Harness())
 		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind = 1
@@ -123,7 +123,7 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
-		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
+		r.App = shell.NewLiveWithAssembly(r.App.Data, desktop.Harness())
 		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind, m.MarketSkillSource = 1, settings.SkillMarketSkillsSh

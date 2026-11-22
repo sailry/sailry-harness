@@ -201,13 +201,17 @@ func (r *Runtime) beginProviderLogin(id string) {
 }
 
 func (r *Runtime) beginProviderLoginFor(id string, recovery *controllerLoginRecovery) {
+	providerUI := r.App.ProviderUI
+	if providerUI == nil {
+		return
+	}
 	provider, ok := r.loginProvider(id)
 	if !ok {
 		r.providerLoginFinished(providerIDFromString(id), false)
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLoginFor(id, recovery) }, func() {
+		providerUI.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLoginFor(id, recovery) }, func() {
 			r.providerLoginFinished(provider.ID, false)
 		})
 		return
@@ -252,7 +256,6 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 	}
 	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name, recovery: recovery}
 	r.authorizations.provider = attempt
-	model := r.App.Settings.Model
 	view := &settings.Authorization{Title: provider.Name, Flow: settings.FlowStarting, Callback: manual}
 	attempt.view = view
 	view.OpenURL = func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }
@@ -267,7 +270,7 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 			r.beginProviderLoginFor(id, recovery)
 		}
 	}
-	model.ShowProviderAuthorization(r.controller.Target().String(), id, view)
+	r.App.ProviderUI.ShowProviderAuthorization(r.controller.Target().String(), id, view)
 	var started protocol.RequestID
 	started = r.loginRequest(protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision, Redirect: redirect}}, func(c *ui.Context, output protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
@@ -379,7 +382,7 @@ func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, 
 		return
 	}
 	expiry, terminal := projectAuthorization(view, value.State)
-	if value.State.Kind == "browser" && view.URL != "" && r.App.Settings.ProviderAuthorization() == view {
+	if providerUI := r.App.ProviderUI; value.State.Kind == "browser" && view.URL != "" && providerUI != nil && providerUI.ProviderAuthorization() == view {
 		c.OpenURL(view.URL)
 	}
 	if value.State.Kind == "failed" {

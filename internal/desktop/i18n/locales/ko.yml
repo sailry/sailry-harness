@@ -5,11 +5,6 @@ activity: 활동 보드
 files: 파일
 git: Git
 settings: 설정
-market_title: 마켓
-market_details: 세부 정보
-market_verified: 인증됨
-market_installs: 설치 수
-market_stars: 스타
 search: 검색
 sidebar_toggle: 탐색 확장 또는 축소
 more: 더 많은 작업
@@ -100,15 +95,9 @@ welcome_review_prompt: 잠재적인 문제 및 누락된 테스트에 초점을 
 welcome_plan: 계획을 세우세요
 welcome_plan_detail: 목표와 단계 명확화
 welcome_plan_prompt: 다가오는 개발 작업에 대한 단계별 계획을 세우는 데 도움을 주세요
-provider_channels: 채널
-provider_list_search: 공급자 또는 모델 검색
 settings_add: 추가
 settings_edit: 편집
 settings_delete: 삭제
-provider_model_count: '%{count} 모델'
-provider_enabled: 공급자 사용하기
-provider_status_missing_key: 키 없음
-provider_status_signed_out: 로그인 안 됨
 provider_auth_oauth: OAuth
 provider_auth_key: API 키
 provider_auth_plugin: 플러그인
@@ -118,7 +107,6 @@ plugins_configure: 설정
 plugins_uninstall: 제거
 plugins_install: 설치
 plugins_information: 정보
-plugins_none: 플러그인 없음
 composer: 당신이 달성하고 싶은 것을 설명하십시오
 composer_attachment: 첨부 파일 추가
 send: 보내기
@@ -205,7 +193,6 @@ close: 닫기
 shell_sessions: 대화
 notifications: 알림
 hosts: 호스트
-host_add: 호스트 추가
 sidebar_host_update: 업데이트
 local_host_name: 로컬
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: 폴더 열기
 shortcut_previous_conversation: 이전 대화
 shortcut_next_conversation: 다음 대화
 shortcut_sync: 동기화
-workspace_host: 호스트 정보
 connection_action_edit: 편집
 reference_back: 뒤로
 connection_search_empty: 일치하지 않음
@@ -373,7 +359,6 @@ project_duplicate_path: 이 호스트에는 이 경로에 이미 프로젝트가
 project_clone_required: 이름, 저장소 및 대상을 입력합니다
 settings_cancel: 취소
 settings_save_preview: 미리 보기 저장
-connection_no_projects: 프로젝트 없음
 workspace_project: 프로젝트 개요
 resource_browser: 브라우저
 terminal: 터미널
@@ -844,19 +829,8 @@ configuration_read_failed: 파일을 읽을 수 없습니다
 configuration_area_search: 웹 검색
 configuration_area_compaction: 컨텍스트 압축
 files_upload_picker: 파일 선택기를 열 수 없음
-connection_route_p2p: P2P
-connection_route_relay: Relay
-connections_device: 장치 %{id}
-connections_hosts: 호스트
-connections_mobile: 모바일
-connections_bidirectional: 양방향
-connections_legacy_bidirectional: 레거시 양방향
-connections_only_host: 호스트 전용
-connections_only_controller: 컨트롤러 전용
 connections_direction_saved: 기기 접근 방향이 업데이트됨
 connections_offline: 오프라인
-connections_online: 온라인
-connections_revoke_confirm: 페어링을 제거하려면 다시 연결해야 합니다
 dictation_access: 마이크 액세스
 dictation_access_granted: 허용됨
 dictation_access_hint: 이 앱에 대한 액세스 허용; 돌아올 때 다시 확인
@@ -870,40 +844,13 @@ dictation_microphone_default: 시스템 기본값
 dictation_microphone_label: 마이크
 dictation_model_name: SenseVoice INT8
 form_name_hint: 이름
-form_passphrase_hint: 개인 키 암호 (선택 사항)
 form_private_key_hint: 개인 키 붙여넣기
-form_value_hint: 값 입력
-form_variable_hint: 예를 들면 LANG
-hooks_add: Hook 추가
-hooks_after_tool: 도구 실행 후
-hooks_before_tool: 도구 실행 전
-hooks_command: 명령
-hooks_configure: Hook 설정
 hooks_conflict: Hook이 변경되었습니다. 다시 불러온 후 저장하세요
-hooks_consent: '%{host}에 있는 모든 대화의 이후 턴에서 이 스크립트를 실행합니다. 각 스크립트는 해당 작업의 작업 트리에서 실행됩니다.'
-hooks_empty: Hook 없음
-hooks_enable: Hook 활성화
-hooks_enabled: 활성화
 hooks_failed: Hook을 저장할 수 없습니다
-hooks_invalid: 명령 또는 제한 시간이 잘못되었습니다
-hooks_name: 이름
-hooks_phase: 단계
-hooks_remove: Hook 제거
 hooks_saved: Hook을 저장했습니다
-hooks_scope_workspace: 스크립트는 작업의 작업 트리에 쓸 수 있습니다. 네트워크 접근은 차단됩니다.
-hooks_scripts: 스크립트
 hooks_settings: Hook
 hooks_settings_description: 이 실행 호스트의 스크립트 설정
-hooks_timeout: 제한 시간(ms)
-hooks_turn_end: 턴 종료
 hooks_unknown: Hook 저장 결과가 불확실합니다. 원래 요청을 재시도하세요
-host_install: 설치 및 연결
-host_pairing_hint: Sailry가 설치된 기기에 연결
-host_pairing_mode: 페어링 코드
-host_ssh_mode: SSH로 설치
-host_install_hint: 서버에 Sailry를 설치하고 연결
-host_ssh_agent_hint: 이 컴퓨터의 SSH 에이전트에 로드된 키 사용
-ssh_authentication: 인증
 connection: 연결
 knowledge_downloading: 다운로드 중
 knowledge_install: 설치
@@ -921,17 +868,8 @@ message_display_detailed: 자세히
 model_library_select: 선택
 model_library_selected: 선택됨
 model_library_source: 소스
-pairing_connect: 장치 연결
-pairing_local_code: 로컬 페어링 코드
-pairing_pin_hint: 6자리 페어링 코드 입력
-pairing_preview_disabled: UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다
-pairing_relay_address: 릴레이 주소
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 사용자 지정
 pairing_relay_direct: 직접 연결만 (LAN)
-pairing_relay_server: 연결 서버
-pairing_share: 이 장치 공유하기
-pairing_share_hint: 다른 장치의 원격 연결에서 이 코드를 입력하십시오
 permission_check: 확인
 permission_disk_help: Sailry이 누락된 경우 + 를 사용하여 추가하거나 앱을 목록으로 드래그하십시오
 permission_full_disk: 전체 디스크 액세스
@@ -961,15 +899,7 @@ power_settings_conflict: 설정이 변경되었습니다. 다시 불러오세요
 power_settings_failed: 절전 설정을 불러오거나 저장할 수 없습니다
 power_settings_saved: 저장됨
 power_settings_unknown: 저장 결과를 알 수 없습니다. 다시 불러와 확인하세요
-runtime_ocr: 문자 인식
-runtime_ocr_enable: OCR 사용
-runtime_ocr_model: OCR 모델
 runtime_python: Python
-runtime_python_bundled: 내장
-runtime_python_custom: 사용자 지정
-runtime_python_custom_url: 패키지 소스 URL
-runtime_python_index: 패키지 소스
-runtime_python_version: 버전
 sandbox_settings_conflict: 명령 샌드박스 설정이 변경되었습니다. 새로고침하세요
 sandbox_settings_failed: 명령 샌드박스 설정을 불러오거나 저장할 수 없습니다
 sandbox_settings_saved: 저장됨
@@ -998,9 +928,6 @@ settings_decision_description: 로컬 판단 모델 설정
 settings_dictation_description: 메시지 초안에 로컬로 쓰기
 settings_empty: 항목 없음
 settings_execution: 실행
-settings_font_default: 기본값
-settings_font_family: 글꼴
-settings_font_size: 글꼴 크기
 settings_general_description: 알림 및 장치 페어링 서비스 관리
 settings_global_commands: 전역 명령
 settings_knowledge_description: 선택한 호스트의 지식
@@ -1028,8 +955,6 @@ settings_notify_failed: 작업 실패 알림
 settings_notify_system: 시스템 알림Comment
 settings_ocr: OCR
 settings_ocr_description: 텍스트 인식 설정
-settings_paste_description: 여러 줄을 붙여넣기 전에 확인하기
-settings_paste_protection: 멀티라인 페이스트 보호
 settings_permissions_description: Sailry님의 시스템 접속
 settings_runtime: 실행 환경
 settings_runtime_description: 현재 Node 설정
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: 성능 표시기
 settings_skills_description: 세션에 사용 가능한 스킬 관리
 settings_teams_description: 하위 에이전트의 역할과 팀
 settings_terminal_description: 터미널 환경 및 디스플레이
-settings_terminal_display: 디스플레이 및 입력
 settings_toast_description: 앱 내 알림이 표시되는 기간
 settings_toast_duration: 알림 기간
 shortcut_activate: Sailry 표시
@@ -1083,19 +1007,10 @@ telemetry_send_action: 진단 정보 보내기
 telemetry_support: 지원
 telemetry_title: 진단 및 개인정보
 telemetry_unknown: 결과를 알 수 없습니다. 새로고침하여 확인하세요
-terminal_environment: 전역 환경 변수
-terminal_environment_add: 환경 변수 추가
 terminal_input: 입력
 terminal_settings_conflict: 터미널 설정이 변경되었습니다. 편집 내용은 유지됩니다Name
 terminal_settings_failed: 터미널 설정을 읽거나 저장할 수 없습니다
 terminal_settings_unknown: 확인되지 않은 결과 저장; 재로드 및 검토
-terminal_shell: 기본 Shell
-terminal_shell_default: 호스트 기본값
-terminal_shell_group: Shell
-terminal_value: 값
-terminal_variable: 변수 이름
-terminal_variable_duplicate: 변수가 이미 존재합니다
-terminal_variable_invalid: 잘못된 변수 이름, 예약된 설정 또는 코드 로딩 변수
 updates_channel: 업데이트 채널
 updates_channel_experience: 체험 버전
 updates_channel_stable: 정식 버전
@@ -1125,118 +1040,20 @@ authorization_cancel: 취소
 compaction_settings_failed: 압축 설정을 저장할 수 없습니다
 compaction_settings_conflict: 압축 설정이 변경되었습니다. 다시 시도하세요
 compaction_settings_unknown: 저장 결과를 확인하지 못했습니다. 다시 시도하세요
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: 공급자 없음
-provider_login_callback_required: 브라우저에서 받은 인증 코드 또는 리디렉션 URL을 입력하세요
-provider_delete_title: 공급자 삭제
-provider_remove_effect: 세션은 다른 공급자를 선택해야 합니다
-provider_catalog_never: 업데이트되지 않음
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: 업데이트
-provider_catalog: 모델 데이터
-provider_catalog_update: 업데이트
-provider_catalog_status: 모델 메타데이터
-provider_scores: 모델 점수
-provider_catalog_last_update: 마지막으로 업데이트됨
-provider_compaction_threshold: 압축 임계값
 provider_all: 모든 유형
 provider_type: 공급자 유형
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: 모델이 설정되지 않았습니다
-provider_connect: 계정 연결
-provider_reconnect: 로그인
 provider_access_key: API 키
-provider_access_no_key: API 키 불필요
 provider_access_cloud: 클라우드 자격 증명
-provider_name_required: 공급자 이름 입력
-provider_endpoint_required: 유효한 API 엔드포인트 입력
-provider_key_required: 키 입력
-provider_model_required: 모델 추가 및 ID 입력
-provider_model_duplicate: 모델 ID는 고유해야 합니다
-provider_limits_invalid: 컨텍스트 제한은 출력 제한보다 적어도 큰 양수가 되어야 합니다
 provider_access_endpoint: 사용자 지정 엔드포인트
-provider_add_title: 공급자 추가
-provider_choose_method: 연결 방식 선택
-provider_configure: 공급자 설정
-provider_edit_title: 공급자 편집
 provider_step_back: 이전
-provider_save: 저장
-provider_save_login: 저장 후 로그인
 provider_access_login: 계정 로그인
-provider_name_hint: 공급자 이름 입력
-provider_api: API 프로토콜
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: 상품
-provider_metered: 사용량 기반
-provider_coding: 코딩 플랜
-provider_region: 지역
-provider_region_china: 중국
-provider_region_global: 글로벌
-provider_endpoint: API 엔드포인트
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: API 키 입력
-provider_api_key: API 키
-provider_get_key: API 키 받기
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: 고급 설정
-provider_oauth_catalog_version: 목록 버전
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: 편집기 버전
-provider_oauth_editor_plugin_version: 편집기 플러그인 버전
-provider_headers: 사용자 지정 요청 헤더
-provider_headers_invalid: 값이 있는 요청 헤더에는 이름이 필요합니다
-provider_billing_rate: 과금 배율
-provider_billing_rate_hint: 예상 비용을 계산할 때 적용할 API 요금의 비율(%)
-provider_billing_rate_invalid: 과금 배율은 0 이상이어야 하며 소수점 이하 두 자리까지 입력할 수 있습니다
 provider_billing_rate_unsupported: 이 호스트 버전에서는 과금 배율을 지원하지 않습니다. 다른 설정은 저장되었습니다
-provider_models: 모델
-provider_discover: 모델 업데이트
-provider_querying: 쿼리 중
-provider_discovered_preview: 미리보기 모델 병합; 수동 모델 및 기본 선택 유지
-provider_add_model: 모델 추가
-provider_new_model: 새 모델
-provider_model_default: 기본값
-provider_set_default: 기본값으로 설정
-provider_default: 기본 모델
-provider_model_id: 모델 ID
-provider_deployment_id: 배포 이름
-provider_api_version: API 버전
-form_api_version_hint: 예를 들어 2024-10-21
-provider_cloud_required: 클라우드 공급자 구성 입력
-form_model_hint: 모델 ID
 provider_context: 컨텍스트 제한(Token)
-form_tokens_hint: Token 수
-provider_efforts: 추론 노력
-provider_effort_default: 기본 노력
-provider_effort_placeholder: 노력 또는 Token 예산
-provider_effort_invalid: 잘못된 추론 노력; 이름, 중복 및 API 지원 확인
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: 자동
-knowledge_settings: 기본 설정
-knowledge_default_model: 벡터 모델
-knowledge_keyword_only: 키워드만
 knowledge_collections: 컬렉션
-knowledge_collection_pending: 색인 대기 중
-knowledge_collection_unavailable: 스토리지 Node를 사용할 수 없음
-knowledge_collection_indexing: 색인 중 · %{count}개 항목
-knowledge_collection_ready: 최신 상태 · %{count}개 항목
-knowledge_collection_paused: 일시 중지됨
-knowledge_collection_failed: 실패 · %{reason}
-knowledge_collection_failures: '%{count}개 색인 안 됨 · %{reason}'
-knowledge_pause: 일시 중지
-knowledge_resume: 재개
-knowledge_update: 업데이트
-runtime_decision: 판단
-runtime_decision_model: 모델
-runtime_decision_enable: 판단 사용
-local_models_none: 없음
 connector_oauth: OAuth
 connector_application: 앱 인증 정보
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: 플러그인 비활성화됨
 connector_account_disabled: 계정 비활성화됨
 connector_configuration_required: 설정 필요
 connector_unavailable: 사용 불가
-connector_search: 커넥터 검색
-connector_all_methods: 모든 방식
-connector_filter: 인증 방식
-mcp_add: 추가 MCP
-connector_preview: 미리 보기
-connector_empty: 연결 없음
-connector_remove: 삭제
-connector_remove_effect: “%{name}” 연결을 삭제할까요? 설정과 자격 증명이 삭제됩니다
 connector_removed: 삭제됨
-connector_mcp_connecting: 연결 중
 connector_mcp_failed: 연결 실패
 connector_connected: 연결됨
-connector_mcp_tools: 도구 %{n}개
-connector_connect: 연결
-connector_account_enabled: 계정 활성화
-connector_server_allowed: 서버 활성화
 connector_saved: 저장됨
-connector_details: 세부 정보
-connector_configure: 설정
-connector_confirm: 확인
-connector_bind: 연동
-connector_reauthorize: 다시 인증
-connector_add_credentials: 인증 정보 추가
-connector_probe: 확인
-connector_mcp_reconnect: 다시 연결
-connector_add: 커넥터 추가
-connector_added: 추가됨
-connector_choose_account: 연결할 계정 선택
-connector_browser: 브라우저에서 인증
-form_secret_hint: 자격 증명 입력
-connector_register: 앱 만들기
-connector_authorize: 인증
-mcp_invalid: 이름, 연결 및 변수 확인
-connector_mcp_server: 서버
 market_details_tools: 도구
-connector_mcp_updated_at: 업데이트
-connector_mcp_error: 오류
-mcp_edit: MCP 구성
-mcp_transport: 교통
-plugins_stdio: 표준 입력/출력
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: 명령
-mcp_command_hint: npx, uvx 또는 실행 파일
-mcp_arguments: 인자
-mcp_argument: 인자 값
-mcp_remove_argument: 인수 삭제
-mcp_add_argument: 인자 추가
 mcp_url: 서버 URL
-mcp_url_hint: https://example.com/mcp
-mcp_environment: 환경 변수
-mcp_add_environment: 환경 변수 추가
-mcp_headers: 헤더
 mcp_add_header: 머릿말 추가
 mcp_slot_name: 이름
-mcp_secret_saved: 자격 증명이 저장되었습니다. 유지하려면 비워두십시오
 mcp_show_secret: 자격 증명 표시
 mcp_hide_secret: 자격 증명 숨기기
-connector_no_auth: 인증 불필요
-connector_mcp_status: 상태
-connector_mcp_updated: 업데이트 %{time}
-plugins_settings_reload: 새로고침
-plugins_settings_diagnostics: 상세 정보
 mcp_slot_value: 값
-mcp_remove_slot: 항목 제거
 mcp_configuration_saved: MCP 구성 저장됨
 mcp_oauth_callback_failed: 인증 콜백을 받을 수 없습니다. 다시 시도하십시오
 mcp_oauth_failed: 인증 실패; 다시 시도하십시오
@@ -1325,86 +1088,18 @@ role_duplicate: 식별자가 이미 존재함
 teams_settings_failed: 동시 실행 수를 저장하지 못했습니다
 teams_settings_conflict: 설정이 변경되었습니다. 다시 불러와 저장하세요
 teams_settings_unknown: 저장 결과를 알 수 없습니다. 다시 시도해 확인하세요
-role_preset_review: 코드 검토
-role_review_description: 변경 사항을 검토하고 근거 있는 문제를 보고합니다
-role_prompt_review: |-
-    지정된 범위 내에서 코드 및 변경 사항을 검토하고 정확성, 에지 사례, 회귀 위험 및 기존 규약에 초점을 맞춥니다.
-    관련 구현 및 테스트를 먼저 읽은 다음 위치, 영향 및 권장 사항을 포함한 증거에 기반한 결과를 보고합니다. 파일을 수정하지 마십시오; 문제가 발견되지 않았을 때 명확하게 명시하십시오.
-role_preset_implement: 구현
-role_implement_description: 범위를 좁힌 변경을 구현하고 검증합니다
-role_prompt_implement: |-
-    먼저 기존 아키텍처, 코딩 규약 및 수락 요구 사항을 이해하고 할당된 구현을 완료합니다.
-    기존 기능을 재사용하고, 변경 사항에 초점을 맞추고, 영향을 받은 동작을 검증합니다. 완료된 작업, 실제 검사 및 남은 제한 사항을 보고합니다.
-role_preset_test: 검증
-role_test_description: 검사를 실행하고 검증 결과를 보고합니다
-role_prompt_test: |-
-    할당된 변경이나 동작을 검증하세요. 관련된 기존 테스트와 검사를 찾아 범위를 다루는 최소한의 항목만 실행하고, 요청받은 경우에만 테스트를 추가하세요.
-    실행한 명령, 결과, 실패와 그 예상 원인을 보고하세요. 검사를 통과시키려고 구현 코드를 변경하지 마세요.
 role_preset_docs: 문서 작성
 role_docs_description: 프로젝트 문서를 작성하고 업데이트합니다
 role_prompt_docs: |-
     할당된 범위의 문서를 작성하거나 업데이트하세요. 먼저 관련 코드와 기존 문서를 읽고 그 구조와 용어를 따르며, 간결하고 정확하게 작성하세요.
     변경한 파일과 확인하지 못한 사실을 보고하세요.
-role_preset_plan: 구현 계획
-role_plan_description: 구현 단계와 검증 기준을 정리합니다
-role_prompt_plan: 현재 동작과 제약을 확인하고 설계에 영향을 주는 선택지를 파악하세요. 검증 가능한 단계로 나누어 의존 관계와 확인 방법을 명시하세요. 주 에이전트의 판단이 필요한 가정을 표시하고 프로젝트 파일은 그대로 두세요.
-role_preset_frontend: UI 설계 및 구현
-role_frontend_description: 화면 구성, 시각적 위계와 상호작용을 설계하고 구현합니다
-role_prompt_frontend: 기존 디자인 시스템에 맞춰 레이아웃, 시각적 위계와 사용자 조작을 설계하고 구현하세요. 필요한 키보드 조작과 로딩 및 오류 상태를 처리하세요. 지원하는 창 크기에서 확인하고 참고 이미지가 있으면 비교하세요.
-role_preset_troubleshoot: 고난도 문제 해결
-role_troubleshoot_description: 복잡한 기능을 구현하고 여러 번 시도해도 풀리지 않는 문제를 해결합니다
-role_prompt_troubleshoot: 복잡한 구현이나 두세 번 시도해도 막힌 작업을 맡으세요. 기존 증거와 시도를 살펴 핵심 가설을 검증하고 필요한 구현이나 수정을 완료하세요. 원래 조건에서 다시 확인하고 변경 사항, 결과와 남은 제약을 보고하세요.
-role_model_hint_review: '상위 세션을 중지할 때 하위 에이전트도 멈추는지 등 여러 모듈에 걸친 검토에는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
-role_model_hint_implement: '설정 항목 추가와 저장 등 범위가 명확한 변경에는 균형형 코딩 모델(예: Sonnet)이 적합합니다.'
-role_model_hint_test: '특정 회귀 테스트를 실행할 때는 빠른 모델(예: Haiku)을, 타이밍에 민감한 테스트를 조사할 때는 추론 성능이 높은 모델을 선택하세요.'
-role_model_hint_plan: '기존 세션을 보존하는 기록 마이그레이션 등 설계 대안을 비교할 때는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
-role_model_hint_frontend: '화면 구현에는 균형형 코딩 모델(예: Sonnet)이 적합합니다. 설정 화면과 스크린샷을 비교할 때는 이미지 입력을 지원하는 모델을 선택하세요.'
-role_model_hint_troubleshoot: '긴 대화를 스크롤할 때 메모리 사용량이 급증하는 현상처럼 재현이 어려운 문제에는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
-team_role_one: 역할 1개
-team_role_count: 역할 %{count}개
 teams_concurrency: 하위 에이전트 동시 실행 수
-teams_concurrency_description: 대화별 동시에 실행할 하위 에이전트의 최대 수
 teams_roles: 역할
-team_new: 새 팀
-role_new: 새 역할
-team_delete: 팀 삭제
-team_delete_prompt: “%{name}” 팀을 삭제할까요? 역할은 유지됩니다
 team_deleted: 팀을 삭제했습니다
-teams_role_delete_prompt: “%{name}” 역할을 삭제할까요? 모든 팀에서 제외됩니다
 teams_role_deleted: 역할을 삭제했습니다
-team_builtin: 기본 제공
 team_default: 기본 팀
-team_default_description: 모든 역할을 포함하며 대화 모델을 따릅니다
-team_follow_conversation: 대화 따르기
-teams_roles_empty: 역할 없음
-role_inherit: 세션 모델 상속
-teams_read_only: 읽기 전용
-role_effort_inherit: 자동
-team_edit: 팀 편집
-teams_description: 설명
-team_lead_model: 리더 모델
-team_lead_instructions: 리더 프롬프트
-team_members: 구성원
-team_members_empty: 아직 역할이 없습니다
-teams_follow_lead: 리더 따르기
-team_member_remove: 팀에서 제외
-team_add_role: 역할 추가
-team_duplicate: 복제
-team_copy_name: '%{name} 사본'
-team_create: 만들기
 team_saved: 팀을 저장했습니다
-teams_role_edit: 역할 편집
-role_presets: 사전 설정
-role_id: 식별자
-teams_key_hint: '예: code-reviewer'
-teams_model: 모델
-role_instructions: 지침
-role_save: 저장
 teams_role_saved: 역할을 저장했습니다
-role_avatar: 아바타
-role_avatar_seed: 아바타 %{seed}
-role_avatar_shuffle: 다른 아바타
-role_avatar_none: 기본 아바타
 market_plugin_details: 플러그인 세부 정보
 market_skill_details: 스킬 세부 정보
 market_skill_document_failed: 스킬 문서를 불러올 수 없습니다
@@ -1450,23 +1145,11 @@ market_category_development: 개발
 market_category_automation: 자동화
 market_category_data: 데이터
 market_category_entertainment: 엔터테인먼트
-market_plugins: 플러그인
-market_skills: 스킬
-market_themes: 테마
-market_kind: 마켓 유형
-market_search_plugins: 플러그인 검색
-market_search_skills: 스킬 검색
-market_search_themes: 테마 검색
-market_source_official: 공식
-market_source_community: 커뮤니티
-market_all: 전체
-market_installed_only: 설치된 항목만
 market_theme_current: 사용 중
 market_details_source_official: 공식 카탈로그
 market_details_source_community: 커뮤니티
 skills_no_matches: 일치하는 스킬이 없음
 market_theme_apply: 적용
-market_no_themes: 일치하는 테마가 없습니다
 market_theme_builtin: 기본 제공
 plugins_settings_title: 플러그인 설정
 plugins_failed: 플러그인 작업 실패
@@ -1525,30 +1208,11 @@ plugins_update_version: '%{version}로 업데이트'
 plugins_updates_later: 나중에
 plugins_updates_selected: 업데이트 (%{count})
 plugins_retry: 다시 시도
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: 디렉터리
-skill_source_archive: 압축 파일
-skill_source_link_invalid: 스킬 상세 페이지 URL을 입력하세요
 skills_package_source: 플러그인 %{name}에서
-skills_search: 스킬 검색
 skills_install: 스킬 설치
-skills_remove_effect: 제거 %{name}; 실행 중인 작업은 영향을 받지 않습니다
 settings_update: 업데이트
-skills_manage_package: 플러그인 관리
-skill_source_reimport: 다시 가져오기
-skill_source_origin: 출처
-skill_source_git_help: Git 저장소를 입력하세요. 참조와 스킬 디렉터리는 선택 사항입니다
-skills_subdirectory: 하위 디렉터리 (선택 사항)
-skills_path_hint: 선택 사항
-skill_source_skills_help: skills.sh 상세 URL을 입력해 원본 스킬을 찾으세요
-skill_source_link: 스킬 URL
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: skillhub.cn 상세 URL을 입력해 검증된 패키지를 설치하세요
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: 폴더 선택
-skill_source_choose_archive: 압축 파일 선택
 git_diff: 차이
 git_diff_side_by_side: 나란히
 git_diff_inline: 인라인
@@ -1567,14 +1231,12 @@ model_library_speech: 음성 모델
 model_library_decision: 판단
 onboarding_title: '%{app}에 오신 것을 환영합니다'
 onboarding_description: 모델을 연결하고 시작하세요
-onboarding_host_unavailable: 호스트를 사용할 수 없습니다
 workspace_host_status: 연결 끊김 · UI 미리보기
 local_host_detail: macOS · aarch64 · 미리보기
 remote_host_detail: Linux · x86_64 · 미리보기
 host_update: 호스트 업데이트
 workspace_worktrees: 작업 트리
 workspace_sessions: 세션
-host_runtime_loading: 런타임 읽기 (미리보기)
 host_version: 호스트버전
 host_uptime: 가동 시간
 host_protocol: 프로토콜 버전
@@ -1921,7 +1583,6 @@ notebook_cell: 셀 %{number}
 notebook_empty: 셀 없음
 git_diff_binary: 바이너리 diff를 표시할 수 없음
 git_diff_partial: 부분 차이
-hooks_scope_windows: 스크립트는 현재 Windows 명령 정책을 사용합니다
 teams_role_conflict: 역할이 변경되었습니다. 다시 여세요
 team_conflict: 팀이 변경되었습니다. 다시 여세요
 role_model_unavailable: 선택한 모델 또는 공급자를 사용할 수 없습니다
@@ -1939,11 +1600,8 @@ host_install_installing: 호스트 설치 중
 host_install_pairing: 페어링
 host_install_unknown: 설치 결과 확인되지 않음; 호스트를 확인하고 다시 시도하십시오
 host_ssh_windows_pairing: Windows에서는 Sailry 데스크톱을 설치하고 연 다음 페어링 코드로 호스트를 추가하세요.
-host_step_connect: 호스트에 연결
-host_step_pair: 페어링
 model_effort: 강도
 host_network_conflict: 네트워크 설정이 변경되었습니다. 다시 시도하세요
-host_network_edit: 호스트 편집
 host_network_failed: 네트워크를 변경할 수 없습니다
 host_network_load_failed: 네트워크 설정을 불러올 수 없습니다
 host_network_saved: 네트워크 변경됨
@@ -1954,9 +1612,6 @@ host_update_restart: Host가 다시 시작되며 실행 중인 작업이 중지�
 host_updated: Host가 업데이트되었습니다
 pairing_failed: 페어링 실패; 코드 또는 네트워크를 확인하고 다시 시도하십시오
 pairing_invalid_endpoint: 유효한 HTTPS 페어링 서비스 URL 입력
-pairing_preparing: 연결 준비 중
-pairing_refresh_hint: 60초 동안 유효하며 만료시 새로 고침
-pairing_relay_checking: 릴레이 검사 중
 pairing_relay_failed: 리레이에 연결할 수 없습니다. URL을 확인하고 다시 시도하십시오
 pairing_relay_invalid: 유효한 릴레이 주소를 입력하세요
 pairing_relay_ready: 릴레이 연결됨
@@ -1967,7 +1622,6 @@ settings_retry: 다시 시도
 ssh_key_changed: 호스트 키 변경, 지문 확인
 ssh_trust: 신뢰
 ssh_trust_title: 호스트 키 신뢰
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: 호스트 런타임을 읽을 수 없음
 live_metrics_loading: 메트릭 불러오는 중
 live_metrics_error: 호스트 메트릭을 읽을 수 없음
@@ -1995,14 +1649,6 @@ authorization_connected: 연결됨
 connector_bound: 연동됨
 connector_checked: 연결 정상
 connector_mcp_reconnected: 연결됨, 도구 %{n}개
-connector_consent_effect: 변경된 연결 권한 허용
-connector_changed_origins: 출처
-connector_changed_scopes: 권한 범위
-connector_changed_client: 클라이언트
-connector_changed_flow: 로그인 방식
-connector_changed_targets: 인증 정보 대상
-connector_changed_mcp: MCP 서버
-connector_changed_source: 패키지 출처
 appearance_up_to_date: 테마가 최신 상태입니다
 appearance_updates_available: 업데이트 있음
 market_themes_failed: 테마를 불러올 수 없습니다
@@ -2170,51 +1816,26 @@ updates_profile_inside: 데이터 프로파일이 %{app} 안에 있습니다. �
 compatibility_update_unavailable: 이 버전은 아직 자동 업데이트할 수 없습니다
 settings_media: 미디어 모델
 settings_media_description: 이미지, 오디오 및 비디오 작업에 대한 모델 관리
-provider_cap_text: 텍스트
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: 비전
-provider_cap_tools: 도구
-provider_cap_reasoning: 추론
 provider_cap_image: 이미지 생성
 provider_cap_video: 비디오 생성
 media_speech_synthesis: 음성 합성
-media_model_unavailable: 모델을 사용할 수 없음
 media_conflict: 설정 변경; 다시 선택
 media_unknown: 저장 결과가 알 수 없습니다. 현재 설정을 확인하십시오
 media_failed: 저장 실패
-provider_capabilities: 기능
 provider_cap_understands: 이해
 provider_cap_can: 지원
-provider_cap_generates: 생성
 media_image: 이미지
 media_video: 동영상
 media_speech: 음성
-media_follow: 대화 모델 따르기
 media_load_failed: 미디어 모델을 읽을 수 없음
 market_load_more: 더 불러오기
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: 아직 기록이 없습니다
 panel_documents_empty: 아직 문서가 없습니다
-connections_copy_id: ID 복사
 host_check_status: 상태 확인
 ssh_agent_short: 대리인
 ssh_keep_credential: 저장된 자격 증명을 유지하려면 비워 두십시오
 ssh_busy: 다른 연결이 바빠서 곧 다시 시도하십시오
-connection_scope: 범위
-connection_private: 비공개
-connection_global: 전역 공유
-connection_projects: 프로젝트 공유
-host_wsl: WSL
-host_wsl_distribution: 배포판
-host_wsl_requirement: WSL2, GNU Linux x64/arm64 및 systemd 필요
-host_wsl_empty: 설치된 WSL2 배포판 없음
 host_wsl_load_failed: WSL 배포판을 불러올 수 없음
 files_unsaved: 저장되지 않은 변경 사항
 files_unsaved_description: 닫기 전에 변경 사항을 저장할까요?
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: 응답이 먼저 끝나 새 메시지로 대기열에 �
 queue_halt_interrupted: 응답이 중단됨. 대기 중인 메시지는 유지됨
 queue_halt_unsent: 메시지가 전송되지 않아 대기열에 유지됨
 usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
+usage_duration_ms: '%{value} ms'
 chat_output_limit: 출력 한도에 도달하여 응답이 잘림
 chat_turn_limit: 작업 한도에 도달하여 중지됨
 start_failed: '%{app}를 시작할 수 없음'
@@ -2383,10 +2005,6 @@ content_link_address: 링크 주소
 content_link_edit: 링크 편집
 content_image_address: 이미지 주소
 content_image_alt: 대체 텍스트
-runtime_python_preparing: 준비 중
-python_creating: 의존성 준비 중
-python_installing: 의존성 설치 중
-python_validating: 의존성 확인 중
 port_count: 포트 %{count}개
 queue_messages_one: 대기 중인 메시지 1개
 queue_messages_count: 대기 중인 메시지 %{count}개
@@ -2470,7 +2088,6 @@ meter_speed: 속도
 meter_model: 모델
 meter_show_details: 자세히 보기
 meter_hide_details: 접기
-configuration_follow_from_source: 컨트롤러에서
 personal_kv_conflict: 개인 데이터 충돌
 personal_kv_conflict_description: 컨트롤러의 현재 값이 유지되었습니다. 로컬 일정과 완료된 작업은 보존되었습니다.
 resource_offline: 오프라인

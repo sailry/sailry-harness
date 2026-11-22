@@ -11,10 +11,28 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // The catalogs hold the listed keys and every key the source names.
 func TestCatalogKeys(t *testing.T) {
+	const modulesDir = "../../../modules"
+	paths, err := filepath.Glob(filepath.Join(modulesDir, "*", "desktop", "locales", "en.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleCatalogs := make(map[string]*Catalog, len(paths))
+	var sources []fs.FS
+	for _, path := range paths {
+		desktop := filepath.Dir(filepath.Dir(path))
+		source := os.DirFS(desktop)
+		sources = append(sources, source)
+		moduleCatalogs[filepath.Base(filepath.Dir(desktop))] = New(source)
+	}
+	all := New(sources...)
+
 	// Every key listed is in every catalog, and the catalogs hold nothing else.
 	t.Run("CatalogsComplete", func(t *testing.T) {
 		f, err := os.Open("keys.txt")
@@ -28,6 +46,9 @@ func TestCatalogKeys(t *testing.T) {
 			if k := strings.TrimSpace(s.Text()); k != "" && !strings.HasPrefix(k, "#") {
 				want[k] = true
 			}
+		}
+		if err := s.Err(); err != nil {
+			t.Fatal(err)
 		}
 		for _, lang := range Languages {
 			keys := Keys(lang)
@@ -75,16 +96,16 @@ func TestCatalogKeys(t *testing.T) {
 			"acceptance_failed", "acceptance_blocked", "acceptance_skipped", "acceptance_canceled", "acceptance_finished", "acceptance_issues",
 			"acceptance_run_failed", "acceptance_run_canceled",
 		} {
-			if _, listed := catalogs["en"][key]; listed {
+			if _, listed := all.messages["en"][key]; listed {
 				t.Errorf("%s is the copy of a removed control: see Removed UI in AGENTS.md", key)
 			}
 		}
 	})
-	// Every literal key the source passes to i18n.T or i18n.In is in the
-	// English catalog, so no view shows a raw key.
+	// Every literal translation key is available with its owning module or in
+	// the shared catalog. In without a window resolves shared keys only.
 	t.Run("SourceKeys", func(t *testing.T) {
 		fset := token.NewFileSet()
-		for _, dir := range []string{"../..", "../../../cmd"} {
+		for _, dir := range []string{"../..", "../../../cmd", modulesDir} {
 			err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 				if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 					return err
@@ -92,6 +113,17 @@ func TestCatalogKeys(t *testing.T) {
 				f, err := parser.ParseFile(fset, path, nil, 0)
 				if err != nil {
 					return err
+				}
+				catalog := shared
+				if dir == modulesDir {
+					rel, err := filepath.Rel(dir, path)
+					if err != nil {
+						return err
+					}
+					module, _, _ := strings.Cut(rel, string(filepath.Separator))
+					if local := moduleCatalogs[module]; local != nil {
+						catalog = local
+					}
 				}
 				ast.Inspect(f, func(n ast.Node) bool {
 					call, ok := n.(*ast.CallExpr)
@@ -109,7 +141,11 @@ func TestCatalogKeys(t *testing.T) {
 					if !ok || lit.Kind != token.STRING {
 						return true
 					}
-					if key, _ := strconv.Unquote(lit.Value); catalogs["en"][key] == "" {
+					messages := catalog.messages["en"]
+					if sel.Sel.Name == "In" {
+						messages = shared.messages["en"]
+					}
+					if key, _ := strconv.Unquote(lit.Value); messages[key] == "" {
 						t.Errorf("%s: %s is not in the catalog", fset.Position(lit.Pos()), key)
 					}
 					return true
@@ -124,7 +160,11 @@ func TestCatalogKeys(t *testing.T) {
 }
 
 func TestPlaceholdersAndMatch(t *testing.T) {
-	if got := In("en", "provider_model_count", "count", 3); got != "3 models" {
+	if got := In("en", "usage_duration_ms", "value", 41); got != "41 ms" {
+		t.Errorf("shared duration: %q", got)
+	}
+	providers := New(os.DirFS("../../../modules/providers/desktop"))
+	if got := providers.In("en", "provider_model_count", "count", 3); got != "3 models" {
 		t.Errorf("en count: %q", got)
 	}
 	if got := In("zh-CN", "sidebar_age_minutes", "count", 5); got != "5m" {
@@ -162,5 +202,38 @@ func TestPlaceholdersAndMatch(t *testing.T) {
 		if got := In(lang, "appearance_blur"); got == In("en", "appearance_blur") {
 			t.Errorf("%s desktop key is untranslated: %q", lang, got)
 		}
+	}
+}
+
+func TestBindUsesWindowAssembly(t *testing.T) {
+	source := fstest.MapFS{
+		"locales/en.yml":    {Data: []byte("module_title: 'Module for %{name}'\nmodule_status: 'Ready'\n")},
+		"locales/zh-CN.yml": {Data: []byte("module_title: '%{name}的模块'\n")},
+	}
+	assembled := New(source)
+	bound := assembled
+	var first, second, fallback, sharedCopy string
+	a := ui.NewTester(func(c *ui.Context) {
+		Bind(c, bound)
+		first = T(c, "module_title", "name", "Sailry")
+		fallback = T(c, "module_status")
+		sharedCopy = T(c, "settings")
+	}, 100, 100)
+	a.SetLocale("zh-CN")
+	b := ui.NewTester(func(c *ui.Context) {
+		second = T(c, "module_title", "name", "Sailry")
+	}, 100, 100)
+	a.Frame()
+	b.Frame()
+	if first != "Sailry的模块" || fallback != "Ready" || sharedCopy != In("zh-CN", "settings") {
+		t.Fatalf("assembled window: title=%q, fallback=%q, shared=%q", first, fallback, sharedCopy)
+	}
+	if value := In("zh-CN", "module_title"); second != "module_title" || value != "module_title" {
+		t.Fatalf("unassembled window: %q, shared lookup: %q", second, value)
+	}
+	bound = nil
+	a.Frame()
+	if first != "module_title" {
+		t.Fatalf("clearing the assembly retained %q", first)
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
 	"github.com/sailry/sailry-harness/internal/identity"
+	providers "github.com/sailry/sailry-harness/modules/providers/desktop"
 )
 
 func TestDesktopProductPreservesNativeOwnership(t *testing.T) {
@@ -44,7 +45,7 @@ func TestDesktopProductPresentation(t *testing.T) {
 		Version: "7.1.0-beta.2", Website: "https://example.test/desktop", Feedback: "https://example.test/issues",
 		Release: identity.DesktopRelease{Package: identity.DesktopPackage{Name: "ExampleDesktop"}},
 	}
-	app := shell.New(preview.Load())
+	app := shell.NewWithAssembly(preview.Load(), shell.Assemble(providers.Register))
 	applyProduct(app, product, product.Release.Package.Name)
 	profile := t.TempDir()
 	backend := &desktopBackend{Path: profile, Client: new(client.Client), Preferences: preferences.Open(filepath.Join(profile, "preferences.json"))}

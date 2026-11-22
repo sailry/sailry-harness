@@ -67,7 +67,7 @@ func managedNodeSelect(c *ui.Context, m *Model, target *string) bool {
 	shown, icon, connected := i18n.T(c, "unavailable"), icons.Device, false
 	if current >= 0 {
 		host := hosts[current]
-		shown, icon, connected = providerHostName(c, host), icons.Platform(host.Platform), host.Connected
+		shown, icon, connected = ProviderHostName(c, host), icons.Platform(host.Platform), host.Connected
 	}
 	title := i18n.T(c, "project_host")
 	changed := false
@@ -83,7 +83,7 @@ func managedNodeSelect(c *ui.Context, m *Model, target *string) bool {
 		})
 	}, func(menu *kit.Menu) {
 		for i, host := range hosts {
-			item := menu.Item(providerHostName(c, host)).Icon(icons.Platform(host.Platform)).Checked(i == current).Disabled(!host.Connected)
+			item := menu.Item(ProviderHostName(c, host)).Icon(icons.Platform(host.Platform)).Checked(i == current).Disabled(!host.Connected)
 			if !host.Connected {
 				item.Trailing(i18n.T(c, "connections_offline"))
 			}
@@ -98,4 +98,36 @@ func managedNodeSelect(c *ui.Context, m *Model, target *string) bool {
 	}
 	kit.Tooltip(c, button, hint)
 	return changed
+}
+
+// ManagedNodeID resolves the selected settings Node, including the default local Node.
+func (m *Model) ManagedNodeID() string { return m.managedNodeID() }
+
+// ProviderHostName is the host label shown in the settings target selector.
+func ProviderHostName(c *ui.Context, host ProviderHost) string {
+	if host.Local {
+		return i18n.T(c, "composer_host_local")
+	}
+	if host.Name != "" {
+		return i18n.T(c, host.Name)
+	}
+	return host.Node
+}
+
+// ProviderHostLabel is label with its host's name when several hosts are
+// connected.
+func ProviderHostLabel(c *ui.Context, m *Model, node, label string) string {
+	if node == "" || m.ProviderActions.Hosts == nil {
+		return label
+	}
+	hosts := m.ProviderActions.Hosts()
+	if len(hosts) < 2 {
+		return label
+	}
+	for _, host := range hosts {
+		if host.Node == node {
+			return label + " (" + ProviderHostName(c, host) + ")"
+		}
+	}
+	return label + " (" + node + ")"
 }

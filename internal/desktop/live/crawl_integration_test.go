@@ -164,7 +164,7 @@ func newCrawlDesk(t *testing.T, ctx context.Context) *crawlDesk {
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile), desktop.Harness()...)
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		_ = controller.Close()
 		t.Fatal(err)

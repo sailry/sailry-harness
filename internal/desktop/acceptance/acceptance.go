@@ -32,12 +32,12 @@ type scenario struct {
 // that scenario. Callers run this in the dedicated acceptance subprocess because
 // the shell also applies process-wide theme settings while building frames.
 func Run(ctx context.Context, emit func(core.CaseResult)) core.Report {
-	return RunCases(ctx, nil, emit)
+	return RunCases(ctx, nil, emit, shell.Assembly{})
 }
 
 // RunCases selects fixture cases by their registered IDs. An empty selection
 // runs every fixture; IDs from another suite are left to that suite's runner.
-func RunCases(ctx context.Context, selected []string, emit func(core.CaseResult), pages ...shell.NativePage) core.Report {
+func RunCases(ctx context.Context, selected []string, emit func(core.CaseResult), assembly shell.Assembly) core.Report {
 	report := core.Report{Version: 1, Suite: "ui", Started: time.Now().UTC()}
 	cases := []scenario{
 		{"ui.send", "Send a message with the button", sendMessage},
@@ -57,7 +57,7 @@ func RunCases(ctx context.Context, selected []string, emit func(core.CaseResult)
 		if len(selected) > 0 && !slices.Contains(selected, scene.id) {
 			continue
 		}
-		result := runCase(ctx, scene, pages...)
+		result := runCase(ctx, scene, assembly)
 		report.Cases = append(report.Cases, result)
 		if emit != nil {
 			emit(result)
@@ -67,11 +67,11 @@ func RunCases(ctx context.Context, selected []string, emit func(core.CaseResult)
 	return report
 }
 
-func runCase(ctx context.Context, scene scenario, pages ...shell.NativePage) (result core.CaseResult) {
+func runCase(ctx context.Context, scene scenario, assembly shell.Assembly) (result core.CaseResult) {
 	started := time.Now()
 	result = core.CaseResult{ID: scene.id, Group: "ui", Title: scene.title,
 		Status: "failed", Evidence: []core.Evidence{{Kind: "scope", Value: "Headless MyGo interaction; fixture data; no native window or model calls"}}}
-	w := &window{ctx: ctx, result: &result, pages: pages}
+	w := &window{ctx: ctx, result: &result, assembly: assembly}
 	defer func() {
 		if problem := recover(); problem != nil {
 			result.Status, result.Detail = "failed", fmt.Sprintf("UI panic: %v", problem)
@@ -101,11 +101,11 @@ func runCase(ctx context.Context, scene scenario, pages ...shell.NativePage) (re
 }
 
 type window struct {
-	pages  []shell.NativePage
-	ctx    context.Context
-	result *core.CaseResult
-	app    *shell.App
-	tester *ui.Tester
+	assembly shell.Assembly
+	ctx      context.Context
+	result   *core.CaseResult
+	app      *shell.App
+	tester   *ui.Tester
 }
 
 func (w *window) open(prepare func(*preview.Data)) error {
@@ -116,7 +116,7 @@ func (w *window) open(prepare func(*preview.Data)) error {
 	if prepare != nil {
 		prepare(data)
 	}
-	w.app = shell.New(data, w.pages...)
+	w.app = shell.NewWithAssembly(data, w.assembly)
 	w.app.Effects = false
 	w.tester = ui.NewTesterWith(w.app.View, 1280, 820, ui.TesterOptions{
 		Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true},

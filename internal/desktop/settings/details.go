@@ -120,7 +120,7 @@ func DetailsPanel(c *ui.Context, s *State) {
 }
 
 func skillDetails(c *ui.Context, s *State, d *Detail) {
-	skill := s.skill(d.ID)
+	skill := s.Skill(d.ID)
 	if skill != nil {
 		summary(c, skill.Name, skill.Description, func() { kit.Tile(c, skill.Name, icons.Bot) }, nil)
 	}
@@ -129,7 +129,7 @@ func skillDetails(c *ui.Context, s *State, d *Detail) {
 		return
 	}
 	if skill != nil {
-		facts(c, [][2]string{{i18n.T(c, "market_details_source"), skillSource(c, skill)}})
+		facts(c, [][2]string{{i18n.T(c, "market_details_source"), SkillSource(c, skill)}})
 	}
 	if d.failure != "" {
 		kit.Result(c.Key("document-failed"), kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, d.failure), SubTitle: d.reason, Card: true, Extra: func() {

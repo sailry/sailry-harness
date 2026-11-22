@@ -1,0 +1,47 @@
+host_add: "Ajouter un hôte"
+workspace_host: "Informations sur l'hôte"
+connection_no_projects: "Aucun projet"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "Appareil %{id}"
+connections_hosts: "Hôtes"
+connections_mobile: "Mobile"
+connections_bidirectional: Bidirectionnel
+connections_legacy_bidirectional: Bidirectionnel (ancien)
+connections_only_host: Hôte uniquement
+connections_only_controller: Contrôleur uniquement
+connections_online: "En ligne"
+connections_revoke_confirm: "Supprimer cet appairage ? Retirer le dernier appareil d’un utilisateur laisse ses données sans accès depuis un appareil."
+form_passphrase_hint: "Mot de passe de la clé privée (facultatif)"
+host_install: "Installer et connecter"
+host_pairing_hint: "Connecter un appareil Sailry existant"
+host_pairing_mode: "Code de jumelage"
+host_ssh_mode: Installer via SSH
+host_install_hint: Installer Sailry sur un serveur et s’y connecter
+host_ssh_agent_hint: Utiliser les clés chargées dans l’agent SSH de cet ordinateur
+ssh_authentication: "Authentification"
+pairing_connect: "Connecter un appareil"
+pairing_local_code: "Code d'appairage local"
+pairing_pin_hint: "Entrez le code d'appairage à 6 chiffres"
+pairing_preview_disabled: "L'aperçu de l'interface utilisateur ne connecte pas les périphériques réels; commencez avec --data-dir pour coupler"
+pairing_relay_address: "Adresse du relais"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "Serveur de connexion"
+pairing_share: "Partager cet appareil"
+pairing_share_hint: "Entrez ce code dans Connexions à distance sur un autre appareil"
+host_runtime_loading: "Lecture de l'environnement d'exécution (aperçu)"
+host_step_connect: "Se connecter à l’hôte"
+host_step_pair: "Associer"
+host_network_edit: "Modifier l’hôte"
+pairing_preparing: "Préparation de la connexion"
+pairing_refresh_hint: "Valide pendant 60 secondes; se rafraîchit à l'expiration"
+pairing_relay_checking: "Vérification du relais"
+connections_copy_id: Copier l’ID
+connection_scope: "Périmètre"
+connection_private: "Privé"
+connection_global: "Partage mondial"
+connection_projects: "Partage de projet"
+host_wsl: "WSL"
+host_wsl_distribution: "Distribution"
+host_wsl_requirement: "Nécessite WSL2, GNU Linux x64/arm64 et systemd"
+host_wsl_empty: "Aucune distribution WSL2 installée"

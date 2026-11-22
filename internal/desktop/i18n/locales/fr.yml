@@ -5,11 +5,6 @@ activity: Tableau d'activité
 files: Fichiers
 git: Git
 settings: Paramètres
-market_title: Marché
-market_details: Détails
-market_verified: Vérifié
-market_installs: Installations
-market_stars: Étoiles
 search: Rechercher
 sidebar_toggle: Développer ou réduire la navigation
 more: Plus d'actions
@@ -100,15 +95,9 @@ welcome_review_prompt: Examiner les changements actuels du projet, en se concent
 welcome_plan: Faire un plan
 welcome_plan_detail: Clarifier les objectifs et les étapes
 welcome_plan_prompt: Aidez-moi à faire un plan étape par étape pour les travaux de développement à venir
-provider_channels: Canaux
-provider_list_search: Rechercher un fournisseur ou un modèle
 settings_add: Ajouter
 settings_edit: Modifier
 settings_delete: Supprimer
-provider_model_count: '%{count} modèles'
-provider_enabled: Activer le fournisseur
-provider_status_missing_key: Clé manquante
-provider_status_signed_out: Déconnecté
 provider_auth_oauth: OAuth
 provider_auth_key: Clé API
 provider_auth_plugin: Plugin
@@ -118,7 +107,6 @@ plugins_configure: Configurer
 plugins_uninstall: Désinstaller
 plugins_install: Installer
 plugins_information: Informations
-plugins_none: Pas de plugins
 composer: Décrivez ce que vous voulez accomplir…
 composer_attachment: Ajouter une pièce jointe
 send: Envoyer
@@ -205,7 +193,6 @@ close: Fermer
 shell_sessions: Chats
 notifications: Notifications
 hosts: Hôtes
-host_add: Ajouter un hôte
 sidebar_host_update: Mettre à jour
 local_host_name: Local
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: Ouvrir le dossier
 shortcut_previous_conversation: Conversation précédente
 shortcut_next_conversation: Conversation suivante
 shortcut_sync: Synchroniser
-workspace_host: Informations sur l'hôte
 connection_action_edit: Modifier
 reference_back: Retour
 connection_search_empty: Pas de matchs
@@ -373,7 +359,6 @@ project_duplicate_path: Cet hôte a déjà un projet sur ce chemin
 project_clone_required: Entrez un nom, un référentiel et une destination
 settings_cancel: Annuler
 settings_save_preview: Enregistrer l'aperçu
-connection_no_projects: Aucun projet
 workspace_project: Aperçu du projet
 resource_browser: Navigateur
 terminal: Terminal
@@ -844,19 +829,8 @@ configuration_read_failed: Impossible de lire le fichier
 configuration_area_search: Recherche web
 configuration_area_compaction: Compaction du contexte
 files_upload_picker: Impossible d'ouvrir le sélecteur de fichiers
-connection_route_p2p: P2P
-connection_route_relay: Relay
-connections_device: Appareil %{id}
-connections_hosts: Hôtes
-connections_mobile: Mobile
-connections_bidirectional: Bidirectionnel
-connections_legacy_bidirectional: Bidirectionnel (ancien)
-connections_only_host: Hôte uniquement
-connections_only_controller: Contrôleur uniquement
 connections_direction_saved: Accès de l’appareil mis à jour
 connections_offline: Hors ligne
-connections_online: En ligne
-connections_revoke_confirm: Supprimer cet appairage ? Retirer le dernier appareil d’un utilisateur laisse ses données sans accès depuis un appareil.
 dictation_access: Accès au microphone
 dictation_access_granted: Autorisé
 dictation_access_hint: Autoriser l'accès pour cette application; vérifie à nouveau lorsque vous revenez
@@ -870,40 +844,13 @@ dictation_microphone_default: Système par défaut
 dictation_microphone_label: Microphone
 dictation_model_name: SenseVoice INT8
 form_name_hint: Nom
-form_passphrase_hint: Mot de passe de la clé privée (facultatif)
 form_private_key_hint: Coller la clé privée
-form_value_hint: Entrez une valeur
-form_variable_hint: par exemple LANG
-hooks_add: Ajouter un hook
-hooks_after_tool: Après l’outil
-hooks_before_tool: Avant l’outil
-hooks_command: Commande
-hooks_configure: Configurer le hook
 hooks_conflict: Les hooks ont changé ; rechargez avant d’enregistrer
-hooks_consent: Exécuter ces scripts pour les prochains tours de toutes les conversations sur %{host}. Chaque script s’exécute dans l’arbre de travail de sa tâche.
-hooks_empty: Aucun hook
-hooks_enable: Activer les hooks
-hooks_enabled: Activé
 hooks_failed: Impossible d’enregistrer les hooks
-hooks_invalid: Commande ou délai invalide
-hooks_name: Nom
-hooks_phase: Phase
-hooks_remove: Retirer le hook
 hooks_saved: Hooks enregistrés
-hooks_scope_workspace: Les scripts peuvent écrire dans l’arbre de travail de la tâche. L’accès réseau est bloqué.
-hooks_scripts: Scripts
 hooks_settings: Hooks
 hooks_settings_description: Configurer les scripts de cet hôte d’exécution
-hooks_timeout: Délai (ms)
-hooks_turn_end: Fin du tour
 hooks_unknown: Enregistrement du hook incertain ; réessayez la requête initiale
-host_install: Installer et connecter
-host_pairing_hint: Connecter un appareil Sailry existant
-host_pairing_mode: Code de jumelage
-host_ssh_mode: Installer via SSH
-host_install_hint: Installer Sailry sur un serveur et s’y connecter
-host_ssh_agent_hint: Utiliser les clés chargées dans l’agent SSH de cet ordinateur
-ssh_authentication: Authentification
 connection: Connexion
 knowledge_downloading: Téléchargement
 knowledge_install: Installer
@@ -921,17 +868,8 @@ message_display_detailed: Détaillé
 model_library_select: Sélectionner
 model_library_selected: Sélectionné
 model_library_source: Source
-pairing_connect: Connecter un appareil
-pairing_local_code: Code d'appairage local
-pairing_pin_hint: Entrez le code d'appairage à 6 chiffres
-pairing_preview_disabled: L'aperçu de l'interface utilisateur ne connecte pas les périphériques réels; commencez avec --data-dir pour coupler
-pairing_relay_address: Adresse du relais
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personnalisé
 pairing_relay_direct: Connexion directe uniquement (LAN)
-pairing_relay_server: Serveur de connexion
-pairing_share: Partager cet appareil
-pairing_share_hint: Entrez ce code dans Connexions à distance sur un autre appareil
 permission_check: Vérifier
 permission_disk_help: Si Sailry est manquant, ajoutez-le avec + ou faites glisser l'application dans la liste
 permission_full_disk: Accès complet au disque
@@ -961,15 +899,7 @@ power_settings_conflict: Les réglages ont changé ; rechargez pour continuer
 power_settings_failed: Impossible de charger ou d’enregistrer les réglages de veille
 power_settings_saved: Enregistré
 power_settings_unknown: Résultat de l’enregistrement inconnu ; rechargez pour vérifier
-runtime_ocr: Reconnaissance de texte
-runtime_ocr_enable: Activer OCR
-runtime_ocr_model: Modèle OCR
 runtime_python: Python
-runtime_python_bundled: Intégré
-runtime_python_custom: Personnalisé
-runtime_python_custom_url: URL de l’index des paquets
-runtime_python_index: Source des paquets
-runtime_python_version: Version
 sandbox_settings_conflict: Les réglages du bac à sable ont changé ; rechargez-les
 sandbox_settings_failed: Impossible de charger ou d’enregistrer les réglages du bac à sable
 sandbox_settings_saved: Enregistré
@@ -998,9 +928,6 @@ settings_decision_description: Configurer les modèles de décision locaux
 settings_dictation_description: Transcrire localement dans le brouillon du message
 settings_empty: Aucun article
 settings_execution: Exécution
-settings_font_default: Par défaut
-settings_font_family: Police
-settings_font_size: Taille de police
 settings_general_description: Gérer les notifications et le service d'appairage des appareils
 settings_global_commands: Les commandes globales
 settings_knowledge_description: Connaissances sur l’hôte sélectionné
@@ -1028,8 +955,6 @@ settings_notify_failed: Notifications d'échec de tâche
 settings_notify_system: Notifications du système
 settings_ocr: OCR
 settings_ocr_description: Configurer la reconnaissance de texte
-settings_paste_description: Confirmer avant de coller plusieurs lignes
-settings_paste_protection: Protection de pâte multiligne
 settings_permissions_description: Accès au système de Sailry
 settings_runtime: Environnement d’exécution
 settings_runtime_description: Configurer ce Node
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: Indicateur de performance
 settings_skills_description: Gérer les compétences disponibles pour les sessions
 settings_teams_description: Rôles et équipes des sous-agents
 settings_terminal_description: Environnement et affichage du terminal
-settings_terminal_display: Affichage et entrée
 settings_toast_description: Durée pendant laquelle les notifications intégrées restent visibles
 settings_toast_duration: Durée de la notification
 shortcut_activate: Afficher Sailry
@@ -1083,19 +1007,10 @@ telemetry_send_action: Envoyer un diagnostic
 telemetry_support: Assistance
 telemetry_title: Diagnostic et confidentialité
 telemetry_unknown: Résultat inconnu. Rechargez pour vérifier
-terminal_environment: Variables environnementales mondiales
-terminal_environment_add: Ajouter une variable d'environnement
 terminal_input: Entrée
 terminal_settings_conflict: Les paramètres du terminal ont été modifiés ; vos modifications sont conservées
 terminal_settings_failed: Impossible de lire ou d'enregistrer les paramètres du terminal
 terminal_settings_unknown: Sauvegarder le résultat non confirmé; recharger et revoir
-terminal_shell: Shell par défaut
-terminal_shell_default: Hôte par défaut
-terminal_shell_group: Shell
-terminal_value: Valeur
-terminal_variable: Nom de la variable
-terminal_variable_duplicate: La variable existe déjà
-terminal_variable_invalid: Nom de variable, paramètre réservé ou variable de chargement de code non valide
 updates_channel: Canal de mise à jour
 updates_channel_experience: Expérience
 updates_channel_stable: Stable
@@ -1125,118 +1040,20 @@ authorization_cancel: Annuler
 compaction_settings_failed: Impossible d’enregistrer les paramètres de compression
 compaction_settings_conflict: Paramètres de compression modifiés. Réessayez
 compaction_settings_unknown: Enregistrement non confirmé. Réessayez
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: Aucun fournisseur
-provider_login_callback_required: Saisissez le code d’autorisation ou l’URL de redirection du navigateur
-provider_delete_title: Supprimer le fournisseur
-provider_remove_effect: Les sessions devront sélectionner un autre fournisseur
-provider_catalog_never: Non mis à jour
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: Mise à jour
-provider_catalog: Données du modèle
-provider_catalog_update: Mettre à jour
-provider_catalog_status: Modèle de métadonnées
-provider_scores: Scores des modèles
-provider_catalog_last_update: Dernière mise à jour
-provider_compaction_threshold: Seuil de compression
 provider_all: Tous les types
 provider_type: Type de fournisseur
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: Aucun modèle configuré
-provider_connect: Connecter le compte
-provider_reconnect: Se connecter
 provider_access_key: Clé API
-provider_access_no_key: Sans clé API
 provider_access_cloud: Identifiants cloud
-provider_name_required: Entrez un nom de fournisseur
-provider_endpoint_required: Entrez un point de terminaison API valide
-provider_key_required: Entrez une clé
-provider_model_required: Ajouter un modèle et entrer son ID
-provider_model_duplicate: Les ID de modèle doivent être uniques
-provider_limits_invalid: La limite de contexte doit être un entier positif au moins aussi grand que la limite de sortie
 provider_access_endpoint: Point de terminaison personnalisé
-provider_add_title: Ajouter un fournisseur
-provider_choose_method: Choisir la connexion
-provider_configure: Configurer le fournisseur
-provider_edit_title: Modifier le fournisseur
 provider_step_back: Retour
-provider_save: Enregistrer
-provider_save_login: Enregistrer et se connecter
 provider_access_login: Connexion au compte
-provider_name_hint: Entrez le nom du fournisseur
-provider_api: API protocole
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: Produit
-provider_metered: Paiement à l’usage
-provider_coding: Forfait de programmation
-provider_region: Région
-provider_region_china: Chine
-provider_region_global: Mondial
-provider_endpoint: Point de terminaison API
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: Entrez la clé API
-provider_api_key: Clé API
-provider_get_key: Obtenir une clé API
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: Les paramètres avancés
-provider_oauth_catalog_version: Version du catalogue
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: Version de l'éditeur
-provider_oauth_editor_plugin_version: Version du plugin de l'éditeur
-provider_headers: En-têtes de requête personnalisés
-provider_headers_invalid: Chaque en-tête avec une valeur doit avoir un nom
-provider_billing_rate: Coefficient de facturation
-provider_billing_rate_hint: Pourcentage des tarifs de l’API utilisé pour estimer les coûts
-provider_billing_rate_invalid: Le coefficient de facturation doit être un nombre positif ou nul, avec au plus deux décimales
 provider_billing_rate_unsupported: Cette version de l’hôte ne prend pas en charge le coefficient de facturation. Les autres paramètres ont été enregistrés
-provider_models: Modèles
-provider_discover: Mettre à jour les modèles
-provider_querying: Requête en cours
-provider_discovered_preview: Modèles d'aperçu fusionnés; modèles manuels et sélection par défaut conservés
-provider_add_model: Ajouter un modèle
-provider_new_model: Nouveau modèle
-provider_model_default: Par défaut
-provider_set_default: Définir comme par défaut
-provider_default: Modèle par défaut
-provider_model_id: Numéro de modèle
-provider_deployment_id: Nom du déploiement
-provider_api_version: Version API
-form_api_version_hint: par exemple 2024-10-21
-provider_cloud_required: Entrez la configuration du fournisseur de cloud
-form_model_hint: Numéro de modèle
 provider_context: Limite de contexte (tokens)
-form_tokens_hint: Nombre de tokens
-provider_efforts: Effort de raisonnement
-provider_effort_default: Effort par défaut
-provider_effort_placeholder: Effort ou budget de tokens
-provider_effort_invalid: Effort de raisonnement invalide; vérifier les noms, les doublons et le support API
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: Automatique
-knowledge_settings: Valeurs par défaut
-knowledge_default_model: Modèle vectoriel
-knowledge_keyword_only: Mots-clés uniquement
 knowledge_collections: Collections
-knowledge_collection_pending: En attente d’indexation
-knowledge_collection_unavailable: Node de stockage indisponible
-knowledge_collection_indexing: Indexation · %{count} éléments
-knowledge_collection_ready: À jour · %{count} éléments
-knowledge_collection_paused: En pause
-knowledge_collection_failed: Échec · %{reason}
-knowledge_collection_failures: '%{count} non indexés · %{reason}'
-knowledge_pause: Suspendre
-knowledge_resume: Reprendre
-knowledge_update: Mettre à jour
-runtime_decision: Décisions
-runtime_decision_model: Modèle
-runtime_decision_enable: Activer les décisions
-local_models_none: Aucun
 connector_oauth: OAuth
 connector_application: Identifiants d’application
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: Plugin désactivé
 connector_account_disabled: Compte désactivé
 connector_configuration_required: Configuration requise
 connector_unavailable: Indisponible
-connector_search: Rechercher des connecteurs
-connector_all_methods: Toutes les méthodes
-connector_filter: Méthode d’authentification
-mcp_add: Ajouter MCP
-connector_preview: Aperçu
-connector_empty: Aucune connexion
-connector_remove: Supprimer
-connector_remove_effect: Supprimer « %{name} » ? La configuration et les identifiants seront supprimés
 connector_removed: Supprimé
-connector_mcp_connecting: Connexion en cours
 connector_mcp_failed: Échec de la connexion
 connector_connected: Connecté
-connector_mcp_tools: '%{n} outils'
-connector_connect: Connecter
-connector_account_enabled: Activer le compte
-connector_server_allowed: Activer le serveur
 connector_saved: Enregistré
-connector_details: Détails
-connector_configure: Configurer
-connector_confirm: Confirmer
-connector_bind: Associer
-connector_reauthorize: Autoriser à nouveau
-connector_add_credentials: Ajouter des identifiants
-connector_probe: Vérifier
-connector_mcp_reconnect: Reconnecter
-connector_add: Ajouter un connecteur
-connector_added: Ajouté
-connector_choose_account: Choisissez un compte à associer
-connector_browser: Autoriser dans le navigateur
-form_secret_hint: Entrez les informations d'identification
-connector_register: Créer une application
-connector_authorize: Autoriser
-mcp_invalid: Vérifier le nom, la connexion et les variables
-connector_mcp_server: Serveur
 market_details_tools: Outils
-connector_mcp_updated_at: Mis à jour
-connector_mcp_error: Erreur
-mcp_edit: Configurer MCP
-mcp_transport: Transports
-plugins_stdio: Entrée/sortie standard
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: Commandes
-mcp_command_hint: npx, uvx ou un exécutable
-mcp_arguments: Arguments
-mcp_argument: Valeur de l'argument
-mcp_remove_argument: Supprimer l'argument
-mcp_add_argument: Ajouter un argument
 mcp_url: URL du serveur
-mcp_url_hint: https://example.com/mcp
-mcp_environment: Variables environnementales
-mcp_add_environment: Ajouter une variable d'environnement
-mcp_headers: En-têtes
 mcp_add_header: Ajouter un en-tête
 mcp_slot_name: Nom
-mcp_secret_saved: Identifiant sauvegardé; laisser vide pour conserver
 mcp_show_secret: Afficher l’identifiant
 mcp_hide_secret: Masquer l’identifiant
-connector_no_auth: Sans authentification
-connector_mcp_status: Statut
-connector_mcp_updated: Mis à jour %{time}
-plugins_settings_reload: Recharger
-plugins_settings_diagnostics: Détails
 mcp_slot_value: Valeur
-mcp_remove_slot: Supprimer l'élément
 mcp_configuration_saved: MCP configuration enregistrée
 mcp_oauth_callback_failed: Impossible de recevoir le rappel d'autorisation; réessayez
 mcp_oauth_failed: L'autorisation a échoué; réessayez
@@ -1325,86 +1088,18 @@ role_duplicate: L'identifiant existe déjà
 teams_settings_failed: Impossible d’enregistrer la concurrence
 teams_settings_conflict: Réglages modifiés ; rechargez puis enregistrez à nouveau
 teams_settings_unknown: Résultat inconnu ; réessayez pour vérifier
-role_preset_review: Examen du code
-role_review_description: Examiner les modifications et signaler les problèmes étayés
-role_prompt_review: |-
-    Passer en revue le code et les modifications dans la portée assignée, en se concentrant sur l'exactitude, les cas extrêmes, les risques de régression et les conventions existantes.
-    Lisez d'abord les implémentations et les tests pertinents, puis faites rapport des résultats étayés par des preuves avec les emplacements, l'impact et les recommandations. Ne modifiez pas les fichiers ; indiquez clairement quand aucun problème n'est trouvé.
-role_preset_implement: Mise en œuvre
-role_implement_description: Réaliser des modifications ciblées et les vérifier
-role_prompt_implement: |-
-    Terminer l'implémentation assignée, en comprenant d'abord l'architecture existante, les conventions de codage et les exigences d'acceptation.
-    Réutilisez les fonctionnalités existantes, concentrez les modifications et vérifiez les comportements affectés. Indiquez ce qui a été accompli, les vérifications réelles et les limites restantes.
-role_preset_test: Vérification
-role_test_description: Exécuter les vérifications et rapporter les résultats
-role_prompt_test: |-
-    Vérifiez la modification ou le comportement attribué. Trouvez les tests et vérifications existants pertinents, exécutez les plus ciblés qui couvrent le périmètre et n’ajoutez des tests que sur demande.
-    Indiquez les commandes exactes, les résultats et les échecs avec leur cause probable. Ne modifiez pas le code d’implémentation pour faire passer les vérifications.
 role_preset_docs: Documentation
 role_docs_description: Rédiger et mettre à jour la documentation du projet
 role_prompt_docs: |-
     Rédigez ou mettez à jour la documentation du périmètre attribué. Lisez d’abord le code et les documents existants concernés, suivez leur structure et leur terminologie, et restez concis et exact.
     Indiquez les fichiers modifiés et les faits que vous n’avez pas pu confirmer.
-role_preset_plan: Planification
-role_plan_description: Définir les étapes de réalisation et les critères de validation
-role_prompt_plan: Examiner le comportement actuel et les contraintes. Identifier les choix de conception, puis détailler les étapes vérifiables, leurs dépendances et les contrôles associés. Signaler les hypothèses à confirmer par le responsable. Laisser les fichiers du projet intacts.
-role_preset_frontend: Conception et réalisation d’interfaces
-role_frontend_description: Concevoir et réaliser la présentation visuelle et les interactions
-role_prompt_frontend: Conçois la disposition, la hiérarchie visuelle et les interactions selon le système de conception existant, puis réalise-les. Gère au besoin le clavier, le chargement et les erreurs. Vérifie les tailles de fenêtre prises en charge et compare le résultat aux références fournies.
-role_preset_troubleshoot: Résolution de problèmes complexes
-role_troubleshoot_description: Réaliser des développements complexes et débloquer les travaux en difficulté
-role_prompt_troubleshoot: Prends en charge une réalisation complexe ou un problème resté sans solution après deux ou trois essais. Examine les résultats précédents, teste l’hypothèse clé et réalise la modification ou la correction nécessaire. Vérifie-la dans les conditions initiales et précise les résultats et les limites restantes.
-role_model_hint_review: Un modèle à raisonnement avancé (p. ex. Opus) convient aux revues transversales, par exemple pour vérifier la propagation d’une annulation aux sous-agents.
-role_model_hint_implement: Un modèle de programmation équilibré (p. ex. Sonnet) convient à une modification ciblée, comme ajouter et enregistrer un paramètre.
-role_model_hint_test: Un modèle rapide (p. ex. Haiku) suffit pour lancer des tests de régression ciblés. Privilégier le raisonnement avancé pour les tests sensibles au séquencement.
-role_model_hint_plan: Un modèle à raisonnement avancé (p. ex. Opus) convient aux choix de conception, comme planifier une migration d’historique qui préserve les sessions existantes.
-role_model_hint_frontend: Un modèle de programmation équilibré (p. ex. Sonnet) convient aux interfaces. Pour comparer un panneau de réglages à une capture d’écran, choisir un modèle acceptant les images.
-role_model_hint_troubleshoot: Un modèle à raisonnement avancé (p. ex. Opus) convient aux pannes difficiles à reproduire, comme un pic de mémoire au défilement d’une longue conversation.
-team_role_one: 1 rôle
-team_role_count: '%{count} rôles'
 teams_concurrency: Sous-agents simultanés
-teams_concurrency_description: Nombre maximal de sous-agents actifs par conversation
 teams_roles: Rôles
-team_new: Nouvelle équipe
-role_new: Nouveau rôle
-team_delete: Supprimer l’équipe
-team_delete_prompt: Supprimer l’équipe « %{name} » ? Ses rôles sont conservés
 team_deleted: Équipe supprimée
-teams_role_delete_prompt: Supprimer le rôle « %{name} » ? Il est retiré de toutes les équipes
 teams_role_deleted: Rôle supprimé
-team_builtin: Intégrée
 team_default: Équipe par défaut
-team_default_description: Tous les rôles, avec le modèle de la conversation
-team_follow_conversation: Suivre la conversation
-teams_roles_empty: Aucun rôle
-role_inherit: Hériter du modèle de session
-teams_read_only: Lecture seule
-role_effort_inherit: Automatique
-team_edit: Modifier l’équipe
-teams_description: Description
-team_lead_model: Modèle du responsable
-team_lead_instructions: Prompt du responsable
-team_members: Membres
-team_members_empty: Aucun rôle pour l’instant
-teams_follow_lead: Suivre le responsable
-team_member_remove: Retirer de l’équipe
-team_add_role: Ajouter un rôle
-team_duplicate: Dupliquer
-team_copy_name: '%{name} (copie)'
-team_create: Créer
 team_saved: Équipe enregistrée
-teams_role_edit: Modifier le rôle
-role_presets: Préréglages
-role_id: Identifiant
-teams_key_hint: ex. code-reviewer
-teams_model: Modèle
-role_instructions: Instructions
-role_save: Enregistrer
 teams_role_saved: Rôle enregistré
-role_avatar: Avatar
-role_avatar_seed: Avatar %{seed}
-role_avatar_shuffle: Mélanger
-role_avatar_none: Par défaut
 market_plugin_details: Détails du plugin
 market_skill_details: Détails du skill
 market_skill_document_failed: Impossible de charger le document du skill
@@ -1450,23 +1145,11 @@ market_category_development: Développement
 market_category_automation: Automatisation
 market_category_data: Données
 market_category_entertainment: Loisirs
-market_plugins: Plugins
-market_skills: Compétences
-market_themes: Thèmes
-market_kind: Type de marché
-market_search_plugins: Rechercher des plugins
-market_search_skills: Rechercher des compétences
-market_search_themes: Rechercher des thèmes
-market_source_official: Officiel
-market_source_community: Communauté
-market_all: Tous
-market_installed_only: Installés uniquement
 market_theme_current: Actif
 market_details_source_official: Catalogue officiel
 market_details_source_community: Communauté
 skills_no_matches: Pas de compétences correspondantes
 market_theme_apply: Appliquer
-market_no_themes: Aucun thème correspondant
 market_theme_builtin: Intégré
 plugins_settings_title: Configuration du plugin
 plugins_failed: L’opération du plugin a échoué
@@ -1525,30 +1208,11 @@ plugins_update_version: Mise à jour vers %{version}
 plugins_updates_later: Plus tard
 plugins_updates_selected: Mettre à jour (%{count})
 plugins_retry: Réessayer
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: Dossier
-skill_source_archive: Archive
-skill_source_link_invalid: Saisissez l’URL des détails d’une compétence
 skills_package_source: Du plugin %{name}
-skills_search: Compétences de recherche
 skills_install: Installer la compétence
-skills_remove_effect: Désinstaller %{name}; les tâches en cours d'exécution ne sont pas affectées
 settings_update: Mettre à jour
-skills_manage_package: Gérer le plugin
-skill_source_reimport: Importer à nouveau
-skill_source_origin: Source
-skill_source_git_help: Saisissez un dépôt Git, avec une référence et un dossier de compétence facultatifs
-skills_subdirectory: Sous-répertoire (facultatif)
-skills_path_hint: Facultatif
-skill_source_skills_help: Saisissez une URL de détail skills.sh pour trouver la compétence source
-skill_source_link: URL de la compétence
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: Saisissez une URL de détail skillhub.cn pour installer son paquet vérifié
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: Choisir un dossier
-skill_source_choose_archive: Choisir une archive
 git_diff: Différences
 git_diff_side_by_side: Côte à côte
 git_diff_inline: En ligne
@@ -1567,14 +1231,12 @@ model_library_speech: Modèles vocaux
 model_library_decision: Décision
 onboarding_title: Bienvenue dans %{app}
 onboarding_description: Connectez un modèle pour commencer
-onboarding_host_unavailable: Hôte indisponible
 workspace_host_status: · Aperçu de l'interface utilisateur
 local_host_detail: macOS · aarch64 · Aperçu
 remote_host_detail: Linux · x86_64
 host_update: Mettre à jour l'hôte
 workspace_worktrees: Arbres de travail
 workspace_sessions: Sessions
-host_runtime_loading: Lecture de l'environnement d'exécution (aperçu)
 host_version: Version de l'hôte
 host_uptime: Temps de fonctionnement
 host_protocol: Version du protocole
@@ -1921,7 +1583,6 @@ notebook_cell: Cellule %{number}
 notebook_empty: Aucune cellule
 git_diff_binary: Impossible d'afficher la différence binaire
 git_diff_partial: Diff partiel
-hooks_scope_windows: Les scripts utilisent la politique de commandes Windows actuelle
 teams_role_conflict: Le rôle a changé ; rouvrez-le
 team_conflict: L’équipe a changé ; rouvrez-la
 role_model_unavailable: Le modèle ou le fournisseur sélectionné n'est pas disponible
@@ -1939,11 +1600,8 @@ host_install_installing: Installation de l’hôte
 host_install_pairing: Appairage
 host_install_unknown: Résultat d'installation non confirmé; vérifiez l'hôte et réessayez
 host_ssh_windows_pairing: Sous Windows, installez et ouvrez Sailry Desktop, puis ajoutez l’hôte avec son code d’appairage.
-host_step_connect: Se connecter à l’hôte
-host_step_pair: Associer
 model_effort: Effort
 host_network_conflict: Les paramètres réseau ont changé ; réessayez
-host_network_edit: Modifier l’hôte
 host_network_failed: Impossible de changer de réseau
 host_network_load_failed: Impossible de charger les paramètres réseau
 host_network_saved: Réseau modifié
@@ -1954,9 +1612,6 @@ host_update_restart: Host va redémarrer ; les tâches en cours seront arrêtée
 host_updated: Host mis à jour
 pairing_failed: L'appairage a échoué; vérifiez le code ou le réseau et réessayez
 pairing_invalid_endpoint: Entrez une URL de service d'appairage HTTPS valide
-pairing_preparing: Préparation de la connexion
-pairing_refresh_hint: Valide pendant 60 secondes; se rafraîchit à l'expiration
-pairing_relay_checking: Vérification du relais
 pairing_relay_failed: Impossible de se connecter au relais; vérifiez l'URL et réessayez
 pairing_relay_invalid: Saisissez une adresse de relais valide
 pairing_relay_ready: Relais connecté
@@ -1967,7 +1622,6 @@ settings_retry: Réessayer
 ssh_key_changed: Clé d'hôte modifiée, vérifiez l'empreinte digitale
 ssh_trust: Faire confiance
 ssh_trust_title: Clé d'hôte de confiance
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: Impossible de lire l’environnement d’exécution de Host
 live_metrics_loading: Chargement des métriques
 live_metrics_error: Impossible de lire les métriques de Host
@@ -1995,14 +1649,6 @@ authorization_connected: Connecté
 connector_bound: Associé
 connector_checked: Connexion opérationnelle
 connector_mcp_reconnected: Connecté, %{n} outils
-connector_consent_effect: Autoriser les permissions de connexion modifiées
-connector_changed_origins: Origines
-connector_changed_scopes: Autorisations
-connector_changed_client: Client
-connector_changed_flow: Connexion
-connector_changed_targets: Destinations des identifiants
-connector_changed_mcp: Serveurs MCP
-connector_changed_source: Source du paquet
 appearance_up_to_date: Les thèmes sont à jour
 appearance_updates_available: Mises à jour disponibles
 market_themes_failed: Impossible de charger les thèmes
@@ -2170,51 +1816,26 @@ updates_profile_inside: Le profil de données est à l'intérieur de %{app}; dé
 compatibility_update_unavailable: Cette version ne permet pas encore la mise à jour automatique
 settings_media: Modèles de médias
 settings_media_description: Gérer les modèles pour les tâches image, audio et vidéo
-provider_cap_text: Texte
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: Vision
-provider_cap_tools: Outils
-provider_cap_reasoning: Raisonnement
 provider_cap_image: Génération d'images
 provider_cap_video: Génération de vidéo
 media_speech_synthesis: Synthèse de la parole
-media_model_unavailable: Modèle non disponible
 media_conflict: Paramètres modifiés; sélectionner à nouveau
 media_unknown: Le résultat de l'enregistrement est inconnu; vérifiez les paramètres actuels
 media_failed: Enregistrement échoué
-provider_capabilities: Capacités
 provider_cap_understands: Comprend
 provider_cap_can: Peut
-provider_cap_generates: Génère
 media_image: Image
 media_video: Vidéo
 media_speech: Parole
-media_follow: Suivre le modèle de la conversation
 media_load_failed: Impossible de lire les modèles multimédias
 market_load_more: Charger plus
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: Aucun historique
 panel_documents_empty: Aucun document
-connections_copy_id: Copier l’ID
 host_check_status: Vérifier l’état
 ssh_agent_short: Agent
 ssh_keep_credential: Laisser vide pour conserver les informations d'identification enregistrées
 ssh_busy: Une autre connexion est occupée, réessayez sous peu
-connection_scope: Périmètre
-connection_private: Privé
-connection_global: Partage mondial
-connection_projects: Partage de projet
-host_wsl: WSL
-host_wsl_distribution: Distribution
-host_wsl_requirement: Nécessite WSL2, GNU Linux x64/arm64 et systemd
-host_wsl_empty: Aucune distribution WSL2 installée
 host_wsl_load_failed: Impossible de charger les distributions WSL
 files_unsaved: Modifications non enregistrées
 files_unsaved_description: Enregistrer les modifications avant de fermer ?
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: La réponse s’est terminée avant ; ajouté en file c
 queue_halt_interrupted: Réponse interrompue ; messages en file conservés
 queue_halt_unsent: Message non envoyé ; conservé dans la file
 usage_read_failed: Impossible de charger l'utilisation, réessayez
+usage_duration_ms: '%{value} ms'
 chat_output_limit: Réponse coupée à la limite de sortie
 chat_turn_limit: Arrêté à la limite d'actions
 start_failed: '%{app} n’a pas pu démarrer'
@@ -2383,10 +2005,6 @@ content_link_address: Adresse du lien
 content_link_edit: Modifier le lien
 content_image_address: Adresse de l’image
 content_image_alt: Texte alternatif
-runtime_python_preparing: Préparation
-python_creating: Préparation des dépendances
-python_installing: Installation des dépendances
-python_validating: Vérification des dépendances
 port_count: '%{count} ports'
 queue_messages_one: 1 message en file
 queue_messages_count: '%{count} messages en file'
@@ -2470,7 +2088,6 @@ meter_speed: Vitesse
 meter_model: Modèle
 meter_show_details: Afficher les détails
 meter_hide_details: Afficher moins
-configuration_follow_from_source: Depuis le contrôleur
 personal_kv_conflict: Conflit de données personnelles
 personal_kv_conflict_description: Le contrôleur a conservé ses valeurs actuelles. Les planifications locales et les actions terminées ont été préservées.
 resource_offline: Hors ligne

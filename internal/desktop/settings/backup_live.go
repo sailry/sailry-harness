@@ -182,7 +182,7 @@ func restoreDialog(c *ui.Context, m *Model) {
 				ui.TextInput(c.Key("input"), &x.Target).Label(target).FillWidth().Disabled(m.Backup.Pending)
 			})
 		})
-		footer(c, title, func() { d.restoring = false }, func() {
+		DialogFooter(c, title, func() { d.restoring = false }, func() {
 			if m.Backup.Pending {
 				return
 			}

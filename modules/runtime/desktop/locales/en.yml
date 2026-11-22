@@ -1,0 +1,9 @@
+runtime_python_bundled: "Bundled"
+runtime_python_custom: "Custom"
+runtime_python_custom_url: "Package index URL"
+runtime_python_index: "Package index"
+runtime_python_version: "Version"
+runtime_python_preparing: "Preparing"
+python_creating: Preparing dependencies
+python_installing: Installing dependencies
+python_validating: Checking dependencies

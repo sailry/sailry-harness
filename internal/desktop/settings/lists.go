@@ -19,11 +19,11 @@ const (
 	rowDouble = 64
 )
 
-// modalList is a muted heading with a count and, at its end, the list's
+// ModalList is a muted heading with a count and, at its end, the list's
 // compact add action; then one bordered box of rows apart by dividers, or
 // the empty text in a dashed box. The box takes a translucent muted fill so
 // its rows read as one group over a frosted dialog. n is the rows' count; action may be nil.
-func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows func(), action func()) {
+func ModalList(c *ui.Context, key any, heading, count, empty string, n int, rows func(), action func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Gap(8).FillWidth().Children(func() {
 		if heading != "" || action != nil {
@@ -49,84 +49,84 @@ func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows
 	})
 }
 
-// listRow holds a modal list row's options.
-type listRow struct {
-	subtitle, meta string
-	leading        func()
-	trailing       func() // independent controls; their clicks do not open the row
-	chevron        bool   // the row navigates
-	selected       *bool  // single selection: the check of the chosen row; nil for none
-	remove         func()
-	removeLabel    string
-	expanded       *bool  // a disclosure chevron; content shows under the row while true
-	content        func() // the expanded content
-	disabled       bool
-	onClick        func()
+// ListRow holds a modal list row's options.
+type ListRow struct {
+	Subtitle, Meta string
+	Leading        func()
+	Trailing       func() // independent controls; their clicks do not open the row
+	Chevron        bool   // the row navigates
+	Selected       *bool  // single selection: the check of the chosen row; nil for none
+	Remove         func()
+	RemoveLabel    string
+	Expanded       *bool  // a disclosure chevron; content shows under the row while true
+	Content        func() // the expanded content
+	Disabled       bool
+	OnClick        func()
 }
 
-// row draws a listRow titled title: 53 high, 64 with a subtitle, a ghost
+// Render draws a row with the given title: 53 high, 64 with a subtitle, a ghost
 // button of a leading disclosure, the leading slot, a regular title over a
 // muted subtitle, a muted meta, then the trailing controls and the mark.
-func (r listRow) row(c *ui.Context, key any, title string) {
+func (r ListRow) Render(c *ui.Context, key any, title string) {
 	p := theme.Of(c)
 	h := float32(rowSingle)
-	if r.subtitle != "" {
+	if r.Subtitle != "" {
 		h = rowDouble
 	}
 	ui.Column(c.Key(key)).Children(func() {
 		// A row with no action is not a button: it takes no hover style.
 		var b ui.Element
-		if r.onClick != nil {
-			b = kit.GhostLook(c, ui.ButtonBase(c.Key("row")).Label(title).Disabled(r.disabled), false).Radius(0).OnClick(r.onClick)
+		if r.OnClick != nil {
+			b = kit.GhostLook(c, ui.ButtonBase(c.Key("row")).Label(title).Disabled(r.Disabled), false).Radius(0).OnClick(r.OnClick)
 		} else {
 			b = ui.Row(c.Key("row")).Center().TextColor(p.Foreground)
 		}
 		b.Height(h).PaddingX(16).Gap(12).Justify(ui.Start).FillWidth()
-		if r.disabled {
+		if r.Disabled {
 			b.Opacity(0.5)
 		}
 		b.Children(func() {
-			if r.expanded != nil {
+			if r.Expanded != nil {
 				chev := icons.ChevronRight
-				if *r.expanded {
+				if *r.Expanded {
 					chev = icons.ChevronDown
 				}
 				ui.Icon(c, chev).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 			}
-			if r.leading != nil {
-				ui.Row(c).Shrink(0).Children(r.leading)
+			if r.Leading != nil {
+				ui.Row(c).Shrink(0).Children(r.Leading)
 			}
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
 				ui.Text(c, title).FontSize(14).SingleLine()
-				if r.subtitle != "" {
-					ui.Text(c, r.subtitle).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+				if r.Subtitle != "" {
+					ui.Text(c, r.Subtitle).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 				}
 			})
-			if r.meta != "" {
-				ui.Text(c, r.meta).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+			if r.Meta != "" {
+				ui.Text(c, r.Meta).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
 			}
-			if r.trailing != nil {
-				ui.Row(c.Key("trailing")).Shrink(0).Gap(4).Children(r.trailing)
+			if r.Trailing != nil {
+				ui.Row(c.Key("trailing")).Shrink(0).Gap(4).Children(r.Trailing)
 			}
 			switch {
-			case r.chevron:
+			case r.Chevron:
 				ui.Icon(c, icons.ChevronRight).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
-			case r.selected != nil && *r.selected:
+			case r.Selected != nil && *r.Selected:
 				ui.Row(c).Size(20, 20).Shrink(0).Radius(10).Center().Background(p.Primary).Children(func() {
 					ui.Icon(c, icons.Check).FontSize(12).TextColor(p.Background)
 				})
-			case r.remove != nil:
-				kit.Action(c.Key("remove"), icons.Close, r.removeLabel, r.disabled).OnClick(r.remove)
+			case r.Remove != nil:
+				kit.Action(c.Key("remove"), icons.Close, r.RemoveLabel, r.Disabled).OnClick(r.Remove)
 			}
 		})
-		if r.expanded != nil && *r.expanded && r.content != nil {
-			ui.Column(c.Key("content")).Padding(0, 16, 16, 40).Children(r.content)
+		if r.Expanded != nil && *r.Expanded && r.Content != nil {
+			ui.Column(c.Key("content")).Padding(0, 16, 16, 40).Children(r.Content)
 		}
 	})
 }
 
-// iconButton is a Kit button with a leading icon: primary, or outlined.
-func iconButton(c *ui.Context, key any, icon *ui.SVG, label string, primary, disabled bool) ui.Element {
+// IconButton is a Kit button with a leading icon: primary, or outlined.
+func IconButton(c *ui.Context, key any, icon *ui.SVG, label string, primary, disabled bool) ui.Element {
 	p := theme.Of(c)
 	var b ui.Element
 	if primary {
@@ -151,9 +151,9 @@ func iconButton(c *ui.Context, key any, icon *ui.SVG, label string, primary, dis
 	})
 }
 
-// confirm is the destructive prompt: target names what goes, consequence
+// Confirm is the destructive prompt: target names what goes, consequence
 // what follows, once. It reports the user's yes in the pass it is given.
-func confirm(c *ui.Context, key any, open *bool, title, consequence, action string) bool {
+func Confirm(c *ui.Context, key any, open *bool, title, consequence, action string) bool {
 	if !*open {
 		return false
 	}
@@ -189,11 +189,11 @@ type Authorization struct {
 	Cancel     func()
 }
 
-// authorization is a 48 DIP tile, the title, a hint, the code in cells, a
+// AuthorizationDialog is a 48 DIP tile, the title, a hint, the code in cells, a
 // status line with a spinner, then the flow's actions over a full-width
 // Cancel; 400 wide. refresh restarts the flow, submit takes the pasted
 // callback.
-func authorization(c *ui.Context, key any, a *Authorization, tile func(), refresh, submit func()) {
+func AuthorizationDialog(c *ui.Context, key any, a *Authorization, tile func(), refresh, submit func()) {
 	if !a.Open {
 		return
 	}

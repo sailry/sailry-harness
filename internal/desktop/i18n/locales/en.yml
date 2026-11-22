@@ -5,11 +5,6 @@ activity: Activity board
 files: Files
 git: Git
 settings: Settings
-market_title: Market
-market_details: Details
-market_verified: Verified
-market_installs: Installs
-market_stars: Stars
 search: Search
 sidebar_toggle: Expand or collapse navigation
 more: More actions
@@ -100,15 +95,9 @@ welcome_review_prompt: Review the current project changes, focusing on potential
 welcome_plan: Make a plan
 welcome_plan_detail: Clarify goals and steps
 welcome_plan_prompt: Help me make a step-by-step plan for the upcoming development work
-provider_channels: Channels
-provider_list_search: Search providers or models
 settings_add: Add
 settings_edit: Edit
 settings_delete: Delete
-provider_model_count: '%{count} models'
-provider_enabled: Enable provider
-provider_status_missing_key: Missing key
-provider_status_signed_out: Signed out
 provider_auth_oauth: OAuth
 provider_auth_key: API Key
 provider_auth_plugin: Plugin
@@ -118,7 +107,6 @@ plugins_configure: Configure
 plugins_uninstall: Uninstall
 plugins_install: Install
 plugins_information: Information
-plugins_none: No plugins
 composer: Describe what you want to accomplish…
 composer_attachment: Add attachment
 send: Send
@@ -205,7 +193,6 @@ close: Close
 shell_sessions: Chats
 notifications: Notifications
 hosts: Hosts
-host_add: Add host
 sidebar_host_update: Update
 local_host_name: Local
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: Open Folder
 shortcut_previous_conversation: Previous conversation
 shortcut_next_conversation: Next conversation
 shortcut_sync: Sync
-workspace_host: Host information
 connection_action_edit: Edit
 reference_back: Back
 connection_search_empty: No matches
@@ -373,7 +359,6 @@ project_duplicate_path: This host already has a project at this path
 project_clone_required: Enter a name, repository and destination
 settings_cancel: Cancel
 settings_save_preview: Save preview
-connection_no_projects: No projects
 workspace_project: Project overview
 resource_browser: Browser
 terminal: Terminal
@@ -844,19 +829,8 @@ configuration_read_failed: Could not read the file
 configuration_area_search: Web search
 configuration_area_compaction: Context compaction
 files_upload_picker: Could not open the file picker
-connection_route_p2p: P2P
-connection_route_relay: Relay
-connections_device: Device %{id}
-connections_hosts: Hosts
-connections_mobile: Mobile
-connections_bidirectional: Bidirectional
-connections_legacy_bidirectional: Legacy bidirectional
-connections_only_host: Host only
-connections_only_controller: Controller only
 connections_direction_saved: Device access updated
 connections_offline: Offline
-connections_online: Online
-connections_revoke_confirm: Remove this pairing? Removing a user's last device leaves its data without device access.
 dictation_access: Microphone access
 dictation_access_granted: Allowed
 dictation_access_hint: Allow access for this app; checks again when you return
@@ -870,40 +844,13 @@ dictation_microphone_default: System default
 dictation_microphone_label: Microphone
 dictation_model_name: SenseVoice INT8
 form_name_hint: Name
-form_passphrase_hint: Private key passphrase (optional)
 form_private_key_hint: Paste private key
-form_value_hint: Enter value
-form_variable_hint: e.g. LANG
-hooks_add: Add hook
-hooks_after_tool: After tool
-hooks_before_tool: Before tool
-hooks_command: Command
-hooks_configure: Configure hook
 hooks_conflict: Hooks changed; reload before saving
-hooks_consent: Run these scripts for future turns in every conversation on %{host}. Each script runs in the task's worktree.
-hooks_empty: No hooks
-hooks_enable: Enable hooks
-hooks_enabled: Enabled
 hooks_failed: Hooks could not be saved
-hooks_invalid: Invalid command or timeout
-hooks_name: Name
-hooks_phase: Phase
-hooks_remove: Remove hook
 hooks_saved: Hooks saved
-hooks_scope_workspace: Scripts can write within the task's worktree. Network access is blocked.
-hooks_scripts: Scripts
 hooks_settings: Hooks
 hooks_settings_description: Configure scripts for this execution host
-hooks_timeout: Timeout (ms)
-hooks_turn_end: Turn end
 hooks_unknown: Hook save is uncertain; retry the original request
-host_install: Install and connect
-host_pairing_hint: Connect to an existing Sailry device
-host_pairing_mode: Pairing code
-host_ssh_mode: Install via SSH
-host_install_hint: Install Sailry on a server and connect
-host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
-ssh_authentication: Authentication
 connection: Connection
 knowledge_downloading: Downloading
 knowledge_install: Install
@@ -921,17 +868,8 @@ message_display_detailed: Detailed
 model_library_select: Select
 model_library_selected: Selected
 model_library_source: Source
-pairing_connect: Connect device
-pairing_local_code: Local pairing code
-pairing_pin_hint: Enter 6-digit pairing code
-pairing_preview_disabled: UI preview does not connect real devices; start with --data-dir to pair
-pairing_relay_address: Relay address
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Custom
 pairing_relay_direct: Direct only (LAN)
-pairing_relay_server: Connection server
-pairing_share: Share this device
-pairing_share_hint: Enter this code in Remote Connections on another device
 permission_check: Check
 permission_disk_help: If Sailry is missing, add it with + or drag the app into the list
 permission_full_disk: Full Disk Access
@@ -961,15 +899,7 @@ power_settings_conflict: Settings changed; reload to continue
 power_settings_failed: Could not load or save power settings
 power_settings_saved: Saved
 power_settings_unknown: Save outcome is unknown; reload to check
-runtime_ocr: Text recognition
-runtime_ocr_enable: Enable OCR
-runtime_ocr_model: OCR model
 runtime_python: Python
-runtime_python_bundled: Bundled
-runtime_python_custom: Custom
-runtime_python_custom_url: Package index URL
-runtime_python_index: Package index
-runtime_python_version: Version
 sandbox_settings_conflict: Command sandbox settings changed; reload to continue
 sandbox_settings_failed: Could not load or save command sandbox settings
 sandbox_settings_saved: Saved
@@ -998,9 +928,6 @@ settings_decision_description: Configure local decision models
 settings_dictation_description: Transcribe locally into the message draft
 settings_empty: No items
 settings_execution: Execution
-settings_font_default: Default
-settings_font_family: Font
-settings_font_size: Font size
 settings_general_description: Manage notifications and device pairing service
 settings_global_commands: Global commands
 settings_knowledge_description: Knowledge on the selected host
@@ -1028,8 +955,6 @@ settings_notify_failed: Task failure notifications
 settings_notify_system: System notifications
 settings_ocr: OCR
 settings_ocr_description: Configure text recognition
-settings_paste_description: Confirm before pasting multiple lines
-settings_paste_protection: Multiline paste protection
 settings_permissions_description: Sailry's system access
 settings_runtime: Runtime
 settings_runtime_description: Configure this Node
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: Performance indicator
 settings_skills_description: Manage skills available to sessions
 settings_teams_description: Roles and teams for subagents
 settings_terminal_description: Terminal environment and display
-settings_terminal_display: Display and input
 settings_toast_description: How long in-app notifications remain visible
 settings_toast_duration: Notification duration
 shortcut_activate: Show Sailry
@@ -1083,19 +1007,10 @@ telemetry_send_action: Send diagnostics
 telemetry_support: Support
 telemetry_title: Diagnostics and privacy
 telemetry_unknown: The result is unknown. Reload to check
-terminal_environment: Global environment variables
-terminal_environment_add: Add environment variable
 terminal_input: Input
 terminal_settings_conflict: Terminal settings changed; your edits are kept
 terminal_settings_failed: Could not read or save terminal settings
 terminal_settings_unknown: Save result unconfirmed; reload and review
-terminal_shell: Default shell
-terminal_shell_default: Host default
-terminal_shell_group: Shell
-terminal_value: Value
-terminal_variable: Variable name
-terminal_variable_duplicate: Variable already exists
-terminal_variable_invalid: Invalid variable name, reserved setting or code-loading variable
 updates_channel: Update channel
 updates_channel_experience: Experience
 updates_channel_stable: Stable
@@ -1125,118 +1040,20 @@ authorization_cancel: Cancel
 compaction_settings_failed: Could not save compaction settings
 compaction_settings_conflict: Compaction settings changed. Retry
 compaction_settings_unknown: Save result unconfirmed. Retry
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: No providers
-provider_login_callback_required: Enter the authorization code or browser redirect URL
-provider_delete_title: Delete provider
-provider_remove_effect: Sessions will need to select another provider
-provider_catalog_never: Not updated
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: Updated
-provider_catalog: Model data
-provider_catalog_update: Update
-provider_catalog_status: Model metadata
-provider_scores: Model scores
-provider_catalog_last_update: Last updated
-provider_compaction_threshold: Compaction threshold
 provider_all: All types
 provider_type: Provider type
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: No models configured
-provider_connect: Connect account
-provider_reconnect: Sign in
 provider_access_key: API key
-provider_access_no_key: No API key required
 provider_access_cloud: Cloud credentials
-provider_name_required: Enter a provider name
-provider_endpoint_required: Enter a valid API endpoint
-provider_key_required: Enter a key
-provider_model_required: Add a model and enter its ID
-provider_model_duplicate: Model IDs must be unique
-provider_limits_invalid: Context limit must be a positive integer at least as large as the output limit
 provider_access_endpoint: Custom endpoint
-provider_add_title: Add provider
-provider_choose_method: Choose connection method
-provider_configure: Configure provider
-provider_edit_title: Edit provider
 provider_step_back: Back
-provider_save: Save
-provider_save_login: Save and sign in
 provider_access_login: Account sign-in
-provider_name_hint: Enter provider name
-provider_api: API protocol
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: Product
-provider_metered: Pay as you go
-provider_coding: Coding plan
-provider_region: Region
-provider_region_china: China
-provider_region_global: Global
-provider_endpoint: API endpoint
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: Enter API Key
-provider_api_key: API Key
-provider_get_key: Get API key
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: Advanced settings
-provider_oauth_catalog_version: Catalog version
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: Editor version
-provider_oauth_editor_plugin_version: Editor plugin version
-provider_headers: Custom request headers
-provider_headers_invalid: Each request header with a value needs a name
-provider_billing_rate: Billing rate
-provider_billing_rate_hint: Percentage of API pricing used for cost estimates
-provider_billing_rate_invalid: Billing rate must be a number of 0 or more with up to two decimals
 provider_billing_rate_unsupported: This host's version doesn't support billing rates. Other settings were saved
-provider_models: Models
-provider_discover: Update models
-provider_querying: Querying
-provider_discovered_preview: Preview models merged; manual models and default selection kept
-provider_add_model: Add model
-provider_new_model: New model
-provider_model_default: Default
-provider_set_default: Set as default
-provider_default: Default model
-provider_model_id: Model ID
-provider_deployment_id: Deployment name
-provider_api_version: API version
-form_api_version_hint: e.g. 2024-10-21
-provider_cloud_required: Enter cloud provider configuration
-form_model_hint: Model ID
 provider_context: Context limit (tokens)
-form_tokens_hint: Token count
-provider_efforts: Reasoning effort
-provider_effort_default: Default effort
-provider_effort_placeholder: Effort or token budget
-provider_effort_invalid: Invalid reasoning effort; check names, duplicates and API support
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: Auto
-knowledge_settings: Defaults
-knowledge_default_model: Vector model
-knowledge_keyword_only: Keyword only
 knowledge_collections: Collections
-knowledge_collection_pending: Waiting to index
-knowledge_collection_unavailable: Storage Node unavailable
-knowledge_collection_indexing: Indexing · %{count} items
-knowledge_collection_ready: Up to date · %{count} items
-knowledge_collection_paused: Paused
-knowledge_collection_failed: Failed · %{reason}
-knowledge_collection_failures: '%{count} not indexed · %{reason}'
-knowledge_pause: Pause
-knowledge_resume: Resume
-knowledge_update: Update
-runtime_decision: Decisions
-runtime_decision_model: Model
-runtime_decision_enable: Enable decisions
-local_models_none: None
 connector_oauth: OAuth
 connector_application: App credentials
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: Plugin disabled
 connector_account_disabled: Account disabled
 connector_configuration_required: Configuration required
 connector_unavailable: Unavailable
-connector_search: Search connectors
-connector_all_methods: All methods
-connector_filter: Authentication method
-mcp_add: Add MCP
-connector_preview: Preview
-connector_empty: No connections
-connector_remove: Delete
-connector_remove_effect: Delete “%{name}”? Configuration and credentials will be removed
 connector_removed: Deleted
-connector_mcp_connecting: Connecting
 connector_mcp_failed: Connection failed
 connector_connected: Connected
-connector_mcp_tools: '%{n} tools'
-connector_connect: Connect
-connector_account_enabled: Enable account
-connector_server_allowed: Enable server
 connector_saved: Saved
-connector_details: Details
-connector_configure: Configure
-connector_confirm: Confirm
-connector_bind: Bind
-connector_reauthorize: Reauthorize
-connector_add_credentials: Add credentials
-connector_probe: Check
-connector_mcp_reconnect: Reconnect
-connector_add: Add connector
-connector_added: Added
-connector_choose_account: Choose an account to bind
-connector_browser: Authorize in your browser
-form_secret_hint: Enter credential
-connector_register: Create app
-connector_authorize: Authorize
-mcp_invalid: Check name, connection and variables
-connector_mcp_server: Server
 market_details_tools: Tools
-connector_mcp_updated_at: Updated
-connector_mcp_error: Error
-mcp_edit: Configure MCP
-mcp_transport: Transport
-plugins_stdio: Standard input/output
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: Commands
-mcp_command_hint: npx, uvx or an executable
-mcp_arguments: Arguments
-mcp_argument: Argument value
-mcp_remove_argument: Remove argument
-mcp_add_argument: Add argument
 mcp_url: Server URL
-mcp_url_hint: https://example.com/mcp
-mcp_environment: Environment variables
-mcp_add_environment: Add environment variable
-mcp_headers: Headers
 mcp_add_header: Add header
 mcp_slot_name: Name
-mcp_secret_saved: Saved; leave blank to keep
 mcp_show_secret: Show credential
 mcp_hide_secret: Hide credential
-connector_no_auth: No authentication
-connector_mcp_status: Status
-connector_mcp_updated: Updated %{time}
-plugins_settings_reload: Reload
-plugins_settings_diagnostics: Details
 mcp_slot_value: Value
-mcp_remove_slot: Remove item
 mcp_configuration_saved: MCP configuration saved
 mcp_oauth_callback_failed: Could not receive authorization callback; try again
 mcp_oauth_failed: Authorization failed; try again
@@ -1325,86 +1088,18 @@ role_duplicate: Identifier already exists
 teams_settings_failed: Could not save concurrency
 teams_settings_conflict: Settings changed; reload and save again
 teams_settings_unknown: Save outcome unknown; retry to check
-role_preset_review: Code review
-role_review_description: Review changes and report evidence-backed findings
-role_prompt_review: |-
-    Review code and changes within the assigned scope, focusing on correctness, edge cases, regression risks and existing conventions.
-    Read relevant implementations and tests first, then report evidence-backed findings with locations, impact and recommendations. Do not modify files; state plainly when no issues are found.
-role_preset_implement: Implementation
-role_implement_description: Implement focused changes and verify them
-role_prompt_implement: |-
-    Complete the assigned implementation, first understanding the existing architecture, coding conventions and acceptance requirements.
-    Reuse existing capabilities, keep changes focused and verify affected behavior. Report what was completed, actual checks and remaining limitations.
-role_preset_test: Verification
-role_test_description: Run checks and report verified results
-role_prompt_test: |-
-    Verify the assigned change or behavior. Find the relevant existing tests and checks, run the narrowest ones that cover the scope, and add focused coverage only when asked.
-    Report the exact commands, results and failures with their likely cause. Do not change implementation code to make checks pass.
 role_preset_docs: Documentation
 role_docs_description: Write and update project documentation
 role_prompt_docs: |-
     Write or update documentation for the assigned scope. Read the relevant code and existing documents first, follow their structure and terminology, and keep the text concise and accurate.
     Report which files changed and any facts you could not confirm.
-role_preset_plan: Planning
-role_plan_description: Plan implementation steps and acceptance checks
-role_prompt_plan: Trace the current behavior and constraints. Identify the decisions that affect the design and outline the smallest verifiable steps, their dependencies and how to check them. Flag assumptions for the lead to resolve. Leave project files unchanged.
-role_preset_frontend: UI design and implementation
-role_frontend_description: Design and build interfaces and interactions
-role_prompt_frontend: Design the layout, visual hierarchy and interaction using the existing design system, then implement them. Cover relevant keyboard, loading and error states. Verify the result at supported window sizes and against supplied references.
-role_preset_troubleshoot: Complex problem solving
-role_troubleshoot_description: Solve difficult implementation problems and unblock stalled work
-role_prompt_troubleshoot: Take on complex implementation or a task stalled after two or three attempts. Review earlier findings, test the key assumption, implement the smallest sound solution and verify it under the original conditions. Report the changes, checks and any remaining limits.
-role_model_hint_review: Use a strong reasoning model (e.g. Opus) for a cross-module review, such as checking cancellation across a parent and its workers.
-role_model_hint_implement: Use a balanced coding model (e.g. Sonnet) for a scoped change, such as adding a settings field and saving it.
-role_model_hint_test: Use a fast model (e.g. Haiku) for routine checks, such as running a focused regression suite. Choose stronger reasoning for timing-sensitive tests.
-role_model_hint_plan: Use a strong reasoning model (e.g. Opus) for design trade-offs, such as planning a history migration that preserves existing sessions.
-role_model_hint_frontend: Use a balanced coding model (e.g. Sonnet) for UI work. Choose image input when comparing a settings panel with a screenshot.
-role_model_hint_troubleshoot: Use a strong reasoning model (e.g. Opus) for elusive failures, such as isolating a memory spike after scrolling a long conversation.
-team_role_one: 1 role
-team_role_count: '%{count} roles'
 teams_concurrency: Child concurrency
-teams_concurrency_description: Maximum running subagents per conversation
 teams_roles: Roles
-team_new: New team
-role_new: New role
-team_delete: Delete team
-team_delete_prompt: Delete team “%{name}”? Its roles are kept
 team_deleted: Team deleted
-teams_role_delete_prompt: Delete role “%{name}”? It is removed from every team
 teams_role_deleted: Role deleted
-team_builtin: Built-in
 team_default: Default team
-team_default_description: All roles, following the conversation model
-team_follow_conversation: Follow conversation
-teams_roles_empty: No roles
-role_inherit: Inherit session model
-teams_read_only: Read-only
-role_effort_inherit: Auto
-team_edit: Edit team
-teams_description: Description
-team_lead_model: Lead model
-team_lead_instructions: Lead prompt
-team_members: Members
-team_members_empty: No roles yet
-teams_follow_lead: Follow lead
-team_member_remove: Remove from team
-team_add_role: Add role
-team_duplicate: Duplicate
-team_copy_name: '%{name} copy'
-team_create: Create
 team_saved: Team saved
-teams_role_edit: Edit role
-role_presets: Presets
-role_id: Identifier
-teams_key_hint: e.g. code-reviewer
-teams_model: Model
-role_instructions: Instructions
-role_save: Save
 teams_role_saved: Role saved
-role_avatar: Avatar
-role_avatar_seed: Avatar %{seed}
-role_avatar_shuffle: Shuffle
-role_avatar_none: Default
 market_plugin_details: Plugin details
 market_skill_details: Skill details
 market_skill_document_failed: Could not load the skill document
@@ -1450,23 +1145,11 @@ market_category_development: Development
 market_category_automation: Automation
 market_category_data: Data
 market_category_entertainment: Fun
-market_plugins: Plugins
-market_skills: Skills
-market_themes: Themes
-market_kind: Market type
-market_search_plugins: Search plugins
-market_search_skills: Search skills
-market_search_themes: Search themes
-market_source_official: Official
-market_source_community: Community
-market_all: All
-market_installed_only: Installed only
 market_theme_current: In use
 market_details_source_official: Official catalog
 market_details_source_community: Community
 skills_no_matches: No matching skills
 market_theme_apply: Apply
-market_no_themes: No matching themes
 market_theme_builtin: Built-in
 plugins_settings_title: Plugin configuration
 plugins_failed: Plugin operation failed
@@ -1525,30 +1208,11 @@ plugins_update_version: Update to %{version}
 plugins_updates_later: Later
 plugins_updates_selected: Update (%{count})
 plugins_retry: Retry
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: Directory
-skill_source_archive: Archive
-skill_source_link_invalid: Enter a skill details URL
 skills_package_source: From plugin %{name}
-skills_search: Search skills
 skills_install: Install skill
-skills_remove_effect: Uninstall %{name}; running tasks are unaffected
 settings_update: Update
-skills_manage_package: Manage plugin
-skill_source_reimport: Import again
-skill_source_origin: Source
-skill_source_git_help: Enter a Git repository, with an optional ref and skill directory
-skills_subdirectory: Subdirectory (optional)
-skills_path_hint: Optional
-skill_source_skills_help: Enter a skills.sh details URL to discover its source skill
-skill_source_link: Skill URL
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: Enter a skillhub.cn details URL to install its verified package
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: Choose folder
-skill_source_choose_archive: Choose archive
 git_diff: Diff
 git_diff_side_by_side: Side by side
 git_diff_inline: Inline
@@ -1567,14 +1231,12 @@ model_library_speech: Speech models
 model_library_decision: Decision
 onboarding_title: Welcome to %{app}
 onboarding_description: Connect a model to get started
-onboarding_host_unavailable: Host unavailable
 workspace_host_status: Disconnected · UI preview
 local_host_detail: macOS · aarch64 · Preview
 remote_host_detail: Linux · x86_64 · Preview
 host_update: Update host
 workspace_worktrees: Worktrees
 workspace_sessions: Sessions
-host_runtime_loading: Reading runtime (preview)
 host_version: Host version
 host_uptime: Uptime
 host_protocol: Protocol version
@@ -1921,7 +1583,6 @@ notebook_cell: Cell %{number}
 notebook_empty: No cells
 git_diff_binary: Cannot display binary diff
 git_diff_partial: Partial diff
-hooks_scope_windows: Scripts use the current Windows command policy
 teams_role_conflict: Role changed; reopen it
 team_conflict: Team changed; reopen it
 role_model_unavailable: Selected model or provider is unavailable
@@ -1939,11 +1600,8 @@ host_install_installing: Installing Host
 host_install_pairing: Pairing
 host_install_unknown: Install result unconfirmed; check host and retry
 host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
-host_step_connect: Connect to host
-host_step_pair: Pair
 model_effort: Effort
 host_network_conflict: Network settings changed; retry
-host_network_edit: Edit host
 host_network_failed: Could not change network
 host_network_load_failed: Could not load network settings
 host_network_saved: Network changed
@@ -1954,9 +1612,6 @@ host_update_restart: This Host will restart; running tasks will stop
 host_updated: Host updated
 pairing_failed: Pairing failed; check the code or network and retry
 pairing_invalid_endpoint: Enter a valid HTTPS pairing service URL
-pairing_preparing: Preparing connection
-pairing_refresh_hint: Valid for 60 seconds; refreshes on expiry
-pairing_relay_checking: Checking relay
 pairing_relay_failed: Could not connect to relay; check the URL and retry
 pairing_relay_invalid: Enter a valid relay address
 pairing_relay_ready: Relay connected
@@ -1967,7 +1622,6 @@ settings_retry: Retry
 ssh_key_changed: Host key changed, verify the fingerprint
 ssh_trust: Trust
 ssh_trust_title: Trust host key
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: Could not read Host runtime
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
@@ -1995,14 +1649,6 @@ authorization_connected: Connected
 connector_bound: Bound
 connector_checked: Connection healthy
 connector_mcp_reconnected: Connected, %{n} tools
-connector_consent_effect: Allow the changed connection permissions
-connector_changed_origins: Origins
-connector_changed_scopes: Scopes
-connector_changed_client: Client
-connector_changed_flow: Sign-in flow
-connector_changed_targets: Credential targets
-connector_changed_mcp: MCP servers
-connector_changed_source: Package source
 appearance_up_to_date: Themes are up to date
 appearance_updates_available: Updates available
 market_themes_failed: Could not load themes
@@ -2170,51 +1816,26 @@ updates_profile_inside: The data profile is inside %{app}; move it before updati
 compatibility_update_unavailable: This version is not available for automatic update yet
 settings_media: Media models
 settings_media_description: Manage models for image, audio and video tasks
-provider_cap_text: Text
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: Vision
-provider_cap_tools: Tools
-provider_cap_reasoning: Reasoning
 provider_cap_image: Image generation
 provider_cap_video: Video generation
 media_speech_synthesis: Speech synthesis
-media_model_unavailable: Model unavailable
 media_conflict: Settings changed; select again
 media_unknown: Save outcome is unknown; check the current settings
 media_failed: Save failed
-provider_capabilities: Capabilities
 provider_cap_understands: Understands
 provider_cap_can: Can
-provider_cap_generates: Generates
 media_image: Image
 media_video: Video
 media_speech: Speech
-media_follow: Follow conversation model
 media_load_failed: Could not read media models
 market_load_more: Load more
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
-connections_copy_id: Copy ID
 host_check_status: Check status
 ssh_agent_short: Agent
 ssh_keep_credential: Leave blank to keep the saved credential
 ssh_busy: Another connection is busy, try again shortly
-connection_scope: Scope
-connection_private: Private
-connection_global: Global sharing
-connection_projects: Project sharing
-host_wsl: WSL
-host_wsl_distribution: Distribution
-host_wsl_requirement: Requires WSL2, GNU Linux x64/arm64 and systemd
-host_wsl_empty: No installed WSL2 distributions
 host_wsl_load_failed: Could not load WSL distributions
 files_unsaved: Unsaved changes
 files_unsaved_description: Save changes before closing?
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: Reply ended first; queued as a new message
 queue_halt_interrupted: Reply interrupted; queued messages kept
 queue_halt_unsent: Message not sent; kept in the queue
 usage_read_failed: Could not load usage, try again
+usage_duration_ms: '%{value} ms'
 chat_output_limit: Reply cut at the output limit
 chat_turn_limit: Stopped at the action limit
 start_failed: '%{app} could not start'
@@ -2383,10 +2005,6 @@ content_link_address: Link address
 content_link_edit: Edit link
 content_image_address: Image address
 content_image_alt: Alt text
-runtime_python_preparing: Preparing
-python_creating: Preparing dependencies
-python_installing: Installing dependencies
-python_validating: Checking dependencies
 port_count: '%{count} ports'
 queue_messages_one: 1 queued message
 queue_messages_count: '%{count} queued messages'
@@ -2470,7 +2088,6 @@ meter_speed: Speed
 meter_model: Model
 meter_show_details: Show details
 meter_hide_details: Show less
-configuration_follow_from_source: From controller
 personal_kv_conflict: Personal data conflict
 personal_kv_conflict_description: The controller kept its current values. Local schedules and completed actions were preserved.
 resource_offline: Offline

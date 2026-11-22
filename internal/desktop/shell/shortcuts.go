@@ -261,7 +261,7 @@ func (a *App) run(c *ui.Context, id string) {
 			c.OpenURL(a.Feedback)
 		}
 	case "app.welcome":
-		a.Welcome.Open = true
+		a.Welcome.Open = a.hasWelcome()
 	case "system.activate":
 		// The system's activate shortcut: the window comes forward
 		// with the search.

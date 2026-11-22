@@ -26,7 +26,7 @@ func dictation(c *ui.Context, m *Model) {
 				// Asking the system for the microphone is the system's
 				// prompt, which the preview does not raise.
 				kit.Secondary(c.Key("authorize"), i18n.T(c, "permission_request")).OnClick(func() {
-					m.modelAction(c, func(a *ModelActions) {
+					m.RunModelAction(c, func(a *ModelActions) {
 						if a.Microphone != nil {
 							a.Microphone()
 						}
@@ -84,13 +84,13 @@ func dictation(c *ui.Context, m *Model) {
 	modelDetails(c, m)
 }
 
-// localModels is whether it is on, the model it uses, and its Installed and
+// LocalModelLibrary renders the current model settings and their Installed and
 // Available tabs. Knowledge (Embedding) has no switch: enable is "" and its
 // first choice, none, turns it to keywords only.
 //
 // Its switch, picker and rows save through ModelActions. A model the host no
 // longer has stays the picker's choice until the user changes it.
-func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
+func LocalModelLibrary(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
 	if m.LocalModelsStatus != "" {
 		settingsTargetStatus(c, m.LocalModelsStatus)
 		return
@@ -191,12 +191,12 @@ func modelRow(c *ui.Context, m *Model, kind string, x *preview.LocalModel, name 
 		switch x.Status {
 		case preview.ModelMissing:
 			kit.Action(c.Key("install"), icons.Download, i18n.T(c, "knowledge_install"), false).OnClick(func() {
-				m.modelAction(c, func(a *ModelActions) { a.Install(kind, x.ID) })
+				m.RunModelAction(c, func(a *ModelActions) { a.Install(kind, x.ID) })
 			})
 		case preview.ModelDownloading:
 			ui.Textf(c, "%.0f%%", x.Percent).FontSize(14).Width(40).TextAlign(ui.End).TextColor(theme.Of(c).MutedForeground)
 			kit.Action(c.Key("cancel"), icons.CircleX, i18n.T(c, "settings_cancel"), false).OnClick(func() {
-				m.modelAction(c, func(a *ModelActions) { a.Cancel(kind, x.ID) })
+				m.RunModelAction(c, func(a *ModelActions) { a.Cancel(kind, x.ID) })
 			})
 		}
 		if x.Status == preview.ModelInstalled {
@@ -253,11 +253,11 @@ func modelDetails(c *ui.Context, m *Model) {
 				switch {
 				case x.Status == preview.ModelDownloading:
 					kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() {
-						m.modelAction(c, func(a *ModelActions) { a.Cancel(d.kind, x.ID) })
+						m.RunModelAction(c, func(a *ModelActions) { a.Cancel(d.kind, x.ID) })
 					})
 				case x.Removable && x.Status == preview.ModelInstalled:
 					kit.Secondary(c.Key("update"), t("settings_update")).OnClick(func() {
-						m.modelAction(c, func(a *ModelActions) { a.Update(d.kind, x.ID) })
+						m.RunModelAction(c, func(a *ModelActions) { a.Update(d.kind, x.ID) })
 					})
 				}
 				if x.Removable && x.Status != preview.ModelDownloading {
@@ -277,8 +277,8 @@ func modelDetails(c *ui.Context, m *Model) {
 		if d.kind == ModelsEmbedding {
 			title, consequence = t("knowledge_delete"), t("knowledge_delete_model_effect", "name", d.name)
 		}
-		if confirm(c, "model-delete", &open, title, consequence, t("knowledge_delete")) {
-			m.modelAction(c, func(a *ModelActions) { a.Delete(d.kind, d.model.ID) })
+		if Confirm(c, "model-delete", &open, title, consequence, t("knowledge_delete")) {
+			m.RunModelAction(c, func(a *ModelActions) { a.Delete(d.kind, d.model.ID) })
 		}
 		if !open {
 			m.dropping = nil

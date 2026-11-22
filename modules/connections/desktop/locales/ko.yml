@@ -1,0 +1,47 @@
+host_add: "호스트 추가"
+workspace_host: "호스트 정보"
+connection_no_projects: "프로젝트 없음"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "장치 %{id}"
+connections_hosts: "호스트"
+connections_mobile: "모바일"
+connections_bidirectional: 양방향
+connections_legacy_bidirectional: 레거시 양방향
+connections_only_host: 호스트 전용
+connections_only_controller: 컨트롤러 전용
+connections_online: "온라인"
+connections_revoke_confirm: "페어링을 제거하려면 다시 연결해야 합니다"
+form_passphrase_hint: "개인 키 암호 (선택 사항)"
+host_install: "설치 및 연결"
+host_pairing_hint: "Sailry가 설치된 기기에 연결"
+host_pairing_mode: "페어링 코드"
+host_ssh_mode: SSH로 설치
+host_install_hint: 서버에 Sailry를 설치하고 연결
+host_ssh_agent_hint: 이 컴퓨터의 SSH 에이전트에 로드된 키 사용
+ssh_authentication: "인증"
+pairing_connect: "장치 연결"
+pairing_local_code: "로컬 페어링 코드"
+pairing_pin_hint: "6자리 페어링 코드 입력"
+pairing_preview_disabled: "UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다"
+pairing_relay_address: "릴레이 주소"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "연결 서버"
+pairing_share: "이 장치 공유하기"
+pairing_share_hint: "다른 장치의 원격 연결에서 이 코드를 입력하십시오"
+host_runtime_loading: "런타임 읽기 (미리보기)"
+host_step_connect: "호스트에 연결"
+host_step_pair: "페어링"
+host_network_edit: "호스트 편집"
+pairing_preparing: "연결 준비 중"
+pairing_refresh_hint: "60초 동안 유효하며 만료시 새로 고침"
+pairing_relay_checking: "릴레이 검사 중"
+connections_copy_id: ID 복사
+connection_scope: "범위"
+connection_private: "비공개"
+connection_global: "전역 공유"
+connection_projects: "프로젝트 공유"
+host_wsl: "WSL"
+host_wsl_distribution: "배포판"
+host_wsl_requirement: "WSL2, GNU Linux x64/arm64 및 systemd 필요"
+host_wsl_empty: "설치된 WSL2 배포판 없음"

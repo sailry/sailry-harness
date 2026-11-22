@@ -5,11 +5,6 @@ activity: Доска активности
 files: Файлы
 git: Git
 settings: Настройки
-market_title: Каталог
-market_details: Подробнее
-market_verified: Проверено
-market_installs: Установки
-market_stars: Звёзды
 search: Поиск
 sidebar_toggle: Развернуть или сжать навигацию
 more: Больше действий
@@ -100,15 +95,9 @@ welcome_review_prompt: Обзор текущих изменений в прое�
 welcome_plan: Составьте план
 welcome_plan_detail: Уточнение целей и шагов
 welcome_plan_prompt: Помогите мне составить поэтапный план для предстоящей работы по разработке
-provider_channels: Каналы
-provider_list_search: Поиск поставщиков или моделей
 settings_add: Добавить
 settings_edit: Изменить
 settings_delete: Удалить
-provider_model_count: '%{count} модели'
-provider_enabled: Включить поставщика
-provider_status_missing_key: Нет ключа
-provider_status_signed_out: Вход не выполнен
 provider_auth_oauth: OAuth
 provider_auth_key: API-ключ
 provider_auth_plugin: Плагин
@@ -118,7 +107,6 @@ plugins_configure: Настроить
 plugins_uninstall: Удалить
 plugins_install: Установить
 plugins_information: Информация
-plugins_none: Нет плагинов
 composer: Опишите, чего вы хотите достичь…
 composer_attachment: Добавить приложение
 send: Отправить
@@ -205,7 +193,6 @@ close: Закрыть
 shell_sessions: Чаты
 notifications: Уведомления
 hosts: Хосты
-host_add: Добавить хост
 sidebar_host_update: Обновить
 local_host_name: Локальный
 remote_host_name: design-node.local
@@ -219,7 +206,6 @@ menu_open_folder: Открыть папку
 shortcut_previous_conversation: Предыдущий разговор
 shortcut_next_conversation: Следующий разговор
 shortcut_sync: Синхронизировать
-workspace_host: Информация о хосте
 connection_action_edit: Изменить
 reference_back: Назад
 connection_search_empty: Нет соответствий
@@ -373,7 +359,6 @@ project_duplicate_path: У этого хоста уже есть проект п
 project_clone_required: Введите имя, репозиторий и место назначения
 settings_cancel: Отмена
 settings_save_preview: Сохранить просмотр
-connection_no_projects: Нет проектов
 workspace_project: Общий обзор проекта
 resource_browser: Браузер
 terminal: Терминал
@@ -844,19 +829,8 @@ configuration_read_failed: Не удалось прочитать файл
 configuration_area_search: Веб-поиск
 configuration_area_compaction: Сжатие контекста
 files_upload_picker: Не удалось открыть инструмент выбора файлов
-connection_route_p2p: P2P
-connection_route_relay: Relay
-connections_device: Устройство %{id}
-connections_hosts: Хосты
-connections_mobile: Мобильный
-connections_bidirectional: Двусторонний
-connections_legacy_bidirectional: Двусторонний (устаревший)
-connections_only_host: Только хост
-connections_only_controller: Только контроллер
 connections_direction_saved: Доступ устройства обновлён
 connections_offline: Не в сети
-connections_online: В сети
-connections_revoke_confirm: Удаление пары требует повторного подключения
 dictation_access: Доступ к микрофону
 dictation_access_granted: Разрешено
 dictation_access_hint: Разрешить доступ для этого приложения; проверяет снова, когда вы вернетесь
@@ -870,40 +844,13 @@ dictation_microphone_default: Система по умолчанию
 dictation_microphone_label: Микрофон
 dictation_model_name: SenseVoice INT8
 form_name_hint: Имя
-form_passphrase_hint: Пароль для закрытого ключа (необязательно)
 form_private_key_hint: Вставить закрытый ключ
-form_value_hint: Введите значение
-form_variable_hint: например LANG
-hooks_add: Добавить Hook
-hooks_after_tool: После инструмента
-hooks_before_tool: До инструмента
-hooks_command: Команда
-hooks_configure: Настроить Hook
 hooks_conflict: Hooks изменились; перезагрузите перед сохранением
-hooks_consent: Выполнять эти скрипты в последующих ходах всех диалогов на %{host}. Каждый скрипт выполняется в рабочем дереве своей задачи.
-hooks_empty: Нет Hooks
-hooks_enable: Включить Hooks
-hooks_enabled: Включено
 hooks_failed: Не удалось сохранить Hooks
-hooks_invalid: Неверная команда или тайм-аут
-hooks_name: Имя
-hooks_phase: Этап
-hooks_remove: Удалить Hook
 hooks_saved: Hooks сохранены
-hooks_scope_workspace: Скрипты могут записывать данные в рабочее дерево задачи. Доступ к сети заблокирован.
-hooks_scripts: Скрипты
 hooks_settings: Hooks
 hooks_settings_description: Настроить скрипты для этого хоста выполнения
-hooks_timeout: Тайм-аут (ms)
-hooks_turn_end: Завершение хода
 hooks_unknown: Результат сохранения Hook неизвестен; повторите исходный запрос
-host_install: Установка и подключение
-host_pairing_hint: Подключить устройство с Sailry
-host_pairing_mode: Код сопряжения
-host_ssh_mode: Установка через SSH
-host_install_hint: Установите Sailry на сервер и подключитесь
-host_ssh_agent_hint: Использовать ключи, загруженные в SSH-агент этого компьютера
-ssh_authentication: Аутентификация
 connection: Соединение
 knowledge_downloading: Загрузка
 knowledge_install: Установить
@@ -921,17 +868,8 @@ message_display_detailed: Подробная информация
 model_library_select: Выбрать
 model_library_selected: Выбрано
 model_library_source: Источник
-pairing_connect: Подключить устройство
-pairing_local_code: Локальный код сопряжения
-pairing_pin_hint: Введите 6-значный парольный код
-pairing_preview_disabled: Предварительный просмотр пользовательского интерфейса не подключает реальные устройства; начните с --data-dir для создания пары
-pairing_relay_address: Адрес ретранслятора
-pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Пользовательский
 pairing_relay_direct: Только прямое соединение (LAN)
-pairing_relay_server: Сервер подключения
-pairing_share: Поделиться этим устройством
-pairing_share_hint: Введите этот код в Удаленные подключения на другом устройстве
 permission_check: Проверить
 permission_disk_help: Если Sailry отсутствует, добавьте его с помощью + или перетащите приложение в список
 permission_full_disk: Полный доступ к диску
@@ -961,15 +899,7 @@ power_settings_conflict: Настройки изменились; перезаг
 power_settings_failed: Не удалось загрузить или сохранить настройки сна
 power_settings_saved: Сохранено
 power_settings_unknown: Результат сохранения неизвестен; перезагрузите для проверки
-runtime_ocr: Распознавание текста
-runtime_ocr_enable: Включить OCR
-runtime_ocr_model: Модель OCR
 runtime_python: Python
-runtime_python_bundled: Встроенный
-runtime_python_custom: Свой источник
-runtime_python_custom_url: URL индекса пакетов
-runtime_python_index: Источник пакетов
-runtime_python_version: Версия
 sandbox_settings_conflict: Настройки песочницы изменились; перезагрузите их
 sandbox_settings_failed: Не удалось загрузить или сохранить настройки песочницы
 sandbox_settings_saved: Сохранено
@@ -998,9 +928,6 @@ settings_decision_description: Настройка локальных модел�
 settings_dictation_description: Переписать локально в черновой текст сообщения
 settings_empty: Нет пунктов
 settings_execution: Выполнение
-settings_font_default: По умолчанию
-settings_font_family: Шрифт
-settings_font_size: Размер шрифта
 settings_general_description: Управление уведомлениями и службой парирования устройств
 settings_global_commands: Глобальные команды
 settings_knowledge_description: Знания на выбранном хосте
@@ -1028,8 +955,6 @@ settings_notify_failed: Уведомления о сбоях задач
 settings_notify_system: Уведомления системы
 settings_ocr: OCR
 settings_ocr_description: Настройка распознавания текста
-settings_paste_description: Подтвердить перед вставлением нескольких строк
-settings_paste_protection: Многолинейная защита пасты
 settings_permissions_description: Системный доступ Sailry
 settings_runtime: Среда выполнения
 settings_runtime_description: Настройка этого Node
@@ -1040,7 +965,6 @@ settings_sidebar_metrics: Индикатор производительност�
 settings_skills_description: Управление навыками, доступными для сеансов
 settings_teams_description: Роли и команды субагентов
 settings_terminal_description: Терминальная среда и дисплей
-settings_terminal_display: Дисплей и ввод
 settings_toast_description: Как долго уведомления в приложении остаются видимыми
 settings_toast_duration: Продолжительность уведомления
 shortcut_activate: Показать Sailry
@@ -1083,19 +1007,10 @@ telemetry_send_action: Отправить диагностику
 telemetry_support: Поддержка
 telemetry_title: Диагностика и конфиденциальность
 telemetry_unknown: Результат неизвестен. Обновите для проверки
-terminal_environment: Глобальные экологические переменные
-terminal_environment_add: Добавить переменную среды
 terminal_input: Ввод
 terminal_settings_conflict: Настройки терминала изменены; ваши изменения сохранены
 terminal_settings_failed: Не удалось прочитать или сохранить настройки терминала
 terminal_settings_unknown: Сохранение результата не подтверждено; перезагрузка и пересмотр
-terminal_shell: Shell по умолчанию
-terminal_shell_default: По умолчанию для хоста
-terminal_shell_group: Shell
-terminal_value: Стоимость
-terminal_variable: Имя переменной
-terminal_variable_duplicate: Переменная уже существует
-terminal_variable_invalid: Неверное имя переменной, зарезервированная настройка или переменная загрузки кода
 updates_channel: Канал обновлений
 updates_channel_experience: Ознакомительный
 updates_channel_stable: Стабильный
@@ -1125,118 +1040,20 @@ authorization_cancel: Отмена
 compaction_settings_failed: Не удалось сохранить настройки сжатия
 compaction_settings_conflict: Настройки сжатия изменились. Повторите попытку
 compaction_settings_unknown: Сохранение не подтверждено. Повторите попытку
-provider_tokens_m: '%{count}M'
-provider_tokens_k: '%{count}K'
-provider_empty_live: Нет поставщиков
-provider_login_callback_required: Введите код авторизации или URL перенаправления из браузера
-provider_delete_title: Исключить поставщика
-provider_remove_effect: Для сеансов потребуется выбрать другого поставщика
-provider_catalog_never: Не обновлено
-provider_catalog_bundled: Bundled data
 provider_catalog_required: Update model data first
-provider_catalog_updated: Обновленный
-provider_catalog: Данные модели
-provider_catalog_update: Обновить
-provider_catalog_status: Метаданные модели
-provider_scores: Оценки моделей
-provider_catalog_last_update: Последнее обновление
-provider_compaction_threshold: Порог сжатия
 provider_all: Все типы
 provider_type: Тип поставщика
-provider_window_5h: 5h
-provider_window_7d: 7d
-provider_models_empty: Нет настроенных моделей
-provider_connect: Подключить учетную запись
-provider_reconnect: Войти
 provider_access_key: Ключ API
-provider_access_no_key: Без ключа API
 provider_access_cloud: Облачные учетные данные
-provider_name_required: Введите имя поставщика
-provider_endpoint_required: Введите действительную конечную точку API
-provider_key_required: Введите ключ
-provider_model_required: Добавить модель и ввести ее ID
-provider_model_duplicate: Идентификатор модели должен быть уникальным
-provider_limits_invalid: Контекстное ограничение должно быть положительным целым числом, по меньшей мере равным выходному ограничению
 provider_access_endpoint: Свой адрес API
-provider_add_title: Добавить поставщика
-provider_choose_method: Выбрать подключение
-provider_configure: Настроить поставщика
-provider_edit_title: Изменить поставщика
 provider_step_back: Назад
-provider_save: Сохранить
-provider_save_login: Сохранить и войти
 provider_access_login: Вход через учетную запись
-provider_name_hint: Введите имя поставщика
-provider_api: API протокол
-provider_api_responses: Responses
-provider_api_chat_completions: Chat Completions
-provider_product: Продукт
-provider_metered: Оплата по использованию
-provider_coding: Тариф для программирования
-provider_region: Регион
-provider_region_china: Китай
-provider_region_global: Глобальный
-provider_endpoint: Конечная точка API
-provider_endpoint_hint: https://api.example.com/v1
-provider_key_hint: Введите ключ API
-provider_api_key: Ключ API
-provider_get_key: Получить ключ API
-provider_hosts: Hosts
-provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_on_host: on {host}
-provider_oauth_advanced: Дополнительные настройки
-provider_oauth_catalog_version: Версия каталога
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: Версия редактора
-provider_oauth_editor_plugin_version: Версия плагина редактора
-provider_headers: Пользовательские заголовки запроса
-provider_headers_invalid: Заголовку со значением нужно имя
-provider_billing_rate: Коэффициент тарификации
-provider_billing_rate_hint: Процент от тарифов API для расчёта примерной стоимости
-provider_billing_rate_invalid: Коэффициент тарификации должен быть не меньше 0 и содержать не более двух десятичных знаков
 provider_billing_rate_unsupported: В этой версии хоста коэффициент тарификации не поддерживается. Остальные настройки сохранены
-provider_models: Модели
-provider_discover: Обновление моделей
-provider_querying: Запрос
-provider_discovered_preview: Объединение моделей предварительного просмотра; сохранение ручных моделей и стандартного выбора
-provider_add_model: Добавить модель
-provider_new_model: Новая модель
-provider_model_default: По умолчанию
-provider_set_default: Установить по умолчанию
-provider_default: Модель по умолчанию
-provider_model_id: Идентификация модели
-provider_deployment_id: Имя развертывания
-provider_api_version: API версия
-form_api_version_hint: например 2024-10-21
-provider_cloud_required: Введите конфигурацию облачного поставщика
-form_model_hint: Идентификация модели
 provider_context: Контекстное ограничение (Token)
-form_tokens_hint: Число Token
-provider_efforts: Усилия по размышлению
-provider_effort_default: Усилия по умолчанию
-provider_effort_placeholder: Усилия или бюджет Token
-provider_effort_invalid: Неправильное обоснование; проверить имена, дубликаты и поддержку API
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
-search_driver_auto: Автоматически
-knowledge_settings: Настройки по умолчанию
-knowledge_default_model: Векторная модель
-knowledge_keyword_only: Только ключевые слова
 knowledge_collections: Коллекции
-knowledge_collection_pending: Ожидает индексации
-knowledge_collection_unavailable: Node хранения недоступен
-knowledge_collection_indexing: Индексация · %{count} эл.
-knowledge_collection_ready: Актуально · %{count} эл.
-knowledge_collection_paused: Приостановлено
-knowledge_collection_failed: Ошибка · %{reason}
-knowledge_collection_failures: 'Не проиндексировано: %{count} · %{reason}'
-knowledge_pause: Приостановить
-knowledge_resume: Продолжить
-knowledge_update: Обновить
-runtime_decision: Решения
-runtime_decision_model: Модель
-runtime_decision_enable: Включить решения
-local_models_none: Нет
 connector_oauth: OAuth
 connector_application: Данные приложения
 connector_token: Token
@@ -1250,71 +1067,17 @@ connector_package_disabled: Плагин отключён
 connector_account_disabled: Аккаунт отключён
 connector_configuration_required: Требуется настройка
 connector_unavailable: Недоступно
-connector_search: Поиск коннекторов
-connector_all_methods: Все способы
-connector_filter: Способ аутентификации
-mcp_add: Добавить MCP
-connector_preview: Предпросмотр
-connector_empty: Нет подключений
-connector_remove: Удалить
-connector_remove_effect: Удалить «%{name}»? Конфигурация и учётные данные будут удалены
 connector_removed: Удалено
-connector_mcp_connecting: Подключение
 connector_mcp_failed: Ошибка подключения
 connector_connected: Подключено
-connector_mcp_tools: 'Инструментов: %{n}'
-connector_connect: Подключить
-connector_account_enabled: Включить аккаунт
-connector_server_allowed: Включить сервер
 connector_saved: Сохранено
-connector_details: Подробности
-connector_configure: Настроить
-connector_confirm: Подтвердить
-connector_bind: Привязать
-connector_reauthorize: Авторизовать заново
-connector_add_credentials: Добавить учётные данные
-connector_probe: Проверить
-connector_mcp_reconnect: Подключить заново
-connector_add: Добавить коннектор
-connector_added: Добавлено
-connector_choose_account: Выберите аккаунт для привязки
-connector_browser: Авторизоваться в браузере
-form_secret_hint: Введите учетные данные
-connector_register: Создать приложение
-connector_authorize: Авторизоваться
-mcp_invalid: Проверка имени, подключения и переменных
-connector_mcp_server: Сервер
 market_details_tools: Инструменты
-connector_mcp_updated_at: Обновлено
-connector_mcp_error: Ошибка
-mcp_edit: Настроить MCP
-mcp_transport: Транспортные средства
-plugins_stdio: Стандартные входы/выходы
-plugins_http: Streamable HTTP
-plugins_sse: SSE
-mcp_command: Команды
-mcp_command_hint: npx, uvx или исполняемый файл
-mcp_arguments: Аргументы
-mcp_argument: Значение аргумента
-mcp_remove_argument: Удалить аргумент
-mcp_add_argument: Добавить аргумент
 mcp_url: URL-адрес сервера
-mcp_url_hint: https://example.com/mcp
-mcp_environment: Экологические переменные
-mcp_add_environment: Добавить переменную среды
-mcp_headers: Заголовки
 mcp_add_header: Добавить заголовок
 mcp_slot_name: Имя
-mcp_secret_saved: Учетные данные сохранены; оставьте пустыми для сохранения
 mcp_show_secret: Показать учётные данные
 mcp_hide_secret: Скрыть учётные данные
-connector_no_auth: Без аутентификации
-connector_mcp_status: Статус
-connector_mcp_updated: Обновлено %{time}
-plugins_settings_reload: Перезагрузить
-plugins_settings_diagnostics: Подробности
 mcp_slot_value: Стоимость
-mcp_remove_slot: Удалить пункт
 mcp_configuration_saved: MCP конфигурация сохранена
 mcp_oauth_callback_failed: Не удалось получить обратный вызов авторизации; попробуйте еще раз
 mcp_oauth_failed: Авторизация не удалась; попробуйте снова
@@ -1325,86 +1088,18 @@ role_duplicate: Идентификатор уже существует
 teams_settings_failed: Не удалось сохранить параллелизм
 teams_settings_conflict: Настройки изменились; загрузите и сохраните снова
 teams_settings_unknown: Результат сохранения неизвестен; повторите для проверки
-role_preset_review: Обзор кодекса
-role_review_description: Проверять изменения и сообщать обоснованные замечания
-role_prompt_review: |-
-    Проверка кода и изменений в пределах установленного диапазона с уделением особого внимания правильности, крайним случаям, рискам регрессии и существующим соглашениям.
-    Сначала прочитайте соответствующие реализации и тесты, а затем сообщите подтвержденные фактами выводы с указанием мест, воздействия и рекомендаций. Не изменяйте файлы; прямо сообщайте, когда не найдено никаких проблем.
-role_preset_implement: Осуществление
-role_implement_description: Вносить точечные изменения и проверять их
-role_prompt_implement: |-
-    Завершить назначенную реализацию, прежде всего, изучив существующую архитектуру, правила кодирования и требования к приемке.
-    Повторное использование существующих возможностей, сохранение изменений в фокусе и проверка затронутого поведения. Сообщите о том, что было выполнено, о фактических проверках и остающихся ограничениях.
-role_preset_test: Проверка
-role_test_description: Запускать проверки и сообщать подтверждённые результаты
-role_prompt_test: |-
-    Проверь назначенное изменение или поведение. Найди подходящие существующие тесты и проверки, запусти самые узкие из тех, что покрывают область, и добавляй тесты только по запросу.
-    Сообщи точные команды, результаты и сбои с вероятной причиной. Не меняй код реализации ради прохождения проверок.
 role_preset_docs: Документация
 role_docs_description: Писать и обновлять документацию проекта
 role_prompt_docs: |-
     Напиши или обнови документацию для назначенной области. Сначала прочитай соответствующий код и существующие документы, следуй их структуре и терминологии, пиши кратко и точно.
     Сообщи, какие файлы изменены и какие факты не удалось подтвердить.
-role_preset_plan: Планирование
-role_plan_description: Определить этапы реализации и критерии приёмки
-role_prompt_plan: Изучи текущее поведение и ограничения. Выдели ключевые проектные решения. Разбей работу на проверяемые шаги, укажи зависимости и способы проверки. Отметь допущения, которые должен уточнить ведущий агент. Оставь файлы проекта без изменений.
-role_preset_frontend: Проектирование и разработка интерфейсов
-role_frontend_description: Проектировать и реализовывать внешний вид и поведение интерфейса
-role_prompt_frontend: Спроектируй компоновку, визуальную иерархию и взаимодействия в рамках существующей дизайн-системы, затем реализуй интерфейс. Учти управление с клавиатуры, состояния загрузки и ошибки. Проверь поддерживаемые размеры окна и сравни результат с предоставленными образцами.
-role_preset_troubleshoot: Решение сложных задач
-role_troubleshoot_description: Реализовывать сложные изменения и доводить до конца зашедшие в тупик задачи
-role_prompt_troubleshoot: Возьми сложную реализацию или задачу, которую не удалось решить за две-три попытки. Изучи предыдущие результаты, проверь ключевую гипотезу и внеси необходимые изменения. Проверь решение в исходных условиях и опиши изменения, результаты и оставшиеся ограничения.
-role_model_hint_review: Для проверки нескольких модулей подойдёт модель с развитым логическим мышлением (например, Opus), например для проверки отмены работы дочерних агентов.
-role_model_hint_implement: Для небольшого изменения, например добавления и сохранения настройки, подойдёт сбалансированная модель для программирования (например, Sonnet).
-role_model_hint_test: Для запуска отдельных регрессионных тестов подойдёт быстрая модель (например, Haiku). Для тестов, зависящих от времени выполнения, полезна модель с развитым логическим мышлением.
-role_model_hint_plan: Для выбора между вариантами реализации подойдёт модель с развитым логическим мышлением (например, Opus), например при планировании переноса истории с сохранением сеансов.
-role_model_hint_frontend: Для интерфейсов подойдёт сбалансированная модель для программирования (например, Sonnet). Для сравнения панели настроек со снимком экрана выбери модель с поддержкой изображений.
-role_model_hint_troubleshoot: Для трудновоспроизводимых сбоев подойдёт модель с развитым логическим мышлением (например, Opus), например при поиске причины скачка памяти во время прокрутки длинного диалога.
-team_role_one: 1 роль
-team_role_count: 'Ролей: %{count}'
 teams_concurrency: Параллельные субагенты
-teams_concurrency_description: Максимум одновременно работающих субагентов на разговор
 teams_roles: Роли
-team_new: Новая команда
-role_new: Новая роль
-team_delete: Удалить команду
-team_delete_prompt: Удалить команду «%{name}»? Роли сохранятся
 team_deleted: Команда удалена
-teams_role_delete_prompt: Удалить роль «%{name}»? Она будет убрана из всех команд
 teams_role_deleted: Роль удалена
-team_builtin: Встроенная
 team_default: Команда по умолчанию
-team_default_description: Все роли, модель разговора
-team_follow_conversation: Как в разговоре
-teams_roles_empty: Нет ролей
-role_inherit: Наследование модели сеанса
-teams_read_only: Только чтение
-role_effort_inherit: Автоматически
-team_edit: Изменить команду
-teams_description: Описание
-team_lead_model: Модель руководителя
-team_lead_instructions: Промпт руководителя
-team_members: Участники
-team_members_empty: Ролей пока нет
-teams_follow_lead: Как у ведущего
-team_member_remove: Убрать из команды
-team_add_role: Добавить роль
-team_duplicate: Дублировать
-team_copy_name: '%{name} (копия)'
-team_create: Создать
 team_saved: Команда сохранена
-teams_role_edit: Изменить роль
-role_presets: Предустановки
-role_id: Идентификатор
-teams_key_hint: например, code-reviewer
-teams_model: Модель
-role_instructions: Инструкции
-role_save: Сохранить
 teams_role_saved: Роль сохранена
-role_avatar: Аватар
-role_avatar_seed: Аватар %{seed}
-role_avatar_shuffle: Другие
-role_avatar_none: По умолчанию
 market_plugin_details: Сведения о плагине
 market_skill_details: Сведения о навыке
 market_skill_document_failed: Не удалось загрузить документ навыка
@@ -1450,23 +1145,11 @@ market_category_development: Разработка
 market_category_automation: Автоматизация
 market_category_data: Данные
 market_category_entertainment: Развлечения
-market_plugins: Плагины
-market_skills: Навыки
-market_themes: Темы
-market_kind: Тип каталога
-market_search_plugins: Поиск плагинов
-market_search_skills: Поиск навыков
-market_search_themes: Поиск тем
-market_source_official: Официальные
-market_source_community: Сообщество
-market_all: Все
-market_installed_only: Только установленные
 market_theme_current: Используется
 market_details_source_official: Официальный каталог
 market_details_source_community: Сообщество
 skills_no_matches: Не соответствующие навыки
 market_theme_apply: Применить
-market_no_themes: Подходящих тем нет
 market_theme_builtin: Встроенная
 plugins_settings_title: Настройка плагина
 plugins_failed: Операция с плагином не удалась
@@ -1525,30 +1208,11 @@ plugins_update_version: Обновление к %{version}
 plugins_updates_later: Позже
 plugins_updates_selected: Обновить (%{count})
 plugins_retry: Повторить
-skill_source_git: Git
 skill_source_skills: Vercel Skills
 skill_source_hub: SkillHub
-skill_source_directory: Каталог
-skill_source_archive: Архив
-skill_source_link_invalid: Введите URL страницы навыка
 skills_package_source: Из плагина %{name}
-skills_search: Навыки поиска
 skills_install: Установить навык
-skills_remove_effect: Удалить %{name}; выполняемые задачи не затронуты
 settings_update: Обновить
-skills_manage_package: Управление плагином
-skill_source_reimport: Импортировать снова
-skill_source_origin: Источник
-skill_source_git_help: Укажите Git-репозиторий; ссылка и каталог навыка необязательны
-skills_subdirectory: Подкаталог (необязательно)
-skills_path_hint: Необязательно
-skill_source_skills_help: Укажите URL страницы навыка skills.sh для поиска его исходников
-skill_source_link: URL навыка
-skill_source_skills_hint: https://skills.sh/owner/repository/skill
-skill_source_hub_help: Укажите URL страницы навыка skillhub.cn для установки проверенного пакета
-skill_source_hub_hint: https://skillhub.cn/skills/author/skill
-skill_source_choose_directory: Выбрать папку
-skill_source_choose_archive: Выбрать архив
 git_diff: Различия
 git_diff_side_by_side: Рядом
 git_diff_inline: Встроенно
@@ -1567,14 +1231,12 @@ model_library_speech: Речевые модели
 model_library_decision: Решения
 onboarding_title: Добро пожаловать в %{app}
 onboarding_description: Подключите модель, чтобы начать
-onboarding_host_unavailable: Хост недоступен
 workspace_host_status: Отключено · Предварительный просмотр интерфейса
 local_host_detail: macOS · aarch64 · Предварительный просмотр
 remote_host_detail: Linux · x86_64 · Предварительный просмотр
 host_update: Обновить хост
 workspace_worktrees: Рабочие деревья
 workspace_sessions: Сеансы
-host_runtime_loading: Чтение времени выполнения (предварительный просмотр)
 host_version: Версия хоста
 host_uptime: Время работы
 host_protocol: Версия протокола
@@ -1921,7 +1583,6 @@ notebook_cell: Ячейка %{number}
 notebook_empty: Нет ячеек
 git_diff_binary: Не удается отобразить двоичное отличие
 git_diff_partial: Частичное различие
-hooks_scope_windows: Скрипты используют текущую политику команд Windows
 teams_role_conflict: Роль изменилась; откройте её снова
 team_conflict: Команда изменилась; откройте её снова
 role_model_unavailable: Выбранная модель или поставщик недоступен
@@ -1939,11 +1600,8 @@ host_install_installing: Установка хоста
 host_install_pairing: Сопряжение
 host_install_unknown: Результат установки не подтвержден; проверьте хост и повторите попытку
 host_ssh_windows_pairing: В Windows установите и откройте Sailry Desktop, затем добавьте хост по его коду сопряжения.
-host_step_connect: Подключение к хосту
-host_step_pair: Сопряжение
 model_effort: Усилие
 host_network_conflict: Настройки сети изменились; повторите попытку
-host_network_edit: Изменить хост
 host_network_failed: Не удалось изменить сеть
 host_network_load_failed: Не удалось загрузить настройки сети
 host_network_saved: Сеть изменена
@@ -1954,9 +1612,6 @@ host_update_restart: Host перезапустится; выполняемые �
 host_updated: Host обновлён
 pairing_failed: Парирование не удалось; проверьте код или сеть и повторите попытку
 pairing_invalid_endpoint: Введите допустимый URL-адрес службы парирования HTTPS
-pairing_preparing: Подготовка соединения
-pairing_refresh_hint: Действует в течение 60 секунд; обновляется по истечении срока действия
-pairing_relay_checking: Проверка реле
 pairing_relay_failed: Не удалось подключиться к ретрансляции; проверьте URL и повторите попытку
 pairing_relay_invalid: Введите допустимый адрес ретранслятора
 pairing_relay_ready: Реле подключено
@@ -1967,7 +1622,6 @@ settings_retry: Повторить
 ssh_key_changed: Ключ хоста изменился, проверьте отпечаток пальца
 ssh_trust: Доверять
 ssh_trust_title: Доверять ключу хоста
-usage_duration_ms: '%{value} ms'
 live_host_runtime_error: Не удалось прочитать среду выполнения хоста
 live_metrics_loading: Загрузка метрик
 live_metrics_error: Не удалось прочитать метрики хоста
@@ -1995,14 +1649,6 @@ authorization_connected: Подключено
 connector_bound: Привязано
 connector_checked: Подключение работает
 connector_mcp_reconnected: 'Подключено, инструментов: %{n}'
-connector_consent_effect: Разрешить изменённые права подключения
-connector_changed_origins: Источники
-connector_changed_scopes: Разрешения
-connector_changed_client: Клиент
-connector_changed_flow: Способ входа
-connector_changed_targets: Получатели учётных данных
-connector_changed_mcp: Серверы MCP
-connector_changed_source: Источник пакета
 appearance_up_to_date: Темы обновлены
 appearance_updates_available: Доступны обновления
 market_themes_failed: Не удалось загрузить темы
@@ -2170,51 +1816,26 @@ updates_profile_inside: Профиль данных находится внут�
 compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления
 settings_media: Фотомодели СМИ
 settings_media_description: Управление моделями для изображений, аудио и видео задач
-provider_cap_text: Текст
-provider_cap_input: Inputs
-provider_cap_output: Native outputs
-provider_cap_audio_input: Audio
-provider_cap_pdf: PDF
-provider_cap_functions: Functions
-provider_cap_follow_catalog: Follow catalog
-provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
-provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: Видение
-provider_cap_tools: Инструменты
-provider_cap_reasoning: Обоснование
 provider_cap_image: Генерация изображений
 provider_cap_video: Генерация видео
 media_speech_synthesis: Синтез речи
-media_model_unavailable: Модель отсутствует
 media_conflict: Настройки изменены; выберите снова
 media_unknown: Результат сохранения неизвестен; проверьте текущие настройки
 media_failed: Сохранение не удалось
-provider_capabilities: Возможности
 provider_cap_understands: Понимает
 provider_cap_can: Умеет
-provider_cap_generates: Создаёт
 media_image: Изображение
 media_video: Видео
 media_speech: Речь
-media_follow: Как в модели разговора
 media_load_failed: Не удалось прочитать медиамодели
 market_load_more: Загрузить ещё
-skill_catalog_load_failed: Could not load skills
 panel_history_empty: Истории пока нет
 panel_documents_empty: Документов пока нет
-connections_copy_id: Копировать ID
 host_check_status: Проверить состояние
 ssh_agent_short: Агент
 ssh_keep_credential: Оставьте пустым, чтобы сохранить сохраненные учетные данные
 ssh_busy: Другое соединение занято, попробуйте снова через несколько минут
-connection_scope: Область
-connection_private: Приватный
-connection_global: Глобальный обмен
-connection_projects: Обмен проектами
-host_wsl: WSL
-host_wsl_distribution: Дистрибутив
-host_wsl_requirement: Требуются WSL2, GNU Linux x64/arm64 и systemd
-host_wsl_empty: Нет установленных дистрибутивов WSL2
 host_wsl_load_failed: Не удалось загрузить дистрибутивы WSL
 files_unsaved: Несохранённые изменения
 files_unsaved_description: Сохранить изменения перед закрытием?
@@ -2359,6 +1980,7 @@ queue_guidance_outlived: Ответ завершился раньше; пост�
 queue_halt_interrupted: Ответ прерван; сообщения в очереди сохранены
 queue_halt_unsent: Сообщение не отправлено; оставлено в очереди
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
+usage_duration_ms: '%{value} ms'
 chat_output_limit: Ответ обрезан по лимиту вывода
 chat_turn_limit: Остановлено на лимите действий
 start_failed: Не удалось запустить %{app}
@@ -2383,10 +2005,6 @@ content_link_address: Адрес ссылки
 content_link_edit: Изменить ссылку
 content_image_address: Адрес изображения
 content_image_alt: Альтернативный текст
-runtime_python_preparing: Подготовка
-python_creating: Подготовка зависимостей
-python_installing: Установка зависимостей
-python_validating: Проверка зависимостей
 port_count: 'Портов: %{count}'
 queue_messages_one: 1 сообщение в очереди
 queue_messages_count: 'Сообщений в очереди: %{count}'
@@ -2470,7 +2088,6 @@ meter_speed: Скорость
 meter_model: Модель
 meter_show_details: Показать подробности
 meter_hide_details: Свернуть
-configuration_follow_from_source: С контроллера
 personal_kv_conflict: Конфликт личных данных
 personal_kv_conflict_description: Контроллер сохранил свои текущие значения. Локальные расписания и выполненные действия сохранены.
 resource_offline: Не в сети

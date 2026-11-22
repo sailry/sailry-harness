@@ -1,0 +1,9 @@
+runtime_python_bundled: "内置"
+runtime_python_custom: "自定义"
+runtime_python_custom_url: "软件包源地址"
+runtime_python_index: "软件包源"
+runtime_python_version: "版本"
+runtime_python_preparing: "正在准备"
+python_creating: 准备依赖
+python_installing: 安装依赖
+python_validating: 检查依赖

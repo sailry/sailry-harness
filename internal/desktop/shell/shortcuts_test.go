@@ -201,7 +201,7 @@ func TestInputKeepsEditingKeys(t *testing.T) {
 // The native menu has the reference's menus, items and keys, localized,
 // and its commands run scoped as their keys are.
 func TestMenu(t *testing.T) {
-	a := New(preview.Load(), TestHarnessPages()...)
+	a := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 	product := identity.OfficialDesktop()
 	a.Website, a.Feedback = product.Website, product.Feedback
 	var sent []string
@@ -276,6 +276,9 @@ func TestMenu(t *testing.T) {
 	zh := a.Menu("zh-CN", nil)
 	for i, m := range menu {
 		for j, it := range m.Submenu {
+			if it.ID == "page:settings_plugins" && zh[i].Submenu[j].Label != "市场" {
+				t.Errorf("module market menu label = %q", zh[i].Submenu[j].Label)
+			}
 			if it.Label != "" && i > 0 && !strings.HasPrefix(it.ID, "page:") && zh[i].Submenu[j].Label == it.Label {
 				t.Errorf("%q is not translated", it.Label)
 			}
@@ -299,7 +302,7 @@ func TestMenu(t *testing.T) {
 	}
 	// A live window opens an available folder; the guide remains available.
 	opened := 0
-	logged := New(preview.Load())
+	logged := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 	logged.Preview = false
 	logged.Website, logged.Feedback = product.Website, product.Feedback
 	if logs := logged.Menu("en", logged.Do)[5].Submenu[2]; !logs.Disabled || logs.Click != nil {

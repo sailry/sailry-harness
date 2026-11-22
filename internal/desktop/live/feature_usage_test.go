@@ -26,7 +26,7 @@ func testFeatureUsage(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const planted = "planted secret /Users/someone/private theme-package-name"
 		root, source := terminalTabsFixture(t)
-		root.App = shell.NewLive(root.App.Data, desktop.Harness()...)
+		root.App = shell.NewLiveWithAssembly(root.App.Data, desktop.Harness())
 		source.respond = func(request protocol.Request) link.Response {
 			if request.Command.Kind == "count_feature" {
 				return link.Response{Output: protocol.Output{Kind: "feature_counted"}}

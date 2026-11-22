@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -17,6 +16,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	files "github.com/sailry/sailry-harness/modules/files/desktop"
+	git "github.com/sailry/sailry-harness/modules/git/desktop"
+	marketModule "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
 type nativeMarketTransport struct {
@@ -116,11 +118,11 @@ func TestNativeMarketAssembly(t *testing.T) {
 			defer controller.Close()
 			prefs := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
 			prefs.Data.WelcomeSeen = new(true)
-			pages := desktop.Harness()
-			if !includeMarket {
-				pages = slices.DeleteFunc(pages, func(page shell.NativePage) bool { return page.Page == shell.MarketPage })
+			modules := []shell.Module{files.Register, git.Register}
+			if includeMarket {
+				modules = append(modules, marketModule.Register)
 			}
-			root, err := NewWithPreferences(t.Context(), controller, prefs, pages...)
+			root, err := NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(modules...))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +179,7 @@ func TestNativeMarketAssembly(t *testing.T) {
 				}
 				return matches
 			}
-			market := i18n.In("en", "market_title")
+			market := i18n.New(marketModule.Locales).In("en", "market_title")
 			if includeMarket {
 				click(ui.RoleButton, market, false)
 				click(ui.RoleButton, pluginLabel, false)

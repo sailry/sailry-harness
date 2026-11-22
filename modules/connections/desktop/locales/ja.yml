@@ -1,0 +1,47 @@
+host_add: "ホストを追加"
+workspace_host: "ホスト情報"
+connection_no_projects: "プロジェクトなし"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "デバイス %{id}"
+connections_hosts: "ホスト"
+connections_mobile: "モバイル"
+connections_bidirectional: 双方向
+connections_legacy_bidirectional: 従来の双方向
+connections_only_host: ホストのみ
+connections_only_controller: コントローラーのみ
+connections_online: "オンライン"
+connections_revoke_confirm: "このペアリングを削除しますか？ユーザーの最後のデバイスを削除すると、そのデータにはどのデバイスからもアクセスできなくなります。"
+form_passphrase_hint: "秘密鍵パスフレーズ (オプション)"
+host_install: "インストールと接続"
+host_pairing_hint: "既存の Sailry デバイスに接続"
+host_pairing_mode: "ペアリングコード"
+host_ssh_mode: SSH でインストール
+host_install_hint: サーバーに Sailry をインストールして接続
+host_ssh_agent_hint: このコンピューターの SSH エージェントに読み込まれた鍵を使用
+ssh_authentication: "認証"
+pairing_connect: "デバイスを接続"
+pairing_local_code: "ローカルペアリングコード"
+pairing_pin_hint: "6 桁のペアリングコードを入力"
+pairing_preview_disabled: "UI プレビューは実際のデバイスを接続しません。ペアを作成するには --data-dir を起動してください"
+pairing_relay_address: "リレーアドレス"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "接続サーバ"
+pairing_share: "このデバイスを共有"
+pairing_share_hint: "他のデバイスのリモート接続でこのコードを入力"
+host_runtime_loading: "ランタイムを読み込み中 (プレビュー)"
+host_step_connect: "ホストに接続"
+host_step_pair: "ペアリング"
+host_network_edit: "ホストを編集"
+pairing_preparing: "接続を準備中"
+pairing_refresh_hint: "60 秒間有効。有効期限が過ぎると更新されます"
+pairing_relay_checking: "チェッキングリレー"
+connections_copy_id: ID をコピー
+connection_scope: "範囲"
+connection_private: "非公開"
+connection_global: "グローバル共有"
+connection_projects: "プロジェクト共有"
+host_wsl: "WSL"
+host_wsl_distribution: "ディストリビューション"
+host_wsl_requirement: "WSL2、GNU Linux x64/arm64、systemd が必要です"
+host_wsl_empty: "WSL2 ディストリビューションが未インストールです"

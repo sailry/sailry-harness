@@ -84,6 +84,9 @@ func (r *Runtime) initConnectionActions() {
 		},
 	}
 	r.App.Hooks.EditHost = func(id string) {
+		if !r.App.Settings.HasSection(settings.Connections) {
+			return
+		}
 		for _, device := range r.projectDevices() {
 			if device.ID == id && device.Execution {
 				r.App.Page = shell.SettingsPage

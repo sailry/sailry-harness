@@ -143,13 +143,13 @@ func backup(c *ui.Context, m *Model) {
 		}
 	}
 	// Destructive: the backups are named and their deletion said once.
-	if confirm(c, "keep", &d.keeping, i18n.T(c, "backup_keep_confirm", "count", d.keep), a.confirmOnHost(c, t("backup_keep_consequence")), t("settings_save")) {
+	if Confirm(c, "keep", &d.keeping, i18n.T(c, "backup_keep_confirm", "count", d.keep), a.confirmOnHost(c, t("backup_keep_consequence")), t("settings_save")) {
 		m.keepBackups(c, d.keep)
 	}
 	recordsDialog(c, m)
 	restoreDialog(c, m)
 	// The consequence for the profile in use is said once.
-	if confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", a.confirmOnHost(c, t("backup_restart_consequence")), t("updates_restart")) && a != nil {
+	if Confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", a.confirmOnHost(c, t("backup_restart_consequence")), t("updates_restart")) && a != nil {
 		a.Restart(d.restart)
 	}
 	if d.removing && a != nil {
@@ -388,7 +388,7 @@ func storageDialog(c *ui.Context, m *Model) {
 				})
 			}
 		})
-		footer(c, action, func() { d.editing = false }, func() {
+		DialogFooter(c, action, func() { d.editing = false }, func() {
 			if problem := x.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
 				return

@@ -54,7 +54,6 @@ ssh_edit: 编辑
 ssh_host: 地址
 ssh_port: 端口
 ssh_username: 用户名
-ssh_authentication: 认证方式
 ssh_password: 密码
 ssh_private_key: 私钥
 ssh_key_path: 私钥路径
@@ -152,7 +151,6 @@ db_rows: 共 %{count} 行
 db_results: 查询结果
 db_truncated: 结果已截断
 db_null: 'NULL'
-workspace_host: 主机信息
 approval_pending: 等待审批
 composer_priced_responses: 已计价响应
 tool_read_file: 读取文件
@@ -339,7 +337,6 @@ host_unknown: 未获取
 host_uptime_days: "%{count} 天"
 host_uptime_hours: "%{count} 小时"
 host_uptime_minutes: "%{count} 分钟"
-host_runtime_loading: 正在读取运行环境（示例）
 host_runtime_error: "运行环境读取失败（示例）：%{error}"
 host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保留已有值。真实环境将在公共节点接入后读取。
 metrics_title: 主机指标
@@ -480,8 +477,6 @@ cli_grok: Grok
 cli_opencode: OpenCode
 cli_kimi: Kimi Code CLI
 workspace_reset_count: "示例重置次数 %{count}"
-provider_catalog_never: 未更新
-provider_catalog_updated: 已更新
 provider_catalog_recent: 刚刚更新（示例）
 provider_oauth_code: PREVIEW-CODE
 provider_oauth_open: 打开验证页面
@@ -562,7 +557,6 @@ plugins_install_preview: 软件包和配置表单均为示例。此处不读取�
 plugins_package_required: 请填写示例软件包路径
 plugins_details: 插件详情
 plugins_version_revision: "%{version} · 修订 %{revision}"
-plugins_none: 暂无插件
 plugins_disconnected: 主机连接已断开
 plugins_retry: 重试
 plugins_installing: 安装中
@@ -584,9 +578,6 @@ plugins_failed: 插件操作失败
 plugins_slots_invalid: 面板不可用
 plugins_no_skills: 暂无技能
 plugins_no_mcp: 暂无 MCP 服务
-plugins_stdio: 标准输入输出
-plugins_http: Streamable HTTP
-plugins_sse: SSE
 plugins_mcp_on_turn: 服务在会话执行时连接
 plugins_issues: 未加载的组件
 plugins_issue_field: 未使用的清单字段
@@ -613,8 +604,6 @@ plugins_settings_conflict: 配置已变化，请重新读取
 plugins_settings_invalid: 配置无效，请检查字段
 plugins_settings_changed: 表单已更新，请检查后保存
 plugins_settings_incomplete: 配置尚未完成
-plugins_settings_reload: 重新读取
-plugins_settings_diagnostics: 详情
 plugins_settings_keep: 保留
 plugins_settings_replace: 替换
 plugins_settings_clear: 清除
@@ -651,31 +640,15 @@ question_open_url: 打开页面
 mcp_oauth_remove: 移除授权
 mcp_oauth_remove_effect: 移除授权后，待执行任务将无法使用此服务
 mcp_servers: MCP 服务
-mcp_add: 添加 MCP
-mcp_edit: 配置 MCP
 mcp_none: 暂无 MCP 服务
 mcp_configuration: 配置
 mcp_configuration_invalid: MCP 配置无效
 mcp_configuration_saved: 已保存 MCP 配置
 mcp_bundled: 插件中的 MCP
-mcp_transport: 连接方式
-mcp_command: 命令
-mcp_command_hint: npx、uvx 或可执行命令
-mcp_arguments: 参数
-mcp_argument: 参数值
-mcp_add_argument: 添加参数
-mcp_remove_argument: 移除参数
 mcp_url: 服务地址
-mcp_url_hint: https://example.com/mcp
-mcp_environment: 环境变量
-mcp_headers: 请求头
-mcp_add_environment: 添加环境变量
 mcp_add_header: 添加请求头
 mcp_slot_name: 名称
 mcp_slot_value: 值
-mcp_remove_slot: 移除此项
-mcp_secret_saved: 已保存，留空保留
-mcp_invalid: 检查名称、连接信息和变量设置
 mcp_manage_plugins: 管理插件
 mcp_stopped: 已停止 · 示例
 mcp_ready: 就绪 · 2 个工具 · 示例
@@ -695,16 +668,12 @@ skills_install: 安装技能
 skills_update: 更新技能
 skills_url: 公开 Git 仓库地址
 skills_ref: Git 引用（HEAD、refs/heads/... 或 refs/tags/...）
-skills_subdirectory: 子目录（可选）
 skills_namespace: 命名空间
 skills_invalid: 请填写 HTTPS 仓库地址、合法 Git 引用、命名空间和名称
 skills_duplicate: 此命名空间和名称的技能已存在
-skills_search: 搜索技能
 skills_no_matches: 没有匹配的技能
 skills_enabled: 已启用
-skills_manage_package: 管理插件
 skills_package_source: "来自插件 %{name}"
-skills_remove_effect: "卸载 %{name}，已开始的任务不受影响"
 skills_repository: Git 仓库
 skills_repository_hint: 仓库地址
 skills_revision: 分支或标签
@@ -712,7 +681,6 @@ skills_revision_hint: 默认分支
 skills_path: 技能目录
 skills_license: 许可
 skills_compatibility: 兼容性
-skills_path_hint: 可选
 skills_find: 查找技能
 skills_no_candidates: 没有找到技能
 skills_selected: "已选择 %{count} 个技能"
@@ -725,48 +693,25 @@ roles_profiles: 子智能体
 role_example: 审查助手 · 示例
 role_example_description: 继承会话模型，协助审查变更
 role_editor: 编辑子智能体
-role_id: 标识
 role_model_source: 模型来源
 role_fixed: 固定模型
-role_inherit: 继承会话模型
 role_max_turns: 默认最大轮数
-role_instructions: 提示词
 role_appearance: 图标和颜色
-role_presets: 预设
-role_preset_review: 代码审查
-role_preset_implement: 开发实现
-role_prompt_review: |-
-  审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
-  先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
-role_prompt_implement: |-
-  完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
-  复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
 role_invalid: 请检查标识、名称和轮数
 role_conflict: 子智能体已变更，请重新打开
 role_duplicate: 标识已存在
 role_model_unavailable: 所选模型或供应商不可用
-role_effort_inherit: 自动
 role_effort_invalid: 模型不支持此推理强度
 role_skill_unavailable: 技能不可用
 role_remove_prompt: "移除示例子智能体“%{name}”？仅修改当前预览"
 role_remove_live: "移除子智能体“%{name}”？已发送任务不受影响"
-role_save: 保存
 role_retry: 重试
 role_disconnected: 未连接
 role_unknown: 结果未确认，请重试原请求
 role_failed: 操作失败，请重试
 role_capacity: 子智能体数量已达上限
 settings_record_preview: 只保留当前窗口中的示例，不修改主机配置，不安装或执行任何内容
-terminal_environment: 全局环境变量
-terminal_environment_add: 添加环境变量
 terminal_environment_description: 暂无环境变量
-terminal_variable: 变量名
-terminal_value: 变量值
-terminal_variable_duplicate: 变量名已存在
-terminal_variable_invalid: 变量名无效，或属于应用保留项、代码加载变量
-terminal_shell_group: Shell
-terminal_shell: 默认 Shell
-terminal_shell_default: 跟随主机默认
 terminal_shells_failed: Shell 列表加载失败
 terminal_input: 输入
 terminal_connecting: 连接中
@@ -783,7 +728,6 @@ media_roles: 媒体模型用途
 media_unconfigured: 未配置
 media_unavailable: 暂未接入
 media_new_sessions: 应用于新会话
-media_model_unavailable: 模型不可用
 media_conflict: 配置已变更，请重新选择
 media_unknown: 保存结果未确认，请查看当前配置
 media_failed: 保存失败
@@ -814,23 +758,10 @@ provider_gemini: Gemini
 provider_azure: Azure
 provider_azure_openai: Azure OpenAI
 provider_azure_ai: Azure AI Inference
-provider_api_version: API 版本
-provider_oauth_advanced: 高级设置
-provider_oauth_catalog_version: 模型目录兼容版本
-provider_oauth_user_agent: User-Agent
-provider_oauth_editor_version: 编辑器版本
-provider_oauth_editor_plugin_version: 编辑器插件版本
 provider_azure_openai_hint: https://resource.openai.azure.com
 provider_azure_ai_hint: https://resource.services.ai.azure.com/models
-provider_cloud_required: 请填写云渠道配置
-provider_headers: "自定义请求头"
-provider_headers_invalid: "有值的请求头需要填写名称"
-provider_billing_rate: 计费倍率
-provider_billing_rate_hint: "按 API 价格的百分比估算费用"
-provider_billing_rate_invalid: "计费倍率需为不小于 0 的数字，最多两位小数"
 provider_billing_rate_unsupported: "该主机版本不支持计费倍率，其他设置已保存"
 provider_metadata_fill: 补全信息
-provider_deployment_id: 部署名
 provider_xai: xAI
 provider_deepseek: DeepSeek
 provider_groq: Groq
@@ -859,8 +790,6 @@ preset_anthropic: Anthropic
 preset_anthropic_compatible: Anthropic Compatible
 preset_gemini: Gemini
 preset_gemini_compatible: Gemini Compatible
-provider_catalog: 模型数据
-provider_scores: 模型评分
 provider_scores_failed: 模型评分更新失败
 model_score_axis_backend: 后端
 model_score_axis_frontend: 前端
@@ -870,31 +799,19 @@ model_score_axis_maintainability: 可维护性
 model_score_overall: 综合分
 model_score_tested: 实测 %{effort} 档
 model_score_preview: 预览评分
-provider_catalog_status: 模型元数据
-provider_catalog_bundled: 内置数据
 provider_catalog_required: 请先更新模型数据
-provider_catalog_last_update: 上次更新
-provider_catalog_update: 更新
-provider_empty_live: 暂无渠道
 provider_catalog_failed: 目录更新失败，请重试
 provider_catalog_busy: 目录正在更新，请稍后重试
 provider_catalog_read_failed: 读取模型数据失败
 provider_discovered_reference: 模型已更新，参考信息请核对后保存
 provider_discovered_reference_incomplete: 请核对参考信息，并填写缺失的容量
-provider_channels: 渠道
-provider_model_count: "%{count} 个模型"
 provider_plan: "套餐"
 provider_usage_5h: "5小时余量"
 provider_usage_7d: "7天余量"
-provider_window_5h: "5h"
-provider_window_7d: "7d"
 provider_usage_unknown: "—"
 provider_quota_remaining: "%{window}剩余"
-provider_enabled: 启用渠道
 provider_empty: 此分类还没有渠道，点击添加创建示例配置
-provider_connect: 连接账号
 provider_continue_chatgpt: 使用 ChatGPT 继续
-provider_reconnect: "登录"
 provider_login_starting: 正在连接
 provider_login_waiting: 等待授权登录
 provider_login_connected: 已连接
@@ -918,36 +835,20 @@ provider_disconnect: 断开账号
 provider_oauth_preview: 仅演示账号连接状态
 provider_oauth_simulate: 切换示例连接状态
 provider_oauth_note: 保存后可连接账号
-provider_delete_title: 删除渠道
-provider_edit_title: 编辑渠道
-provider_add_title: 添加渠道
 provider_type: 渠道类型
-provider_region: "区域"
-provider_region_china: "中国"
-provider_region_global: "全球"
-provider_product: "服务"
-provider_metered: "按量"
-provider_coding: "编码套餐"
 provider_qwen_coding: "Qwen Coding Plan"
 provider_kimi_code: "Kimi Code"
 provider_glm_coding: "GLM Coding Plan"
 provider_ark_coding: "Ark Coding Plan"
 provider_minimax_coding: "MiniMax Coding Plan"
 preset_claude_oauth: "Claude OAuth"
-provider_login_callback_required: "输入浏览器返回的授权码或回调地址"
 provider_login_callback: "浏览器返回的授权码或回调地址"
 provider_login_callback_placeholder: "如果未自动返回，请粘贴授权码或回调地址"
 provider_login_continue: "继续"
-provider_api: 接口协议
-provider_api_responses: Responses
 provider_api_chat: Chat
-provider_endpoint: 接口地址
-provider_endpoint_hint: https://api.example.com/v1
 provider_endpoint_anthropic_hint: https://api.example.com
 provider_endpoint_gemini_hint: https://api.example.com/v1beta
-provider_api_key: API 密钥
 provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
-provider_save: 保存
 chat_action_unknown: 结果未确认，可重试原请求
 chat_first_send_unconfirmed: 无法确认首条消息是否发出，请先查看会话记录
 chat_first_send_unavailable: 消息已发送，会话已不可用
@@ -1000,60 +901,27 @@ tool_denied: 无法访问目标
 tool_failed: 工具执行失败
 provider_key_failed: 无法读取密钥
 provider_capability_pending: 尚未接入
-provider_remove_effect: 移除后，会话需重新选择供应商
 provider_save_failed: 保存失败，请重试
 provider_save_unconfirmed: 保存结果无法确认，请先在所选主机上检查，再尝试保存。
 provider_save_unknown: 结果未确认，请保持内容不变后重试
 provider_revision_changed: 配置已变化，请重新打开编辑
-connector_consent_effect: 允许更改后的连接权限
 mcp_show_secret: 显示凭据
 mcp_hide_secret: 隐藏凭据
 provider_credential_unavailable: 密钥不可用，请重新填写
 provider_configuration_invalid: 请检查模型和接口配置
-provider_models: 模型
-provider_model_id: 模型 ID
 provider_context: 上下文容量（Tokens）
-provider_new_model: 新模型
-provider_default: 默认模型
-provider_set_default: 设为默认
-provider_models_empty: 尚未配置模型
-provider_discover: 更新模型
-provider_discovered_preview: 已合并示例模型，保留手动添加的模型和默认选择
-provider_cap_text: 文本
-provider_cap_input: 输入
-provider_cap_output: 原生输出
-provider_cap_audio_input: 音频
-provider_cap_pdf: PDF
-provider_cap_functions: 功能
-provider_cap_follow_catalog: 跟随模型目录
-provider_cap_input_hint: 模型支持的输入。附件能否直传还取决于接口和文件格式。
-provider_cap_catalog_unknown: 模型目录暂无该渠道下这个模型的输入信息。
 provider_cap_vision: 识图
-provider_cap_tools: 工具
-provider_cap_reasoning: 推理
 provider_cap_web: 联网
 provider_cap_image: 生图
 provider_cap_image_tool: 生图工具
 provider_cap_video: 生视频
-provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
-provider_efforts: 推理强度
-provider_effort_default: 默认强度
-provider_effort_placeholder: 强度或 Token budget
 provider_default_effort: 默认推理
-provider_name_hint: 输入渠道名称
-provider_name_required: 请填写渠道名称
-provider_endpoint_required: 请输入有效的接口地址
-provider_key_required: 请填写密钥
 provider_preview_key_required: 请填写示例凭据，或保留已配置状态；请勿输入真实密钥
 provider_query_changed: 连接配置已变化，请重新更新模型
 provider_query_busy: 查询繁忙，请稍后重试
-provider_querying: 查询中
 provider_query_failed: 查询失败，请重试
 provider_discovered: 模型已更新
 provider_discovered_incomplete: 模型已更新，缺失的容量需手动填写
-provider_model_required: 请添加模型并填写模型 ID
-provider_model_duplicate: 模型 ID 不能重复
-provider_limits_invalid: 上下文容量需为正整数，且不小于模型输出上限
 settings_empty: 暂无内容
 preview: UI 预览
 preview_notice: 所有内容均为示例，仅在当前窗口内交互
@@ -1567,11 +1435,6 @@ settings_interface: 界面主题
 settings_theme_description: 同步调整界面与系统窗口材质的明暗
 settings_theme_source: 当前主题
 settings_theme_builtin: 默认
-settings_terminal_display: 显示与输入
-settings_paste_protection: 多行粘贴保护
-settings_font_family: 字体
-settings_font_default: 默认
-settings_font_size: 字号
 settings_execution_permissions: 执行权限
 settings_shell_commands: Shell 命令执行
 settings_isolated_execution: 隔离执行
@@ -1603,7 +1466,6 @@ settings_notify_approval_description: 任务需要确认或授权时提醒你
 settings_notify_completed_description: 会话任务完成后发送提醒
 settings_notify_failed_description: 任务失败或意外中断时发送提醒
 settings_toast_description: 应用内提示消息保持显示的时间
-settings_paste_description: 粘贴多行内容前确认
 settings_seconds: "%{count} 秒"
 interaction_preview_notice: 交互示例 · 仅记录选择，不执行任务
 interaction_preview_prompt: 展示提问与计划确认交互
@@ -1838,31 +1700,20 @@ directory_stop: 遇到同名时停止
 directory_keep_both: 保留两者
 directory_action_failed: 操作失败，请检查路径和权限
 directory_outcome_unknown: 结果未确认，请先检查原路径和目标路径
-pairing_pin_hint: "输入 6 位配对码"
 pairing_idle: "未配对"
-pairing_preview_disabled: "UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。"
 pairing_invalid_endpoint: "请输入有效的 HTTPS 配对服务地址"
-pairing_preparing: "正在准备连接…"
-pairing_refresh_hint: "60 秒内有效，到期自动更新"
 pairing_retrying: "配对服务暂不可用，正在重试…"
 pairing_success: "设备配对成功"
 pairing_failed: "配对失败，请检查配对码或网络后重试"
 pairing_service: "短码兑换服务"
 pairing_status: "连接状态"
-pairing_local_code: "本机配对码"
-pairing_relay_server: "连接服务器"
 pairing_relay_direct: "直连（局域网）"
 pairing_relay_custom: "自定义"
 pairing_relay_selected: "当前选择的网络"
 pairing_relay_latency_hint: "HTTPS 服务延迟"
-pairing_relay_address: "中继地址"
-pairing_relay_address_hint: "relay.example.com:4001"
-pairing_relay_checking: "正在探测"
 pairing_relay_ready: "中继已连接"
 pairing_relay_invalid: "请输入有效的中继地址"
 pairing_relay_failed: "无法连接中继，请检查地址后重试"
-pairing_share: "分享本机"
-pairing_connect: "连接设备"
 pairing_live_scope: "此页已连接真实 Node；其他尚未接入的功能仍为预览，不会执行真实任务"
 files_loading: 正在读取…
 git_loading: 正在读取 Git…
@@ -2190,8 +2041,6 @@ tool_browser_click: 点击元素
 tool_browser_input: 输入文字
 tool_browser_scroll: 滚动页面
 tool_browser_back: 返回上一页
-provider_tokens_k: "%{count}K"
-provider_tokens_m: "%{count}M"
 
 files_move: 移动
 session_delete_named: 删除“%{name}”及其子智能体，无法恢复
@@ -2219,15 +2068,11 @@ form_port_hint: 1–65535
 form_username_hint: 登录用户名
 form_password_hint: 输入密码
 form_private_key_hint: 粘贴私钥
-form_passphrase_hint: 私钥口令（可选）
 form_database_path_hint: 数据库文件路径
 form_database_hint: 数据库名称（可选）
 form_source_path_hint: 源文件路径
 form_destination_path_hint: 目标文件路径
 form_local_port_hint: 0 表示自动分配
-form_api_version_hint: 如 2024-10-21
-form_model_hint: 模型 ID
-form_tokens_hint: Token 数量
 form_package_hint: 插件包名称或路径
 form_directory_hint: 工作目录路径（可选）
 form_remote_hint: 如 origin
@@ -2238,12 +2083,8 @@ form_revision_hint: 分支、标签或提交
 form_role_id_hint: 如 code-reviewer
 form_turns_hint: 留空不限制
 form_role_instructions_hint: 填写提示词
-form_variable_hint: 如 LANG
-form_value_hint: 输入值
 form_subdirectory_hint: 仓库内目录（可选）
 form_namespace_hint: 如 user
-form_secret_hint: 输入凭据
-provider_key_hint: 输入 API Key
 form_date_hint: 选择日期
 form_time_hint: "HH:mm:ss"
 
@@ -2270,23 +2111,12 @@ host_process_stop_failed: 无法结束进程，可能已退出、权限不足或
 usage_column_provider: 供应商
 usage_column_project: 归属
 usage_column_first_token: TTFT
-connections_hosts: 主机
-connections_mobile: 移动端
-connections_bidirectional: 双向
-connections_legacy_bidirectional: 旧版双向
-connections_only_host: 仅主机
-connections_only_controller: 仅控制端
 connections_direction_saved: 已更新设备访问方向
-connections_online: 在线
 connections_offline: 离线
-connections_device: '设备 %{id}'
-connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。
 
 db_catalog: 数据库
 db_catalog_loading: 加载中
 db_log: SQL 日志
-host_add: 添加主机
-host_install: 安装并连接
 host_install_detecting: 检查主机
 host_install_installing: 安装主机服务
 host_install_pairing: 正在配对
@@ -2295,16 +2125,10 @@ host_added: 主机已添加
 host_install_unknown: 安装结果未确认，请检查主机后重试
 host_ssh_windows_pairing: 请在 Windows 主机安装并打开 Sailry 桌面版，再使用配对码添加。
 
-pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
 db_catalog_failed: 加载失败，收起后重试
 db_data: 数据
 db_sql_tab: SQL
 
-connection_scope: 使用范围
-connection_private: 私有使用
-connection_global: 全局共享
-connection_projects: 项目共享
-connection_no_projects: 暂无项目
 connection_assistant: 数据库助手
 reference_databases: 数据库
 reference_ssh: SSH 连接
@@ -2754,7 +2578,6 @@ appearance_updates_available: "有可用更新"
 
 tool_raw_result: "查看原始结果"
 
-provider_compaction_threshold: "压缩阈值"
 compaction_settings_load_failed: "无法读取压缩设置"
 compaction_settings_conflict: "压缩设置已更改，请重试"
 compaction_settings_failed: "无法保存压缩设置"
@@ -2805,18 +2628,14 @@ git_repositories: "包含 %{count} 个 Git 仓库"
 git_switch_confirm: "切换到 %{branch}"
 git_switch_confirm_action: "切换"
 git_switch_confirm_detail: "使用这个工作树的会话、终端和已打开的文件都会切换到这个分支。"
-provider_capabilities: 能力
 provider_cap_understands: 理解
 provider_cap_can: 支持
-provider_cap_generates: 生成
 media_image: 图片
 media_video: 视频
 media_speech: 语音
-media_follow: 跟随对话模型
 media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
-connections_copy_id: 复制 ID
 host_check_status: 检查状态
 files_unsaved_description: 关闭前保存修改？
 files_unsaved_discard: 丢弃
@@ -2839,16 +2658,6 @@ queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
 chat_turn_limit: "已达操作次数上限，已停止"
 knowledge_collections: 集合
-knowledge_collection_pending: 等待索引
-knowledge_collection_unavailable: 存储主机不可用
-knowledge_collection_indexing: "索引中 · %{count} 项"
-knowledge_collection_ready: "已是最新 · %{count} 项"
-knowledge_collection_paused: 已暂停
-knowledge_collection_failed: "失败 · %{reason}"
-knowledge_collection_failures: "%{count} 项未索引 · %{reason}"
-knowledge_pause: 暂停
-knowledge_resume: 继续
-knowledge_update: 更新
 start_failed: "%{app} 无法启动"
 start_profile_in_use: "%{app} 已在使用此数据目录运行"
 backup_keep: 保留的备份

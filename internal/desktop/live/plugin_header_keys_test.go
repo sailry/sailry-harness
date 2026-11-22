@@ -29,6 +29,7 @@ func TestPluginHeaderKeepsTitleAndControlsDistinct(t *testing.T) {
 	section := settings.Section("plugin:header-fixture")
 	key := pluginMountKey{scope: pluginScopeIdentity(snapshot.Node, scope), role: "settings", name: info.Summary.Name}
 	root.pluginViews.settings[section] = pluginSettingsEntry{section: section, owner: root, info: info, scope: scope}
+	root.App.Settings.SetPluginPages([]settings.PluginPage{{Section: section}})
 	ctx, cancel := context.WithCancel(root.ctx)
 	host := desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: root.controller, Scope: scope})
 	components, err := desktopplugins.NativeComponents(host.Native())

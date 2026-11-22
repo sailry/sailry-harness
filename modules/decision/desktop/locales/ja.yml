@@ -1,0 +1,4 @@
+runtime_decision: "判断"
+runtime_decision_model: "モデル"
+runtime_decision_enable: "判断を有効にする"
+local_models_none: "なし"

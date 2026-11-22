@@ -1,8 +1,5 @@
 settings_knowledge: "Знания"
 settings_knowledge_description: "Знания на выбранном хосте"
-knowledge_settings: "Настройки по умолчанию"
-knowledge_default_model: "Векторная модель"
-knowledge_keyword_only: "Только ключевые слова"
 knowledge_models: "Модели"
 knowledge_model_granite: "Granite многоязычная"
 knowledge_model_bge: "BGE Small китайская"

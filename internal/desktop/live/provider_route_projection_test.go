@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -47,8 +48,8 @@ func TestCustomProviderWithoutPresetCanOmitKey(t *testing.T) {
 	provider.Endpoint = "http://localhost:3425/v1"
 	listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
 	channel, _ := projectProviderRouteFixture(t, provider, listing)
-	if channel.Auth != viewmodel.AuthOptionalKey || settings.ProviderStatus(&channel) == "provider_status_missing_key" {
-		t.Fatalf("custom endpoint auth = %v, status = %q", channel.Auth, settings.ProviderStatus(&channel))
+	if channel.Auth != viewmodel.AuthOptionalKey || channel.KeySet {
+		t.Fatalf("custom endpoint auth=%v key set=%v", channel.Auth, channel.KeySet)
 	}
 }
 
@@ -67,8 +68,8 @@ func TestCompatiblePresetCredentialStatus(t *testing.T) {
 		p := providerRouteFixture()
 		p.Preset.ID, p.Api, p.Credential = tc.id, tc.api, nil
 		ch, brands := projectProviderRouteFixture(t, p, listing)
-		if ch.Auth != tc.auth || (settings.ProviderStatus(&ch) == "provider_status_missing_key") != (tc.auth == viewmodel.AuthKey) {
-			t.Fatalf("%s credential status = %v, %q", tc.id, ch.Auth, settings.ProviderStatus(&ch))
+		if ch.Auth != tc.auth || ch.KeySet {
+			t.Fatalf("%s: auth=%v key set=%v", tc.id, ch.Auth, ch.KeySet)
 		}
 		var found bool
 		for _, brand := range brands {
@@ -187,6 +188,7 @@ func projectProviderRouteFixture(t *testing.T, provider protocol.ConversationPro
 	defer controller.Close()
 	app := &shell.App{Settings: settings.New()}
 	app.Page = shell.SettingsPage
+	app.Settings.SetNativePages(desktop.Harness().SettingsPages)
 	app.Settings.Open(settings.Providers)
 	r := &Runtime{ctx: t.Context(), controller: controller, snapshotRead: true, snapshotCopy: snapshot,
 		authorizations: &authorizationState{credentialLoad: true, credentials: map[protocol.CredentialID]protocol.Credential{}},
@@ -226,11 +228,10 @@ func TestPackagePresetCredentialStatus(t *testing.T) {
 	entry.Preset.ID = p.Preset.ID
 	entry.Preset.Routes = []protocol.ConversationPresetsRoute{{Protocol: protocol.ConversationPresetsProtocolPlugin}}
 	for _, tc := range []struct {
-		kind   string
-		auth   viewmodel.Auth
-		status string
+		kind string
+		auth viewmodel.Auth
 	}{
-		{"none", viewmodel.AuthNone, ""}, {"api_key", viewmodel.AuthKey, "provider_status_missing_key"}, {"", viewmodel.AuthUnresolved, ""},
+		{"none", viewmodel.AuthNone}, {"api_key", viewmodel.AuthKey}, {"", viewmodel.AuthUnresolved},
 	} {
 		listing := protocol.DefaultConversationPresetsListing()
 		if tc.kind != "" {
@@ -238,8 +239,8 @@ func TestPackagePresetCredentialStatus(t *testing.T) {
 			listing.Entries = []protocol.ConversationPresetsEntry{entry}
 		}
 		ch, _ := projectProviderRouteFixture(t, p, listing)
-		if ch.Auth != tc.auth || settings.ProviderStatus(&ch) != tc.status {
-			t.Fatalf("%q: auth %v, status %q", tc.kind, ch.Auth, settings.ProviderStatus(&ch))
+		if ch.Auth != tc.auth || ch.KeySet {
+			t.Fatalf("%q: auth=%v key set=%v", tc.kind, ch.Auth, ch.KeySet)
 		}
 	}
 }

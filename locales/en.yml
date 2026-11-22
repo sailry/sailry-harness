@@ -267,7 +267,6 @@ artifact_selection_context: "Selected text on preview page %{page}"
 artifact_edit_prompt: "Requested changes: "
 
 reference_group_context: "Context"
-provider_key_hint: Enter API Key
 form_date_hint: Choose date
 form_time_hint: "HH:mm:ss"
 
@@ -321,21 +320,16 @@ git_repositories: "Contains %{count} Git repositories"
 git_switch_confirm: "Switch to %{branch}"
 git_switch_confirm_action: "Switch"
 git_switch_confirm_detail: "Sessions, terminals and open files in this worktree all move to this branch."
-connector_consent_effect: Allow the changed connection permissions
 mcp_show_secret: Show credential
 mcp_hide_secret: Hide credential
-provider_capabilities: Capabilities
 provider_cap_understands: Understands
 provider_cap_can: Can
-provider_cap_generates: Generates
 media_image: Image
 media_video: Video
 media_speech: Speech
-media_follow: Follow conversation model
 media_load_failed: Could not read media models
 panel_history_empty: No history yet
 panel_documents_empty: No documents yet
-connections_copy_id: Copy ID
 host_check_status: Check status
 files_unsaved_description: Save changes before closing?
 files_unsaved_discard: Discard
@@ -358,16 +352,6 @@ queue_halt_unsent: Message not sent; kept in the queue
 chat_output_limit: Reply cut at the output limit
 chat_turn_limit: "Stopped at the action limit"
 knowledge_collections: Collections
-knowledge_collection_pending: Waiting to index
-knowledge_collection_unavailable: Storage Node unavailable
-knowledge_collection_indexing: "Indexing · %{count} items"
-knowledge_collection_ready: "Up to date · %{count} items"
-knowledge_collection_paused: Paused
-knowledge_collection_failed: "Failed · %{reason}"
-knowledge_collection_failures: "%{count} not indexed · %{reason}"
-knowledge_pause: Pause
-knowledge_resume: Resume
-knowledge_update: Update
 start_failed: "%{app} could not start"
 start_profile_in_use: "%{app} is already running with this data folder"
 backup_keep: Backups to keep

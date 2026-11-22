@@ -1,0 +1,9 @@
+runtime_python_bundled: "內建"
+runtime_python_custom: "自訂"
+runtime_python_custom_url: "套件來源 URL"
+runtime_python_index: "套件來源"
+runtime_python_version: "版本"
+runtime_python_preparing: "正在準備"
+python_creating: 準備相依套件
+python_installing: 安裝相依套件
+python_validating: 檢查相依套件

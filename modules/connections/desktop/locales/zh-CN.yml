@@ -1,0 +1,47 @@
+host_add: 添加主机
+workspace_host: 主机信息
+connection_no_projects: 暂无项目
+connection_route_p2p: "P2P"
+connection_route_relay: "中继"
+connections_device: '设备 %{id}'
+connections_hosts: 主机
+connections_mobile: 移动端
+connections_bidirectional: 双向
+connections_legacy_bidirectional: 旧版双向
+connections_only_host: 仅主机
+connections_only_controller: 仅控制端
+connections_online: 在线
+connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。
+form_passphrase_hint: 私钥口令（可选）
+host_install: 安装并连接
+host_pairing_hint: "连接已安装 Sailry 的设备"
+host_pairing_mode: "配对码"
+host_ssh_mode: "SSH 安装"
+host_install_hint: "在服务器上安装 Sailry 并连接"
+host_ssh_agent_hint: "使用此电脑 SSH Agent 中已加载的密钥登录"
+ssh_authentication: 认证方式
+pairing_connect: "连接设备"
+pairing_local_code: "本机配对码"
+pairing_pin_hint: "输入 6 位配对码"
+pairing_preview_disabled: "UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。"
+pairing_relay_address: "中继地址"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "连接服务器"
+pairing_share: "分享本机"
+pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
+host_runtime_loading: 正在读取运行环境（示例）
+host_step_connect: "连接主机"
+host_step_pair: "配对"
+host_network_edit: "编辑主机"
+pairing_preparing: "正在准备连接…"
+pairing_refresh_hint: "60 秒内有效，到期自动更新"
+pairing_relay_checking: "正在探测"
+connections_copy_id: 复制 ID
+connection_scope: 使用范围
+connection_private: 私有使用
+connection_global: 全局共享
+connection_projects: 项目共享
+host_wsl: "WSL"
+host_wsl_distribution: "发行版"
+host_wsl_requirement: "需要 WSL2、GNU Linux x64/arm64 和 systemd"
+host_wsl_empty: "未安装 WSL2 发行版"

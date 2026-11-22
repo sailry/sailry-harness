@@ -236,8 +236,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	// A new turn needs a configured model and no creation under way; the
 	// running reply's guidance uses that turn's.
 	ctx.SendBlocked = ctx.SendBlocked || !comp.Running && (err != nil || r.conversationCreating[cv.ID] || r.composerOutgoing[cv.ID] != nil)
-	ctx.SelectModel = func() {
-		r.openNodeSettings(settings.Providers)
+	if r.localRuntime().App.Settings.HasSection(settings.Providers) {
+		ctx.SelectModel = func() { r.openNodeSettings(settings.Providers) }
 	}
 	if err == nil && !ctx.Readonly && !teamUnsettled {
 		encoded, _ := json.Marshal(config)
@@ -793,6 +793,9 @@ func (x *conversationActions) AddProject() {
 	if !x.readonly() {
 		x.r.App.Sidebar.OpenEditor(nil)
 	}
+}
+func (x *conversationActions) CanManageTeams() bool {
+	return x.r.localRuntime().App.Settings.HasSection(settings.Teams) && !x.readonly()
 }
 func (x *conversationActions) ManageTeams() {
 	if !x.readonly() {

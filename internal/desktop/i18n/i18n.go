@@ -1,13 +1,14 @@
-// Package i18n says Sailry's copy in the window's language. Messages are a
-// subset of the repository's locales/*.yml, copied under the same keys by
-// `go generate` (see gen/main.go), with the same %{name} placeholders.
+// Package i18n looks up shared and assembled module copy in the window's language.
 package i18n
 
 //go:generate go run ./gen -src ../../../locales -keys keys.txt -out locales
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 
@@ -21,18 +22,58 @@ var Languages = []string{"en", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es", "
 //go:embed locales/*.yml
 var files embed.FS
 
-var catalogs = load()
+// Catalog contains the shared translations and the translations for an assembly.
+type Catalog struct {
+	messages map[string]map[string]string
+}
 
-func load() map[string]map[string]string {
+var shared = &Catalog{messages: load(files, false)}
+
+// New adds the supplied module catalogs to the shared catalog. Each source
+// embeds locales/<language>.yml and must define its keys in English.
+func New(sources ...fs.FS) *Catalog {
+	if len(sources) == 0 {
+		return shared
+	}
+	messages := make(map[string]map[string]string, len(Languages))
+	for lang, keys := range shared.messages {
+		messages[lang] = maps.Clone(keys)
+	}
+	for i, source := range sources {
+		module := load(source, true)
+		for lang, keys := range module {
+			for key, value := range keys {
+				if _, exists := messages[lang][key]; exists {
+					panic(fmt.Sprintf("i18n: module catalog %d (%s) redefines %q", i+1, lang, key))
+				}
+				messages[lang][key] = value
+			}
+		}
+	}
+	return &Catalog{messages: messages}
+}
+
+func load(source fs.FS, module bool) map[string]map[string]string {
 	out := map[string]map[string]string{}
 	for _, lang := range Languages {
-		data, err := files.ReadFile("locales/" + lang + ".yml")
+		path := "locales/" + lang + ".yml"
+		data, err := fs.ReadFile(source, path)
+		if module && lang != "en" && errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			panic(err)
 		}
 		m := map[string]string{}
 		if err := yaml.Unmarshal(data, &m); err != nil {
-			panic(fmt.Sprintf("i18n: %s: %v", lang, err))
+			panic(fmt.Sprintf("i18n: %s: %v", path, err))
+		}
+		if module && lang != "en" {
+			for key := range m {
+				if _, exists := out["en"][key]; !exists {
+					panic(fmt.Sprintf("i18n: %s: %q has no English definition", path, key))
+				}
+			}
 		}
 		out[lang] = m
 	}
@@ -74,19 +115,44 @@ func preferred(tag string) string {
 	return ""
 }
 
+type catalogKey struct{}
+
+func windowCatalog(c *ui.Context) **Catalog {
+	return ui.Local(c.Root(), catalogKey{}, func() *Catalog { return shared })
+}
+
+// Bind sets the assembly catalog for this window, including its overlays.
+// Call it before building the view. A nil catalog selects the shared copy.
+func Bind(c *ui.Context, catalog *Catalog) {
+	if bound := windowCatalog(c); bound != nil {
+		if catalog == nil {
+			catalog = shared
+		}
+		*bound = catalog
+	}
+}
+
 // T says key in the frame's language; args are name, value pairs filling
 // %{name}. A key missing from a translation falls back to English, and one
 // missing everywhere shows as itself (Keys and the tests catch that).
 func T(c *ui.Context, key string, args ...any) string {
-	return In(Match(c.Locale()), key, args...)
+	if bound := windowCatalog(c); bound != nil {
+		return (*bound).In(c.Locale(), key, args...)
+	}
+	return In(c.Locale(), key, args...)
 }
 
-// In says key in the catalog lang.
+// In looks up shared copy without a window.
 func In(lang, key string, args ...any) string {
+	return shared.In(lang, key, args...)
+}
+
+// In looks up copy in this assembly without a window.
+func (c *Catalog) In(lang, key string, args ...any) string {
 	lang = Match(lang)
-	s, ok := catalogs[lang][key]
+	s, ok := c.messages[lang][key]
 	if !ok {
-		if s, ok = catalogs["en"][key]; !ok {
+		if s, ok = c.messages["en"][key]; !ok {
 			return key
 		}
 	}
@@ -98,11 +164,7 @@ func In(lang, key string, args ...any) string {
 	return s
 }
 
-// Keys returns the keys of a catalog.
+// Keys returns the keys of a shared catalog.
 func Keys(lang string) []string {
-	keys := make([]string, 0, len(catalogs[lang]))
-	for k := range catalogs[lang] {
-		keys = append(keys, k)
-	}
-	return keys
+	return slices.Collect(maps.Keys(shared.messages[lang]))
 }

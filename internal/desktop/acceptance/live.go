@@ -37,7 +37,7 @@ func unavailable(detail string) error { return &liveIssue{"blocked", detail} }
 // ownership in ReportDirectory. Profile contains only isolated UI preferences.
 // Explicit case selections may also name backend or fixture cases; only
 // matching E2E cases run here, and an empty selection runs all live cases.
-func RunLiveWithOptions(ctx context.Context, controller *client.Client, options core.Options, emit func(core.CaseResult), profile string, pages ...shell.NativePage) core.Report {
+func RunLiveWithOptions(ctx context.Context, controller *client.Client, options core.Options, emit func(core.CaseResult), profile string, assembly shell.Assembly) core.Report {
 	report := core.Report{Version: 1, Suite: "e2e", Started: time.Now().UTC(), Cases: []core.CaseResult{}}
 	if controller != nil {
 		report.Node = controller.Target()
@@ -77,7 +77,7 @@ func RunLiveWithOptions(ctx context.Context, controller *client.Client, options 
 		case scene.tool && !commandsEnabled(controller.Snapshot()):
 			result.Status, result.Detail = "skipped", "The commands package is disabled, unavailable or incompatible"
 		default:
-			result, stop = runLiveCase(ctx, controller, selected, profile, options, scene, emit, pages...)
+			result, stop = runLiveCase(ctx, controller, selected, profile, options, scene, emit, assembly)
 		}
 		report.Cases = append(report.Cases, result)
 		if emit != nil {
@@ -149,7 +149,7 @@ type liveWindow struct {
 	stream          *liveStreamSamples
 }
 
-func runLiveCase(ctx context.Context, controller *client.Client, config protocol.SessionConfig, profile string, options core.Options, scene liveScenario, emit func(core.CaseResult), pages ...shell.NativePage) (core.CaseResult, bool) {
+func runLiveCase(ctx context.Context, controller *client.Client, config protocol.SessionConfig, profile string, options core.Options, scene liveScenario, emit func(core.CaseResult), assembly shell.Assembly) (core.CaseResult, bool) {
 	started := time.Now()
 	result := core.CaseResult{ID: scene.id, Group: "e2e", Title: scene.title, Status: "failed",
 		Evidence: []core.Evidence{{Kind: "scope", Value: "Headless MyGo input; real live adapter and existing Node; isolated unassigned session; no native window"}}}
@@ -158,7 +158,7 @@ func runLiveCase(ctx context.Context, controller *client.Client, config protocol
 		timeout = 2 * time.Minute
 	}
 	scoped, cancel := context.WithTimeout(ctx, timeout)
-	w := &liveWindow{window: &window{ctx: scoped, result: &result, pages: pages}, controller: controller, config: config, wake: make(chan struct{}, 1), progress: emit,
+	w := &liveWindow{window: &window{ctx: scoped, result: &result, assembly: assembly}, controller: controller, config: config, wake: make(chan struct{}, 1), progress: emit,
 		reportDirectory: options.ReportDirectory, started: started}
 	err := w.run(profile, scene.run)
 	if w.runtime != nil {
@@ -215,7 +215,7 @@ func (w *liveWindow) run(profile string, run func(*liveWindow) error) (err error
 	if err = w.newSession(); err != nil {
 		return err
 	}
-	if w.runtime, err = live.New(w.ctx, w.controller, profile, w.pages...); err != nil {
+	if w.runtime, err = live.NewWithProfile(w.ctx, w.controller, profile, w.assembly); err != nil {
 		return liveFail("The live runtime could not be initialized: " + err.Error())
 	}
 	w.app = w.runtime.App

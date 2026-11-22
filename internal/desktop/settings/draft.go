@@ -9,19 +9,19 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// field is a draft dialog's input: its label's and placeholder's i18n
+// DraftField is a draft dialog's input: its label's and placeholder's i18n
 // keys and the value it edits.
-type field struct {
-	label, hint string
-	value       *string
-	secret      bool
+type DraftField struct {
+	Label, Hint string
+	Value       *string
+	Secret      bool
 }
 
-// draftDialog is a dialog titled by title holding a column of labeled inputs,
+// DraftDialog is a dialog titled by title holding a column of labeled inputs,
 // with Cancel and Save. save returns the i18n key of what is wrong, "" when
 // it saved; a problem shows as a toast and the dialog stays open with the
 // draft.
-func draftDialog(c *ui.Context, key any, open *bool, title string, fields []field, save func() string) {
+func DraftDialog(c *ui.Context, key any, open *bool, title string, fields []DraftField, save func() string) {
 	if !*open {
 		return
 	}
@@ -31,16 +31,16 @@ func draftDialog(c *ui.Context, key any, open *bool, title string, fields []fiel
 		ui.Text(c, t).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			for _, f := range fields {
-				label := i18n.T(c, f.label)
-				kit.Field(c, f.label, label, "", func() {
-					in := ui.TextInput(c.Key("input"), f.value).Label(label).Placeholder(i18n.T(c, f.hint)).FillWidth()
-					if f.secret {
+				label := i18n.T(c, f.Label)
+				kit.Field(c, f.Label, label, "", func() {
+					in := ui.TextInput(c.Key("input"), f.Value).Label(label).Placeholder(i18n.T(c, f.Hint)).FillWidth()
+					if f.Secret {
 						in.Password()
 					}
 				})
 			}
 		})
-		footer(c, i18n.T(c, "settings_save"), func() { *open = false }, func() {
+		DialogFooter(c, i18n.T(c, "settings_save"), func() { *open = false }, func() {
 			if problem := save(); problem != "" {
 				kit.Toast(c, kit.Failed, i18n.T(c, problem))
 				return
@@ -50,8 +50,8 @@ func draftDialog(c *ui.Context, key any, open *bool, title string, fields []fiel
 	}).Width(min(560, width(c)-48)).Label(t)
 }
 
-// footer is a dialog's footer: Cancel and the primary action, at the end.
-func footer(c *ui.Context, action string, cancel, ok func(), pending ...bool) {
+// DialogFooter is a dialog's footer: Cancel and the primary action, at the end.
+func DialogFooter(c *ui.Context, action string, cancel, ok func(), pending ...bool) {
 	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(cancel)
 		kit.PrimaryBusy(c.Key("ok"), action, false, slices.Contains(pending, true)).OnClick(ok)

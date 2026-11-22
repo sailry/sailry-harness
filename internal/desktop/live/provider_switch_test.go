@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"context"
 	"strings"
 	"sync/atomic"
@@ -79,7 +80,7 @@ func TestProviderSaveWhileSwitchingSession(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer controller.Close()
-			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), desktop.Harness())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -2,18 +2,19 @@ package live
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	files "github.com/sailry/sailry-harness/modules/files/desktop"
+	git "github.com/sailry/sailry-harness/modules/git/desktop"
+	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
 type splitCheckpointTransport struct {
@@ -123,13 +124,11 @@ func TestVisibleSplitShowsFinishedTurnDiffWithoutFocus(t *testing.T) {
 			}
 			prefs := preferences.Open(t.TempDir() + "/preferences.json")
 			prefs.Data.WelcomeSeen = new(true)
-			pages := desktop.Harness()
-			if test.omitResources {
-				pages = slices.DeleteFunc(pages, func(page shell.NativePage) bool {
-					return page.Page == shell.FilesPage || page.Page == shell.GitPage
-				})
+			assembly := shell.Assemble(market.Register)
+			if !test.omitResources {
+				assembly = shell.Assemble(files.Register, git.Register, market.Register)
 			}
-			root, err := NewWithPreferences(ctx, start(local), prefs, pages...)
+			root, err := NewWithAssembly(ctx, start(local), prefs, assembly)
 			if err != nil {
 				t.Fatal(err)
 			}

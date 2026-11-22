@@ -150,6 +150,11 @@ func pick(c *ui.Context, key any, title string, chosen *int, options []string, d
 	return picked{b, changed}
 }
 
+// Pick builds an indexed select for a settings page.
+func Pick(c *ui.Context, key any, title string, chosen *int, options []string, disabled bool) picked {
+	return pick(c, key, title, chosen, options, disabled)
+}
+
 // picked is a Select's trigger and whether the user chose anew.
 type picked struct {
 	ui.Element

@@ -494,14 +494,13 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 				func(i int) { s.Permission = Permission(i) })
 		default:
 			pm := Permissions[s.Permission]
-			if len(ctx.Models) == 0 {
-				// model_settings without a model: Select model, to the settings.
-				kit.Ghost(c.Key("select-model"), i18n.T(c, "composer_select_model"), false).FillWidth().Height(32).
-					Disabled(ctx.SelectModel == nil).
-					Children(func() { ui.Text(c, i18n.T(c, "composer_select_model")).FontSize(14).SingleLine() }).
-					OnClick(func() { ctx.SelectModel() })
-			} else {
+			if len(ctx.Models) > 0 {
 				s.controls(c, ctx, actions)
+			} else if ctx.SelectModel != nil {
+				label := i18n.T(c, "composer_select_model")
+				kit.Ghost(c.Key("select-model"), label, false).FillWidth().Height(32).
+					Children(func() { ui.Text(c, label).FontSize(14).SingleLine() }).
+					OnClick(ctx.SelectModel)
 			}
 			// The model picker and the team list are pages of their own:
 			// the menu's other rows wait under them until Back.

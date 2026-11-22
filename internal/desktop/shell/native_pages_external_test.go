@@ -13,25 +13,29 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	git "github.com/sailry/sailry-harness/modules/git/desktop"
+	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
-func init() { shell.TestHarnessPages = desktop.Harness }
+func init() { shell.TestHarnessAssembly = desktop.Harness }
 
 func TestNativePageAssembly(t *testing.T) {
 	for _, mode := range []struct {
 		name string
-		open func(...shell.NativePage) *shell.App
+		open func(shell.Assembly) *shell.App
 		core []string
 	}{
-		{"preview", func(pages ...shell.NativePage) *shell.App { return shell.New(preview.Load(), pages...) }, []string{string(shell.ConversationPage), string(shell.ActivityPage)}},
-		{"live", func(pages ...shell.NativePage) *shell.App {
-			return shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, pages...)
+		{"preview", func(assembly shell.Assembly) *shell.App { return shell.NewWithAssembly(preview.Load(), assembly) }, []string{string(shell.ConversationPage), string(shell.ActivityPage)}},
+		{"live", func(assembly shell.Assembly) *shell.App {
+			return shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly)
 		}, []string{string(shell.ConversationPage)}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			full := mode.open(desktop.Harness()...)
-			without := mode.open()
+			assembly := shell.Assemble(files.Register, git.Register, market.Register)
+			pages := assembly.WorkspacePages
+			full := mode.open(assembly)
+			without := mode.open(shell.Assembly{})
 			ids := []string{string(shell.FilesPage), string(shell.GitPage), string(shell.MarketPage)}
 			want := append(slices.Clone(mode.core), ids...)
 			if order, _ := full.FeaturePreferences(); !slices.Equal(order, want) {
@@ -39,6 +43,22 @@ func TestNativePageAssembly(t *testing.T) {
 			}
 			if order, _ := without.FeaturePreferences(); !slices.Equal(order, mode.core) {
 				t.Fatalf("rail order with modules omitted = %v, want %v", order, mode.core)
+			}
+			catalog := i18n.New(assembly.Locales...)
+			menuLabels := map[string]string{}
+			for _, group := range full.Menu("en", full.Do) {
+				if group.Label != i18n.In("en", "menu_view") {
+					continue
+				}
+				for _, item := range group.Submenu {
+					menuLabels[item.ID] = item.Label
+				}
+			}
+			for _, page := range pages {
+				key := page.Feature.Label
+				if got, label := menuLabels[page.Feature.ID], catalog.In("en", key); got != label || got == key {
+					t.Errorf("assembled page %q menu label = %q, want %q", page.Page, got, label)
+				}
 			}
 
 			full.SetFeaturePreferences(append(slices.Clone(mode.core), ids[1], ids[0], ids[2]), map[string]bool{ids[0]: false, ids[1]: true})
@@ -58,14 +78,14 @@ func TestNativePageAssembly(t *testing.T) {
 			restore(full, without)
 			tester := nativePageTester(without)
 			menu := without.Menu("en", without.Do)
-			for _, feature := range desktop.Harness() {
+			for _, feature := range pages {
 				without.Navigate(feature.Page)
 				without.Do(feature.Feature.ID)
 				tester.Frame()
 				if without.Page != shell.ConversationPage {
 					t.Fatalf("absent page %q changed navigation to %q", feature.Page, without.Page)
 				}
-				label := i18n.In("en", feature.Feature.Label)
+				label := catalog.In("en", feature.Feature.Label)
 				if _, found := tester.AccessByRole(ui.RoleButton, label); found {
 					t.Errorf("absent page %q has a rail button", feature.Page)
 				}
@@ -77,7 +97,7 @@ func TestNativePageAssembly(t *testing.T) {
 					}
 				}
 			}
-			restored := mode.open(desktop.Harness()...)
+			restored := mode.open(assembly)
 			restore(without, restored)
 			if got, gotPins := restored.FeaturePreferences(); !slices.Equal(got, order) || !maps.Equal(gotPins, pins) {
 				t.Fatalf("restored rail order = %v and pins = %v", got, gotPins)
@@ -89,14 +109,14 @@ func TestNativePageAssembly(t *testing.T) {
 func TestGitOpenSource(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		pages     []shell.NativePage
+		assembly  shell.Assembly
 		canReveal bool
 	}{
-		{"standalone", []shell.NativePage{git.Page()}, false},
-		{"with Files", desktop.Harness(), true},
+		{"standalone", shell.Assemble(git.Register), false},
+		{"with Files", shell.Assemble(git.Register, files.Register), true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			a := shell.New(preview.Load(), test.pages...)
+			a := shell.NewWithAssembly(preview.Load(), test.assembly)
 			a.Navigate(shell.GitPage)
 			tester := nativePageTester(a)
 			tester.Advance(time.Second)

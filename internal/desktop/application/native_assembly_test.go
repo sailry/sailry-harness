@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
 const assemblyFile = "notes.go"
@@ -179,10 +180,7 @@ func TestCloseConversationDraftWithoutResourcePages(t *testing.T) {
 			})
 			prefs := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
 			prefs.Data.WelcomeSeen = new(true)
-			pages := slices.DeleteFunc(desktop.Harness(), func(page shell.NativePage) bool {
-				return page.Page == shell.FilesPage || page.Page == shell.GitPage
-			})
-			root, err := live.NewWithPreferences(t.Context(), controller, prefs, pages...)
+			root, err := live.NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(market.Register))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -314,11 +312,11 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 	if err := store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	open := func(pages ...shell.NativePage) (*live.Runtime, *ui.Tester, *windowPreferences) {
+	open := func(assembly shell.Assembly) (*live.Runtime, *ui.Tester, *windowPreferences) {
 		t.Helper()
 		// Reopen both files, as another process would after an assembly change.
 		window := &windowPreferences{directory: dir, write: shell.SavePrefs}
-		root, err := live.NewWithPreferences(t.Context(), controller, preferences.Open(profilePath), pages...)
+		root, err := live.NewWithAssembly(t.Context(), controller, preferences.Open(profilePath), assembly)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -339,8 +337,8 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pages := desktop.Harness()
-	full, tester, window := open(pages...)
+	assembly := desktop.Harness()
+	full, tester, window := open(assembly)
 	full.App.SetFeaturePreferences([]string{string(shell.ConversationPage), string(shell.GitPage), string(shell.FilesPage), string(shell.MarketPage)}, map[string]bool{
 		string(shell.FilesPage): false, string(shell.GitPage): true, string(shell.MarketPage): true,
 	})
@@ -367,9 +365,15 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 			t.Fatalf("new window did not restore the conversation layout: page=%q focus=%q layout=%+v", app.Page, app.FocusedConversation(), app.Prefs())
 		}
 	}
-	omitted, tester, window := open()
+	omitted, tester, window := open(shell.Assembly{})
 	checkConversation(omitted.App, 278)
-	for _, page := range pages {
+	for _, page := range assembly.SettingsPages {
+		if !full.App.Settings.HasSection(page.Section) || omitted.App.Settings.HasSection(page.Section) {
+			t.Errorf("window settings assembly did not control availability of %q", page.Section)
+		}
+	}
+	catalog := i18n.New(assembly.Locales...)
+	for _, page := range assembly.WorkspacePages {
 		omitted.App.Do(page.Feature.ID)
 		omitted.App.Navigate(page.Page)
 		if omitted.App.Page != shell.ConversationPage {
@@ -380,7 +384,7 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 		if omitted.App.Page != shell.ConversationPage {
 			t.Fatalf("the omitted route %q survived the frame", page.Page)
 		}
-		if _, found := tester.AccessByRole(ui.RoleButton, i18n.In("en", page.Feature.Label)); found {
+		if _, found := tester.AccessByRole(ui.RoleButton, catalog.In("en", page.Feature.Label)); found {
 			t.Errorf("the omitted route %q has a rail button", page.Page)
 		}
 	}
@@ -390,12 +394,12 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 	if saved := preferences.Open(profilePath); !saved.Readable || saved.Data.ThemeEffects == nil || *saved.Data.ThemeEffects {
 		t.Fatal("the omitted assembly did not save the profile preferences")
 	}
-	restored, tester, _ := open(pages...)
+	restored, tester, _ := open(assembly)
 	checkConversation(restored.App, 290)
 	if gotOrder, gotPins := restored.App.FeaturePreferences(); !slices.Equal(gotOrder, order) || !maps.Equal(gotPins, pins) {
 		t.Fatalf("restored rail = %v and %v, want %v and %v", gotOrder, gotPins, order, pins)
 	}
-	for _, page := range pages {
+	for _, page := range assembly.WorkspacePages {
 		restored.App.Do(page.Feature.ID)
 		tester.Frame()
 		if restored.App.Page != page.Page || restored.App.ResourceTarget() != (shell.ResourceTarget{}) {

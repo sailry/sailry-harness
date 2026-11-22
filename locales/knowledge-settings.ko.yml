@@ -1,8 +1,5 @@
 settings_knowledge: "지식"
 settings_knowledge_description: "선택한 호스트의 지식"
-knowledge_settings: "기본 설정"
-knowledge_default_model: "벡터 모델"
-knowledge_keyword_only: "키워드만"
 knowledge_models: "모델"
 knowledge_model_granite: "Granite 다국어"
 knowledge_model_bge: "BGE Small 중국어"

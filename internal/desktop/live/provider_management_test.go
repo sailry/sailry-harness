@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -180,7 +181,7 @@ func TestManagedProviderRowWritesOnlyItsNode(t *testing.T) {
 		controllers[i], transports[i] = controller, transport
 		t.Cleanup(func() { _ = controller.Close() })
 	}
-	root, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	root, err := NewWithAssembly(t.Context(), controllers[0], preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +299,7 @@ func testPartialProviderSave(t *testing.T, deselectDestination bool, terminalAt 
 		controllers[i] = c
 		t.Cleanup(func() { _ = c.Close() })
 	}
-	root, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	root, err := NewWithAssembly(t.Context(), controllers[0], preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +411,7 @@ func TestProviderCopyFinishesWhenDestinationDetaches(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root, err := NewWithPreferences(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	root, err := NewWithAssembly(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}

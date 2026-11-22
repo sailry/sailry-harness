@@ -13,6 +13,7 @@ import (
 	core "github.com/sailry/sailry-harness/internal/acceptance"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -140,7 +141,7 @@ func TestSandboxRecordingPreservesApprovalAndRawCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report := RunReplay(t.Context(), directory, nil)
+	report := RunReplay(t.Context(), directory, nil, shell.Assembly{})
 	if !report.OK() || len(report.Cases) != 1 {
 		t.Fatalf("sandbox approval and completion replay: %+v", report)
 	}

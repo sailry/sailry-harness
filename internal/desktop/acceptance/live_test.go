@@ -10,6 +10,7 @@ import (
 
 	core "github.com/sailry/sailry-harness/internal/acceptance"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -141,7 +142,7 @@ func TestLiveCaseSelectionDoesNotRunOtherSuites(t *testing.T) {
 			// blocked; other suites must not accidentally select all of them.
 			report := RunLiveWithOptions(t.Context(), nil, core.Options{Cases: test.cases}, func(result core.CaseResult) {
 				emitted = append(emitted, result.ID)
-			}, "")
+			}, "", shell.Assembly{})
 			var got []string
 			for _, result := range report.Cases {
 				got = append(got, result.ID)

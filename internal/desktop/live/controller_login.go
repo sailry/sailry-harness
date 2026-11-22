@@ -60,6 +60,11 @@ func (x *conversationActions) ResumeLogin(turn string) {
 				return
 			}
 		}
+		providerUI := root.App.ProviderUI
+		if providerUI == nil {
+			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "unavailable"))
+			return
+		}
 		owner := root.providerOwner(credentialNode.String())
 		if owner == nil {
 			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "resource_offline_action"))
@@ -81,7 +86,7 @@ func (x *conversationActions) ResumeLogin(turn string) {
 			root.authorizations.loginRecoveries[key] = recovery
 		}
 		if attempt := owner.authorizations.provider; attempt != nil && attempt.recovery == recovery && !attempt.connected && attempt.ctx.Err() == nil {
-			owner.App.Settings.ShowProviderAuthorization(credentialNode.String(), attempt.provider, attempt.view)
+			providerUI.ShowProviderAuthorization(credentialNode.String(), attempt.provider, attempt.view)
 			return
 		}
 		owner.beginProviderLoginFor(waiting.Provider.String(), recovery)

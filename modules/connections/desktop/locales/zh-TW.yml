@@ -1,0 +1,47 @@
+host_add: "新增主機"
+workspace_host: "主機資訊"
+connection_no_projects: "暫無專案"
+connection_route_p2p: "P2P"
+connection_route_relay: "中繼"
+connections_device: "裝置 %{id}"
+connections_hosts: "主機"
+connections_mobile: "移動端"
+connections_bidirectional: 雙向
+connections_legacy_bidirectional: 舊版雙向
+connections_only_host: 僅主機
+connections_only_controller: 僅控制端
+connections_online: "線上"
+connections_revoke_confirm: "要解除此配對嗎？移除使用者的最後一台裝置後，其資料將無法透過任何裝置存取。"
+form_passphrase_hint: "私鑰口令（可選）"
+host_install: "安裝並連線"
+host_pairing_hint: "連線已安裝 Sailry 的裝置"
+host_pairing_mode: "配對碼"
+host_ssh_mode: 透過 SSH 安裝
+host_install_hint: 在伺服器上安裝 Sailry 並連線
+host_ssh_agent_hint: 使用此電腦 SSH Agent 中已載入的金鑰登入
+ssh_authentication: "認證方式"
+pairing_connect: "連線裝置"
+pairing_local_code: "本機配對碼"
+pairing_pin_hint: "輸入 6 位配對碼"
+pairing_preview_disabled: "UI 預覽不連線真實裝置。使用 --data-dir 啟動服務模式後可配對。"
+pairing_relay_address: "中繼位址"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "連線伺服器"
+pairing_share: "分享本機"
+pairing_share_hint: "在另一臺裝置的「遠端連線」中輸入配對碼"
+host_runtime_loading: "正在讀取執行環境（示例）"
+host_step_connect: "連線主機"
+host_step_pair: "配對"
+host_network_edit: "編輯主機"
+pairing_preparing: "正在準備連線…"
+pairing_refresh_hint: "60 秒內有效，到期自動更新"
+pairing_relay_checking: "正在探測"
+connections_copy_id: 複製 ID
+connection_scope: "使用範圍"
+connection_private: "私有使用"
+connection_global: "全域性共享"
+connection_projects: "專案共享"
+host_wsl: "WSL"
+host_wsl_distribution: "發行版"
+host_wsl_requirement: "需要 WSL2、GNU Linux x64/arm64 與 systemd"
+host_wsl_empty: "尚未安裝 WSL2 發行版"

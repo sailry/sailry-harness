@@ -12,10 +12,13 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	sailry "github.com/sailry/sailry-harness"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
+
+var testCatalog = i18n.New(Locales)
 
 func TestDeclaredPackageIcons(t *testing.T) {
 	manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
@@ -80,6 +83,7 @@ func TestDeclaredPackageIcons(t *testing.T) {
 	}
 	page, mode := 0, theme.Dark
 	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
 		theme.Apply(c, "", mode)
 		p := theme.Of(c)
 		ui.Column(c).Fill().Background(p.Background).TextColor(p.Foreground).Children(func() {

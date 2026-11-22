@@ -1,0 +1,4 @@
+runtime_decision: "決策"
+runtime_decision_model: "模型"
+runtime_decision_enable: "啟用決策"
+local_models_none: "無"

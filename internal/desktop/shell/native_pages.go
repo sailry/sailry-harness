@@ -2,14 +2,35 @@ package shell
 
 import (
 	"fmt"
+	"io/fs"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// Assembly selects the optional pages, services, and translations for each window.
+type Assembly struct {
+	WorkspacePages []NativePage
+	SettingsPages  []settings.NativePage
+	ProviderUI     func(*settings.State) ProviderUI
+	Locales        []fs.FS
+}
+
+// Module registers the contributions it supplies to a desktop assembly.
+type Module func(*Assembly)
+
+func Assemble(modules ...Module) Assembly {
+	var assembly Assembly
+	for _, register := range modules {
+		register(&assembly)
+	}
+	return assembly
+}
 
 // NativePage contributes a window-local rail destination and its content.
 type NativePage struct {
@@ -32,7 +53,12 @@ type NativePage struct {
 	ExtensionDetails bool
 }
 
-func (a *App) installPages(pages []NativePage) {
+func (a *App) installPages(assembly Assembly) {
+	a.translations = i18n.New(assembly.Locales...)
+	a.Settings.SetNativePages(assembly.SettingsPages)
+	if assembly.ProviderUI != nil && a.Settings.HasSection(settings.Providers) {
+		a.ProviderUI = assembly.ProviderUI(a.Settings)
+	}
 	a.nativePages = []NativePage{{Page: ConversationPage, Feature: Feature{
 		ID: string(ConversationPage), Icon: icons.Chat, Label: "shell_sessions", Fixed: true, DefaultPinned: true,
 	}}}
@@ -42,7 +68,7 @@ func (a *App) installPages(pages []NativePage) {
 			kit.Result(c, kit.ResultProps{Icon: activity.Icon, Title: i18n.T(c, activity.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
 		}})
 	}
-	for _, p := range pages {
+	for _, p := range assembly.WorkspacePages {
 		if p.Page == "" || p.Feature.ID == "" || p.Render == nil {
 			panic(fmt.Sprintf("shell: native page %q requires a page ID, rail ID, and renderer", p.Page))
 		}

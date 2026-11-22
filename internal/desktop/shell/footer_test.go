@@ -487,9 +487,8 @@ func ringFolds(t *testing.T) {
 	}
 }
 
-// Send looks disabled and does nothing while the draft is empty, no model
-// is offered or the owner blocks it; the chip then reads Select model and
-// opens the settings.
+// Send is disabled when the draft is empty, no model is offered or the owner
+// blocks it. Model setup is available only with a settings action.
 func sendWithoutModel(t *testing.T) {
 	press := func(tt *ui.Tester) ui.AccessInfo {
 		t.Helper()
@@ -547,10 +546,14 @@ func sendWithoutModel(t *testing.T) {
 	if selected != 1 {
 		t.Errorf("Select model opened the settings %d times", selected)
 	}
-	// Without an owner to open the settings the chip is disabled.
 	tt, _, _ = composerAlone(t, "zh-CN", 960, noModels)
-	if chip, ok := tt.AccessByRole(ui.RoleButton, i18n.In("zh-CN", "composer_select_model")); !ok || !chip.Disabled {
-		t.Errorf("the chip without SelectModel: %+v", chip)
+	if tt.HasText(zh("composer_select_model")) {
+		t.Error("the toolbar offers model setup without a settings action")
+	}
+	tt, _, _ = composerAlone(t, "zh-CN", 480, noModels)
+	openControls(t, tt, zh("composer_model_settings")+": ", zh("composer_settings"))
+	if panels, _ := popups(tt); len(panels) != 1 || tt.HasText(zh("composer_select_model")) {
+		t.Errorf("compact settings without a model setup action: %q", tt.Texts())
 	}
 
 	tt, comp, actions = composerAlone(t, "en", 960, func(_ *composer.State, ctx *composer.Context) { ctx.SendBlocked = true })

@@ -27,11 +27,11 @@ var opaque = ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: tr
 
 // The external test package supplies the same page definitions as the desktop
 // binaries without making the shell import the modules that depend on it.
-var TestHarnessPages func() []NativePage
+var TestHarnessAssembly func() Assembly
 
 func newTester(t *testing.T) (*App, *ui.Tester) {
 	t.Helper()
-	a := New(preview.Load(), TestHarnessPages()...)
+	a := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -418,7 +418,7 @@ func TestSettingsNavigation(t *testing.T) {
 		}
 	}
 	// The search filters the list.
-	click(t, tt, i18n.In("en", "provider_list_search"))
+	click(t, tt, a.translations.In("en", "provider_list_search"))
 	tt.Type("open")
 	if tt.HasText("Anthropic") || !tt.HasText("OpenAI") && !tt.HasText("OpenRouter") {
 		t.Errorf("search did not filter: %q", tt.Texts())

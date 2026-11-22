@@ -41,7 +41,7 @@ func TestRailOpensPages(t *testing.T) {
 		label string
 		page  Page
 	}{{"activity", ActivityPage}, {"market_title", MarketPage}, {"shell_sessions", ConversationPage}} {
-		clickButton(t, tt, i18n.In("en", f.label))
+		clickButton(t, tt, a.translations.In("en", f.label))
 		tt.Frame()
 		if a.Page != f.page {
 			t.Errorf("%s opened page %q", f.label, a.Page)
@@ -200,11 +200,11 @@ func TestRailOpensPages(t *testing.T) {
 func testLiveProjectPages(t *testing.T) {
 	project := &viewmodel.Project{ID: "project", Host: "node", Name: "Live project", Path: "/live/project",
 		Conversations: []*viewmodel.Conversation{{Node: "node", ID: "session", Title: "Live session"}}}
-	app := NewLive(&viewmodel.Data{
+	app := NewLiveWithAssembly(&viewmodel.Data{
 		Projects:   []*viewmodel.Project{project},
 		Unassigned: []*viewmodel.Conversation{{Node: "node", ID: "loose", Title: "Loose session"}},
 		Workspace:  &viewmodel.Workspace{},
-	}, TestHarnessPages()...)
+	}, TestHarnessAssembly())
 	app.Sidebar.Selected = "session"
 	workspace := &viewmodel.Workspace{
 		Files:   &viewmodel.FileNode{Name: "project", Children: []*viewmodel.FileNode{{Name: "main.go", Path: "main.go"}}},

@@ -35,6 +35,7 @@ func TestMarketPageUsesSelectedNode(t *testing.T) {
 	}
 	app, page := &shell.App{Settings: s}, Page()
 	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
 		id, name := "local-plugin", "Local Plugin"
 		if s.ManagedNode == "remote" {
 			id, name = "remote-plugin", "Remote Plugin"
@@ -48,7 +49,7 @@ func TestMarketPageUsesSelectedNode(t *testing.T) {
 	if s.Details == nil || s.Details.ID != "local-plugin" {
 		t.Fatal("the local plugin did not open its details")
 	}
-	host, found := tt.AccessByRole(ui.RoleMenuButton, i18n.In("en", "project_host"))
+	host, found := tt.AccessByRole(ui.RoleMenuButton, testCatalog.In("en", "project_host"))
 	if !found {
 		t.Fatal("the plugin market has no Host selector")
 	}
@@ -67,7 +68,7 @@ func TestMarketPageUsesSelectedNode(t *testing.T) {
 		t.Fatalf("the Host change retained the old scope: node=%q details=%v text=%q", s.ManagedNode, s.Details, tt.Texts())
 	}
 	clickButton(t, tt, "Remote Plugin")
-	clickButton(t, tt, i18n.In("en", "market_install"))
+	clickButton(t, tt, testCatalog.In("en", "market_install"))
 	if !slices.Equal(details, []string{"/local-plugin", "remote/remote-plugin"}) || !slices.Equal(installs, []string{"remote/remote-plugin"}) {
 		t.Fatalf("market actions reached the wrong scope: details=%q installs=%q", details, installs)
 	}
@@ -80,7 +81,10 @@ func TestMarketPageKeepsRendererStatePerWindow(t *testing.T) {
 	second.MarketKind = 1
 	window := func(s *settings.State) *ui.Tester {
 		app := &shell.App{Settings: s}
-		return ui.NewTesterWith(func(c *ui.Context) { page.Render(c, app) }, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		return ui.NewTesterWith(func(c *ui.Context) {
+			i18n.Bind(c, testCatalog)
+			page.Render(c, app)
+		}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	}
 	a, b := window(first), window(second)
 	a.Frame()
@@ -102,7 +106,10 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		// The Node matched both on content the cards do not show, and ranked
 		// Zeta first.
 		s.MarketSkills = []preview.Skill{{ID: "hub/zeta", Name: "Zeta", Description: "Reads documents", Origin: "Hub"}, {ID: "hub/alpha", Name: "Alpha", Description: "Writes reports", Origin: "Hub"}}
-		tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, width, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			i18n.Bind(c, testCatalog)
+			r.render(c, s.MarketScope())
+		}, width, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tt.SetLocale("en")
 		tt.Frame()
 		zeta, zetaShown := tt.Find("Zeta")
@@ -110,7 +117,7 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		if !zetaShown || !alphaShown || zeta.Y > alpha.Y || zeta.Y == alpha.Y && zeta.X > alpha.X {
 			t.Fatalf("%v: the live search was filtered or reordered again: %q", width, tt.Texts())
 		}
-		more, retry := i18n.In("en", "market_load_more"), i18n.In("en", "settings_retry")
+		more, retry := testCatalog.In("en", "market_load_more"), testCatalog.In("en", "settings_retry")
 		if _, exists := tt.AccessByRole(ui.RoleButton, retry); exists {
 			t.Fatalf("%v: a search that read every source offers Retry", width)
 		}
@@ -124,7 +131,7 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		// Every source failed: the failure, not an empty search, with Retry.
 		s.MarketSkills, s.MarketMore = nil, false
 		tt.Frame()
-		if !tt.HasText(i18n.In("en", "skill_catalog_load_failed")) || tt.HasText(i18n.In("en", "skills_no_matches")) {
+		if !tt.HasText(testCatalog.In("en", "skill_catalog_load_failed")) || tt.HasText(testCatalog.In("en", "skills_no_matches")) {
 			t.Fatalf("%v: a failed search reads as no matches: %q", width, tt.Texts())
 		}
 		if _, exists := tt.AccessByRole(ui.RoleButton, more); exists {
@@ -136,7 +143,7 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		}
 		s.MarketFailed = false
 		tt.Frame()
-		if !tt.HasText(i18n.In("en", "skills_no_matches")) {
+		if !tt.HasText(testCatalog.In("en", "skills_no_matches")) {
 			t.Fatalf("%v: an empty search does not say so: %q", width, tt.Texts())
 		}
 		if _, exists := tt.AccessByRole(ui.RoleButton, retry); exists {
@@ -159,13 +166,16 @@ func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
 		s.MarketPaging, s.MarketPagingFailed = true, false
 		s.SetBusy(settings.BusyMarket, true)
 	}}
-	tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
+		r.render(c, s.MarketScope())
+	}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Advance(time.Second)
 	if calls != 0 || r.scroll.MaxY <= 320 {
 		t.Fatalf("near-end load before scrolling: %d requests, scroll %+v", calls, r.scroll)
 	}
-	more := i18n.In("en", "market_load_more")
+	more := testCatalog.In("en", "market_load_more")
 	if _, exists := tt.AccessByRole(ui.RoleButton, more); exists {
 		t.Fatal("skill market still has a Load more button")
 	}
@@ -174,7 +184,7 @@ func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("scrolling to the bottom requested %d pages", calls)
 	}
-	mark := i18n.In("en", "activity_running")
+	mark := testCatalog.In("en", "activity_running")
 	if info, ok := tt.AccessByRole(ui.RoleProgress, mark); !ok || info.Offscreen || info.Bounds.W != 16 || info.Bounds.H != 16 {
 		t.Fatalf("no visible list loader: %+v", info)
 	}
@@ -187,7 +197,7 @@ func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
 	}
 	// The shorter idle footer may leave the retry below the current view.
 	tt.Scroll(450, 400, 0, 10_000)
-	clickButton(t, tt, i18n.In("en", "settings_retry"))
+	clickButton(t, tt, testCatalog.In("en", "settings_retry"))
 	if calls != 2 {
 		t.Fatalf("page retry left %d requests", calls)
 	}
@@ -209,14 +219,17 @@ func TestSkillMarketContinuesAnEmptyPage(t *testing.T) {
 		s.MarketPaging = true
 		s.SetBusy(settings.BusyMarket, true)
 	}}
-	tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
+		r.render(c, s.MarketScope())
+	}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	tt.Advance(time.Second)
-	if tt.HasText(i18n.In("en", "skills_no_matches")) {
+	if tt.HasText(testCatalog.In("en", "skills_no_matches")) {
 		t.Fatal("the market reported an empty search before the last page")
 	}
-	if _, ok := tt.AccessByRole(ui.RoleProgress, i18n.In("en", "activity_running")); !ok || !s.MarketPaging {
+	if _, ok := tt.AccessByRole(ui.RoleProgress, testCatalog.In("en", "activity_running")); !ok || !s.MarketPaging {
 		t.Fatal("an empty page with a continuation did not start loading")
 	}
 }
@@ -233,11 +246,14 @@ func TestThemeMarketHasNoHostLabel(t *testing.T) {
 	s.Themes = []preview.MarketTheme{{ID: "example", Name: "Example Theme", Light: true}}
 	r := &renderer{}
 	s.MarketKind, s.MarketLoad = 2, preview.Fetch{Loaded: true}
-	tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
+		r.render(c, s.MarketScope())
+	}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
-	_, hasSelector := tt.AccessByRole(ui.RoleMenuButton, i18n.In("en", "project_host"))
-	if !tt.HasText(i18n.In("en", "market_search_themes")) || !tt.HasText("Example Theme") || hasSelector || tt.HasText(i18n.In("en", "market_local")) {
+	_, hasSelector := tt.AccessByRole(ui.RoleMenuButton, testCatalog.In("en", "project_host"))
+	if !tt.HasText(testCatalog.In("en", "market_search_themes")) || !tt.HasText("Example Theme") || hasSelector || tt.HasText(testCatalog.In("en", "market_local")) {
 		t.Fatalf("unexpected theme market controls: %q", tt.Texts())
 	}
 }
@@ -248,13 +264,16 @@ func TestPreviewSkillMarketFiltersLocally(t *testing.T) {
 	s.MarketKind, s.MarketQuery, s.MarketLoad = 1, "pdf", preview.Fetch{Loaded: true}
 	s.MarketSkills = []preview.Skill{{ID: "a", Name: "PDF tools", Origin: "Hub"}, {ID: "b", Name: "Zeta", Description: "Reads documents", Origin: "Hub"}}
 	s.MarketMore, s.MarketFailed = true, true
-	tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, 900, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
+		r.render(c, s.MarketScope())
+	}, 900, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	if !tt.HasText("PDF tools") || tt.HasText("Zeta") {
 		t.Fatalf("the preview's market does not filter its own cards: %q", tt.Texts())
 	}
-	for _, name := range []string{i18n.In("en", "market_load_more"), i18n.In("en", "settings_retry")} {
+	for _, name := range []string{testCatalog.In("en", "market_load_more"), testCatalog.In("en", "settings_retry")} {
 		if _, exists := tt.AccessByRole(ui.RoleButton, name); exists {
 			t.Fatalf("the preview offers %q", name)
 		}
@@ -265,13 +284,16 @@ func TestSkillMarketSourceSelector(t *testing.T) {
 	s := settings.New()
 	r := &renderer{}
 	s.MarketKind, s.MarketSource, s.MarketLoad = 1, 1, preview.Fetch{Loaded: true}
-	tt := ui.NewTesterWith(func(c *ui.Context) { r.render(c, s.MarketScope()) }, 640, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, testCatalog)
+		r.render(c, s.MarketScope())
+	}, 640, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	if s.MarketSkillSource != settings.SkillMarketAll || !tt.HasText("changelog") || !tt.HasText("pr-describe") {
 		t.Fatalf("default skill source does not show both catalogs: %q", tt.Texts())
 	}
-	label := func(key string) string { return i18n.In("en", key) }
+	label := func(key string) string { return testCatalog.In("en", key) }
 	search, found := tt.Access(label("market_search_skills"))
 	if !found {
 		t.Fatal("no search field in the skills market")

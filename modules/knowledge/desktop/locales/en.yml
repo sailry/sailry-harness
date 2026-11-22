@@ -1,0 +1,13 @@
+knowledge_settings: "Defaults"
+knowledge_default_model: "Vector model"
+knowledge_keyword_only: "Keyword only"
+knowledge_collection_pending: Waiting to index
+knowledge_collection_unavailable: Storage Node unavailable
+knowledge_collection_indexing: "Indexing · %{count} items"
+knowledge_collection_ready: "Up to date · %{count} items"
+knowledge_collection_paused: Paused
+knowledge_collection_failed: "Failed · %{reason}"
+knowledge_collection_failures: "%{count} not indexed · %{reason}"
+knowledge_pause: Pause
+knowledge_resume: Resume
+knowledge_update: Update

@@ -247,6 +247,10 @@ func TestViewZoomKeys(t *testing.T) {
 	}
 	a.Settings.Keys.Cancel()
 
+	assembly := TestHarnessAssembly()
+	a.translations = i18n.New(assembly.Locales...)
+	a.Settings.SetNativePages(assembly.SettingsPages)
+	a.ProviderUI = assembly.ProviderUI(a.Settings)
 	a.Welcome.Open = true
 	tt.Frame()
 	key(ui.Cmd, ui.KeyEqual)

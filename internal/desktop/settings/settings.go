@@ -1,6 +1,4 @@
-// Package settings is the settings navigation and its pages: the App, AI,
-// Tools and System groups of Section::GROUPS. Each page renders its part of
-// the view model (model.go) over preview data.
+// Package settings implements the settings navigation, page frame and shared view model.
 package settings
 
 import (
@@ -12,8 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Section is a settings page, named by its title's i18n key
-// (Section::key).
+// Section identifies a settings page. For native pages it is the title's i18n key.
 type Section string
 
 const (
@@ -48,7 +45,7 @@ type Item struct {
 	Icon    *ui.SVG
 }
 
-// Groups is the navigation of Section::GROUPS, in its order and icons.
+// Groups lists built-in items and the group order shared by all settings pages.
 var Groups = []struct {
 	Title string
 	Items []Item
@@ -58,26 +55,23 @@ var Groups = []struct {
 		{Shortcuts, icons.ALargeSmall}, {Dictation, icons.ALargeSmall},
 	}},
 	{"settings_group_ai", []Item{
-		{Providers, icons.Cpu}, {Connectors, icons.Plug}, {Teams, icons.Users}, {Plugins, icons.Gallery},
-		{Skills, icons.Bot}, {Knowledge, icons.BookOpen}, {Media, icons.Image}, {Decision, icons.BrainCircuit},
+		{Plugins, icons.Gallery},
 	}},
-	{"settings_group_tools", []Item{
-		{Terminal, icons.Terminal}, {Connections, icons.Network}, {Hooks, icons.Settings2},
-		{Runtime, icons.Cpu}, {OCR, icons.ALargeSmall},
-	}},
+	{"settings_group_tools", nil},
 	{"settings_group_system", []Item{
 		{Permissions, icons.Settings2}, {Backup, icons.Upload}, {Experimental, icons.Code}, {About, icons.Info},
 	}},
 }
 
-// State is the settings' part of the app state: the section shown, the
-// providers' search and the pages' view model.
+// State holds the current settings section and the window's settings view model.
 type State struct {
 	Section Section
 	Query   string // the providers' search
 	// Details is the extension details page shown in the right column, nil for
 	// none.
 	Details     *Detail
+	nativePages []NativePage
+	nativeState map[Section]any
 	pluginPages []PluginPage
 	*Model
 }
@@ -94,126 +88,118 @@ func NewLive() *State {
 // Nav builds the settings navigation in place of the sessions.
 func Nav(c *ui.Context, s *State) {
 	p := theme.Of(c)
-	pages := s.PluginPages()
+	active, _, _ := s.activePage()
+	pages := s.ContributedPages(c)
 	ui.Scroll(c.Key("settings-nav")).Grow(1).Padding(8, 12).Children(func() {
 		for _, g := range Groups {
+			entries := settingsGroupNavigation(c, g.Title, g.Items, pages)
+			if len(entries) == 0 {
+				continue
+			}
 			ui.Column(c.Key(g.Title)).Gap(2).Margin(0, 0, 12, 0).Children(func() {
 				ui.Text(c, i18n.T(c, g.Title)).FontSize(14).Height(32).PaddingX(8).AlignSelf(ui.Stretch).
 					TextColor(p.MutedForeground.Alpha(0.7)).SingleLine()
-				for _, entry := range settingsGroupNavigation(c, g.Title, g.Items, pages) {
-					settingsNavigation(c, s, entry.Section, entry.Label, entry.Icon)
+				for _, entry := range entries {
+					settingsNavigation(c, s, entry, entry.Section == active)
 				}
 			})
 		}
 	})
 }
 
-// Open shows a section, leaving the one shown as Workspace's park does:
-// a shortcut being recorded is canceled.
+// Open shows a section, or General if it is unavailable, and cancels shortcut recording.
 func (s *State) Open(sec Section) {
-	s.Keys.Cancel()
+	if !s.HasSection(sec) {
+		sec = General
+	}
+	if s.Model != nil {
+		s.Keys.Cancel()
+	}
 	s.Section, s.Details = sec, nil
 }
 
 // Title is the header's title for the section.
 func Title(c *ui.Context, s *State) string {
-	for _, page := range s.pluginPages {
-		if page.Section == s.Section {
-			return page.Label
-		}
+	section, _, plugin := s.activePage()
+	if plugin != nil {
+		return plugin.Label
 	}
-	return i18n.T(c, string(s.Section))
+	return i18n.T(c, string(section))
 }
 
 // Page builds the section's page in the settings frame: its title and
 // description over its groups (SettingsPage).
 func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
-	for _, page := range s.pluginPages {
-		if page.Section == s.Section {
-			if page.Render != nil {
-				page.Render(c)
-			} else {
-				kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable"), Card: true})
-			}
-			return
-		}
+	section, native, plugin := s.activePage()
+	if section != s.Section {
+		s.Open(section)
 	}
-	look.Live, look.Busy = s.Live, s.Busy[BusyThemes]
-	look.Actions = s.AppearanceActions
-	desc := string(s.Section) + "_description"
-	if i18n.In("en", desc) == desc {
+	if plugin != nil {
+		if plugin.Render != nil {
+			plugin.Render(c)
+		} else {
+			settingsTargetStatus(c, "unavailable")
+		}
+		return
+	}
+	descKey := string(section) + "_description"
+	desc := i18n.T(c, descKey)
+	if desc == descKey {
 		desc = ""
-	} else {
-		desc = i18n.T(c, desc)
 	}
 	// Each section's page starts at its top; the model pages' Available
 	// tab loads the hub's next page as it nears the end (moreLibrary).
-	if s.scrolled != s.Section {
-		s.scrolled, s.pageScroll = s.Section, ui.ScrollState{}
+	if s.scrolled != section {
+		s.scrolled, s.pageScroll = section, ui.ScrollState{}
 	}
 	// The library is open while a page's Available tab shows this frame.
 	s.library.open = false
 	targetChanged := false
 	var headerActions func()
-	if s.Section.ManagesNode() {
+	if section.ManagesNode() {
 		headerActions = func() {
 			targetChanged = managedNodeSelect(c, s.Model, &s.ManagedNode)
 		}
 	}
-	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
+	kit.Page(c, section, i18n.T(c, string(section)), desc, func() {
 		if targetChanged {
 			return
 		}
-		switch s.Section {
-		case General:
-			general(c, s.Model)
-		case Appearance:
-			appearance(c, look, s.Model)
-		case Conversation:
-			conversation(c, s.Model)
-		case Shortcuts:
-			shortcuts(c, &s.Keys)
-		case Dictation:
-			dictation(c, s.Model)
-		case Providers:
-			providers(c, s)
-		case Connectors:
-			connectors(c, s.Model)
-		case Teams:
-			teams(c, s.Model)
-		case Plugins:
-			plugins(c, s)
-		case Skills:
-			skills(c, s)
-		case Media:
-			mediaModels(c, s.Model)
-		case Terminal:
-			terminal(c, s.Model)
-		case Connections:
-			connections(c, s.Model)
-		case Hooks:
-			hooks(c, s.Model)
-		case Runtime:
-			runtimePage(c, s.Model)
-		case OCR:
-			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
-		case Knowledge:
-			localModels(c, s.Model, &s.Knowledge, "knowledge_settings", "knowledge_default_model", "", "knowledge_keyword_only")
-			collections(c, s.Model)
-		case Decision:
-			localModels(c, s.Model, &s.Decision, "runtime_decision", "runtime_decision_model", "runtime_decision_enable", "local_models_none")
-		case Permissions:
-			permissions(c, s.Model)
-		case Backup:
-			backup(c, s.Model)
-		case About:
-			about(c, s.Model)
-		case Experimental:
-			experimental(c, s.Model)
+		switch {
+		case native == nil:
+			builtInPage(c, s, section, look)
+		case native.Render != nil:
+			native.Render(c, s)
 		default:
-			// The AI pages still to come (phase 5b).
-			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
+			settingsTargetStatus(c, "unavailable")
 		}
 		libraryDialogs(c, s.Model)
 	}, headerActions).TrackScroll(&s.pageScroll)
+}
+
+func builtInPage(c *ui.Context, s *State, section Section, look Look) {
+	switch section {
+	case General:
+		general(c, s.Model)
+	case Appearance:
+		look.Live, look.Busy = s.Live, s.Busy[BusyThemes]
+		look.Actions = s.AppearanceActions
+		appearance(c, look, s.Model)
+	case Conversation:
+		conversation(c, s.Model)
+	case Shortcuts:
+		shortcuts(c, &s.Keys)
+	case Dictation:
+		dictation(c, s.Model)
+	case Plugins:
+		plugins(c, s)
+	case Permissions:
+		permissions(c, s.Model)
+	case Backup:
+		backup(c, s.Model)
+	case About:
+		about(c, s.Model)
+	case Experimental:
+		experimental(c, s.Model)
+	}
 }

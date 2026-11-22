@@ -21,45 +21,50 @@ func TestSettingsSectionsOpen(t *testing.T) {
 			a.Mode = mode
 			tt.Frame()
 			click(t, tt, i18n.In(lang, "settings"))
-			for _, g := range settings.Groups {
-				for _, it := range g.Items {
-					title := i18n.In(lang, string(it.Section))
-					a.Settings.Open(it.Section)
-					tt.Frame()
-					if !tt.HasText(title) {
-						t.Errorf("%s %v: %s lacks its title %q", lang, mode, it.Section, title)
+			var items []settings.Item
+			for _, group := range settings.Groups {
+				items = append(items, group.Items...)
+			}
+			for _, page := range TestHarnessAssembly().SettingsPages {
+				items = append(items, settings.Item{Section: page.Section})
+			}
+			for _, it := range items {
+				title := i18n.In(lang, string(it.Section))
+				a.Settings.Open(it.Section)
+				tt.Frame()
+				if !tt.HasText(title) {
+					t.Errorf("%s %v: %s lacks its title %q", lang, mode, it.Section, title)
+				}
+				name := string(it.Section) + map[theme.Mode]string{theme.Light: "-light", theme.Dark: "-dark"}[mode]
+				if lang == "en" {
+					snapshot(t, tt, name)
+				}
+				// Media models is one section of its own: four rows that
+				// follow the conversation model, and nothing of it on
+				// Models.
+				if it.Section != settings.Media && it.Section != settings.Providers {
+					continue
+				}
+				if lang != "en" {
+					snapshot(t, tt, name+"-"+lang)
+				}
+				entries, follows := 0, 0
+				for _, x := range tt.AccessAll() {
+					if x.Role == ui.RoleButton && x.Name == i18n.In(lang, "settings_media") {
+						entries++
 					}
-					name := string(it.Section) + map[theme.Mode]string{theme.Light: "-light", theme.Dark: "-dark"}[mode]
-					if lang == "en" {
-						snapshot(t, tt, name)
-					}
-					// Media models is one section of its own: four rows that
-					// follow the conversation model, and nothing of it on
-					// Models.
-					if it.Section != settings.Media && it.Section != settings.Providers {
-						continue
-					}
-					if lang != "en" {
-						snapshot(t, tt, name+"-"+lang)
-					}
-					entries, follows := 0, 0
-					for _, x := range tt.AccessAll() {
-						if x.Role == ui.RoleButton && x.Name == i18n.In(lang, "settings_media") {
-							entries++
+					for _, row := range []string{"provider_cap_vision", "media_image", "media_video", "media_speech"} {
+						if x.Role == ui.RoleButton && x.HasPopup == ui.PopupListBox && x.Name == i18n.In(lang, row) {
+							follows++
 						}
-						for _, row := range []string{"provider_cap_vision", "media_image", "media_video", "media_speech"} {
-							if x.Role == ui.RoleButton && x.HasPopup == ui.PopupListBox && x.Name == i18n.In(lang, row) {
-								follows++
-							}
-						}
 					}
-					want := map[settings.Section]int{settings.Media: 4, settings.Providers: 0}[it.Section]
-					if entries != 1 || follows != want {
-						t.Errorf("%s %v: %s has %d Media models entries and %d media selects, want 1 and %d", lang, mode, it.Section, entries, follows, want)
-					}
-					if it.Section == settings.Media && !tt.HasText(i18n.In(lang, "settings_media_description")) {
-						t.Errorf("%s %v: Media models lacks its description", lang, mode)
-					}
+				}
+				want := map[settings.Section]int{settings.Media: 4, settings.Providers: 0}[it.Section]
+				if entries != 1 || follows != want {
+					t.Errorf("%s %v: %s has %d Media models entries and %d media selects, want 1 and %d", lang, mode, it.Section, entries, follows, want)
+				}
+				if it.Section == settings.Media && !tt.HasText(i18n.In(lang, "settings_media_description")) {
+					t.Errorf("%s %v: Media models lacks its description", lang, mode)
 				}
 			}
 		}
@@ -206,15 +211,17 @@ func TestSettingsSaveToasts(t *testing.T) {
 // and keeps its draft.
 func TestTerminalVariableDialog(t *testing.T) {
 	a, tt := newTester(t)
+	variable := a.translations.In("en", "terminal_variable")
+	invalid := a.translations.In("en", "terminal_variable_invalid")
+	add := a.translations.In("en", "terminal_environment_add")
 	click(t, tt, i18n.In("en", "settings"))
 	a.Settings.Open(settings.Terminal)
 	tt.Frame()
 	click(t, tt, i18n.In("en", "settings_add"))
-	click(t, tt, i18n.In("en", "terminal_variable"))
+	click(t, tt, variable)
 	tt.Type("1BAD")
 	click(t, tt, i18n.In("en", "settings_save"))
-	invalid := i18n.In("en", "terminal_variable_invalid")
-	if !tt.HasText(invalid) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
+	if !tt.HasText(invalid) || !tt.HasText(add) {
 		t.Fatalf("invalid name not refused: %q", tt.Texts())
 	}
 	// The failure toast expires over the open dialog, which keeps its draft.
@@ -229,18 +236,18 @@ func TestTerminalVariableDialog(t *testing.T) {
 	}
 	tt.Move(1, 1)
 	tt.Advance(time.Duration(settings.ToastSeconds[a.Settings.Toast])*time.Second + time.Second)
-	if tt.HasText(invalid) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
+	if tt.HasText(invalid) || !tt.HasText(add) {
 		t.Fatalf("failure toast outlived its duration: %q", tt.Texts())
 	}
-	if field, found := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "terminal_variable")); !found || field.Value != "1BAD" {
+	if field, found := tt.AccessByRole(ui.RoleTextField, variable); !found || field.Value != "1BAD" {
 		t.Fatalf("expiring the toast changed the dialog draft: %+v, found %v", field, found)
 	}
 	n := len(a.Settings.Host.Saved.Env)
-	click(t, tt, i18n.In("en", "terminal_variable"))
+	click(t, tt, variable)
 	tt.Key(ui.Cmd, ui.KeyA)
 	tt.Type("GOOD")
 	click(t, tt, i18n.In("en", "settings_save"))
-	if len(a.Settings.Host.Saved.Env) != n+1 || tt.HasText(i18n.In("en", "terminal_environment_add")) {
+	if len(a.Settings.Host.Saved.Env) != n+1 || tt.HasText(add) {
 		t.Fatalf("variable not saved: %+v", a.Settings.Host.Saved.Env)
 	}
 }

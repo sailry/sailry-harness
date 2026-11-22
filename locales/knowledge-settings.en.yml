@@ -1,8 +1,5 @@
 settings_knowledge: "Knowledge"
 settings_knowledge_description: "Knowledge on the selected host"
-knowledge_settings: "Defaults"
-knowledge_default_model: "Vector model"
-knowledge_keyword_only: "Keyword only"
 knowledge_models: "Models"
 knowledge_model_granite: "Granite Multilingual"
 knowledge_model_bge: "BGE Small Chinese"

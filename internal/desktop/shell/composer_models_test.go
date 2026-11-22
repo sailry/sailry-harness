@@ -845,7 +845,8 @@ func composerModels(t *testing.T) {
 		rest(picker)
 		want := probe{t, picker}.edge(effortRow(t, picker, "medium"))
 
-		tt, comp, _ := composerWith(t, 960, nil)
+		var team composer.Team
+		tt, comp, _ := composerWith(t, 960, func(_ *composer.State, ctx *composer.Context) { team = ctx.Teams[0] })
 		comp.Team, comp.Model, comp.Effort, comp.Features = "", "claude-opus-5-5", 2, nil
 		tt.SetScale(2)
 		tt.Frame()
@@ -854,10 +855,13 @@ func composerModels(t *testing.T) {
 		pressButton(t, tt, zh("composer_execution_model")) // the execution's avatar, which opens the team list
 		tt.Move(2, 2)
 		rest(tt)
+		if tt.HasText(zh("composer_team_manage")) {
+			t.Error("the team list offers management without a settings action")
+		}
 		p := probe{t, tt}
 		var chosen, others []ui.AccessInfo
 		for _, e := range tt.AccessAll() {
-			if e.Role != ui.RoleButton || e.Bounds.H != 32 || e.Name == zh("composer_team_manage") {
+			if e.Role != ui.RoleButton || e.Bounds.H != 32 {
 				continue
 			}
 			if e.Checked { // a selected button is reported as checked
@@ -883,6 +887,10 @@ func composerModels(t *testing.T) {
 					break scan
 				}
 			}
+		}
+		pressButton(t, tt, team.Name)
+		if comp.Team != team.ID {
+			t.Errorf("team selection = %q, want %q", comp.Team, team.ID)
 		}
 	})
 

@@ -1,0 +1,100 @@
+provider_channels: 渠道
+provider_list_search: "搜索渠道或模型"
+provider_model_count: "%{count} 个模型"
+provider_enabled: 启用渠道
+provider_status_missing_key: "缺少密钥"
+provider_status_signed_out: "未登录"
+provider_tokens_m: "%{count}M"
+provider_tokens_k: "%{count}K"
+provider_empty_live: 暂无渠道
+provider_login_callback_required: "输入浏览器返回的授权码或回调地址"
+provider_delete_title: 删除渠道
+provider_remove_effect: 移除后，会话需重新选择供应商
+provider_catalog_never: 未更新
+provider_catalog_bundled: 内置数据
+provider_catalog_updated: 已更新
+provider_catalog: 模型数据
+provider_catalog_update: 更新
+provider_catalog_status: 模型元数据
+provider_scores: 模型评分
+provider_catalog_last_update: 上次更新
+provider_compaction_threshold: "压缩阈值"
+provider_window_5h: "5h"
+provider_window_7d: "7d"
+provider_models_empty: 尚未配置模型
+provider_connect: 连接账号
+provider_reconnect: "登录"
+provider_access_no_key: "无需 API 密钥"
+provider_name_required: 请填写渠道名称
+provider_endpoint_required: 请输入有效的接口地址
+provider_key_required: 请填写密钥
+provider_model_required: 请添加模型并填写模型 ID
+provider_model_duplicate: 模型 ID 不能重复
+provider_limits_invalid: 上下文容量需为正整数，且不小于模型输出上限
+provider_add_title: 添加渠道
+provider_choose_method: "选择接入方式"
+provider_configure: "配置渠道"
+provider_edit_title: 编辑渠道
+provider_save: 保存
+provider_save_login: "保存并登录"
+provider_name_hint: 输入渠道名称
+provider_api: 接口协议
+provider_api_responses: Responses
+provider_api_chat_completions: "Chat Completions"
+provider_product: "服务"
+provider_metered: "按量"
+provider_coding: "编码套餐"
+provider_region: "区域"
+provider_region_china: "中国"
+provider_region_global: "全球"
+provider_endpoint: 接口地址
+provider_endpoint_hint: https://api.example.com/v1
+provider_key_hint: 输入 API Key
+provider_api_key: API 密钥
+provider_get_key: "获取密钥"
+provider_hosts: "主机"
+provider_host_required: "请选择主机。账号登录渠道只能归属一台主机。"
+provider_oauth_advanced: 高级设置
+provider_oauth_catalog_version: 模型目录兼容版本
+provider_oauth_user_agent: User-Agent
+provider_oauth_editor_version: 编辑器版本
+provider_oauth_editor_plugin_version: 编辑器插件版本
+provider_headers: "自定义请求头"
+provider_headers_invalid: "有值的请求头需要填写名称"
+provider_billing_rate: 计费倍率
+provider_billing_rate_hint: "按 API 价格的百分比估算费用"
+provider_billing_rate_invalid: "计费倍率需为不小于 0 的数字，最多两位小数"
+provider_models: 模型
+provider_discover: 更新模型
+provider_querying: 查询中
+provider_discovered_preview: 已合并示例模型，保留手动添加的模型和默认选择
+provider_add_model: "添加模型"
+provider_new_model: 新模型
+provider_model_default: "默认"
+provider_set_default: 设为默认
+provider_default: 默认模型
+provider_model_id: 模型 ID
+provider_deployment_id: 部署名
+provider_api_version: API 版本
+form_api_version_hint: 如 2024-10-21
+provider_cloud_required: 请填写云渠道配置
+form_model_hint: 模型 ID
+form_tokens_hint: Token 数量
+provider_efforts: 推理强度
+provider_effort_default: 默认强度
+provider_effort_placeholder: 强度或 Token budget
+provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
+onboarding_host_unavailable: "主机暂不可用"
+provider_cap_text: 文本
+provider_cap_input: 输入
+provider_cap_output: 原生输出
+provider_cap_audio_input: 音频
+provider_cap_pdf: PDF
+provider_cap_functions: 功能
+provider_cap_follow_catalog: 跟随模型目录
+provider_cap_input_hint: 模型支持的输入。附件能否直传还取决于接口和文件格式。
+provider_cap_catalog_unknown: 模型目录暂无该渠道下这个模型的输入信息。
+provider_cap_tools: 工具
+provider_cap_reasoning: 推理
+provider_capabilities: 能力
+provider_cap_generates: 生成

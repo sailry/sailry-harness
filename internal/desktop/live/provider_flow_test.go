@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -69,7 +70,9 @@ func testProviderFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +80,7 @@ func testProviderFlow(t *testing.T) {
 	m := r.App.Settings
 	m.Open(settings.Providers)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, catalog)
 		r.mu.Lock()
 		queue := r.queue
 		r.queue = nil
@@ -89,7 +93,7 @@ func testProviderFlow(t *testing.T) {
 	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("zh-CN")
 	tester.SetDark(true)
-	zh := func(key string) string { return i18n.In("zh-CN", key) }
+	zh := func(key string) string { return catalog.In("zh-CN", key) }
 	await := func(what string, done func() bool) {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
@@ -240,7 +244,7 @@ func testProviderFlow(t *testing.T) {
 		}
 	}
 	shot("providers-list")
-	if !tester.HasText("OAuth · " + i18n.In("zh-CN", "provider_model_count", "count", 1)) {
+	if !tester.HasText("OAuth · " + catalog.In("zh-CN", "provider_model_count", "count", 1)) {
 		t.Error("an OAuth channel was labeled by its transport protocol")
 	}
 
@@ -261,18 +265,25 @@ func testProviderFlow(t *testing.T) {
 		t.Error("the unoffered brand's option has no mark")
 	}
 	shot("providers-family-filter")
-	if x, ok := tester.Access("Anthropic"); ok {
-		tester.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
-		settle()
+	chooseFamily := func(name string) {
+		t.Helper()
+		for _, role := range []ui.Role{ui.RoleMenuItem, ui.RoleMenuItemRadio, ui.RoleMenuItemCheckBox} {
+			if _, ok := tester.AccessByRole(role, name); ok {
+				click(role, name)
+				return
+			}
+		}
+		t.Fatalf("no channel family %q: %q", name, tester.Texts())
 	}
-	if m.Family != "anthropic" {
-		t.Fatalf("the filter chose %q", m.Family)
-	}
+	chooseFamily("Anthropic")
 	if tester.HasText("Work") || !tester.HasText("Subscription") {
-		t.Errorf("the Anthropic filter shows %q", tester.Texts())
+		t.Fatalf("the Anthropic filter shows %q", tester.Texts())
 	}
-	m.Family = ""
-	settle()
+	click(ui.RoleMenuButton, filter)
+	chooseFamily(zh("provider_all"))
+	if !tester.HasText("Work") || !tester.HasText("Subscription") {
+		t.Fatalf("clearing the filter shows %q", tester.Texts())
+	}
 
 	// Add: the sign-ins under their heading, then the brands under theirs.
 	click(ui.RoleButton, zh("settings_add"))

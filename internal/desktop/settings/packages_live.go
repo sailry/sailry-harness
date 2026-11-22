@@ -92,8 +92,10 @@ func (m *Model) CloseManagedPackageDialogs() {
 	m.ClosePackageConfiguration()
 	m.install = pluginInstall{generation: m.install.generation + 1}
 	m.download = pluginDownload{generation: m.download.generation + 1}
-	m.skillAdd = skillInstall{generation: m.skillAdd.generation + 1}
-	m.updates, m.uninstalling, m.skillRemoving, m.checked = pluginUpdates{}, "", "", false
+	if page := m.SkillPageState; page != nil {
+		page.CloseDialogs()
+	}
+	m.updates, m.uninstalling, m.checked = pluginUpdates{}, "", false
 	if m.PackageActions != nil {
 		if selection := m.PackageActions.Selection; selection != nil {
 			selection.Open = false

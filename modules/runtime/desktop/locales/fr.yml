@@ -1,0 +1,9 @@
+runtime_python_bundled: "Intégré"
+runtime_python_custom: "Personnalisé"
+runtime_python_custom_url: "URL de l’index des paquets"
+runtime_python_index: "Source des paquets"
+runtime_python_version: "Version"
+runtime_python_preparing: "Préparation"
+python_creating: Préparation des dépendances
+python_installing: Installation des dépendances
+python_validating: Vérification des dépendances

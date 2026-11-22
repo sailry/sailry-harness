@@ -13,11 +13,8 @@ func TestForkCommandDependencies(t *testing.T) {
 	}
 	const module = "github.com/sailry/sailry-harness/"
 	for _, path := range strings.Fields(string(output)) {
-		for _, banned := range []string{"internal/assembly/desktop", "modules/files", "modules/git", "modules/market"} {
-			prefix := module + banned
-			if path == prefix || strings.HasPrefix(path, prefix+"/") {
-				t.Errorf("minimal fork imports %s", path)
-			}
+		if path == module+"internal/assembly/desktop" || strings.HasPrefix(path, module+"modules/") {
+			t.Errorf("minimal fork imports %s", path)
 		}
 	}
 }

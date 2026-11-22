@@ -1,0 +1,13 @@
+knowledge_settings: "기본 설정"
+knowledge_default_model: "벡터 모델"
+knowledge_keyword_only: "키워드만"
+knowledge_collection_pending: 색인 대기 중
+knowledge_collection_unavailable: 스토리지 Node를 사용할 수 없음
+knowledge_collection_indexing: 색인 중 · %{count}개 항목
+knowledge_collection_ready: 최신 상태 · %{count}개 항목
+knowledge_collection_paused: 일시 중지됨
+knowledge_collection_failed: 실패 · %{reason}
+knowledge_collection_failures: '%{count}개 색인 안 됨 · %{reason}'
+knowledge_pause: 일시 중지
+knowledge_resume: 재개
+knowledge_update: 업데이트

@@ -16,6 +16,7 @@ import (
 	profile "github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -90,7 +91,7 @@ func TestRecordedReplay(t *testing.T) {
 			t.Fatal(err)
 		}
 		var emitted []core.CaseResult
-		report := RunReplay(t.Context(), directory, func(result core.CaseResult) { emitted = append(emitted, result) })
+		report := RunReplay(t.Context(), directory, func(result core.CaseResult) { emitted = append(emitted, result) }, shell.Assembly{})
 		if !report.OK() || len(report.Cases) != 1 || len(emitted) != 1 {
 			t.Fatalf("replay: %+v", report)
 		}
@@ -114,7 +115,7 @@ func TestRecordedReplay(t *testing.T) {
 			} else {
 				recording.Truncated, recording.DroppedFrames = true, 2
 			}
-			result := replayRecording(t.Context(), recording, core.CaseResult{ID: "replay", Session: recording.Session.String(), Status: "failed"})
+			result := replayRecording(t.Context(), recording, core.CaseResult{ID: "replay", Session: recording.Session.String(), Status: "failed"}, shell.Assembly{})
 			if result.Status != "passed" || !slices.ContainsFunc(result.Evidence, func(e core.Evidence) bool { return e.Kind == "replay_scope" && e.Value == scope }) ||
 				!strings.Contains(result.Detail, map[string]string{"terminal-only": "no streaming snapshots", "truncated-snapshots": "truncated"}[scope]) {
 				t.Fatalf("%s claimed incorrect coverage: %+v", scope, result)
@@ -171,7 +172,7 @@ func replayStreamingFixture() core.RecordingSession {
 
 func TestRecordedReplayKeepsSameSequenceDraftGrowth(t *testing.T) {
 	recording := replayStreamingFixture()
-	result := replayRecording(t.Context(), recording, core.CaseResult{ID: "replay", Session: recording.Session.String(), Status: "failed"})
+	result := replayRecording(t.Context(), recording, core.CaseResult{ID: "replay", Session: recording.Session.String(), Status: "failed"}, shell.Assembly{})
 	if result.Status != "passed" || !slices.ContainsFunc(result.Evidence, func(e core.Evidence) bool {
 		return e.Kind == "rendered_text" && strings.Contains(e.Value, "checked 4 plain reply tails")
 	}) {

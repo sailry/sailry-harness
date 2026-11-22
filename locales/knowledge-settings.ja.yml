@@ -1,8 +1,5 @@
 settings_knowledge: "ナレッジ"
 settings_knowledge_description: "選択したホストのナレッジ"
-knowledge_settings: "既定の設定"
-knowledge_default_model: "ベクトルモデル"
-knowledge_keyword_only: "キーワードのみ"
 knowledge_models: "モデル"
 knowledge_model_granite: "Granite 多言語"
 knowledge_model_bge: "BGE Small 中国語"

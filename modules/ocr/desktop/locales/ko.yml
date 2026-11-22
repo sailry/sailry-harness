@@ -1,0 +1,4 @@
+runtime_ocr: "문자 인식"
+runtime_ocr_enable: "OCR 사용"
+runtime_ocr_model: "OCR 모델"
+search_driver_auto: "자동"

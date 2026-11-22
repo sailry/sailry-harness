@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -64,7 +65,9 @@ func testProviderLoginRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +75,7 @@ func testProviderLoginRestart(t *testing.T) {
 	m := r.App.Settings
 	m.Open(settings.Providers)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, catalog)
 		r.mu.Lock()
 		queue := r.queue
 		r.queue = nil
@@ -98,7 +102,7 @@ func testProviderLoginRestart(t *testing.T) {
 
 	m.ProviderActions.SignIn(r.controller.Target().String(), id)
 	await("the first start", func() bool { return len(sent("begin_provider_login")) == 1 })
-	view := m.ProviderAuthorization()
+	view := r.App.ProviderUI.ProviderAuthorization()
 	if !view.Open || view.Flow != settings.FlowStarting {
 		t.Fatalf("the first sign-in is not starting: %+v", view)
 	}
@@ -123,7 +127,7 @@ func testProviderLoginRestart(t *testing.T) {
 	if cancelled.Attempt != starts[0].ID {
 		t.Fatalf("cancelled attempt %s, want the superseded %s", cancelled.Attempt, starts[0].ID)
 	}
-	if current := r.authorizations.provider; current == nil || current.id != starts[1].ID || !m.ProviderAuthorization().Open {
+	if current := r.authorizations.provider; current == nil || current.id != starts[1].ID || !r.App.ProviderUI.ProviderAuthorization().Open {
 		t.Fatal("the superseded start's answer disturbed the current sign-in")
 	}
 
@@ -151,7 +155,7 @@ func testProviderLoginRestart(t *testing.T) {
 	remoteAttempt := remote.authorizations.provider
 	localAttempt := r.authorizations.provider
 	projectAuthorization(localAttempt.view, protocol.ConversationLoginState{Kind: "cancelled"})
-	if shown := m.ProviderAuthorization(); shown != remoteAttempt.view || !shown.Open {
+	if shown := r.App.ProviderUI.ProviderAuthorization(); shown != remoteAttempt.view || !shown.Open {
 		t.Fatal("the local attempt closed the remote dialog")
 	}
 	view.Cancel()
@@ -164,7 +168,7 @@ func testProviderLoginRestart(t *testing.T) {
 	tester.Frame()
 	tester.Advance(time.Second)
 	tester.Frame()
-	continueButton, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "provider_login_continue"))
+	continueButton, ok := tester.AccessByRole(ui.RoleButton, catalog.In("en", "provider_login_continue"))
 	if !ok {
 		t.Fatal("the callback action was unavailable after the provider list changed")
 	}

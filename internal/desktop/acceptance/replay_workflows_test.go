@@ -83,7 +83,7 @@ func readWorkflowRecording(t *testing.T, snapshots ...protocol.ConversationSnaps
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := replayRecording(t.Context(), restored, core.CaseResult{ID: "workflow", Session: restored.Session.String(), Status: "failed"})
+	result := replayRecording(t.Context(), restored, core.CaseResult{ID: "workflow", Session: restored.Session.String(), Status: "failed"}, shell.Assembly{})
 	if result.Status != "passed" {
 		t.Fatalf("recorded workflow replay: %+v", result)
 	}

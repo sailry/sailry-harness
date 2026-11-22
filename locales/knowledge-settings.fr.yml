@@ -1,8 +1,5 @@
 settings_knowledge: "Connaissances"
 settings_knowledge_description: "Connaissances sur l’hôte sélectionné"
-knowledge_settings: "Valeurs par défaut"
-knowledge_default_model: "Modèle vectoriel"
-knowledge_keyword_only: "Mots-clés uniquement"
 knowledge_models: "Modèles"
 knowledge_model_granite: "Granite multilingue"
 knowledge_model_bge: "BGE Small chinois"

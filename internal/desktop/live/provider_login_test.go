@@ -81,7 +81,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 			attempt.cancel()
 			return attempt
 		}
-		provider := r.App.Settings.ProviderAuthorization()
+		provider := &settings.Authorization{}
 		r.authorizations.provider = ended(provider)
 		r.cancelProviderLogin()
 		if provider.Open || provider.Cancelling || r.authorizations.provider != nil {

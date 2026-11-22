@@ -1,0 +1,9 @@
+runtime_python_bundled: "내장"
+runtime_python_custom: "사용자 지정"
+runtime_python_custom_url: "패키지 소스 URL"
+runtime_python_index: "패키지 소스"
+runtime_python_version: "버전"
+runtime_python_preparing: "준비 중"
+python_creating: 의존성 준비 중
+python_installing: 의존성 설치 중
+python_validating: 의존성 확인 중

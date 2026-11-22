@@ -1,8 +1,5 @@
 settings_knowledge: "Conocimiento"
 settings_knowledge_description: "Conocimiento en el host seleccionado"
-knowledge_settings: "Valores predeterminados"
-knowledge_default_model: "Modelo vectorial"
-knowledge_keyword_only: "Solo palabras clave"
 knowledge_models: "Modelos"
 knowledge_model_granite: "Granite multilingüe"
 knowledge_model_bge: "BGE Small chino"

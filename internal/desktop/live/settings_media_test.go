@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -94,7 +95,9 @@ func TestMediaSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +106,7 @@ func TestMediaSettings(t *testing.T) {
 	m.Open(settings.Media)
 	var toasts []string
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, catalog)
 		r.mu.Lock()
 		queue := r.queue
 		r.queue = nil
@@ -176,7 +180,7 @@ func TestMediaSettings(t *testing.T) {
 		return
 	}
 	key := func(id string) string { return modelKey(provider, id) }
-	follow := i18n.In("en", "media_follow")
+	follow := catalog.In("en", "media_follow")
 	await("the media rows", func() bool { return m.Media.Revision == 3 && len(m.MediaOptions) == 4 })
 
 	t.Run("rows list the models tagged for their purpose", func(t *testing.T) {
@@ -203,8 +207,9 @@ func TestMediaSettings(t *testing.T) {
 				t.Errorf("the Speech row reads %q, want the saved model", x.Value)
 			}
 		}
-		if m.MediaUnavailable != [4]bool{false, false, false, true} || shown(i18n.In("en", "media_model_unavailable")) != 1 {
-			t.Errorf("unavailable %v, marked on %d rows", m.MediaUnavailable, shown(i18n.In("en", "media_model_unavailable")))
+		unavailable := catalog.In("en", "media_model_unavailable")
+		if m.MediaUnavailable != [4]bool{false, false, false, true} || shown(unavailable) != 1 {
+			t.Errorf("unavailable %v, marked on %d rows", m.MediaUnavailable, shown(unavailable))
 		}
 	})
 

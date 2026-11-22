@@ -1,0 +1,47 @@
+host_add: "Agregar un host"
+workspace_host: "Información del host"
+connection_no_projects: "No hay proyectos"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "Dispositivo %{id}"
+connections_hosts: "Hosts"
+connections_mobile: "Móvil"
+connections_bidirectional: Bidireccional
+connections_legacy_bidirectional: Bidireccional (heredado)
+connections_only_host: Solo host
+connections_only_controller: Solo controlador
+connections_online: "En línea"
+connections_revoke_confirm: "La eliminación del emparejamiento requiere volver a conectarse"
+form_passphrase_hint: "Contraseña de clave privada (opcional)"
+host_install: "Instalar y conectar"
+host_pairing_hint: "Conectar un dispositivo Sailry existente"
+host_pairing_mode: "Código de enlace"
+host_ssh_mode: Instalar por SSH
+host_install_hint: Instala Sailry en un servidor y conéctate
+host_ssh_agent_hint: Usar las claves cargadas en el agente SSH de este equipo
+ssh_authentication: "Autenticación"
+pairing_connect: "Conectar el dispositivo"
+pairing_local_code: "Código de emparejamiento local"
+pairing_pin_hint: "Ingresa el código de emparejamiento de 6 dígitos"
+pairing_preview_disabled: "La vista previa de la interfaz de usuario no conecta dispositivos reales; comience con --data-dir para emparejar"
+pairing_relay_address: "Dirección del relé"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "Servidor de conexión"
+pairing_share: "Comparte este dispositivo"
+pairing_share_hint: "Ingrese este código en Conexiones remotas en otro dispositivo"
+host_runtime_loading: "Lectura en tiempo de ejecución (vista previa)"
+host_step_connect: "Conectar al host"
+host_step_pair: "Emparejar"
+host_network_edit: "Editar host"
+pairing_preparing: "Preparando la conexión"
+pairing_refresh_hint: "Válido durante 60 segundos; se actualiza al caducar"
+pairing_relay_checking: "Relé de comprobación"
+connections_copy_id: Copiar ID
+connection_scope: "Ámbito"
+connection_private: "Privado"
+connection_global: "Compartir a nivel mundial"
+connection_projects: "Compartir el proyecto"
+host_wsl: "WSL"
+host_wsl_distribution: "Distribución"
+host_wsl_requirement: "Requiere WSL2, GNU Linux x64/arm64 y systemd"
+host_wsl_empty: "No hay distribuciones WSL2 instaladas"

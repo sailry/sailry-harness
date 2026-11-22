@@ -210,7 +210,7 @@ func updates(c *ui.Context, m *Model) {
 				row(nil, i18n.T(c, "updates_checking"), m.Version, cancel, nil)
 			case u.State == UpdateAvailable:
 				row(mark(icons.Download, p.Info), i18n.T(c, "updates_available", "version", version), m.Version, func() {
-					iconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).
+					IconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).
 						OnClick(run(func(a *UpdateActions) func() { return a.Download }, func() { u.start(UpdateDownloading, c.Now()) }))
 				}, nil)
 			case u.State == UpdateDownloading:
@@ -229,7 +229,7 @@ func updates(c *ui.Context, m *Model) {
 				})
 			case u.State == UpdateReady:
 				restart := func() {
-					iconButton(c, "install", nil, i18n.T(c, "updates_restart_now"), true, false).
+					IconButton(c, "install", nil, i18n.T(c, "updates_restart_now"), true, false).
 						OnClick(run(func(a *UpdateActions) func() { return a.Install }, func() { u.start(UpdateInstalling, c.Now()) }))
 				}
 				if u.deferred == version {
@@ -247,7 +247,7 @@ func updates(c *ui.Context, m *Model) {
 			case u.State == UpdateStopped:
 				// Relaunching leaves the preview.
 				row(mark(icons.CircleCheck, p.Success), i18n.T(c, "updates_restart_needed"), version, func() {
-					iconButton(c, "restart", nil, i18n.T(c, "updates_restart"), true, false).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))
+					IconButton(c, "restart", nil, i18n.T(c, "updates_restart"), true, false).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))
 				}, nil)
 			}
 		})

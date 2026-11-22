@@ -34,7 +34,7 @@ type acceptanceEvent struct {
 // runAcceptanceUI branches before instance locks, profiles and native windows.
 // Fixture tests and live tests run here because rendering updates process-wide
 // theme state, which must not race with the user's real Desktop window.
-func runAcceptanceUI(options startupOptions, pages []shell.NativePage) error {
+func runAcceptanceUI(options startupOptions, assembly shell.Assembly) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	directory, err := filepath.Abs(options.AcceptanceDirectory)
@@ -69,10 +69,10 @@ func runAcceptanceUI(options startupOptions, pages []shell.NativePage) error {
 	}
 	report := core.Report{Version: 1, Suite: runOptions.Suite}
 	if runErr == nil && options.AcceptanceReplay != "" {
-		report = desktop.RunReplay(ctx, options.AcceptanceReplay, emit, pages...)
+		report = desktop.RunReplay(ctx, options.AcceptanceReplay, emit, assembly)
 	} else if runErr == nil {
 		if options.AcceptanceMode != "e2e" {
-			report = desktop.RunCases(ctx, runOptions.Cases, emit, pages...)
+			report = desktop.RunCases(ctx, runOptions.Cases, emit, assembly)
 		}
 		if slices.Contains([]string{"quick", "full", "e2e"}, options.AcceptanceMode) && options.AcceptanceSocket != "" && ctx.Err() == nil {
 			if runOptions.Config == nil {
@@ -85,7 +85,7 @@ func runAcceptanceUI(options startupOptions, pages []shell.NativePage) error {
 					defer controller.Close()
 					runErr = controller.Start(ctx)
 					if runErr == nil {
-						liveReport := desktop.RunLiveWithOptions(ctx, controller, runOptions, emit, directory, pages...)
+						liveReport := desktop.RunLiveWithOptions(ctx, controller, runOptions, emit, directory, assembly)
 						if report.Started.IsZero() {
 							report.Started = liveReport.Started
 						}

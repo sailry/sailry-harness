@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -47,7 +48,7 @@ func TestModelCatalogInitialPageFetch(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer controller.Close()
-			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), desktop.Harness())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -77,17 +78,13 @@ func TestProviderStartupWaitsForCredentialMetadata(t *testing.T) {
 			baseline := len(toasts)
 			r.readProviderCredentials()
 			pending := r.projectNodeProviders()[0]
-			if !pending.AccountPending || pending.SignedIn || settings.ProviderStatus(&pending) != "" {
+			if pending.Auth != viewmodel.AuthOAuth || !pending.AccountPending || pending.SignedIn {
 				t.Fatal("first projection reported sign-out before credential metadata arrived")
 			}
 			r.workers.Wait()
 			tester.Frame()
 			channel := r.projectNodeProviders()[0]
-			wantStatus := ""
-			if !test.signedIn && !test.pending {
-				wantStatus = "provider_status_signed_out"
-			}
-			if channel.SignedIn != test.signedIn || channel.AccountPending != test.pending || settings.ProviderStatus(&channel) != wantStatus {
+			if channel.Auth != viewmodel.AuthOAuth || channel.SignedIn != test.signedIn || channel.AccountPending != test.pending {
 				t.Fatalf("unexpected account state after metadata response: %+v", channel)
 			}
 			if len(toasts) != baseline {
@@ -116,7 +113,7 @@ func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer controller.Close()
-			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), desktop.Harness())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,8 +145,8 @@ func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
 			transport.snapshot.Providers = []protocol.ConversationProvider{provider, account}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			view := r.App.Settings.ProviderAuthorization()
-			view.Open = true
+			view := &settings.Authorization{}
+			r.App.ProviderUI.ShowProviderAuthorization(snapshot.Node.String(), account.ID.String(), view)
 			attempt := &liveAuthorization{provider: account.ID.String(), ctx: ctx, cancel: cancel, view: view}
 			r.authorizations.provider = attempt
 			r.enqueue(func(c *ui.Context) {

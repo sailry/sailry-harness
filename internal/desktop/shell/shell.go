@@ -149,9 +149,11 @@ type App struct {
 
 	Sidebar  *sidebar.State
 	Settings *settings.State
-	Website  string
-	Feedback string
-	Messages *conversation.State
+	// ProviderUI is installed with the optional model channels page.
+	ProviderUI ProviderUI
+	Website    string
+	Feedback   string
+	Messages   *conversation.State
 	// overviews are the session overview popovers by conversation, each
 	// opened by its conversation's own button (conversationActions); band
 	// is the header's main region as the activity strip fits into it
@@ -180,6 +182,7 @@ type App struct {
 
 	nativePages    []NativePage
 	nativePageSync []func()
+	translations   *i18n.Catalog
 	features       []string // saved rail order, including unavailable features
 	pluginFeatures map[string]Feature
 	pluginPage     string
@@ -245,12 +248,16 @@ type App struct {
 	demo *demoMode
 }
 
-// New makes a preview window with the supplied native pages. Invalid or
-// duplicate page definitions panic at assembly time.
+// New makes a preview window with the supplied workspace pages.
 func New(d *preview.Data, pages ...NativePage) *App {
+	return NewWithAssembly(d, Assembly{WorkspacePages: pages})
+}
+
+// NewWithAssembly makes a preview window with the supplied page contributions.
+func NewWithAssembly(d *preview.Data, assembly Assembly) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
-	a.installPages(pages)
+	a.installPages(assembly)
 	a.Sidebar.Preview = true
 	a.Sidebar.Sample.OpenHost = a.OpenHost
 	// Sample connection rows and monitors refer to the same sample devices.
@@ -275,11 +282,15 @@ func New(d *preview.Data, pages ...NativePage) *App {
 	return a
 }
 
-// NewLive creates an unseeded live window with the supplied native pages.
-// Invalid or duplicate page definitions panic at assembly time.
+// NewLive creates an unseeded live window with the supplied workspace pages.
 func NewLive(d *viewmodel.Data, pages ...NativePage) *App {
+	return NewLiveWithAssembly(d, Assembly{WorkspacePages: pages})
+}
+
+// NewLiveWithAssembly creates an unseeded live window with the supplied page contributions.
+func NewLiveWithAssembly(d *viewmodel.Data, assembly Assembly) *App {
 	a := newApp(d, "", settings.NewLive())
-	a.installPages(pages)
+	a.installPages(assembly)
 	a.Panel.Live = true
 	if len(d.Hosts) > 0 {
 		a.Host = d.Hosts[0].ID
@@ -333,6 +344,7 @@ func (a *App) Composer(id string) *composer.State {
 
 // View builds the window.
 func (a *App) View(c *ui.Context) {
+	i18n.Bind(c, a.translations)
 	if !a.hasPage(a.Page) {
 		a.Navigate(ConversationPage)
 	}
@@ -1098,7 +1110,14 @@ func (x *actions) AddProject() {
 	x.a.Sidebar.OpenEditor(nil)
 }
 
+func (x *actions) CanManageTeams() bool {
+	return x.a.Settings.HasSection(settings.Teams)
+}
+
 func (x *actions) ManageTeams() {
+	if !x.CanManageTeams() {
+		return
+	}
 	if !x.a.Demo() {
 		x.notice()
 		return

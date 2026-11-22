@@ -287,12 +287,20 @@ func (r *Runtime) conversationChanged(id protocol.SessionID) {
 }
 
 // New composes a window over an already started Client. Startup code should use
-// NewWithPreferences with a Store opened before Node.Start for onboarding.
+// NewWithAssembly with a Store opened before Node.Start for onboarding.
 func New(ctx context.Context, controller *client.Client, profilePath string, pages ...shell.NativePage) (*Runtime, error) {
-	return NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profilePath, "desktop", "preferences.json")), pages...)
+	return NewWithProfile(ctx, controller, profilePath, shell.Assembly{WorkspacePages: pages})
+}
+
+func NewWithProfile(ctx context.Context, controller *client.Client, profilePath string, assembly shell.Assembly) (*Runtime, error) {
+	return NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profilePath, "desktop", "preferences.json")), assembly)
 }
 
 func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *preferences.Store, pages ...shell.NativePage) (*Runtime, error) {
+	return NewWithAssembly(ctx, controller, prefs, shell.Assembly{WorkspacePages: pages})
+}
+
+func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *preferences.Store, assembly shell.Assembly) (*Runtime, error) {
 	if controller == nil || prefs == nil {
 		return nil, errors.New("desktop requires a Client and profile preferences")
 	}
@@ -302,7 +310,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	snapshot := controller.Snapshot()
 	d := Sidebar(snapshot, prefs.Data)
 	d.Notices = Notices(controller.Notices())
-	r.App = shell.NewLive(d, pages...)
+	r.App = shell.NewLiveWithAssembly(d, assembly)
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, NewConversationDraft: r.newConversationDraft,

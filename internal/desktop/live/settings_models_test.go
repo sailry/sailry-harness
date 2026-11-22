@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,10 +24,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
 )
 
 func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
 	const lang = "zh-CN"
+	assembly := shell.Assemble(decision.Register)
+	catalog := i18n.New(assembly.Locales...)
 	missing := "Previously selected model"
 	for _, availability := range []string{"available", "unavailable"} {
 		t.Run(availability, func(t *testing.T) {
@@ -35,6 +39,7 @@ func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
 				Revision: 4, Choices: map[protocol.ModelsKind]protocol.ModelsLocalChoice{kind: {Model: &missing}},
 			}, availability: map[protocol.ModelsKind]protocol.ModelsCatalogAvailability{kind: {Kind: availability}}}
 			page := settings.NewLive()
+			page.SetNativePages(assembly.SettingsPages)
 			page.Open(settings.Decision)
 			projectLocalModels(page.Model, &state, nil)
 			var saves []protocol.ModelsLocalChoice
@@ -45,12 +50,13 @@ func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
 				saves = append(saves, pageLocalChoice(kind, page.Decision, state.settings.Choices[kind]))
 			}}
 			view := ui.NewTester(func(c *ui.Context) {
+				i18n.Bind(c, catalog)
 				theme.Apply(c, "", theme.Light)
 				settings.Page(c, page, &viewmodel.Data{}, settings.Look{})
 			}, 900, 700)
 			view.SetLocale(lang)
 			view.Frame()
-			model, none := i18n.In(lang, "runtime_decision_model"), i18n.In(lang, "local_models_none")
+			model, none := catalog.In(lang, "runtime_decision_model"), catalog.In(lang, "local_models_none")
 			trigger, ok := view.AccessByRole(ui.RoleButton, model)
 			if !ok || trigger.Disabled || trigger.Value != missing || view.HasText(i18n.In(lang, "local_models_status")) {
 				t.Fatalf("Decision configuration with no installed model = %+v, labels %q", trigger, view.Texts())
@@ -372,7 +378,7 @@ func checkSpeechLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &Runtime{ctx: ctx, cancel: cancel, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}),
+	r := &Runtime{ctx: ctx, cancel: cancel, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness()),
 		Preferences: preferences.Open(filepath.Join(directory, "preferences.json"))}
 	r.dictation.manager = manager
 	defer func() {

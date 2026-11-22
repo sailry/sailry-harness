@@ -1,0 +1,13 @@
+knowledge_settings: "Настройки по умолчанию"
+knowledge_default_model: "Векторная модель"
+knowledge_keyword_only: "Только ключевые слова"
+knowledge_collection_pending: Ожидает индексации
+knowledge_collection_unavailable: Node хранения недоступен
+knowledge_collection_indexing: Индексация · %{count} эл.
+knowledge_collection_ready: Актуально · %{count} эл.
+knowledge_collection_paused: Приостановлено
+knowledge_collection_failed: Ошибка · %{reason}
+knowledge_collection_failures: 'Не проиндексировано: %{count} · %{reason}'
+knowledge_pause: Приостановить
+knowledge_resume: Продолжить
+knowledge_update: Обновить

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -70,7 +71,9 @@ func testProviderLoginWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +81,7 @@ func testProviderLoginWarning(t *testing.T) {
 	m := r.App.Settings
 	m.Open(settings.Providers)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, catalog)
 		r.mu.Lock()
 		queue := r.queue
 		r.queue = nil
@@ -89,7 +93,7 @@ func testProviderLoginWarning(t *testing.T) {
 		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
 	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("en")
-	en := func(key string) string { return i18n.In("en", key) }
+	en := func(key string) string { return catalog.In("en", key) }
 	await := func(what string, done func() bool) {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
@@ -117,12 +121,12 @@ func testProviderLoginWarning(t *testing.T) {
 	node := r.controller.Target().String()
 	m.ProviderActions.SignIn(node, risky.String())
 	await("the warning", func() bool { return tester.HasText(warning) })
-	if !tester.HasText(en("provider_reconnect")+" Risky account") || len(begun()) != 0 || m.ProviderAuthorization().Open {
+	if !tester.HasText(en("provider_reconnect")+" Risky account") || len(begun()) != 0 || r.App.ProviderUI.ProviderAuthorization().Open {
 		t.Fatalf("the warning did not precede the sign-in: %d commands, %q", len(begun()), tester.Texts())
 	}
 	click(en("settings_cancel"))
 	await("the warning to close", func() bool { return !tester.HasText(warning) })
-	if len(begun()) != 0 || m.ProviderAuthorization().Open {
+	if len(begun()) != 0 || r.App.ProviderUI.ProviderAuthorization().Open {
 		t.Fatalf("Cancel sent %d login commands", len(begun()))
 	}
 
@@ -192,7 +196,9 @@ func testProviderPresetWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+	assembly := desktop.Harness()
+	catalog := i18n.New(assembly.Locales...)
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,6 +206,7 @@ func testProviderPresetWarning(t *testing.T) {
 	m := r.App.Settings
 	m.Open(settings.Providers)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
+		i18n.Bind(c, catalog)
 		r.mu.Lock()
 		queue := r.queue
 		r.queue = nil
@@ -211,7 +218,7 @@ func testProviderPresetWarning(t *testing.T) {
 		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
 	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("en")
-	en := func(key string) string { return i18n.In("en", key) }
+	en := func(key string) string { return catalog.In("en", key) }
 	await := func(what string, done func() bool) {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)

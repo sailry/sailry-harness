@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -101,7 +102,7 @@ func TestDemoMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,8 @@ func TestDemoMode(t *testing.T) {
 	window := liveWindow{tester: tester, asked: &asked, flying: &flying}
 	tester.SetLocale("en")
 	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
-	text := func(key string, args ...any) string { return i18n.In("en", key, args...) }
+	catalog := i18n.New(desktop.Harness().Locales...)
+	text := func(key string, args ...any) string { return catalog.In("en", key, args...) }
 	sent := func() []string {
 		mu.Lock()
 		defer mu.Unlock()

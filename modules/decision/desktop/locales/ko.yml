@@ -1,0 +1,4 @@
+runtime_decision: "판단"
+runtime_decision_model: "모델"
+runtime_decision_enable: "판단 사용"
+local_models_none: "없음"

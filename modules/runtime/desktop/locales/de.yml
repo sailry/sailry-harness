@@ -1,0 +1,9 @@
+runtime_python_bundled: "Integriert"
+runtime_python_custom: "Benutzerdefiniert"
+runtime_python_custom_url: "Paketindex-URL"
+runtime_python_index: "Paketquelle"
+runtime_python_version: "Version"
+runtime_python_preparing: "Wird vorbereitet"
+python_creating: Abhängigkeiten vorbereiten
+python_installing: Abhängigkeiten installieren
+python_validating: Abhängigkeiten prüfen

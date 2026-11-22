@@ -1,0 +1,47 @@
+host_add: "Host hinzufügen"
+workspace_host: "Hostinformationen"
+connection_no_projects: "Keine Projekte gefunden"
+connection_route_p2p: "P2P"
+connection_route_relay: "Relay"
+connections_device: "Gerät %{id}"
+connections_hosts: "Hosts"
+connections_mobile: "Mobil"
+connections_bidirectional: Bidirektional
+connections_legacy_bidirectional: Bidirektional (veraltet)
+connections_only_host: Nur Host
+connections_only_controller: Nur Controller
+connections_online: "Online"
+connections_revoke_confirm: "Diese Kopplung entfernen? Wird das letzte Gerät eines Benutzers entfernt, ist auf seine Daten von keinem Gerät aus mehr Zugriff möglich."
+form_passphrase_hint: "Passphrase für den privaten Schlüssel (optional)"
+host_install: "Installieren und verbinden"
+host_pairing_hint: "Mit einem vorhandenen Sailry-Gerät verbinden"
+host_pairing_mode: "Kopplungscode"
+host_ssh_mode: Über SSH installieren
+host_install_hint: Sailry auf einem Server installieren und verbinden
+host_ssh_agent_hint: Im SSH-Agent dieses Computers geladene Schlüssel verwenden
+ssh_authentication: "Authentifizierung"
+pairing_connect: "Verbinden Sie Gerät"
+pairing_local_code: "Lokaler Pairingcode"
+pairing_pin_hint: "6-stelligen Pairing-Code eingeben"
+pairing_preview_disabled: "UI-Vorschau verbindet keine echten Geräte; starten Sie mit --data-dir, um zu paaren"
+pairing_relay_address: "Relay-Adresse"
+pairing_relay_address_hint: "relay.example.com:4001"
+pairing_relay_server: "Verbindungsserver"
+pairing_share: "Dieses Gerät teilen"
+pairing_share_hint: "Geben Sie diesen Code in Remote-Verbindungen auf einem anderen Gerät"
+host_runtime_loading: "Laufzeit lesen (Vorschau)"
+host_step_connect: "Mit Host verbinden"
+host_step_pair: "Koppeln"
+host_network_edit: "Host bearbeiten"
+pairing_preparing: "Vorbereiten der Verbindung"
+pairing_refresh_hint: "Gültig für 60 Sekunden; aktualisiert nach Ablauf"
+pairing_relay_checking: "Prüfrelais"
+connections_copy_id: ID kopieren
+connection_scope: "Bereich"
+connection_private: "Privat"
+connection_global: "Global Sharing"
+connection_projects: "Projektfreigabe"
+host_wsl: "WSL"
+host_wsl_distribution: "Distribution"
+host_wsl_requirement: "Erfordert WSL2, GNU Linux x64/arm64 und systemd"
+host_wsl_empty: "Keine installierten WSL2-Distributionen"

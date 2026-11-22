@@ -1,0 +1,9 @@
+runtime_python_bundled: "内蔵"
+runtime_python_custom: "カスタム"
+runtime_python_custom_url: "パッケージソースのURL"
+runtime_python_index: "パッケージソース"
+runtime_python_version: "バージョン"
+runtime_python_preparing: "準備中"
+python_creating: 依存関係を準備中
+python_installing: 依存関係をインストール中
+python_validating: 依存関係を確認中

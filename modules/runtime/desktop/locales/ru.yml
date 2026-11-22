@@ -1,0 +1,9 @@
+runtime_python_bundled: "Встроенный"
+runtime_python_custom: "Свой источник"
+runtime_python_custom_url: "URL индекса пакетов"
+runtime_python_index: "Источник пакетов"
+runtime_python_version: "Версия"
+runtime_python_preparing: "Подготовка"
+python_creating: Подготовка зависимостей
+python_installing: Установка зависимостей
+python_validating: Проверка зависимостей

@@ -1,12 +1,6 @@
 package settings
 
-import (
-	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-)
+import "github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 
 type ConnectionDraft struct {
 	Method                                    Method
@@ -61,73 +55,26 @@ type HostTrust struct {
 }
 
 func (m *Model) ConnectionDraft() ConnectionDraft {
-	value := m.pairing
-	return ConnectionDraft{Method: Method(value.method), Relay: value.relay, Address: value.address, Code: value.code, Name: value.name, Host: value.host, Port: value.port, Username: value.user, Password: value.secret, Key: value.key, Passphrase: value.passphrase,
-		Scope: value.scope, Projects: value.sharedProjects(), Distribution: value.distributionName()}
+	form := &m.pairing
+	return ConnectionDraft{
+		Method: form.Method, Relay: form.Relay, Address: form.Address, Code: form.Code,
+		Name: form.Name, Host: form.Host, Port: form.Port, Username: form.Username,
+		Password: form.Password, Key: form.Key, Passphrase: form.Passphrase,
+		Scope: form.Scope, Projects: form.sharedProjects(), Distribution: form.distributionName(),
+	}
 }
 
-func (m *Model) Sharing() bool { return m.pairing.sharing }
+func (m *Model) Sharing() bool { return m.pairing.ShareOpen }
 
-func (m *Model) Adding() bool { return m.pairing.adding }
+func (m *Model) Adding() bool { return m.pairing.AddOpen }
 
-func (m *Model) CloseShare() { m.pairing.sharing = false }
+func (m *Model) CloseShare() { m.pairing.ShareOpen = false }
 
 func (m *Model) CloseConnectionDialogs() {
-	m.pairing.adding, m.pairing.sharing = false, false
+	m.pairing.AddOpen, m.pairing.ShareOpen = false, false
 	m.NetworkEditor = nil
 }
 
 func (m *Model) SetConnectionNetwork(relay int, address string) {
-	m.pairing.relay, m.pairing.address = relay, address
-}
-
-func connectionDialogs(c *ui.Context, m *Model) {
-	if editor := m.NetworkEditor; editor != nil {
-		open := true
-		title := i18n.T(c, "host_network_edit")
-		kit.Dialog(c.Key("network-editor"), &open, func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Text(c, deviceName(c, editor.Device)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
-			if editor.Loading {
-				kit.Shimmer(c, i18n.T(c, "host_runtime_loading"), 14, theme.Of(c).MutedForeground)
-			} else {
-				draft := pairing{relay: editor.Relay, address: editor.Address}
-				connectionRelayFields(c, &draft, m.Relays, editor.Relays, editor.Pending || editor.Locked || editor.Unavailable, false)
-				editor.Relay, editor.Address = draft.relay, draft.address
-			}
-			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-				kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(editor.Pending).OnClick(func() { m.NetworkEditor = nil })
-				label := i18n.T(c, "settings_save")
-				if editor.Retry {
-					label = i18n.T(c, "settings_retry")
-				}
-				kit.PrimaryBusy(c.Key("save"), label, editor.Loading || editor.Unavailable, editor.Pending).OnClick(func() {
-					if m.ConnectionActions != nil && m.ConnectionActions.SaveNetwork != nil {
-						m.ConnectionActions.SaveNetwork(editor)
-					}
-				})
-			})
-		}).Width(min(420, width(c)-48)).Gap(16).Label(title)
-		// A save under way keeps its editor, as its Cancel says.
-		if !open && !editor.Pending {
-			m.NetworkEditor = nil
-		}
-	}
-	if trust := m.HostTrust; trust != nil {
-		open := true
-		title := i18n.T(c, "ssh_trust_title")
-		if trust.Changed {
-			title = i18n.T(c, "ssh_key_changed")
-		}
-		body := trust.Host + "\n" + trust.Algorithm + "\n" + trust.Fingerprint
-		// Trusting closes the prompt and the connection goes on, still
-		// pending; any other way out of the prompt ends it.
-		if kit.AlertDialog(c.Key("host-key"), &open, title, body, i18n.T(c, "settings_cancel"), i18n.T(c, "ssh_trust")) == 1 {
-			m.HostTrust = nil
-			trust.Confirm()
-		} else if !open {
-			m.HostTrust = nil
-			m.ConnectionPending = false
-		}
-	}
+	m.pairing.Relay, m.pairing.Address = relay, address
 }

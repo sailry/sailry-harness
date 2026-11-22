@@ -14,7 +14,7 @@ import (
 func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
-		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
+		r.App = shell.NewLiveWithAssembly(r.App.Data, desktop.Harness())
 		m := r.App.Settings.Model
 		m.MarketSource, m.MarketQuery = 1, "fixture"
 		m.PackageActions = &settings.PackageActions{Catalog: r.packageCatalogService()}

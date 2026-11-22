@@ -1,0 +1,13 @@
+knowledge_settings: "既定の設定"
+knowledge_default_model: "ベクトルモデル"
+knowledge_keyword_only: "キーワードのみ"
+knowledge_collection_pending: インデックス待ち
+knowledge_collection_unavailable: ストレージホストを利用できません
+knowledge_collection_indexing: インデックス作成中 · %{count} 件
+knowledge_collection_ready: 最新 · %{count} 件
+knowledge_collection_paused: 一時停止中
+knowledge_collection_failed: 失敗 · %{reason}
+knowledge_collection_failures: '%{count} 件未インデックス · %{reason}'
+knowledge_pause: 一時停止
+knowledge_resume: 再開
+knowledge_update: 更新

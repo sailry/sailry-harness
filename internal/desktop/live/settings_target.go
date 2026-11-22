@@ -22,6 +22,9 @@ func (r *Runtime) managedSettingsNode() *Runtime {
 
 func (r *Runtime) openNodeSettings(section settings.Section) {
 	root := r.localRuntime()
+	if !root.App.Settings.HasSection(section) {
+		return
+	}
 	target := ""
 	if r != root {
 		target = r.controller.Target().String()
@@ -322,11 +325,13 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	root.settingsGeneration++
 	m := root.App.Settings
 	m.CloseManagedNodeDialogs()
-	var nextNode string
-	if owner != nil {
-		nextNode = owner.controller.Target().String()
+	if providerUI := root.App.ProviderUI; providerUI != nil {
+		var nextNode string
+		if owner != nil {
+			nextNode = owner.controller.Target().String()
+		}
+		providerUI.CloseProviderEditor(nextNode)
 	}
-	m.CloseProviderEditor(nextNode)
 	// Without a Node the controls wait, as the other host pages do.
 	waiting := owner == nil
 	m.Power, m.Compaction, m.Concurrency = settings.Stored[bool]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}

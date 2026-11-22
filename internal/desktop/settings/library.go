@@ -249,11 +249,11 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 				switch x.Status {
 				case preview.ModelMissing:
 					kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() {
-						m.modelAction(c, func(a *ModelActions) { a.LibraryInstall(x.ID, nil) })
+						m.RunModelAction(c, func(a *ModelActions) { a.LibraryInstall(x.ID, nil) })
 					})
 				case preview.ModelDownloading:
 					kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() {
-						m.modelAction(c, func(a *ModelActions) { a.LibraryCancel(x.ID) })
+						m.RunModelAction(c, func(a *ModelActions) { a.LibraryCancel(x.ID) })
 					})
 				default:
 					kit.Action(c.Key("delete"), icons.Trash, t("knowledge_delete"), false).OnClick(func() { e.removing = x.ID })
@@ -284,6 +284,10 @@ func librarySkeleton(c *ui.Context) {
 // embedding model's prefixes, over Install for the version shown.
 func libraryDialogs(c *ui.Context, m *Model) {
 	e := &m.library
+	if !e.open {
+		e.info, e.removing = "", ""
+		return
+	}
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	if x := m.libraryModel(e.info); x != nil {
 		open := true
@@ -328,7 +332,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 				}
 				busy := current && x.Status == preview.ModelDownloading
 				kit.PrimaryBusy(c.Key("install"), label, !resolved || installed, busy).OnClick(func() {
-					m.modelAction(c, func(a *ModelActions) {
+					m.RunModelAction(c, func(a *ModelActions) {
 						a.LibraryInstall(x.ID, &LibraryChoice{QueryPrefix: e.prefixes[0], DocumentPrefix: e.prefixes[1]})
 					})
 				})
@@ -346,7 +350,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 			// others name the model, as the reference's prompt does.
 			title, consequence = t("knowledge_delete"), x.Name
 		}
-		if confirm(c, "library-delete", &open, title, consequence, t("knowledge_delete")) {
+		if Confirm(c, "library-delete", &open, title, consequence, t("knowledge_delete")) {
 			if m.Live {
 				// The host deletes the files; its outcome is the toast.
 				if m.ModelActions != nil {

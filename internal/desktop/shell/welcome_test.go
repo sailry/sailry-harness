@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
@@ -74,6 +75,30 @@ func TestWelcomeGuide(t *testing.T) {
 	if p := a.Prefs(); p.WelcomeSeen == nil || !*p.WelcomeSeen {
 		t.Error("the guide is not remembered as seen")
 	}
+}
+
+func TestWelcomeGuideWithoutProviders(t *testing.T) {
+	a := New(preview.Load())
+	menu := a.Menu("en", a.Do)
+	for _, item := range menu[len(menu)-1].Submenu {
+		if item.ID == "app.welcome" {
+			t.Fatal("Help offers the guide without Providers")
+		}
+	}
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	seen := false
+	a.SetPrefs(Prefs{NavWidth: NavWidth, NavOpen: true, PanelWidth: PanelWidth, WelcomeSeen: &seen})
+	check := func() {
+		t.Helper()
+		settle(tt)
+		if a.Welcome.Open || a.Welcome.Seen || a.Page != ConversationPage || tt.HasText(i18n.In("en", "onboarding_title", "app", "Sailry")) {
+			t.Fatalf("welcome without Providers: %+v, page %q", a.Welcome, a.Page)
+		}
+	}
+	check()
+	a.Do("app.welcome")
+	check()
 }
 
 // The selection shortcut shows the captured text; Quote adds it to the

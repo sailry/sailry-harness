@@ -1,6 +1,7 @@
 package live
 
 import (
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -130,7 +131,7 @@ func TestProviderBillingRateDroppedByOlderNode(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = controller.Close() })
-			root, err := NewWithPreferences(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+			root, err := NewWithAssembly(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), desktop.Harness())
 			if err != nil {
 				t.Fatal(err)
 			}
