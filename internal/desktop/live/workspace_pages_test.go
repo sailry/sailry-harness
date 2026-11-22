@@ -48,7 +48,14 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 			var output protocol.Output
 			switch request.Command.Kind {
 			case "list_directory":
-				output = protocol.Output{Kind: "directory", Data: protocol.Directory{Entries: []protocol.FileEntry{{Name: "notes.txt"}}}}
+				input, _ := detail[protocol.CommandListDirectoryPayload](request.Command.Data)
+				entry := "remote-main.txt"
+				if node == localNode {
+					entry = "local-main.txt"
+				} else if input.Worktree == linkedID {
+					entry = "remote-linked.txt"
+				}
+				output = protocol.Output{Kind: "directory", Data: protocol.Directory{Entries: []protocol.FileEntry{{Name: entry, Kind: protocol.EntryKindFile}}}}
 			case "inspect_git":
 				output = protocol.Output{Kind: "git_status", Data: protocol.GitStatus{Kind: protocol.RepositoryKindDirectory}}
 			}
@@ -72,19 +79,19 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 	target := shell.ResourceTarget{Node: remoteNode.String(), Project: projectID.String()}
 	app.Navigate(shell.FilesPage)
 	app.SetResourceTarget(target)
-	load := func(worktree protocol.WorktreeID) *workspaceProject {
+	load := func(worktree protocol.WorktreeID, entry string) *workspaceProject {
 		t.Helper()
 		root.resourceWorkspaceFrame(root)
 		remote.workers.Wait()
 		pluginViewRunQueue(root)
 		workspace := root.shownResourceWorkspace()
 		if workspace == nil || workspace.runtime != remote || workspace.owner.ID != worktree || workspace.release == nil ||
-			len(workspace.data.Files.Children) != 1 || workspace.data.Files.Children[0].Name != "notes.txt" {
+			len(workspace.data.Files.Children) != 1 || workspace.data.Files.Children[0].Name != entry {
 			t.Fatalf("wrong resource workspace for %s: %+v", worktree, workspace)
 		}
 		return workspace
 	}
-	workspace := load(mainID)
+	workspace := load(mainID, "remote-main.txt")
 	app.Navigate(shell.GitPage)
 	root.resourceWorkspaceFrame(root)
 	if root.shownResourceWorkspace() != workspace || root.workspaceProject() != local.panel || remote.selectedWorkspace() != nil {
@@ -98,7 +105,7 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 	if target = app.ResourceTarget(); target.Worktree != linkedID.String() || root.resourceWorkspace(target) != nil {
 		t.Fatal("Git worktree switching exposed the previous workspace")
 	}
-	linkedWorkspace := load(linkedID)
+	linkedWorkspace := load(linkedID, "remote-linked.txt")
 	if workspace.release != nil || app.Sidebar.Selected != chat.ID || composer.Draft != "Keep this input" || composer.Worktree != localProject.Path {
 		t.Fatal("worktree switching retained its previous subscription or changed the chat")
 	}
@@ -115,6 +122,22 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 	root.resourceWorkspaceFrame(root)
 	if root.shownResourceWorkspace() != nil || linkedWorkspace.release != nil || app.ResourceTarget() != target {
 		t.Fatal("offline resource scope retained access, changed target or fell through to the chat")
+	}
+	app.Navigate(shell.FilesPage)
+	target = shell.ResourceTarget{Node: localNode.String(), Project: projectID.String(), Worktree: mainID.String()}
+	app.SetResourceTarget(target)
+	if root.resourceWorkspace(target) != nil {
+		t.Fatal("the target change exposed the previous Node's workspace")
+	}
+	local.resourceFrame()
+	root.resourceWorkspaceFrame(root)
+	if root.resourceWorkspace(target) != local.panel || len(local.data.Files.Children) != 0 {
+		t.Fatal("the new Node showed the previous Node's listing while loading")
+	}
+	root.workers.Wait()
+	pluginViewRunQueue(root)
+	if len(local.data.Files.Children) != 1 || local.data.Files.Children[0].Name != "local-main.txt" || workspace.data.Files.Children[0].Name != "remote-main.txt" {
+		t.Fatal("two Nodes with the same worktree ID shared a directory listing")
 	}
 	app.Navigate(shell.ConversationPage)
 	linkedWorkspace.showItem(panel.Files, "late.txt")

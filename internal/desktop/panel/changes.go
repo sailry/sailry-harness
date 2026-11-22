@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
@@ -147,8 +148,31 @@ func directories(prefix, parent string, entries []preview.FileChange) []*changeR
 	return out
 }
 
-// changeRows are the list's rows; label names a group by its key.
-func changeRows(changes []preview.FileChange, nav changeNav, label func(key string, n int) string) []*changeRow {
+// The navigator also edits sample status in place. Compare the fields it
+// presents, without retaining an open document's hunks in a sidebar row.
+func changeListRows(scroll ui.Element, changes []preview.FileChange, nav changeNav) []*changeRow {
+	type projection struct {
+		nav     changeNav
+		entries []preview.FileChange
+		rows    []*changeRow
+	}
+	cache := ui.Local(scroll, "git-status-rows", func() projection { return projection{} })
+	if cache.nav == nav && slices.EqualFunc(cache.entries, changes, func(a, b preview.FileChange) bool {
+		return a.Path == b.Path && a.Status == b.Status && a.Staged == b.Staged && a.Unstaged == b.Unstaged && a.Added == b.Added && a.Removed == b.Removed && a.Untracked == b.Untracked
+	}) {
+		return cache.rows
+	}
+	entries := slices.Clone(changes)
+	for i := range entries {
+		entries[i].Hunks = nil
+	}
+	cache.nav, cache.entries = nav, entries
+	cache.rows = changeRows(entries, nav)
+	return cache.rows
+}
+
+// Group labels are translation keys; file and directory labels are names.
+func changeRows(changes []preview.FileChange, nav changeNav) []*changeRow {
 	groups := [][2]string{{"tracked", "git_tracked"}, {"untracked", "git_untracked"}}
 	switch nav.grouping {
 	case "none":
@@ -192,7 +216,7 @@ func changeRows(changes []preview.FileChange, nav changeNav, label func(key stri
 			out = append(out, children...)
 			continue
 		}
-		out = append(out, &changeRow{id: prefix, label: label(g[1], len(entries)), entries: entries, children: children})
+		out = append(out, &changeRow{id: prefix, label: g[1], entries: entries, children: children})
 	}
 	return out
 }

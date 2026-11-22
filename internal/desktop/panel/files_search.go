@@ -146,7 +146,7 @@ func (pr *Project) fileSearchView(c *ui.Context) {
 }
 func (pr *Project) directoryTail(c *ui.Context, directory string) {
 	state := pr.Files.directories[directory]
-	if state.Loading {
+	if state.Loading && !state.Loaded {
 		ui.Row(c.Key("directory-loading")).Height(28).PaddingX(12).Gap(8).Children(func() { kit.Busy(c) })
 		return
 	}
@@ -158,7 +158,7 @@ func (pr *Project) directoryTail(c *ui.Context, directory string) {
 		})
 	}
 	if state.Next {
-		kit.Ghost(c.Key("directory-more"), i18n.T(c, "files_load_more"), false).Height(28).PaddingX(12).Children(func() { ui.Text(c, i18n.T(c, "files_load_more")).FontSize(12) }).OnClick(func() {
+		kit.Ghost(c.Key("directory-more"), i18n.T(c, "files_load_more"), false).Disabled(state.Loading).Height(28).PaddingX(12).Children(func() { ui.Text(c, i18n.T(c, "files_load_more")).FontSize(12) }).OnClick(func() {
 			if pr.Actions != nil && pr.Actions.NextDirectory != nil {
 				pr.Actions.NextDirectory(directory)
 			}

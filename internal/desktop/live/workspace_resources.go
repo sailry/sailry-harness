@@ -71,7 +71,7 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 	}
 	key := scope + "/" + relative
 	if p.diffs[key] {
-		p.projectDiff(relative, p.diffContents[key])
+		p.projectDiff(relative, scope, p.diffContents[key], p.manualDiffs[key].diff)
 		if _, loaded := p.files[relative]; !loaded && p.panel.Git.UsesFileDiff(relative) && !p.manualDiffs[key].diff.Binary {
 			p.readFile(relative)
 		}
@@ -93,12 +93,11 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		}
 		captured.diff = diff
 		p.manualDiffs[key] = captured
-		p.panel.SetGitDiffState(relative, scope, panel.GitDiffState{Binary: diff.Binary, Partial: diff.Truncated, Size: diff.Size})
 		if p.diffContents == nil {
 			p.diffContents = map[string][]viewmodel.Hunk{}
 		}
 		p.diffContents[key] = workspaceHunks(diff.Text)
-		p.projectDiff(relative, p.diffContents[key])
+		p.projectDiff(relative, scope, p.diffContents[key], diff)
 		// An individual text diff compares the captured file revision when
 		// applying a hunk. The combined view and binary files need no body.
 		if !diff.Binary && p.panel.Git.UsesFileDiff(relative) {
@@ -107,10 +106,12 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		p.readTurnHunks(relative)
 	})
 }
-func (p *workspaceProject) projectDiff(relative string, hunks []viewmodel.Hunk) {
+func (p *workspaceProject) projectDiff(relative, scope string, hunks []viewmodel.Hunk, source protocol.GitDiff) {
 	for i := range p.data.Changes {
 		if p.data.Changes[i].Path == relative {
 			p.data.Changes[i].Hunks = hunks
+			p.data.Changes[i].Diff = viewmodel.DiffState{Scope: scope, Binary: source.Binary, Partial: source.Truncated, Size: source.Size}
+			return
 		}
 	}
 }

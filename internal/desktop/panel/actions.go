@@ -57,9 +57,13 @@ type PendingOperation struct {
 	Label string
 	Run   func(*ui.Context)
 }
-type DirectoryState struct{ Loaded, Loading, Failed, Partial, Next bool }
+type DirectoryState struct{ Loaded, Loading, Failed, Denied, Partial, Next bool }
 
 func (pr *Project) SetDirectoryState(path string, state DirectoryState) {
+	if state == (DirectoryState{}) {
+		delete(pr.Files.directories, path)
+		return
+	}
 	if pr.Files.directories == nil {
 		pr.Files.directories = map[string]DirectoryState{}
 	}

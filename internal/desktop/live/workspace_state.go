@@ -379,10 +379,14 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 			p.failedReads[key] = true
 			if strings.HasPrefix(key, "directory/") {
 				directory := strings.TrimPrefix(key, "directory/")
-				if faultCode(err) == protocol.ErrorCodeNotFound {
-					p.entryMissing(directory)
-				}
 				state := p.directoryStates[directory]
+				switch faultCode(err) {
+				case protocol.ErrorCodeNotFound:
+					p.entryMissing(directory)
+				case protocol.ErrorCodePermissionDenied:
+					p.discardDirectoryListing(directory)
+					state = panel.DirectoryState{Denied: true}
+				}
 				state.Loading = false
 				state.Failed = true
 				state.Next = false
@@ -497,16 +501,30 @@ func (p *workspaceProject) nextDirectory(directory string) {
 	p.requestDirectory(directory, page.Next, append([]protocol.FileEntry(nil), p.directoryEntries[directory]...), 0, p.directoryStates[directory].Partial)
 }
 func (p *workspaceProject) directoryState(directory string, state panel.DirectoryState) {
-	if p.directoryStates == nil {
-		p.directoryStates = map[string]panel.DirectoryState{}
+	if state == (panel.DirectoryState{}) {
+		delete(p.directoryStates, directory)
+	} else {
+		if p.directoryStates == nil {
+			p.directoryStates = map[string]panel.DirectoryState{}
+		}
+		p.directoryStates[directory] = state
 	}
-	p.directoryStates[directory] = state
 	p.panel.SetDirectoryState(directory, state)
 }
 func (p *workspaceProject) requestDirectory(directory string, after *protocol.DirectoryCursor, accumulated []protocol.FileEntry, extent int, partial bool) {
 	key := "directory/" + directory
 	if p.loading[key] || p.failedReads[key] || p.trashBlocksRead(key) {
 		return
+	}
+	for current := directory; current != ""; {
+		parent := path.Dir(current)
+		if parent == "." || parent == current {
+			parent = ""
+		}
+		if p.directoryStates[parent].Denied {
+			return
+		}
+		current = parent
 	}
 	state := p.directoryStates[directory]
 	state.Loading = true

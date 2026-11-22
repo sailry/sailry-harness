@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -159,17 +160,46 @@ func (p *workspaceProject) entryTrashed(relative string) {
 	if parent := workspaceFileNode(p.data.Files, directory); parent != nil {
 		parent.Children = slices.DeleteFunc(parent.Children, func(child *viewmodel.FileNode) bool { return child.Path == relative })
 	}
-	for directory := range p.directories {
-		if workspaceEntryContains(relative, directory) {
-			delete(p.directories, directory)
-			delete(p.directoryPages, directory)
-			delete(p.directoryEntries, directory)
-			delete(p.directoryStates, directory)
-		}
-	}
+	p.clearDirectoryListings(relative)
 	p.keepMissingDrafts()
 	p.panel.PruneFileSelection()
 	p.pruneDocumentImages()
+}
+
+func (p *workspaceProject) clearDirectoryListings(directory string) {
+	for listed := range p.directoryStates {
+		if !workspaceEntryContains(directory, listed) {
+			continue
+		}
+		delete(p.directories, listed)
+		delete(p.directoryPages, listed)
+		delete(p.directoryEntries, listed)
+		p.directoryState(listed, panel.DirectoryState{})
+		key := "directory/" + listed
+		if p.loading[key] {
+			if p.staleReads == nil {
+				p.staleReads = map[string]bool{}
+			}
+			p.staleReads[key] = true
+		}
+		if listed != directory {
+			delete(p.failedReads, key)
+		}
+	}
+}
+
+func (p *workspaceProject) discardDirectoryListing(directory string) {
+	p.clearDirectoryListings(directory)
+	if node := workspaceFileNode(p.data.Files, directory); node != nil && node.Children != nil {
+		node.Children = []*viewmodel.FileNode{}
+	}
+	p.panel.PruneFileSelection()
+	// Preserve open drafts in the editor model while the denied subtree is hidden.
+	for _, filename := range p.panel.Unsaved() {
+		if workspaceEntryContains(directory, filename) {
+			p.ensureFile(filename)
+		}
+	}
 }
 
 func (p *workspaceProject) keepMissingDrafts() {

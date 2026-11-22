@@ -68,9 +68,21 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 			value, err := s.status(owned, root)
 			s.mu.Lock()
 			slot.value, slot.err = value, err
-			slot.expires = s.now().Add(time.Second)
-			if err != nil && s.statuses[root] == slot {
-				delete(s.statuses, root)
+			const ttl = time.Second
+			slot.expires = s.now().Add(ttl)
+			if s.statuses[root] == slot {
+				if err != nil {
+					delete(s.statuses, root)
+				} else {
+					done := slot.done
+					time.AfterFunc(ttl, func() {
+						s.mu.Lock()
+						defer s.mu.Unlock()
+						if current := s.statuses[root]; current != nil && current.done == done {
+							delete(s.statuses, root)
+						}
+					})
+				}
 			}
 			close(slot.done)
 			slot.cancel()

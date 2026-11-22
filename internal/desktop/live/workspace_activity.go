@@ -310,9 +310,6 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 		changes := workspaceTurnFiles(value)
 		p.sessionCheckpoints(session.ID).recordChanges(turn, workspaceTurnSummary(value))
 		p.turnView = &id
-		for _, file := range value.Files {
-			p.panel.SetGitDiffState(file.Path, "all", panel.GitDiffState{Binary: file.Binary, Partial: file.Truncated})
-		}
 		p.data.Changes = changes
 		for _, file := range changes {
 			p.reviewTurns[file.Path] = id
@@ -344,6 +341,7 @@ func workspaceTurnFiles(value protocol.ConversationCheckpointTurnDiff) []viewmod
 	for _, file := range value.Files {
 		change := viewmodel.FileChange{
 			Path: file.Path, Status: "M", Unstaged: "M", Hunks: workspaceHunks(file.Text),
+			Diff:  viewmodel.DiffState{Scope: "all", Binary: file.Binary, Partial: file.Truncated},
 			Added: int(file.Additions), Removed: int(file.Deletions),
 		}
 		changes = append(changes, change)

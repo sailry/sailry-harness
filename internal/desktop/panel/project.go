@@ -101,7 +101,6 @@ type GitView struct {
 	log           GitHistoryState
 	switchPending []PendingOperation
 	documents     map[string]*gitDocument
-	diffStates    map[string]GitDiffState
 	list          ui.ScrollState
 	history       ui.ScrollState
 	side          float32 // the list's width

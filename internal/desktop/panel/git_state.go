@@ -35,11 +35,6 @@ func (pr *Project) SetGitSwitchPending(operations []PendingOperation) {
 // while the repository has commits after the ones listed, Partial when a
 // commit or the references were cut short.
 type GitHistoryState struct{ Loading, Next, Partial bool }
-type GitDiffState struct {
-	Binary, Partial bool
-	// Size is the length in bytes of a file that is not compared as text.
-	Size uint64
-}
 
 // binaryDiff says that a file is not compared as text, with its size when
 // that is known.
@@ -59,13 +54,6 @@ func binarySize(size uint64) string {
 		return fmt.Sprintf(" · %.1f KB", float64(size)/1e3)
 	}
 	return fmt.Sprintf(" · %d B", size)
-}
-
-func (pr *Project) SetGitDiffState(path, scope string, state GitDiffState) {
-	if pr.Git.diffStates == nil {
-		pr.Git.diffStates = map[string]GitDiffState{}
-	}
-	pr.Git.diffStates[scope+"/"+path] = state
 }
 
 func (pr *Project) SetGitState(state GitState)          { pr.Git.live = state }

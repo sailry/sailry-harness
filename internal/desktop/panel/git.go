@@ -171,9 +171,8 @@ func (pr *Project) changeList(c *ui.Context, own bool, open, reveal func(path st
 		return
 	}
 	g := pr.menus(c)
-	rows := changeRows(pr.Data.Changes, v.nav, func(key string, n int) string {
-		return i18n.T(c, key) + " · " + strconv.Itoa(n)
-	})
+	list := ui.Scroll(c.Key("files")).TrackScroll(scroll(&v.list, own)).Grow(1).Padding(0, 8, 8, 8)
+	rows := changeListRows(list, pr.Data.Changes, v.nav)
 	var shown *preview.FileChange
 	for i := range pr.Data.Changes {
 		if pr.Data.Changes[i].Path == v.change {
@@ -185,7 +184,7 @@ func (pr *Project) changeList(c *ui.Context, own bool, open, reveal func(path st
 	if v.nav.grouping == "none" {
 		skip = 0
 	}
-	ui.Scroll(c.Key("files")).TrackScroll(scroll(&v.list, own)).Grow(1).Padding(0, 8, 8, 8).Children(func() {
+	list.Children(func() {
 		tree := ui.TreeBase(c)
 		tree.Root.Gap(0).Children(func() {
 			var node func(r *changeRow)
@@ -201,9 +200,13 @@ func (pr *Project) changeList(c *ui.Context, own bool, open, reveal func(path st
 				}
 				item := tree.Item(folder)
 				depth := max(item.Depth()-skip, 0)
-				row := item.Row.Height(rowHeight).PaddingStart(8 + 14*float32(depth)).PaddingEnd(8).Gap(8).Radius(p.Radius).
-					Cursor(ui.CursorPointer).Label(r.label).TextColor(p.MutedForeground)
+				label := r.label
 				group := r.entries != nil
+				if group {
+					label = i18n.T(c, label) + " · " + strconv.Itoa(len(r.entries))
+				}
+				row := item.Row.Height(rowHeight).PaddingStart(8 + 14*float32(depth)).PaddingEnd(8).Gap(8).Radius(p.Radius).
+					Cursor(ui.CursorPointer).Label(label).TextColor(p.MutedForeground)
 				switch {
 				case r.id == selected && !group:
 					row.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
@@ -245,7 +248,7 @@ func (pr *Project) changeList(c *ui.Context, own bool, open, reveal func(path st
 						ui.Icon(c, icons.Folder).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
 					}
 					ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
-						ui.Text(c, r.label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+						ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 						if r.entry != nil && !v.nav.hierarchical {
 							if dir := parentDir(r.entry.Path); dir != "" {
 								ui.Text(c, dir).FontSize(14).SingleLine().Shrink(1).MinWidth(0).MaxWidthPercent(40).TextColor(p.MutedForeground)
@@ -520,7 +523,8 @@ func (pr *Project) combined(c *ui.Context, narrow bool) {
 	}
 	add, del := 0, 0
 	ui.Scroll(c.Key("git-combined")).Grow(1).Padding(8).Gap(8).Children(func() {
-		for _, ch := range pr.Data.Changes {
+		for i := range pr.Data.Changes {
+			ch := &pr.Data.Changes[i]
 			pr.readDiff(ch.Path, "all")
 			add, del = add+ch.Added, del+ch.Removed
 			open := !v.folded[ch.Path]
@@ -548,14 +552,15 @@ func (pr *Project) combined(c *ui.Context, narrow bool) {
 					})
 				}).OnClick(func() { v.folded[ch.Path] = open })
 				if open {
-					old, new := ch.Texts()
-					metadata := v.diffStates["all/"+ch.Path]
-					if metadata.Binary {
+					metadata := ch.Diff
+					if metadata.Scope == "all" && metadata.Binary {
 						ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					} else {
-						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
+						box := ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border)
+						old, next := gitDiffTexts(box, *ch)
+						kit.Diff(c, box, old, next,
 							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: diffSplit(c, narrow)})
-						if metadata.Partial {
+						if metadata.Scope == "all" && metadata.Partial {
 							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 						}
 					}

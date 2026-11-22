@@ -93,8 +93,28 @@ func gitDocumentFile(c *ui.Context, box ui.Element, file GitDocumentFile, fit, n
 		})
 		return
 	}
-	old, next := file.Texts()
+	old, next := gitDiffTexts(box, file.FileChange)
 	kit.Diff(c, box, old, next, kit.DiffOptions{Language: editor.LanguageFor(file.Path), Fit: fit, Split: diffSplit(c, narrow)})
+}
+
+// Projections replace hunks as a unit. Keep their joined editor input with the
+// mounted diff, not with the project or a path that may never be opened again.
+func gitDiffTexts(box ui.Element, file viewmodel.FileChange) (string, string) {
+	type texts struct {
+		first     *viewmodel.Hunk
+		count     int
+		old, next string
+	}
+	cache := ui.Local(box, "git-diff-texts", func() texts { return texts{count: -1} })
+	var first *viewmodel.Hunk
+	if len(file.Hunks) != 0 {
+		first = &file.Hunks[0]
+	}
+	if cache.first != first || cache.count != len(file.Hunks) {
+		cache.first, cache.count = first, len(file.Hunks)
+		cache.old, cache.next = file.Texts()
+	}
+	return cache.old, cache.next
 }
 
 func (pr *Project) gitDocument(c *ui.Context, id string, narrow bool) bool {

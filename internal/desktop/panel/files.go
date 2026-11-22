@@ -16,6 +16,14 @@ import (
 // fileDrag is a file tree row being dragged: its path.
 type fileDrag struct{ path string }
 
+func (pr *Project) listedChildren(n *preview.FileNode) []*preview.FileNode {
+	state := pr.Files.directories[n.Path]
+	if state.Denied || state.Loading && !state.Loaded {
+		return nil
+	}
+	return n.Children
+}
+
 // visible are the tree's rows shown, in order: every folder's while it
 // is open.
 func (pr *Project) visible() []string {
@@ -24,7 +32,7 @@ func (pr *Project) visible() []string {
 	walk = func(n *preview.FileNode) {
 		out = append(out, n.Path)
 		if n.Children != nil && (pr.Files.folders[n.Path] != nil && *pr.Files.folders[n.Path] || pr.Files.folders[n.Path] == nil && (pr.Actions == nil || n.Path == "")) {
-			for _, k := range n.Children {
+			for _, k := range pr.listedChildren(n) {
 				walk(k)
 			}
 		}
@@ -66,22 +74,20 @@ func (pr *Project) FileTree(c *ui.Context, own bool, open func(path string)) {
 		}
 		open(relative)
 	}
-	if pr.Actions != nil && pr.Data.Files != nil && len(pr.Data.Files.Children) == 0 {
+	if pr.Actions != nil {
 		state := v.directories[""]
-		// A folder read before stays as it is while it is read again: the
-		// loader is for the first read alone, or every refresh would flash.
-		if state.Loaded && !state.Failed {
+		if state.Loading && !state.Loaded {
+			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
+			return
+		}
+		if state.Loaded && !state.Failed && pr.Data.Files != nil && len(pr.Data.Files.Children) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "files_directory_empty")}).Grow(1).Justify(ui.Center)
 			pr.directoryTail(c, "")
 			return
 		}
-		if state.Loading {
-			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { kit.Loader(c, 20) })
-			return
-		}
 	}
 	visible := pr.visible()
-	box := ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8)
+	box := ui.Scroll(c.Key(&v.tree)).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8)
 	box.ContextMenu(func(m *ui.Menu) { pr.fileMenu(c, m, visible, "") })
 	box.Children(func() {
 		tree := ui.TreeBase(c)
@@ -163,7 +169,7 @@ func (pr *Project) FileTree(c *ui.Context, own bool, open func(path string)) {
 					ui.Text(c, n.Name).FontSize(14).SingleLine().Shrink(1)
 				})
 				item.Group(func() {
-					for _, kid := range n.Children {
+					for _, kid := range pr.listedChildren(n) {
 						node(kid)
 					}
 					if folder != nil && *folder {

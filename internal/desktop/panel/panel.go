@@ -607,13 +607,13 @@ func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
 		empty(c, icons.Network, "git_diff_empty")
 		return
 	}
-	metadata := pr.Git.diffStates[pr.Git.scope+"/"+path]
+	metadata := ch.Diff
 	counts := func() {
 		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
 		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
 	}
 	system := func() { pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) }
-	if metadata.Binary {
+	if metadata.Scope == pr.Git.scope && metadata.Binary {
 		// No diff shows, so the footer has no layout to choose.
 		ui.Column(c.Key("binary")).Grow(1).MinHeight(0).Children(func() {
 			ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(12).TextColor(p.MutedForeground)
@@ -621,8 +621,8 @@ func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
 		status(c, ch.Path, counts, system)
 		return
 	}
-	old, new := ch.Texts()
 	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
+	old, new := gitDiffTexts(box, *ch)
 	selected := -1
 	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Split: diffSplit(c, narrow),
 		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
@@ -667,7 +667,7 @@ func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
 		options.Changed = func() { notice(c) }
 	}
 	kit.Diff(c, box, old, new, options)
-	if metadata.Partial {
+	if metadata.Scope == pr.Git.scope && metadata.Partial {
 		ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 	}
 	diffStatus(c, ch.Path, narrow, counts, system)

@@ -180,6 +180,14 @@ type FileChange struct {
 	Untracked        bool
 	Added, Removed   int
 	Hunks            []Hunk
+	Diff             DiffState
+}
+
+// DiffState describes the same scoped diff as the projected hunks.
+type DiffState struct {
+	Scope           string
+	Binary, Partial bool
+	Size            uint64
 }
 
 // Branch is a branch of the repository: a local one, or a remote's as
