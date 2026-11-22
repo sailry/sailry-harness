@@ -493,7 +493,7 @@ func (p *conversationCreation) adopt(session protocol.Session) {
 	x.cv.ID = after
 	r.composerInitialized[after] = true
 	r.composerRevisions[after] = session.Revision
-	r.composerBases[x.comp] = session.Config
+	r.setComposerBase(x.comp, session.Config)
 	key, _ := json.Marshal(session.Config)
 	r.composerObserved[after] = string(key)
 	if r.teams != nil {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -47,6 +48,7 @@ type Registry struct {
 	scope      protocol.PluginContext
 	invalidate func()
 	generation uint64
+	revision   atomic.Uint64
 	mounted    map[string]*contributionMount
 	closed     bool
 }
@@ -77,6 +79,10 @@ type contributionInteraction struct {
 func NewRegistry(options RegistryOptions) *Registry {
 	return &Registry{node: options.Node, scope: contributionCopy(options.Context), invalidate: options.Invalidate, mounted: map[string]*contributionMount{}}
 }
+
+// Revision identifies the state observed by contribution projections. Read it
+// before projecting so concurrent changes invalidate the next frame.
+func (registry *Registry) Revision() uint64 { return registry.revision.Load() }
 
 func (registry *Registry) Hooks(reference protocol.PluginReference, declarations []protocol.PluginUiContribution) (ContributionHooks, error) {
 	body, err := json.Marshal(declarations)
@@ -410,6 +416,7 @@ func (registry *Registry) matches(key ContributionKey, mount *contributionMount)
 }
 
 func (registry *Registry) changed() {
+	registry.revision.Add(1)
 	if registry.invalidate != nil {
 		registry.invalidate()
 	}

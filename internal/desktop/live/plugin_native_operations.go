@@ -22,8 +22,7 @@ type pluginOperationsKey struct {
 }
 
 // composerOperationsAvailable are the tool operations the composer's
-// packages offer it. The composer projection reads them on every frame, so
-// they are kept until their key changes.
+// packages offer it. They are kept until their inputs change.
 func (state *pluginNativeState) composerOperationsAvailable(config protocol.SessionConfig) []protocol.ToolOperation {
 	catalog := state.runtime.pluginViewList()
 	project := state.composerProject()

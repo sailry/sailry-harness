@@ -27,12 +27,24 @@ type pluginNativeProjection struct {
 }
 
 type pluginNativeComposer struct {
-	source string
-	read   bool
-	mu     sync.Mutex
-	view   pluginNativeProjection
-	model  pluginNativeProjection
+	source   string
+	read     bool
+	key      pluginComposerKey
+	demo     pluginDemoComposerKey
+	mu       sync.Mutex
+	released bool
+	view     pluginNativeProjection
+	model    pluginNativeProjection
 }
+
+var (
+	errPluginComposerSourceRequired    = pluginNativeFault(protocol.ErrorCodeUnavailable, "composer requires a captured source")
+	errPluginComposerSourceUnavailable = pluginNativeFault(protocol.ErrorCodeUnavailable, "composer source is unavailable")
+	errPluginComposerScopeChanged      = pluginNativeFault(protocol.ErrorCodeUnavailable, "composer scope changed")
+	errPluginComposerScopeUnavailable  = pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin composer scope is unavailable")
+	errPluginComposerReadDenied        = pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer read is unavailable")
+	errPluginModelReadDenied           = pluginNativeFault(protocol.ErrorCodePermissionDenied, "model context is unavailable")
+)
 
 func (state *pluginNativeState) composerOperations() {
 	source := ""
@@ -52,7 +64,7 @@ func (state *pluginNativeState) composerOperations() {
 	}
 	state.native.Operations["sailry/ui.readComposer"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
 		if info, available := state.packageInfo(); !available || info.Extension == nil || !slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) {
-			return nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer read is unavailable")
+			return nil, errPluginComposerReadDenied
 		}
 		state.refreshComposer()
 		return state.composerValue(false)
@@ -69,8 +81,19 @@ func (state *pluginNativeState) composerOperations() {
 }
 
 func (state *pluginNativeState) composerSource() (*viewmodel.Conversation, *composer.State, protocol.SessionConfig, error) {
+	view, comp, session, err := state.resolveComposer()
+	if err != nil {
+		return nil, nil, protocol.SessionConfig{}, err
+	}
+	if view == nil {
+		view = &viewmodel.Conversation{ID: state.composer.source, Node: state.runtime.controller.Target().String()}
+	}
+	return view, comp, state.composerSelection(comp, session), nil
+}
+
+func (state *pluginNativeState) resolveComposer() (*viewmodel.Conversation, *composer.State, protocol.Session, error) {
 	if state.composer.source == "" || state.native.Context.Err() != nil {
-		return nil, nil, protocol.SessionConfig{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer requires a captured source")
+		return nil, nil, protocol.Session{}, errPluginComposerSourceRequired
 	}
 	runtime := state.runtime
 	source := state.composer.source
@@ -79,22 +102,30 @@ func (state *pluginNativeState) composerSource() (*viewmodel.Conversation, *comp
 	session, exists := runtime.session(source)
 	// Delegated sessions render in a detail tab without joining the window's
 	// conversation list. Their composer and history are already keyed by ID.
-	if view == nil && state.scope.Surface.Kind == "composer" && state.scope.Session != nil && exists && runtime.childComposerOpen(session) {
-		view = &viewmodel.Conversation{ID: source, Node: node}
-	}
-	if view == nil || view.Node != node {
-		return nil, nil, protocol.SessionConfig{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer source is unavailable")
+	if view == nil {
+		if state.scope.Surface.Kind != "composer" || state.scope.Session == nil || !exists || !runtime.childComposerOpen(session) {
+			return nil, nil, protocol.Session{}, errPluginComposerSourceUnavailable
+		}
+	} else if view.Node != node {
+		return nil, nil, protocol.Session{}, errPluginComposerSourceUnavailable
 	}
 	comp := runtime.App.Composer(source)
-	config := protocol.DefaultSessionConfig()
 	if exists {
 		if state.scope.Session == nil || session.ID != *state.scope.Session ||
 			state.scope.Worktree != nil && session.Worktree != *state.scope.Worktree {
-			return nil, nil, config, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer scope changed")
+			return nil, nil, protocol.Session{}, errPluginComposerScopeChanged
 		}
-		config = session.Config
 	} else if state.scope.Session != nil || comp.Host != "" && comp.Host != node {
-		return nil, nil, config, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer scope changed")
+		return nil, nil, protocol.Session{}, errPluginComposerScopeChanged
+	}
+	return view, comp, session, nil
+}
+
+func (state *pluginNativeState) composerSelection(comp *composer.State, session protocol.Session) protocol.SessionConfig {
+	runtime := state.runtime
+	config := protocol.DefaultSessionConfig()
+	if state.scope.Session != nil {
+		config = session.Config
 	} else if base, exists := runtime.composerBases[comp]; exists {
 		config = base
 	}
@@ -106,7 +137,7 @@ func (state *pluginNativeState) composerSource() (*viewmodel.Conversation, *comp
 	}); err == nil {
 		config = selected
 	}
-	return view, comp, config, nil
+	return config
 }
 
 func (r *Runtime) childComposerOpen(session protocol.Session) bool {
@@ -120,34 +151,57 @@ func (r *Runtime) childComposerOpen(session protocol.Session) bool {
 
 func (state *pluginNativeState) refreshComposer() {
 	owner := state.composer
-	if owner == nil || state.refreshDemoComposer() {
+	if owner == nil {
 		return
 	}
-	info, available := state.packageInfo()
-	view, comp, config, err := state.composerSource()
-	if !available || info.Extension == nil {
-		err = pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin composer scope is unavailable")
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if owner.released || state.refreshDemoComposer() {
+		return
 	}
+	runtime := state.runtime
+	revision := runtime.controller.Revision()
+	info, available := state.packageInfo()
+	key := pluginComposerKey{valid: true}
+	var comp *composer.State
+	var session protocol.Session
+	var readView, readModel bool
+	if !available || info.Extension == nil {
+		key.failure = errPluginComposerScopeUnavailable
+	} else {
+		var view *viewmodel.Conversation
+		view, comp, session, key.failure = state.resolveComposer()
+		if key.failure == nil {
+			readView = slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) ||
+				slices.Contains(info.Extension.Actions, protocol.PluginActionControlConversation)
+			readModel = slices.Contains(info.Extension.Actions, protocol.PluginActionProvideModels) || len(info.Extension.ModelResources) > 0
+			key = state.composerKey(revision, info.Extension, view, comp, session, readView)
+		}
+	}
+	if owner.key == key {
+		return
+	}
+	owner.key = key
+
 	var projection, model map[string]any
 	var viewErr, modelErr error
-	if err != nil {
-		viewErr, modelErr = err, err
+	if key.failure != nil {
+		viewErr, modelErr = key.failure, key.failure
 	} else {
-		if slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) || slices.Contains(info.Extension.Actions, protocol.PluginActionControlConversation) {
-			projection, viewErr = state.projectComposer(view, comp, config, info)
+		config := state.composerSelection(comp, session)
+		if readView {
+			projection, viewErr = state.projectComposer(key, config, info)
 		} else {
-			viewErr = pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer read is unavailable")
+			viewErr = errPluginComposerReadDenied
 		}
-		if slices.Contains(info.Extension.Actions, protocol.PluginActionProvideModels) || len(info.Extension.ModelResources) > 0 {
-			model = state.projectModelContext(config, info)
+		if readModel {
+			model = state.projectModelContext(key.connected, config, info)
 		} else {
-			modelErr = pluginNativeFault(protocol.ErrorCodePermissionDenied, "model context is unavailable")
+			modelErr = errPluginModelReadDenied
 		}
 	}
-	owner.mu.Lock()
 	publishNativeProjection(&owner.view, projection, viewErr)
 	publishNativeProjection(&owner.model, model, modelErr)
-	owner.mu.Unlock()
 }
 
 func publishNativeProjection(projection *pluginNativeProjection, value map[string]any, failure error) {
@@ -167,9 +221,27 @@ func publishNativeProjection(projection *pluginNativeProjection, value map[strin
 	if failure == nil {
 		value["cursor"] = strconv.FormatUint(projection.cursor, 10)
 		projection.body, projection.err = json.Marshal(value)
+	} else {
+		projection.body = nil
 	}
 	close(projection.changed)
 	projection.changed = make(chan struct{})
+}
+
+func (state *pluginNativeState) releaseComposer() {
+	owner := state.composer
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if owner.released {
+		return
+	}
+	owner.released = true
+	owner.key, owner.demo = pluginComposerKey{}, pluginDemoComposerKey{}
+	state.operations, state.operationsKey = nil, pluginOperationsKey{}
+	for _, projection := range []*pluginNativeProjection{&owner.view, &owner.model} {
+		close(projection.changed)
+		*projection = pluginNativeProjection{err: errPluginComposerScopeUnavailable}
+	}
 }
 
 func (state *pluginNativeState) composerValue(model bool) (json.RawMessage, error) {
@@ -186,7 +258,7 @@ func (state *pluginNativeState) nextComposer(model bool) plugins.HostOperation {
 	return func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		if !model {
 			if !state.composer.read {
-				return nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer read is unavailable")
+				return nil, errPluginComposerReadDenied
 			}
 		}
 		seen, err := pluginNativeArgument[string](arguments, 0)
@@ -194,19 +266,25 @@ func (state *pluginNativeState) nextComposer(model bool) plugins.HostOperation {
 			return nil, err
 		}
 		for {
+			if err := state.native.Context.Err(); err != nil {
+				return nil, err
+			}
 			state.composer.mu.Lock()
 			projection := &state.composer.view
 			if model {
 				projection = &state.composer.model
 			}
-			body, cursor, changed, failure := append(json.RawMessage{}, projection.body...), projection.cursor, projection.changed, projection.err
-			state.composer.mu.Unlock()
-			if failure != nil {
+			if failure := projection.err; failure != nil {
+				state.composer.mu.Unlock()
 				return nil, failure
 			}
-			if body != nil && strconv.FormatUint(cursor, 10) != seen {
+			if projection.body != nil && strconv.FormatUint(projection.cursor, 10) != seen {
+				body := append(json.RawMessage{}, projection.body...)
+				state.composer.mu.Unlock()
 				return body, nil
 			}
+			changed := projection.changed
+			state.composer.mu.Unlock()
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -218,13 +296,12 @@ func (state *pluginNativeState) nextComposer(model bool) plugins.HostOperation {
 	}
 }
 
-func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, comp *composer.State, config protocol.SessionConfig, info protocol.PluginInfo) (map[string]any, error) {
+func (state *pluginNativeState) projectComposer(key pluginComposerKey, config protocol.SessionConfig, info protocol.PluginInfo) (map[string]any, error) {
 	runtime := state.runtime
 	snapshot := runtime.snapshot()
 	var statistics json.RawMessage = json.RawMessage("null")
-	compacting, hasMessages := false, len(view.Turns) > 0
-	if state.scope.Session != nil {
-		history := runtime.composerHistory(*state.scope.Session)
+	compacting, hasMessages := false, key.hasMessages
+	if history := key.history; history != nil {
 		if history.err != nil {
 			return nil, history.err
 		}
@@ -278,30 +355,14 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 			}
 		}
 	}
-	connection := map[string]any{"route": nil, "rtt_ms": nil}
-	if runtime == runtime.localRuntime() && runtime.controller.Connected() {
-		connection["route"] = "local"
-	} else if network := runtime.localRuntime().network; network != nil {
-		for _, peer := range network.snapshot() {
-			if peer.address.ID == runtime.controller.Target() {
-				connection["route"], connection["rtt_ms"] = peer.connection.Route, peer.connection.RTTMS
-			}
-		}
-	}
-	readonly := !runtime.controller.Connected()
-	if session, exists := runtime.session(view.ID); exists {
-		readonly = readonly || delegated(session)
-	}
-	busy := state.composerBusy(view.ID)
+	busy := state.composerBusy(state.composer.source)
 	var command any
-	if name, arguments, found := pluginNativeLeadingCommand(comp.Draft); found {
-		if registry := state.composerRegistry(); registry != nil {
-			for _, entry := range registry.Commands() {
-				if declared := entry.Declaration.Command; declared != nil && declared.Name == name &&
-					declared.Kind == protocol.PluginUiCommandKindMessage && entry.State.Enabled {
-					command = map[string]any{"name": name, "arguments": arguments, "package": pluginNativeReference(entry.Key.Package)}
-					break
-				}
+	if key.registry != nil {
+		for _, entry := range key.registry.Commands() {
+			if declared := entry.Declaration.Command; declared != nil && declared.Name == key.command &&
+				declared.Kind == protocol.PluginUiCommandKindMessage && entry.State.Enabled {
+				command = map[string]any{"name": key.command, "arguments": key.arguments, "package": pluginNativeReference(entry.Key.Package)}
+				break
 			}
 		}
 	}
@@ -311,10 +372,10 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 	}
 	return map[string]any{
 		"command": command, "mode": config.Mode, "mode_selection": modeSelection, "modes": choices,
-		"session": state.scope.Session, "connected": runtime.controller.Connected(), "connection": connection,
-		"busy": busy, "configuring": busy && !runtime.composerSaving[view.ID], "readonly": readonly,
+		"session": state.scope.Session, "connected": key.connected, "connection": key.connection.projection(),
+		"busy": busy, "configuring": busy && !key.saving, "readonly": !key.connected || key.delegated,
 		"model_tools": modelTools, "model": model, "context_limit": contextLimit, "statistics": statistics,
-		"compacting": compacting, "has_messages": hasMessages, "sidebar": runtime.App.NavShown(),
+		"compacting": compacting, "has_messages": hasMessages, "sidebar": key.sidebar,
 		"options": options, "operations": state.composerOperationsAvailable(config),
 	}, nil
 }
@@ -391,13 +452,16 @@ func (state *pluginNativeState) composerRegistry() *plugins.Registry {
 	return nil
 }
 
-func (state *pluginNativeState) projectModelContext(config protocol.SessionConfig, info protocol.PluginInfo) map[string]any {
-	value := map[string]any{"connected": state.runtime.controller.Connected(), "provider": nil}
+func (state *pluginNativeState) projectModelContext(connected bool, config protocol.SessionConfig, info protocol.PluginInfo) map[string]any {
+	value := map[string]any{"connected": connected, "provider": nil}
+	if !connected {
+		return value
+	}
 	for _, provider := range state.runtime.snapshot().Providers {
 		if !provider.Enabled || provider.ID != config.Provider {
 			continue
 		}
-		if context, shown := pluginProviderContext(provider, config.Model, info); shown && value["connected"] == true {
+		if context, shown := pluginProviderContext(provider, config.Model, info); shown {
 			value["provider"] = context
 		}
 		break

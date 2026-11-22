@@ -100,7 +100,7 @@ func (subscription *pluginViewTestSubscription) Close() error {
 	return nil
 }
 
-func pluginViewFixture(t *testing.T, source *pluginViewTestNode) *Runtime {
+func pluginViewFixture(t testing.TB, source *pluginViewTestNode) *Runtime {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	controller := client.New(link.NewLocal(source.snapshot.Node, source.snapshot.Node, source))

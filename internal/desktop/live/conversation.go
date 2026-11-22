@@ -293,7 +293,7 @@ func permissionChoice(p protocol.Permission) composer.Permission {
 	return composer.AskFirst
 }
 func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig) {
-	r.composerBases[c] = config
+	r.setComposerBase(c, config)
 	c.Model = modelKey(config.Provider, config.Model)
 	c.Mode = modeChoice(config.Mode)
 	c.Permission = permissionChoice(config.Permission)
@@ -307,6 +307,18 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 				c.Effort = float64(i)
 			}
 		}
+	}
+}
+
+func (r *Runtime) setComposerBase(comp *composer.State, config protocol.SessionConfig) {
+	r.composerBases[comp] = config
+	r.composerBaseRevision++
+}
+
+func (r *Runtime) clearComposerBase(comp *composer.State) {
+	if _, exists := r.composerBases[comp]; exists {
+		delete(r.composerBases, comp)
+		r.composerBaseRevision++
 	}
 }
 

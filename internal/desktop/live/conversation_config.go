@@ -61,7 +61,7 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 func (r *Runtime) initializeDraftComposer(comp *composer.State) {
 	comp.Model, comp.Effort, comp.Team = "", 0, ""
 	comp.Features, comp.MemberModels = nil, nil
-	delete(r.composerBases, comp)
+	r.clearComposerBase(comp)
 	root := r.localRuntime()
 	if root.Preferences != nil && root.Preferences.Data.Composer != nil {
 		saved := root.Preferences.Data.Composer
@@ -91,7 +91,7 @@ func (r *Runtime) resetDraftComposer(id string, comp *composer.State) {
 	delete(r.composerInitialized, id)
 	delete(r.composerObserved, id)
 	delete(r.composerCatalogs, id)
-	delete(r.composerBases, comp)
+	r.clearComposerBase(comp)
 	if r.teams != nil {
 		delete(r.teams.composers, id)
 	}

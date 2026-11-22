@@ -319,7 +319,7 @@ func (state *pluginNativeState) releaseConversations() {
 		delete(state.conversations, identity)
 		id := fmt.Sprintf("draft/plugin/%p/%s", state, identity)
 		if comp := runtime.App.DropComposer(id); comp != nil {
-			delete(runtime.composerBases, comp)
+			runtime.clearComposerBase(comp)
 		}
 		delete(runtime.composerInitialized, id)
 	}
@@ -334,7 +334,7 @@ func (state *pluginNativeState) initializeAssistantComposer(comp *composer.State
 		config = protocol.DefaultSessionConfig()
 	}
 	config.Assistant, config.Resource, config.Permission = session.Config.Assistant, session.Config.Resource, protocol.PermissionAsk
-	state.runtime.composerBases[comp] = config
+	state.runtime.setComposerBase(comp, config)
 }
 
 func (state *pluginNativeState) conversationSession(request pluginNativeConversationRequest) (protocol.Session, error) {

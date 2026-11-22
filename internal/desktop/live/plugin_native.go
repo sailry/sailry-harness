@@ -20,6 +20,7 @@ type pluginNativeState struct {
 	native        *plugins.NativeBinding
 	mu            sync.Mutex
 	palette       *theme.Palette
+	themeBody     json.RawMessage
 	resource      *attachmentDescriptor
 	artifactViews map[string]*pluginNativeArtifact
 	artifactWatch *pluginNativeArtifactWatch
@@ -64,9 +65,11 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 	binding.Invalidate = r.localRuntime().wake
 	binding.Theme = func() json.RawMessage {
 		state.mu.Lock()
-		palette := state.palette
-		state.mu.Unlock()
-		return plugins.ThemeSnapshot(palette)
+		defer state.mu.Unlock()
+		if state.palette != nil && state.themeBody == nil {
+			state.themeBody = plugins.ThemeSnapshot(state.palette)
+		}
+		return slices.Clone(state.themeBody)
 	}
 	binding.TerminalAppearance = func() (protocol.TerminalAppearance, error) {
 		if err := binding.Context.Err(); err != nil {
@@ -75,6 +78,9 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		state.mu.Lock()
 		palette := state.palette
 		state.mu.Unlock()
+		if palette == nil {
+			return protocol.TerminalAppearance{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin view is closed")
+		}
 		return pluginNativeAppearance(palette), nil
 	}
 	binding.ChooseSecretFile = state.chooseSecretFile
@@ -89,9 +95,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 	state.providerOperations()
 	state.assistantToolOperations()
 	binding.Frame = func(view *ui.Context) {
-		state.mu.Lock()
-		state.palette = theme.Of(view)
-		state.mu.Unlock()
+		state.setPalette(theme.Of(view))
 		state.refreshComposer()
 		state.refreshProviders()
 		state.refreshAssistantTools()
@@ -99,6 +103,10 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 	state.locationOperations()
 	state.sshTransferOperations()
 	binding.Release = func() {
+		state.releaseComposer()
+		state.mu.Lock()
+		state.palette, state.themeBody = nil, nil
+		state.mu.Unlock()
 		for identity, mounted := range state.terminals {
 			mounted.release()
 			delete(state.terminals, identity)
@@ -128,6 +136,14 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 	return &binding
 }
 
+func (state *pluginNativeState) setPalette(palette *theme.Palette) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.palette != nil && palette != state.palette {
+		state.palette, state.themeBody = palette, nil
+	}
+}
+
 func (state *pluginNativeState) post(apply func(*ui.Context)) bool {
 	if post := state.native.Post; post != nil {
 		return post(apply)
@@ -147,9 +163,7 @@ func (state *pluginNativeState) enqueue(apply func(*ui.Context)) bool {
 	}
 	root.queue = append(root.queue, func(view *ui.Context) {
 		if state.native.Context.Err() == nil && state.runtime.ctx.Err() == nil {
-			state.mu.Lock()
-			state.palette = theme.Of(view)
-			state.mu.Unlock()
+			state.setPalette(theme.Of(view))
 			apply(view)
 		}
 	})

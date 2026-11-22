@@ -186,9 +186,13 @@ func paged(c *Conversation) {
 // LoadAll loads every older page at once, for a benchmark of the whole
 // history.
 func LoadAll(c *Conversation) {
-	shift(c, len(simulation(c).older))
-	c.Turns = append(simulation(c).older, c.Turns...)
-	simulation(c).older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
+	sim := simulation(c)
+	shift(c, len(sim.older))
+	c.Turns = append(sim.older, c.Turns...)
+	if len(sim.older) != 0 {
+		sim.statisticsRevision++
+	}
+	sim.older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
 }
 
 // pageAfter is how long the preview takes to load a page.
@@ -210,17 +214,19 @@ func page(c *Conversation, now time.Time) bool {
 	if !c.Session.LoadingOlder {
 		return false
 	}
-	if simulation(c).paging.IsZero() {
-		simulation(c).paging = now
+	sim := simulation(c)
+	if sim.paging.IsZero() {
+		sim.paging = now
 	}
-	if now.Sub(simulation(c).paging) < pageAfter {
+	if now.Sub(sim.paging) < pageAfter {
 		return true
 	}
-	n := min(pageSize, len(simulation(c).older))
+	n := min(pageSize, len(sim.older))
 	shift(c, n)
-	c.Turns = append(append([]cv.Turn(nil), simulation(c).older[len(simulation(c).older)-n:]...), c.Turns...)
-	simulation(c).older = simulation(c).older[:len(simulation(c).older)-n]
-	c.Session.Older, c.Session.LoadingOlder = len(simulation(c).older), false
+	c.Turns = append(append([]cv.Turn(nil), sim.older[len(sim.older)-n:]...), c.Turns...)
+	sim.older = sim.older[:len(sim.older)-n]
+	sim.statisticsRevision++
+	c.Session.Older, c.Session.LoadingOlder = len(sim.older), false
 	return false
 }
 

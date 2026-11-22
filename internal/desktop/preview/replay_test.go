@@ -15,7 +15,11 @@ func TestDemoReplay(t *testing.T) {
 	const id = "harbor-api/flaky-test"
 	played := func(t *testing.T, c *Conversation, at int) {
 		t.Helper()
+		before := StatisticsRevision(c)
 		Advance(c, now.Add(time.Second))
+		if StatisticsRevision(c) == before {
+			t.Fatal("playing the reply did not invalidate its statistics")
+		}
 		if r := c.Turns[at].Reply; r.Status != cv.Running || c.Status != Running || !c.Running() {
 			t.Fatalf("after a second the reply is %d, the conversation %d", r.Status, c.Status)
 		}
@@ -23,6 +27,11 @@ func TestDemoReplay(t *testing.T) {
 		r := c.Turns[at].Reply
 		if r.Status != cv.Completed || c.Status != Idle || len(r.Blocks) != 2 || r.Blocks[1].Text == "" {
 			t.Fatalf("the replayed reply ended %d with %d blocks", r.Status, len(r.Blocks))
+		}
+		before = StatisticsRevision(c)
+		Advance(c, now.Add(2*time.Minute))
+		if StatisticsRevision(c) != before {
+			t.Fatal("an idle frame invalidated unchanged statistics")
 		}
 	}
 	t.Run("Retry", func(t *testing.T) {

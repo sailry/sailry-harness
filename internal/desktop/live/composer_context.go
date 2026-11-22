@@ -72,7 +72,7 @@ func (r *Runtime) projectComposerModes(c *ui.Context, cv *viewmodel.Conversation
 			r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
 			return
 		}
-		r.composerBases[comp] = *selected
+		r.setComposerBase(comp, *selected)
 		comp.Mode = modeChoice(selected.Mode)
 	}
 }

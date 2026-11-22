@@ -39,16 +39,20 @@ type composerHistory struct {
 	err         error
 }
 
-func (r *Runtime) composerHistory(id protocol.SessionID) composerHistory {
-	history := composerHistory{statistics: json.RawMessage("null")}
+func (r *Runtime) composerHistory(id protocol.SessionID) *composerHistory {
 	state, ok := r.conversationState(id)
-	if !ok {
-		return history
+	if !ok || state.Snapshot.Statistics == nil && len(state.Snapshot.Page.Runs) == 0 {
+		return nil
 	}
-	copied, cached := r.conversationCopies[id]
+	copies := r.conversationCopies
+	if r.conversationFeeds[id] != nil {
+		copies = r.conversationCache
+	}
+	copied, cached := copies[id]
 	if copied.composer != nil {
-		return *copied.composer
+		return copied.composer
 	}
+	history := &composerHistory{statistics: json.RawMessage("null")}
 	if state.Snapshot.Statistics != nil {
 		history.statistics, history.err = plugins.ComposerStatistics(state.Snapshot.Statistics)
 	}
@@ -58,8 +62,8 @@ func (r *Runtime) composerHistory(id protocol.SessionID) composerHistory {
 			(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
 	})
 	if cached {
-		copied.composer = &history
-		r.conversationCopies[id] = copied
+		copied.composer = history
+		copies[id] = copied
 	}
 	return history
 }

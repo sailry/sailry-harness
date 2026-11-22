@@ -21,7 +21,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -545,8 +544,8 @@ func testNativeComposerModel(t *testing.T) {
 	scope := protocol.DefaultPluginContext()
 	scope.Session, scope.Surface = &session, protocol.PluginDesktopSurface{Kind: "composer"}
 	native := plugins.NewNativeBinding(t.Context())
-	state := &pluginNativeState{runtime: runtime, scope: scope, native: &native}
-	view := &viewmodel.Conversation{ID: session.String(), Node: node.String()}
+	state := &pluginNativeState{runtime: runtime, scope: scope, native: &native, composer: &pluginNativeComposer{source: session.String()}}
+	key := pluginComposerKey{history: runtime.composerHistory(session)}
 	for _, row := range []struct {
 		model  string
 		window any
@@ -560,7 +559,7 @@ func testNativeComposerModel(t *testing.T) {
 	} {
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model, config.Mode, config.Permission = provider, row.model, protocol.WorkModeCode, protocol.PermissionAsk
-		projected, err := state.projectComposer(view, runtime.App.Composer(view.ID), config, protocol.PluginInfo{Extension: &protocol.PluginExtension{}})
+		projected, err := state.projectComposer(key, config, protocol.PluginInfo{Extension: &protocol.PluginExtension{}})
 		if err != nil {
 			t.Fatal(err)
 		}

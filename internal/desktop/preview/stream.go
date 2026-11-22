@@ -48,20 +48,24 @@ func Send(c *Conversation, text string, now time.Time) {
 	id := fmt.Sprintf("%s/sent-%d", c.ID, len(c.Turns))
 	c.Turns = append(c.Turns, cv.Turn{ID: id, User: text, Reply: cv.Reply{Status: cv.Queued}})
 	c.Animating = true
-	simulation(c).stream = &stream{start: now, turn: len(c.Turns) - 1}
+	sim := simulation(c)
+	sim.stream = &stream{start: now, turn: len(c.Turns) - 1}
+	sim.statisticsRevision++
 	c.Status, c.Updated = Running, Now
 }
 
 // Advance moves the playing reply to where it is at now.
 func Advance(c *Conversation, now time.Time) {
 	page(c, now)
-	s := simulation(c).stream
+	sim := simulation(c)
+	s := sim.stream
 	if s == nil {
 		return
 	}
+	sim.statisticsRevision++
 	t := &c.Turns[s.turn]
 	play := &previewScript
-	if own := simulation(c).script; own != nil {
+	if own := sim.script; own != nil {
 		play = own
 	}
 	d := now.Sub(s.start)
@@ -86,7 +90,7 @@ func Advance(c *Conversation, now time.Time) {
 		r.Blocks = append(r.Blocks, cv.Block{Kind: cv.TextBlock, Text: string(answer[:n])})
 		if n == len(answer) {
 			r.Status, r.Phase = cv.Completed, cv.PhaseNone
-			simulation(c).stream, c.Status, c.Animating = nil, Idle, false
+			sim.stream, c.Status, c.Animating = nil, Idle, false
 			release(c)
 		}
 	}

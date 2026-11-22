@@ -1002,6 +1002,12 @@ projection. Transfer immutable snapshots across asynchronous boundaries and
 reuse them across unchanged frames. Keep a detached copy where a consumer can
 mutate data, retain a borrowed buffer or cross a trust boundary.
 
+The plugin composer binding follows this lifecycle. Each mount owns the current
+composer and model projections. A frame checks the source session, revision,
+permissions and relevant UI state before building either projection. Unchanged
+inputs reuse the previous result. Subscribers receive changes through a cursor.
+Closing the binding drops the retained payloads and wakes outstanding readers.
+
 ### Conversation layout
 
 Conversations center the messages and composer in the whole main pane. The

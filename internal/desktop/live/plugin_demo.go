@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -60,6 +61,14 @@ func (r *Runtime) demoConversation(_ *ui.Context, cv *viewmodel.Conversation, co
 	}
 }
 
+type pluginDemoComposerKey struct {
+	valid    bool
+	view     *viewmodel.Conversation
+	revision uint64
+	model    string
+	sidebar  bool
+}
+
 // refreshDemoComposer publishes the composer state a demo conversation's
 // mount reads, and reports whether the mount is one. The demo has no model
 // context: its provider is no provider of the Node.
@@ -68,20 +77,30 @@ func (state *pluginNativeState) refreshDemoComposer() bool {
 	if !demo || state.scope.Session != nil {
 		return false
 	}
+	root := state.runtime.localRuntime()
+	key := pluginDemoComposerKey{valid: true, sidebar: root.App.NavShown()}
+	if state.native.Context.Err() == nil {
+		key.view = root.App.DemoConversation(id)
+		if key.view != nil {
+			key.revision = preview.StatisticsRevision(key.view)
+		}
+		model, _ := root.demoModels.Load(id)
+		key.model, _ = model.(string)
+	}
+	owner := state.composer
+	if owner.demo == key {
+		return true
+	}
+	owner.demo = key
 	var projection map[string]any
 	var failure error
-	root := state.runtime.localRuntime()
-	if view := root.App.DemoConversation(id); view == nil {
-		failure = pluginNativeFault(protocol.ErrorCodeUnavailable, "composer source is unavailable")
+	if key.view == nil {
+		failure = errPluginComposerSourceUnavailable
 	} else {
-		model, _ := root.demoModels.Load(id)
-		selected, _ := model.(string)
-		projection, failure = demoComposer(view, selected, root.App.NavShown())
+		projection, failure = demoComposer(key.view, key.model, key.sidebar)
 	}
-	state.composer.mu.Lock()
-	publishNativeProjection(&state.composer.view, projection, failure)
-	publishNativeProjection(&state.composer.model, nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "model context is unavailable"))
-	state.composer.mu.Unlock()
+	publishNativeProjection(&owner.view, projection, failure)
+	publishNativeProjection(&owner.model, nil, errPluginModelReadDenied)
 	return true
 }
 

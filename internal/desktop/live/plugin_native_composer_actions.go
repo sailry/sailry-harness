@@ -126,7 +126,7 @@ func (state *pluginNativeState) setComposerOption(ctx context.Context, arguments
 }
 
 func (state *pluginNativeState) configureComposer(comp *composer.State, config protocol.SessionConfig, session protocol.Session, existing bool) {
-	state.runtime.composerBases[comp] = config
+	state.runtime.setComposerBase(comp, config)
 	if existing {
 		state.runtime.saveComposerConfig(session, config, nil)
 	}

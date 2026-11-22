@@ -86,14 +86,15 @@ type Runtime struct {
 	acknowledged map[string]uint64
 	// keptUnread is the shown session the user marked unread: it stays so
 	// until another one is shown.
-	keptUnread        string
-	composerRevisions map[string]uint64
-	composerSaving    map[string]bool
-	composerWaiters   map[string][]func(bool)
-	composerBases     map[*composer.State]protocol.SessionConfig
-	sessionBases      map[*composer.State]*sessionBaseStart
-	App               *shell.App
-	Preferences       *preferences.Store
+	keptUnread           string
+	composerRevisions    map[string]uint64
+	composerSaving       map[string]bool
+	composerWaiters      map[string][]func(bool)
+	composerBases        map[*composer.State]protocol.SessionConfig
+	composerBaseRevision uint64
+	sessionBases         map[*composer.State]*sessionBaseStart
+	App                  *shell.App
+	Preferences          *preferences.Store
 
 	// delivered counts the frames that projected a change or ran delivered
 	// results, which is what frame-kept projections are invalidated by
@@ -132,6 +133,7 @@ type Runtime struct {
 	savedProject              string // the project the editor saved, opened once projected
 	preferencesChanged        func()
 	busy                      map[string]bool
+	commandRevision           uint64
 	uncertain                 map[string]protocol.Request
 	sessionRemovals           map[removalKey]*sessionRemoval
 	confirmedRemovals         map[protocol.NodeID]map[protocol.SessionID]bool
@@ -872,6 +874,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		return protocol.RequestID{}
 	}
 	r.busy[key] = true
+	r.commandRevision++
 	request, exists := r.uncertain[key]
 	if !exists {
 		request = r.controller.Prepare(command)
@@ -880,6 +883,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		output, err := r.controller.Settle(r.ctx, request)
 		deliver(func(c *ui.Context) {
 			delete(r.busy, key)
+			r.commandRevision++
 			code := faultCode(err)
 			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
@@ -901,7 +905,14 @@ func (r *Runtime) forgetCommand(command protocol.Command) {
 // forgetScoped drops the request kept for command under scope.
 func (r *Runtime) forgetScoped(scope string, command protocol.Command) {
 	if b, err := json.Marshal(command); err == nil {
-		delete(r.uncertain, scope+"\x00"+string(b))
+		r.dropUncertainCommand(scope + "\x00" + string(b))
+	}
+}
+
+func (r *Runtime) dropUncertainCommand(key string) {
+	if _, exists := r.uncertain[key]; exists {
+		delete(r.uncertain, key)
+		r.commandRevision++
 	}
 }
 

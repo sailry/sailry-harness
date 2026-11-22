@@ -668,7 +668,7 @@ func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {
 
 func (r *Runtime) forgetTurnRetry(id string) {
 	if retry, ok := r.turnRetries[id]; ok {
-		delete(r.uncertain, retry.key)
+		r.dropUncertainCommand(retry.key)
 		delete(r.turnRetries, id)
 	}
 }

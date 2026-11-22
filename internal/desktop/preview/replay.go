@@ -23,7 +23,9 @@ func turnIndex(c *Conversation, turn string) int {
 // settle ends whatever the conversation was playing or waiting on, as a
 // rewind does to the turns it drops.
 func settle(c *Conversation) {
-	simulation(c).stream = nil
+	sim := simulation(c)
+	sim.stream = nil
+	sim.statisticsRevision++
 	c.Status, c.Waiting, c.Animating = Idle, composer.Interactions{}, false
 	release(c)
 }
@@ -39,7 +41,9 @@ func Retry(c *Conversation, turn string, now time.Time) {
 	t := &c.Turns[i]
 	t.Reply, t.Editing = cv.Reply{Status: cv.Queued}, nil
 	c.Waiting, c.Animating = composer.Interactions{}, true
-	simulation(c).stream = &stream{start: now, turn: i}
+	sim := simulation(c)
+	sim.stream = &stream{start: now, turn: i}
+	sim.statisticsRevision++
 	c.Status, c.Updated = Running, Now
 }
 
@@ -70,7 +74,9 @@ func Compact(c *Conversation, now time.Time) {
 	id := fmt.Sprintf("%s/compact-%d", c.ID, len(c.Turns))
 	c.Turns = append(c.Turns, cv.Turn{ID: id, Compaction: &cv.Compaction{State: cv.CompactionRunning}, Reply: cv.Reply{Status: cv.Running}})
 	c.Animating = true
-	simulation(c).stream = &stream{start: now, turn: len(c.Turns) - 1}
+	sim := simulation(c)
+	sim.stream = &stream{start: now, turn: len(c.Turns) - 1}
+	sim.statisticsRevision++
 	c.Status, c.Updated = Running, Now
 }
 
