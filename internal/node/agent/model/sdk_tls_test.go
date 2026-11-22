@@ -72,6 +72,7 @@ func TestSDKBadRecordMACRecovery(t *testing.T) {
 				body  string
 			}
 			wire := make(chan wireRequest, MainRetries+4)
+			provisionalRead := make(chan struct{})
 			var requests atomic.Int32
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				body, err := io.ReadAll(request.Body)
@@ -91,6 +92,15 @@ func TestSDKBadRecordMACRecovery(t *testing.T) {
 					if test.prefix != "" {
 						_, _ = io.WriteString(writer, test.prefix+"\n\n")
 						writer.(http.Flusher).Flush()
+						if test.http2 {
+							select {
+							case <-provisionalRead:
+							case <-request.Context().Done():
+								return
+							case <-ctx.Done():
+								return
+							}
+						}
 					}
 					conn.corrupt.Store(true)
 					_, _ = writer.Write(success)
@@ -146,6 +156,13 @@ func TestSDKBadRecordMACRecovery(t *testing.T) {
 				switch part.Type {
 				case fantasy.StreamPartTypeTextDelta:
 					text += part.Delta
+					if test.http2 {
+						select {
+						case <-provisionalRead:
+						default:
+							close(provisionalRead)
+						}
+					}
 				case fantasy.StreamPartTypeToolCall:
 					calls++
 					callID = part.ID

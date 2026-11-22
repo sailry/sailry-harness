@@ -1,10 +1,10 @@
 package live
 
 import (
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"reflect"
 	"slices"
 	"strings"

@@ -3,8 +3,8 @@
 package live
 
 import (
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"context"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"path/filepath"
 	"slices"
 	"strings"

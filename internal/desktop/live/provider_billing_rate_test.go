@@ -1,8 +1,8 @@
 package live
 
 import (
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"fmt"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"path/filepath"
 	"reflect"
 	"slices"

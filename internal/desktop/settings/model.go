@@ -232,7 +232,6 @@ type Model struct {
 	MediaUnavailable [4]bool
 	SaveMedia        func()
 
-
 	// Connectors and MCP: the services, declared types, and CLI accounts.
 	Services           []preview.Service
 	ConnTypes          []preview.ConnectorType
