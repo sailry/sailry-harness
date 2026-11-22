@@ -215,6 +215,12 @@ func (owner *observation) invoke(ctx context.Context, _ *Runtime, _ uint64, meth
 				owner.connection.controller.inbox(owner.connection.client.Route()).Merge(owner.connection.client.Target(), owner.connection.client.Notices())
 			}
 		}
+		var options struct {
+			RawView bool `json:"raw_view"`
+		}
+		if len(data) != 0 && json.Unmarshal(data, &options) == nil && options.RawView {
+			return rawObservation(view), nil
+		}
 		return string(view), nil
 	case "load_older", "load_through", "track_tools", "refresh":
 		var values struct {

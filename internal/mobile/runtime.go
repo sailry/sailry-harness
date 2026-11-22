@@ -27,6 +27,8 @@ type envelope struct {
 	Count  string          `json:"count,omitempty"`
 }
 
+type rawObservation []byte
+
 type object interface {
 	invoke(context.Context, *Runtime, uint64, string, json.RawMessage) (any, error)
 	close() error
@@ -214,9 +216,16 @@ func (runtime *Runtime) release(handle, current uint64) error {
 }
 
 func (runtime *Runtime) emit(request uint64, value envelope) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		encoded, _ = json.Marshal(result(nil, invalid("native result could not be encoded")))
+	var encoded []byte
+	if view, ok := value.Value.(rawObservation); ok {
+		// A NUL prefix marks an opted-in success carrying the original JSON bytes.
+		encoded = append(make([]byte, 1, len(view)+1), view...)
+	} else {
+		var err error
+		encoded, err = json.Marshal(value)
+		if err != nil {
+			encoded, _ = json.Marshal(result(nil, invalid("native result could not be encoded")))
+		}
 	}
 	runtime.emission.Lock()
 	runtime.emitted++

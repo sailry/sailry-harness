@@ -135,5 +135,5 @@ class Updates extends NativeHandle {
 
   Future<void> close() => closeNative();
 
-  Future<String> next() async => await nextValue() as String;
+  Future<String> next() => nextObservationView(this);
 }

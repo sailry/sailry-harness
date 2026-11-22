@@ -50,9 +50,11 @@ abstract class NativeHandle {
     return bridge.invoke(handle, method, arguments ?? const {});
   }
 
-  Future<Object?> nextValue() {
+  Future<Object?> nextValue() => _nextValue(const {});
+
+  Future<Object?> _nextValue(Map<String, Object?> arguments) {
     if (_disposed) return Future.error(StateError('native handle is disposed'));
-    return bridge.invoke(handle, 'next', const {}, subscribe: true);
+    return bridge.invoke(handle, 'next', arguments, subscribe: true);
   }
 
   Future<void> closeNative() async {
@@ -66,6 +68,9 @@ abstract class NativeHandle {
     bridge.disposeHandle(handle);
   }
 }
+
+Future<String> nextObservationView(NativeHandle observer) async =>
+    await observer._nextValue(const {'raw_view': true}) as String;
 
 int nativeHandle(Object? value, String kind) {
   if (value is! Map<String, dynamic> || value['kind'] != kind) {
@@ -171,7 +176,7 @@ class NativeBridge {
   Object? invokeSync(String method, Map<String, Object?> arguments) {
     if (_closing) throw StateError('native bridge is closed');
     final operation = method.toNativeUtf8();
-    final data = utf8.encode(jsonEncode(arguments));
+    final data = JsonUtf8Encoder().convert(arguments);
     final input = calloc<Uint8>(data.length);
     input.asTypedList(data.length).setAll(0, data);
     final immediate = calloc<Pointer<Uint8>>();
@@ -262,11 +267,17 @@ class NativeBridge {
   static Future<CompletionEnvelope> _decodeLarge(int address, int length) =>
       Isolate.run(() => _decode(Pointer<Uint8>.fromAddress(address), length));
 
-  static CompletionEnvelope _decode(Pointer<Uint8> data, int length) =>
-      CompletionEnvelope.fromJson(
-        jsonDecode(utf8.decode(data.asTypedList(length)))
-            as Map<String, dynamic>,
+  static CompletionEnvelope _decode(Pointer<Uint8> data, int length) {
+    if (length > 0 && data.value == 0) {
+      return CompletionEnvelope(
+        ok: true,
+        value: (data + 1).cast<Utf8>().toDartString(length: length - 1),
       );
+    }
+    return CompletionEnvelope.fromJson(
+      jsonDecode(utf8.decode(data.asTypedList(length))) as Map<String, dynamic>,
+    );
+  }
 
   void _resolve(int request, CompletionEnvelope result) {
     final waiting = _pending.remove(request);
