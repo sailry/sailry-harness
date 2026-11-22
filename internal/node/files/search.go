@@ -56,6 +56,7 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 	}
 	limit := min(input.Limit, uint64(protocol.MAX_SEARCH_MATCHES))
 	position := uint64(0)
+	var scratch []byte
 	report, e := files.VisitFiles(ctx, input.Path, globs, func(directory *os.Root, name, relative string, metadata fs.FileInfo) (bool, error) {
 		if fileTypes != nil && !fileTypes.Match(relative, "") {
 			return true, nil
@@ -73,7 +74,10 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 			diagnoseSearch(&out, relative, e.Error())
 			return true, nil
 		}
-		data, e := readBounded(ctx, handle, 64*1024*1024)
+		if scratch == nil {
+			scratch = make([]byte, boundedReadChunkSize)
+		}
+		data, e := readBoundedWithScratch(ctx, handle, 64*1024*1024, scratch)
 		handle.Close()
 		if e != nil {
 			out.Skipped++

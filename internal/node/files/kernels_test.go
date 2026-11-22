@@ -12,7 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func filesFixture(t *testing.T) (string, *core.Files) {
+func filesFixture(t testing.TB) (string, *core.Files) {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
