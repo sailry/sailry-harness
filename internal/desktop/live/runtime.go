@@ -134,6 +134,7 @@ type Runtime struct {
 	busy                      map[string]bool
 	uncertain                 map[string]protocol.Request
 	sessionRemovals           map[removalKey]*sessionRemoval
+	confirmedRemovals         map[protocol.NodeID]map[protocol.SessionID]bool
 	drafts                    uint64
 	openDrafts                map[string]bool // drafts New session opened, on the local Runtime
 	draftsShown               map[string]bool // those a pane showed this frame
@@ -643,11 +644,6 @@ func (r *Runtime) finishFrame() {
 		}
 	}
 	r.pruneWorkspaceCheckpoints()
-	// A watched conversation's Removed is only absence from a snapshot, which
-	// a withdrawn permission also causes; the Node's removal event forgets.
-	removed, next := r.controller.RemovedSessions(r.removedRead)
-	r.removedRead = next
-	r.forgetRemovedSessions(removed)
 	// Leaving a conversation abandons its edit.
 	for id := range r.conversationEdits {
 		if session, err := protocol.ParseSessionID(id); err != nil || !r.conversationSeen[session] {
@@ -662,20 +658,34 @@ func (r *Runtime) project() {
 		return
 	}
 	snapshot := r.snapshot()
+	removed := r.reconcileSessionRemovals(snapshot.Sessions)
 	r.projectAdmission(&snapshot)
-	d := Sidebar(snapshot, r.Preferences.Data)
+	listed := snapshot
+	listed.Sessions = r.filterRemovedSessions(snapshot.Sessions)
+	d := Sidebar(listed, r.Preferences.Data)
 	d.Notices = Notices(r.controller.Notices())
-	r.appendResourceDirectory(d)
+	var peerRemovals map[*Runtime][]protocol.SessionID
 	for _, bound := range r.bindings {
 		peerSnapshot := bound.snapshot()
+		if ids := bound.reconcileSessionRemovals(peerSnapshot.Sessions); len(ids) != 0 {
+			if peerRemovals == nil {
+				peerRemovals = make(map[*Runtime][]protocol.SessionID)
+			}
+			peerRemovals[bound] = ids
+		}
 		d.Notices = append(d.Notices, Notices(bound.controller.Notices())...)
 		bound.projectModels()
 		bound.prunePins(peerSnapshot)
 		bound.pruneSessions(peerSnapshot)
 	}
+	r.appendResourceDirectory(d)
 	r.projectHosts(d)
 	previous := r.App.Data
 	r.applyConversationData(d)
+	r.forgetRemovedSessions(removed)
+	for owner, ids := range peerRemovals {
+		owner.forgetRemovedSessions(ids)
+	}
 	r.carryConversationPresentations(previous)
 	for _, bound := range r.bindings {
 		bound.carryConversationPresentations(previous)
@@ -1022,11 +1032,16 @@ func (r *Runtime) forgetRemovedSessions(ids []protocol.SessionID) {
 		if owner.controller.Target() == r.controller.Target() {
 			continue
 		}
+		confirmed := owner.localRuntime().confirmedRemovals[owner.controller.Target()]
 		for _, session := range owner.snapshot().Sessions {
-			delete(removed, session.ID)
+			if !confirmed[session.ID] {
+				delete(removed, session.ID)
+			}
 		}
 		for _, session := range owner.admittedSessions {
-			delete(removed, session.ID)
+			if !confirmed[session.ID] {
+				delete(removed, session.ID)
+			}
 		}
 	}
 	for _, id := range ids {

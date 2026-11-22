@@ -2,6 +2,7 @@ package live
 
 import (
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -195,6 +196,143 @@ func TestBackupPrepareDeleteManyCapturesNodeAndSelectedRevisions(t *testing.T) {
 	w.window.Frame()
 	if m := w.r.App.Settings; m.BackupActions.ArchiveBusy || len(m.Archived) != 3 {
 		t.Fatalf("a rejected delete changed the archive or left it busy: %+v", m.Archived)
+	}
+}
+
+func TestBackupConfirmedDeletionProjectsArchive(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		failure protocol.ErrorCode
+	}{
+		{name: "single", failure: protocol.ErrorCodeRevisionConflict},
+		{name: "batch", failure: protocol.ErrorCodeOutcomeUnknown},
+		{name: "all"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := []string{"First archive", "Second archive", "Unselected archive"}
+			snapshot := selectionSnapshot(before[0], before[1], before[2], "Active conversation")
+			for i := range before {
+				snapshot.Sessions[i].Archived = true
+			}
+			first, second := snapshot.Sessions[0].ID.String(), snapshot.Sessions[1].ID.String()
+			w := selectionWindow(t, snapshot)
+			reply := make(chan struct{})
+			release := sync.OnceFunc(func() { close(reply) })
+			defer release()
+			removed := make([]protocol.SessionID, len(snapshot.Sessions))
+			for i, session := range snapshot.Sessions {
+				removed[i] = session.ID
+			}
+			w.source.mu.Lock()
+			w.source.handle = func(request protocol.Request) (link.Response, bool) {
+				switch request.Command.Kind {
+				case "read_backup_settings":
+					return link.Response{Output: protocol.Output{Kind: "backup_settings", Data: protocol.DefaultBackupSettings()}}, true
+				case "remove_session", "remove_sessions":
+					<-reply
+					if test.failure != "" {
+						return link.Response{Fault: &protocol.Fault{Code: test.failure}}, true
+					}
+					return link.Response{Output: protocol.Output{Kind: "sessions_removed", Data: removed}}, true
+				case "inspect_request":
+					query := request.Command.Data.(protocol.CommandInspectRequestPayload)
+					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{
+						ID: query.ID, Outcome: protocol.RequestOutcome{Kind: "admitted"},
+					}}}, true
+				}
+				return link.Response{}, false
+			}
+			w.source.mu.Unlock()
+			w.r.openNodeSettings(settings.Backup)
+			w.window.Frame()
+			w.r.workers.Wait()
+			w.window.Frame()
+			m := w.r.App.Settings
+			var prepare func() func()
+			var remaining []string
+			active := 1
+			switch test.name {
+			case "single":
+				prepare = func() func() { return m.BackupActions.PrepareDelete(first) }
+				remaining = before[1:]
+			case "batch":
+				prepare = func() func() { return m.BackupActions.PrepareDeleteMany([]string{first, second}) }
+				remaining = before[2:]
+			case "all":
+				prepare = func() func() { return m.BackupActions.PrepareDelete("") }
+				active = 0
+			}
+			assertArchive := func(want []string, sessions int, busy bool) {
+				t.Helper()
+				if !slices.EqualFunc(m.Archived, want, func(row viewmodel.Archived, title string) bool { return row.Title == title }) ||
+					m.Sessions != sessions || m.BackupActions.ArchiveBusy != busy {
+					t.Fatalf("archive is %+v, active=%d, busy=%t; want %v, active=%d, busy=%t", m.Archived, m.Sessions, m.BackupActions.ArchiveBusy, want, sessions, busy)
+				}
+			}
+
+			confirm := prepare()
+			if confirm == nil {
+				t.Fatal("deletion could not be prepared")
+			}
+			w.window.Frame()
+			assertArchive(before, 1, false)
+			confirm()
+			w.window.Frame()
+			assertArchive(remaining, active, true)
+			if test.failure == protocol.ErrorCodeRevisionConflict {
+				updated := snapshot
+				updated.Cursor++
+				updated.Sessions = slices.Clone(snapshot.Sessions)
+				before[0] = "Updated archive"
+				updated.Sessions[0].Activity.Title = before[0]
+				updated.Sessions[0].Revision++
+				w.update(t, updated.Cursor, protocol.Update{Kind: "snapshot", Data: updated})
+				assertArchive(remaining, active, true)
+			}
+			release()
+			w.r.workers.Wait()
+			w.window.Frame()
+			if len(w.r.snapshot().Sessions) != len(snapshot.Sessions) {
+				t.Fatal("deletion changed the Client snapshot ahead of the Node event")
+			}
+			if test.failure == "" {
+				assertArchive(remaining, active, false)
+				if prepare() != nil {
+					t.Fatal("delete all prepared another request for sessions already confirmed deleted")
+				}
+				w.event(t, "sessions_removed", removed)
+				assertArchive(remaining, active, false)
+				return
+			}
+			assertArchive(before, 1, false)
+			retry := prepare()
+			if retry == nil {
+				t.Fatal("restored rows did not allow the removal to be retried")
+			}
+			retry()
+			w.r.workers.Wait()
+			w.window.Frame()
+			assertArchive(before, 1, false)
+			removals := backupArchiveRequests(w.source, "remove_session", "remove_sessions")
+			if test.failure == protocol.ErrorCodeRevisionConflict {
+				if len(removals) != 2 || removals[0].ID == removals[1].ID {
+					t.Fatalf("retry did not submit a fresh removal: %+v", removals)
+				}
+				if got := removals[1].Command.Data.(protocol.CommandRemoveSessionPayload).ExpectedRevision; got != snapshot.Sessions[0].Revision+1 {
+					t.Fatalf("retried at stale revision %d", got)
+				}
+				return
+			}
+			inspections := backupArchiveRequests(w.source, "inspect_request")
+			if len(removals) != 1 || len(inspections) != 2 {
+				t.Fatalf("retry sent %d removals and %d inspections, want one original removal inspected twice", len(removals), len(inspections))
+			}
+			for _, request := range inspections {
+				if id := request.Command.Data.(protocol.CommandInspectRequestPayload).ID; id != removals[0].ID {
+					t.Fatalf("inspected request %s, want %s", id, removals[0].ID)
+				}
+			}
+		})
 	}
 }
 

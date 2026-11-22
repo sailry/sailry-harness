@@ -59,9 +59,15 @@ func (check *childOriginCheck) matches(scope childTabScope) bool {
 // composer, overview and approval lookup. A background edge supplies a turn
 // to verify, not permission to observe or control another session.
 func (r *Runtime) liveChildren(conversation protocol.ConversationSnapshot) []client.ConversationChildTarget {
+	if r.sessionHidden(conversation.Page.Session) {
+		return nil
+	}
 	targets := client.ConversationChildTargets(r.snapshot(), conversation)
 	verified := targets[:0]
 	for _, target := range targets {
+		if r.sessionHidden(target.Session.ID) {
+			continue
+		}
 		if target.Background != nil {
 			if r.teams == nil {
 				continue

@@ -153,7 +153,7 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 		return
 	}
 	state.actions.Host = root.backupHostName(c, owner)
-	sessions := owner.snapshot().Sessions
+	sessions := owner.visibleSessions()
 	m.Archived, m.Sessions = backupSessions(sessions, i18n.T(c, "conversation"))
 	lanes := client.AggregateLanes(sessions)
 	for i, session := range sessions {
@@ -714,7 +714,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			var command protocol.Command
 			operation := "delete"
 			if id == "" {
-				expected := backupRevisions(owner.snapshot().Sessions, true)
+				expected := backupRevisions(owner.visibleSessions(), true)
 				if len(expected) == 0 {
 					return nil
 				}
@@ -743,7 +743,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 		},
 		ArchiveAll: func() {
 			if owner := archiveReady(); owner != nil {
-				if expected := backupRevisions(owner.snapshot().Sessions, false); len(expected) != 0 {
+				if expected := backupRevisions(owner.visibleSessions(), false); len(expected) != 0 {
 					command := protocol.Command{Kind: "archive_sessions", Data: protocol.CommandArchiveSessionsPayload{Expected: expected}}
 					owner.submitArchive(command, "backup_archived", "archive")
 				}

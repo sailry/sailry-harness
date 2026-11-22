@@ -284,6 +284,9 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	}
 	for _, active := range state.active {
 		session := active.session
+		if state.owner.sessionHidden(session.ID) {
+			continue
+		}
 		row := host.Activity{Session: session.ID.String(), Title: session.Activity.Title, Model: session.Config.Model, Waiting: active.waiting, Status: "activity_running"}
 		if row.Waiting {
 			row.Status = "activity_waiting"

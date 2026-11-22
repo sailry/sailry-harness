@@ -29,7 +29,7 @@ func (r *Runtime) backupArchiveSelection(ids []string) []protocol.SessionRevisio
 		selected[id] = true
 	}
 	expected := make([]protocol.SessionRevision, 0, len(selected))
-	for _, session := range r.snapshot().Sessions {
+	for _, session := range r.visibleSessions() {
 		id := session.ID.String()
 		if session.Archived && session.Delegation == nil && selected[id] {
 			delete(selected, id)

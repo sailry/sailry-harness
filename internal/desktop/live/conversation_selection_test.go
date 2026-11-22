@@ -159,8 +159,8 @@ func TestSessionDeletionReturnsToDraft(t *testing.T) {
 		r.removeSession(cv)
 		r.workers.Wait()
 		f.window.Frame()
-		if app.FocusedConversation() != cv.ID || r.drafts != 0 {
-			t.Fatal("delete acknowledgement changed the view before the Client observed removal")
+		if app.Sidebar.Data.Find(cv.ID) != nil || app.FocusedConversation() == cv.ID {
+			t.Fatal("deleted session remained visible while awaiting the Node event")
 		}
 		f.event(t, "sessions_removed", []protocol.SessionID{id})
 		if app.Data.Find(id.String()) != nil {

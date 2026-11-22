@@ -191,6 +191,7 @@ func (r *Runtime) appendResourceDirectory(data *viewmodel.Data) {
 			if bound := r.bindings[id]; bound != nil {
 				snapshot = bound.snapshot()
 				bound.projectAdmission(&snapshot)
+				snapshot.Sessions = bound.filterRemovedSessions(snapshot.Sessions)
 				connected = bound.controller.Connected()
 			}
 			part := resourceSidebar(source, snapshot, connected, r.Preferences.Data)
@@ -209,6 +210,7 @@ func (r *Runtime) appendResourceDirectory(data *viewmodel.Data) {
 		}
 		snapshot := bound.snapshot()
 		bound.projectAdmission(&snapshot)
+		snapshot.Sessions = bound.filterRemovedSessions(snapshot.Sessions)
 		part := resourceSidebar(protocol.ResourceSource{Node: snapshot.Node, Projects: snapshot.Projects, Worktrees: snapshot.Worktrees}, snapshot, bound.controller.Connected(), r.Preferences.Data)
 		data.Projects = append(data.Projects, part.Projects...)
 		data.Unassigned = append(data.Unassigned, part.Unassigned...)
