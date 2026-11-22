@@ -3,6 +3,8 @@
 package onboarding
 
 import (
+	"cmp"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -29,13 +31,13 @@ type Guide struct {
 // (AGENTS.md, Removed UI). picker draws the providers' picker
 // (settings.ProviderPicker), whose choice continues in Settings ›
 // Providers. Closing it in any way marks it seen.
-func View(c *ui.Context, g *Guide, picker func()) {
+func View(c *ui.Context, g *Guide, name string, picker func()) {
 	if !g.Open {
 		return
 	}
 	p := theme.Of(c)
 	w, h := c.Size()
-	title := i18n.T(c, "onboarding_title")
+	title := i18n.T(c, "onboarding_title", "app", cmp.Or(name, i18n.T(c, "app")))
 	panel := kit.BareDialog(c.Key("welcome"), &g.Open, func() {
 		ui.Scroll(c.Key("guide")).Grow(1).Shrink(1).Children(func() {
 			ui.Column(c.Key("banner")).FillWidth().AlignItems(ui.Center).Padding(34, 36, 28, 36).Radius(p.RadiusLg, p.RadiusLg, 0, 0).

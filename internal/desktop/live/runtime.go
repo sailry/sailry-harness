@@ -133,6 +133,7 @@ type Runtime struct {
 	preferencesChanged        func()
 	busy                      map[string]bool
 	uncertain                 map[string]protocol.Request
+	sessionRemovals           map[removalKey]*sessionRemoval
 	drafts                    uint64
 	openDrafts                map[string]bool // drafts New session opened, on the local Runtime
 	draftsShown               map[string]bool // those a pane showed this frame
@@ -286,11 +287,11 @@ func (r *Runtime) conversationChanged(id protocol.SessionID) {
 
 // New composes a window over an already started Client. Startup code should use
 // NewWithPreferences with a Store opened before Node.Start for onboarding.
-func New(ctx context.Context, controller *client.Client, profilePath string) (*Runtime, error) {
-	return NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profilePath, "desktop", "preferences.json")))
+func New(ctx context.Context, controller *client.Client, profilePath string, pages ...shell.NativePage) (*Runtime, error) {
+	return NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profilePath, "desktop", "preferences.json")), pages...)
 }
 
-func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *preferences.Store) (*Runtime, error) {
+func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *preferences.Store, pages ...shell.NativePage) (*Runtime, error) {
 	if controller == nil || prefs == nil {
 		return nil, errors.New("desktop requires a Client and profile preferences")
 	}
@@ -300,7 +301,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	snapshot := controller.Snapshot()
 	d := Sidebar(snapshot, prefs.Data)
 	d.Notices = Notices(controller.Notices())
-	r.App = shell.NewLive(d)
+	r.App = shell.NewLive(d, pages...)
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, NewConversationDraft: r.newConversationDraft,
@@ -1014,21 +1015,9 @@ func (r *Runtime) removeSession(cv *viewmodel.Conversation) {
 		r.removeDraft(cv.ID)
 		return
 	}
-	r.command(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: cv.Revision}}, "session_changed", func(output protocol.Output, ok bool) {
-		if ok {
-			r.forgetRemovedOutput(output)
-		}
+	r.submitRemoval(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: cv.Revision}}, func(c *ui.Context, err error) {
+		r.report(c, err, "session_changed")
 	})
-}
-
-// forgetRemovedOutput forgets the sessions a successful remove_session or
-// remove_sessions answer names, child sessions included. Any other answer,
-// and a failure or an unknown outcome, which the caller does not pass, forgets
-// nothing.
-func (r *Runtime) forgetRemovedOutput(output protocol.Output) {
-	if ids, ok := detail[[]protocol.SessionID](output.Data); ok && output.Kind == "sessions_removed" {
-		r.forgetRemovedSessions(ids)
-	}
 }
 
 // forgetRemovedSessions takes sessions this runtime's Node confirmed removed
@@ -1039,15 +1028,26 @@ func (r *Runtime) forgetRemovedOutput(output protocol.Output) {
 // The window's tabs name a session by ID alone, so one another host still
 // lists keeps them.
 func (r *Runtime) forgetRemovedSessions(ids []protocol.SessionID) {
+	if len(ids) == 0 {
+		return
+	}
+	removed := make(map[protocol.SessionID]bool, len(ids))
 	for _, id := range ids {
-		listed := false
-		for _, owner := range r.terminalOwners() {
-			if owner != r {
-				_, found := owner.session(id.String())
-				listed = listed || found
-			}
+		removed[id] = true
+	}
+	for _, owner := range r.terminalOwners() {
+		if owner.controller.Target() == r.controller.Target() {
+			continue
 		}
-		if !listed {
+		for _, session := range owner.snapshot().Sessions {
+			delete(removed, session.ID)
+		}
+		for _, session := range owner.admittedSessions {
+			delete(removed, session.ID)
+		}
+	}
+	for _, id := range ids {
+		if removed[id] {
 			r.App.ForgetSession(id.String())
 		}
 	}

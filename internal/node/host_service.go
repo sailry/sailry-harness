@@ -12,10 +12,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) initHost() {
+func (node *Node) initHost(options Options) {
 	node.hostSampler = host.NewSampler()
-	node.hostInstalls = host.NewInstallations(host.DeploymentOptions{})
-	node.wsl = wsl.NewService()
+	var deployment host.DeploymentOptions
+	if options.HostDeployment != nil {
+		deployment = *options.HostDeployment
+	}
+	deployment.Release = options.HostRelease
+	node.hostInstalls = host.NewInstallations(deployment)
+	node.wsl = wsl.NewServiceForRelease(options.HostRelease)
 }
 
 func hostCommand(kind string) bool {

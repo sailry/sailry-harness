@@ -540,13 +540,13 @@ content_source: Source
 resource_project_empty: Select project
 resource_follow_conversation: Follow current conversation
 unavailable: Unavailable
-menu_about: About Sailry
+menu_about: About %{app}
 menu_settings: Settings
 menu_services: Services
-menu_hide: Hide Sailry
+menu_hide: Hide %{app}
 menu_hide_others: Hide Others
 menu_show_all: Show All
-menu_quit: Quit Sailry
+menu_quit: Quit %{app}
 menu_file: File
 menu_save: Save
 menu_close_tab: Close Tab
@@ -1564,7 +1564,7 @@ model_library_embedding: Embedding models
 model_library_ocr: OCR models
 model_library_speech: Speech models
 model_library_decision: Decision
-onboarding_title: Welcome to Sailry
+onboarding_title: Welcome to %{app}
 onboarding_description: Connect a model to get started
 onboarding_host_unavailable: Host unavailable
 workspace_host_status: Disconnected · UI preview
@@ -1715,7 +1715,7 @@ updates_view: View
 updates_download: Download
 updates_ready: '%{version} is ready to install'
 updates_restart_description: Drafts will be restored after restart; local tasks and terminals will stop
-updates_current: Sailry is up to date
+updates_current: '%{app} is up to date'
 selection_title: Selected text
 selection_unavailable: Could not read selected text
 selection_empty: No text selected
@@ -1734,7 +1734,7 @@ terminal_take_control: Take control
 terminal_other_controller: Controlled by another device
 terminal_unavailable: Terminal unavailable; check host connection
 updates_network_failed: Could not download the update; retry
-updates_completed: Sailry was updated
+updates_completed: '%{app} was updated'
 port_exists: Port already added
 port_failed: Could not forward; check the port and connection
 selection_large: Selected text is too large
@@ -2157,15 +2157,15 @@ updates_platform: No update is available for this platform
 updates_system_unavailable: Could not read the system version
 updates_system_old: The update requires a newer system
 updates_version_old: The selected update is not newer
-updates_bundle_required: Install a packaged Sailry application before updating
+updates_bundle_required: Install a packaged %{app} application before updating
 updates_io_failed: Could not save the update
 updates_receipt_unread: Review the previous update before retrying
-updates_install_failed: The update did not complete; restart Sailry
-updates_restart_failed: Could not restart Sailry; open it again
-updates_shutdown_failed: Could not stop the local Node; restart Sailry
+updates_install_failed: The update did not complete; restart %{app}
+updates_restart_failed: Could not restart %{app}; open it again
+updates_shutdown_failed: Could not stop the local Node; restart %{app}
 updates_install_uncertain: The installation outcome is unconfirmed; the original app was retained
 updates_receipt_failed: The update was installed; could not save recovery details
-updates_profile_inside: The data profile is inside Sailry; move it before updating
+updates_profile_inside: The data profile is inside %{app}; move it before updating
 compatibility_update_unavailable: This version is not available for automatic update yet
 settings_media: Media models
 settings_media_description: Manage models for image, audio and video tasks
@@ -2360,8 +2360,8 @@ queue_halt_unsent: Message not sent; kept in the queue
 usage_read_failed: Could not load usage, try again
 chat_output_limit: Reply cut at the output limit
 chat_turn_limit: Stopped at the action limit
-start_failed: Sailry could not start
-start_profile_in_use: Sailry is already running with this data folder
+start_failed: '%{app} could not start'
+start_profile_in_use: '%{app} is already running with this data folder'
 backup_keep: Backups to keep
 backup_keep_all: All
 backup_keep_last: Last %{count}

@@ -56,6 +56,15 @@ func (s *State) ShowDetails(kind DetailKind, id string) {
 // CloseDetails closes the details page (CloseDetails).
 func (s *State) CloseDetails() { s.Details = nil }
 
+func (m *Model) theme(id string) *preview.MarketTheme {
+	for i := range m.Themes {
+		if m.Themes[i].ID == id {
+			return &m.Themes[i]
+		}
+	}
+	return nil
+}
+
 // DetailsTitle is the details page's title, which the window's header shows
 // over the right column; "" without details.
 func DetailsTitle(c *ui.Context, s *State) string {
@@ -219,7 +228,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 			})
 		}
 	}
-	summary(c, pk.Name, pk.Description, func() { iconTile(c, pk.Name, pk.Icon, pk.Tint, icons.Puzzle, 48) }, action)
+	summary(c, pk.Name, pk.Description, func() { IconTile(c, pk.Name, pk.Icon, pk.Tint, icons.Puzzle, 48) }, action)
 	if msg := compatibility(c, pk); msg != "" {
 		ui.Row(c.Key("required")).Gap(8).Children(func() {
 			ui.Text(c, msg).FontSize(14).Grow(1).TextColor(p.MutedForeground)
@@ -367,5 +376,40 @@ func pluginVersions(c *ui.Context, s *State, pk *preview.Package) {
 				}
 			})
 		}
+	})
+}
+
+// MarketAction is a card's action: install, installed or update.
+func MarketAction(installed, update bool) string {
+	switch {
+	case !installed:
+		return "market_install"
+	case update:
+		return "market_update"
+	}
+	return "market_installed"
+}
+
+// themeAction is a theme's action: Apply an installed theme, Install or
+// Update one, or In use.
+func themeAction(c *ui.Context, m *Model, th *preview.MarketTheme) {
+	action := MarketAction(th.Installed, th.Update)
+	switch {
+	case th.Current:
+		action = "market_theme_current"
+	case th.Installed && !th.Update:
+		action = "market_theme_apply"
+	}
+	label := i18n.T(c, action)
+	if action == "market_theme_current" {
+		ui.Text(c, label).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+		return
+	}
+	kit.SecondaryBusy(c.Key("theme-action"), label, m.Busy[BusyPackage+th.ID]).Height(28).OnClick(func() {
+		if m.PackageActions != nil && m.PackageActions.Theme != nil {
+			m.PackageActions.Theme(th.ID)
+			return
+		}
+		notice(c)
 	})
 }

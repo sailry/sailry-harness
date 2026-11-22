@@ -17,6 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 )
@@ -34,7 +35,7 @@ func aboutActions(w *terminalUI, name string) []ui.AccessInfo {
 // the updater's own feed integration test; the service's installed
 // application is an unsigned fixture bundle under t.TempDir(), its relaunch
 // only records, and the system's code-signature check is replaced because
-// the fixture bundles are unsigned. Step 8 accepts the confirmation, so
+// the fixture bundles are unsigned. Step 8 selects Restart now, so
 // SABOUT-006, SABOUT-008 and SABOUT-009 run as far as the fixture goes: the
 // fixture bundle is replaced and the relaunch is recorded. Installing over a
 // signed application and starting it again remain a manual acceptance.
@@ -100,7 +101,7 @@ func TestSystemAboutUI(t *testing.T) {
 		defer effects.Unlock()
 		return stops, quits, slices.Clone(launched)
 	}
-	updates := NewUpdates(window.runtime.Preferences, profile, stop, quit)
+	updates := NewUpdates(identity.OfficialDesktop(), window.runtime.Preferences, profile, stop, quit)
 	t.Cleanup(feed.Bind(updates.Service, installed, relaunched))
 	t.Cleanup(updates.Service.Close)
 	window.runtime.SetUpdates(updates, func() bool { return true })
@@ -172,7 +173,7 @@ func TestSystemAboutUI(t *testing.T) {
 	feed.Publish(experience, false)
 	press(window, "Check for updates")
 	settle(window, "the available stable version", systemUIWait, func() bool {
-		return u.State == settings.UpdateAvailable && shown(window, stable) == 1 && shown(window, experience) == 0 && len(window.buttons("Download")) == 1 && len(window.buttons("Check for updates")) == 1
+		return u.State == settings.UpdateAvailable && shown(window, stable+" available") == 1 && shown(window, experience+" available") == 0 && len(aboutActions(window, "Download")) == 1 && len(window.buttons("Check for updates")) == 0
 	})
 	t.Logf("step 3 passed: with %s and %s published the Stable check offers %s with Download", stable, experience, stable)
 
@@ -180,11 +181,11 @@ func TestSystemAboutUI(t *testing.T) {
 	hits := feed.Hits("/releases")
 	pickOption(window, "Update channel", "Experience")
 	settle(window, "the Experience channel's version", systemUIWait, func() bool {
-		return u.State == settings.UpdateAvailable && shown(window, experience) == 1 && feed.Hits("/releases") == hits+1 && saved() == "experience"
+		return u.State == settings.UpdateAvailable && shown(window, experience+" available") == 1 && feed.Hits("/releases") == hits+1 && saved() == "experience"
 	})
 	pickOption(window, "Update channel", "Stable")
 	settle(window, "the Stable channel's version", systemUIWait, func() bool {
-		return u.State == settings.UpdateAvailable && shown(window, stable) == 1 && feed.Hits("/releases") == hits+2 && saved() != "experience"
+		return u.State == settings.UpdateAvailable && shown(window, stable+" available") == 1 && feed.Hits("/releases") == hits+2 && saved() != "experience"
 	})
 	t.Logf("step 4 passed: choosing Experience checked again and offered %s, saved update_channel in preferences.json; Stable checked again and offered %s", experience, stable)
 
@@ -198,12 +199,12 @@ func TestSystemAboutUI(t *testing.T) {
 			return false
 		}
 		percent = fmt.Sprintf("%.0f%%", u.Percent())
-		return shown(window, percent) == 1 && len(window.buttons("Cancel")) == 1 && channel().Disabled
+		return visible(window, " · "+percent) && len(aboutActions(window, "Cancel")) == 1 && channel().Disabled
 	})
 	copied, total := u.Copied, u.Total
 	press(window, "Cancel")
 	settle(window, "a cancelled download returns to the available version", systemUIWait, func() bool {
-		return u.State == settings.UpdateAvailable && shown(window, stable) == 1 && shown(window, percent) == 0 && len(window.buttons("Download")) == 1
+		return u.State == settings.UpdateAvailable && shown(window, stable+" available") == 1 && !visible(window, " · "+percent) && len(aboutActions(window, "Download")) == 1
 	})
 	release()
 	for range 30 {
@@ -215,40 +216,42 @@ func TestSystemAboutUI(t *testing.T) {
 	untouched("after a cancelled download")
 	t.Logf("step 5 passed: with the archive held at %d of %d bytes the page showed %s with Cancel and a locked channel; Cancel returned to the available version without a toast", copied, total, percent)
 
-	// (6) The ready toast reports the completed download. The About page
-	// opens the install confirmation, which the test cancels.
+	// (6) The completed download reports a toast and keeps the ready update
+	// staged when Later folds the restart description.
 	ready := stable + " is ready to install"
+	const consequence = "Drafts will be restored after restart; local tasks and terminals will stop"
 	press(window, "Download")
-	settle(window, "the ready toast and the page's Install", systemUIWait, func() bool {
-		return u.State == settings.UpdateReady && shown(window, ready) == 1 && len(aboutActions(window, "Install and restart")) == 1
+	settle(window, "the ready toast and the page's restart actions", systemUIWait, func() bool {
+		return u.State == settings.UpdateReady && shown(window, ready) == 1 && shown(window, stable+" is ready") == 1 &&
+			shown(window, consequence) == 1 && len(aboutActions(window, "Restart now")) == 1 && len(aboutActions(window, "Later")) == 1
 	})
 	if hits := feed.Hits(feed.ArchivePath(stable)); hits != 2 {
 		t.Fatalf("the archive was requested %d times over a cancelled and a completed download", hits)
 	}
-	const consequence = "Drafts will be restored after restart; local tasks and terminals will stop"
-	press(window, "Install and restart")
-	settle(window, "the page's Install opens the confirmation", systemUIWait, func() bool { return shown(window, consequence) == 1 })
-	untouched("with the confirmation open")
-	press(window, "Cancel")
-	settle(window, "the cancelled confirmation closes", systemUIWait, func() bool { return shown(window, consequence) == 0 })
+	untouched("while the restart description is shown")
+	press(window, "Later")
+	settle(window, "the deferred restart retains its staged update", systemUIWait, func() bool {
+		return u.State == settings.UpdateReady && shown(window, consequence) == 0 && len(window.buttons("Later")) == 0 && len(aboutActions(window, "Restart now")) == 1
+	})
+	window.tester.Move(1, 1)
 	window.tester.Advance(6 * time.Second)
-	if shown(window, ready) != 0 || u.State != settings.UpdateReady || shown(window, stable) != 1 {
+	if shown(window, ready) != 0 || u.State != settings.UpdateReady || shown(window, stable+" is ready") != 1 {
 		t.Fatalf("after the ready toast ran out: %d toasts, state %v", shown(window, ready), u.State)
 	}
-	untouched("after the cancelled confirmation")
-	t.Logf("step 6 passed: the completed download showed %q once, the page opened the install confirmation, and cancelling left the installed version unchanged", ready)
+	untouched("after deferring the restart")
+	t.Logf("step 6 passed: the completed download showed %q once and Later kept the update staged", ready)
 
 	// (7) A failed download reports a toast with Details on the page.
 	feed.Publish(damaged, true)
 	pickOption(window, "Update channel", "Experience")
 	settle(window, "the damaged release is offered", systemUIWait, func() bool {
-		return u.State == settings.UpdateAvailable && shown(window, damaged) == 1 && len(window.buttons("Download")) == 1
+		return u.State == settings.UpdateAvailable && shown(window, damaged+" available") == 1 && len(aboutActions(window, "Download")) == 1
 	})
 	press(window, "Download")
 	settle(window, "the failed download", systemUIWait, func() bool {
 		return u.Failure != nil && u.State != settings.UpdateDownloading && len(aboutActions(window, "Details")) == 1
 	})
-	if u.Failure.Key != "updates_digest_invalid" || shown(window, "The update package is damaged") != 1 || u.State == settings.UpdateReady {
+	if u.Failure.Key != "updates_digest_invalid" || shown(window, "The update package is damaged") < 2 || u.State == settings.UpdateReady {
 		t.Fatalf("the damaged archive failed as %+v in state %v; visible text: %q", u.Failure, u.State, window.tester.Texts())
 	}
 	detail := u.Failure.Detail
@@ -260,14 +263,14 @@ func TestSystemAboutUI(t *testing.T) {
 	t.Logf("step 7 passed: the damaged archive of %s showed a failure toast and the page's Details showed %q; the installed bundle remained %s", damaged, detail, link.ProductVersion)
 
 	// (8) SABOUT-006, SABOUT-008, SABOUT-009 as far as a fixture bundle
-	// goes: the confirmation installs; while it runs the page shows the
+	// goes: Restart now installs. While it runs the page shows the
 	// disabled Installing button; an installation that stopped the Node but
 	// could not finish offers Restart, which relaunches.
 	busy := func(status string) func() bool {
 		return func() bool {
-			found := window.buttons("Installing")
+			found := window.buttons(status)
 			return len(found) == 1 && found[0].Disabled && shown(window, status) >= 1 && channel().Disabled &&
-				len(window.buttons("Check for updates"))+len(window.buttons("Cancel"))+len(window.buttons("Download"))+len(window.buttons("Install and restart"))+len(window.buttons("Restart")) == 0
+				len(window.buttons("Check for updates"))+len(window.buttons("Cancel"))+len(window.buttons("Download"))+len(window.buttons("Restart now"))+len(window.buttons("Restart")) == 0
 		}
 	}
 	stage := func(service string) {
@@ -278,19 +281,17 @@ func TestSystemAboutUI(t *testing.T) {
 		press(window, "Download")
 		toast(window, ready)
 		settle(window, "the staged stable version of "+service, systemUIWait, func() bool {
-			return u.State == settings.UpdateReady && len(window.buttons("Install and restart")) == 1
+			return u.State == settings.UpdateReady && shown(window, consequence) == 1 && len(aboutActions(window, "Restart now")) == 1
 		})
-		press(window, "Install and restart")
-		settle(window, "the confirmation of "+service, systemUIWait, func() bool { return shown(window, consequence) == 1 })
 	}
 	pickOption(window, "Update channel", "Stable")
 	stage("the first service")
-	untouched("before the confirmation is accepted")
+	untouched("before restarting")
 	entered, proceed := make(chan struct{}, 1), make(chan error)
 	effects.Lock()
 	halt = func() error { entered <- struct{}{}; return <-proceed }
 	effects.Unlock()
-	footerAction(window, "Cancel", "Install and restart")
+	press(window, "Restart now")
 	await("the installation stops the Node", entered)
 	settle(window, "the Installing state", systemUIWait, func() bool { return u.State == settings.UpdateInstalling && busy("Installing")() })
 	// The disabled button installs nothing more.
@@ -321,20 +322,20 @@ func TestSystemAboutUI(t *testing.T) {
 	if !strings.HasPrefix(launches[0], installed+string(filepath.Separator)) || u.State != settings.UpdateRestarting || !busy("Restarting")() {
 		t.Fatalf("Restart relaunched %v and left the page in state %v", launches, u.State)
 	}
-	t.Logf("step 8a passed: the confirmed installation showed the disabled Installing button while the Node stopped; the Node's refusal left %s installed, toasted Could not stop the local Node and offered Restart, which showed Restarting, relaunched %s and quit once", link.ProductVersion, launches[0])
+	t.Logf("step 8a passed: the installation showed the disabled Installing button while the Node stopped. The Node's refusal left %s installed and offered Restart, which showed Restarting, relaunched %s and quit once", link.ProductVersion, launches[0])
 
 	// A new process's service installs for real into the fixture bundle.
 	effects.Lock()
 	halt = nil
 	effects.Unlock()
-	second := NewUpdates(window.runtime.Preferences, profile, stop, quit)
+	second := NewUpdates(identity.OfficialDesktop(), window.runtime.Preferences, profile, stop, quit)
 	t.Cleanup(feed.Bind(second.Service, installed, relaunched))
 	t.Cleanup(second.Service.Close)
 	window.runtime.SetUpdates(second, func() bool { return true })
 	settle(window, "the new service is idle", systemUIWait, func() bool { return u.State == settings.UpdateIdle && len(window.buttons("Check for updates")) == 1 })
 	press(window, "Check for updates")
 	stage("the second service")
-	footerAction(window, "Cancel", "Install and restart")
+	press(window, "Restart now")
 	settle(window, "the installation replaces the bundle, relaunches and quits", systemUIWait, func() bool {
 		stops, quits, launched := done()
 		return stops == 3 && quits == 2 && len(launched) == 2
@@ -353,5 +354,5 @@ func TestSystemAboutUI(t *testing.T) {
 	if u.State != settings.UpdateInstalling || !busy("Installing")() {
 		t.Fatalf("after the installation the page is in state %v; visible text: %q", u.State, window.tester.Texts())
 	}
-	t.Logf("step 8b passed: a second service staged %s again; its confirmation stopped the Node once, replaced the fixture bundle (now %s), wrote receipt.json, relaunched %s and quit, the page staying on the disabled Installing button", stable, version, launches[1])
+	t.Logf("step 8b passed: a second service staged %s again, stopped the Node once, replaced the fixture bundle (now %s), wrote receipt.json, relaunched %s and quit with Installing disabled", stable, version, launches[1])
 }

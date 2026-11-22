@@ -37,24 +37,18 @@ const (
 	gitLeast   = 3*barHeight + 3*rowHeight
 )
 
-// hostLayout is what a host, the panel's tabs or a page, was laid out as
-// last: its width, and whether its list is above its document. A tab's own
-// box is new with every tab, so the host's facts are the window's.
+// hostLayout remembers the panel's width and whether its list stacks. A
+// tab's box is new with every tab, so the layout belongs to the window.
 type hostLayout struct {
 	width          float32
 	known, stacked bool
 }
 
-type hostKey struct{ page bool }
+type hostKey struct{}
 
-// layoutOf decides a host's layout from the width box was laid out at. A
-// host never laid out guesses: the panel stacks, as at its first width, and
-// a page follows the window.
-func layoutOf(c *ui.Context, page bool, box ui.Element) *hostLayout {
-	h := ui.Local(c.Root(), hostKey{page}, func() hostLayout {
-		w, _ := c.Size()
-		return hostLayout{stacked: !page || w < stackBelow}
-	})
+// layoutOf starts stacked until the panel has a measured width.
+func layoutOf(c *ui.Context, box ui.Element) *hostLayout {
+	h := ui.Local(c.Root(), hostKey{}, func() hostLayout { return hostLayout{stacked: true} })
 	w := box.LayoutBounds().W
 	if w <= 0 {
 		return h
@@ -109,20 +103,19 @@ func shareOf(c *ui.Context) *float32 {
 // top, as high as its rows up to the window's share of the height, then the
 // same handle and the document in the rest. least is the list's least
 // height under a drag: its bars and a few rows.
-func (pr *Project) pair(c *ui.Context, key string, page bool, side *float32, least float32, main, list func()) {
+func pair(c *ui.Context, key string, side *float32, least float32, main, list func(bool)) {
 	box := ui.Box(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0).AlignItems(ui.Stretch).Clip()
-	h := layoutOf(c, page, box)
-	pr.stacked = h.stacked
+	h := layoutOf(c, box)
 	room := h.width
 	if !h.stacked {
 		room -= *side
 	}
-	pr.narrow = h.known && room < diffSplitMin || !h.known && h.stacked
+	narrow := h.known && room < diffSplitMin || !h.known && h.stacked
 	if !h.stacked {
 		box.Row().Children(func() {
-			ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(main)
+			ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(func() { main(narrow) })
 			divider(c, side, h.width)
-			ui.Column(c.Key("side")).Width(*side).Shrink(0).MinHeight(0).Children(list)
+			ui.Column(c.Key("side")).Width(*side).Shrink(0).MinHeight(0).Children(func() { list(false) })
 		})
 		return
 	}
@@ -130,9 +123,9 @@ func (pr *Project) pair(c *ui.Context, key string, page bool, side *float32, lea
 	height := box.LayoutBounds().H
 	box.Column().Children(func() {
 		top := ui.Column(c.Key("side")).Shrink(0).MinHeight(0).MaxHeightPercent(*share * 100)
-		top.Children(list)
+		top.Children(func() { list(true) })
 		grip(c, share, top.LayoutBounds().H, height, least)
-		ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(main)
+		ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(func() { main(narrow) })
 	})
 }
 

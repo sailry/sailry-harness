@@ -58,21 +58,21 @@ const (
 // easing_move. MyGo makes it instant with Reduce Motion.
 var Motion = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0, 0, 1)}
 
-// Page is what the main panel shows: the conversation, settings, or a
-// rail feature's independent page (pages.go).
-type Page int
+// Page is the stable ID of a destination in the main column. Native pages
+// can use their own namespaced IDs.
+type Page string
 
 const (
-	ConversationPage Page = iota
-	SettingsPage
-	FilesPage
-	GitPage
-	ActivityPage
-	MarketPage
-	HostPage
-	NotificationsPage
-	ProjectPage
-	PluginPage
+	ConversationPage  Page = "page:conversation"
+	SettingsPage      Page = "page:settings"
+	FilesPage         Page = "page:files"
+	GitPage           Page = "page:git"
+	ActivityPage      Page = "page:activity"
+	MarketPage        Page = "page:settings_plugins"
+	HostPage          Page = "page:host"
+	NotificationsPage Page = "page:notifications"
+	ProjectPage       Page = "page:project"
+	PluginPage        Page = "page:plugin"
 )
 
 // App is the window's state.
@@ -121,7 +121,7 @@ type App struct {
 	PanelWidth          float32
 	// resourceColumn is the last frame's full-page resource owning details.
 	// Changing owners settles the destination; folding within it animates.
-	resourceColumn panel.Kind
+	resourceColumn Page
 	resourceTarget ResourceTarget
 
 	pluginWorkspace      string
@@ -149,6 +149,8 @@ type App struct {
 
 	Sidebar  *sidebar.State
 	Settings *settings.State
+	Website  string
+	Feedback string
 	Messages *conversation.State
 	// overviews are the session overview popovers by conversation, each
 	// opened by its conversation's own button (conversationActions); band
@@ -176,7 +178,8 @@ type App struct {
 	// has no time to give.
 	clock time.Time
 
-	features       []string // the rail's order
+	nativePages    []NativePage
+	features       []string // saved rail order, including unavailable features
 	pluginFeatures map[string]Feature
 	pluginPage     string
 	unpinned       map[string]bool // features off the rail
@@ -241,10 +244,12 @@ type App struct {
 	demo *demoMode
 }
 
-// New makes the app over the preview dataset, showing its large conversation.
-func New(d *preview.Data) *App {
+// New makes a preview window with the supplied native pages. Invalid or
+// duplicate page definitions panic at assembly time.
+func New(d *preview.Data, pages ...NativePage) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
+	a.installPages(pages)
 	a.Sidebar.Preview = true
 	a.Sidebar.Sample.OpenHost = a.OpenHost
 	// Sample connection rows and monitors refer to the same sample devices.
@@ -269,9 +274,11 @@ func New(d *preview.Data) *App {
 	return a
 }
 
-// NewLive creates an unseeded live presentation. It performs no backend I/O.
-func NewLive(d *viewmodel.Data) *App {
+// NewLive creates an unseeded live window with the supplied native pages.
+// Invalid or duplicate page definitions panic at assembly time.
+func NewLive(d *viewmodel.Data, pages ...NativePage) *App {
 	a := newApp(d, "", settings.NewLive())
+	a.installPages(pages)
 	a.Panel.Live = true
 	if len(d.Hosts) > 0 {
 		a.Host = d.Hosts[0].ID
@@ -281,16 +288,14 @@ func NewLive(d *viewmodel.Data) *App {
 
 func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 	a := &App{
-		Data: d, NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true, Surfaces: theme.DefaultSurfaces,
+		Data: d, Page: ConversationPage, before: ConversationPage,
+		NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true, Surfaces: theme.DefaultSurfaces,
 		Sidebar: sidebar.New(d, selected), Settings: st, Messages: conversation.New(),
 		Panel: panel.New(d.Workspace), Projects: panel.NewProjects(d.Workspace),
 		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
 		Welcome: onboarding.Guide{Seen: true},
 	}
 	st.ConnectionActions = &settings.ConnectionActions{Inspect: func(device viewmodel.Device) { a.OpenHost(device.ID) }}
-	for _, f := range Features {
-		a.features = append(a.features, f.ID)
-	}
 	// The sidebar's sort menu and the settings' session order are one choice.
 	a.Sidebar.Sort = &st.Model.SessionOrder
 	return a
@@ -327,6 +332,9 @@ func (a *App) Composer(id string) *composer.State {
 
 // View builds the window.
 func (a *App) View(c *ui.Context) {
+	if !a.hasPage(a.Page) {
+		a.Navigate(ConversationPage)
+	}
 	defer a.updateFileSaveMenu(c)
 	kit.BindDiffSplit(c, &a.DiffSplit)
 	panel.BindListShare(c, &a.ListShare)
@@ -415,7 +423,11 @@ func (a *App) View(c *ui.Context) {
 			// The panel's outline: a 1 DIP top and left edge, rounded at the top left.
 			body := ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(p.RadiusLg, 0, 0, 0).Clip()
-			panel.PageKeys(c, a.paged(), a.project(), body)
+			if page := a.nativePage(a.Page); page != nil && page.Resource != "" && page.BindKeys != nil {
+				if pr := a.project(); pr != nil {
+					page.BindKeys(c, pr, body)
+				}
+			}
 			body.Children(func() {
 				a.nav(c, f, fill)
 				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
@@ -535,9 +547,9 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 		f.navWidth += min(112*(z-1), space)
 		nav = f.navWidth * navTarget
 	}
-	resource := panel.Kind("")
+	var resource Page
 	if a.resourceDetails() {
-		resource = a.paged()
+		resource = a.Page
 	}
 	if resource != a.resourceColumn {
 		// A resource's list belongs to its page, including the first frame
@@ -634,8 +646,10 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.PluginDetails(c)
 				return
 			}
-			if a.paged() != "" {
-				panel.PageDetails(c, a.paged(), a.project())
+			if page := a.nativePage(a.Page); page != nil && page.Resource != "" && page.RenderDetails != nil {
+				if pr := a.project(); pr != nil {
+					page.RenderDetails(c, a, pr)
+				}
 				return
 			}
 			if a.Page == HostPage {
@@ -779,6 +793,10 @@ func adjacent(a *App, forward bool) string {
 // feature's page.
 func (a *App) page(c *ui.Context) {
 	settings.SettleEdits(c, a.Settings.Model)
+	if page := a.nativePage(a.Page); page != nil && page.Render != nil {
+		page.Render(c, a)
+		return
+	}
 	switch a.Page {
 	case NotificationsPage:
 		a.notificationCenter(c)
@@ -786,11 +804,12 @@ func (a *App) page(c *ui.Context) {
 	case SettingsPage:
 		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
 		return
-	case MarketPage:
-		settings.MarketPage(c, a.Settings)
-		return
-	case FilesPage, GitPage, ActivityPage, PluginPage:
-		a.featurePage(c)
+	case PluginPage:
+		if a.Hooks.PluginPage != nil {
+			a.Hooks.PluginPage(c, a.pluginPage)
+		} else if f, ok := a.lookupFeature(a.pluginPage); ok {
+			kit.Result(c, kit.ResultProps{Icon: f.Icon, Title: i18n.T(c, f.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
+		}
 		return
 	case HostPage:
 		a.hostView(c)

@@ -43,7 +43,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	hadTabs := len(s.Tabs) != 0
 	s.confirmClose(c)
 	if pr != nil && len(s.Tabs) != 0 {
-		pr.promptDialog(c)
+		pr.ActionDialog(c)
 	}
 	if len(s.Tabs) == 0 {
 		if !hadTabs {
@@ -62,10 +62,8 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		case Files, Changes:
 			// The whole component for this tab's item: the side list
 			// opens or focuses another item's tab.
-			if pr != nil {
-				pr.reveal = func(path string) { s.Show(Tab{Files, path}) }
-			}
-			pr.view(c, t.Kind, t.ID, own, func(path string) { s.Show(Tab{t.Kind, path}) })
+			pr.view(c, t.Kind, t.ID, own, func(path string) { s.Show(Tab{t.Kind, path}) },
+				func(path string) { s.Show(Tab{Files, path}) })
 		case History:
 			s.history(c)
 		case Documents:
@@ -187,68 +185,8 @@ func itemLook(c *ui.Context, k Kind, path string) (*ui.SVG, string) {
 	return icon, path[strings.LastIndex(path, "/")+1:]
 }
 
-// Page builds a project resource's document and open-item strip in the
-// main column. PageDetails supplies its list separately so the Shell owns
-// both columns' layout. Both surfaces share the panel tabs' Project.
-// files goes to the Files page, where Git's Open source shows a file.
-func Page(c *ui.Context, k Kind, pr *Project, files func()) {
-	box := ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0)
-	if pr != nil {
-		pr.stacked = false
-		pr.narrow = box.LayoutBounds().W < diffSplitMin
-	}
-	box.Children(func() {
-		if pr != nil && pr.shown(k) != "" {
-			pr.show(k, pr.shown(k))
-		}
-		if pr != nil {
-			pr.reveal = func(string) { files() }
-			pr.promptDialog(c)
-			pr.strip(c, k)
-		}
-		pr.document(c, k, pr.shownOr(k), true)
-		if pr != nil && k == Changes {
-			pr.gitDialogs(c)
-		}
-	})
-}
-
-// PageKeys binds the resource page's shortcuts on the Shell container
-// shared by its document and details. Binding once keeps Git chords intact
-// as focus moves between those sibling columns.
-func PageKeys(c *ui.Context, k Kind, pr *Project, scope ui.Element) {
-	if k == Changes && pr != nil {
-		pr.gitKeys(c, scope)
-	}
-}
-
-// PageDetails builds the resource list in the Shell's right column. Its
-// width, visibility and resize handle belong to the Shell, not Project.pair.
-func PageDetails(c *ui.Context, k Kind, pr *Project) {
-	if pr == nil {
-		return
-	}
-	pr.stacked = false
-	ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
-		open := func(path string) { pr.show(k, path) }
-		if k == Files {
-			pr.tree(c, true, open)
-		} else {
-			pr.gitDetails(c, true, open)
-		}
-	})
-}
-
-// shownOr is the item shown, "" without a project.
-func (pr *Project) shownOr(k Kind) string {
-	if pr == nil {
-		return ""
-	}
-	return pr.shown(k)
-}
-
-// strip is the page's row of open items, as the panel's strip draws them.
-func (pr *Project) strip(c *ui.Context, k Kind) {
+// DocumentTabs draws the project's open file or diff tabs.
+func (pr *Project) DocumentTabs(c *ui.Context, k Kind) {
 	p := theme.Of(c)
 	ui.Row(c.Key("items")).Height(barHeight).Shrink(0).PaddingX(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
@@ -320,44 +258,48 @@ func tab(c *ui.Context, key any, l tabLook, show, close, keep, release func()) {
 // calls open. The host that owns the scrolling keeps it in the project;
 // while a page and closing panel both show a resource, the page owns it,
 // as MyGo binds a ScrollState to one container per build.
-func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open func(path string)) {
+func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open, reveal func(path string)) {
 	if pr == nil {
 		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
 		return
 	}
-	main := func() { pr.document(c, k, path, own) }
 	if k == Files {
-		pr.pair(c, "files", false, &pr.Files.side, filesLeast, main, func() { pr.tree(c, own, open) })
+		pair(c, "files", &pr.Files.side, filesLeast,
+			func(bool) { pr.FileEditor(c, path, own) }, func(bool) { pr.FileTree(c, own, open) })
 		return
 	}
 	box := ui.Column(c.Key("git")).Grow(1).MinHeight(0)
-	pr.gitKeys(c, box)
+	pr.GitKeys(c, box)
 	box.Children(func() {
-		pr.pair(c, "changes", false, &pr.Git.side, gitLeast, main, func() { pr.gitDetails(c, own, open) })
+		pair(c, "changes", &pr.Git.side, gitLeast,
+			func(narrow bool) { pr.gitDiff(c, path, narrow) },
+			func(stacked bool) { pr.GitRepository(c, own, stacked, open, reveal) })
 	})
-	pr.gitDialogs(c)
+	pr.GitDialogs(c)
 }
 
-// document is the shared file editor or diff, without a host's columns.
-func (pr *Project) document(c *ui.Context, k Kind, path string, own bool) {
-	if pr == nil {
-		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
+// FileEditor shows a file using the project's shared editor state.
+func (pr *Project) FileEditor(c *ui.Context, path string, own bool) {
+	if path != "" {
+		pr.readFile(path)
+	}
+	pr.filePreview(c, path, own)
+}
+
+// GitDiff renders the selected diff in the available document width.
+func (pr *Project) GitDiff(c *ui.Context, path string, width float32) {
+	pr.gitDiff(c, path, width < diffSplitMin)
+}
+
+func (pr *Project) gitDiff(c *ui.Context, path string, narrow bool) {
+	if path == allChanges {
+		pr.combined(c, narrow)
 		return
 	}
-	switch {
-	case k == Files:
-		if path != "" {
-			pr.readFile(path)
-		}
-		pr.filePreview(c, path, own)
-	case path == allChanges:
-		pr.combined(c)
-	default:
-		if path != "" && !pr.gitDocumentKnown(path) {
-			pr.readDiff(path, pr.Git.scope)
-		}
-		pr.diff(c, path)
+	if path != "" && !pr.gitDocumentKnown(path) {
+		pr.readDiff(path, pr.Git.scope)
 	}
+	pr.diff(c, path, narrow)
 }
 
 // scroll is the project's ScrollState s for the host that owns it, nil
@@ -490,34 +432,34 @@ func status(c *ui.Context, path string, after func(), system ...func()) {
 // diffStatus is a diff's footer: the path, the change's +N −M, and at the
 // far end the window's diff layout as one icon button (diffToggle). Every
 // view of a diff ends with it, a document of several diffs once.
-func (pr *Project) diffStatus(c *ui.Context, path string, counts func(), system ...func()) {
+func diffStatus(c *ui.Context, path string, narrow bool, counts func(), system ...func()) {
 	statusBar(c, path, 4, func() {
 		counts()
-		pr.diffToggle(c)
+		diffToggle(c, narrow)
 	}, system...)
 }
 
 // diffSplit reports whether the host's diffs show side by side: the
 // window's choice, where the document has the width for two columns.
-func (pr *Project) diffSplit(c *ui.Context) bool { return *kit.DiffSplit(c) && !pr.narrow }
+func diffSplit(c *ui.Context, narrow bool) bool { return *kit.DiffSplit(c) && !narrow }
 
 // diffToggle is the window's choice between a unified diff and a
 // side-by-side one (kit.DiffSplit), named by what a press shows: the
 // columns while unified, the rows while side by side. A document too
 // narrow for two columns shows unified whatever the choice, which it
 // leaves alone: the button is disabled and its tooltip says why.
-func (pr *Project) diffToggle(c *ui.Context) {
+func diffToggle(c *ui.Context, narrow bool) {
 	split := kit.DiffSplit(c)
 	icon, label := icons.DiffColumns, i18n.T(c, "git_diff_side_by_side")
-	if pr.diffSplit(c) {
+	if diffSplit(c, narrow) {
 		icon, label = icons.DiffRows, i18n.T(c, "git_diff_inline")
 	}
 	tip := label
-	if pr.narrow {
+	if narrow {
 		tip = i18n.T(c, "git_diff_needs_width")
 	}
 	b := kit.GhostLook(c, ui.ButtonBase(c.Key("diff-layout")).Label(label), false).Size(24, 24).Shrink(0).
-		TextColor(theme.Of(c).MutedForeground).Disabled(pr.narrow)
+		TextColor(theme.Of(c).MutedForeground).Disabled(narrow)
 	if b.Hovered() {
 		b.TextColor(theme.Of(c).Foreground)
 	}
@@ -647,8 +589,8 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 // content diff view or side by side by the footer's choice, with the change under the
 // pointer's Revert and Keep (editor.DefaultHunkActions) and Stage: in the
 // preview each toasts, as they would write the file and the index.
-func (pr *Project) diff(c *ui.Context, path string) {
-	if pr.gitDocument(c, path) {
+func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
+	if pr.gitDocument(c, path, narrow) {
 		return
 	}
 	if pr.gitEmpty(c, false) {
@@ -682,7 +624,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 	old, new := ch.Texts()
 	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
 	selected := -1
-	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Split: pr.diffSplit(c),
+	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Split: diffSplit(c, narrow),
 		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
 			selected = diffHunkIndex(*ch, a.Hunk)
 			bar.Row().Gap(4)
@@ -728,7 +670,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 	if metadata.Partial {
 		ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 	}
-	pr.diffStatus(c, ch.Path, counts, system)
+	diffStatus(c, ch.Path, narrow, counts, system)
 }
 
 func diffHunkIndex(change preview.FileChange, native editor.DiffHunk) int {

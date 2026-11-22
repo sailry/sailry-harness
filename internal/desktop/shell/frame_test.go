@@ -338,7 +338,7 @@ func testSideColumns(t *testing.T) {
 	clickItem(t, tt, project.Name)
 	settle(tt)
 	if a.Page != FilesPage || a.Sidebar.Selected != selected || a.NavOpen || sessionsShown(tt) {
-		t.Errorf("the current project choice left page %d, selected %q, open %v", a.Page, a.Sidebar.Selected, a.NavOpen)
+		t.Errorf("the current project choice left page %q, selected %q, open %v", a.Page, a.Sidebar.Selected, a.NavOpen)
 	}
 	a.Navigate(ConversationPage)
 	tt.Frame()
@@ -366,7 +366,7 @@ func testSideColumns(t *testing.T) {
 	if err := SavePrefs(dir, a.Prefs()); err != nil {
 		t.Fatal(err)
 	}
-	b := New(preview.Load())
+	b := New(preview.Load(), TestHarnessPages()...)
 	b.SetPrefs(LoadPrefs(dir))
 	if !b.NavOpen || b.NavWidth != 300 {
 		t.Errorf("the choice did not come back from a page without a column: %+v", b.Prefs())
@@ -621,27 +621,27 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	// comes back from it, merged with the features of now; a profile's rail
 	// is its own preferences', which the file neither replaces nor loses.
 	t.Run("rail", func(t *testing.T) {
-		a := New(preview.Load())
-		a.features = MoveFeature(a.features, "page:git", "page:activity", false)
+		a := New(preview.Load(), TestHarnessPages()...)
+		a.moveFeature("page:git", "page:activity", false)
 		a.unpinned["page:files"] = true
 		saved := a.Prefs()
 		if err := SavePrefs(dir, saved); err != nil {
 			t.Fatal(err)
 		}
-		b := New(preview.Load())
+		b := New(preview.Load(), TestHarnessPages()...)
 		b.SetPrefs(LoadPrefs(dir))
 		if !slices.Equal(b.features, a.features) || !b.unpinned["page:files"] {
 			t.Errorf("preview rail %v unpinned %v, want %v", b.features, b.unpinned, a.features)
 		}
 		stale := saved
 		stale.Features = []string{"page:git", "page:gone", "page:conversation"}
-		b = New(preview.Load())
+		b = New(preview.Load(), TestHarnessPages()...)
 		b.SetPrefs(stale)
 		if want := []string{"page:conversation", "page:git", "page:gone", "page:activity", "page:files", "page:settings_plugins"}; !slices.Equal(b.features, want) {
 			t.Errorf("stale order merged to %v, want %v", b.features, want)
 		}
 
-		live := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+		live := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, TestHarnessPages()...)
 		live.SetFeaturePreferences([]string{"page:conversation", "page:files", "page:activity", "page:git", "page:settings_plugins"}, map[string]bool{"page:git": false})
 		order, pins := live.FeaturePreferences()
 		live.SetPrefs(LoadPrefs(dir))
@@ -969,15 +969,19 @@ func TestShellRules(t *testing.T) {
 	})
 	t.Run("MoveFeature", func(t *testing.T) {
 		order := []string{"page:conversation", "page:activity", "page:files", "page:git", "page:settings_plugins"}
-		got := MoveFeature(order, "page:git", "page:activity", false)
-		if got[1] != "page:git" {
-			t.Errorf("move: %v", got)
+		a := New(preview.Load(), TestHarnessPages()...)
+		a.SetFeaturePreferences(order, nil)
+		a.moveFeature("page:git", "page:activity", false)
+		if a.features[1] != "page:git" {
+			t.Errorf("move: %v", a.features)
 		}
-		if got := MoveFeature(order, "page:activity", "page:settings_plugins", true); got[len(got)-1] != "page:settings_plugins" {
-			t.Errorf("something went after Market: %v", got)
+		a.moveFeature("page:activity", "page:settings_plugins", true)
+		if a.features[len(a.features)-1] != "page:settings_plugins" {
+			t.Errorf("something went after Market: %v", a.features)
 		}
-		if got := MoveFeature(order, "page:conversation", "page:git", true); got[0] != "page:conversation" {
-			t.Errorf("Conversation moved: %v", got)
+		a.moveFeature("page:conversation", "page:git", true)
+		if a.features[0] != "page:conversation" {
+			t.Errorf("Conversation moved: %v", a.features)
 		}
 	})
 	t.Run("LoadingMarks", testLoadingMarks)
@@ -1384,7 +1388,7 @@ func testHeaderSplit(t *testing.T) {
 		a.Navigate(page)
 		still(tt)
 		if f := fold(); !f.Disabled || f.Bounds.X != 1280-12-HeaderButton {
-			t.Errorf("page %d with nothing to show: the toggle is %+v", page, f)
+			t.Errorf("page %q with nothing to show: the toggle is %+v", page, f)
 		}
 	}
 	// The Market: selecting a card opens its details, titled in the band,
@@ -1461,7 +1465,7 @@ func headerFrames(t *testing.T) {
 	if os.Getenv("SAILRY_UI_SHOTS") == "" {
 		return
 	}
-	a := New(preview.Load())
+	a := New(preview.Load(), TestHarnessPages()...)
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("zh-CN")
 	tt.SetDark(true)

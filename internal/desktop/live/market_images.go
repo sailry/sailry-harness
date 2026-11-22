@@ -50,6 +50,13 @@ func newMarketImages() *marketImages {
 // fetched or when it could not be. Call it on the UI thread.
 func (r *Runtime) marketImage(address string) *ui.Bitmap {
 	root := r.localRuntime()
+	if !root.showingMarket() {
+		return nil
+	}
+	if root.packages.images == nil {
+		root.packages.images = newMarketImages()
+		context.AfterFunc(root.ctx, root.packages.images.client.CloseIdleConnections)
+	}
 	images := root.packages.images
 	if entry, exists := images.entries[address]; exists {
 		return entry.bitmap
@@ -107,6 +114,9 @@ func (images *marketImages) fetch(ctx context.Context, address string) (*ui.Bitm
 // pruneMarketImages releases the pictures no card in addresses names.
 func (r *Runtime) pruneMarketImages(addresses map[string]bool) {
 	images := r.localRuntime().packages.images
+	if images == nil {
+		return
+	}
 	for address := range images.entries {
 		if !addresses[address] {
 			delete(images.entries, address)

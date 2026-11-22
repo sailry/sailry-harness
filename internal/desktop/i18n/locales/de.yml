@@ -540,13 +540,13 @@ content_source: Quelle
 resource_project_empty: Projekt auswählen »
 resource_follow_conversation: Follow current conversation
 unavailable: Nicht verfügbar
-menu_about: Über Sailry
+menu_about: Über %{app}
 menu_settings: Einstellungen
 menu_services: Dienste
-menu_hide: Sailry ausblenden
+menu_hide: '%{app} ausblenden'
 menu_hide_others: Andere ausblenden
 menu_show_all: Alle anzeigen »
-menu_quit: Sailry beenden
+menu_quit: '%{app} beenden'
 menu_file: Datei
 menu_save: Speichern
 menu_close_tab: Tab schließen
@@ -1564,7 +1564,7 @@ model_library_embedding: Embedding-Modelle
 model_library_ocr: OCR-Modelle
 model_library_speech: Sprachmodelle
 model_library_decision: Entscheidung
-onboarding_title: Willkommen bei Sailry
+onboarding_title: Willkommen bei %{app}
 onboarding_description: Verbinde ein Modell, um loszulegen
 onboarding_host_unavailable: Host nicht verfügbar
 workspace_host_status: Getrennt · UI-Vorschau
@@ -1715,7 +1715,7 @@ updates_view: Anzeigen
 updates_download: Herunterladen
 updates_ready: '%{version} kann installiert werden'
 updates_restart_description: Entwürfe werden nach dem Neustart wiederhergestellt; lokale Aufgaben und Terminals werden gestoppt
-updates_current: Sailry ist auf dem neuesten Stand
+updates_current: '%{app} ist auf dem neuesten Stand'
 selection_title: Ausgewählter Text
 selection_unavailable: Auswahl konnte nicht gelesen werden
 selection_empty: Kein Text ausgewählt
@@ -1734,7 +1734,7 @@ terminal_take_control: Übernehmen Sie die Kontrolle
 terminal_other_controller: Von einem anderen Gerät gesteuert
 terminal_unavailable: Terminal nicht verfügbar; Hostverbindung prüfen
 updates_network_failed: Das Update konnte nicht heruntergeladen werden
-updates_completed: Sailry wurde aktualisiert
+updates_completed: '%{app} wurde aktualisiert'
 port_exists: Port bereits hinzugefügt
 port_failed: Konnte nicht weiterleiten; Port und Verbindung überprüfen
 selection_large: Auswahl ist zu lang
@@ -2157,15 +2157,15 @@ updates_platform: Für diese Plattform ist kein Update verfügbar
 updates_system_unavailable: Die Systemversion konnte nicht gelesen werden
 updates_system_old: Das Update erfordert ein neueres System
 updates_version_old: Das ausgewählte Update ist nicht neuer
-updates_bundle_required: Installieren Sie eine gepackte Sailry-Anwendung vor dem Update
+updates_bundle_required: Installieren Sie eine gepackte %{app}-Anwendung vor dem Update
 updates_io_failed: Das Update konnte nicht gespeichert werden
 updates_receipt_unread: Überprüfen Sie das vorherige Update, bevor Sie es erneut versuchen
-updates_install_failed: Das Update wurde nicht abgeschlossen; Neustart Sailry
-updates_restart_failed: Sailry konnte nicht neu gestartet werden; öffnen Sie es erneut
-updates_shutdown_failed: Konnte den lokalen Node nicht stoppen; Neustart Sailry
+updates_install_failed: Das Update wurde nicht abgeschlossen; Neustart %{app}
+updates_restart_failed: '%{app} konnte nicht neu gestartet werden; öffnen Sie es erneut'
+updates_shutdown_failed: Konnte den lokalen Node nicht stoppen; Neustart %{app}
 updates_install_uncertain: Das Installationsergebnis ist nicht bestätigt; die ursprüngliche App wurde beibehalten
 updates_receipt_failed: Das Update wurde installiert; Wiederherstellungsdetails konnten nicht gespeichert werden
-updates_profile_inside: Das Datenprofil befindet sich in Sailry; verschieben Sie es vor dem Aktualisieren
+updates_profile_inside: Das Datenprofil befindet sich in %{app}; verschieben Sie es vor dem Aktualisieren
 compatibility_update_unavailable: Diese Version ist noch nicht automatisch verfügbar
 settings_media: Medienmodell
 settings_media_description: Verwalten von Modellen für Bild-, Audio- und Videoaufgaben
@@ -2360,8 +2360,8 @@ queue_halt_unsent: Nachricht nicht gesendet; bleibt in der Warteschlange
 usage_read_failed: Konnte die Nutzung nicht laden, versuchen Sie es erneut
 chat_output_limit: Antwort an der Ausgabegrenze abgeschnitten
 chat_turn_limit: Am Aktionslimit angehalten
-start_failed: Sailry konnte nicht starten
-start_profile_in_use: Sailry läuft bereits mit diesem Datenordner
+start_failed: '%{app} konnte nicht starten'
+start_profile_in_use: '%{app} läuft bereits mit diesem Datenordner'
 backup_keep: Aufzubewahrende Sicherungen
 backup_keep_all: Alle
 backup_keep_last: Letzte %{count}

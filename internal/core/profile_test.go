@@ -71,21 +71,6 @@ func TestProfileLockExcludes(t *testing.T) {
 			t.Fatalf("database family: %v", got)
 		}
 	})
-	t.Run("resolves default without writing", func(t *testing.T) {
-		home := filepath.Join(t.TempDir(), "user")
-		path, err := dataDirFromHome("~/.sailry-go", home)
-		if err != nil || path != filepath.Join(home, ".sailry-go") {
-			t.Fatalf("default path: %s, %v", path, err)
-		}
-		if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("resolving the default wrote a directory: %v", err)
-		}
-		for _, home := range []string{"", "relative"} {
-			if _, err := dataDirFromHome("~/.sailry-go", home); err == nil || !strings.Contains(err.Error(), "--data-dir") {
-				t.Fatalf("invalid home accepted: %q, %v", home, err)
-			}
-		}
-	})
 	t.Run("exact workspace identities", func(t *testing.T) {
 		profile, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {

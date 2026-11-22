@@ -540,13 +540,13 @@ content_source: ソース
 resource_project_empty: プロジェクトを選択
 resource_follow_conversation: Follow current conversation
 unavailable: 利用できません
-menu_about: Sailryについて
+menu_about: '%{app}について'
 menu_settings: 設定
 menu_services: サービス
-menu_hide: Sailry を隠す
+menu_hide: '%{app} を隠す'
 menu_hide_others: 他のものを隠す
 menu_show_all: すべて表示
-menu_quit: Sailry を終了
+menu_quit: '%{app} を終了'
 menu_file: ファイル
 menu_save: 保存
 menu_close_tab: タブを閉じる
@@ -1564,7 +1564,7 @@ model_library_embedding: 埋め込みモデル
 model_library_ocr: OCR モデル
 model_library_speech: 音声モデル
 model_library_decision: 判断
-onboarding_title: Sailry へようこそ
+onboarding_title: '%{app} へようこそ'
 onboarding_description: モデルを接続して始めましょう
 onboarding_host_unavailable: ホストを利用できません
 workspace_host_status: UI プレビューを切断
@@ -1715,7 +1715,7 @@ updates_view: 表示
 updates_download: ダウンロード
 updates_ready: '%{version} のインストール準備ができました'
 updates_restart_description: 再起動後に草稿を復元します。ローカルタスクとターミナルは停止します
-updates_current: Sailryは最新です
+updates_current: '%{app}は最新です'
 selection_title: 選択した文字
 selection_unavailable: 選択した文字を取得できません
 selection_empty: 文字が選択されていません
@@ -1734,7 +1734,7 @@ terminal_take_control: コントロールを取る
 terminal_other_controller: 他のデバイスで制御
 terminal_unavailable: ターミナルが利用できません。ホストの接続を確認してください
 updates_network_failed: 更新をダウンロードできませんでした。やり直します
-updates_completed: Sailry が更新されました
+updates_completed: '%{app} が更新されました'
 port_exists: ポートは既に追加されています
 port_failed: 転送できませんでした。ポートと接続を確認してください
 selection_large: 選択した文字が長すぎます
@@ -2157,15 +2157,15 @@ updates_platform: このプラットフォームには更新がありません
 updates_system_unavailable: システムバージョンを読めませんでした
 updates_system_old: 更新には新しいシステムが必要です
 updates_version_old: 選択した更新は新しいものではありません
-updates_bundle_required: アップデートする前にパッケージ化された Sailry アプリケーションをインストールします
+updates_bundle_required: アップデートする前にパッケージ化された %{app} アプリケーションをインストールします
 updates_io_failed: 更新を保存できませんでした
 updates_receipt_unread: もう一度試みる前に前回の更新を確認する
-updates_install_failed: 更新が完了しませんでした。Sailry を再起動してください
-updates_restart_failed: Sailry を再起動できませんでした。もう一度開きます
-updates_shutdown_failed: ローカル Node を停止できませんでした。Sailry を再起動してください
+updates_install_failed: 更新が完了しませんでした。%{app} を再起動してください
+updates_restart_failed: '%{app} を再起動できませんでした。もう一度開きます'
+updates_shutdown_failed: ローカル Node を停止できませんでした。%{app} を再起動してください
 updates_install_uncertain: インストール結果は確認されていません。元のアプリケーションを保持しました
 updates_receipt_failed: 更新はインストールされましたが、回復の詳細を保存できませんでした
-updates_profile_inside: データプロファイルは Sailry の中にあります。更新する前に移動してください
+updates_profile_inside: データプロファイルは %{app} の中にあります。更新する前に移動してください
 compatibility_update_unavailable: このバージョンはまだ自動更新できません
 settings_media: メディアモデル
 settings_media_description: 画像、オーディオ、ビデオタスクのモデルを管理します
@@ -2360,8 +2360,8 @@ queue_halt_unsent: メッセージは送信されず、キューに保持され�
 usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
 chat_output_limit: 出力上限で返信が途切れました
 chat_turn_limit: 操作回数の上限で停止しました
-start_failed: Sailry を起動できませんでした
-start_profile_in_use: Sailry はこのデータフォルダで既に実行中です
+start_failed: '%{app} を起動できませんでした'
+start_profile_in_use: '%{app} はこのデータフォルダで既に実行中です'
 backup_keep: 保持するバックアップ
 backup_keep_all: すべて
 backup_keep_last: 最新 %{count} 件

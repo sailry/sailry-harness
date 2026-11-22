@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"slices"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -11,7 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-	"slices"
 )
 
 // Hooks keeps I/O and thread scheduling in the live controller.
@@ -198,51 +199,3 @@ func (a *App) SetHostPorts(id string, ports []host.Port) {
 
 // SetWelcome uses the profile preference, independently of window UI state.
 func (a *App) SetWelcome(seen bool) { a.Welcome = onboarding.Guide{Seen: seen, Open: !seen} }
-
-// FeaturePreferences returns controller-owned rail order and pin choices.
-func (a *App) FeaturePreferences() ([]string, map[string]bool) {
-	order := append([]string(nil), a.features...)
-	pins := map[string]bool{}
-	for _, id := range order {
-		pins[id] = !a.unpinned[id]
-	}
-	return order, pins
-}
-
-func (a *App) SetFeaturePreferences(order []string, pins map[string]bool) {
-	if len(order) > 0 {
-		var merged []string
-		seen := map[string]bool{}
-		appendID := func(id string) {
-			if !seen[id] {
-				seen[id] = true
-				merged = append(merged, id)
-			}
-		}
-		for _, f := range Features {
-			if f.Fixed {
-				appendID(f.ID)
-			}
-		}
-		for _, id := range order {
-			f, known := a.lookupFeature(id)
-			if !known || !f.Fixed && !f.Last {
-				appendID(id)
-			}
-		}
-		for _, f := range Features {
-			if !f.Last {
-				appendID(f.ID)
-			}
-		}
-		for _, f := range Features {
-			if f.Last {
-				appendID(f.ID)
-			}
-		}
-		a.features = merged
-	}
-	for id, pinned := range pins {
-		a.unpinned[id] = !pinned
-	}
-}

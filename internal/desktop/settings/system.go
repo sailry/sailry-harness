@@ -128,7 +128,7 @@ func about(c *ui.Context, m *Model) {
 	text := func(s string) func() {
 		return func() { ui.Text(c, s).FontSize(14).Selectable().TextColor(p.MutedForeground) }
 	}
-	kit.Group(c, "app", i18n.T(c, "app"), "", nil, func() {
+	kit.Group(c, "app", cmp.Or(m.ProductName, i18n.T(c, "app")), "", nil, func() {
 		kit.Card(c, func() {
 			kit.Row(c, "version", i18n.T(c, "settings_version"), "", text(m.Version))
 			kit.Row(c, "build", i18n.T(c, "settings_build"), "", text(i18n.T(c, cmp.Or(m.Build, "preview"))))

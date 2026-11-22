@@ -146,7 +146,7 @@ func TestProjectMenu(t *testing.T) {
 		a, tt := demo(t)
 		choose(t, tt, name, en("workspace_project"))
 		if node, id, shown := a.ProjectOwner(); !shown || id != name || node == "" && a.overviewProject() == nil {
-			t.Fatalf("Project overview shows page %d, project %q", a.Page, id)
+			t.Fatalf("Project overview shows page %q, project %q", a.Page, id)
 		}
 		// The page's records open their session.
 		pr := a.overviewProject()
@@ -159,7 +159,7 @@ func TestProjectMenu(t *testing.T) {
 		}
 		settle(tt)
 		if a.Page != ConversationPage || a.Sidebar.Selected != pr.Conversations[len(pr.Conversations)-1].ID {
-			t.Fatalf("the record did not open: page %d, selected %q", a.Page, a.Sidebar.Selected)
+			t.Fatalf("the record did not open: page %q, selected %q", a.Page, a.Sidebar.Selected)
 		}
 	})
 
@@ -336,7 +336,7 @@ func TestProjectMenu(t *testing.T) {
 		// A worktree of the list opens the project's page.
 		choose(t, tt, name, en("worktree_manage"), made.Branch)
 		if _, id, shown := a.ProjectOwner(); !shown || id != pr.ID {
-			t.Fatalf("the worktree opened page %d", a.Page)
+			t.Fatalf("the worktree opened page %q", a.Page)
 		}
 		// Removing names the worktree and asks once.
 		n := len(pr.Worktrees)
@@ -579,7 +579,7 @@ func TestProjectMenu(t *testing.T) {
 		tt.Key(0, ui.KeyEnter)
 		settle(tt)
 		if _, id, shown := a.ProjectOwner(); !shown || id != "lumen-web" || a.search.open {
-			t.Fatalf("the project choice showed page %d, project %q", a.Page, id)
+			t.Fatalf("the project choice showed page %q, project %q", a.Page, id)
 		}
 	})
 

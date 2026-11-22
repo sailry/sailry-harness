@@ -109,6 +109,63 @@ func SavePrefs(dir string, p Prefs) error {
 	return os.Rename(tmp, filepath.Join(dir, PrefsFile))
 }
 
+// FeaturePreferences includes saved choices for destinations this window does
+// not provide, so changing its rail cannot erase those preferences.
+func (a *App) FeaturePreferences() ([]string, map[string]bool) {
+	pins := make(map[string]bool, len(a.unpinned))
+	for id, unpinned := range a.unpinned {
+		pins[id] = !unpinned
+	}
+	return slices.Clone(a.features), pins
+}
+
+func (a *App) SetFeaturePreferences(order []string, pins map[string]bool) {
+	if len(order) > 0 {
+		a.features = a.mergeFeatureOrder(order)
+	}
+	for id, pinned := range pins {
+		f, _ := a.lookupFeature(id)
+		a.unpinned[id] = !pinned && !f.Fixed
+	}
+}
+
+func (a *App) mergeFeatureOrder(order []string) []string {
+	var fixed, middle, last []string
+	seen := map[string]bool{}
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		f, _ := a.lookupFeature(id)
+		switch {
+		case f.Fixed:
+			fixed = append(fixed, id)
+		case f.Last:
+			last = append(last, id)
+		default:
+			middle = append(middle, id)
+		}
+	}
+	for _, p := range a.nativePages {
+		if p.Feature.Fixed {
+			add(p.Feature.ID)
+		}
+	}
+	for _, id := range order {
+		add(id)
+	}
+	for _, p := range a.nativePages {
+		add(p.Feature.ID)
+	}
+	for _, id := range a.features {
+		if _, available := a.pluginFeatures[id]; available {
+			add(id)
+		}
+	}
+	return append(append(fixed, middle...), last...)
+}
+
 // prefs are the preferences of the stage on the window (Prefs).
 func (a *App) prefs() Prefs {
 	p := Prefs{
@@ -128,7 +185,7 @@ func (a *App) prefs() Prefs {
 		p.PanelTabs, p.PanelTab, p.PanelOpen = nil, panel.Tab{}, false
 	}
 	if a.Preview {
-		p.Features, p.Unpinned = a.features, a.unpinnedList()
+		p.Features, p.Unpinned = slices.Clone(a.features), a.unpinnedList()
 		p.SessionOrder = sidebar.Sort(a.Settings.Model.SessionOrder).Preference()
 		p.WelcomeSeen = &a.Welcome.Seen
 	}
@@ -151,13 +208,16 @@ func (a *App) SetPrefs(p Prefs) {
 		// Merged as a profile's are: a saved order keeps the fixed features
 		// in place and gains the ones added since.
 		pins := map[string]bool{}
+		for _, f := range p.Features {
+			pins[f] = true
+		}
 		for _, f := range p.Unpinned {
 			pins[f] = false
 		}
 		a.SetFeaturePreferences(p.Features, pins)
 		a.Settings.Model.SessionOrder = int(sidebar.SortOf(p.SessionOrder))
 	} else {
-		a.previewRail.features, a.previewRail.unpinned = p.Features, p.Unpinned
+		a.previewRail.features, a.previewRail.unpinned = slices.Clone(p.Features), slices.Clone(p.Unpinned)
 		a.previewOrder = p.SessionOrder
 	}
 	a.panes.terminals = nil

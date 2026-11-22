@@ -540,13 +540,13 @@ content_source: Источник
 resource_project_empty: Выберите проект
 resource_follow_conversation: Follow current conversation
 unavailable: Недоступно
-menu_about: О Sailry
+menu_about: О %{app}
 menu_settings: Настройки
 menu_services: Службы
-menu_hide: Скрыть Sailry
+menu_hide: Скрыть %{app}
 menu_hide_others: Скрыть другие
 menu_show_all: Показать все
-menu_quit: Выйти из Sailry
+menu_quit: Выйти из %{app}
 menu_file: Файл
 menu_save: Сохранить
 menu_close_tab: Закрыть вкладку
@@ -1564,7 +1564,7 @@ model_library_embedding: Модели эмбеддингов
 model_library_ocr: Модели OCR
 model_library_speech: Речевые модели
 model_library_decision: Решения
-onboarding_title: Добро пожаловать в Sailry
+onboarding_title: Добро пожаловать в %{app}
 onboarding_description: Подключите модель, чтобы начать
 onboarding_host_unavailable: Хост недоступен
 workspace_host_status: Отключено · Предварительный просмотр интерфейса
@@ -1715,7 +1715,7 @@ updates_view: Открыть
 updates_download: Скачать
 updates_ready: '%{version} готова к установке'
 updates_restart_description: Чернетки будут восстановлены после перезапуска; локальные задачи и терминалы будут остановлены
-updates_current: Sailry обновлен
+updates_current: '%{app} обновлен'
 selection_title: Выделенный текст
 selection_unavailable: Не удалось прочитать выделение
 selection_empty: Текст не выделен
@@ -1734,7 +1734,7 @@ terminal_take_control: Взять под контроль
 terminal_other_controller: Управляется другим устройством
 terminal_unavailable: Терминал недоступен; проверьте подключение к хосту
 updates_network_failed: Не удалось загрузить обновление; повторите попытку
-updates_completed: Sailry был обновлен
+updates_completed: '%{app} был обновлен'
 port_exists: Порт уже добавлен
 port_failed: Не удалось перенаправить; проверьте порт и соединение
 selection_large: Выделение слишком длинное
@@ -2157,15 +2157,15 @@ updates_platform: Обновление для этой платформы нед
 updates_system_unavailable: Не удалось прочитать версию системы
 updates_system_old: Обновление требует более новой системы
 updates_version_old: Выбранное обновление не является более новым
-updates_bundle_required: Установка пакетированного приложения Sailry перед обновлением
+updates_bundle_required: Установка пакетированного приложения %{app} перед обновлением
 updates_io_failed: Не удалось сохранить обновление
 updates_receipt_unread: Просмотр предыдущего обновления перед повторением
-updates_install_failed: Обновление не завершено; перезагрузка Sailry
-updates_restart_failed: Не удалось перезапустить Sailry; откройте его снова
-updates_shutdown_failed: Не удалось остановить локальный Node; перезапустить Sailry
+updates_install_failed: Обновление не завершено; перезагрузка %{app}
+updates_restart_failed: Не удалось перезапустить %{app}; откройте его снова
+updates_shutdown_failed: Не удалось остановить локальный Node; перезапустить %{app}
 updates_install_uncertain: Результат установки не подтвержден; первоначальное приложение было сохранено
 updates_receipt_failed: Обновление было установлено; не удалось сохранить данные восстановления
-updates_profile_inside: Профиль данных находится внутри Sailry; переместите его перед обновлением
+updates_profile_inside: Профиль данных находится внутри %{app}; переместите его перед обновлением
 compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления
 settings_media: Фотомодели СМИ
 settings_media_description: Управление моделями для изображений, аудио и видео задач
@@ -2360,8 +2360,8 @@ queue_halt_unsent: Сообщение не отправлено; оставле�
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 chat_output_limit: Ответ обрезан по лимиту вывода
 chat_turn_limit: Остановлено на лимите действий
-start_failed: Не удалось запустить Sailry
-start_profile_in_use: Sailry уже запущен с этой папкой данных
+start_failed: Не удалось запустить %{app}
+start_profile_in_use: '%{app} уже запущен с этой папкой данных'
 backup_keep: Хранить копий
 backup_keep_all: Все
 backup_keep_last: Последние %{count}

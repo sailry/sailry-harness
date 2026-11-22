@@ -29,7 +29,7 @@ import (
 // RunReplay reads acceptance recordings without opening a Client or a Node.
 // Each recorded snapshot goes through the production projection and shell in
 // its original order; the Tester's clock advances without wall-clock sleeps.
-func RunReplay(ctx context.Context, directory string, emit func(core.CaseResult)) core.Report {
+func RunReplay(ctx context.Context, directory string, emit func(core.CaseResult), pages ...shell.NativePage) core.Report {
 	report := core.Report{Version: 1, Suite: "replay", Started: time.Now().UTC()}
 	add := func(result core.CaseResult) {
 		report.Cases = append(report.Cases, result)
@@ -56,7 +56,7 @@ func RunReplay(ctx context.Context, directory string, emit func(core.CaseResult)
 			} else if recording, readErr := core.ReadRecording(directory, id); readErr != nil {
 				result.Detail = "The acceptance recording is invalid or unreadable"
 			} else {
-				result = replayRecording(ctx, recording, result)
+				result = replayRecording(ctx, recording, result, pages...)
 			}
 			add(result)
 		}
@@ -68,10 +68,10 @@ func RunReplay(ctx context.Context, directory string, emit func(core.CaseResult)
 	return report
 }
 
-func replayRecording(ctx context.Context, recording core.RecordingSession, result core.CaseResult) (out core.CaseResult) {
+func replayRecording(ctx context.Context, recording core.RecordingSession, result core.CaseResult, pages ...shell.NativePage) (out core.CaseResult) {
 	started := time.Now()
 	out = result
-	w := &window{ctx: ctx, result: &out}
+	w := &window{ctx: ctx, result: &out, pages: pages}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			out.Status, out.Detail = "failed", "Recorded UI replay panicked"
@@ -107,7 +107,7 @@ func replayRecording(ctx context.Context, recording core.RecordingSession, resul
 	w.evidence("replay_scope", scope)
 	w.evidence("recording", fmt.Sprintf("%d recorded snapshots; %d dropped snapshots; capture truncated=%t", len(recording.Frames), recording.DroppedFrames, recording.Truncated))
 	cv := &viewmodel.Conversation{ID: recording.Session.String(), Node: recording.Node.String(), Title: "Recorded conversation"}
-	w.app = shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}})
+	w.app = shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}}, w.pages...)
 	w.app.Effects, w.app.NavOpen = false, false
 	w.app.Sidebar.Selected = cv.ID
 	// The default live shell is read-only without action adapters. Links are
@@ -447,7 +447,7 @@ func (probe *recordedReplyProbe) check(parent *window, turns []conversation.Turn
 	}
 	if probe.w == nil {
 		probe.cv = &viewmodel.Conversation{ID: parent.result.Session, Title: "Recorded reply"}
-		probe.w = &window{ctx: parent.ctx, result: parent.result, app: shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{probe.cv}, Workspace: &viewmodel.Workspace{}})}
+		probe.w = &window{ctx: parent.ctx, result: parent.result, pages: parent.pages, app: shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{probe.cv}, Workspace: &viewmodel.Workspace{}}, parent.pages...)}
 		probe.w.app.Effects, probe.w.app.NavOpen = false, false
 		probe.w.app.Sidebar.Selected = probe.cv.ID
 		probe.w.tester = ui.NewTesterWith(probe.w.app.View, 1280, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
@@ -636,11 +636,11 @@ func inspectRecordedCall(parent *window, turn *conversation.Turn, call conversat
 	if call.Output == nil {
 		return errors.New("The expanded recorded tool has no output projection")
 	}
-	w := &window{ctx: parent.ctx, result: parent.result}
+	w := &window{ctx: parent.ctx, result: parent.result, pages: parent.pages}
 	cv := &viewmodel.Conversation{ID: parent.result.Session, Title: "Recorded tool", Turns: []conversation.Turn{{
 		ID: turn.ID, Reply: conversation.Reply{Status: turn.Reply.Status, Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{call}}}},
 	}}}
-	w.app = shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}})
+	w.app = shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}}, w.pages...)
 	w.app.Effects, w.app.NavOpen = false, false
 	w.app.Sidebar.Selected = cv.ID
 	w.app.Messages.OpenLink = func(*ui.Context, string, string) bool { return true }

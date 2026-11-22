@@ -25,7 +25,7 @@ func TestRailOpensPages(t *testing.T) {
 	tt.Advance(time.Second)
 	tt.Frame()
 	if a.Page != FilesPage || len(a.Panel.Tabs) != 0 || a.PanelOpen {
-		t.Fatalf("Files opened page %d, tabs %v, panel %v", a.Page, a.Panel.Tabs, a.PanelOpen)
+		t.Fatalf("Files opened page %q, tabs %v, panel %v", a.Page, a.Panel.Tabs, a.PanelOpen)
 	}
 	if !tt.HasText("A native desktop Agent workspace.") || !tt.HasText("example.md") {
 		t.Fatalf("no files page: %q", tt.Texts())
@@ -34,7 +34,7 @@ func TestRailOpensPages(t *testing.T) {
 	clickButton(t, tt, i18n.In("en", "git"))
 	tt.Frame()
 	if a.Page != GitPage || len(a.Panel.Tabs) != 0 || !codeHas(tt, "New text", "workspace: three flat panels") {
-		t.Fatalf("Git opened page %d, tabs %v: %q", a.Page, a.Panel.Tabs, tt.Texts())
+		t.Fatalf("Git opened page %q, tabs %v: %q", a.Page, a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "page-git")
 	for _, f := range []struct {
@@ -44,7 +44,7 @@ func TestRailOpensPages(t *testing.T) {
 		clickButton(t, tt, i18n.In("en", f.label))
 		tt.Frame()
 		if a.Page != f.page {
-			t.Errorf("%s opened page %d", f.label, a.Page)
+			t.Errorf("%s opened page %q", f.label, a.Page)
 		}
 	}
 	// Selecting a conversation over a project page goes back to it. The
@@ -58,7 +58,7 @@ func TestRailOpensPages(t *testing.T) {
 	a.Sidebar.Selected = "sailry-go/theme"
 	tt.Frame()
 	if a.Page != ConversationPage {
-		t.Errorf("selecting a conversation kept page %d", a.Page)
+		t.Errorf("selecting a conversation kept page %q", a.Page)
 	}
 	t.Run("project overview captures its owner", func(t *testing.T) {
 		local := &viewmodel.Project{
@@ -204,7 +204,7 @@ func testLiveProjectPages(t *testing.T) {
 		Projects:   []*viewmodel.Project{project},
 		Unassigned: []*viewmodel.Conversation{{Node: "node", ID: "loose", Title: "Loose session"}},
 		Workspace:  &viewmodel.Workspace{},
-	})
+	}, TestHarnessPages()...)
 	app.Sidebar.Selected = "session"
 	workspace := &viewmodel.Workspace{
 		Files:   &viewmodel.FileNode{Name: "project", Children: []*viewmodel.FileNode{{Name: "main.go", Path: "main.go"}}},
@@ -265,7 +265,7 @@ func testLiveProjectPages(t *testing.T) {
 		app.Navigate(page)
 		tester.Frame()
 		if !tester.HasText(prompt) || tester.HasText(unavailable) || app.Sidebar.Editing() {
-			t.Fatalf("page %d without a project: %q", page, tester.Texts())
+			t.Fatalf("page %q without a project: %q", page, tester.Texts())
 		}
 	}
 	clickButton(t, tester, create)
@@ -551,6 +551,6 @@ func testSearchOpensProject(t *testing.T) {
 	tt.Frame()
 	choose(a, tt, a.Data.Projects[0].Name)
 	if a.Page != ConversationPage || !a.NavOpen {
-		t.Fatalf("the preview's project: page %d, sidebar %v", a.Page, a.NavOpen)
+		t.Fatalf("the preview's project: page %q, sidebar %v", a.Page, a.NavOpen)
 	}
 }

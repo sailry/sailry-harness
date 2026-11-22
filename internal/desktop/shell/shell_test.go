@@ -25,9 +25,13 @@ import (
 // frosted surfaces fall back to their opaque fill under Reduce Transparency.
 var opaque = ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}}
 
+// The external test package supplies the same page definitions as the desktop
+// binaries without making the shell import the modules that depend on it.
+var TestHarnessPages func() []NativePage
+
 func newTester(t *testing.T) (*App, *ui.Tester) {
 	t.Helper()
-	a := New(preview.Load())
+	a := New(preview.Load(), TestHarnessPages()...)
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("en")
 	tt.Frame()
@@ -404,7 +408,7 @@ func TestSettingsNavigation(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "Settings")
 	if a.Page != SettingsPage || a.Settings.Section != settings.General {
-		t.Fatalf("page %d section %q", a.Page, a.Settings.Section)
+		t.Fatalf("page %q section %q", a.Page, a.Settings.Section)
 	}
 	click(t, tt, i18n.In("en", "settings_providers"))
 	snapshot(t, tt, "providers-light")
@@ -475,7 +479,7 @@ func TestSettingsNavigation(t *testing.T) {
 		open()
 		tt.Advance(time.Second)
 		if a.Page != SettingsPage || a.Settings.Details != nil {
-			t.Fatalf("Settings came back on page %d with details %+v", a.Page, a.Settings.Details)
+			t.Fatalf("Settings came back on page %q with details %+v", a.Page, a.Settings.Details)
 		}
 	}
 	// Back to the conversation, the rail's Chats.

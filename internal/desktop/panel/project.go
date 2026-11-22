@@ -25,13 +25,6 @@ type Project struct {
 	// DocumentsLocked temporarily prevents new edits while the application
 	// installs an update and the local Node can no longer save drafts.
 	DocumentsLocked func() bool
-	// reveal shows a file of the tree in the host's Files, as the host
-	// showing the project last sets it.
-	reveal func(path string)
-	// stacked and narrow are the layout of the host building the project
-	// (pair): its list above its document, and a document too narrow for a
-	// diff side by side.
-	stacked, narrow bool
 }
 
 // FileView is the Files component's state: the files open, each with its

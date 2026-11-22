@@ -11,7 +11,7 @@ import (
 // editor on that choice; the editor's first Back reopens the guide
 // (welcome_provider, launch).
 func (a *App) welcome(c *ui.Context) {
-	onboarding.View(c, &a.Welcome, func() {
+	onboarding.View(c, &a.Welcome, a.Settings.ProductName, func() {
 		settings.ProviderPicker(c, a.Settings, func() {
 			a.Welcome.Open, a.Welcome.Seen = false, true
 			a.Navigate(SettingsPage)

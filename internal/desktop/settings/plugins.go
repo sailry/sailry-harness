@@ -110,14 +110,14 @@ var tints = []string{"blue", "violet", "teal", "amber", "gray"}
 // markup in error.
 var ownIcons sync.Map
 
-// iconTile is a record's icon on a size DIPs square tile, radius 11 at 36.
+// IconTile is a record's icon on a size DIPs square tile, radius 11 at 36.
 // A glyph (a Phosphor or Reicon name, or the record's own SVG) is white,
 // 5/9 of the tile, on the gradient of the declared tint, or of the tint the
 // name hashes to. A brand mark ("ailogo:<slug>") is drawn on a neutral
 // tile, in the brand's colors where the collection has them and in the
 // foreground color otherwise. fallback is the glyph of a record declaring
 // no icon and of a name nothing draws.
-func iconTile(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32) {
+func IconTile(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32) {
 	tile := ui.Row(c).Size(size, size).Shrink(0).Radius(size * 11 / 36).Center()
 	if mark, colored := icons.PluginBrand(icon); mark != nil {
 		pal := theme.Of(c)
@@ -262,7 +262,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 		desc = msg
 	}
 	busy := m.Busy[BusyPackage+p.ID]
-	kit.ResourceCard(c, p.ID, p.Name, desc, func() { iconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
+	kit.ResourceCard(c, p.ID, p.Name, desc, func() { IconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
 		if busy {
 			// Its update, switch or removal runs: the spinner, and no press.
 			kit.BusyAction(c.Key("busy"), p.Name)
@@ -623,7 +623,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 						if ui.Checkbox(c.Key("check"), &on, "").Label(p.Name).Changed() {
 							e.chosen[p.ID] = on
 						}
-						iconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, 28)
+						IconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, 28)
 						ui.Column(c).Grow(1).Gap(2).Children(func() {
 							ui.Text(c, p.Name).FontSize(14).FontWeight(500)
 							ui.Text(c, t("plugins_update_version", "version", p.Latest)).FontSize(12).TextColor(pal.MutedForeground)

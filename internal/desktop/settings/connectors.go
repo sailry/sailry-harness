@@ -265,7 +265,7 @@ func (m *Model) service(id string) *preview.Service {
 // serviceTile is a service's icon: the one its connector or package
 // declares, the plug for none.
 func serviceTile(c *ui.Context, name, icon string) {
-	iconTile(c, name, icon, "", icons.Plug, kit.TileSize)
+	IconTile(c, name, icon, "", icons.Plug, kit.TileSize)
 }
 
 // statusView is a problem as muted text, a spinner while connecting, a dot

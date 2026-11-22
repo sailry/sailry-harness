@@ -18,7 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// pageTester shows a project's Files or Git page, in English.
+// pageTester hosts the shared workspace controls in two test columns.
 func pageTester(t *testing.T, k Kind) (*Project, *ui.Tester) {
 	t.Helper()
 	pr := NewProjects(preview.Load().Workspace).Of("sailry-go")
@@ -33,18 +33,41 @@ func pageTester(t *testing.T, k Kind) (*Project, *ui.Tester) {
 	return pr, tt
 }
 
-// pageView supplies the two Shell slots without importing the Shell,
-// which depends on panel. Project's compact tab width is fixture layout.
+// pageView isolates the shared workspace controls from the shell's own layout.
 func pageView(c *ui.Context, k Kind, pr *Project) {
 	box := ui.Row(c).Fill().MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
-	PageKeys(c, k, pr, box)
+	if k == Changes {
+		pr.GitKeys(c, box)
+	}
 	box.Children(func() {
-		ui.Column(c.Key("document")).Grow(1).MinWidth(0).MinHeight(0).Children(func() { Page(c, k, pr, func() {}) })
+		ui.Column(c.Key("document")).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
+			document := ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0)
+			width := document.LayoutBounds().W
+			document.Children(func() {
+				pr.show(k, pr.shown(k))
+				pr.ActionDialog(c)
+				pr.DocumentTabs(c, k)
+				if k == Files {
+					pr.FileEditor(c, pr.Files.File(), true)
+					return
+				}
+				pr.GitDiff(c, pr.Git.Change(), width)
+				pr.GitDialogs(c)
+			})
+		})
 		width := pr.Git.side
 		if k == Files {
 			width = pr.Files.side
 		}
-		ui.Column(c.Key("details")).Width(width).Shrink(0).MinHeight(0).Children(func() { PageDetails(c, k, pr) })
+		ui.Column(c.Key("details")).Width(width).Shrink(0).MinHeight(0).Children(func() {
+			ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
+				if k == Files {
+					pr.FileTree(c, true, pr.Files.Show)
+					return
+				}
+				pr.GitRepository(c, true, false, pr.Git.Show, func(string) {})
+			})
+		})
 	})
 }
 
@@ -110,7 +133,11 @@ func TestGitPage(t *testing.T) {
 		pr.Actions = &Actions{Git: func(_ *ui.Context, action GitAction) { sent = action }}
 		pr.SetGitState(GitState{Known: true, Kind: "directory"})
 		tt := ui.NewTester(func(c *ui.Context) {
-			ui.Column(c).Fill().Children(func() { PageDetails(c, Changes, pr) })
+			ui.Column(c).Fill().Children(func() {
+				ui.Column(c.Key(Changes)).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
+					pr.GitRepository(c, true, false, pr.Git.Show, nil)
+				})
+			})
 		}, 320, 640)
 		tt.SetLocale("en")
 		tt.Frame()

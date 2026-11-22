@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -10,16 +11,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
-// Website and Feedback are the Help menu's pages.
-const (
-	Website  = "https://sailry.dev"
-	Feedback = "https://github.com/sailry/sailry-harness/issues"
-)
-
 // Menu is the native app menu in lang: App, File, Edit, View, Window and
 // Help, with the reference's items on the keys they have now (syncMenuKeys
 // follows a rebound one), then the rail's features in View. The app's items send their command's ID through send, which
-// cmd/sailry-desktop passes to Do: the menu takes their keys before the
+// the application passes to Do: the menu takes their keys before the
 // window does. The system's items are MyGo's roles under the reference's
 // labels and keys: the menu binds Close Window, Hide, Hide Others, Minimize
 // and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Minimize
@@ -28,7 +23,8 @@ const (
 // the focused live editor. Logs stays disabled without a live log folder
 // (Hooks.OpenLogs). Help also opens the welcome guide.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
-	t := func(key string) string { return i18n.In(lang, key) }
+	name := cmp.Or(a.Settings.ProductName, i18n.In(lang, "app"))
+	t := func(key string) string { return i18n.In(lang, key, "app", name) }
 	a.menuKeys = nil
 	item := func(label, id string) *mygo.MenuItem {
 		it := &mygo.MenuItem{ID: id, Label: t(label), Click: func(*mygo.MenuItem, *mygo.Window) { send(id) }}
@@ -86,8 +82,16 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			view = append(view, item(f.Label, f.ID))
 		}
 	}
+	var help []*mygo.MenuItem
+	if a.Website != "" {
+		help = append(help, item("menu_website", "help.website"))
+	}
+	if a.Feedback != "" {
+		help = append(help, item("menu_feedback", "help.feedback"))
+	}
+	help = append(help, logs, sep(), item("onboarding_title", "app.welcome"))
 	return []*mygo.MenuItem{
-		{Label: t("app"), Submenu: []*mygo.MenuItem{
+		{Label: name, Submenu: []*mygo.MenuItem{
 			item("menu_about", "app.about"),
 			sep(),
 			item("menu_settings", "app.settings"),
@@ -132,13 +136,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			sep(),
 			role("menu_bring_all_to_front", mygo.RoleFront, 0, 0),
 		}},
-		{Label: t("menu_help"), Submenu: []*mygo.MenuItem{
-			item("menu_website", "help.website"),
-			item("menu_feedback", "help.feedback"),
-			logs,
-			sep(),
-			item("onboarding_title", "app.welcome"),
-		}},
+		{Label: t("menu_help"), Submenu: help},
 	}
 }
 

@@ -1,8 +1,11 @@
 package link
 
-import "github.com/sailry/sailry-harness/internal/protocol"
+import (
+	"github.com/sailry/sailry-harness/internal/identity"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
 
-var ProductVersion = "0.2.7"
+var ProductVersion = identity.OfficialVersion
 
 func CheckHost(hostProtocol *uint16, hostVersion *string) error {
 	local := uint16(protocol.VERSION)

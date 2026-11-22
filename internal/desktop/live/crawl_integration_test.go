@@ -20,6 +20,7 @@ import (
 
 	"github.com/egoist/mygo/plugins/permissionflow"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -163,7 +164,7 @@ func newCrawlDesk(t *testing.T, ctx context.Context) *crawlDesk {
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile), desktop.Harness()...)
 	if err != nil {
 		_ = controller.Close()
 		t.Fatal(err)
@@ -335,7 +336,7 @@ func crawlScenes() []crawlScene {
 	for _, page := range []struct {
 		name string
 		page shell.Page
-	}{{"files", shell.FilesPage}, {"git", shell.GitPage}, {"activity", shell.ActivityPage}, {"market", shell.MarketPage},
+	}{{"files", shell.FilesPage}, {"git", shell.GitPage}, {"market", shell.MarketPage},
 		{"host", shell.HostPage}, {"notifications", shell.NotificationsPage}} {
 		scenes = append(scenes, crawlScene{"page/" + page.name, func(d *crawlDesk) {
 			conversation(d)

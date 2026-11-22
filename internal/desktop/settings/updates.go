@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"cmp"
 	"fmt"
 	"time"
 
@@ -98,7 +99,7 @@ func (u *Updater) advance(now time.Time, experience bool) bool {
 		}
 		if experience {
 			u.State = UpdateIdle
-			u.Failure = &UpdateFailure{"updates_network_failed", "The preview reaches no release feed: `GET https://sailry.dev/releases/experience.json` was not sent."}
+			u.Failure = &UpdateFailure{"updates_network_failed", "The preview does not contact a release feed."}
 			return false
 		}
 		u.State, u.Version = UpdateAvailable, "0.2.0-preview"
@@ -135,13 +136,14 @@ func (u *Updater) start(s UpdateState, now time.Time) {
 func updates(c *ui.Context, m *Model) {
 	u := &m.Updater
 	p := theme.Of(c)
+	name := cmp.Or(m.ProductName, i18n.T(c, "app"))
 	// The real updater reports its own state and toasts in every window.
 	live := m.UpdateActions
 	if live == nil {
 		if u.advance(c.Now(), m.Channel == 1) {
 			c.After(50 * time.Millisecond)
 		}
-		u.notify(c)
+		u.notify(c, name)
 	}
 	if u.State != UpdateReady || u.Version != u.deferred {
 		u.deferred = ""
@@ -196,7 +198,7 @@ func updates(c *ui.Context, m *Model) {
 			version := u.Version
 			switch {
 			case u.Failure != nil && (u.State == UpdateIdle || u.State == UpdateAvailable):
-				row(mark(icons.TriangleAlert, p.Danger), i18n.T(c, u.Failure.Key), m.Version, func() {
+				row(mark(icons.TriangleAlert, p.Danger), i18n.T(c, u.Failure.Key, "app", name), m.Version, func() {
 					kit.Secondary(c.Key("details"), i18n.T(c, "updates_details")).OnClick(func() { u.details = true })
 					kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(check)
 				}, nil)
@@ -259,13 +261,13 @@ func updates(c *ui.Context, m *Model) {
 func megabytes(n int64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
 
 // notify reports the updater's latest outcome once.
-func (u *Updater) notify(c *ui.Context) {
+func (u *Updater) notify(c *ui.Context, name string) {
 	if u.State == UpdateReady && u.shown != UpdateReady {
 		version := u.Version
 		kit.Toast(c, kit.Done, i18n.T(c, "updates_ready", "version", version))
 	}
 	if f := u.Failure; f != nil && f != u.shownFailure {
-		kit.Toast(c, kit.Failed, i18n.T(c, f.Key))
+		kit.Toast(c, kit.Failed, i18n.T(c, f.Key, "app", name))
 	}
 	u.shown, u.shownFailure = u.State, u.Failure
 }

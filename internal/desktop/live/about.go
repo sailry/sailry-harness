@@ -1,6 +1,7 @@
 package live
 
 import (
+	"cmp"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -13,7 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
-	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 )
 
@@ -23,6 +24,7 @@ import (
 // Updates is the process's update service as its windows share it.
 type Updates struct {
 	Service *updater.Service
+	version string
 	channel atomic.Int32 // settings' channel index the service checks for
 	mu      sync.Mutex
 	windows []*Runtime
@@ -42,11 +44,11 @@ type updateInstall struct {
 // updater keeps its staged downloads beside the preferences; profile is the
 // data directory an installation must not replace, stop ends the Node before
 // the bundle is swapped and quit ends the process for the relaunch.
-func NewUpdates(prefs *preferences.Store, profile string, stop func() error, quit func()) *Updates {
-	updates := &Updates{}
-	updates.channel.Store(int32(updateChannel(prefs.Data.UpdateChannel, link.ProductVersion)))
+func NewUpdates(product identity.Desktop, prefs *preferences.Store, profile string, stop func() error, quit func()) *Updates {
+	updates := &Updates{version: product.Version}
+	updates.channel.Store(int32(updateChannel(prefs.Data.UpdateChannel, product.Version)))
 	updates.Service = updater.New(updater.Options{
-		Version: link.ProductVersion, Directory: filepath.Join(filepath.Dir(prefs.Path), "updater"), Profile: profile,
+		Version: product.Version, Release: product.Release, Directory: filepath.Join(filepath.Dir(prefs.Path), "updater"), Profile: profile,
 		Channel: func() updater.Channel {
 			if updates.channel.Load() == 1 {
 				return updater.Experience
@@ -88,7 +90,8 @@ func (r *Runtime) SetUpdates(updates *Updates, focused func() bool, flush ...fun
 		updates.install.windows[r] = 0
 	}
 	m := r.App.Settings
-	m.Version, m.Build = link.ProductVersion, "settings_build_debug"
+	m.Version, m.Build = updates.version, "settings_build_debug"
+	m.Channel = int(updates.channel.Load())
 	if telemetry.BuildRevision != "" {
 		m.Build = "settings_build_release"
 	}
@@ -149,7 +152,10 @@ func (r *Runtime) updateDocumentsPending() bool {
 }
 
 func (r *Runtime) updateInstallFailure(key string) {
-	r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+	r.enqueue(func(c *ui.Context) {
+		name := cmp.Or(r.App.Settings.ProductName, i18n.T(c, "app"))
+		kit.Toast(c, kit.Failed, i18n.T(c, key, "app", name))
+	})
 }
 
 func (u *Updates) cancelInstall(pending *updateInstall, key string) {
@@ -318,7 +324,8 @@ func (r *Runtime) aboutFrame(c *ui.Context) {
 		return
 	}
 	for _, notice := range service.Notices() {
-		title := i18n.T(c, notice.Key)
+		name := cmp.Or(m.ProductName, i18n.T(c, "app"))
+		title := i18n.T(c, notice.Key, "app", name)
 		if notice.Version != "" {
 			title = i18n.T(c, "updates_ready", "version", notice.Version)
 		}

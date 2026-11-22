@@ -8,39 +8,20 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// sourceDefault is the profile of builds made from a checkout.
-const sourceDefault = "~/.sailry-go"
-
 // Default is set to the release profile by packaging through -ldflags -X.
-var Default = sourceDefault
+var Default = identity.SourceProfile
 
 // Release reports a build whose profile default packaging replaced. Release
 // builds load native code only from their package.
-func Release() bool { return Default != sourceDefault }
+func Release() bool { return Default != identity.SourceProfile }
 
 // DefaultDataDir resolves the profile location without creating or opening it.
 func DefaultDataDir() (string, error) {
-	if filepath.IsAbs(Default) {
-		return Default, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("user home directory is unavailable; specify --data-dir: %w", err)
-	}
-	return dataDirFromHome(Default, home)
-}
-
-func dataDirFromHome(location, home string) (string, error) {
-	if !filepath.IsAbs(home) {
-		return "", errors.New("user home directory is unavailable; specify --data-dir")
-	}
-	if !strings.HasPrefix(location, "~/") {
-		return "", errors.New("default data directory must be absolute or home-relative; specify --data-dir")
-	}
-	return filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(location, "~/"))), nil
+	return identity.ResolveProfile(Default)
 }
 
 // Profile holds exclusive Node ownership until Close. Its lock file stays linked.

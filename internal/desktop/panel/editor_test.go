@@ -256,7 +256,7 @@ func TestEditorContracts(t *testing.T) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Children(func() {
 				pr.liveFileEditor(c, "note.txt", true)
-				pr.promptDialog(c)
+				pr.ActionDialog(c)
 			})
 		}, 1000, 700)
 		tester.SetLocale("en")

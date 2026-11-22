@@ -4,7 +4,9 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -12,6 +14,8 @@ import (
 func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
+		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
+		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind = 1
 		hubReady := make(chan struct{})
@@ -116,6 +120,8 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
+		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
+		r.App.Navigate(shell.MarketPage)
 		m := r.App.Settings.Model
 		m.MarketKind, m.MarketSkillSource = 1, settings.SkillMarketSkillsSh
 		var requests []protocol.CommandSearchSkillCatalogPayload

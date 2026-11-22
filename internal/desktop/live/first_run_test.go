@@ -936,7 +936,7 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 	menu("inner")
 	pick(zh("workspace_project"))
 	if _, id, shown := r.App.ProjectOwner(); !shown || id != project.ID.String() {
-		t.Fatalf("Project overview shows page %d, project %q", r.App.Page, id)
+		t.Fatalf("Project overview shows page %q, project %q", r.App.Page, id)
 	}
 	r.App.Navigate(shell.ConversationPage)
 	settle()

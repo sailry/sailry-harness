@@ -16,6 +16,7 @@ import (
 func TestMountedSendAdmissionFrames(t *testing.T) {
 	const message = "Check the remaining files"
 	const earlier = "Inspect the project"
+	const locale = "en"
 	for _, tc := range []struct {
 		name, command           string
 		history, busy, ackFirst bool
@@ -71,6 +72,9 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 			var ctx *composer.Context
 			var ack bool
 			tt := ui.NewTesterWith(func(c *ui.Context) {
+				if c.Locale() != locale {
+					return
+				}
 				theme.Apply(c, "", theme.Light)
 				if ack {
 					applyOverviewCallbacks(r, c)
@@ -88,13 +92,13 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 					conversation.Docked(c, r.App.Messages, cv.ID, cv.Turns, &cv.Session, x, func() { composer.View(c, comp, ctx, x) })
 				})
 			}, 1050, 950, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
-			tt.SetLocale("en")
+			tt.SetLocale(locale)
 			tt.SetFocused(true)
 			tt.Move(-1, -1)
 			comp.Focus()
 			tt.Frame()
 			tt.Advance(time.Second / 60)
-			editor := i18n.In("en", "composer")
+			editor := i18n.In(locale, "composer")
 			field, ok := tt.AccessByRole(ui.RoleTextField, editor)
 			if !ok || !field.Focused || field.Bounds.W <= 0 || field.Bounds.H <= 0 {
 				t.Fatalf("draft editor hidden or unfocused before typing: %+v", field)

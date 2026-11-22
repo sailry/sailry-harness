@@ -130,7 +130,8 @@ do not use them for routine automated checks. Tests use `t.TempDir()`.
 
 | Path | Responsibility |
 |---|---|
-| `cmd/sailry-desktop` | Desktop composition, shared local Node and explicit preview startup |
+| `cmd/sailry-desktop` | Official Desktop command and packaging |
+| `internal/desktop/application` | Reusable Desktop startup, shared local Node and explicit preview |
 | `internal/desktop/{shell,sidebar,conversation,composer,panel,panes,settings,host,transfers,onboarding}` | Accepted UI, state machines, view models and actions |
 | `internal/desktop/{kit,theme,i18n,icons,viewmodel}` | Shared UI components, themes, copy, icons and neutral presentation contracts |
 | `internal/desktop/{live,preferences,preview}` | Live action adapters, profile controller settings and isolated simulation |
@@ -476,18 +477,29 @@ synchronizer adds compatible tables and fields. When no active database files
 exist, startup initializes new Turso storage; it does not migrate older archives
 or preview `.sqlite` files and leaves them untouched. Node identity,
 controller preferences, themes and file trees remain in place.
-`cmd/sailry-desktop/upgrade_integration_test.go` checks this with real native
-databases initialized from the recorded Rust schema.
+`internal/desktop/application/upgrade_integration_test.go` checks this with real
+native databases initialized from the recorded Rust schema. Run it with
+`just test-integration ./internal/desktop/application`.
 
 The Desktop update feed is written by
 `go run ./internal/desktop/updater/cmd/update-feed -version <version> -output
 <dir> <target>=<unsigned zip>...` with the publisher key in
 `SAILRY_UPDATE_SIGNING_KEY`, which must belong to
-`internal/desktop/updater/update-public-keys.txt`. For both macOS targets it
+`internal/identity/update-public-keys.txt`. For both macOS targets it
 writes the signed `Sailry-<triple>.zip`, its `.zip.update.json` and the signed
 catalog `update-v1.json`, then checks them with the updater's own
 verification. `TestPublishedRelease` proves the format with a throwaway key.
 The updater has no Windows installer, so the feed covers macOS only.
+
+Fork Desktop commands select their identity, profile and release settings in Go
+and use matching native packaging metadata. Use `updater.PublishRelease` with
+the same `DesktopRelease` when signing a fork feed. Packaged builds set the
+existing release `core.Default` linker flag to the product's installed profile
+to keep native libraries confined to the package. The fork fixture selects the
+published official Host. SSH and WSL resolve its tag from the official release
+repository independently of the fork Desktop version. A separately distributed
+Host requires its own package source and distinct program, profile and service
+paths.
 
 `internal/node/host/deployment/archive.sh [-artifacts <dir>]` assembles the
 Host archive of the machine it runs on. Each archive

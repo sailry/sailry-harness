@@ -34,7 +34,7 @@ type library struct {
 	hub             int
 	query, searched string
 	typed           time.Time // when the query last changed
-	end             scrollEnd
+	end             ScrollEnd
 	info, removing  string
 	kind            string
 	serial          uint64
@@ -190,7 +190,7 @@ func hubModels(c *ui.Context, m *Model, repos map[string]bool) {
 // end, or does not fill its height, as the frame laid it out with the rows
 // shown: a page whose rows just arrived waits for the next layout.
 func moreLibrary(c *ui.Context, m *Model, rows int) {
-	nearEnd := m.library.end.reached(c, &m.pageScroll, rows)
+	nearEnd := m.library.end.Reached(c, &m.pageScroll, rows)
 	if !nearEnd || !m.Live || !m.LibraryMore || m.LibraryLoad.Loading {
 		return
 	}
@@ -199,16 +199,16 @@ func moreLibrary(c *ui.Context, m *Model, rows int) {
 	}
 }
 
-// scrollEnd checks the scroll extent after MyGo has laid out newly added rows.
+// ScrollEnd checks the scroll extent after MyGo has laid out newly added rows.
 // A short page can load its next page without a scroll gesture.
-type scrollEnd struct {
+type ScrollEnd struct {
 	rows  int
 	ready bool
 }
 
-func (end *scrollEnd) reached(c *ui.Context, scroll *ui.ScrollState, rows int) bool {
+func (end *ScrollEnd) Reached(c *ui.Context, scroll *ui.ScrollState, rows int) bool {
 	if !end.ready || rows != end.rows {
-		*end = scrollEnd{rows: rows, ready: true}
+		*end = ScrollEnd{rows: rows, ready: true}
 		c.After(time.Millisecond)
 		return false
 	}

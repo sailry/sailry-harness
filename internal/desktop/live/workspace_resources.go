@@ -141,7 +141,9 @@ func (p *workspaceProject) readCheckpointHistory(page protocol.ConversationPage)
 	if page.NextBefore == nil || p.resourceOlder {
 		return
 	}
-	if app.Page == shell.GitPage || app.Page == shell.ConversationPage && app.PanelOpen && (app.Panel.Active.Kind == panel.History || app.Panel.Active.Kind == panel.Changes) {
+	root := p.runtime.localRuntime()
+	if root.showingResourcePage() && app.ResourceKind() == panel.Changes && root.shownResourceWorkspace() == p ||
+		app.Page == shell.ConversationPage && app.PanelOpen && (app.Panel.Active.Kind == panel.History || app.Panel.Active.Kind == panel.Changes) {
 		p.resourceOlder = true
 		p.readOlderResources(p.session, page.NextBefore)
 	}

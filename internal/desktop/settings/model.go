@@ -268,33 +268,13 @@ type Model struct {
 	teamRemoving string
 	roleRemoving string
 
-	// Plugins, Skills, Market and the model library (plugins*, skills,
-	// market*, model_library*): the installed packages, the market's
-	// plugins, skills and themes, the installed skills and the library's
-	// models, with the pages' searches and filters.
-	Packages          []preview.Package
-	MarketPlugins     []preview.Package
-	SkillList         []preview.Skill
-	MarketSkills      []preview.Skill
-	Themes            []preview.MarketTheme
-	Library           []preview.LibraryModel
-	SkillQuery        string
-	MarketKind        int // 0 plugins, 1 skills, 2 themes
-	MarketQuery       string
-	MarketSource      int // 0 official, 1 community
-	MarketSkillSource int
-	MarketCategory    int // of marketCategories
-	MarketMode        int // 0 all, 1 dark, 2 light
-	MarketInstalled   bool
-	// MarketLoad is the catalog's load: the cards' skeleton shows while
-	// it runs, from the market's first frame.
-	MarketLoad preview.Fetch
-	// MarketMore marks a live catalog search with a further page. Pagination
-	// keeps the loaded cards and pauses on failure until the page is retried.
-	MarketMore         bool
-	MarketPaging       bool
-	MarketPagingFailed bool
-	MarketFailed       bool // a first page or plugin catalog failed
+	// Installed packages, installed skills, and the profile's themes.
+	Packages   []preview.Package
+	SkillList  []preview.Skill
+	Themes     []preview.MarketTheme
+	Library    []preview.LibraryModel
+	SkillQuery string
+	MarketCatalog
 	// LibraryLoad is the model library's search: placeholder rows before
 	// its first page, a spinner over the results after. LibraryMore marks
 	// a hub with a further page and LibraryFailed a search that failed,
@@ -381,9 +361,10 @@ type Model struct {
 	ConfigurationActions *ConfigurationActions
 
 	// About.
-	Version string
-	Build   string // the build row's message key, "" for the preview
-	Channel int    // 0 stable, 1 experience
+	ProductName string
+	Version     string
+	Build       string // the build row's message key, "" for the preview
+	Channel     int    // 0 stable, 1 experience
 	// Updater is the app's updater (About).
 	Updater Updater
 	// UpdateActions drive the real updater; nil plays the preview's.
@@ -412,8 +393,9 @@ func NewModel(d *preview.Settings) *Model {
 		Media: stored([4]string{}), MediaOptions: pr.Media,
 		Services: cn.Services, ConnTypes: cn.Types, ConnAccounts: cn.Accounts,
 		Teams: td.Teams, Roles: td.Roles, Concurrency: stored(td.Concurrency),
-		Packages: ex.Packages, MarketPlugins: ex.Catalog, SkillList: ex.Skills, MarketSkills: ex.Market, Themes: ex.Themes, Library: ex.Library,
-		Notify: [4]bool{true, true, true, true}, Toast: 1,
+		Packages: ex.Packages, SkillList: ex.Skills, Themes: ex.Themes, Library: ex.Library,
+		MarketCatalog: MarketCatalog{MarketPlugins: ex.Catalog, MarketSkills: ex.Market},
+		Notify:        [4]bool{true, true, true, true}, Toast: 1,
 		Power:                stored(d.PreventSleep),
 		Telemetry:            stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
 		PersonalInstructions: &PersonalInstructions{Known: true},

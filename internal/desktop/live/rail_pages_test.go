@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -39,7 +40,7 @@ func railPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile), desktop.Harness()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func railPages(t *testing.T) {
 	}{{"files", shell.FilesPage}, {"git", shell.GitPage}} {
 		rail(page.feature)
 		if app.Page != page.page || !tester.HasText(text("resource_project_empty")) || tester.HasText(text("unavailable")) {
-			t.Fatalf("the %s page without a project: page %d, %q", page.feature, app.Page, tester.Texts())
+			t.Fatalf("the %s page without a project: page %q, %q", page.feature, app.Page, tester.Texts())
 		}
 	}
 	if err := tester.Click(text("project_new")); err != nil {
@@ -217,7 +218,7 @@ func railPages(t *testing.T) {
 	r.workspace.projects[session.Worktree].openFileAt("notes.txt", 2)
 	wait("the search result on the Files page", func() bool { return code("rail changed line") })
 	if pr.Files.File() != "notes.txt" || app.Page != shell.FilesPage || app.PanelOpen {
-		t.Fatalf("the search result: file %q, page %d, panel %v", pr.Files.File(), app.Page, app.PanelOpen)
+		t.Fatalf("the search result: file %q, page %q, panel %v", pr.Files.File(), app.Page, app.PanelOpen)
 	}
 
 	// Git: the worktree's changes, a diff read from the Node.

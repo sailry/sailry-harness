@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -27,6 +28,50 @@ func marketSource(m *settings.Model) int {
 	return m.MarketSource
 }
 
+func (r *Runtime) showingMarket() bool {
+	return r.App.Page == shell.MarketPage && r.App.NativePageEnabled(shell.MarketPage) && !r.App.DemoOn()
+}
+
+func (r *Runtime) marketPageFrame(owner *Runtime) {
+	m := r.App.Settings.Model
+	if r.showingMarket() {
+		r.searchPackageMarket(m.MarketKind, marketSource(m), m.MarketQuery, false)
+		return
+	}
+	if owner == nil || owner.packages.marketCancel == nil {
+		return
+	}
+	if !m.MarketPaging {
+		owner.packages.marketKey = ""
+		m.MarketLoad.Loading = false
+	}
+	owner.cancelMarketSearch()
+}
+
+func (r *Runtime) bindMarketActions(actions *settings.PackageActions) {
+	actions.Image = r.marketImage
+	actions.RetryMarket = func() {
+		m := r.App.Settings.Model
+		r.searchPackageMarket(m.MarketKind, marketSource(m), m.MarketQuery, true)
+	}
+	actions.MoreMarket = func() {
+		if owner := r.packageOwner(); owner != nil {
+			owner.loadMoreMarket()
+		}
+	}
+	actions.MarketPlugin = func(id string) {
+		if owner := r.packageOwner(); owner != nil {
+			owner.installMarketPlugin(id)
+		}
+	}
+	actions.MarketSkill = func(id string) {
+		if owner := r.packageOwner(); owner != nil {
+			owner.installMarketSkill(id)
+		}
+	}
+	actions.Theme = r.installMarketTheme
+}
+
 // packageMarketKey names a market search by kind, source and query.
 func packageMarketKey(kind, source int, query string) string {
 	return fmt.Sprintf("%d/%d/%s", kind, source, query)
@@ -42,6 +87,9 @@ func (r *Runtime) cancelMarketSearch() {
 }
 
 func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool) {
+	if !r.showingMarket() {
+		return
+	}
 	owner := r.packageOwner()
 	if kind == 2 {
 		m := r.App.Settings.Model
@@ -52,7 +100,7 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool
 			owner.cancelMarketSearch()
 		}
 		state := r.localRuntime().packages
-		if !state.themeRead {
+		if force || !state.themeRead {
 			r.localRuntime().readThemeCatalog(false)
 		}
 		r.App.Settings.MarketLoad.Loading, r.App.Settings.MarketLoad.Loaded = state.themeBusy["catalog"], state.themeRead && !state.themeBusy["catalog"]
@@ -90,6 +138,9 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool
 // loadMoreMarket pages the search that is still shown, once per turn of the
 // cursor. The same action can retry a failed continuation.
 func (r *Runtime) loadMoreMarket() {
+	if !r.showingMarket() {
+		return
+	}
 	m, state := r.App.Settings.Model, r.packages
 	if state.marketCancel != nil || packageMarketKey(m.MarketKind, marketSource(m), m.MarketQuery) != state.marketKey {
 		return
@@ -122,7 +173,7 @@ func (r *Runtime) readPluginMarketPage(source int, query string, page uint32, fo
 			err = errors.New("unexpected plugin catalog response")
 		}
 		r.enqueue(func(c *ui.Context) {
-			if ctx.Err() != nil || state.marketGeneration != generation || r.localRuntime().packageOwner() != r {
+			if ctx.Err() != nil || !r.showingMarket() || state.marketGeneration != generation || r.packageOwner() != r {
 				return
 			}
 			r.cancelMarketSearch()

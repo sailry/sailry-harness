@@ -1,6 +1,7 @@
 # Native boundaries run in full; shared engine and UI packages use focused regressions.
 cmd/sailry-desktop	all
 internal/core	all
+internal/desktop/application	all
 internal/desktop/updater	all
 internal/hostctl	all
 internal/link	all

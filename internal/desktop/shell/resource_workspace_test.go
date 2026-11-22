@@ -133,7 +133,7 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 	if err := SavePrefs(dir, a.Prefs()); err != nil {
 		t.Fatal(err)
 	}
-	restored := New(preview.Load())
+	restored := New(preview.Load(), TestHarnessPages()...)
 	restored.SetPrefs(LoadPrefs(dir))
 	for _, page := range pages {
 		restored.SetPluginWorkspace(page.key, 0, 260, 320)

@@ -32,8 +32,8 @@ type Look struct {
 	Surfaces *theme.Surfaces
 }
 
-// previewHeight is a theme card's preview (h_24).
-const previewHeight = 96
+// ThemePreviewHeight is a theme card's preview (h_24).
+const ThemePreviewHeight = 96
 
 // appearance shows interface sizing, color mode and effects, transparency,
 // and installed themes with their update and import actions.
@@ -174,7 +174,7 @@ func themeCard(c *ui.Context, pkg *theme.Package, look Look, d *themeDetails) {
 	}
 	b.Children(func() {
 		ui.Column(c).FillWidth().MinWidth(0).Children(func() {
-			miniature(c, pkg, p.Dark)
+			ThemeMiniature(c, pkg, p.Dark)
 			ui.Row(c).FillWidth().Padding(12).Gap(8).Background(p.Surface).Children(func() {
 				ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.SurfaceForeground)
 				if selected {
@@ -217,16 +217,16 @@ func themeCard(c *ui.Context, pkg *theme.Package, look Look, d *themeDetails) {
 	})
 }
 
-// miniature is a theme in miniature in the current mode: its background and
+// ThemeMiniature is a theme in miniature in the current mode: its background and
 // window art, a sidebar column with the emphasis dot and three rows, and a
 // page with a title, a line and a composer.
-func miniature(c *ui.Context, pkg *theme.Package, dark bool) {
+func ThemeMiniature(c *ui.Context, pkg *theme.Package, dark bool) {
 	t := theme.Preview(pkg, dark)
 	art := t.Variant.Asset("background.window")
 	if art == nil {
 		art = t.Variant.Asset("background.content")
 	}
-	box := ui.Row(c).FillWidth().Height(previewHeight).Background(t.Background).AlignItems(ui.Stretch).PassThrough()
+	box := ui.Row(c).FillWidth().Height(ThemePreviewHeight).Background(t.Background).AlignItems(ui.Stretch).PassThrough()
 	if art != nil {
 		box.Draw(func(pt *ui.Painter, r ui.Rect) { kit.PreviewPicture(pt, art, r) })
 	}
@@ -272,7 +272,7 @@ func details(c *ui.Context, d *themeDetails, look Look) {
 				for _, dark := range []bool{false, true} {
 					label := i18n.T(c, map[bool]string{false: "appearance_light", true: "appearance_dark"}[dark])
 					ui.Column(c.Key(dark)).MinWidth(0).Radius(p.RadiusLg).Border(1, p.Border).Clip().Children(func() {
-						miniature(c, pkg, dark)
+						ThemeMiniature(c, pkg, dark)
 						ui.Text(c, label).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					})
 				}

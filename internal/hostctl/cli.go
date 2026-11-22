@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-isatty"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 )
 
@@ -50,7 +51,7 @@ func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive
 		if len(rest) > 0 {
 			return 1, errors.New("version does not take arguments")
 		}
-		_, err := fmt.Fprintln(stdout, "Sailry Host "+link.ProductVersion)
+		_, err := fmt.Fprintln(stdout, identity.OfficialHostVersionTag+link.ProductVersion)
 		return 0, err
 	case "menu":
 		flags := flag.NewFlagSet("menu", flag.ContinueOnError)
@@ -162,7 +163,7 @@ func RunMenu(ctx context.Context, input *bufio.Reader, output io.Writer) (string
 		{"link", "Connect a device"}, {"status", "Host status"}, {"start", "Start Host"},
 		{"stop", "Stop Host"}, {"restart", "Restart Host"}, {"update", "Update Host"}, {"help", "Command help"},
 	}
-	if _, err := fmt.Fprintf(output, "\nSailry Host %s\n", link.ProductVersion); err != nil {
+	if _, err := fmt.Fprintln(output, "\n"+identity.OfficialHostVersionTag+link.ProductVersion); err != nil {
 		return "", err
 	}
 	for index, item := range commands {

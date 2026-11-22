@@ -20,7 +20,7 @@ func TestNativeProjectConfirmation(t *testing.T) {
 			requests = append(requests, request)
 			answer = done
 		})
-		pr.promptDialog(c)
+		pr.ActionDialog(c)
 	}, 600, 400)
 	tester.SetLocale("en")
 	var completed func(bool)

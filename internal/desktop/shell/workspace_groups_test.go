@@ -633,7 +633,7 @@ func TestCloseWithoutTabKeepsPaneKeys(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	if reached != 1 || a.Page != ConversationPage || a.panes.Active != shown {
-		t.Fatalf("⌘W without a tab: reached the window %d, page %d, active %v", reached, a.Page, a.panes.Active)
+		t.Fatalf("⌘W without a tab: reached the window %d, page %q, active %v", reached, a.Page, a.panes.Active)
 	}
 	tt.Key(ui.Cmd, ui.KeyT)
 	tt.Frame()

@@ -486,21 +486,21 @@ func (g gitMenus) root() []action {
 
 // files is a change's, a folder's or a group's right-click menu, acting
 // on every change in it.
-func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryPath ...string) []action {
+func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryPath string, reveal func(string)) []action {
 	var paths []string
 	for _, e := range entries {
 		paths = append(paths, e.Path)
 	}
 	ignorePaths, ignoreDirectory := paths, false
-	if directory && len(directoryPath) > 0 && directoryPath[0] != "" {
-		ignorePaths, ignoreDirectory = []string{directoryPath[0]}, true
+	if directory && directoryPath != "" {
+		ignorePaths, ignoreDirectory = []string{directoryPath}, true
 	}
 	stage := g.pr.stagePaths(entries, len(entries) == 1 && !directory)
 	var out []action
 	if len(entries) == 1 && !directory {
 		e := entries[0]
-		if e.Unstaged != "D" && e.Staged != "D" {
-			out = append(out, g.item("git_open_source", func(*ui.Context) { g.pr.source(e.Path) }, true))
+		if reveal != nil && e.Unstaged != "D" && e.Staged != "D" {
+			out = append(out, g.item("git_open_source", func(*ui.Context) { g.pr.source(e.Path, reveal) }, true))
 		}
 		open := func(scope string) func(*ui.Context) {
 			return func(*ui.Context) { g.pr.showChange(e.Path, scope) }

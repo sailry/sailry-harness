@@ -173,12 +173,8 @@ func (a *App) run(c *ui.Context, id string) {
 	if a.runViewZoom(id) {
 		return
 	}
-	if _, exists := a.pluginFeatures[id]; exists {
+	if _, exists := a.lookupFeature(id); exists {
 		a.openFeature(c, id)
-		return
-	}
-	if p, ok := pageFeatures[id]; ok {
-		a.Navigate(p)
 		return
 	}
 	switch id {
@@ -257,9 +253,13 @@ func (a *App) run(c *ui.Context, id string) {
 	case "app.settings":
 		a.Navigate(SettingsPage)
 	case "help.website":
-		c.OpenURL(Website)
+		if a.Website != "" {
+			c.OpenURL(a.Website)
+		}
 	case "help.feedback":
-		c.OpenURL(Feedback)
+		if a.Feedback != "" {
+			c.OpenURL(a.Feedback)
+		}
 	case "app.welcome":
 		a.Welcome.Open = true
 	case "system.activate":

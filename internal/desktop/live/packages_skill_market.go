@@ -77,7 +77,7 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 				}
 			}
 			r.enqueue(func(c *ui.Context) {
-				if ctx.Err() != nil || state.marketGeneration != generation || r.localRuntime().packageOwner() != r || m.MarketKind != 1 {
+				if ctx.Err() != nil || !r.showingMarket() || state.marketGeneration != generation || r.packageOwner() != r || m.MarketKind != 1 {
 					return
 				}
 				remaining--

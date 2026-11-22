@@ -113,7 +113,7 @@ func TestRetiredIrohSelectionDoesNotBlockNetworkStartup(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if err := node.bindNetwork(ctx, link.NetworkScope{Internet: true, Bind: "127.0.0.1:0"}); err != nil {
+			if err := node.bindNetwork(ctx, link.NetworkScope{Internet: true, Bind: "127.0.0.1:0"}, ""); err != nil {
 				t.Fatal(err)
 			}
 			settings, err := node.readNetwork(ctx)

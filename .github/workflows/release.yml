@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF_TYPE" = tag
           version=${GITHUB_REF_NAME#v}
-          product=$(sed -n 's/^var ProductVersion = "\(.*\)"$/\1/p' internal/link/compatibility.go)
+          product=$(sed -n 's/^[[:space:]]*OfficialVersion[[:space:]]*=[[:space:]]*"\(.*\)"$/\1/p' internal/identity/identity.go)
           desktop=$(jq -r .version cmd/sailry-desktop/mygo.json)
           mobile=$(sed -n 's/^version: //p' apps/mobile/pubspec.yaml)
           build=${mobile#*+}

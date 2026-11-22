@@ -66,7 +66,7 @@ func TestHostPage(t *testing.T) {
 	a.ClosePage()
 	tt.Frame()
 	if a.Page != ConversationPage {
-		t.Errorf("page %d", a.Page)
+		t.Errorf("page %q", a.Page)
 	}
 	// A device's own name is not a key of the catalog: a live host named
 	// like one shows its name; the preview's hosts and the local one are
@@ -123,7 +123,7 @@ func TestSidebarHostListOpensMonitor(t *testing.T) {
 	tester.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
 	tester.Frame()
 	if a.Page != HostPage || a.Host != "remote" {
-		t.Fatalf("host click opened page %d for %q", a.Page, a.Host)
+		t.Fatalf("host click opened page %q for %q", a.Page, a.Host)
 	}
 	if a.Sidebar.Selected != selected {
 		t.Fatal("opening a host changed the selected conversation")
@@ -244,7 +244,7 @@ func testHostLayout(t *testing.T) {
 		a.Settings.ConnectionActions.Inspect(viewmodel.Device{ID: "remote", Execution: true})
 		tt.Frame()
 		if a.Page != HostPage || a.Host != "remote" {
-			t.Fatalf("device monitor target: page %d host %q", a.Page, a.Host)
+			t.Fatalf("device monitor target: page %q host %q", a.Page, a.Host)
 		}
 		if a.Sidebar.Selected != selected {
 			t.Fatal("opening a monitor changed the selected project session")

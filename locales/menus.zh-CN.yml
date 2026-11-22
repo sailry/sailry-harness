@@ -1,10 +1,10 @@
-menu_about: 关于 Sailry
+menu_about: 关于 %{app}
 menu_settings: 设置
 menu_services: 服务
-menu_hide: 隐藏 Sailry
+menu_hide: 隐藏 %{app}
 menu_hide_others: 隐藏其他
 menu_show_all: 全部显示
-menu_quit: 退出 Sailry
+menu_quit: 退出 %{app}
 menu_file: 文件
 menu_new_conversation: 新建对话
 menu_new_project: 新建项目

@@ -540,13 +540,13 @@ content_source: 原始碼
 resource_project_empty: 選擇專案
 resource_follow_conversation: Follow current conversation
 unavailable: 無法使用
-menu_about: 關於 Sailry
+menu_about: 關於 %{app}
 menu_settings: 設定
 menu_services: 服務
-menu_hide: 隱藏 Sailry
+menu_hide: 隱藏 %{app}
 menu_hide_others: 隱藏其他
 menu_show_all: 全部顯示
-menu_quit: 退出 Sailry
+menu_quit: 退出 %{app}
 menu_file: 檔案
 menu_save: 儲存
 menu_close_tab: 關閉標籤頁
@@ -1564,7 +1564,7 @@ model_library_embedding: 嵌入模型
 model_library_ocr: OCR 模型
 model_library_speech: 語音模型
 model_library_decision: 決策
-onboarding_title: 歡迎使用 Sailry
+onboarding_title: 歡迎使用 %{app}
 onboarding_description: 連接一個模型即可開始
 onboarding_host_unavailable: 主機暫不可用
 workspace_host_status: 未連線 · UI 預覽
@@ -1715,7 +1715,7 @@ updates_view: 查看
 updates_download: 下載
 updates_ready: '%{version} 已下載，可以安裝'
 updates_restart_description: 重啟後將恢復草稿；本機任務和終端將停止
-updates_current: Sailry 已是最新版本
+updates_current: '%{app} 已是最新版本'
 selection_title: 選取文字
 selection_unavailable: 無法讀取選取文字
 selection_empty: 未選取文字
@@ -1734,7 +1734,7 @@ terminal_take_control: 接管
 terminal_other_controller: 由另一裝置控制
 terminal_unavailable: 終端不可用，請檢查主機連線
 updates_network_failed: 更新下載失敗，請重試
-updates_completed: Sailry 已更新
+updates_completed: '%{app} 已更新'
 port_exists: 此埠已新增
 port_failed: 無法轉發，請檢查埠和連線
 selection_large: 選取文字過長
@@ -2157,15 +2157,15 @@ updates_platform: 此平臺暫無可用更新
 updates_system_unavailable: 無法讀取系統版本
 updates_system_old: 此更新需要更高的系統版本
 updates_version_old: 所選更新不比當前版本新
-updates_bundle_required: 請先安裝打包的 Sailry 應用
+updates_bundle_required: 請先安裝打包的 %{app} 應用
 updates_io_failed: 無法儲存更新
 updates_receipt_unread: 請先檢查上次更新結果
-updates_install_failed: 更新未完成，請重啟 Sailry
-updates_restart_failed: 無法重啟 Sailry，請重新開啟
-updates_shutdown_failed: 本機 Node 未能停止，請重啟 Sailry
+updates_install_failed: 更新未完成，請重啟 %{app}
+updates_restart_failed: 無法重啟 %{app}，請重新開啟
+updates_shutdown_failed: 本機 Node 未能停止，請重啟 %{app}
 updates_install_uncertain: 安裝結果尚未確認，原應用已保留
 updates_receipt_failed: 更新已安裝，但無法儲存恢復資訊
-updates_profile_inside: 資料目錄位於 Sailry 應用內，請移出後再更新
+updates_profile_inside: 資料目錄位於 %{app} 應用內，請移出後再更新
 compatibility_update_unavailable: 此版本暫不可自動更新
 settings_media: 媒體模型
 settings_media_description: 管理影像、音訊和影片任務使用的模型
@@ -2360,8 +2360,8 @@ queue_halt_unsent: 訊息未送出，已保留在佇列中
 usage_read_failed: 無法讀取用量，請重試
 chat_output_limit: 回覆已達輸出上限
 chat_turn_limit: 已達操作次數上限，已停止
-start_failed: Sailry 無法啟動
-start_profile_in_use: Sailry 已在使用此資料資料夾執行
+start_failed: '%{app} 無法啟動'
+start_profile_in_use: '%{app} 已在使用此資料資料夾執行'
 backup_keep: 保留的備份
 backup_keep_all: 全部
 backup_keep_last: 最近 %{count} 個

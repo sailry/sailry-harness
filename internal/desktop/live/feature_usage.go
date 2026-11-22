@@ -153,7 +153,7 @@ func (r *Runtime) countFrame() {
 		if paged {
 			if current.Page == shell.PluginPage {
 				features = append(features, r.pluginPageFeature(current.PluginPage))
-			} else if feature, known := pageFeatures[current.Page]; known {
+			} else if feature, known := pageFeatures[current.Page]; known && r.countedPage(current.Page) {
 				features = append(features, feature)
 			}
 		}
@@ -191,6 +191,15 @@ func (r *Runtime) countFrame() {
 	}
 	last.started, last.shell, last.section, last.theme = true, current, section, selected
 	r.count(features...)
+}
+
+func (r *Runtime) countedPage(page shell.Page) bool {
+	switch page {
+	case shell.SettingsPage, shell.HostPage, shell.NotificationsPage, shell.ProjectPage:
+		return true
+	default:
+		return r.App.NativePageEnabled(page)
+	}
 }
 
 // pluginPageFeature names a package page's package only when the Node that

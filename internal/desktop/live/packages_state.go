@@ -83,7 +83,7 @@ func newPackageState() *packageState {
 		updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
 		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
-		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{}, images: newMarketImages(),
+		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
 	}
 }
 
@@ -93,11 +93,9 @@ func (r *Runtime) initB8Packages() {
 	r.packages.market = theme.NewMarket(r.packages.profile)
 	unsubscribeThemes := r.packages.profile.OnChange(r.readInstalledThemes)
 	context.AfterFunc(r.ctx, unsubscribeThemes)
-	context.AfterFunc(r.ctx, r.packages.images.client.CloseIdleConnections)
 	m := r.App.Settings.Model
 	m.Indexes = []string{"pypi.org", "mirrors.aliyun.com", "mirrors.tencent.com", "pypi.tuna.tsinghua.edu.cn", "custom"}
 	m.PackageActions = &settings.PackageActions{
-		Image: r.marketImage,
 		CheckUpdates: func(kind viewmodel.PackageKind) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.checkPackageUpdates(kind)
@@ -156,24 +154,6 @@ func (r *Runtime) initB8Packages() {
 				done("", "")
 			}
 		},
-		RetryMarket: func() {
-			root := r.localRuntime()
-			m := root.App.Settings.Model
-			if m.MarketKind == 2 {
-				root.packages.themeRead = false
-			}
-			r.searchPackageMarket(m.MarketKind, marketSource(m), m.MarketQuery, true)
-		},
-		MoreMarket: func() {
-			if owner := r.packageOwner(); owner != nil {
-				owner.loadMoreMarket()
-			}
-		},
-		MarketPlugin: func(id string) {
-			if owner := r.packageOwner(); owner != nil {
-				owner.installMarketPlugin(id)
-			}
-		},
 		PluginVersion: func(id, version string) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.installPackageVersion(id, version)
@@ -184,12 +164,6 @@ func (r *Runtime) initB8Packages() {
 				owner.pinPackage(id, pinned)
 			}
 		},
-		MarketSkill: func(id string) {
-			if owner := r.packageOwner(); owner != nil {
-				owner.installMarketSkill(id)
-			}
-		},
-		Theme:       r.installMarketTheme,
 		ChooseSkill: r.chooseSkillSource,
 		InstallSkill: func(draft settings.SkillSourceDraft, done func(bool)) {
 			if owner := r.packageOwner(); owner != nil {
@@ -214,6 +188,9 @@ func (r *Runtime) initB8Packages() {
 			}
 		},
 		About: func() { r.App.Settings.Open(settings.About); r.App.Navigate(shell.SettingsPage) },
+	}
+	if r.App.NativePageEnabled(shell.MarketPage) {
+		r.bindMarketActions(m.PackageActions)
 	}
 	m.AppearanceActions = &settings.AppearanceActions{
 		Installed:    func(id string) bool { _, exists := r.packages.themes[id]; return exists },
@@ -285,7 +262,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 			owner.packages.marketKey = ""
 		}
 		// Rebuilding every frame allocated the whole package list each time.
-		key := packageProjection{owner.controller.Revision(), owner.packageLocale(), int(root.App.Page), m.MarketKind}
+		key := packageProjection{owner.controller.Revision(), owner.packageLocale(), root.showingMarket(), m.MarketKind}
 		if changed || owner.packages.projected != key {
 			owner.packages.projected = key
 			owner.projectPackages()
@@ -294,9 +271,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 			owner.observeInstallations()
 		}
 	}
-	if root.App.Page == shell.MarketPage {
-		root.searchPackageMarket(m.MarketKind, marketSource(m.Model), m.MarketQuery, false)
-	}
+	root.marketPageFrame(owner)
 	r.projectInstallations()
 	r.projectMarketThemes()
 }
@@ -304,9 +279,10 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 // packageProjection is the input of a frame's package projection besides
 // package results: the Client revision, the package locale and the page.
 type packageProjection struct {
-	revision   uint64
-	locale     string
-	page, kind int
+	revision uint64
+	locale   string
+	market   bool
+	kind     int
 }
 
 func (r *Runtime) projectPythonSettings(owner *Runtime, changed bool) {
@@ -403,6 +379,9 @@ func (r *Runtime) projectPackages() {
 	sort.Slice(packages, func(first, second int) bool { return packages[first].Name < packages[second].Name })
 	sort.Slice(skills, func(first, second int) bool { return skills[first].Name < skills[second].Name })
 	r.App.Settings.Packages, r.App.Settings.SkillList = packages, skills
+	if !r.showingMarket() {
+		return
+	}
 	var catalogEntries []protocol.PluginCatalogEntry
 	for _, row := range r.App.Settings.MarketPlugins {
 		if entry, known := state.catalog[row.ID]; known {
@@ -412,12 +391,11 @@ func (r *Runtime) projectPackages() {
 	r.readInstalledCatalogCandidates(catalogEntries)
 	r.projectPluginMarket()
 	r.projectSkillMarket()
-	if r.App.Page == shell.MarketPage {
-		if r.App.Settings.MarketKind == 1 {
-			r.readMarketSkillUpdates()
-		} else if r.App.Settings.MarketKind == 0 {
-			r.readMarketPluginUpdates()
-		}
+	switch r.App.Settings.MarketKind {
+	case 0:
+		r.readMarketPluginUpdates()
+	case 1:
+		r.readMarketSkillUpdates()
 	}
 }
 

@@ -412,11 +412,11 @@ func testSidebarNewSession(t *testing.T) {
 		a.openHost("remote", false)
 		settle(tt)
 		if b, plus := disabled(); a.Page != HostPage || b || plus {
-			t.Fatalf("%s: beside the host page New session is disabled %v %v on page %d", back.name, b, plus, a.Page)
+			t.Fatalf("%s: beside the host page New session is disabled %v %v on page %q", back.name, b, plus, a.Page)
 		}
 		back.do()
 		if a.Page != ConversationPage {
-			t.Fatalf("%s left the host page %d showing", back.name, a.Page)
+			t.Fatalf("%s left the host page %q showing", back.name, a.Page)
 		}
 	}
 	// Once something is sent in it, the chat is a session like the others

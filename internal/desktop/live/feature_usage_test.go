@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -25,6 +26,7 @@ func testFeatureUsage(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const planted = "planted secret /Users/someone/private theme-package-name"
 		root, source := terminalTabsFixture(t)
+		root.App = shell.NewLive(root.App.Data, desktop.Harness()...)
 		source.respond = func(request protocol.Request) link.Response {
 			if request.Command.Kind == "count_feature" {
 				return link.Response{Output: protocol.Output{Kind: "feature_counted"}}
@@ -66,6 +68,10 @@ func testFeatureUsage(t *testing.T) {
 		root.countFrame()
 		root.countFrame()
 		expect("the first frames")
+
+		root.App.Navigate(shell.FilesPage)
+		root.countFrame()
+		expect("the assembled Files page", string(protocol.FeatureUsePageFiles))
 
 		root.App.Page, root.App.Settings.Section, root.App.Theme = shell.SettingsPage, settings.Appearance, planted
 		root.App.Panel.Show(panel.Tab{Kind: panel.Browser, ID: planted})

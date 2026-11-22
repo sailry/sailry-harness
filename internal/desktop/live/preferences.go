@@ -34,7 +34,12 @@ func (r *Runtime) applyPreferences() {
 	m.Notify, m.SidebarMetrics = d.Notifications, d.SidebarMetrics
 	// Demo is a developer launch mode, not a persisted user preference.
 	m.DemoMode = false
-	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), updateChannel(d.UpdateChannel, link.ProductVersion)
+	m.Language, m.MessageDisplay, m.SessionOrder = 0, 0, int(sidebar.SortUpdated)
+	version := m.Version
+	if version == "" {
+		version = link.ProductVersion
+	}
+	m.Channel = updateChannel(d.UpdateChannel, version)
 	m.TextSize = settings.DefaultTextSize
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
 	if d.Language != nil {

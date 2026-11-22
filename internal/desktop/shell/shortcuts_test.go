@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/identity"
 )
 
 // settle lets the columns' motion end.
@@ -102,12 +103,12 @@ func testCloseFocusedPage(t *testing.T) {
 		tt.Key(ui.Cmd, ui.KeyW)
 		settle(tt)
 		if a.Page != f.page || len(opened()) != 0 {
-			t.Fatalf("%s: the first close left page %d and documents %v", f.label, a.Page, opened())
+			t.Fatalf("%s: the first close left page %q and documents %v", f.label, a.Page, opened())
 		}
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()
 		if a.Page != ConversationPage {
-			t.Errorf("%s: ⌘W left page %d", f.label, a.Page)
+			t.Errorf("%s: ⌘W left page %q", f.label, a.Page)
 		}
 	}
 }
@@ -122,7 +123,7 @@ func testCloseWithNothingClosableFocused(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	if len(a.Panel.Tabs) != 1 || !a.PanelOpen || a.Page != ConversationPage {
-		t.Errorf("⌘W in the composer changed tabs %v, open %v, page %d", a.Panel.Tabs, a.PanelOpen, a.Page)
+		t.Errorf("⌘W in the composer changed tabs %v, open %v, page %q", a.Panel.Tabs, a.PanelOpen, a.Page)
 	}
 	// Settings is a page ⌘W does not close.
 	clickButton(t, tt, i18n.In("en", "settings"))
@@ -130,7 +131,7 @@ func testCloseWithNothingClosableFocused(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	if a.Page != SettingsPage {
-		t.Errorf("⌘W closed Settings to page %d", a.Page)
+		t.Errorf("⌘W closed Settings to page %q", a.Page)
 	}
 }
 
@@ -148,7 +149,7 @@ func TestEscapeClosesOnlyPopover(t *testing.T) {
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if a.more || a.Page != FilesPage {
-		t.Fatalf("Escape left More %v, page %d", a.more, a.Page)
+		t.Fatalf("Escape left More %v, page %q", a.more, a.Page)
 	}
 
 	a, tt = newTester(t)
@@ -200,7 +201,9 @@ func TestInputKeepsEditingKeys(t *testing.T) {
 // The native menu has the reference's menus, items and keys, localized,
 // and its commands run scoped as their keys are.
 func TestMenu(t *testing.T) {
-	a := New(preview.Load())
+	a := New(preview.Load(), TestHarnessPages()...)
+	product := identity.OfficialDesktop()
+	a.Website, a.Feedback = product.Website, product.Feedback
 	var sent []string
 	menu := a.Menu("en", func(id string) { sent = append(sent, id) })
 	type entry struct{ label, key string }
@@ -298,6 +301,7 @@ func TestMenu(t *testing.T) {
 	opened := 0
 	logged := New(preview.Load())
 	logged.Preview = false
+	logged.Website, logged.Feedback = product.Website, product.Feedback
 	if logs := logged.Menu("en", logged.Do)[5].Submenu[2]; !logs.Disabled || logs.Click != nil {
 		t.Errorf("Logs without a live folder: %+v", logs)
 	}
@@ -365,12 +369,12 @@ func TestMenuCommandsScoped(t *testing.T) {
 	a.Do(CloseFocused.ID)
 	settle(tt)
 	if a.Page != FilesPage || len(project.Files.Open()) != 0 {
-		t.Fatalf("Close Tab in the Files page left page %d and documents %v", a.Page, project.Files.Open())
+		t.Fatalf("Close Tab in the Files page left page %q and documents %v", a.Page, project.Files.Open())
 	}
 	a.Do(CloseFocused.ID)
 	tt.Frame()
 	if a.Page != ConversationPage {
-		t.Fatalf("Close Tab in the Files page left page %d", a.Page)
+		t.Fatalf("Close Tab in the Files page left page %q", a.Page)
 	}
 	tt.Key(ui.Cmd, ui.KeyK)
 	a.Do("sidebar.toggle")
@@ -396,14 +400,14 @@ func TestMenuCommandsScoped(t *testing.T) {
 		a.Do(CloseFocused.ID)
 		tt.Frame()
 		if a.Page != ConversationPage {
-			t.Fatalf("Settings opened behind the confirmation: page %d", a.Page)
+			t.Fatalf("Settings opened behind the confirmation: page %q", a.Page)
 		}
 		tt.Key(0, ui.KeyEscape)
 		settle(tt)
 		a.Do("app.settings")
 		tt.Frame()
 		if a.Page != SettingsPage {
-			t.Fatalf("Settings stayed held after the dialog closed: page %d", a.Page)
+			t.Fatalf("Settings stayed held after the dialog closed: page %q", a.Page)
 		}
 	})
 	t.Run("delete confirmation", func(t *testing.T) {
@@ -419,7 +423,7 @@ func TestMenuCommandsScoped(t *testing.T) {
 		a.Do("app.settings")
 		tt.Frame()
 		if a.Page != ConversationPage || a.Sidebar.Selected == "" || a.Data.Find("sailry-go/theme") == nil {
-			t.Fatalf("a menu command ran behind the confirmation: page %d, selected %q", a.Page, a.Sidebar.Selected)
+			t.Fatalf("a menu command ran behind the confirmation: page %q, selected %q", a.Page, a.Sidebar.Selected)
 		}
 	})
 }

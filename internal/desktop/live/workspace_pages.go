@@ -15,9 +15,9 @@ type resourcePageState struct {
 }
 
 func (r *Runtime) resourceWorkspaceFrame(chat *Runtime) {
-	target := r.App.ResourceTarget()
-	if r.App.DemoOn() {
-		target = shell.ResourceTarget{}
+	var target shell.ResourceTarget
+	if r.showingResourcePage() {
+		target = r.App.ResourceTarget()
 	}
 	shown := r.resolveResourceWorkspace(target)
 	chatWorkspace := chat.selectedWorkspace()
@@ -60,14 +60,14 @@ func (r *Runtime) resolveResourceWorkspace(target shell.ResourceTarget) *workspa
 
 // A header switch can happen after the frame resolved its workspace.
 func (r *Runtime) resourceWorkspace(target shell.ResourceTarget) *panel.Project {
-	if shown := r.resourcePage.shown; r.resourcePage.target == target && shown != nil && shown.runtime.controller.Connected() {
+	if shown := r.resourcePage.shown; r.showingResourcePage() && r.resourcePage.target == target && shown != nil && shown.runtime.controller.Connected() {
 		return shown.panel
 	}
 	return nil
 }
 
 func (r *Runtime) showingResourcePage() bool {
-	return r.App.Page == shell.FilesPage || r.App.Page == shell.GitPage
+	return r.App.ResourceKind() != "" && !r.App.DemoOn()
 }
 
 func (r *Runtime) shownResourceWorkspace() *workspaceProject {

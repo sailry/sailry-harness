@@ -44,7 +44,7 @@ func (pr *Project) directory(path string) string {
 	return parentDir(path)
 }
 
-// tree is 28 DIP rows indented 16 per level from 8. It selects as the files
+// FileTree is 28 DIP rows indented 16 per level from 8. It selects as the files
 // plugin's explorer does: a click selects a row, Cmd (Ctrl elsewhere) adds or
 // takes it away, Shift selects the rows from the anchor; the arrows move the
 // selection, Shift with Up or Down extends it, Right and Left open and close
@@ -52,7 +52,7 @@ func (pr *Project) directory(path string) string {
 // calling open, or opens and closes a folder. The right-click menu acts on
 // the selection; a row dropped on a folder would move there. What writes
 // files shows the preview's notice.
-func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
+func (pr *Project) FileTree(c *ui.Context, own bool, open func(path string)) {
 	v := &pr.Files
 	p := theme.Of(c)
 	pr.filesHeader(c)

@@ -1,10 +1,10 @@
-menu_about: About Sailry
+menu_about: About %{app}
 menu_settings: Settings
 menu_services: Services
-menu_hide: Hide Sailry
+menu_hide: Hide %{app}
 menu_hide_others: Hide Others
 menu_show_all: Show All
-menu_quit: Quit Sailry
+menu_quit: Quit %{app}
 menu_file: File
 menu_new_conversation: New Conversation
 menu_new_project: New Project

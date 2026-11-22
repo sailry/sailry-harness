@@ -10,16 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-// pageFeatures are the rail features that open an independent page, and the
-// page each opens.
-var pageFeatures = map[string]Page{
-	"page:conversation":     ConversationPage,
-	"page:activity":         ActivityPage,
-	"page:files":            FilesPage,
-	"page:git":              GitPage,
-	"page:settings_plugins": MarketPage,
-}
-
 // ResourceTarget identifies the independent Files and Git workspace. An empty
 // Worktree selects the project's main worktree.
 type ResourceTarget struct {
@@ -86,8 +76,11 @@ func (a *App) project() *panel.Project {
 	return a.Projects.Of(pr.ID)
 }
 
-// Navigate shows a page in the main column.
+// Navigate shows an available page in the main column.
 func (a *App) Navigate(p Page) {
+	if !a.hasPage(p) {
+		return
+	}
 	if p != a.Page {
 		a.Settings.CloseDetails()
 	}
@@ -114,7 +107,7 @@ func (a *App) ClosePage() bool {
 	if !a.closable() {
 		return false
 	}
-	a.Page = ConversationPage
+	a.Navigate(ConversationPage)
 	return true
 }
 
@@ -161,14 +154,15 @@ func (a *App) followSelection() {
 		return
 	}
 	if opened || a.Sidebar.Selected != a.shown {
-		a.Page = ConversationPage
+		a.Navigate(ConversationPage)
 	}
 }
 
 // extensionDetails reports whether the right column shows an extension's
 // details: over the settings or the market.
 func (a *App) extensionDetails() bool {
-	return a.Settings.Details != nil && (a.Page == SettingsPage || a.Page == MarketPage)
+	page := a.nativePage(a.Page)
+	return a.Settings.Details != nil && (a.Page == SettingsPage || page != nil && page.ExtensionDetails)
 }
 
 // pluginDetails reports whether the right column shows what a package page's
@@ -179,7 +173,10 @@ func (a *App) pluginDetails() bool {
 
 // resourceDetails is the project list beside a full-page Files or Git
 // document. Panel tabs keep their own compact list-and-document layout.
-func (a *App) resourceDetails() bool { return a.paged() != "" && a.project() != nil }
+func (a *App) resourceDetails() bool {
+	page := a.nativePage(a.Page)
+	return page != nil && page.Resource != "" && page.RenderDetails != nil && a.project() != nil
+}
 
 func (a *App) workspaceDetails() bool { return a.pluginDetails() || a.resourceDetails() }
 
@@ -195,30 +192,23 @@ func (a *App) RevealDetails() {
 	}
 }
 
-// featurePage is a rail feature's page: Files and Git as the project's
-// resource, over the state the panel's tabs share, in the preview and live
-// alike; Activity and Market as the reference's preview shows them,
-// unavailable.
-func (a *App) featurePage(c *ui.Context) {
-	if a.Page == PluginPage && a.Hooks.PluginPage != nil {
-		a.Hooks.PluginPage(c, a.pluginPage)
+// RenderResource supplies the shared workspace project or shows the resource's
+// empty state when the active page has no reachable project.
+func (a *App) RenderResource(c *ui.Context, render func(*panel.Project)) {
+	k := a.paged()
+	if k == "" {
 		return
 	}
-	if k := a.paged(); k != "" {
-		pr := a.project()
-		switch {
-		case pr != nil:
-			panel.Page(c, k, pr, func() { a.Navigate(FilesPage) })
-		case a.ResourceTarget().Project != "" || a.ResourceProject() != nil:
-			// The selected project has no reachable worktree.
-			a.unavailable(c)
-		default:
-			a.projectPrompt(c, k)
-		}
-		return
+	pr := a.project()
+	switch {
+	case pr != nil:
+		render(pr)
+	case a.ResourceTarget().Project != "" || a.ResourceProject() != nil:
+		// The selected project has no reachable worktree.
+		a.unavailable(c)
+	default:
+		a.projectPrompt(c, k)
 	}
-	f, _ := a.lookupFeature(a.feature())
-	kit.Result(c, kit.ResultProps{Icon: f.Icon, Title: i18n.T(c, f.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
 }
 
 // projectPrompt fills a Files or Git page without a project: the resource's
@@ -237,11 +227,8 @@ func (a *App) projectPrompt(c *ui.Context, k panel.Kind) {
 
 // paged is the project resource the page shows, "" for none.
 func (a *App) paged() panel.Kind {
-	switch a.Page {
-	case FilesPage:
-		return panel.Files
-	case GitPage:
-		return panel.Changes
+	if page := a.nativePage(a.Page); page != nil {
+		return page.Resource
 	}
 	return ""
 }
@@ -251,10 +238,8 @@ func (a *App) feature() string {
 	if a.Page == PluginPage {
 		return a.pluginPage
 	}
-	for id, p := range pageFeatures {
-		if p == a.Page {
-			return id
-		}
+	if page := a.nativePage(a.Page); page != nil {
+		return page.Feature.ID
 	}
 	return ""
 }

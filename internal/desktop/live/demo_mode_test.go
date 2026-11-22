@@ -1141,7 +1141,7 @@ func TestDemoMode(t *testing.T) {
 			}
 			choose(project.Name, text("workspace_project"))
 			if _, id, shown := r.App.ProjectOwner(); !shown || id != project.ID {
-				t.Fatalf("Project overview shows page %d, project %q", r.App.Page, id)
+				t.Fatalf("Project overview shows page %q, project %q", r.App.Page, id)
 			}
 			r.App.Navigate(shell.ConversationPage)
 			settle()

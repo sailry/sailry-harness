@@ -12,6 +12,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 )
 
@@ -29,7 +30,7 @@ func TestUpdateLocksEveryWindowDocuments(t *testing.T) {
 	t.Cleanup(feed.Server.Close)
 	feed.Publish("9.1.0", false)
 	stopping, proceed, quit := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	updates := NewUpdates(preferences.Open(filepath.Join(profile, "preferences.json")), profile, func() error {
+	updates := NewUpdates(identity.OfficialDesktop(), preferences.Open(filepath.Join(profile, "preferences.json")), profile, func() error {
 		close(stopping)
 		<-proceed
 		return nil

@@ -13,7 +13,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	filesPage "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func TestUpdateDocumentLock(t *testing.T) {
@@ -36,7 +38,7 @@ func updateEditorWindow(fixture pluginLocationTestFixture, path string) (*ui.Tes
 	tester := ui.NewTester(func(c *ui.Context) {
 		root.beforeUpdateFrame()
 		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Children(func() { panel.Page(c, panel.Files, project.panel, func() {}) })
+		ui.Column(c).Fill().Children(func() { filesPage.Render(c, project.panel) })
 		root.afterUpdateFrame()
 	}, 1000, 650)
 	tester.SetLocale("en")
@@ -47,7 +49,7 @@ func TestUpdatePendingNativeInput(t *testing.T) {
 	for _, path := range []string{"note.txt", "note.md"} {
 		t.Run(path, func(t *testing.T) {
 			first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
-			updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+			updates := NewUpdates(identity.OfficialDesktop(), first.root.Preferences, t.TempDir(), nil, nil)
 			t.Cleanup(updates.Service.Close)
 			first.root.SetUpdates(updates, func() bool { return true })
 			second.root.SetUpdates(updates, func() bool { return false })
@@ -84,7 +86,7 @@ func TestUpdateFlushPendingWindows(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
-			updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+			updates := NewUpdates(identity.OfficialDesktop(), first.root.Preferences, t.TempDir(), nil, nil)
 			t.Cleanup(updates.Service.Close)
 			first.root.SetUpdates(updates, func() bool { return true })
 			second.root.SetUpdates(updates, func() bool { return false })
@@ -126,7 +128,7 @@ func TestUpdateFlushPendingWindows(t *testing.T) {
 
 func TestUpdateFlushWithoutLockFrame(t *testing.T) {
 	first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
-	updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+	updates := NewUpdates(identity.OfficialDesktop(), first.root.Preferences, t.TempDir(), nil, nil)
 	t.Cleanup(updates.Service.Close)
 	first.root.SetUpdates(updates, func() bool { return true })
 	second.root.SetUpdates(updates, func() bool { return false }, func() error { return nil })
@@ -136,7 +138,7 @@ func TestUpdateFlushWithoutLockFrame(t *testing.T) {
 		t.Fatal("an unacknowledged refresh left installation waiting or editors locked")
 	}
 	window := closeTestWindow(first.root)
-	if !window.HasText(i18n.In("en", "updates_install_failed")) {
+	if !window.HasText(i18n.In("en", "updates_install_failed", "app", "Sailry")) {
 		t.Fatal("the rejected installation did not report its failure")
 	}
 }

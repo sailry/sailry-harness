@@ -247,7 +247,7 @@ func TestDemoActions(t *testing.T) {
 		}
 		act(func(x *actions) { x.ManageTeams() })
 		if a.Page != SettingsPage || a.Settings.Section != settings.Teams {
-			t.Fatalf("Manage teams showed page %d", a.Page)
+			t.Fatalf("Manage teams showed page %q", a.Page)
 		}
 	})
 

@@ -157,7 +157,7 @@ func (peers nodePeerStore) RememberPeerName(ctx context.Context, peer protocol.N
 
 func (node *Node) Link() *link.Link { return node.network }
 
-func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) error {
+func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope, softwareVersion string) error {
 	if scope.Internet || len(scope.Relays) != 0 {
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			_, selected, err := store.ReadNetworkSelection(ctx, db)
@@ -188,7 +188,7 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 		Identity: node.profile.Identity,
 		Scope:    scope, Handler: node,
 		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID(), owner: node}, Name: name,
-		Paired: node.reauthenticateResourceHost,
+		Paired: node.reauthenticateResourceHost, SoftwareVersion: softwareVersion,
 	})
 	if err == nil {
 		err = node.startResourceObservers()

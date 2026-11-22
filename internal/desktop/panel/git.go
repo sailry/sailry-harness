@@ -18,14 +18,14 @@ import (
 // plugin's combined document); no path starts with ":".
 const allChanges = ":changes"
 
-// gitDetails is the Git component's side column, as the git plugin's
+// GitRepository is the Git component's side column, as the git plugin's
 // view.js details lays it out: the branch, the actions menu and Refresh;
 // Changes | History; then the changes' toolbar, their list and the commit
 // box, or the history. open shows a change's diff, source a file in
-// Files. Above its document (Project.stacked) the column keeps its height
+// Files. Above its document the column keeps its height
 // for the rows: Changes | History joins the branch's bar and the commit box
 // is one line beside Commit.
-func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
+func (pr *Project) GitRepository(c *ui.Context, own, stacked bool, open, reveal func(path string)) {
 	p := theme.Of(c)
 	v := &pr.Git
 	g := pr.menus(c)
@@ -41,7 +41,7 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
 		}).OnClick(func() { g.choose("git_checkout", g.checkout(), "git_checkout").run(c) })
 		ui.Spacer(c)
-		if pr.stacked && !pr.gitVacant() {
+		if stacked && !pr.gitVacant() {
 			kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
 				kit.SegmentedProps{Size: kit.SizeSmall}).Shrink(0).Margin(0, 4)
 		}
@@ -73,7 +73,7 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 			}
 		})
 	}
-	if !pr.stacked {
+	if !stacked {
 		ui.Column(c.Key("views")).Padding(8, 8, 4, 8).Shrink(0).Children(func() {
 			kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
 				kit.SegmentedProps{Block: true})
@@ -83,8 +83,8 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 		pr.history(c, own)
 	} else {
 		pr.changesToolbar(c, open)
-		pr.changeList(c, own, open)
-		pr.commitBox(c)
+		pr.changeList(c, own, open, reveal)
+		pr.commitBox(c, stacked)
 	}
 }
 
@@ -163,7 +163,7 @@ func statusColor(p *theme.Palette, st string) ui.Color {
 // moves the cursor there and opens a change's diff, the keys moving it
 // open theirs; a group or folder opens and closes. The change shown is
 // selected. A row's right-click menu acts on every change in it.
-func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
+func (pr *Project) changeList(c *ui.Context, own bool, open, reveal func(path string)) {
 	p := theme.Of(c)
 	v := &pr.Git
 	if len(pr.Data.Changes) == 0 {
@@ -231,7 +231,7 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 					if parts := strings.SplitN(r.id, "/", 3); len(parts) == 3 && parts[0] == "dir" {
 						directory = parts[2]
 					}
-					fillNative(c, m, g.files(entries, r.entry == nil, directory))
+					fillNative(c, m, g.files(entries, r.entry == nil, directory, reveal))
 				})
 				if r.entry != nil {
 					kit.Tooltip(c, row, r.entry.Path)
@@ -300,19 +300,17 @@ func (pr *Project) showChange(path, scope string) {
 	pr.readDiff(path, scope)
 }
 
-// source opens a changed file in Files, by its path in the project's tree.
-func (pr *Project) source(path string) {
+// source opens a changed file by its path in the project's tree.
+func (pr *Project) source(path string, reveal func(string)) {
 	if pr.Actions != nil {
 		pr.FileOpen(path)
-		if pr.reveal != nil {
-			pr.reveal(path)
-		}
+		reveal(path)
 		return
 	}
-	if f := findFile(pr.Data.Files, pr.Data.Files.Name+"/"+path); f != nil {
-		pr.Files.Show(f.Path)
-		if pr.reveal != nil {
-			pr.reveal(f.Path)
+	if root := pr.Data.Files; root != nil {
+		if f := findFile(root, root.Path+"/"+path); f != nil {
+			pr.Files.Show(f.Path)
+			reveal(f.Path)
 		}
 	}
 }
@@ -320,7 +318,7 @@ func (pr *Project) source(path string) {
 // commitBox is the commit message and Commit (view.js commit): the
 // amend, sign-off and skip-hooks options when on, the message with its
 // expand button, and Commit with its menu.
-func (pr *Project) commitBox(c *ui.Context) {
+func (pr *Project) commitBox(c *ui.Context, stacked bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	g := pr.menus(c)
@@ -342,12 +340,12 @@ func (pr *Project) commitBox(c *ui.Context) {
 		}
 		// Beside the document the message is a box over Commit; above it,
 		// one line beside Commit until it is expanded.
-		line := pr.stacked && !v.tall
+		line := stacked && !v.tall
 		h := float32(86)
 		switch {
 		case line:
 			h = 32
-		case pr.stacked:
+		case stacked:
 			h = 120
 		case v.tall:
 			h = 220
@@ -420,10 +418,10 @@ func (pr *Project) commit(c *ui.Context, scope string, amend, signoff bool, afte
 	pr.gitAction(c, GitAction{Kind: "git_commit", Message: v.commit, Scope: scope, Amend: amend, Signoff: signoff, SkipHooks: v.skip, After: after})
 }
 
-// gitKeys are the Git component's shortcuts (main.js): Cmd+Enter commits,
+// GitKeys binds the Git component's shortcuts (main.js): Cmd+Enter commits,
 // Cmd+Shift+Enter amends, Ctrl+G Ctrl+G fetches, Ctrl+G Down pulls,
 // Ctrl+G Shift+Down pulls with rebase and Cmd+Shift+K pushes.
-func (pr *Project) gitKeys(c *ui.Context, e ui.Element) {
+func (pr *Project) GitKeys(c *ui.Context, e ui.Element) {
 	v := &pr.Git
 	// Asking for a key applies the frame's input, the observer below with
 	// it, so the chord's second key is read after one. Down is asked for
@@ -476,8 +474,8 @@ func commitBranch(cm preview.Commit, current string) string {
 	return ""
 }
 
-// gitDialogs are the picker and the confirmation, when showing.
-func (pr *Project) gitDialogs(c *ui.Context) {
+// GitDialogs renders an open repository picker or confirmation.
+func (pr *Project) GitDialogs(c *ui.Context) {
 	v := &pr.Git
 	if pk := &v.picker; pk.open {
 		q := strings.ToLower(strings.TrimSpace(pk.query))
@@ -513,7 +511,7 @@ func (pr *Project) gitDialogs(c *ui.Context) {
 
 // combined is every change's diff (view.js combined): each file under a
 // heading of its name, folder and +N −M, which closes it, with Undo.
-func (pr *Project) combined(c *ui.Context) {
+func (pr *Project) combined(c *ui.Context, narrow bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	if len(pr.Data.Changes) == 0 {
@@ -556,7 +554,7 @@ func (pr *Project) combined(c *ui.Context) {
 						ui.Text(c, binaryDiff(c, metadata.Size)).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
 					} else {
 						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
-							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: pr.diffSplit(c)})
+							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true, Split: diffSplit(c, narrow)})
 						if metadata.Partial {
 							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
 						}
@@ -565,5 +563,5 @@ func (pr *Project) combined(c *ui.Context) {
 			})
 		}
 	})
-	pr.diffStatus(c, i18n.T(c, "git_all_changes"), func() { stats(c, p, add, del) })
+	diffStatus(c, i18n.T(c, "git_all_changes"), narrow, func() { stats(c, p, add, del) })
 }

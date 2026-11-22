@@ -19,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	nodefiles "github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	filesPage "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func workspaceFilesWindow(root *Runtime, project *workspaceProject, before func(*ui.Context)) *ui.Tester {
@@ -38,10 +39,10 @@ func workspaceFilesWindow(root *Runtime, project *workspaceProject, before func(
 		root.App.Panel.Sync(project.panel)
 		ui.Row(c).FillWidth().FillHeight().Children(func() {
 			ui.Column(c.Key("document")).Grow(1).MinWidth(0).Children(func() {
-				panel.Page(c, panel.Files, project.panel, func() {})
+				filesPage.Render(c, project.panel)
 			})
 			ui.Column(c.Key("details")).Width(300).Children(func() {
-				panel.PageDetails(c, panel.Files, project.panel)
+				filesPage.Details(c, project.panel)
 			})
 		})
 		kit.ToastHost(c)
@@ -317,7 +318,7 @@ func TestWorkspaceMissingDraftSaveRestoresFile(t *testing.T) {
 				action = false
 				project.saveFile(c, relative, "my draft\n")
 			}
-			panel.Page(c, panel.Files, project.panel, func() {})
+			filesPage.Render(c, project.panel)
 			kit.ToastHost(c)
 		}, 1000, 700)
 		window.SetLocale("en")

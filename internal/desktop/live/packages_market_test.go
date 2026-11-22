@@ -4,6 +4,9 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -11,8 +14,12 @@ import (
 func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
+		r.App = shell.NewLive(r.App.Data, desktop.Harness()...)
 		m := r.App.Settings.Model
 		m.MarketSource, m.MarketQuery = 1, "fixture"
+		m.PackageActions = &settings.PackageActions{}
+		r.bindMarketActions(m.PackageActions)
+		scope := r.App.Settings.MarketScope()
 		failPage := true
 		source.respond = func(request protocol.Request) link.Response {
 			input, _ := detail[protocol.CommandSearchPluginCatalogPayload](request.Command.Data)
@@ -29,33 +36,39 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 			return link.Response{Output: protocol.Output{Kind: "plugin_catalog", Data: page}}
 		}
 		tester := pluginUpdateQueueTester(r)
-		r.searchPackageMarket(0, 1, "fixture", false)
+		r.App.Navigate(shell.MarketPage)
+		r.marketPageFrame(r)
 		synctest.Wait()
 		tester.Frame()
 		if len(source.sent("search_plugin_catalog")) != 1 || !m.MarketMore || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" {
 			t.Fatalf("the initial search must show the first page and offer a continuation: %+v", m.MarketPlugins)
 		}
-		r.loadMoreMarket()
+		scope.More()
 		synctest.Wait()
 		tester.Frame()
 		if !m.MarketPagingFailed || m.MarketFailed || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" || !tester.HasText("catalog page unavailable") {
 			t.Fatalf("a later page failure should keep the loaded plugin and report the reason: %+v, %v", m.MarketPlugins, tester.Texts())
 		}
 
-		r.loadMoreMarket()
-		r.loadMoreMarket()
+		scope.More()
+		scope.More()
 		synctest.Wait()
 		tester.Frame()
 		if m.MarketPagingFailed || m.MarketMore || len(m.MarketPlugins) != 2 || m.MarketPlugins[1].ID != "second" {
 			t.Fatalf("retry did not append the failed page: %+v, failed %v", m.MarketPlugins, m.MarketPagingFailed)
 		}
 
-		r.searchPackageMarket(0, 1, "fixture", true)
+		scope.Retry()
 		synctest.Wait()
 		tester.Frame()
 		if m.MarketFailed || !m.MarketMore || len(m.MarketPlugins) != 1 {
 			t.Fatalf("refresh did not replace the first page: %+v, failed %v", m.MarketPlugins, m.MarketFailed)
 		}
+		r.App.Navigate(shell.SettingsPage)
+		r.marketPageFrame(r)
+		scope.More()
+		scope.Retry()
+		synctest.Wait()
 		requests := source.sent("search_plugin_catalog")
 		if len(requests) != 4 {
 			t.Fatalf("catalog received %d requests, want 4", len(requests))

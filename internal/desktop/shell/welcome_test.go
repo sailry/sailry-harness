@@ -32,7 +32,7 @@ func TestWelcomeGuide(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "onboarding_title")) {
+	if !tt.HasText(i18n.In("en", "onboarding_title", "app", "Sailry")) {
 		t.Fatalf("no guide: %q", tt.Texts())
 	}
 	for range 3 {
@@ -64,7 +64,7 @@ func TestWelcomeGuide(t *testing.T) {
 	tt.Advance(time.Second)
 	tt.Frame()
 	if a.Welcome.Open || !a.Welcome.Seen || a.Page != SettingsPage || a.Settings.Section != settings.Providers {
-		t.Fatalf("choice: %+v page %d %s", a.Welcome, a.Page, a.Settings.Section)
+		t.Fatalf("choice: %+v page %q %s", a.Welcome, a.Page, a.Settings.Section)
 	}
 	clickButton(t, tt, i18n.In("en", "provider_step_back"))
 	tt.Frame()

@@ -340,6 +340,8 @@ jobs:
       #   internal/databases: external database servers
       #   internal/node/web: the public internet
       #   cmd/sailry-desktop: runs only beside a packaged executable
+      # Select ./internal/desktop/application in integration_packages for the
+      # legacy profile upgrade test.
       RELEASE_PACKAGES: >-
         ./internal/core
         ./internal/desktop/updater

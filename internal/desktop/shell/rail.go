@@ -21,56 +21,38 @@ type Feature struct {
 	DefaultPinned bool
 }
 
-// Features are the rail's features in their default order: Conversation,
-// Activity, Files, Git, Market.
-var Features = []Feature{
-	{ID: "page:conversation", Icon: icons.Chat, Label: "shell_sessions", Fixed: true},
-	{ID: "page:activity", Icon: icons.Grid, Label: "activity"},
-	{ID: "page:files", Icon: icons.Folder, Label: "files"},
-	{ID: "page:git", Icon: icons.Network, Label: "git"},
-	{ID: "page:settings_plugins", Icon: icons.Puzzle, Label: "market_title", Last: true},
-}
-
-func featureOf(id string) (Feature, bool) {
-	for _, f := range Features {
-		if f.ID == id {
-			return f, true
-		}
-	}
-	return Feature{}, false
-}
-
 func (a *App) lookupFeature(id string) (Feature, bool) {
-	if feature, exists := a.pluginFeatures[id]; exists {
-		return feature, true
+	if page := a.pageForFeature(id); page != nil {
+		return page.Feature, true
 	}
-	return featureOf(id)
+	feature, exists := a.pluginFeatures[id]
+	return feature, exists
 }
 
 func (a *App) SetPluginFeatures(features []Feature) {
 	if a.Preview {
 		return
 	}
-	previous := a.pluginFeatures
 	a.pluginFeatures = make(map[string]Feature, len(features))
 	for _, feature := range features {
+		if feature.ID == "" || a.pageForFeature(feature.ID) != nil {
+			continue
+		}
 		a.pluginFeatures[feature.ID] = feature
 		if _, known := a.unpinned[feature.ID]; !known {
-			if _, retained := previous[feature.ID]; !retained {
-				a.unpinned[feature.ID] = !feature.DefaultPinned
-			}
+			a.unpinned[feature.ID] = !feature.DefaultPinned && !feature.Fixed
 		}
 	}
-	a.features = slices.DeleteFunc(a.features, func(id string) bool { return id == "page:activity" })
 	position := 1
 	for _, feature := range features {
-		if slices.Contains(a.features, feature.ID) {
+		if _, available := a.pluginFeatures[feature.ID]; !available || slices.Contains(a.features, feature.ID) {
 			continue
 		}
 		position = min(position, len(a.features))
 		a.features = slices.Insert(a.features, position, feature.ID)
 		position++
 	}
+	a.features = a.mergeFeatureOrder(a.features)
 	if a.Page == PluginPage {
 		if _, available := a.pluginFeatures[a.pluginPage]; !available {
 			a.Navigate(ConversationPage)
@@ -78,37 +60,41 @@ func (a *App) SetPluginFeatures(features []Feature) {
 	}
 }
 
-// MoveFeature moves source before or after target in the rail's order: the
-// fixed Conversation and the last Market do not move, and nothing goes after
-// Market.
-func MoveFeature(order []string, source, target string, after bool) []string {
-	src, _ := featureOf(source)
-	dst, _ := featureOf(target)
-	if source == target || src.Fixed || src.Last || dst.Fixed && !after {
-		return order
+// moveFeature moves a destination relative to another visible rail entry.
+func (a *App) moveFeature(source, target string, after bool) {
+	src, sourceAvailable := a.lookupFeature(source)
+	dst, targetAvailable := a.lookupFeature(target)
+	if !sourceAvailable || !targetAvailable || source == target || src.Fixed || src.Last || dst.Fixed && !after {
+		return
 	}
 	if dst.Last {
 		after = false
 	}
-	out := slices.DeleteFunc(slices.Clone(order), func(id string) bool { return id == source })
+	out := slices.DeleteFunc(slices.Clone(a.features), func(id string) bool { return id == source })
 	at := slices.Index(out, target)
 	if at < 0 {
-		return order
+		return
 	}
 	if after {
 		at++
 	}
-	return slices.Insert(out, at, source)
+	a.features = a.mergeFeatureOrder(slices.Insert(out, at, source))
 }
 
 func (a *App) unpinnedList() []string {
-	var out []string
+	var unordered, out []string
+	for id, unpinned := range a.unpinned {
+		if unpinned && !slices.Contains(a.features, id) {
+			unordered = append(unordered, id)
+		}
+	}
 	for _, id := range a.features {
 		if a.unpinned[id] {
 			out = append(out, id)
 		}
 	}
-	return out
+	slices.Sort(unordered)
+	return append(out, unordered...)
 }
 
 func (a *App) PluginFeature() string {
@@ -118,18 +104,17 @@ func (a *App) PluginFeature() string {
 	return ""
 }
 
-// openFeature opens a feature's page in the main column: the conversation,
-// Files and Git over the selected project, Activity and Market.
+// openFeature opens a registered rail destination in the main column.
 func (a *App) openFeature(c *ui.Context, id string) {
+	if p := a.pageForFeature(id); p != nil {
+		a.Navigate(p.Page)
+		return
+	}
 	if _, exists := a.pluginFeatures[id]; exists {
 		if a.Hooks.SelectPlugin != nil && a.Hooks.SelectPlugin(id) {
 			a.Navigate(PluginPage)
 			a.pluginPage = id
 		}
-		return
-	}
-	if p, ok := pageFeatures[id]; ok {
-		a.Navigate(p)
 		return
 	}
 	a.notice(c)
@@ -212,7 +197,7 @@ func (a *App) moreButton(c *ui.Context) {
 				}
 				edge, over := featureEdge(row, f)
 				if v, ok := ui.Drop[featureDrag](row); ok && over {
-					a.features = MoveFeature(a.features, v.id, f.ID, edge)
+					a.moveFeature(v.id, f.ID, edge)
 				}
 				row.Children(func() {
 					if v, ok := ui.DragOver[featureDrag](row); ok && over && v.id != f.ID {
