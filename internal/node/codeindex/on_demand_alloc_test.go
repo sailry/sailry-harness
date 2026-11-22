@@ -105,7 +105,7 @@ func TestLiveGraphHeap(t *testing.T) {
 				}
 				mark("grammar_decode")
 				for _, file := range files {
-					tree, err := parse(t.Context(), grammars.DetectLanguage(file.path), file.text)
+					tree, err := parse(t.Context(), grammars.DetectLanguage(file.path), []byte(file.text))
 					if err != nil || tree == nil {
 						t.Fatalf("grammar-only parse of %s: %v", file.path, err)
 					}

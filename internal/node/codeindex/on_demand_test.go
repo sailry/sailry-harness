@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -231,7 +232,9 @@ func TestLiveReuseKeepsWorktreesSeparate(t *testing.T) {
 
 func TestLiveResultReusesCompleteDerivation(t *testing.T) {
 	f := newFixture(t)
-	f.write("source.rs", "pub fn alpha() {}\n")
+	const original = "// α \npub fn alpha() {}\n"
+	const changed = "// β\npub fn alpha() { }\n"
+	f.write("source.rs", original)
 	// Contents must be read and checked when the platform cannot supply a stamp.
 	reads := 0
 	f.service.inspectText = func(files *core.Files, ctx context.Context, path string, limit int, previous core.FileStamp, inspect func(*string) error) (core.FileStamp, error) {
@@ -274,10 +277,14 @@ func TestLiveResultReusesCompleteDerivation(t *testing.T) {
 	if builds != 1 || reads != 2 {
 		t.Fatalf("got %d transient builds and %d full reads, want 1 and 2", builds, reads)
 	}
-	const changed = "pub fn alpha() {\n    let value = 1;\n}\n"
 	f.write("source.rs", changed)
-	if page, err := f.service.SearchOnDemand(t.Context(), f.id, f.root, query); err != nil || len(page.Symbols) != 1 || page.Symbols[0].FileRevision != Hash(changed) {
+	page, err := f.service.SearchOnDemand(t.Context(), f.id, f.root, query)
+	if err != nil || len(page.Symbols) != 1 {
 		t.Fatalf("full reads did not discover modified content: %+v, %v", page, err)
+	}
+	if symbol := page.Symbols[0]; symbol.FileRevision != Hash(changed) || symbol.FileRevision == first.Symbols[0].FileRevision ||
+		symbol.Range.StartByte != uint32(strings.Index(changed, "pub fn")) || symbol.Range.EndByte != uint32(len(changed)-1) {
+		t.Fatalf("changed source has stale revision or range: %+v", symbol)
 	}
 }
 

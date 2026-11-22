@@ -111,7 +111,7 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, name s
 				continue
 			}
 			text := s.text(region)
-			guestTree, err := parse(ctx, guest, text)
+			guestTree, err := parse(ctx, guest, []byte(text))
 			if err != nil {
 				return err
 			}

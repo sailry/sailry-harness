@@ -81,14 +81,18 @@ func detect(file, source string) *grammars.LangEntry {
 
 // Hash is the content revision of a source.
 func Hash(source string) string {
-	sum := blake3.Sum256([]byte(source))
+	return hashBytes([]byte(source))
+}
+
+func hashBytes(data []byte) string {
+	sum := blake3.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
 // Parse extracts the declarations, references and imports of one source. It
 // fails only when ctx is cancelled.
 func (p *Parser) Parse(ctx context.Context, file, source string) (Parsed, error) {
-	return p.parseHashed(ctx, file, source, "", allContent)
+	return p.parseSource(ctx, file, parseInput{text: source}, allContent)
 }
 
 type parseContent uint8
@@ -99,14 +103,26 @@ const (
 	outlineContent
 )
 
-func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, content parseContent) (Parsed, error) {
+type parseInput struct {
+	text     string
+	data     []byte
+	revision string
+}
+
+func (input *parseInput) hash() string {
+	if input.revision == "" {
+		input.data = []byte(input.text)
+		input.revision = hashBytes(input.data)
+	}
+	return input.revision
+}
+
+func (p *Parser) parseSource(ctx context.Context, file string, input parseInput, content parseContent) (Parsed, error) {
 	if err := ctx.Err(); err != nil {
 		return Parsed{}, err
 	}
-	if hash == "" {
-		hash = Hash(source)
-	}
-	parsed := Parsed{Path: file, Hash: hash, Status: StatusUnsupported}
+	parsed := Parsed{Path: file, Hash: input.hash(), Status: StatusUnsupported}
+	source := input.text
 	entry := detect(file, source)
 	if entry == nil {
 		return parsed, nil
@@ -116,7 +132,7 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, con
 	if content != allContent && (!sourceLanguage(language) || excludedCodePath(file) || minifiedSource(language, source)) {
 		return parsed, nil
 	}
-	tree, err := parse(ctx, entry, source)
+	tree, err := parse(ctx, entry, input.data)
 	if err != nil {
 		return Parsed{}, err
 	}
@@ -161,7 +177,7 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, con
 }
 
 // parse returns no tree when the source exceeds the size or time budget.
-func parse(ctx context.Context, entry *grammars.LangEntry, source string) (*gotreesitter.Tree, error) {
+func parse(ctx context.Context, entry *grammars.LangEntry, source []byte) (*gotreesitter.Tree, error) {
 	if len(source) > MaxFileBytes {
 		return nil, nil
 	}
@@ -173,13 +189,12 @@ func parse(ctx context.Context, entry *grammars.LangEntry, source string) (*gotr
 	parser.SetCancellationFlag(&cancelled)
 	release := context.AfterFunc(ctx, func() { atomic.StoreUint32(&cancelled, 1) })
 	defer release()
-	bytes := []byte(source)
 	var tree *gotreesitter.Tree
 	var err error
 	if entry.TokenSourceFactory != nil {
-		tree, err = parser.ParseWithTokenSource(bytes, entry.TokenSourceFactory(bytes, language))
+		tree, err = parser.ParseWithTokenSource(source, entry.TokenSourceFactory(source, language))
 	} else {
-		tree, err = parser.Parse(bytes)
+		tree, err = parser.Parse(source)
 	}
 	if cancel := ctx.Err(); cancel != nil {
 		tree.Release()

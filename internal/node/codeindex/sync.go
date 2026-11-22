@@ -274,10 +274,9 @@ func (s *Service) inspect(bounded context.Context, files *core.Files, path strin
 			}
 			return nil
 		}
-		var file Parsed
-		var err error
+		input := parseInput{text: *source}
 		if prior.hash != nil && prior.fingerprint == Fingerprint || ready != nil {
-			hash := Hash(*source)
+			hash := input.hash()
 			switch {
 			case prior.hash != nil && prior.fingerprint == Fingerprint && *prior.hash == hash:
 				return nil
@@ -285,10 +284,8 @@ func (s *Service) inspect(bounded context.Context, files *core.Files, path strin
 				result.file = ready
 				return nil
 			}
-			file, err = s.parser.parseHashed(bounded, path, *source, hash, sourceContent)
-		} else {
-			file, err = s.parser.ParseIndexed(bounded, path, *source)
 		}
+		file, err := s.parser.parseSource(bounded, path, input, sourceContent)
 		if err == nil {
 			result.file = &file
 		}

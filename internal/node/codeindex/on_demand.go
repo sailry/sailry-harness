@@ -115,15 +115,12 @@ func (scan *liveFiles) read(path string, match *regexp.Regexp) (*Parsed, error) 
 			return nil
 		}
 		scan.attempts++
-		var hash string
-		if prior.file != nil && prior.file.Hash != "" {
-			hash = Hash(*source)
-			if hash == prior.file.Hash {
-				parsed = prior.file
-				return nil
-			}
+		input := parseInput{text: *source}
+		if prior.file != nil && prior.file.Hash != "" && input.hash() == prior.file.Hash {
+			parsed = prior.file
+			return nil
 		}
-		file, err := scan.service.parser.parseHashed(scan.ctx, path, *source, hash, scan.content)
+		file, err := scan.service.parser.parseSource(scan.ctx, path, input, scan.content)
 		parsed = &file
 		return err
 	})

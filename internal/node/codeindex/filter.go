@@ -82,11 +82,11 @@ func minifiedSource(language, source string) bool {
 
 // ParseIndexed extracts code only, returning file metadata for excluded paths.
 func (p *Parser) ParseIndexed(ctx context.Context, file, source string) (Parsed, error) {
-	return p.parseHashed(ctx, file, source, "", sourceContent)
+	return p.parseSource(ctx, file, parseInput{text: source}, sourceContent)
 }
 
 // ParseOutline returns the same indexed declarations without collecting graph
 // references, which an outline never reads.
 func (p *Parser) ParseOutline(ctx context.Context, file, source string) (Parsed, error) {
-	return p.parseHashed(ctx, file, source, "", outlineContent)
+	return p.parseSource(ctx, file, parseInput{text: source}, outlineContent)
 }
