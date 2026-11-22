@@ -396,6 +396,65 @@ func TestGitReadMapping(t *testing.T) {
 			}
 		}
 	})
+	t.Run("large_tracked_blob_only_truncates_changed_scopes", func(t *testing.T) {
+		root, r, _ := fixture(t)
+		const path = "file.txt"
+		write := func(data []byte) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(root, path), data, 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(make([]byte, statLimit+1))
+		if _, err := w.Add(path); err != nil {
+			t.Fatal(err)
+		}
+		commit, err := w.Commit("Large blob", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(200, 0)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		work := []byte("small\n")
+		write(work)
+		xy := ".M"
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			if args[0] == "hash-object" {
+				return CommandResult{Stdout: []byte(plumbing.ComputeHash(plumbing.BlobObject, work).String() + "\n")}, nil
+			}
+			body := "# branch.oid " + commit.String() + "\x00# branch.head main\x001 " + xy + " N... 100644 100644 100644 abc def " + path + "\x00"
+			return CommandResult{Stdout: []byte(body)}, nil
+		}})
+		check := func(changed, clean protocol.GitDiffScope, staged, unstaged protocol.GitLineStats) {
+			t.Helper()
+			status, err := s.Status(ctx, root)
+			if err != nil || len(status.Entries) != 1 {
+				t.Fatal(status, err)
+			}
+			entry := status.Entries[0]
+			if entry.StagedDiff != staged || entry.UnstagedDiff != unstaged || !entry.Diff.Truncated {
+				t.Fatal(entry)
+			}
+			diff, err := s.Diff(ctx, root, path, changed)
+			if err != nil || !diff.Binary || diff.Size != uint64(len(work)) || diff.Text == "" {
+				t.Fatal(diff, err)
+			}
+			diff, err = s.Diff(ctx, root, path, clean)
+			if err != nil || diff != (protocol.GitDiff{Path: path, Scope: clean}) {
+				t.Fatal(diff, err)
+			}
+		}
+		uncounted := protocol.GitLineStats{Truncated: true}
+		check(protocol.GitDiffScopeUnstaged, protocol.GitDiffScopeStaged, protocol.GitLineStats{}, uncounted)
+		if _, err := w.Add(path); err != nil {
+			t.Fatal(err)
+		}
+		xy = "M."
+		s.Invalidate(root)
+		check(protocol.GitDiffScopeStaged, protocol.GitDiffScopeUnstaged, uncounted, protocol.GitLineStats{})
+	})
 	t.Run("status_line_statistics_are_bounded", func(t *testing.T) {
 		root, _, commit := fixture(t)
 		// One byte over the limit: such a file is marked, not read and hashed.

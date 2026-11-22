@@ -58,6 +58,9 @@ func filterDrivers(r *gogit.Repository) ([]string, error) {
 	return result, nil
 }
 func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, error) {
+	if err := checkContext(ctx); err != nil {
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionDeadlineExceeded)
+	}
 	s.mu.Lock()
 	slot := s.statuses[root]
 	if slot == nil || !slot.expires.IsZero() && !s.now().Before(slot.expires) {
@@ -108,6 +111,9 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 	case <-ctx.Done():
 		return protocol.GitStatus{}, statusFailure(mapError(ctx.Err()), protocol.GitInspectionDeadlineExceeded)
 	case <-slot.done:
+		if err := checkContext(ctx); err != nil {
+			return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionDeadlineExceeded)
+		}
 		result := slot.value
 		result.Entries = append([]protocol.GitEntry(nil), result.Entries...)
 		result.Repositories = append([]string(nil), result.Repositories...)
@@ -135,7 +141,7 @@ func (s *Service) status(ctx context.Context, root string) (protocol.GitStatus, 
 }
 
 func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol.GitStatus, error) {
-	r, err := s.openReadWorktree(ctx, root)
+	r, err := s.openDiffWorktree(ctx, root)
 	if err != nil {
 		if _, e := os.Lstat(filepath.Join(root, ".git")); errors.Is(e, os.ErrNotExist) {
 			return protocol.GitStatus{Kind: protocol.RepositoryKindDirectory, Entries: []protocol.GitEntry{}, Repositories: childRepositories(ctx, root)}, nil
@@ -172,7 +178,7 @@ func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol
 	var tree *object.Tree
 	var staged map[string]*idxfmt.Entry
 	var treeErr, indexErr error
-	if slices.ContainsFunc(result.Entries, func(entry protocol.GitEntry) bool { return !entry.Conflicted }) {
+	if s.stats > 0 && slices.ContainsFunc(result.Entries, func(entry protocol.GitEntry) bool { return !entry.Conflicted }) {
 		tree, treeErr = headTree(r)
 		var idx *idxfmt.Index
 		if idx, indexErr = r.Storer.Index(); indexErr == nil {
@@ -223,14 +229,23 @@ func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol
 				entry.ModifiedMs = ptr(uint64(info.ModTime().UnixMilli()))
 			}
 		}
-		if remaining := time.Until(budget); !entry.Conflicted && remaining > 0 {
+		if !entry.Conflicted && time.Until(budget) > 0 {
 			committed, committedErr := content{}, treeErr
 			if committedErr == nil {
-				committed, committedErr = treeContent(r, tree, entry.Path, statLimit)
+				committed, committedErr = treeSide(tree, entry.Path)
 			}
 			indexed, indexedErr := content{}, indexErr
 			if item := staged[entry.Path]; indexedErr == nil && item != nil {
-				indexed, indexedErr = blobContent(r, item.Hash, item.Mode, statLimit)
+				indexed = content{hash: item.Hash, mode: item.Mode, exists: true}
+			}
+			shared := committedErr == nil && indexedErr == nil && sameContent(committed, indexed)
+			if indexedErr == nil {
+				indexed, indexedErr = indexed.loadBlob(r, statLimit)
+			}
+			if shared {
+				committed, committedErr = indexed, indexedErr
+			} else if committedErr == nil {
+				committed, committedErr = committed.loadBlob(r, statLimit)
 			}
 			var working content
 			var workingErr error
@@ -247,7 +262,7 @@ func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol
 				}
 			}
 			// An entry changed on one side only needs one comparison.
-			entry.StagedDiff = lineStats(committed, indexed, committedErr, indexedErr, remaining)
+			entry.StagedDiff = lineStats(committed, indexed, committedErr, indexedErr, time.Until(budget))
 			entry.UnstagedDiff = lineStats(indexed, working, indexedErr, workingErr, time.Until(budget))
 			switch {
 			case committedErr == nil && indexedErr == nil && sameContent(committed, indexed):
@@ -259,6 +274,9 @@ func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol
 			}
 		}
 		filtered = append(filtered, entry)
+	}
+	if err := checkContext(ctx); err != nil {
+		return protocol.GitStatus{}, statusFailure(err, protocol.GitInspectionDeadlineExceeded)
 	}
 	next, err := indexRevision(root, r)
 	if err != nil {
@@ -278,10 +296,6 @@ func (s *Service) readStatusSnapshot(ctx context.Context, root string) (protocol
 	result.IndexRevision = ptr(revision)
 	result.Entries = filtered
 	return result, nil
-}
-
-func sameContent(a, b content) bool {
-	return a.exists == b.exists && a.hash == b.hash && a.mode == b.mode && !a.large && !b.large
 }
 
 // lineStats counts the changed lines between two sides that were already

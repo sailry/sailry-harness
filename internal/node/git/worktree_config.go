@@ -43,6 +43,23 @@ func (s *Service) openReadWorktree(ctx context.Context, root string) (*gogit.Rep
 	return checkWorktree(root, r)
 }
 
+func (s *Service) openDiffWorktree(ctx context.Context, root string) (*gogit.Repository, error) {
+	r, err := s.openReadWorktree(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	// Reuse the resolved Git filesystem. PlainOpen cannot set the threshold
+	// that lets status and diff see a large loose object's size without inflating it.
+	options := filesystem.Options{LargeObjectThreshold: statLimit}
+	switch store := r.Storer.(type) {
+	case *filesystem.Storage:
+		r.Storer = filesystem.NewStorageWithOptions(store.Filesystem(), cache.NewObjectLRUDefault(), options)
+	case *worktreeReadStorage:
+		store.Storage = filesystem.NewStorageWithOptions(store.Filesystem(), cache.NewObjectLRUDefault(), options)
+	}
+	return r, nil
+}
+
 func onlyWorktreeConfigUnsupported(err error) bool {
 	if !errors.Is(err, gogit.ErrUnknownExtension) && !errors.Is(err, gogit.ErrUnsupportedExtensionRepositoryFormatVersion) {
 		return false

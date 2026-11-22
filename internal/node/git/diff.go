@@ -36,32 +36,54 @@ type content struct {
 	size int64
 }
 
+func sameContent(a, b content) bool {
+	return a.exists == b.exists && (!a.exists || !a.hash.IsZero() && a.hash == b.hash && a.mode == b.mode)
+}
+
 func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode, limit int) (content, error) {
-	if mode == filemode.Submodule {
-		return content{data: []byte("Subproject commit " + hash.String() + "\n"), hash: hash, mode: mode, exists: true}, nil
+	return (content{hash: hash, mode: mode, exists: true}).loadBlob(r, limit)
+}
+
+func (c content) loadBlob(r *gogit.Repository, limit int) (content, error) {
+	if !c.exists {
+		return c, nil
 	}
-	blob, err := r.BlobObject(hash)
+	if c.mode == filemode.Submodule {
+		c.data = []byte("Subproject commit " + c.hash.String() + "\n")
+		return c, nil
+	}
+	blob, err := r.BlobObject(c.hash)
 	if err != nil {
 		return content{}, mapError(err)
 	}
+	c.size = blob.Size
 	if blob.Size > int64(limit) {
-		if limit == 1024*1024 {
-			return content{hash: hash, mode: mode, exists: true, binary: true, large: true, size: blob.Size}, nil
+		if limit == statLimit {
+			c.binary, c.large = true, true
+			return c, nil
 		}
 		return content{}, invalid("Git file exceeds the operation size limit")
+	}
+	if blob.Size < 0 {
+		return content{}, mapError(errors.New("invalid Git blob size"))
 	}
 	reader, err := blob.Reader()
 	if err != nil {
 		return content{}, mapError(err)
 	}
 	defer reader.Close()
-	data, err := io.ReadAll(io.LimitReader(reader, int64(limit)+1))
-	if err != nil {
+	data := make([]byte, blob.Size+1)
+	n, err := io.ReadFull(reader, data)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return content{}, mapError(err)
 	}
-	return content{data: data, hash: hash, mode: mode, exists: true, size: blob.Size}, nil
+	if int64(n) != blob.Size {
+		return content{}, mapError(errors.New("Git blob does not match its recorded size"))
+	}
+	c.data = data[:n:n]
+	return c, nil
 }
-func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int) (content, error) {
+func treeSide(tree *object.Tree, path string) (content, error) {
 	entry, err := headEntry(tree, path)
 	if entry == nil || err != nil {
 		return content{}, err
@@ -69,7 +91,14 @@ func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int)
 	if entry.Mode == filemode.Dir {
 		return content{}, invalid("Git inspection requires a file")
 	}
-	return blobContent(r, entry.Hash, entry.Mode, limit)
+	return content{hash: entry.Hash, mode: entry.Mode, exists: true}, nil
+}
+func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int) (content, error) {
+	side, err := treeSide(tree, path)
+	if err != nil {
+		return content{}, err
+	}
+	return side.loadBlob(r, limit)
 }
 func headTree(r *gogit.Repository) (*object.Tree, error) {
 	ref, err := r.Head()
@@ -86,7 +115,7 @@ func headTree(r *gogit.Repository) (*object.Tree, error) {
 	tree, err := commit.Tree()
 	return tree, mapError(err)
 }
-func indexContent(r *gogit.Repository, path string, limit int) (content, error) {
+func indexSide(r *gogit.Repository, path string) (content, error) {
 	idx, err := r.Storer.Index()
 	if err != nil {
 		return content{}, mapError(err)
@@ -95,7 +124,14 @@ func indexContent(r *gogit.Repository, path string, limit int) (content, error) 
 	if err != nil {
 		return content{}, nil
 	}
-	return blobContent(r, entry.Hash, entry.Mode, limit)
+	return content{hash: entry.Hash, mode: entry.Mode, exists: true}, nil
+}
+func indexContent(r *gogit.Repository, path string, limit int) (content, error) {
+	side, err := indexSide(r, path)
+	if err != nil {
+		return content{}, err
+	}
+	return side.loadBlob(r, limit)
 }
 func workingContent(root, path string, limit int) (content, error) {
 	target, err := safePath(root, path)
@@ -125,7 +161,7 @@ func workingContent(root, path string, limit int) (content, error) {
 	if !info.Mode().IsRegular() {
 		return content{}, invalid("Git inspection requires a regular worktree file")
 	}
-	if info.Size() > int64(limit) && limit != 1024*1024 {
+	if info.Size() > int64(limit) && limit != statLimit {
 		return content{}, invalid("Git file exceeds the operation size limit")
 	}
 	scope, err := core.OpenFiles(root, core.RestrictedFiles)
@@ -174,23 +210,29 @@ func (s *Service) contents(ctx context.Context, root, path string, r *gogit.Repo
 		if e != nil {
 			return before, after, e
 		}
-		before, err = treeContent(r, tree, path, 1024*1024)
+		before, err = treeSide(tree, path)
 		if err == nil {
-			after, err = indexContent(r, path, 1024*1024)
+			after, err = indexSide(r, path)
+		}
+		if err == nil && !sameContent(before, after) {
+			before, err = before.loadBlob(r, statLimit)
+			if err == nil {
+				after, err = after.loadBlob(r, statLimit)
+			}
 		}
 	case protocol.GitDiffScopeUnstaged:
-		before, err = indexContent(r, path, 1024*1024)
+		before, err = indexContent(r, path, statLimit)
 		if err == nil {
-			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, statLimit)
 		}
 	case protocol.GitDiffScopeAll:
 		tree, e := headTree(r)
 		if e != nil {
 			return before, after, e
 		}
-		before, err = treeContent(r, tree, path, 1024*1024)
+		before, err = treeContent(r, tree, path, statLimit)
 		if err == nil {
-			after, err = s.storedContent(ctx, root, r, path, 1024*1024)
+			after, err = s.storedContent(ctx, root, r, path, statLimit)
 		}
 	default:
 		err = invalid("invalid Git diff scope")
@@ -204,12 +246,15 @@ func (s *Service) Diff(ctx context.Context, root, path string, scope protocol.Gi
 	if err := checkContext(ctx); err != nil {
 		return protocol.GitDiff{}, err
 	}
-	r, err := s.openReadWorktree(ctx, root)
+	r, err := s.openDiffWorktree(ctx, root)
 	if err != nil {
 		return protocol.GitDiff{}, err
 	}
 	a, b, err := s.contents(ctx, root, path, r, scope)
 	if err != nil {
+		return protocol.GitDiff{}, err
+	}
+	if err := checkContext(ctx); err != nil {
 		return protocol.GitDiff{}, err
 	}
 	result, err := renderDiff(path, scope, a, b)
@@ -271,7 +316,7 @@ func chunksWithin(a, b []byte, limit time.Duration) []fdiff.Chunk {
 }
 func renderDiff(path string, scope protocol.GitDiffScope, a, b content) (protocol.GitDiff, error) {
 	result := protocol.GitDiff{Path: path, Scope: scope}
-	if a.exists == b.exists && a.hash == b.hash && a.mode == b.mode {
+	if sameContent(a, b) {
 		return result, nil
 	}
 	patch := filePatch{binary: a.binary || b.binary || bytes.IndexByte(a.data, 0) >= 0 || bytes.IndexByte(b.data, 0) >= 0 || !utf8.Valid(a.data) || !utf8.Valid(b.data)}
