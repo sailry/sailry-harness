@@ -85,6 +85,16 @@ func (s ConversationState) HasBlankHistoryTurn() bool {
 	return missingConversationTurn(s.Snapshot, true) != nil
 }
 
+type conversationHistoryRead struct{ cancel context.CancelFunc }
+
+func (w *conversationWatch) cancelOlderRead() {
+	if w.olderRead != nil {
+		w.olderRead.cancel()
+		w.olderRead = nil
+	}
+	w.state.LoadingOlder = false
+}
+
 func (c *Client) loadOlderConversation(ctx context.Context, session protocol.SessionID, turnLimit uint16, blank bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -105,7 +115,6 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 		c.conversationMu.Unlock()
 		return nil
 	}
-	w.state.LoadingOlder = true
 	w.state.OlderErr = nil
 	generation := w.projection.generation
 	revision := snapshot.Page.Revision
@@ -125,8 +134,15 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 			}
 		}
 	}
-	c.conversationMu.Unlock()
+	if partial == nil && beforeTurn == nil {
+		c.conversationMu.Unlock()
+		c.conversationChanged(w)
+		return nil
+	}
 	ctx, cancel := context.WithCancel(ctx)
+	read := &conversationHistoryRead{cancel: cancel}
+	w.olderRead, w.state.LoadingOlder = read, true
+	c.conversationMu.Unlock()
 	defer cancel()
 	stop := context.AfterFunc(w.ctx, cancel)
 	defer stop()
@@ -144,7 +160,7 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 				missing = slices.DeleteFunc(missing, func(t protocol.TurnID) bool { return t == *partial })
 			}
 		}
-	} else if beforeTurn != nil {
+	} else {
 		var h protocol.ConversationHistory
 		h, err = c.ReadConversation(ctx, session, beforeTurn)
 		if err == nil {
@@ -153,18 +169,17 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 				err = fault(protocol.ErrorCodeInvalidRequest, "history page crossed its turn boundary")
 			}
 		}
-	} else {
-		c.conversationMu.Lock()
-		w.state.LoadingOlder = false
-		c.conversationMu.Unlock()
-		c.conversationChanged(w)
-		return nil
 	}
 	if err == nil {
 		err = c.waitConversationSequence(ctx, w, generation, sequence)
 	}
 	c.conversationMu.Lock()
-	if c.conversations[session] != w || generation != w.projection.generation || w.projection.snapshot != snapshot || w.projection.recovering {
+	if w.olderRead != read {
+		c.conversationMu.Unlock()
+		return ctx.Err()
+	}
+	replaced := c.conversations[session] != w || generation != w.projection.generation || w.projection.snapshot != snapshot
+	if replaced || w.projection.recovering {
 		if err == nil {
 			err = fault(protocol.ErrorCodeBusy, "conversation reconnected during history read")
 		}
@@ -184,14 +199,17 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 			w.projection.settle()
 			w.projection.transcript++
 			w.viewVersion++
+			w.paged = true
 			w.rememberExtent()
 		}
 	}
-	w.state.LoadingOlder = false
-	w.state.OlderErr = err
+	w.olderRead, w.state.LoadingOlder = nil, false
+	if !replaced {
+		w.state.OlderErr = err
+	}
 	c.conversationMu.Unlock()
 	c.conversationChanged(w)
-	if faultCode(err) == protocol.ErrorCodeRevisionConflict {
+	if !replaced && faultCode(err) == protocol.ErrorCodeRevisionConflict {
 		_ = c.RefreshConversation(ctx, session)
 	}
 	return err

@@ -92,6 +92,7 @@ func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool)
 	}
 	id := "link/" + target.path
 	r.registerWorkspaceFile(session, id, current.Worktree, target.path, nil)
+	r.trackTranscriptAttachment(current.ID, attachmentKey(session, id))
 	if kind == conversation.ImageFile && r.attachmentConversationVisible(session) {
 		cache := r.attachmentImages(session)
 		key := attachmentKey(session, id)

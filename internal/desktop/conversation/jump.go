@@ -23,7 +23,7 @@ import (
 // It reads only AtEnd: Visible would build another frame each time the rows
 // in view change, doubling the cost of a scroll. A list not laid out yet
 // reads as off its end, so its first build shows no button.
-func jump(c *ui.Context, l *ui.ListState, n int, first bool, above, aside float32) {
+func jump(c *ui.Context, l *ui.ListState, n int, first bool, above, aside float32, latest func()) {
 	p := theme.Of(c)
 	visible := n > 0 && !l.AtEnd() && !first
 	target := float32(0)
@@ -48,6 +48,6 @@ func jump(c *ui.Context, l *ui.ListState, n int, first bool, above, aside float3
 		if visible && b.Hovered() {
 			b.Background(p.Hover)
 		}
-		b.Children(func() { ui.Icon(c, icons.ArrowDown).FontSize(16) }).OnClick(l.ScrollToEnd)
+		b.Children(func() { ui.Icon(c, icons.ArrowDown).FontSize(16) }).OnClick(latest)
 	})
 }

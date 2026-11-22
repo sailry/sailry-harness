@@ -1,6 +1,8 @@
 package conversation
 
 import (
+	"context"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
@@ -17,11 +19,15 @@ type transcriptList struct {
 	link         func(string)
 	block        func(*ui.Context, *parser.Document, int) bool
 	paint        func(*ui.Painter, ui.Rect)
+	jump         func()
+	input        func(ui.InputEvent) bool
 	nav          *navigation
 	frame        transcriptFrame
 	paintTop     float32
 	painted      transcriptAnchor
 	restore      transcriptAnchor
+	latest       context.CancelFunc
+	jumping      bool
 	mounted      bool
 }
 
@@ -47,6 +53,7 @@ type transcriptFrame struct {
 // request before the conversation is shown.
 func (s *State) List(id string) *ui.ListState {
 	l := s.listOf(id)
+	l.cancelLatest()
 	delete(s.anchors, id)
 	l.restore = transcriptAnchor{}
 	return &l.layout
@@ -67,6 +74,7 @@ func (s *State) listOf(id string) *transcriptList {
 	l := &transcriptList{}
 	l.layout.FollowEnd, l.layout.Key = true, l.key
 	l.row, l.link, l.block, l.paint = l.buildRow, l.openLink, l.embedBlock, l.beginPaint
+	l.jump, l.input = l.jumpToLatest, l.handleInput
 	s.lists[id] = l
 	return l
 }
@@ -110,6 +118,7 @@ func (s *State) FinishFrame() {
 }
 
 func (s *State) releaseTranscript(l *transcriptList) {
+	l.cancelLatest()
 	id := l.frame.id
 	first, last := l.layout.Visible()
 	if !l.layout.AtEnd() && first >= 0 && first <= last && first < len(l.frame.turns) {
@@ -131,8 +140,47 @@ func (s *State) releaseTranscript(l *transcriptList) {
 	delete(s.presses, id)
 	delete(s.area, id)
 	delete(s.built, id)
+	delete(s.toolCards, id)
 	s.CloseSearchIn(id)
 	delete(s.finds, id)
+	if s.resultOf == id {
+		s.result, s.resultOf, s.resultMD = nil, "", nil
+	}
+}
+
+func (l *transcriptList) cancelLatest() {
+	if l.latest != nil {
+		l.latest()
+		l.latest = nil
+	}
+	l.jumping = false
+}
+
+func (l *transcriptList) jumpToLatest() {
+	s, id := l.frame.state, l.frame.id
+	if s == nil {
+		return
+	}
+	s.List(id).ScrollToEnd()
+	l.jumping = true
+	if f := s.finds[id]; f != nil && f.reveal != nil {
+		f.reveal()
+		f.reveal = nil
+		if f.selected >= 0 && f.selected < len(f.matches) {
+			f.matches[f.selected].Turn = -1
+		}
+	}
+}
+
+func (l *transcriptList) handleInput(ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputScroll && ev.DY < 0 && !ev.Momentum && ev.Mods&(ui.Ctrl|ui.Shift) == 0 {
+		l.cancelLatest()
+		if sess := l.frame.session; l.olderVisible && sess != nil && sess.OlderFailed && !sess.LoadingOlder {
+			l.olderRetry = true
+			l.frame.c.Invalidate()
+		}
+	}
+	return false
 }
 
 func (s *State) rememberTranscript(id string, place transcriptAnchor) {

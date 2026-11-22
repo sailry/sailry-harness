@@ -3,8 +3,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -690,6 +692,83 @@ func TestConversationHistoryResumesOriginalRangeAfterInterruptedRestore(t *testi
 	wait(func(state ConversationState) bool {
 		page := state.Snapshot.Page
 		return !state.LoadingOlder && state.OlderErr == nil && len(state.Snapshot.Missing) == 0 && len(page.Entries) == 4 && page.Entries[0].ID == "Current prefix"
+	})
+}
+
+func TestReturnToLatestRejectsInFlightHistory(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		snapshot := conversationFixture()
+		run := snapshot.Page.Runs[0]
+		run.Status = protocol.ConversationStatusCompleted
+		snapshot.Page.Runs[0] = run
+		snapshot.Page.Entries[0].Sequence = 3
+		snapshot.Missing = []protocol.TurnID{run.Turn}
+		transport := &turnPagingTransport{
+			conversationTransport: &conversationTransport{opened: make(chan *clientSubscription, 2), initial: func() protocol.ConversationSnapshot { return snapshot }},
+			pages:                 make(chan requestedTurnPage),
+		}
+		c := New(transport)
+		defer c.Close()
+		release, err := c.WatchConversation(t.Context(), run.Session, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		synctest.Wait()
+		if state, _ := c.Conversation(run.Session); !state.Connected || len(state.Snapshot.Page.Entries) != 1 {
+			t.Fatal("newest page was not published")
+		}
+		done := make(chan error, 1)
+		start := func(before uint64) requestedTurnPage {
+			t.Helper()
+			go func() { done <- c.LoadOlderConversation(t.Context(), run.Session) }()
+			select {
+			case page := <-transport.pages:
+				if page.query.Before == nil || *page.query.Before != before {
+					t.Fatalf("wrong continuation: %+v", page.query)
+				}
+				return page
+			case err := <-done:
+				t.Fatalf("expected an older page: %v", err)
+				return requestedTurnPage{}
+			}
+		}
+		respond := func(page requestedTurnPage, id string, sequence uint64, next *uint64) {
+			entry := protocol.ConversationEntry{ID: id, Turn: run.Turn, Sequence: sequence, Author: "assistant"}
+			page.complete <- link.Response{Output: protocol.Output{Kind: "turn_history", Data: protocol.ConversationTurnHistory{
+				Sequence: snapshot.Sequence, Revision: snapshot.Page.Revision, Run: run, Entries: []protocol.ConversationEntry{entry}, NextBefore: next,
+			}}}
+		}
+		respond(start(3), "prior", 2, new(uint64(2)))
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		late := start(2)
+		c.ReturnToLatest(t.Context(), run.Session)
+		synctest.Wait()
+		if state, _ := c.Conversation(run.Session); state.LoadingOlder || len(state.Snapshot.Page.Entries) != 1 || len(state.Snapshot.Missing) != 1 {
+			t.Fatal("return to latest did not restore the fitted snapshot")
+		}
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("obsolete history did not end with cancellation: %v", err)
+			}
+		default:
+			t.Fatal("obsolete history was still waiting for the Node")
+		}
+		current := start(3)
+		respond(late, "obsolete", 1, nil)
+		if state, _ := c.Conversation(run.Session); !state.LoadingOlder || state.OlderErr != nil || len(state.Snapshot.Page.Entries) != 1 {
+			t.Fatal("obsolete history changed the newest page")
+		}
+		respond(current, "prior", 2, new(uint64(2)))
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if state, _ := c.Conversation(run.Session); len(state.Snapshot.Page.Entries) != 2 {
+			t.Fatal("the newest page could no longer page older entries")
+		}
 	})
 }
 

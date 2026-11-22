@@ -21,6 +21,7 @@ type conversationFeed struct {
 	latest   atomic.Pointer[preparedConversation]
 	request  atomic.Uint64
 	reveal   *conversationReveal // UI thread only
+	sources  map[string]attachmentDescriptor
 }
 
 type preparedConversation struct {
@@ -99,6 +100,8 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 			feed.reveal.finish(nil, client.ConversationState{})
 		}
 		r.App.Messages.SetReferences(id.String(), nil)
+		r.replaceTranscriptAttachmentSources(id)
+		r.pruneConversationCards(id, nil)
 		delete(r.conversationFeeds, id)
 		delete(r.conversationCache, id)
 	}

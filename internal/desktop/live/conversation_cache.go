@@ -229,8 +229,10 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	}
 	p.clocks.advance(cv.Turns, now)
 	r.App.Messages.SetReferences(cv.ID, p.references)
+	r.replaceTranscriptAttachmentSources(id)
 	r.bindAttachmentSources(cv.ID, state.Snapshot.Page, p.attachments)
 	r.projectConversationAssets(cv, state, p.attachments)
+	r.pruneConversationCards(id, cv.Turns)
 	// Recover a blank turn on the fitted page without loading unrelated
 	// history or the prefix of a turn already shown.
 	if p.blank && !state.LoadingOlder && state.OlderErr == nil {

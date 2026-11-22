@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"encoding/json"
 	"slices"
 	"strconv"
@@ -727,6 +728,14 @@ func (x *conversationActions) LoadOlder() {
 	}
 	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
 		x.r.async(func() { _ = x.r.controller.LoadOlderConversation(x.r.ctx, id) })
+	}
+}
+func (x *conversationActions) ReturnToLatest(ctx context.Context) {
+	if !x.owned() {
+		return
+	}
+	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
+		x.r.async(func() { x.r.controller.ReturnToLatest(ctx, id) })
 	}
 }
 func (x *conversationActions) Quote(text string) {

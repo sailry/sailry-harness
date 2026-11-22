@@ -299,14 +299,8 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 		l.olderRetry = false
 		// What shows of the transcript is the list above the dock.
 		list := ui.List(c, &l.layout, n, l.row).TrackScroll(&l.scroll).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog).Draw(l.paint)
-		if l.olderVisible && sess.OlderFailed && !sess.LoadingOlder {
-			list.HandleInput(func(ev ui.InputEvent) bool {
-				if ev.Kind == ui.InputScroll && ev.DY < 0 && !ev.Momentum && ev.Mods&(ui.Ctrl|ui.Shift) == 0 {
-					l.olderRetry = true
-					c.Invalidate()
-				}
-				return false
-			})
+		if l.latest != nil || l.jumping || l.olderVisible && sess.OlderFailed && !sess.LoadingOlder {
+			list.HandleInput(l.input)
 		}
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
@@ -319,7 +313,17 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 		if sess != nil && n > 0 && !s.Split {
 			s.navigated = l
 		}
-		jump(c, &l.layout, n, !s.built[id], reserve, s.Aside)
+		if l.jumping && l.layout.AtEnd() {
+			l.jumping = false
+			if source, ok := actions.(interface{ ReturnToLatest(context.Context) }); ok {
+				ctx, cancel := context.WithCancel(context.Background())
+				l.latest = cancel
+				source.ReturnToLatest(ctx)
+			}
+		} else if l.latest != nil && !l.layout.AtEnd() {
+			l.cancelLatest()
+		}
+		jump(c, &l.layout, n, !s.built[id], reserve, s.Aside, l.jump)
 		s.built[id] = true
 		s.searchBar(c, id, turns)
 	})

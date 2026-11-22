@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -238,6 +239,50 @@ func (r *Runtime) pluginCardsAfterFrame() {
 		if !card.visible && card.cancel != nil && now.Sub(card.lastPaint) >= time.Second && !card.login.keepsAlive(now) {
 			r.suspendPluginCard(card)
 		}
+	}
+}
+
+func (r *Runtime) pruneConversationCards(session protocol.SessionID, turns []conversation.Turn) {
+	root := r.localRuntime()
+	state := root.pluginCards
+	if state == nil || len(state.calls) == 0 {
+		return
+	}
+	node, id := r.controller.Target(), session.String()
+	var retained map[string]bool
+	for call, keys := range state.calls {
+		if call.node != node || call.session != id {
+			continue
+		}
+		if retained == nil {
+			retained = make(map[string]bool)
+			for _, turn := range turns {
+				for _, block := range turn.Reply.Blocks {
+					for _, tool := range block.Calls {
+						if tool.Load != nil {
+							retained[tool.ID] = true
+						}
+					}
+				}
+			}
+		}
+		if retained[call.call] {
+			continue
+		}
+		if slices.ContainsFunc(keys, func(key pluginCardKey) bool {
+			card := state.cards[key]
+			return card != nil && (card.login.request != nil || card.login.attempt != nil || card.login.pending)
+		}) {
+			continue
+		}
+		for _, key := range keys {
+			if card := state.cards[key]; card != nil {
+				root.suspendPluginCard(card)
+				delete(state.cards, key)
+			}
+		}
+		root.App.Messages.SetToolCard(id, call.call, nil)
+		delete(state.calls, call)
 	}
 }
 

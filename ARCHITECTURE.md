@@ -1031,9 +1031,11 @@ Client restores the previously loaded history range after a new authoritative
 conversation snapshot, preserving that target even if another reconnect
 interrupts paging. The last observer drops the body and may leave one of 64
 range bookmarks. A reopened transcript with no saved reading position starts
-at the newest page instead of downloading the previous range. Earlier history
-remains available by scrolling or revealing a search result. A matching history
-revision does not make detached pages current. Full-range recovery can request
+at the newest page instead of downloading the previous range. Using the
+Desktop transcript's jump-to-latest button releases previously paged history
+when the next authoritative snapshot arrives. Earlier history remains available
+by scrolling or revealing a search result. A matching history revision does not
+make detached pages current. Full-range recovery can request
 up to 1,000 entries per turn page; interactive reads and partial-range recovery
 retain their smaller entry limit.
 Node byte and wire frame limits apply to both. History pages place consumed
@@ -1072,6 +1074,9 @@ queue. Taking a publication transfers its mutable rows to one presentation.
 A directory refresh transfers unchanged rows to the rebuilt view. Elapsed labels
 update without rebuilding history; controls and mutable overlays still refresh.
 An unmounted transcript releases its observation, widget list and row frame.
+Transcript attachment sources and inactive plugin card bindings follow the
+loaded range. Open file previews retain their own sources, and card
+authorization recovery keeps its original request identity.
 Desktop requests a small derivative for conversation image cards. The Node
 checks the source and access even on a derivative cache hit. It bounds preparation
 and retains encoded derivatives by source digest and requested size. The stream's

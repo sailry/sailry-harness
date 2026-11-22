@@ -45,6 +45,10 @@ type conversationWatch struct {
 	callbacks       map[uint64]func()
 	next            uint64
 	extent          conversationExtent
+	olderRead       *conversationHistoryRead
+	paged           bool
+	recent          context.Context
+	recentAfter     uint64
 	known           bool
 }
 
@@ -56,6 +60,7 @@ type conversationBookmark struct {
 }
 
 func (w *conversationWatch) discardHistory() {
+	w.cancelOlderRead()
 	w.projection.snapshot = nil
 	w.projection.draftText.Reset()
 	w.projection.entryEpoch = nil
@@ -63,6 +68,7 @@ func (w *conversationWatch) discardHistory() {
 	w.projection.statisticsErr = nil
 	w.projection.hidden, w.projection.revealed = nil, nil
 	w.extent = conversationExtent{}
+	w.paged, w.recent = false, nil
 	w.state.OlderErr = nil
 	w.state.InventoryVersion = 0
 }
@@ -290,6 +296,25 @@ func (c *Client) RefreshConversation(ctx context.Context, session protocol.Sessi
 	return nil
 }
 
+// ReturnToLatest replaces an expanded range with the next authoritative
+// snapshot. The caller cancels the request if it resumes history navigation.
+func (c *Client) ReturnToLatest(ctx context.Context, session protocol.SessionID) {
+	c.conversationMu.Lock()
+	defer c.conversationMu.Unlock()
+	w := c.conversations[session]
+	if ctx.Err() != nil || w == nil || w.ctx.Err() != nil || w.state.Removed || w.projection.snapshot == nil {
+		return
+	}
+	if !w.paged && !w.state.LoadingOlder && !w.extent.needsMore(*w.projection.snapshot) {
+		return
+	}
+	w.recent, w.recentAfter = ctx, w.projection.generation
+	select {
+	case w.refresh <- struct{}{}:
+	default:
+	}
+}
+
 func (c *Client) conversationChanged(w *conversationWatch) {
 	c.conversationMu.Lock()
 	if c.conversations[w.session] != w {
@@ -367,7 +392,7 @@ func (c *Client) observeConversation(w *conversationWatch) {
 		c.conversationMu.Lock()
 		w.state.Connected = false
 		w.state.Loading = false
-		w.state.LoadingOlder = false
+		w.cancelOlderRead()
 		c.conversationMu.Unlock()
 		c.conversationChanged(w)
 	}()
@@ -378,12 +403,11 @@ func (c *Client) observeConversation(w *conversationWatch) {
 		w.projection.generation++
 		generation := w.projection.generation
 		w.projection.recovering = true
-		desired := w.extent
 		c.conversationMu.Unlock()
 		wake := c.retried()
 		sub, err := c.transport.Subscribe(w.ctx, protocol.Topic{Kind: "conversation", Data: w.session})
 		if err == nil {
-			err = c.consumeConversation(w, sub, generation, desired)
+			err = c.consumeConversation(w, sub, generation)
 			if err == nil {
 				delay = 250 * time.Millisecond
 				outage = time.Time{}
@@ -443,7 +467,7 @@ func retryConversation(err error) bool {
 	return transient(err) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.Canceled)
 }
 
-func (c *Client) consumeConversation(w *conversationWatch, sub link.Subscription, generation uint64, desired conversationExtent) error {
+func (c *Client) consumeConversation(w *conversationWatch, sub link.Subscription, generation uint64) error {
 	ctx, cancel := context.WithCancel(w.ctx)
 	stream := make(chan conversationIncoming, 1)
 	joined := make(chan struct{})
@@ -495,7 +519,7 @@ func (c *Client) consumeConversation(w *conversationWatch, sub link.Subscription
 			if !restored {
 				restored = true
 				restoreDone = make(chan struct{})
-				go func() { defer close(restoreDone); c.restoreConversation(ctx, w, generation, desired) }()
+				go func() { defer close(restoreDone); c.restoreConversation(ctx, w, generation) }()
 			}
 		}
 	}
@@ -509,6 +533,17 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 	}
 	applied, err := w.projection.Apply(generation, update)
 	if err == nil && applied == Applied {
+		if update.Kind == "conversation_snapshot" {
+			w.paged = false
+			if w.recent != nil && generation > w.recentAfter {
+				if w.recent.Err() == nil {
+					w.cancelOlderRead()
+					w.extent = conversationExtent{}
+					w.state.OlderErr = nil
+				}
+				w.recent = nil
+			}
+		}
 		w.viewVersion++
 		if changesConversationInventory(update) && !w.projection.toolActivityHidden {
 			c.conversationInventory++
@@ -536,7 +571,10 @@ func changesConversationInventory(update protocol.Update) bool {
 	return true
 }
 
-func (c *Client) restoreConversation(ctx context.Context, w *conversationWatch, generation uint64, desired conversationExtent) {
+func (c *Client) restoreConversation(ctx context.Context, w *conversationWatch, generation uint64) {
+	c.conversationMu.Lock()
+	desired := w.extent
+	c.conversationMu.Unlock()
 	turnLimit := turnHistoryPageLimit
 	if desired.all {
 		// The Node also bounds each page by bytes. Leave interactive reads

@@ -341,6 +341,7 @@ func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 			selected, generation := f.index, f.generation
 			target := f.matches[selected]
 			if s.Reveal != nil {
+				s.listOf(id).cancelLatest()
 				f.reveal = s.Reveal(id, target, func(index int, ok bool) {
 					if !ok || !f.open || f.generation != generation || f.index != selected {
 						return

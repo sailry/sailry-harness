@@ -158,6 +158,7 @@ func (u *navigation) navigate(i int) {
 		return
 	}
 	u.active = i
+	u.transcript.cancelLatest()
 	u.transcript.layout.ScrollTo(i, ui.Start)
 }
 
