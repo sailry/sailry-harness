@@ -13,7 +13,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// ResolveRelease selects an official Host tag before invoking the installer.
+// ResolveRelease selects a published Host tag before invoking the installer.
 func ResolveRelease(ctx context.Context, release identity.HostRelease) (string, error) {
 	client := &http.Client{
 		Timeout:       30 * time.Second,
@@ -26,23 +26,23 @@ func resolveRelease(ctx context.Context, release identity.HostRelease, client *h
 	if !release.Published() {
 		return link.ProductVersion, nil
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, identity.OfficialReleases+"/latest", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, release.Releases()+"/latest", nil)
 	if err != nil {
 		return "", err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	response, err := client.Do(request)
 	if err != nil {
-		return "", unavailable("official Host release discovery failed")
+		return "", unavailable("Host release discovery failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", unavailable("official Host release discovery failed")
+		return "", unavailable("Host release discovery failed")
 	}
 	const maxRelease = 1024 * 1024
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxRelease+1))
 	if err != nil || len(body) > maxRelease {
-		return "", unavailable("official Host release metadata could not be read")
+		return "", unavailable("Host release metadata could not be read")
 	}
 	var latest struct {
 		Tag        string `json:"tag_name"`
@@ -50,11 +50,11 @@ func resolveRelease(ctx context.Context, release identity.HostRelease, client *h
 		Prerelease bool   `json:"prerelease"`
 	}
 	if err := json.Unmarshal(body, &latest); err != nil {
-		return "", unavailable("official Host release metadata is invalid")
+		return "", unavailable("Host release metadata is invalid")
 	}
 	version, tagged := strings.CutPrefix(latest.Tag, "v")
 	if !tagged || latest.Draft || latest.Prerelease || !validReleaseVersion(version) || semver.Prerelease(latest.Tag) != "" {
-		return "", unavailable("official Host release has no stable version")
+		return "", unavailable("Host release has no stable version")
 	}
 	return version, nil
 }

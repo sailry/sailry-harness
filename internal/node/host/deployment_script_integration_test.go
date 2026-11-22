@@ -58,6 +58,7 @@ func TestSSHUpdateRecoveryFailure(t *testing.T) {
 			// Run the installer's actual recovery functions against isolated
 			// files. Its managed stop command refuses before any service call.
 			script := "set -euo pipefail\n" + functions + `
+task_package=sailry
 task_root="$PWD/current"
 task_existing="$PWD/previous"
 task_backup="$PWD/backup"

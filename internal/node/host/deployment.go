@@ -305,14 +305,14 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 
 // releaseIdentity finds the managed program files of an installed release
 // Host and asks its bundled Python for the identity of the running Node.
-const releaseIdentity = `install_root="$HOME/.local/lib/sailry"
+const releaseIdentity = `install_root="$HOME/.local/lib/$install_package"
 if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
-  if test -e /usr/local/libexec/sailry; then install_root=/usr/local/libexec/sailry
-  elif ! test -L /usr/local/bin/sailry || test "$(readlink /usr/local/bin/sailry)" != "$install_root/sailry"; then
+  if test -e "/usr/local/libexec/$install_package"; then install_root="/usr/local/libexec/$install_package"
+  elif ! test -L "/usr/local/bin/$install_package" || test "$(readlink "/usr/local/bin/$install_package")" != "$install_root/$install_package"; then
     echo 'Managed Host program files are unavailable' >&2; exit 1
   fi
 fi
-"$install_root/python/bin/python3.12" -I - "$install_root" "$HOME/` + identity.OfficialHostProfile + `" <<'SAILRY_IDENTITY'
+"$install_root/python/bin/python3.12" -I - "$install_root" "$HOME/$install_profile" "$install_binary" <<'SAILRY_IDENTITY'
 `
 
 // installRelease installs or updates the selected Host version from the
@@ -325,8 +325,10 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 	}
 	var installedVersion string
 	if expected != nil {
+		pkg := owner.options.Release.Package()
+		inputs := "install_package='" + pkg.Name() + "'\ninstall_profile='" + pkg.Profile() + "'\ninstall_binary='" + pkg.Binary() + "'\n"
 		source, _ := deploymentSources.ReadFile("deployment/identity.py")
-		body, err := commandSSH(ctx, connection, sshProbe, "sh -s", strings.NewReader(releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
+		body, err := commandSSH(ctx, connection, sshProbe, "sh -s", strings.NewReader(inputs+releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
 		if err != nil {
 			return err
 		}
@@ -347,7 +349,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 		}
 		selection = &protocol.NetworkSelection{Kind: "custom", Data: custom}
 	}
-	script, err := wsl.ReleaseScript(version, expected != nil, selection)
+	script, err := wsl.ReleaseScriptFor(owner.options.Release, version, expected != nil, selection)
 	if err != nil {
 		return err
 	}
@@ -384,12 +386,14 @@ func (owner *Installations) remotePaths(ctx context.Context, connection *cryptos
 		return DeploymentOptions{}, unavailable("Host managed installation paths could not be verified")
 	}
 	home := values[0]
-	paths := DeploymentOptions{ProgramRoot: home + "/.local/lib/sailry", Profile: home + "/" + identity.OfficialHostProfile, ServicePath: home + "/.config/systemd/user/sailry-host.service", CommandPath: home + "/.local/bin/sailry"}
+	pkg := owner.options.Release.Package()
+	unit := pkg.Binary() + ".service"
+	paths := DeploymentOptions{ProgramRoot: home + "/.local/lib/" + pkg.Name(), Profile: home + "/" + pkg.Profile(), ServicePath: home + "/.config/systemd/user/" + unit, CommandPath: home + "/.local/bin/" + pkg.Name()}
 	if values[1] == "Linux" && values[2] == "0" {
-		paths.ProgramRoot, paths.ServicePath, paths.CommandPath = "/usr/local/libexec/sailry", "/etc/systemd/system/sailry-host.service", "/usr/local/bin/sailry"
+		paths.ProgramRoot, paths.ServicePath, paths.CommandPath = "/usr/local/libexec/"+pkg.Name(), "/etc/systemd/system/"+unit, "/usr/local/bin/"+pkg.Name()
 	}
 	if values[1] == "Darwin" {
-		paths.ServicePath = home + "/Library/LaunchAgents/ai.sailry.host.plist"
+		paths.ServicePath = home + "/Library/LaunchAgents/" + pkg.LaunchAgent() + ".plist"
 	}
 	return paths, nil
 }
@@ -401,7 +405,7 @@ func inspectInstalled(ctx context.Context, connection *cryptossh.Client, paths D
 	}
 	profile, _ := shellQuote(paths.Profile)
 	source, _ := deploymentSources.ReadFile("deployment/identity.py")
-	body, err := commandSSH(ctx, connection, sshProbe, "python3 -I - "+root+" "+profile, strings.NewReader(string(source)))
+	body, err := commandSSH(ctx, connection, sshProbe, "python3 -I - "+root+" "+profile+" sailry-host", strings.NewReader(string(source)))
 	if err != nil {
 		return installedIdentity{}, err
 	}

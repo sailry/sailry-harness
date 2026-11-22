@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install only official release assets. Existing profiles are never changed.
+# Install this package's release assets. Existing profiles are never changed.
+task_package=sailry
+task_label=ai.sailry.host
+task_repository=https://github.com/sailry/sailry-harness
+task_binary="$task_package-host"
 task_version=""
 task_update=0
 task_network=()
@@ -9,6 +13,9 @@ task_network_mode=""
 while test "$#" -gt 0; do
   case "$1" in
     --version) test "$#" -ge 2; test -z "$task_version"; task_version="${2#v}"; shift 2 ;;
+    --expect-package)
+      if test "${2:-}" != "$task_package/$task_label"; then echo 'Host installer package does not match' >&2; exit 1; fi
+      shift 2 ;;
     --update) task_update=1; shift ;;
     --internet) test -z "$task_network_mode"; task_network_mode=internet; task_network=(--internet); shift ;;
     --relay) test "$#" -ge 2; test "$task_network_mode" != internet; task_network_mode=custom; task_network+=(--relay "$2"); shift 2 ;;
@@ -19,10 +26,9 @@ if test "$task_update" = 1 && test -n "$task_network_mode"; then
   echo 'Network options apply to new installations; edit an existing Host network through its controller' >&2
   exit 1
 fi
-task_repository=https://github.com/sailry/sailry-harness
 if test -z "$task_version"; then
   task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-    https://api.github.com/repos/sailry/sailry-harness/releases?per_page=1 | \
+    "https://api.github.com/repos/${task_repository#https://github.com/}/releases?per_page=1" | \
     sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n 1)"
 fi
 case "$task_version" in ''|*[!a-zA-Z0-9.+-]*) echo 'Invalid release version' >&2; exit 1 ;; esac
@@ -37,38 +43,38 @@ case "$(uname -s)/$(uname -m)" in
   *) echo 'Host supports Linux and macOS on amd64 or arm64' >&2; exit 1 ;;
 esac
 task_parent="$HOME/.local/lib"
-task_root="$task_parent/sailry"
-task_data="$HOME/.sailry-host"
-task_command="$HOME/.local/bin/sailry"
+task_root="$task_parent/$task_package"
+task_data="$HOME/.$task_binary"
+task_command="$HOME/.local/bin/$task_package"
 if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
   task_parent=/usr/local/libexec
-  task_root="$task_parent/sailry"
-  task_command=/usr/local/bin/sailry
+  task_root="$task_parent/$task_package"
+  task_command="/usr/local/bin/$task_package"
 fi
 command -v curl >/dev/null
 command -v tar >/dev/null
 if test "$(uname -s)" = Linux; then
   command -v systemctl >/dev/null
-  task_unit="$HOME/.config/systemd/user/sailry-host.service"
-  if test "$(id -u)" = 0; then task_unit=/etc/systemd/system/sailry-host.service; fi
+  task_unit="$HOME/.config/systemd/user/$task_binary.service"
+  if test "$(id -u)" = 0; then task_unit="/etc/systemd/system/$task_binary.service"; fi
 else
   launchctl print "gui/$(id -u)" >/dev/null
-  task_unit="$HOME/Library/LaunchAgents/ai.sailry.host.plist"
+  task_unit="$HOME/Library/LaunchAgents/$task_label.plist"
 fi
 task_check_paths() {
   task_existing="$task_root"
   task_migrate=0
   task_had_command=0
-  if test "$task_update" = 1 && test "$task_root" = /usr/local/libexec/sailry \
+  if test "$task_update" = 1 && test "$task_root" = "/usr/local/libexec/$task_package" \
     && ! test -e "$task_root" && ! test -L "$task_root" \
     && test -L "$task_command" \
-    && test "$(readlink "$task_command")" = "$HOME/.local/lib/sailry/sailry"; then
-    task_existing="$HOME/.local/lib/sailry"
+    && test "$(readlink "$task_command")" = "$HOME/.local/lib/$task_package/$task_package"; then
+    task_existing="$HOME/.local/lib/$task_package"
     task_migrate=1
   fi
   if test -e "$task_command" || test -L "$task_command"; then
-    if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_existing/sailry"; then
-      echo 'The sailry command path is already in use' >&2
+    if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_existing/$task_package"; then
+      printf 'The %s command path is already in use\n' "$task_package" >&2
       exit 1
     fi
     task_had_command=1
@@ -81,8 +87,8 @@ task_check_paths() {
       fi
     done
   else
-    test -x "$task_existing/sailry-host"
-    test -x "$task_existing/sailry"
+    test -x "$task_existing/$task_binary"
+    test -x "$task_existing/$task_package"
   fi
 }
 task_check_paths
@@ -90,8 +96,8 @@ umask 077
 # Shared parents such as /usr/local/libexec stay usable by other software;
 # the program directory itself is published from the private stage.
 (umask 022 && mkdir -p "$task_parent" "$(dirname "$task_command")")
-task_stage="$(mktemp -d "$task_parent/.sailry-install-XXXXXX")"
-task_backup="$task_parent/.sailry-previous"
+task_stage="$(mktemp -d "$task_parent/.$task_package-install-XXXXXX")"
+task_backup="$task_parent/.$task_package-previous"
 task_changing=0
 task_starting=0
 task_complete=0
@@ -103,7 +109,7 @@ install_unit_created=0
 install_activating=0
 task_stop() {
   local task_output task_status=0
-  task_output="$("$1/sailry" stop 2>&1)" || task_status=$?
+  task_output="$("$1/$task_package" stop 2>&1)" || task_status=$?
   # launchctl reports ESRCH when this managed service target is not loaded.
   if test "$task_status" = 3 && test "$(uname -s)" = Darwin; then return 0; fi
   if test -n "$task_output"; then printf '%s\n' "$task_output" >&2; fi
@@ -118,7 +124,7 @@ task_rollback() {
           else systemctl --user disable --now "$(basename "$task_unit")" || return; fi
         else
           local task_status=0
-          launchctl bootout "gui/$(id -u)/ai.sailry.host" || task_status=$?
+          launchctl bootout "gui/$(id -u)/$task_label" || task_status=$?
           if test "$task_status" != 0 && test "$task_status" != 3; then return "$task_status"; fi
         fi
       fi
@@ -129,7 +135,7 @@ task_rollback() {
       fi
     fi
     if test "$task_created_command" = 1; then
-      test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/sailry" || return
+      test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/$task_package" || return
       rm -- "$task_command" || return
     fi
     if test "$task_published" = 1; then mv "$task_root" "$task_stage/failed" || return; fi
@@ -152,12 +158,12 @@ task_rollback() {
     systemctl daemon-reload || return
   fi
   if test "$task_had_command" = 1; then
-    ln -sfn "$task_existing/sailry" "$task_command" || return
-  elif test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/sailry"; then
+    ln -sfn "$task_existing/$task_package" "$task_command" || return
+  elif test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/$task_package"; then
     rm -- "$task_command" || return
   fi
   if test "$task_active" = 1; then
-    "$task_existing/sailry" start || return
+    "$task_existing/$task_package" start || return
   fi
 }
 task_cleanup() {
@@ -190,7 +196,7 @@ trap task_cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-task_archive="sailry-host-$task_target.tar.gz"
+task_archive="$task_binary-$task_target.tar.gz"
 task_release="$task_repository/releases/download/v$task_version"
 for task_asset in "$task_archive" "SHA256SUMS-$task_target"; do
   if ! curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -210,14 +216,14 @@ fi
 if test "${task_actual%% *}" != "$task_expected"; then echo 'Host checksum does not match' >&2; exit 1; fi
 mkdir "$task_stage/package"
 tar --no-same-owner -xzf "$task_stage/$task_archive" -C "$task_stage/package"
-test -x "$task_stage/package/sailry-host"
-test -f "$task_stage/package/sailry"
+test -x "$task_stage/package/$task_binary"
+test -f "$task_stage/package/$task_package"
 test -f "$task_stage/package/service.sh"
-chmod 700 "$task_stage/package/sailry" "$task_stage/package/sailry-host"
-test "$("$task_stage/package/sailry-host" --version)" = "Sailry Host $task_version"
+chmod 700 "$task_stage/package/$task_package" "$task_stage/package/$task_binary"
+test "$("$task_stage/package/$task_binary" --version)" = "Sailry Host $task_version"
 # Share this lock with SSH deployment. Python locks the descriptor owned by
 # this shell, which keeps it through publication, service startup and rollback.
-exec 9<> "$task_parent/.sailry-install.lock"
+exec 9<> "$task_parent/.$task_package-install.lock"
 "$task_stage/package/python/bin/python3.12" -I - <<'PY'
 import fcntl
 import sys
@@ -230,36 +236,36 @@ task_check_paths
 # SSH verifies a paired Host before downloading the release. Compare that
 # version under the shared lock before changing the installation.
 if test "$task_update" = 1 && test -n "${SAILRY_HOST_EXPECT_CURRENT_VERSION:-}"; then
-  if ! task_current_version="$("$task_existing/sailry-host" --version)" || test "$task_current_version" != "$SAILRY_HOST_EXPECT_CURRENT_VERSION"; then
+  if ! task_current_version="$("$task_existing/$task_binary" --version)" || test "$task_current_version" != "$SAILRY_HOST_EXPECT_CURRENT_VERSION"; then
     echo 'Host version changed after verification; inspect it before retrying' >&2
     exit 1
   fi
 fi
 if test "$task_migrate" = 1; then
   cp -p "$task_unit" "$task_stage/previous-service"
-  "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" <<'PY'
+  "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" "$task_binary" <<'PY'
 from pathlib import Path
 import sys
-unit, previous, current, output = sys.argv[1:]
+unit, previous, current, output, binary = sys.argv[1:]
 lines = Path(unit).read_text().splitlines(keepends=True)
-prefix = f'ExecStart="{previous}/sailry-host" '
+prefix = f'ExecStart="{previous}/{binary}" '
 if sum(line.startswith(prefix) for line in lines) != 1:
     raise RuntimeError("Existing Host service does not match its managed program path")
 Path(output).write_text(''.join(
-    f'ExecStart="{current}/sailry-host" ' + line[len(prefix):]
+    f'ExecStart="{current}/{binary}" ' + line[len(prefix):]
     if line.startswith(prefix) else line for line in lines))
 PY
 fi
 if test "$task_update" = 1; then
   if test -e "$task_backup" || test -L "$task_backup"; then
     if test -L "$task_backup" || ! test -d "$task_backup" \
-      || ! test -x "$task_backup/sailry-host" || ! test -x "$task_backup/sailry"; then
+      || ! test -x "$task_backup/$task_binary" || ! test -x "$task_backup/$task_package"; then
       echo 'Host backup path is not a managed program directory' >&2
       exit 1
     fi
     mv "$task_backup" "$task_stage/previous-backup"
   fi
-  if "$task_existing/sailry" status >/dev/null 2>&1; then task_active=1; fi
+  if "$task_existing/$task_package" status >/dev/null 2>&1; then task_active=1; fi
   task_changing=1
   task_stop "$task_existing"
   mv "$task_existing" "$task_backup"
@@ -275,16 +281,16 @@ if test "$task_migrate" = 1; then
   systemctl daemon-reload
 fi
 if test "$task_update" = 1; then
-  ln -sfn "$task_root/sailry" "$task_command"
+  ln -sfn "$task_root/$task_package" "$task_command"
   task_starting=1
-  "$task_root/sailry" start
+  "$task_root/$task_package" start
   task_complete=1
   printf 'Host updated; previous files: %s\n' "$task_backup"
 else
   mkdir "$task_data"
   task_created_data=1
   if test "$task_had_command" = 0; then
-    ln -s "$task_root/sailry" "$task_command"
+    ln -s "$task_root/$task_package" "$task_command"
     task_created_command=1
   fi
   # The installer owns rollback; sourcing reports which service mutations

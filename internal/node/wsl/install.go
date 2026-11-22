@@ -19,9 +19,6 @@ var preflightSource string
 //go:embed release.sh
 var releaseSource string
 
-const ticketPath = "$HOME/" + identity.OfficialHostProfile + "/bootstrap.ticket"
-const ticketScript = "cat \"" + ticketPath + "\" 2>/dev/null || test ! -e \"" + ticketPath + "\"\n"
-
 // ConfigureNetwork applies and confirms the selected network on a paired
 // Host. It is the Host deployment's implementation shared with SSH.
 type ConfigureNetwork func(ctx context.Context, endpoint *link.Link, address link.EndpointAddress, request protocol.RequestID, selection protocol.NetworkSelection) error
@@ -39,7 +36,7 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 		return protocol.HostInstallationOutcome{}, err
 	}
 	arguments := launchArguments(installation.distribution)
-	preflight := normalize(preflightSource)
+	preflight := PreflightScript(installation.service.release)
 	if _, err := run(ctx, found.executable, arguments, environment, preflight, 30*time.Second); err != nil {
 		return protocol.HostInstallationOutcome{}, err
 	}
@@ -53,7 +50,7 @@ func (installation *Installation) Execute(environment []string, endpoint *link.L
 		}
 		return protocol.HostInstallationOutcome{}, err
 	}
-	release, err := ReleaseScript(version, false, network)
+	release, err := ReleaseScriptFor(installation.service.release, version, false, network)
 	if err != nil {
 		return protocol.HostInstallationOutcome{}, err
 	}
@@ -122,6 +119,8 @@ func pairBootstrap(read func() (string, error), pair func(string) (link.Endpoint
 // seconds. A result that may have changed trust is not retried.
 func (installation *Installation) pair(ctx context.Context, executable string, arguments, environment []string, endpoint *link.Link, local protocol.NodeID, network *protocol.NetworkSelection, version string, configure ConfigureNetwork) (protocol.HostInstallationOutcome, error) {
 	deadline := time.Now().Add(90 * time.Second)
+	ticketPath := `"$HOME/` + installation.service.release.Package().Profile() + `/bootstrap.ticket"`
+	ticketScript := "cat " + ticketPath + " 2>/dev/null || test ! -e " + ticketPath + "\n"
 	read := func() (string, error) {
 		output, err := run(ctx, executable, arguments, environment, ticketScript, 5*time.Second)
 		return strings.TrimSpace(output), err
@@ -169,14 +168,24 @@ func launchArguments(distribution string) []string {
 	return []string{"--distribution", distribution, "--cd", "~", "--exec", "/bin/sh", "-s"}
 }
 
-// ReleaseScript prefixes the official release bootstrap with its version,
-// whether it updates an installed Host, and the network arguments forwarded
-// to the Host installer. SSH Add Host runs the same script.
+func PreflightScript(release identity.HostRelease) string {
+	return "wsl_name='" + release.Package().Name() + "'\n" + normalize(preflightSource)
+}
+
 func ReleaseScript(version string, update bool, network *protocol.NetworkSelection) (string, error) {
+	return ReleaseScriptFor(identity.HostRelease{}, version, update, network)
+}
+
+// ReleaseScriptFor selects the build-owned feed for the shared SSH and WSL bootstrap.
+func ReleaseScriptFor(release identity.HostRelease, version string, update bool, network *protocol.NetworkSelection) (string, error) {
 	if !validReleaseVersion(version) {
 		return "", invalid("invalid target Host version")
 	}
 	arguments := []string{}
+	if release.Independent() {
+		pkg := release.Package()
+		arguments = append(arguments, "'--expect-package'", "'"+pkg.Name()+"/"+pkg.LaunchAgent()+"'")
+	}
 	if network != nil {
 		switch network.Kind {
 		case "direct":
@@ -206,7 +215,7 @@ func ReleaseScript(version string, update bool, network *protocol.NetworkSelecti
 		mode = "1"
 	}
 	return "install_version='" + version + "'\ninstall_update=" + mode + "\nset -- " + strings.Join(arguments, " ") +
-		"\ninstall_downloads='" + identity.OfficialDownloads + "'\n" + normalize(releaseSource), nil
+		"\ninstall_downloads='" + release.Downloads() + "'\n" + normalize(releaseSource), nil
 }
 
 // normalize undoes checkout line-ending conversion of an embedded script and

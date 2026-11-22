@@ -82,6 +82,7 @@ type Node struct {
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
 	locks             workspaceLocks
+	keptWorktrees     keptWorktrees
 	stored            storedFiles
 	assetReads        store.ConversationAssetReads
 	profile           *Profile

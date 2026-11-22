@@ -66,3 +66,19 @@ func TestForkSelectsPublishedOfficialHost(t *testing.T) {
 		})
 	}
 }
+
+func TestIndependentHostSelectsItsRelease(t *testing.T) {
+	release, err := identity.IndependentHost("stage3-fixture/fork-host", "fixture", "org.fixture.host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/stage3-fixture/fork-host/releases/latest" {
+			t.Fatalf("wrong independent release request: %s %s", request.Method, request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v7.9.0"}`))}, nil
+	})}
+	if version, err := resolveRelease(t.Context(), release, client); err != nil || version != "7.9.0" {
+		t.Fatalf("independent Host release = %q, %v", version, err)
+	}
+}

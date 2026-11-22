@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/sys/windows"
@@ -147,7 +148,7 @@ func TestWSLWindowsIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = run(context.Background(), found.executable, launchArguments(distribution), os.Environ(), normalize(preflightSource), 30*time.Second)
+		_, err = run(context.Background(), found.executable, launchArguments(distribution), os.Environ(), PreflightScript(identity.HostRelease{}), 30*time.Second)
 		// A refusal names the missing requirement; only an unknown outcome
 		// means the launcher itself misbehaved.
 		t.Logf("preflight result: %v", err)

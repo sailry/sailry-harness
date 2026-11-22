@@ -19,7 +19,7 @@ const (
 	OfficialDownloads      = "https://github.com/" + OfficialRepository + "/releases/download"
 	OfficialWebsite        = "https://sailry.dev"
 	OfficialFeedback       = "https://github.com/" + OfficialRepository + "/issues"
-	OfficialHostProfile    = ".sailry-host"
+	OfficialHostProfile    = "." + officialHostName + "-host"
 	OfficialHostVersionTag = "Sailry Host "
 )
 
@@ -88,11 +88,3 @@ func profileFromHome(location, home string) (string, error) {
 	}
 	return filepath.Join(home, filepath.FromSlash(strings.TrimPrefix(location, "~/"))), nil
 }
-
-type HostRelease struct{ published bool }
-
-// OfficialHost selects the latest stable published official Host independently
-// of the controller build. The zero value retains the bundled Harness version.
-func OfficialHost() HostRelease { return HostRelease{published: true} }
-
-func (release HostRelease) Published() bool { return release.published }

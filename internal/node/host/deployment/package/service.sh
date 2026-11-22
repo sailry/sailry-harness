@@ -1,12 +1,14 @@
 set -eu
 umask 077
+install_binary="$task_package-host"
+install_service="$install_binary.service"
 install_unit_created=0
 install_activating=0
-install_root="$HOME/.local/lib/sailry"
+install_root="$HOME/.local/lib/$task_package"
 if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
-  install_root=/usr/local/libexec/sailry
+  install_root="/usr/local/libexec/$task_package"
 fi
-install_data="$HOME/.sailry-host"
+install_data="$HOME/.$install_binary"
 mkdir -p "$install_root" "$install_data"
 install_claim_unit() {
   (set -C; : > "$install_unit")
@@ -27,7 +29,7 @@ fi
 if test "$(uname -s)" = Linux; then
   command -v systemctl >/dev/null
   if test "$(id -u)" = 0; then
-    install_unit=/etc/systemd/system/sailry-host.service
+    install_unit="/etc/systemd/system/$install_service"
     test ! -e "$install_unit"
     install_claim_unit
     cat > "$install_unit" <<UNIT
@@ -36,7 +38,7 @@ Description=Sailry Host
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart="$install_root/sailry-host" --data-dir "$install_data" $install_network --bootstrap
+ExecStart="$install_root/$install_binary" --data-dir "$install_data" $install_network --bootstrap
 Restart=on-failure
 RestartSec=3
 UMask=0077
@@ -45,10 +47,10 @@ WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
     install_activating=1
-    systemctl enable --now sailry-host.service
-    systemctl is-active --quiet sailry-host.service
+    systemctl enable --now "$install_service"
+    systemctl is-active --quiet "$install_service"
   else
-    install_unit="$HOME/.config/systemd/user/sailry-host.service"
+    install_unit="$HOME/.config/systemd/user/$install_service"
     test ! -e "$install_unit"
     loginctl --no-ask-password enable-linger "$(id -un)"
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
@@ -59,7 +61,7 @@ UNIT
 Description=Sailry Host
 After=network-online.target
 [Service]
-ExecStart="%h/.local/lib/sailry/sailry-host" --data-dir "%h/.sailry-host" $install_network --bootstrap
+ExecStart="%h/.local/lib/$task_package/$install_binary" --data-dir "%h/.$install_binary" $install_network --bootstrap
 Restart=on-failure
 RestartSec=3
 UMask=0077
@@ -68,20 +70,20 @@ WantedBy=default.target
 UNIT
     systemctl --user daemon-reload
     install_activating=1
-    systemctl --user enable --now sailry-host.service
-    systemctl --user is-active --quiet sailry-host.service
+    systemctl --user enable --now "$install_service"
+    systemctl --user is-active --quiet "$install_service"
   fi
 else
   install_uid="$(id -u)"
   launchctl print "gui/$install_uid" >/dev/null
-  install_unit="$HOME/Library/LaunchAgents/ai.sailry.host.plist"
+  install_unit="$HOME/Library/LaunchAgents/$task_label.plist"
   test ! -e "$install_unit"
   mkdir -p "$(dirname "$install_unit")"
   install_claim_unit
-  /usr/libexec/PlistBuddy -c 'Clear dict' "$install_unit"
-  /usr/libexec/PlistBuddy -c 'Add :Label string ai.sailry.host' "$install_unit"
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict/></plist>' > "$install_unit"
+  /usr/libexec/PlistBuddy -c "Add :Label string $task_label" "$install_unit"
   /usr/libexec/PlistBuddy -c 'Add :ProgramArguments array' "$install_unit"
-  /usr/libexec/PlistBuddy -c "Add :ProgramArguments: string $install_root/sailry-host" "$install_unit"
+  /usr/libexec/PlistBuddy -c "Add :ProgramArguments: string $install_root/$install_binary" "$install_unit"
   /usr/libexec/PlistBuddy -c 'Add :ProgramArguments: string --data-dir' "$install_unit"
   /usr/libexec/PlistBuddy -c "Add :ProgramArguments: string $install_data" "$install_unit"
   if test "$#" -eq 0; then

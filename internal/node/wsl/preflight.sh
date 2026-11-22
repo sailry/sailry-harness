@@ -18,21 +18,22 @@ case "$(systemctl show --property=SystemState --value)" in running|degraded) ;; 
 for wsl_tool in curl bash tar sha256sum awk; do
   command -v "$wsl_tool" >/dev/null || wsl_fail "Required command is unavailable: $wsl_tool"
 done
-wsl_root="$HOME/.local/lib/sailry"
-wsl_command="$HOME/.local/bin/sailry"
-wsl_unit="$HOME/.config/systemd/user/sailry-host.service"
+wsl_service="$wsl_name-host.service"
+wsl_root="$HOME/.local/lib/$wsl_name"
+wsl_command="$HOME/.local/bin/$wsl_name"
+wsl_unit="$HOME/.config/systemd/user/$wsl_service"
 if test "$(id -u)" = 0; then
-  wsl_root=/usr/local/libexec/sailry
-  wsl_command=/usr/local/bin/sailry
-  wsl_unit=/etc/systemd/system/sailry-host.service
-  if systemctl cat sailry-host.service >/dev/null 2>&1; then wsl_fail 'A Host service already exists; pair the existing Host instead'; fi
+  wsl_root="/usr/local/libexec/$wsl_name"
+  wsl_command="/usr/local/bin/$wsl_name"
+  wsl_unit="/etc/systemd/system/$wsl_service"
+  if systemctl cat "$wsl_service" >/dev/null 2>&1; then wsl_fail 'A Host service already exists; pair the existing Host instead'; fi
 else
   export XDG_RUNTIME_DIR="/run/user/$(id -u)"
   systemctl --user show --property=Version --value >/dev/null || wsl_fail 'A working systemd user manager is required'
-  if systemctl --user cat sailry-host.service >/dev/null 2>&1; then wsl_fail 'A Host service already exists; pair the existing Host instead'; fi
+  if systemctl --user cat "$wsl_service" >/dev/null 2>&1; then wsl_fail 'A Host service already exists; pair the existing Host instead'; fi
   command -v loginctl >/dev/null || wsl_fail 'loginctl is unavailable'
 fi
-for wsl_path in "$wsl_root" "$HOME/.sailry-host" "$wsl_command" "$wsl_unit"; do
+for wsl_path in "$wsl_root" "$HOME/.$wsl_name-host" "$wsl_command" "$wsl_unit"; do
   if test -e "$wsl_path" || test -L "$wsl_path"; then
     wsl_fail 'Host files or data already exist; pair the existing Host instead'
   fi
