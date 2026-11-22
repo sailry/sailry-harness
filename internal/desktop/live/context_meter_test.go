@@ -1,8 +1,16 @@
 package live
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"testing"
+	"testing/synctest"
+	"time"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -13,7 +21,8 @@ func pointer[T any](v T) *T { return &v }
 func meterStatistics() *protocol.ConversationStatistics {
 	s := protocol.DefaultConversationStatistics()
 	s.Turns, s.Responses = 2, 3
-	s.Usage = &protocol.ConversationUsage{Input: 102_700, Output: 222}
+	s.Usage = &protocol.ConversationUsage{Input: 102_700, Output: 222, CachedInput: 51_350}
+	s.Observations.CacheRead = &s.Usage.CachedInput
 	s.ContextTokens, s.ContextLimit, s.ContextModel = pointer(uint64(47_200)), pointer(uint32(1_000_000)), pointer("sonnet")
 	s.Budget = &protocol.ConversationCompactionBudget{Model: "sonnet", ContextLimit: 1_000_000, TriggerTokens: 800_000, OutputReserve: 128_000}
 	s.Cost = &protocol.UsageCost{UsdMicros: 141_234, Responses: 3}
@@ -29,8 +38,11 @@ func meterStatistics() *protocol.ConversationStatistics {
 		r.Attempts = []protocol.ConversationObservationAttempt{attempt}
 		return r
 	}
-	unplaced := request(3, 0, 5)
+	unplaced := request(3, 0, 45_000)
 	unplaced.TurnIndex = nil
+	last := unplaced.Attempts[0]
+	last.CacheReported, last.Usage.CachedInput = true, 27_000
+	unplaced.Attempts = append(request(3, 0, 5).Attempts, last)
 	s.Observations.Recent = []protocol.ConversationObservationRequest{request(2, 2, 30), request(1, 1, 20), request(2, 2, 47), unplaced}
 	return &s
 }
@@ -71,6 +83,110 @@ func TestContextStatsModelChanged(t *testing.T) {
 	if empty := contextStats(nil, "opus", 200_000, true); empty.Tokens != nil || empty.Limit != 200_000 || !empty.Compacting {
 		t.Errorf("without statistics: %+v", empty)
 	}
+}
+
+func TestContextStatsUnknownCacheUsage(t *testing.T) {
+	s := meterStatistics()
+	last := &s.Observations.Recent[3].Attempts[1]
+	last.Usage.CachedInput = 0
+	latest := contextStats(s, "sonnet", 0, false)
+	if latest.CurrentCached == nil || *latest.CurrentCached != 0 {
+		t.Fatalf("reported zero cache reads = %v", latest.CurrentCached)
+	}
+
+	last.CacheReported = false
+	s.Observations.CacheRead = nil
+	unknown := contextStats(s, "sonnet", 0, false)
+	if unknown.CurrentInput == nil || *unknown.CurrentInput != 45_000 || unknown.CurrentCached != nil || unknown.Cached != nil {
+		t.Fatalf("unreported cache reads: %+v", unknown)
+	}
+
+	last.Usage = nil
+	s.Observations.CacheRead = &s.Usage.CachedInput
+	s.IncompleteTokenResponses = 1
+	partial := contextStats(s, "sonnet", 0, false)
+	if partial.CurrentInput != nil || partial.CurrentCached != nil || partial.Cached != nil || partial.Input == nil || *partial.Input != 102_700 {
+		t.Fatalf("incomplete token coverage: %+v", partial)
+	}
+}
+
+func TestContextMeterFollowsConversationUpdates(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		inventory, history := liveChildFixture()
+		stats := meterStatistics()
+		stats.ContextTokens = pointer(uint64(790_000))
+		inventory.Sessions[0].Config.Model = *stats.ContextModel
+		history.Statistics = stats
+		id := history.Page.Session
+		fixture, source, _ := childTestRuntime(t, inventory, history)
+		r, err := NewWithPreferences(t.Context(), fixture.controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		tester := ui.NewTesterWith(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			r.beginConversationFrame()
+			cv := r.App.Data.Find(id.String())
+			comp := r.App.Composer(cv.ID)
+			r.conversation(c, cv, comp)
+			ui.Column(c).Fill().Justify(ui.End).AlignItems(ui.End).Padding(24).Children(func() {
+				if comp.Indicator != nil {
+					comp.Indicator(c)
+				}
+			})
+			r.finishFrame()
+			r.finishConversationFrame()
+		}, 640, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+		tester.SetLocale("en")
+		tester.Frame()
+		wantState := func(key string) {
+			t.Helper()
+			synctest.Wait()
+			tester.Frame()
+			label := i18n.In("en", "meter_title") + " · " + i18n.In("en", key)
+			if _, ok := tester.Find(label); !ok {
+				t.Fatalf("missing context meter state %q in %+v", label, tester.AccessAll())
+			}
+		}
+		sequence := history.Sequence
+		apply := func(kind string, data any) {
+			sequence++
+			source.chat.updates <- protocol.Update{Kind: "conversation_frame", Data: protocol.ConversationFrame{
+				Node: inventory.Node, Session: id, Sequence: sequence, Change: protocol.ConversationChange{Kind: kind, Data: data},
+			}}
+		}
+		wantState("meter_state_near")
+		if err := tester.Click(i18n.In("en", "meter_title") + " · " + i18n.In("en", "meter_state_near")); err != nil {
+			t.Fatal(err)
+		}
+		for range 4 {
+			tester.Advance(80 * time.Millisecond)
+			tester.Frame()
+		}
+		for _, value := range []string{"60% · 27k / 45k", "50% · 51.4k / 102.7k"} {
+			if !tester.HasText(value) {
+				t.Errorf("missing cache usage %q in %q", value, tester.Texts())
+			}
+		}
+		run := history.Page.Runs[0]
+		draft := protocol.ConversationDraft{ID: "compaction", Turn: run.Turn, Author: "sailry", Parts: []protocol.ConversationPart{
+			{Kind: "resource", Data: json.RawMessage(`{"type":"compacting","started_ms":1}`)},
+		}}
+		apply("delta", draft)
+		wantState("meter_compacting")
+		apply("entry", protocol.ConversationEntry{
+			ID: draft.ID, Sequence: 2, Turn: run.Turn, Author: "system", Parts: []protocol.ConversationPart{{Kind: "compaction", Data: "Summary"}},
+		})
+		wantState("meter_state_near")
+
+		draft.ID = "cancelled-compaction"
+		apply("delta", draft)
+		wantState("meter_compacting")
+		run.Status, run.FinishedMs = protocol.ConversationStatusCancelled, pointer(int64(2))
+		apply("run", run)
+		wantState("meter_state_near")
+	})
 }
 
 func TestContextStatsPairedLatency(t *testing.T) {

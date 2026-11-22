@@ -15,8 +15,7 @@ import (
 
 // ContextStats is what a session's context meter shows: the window's
 // occupancy, the session's usage, its time and its connection. A nil amount
-// is one not measured, which the meter leaves out rather than showing as 0.
-// Durations are in microseconds.
+// is unmeasured. Durations are in microseconds.
 type ContextStats struct {
 	Model string
 	// Tokens is the context used, estimated where no request reported it.
@@ -35,6 +34,10 @@ type ContextStats struct {
 	// LastCompaction is the latest compaction, nil for none; Reveal scrolls
 	// the transcript to it, nil where it cannot.
 	LastCompaction *ContextCompaction
+
+	// Total input includes cache reads. Current counts describe one request;
+	// Input and Cached cover the session.
+	CurrentInput, CurrentCached *uint64
 
 	Turns                            *uint64
 	Cost                             string
@@ -200,37 +203,19 @@ func (d *ContextStats) State() (string, kit.Tone) {
 	return "meter_state_near", kit.Caution
 }
 
-// used is the window used of its size, 345k / 1M; "" where either is
-// unknown.
-func (d *ContextStats) used() string {
-	if d.Tokens == nil || d.Limit == 0 {
-		return ""
+func (d *ContextStats) remaining(limit uint64) *uint64 {
+	if d.Tokens == nil || limit == 0 {
+		return nil
 	}
-	return Count(int(*d.Tokens)) + " / " + Count(int(d.Limit))
+	remaining := limit - min(limit, *d.Tokens)
+	return &remaining
 }
 
-// remaining is the room before compaction, or before the window's end
-// without a threshold; "" where either is unknown.
-func (d *ContextStats) remaining(c *ui.Context) string {
-	if d.Tokens == nil {
-		return ""
-	}
-	room := func(whole uint64) string { return Count(int(whole - min(whole, *d.Tokens))) }
-	switch {
-	case d.Threshold > 0:
-		return strings.ReplaceAll(i18n.T(c, "meter_remaining"), "%{count}", room(d.Threshold))
-	case d.Limit > 0:
-		return strings.ReplaceAll(i18n.T(c, "meter_left"), "%{count}", room(d.Limit))
-	}
-	return ""
-}
+const contextUnknown = "—"
 
-// ContextMeter is the composer's context indicator left of the model chip:
-// Kit's ring of the window used, which opens the session's context and usage
-// in a popover. The popover shows a summary first: a gauge with the state in
-// a word and the window used of its size; Show details expands it to every
-// section. The cost, tokens and speed are the usage bar's under the
-// composer, so the summary does not repeat them. The toolbar ring is muted until compaction is near.
+// ContextMeter is the composer's context indicator left of the model chip.
+// It opens a summary of the window and input cache, with session details on
+// demand. The toolbar ring is muted until compaction is near.
 func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	if d == nil {
 		return
@@ -256,15 +241,22 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 			s.Open, s.pinned = !s.Open, !s.Open
 		})
 	panel := kit.Popover(c, b, &s.Open, func() {
+		_, window := c.Size()
+		id := "summary-scroll"
 		if s.Expanded {
-			contextFull(c, s, d)
-			return
+			id = "sections"
 		}
-		contextSummary(c, d)
+		ui.Scroll(c.Key(id)).FillWidth().MaxHeight(min(usagePanelHeight, max(window-usagePanelRoom, usagePanelLeast))).
+			PaddingX(16).Children(func() {
+			contextSummary(c, d)
+			if s.Expanded {
+				contextDetails(c, s, d)
+			}
+		})
 		contextToggle(c, s)
 	})
 	if panel != (ui.Element{}) {
-		width := float32(300)
+		width := float32(320)
 		if s.Expanded {
 			width = 360
 		}
@@ -273,39 +265,69 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	s.over = panel != (ui.Element{}) && panel.Hovered()
 }
 
-// contextSummary is the popover's first view: the gauge with the percent
-// in it beside the state and the window used of its size. The model and the
-// room before compaction are in the details.
 func contextSummary(c *ui.Context, d *ContextStats) {
 	p := theme.Of(c)
 	key, tone := d.State()
-	color := p.Foreground
-	switch tone {
-	case kit.Caution:
-		color = p.Warning
-	case kit.Negative:
-		color = p.Danger
+	percent, percentText := d.percent(), contextUnknown
+	if percent >= 0 {
+		percentText = percentLabel(percent)
 	}
-	ui.Row(c.Key("summary")).FillWidth().Padding(16, 16, 14, 16).Gap(14).AlignItems(ui.Center).Children(func() {
-		label := "—"
-		if v := d.percent(); v >= 0 {
-			label = percentLabel(v)
+	basis := ""
+	if d.Tokens != nil {
+		basis = i18n.T(c, "meter_basis_observed")
+		if d.Estimated {
+			basis = i18n.T(c, "meter_basis_estimate")
 		}
-		gaugeTone := tone
-		if tone == kit.Neutral {
-			gaugeTone = kit.Info
-		}
-		kit.RingSized(c, 56, 5, max(d.percent(), 0), d.Compacting, gaugeTone, i18n.T(c, key)).
-			AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-			ui.Text(c, label).FontSize(13).FontWeight(500).FontFeatures("tnum").SingleLine()
+	}
+	model := d.Model
+	if model == "" {
+		model = contextUnknown
+	}
+	ui.Column(c.Key("summary")).FillWidth().Padding(14, 0).Gap(6).Children(func() {
+		ui.Row(c.Key("window")).FillWidth().Gap(14).AlignItems(ui.Center).Children(func() {
+			kit.RingSized(c.Key("ring"), 64, 5, max(percent, 0), d.Compacting, tone, i18n.T(c, key)).
+				AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+				ui.Text(c, percentText).FontSize(14).FontWeight(500).FontFeatures("tnum").SingleLine()
+			})
+			ui.Column(c.Key("counts")).Grow(1).MinWidth(0).Children(func() {
+				contextRow(c.Key("used"), i18n.T(c, "meter_used_tokens"), tokenLabel(d.Tokens, d.Estimated), 0, basis)
+				contextRow(c.Key("remaining"), i18n.T(c, "meter_available_tokens"), tokenLabel(d.remaining(d.Limit), d.Estimated), 0, "")
+				contextRow(c.Key("limit"), i18n.T(c, "meter_window_limit"), contextBoundLabel(d.Limit), 0, "")
+			})
 		})
-		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-			ui.Text(c, i18n.T(c, key)).FontSize(15).FontWeight(500).TextColor(color).SingleLine()
-			if used := d.used(); used != "" {
-				ui.Text(c, used).FontSize(13).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
-			}
+		if d.Compacting {
+			ui.Text(c.Key("compacting"), i18n.T(c, key)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
+		}
+		ui.Divider(c.Key("window-divider")).Background(p.Border)
+		ui.Column(c.Key("model")).FillWidth().Children(func() {
+			contextRow(c.Key("threshold"), i18n.T(c, "meter_threshold"), contextBoundLabel(d.Threshold), 0, "")
+			contextRow(c.Key("name"), i18n.T(c, "meter_model"), model, 0, d.Model)
+		})
+		ui.Divider(c.Key("cache-divider")).Background(p.Border)
+		ui.Column(c.Key("cache")).FillWidth().Children(func() {
+			note := i18n.T(c, "meter_cache_read") + " / " + i18n.T(c, "meter_input")
+			contextRow(c.Key("current"), i18n.T(c, "meter_last_cache"), contextCacheLabel(d.CurrentInput, d.CurrentCached), 0, note)
+			contextRow(c.Key("total"), i18n.T(c, "meter_total_cache"), contextCacheLabel(d.Input, d.Cached), 0, note)
 		})
 	})
+}
+
+func contextBoundLabel(n uint64) string {
+	if n == 0 {
+		return contextUnknown
+	}
+	return tokenLabel(&n, false)
+}
+
+func contextCacheLabel(input, cached *uint64) string {
+	if input == nil && cached == nil {
+		return contextUnknown
+	}
+	rate := contextUnknown
+	if input != nil && *input > 0 && cached != nil && *cached <= *input {
+		rate = percentLabel(float64(*cached) * 100 / float64(*input))
+	}
+	return rate + " · " + tokenLabel(cached, false) + " / " + tokenLabel(input, false)
 }
 
 // contextToggle is the popover's last row: Show details under the summary,
@@ -352,7 +374,7 @@ func contextDuration(c *ui.Context, us uint64) string {
 // tokenLabel is a token count, marked ≈ where estimated, — where unknown.
 func tokenLabel(n *uint64, estimated bool) string {
 	if n == nil {
-		return "—"
+		return contextUnknown
 	}
 	if estimated {
 		return "≈ " + Count(int(*n))

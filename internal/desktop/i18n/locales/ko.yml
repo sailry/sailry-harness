@@ -2084,6 +2084,11 @@ meter_state_near: 곧 압축
 meter_state_unknown: 아직 측정 전
 meter_left: '%{count} 남음'
 meter_tokens: Token
+meter_used_tokens: 사용한 토큰
+meter_available_tokens: 남은 토큰
+meter_window_limit: 컨텍스트 한도
+meter_last_cache: 최근 요청 캐시 적중
+meter_total_cache: 세션 캐시 적중
 meter_speed: 속도
 meter_model: 모델
 meter_show_details: 자세히 보기

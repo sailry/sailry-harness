@@ -2084,6 +2084,11 @@ meter_state_near: Bald komprimiert
 meter_state_unknown: Noch nicht gemessen
 meter_left: '%{count} frei'
 meter_tokens: Tokens
+meter_used_tokens: Verbrauchte Tokens
+meter_available_tokens: Verbleibende Tokens
+meter_window_limit: Kontextfenster
+meter_last_cache: Cache-Treffer der letzten Anfrage
+meter_total_cache: Cache-Treffer der Sitzung
 meter_speed: Tempo
 meter_model: Modell
 meter_show_details: Details anzeigen

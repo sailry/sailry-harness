@@ -2103,6 +2103,11 @@ meter_state_near
 meter_state_unknown
 meter_left
 meter_tokens
+meter_used_tokens
+meter_available_tokens
+meter_window_limit
+meter_last_cache
+meter_total_cache
 meter_speed
 meter_model
 meter_show_details

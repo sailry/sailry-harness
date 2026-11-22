@@ -2084,6 +2084,11 @@ meter_state_near: Compaction imminente
 meter_state_unknown: Pas encore mesuré
 meter_left: '%{count} restants'
 meter_tokens: Tokens
+meter_used_tokens: Tokens utilisés
+meter_available_tokens: Tokens disponibles
+meter_window_limit: Limite de la fenêtre
+meter_last_cache: Cache utilisé pour la dernière requête
+meter_total_cache: Cache utilisé dans la session
 meter_speed: Vitesse
 meter_model: Modèle
 meter_show_details: Afficher les détails

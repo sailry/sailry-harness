@@ -1,7 +1,6 @@
 package live
 
 import (
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -425,7 +425,7 @@ func TestDemoMode(t *testing.T) {
 					at, _ := tester.Find(speed)
 					tester.Move(at.X+at.W/2, at.Y+at.H/2)
 					tester.Advance(time.Second)
-					await(cv.ID, "speed card", packageCount(usage.Tokens/demoOutputShare))
+					await(cv.ID, "speed card", "600.0 ms")
 					tester.Move(0, 0)
 					step()
 				}
@@ -845,7 +845,7 @@ func TestDemoMode(t *testing.T) {
 			settle()
 		}
 		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
-		hover(figures[1], "End-to-end TPS", "Timed responses", "Timed output tokens", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
+		hover(figures[1], "End-to-end TPS", "TTFT", "600.0 ms")
 		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
@@ -885,44 +885,49 @@ func TestDemoMode(t *testing.T) {
 				t.Errorf("the context panel names the demo %s: %q", where, shown)
 			}
 		}
-		// fold presses a row of the meter's popover, which opens above the
-		// meter and ends at its end.
-		inside := func(r ui.Rect) bool {
-			return r.Y >= shell.HeaderHeight && r.Y+r.H <= panel.Bounds.Y && r.X >= panel.Bounds.X+panel.Bounds.W-400 && r.W > 0
-		}
-		fold := func(name string) {
-			t.Helper()
+		// The popover opens above the meter and aligns to its right edge.
+		panelRow := func(name string) (ui.AccessInfo, bool) {
+			right := panel.Bounds.X + panel.Bounds.W
 			for _, info := range tester.AccessAll() {
-				if info.Name == name && inside(info.Bounds) {
-					tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-					tester.Advance(time.Second)
-					settle()
-					return
+				b := info.Bounds
+				if info.Role == ui.RoleButton && info.Name == name && !info.Offscreen && b.W > 0 && b.H > 0 &&
+					b.X >= right-400 && b.X+b.W <= right && b.Y >= 0 && b.Y+b.H <= panel.Bounds.Y {
+					return info, true
 				}
 			}
-			// A row without a name of its own is pressed on its text.
-			if at, found := tester.Find(name); found && inside(at) {
-				tester.ClickAt(at.X+at.W/2, at.Y+at.H/2)
-				tester.Advance(time.Second)
-				settle()
+			return ui.AccessInfo{}, false
+		}
+		pressRow := func(row ui.AccessInfo) {
+			b := row.Bounds
+			tester.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			tester.Advance(time.Second)
+			settle()
+		}
+		fold := func(t *testing.T, name string) {
+			t.Helper()
+			if row, ok := panelRow(name); ok {
+				pressRow(row)
 				return
 			}
-			t.Fatalf("the context panel has no %q row: %q", name, tester.Texts())
+			t.Fatalf("the context panel has no visible %q button: %q", name, tester.Texts())
 		}
 		occupied := int(usage.Context * float64(usage.Window))
 		count := conversation.Count
-		shows("of the first conversation", r.App.Composer(cv.ID).Model, count(occupied), "/ "+count(usage.Window),
+		shows("of the first conversation", r.App.Composer(cv.ID).Model,
+			"Tokens used", count(occupied), "Tokens remaining", count(usage.Window-occupied), "Window limit", count(usage.Window),
+			"Automatic compaction", count(usage.Window*4/5), "Last request cache hit", "86% · 38.8k / 45k",
+			"Session cache hit", fmt.Sprintf("%s · %s / %s", figures[3], count(usage.Cached), count(input)),
 			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details",
-			fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Input", packageCount(input), "Output", "Cache hit", "Subagents",
+			"Session usage", fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Output", count(usage.Tokens/demoOutputShare), "Subagents",
 			"Active time", "Wait", "Reply", "Tools", "Other", "Generation speed "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
 			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
 		// Its folds: what the context divides into, the tool calls by name
 		// and the subagents' usage.
 		// Bottom up: an open fold pushes the rows under it down the scroll.
-		fold("Subagents")
-		fold("Tool calls")
-		fold("Details")
+		fold(t, "Subagents")
+		fold(t, "Tool calls")
+		fold(t, "Details")
 		shows("with its folds open", "System prompt", "Tool definitions", "User messages", "Skills", "Injected content", "Assistant history",
 			"Tool results", "Subagent usage", packageCount(delegated))
 		shot("demo-context-panel-folds")
@@ -932,7 +937,7 @@ func TestDemoMode(t *testing.T) {
 			t.Error("Escape left the context panel open")
 		}
 		// open shows another demo conversation and its context panel.
-		open := func(id string) {
+		open := func(t *testing.T, id string) {
 			t.Helper()
 			r.App.Sidebar.Selected = id
 			settle()
@@ -954,8 +959,8 @@ func TestDemoMode(t *testing.T) {
 		if children < 8 {
 			t.Fatalf("the demo's review conversation has %d subagents", children)
 		}
-		open(review.ID)
-		fold("Subagents")
+		open(t, review.ID)
+		fold(t, "Subagents")
 		shows("of a conversation with subagents", "Subagents", "Subagent usage", packageCount(subagentTokens(review)))
 		if !slices.Contains(tester.Texts(), strconv.Itoa(children)) {
 			t.Errorf("the context panel does not count %d subagents: %q", children, tester.Texts())
@@ -972,36 +977,64 @@ func TestDemoMode(t *testing.T) {
 		}) {
 			t.Fatal("the demo's handbook conversation has no failed compaction")
 		}
-		open(handbook.ID)
-		fold("Details")
+		open(t, handbook.ID)
+		fold(t, "Details")
 		shows("of a conversation that compacted", "1 compactions", "Latest compaction", "Failed")
 		shot("demo-context-panel-compaction")
 		tester.Key(0, ui.KeyEscape)
 		settle()
-		// In a window too short for the transcript, scrolled to its start,
-		// the failed compaction's marker is out of sight until its row in
-		// the panel is pressed.
-		const short = 640
-		tester.SetSize(1280, short)
-		settle()
-		r.App.Messages.List(handbook.ID).ScrollTo(0, ui.Start)
-		settle()
-		marker := text("chat_compact_failed")
-		if at, found := tester.Find(marker); found && at.Y+at.H <= short {
-			t.Fatalf("the failed compaction shows at %v before it is opened", at)
-		}
-		open(handbook.ID)
-		if !tester.HasText("Latest compaction") {
-			fold("Details")
-		}
-		fold("Latest compaction")
-		if at, found := tester.Find(marker); !found || at.Y < shell.HeaderHeight || at.Y+at.H > short || tester.HasText("Could not open the record") {
-			t.Errorf("the latest compaction opened the transcript at %v, found %v: %q", at, found, tester.Texts())
-		}
-		tester.Key(0, ui.KeyEscape)
-		tester.SetSize(1280, 1600)
-		r.App.Sidebar.Selected = cv.ID
-		settle()
+		t.Run("compaction navigation", func(t *testing.T) {
+			t.Cleanup(func() {
+				tester.Key(0, ui.KeyEscape)
+				tester.SetSize(1280, 1600)
+				r.App.Sidebar.Selected = cv.ID
+				settle()
+			})
+			const short = 640
+			tester.SetSize(1280, short)
+			settle()
+			r.App.Messages.List(handbook.ID).ScrollTo(0, ui.Start)
+			settle()
+			marker := text("chat_compact_failed")
+			markerInView := func() (ui.Rect, bool) {
+				at, found := tester.Find(marker)
+				return at, found && at.W > 0 && at.H > 0 && at.Y >= shell.HeaderHeight && at.Y+at.H <= short
+			}
+			if at, visible := markerInView(); visible {
+				t.Fatalf("the failed compaction shows at %v before it is opened", at)
+			}
+			open(t, handbook.ID)
+			details, ok := panelRow("Details")
+			if !ok {
+				t.Fatal("the short context panel has no visible Details button")
+			}
+			if !details.Expanded {
+				pressRow(details)
+			}
+			const label = "Latest compaction"
+			if _, visible := panelRow(label); visible {
+				t.Fatal("the latest compaction is visible before scrolling the short context panel")
+			}
+			b := details.Bounds
+			var latest ui.AccessInfo
+			var visible bool
+			for range 6 {
+				tester.Scroll(b.X+b.W/2, b.Y+b.H/2, 0, 100)
+				if latest, visible = panelRow(label); visible {
+					break
+				}
+			}
+			if !visible {
+				t.Fatalf("the latest compaction is out of view after scrolling: %q", tester.Texts())
+			}
+			if at, visible := markerInView(); visible {
+				t.Fatalf("scrolling the context panel also revealed the transcript marker at %v", at)
+			}
+			pressRow(latest)
+			if at, visible := markerInView(); !visible || tester.HasText("Could not open the record") {
+				t.Errorf("the latest compaction opened the transcript at %v, visible %v: %q", at, visible, tester.Texts())
+			}
+		})
 		for _, kind := range sent()[visited:] {
 			if kind == "read_plugin_view" || strings.HasPrefix(kind, pluginStatisticsPackage+":") {
 				t.Errorf("showing the statistics package over the demo sent %q to the Node", kind)
@@ -1345,8 +1378,11 @@ func TestDemoMode(t *testing.T) {
 		// host closes, so the call that waited on it ends; a mount that
 		// reads no usage stays as it is.
 		t.Run("usage", func(t *testing.T) {
-			if changes != 2 || r.pluginUsageSample() != nil || page == nil {
+			if changes != 2 || r.pluginUsageSample() != nil {
 				t.Fatalf("the switch told the plugin pages %d times; a sample %v", changes, r.pluginUsageSample() != nil)
+			}
+			if page == nil {
+				t.Fatal("the demo Usage page was not mounted before switching back")
 			}
 			asked := len(sent())
 			read := func() bool {

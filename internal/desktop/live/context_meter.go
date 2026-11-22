@@ -31,11 +31,12 @@ func (r *Runtime) projectContextMeter(cv *viewmodel.Conversation, comp *composer
 	if !loaded {
 		return
 	}
-	compacting := false
-	for _, run := range history.Snapshot.Page.Runs {
-		compacting = compacting || run.Kind == protocol.ConversationRunKindCompaction &&
+	compacting := slices.ContainsFunc(history.Snapshot.Drafts, func(draft protocol.ConversationDraft) bool {
+		return draftPhase(draft.Parts) == conversation.Compacting
+	}) || slices.ContainsFunc(history.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
+		return run.Kind == protocol.ConversationRunKindCompaction &&
 			(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
-	}
+	})
 	limit := uint32(0)
 	for _, provider := range r.snapshot().Providers {
 		if provider.ID != config.Provider {
@@ -110,8 +111,23 @@ func contextStats(s *protocol.ConversationStatistics, model string, limit uint32
 	}
 	if u := s.Usage; u != nil {
 		d.Input, d.Output = &u.Input, &u.Output
+		if o.CacheRead != nil && s.IncompleteTokenResponses == 0 {
+			d.Cached = &u.CachedInput
+		}
 	}
-	d.Cached, d.Reasoning = o.CacheRead, o.Reasoning
+	if len(o.Recent) > 0 {
+		attempts := o.Recent[len(o.Recent)-1].Attempts
+		if len(attempts) > 0 {
+			last := attempts[len(attempts)-1]
+			if u := last.Usage; u != nil {
+				d.CurrentInput = &u.Input
+				if last.CacheReported {
+					d.CurrentCached = &u.CachedInput
+				}
+			}
+		}
+	}
+	d.Reasoning = o.Reasoning
 	grouped := map[string]uint64{}
 	var calls uint64
 	for name, count := range o.Tools {

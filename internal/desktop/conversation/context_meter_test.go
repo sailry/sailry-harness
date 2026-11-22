@@ -13,8 +13,6 @@ import (
 
 func amount(n uint64) *uint64 { return &n }
 
-// meterStats is a session halfway to its compaction line with every section
-// measured.
 func meterStats() *conversation.ContextStats {
 	speed := 18.8
 	return &conversation.ContextStats{
@@ -23,7 +21,8 @@ func meterStats() *conversation.ContextStats {
 			{ID: "a", Step: 1, Speed: &speed, FirstTokenUs: amount(120_000), Tokens: amount(20_000), Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(5_000), Chart: 4}}},
 			{ID: "b", Step: 2, Tokens: amount(47_200), Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(6_000), Chart: 4}}},
 		},
-		Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(11_000), Chart: 4}},
+		Parts:        []conversation.ContextPart{{Key: "meter_system", Tokens: amount(11_000), Chart: 4}},
+		CurrentInput: amount(45_000), CurrentCached: amount(27_000),
 		Turns: amount(2), Cost: "0.14", Input: amount(102_700), Output: amount(222), Cached: amount(51_350),
 		ToolCalls: amount(3), Tools: []conversation.ContextTool{{Name: "read", Count: 3}},
 		Active: amount(14_370_000), Phases: []conversation.ContextPhase{{Key: "meter_wait", Micros: 12_190_000, Chart: 2}},
@@ -52,6 +51,16 @@ func meterSettle(tt *ui.Tester) {
 	}
 }
 
+func clickMeter(t *testing.T, tt *ui.Tester, d *conversation.ContextStats) {
+	t.Helper()
+	key, _ := d.State()
+	name := i18n.In("en", "meter_title") + " · " + i18n.In("en", key)
+	if err := tt.Click(name); err != nil {
+		t.Fatal(err)
+	}
+	meterSettle(tt)
+}
+
 // The meter's state follows the context used against the compaction line,
 // or the window where there is none, and reads as unknown without either.
 func TestContextMeterState(t *testing.T) {
@@ -75,26 +84,50 @@ func TestContextMeterState(t *testing.T) {
 	}
 }
 
-// A click opens the summary: the state and the window used of its size,
-// none of the usage bar's figures. Show details expands every section,
-// Show less returns.
-func TestContextMeterExpands(t *testing.T) {
-	s := &conversation.ContextMeterState{}
-	tt := meterTester(t, s, meterStats())
-	name := i18n.In("en", "meter_title") + " · " + i18n.In("en", "meter_state_plenty")
-	meter, ok := tt.Access(name)
-	if !ok {
-		t.Fatalf("no meter %q: %q", name, tt.Texts())
-	}
-	tt.ClickAt(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
-	meterSettle(tt)
-	texts := tt.Texts()
-	for _, want := range []string{"4.7%", i18n.In("en", "meter_state_plenty"), "47.2k / 1M"} {
-		if !slices.Contains(texts, want) {
-			t.Errorf("the summary lacks %q: %q", want, texts)
+func wantMeterRows(t *testing.T, tt *ui.Tester, rows [][2]string) {
+	t.Helper()
+	var bottom float32
+	nodes := tt.AccessAll()
+	for _, row := range rows {
+		label := i18n.In("en", row[0])
+		value := row[1]
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("missing label %q in %q", label, tt.Texts())
+		}
+		if r.Y < bottom {
+			t.Errorf("label %q at %v is not below the preceding row", label, r)
+		}
+		bottom = r.Y + r.H
+		if !slices.ContainsFunc(nodes, func(node ui.AccessInfo) bool {
+			v := node.Bounds
+			return node.Name == value && v.X >= r.X+r.W && v.Y < bottom && v.Y+v.H > r.Y
+		}) {
+			t.Errorf("missing value %q beside %q in %q", value, label, tt.Texts())
 		}
 	}
-	if slices.Contains(texts, "claude-sonnet-5-5") || slices.Contains(texts, i18n.In("en", "meter_session_usage")) || slices.Contains(texts, "$0.14") {
+}
+
+func TestContextMeterExpands(t *testing.T) {
+	s := &conversation.ContextMeterState{}
+	d := meterStats()
+	tt := meterTester(t, s, d)
+	clickMeter(t, tt, d)
+	texts := tt.Texts()
+	if !tt.HasText("4.7%") {
+		t.Errorf("the summary lacks the occupancy percentage: %q", texts)
+	}
+	rows := [][2]string{
+		{"meter_used_tokens", "47.2k"},
+		{"meter_available_tokens", "952.8k"},
+		{"meter_window_limit", "1M"},
+		{"meter_threshold", "800k"},
+		{"meter_model", "claude-sonnet-5-5"},
+		{"meter_last_cache", "60% · 27k / 45k"},
+		{"meter_total_cache", "50% · 51.4k / 102.7k"},
+	}
+	wantMeterRows(t, tt, rows)
+	if slices.Contains(texts, i18n.In("en", "meter_session_usage")) || tt.HasText("≈ $0.14") {
 		t.Errorf("the summary shows the details: %q", texts)
 	}
 	details, ok := tt.Access(i18n.In("en", "meter_show_details"))
@@ -107,12 +140,18 @@ func TestContextMeterExpands(t *testing.T) {
 		t.Fatalf("Show details left the popover open %v, expanded %v", s.Open, s.Expanded)
 	}
 	texts = tt.Texts()
-	for _, key := range []string{"meter_session_usage", "meter_session_time", "meter_connection", "meter_hide_details"} {
+	wantMeterRows(t, tt, rows)
+	for _, row := range rows {
+		if label := i18n.In("en", row[0]); count(texts, label) != 1 {
+			t.Errorf("after expansion, expected one %q: %q", label, texts)
+		}
+	}
+	for _, key := range []string{"meter_session_usage", "meter_output", "meter_tool_calls", "meter_session_time", "meter_connection", "meter_hide_details"} {
 		if !slices.Contains(texts, i18n.In("en", key)) {
 			t.Errorf("the details lack %q: %q", i18n.In("en", key), texts)
 		}
 	}
-	for _, want := range []string{"47.2k", "/ 1M", "1.74 s", "3.81 s", "14.37 s"} {
+	for _, want := range []string{"Until compaction 752.8k", "Output reserve 128k", "2 turns · ≈ $0.14", "222", "1.74 s", "3.81 s", "14.37 s"} {
 		if !slices.Contains(texts, want) {
 			t.Errorf("the details lack %q: %q", want, texts)
 		}
@@ -122,6 +161,57 @@ func TestContextMeterExpands(t *testing.T) {
 	meterSettle(tt)
 	if s.Expanded {
 		t.Error("Show less kept the details")
+	}
+	wantMeterRows(t, tt, rows)
+}
+
+func TestContextMeterWindowEstimates(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		stats                  conversation.ContextStats
+		used, available, limit string
+	}{
+		{"missing usage", conversation.ContextStats{Limit: 1000}, "—", "—", "1k"},
+		{"missing limit", conversation.ContextStats{Tokens: amount(300)}, "300", "—", "—"},
+		{"estimate", conversation.ContextStats{Tokens: amount(300), Estimated: true, Limit: 1000}, "≈ 300", "≈ 700", "1k"},
+		{"over limit", conversation.ContextStats{Tokens: amount(1100), Limit: 1000}, "1.1k", "0", "1k"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := meterTester(t, &conversation.ContextMeterState{}, &tc.stats)
+			clickMeter(t, tt, &tc.stats)
+			wantMeterRows(t, tt, [][2]string{
+				{"meter_used_tokens", tc.used},
+				{"meter_available_tokens", tc.available},
+				{"meter_window_limit", tc.limit},
+				{"meter_threshold", "—"},
+				{"meter_model", "—"},
+			})
+		})
+	}
+}
+
+func TestContextMeterCacheMeasurements(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		input, cached *uint64
+		want          string
+	}{
+		{"missing usage", nil, nil, "—"},
+		{"missing cache read", amount(1000), nil, "— · — / 1k"},
+		{"missing input", nil, amount(500), "— · 500 / —"},
+		{"zero cache read", amount(1000), amount(0), "0.0% · 0 / 1k"},
+		{"zero input", amount(0), amount(0), "— · 0 / 0"},
+		{"cache exceeds input", amount(1000), amount(1500), "— · 1.5k / 1k"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &conversation.ContextStats{CurrentInput: tc.input, CurrentCached: tc.cached, Input: amount(2000)}
+			tt := meterTester(t, &conversation.ContextMeterState{}, d)
+			clickMeter(t, tt, d)
+			wantMeterRows(t, tt, [][2]string{
+				{"meter_last_cache", tc.want},
+				{"meter_total_cache", "— · — / 2k"},
+			})
+		})
 	}
 }
 
@@ -141,10 +231,10 @@ func TestContextMeterHover(t *testing.T) {
 		t.Fatal("the summary opened before the pointer rested")
 	}
 	meterSettle(tt)
-	if !s.Open || !tt.HasText("47.2k / 1M") {
+	if !s.Open || !tt.HasText("47.2k") {
 		t.Fatalf("resting on the meter left the summary closed: %q", tt.Texts())
 	}
-	figure, _ := tt.Access("47.2k / 1M")
+	figure, _ := tt.Access("47.2k")
 	tt.Move(figure.Bounds.X+2, figure.Bounds.Y+2)
 	meterSettle(tt)
 	if !s.Open {
@@ -231,10 +321,11 @@ func TestContextMeterStepTip(t *testing.T) {
 	}
 	// Each field is a row below the one before, its label beside its value.
 	above := float32(-1)
+	texts := tt.Texts()
 	for _, row := range [][2]string{{"Step 1", ""}, {"Tokens", "20k"}, {"Model", "gpt-6.2-astra"}, {"TPS", "18.8"}, {"", "120.0 ms"}} {
-		text := row[0]
+		text := row[1]
 		if text == "" {
-			text = row[1]
+			text = row[0]
 		}
 		r, ok := tt.Find(text)
 		if !ok {
@@ -245,8 +336,14 @@ func TestContextMeterStepTip(t *testing.T) {
 		}
 		above = r.Y
 		if row[0] != "" && row[1] != "" {
-			if v, _ := tt.Find(row[1]); v.Y != r.Y || v.X <= r.X {
-				t.Errorf("value %q at %v is not beside its label %q at %v", row[1], v, row[0], r)
+			i := slices.Index(texts, row[1])
+			if i <= 0 || texts[i-1] != row[0] {
+				t.Errorf("value %q does not follow its label %q in %q", row[1], row[0], texts)
+			}
+			if count(texts, row[0]) == 1 {
+				if b, _ := tt.Find(row[0]); b.Y != r.Y || b.X >= r.X {
+					t.Errorf("value %q at %v is not beside its label %q at %v", row[1], r, row[0], b)
+				}
 			}
 		}
 	}

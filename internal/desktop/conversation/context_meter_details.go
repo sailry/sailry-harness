@@ -23,26 +23,17 @@ const (
 	historyStub   = 3
 )
 
-// contextFull is every section in a scroll, then Show less.
-func contextFull(c *ui.Context, s *ContextMeterState, d *ContextStats) {
-	_, window := c.Size()
-	ui.Scroll(c.Key("sections")).FillWidth().MaxHeight(min(usagePanelHeight, max(window-usagePanelRoom, usagePanelLeast))).
-		PaddingX(18).Children(func() {
-		contextOccupancy(c, s, d)
-		contextUsage(c, s, d)
-		contextTiming(c, d)
-		contextConnection(c, d)
-	})
-	contextToggle(c, s)
+func contextDetails(c *ui.Context, s *ContextMeterState, d *ContextStats) {
+	contextOccupancy(c, s, d)
+	contextUsage(c, s, d)
+	contextTiming(c, d)
+	contextConnection(c, d)
 }
 
-// contextSection is a section: its title and aside over its rows, a border
-// above all but the first.
-func contextSection(c *ui.Context, id, title, aside string, first bool, body func()) {
+// contextSection is a section with a divider and its title over its rows.
+func contextSection(c *ui.Context, id, title, aside string, body func()) {
 	p := theme.Of(c)
-	if !first {
-		ui.Divider(c.Key("divider/" + id)).Background(p.Border)
-	}
+	ui.Divider(c.Key("divider/" + id)).Background(p.Border)
 	ui.Column(c.Key("section/"+id)).FillWidth().MinWidth(0).Padding(16, 0, 16, 0).Gap(12).Children(func() {
 		ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, title).FontSize(14).FontWeight(500).Grow(1).SingleLine()
@@ -67,7 +58,7 @@ func contextRow(c *ui.Context, label, value string, chart int, note string) {
 			ui.Box(c).Size(7, 7).Shrink(0).Radius(2).Background(chartColor(p, chart))
 		}
 		ui.Text(c, label).FontSize(13).Grow(1).MinWidth(0).SingleLine().TextColor(p.MutedForeground)
-		ui.Text(c, value).FontSize(13).Shrink(0).FontFeatures("tnum").SingleLine()
+		ui.Text(c, value).FontSize(13).MinWidth(0).MaxWidthPercent(65).Shrink(1).FontFeatures("tnum").SingleLine().TextAlign(ui.End)
 	})
 }
 
@@ -162,64 +153,24 @@ func contextBar(c *ui.Context, label string, whole float64, parts []barPart) ui.
 	})
 }
 
-func (d *ContextStats) occupancyAside(c *ui.Context) string {
-	var parts []string
-	if d.Model != "" {
-		parts = append(parts, d.Model)
-	}
-	if d.Compactions > 0 {
-		parts = append(parts, strings.ReplaceAll(i18n.T(c, "meter_compactions"), "%{count}", Count(int(d.Compactions))))
-	}
-	return strings.Join(parts, " · ")
-}
-
-// contextOccupancy is the window: the tokens used of it and the percent, a
-// bar with the compaction line and the output reserve, the room left, the
-// history of steps and the categories of the steps, or of the one chosen.
+// contextOccupancy shows the compaction budget, request history and its
+// categories, for all steps or the selected one.
 func contextOccupancy(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	p := theme.Of(c)
-	contextSection(c, "occupancy", i18n.T(c, "meter_title"), d.occupancyAside(c), true, func() {
-		head := ui.Row(c.Key("figure")).FillWidth().Gap(5).AlignItems(ui.End)
-		basis := "meter_basis_observed"
-		if d.Estimated {
-			basis = "meter_basis_estimate"
-		}
-		if d.Tokens != nil {
-			kit.Tooltip(c, head, i18n.T(c, basis))
-		}
-		head.Children(func() {
-			ui.Text(c, tokenLabel(d.Tokens, d.Estimated)).FontSize(26).FontWeight(500).FontFeatures("tnum").SingleLine()
-			if d.Limit > 0 {
-				ui.Text(c, "/ "+Count(int(d.Limit))).FontSize(13).TextColor(p.MutedForeground).Margin(0, 0, 4, 0).SingleLine()
-			}
-			ui.Box(c).Grow(1)
-			if v := d.percent(); v >= 0 {
-				ui.Text(c, percentLabel(v)).FontSize(15).FontWeight(500).TextColor(p.MutedForeground).Margin(0, 0, 3, 0).SingleLine()
-			}
-		})
-		ui.Box(c.Key("meter")).FillWidth().Height(12).Label(i18n.T(c, "meter_title")).Draw(func(pt *ui.Painter, r ui.Rect) {
-			bar := ui.Rect{X: r.X, Y: r.Y + 3, W: r.W, H: 6}
-			pt.Fill(bar, p.Muted, 3)
-			if d.Limit == 0 {
-				return
-			}
-			at := func(v uint64) float32 { return r.X + r.W*min(float32(float64(v)/float64(d.Limit)), 1) }
-			if d.Tokens != nil && *d.Tokens > 0 {
-				pt.Clip(bar, 3, func() { pt.Fill(ui.Rect{X: bar.X, Y: bar.Y, W: max(at(*d.Tokens)-r.X, 3), H: bar.H}, p.Chart[1], 0) })
-			}
-			if d.Reserve > 0 {
-				x := at(d.Limit - min(d.Reserve, d.Limit))
-				pt.Line(x, bar.Y, x, bar.Y+bar.H, 1, p.MutedForeground)
-			}
-			if d.Threshold > 0 {
-				x := at(d.Threshold)
-				pt.Line(x, r.Y, x, r.Y+r.H, 1, p.MutedForeground)
-			}
-		})
-		room, reserve := d.remaining(c), ""
-		if d.Reserve > 0 {
-			reserve = i18n.T(c, "meter_reserve") + " " + Count(int(d.Reserve))
-		}
+	room, reserve, aside := "", "", ""
+	if remaining := d.remaining(d.Threshold); remaining != nil && d.Threshold != d.Limit {
+		room = i18n.T(c, "meter_remaining", "count", tokenLabel(remaining, d.Estimated))
+	}
+	if d.Reserve > 0 {
+		reserve = i18n.T(c, "meter_reserve") + " " + Count(int(d.Reserve))
+	}
+	if d.Compactions > 0 {
+		aside = i18n.T(c, "meter_compactions", "count", Count(int(d.Compactions)))
+	}
+	if room == "" && reserve == "" && aside == "" && len(d.Steps) == 0 && len(d.Parts) == 0 && d.LastCompaction == nil {
+		return
+	}
+	contextSection(c, "occupancy", i18n.T(c, "meter_title"), aside, func() {
 		if room != "" || reserve != "" {
 			ui.Row(c.Key("notes")).FillWidth().Gap(12).Children(func() {
 				ui.Text(c, room).FontSize(12).TextColor(p.MutedForeground).Grow(1).SingleLine()
@@ -363,11 +314,11 @@ func stepTip(c *ui.Context, step *ContextStep) kit.ChartTip {
 	return tip
 }
 
-// contextUsage is the session's tokens: input, output and the cache hit
-// with its bar, then the tool calls and the subagents, each opening its
-// list.
+// contextUsage shows session usage beyond the input counts in the summary.
 func contextUsage(c *ui.Context, s *ContextMeterState, d *ContextStats) {
-	p := theme.Of(c)
+	if d.Output == nil && d.ToolCalls == nil && d.Children == 0 && d.Turns == nil && d.Cost == "" {
+		return
+	}
 	var aside []string
 	if d.Turns != nil {
 		aside = append(aside, strings.ReplaceAll(i18n.T(c, "meter_turns"), "%{count}", Count(int(*d.Turns))))
@@ -375,35 +326,13 @@ func contextUsage(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	if d.Cost != "" {
 		aside = append(aside, "≈ $"+d.Cost)
 	}
-	count := func(n *uint64) string {
-		if n == nil {
-			return ""
-		}
-		return Count(int(*n))
-	}
-	hit := -1.0
-	if d.Input != nil && *d.Input > 0 && d.Cached != nil {
-		hit = min(100, float64(*d.Cached)*100/float64(*d.Input))
-	}
-	outputNote := i18n.T(c, "meter_output_note")
-	if d.Reasoning != nil {
-		outputNote = i18n.T(c, "meter_reasoning") + " " + Count(int(*d.Reasoning))
-	}
-	figures := []contextFigure{
-		{label: i18n.T(c, "meter_input"), value: count(d.Input), note: i18n.T(c, "meter_input_note")},
-		{label: i18n.T(c, "meter_output"), value: count(d.Output), note: outputNote},
-	}
-	if hit >= 0 {
-		figures = append(figures, contextFigure{label: i18n.T(c, "meter_cache_hit"), value: fmt.Sprintf("%.0f%%", hit),
-			note: i18n.T(c, "meter_cache_read") + " " + Count(int(*d.Cached))})
-	}
-	if d.Input == nil && d.Output == nil && d.ToolCalls == nil && d.Children == 0 {
-		return
-	}
-	contextSection(c, "usage", i18n.T(c, "meter_session_usage"), strings.Join(aside, " · "), false, func() {
-		contextFigures(c, "usage", 20, figures)
-		if hit >= 0 {
-			contextBar(c.Key("cache"), i18n.T(c, "meter_cache_hit"), 100, []barPart{{hit, p.Success}})
+	contextSection(c, "usage", i18n.T(c, "meter_session_usage"), strings.Join(aside, " · "), func() {
+		if d.Output != nil {
+			note := i18n.T(c, "meter_output_note")
+			if d.Reasoning != nil {
+				note = i18n.T(c, "meter_reasoning") + " " + Count(int(*d.Reasoning))
+			}
+			contextRow(c.Key("output"), i18n.T(c, "meter_output"), tokenLabel(d.Output, false), 0, note)
 		}
 		if d.ToolCalls == nil && d.Children == 0 {
 			return
@@ -452,7 +381,7 @@ func contextTiming(c *ui.Context, d *ContextStats) {
 			whole += float64(phase.Micros)
 		}
 	}
-	contextSection(c, "timing", i18n.T(c, "meter_session_time"), aside, false, func() {
+	contextSection(c, "timing", i18n.T(c, "meter_session_time"), aside, func() {
 		parts := make([]barPart, len(phases))
 		for i, phase := range phases {
 			parts[i] = barPart{float64(phase.Micros), chartColor(p, phase.Chart)}
@@ -525,7 +454,7 @@ func contextConnection(c *ui.Context, d *ContextStats) {
 	if len(figures) == 0 && !paired {
 		return
 	}
-	contextSection(c, "connection", i18n.T(c, "meter_connection"), "", false, func() {
+	contextSection(c, "connection", i18n.T(c, "meter_connection"), "", func() {
 		contextFigures(c, "connection", 16, figures)
 		if paired {
 			contextConnectionPath(c, *d.PairedResponse, *d.WaitingAfterResponse)
