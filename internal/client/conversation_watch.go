@@ -51,6 +51,7 @@ type conversationBookmark struct {
 
 func (w *conversationWatch) discardHistory() {
 	w.projection.snapshot = nil
+	w.projection.draftText.Reset()
 	w.projection.entryEpoch = nil
 	w.projection.liveStart = nil
 	w.projection.statisticsErr = nil

@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -15,6 +16,7 @@ type ConversationProjection struct {
 	session        protocol.SessionID
 	generation     uint64
 	snapshot       *protocol.ConversationSnapshot
+	draftText      strings.Builder
 	entryEpoch     *byte
 	transcript     uint64
 	recovering     bool
@@ -55,6 +57,7 @@ func (p *ConversationProjection) settle() {
 			}
 			s.Page.Entries = append(s.Page.Entries, entry)
 			slices.SortFunc(s.Page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
+			p.draftText.Reset()
 			s.Drafts = slices.DeleteFunc(s.Drafts, func(d protocol.ConversationDraft) bool { return d.Turn == entry.Turn && d.ID == entry.ID })
 			if entry.Author == "user" {
 				for i := range s.Page.Runs {
@@ -126,6 +129,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		if p.artifactCursor == ^uint64(0) {
 			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "artifact cursor exhausted")
 		}
+		p.draftText.Reset()
 		p.snapshot = new(copyValue(v))
 		p.entryEpoch = nil
 		p.transcript++
@@ -165,6 +169,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 	v := p.snapshot
 	page := &v.Page
 	transcriptChanged := true
+	draftsBefore := len(v.Drafts)
 	switch f.Change.Kind {
 	case "entry", "revealed":
 		x, e := payload[protocol.ConversationEntry](f.Change.Data)
@@ -287,7 +292,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 					if ae != nil || be != nil {
 						return Ignored, fault(protocol.ErrorCodeInvalidRequest, "invalid streaming text")
 					}
-					parts[n-1].Data = a + b
+					parts[n-1].Data = p.appendDraftText(a, b)
 				} else {
 					parts = append(parts, part)
 				}
@@ -414,6 +419,9 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unknown conversation frame change")
 		}
 	}
+	if len(v.Drafts) < draftsBefore {
+		p.draftText.Reset()
+	}
 	v.Sequence = f.Sequence
 	entries := len(page.Entries)
 	p.settle()
@@ -421,6 +429,18 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		p.transcript++
 	}
 	return Applied, nil
+}
+
+// Readers can keep any prefix: Builder appends beyond it and never edits it.
+// Keep only the last growing part, not a buffer per historical draft.
+func (p *ConversationProjection) appendDraftText(prefix, delta string) string {
+	if p.draftText.String() != prefix {
+		p.draftText.Reset()
+		p.draftText.Grow(len(prefix) + len(delta))
+		p.draftText.WriteString(prefix)
+	}
+	p.draftText.WriteString(delta)
+	return p.draftText.String()
 }
 
 func isTransientToolActivityDraft(d protocol.ConversationDraft) bool {
