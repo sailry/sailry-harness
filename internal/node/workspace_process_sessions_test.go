@@ -19,13 +19,15 @@ func TestPromotedCommandNoticeRespectsDelegation(t *testing.T) {
 	output := protocol.Output{Kind: "command_started", Data: info}
 	var delegation *protocol.Delegation
 	for _, session := range []protocol.Session{{}, {Delegation: &delegation}} {
-		value, _ := node.workspaceToolValue(session, request, output).(map[string]any)
-		data, _ := value["data"].(map[string]any)
-		notice, _ := data["notice"].(string)
-		child := session.Delegation != nil
-		if !strings.Contains(notice, "read_command") || strings.Contains(notice, "returning to the parent") != child ||
-			strings.Contains(notice, "reported automatically") == child {
-			t.Fatalf("delegated=%v received notice %q", child, notice)
+		for _, timedOut := range []bool{false, true} {
+			value, _ := node.workspaceToolValue(session, request, output, timedOut).(map[string]any)
+			data, _ := value["data"].(map[string]any)
+			notice, _ := data["notice"].(string)
+			child := session.Delegation != nil
+			if !strings.Contains(notice, "read_command") || strings.Contains(notice, "returning to the parent") != child ||
+				strings.Contains(notice, "reported automatically") == child || strings.Contains(notice, "timeout_ms") != timedOut {
+				t.Fatalf("delegated=%v timed out=%v received notice %q", child, timedOut, notice)
+			}
 		}
 	}
 }

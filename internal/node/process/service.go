@@ -138,16 +138,21 @@ func (s *Service) Execute(ctx context.Context, launch Launch) (protocol.ProcessC
 }
 
 // ExecutePromotable returns the original command result, or transfers that same
-// running command to session ownership when the caller's guidance boundary opens.
+// running command to session ownership when the caller's guidance boundary
+// opens or its timeout elapses. timedOut reports that the timeout was reached:
+// with command_started the command moved to the session; with command_result
+// background capacity was full and the command was stopped.
 // CompletionGate, when supplied, opens after the promoted receipt commits.
-func (s *Service) ExecutePromotable(ctx context.Context, launch Launch, promotion <-chan struct{}) (protocol.Output, error) {
+func (s *Service) ExecutePromotable(ctx context.Context, launch Launch, promotion <-chan struct{}) (output protocol.Output, timedOut bool, err error) {
 	if err := ctx.Err(); err != nil {
-		return protocol.Output{}, err
+		return protocol.Output{}, false, err
 	}
 	launch.Background = false
+	expired := make(chan struct{})
+	launch.expired = expired
 	entry, err := s.begin(launch, false)
 	if err != nil {
-		return protocol.Output{}, err
+		return protocol.Output{}, false, err
 	}
 	forward := context.AfterFunc(ctx, func() {
 		s.mu.Lock()
@@ -159,20 +164,41 @@ func (s *Service) ExecutePromotable(ctx context.Context, launch Launch, promotio
 	defer forward()
 	select {
 	case <-entry.done:
-		return protocol.Output{Kind: "command_result", Data: entry.completion}, entry.failure
+		return protocol.Output{Kind: "command_result", Data: entry.completion}, false, entry.failure
 	case <-promotion:
+	case <-s.options.After(time.Duration(launch.TimeoutMs) * time.Millisecond):
+		timedOut = true
 	}
 	s.mu.Lock()
 	if entry.settling || !commandActive(entry.info) || ctx.Err() != nil {
 		s.mu.Unlock()
 		<-entry.done
-		return protocol.Output{Kind: "command_result", Data: entry.completion}, entry.failure
+		return protocol.Output{Kind: "command_result", Data: entry.completion}, false, entry.failure
+	}
+	if timedOut && s.backgroundFullLocked() {
+		// The runner ends the command with its timeout outcome.
+		close(expired)
+		s.mu.Unlock()
+		<-entry.done
+		return protocol.Output{Kind: "command_result", Data: entry.completion}, true, entry.failure
 	}
 	s.promoteLocked(entry)
 	info := entry.info
 	s.publishLocked(info.Session)
 	s.mu.Unlock()
-	return protocol.Output{Kind: "command_started", Data: info}, nil
+	return protocol.Output{Kind: "command_started", Data: info}, timedOut, nil
+}
+
+// backgroundFullLocked reports whether the Node already runs its maximum of
+// background commands.
+func (s *Service) backgroundFullLocked() bool {
+	active := 0
+	for _, entry := range s.entries {
+		if entry.background && commandActive(entry.info) {
+			active++
+		}
+	}
+	return active >= 32
 }
 
 func (s *Service) begin(launch Launch, background bool) (*commandEntry, error) {
@@ -187,16 +213,8 @@ func (s *Service) begin(launch Launch, background bool) (*commandEntry, error) {
 	if s.entries[launch.ID] != nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command identity already exists"}
 	}
-	if background {
-		active := 0
-		for _, entry := range s.entries {
-			if entry.background && commandActive(entry.info) {
-				active++
-			}
-		}
-		if active >= 32 {
-			return nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "background command capacity exhausted"}
-		}
+	if background && s.backgroundFullLocked() {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "background command capacity exhausted"}
 	}
 	s.trimLocked()
 	profile := launch.Profile

@@ -3,7 +3,7 @@
     {
       "name": "run_command",
       "operation": "process.run",
-      "description": "Run a Node command (prefer dedicated file/search/edit tools when available). Foreground runs stop on exit, cancellation, or timeout. Use background=true (not &) for servers, watchers, or REPLs; check readiness via read_command with id, wait_ms, and until, write stdin via write_command, and terminate via stop_command. Non-service background commands stop when the turn stops.",
+      "description": "Run a Node command (prefer dedicated file/search/edit tools when available). Foreground runs stop on exit or cancellation; at timeout_ms a still-running command moves to the background and returns its id. Use background=true (not &) for servers, watchers, or REPLs; check readiness via read_command with id, wait_ms, and until, write stdin via write_command, and terminate via stop_command. Non-service background commands stop when the turn stops.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,

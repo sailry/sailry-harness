@@ -352,7 +352,7 @@ func TestBackgroundCompletionEvidence(t *testing.T) {
 		}
 		returned := make(chan result, 1)
 		go func() {
-			output, err := service.ExecutePromotable(ctx, launch, promotion)
+			output, _, err := service.ExecutePromotable(ctx, launch, promotion)
 			returned <- result{output, err}
 		}()
 		<-started
@@ -738,4 +738,148 @@ func TestEnvironmentSnapshot(t *testing.T) {
 	if within(filepath.Join("root", "a"), filepath.Join("root", "ab")) {
 		t.Fatal("workspace prefix comparison ignored path components")
 	}
+}
+
+func TestForegroundTimeoutPromotes(t *testing.T) {
+	t.Parallel()
+	const timeoutMs = 5000
+	type fixture struct {
+		service *Service
+		launch  Launch
+		timer   chan time.Time
+		started chan struct{}
+		finish  chan struct{}
+		// settled receives once the runner returned; gate then holds completion.
+		settled chan struct{}
+		gate    chan struct{}
+	}
+	// start holds each runner's completion on gate, or not at all when it is nil.
+	start := func(t *testing.T, gate chan struct{}) fixture {
+		if gate == nil {
+			gate = make(chan struct{})
+			close(gate)
+		}
+		value := fixture{timer: make(chan time.Time), started: make(chan struct{}, 64), finish: make(chan struct{}), settled: make(chan struct{}, 64), gate: gate}
+		var once sync.Once
+		service, err := New(Options{Profile: t.TempDir(),
+			After: func(delay time.Duration) <-chan time.Time {
+				if delay == timeoutMs*time.Millisecond {
+					return value.timer
+				}
+				return make(chan time.Time)
+			},
+			Working: func() func() {
+				return func() {
+					value.settled <- struct{}{}
+					<-value.gate
+				}
+			},
+			Run: func(ctx context.Context, launch Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+				value.started <- struct{}{}
+				select {
+				case <-value.finish:
+					return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+				case <-launch.expired:
+					return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "timed_out"}}, nil
+				case <-ctx.Done():
+					return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
+				}
+			}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			once.Do(func() { close(value.finish) })
+			_ = service.Close()
+		})
+		value.service = service
+		value.launch = Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", Access: protocol.ProcessAccessWorkspace, TimeoutMs: timeoutMs}
+		return value
+	}
+	type result struct {
+		output   protocol.Output
+		timedOut bool
+		err      error
+	}
+	execute := func(ctx context.Context, value fixture) chan result {
+		returned := make(chan result, 1)
+		go func() {
+			output, timedOut, err := value.service.ExecutePromotable(ctx, value.launch, nil)
+			returned <- result{output, timedOut, err}
+		}()
+		<-value.started
+		return returned
+	}
+	t.Run("the timeout moves the running command to the session", func(t *testing.T) {
+		t.Parallel()
+		value := start(t, nil)
+		returned := execute(context.Background(), value)
+		value.timer <- time.Now()
+		got := <-returned
+		if got.err != nil || got.output.Kind != "command_started" || !got.timedOut {
+			t.Fatal(got)
+		}
+		if items := value.service.List(value.launch.Session); len(items) != 1 || items[0].Status.Kind != "running" {
+			t.Fatal("timed-out command is not running in the background", items)
+		}
+		if _, err := value.service.Stop(value.launch.Session, value.launch.ID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if wait, err := value.service.Wait(context.Background(), value.launch.Session, value.launch.ID, 30000, ""); err != nil || wait != protocol.ProcessWaitExited {
+			t.Fatal(wait, err)
+		}
+		snapshot, err := value.service.Read(value.launch.Session, value.launch.ID)
+		if outcome, ok := snapshot.Info.Status.Data.(protocol.ProcessOutcome); err != nil || !ok || outcome.Kind != "cancelled" {
+			t.Fatal("stopped command did not end", snapshot.Info.Status, err)
+		}
+	})
+	t.Run("cancellation still stops the command", func(t *testing.T) {
+		t.Parallel()
+		value := start(t, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		returned := execute(ctx, value)
+		cancel()
+		got := <-returned
+		completion, _ := got.output.Data.(protocol.ProcessCompletion)
+		if got.err != nil || got.output.Kind != "command_result" || got.timedOut || completion.Outcome.Kind != "cancelled" {
+			t.Fatal(got)
+		}
+	})
+	t.Run("a completion racing the timeout returns its result", func(t *testing.T) {
+		t.Parallel()
+		value := start(t, make(chan struct{}))
+		returned := execute(context.Background(), value)
+		// The runner settles and holds completion until the timeout fired.
+		value.finish <- struct{}{}
+		<-value.settled
+		value.timer <- time.Now()
+		close(value.gate)
+		got := <-returned
+		completion, _ := got.output.Data.(protocol.ProcessCompletion)
+		if got.err != nil || got.output.Kind != "command_result" || got.timedOut || completion.Outcome.Kind != "exited" {
+			t.Fatal(got)
+		}
+		if len(value.service.List(value.launch.Session)) != 0 {
+			t.Fatal("a finished command was promoted")
+		}
+	})
+	t.Run("full background capacity stops the command at its timeout", func(t *testing.T) {
+		t.Parallel()
+		value := start(t, nil)
+		for range 32 {
+			background := value.launch
+			background.ID = protocol.NewRequestID()
+			if _, err := value.service.Start(background); err != nil {
+				t.Fatal(err)
+			}
+			<-value.started
+		}
+		returned := execute(context.Background(), value)
+		value.timer <- time.Now()
+		got := <-returned
+		completion, _ := got.output.Data.(protocol.ProcessCompletion)
+		if got.err != nil || got.output.Kind != "command_result" || !got.timedOut || completion.Outcome.Kind != "timed_out" {
+			t.Fatal(got)
+		}
+	})
 }

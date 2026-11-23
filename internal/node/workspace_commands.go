@@ -26,6 +26,8 @@ type workspaceCompletion struct {
 	release        func()
 	after          func()
 	commandControl *process.ControlTarget
+	// timedOut marks a foreground command that reached its timeout.
+	timedOut bool
 }
 
 func (effect *workspaceCompletion) close() {
