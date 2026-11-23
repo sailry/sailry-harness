@@ -116,7 +116,7 @@
     {
       "name": "read_file",
       "legacy_package": "files",
-      "description": "Read UTF-8 file lines (0-based offset, default/max 2000 lines, ~32 KiB model budget, returns 1-based line numbers and file revision). Read whole small/medium files at once and page large files via next_offset; use read_tool_output for clipped captured text. Image paths (.png/.jpg/.jpeg/.gif/.webp/.bmp, <=5 MiB) return image content + revision/dimensions (non-vision models receive metadata only).",
+      "description": "Read UTF-8 file lines (0-based offset, default/max 2000 lines, ~48 KiB model budget, returns 1-based line numbers and file revision). Read whole small/medium files at once and page large files via next_offset; use read_tool_output for clipped captured text. Image paths (.png/.jpg/.jpeg/.gif/.webp/.bmp, <=5 MiB) return image content + revision/dimensions (non-vision models receive metadata only).",
       "parameters": {
         "type": "object",
         "properties": {

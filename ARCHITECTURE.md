@@ -651,8 +651,10 @@ and termination handling.
 The Node supplies core conversation tools and captures enabled package tool
 declarations. Session commands use the Node's process service and workspace
 permission rules. The Commands package provides desktop terminal controls.
-Command input is discoverable on demand. Everyday file,
-Git, code and web tools are initially exposed when their packages are enabled.
+Command input is discoverable on demand. The first request exposes everyday
+file reads, discovery, search, writes and edits, code search and outline, and
+command run, read and stop. Patches, Git, web and other lower-frequency tools
+stay deferred.
 `tool_search` discovers other declared tools under the captured permission.
 Provider prompt caches key on the declared tools and system prompt before the
 history, so loading never changes either: a turn declares its initial tools,
