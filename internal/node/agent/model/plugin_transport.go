@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/http/httpguts"
 )
@@ -107,6 +108,16 @@ func (model *pluginModel) send(ctx context.Context, prepared protocol.PluginMode
 			return nil, &Failure{Kind: InvalidRequest, Message: "model credential header is invalid"}
 		}
 		headers.Set(injection.Header, value)
+	}
+	hasUserAgent := false
+	for name := range headers {
+		if strings.EqualFold(name, "user-agent") {
+			hasUserAgent = true
+			break
+		}
+	}
+	if !hasUserAgent {
+		headers.Set("User-Agent", "Sailry/"+link.ProductVersion)
 	}
 	body := ""
 	if prepared.Body != nil {

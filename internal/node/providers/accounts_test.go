@@ -4,13 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/authorization"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return fn(request) }
 
 func TestUncertainRenewalPreservesIssuedAccessUntilExpiry(t *testing.T) {
 	t.Parallel()
@@ -102,6 +109,26 @@ func TestAccountCatalogAndAuthorization(t *testing.T) {
 		// A cancelled paged discovery reports cancellation; no request leaves the process.
 		grant.Kind, grant.Scopes = protocol.AuthenticationClaudeOAuth, []string{"user:inference"}
 		provider.Authentication, provider.Api, provider.Endpoint, provider.Oauth = grant.Kind, protocol.ConversationModelApiAnthropic, "https://api.anthropic.com", nil
+		var seenClaude *http.Request
+		claudeClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			seenClaude = request.Clone(request.Context())
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-opus-4-8","display_name":"Claude Opus 4.8"}],"has_more":false}`)),
+			}, nil
+		})}
+		discovered, err := discover(t.Context(), provider, secret(), claudeClient)
+		if err != nil || len(discovered.Models) != 1 || discovered.Models[0].ID != "claude-opus-4-8" {
+			t.Fatalf("Claude OAuth discovery = %+v, err=%v", discovered, err)
+		}
+		if seenClaude == nil || seenClaude.URL.String() != "https://api.anthropic.com/v1/models?limit=100" ||
+			seenClaude.Header.Get("Authorization") != "Bearer private-access" ||
+			seenClaude.Header.Get("User-Agent") != DefaultClaudeAgent ||
+			seenClaude.Header.Get("anthropic-version") != "2023-06-01" ||
+			seenClaude.Header.Get("anthropic-beta") != "oauth-2025-04-20" {
+			t.Fatalf("unexpected Claude OAuth discovery request: url=%v headers=%v", seenClaude.URL, seenClaude.Header)
+		}
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		var fault *protocol.Fault

@@ -63,6 +63,12 @@ func discoverAccount(ctx context.Context, provider protocol.ConversationProvider
 		if err != nil {
 			return catalog, err
 		}
+		if auth.Get("anthropic-version") == "" {
+			auth.Set("anthropic-version", "2023-06-01")
+		}
+		if provider.Authentication == protocol.AuthenticationClaudeOAuth {
+			mergeHeaderToken(auth, "anthropic-beta", "oauth-2025-04-20")
+		}
 		models, found, err := discoverPages(owner, client, provider.Api, *endpoint, auth, &remaining)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -93,6 +99,25 @@ func discoverAccount(ctx context.Context, provider protocol.ConversationProvider
 	}
 	catalog.Models, err = parseAccountDiscovery(provider.Authentication, provider.Api, object(body))
 	return catalog, err
+}
+
+func mergeHeaderToken(headers http.Header, name, token string) {
+	var values []string
+	seen := map[string]bool{}
+	for _, raw := range headers.Values(name) {
+		for _, part := range strings.Split(raw, ",") {
+			item := strings.TrimSpace(part)
+			if item == "" || seen[item] {
+				continue
+			}
+			seen[item] = true
+			values = append(values, item)
+		}
+	}
+	if !seen[token] {
+		values = append(values, token)
+	}
+	headers.Set(name, strings.Join(values, ","))
 }
 
 func parseAccountDiscovery(authentication protocol.Authentication, api protocol.ConversationModelApi, document map[string]json.RawMessage) ([]protocol.ConversationDiscoveryModel, error) {

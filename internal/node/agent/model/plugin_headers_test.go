@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -101,5 +102,32 @@ func TestPluginPreparedAffinityHeaderCaseConflict(t *testing.T) {
 	}
 	if failure := Classify(err); failure == nil || failure.Kind != InvalidRequest || requests != 1 {
 		t.Fatalf("conflicting affinity headers: failure=%v requests=%d", failure, requests)
+	}
+}
+
+func TestPluginDefaultUserAgent(t *testing.T) {
+	var seen []string
+	model, _, _ := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
+		seen = append(seen, request.Header.Get("User-Agent"))
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: http.NoBody}, nil
+	})
+	prepared := protocol.DefaultPluginModelAdapterWirePrepared()
+	prepared.Url = "https://example.test/v1/messages"
+	prepared.Headers = map[string]string{"content-type": "application/json"}
+	response, err := model.send(t.Context(), prepared, pluginRequestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+
+	prepared.Headers["User-Agent"] = "plugin-custom/1"
+	response, err = model.send(t.Context(), prepared, pluginRequestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+
+	if len(seen) != 2 || seen[0] != "Sailry/"+link.ProductVersion || seen[1] != "plugin-custom/1" {
+		t.Fatalf("plugin User-Agent values = %q", seen)
 	}
 }
