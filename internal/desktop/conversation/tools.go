@@ -667,8 +667,9 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 			if o.Command {
 				text, _ = lastLines(text)
 			}
-			ui.ScrollBoth(c).MaxHeight(outputMax(size)).Children(func() {
-				ui.Text(c, text).Font("monospace").FontSize(size).LineHeight(20.0 / 14).NoWrap().
+			// Long lines wrap within the row rather than scrolling sideways.
+			ui.Scroll(c).MaxHeight(outputMax(size)).Children(func() {
+				ui.Text(c, text).Font("monospace").FontSize(size).LineHeight(20.0 / 14).
 					Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
 			})
 		}
