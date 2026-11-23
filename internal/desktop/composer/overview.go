@@ -25,14 +25,12 @@ type Overview struct {
 	// Session is false on a draft, which has nothing to list: the button
 	// is disabled.
 	Session bool
-	// Turn tells there is a current turn: Status is how it goes, Elapsed
-	// how long it ran and, while it runs, Doing the label of the tool call
-	// under way and DoingDetail what it acts on.
-	Turn               bool
-	Status             conversation.RunStatus
-	Elapsed            time.Duration
-	Doing, DoingDetail string
-	Children           []OverviewChild
+	// Turn tells there is a current turn: Status is how it goes and Elapsed
+	// how long it ran.
+	Turn     bool
+	Status   conversation.RunStatus
+	Elapsed  time.Duration
+	Children []OverviewChild
 	// Steps is the current turn's task progress, nil for none; Active
 	// animates the step in progress.
 	Steps  []conversation.Step
@@ -487,10 +485,9 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 	})
 }
 
-// head is the overview's quiet first line: the current turn's mark, state,
-// the tool call under way while it runs, cut short to the room left, and
-// the time at the end; or the overview's title before a turn. It stays one
-// line so the sections below keep their place as the tool call changes.
+// head is the overview's quiet first line: the current turn's mark, state
+// and the time at the end; or the overview's title before a turn. It stays
+// one line so the sections below keep their place while a turn runs.
 func (s *OverviewState) head(c *ui.Context, o *Overview) {
 	p := theme.Of(c)
 	ui.Column(c.Key("head")).FillWidth().MinWidth(0).PaddingX(6).Children(func() {
@@ -513,22 +510,7 @@ func (s *OverviewState) head(c *ui.Context, o *Overview) {
 			if o.Turn {
 				state = i18n.T(c, conversation.StatusKey(o.Status))
 			}
-			doing := ""
-			if o.Turn && o.Status.Active() && o.Doing != "" {
-				doing = o.Doing
-				if o.DoingDetail != "" {
-					doing += " · " + o.DoingDetail
-				}
-			}
-			title := ui.Text(c, state).FontSize(14).SingleLine()
-			if doing == "" {
-				title.Grow(1).Shrink(1).MinWidth(0)
-			} else {
-				// The state stays whole; the tool call takes the rest of the
-				// line and is the part cut short.
-				title.Shrink(0)
-				ui.Text(c, doing).FontSize(12).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
-			}
+			ui.Text(c, state).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 			if o.Turn && o.Elapsed > 0 {
 				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
 					TextColor(p.MutedForeground)

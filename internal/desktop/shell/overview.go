@@ -1,12 +1,9 @@
 package shell
 
 import (
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -30,8 +27,8 @@ const (
 )
 
 // conversationOverview is cv's overview with what its transcript tells:
-// the current turn's status and the tool call under way, and the files its
-// turns changed, which act reviews.
+// the current turn's status and elapsed time, and the files its turns
+// changed, which act reviews.
 func (a *App) conversationOverview(c *ui.Context, cv *preview.Conversation, act ConversationActions) *composer.Overview {
 	o := a.sessionOverview(c, cv)
 	if !o.Session && !a.sampled() {
@@ -39,13 +36,6 @@ func (a *App) conversationOverview(c *ui.Context, cv *preview.Conversation, act 
 	}
 	if t := currentTurn(cv.Turns); t != nil {
 		o.Turn, o.Status, o.Elapsed = true, t.Reply.Status, t.Reply.Elapsed
-		if call, ok := runningCall(t); ok {
-			o.Doing = call.Label
-			if o.Doing == "" && call.LabelKey != "" {
-				o.Doing = i18n.T(c, call.LabelKey)
-			}
-			o.DoingDetail, _, _ = strings.Cut(strings.TrimSpace(call.Detail), "\n")
-		}
 	}
 	o.Changes = changedFiles(cv.Turns)
 	if act != nil {
@@ -71,19 +61,6 @@ func currentTurn(turns []conversation.Turn) *conversation.Turn {
 		}
 	}
 	return last
-}
-
-// runningCall is the last tool call of t still running.
-func runningCall(t *conversation.Turn) (conversation.Call, bool) {
-	for i := len(t.Reply.Blocks) - 1; i >= 0; i-- {
-		calls := t.Reply.Blocks[i].Calls
-		for j := len(calls) - 1; j >= 0; j-- {
-			if calls[j].Running {
-				return calls[j], true
-			}
-		}
-	}
-	return conversation.Call{}, false
 }
 
 // changedFiles are the files the turns changed and did not undo, each once

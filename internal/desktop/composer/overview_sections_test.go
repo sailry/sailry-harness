@@ -55,7 +55,7 @@ func TestOverviewSectionDisclosure(t *testing.T) {
 			var opened []bool
 			var asset string
 			o := &composer.Overview{
-				Session: true, Turn: true, Status: conversation.Running, Elapsed: 5 * time.Second, Doing: "Reading fixture",
+				Session: true, Turn: true, Status: conversation.Running, Elapsed: 5 * time.Second,
 				Steps:    []conversation.Step{{Text: step, State: conversation.StepCompleted}, {Text: "Apply changes"}},
 				Children: []composer.OverviewChild{{ID: "child", Name: child, Completed: true, Status: "turn_completed"}},
 				Changes:  []composer.OverviewChange{{Path: "fixture.go", Added: 7, Removed: 3}},
@@ -91,7 +91,7 @@ func TestOverviewSectionDisclosure(t *testing.T) {
 						t.Fatalf("folded %q: heading %+v (found %v), row %q present %v", folded, h, ok, section.row, row)
 					}
 				}
-				for _, text := range []string{status, "5s", "Reading fixture", "1/2", "+7", "−3"} {
+				for _, text := range []string{status, "5s", "1/2", "+7", "−3"} {
 					if _, ok := tt.Access(text); !ok {
 						t.Errorf("folded %q: lost status or tally %q", folded, text)
 					}

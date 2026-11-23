@@ -70,10 +70,10 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 	return p.MutedForeground.Alpha(0.65)
 }
 
-// flagged gives denied, interrupted and unexecuted calls and background
-// execution faults the warning color. A command exit uses the plain row.
+// flagged gives tool errors, denied, interrupted and unexecuted calls, and
+// background execution faults the warning color. A command exit uses the plain row.
 func flagged(call Call) bool {
-	return call.Warning && call.State != StateNone || backgroundFailed(call.Background)
+	return call.Warning || backgroundFailed(call.Background)
 }
 
 // backgroundFailed reports a fault, timeout, interruption or uncertain
@@ -138,6 +138,13 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		}
 		if shimmer {
 			sw.Text(c, d, span)
+		}
+	}
+	if call.repeat > 1 {
+		span := ui.Span{Text: fmt.Sprintf("×%d", call.repeat), Size: size - 1, Color: color}
+		r := levelSpan(c, ui.RichText(c, span).SingleLine().Shrink(0), span, size, call.wrap)
+		if shimmer {
+			sw.Text(c, r, span)
 		}
 	}
 	if caret {
@@ -268,15 +275,66 @@ func (s *State) tools(c *ui.Context, calls []Call, shimmer bool) {
 				for end < len(calls) && groupable(calls[end]) {
 					end++
 				}
-			}
-			if end-first == 1 {
-				s.row(c, calls[first])
+				if end-first == 1 {
+					s.row(c, calls[first])
+				} else {
+					s.toolGroup(c, calls[first:end])
+				}
 			} else {
-				s.toolGroup(c, calls[first:end])
+				for end < len(calls) && !groupable(calls[end]) && sameCallHeader(calls[first], calls[end]) {
+					end++
+				}
+				if end-first == 1 {
+					s.row(c, calls[first])
+				} else {
+					s.duplicateRun(c, calls[first:end])
+				}
 			}
 			first = end
 		}
 	})
+}
+
+// sameCallHeader reports whether two adjacent calls render identically in a
+// collapsed row. Status changes, errors, terminal prompts and background
+// commands always stay distinct so failures are never buried inside a repeat.
+func sameCallHeader(a, b Call) bool {
+	if a.Terminal || b.Terminal || a.Background != nil || b.Background != nil {
+		return false
+	}
+	return a.Name == b.Name &&
+		a.Icon == b.Icon &&
+		a.Label == b.Label &&
+		a.LabelKey == b.LabelKey &&
+		a.Detail == b.Detail &&
+		a.Code == b.Code &&
+		a.Failed == b.Failed &&
+		a.Warning == b.Warning &&
+		a.Pending == b.Pending &&
+		a.State == b.State
+}
+
+// collapseRepeatedCalls merges consecutive calls that share the same visible
+// header into single runs while preserving original call order.
+func collapseRepeatedCalls(calls []Call) [][]Call {
+	var runs [][]Call
+	for i := 0; i < len(calls); {
+		end := i + 1
+		for end < len(calls) && sameCallHeader(calls[i], calls[end]) {
+			end++
+		}
+		runs = append(runs, calls[i:end])
+		i = end
+	}
+	return runs
+}
+
+func repeatHead(run []Call) Call {
+	head := run[len(run)-1]
+	head.wrap = false
+	head.repeat = len(run)
+	head.Running = slices.ContainsFunc(run, func(call Call) bool { return call.Running })
+	return head
 }
 
 // toolRowEnter brings a call that joins an open group in below the rows
@@ -290,38 +348,85 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // settles or fails stays in its place. The group is keyed by its first
 // call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
+	runs := collapseRepeatedCalls(calls)
+	if len(runs) == 1 && len(runs[0]) > 1 {
+		s.duplicateRun(c, runs[0])
+		return
+	}
 	head := groupHead(calls)
 	s.wrapping(c, "tool-group-"+calls[0].ID, false, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(rail ui.Element) {
 		const visibleRows = 5
 		height := visibleRows*rowHeight(textSize(c)) + (visibleRows-1)*railGap
-		if len(calls) <= visibleRows {
+		renderRun := func(run []Call, list ...*ui.ListState) {
+			if len(run) == 1 {
+				s.row(c, run[0], list...)
+			} else {
+				s.duplicateRun(c, run, list...)
+			}
+		}
+		if len(runs) <= visibleRows {
 			// MyGo's ui.List estimates unmeasured rows at Space(8) (32 DIPs)
 			// during its parent's layout pass, so a short group opens taller
 			// than its rows and snaps shorter on the next hover rebuild. Lay
 			// small groups out directly in ui.Scroll so the exact height is
 			// measured on the first frame, including inner row toggles.
 			ui.Scroll(c.Key("tool-rows-fit")).MaxHeight(height).Gap(railGap).Children(func() {
-				for _, call := range calls {
-					ui.Column(c.Key("enter-" + call.ID)).Shrink(0).Transition(toolRowEnter).Children(func() { s.row(c, call) })
+				for _, run := range runs {
+					ui.Column(c.Key("enter-" + run[0].ID)).Shrink(0).Transition(toolRowEnter).Children(func() { renderRun(run) })
 				}
 			})
 			return
 		}
 		list := ui.Local(rail, "tool-rows", func() ui.ListState { return ui.ListState{FollowEnd: true} })
-		list.Key = func(i int) any { return calls[i].ID }
+		list.Key = func(i int) any { return runs[i][0].ID }
 		session, resolveImage := s.renderSession, s.resolveImage
-		ui.List(c.Key("tool-rows"), list, len(calls), func(i int) {
+		ui.List(c.Key("tool-rows"), list, len(runs), func(i int) {
 			// MyGo can build a virtual row during layout, after the transcript
 			// row has restored the shared renderer's scope.
 			previousSession, previousResolve := s.renderSession, s.resolveImage
 			s.renderSession, s.resolveImage = session, resolveImage
 			defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
-			call := calls[i]
-			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, list) })
+			run := runs[i]
+			ui.Column(c.Key("enter-" + run[0].ID)).Transition(toolRowEnter).Children(func() { renderRun(run, list) })
 		}).Height(height).Gap(railGap)
 	})
+}
+
+// duplicateRun collapses consecutive calls with identical headers into a single
+// row displaying a repeat count. When any call has inspectable output, opening
+// the row reveals each individual call in order.
+func (s *State) duplicateRun(c *ui.Context, run []Call, group ...*ui.ListState) {
+	head := repeatHead(run)
+	if !slices.ContainsFunc(run, s.hasDisclosure) {
+		plain(c, "tool-repeat-"+run[0].ID, head)
+		return
+	}
+	s.wrapping(c, "tool-repeat-"+run[0].ID, false, func(hovered, open bool, sw *kit.Sweep) {
+		summary(c, head, hovered, true, open, sw)
+	}, 8, 8, func(rail ui.Element) {
+		const visibleRows = 5
+		height := visibleRows*rowHeight(textSize(c)) + (visibleRows-1)*railGap
+		if len(run) <= visibleRows {
+			ui.Scroll(c.Key("repeat-rows-fit")).MaxHeight(height).Gap(railGap).Children(func() {
+				for _, call := range run {
+					ui.Column(c.Key("enter-" + call.ID)).Shrink(0).Transition(toolRowEnter).Children(func() { s.row(c, call) })
+				}
+			})
+			return
+		}
+		list := ui.Local(rail, "repeat-rows", func() ui.ListState { return ui.ListState{FollowEnd: true} })
+		list.Key = func(i int) any { return run[i].ID }
+		session, resolveImage := s.renderSession, s.resolveImage
+		ui.List(c.Key("repeat-rows"), list, len(run), func(i int) {
+			previousSession, previousResolve := s.renderSession, s.resolveImage
+			s.renderSession, s.resolveImage = session, resolveImage
+			defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
+			call := run[i]
+			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, list) })
+		}).Height(height).Gap(railGap)
+	}, group...)
 }
 
 // groupHead is a group's header: its latest call, shown and coloured as
@@ -332,11 +437,17 @@ func groupHead(calls []Call) Call {
 	// The header sweeps while any call in the group still runs; its label,
 	// icon and colour stay the latest call's.
 	head.Running = head.Running || slices.ContainsFunc(calls, func(call Call) bool { return call.Running })
+	repeat := 1
+	for i := len(calls) - 2; i >= 0 && sameCallHeader(calls[i], head); i-- {
+		repeat++
+	}
+	if repeat > 1 {
+		head.repeat = repeat
+	}
 	return head
 }
 
-// row is one call: its body is its output.
-func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
+func normalizeCallOutput(call Call) Call {
 	if call.Name == "generate_image" && call.Output != nil && len(call.Output.Images) > 0 {
 		// Generated pictures belong in the answer and output inventory. Keep the
 		// original references for reply embeds without repeating the preview here.
@@ -344,6 +455,18 @@ func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
 		output.Images = nil
 		call.Output = &output
 	}
+	return call
+}
+
+func (s *State) hasDisclosure(call Call) bool {
+	call = normalizeCallOutput(call)
+	card := s.toolCards[s.renderSession][call.ID]
+	return !(call.Background == nil && call.BackgroundDetail == nil && (call.Output == nil || call.Load == nil && card == nil && bare(call) && !pathList(call)))
+}
+
+// row is one call: its body is its output.
+func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
+	call = normalizeCallOutput(call)
 	// A call whose loaded output has nothing to draw does not open: its
 	// row already says all there is.
 	card := s.toolCards[s.renderSession][call.ID]

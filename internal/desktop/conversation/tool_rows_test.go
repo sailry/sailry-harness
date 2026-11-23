@@ -48,7 +48,7 @@ func TestToolRowsKeepExecutionInput(t *testing.T) {
 					t.Fatalf("tool row contains result status %s: %q", key, tester.Texts())
 				}
 			}
-			if call.Failed && status != danger || (call.State != StateNone || call.Background != nil) && status != warning {
+			if call.Failed && status != danger || (call.Warning || call.State != StateNone || call.Background != nil) && status != warning {
 				t.Fatal("hiding status text changed the failure or warning color")
 			}
 			if err := tester.Click("Command"); err != nil {

@@ -51,8 +51,8 @@ func unfoldQueue(t *testing.T, tt *ui.Tester) {
 
 // Enter with text while a reply runs guides it: the message waits in the
 // queue with its guidance pending, the button stays Stop, and the row
-// offers Withdraw with Edit, Send now and Remove disabled. Withdraw puts
-// it back in the queue.
+// offers Withdraw with Edit and Remove disabled and Send now hidden.
+// Withdraw puts it back in the queue.
 func TestComposerGuidesRunningTurn(t *testing.T) {
 	a, tt := newTester(t)
 	cv := a.Data.Find(preview.Big)
@@ -78,10 +78,11 @@ func TestComposerGuidesRunningTurn(t *testing.T) {
 	if all, _ := queueButtons(tt, i18n.In("en", "queue_withdraw")); all != 1 {
 		t.Fatalf("%d Withdraw buttons", all)
 	}
-	for _, key := range []string{"queue_send_now", "queue_delete"} {
-		if all, off := queueButtons(tt, i18n.In("en", key)); all != n+1 || off != 1 {
-			t.Errorf("%s: %d buttons, %d disabled", key, all, off)
-		}
+	if all, off := queueButtons(tt, i18n.In("en", "queue_send_now")); all != n || off != 0 {
+		t.Errorf("queue_send_now: %d buttons, %d disabled", all, off)
+	}
+	if all, off := queueButtons(tt, i18n.In("en", "queue_delete")); all != n+1 || off != 1 {
+		t.Errorf("queue_delete: %d buttons, %d disabled", all, off)
 	}
 	if _, off := queueButtons(tt, i18n.In("en", "queue_edit")); off != 1 {
 		t.Errorf("%d Edit buttons disabled", off)

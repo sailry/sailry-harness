@@ -12,8 +12,10 @@ const (
 	toolOutputPressureBytes      = 96 * 1024
 	mediumWindowPressureBytes    = 256 * 1024
 	largeWindowPressureBytes     = 512 * 1024
+	hugeWindowPressureBytes      = 1536 * 1024
 	smallContextWindowThreshold  = 64_000
 	mediumContextWindowThreshold = 256_000
+	largeContextWindowThreshold  = 512_000
 )
 
 // pressureLimitBytes scales the tool-output folding budget with the model's
@@ -31,6 +33,9 @@ func pressureLimitBytes(history []canonical.Record) int {
 		window := uint64(*x.Observation.ContextLimit)
 		if window == 0 {
 			continue
+		}
+		if window > largeContextWindowThreshold {
+			return hugeWindowPressureBytes
 		}
 		if window > mediumContextWindowThreshold {
 			return largeWindowPressureBytes

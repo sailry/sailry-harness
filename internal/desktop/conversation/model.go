@@ -369,9 +369,8 @@ type Call struct {
 	State  RowState
 	// Failed is a failed call, the only red row: the tool could not run
 	// (unknown, invalid arguments, execution or transport error). Warning
-	// is an error the tool returned from a call that ran, shown plain,
-	// or, with a State, a denied, interrupted or unexecuted
-	// call (warning color).
+	// is a tool-origin error or a denied, interrupted or unexecuted call,
+	// tinted in the warning color.
 	Failed, Warning, Pending, Running bool
 	// AwaitingModel marks a call of the latest returned batch while the run
 	// waits for the model's next output: its row keeps the running sweep in
@@ -390,7 +389,8 @@ type Call struct {
 	DetailRevision string
 	Load           func(apply func(*Output)) (cancel func()) `json:"-"`
 
-	wrap bool // view-only: the label wraps rather than truncates
+	wrap   bool // view-only: the label wraps rather than truncates
+	repeat int  // view-only: consecutive identical calls collapsed into this row
 }
 
 // Background is where a command that runs apart from its turn is: running,

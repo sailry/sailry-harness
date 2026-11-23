@@ -730,3 +730,91 @@ func TestToolGroupExpandNoHoverJitter(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatedToolRowsCollapse(t *testing.T) {
+	t.Run("homogeneous repeated calls collapse without double nesting", func(t *testing.T) {
+		s := New()
+		calls := make([]Call, 5)
+		for i := range calls {
+			calls[i] = Call{
+				ID: fmt.Sprintf("rc-%d", i), Name: "read_review_change", Label: "Read review change", Icon: "code",
+				Output: &Output{Text: fmt.Sprintf("diff chunk %d", i)},
+			}
+		}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			s.tools(c, calls, false)
+		}, 700, 500)
+		tt.SetLocale("en")
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.Frame()
+		if textCount(tt, "Read review change") != 1 || !tt.HasText("×5") {
+			t.Fatalf("5 identical calls should collapse into a single ×5 row: %q", tt.Texts())
+		}
+		if err := tt.Click("Read review change"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		// Opening the repeat row reveals the 5 individual calls (plus header = 6).
+		if got := textCount(tt, "Read review change"); got != 6 {
+			t.Fatalf("opening ×5 row showed %d headers, want 6: %q", got, tt.Texts())
+		}
+		clickRow(t, tt, "Read review change")
+		tt.Frame()
+		if !tt.HasText("diff chunk 4") {
+			t.Fatalf("opening an individual call inside a collapsed repeat did not show its output: %q", tt.Texts())
+		}
+	})
+
+	t.Run("all-bare repeated calls stay a single plain row", func(t *testing.T) {
+		s := New()
+		calls := make([]Call, 4)
+		for i := range calls {
+			calls[i] = Call{ID: fmt.Sprintf("bare-%d", i), Name: "ping", Label: "Check status", Icon: "code"}
+		}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			s.tools(c, calls, false)
+		}, 700, 400)
+		tt.SetLocale("en")
+		tt.Frame()
+		if textCount(tt, "Check status") != 1 || !tt.HasText("×4") || len(rowButtons(tt, "Check status")) != 0 {
+			t.Fatalf("bare repeated calls should render a non-expandable ×4 row: %q", tt.Texts())
+		}
+	})
+
+	t.Run("mixed group collapses repeated middle run and keeps warning distinct", func(t *testing.T) {
+		s := New()
+		calls := []Call{
+			{ID: "scope", Name: "review_scope", Label: "Review scope", Icon: "code", Warning: true, Output: &Output{Failure: "invalid arguments", ToolFailure: true}},
+			{ID: "r1", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 1"}},
+			{ID: "r2", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 2"}},
+			{ID: "r3", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 3"}},
+			{ID: "r4", Name: "read_change", Label: "Read review change", Icon: "code", Warning: true, Output: &Output{Failure: "chunk error", ToolFailure: true}},
+			{ID: "r5", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 5"}},
+			{ID: "done", Name: "report", Label: "Report finding", Icon: "code", Output: &Output{Text: "recorded"}},
+		}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			s.tools(c, calls, false)
+		}, 700, 600)
+		tt.SetLocale("en")
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.Frame()
+		if err := tt.Click("Report finding"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		// Inside the open group: Review scope, Read review change ×3, Read review change (warning), Read review change (single), Report finding.
+		if !tt.HasText("×3") || textCount(tt, "Read review change") != 3 {
+			t.Fatalf("expected one ×3 repeat, one distinct warning call, and one trailing single call: %q", tt.Texts())
+		}
+		if err := tt.Click("×3"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if got := textCount(tt, "Read review change"); got != 6 {
+			t.Fatalf("opening ×3 inside mixed group showed %d Read review change labels, want 6: %q", got, tt.Texts())
+		}
+	})
+}

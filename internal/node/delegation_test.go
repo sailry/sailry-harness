@@ -16,9 +16,6 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -194,10 +191,8 @@ func TestChildApprovalPath(t *testing.T) {
 	t.Run("package tool bound to delegation", reviewDelegation)
 }
 
-// reviewScript drives the bundled code-review package: it freezes a review
-// scope, then delegates its groups through delegate_review, the package tool
-// bound to agents.delegate. It then guides that child through the fixture
-// package's tool bound to agents.guide.
+// reviewScript drives the fixture package's tools bound to agents.delegate
+// and agents.guide to verify package-prepared child tasks and guidance.
 type reviewScript struct {
 	fantasy.LanguageModel
 	mu       sync.Mutex
@@ -267,41 +262,26 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 			}
 		}
 	}
-	scope, delegate := operations.Alias("code-review", "review_scope"), operations.Alias("code-review", "delegate_review")
+	delegate := operations.Alias("guide-fixture", "delegate_review")
 	guide := operations.Alias("guide-fixture", "guide_review")
 	var name, args string
 	switch script.requests {
 	case 1:
-		name, args = "tool_search", `{"query":"select:`+scope+","+delegate+","+guide+`"}`
+		name, args = "tool_search", `{"query":"select:`+delegate+","+guide+`"}`
 	case 2:
-		name, args = scope, `{"target":{"kind":"worktree","data":{"scope":"all"}}}`
-	case 3:
-		var frozen struct {
-			ReviewID string `json:"review_id"`
-			Groups   []struct {
-				ID string `json:"id"`
-			} `json:"groups"`
-		}
-		if err := json.Unmarshal([]byte(script.results["scope"]), &frozen); err != nil || frozen.ReviewID == "" || len(frozen.Groups) == 0 {
-			return nil, fmt.Errorf("review scope result is unusable: %s", script.results["scope"])
-		}
-		groups := []string{}
-		for _, group := range frozen.Groups {
-			groups = append(groups, group.ID)
-		}
-		encoded, _ := json.Marshal(map[string]any{"review_id": frozen.ReviewID, "groups": groups, "record_receipt": false, "role": "explore", "title": "Review evidence"})
+		encoded, _ := json.Marshal(map[string]any{"scope": "source.go", "role": "explore", "title": "Review evidence"})
 		name, args = delegate, string(encoded)
-	case 4:
+	case 3:
 		child := childSession.FindStringSubmatch(script.results["delegate"])
 		if child == nil {
 			return nil, fmt.Errorf("delegate_review names no child: %s", script.results["delegate"])
 		}
 		name, args = guide, `{"session":"`+child[1]+`","note":"Check the edge"}`
-	case 5:
+	case 4:
 	default:
 		return nil, errors.New("unexpected extra review request")
 	}
-	id := map[int]string{1: "discover", 2: "scope", 3: "delegate", 4: "guide"}[script.requests]
+	id := map[int]string{1: "discover", 2: "delegate", 3: "guide"}[script.requests]
 	return func(yield func(fantasy.StreamPart) bool) {
 		if name != "" {
 			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: id, ToolCallName: name, ToolCallInput: args}) {
@@ -316,15 +296,16 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 
 var childSession = regexp.MustCompile(`"session":"([0-9a-f-]{36})"`)
 
-// installGuideFixture installs a package whose tool is bound to agents.guide
-// and prepares the guidance from the arguments the model sent.
+// installGuideFixture installs a package whose tools are bound to
+// agents.delegate and agents.guide and prepare child tasks and guidance from
+// the arguments the model sent.
 func installGuideFixture(t *testing.T, node *Node) {
 	t.Helper()
 	source := t.TempDir()
 	entry := "dev.sailry.platform/main.js"
 	for name, body := range map[string]string{
-		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"guide-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["agents.delegate"],"host":{"entry":"` + entry + `","resources":["` + entry + `"],"handlers":["prepare"],"read_only":["prepare"]},"tools":[{"name":"guide_review","description":"Guide a delegated reviewer","handler":{"name":"prepare","operation":"agents.guide","parameters":{"type":"object","required":["session","note"],"properties":{"session":{"type":"string"},"note":{"type":"string"}},"additionalProperties":false}}}]}}}`,
-		entry:         `export function prepare(input){return {session:input.session,message:"prepared:"+input.note};}`,
+		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"guide-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","scope":"host","actions":["agents.delegate"],"host":{"entry":"` + entry + `","resources":["` + entry + `"],"handlers":["delegate","prepare"],"read_only":["delegate","prepare"]},"tools":[{"name":"delegate_review","description":"Delegate a scoped review","handler":{"name":"delegate","operation":"agents.delegate","parameters":{"type":"object","required":["scope","role","title"],"properties":{"scope":{"type":"string"},"role":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}}},{"name":"guide_review","description":"Guide a delegated reviewer","handler":{"name":"prepare","operation":"agents.guide","parameters":{"type":"object","required":["session","note"],"properties":{"session":{"type":"string"},"note":{"type":"string"}},"additionalProperties":false}}}]}}}`,
+		entry:         `export function delegate(input){return {task:"prepared-delegation:"+input.scope,role:input.role,title:input.title,background:false};} export function prepare(input){return {session:input.session,message:"prepared:"+input.note};}`,
 	} {
 		filename := filepath.Join(source, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
@@ -357,23 +338,6 @@ func reviewDelegation(t *testing.T) {
 	installGuideFixture(t, node)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
-		t.Fatal(err)
-	}
-	repository, err := gogit.PlainInitWithOptions(root, &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(root, "source.go"), []byte("package source\n\nfunc Value() int { return 1 }\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	worktree, err := repository.Worktree()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = worktree.Add("source.go"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = worktree.Commit("Initial review fixture", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(100, 0)}}); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(filepath.Join(root, "source.go"), []byte("package source\n\nfunc Value() int { return 2 }\n"), 0o600); err != nil {
@@ -423,19 +387,13 @@ func reviewDelegation(t *testing.T) {
 	}
 	script.mu.Lock()
 	defer script.mu.Unlock()
-	scope, delegate := script.results["scope"], script.results["delegate"]
-	var frozen struct {
-		ReviewID string `json:"review_id"`
-	}
-	if err = json.Unmarshal([]byte(scope), &frozen); err != nil || frozen.ReviewID == "" {
-		t.Fatalf("review scope = %s", scope)
-	}
-	if script.requests != 5 || !strings.Contains(delegate, `"admitted":true`) || strings.Contains(delegate, "error") {
+	delegate := script.results["delegate"]
+	if script.requests != 4 || !strings.Contains(delegate, `"admitted":true`) || strings.Contains(delegate, "error") {
 		t.Fatalf("delegate_review after %d requests = %s", script.requests, delegate)
 	}
 	// The child runs the task the package prepared, not the arguments the
 	// model sent, and its origin is the call the model made.
-	if len(script.children) != 2 || !strings.Contains(script.children[0], "Frozen review capture:") || !strings.Contains(script.children[0], frozen.ReviewID) || !strings.Contains(script.children[0], "Gather evidence only") {
+	if len(script.children) != 2 || !strings.Contains(script.children[0], "prepared-delegation:source.go") {
 		t.Fatalf("delegated tasks = %q", script.children)
 	}
 	// The guided turn continues the delegated child's session and originates

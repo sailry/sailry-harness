@@ -29,7 +29,7 @@ func BundledDefaults() []DefaultPackage {
 		{"commands", true},
 		{"brief", true}, {"files", true}, {"statistics", true}, {"provider-status", true},
 		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true}, {"databases", true}, {"ssh", true}, {"worktrees", true},
-		{"git", true}, {"context7", true}, {"github", true}, {"code-review", true}, {"office", true},
+		{"git", true}, {"context7", true}, {"github", true}, {"office", true},
 	}
 }
 

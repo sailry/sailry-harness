@@ -251,6 +251,15 @@ func TestProcessedKeepsProtectedResults(t *testing.T) {
 	if _, ok := Processed(filtered, source); ok {
 		t.Fatal("a modified projection acquired a reference to unfiltered evidence")
 	}
+	for _, toolName := range []string{"load_skill", "read_skill_resource", "read_skill_document", "tool_search", "ask_user", "update_plan"} {
+		t.Run("protected tool "+toolName, func(t *testing.T) {
+			record := resultRecord("stored-"+toolName, map[string]any{"body": body}, canonical.JSON)
+			onlyResponse(&record).Name = toolName
+			if _, ok := Processed(record, record); ok {
+				t.Fatalf("protected tool %s was folded under pressure", toolName)
+			}
+		})
+	}
 }
 
 func TestProcessedCommandRecovery(t *testing.T) {

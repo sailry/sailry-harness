@@ -59,7 +59,18 @@ func Processed(record, original canonical.Record) (canonical.Record, bool) {
 	return record, true
 }
 
+func protectedProcessedTool(name string) bool {
+	switch name {
+	case "load_skill", "read_skill_resource", "read_skill_document", "tool_search", "ask_user", "update_plan":
+		return true
+	}
+	return false
+}
+
 func processedPage(source *canonical.ToolResponse) json.RawMessage {
+	if protectedProcessedTool(source.Name) {
+		return nil
+	}
 	raw := source.Result.Value
 	if !validOutputReference(source.ID, source.Revision) || !utf8.ValidString(source.ID) || !utf8.Valid(raw) || !json.Valid(raw) {
 		return nil

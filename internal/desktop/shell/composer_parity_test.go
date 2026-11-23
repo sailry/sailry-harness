@@ -238,10 +238,10 @@ func composerParity(t *testing.T) {
 		if all, off := states(tt, "queue_edit"); all != 4 || off != 3 {
 			t.Errorf("Edit: %d buttons, %d disabled", all, off)
 		}
-		// Send now: off on guidance aimed at another turn and on the
-		// outgoing row, on for the row the running turn is taking.
-		// (The composer's own Send, disabled on an empty draft, has the name.)
-		if all, off := states(tt, "queue_send_now"); all != 5 || off != 3 {
+		// Send now: hidden on guided and guided-outgoing rows, enabled on the
+		// plain queued row. (The composer's own Send, disabled on an empty
+		// draft, shares the accessible name.)
+		if all, off := states(tt, "queue_send_now"); all != 2 || off != 1 {
 			t.Errorf("Send now: %d buttons, %d disabled", all, off)
 		}
 		if all, off := states(tt, "queue_delete"); all != 5 || off != 3 {

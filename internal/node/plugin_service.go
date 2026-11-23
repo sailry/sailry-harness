@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -213,6 +214,59 @@ func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User,
 		return err
 	}); err != nil {
 		return err
+	}
+	defaults := plugins.BundledDefaults()
+	retired := plugins.RetiredBundled()
+	// Upgrade already-installed unpinned optional bundled packages (for example,
+	// packages removed from BundledDefaults) without installing them on new profiles.
+	for i, summary := range summaries {
+		if summary.Pinned || slices.Contains(retired, summary.Name) ||
+			slices.ContainsFunc(defaults, func(entry plugins.DefaultPackage) bool { return entry.Name == summary.Name }) {
+			continue
+		}
+		var current *protocol.PluginInfo
+		if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			current, err = store.ReadPlugin(ctx, db, summary.Name)
+			return err
+		}); err != nil {
+			return err
+		}
+		if current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
+			continue
+		}
+		inspected, err := node.plugins.manager.InspectBundled(ctx, summary.Name)
+		if err != nil {
+			if !startup || ctx.Err() != nil {
+				continue
+			}
+			continue
+		}
+		if plugins.IsWithdrawn(inspected) || !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
+			continue
+		}
+		var info protocol.PluginInfo
+		if startup {
+			info, err = node.plugins.manager.RestoreBundled(ctx, plugins.PackageReference(inspected))
+		} else {
+			info, err = node.plugins.manager.InstallBundled(ctx, summary.Name)
+		}
+		if err != nil {
+			if !startup || ctx.Err() != nil {
+				return err
+			}
+			logUnavailablePackage(plugins.PackageReference(inspected), "bundled plugin upgrade failed", err)
+			continue
+		}
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			updated, err := store.InstallPlugin(ctx, db, info, current.Summary.Revision, current.Summary.Enabled)
+			if err == nil {
+				summaries[i] = updated.Summary
+			}
+			return err
+		}); err != nil {
+			return err
+		}
 	}
 	for _, summary := range summaries {
 		if err := node.plugins.mcp.Observe(summary, user.ID.String()); err != nil {

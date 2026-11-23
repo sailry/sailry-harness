@@ -247,7 +247,8 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 	// untouched on 200K and 1M windows to preserve their prompt cache prefix.
 	small := makeHistory(64_000, 12)
 	medium := makeHistory(200_000, 12)
-	large := makeHistory(1_000_000, 12)
+	large := makeHistory(400_000, 12)
+	huge := makeHistory(1_000_000, 12)
 	if pressureLimitBytes(small) != toolOutputPressureBytes {
 		t.Fatalf("64K limit = %d, want %d", pressureLimitBytes(small), toolOutputPressureBytes)
 	}
@@ -255,7 +256,10 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 		t.Fatalf("200K limit = %d, want %d", pressureLimitBytes(medium), mediumWindowPressureBytes)
 	}
 	if pressureLimitBytes(large) != largeWindowPressureBytes {
-		t.Fatalf("1M limit = %d, want %d", pressureLimitBytes(large), largeWindowPressureBytes)
+		t.Fatalf("400K limit = %d, want %d", pressureLimitBytes(large), largeWindowPressureBytes)
+	}
+	if pressureLimitBytes(huge) != hugeWindowPressureBytes {
+		t.Fatalf("1M limit = %d, want %d", pressureLimitBytes(huge), hugeWindowPressureBytes)
 	}
 	baselineMedium := new(output.Cache).Project(model.VisibleAnsweredRecords(medium))
 	if !reflect.DeepEqual(pressureProjection(medium, new(output.Cache), true), baselineMedium) {
@@ -263,6 +267,10 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 	}
 	baselineLarge := new(output.Cache).Project(model.VisibleAnsweredRecords(large))
 	if !reflect.DeepEqual(pressureProjection(large, new(output.Cache), true), baselineLarge) {
+		t.Fatal("400K window rewrote prefix below its scaled pressure budget")
+	}
+	baselineHuge := new(output.Cache).Project(model.VisibleAnsweredRecords(huge))
+	if !reflect.DeepEqual(pressureProjection(huge, new(output.Cache), true), baselineHuge) {
 		t.Fatal("1M window rewrote prefix below its scaled pressure budget")
 	}
 	// Above the 200K scaled budget (256 KiB), older batches still fold cleanly.
@@ -271,6 +279,42 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 	afterHeavy := pressureProjection(heavy, new(output.Cache), true)
 	if reflect.DeepEqual(beforeHeavy, afterHeavy) {
 		t.Fatal("200K window failed to fold once past its scaled budget")
+	}
+}
+
+func TestContextPressureProtectsInstructionalTools(t *testing.T) {
+	turn := protocol.TurnID{1}
+	purpose, finish, window := canonical.PurposeMain, canonical.Completed, uint32(64_000)
+	input := uint64(32_000)
+	var history []canonical.Record
+	protected := []string{"load_skill", "read_skill_resource", "read_skill_document", "tool_search", "ask_user", "update_plan"}
+	for i, name := range protected {
+		call := canonical.ToolRequest{ID: fmt.Sprintf("prot-%d", i), Name: name, Arguments: json.RawMessage(`{}`)}
+		reply := canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &call})
+		reply.Finish, reply.Usage = &finish, &canonical.Usage{Input: &input}
+		observation := protocol.DefaultConversationObservationRequest()
+		observation.ID, observation.Turn, observation.Model, observation.ContextLimit = fmt.Sprintf("prot-req-%d", i), turn, "fixture", &window
+		payload := map[string]any{"tool": name, "content": strings.Repeat("retain active instructions and state\n", 80)}
+		result := canonical.NewMessage(canonical.User, responseBlock(0, call, ToolResult{Value: payload}))
+		history = append(history,
+			canonical.Record{ID: fmt.Sprintf("prot-a-%d", i), Turn: turn, Kind: "message", Data: &reply, Metadata: canonical.Metadata{Execution: &canonical.Execution{Purpose: &purpose, Observation: &observation}}},
+			canonical.Record{ID: fmt.Sprintf("prot-r-%d", i), Turn: turn, Kind: "message", Data: &result},
+		)
+	}
+	for i := range 8 {
+		history = append(history, pressureExchange(i, input, fmt.Sprintf("pkg/file%d.go", i))...)
+	}
+	before := new(output.Cache).Project(model.VisibleAnsweredRecords(history))
+	after := pressureProjection(history, new(output.Cache), true)
+	for i, name := range protected {
+		idx := i*2 + 1
+		if !reflect.DeepEqual(before[idx], after[idx]) {
+			t.Fatalf("context pressure folded protected tool %s", name)
+		}
+	}
+	firstReadIdx := len(protected)*2 + 1
+	if reflect.DeepEqual(before[firstReadIdx], after[firstReadIdx]) {
+		t.Fatal("expected ordinary read_file batch to fold under pressure")
 	}
 }
 

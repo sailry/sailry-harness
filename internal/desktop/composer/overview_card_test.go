@@ -1,7 +1,6 @@
 package composer_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -37,89 +36,61 @@ func TestOverviewCardWithNothingToList(t *testing.T) {
 	}
 }
 
-// The tool call under way follows the run's state on its line, the time
-// last, so the line keeps its height and the sections below stay put
-// whether there is a tool call, a short one or one cut short, in the card
-// and in a narrow window's popover.
-func TestOverviewHeadToolCallBesideState(t *testing.T) {
+// The overview header shows the run's state and elapsed time on one quiet
+// line without flickering tool-call descriptions in between, in both the
+// docked card and a narrow window's popover.
+func TestOverviewHeadShowsStateAndElapsed(t *testing.T) {
 	const elapsed = "5s"
 	state := i18n.In("en", "chat_running")
 	progress := i18n.In("en", "chat_assets_progress")
-	long := strings.Repeat("Reading internal/desktop/composer/overview.go ", 6)
 	for _, view := range []struct {
 		name   string
 		docked bool
 		width  int
 	}{{"card", true, 400}, {"narrow popover", false, 360}} {
 		t.Run(view.name, func(t *testing.T) {
-			var end, below float32
-			for i, doing := range []struct{ label, detail string }{{"", ""}, {"Read", ""}, {"Read", long}} {
-				o := &composer.Overview{
-					Session: true, Turn: true, Status: conversation.Running, Elapsed: 5 * time.Second,
-					Doing: doing.label, DoingDetail: doing.detail,
-					Steps: []conversation.Step{{Text: "Check the head", State: conversation.StepInProgress}},
-				}
-				s := &composer.OverviewState{Docked: view.docked}
-				var hidden bool
-				tt := ui.NewTester(func(c *ui.Context) {
-					theme.Apply(c, "", theme.Dark)
-					ui.Column(c).Fill().Padding(24).AlignItems(ui.End).Children(func() {
-						if s.Docked {
-							composer.OverviewCard(c, s, o, 520)
-						} else {
-							composer.OverviewButton(c, s, o, 32, &hidden)
-						}
-					})
-				}, view.width, 600)
-				tt.SetLocale("en")
-				tt.Frame()
-				if !view.docked {
-					if err := tt.Click(i18n.In("en", "chat_assets_title")); err != nil {
-						t.Fatal(err)
+			o := &composer.Overview{
+				Session: true, Turn: true, Status: conversation.Running, Elapsed: 5 * time.Second,
+				Steps: []conversation.Step{{Text: "Check the head", State: conversation.StepInProgress}},
+			}
+			s := &composer.OverviewState{Docked: view.docked}
+			var hidden bool
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Dark)
+				ui.Column(c).Fill().Padding(24).AlignItems(ui.End).Children(func() {
+					if s.Docked {
+						composer.OverviewCard(c, s, o, 520)
+					} else {
+						composer.OverviewButton(c, s, o, 32, &hidden)
 					}
-					tt.Advance(200 * time.Millisecond)
+				})
+			}, view.width, 600)
+			tt.SetLocale("en")
+			tt.Frame()
+			if !view.docked {
+				if err := tt.Click(i18n.In("en", "chat_assets_title")); err != nil {
+					t.Fatal(err)
 				}
-				tt.Frame()
-				label := fmt.Sprintf("case %d", i)
-				find := func(text string) ui.Rect {
-					t.Helper()
-					r, ok := tt.Find(text)
-					if !ok {
-						t.Fatalf("%s: no %q: %q", label, text, tt.Texts())
-					}
-					return r
+				tt.Advance(200 * time.Millisecond)
+			}
+			tt.Frame()
+			find := func(text string) ui.Rect {
+				t.Helper()
+				r, ok := tt.Find(text)
+				if !ok {
+					t.Fatalf("no %q: %q", text, tt.Texts())
 				}
-				title, clock, heading := find(state), find(elapsed), find(progress)
-				if title.H > 24 || clock.H > 24 {
-					t.Errorf("%s: the head wraps: state %v, time %v", label, title, clock)
-				}
-				if title.X+title.W > clock.X {
-					t.Errorf("%s: the state %v overlaps the time %v", label, title, clock)
-				}
-				if doing.label != "" {
-					text := doing.label
-					if doing.detail != "" {
-						text += " · " + doing.detail
-					}
-					call := find(text)
-					mid := func(r ui.Rect) float32 { return r.Y + r.H/2 }
-					if call.H > 24 || mid(call)-mid(title) > 2 || mid(title)-mid(call) > 2 {
-						t.Errorf("%s: the tool call %v is not on the state's line %v", label, call, title)
-					}
-					if call.X < title.X+title.W || call.X+call.W > clock.X {
-						t.Errorf("%s: the tool call %v is not between the state %v and the time %v", label, call, title, clock)
-					}
-				}
-				if i == 0 {
-					end, below = clock.X+clock.W, heading.Y
-					continue
-				}
-				if clock.X+clock.W != end {
-					t.Errorf("%s: the time ends at %v, not %v", label, clock.X+clock.W, end)
-				}
-				if heading.Y != below {
-					t.Errorf("%s: the progress heading moved from %v to %v", label, below, heading.Y)
-				}
+				return r
+			}
+			title, clock, heading := find(state), find(elapsed), find(progress)
+			if title.H > 24 || clock.H > 24 {
+				t.Errorf("the head wraps: state %v, time %v", title, clock)
+			}
+			if title.X+title.W > clock.X {
+				t.Errorf("the state %v overlaps the time %v", title, clock)
+			}
+			if heading.Y <= title.Y+title.H {
+				t.Errorf("the progress heading %v is not below the head %v", heading, title)
 			}
 		})
 	}
