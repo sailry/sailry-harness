@@ -117,7 +117,7 @@ func TestNativeOutcomes(t *testing.T) {
 		launch.Command, launch.TimeoutMs = "sleep 1; echo finished", 200
 		promotion := make(chan struct{})
 		close(promotion)
-		output, err := service.ExecutePromotable(context.Background(), launch, promotion)
+		output, _, err := service.ExecutePromotable(context.Background(), launch, promotion)
 		if err != nil || output.Kind != "command_started" {
 			t.Fatal(output, err)
 		}
@@ -133,6 +133,24 @@ func TestNativeOutcomes(t *testing.T) {
 		}
 		if outcome, ok := snapshot.Info.Status.Data.(protocol.ProcessOutcome); !ok || outcome.Kind != "exited" {
 			t.Fatal("promoted command kept its foreground timeout", snapshot.Info.Status)
+		}
+	})
+	t.Run("a foreground timeout moves the command to the session", func(t *testing.T) {
+		service, launch := nativeFixture(t, Options{})
+		launch.Command, launch.TimeoutMs = "sleep 1; echo finished", 200
+		output, timedOut, err := service.ExecutePromotable(context.Background(), launch, nil)
+		if err != nil || output.Kind != "command_started" || !timedOut {
+			t.Fatal(output, timedOut, err)
+		}
+		if _, err := service.Wait(context.Background(), launch.Session, launch.ID, 30000, "finished"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.Wait(context.Background(), launch.Session, launch.ID, 30000, "missing"); err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := service.Read(launch.Session, launch.ID)
+		if outcome, ok := snapshot.Info.Status.Data.(protocol.ProcessOutcome); err != nil || !ok || outcome.Kind != "exited" {
+			t.Fatal("timed-out command did not keep running", snapshot.Info.Status, err)
 		}
 	})
 	t.Run("a foreground command still times out", func(t *testing.T) {

@@ -503,7 +503,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		if effectErr != nil {
 			return workspaceToolFault(effectErr)
 		}
-		value := h.node.workspaceToolValue(inv.Session, request, output)
+		value := h.node.workspaceToolValue(inv.Session, request, output, effect.timedOut)
 		if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && output.Kind == "artifact_written" {
 			value = map[string]any{"kind": output.Kind, "data": output.Data, "sailry_content": protocol.ToolContent{Version: 1,
 				Blocks: []protocol.ToolContentBlock{{Kind: "artifact", Data: protocol.ToolContentBlockArtifactPayload{Artifact: written.Artifact}}}}}

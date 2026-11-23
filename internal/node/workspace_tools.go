@@ -279,7 +279,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					}
 				}
 			}
-			value := node.workspaceToolValue(inv.Session, request, output)
+			value := node.workspaceToolValue(inv.Session, request, output, effect.timedOut)
 			// A written artifact is delivered as its card, whichever package's
 			// tool wrote it: the Node stamps the summary it committed.
 			if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && output.Kind == "artifact_written" {
@@ -438,7 +438,7 @@ func workspaceOutputFailure(output protocol.Output) *protocol.ToolFailure {
 	}
 	return failure
 }
-func (node *Node) workspaceToolValue(session protocol.Session, request protocol.Request, output protocol.Output) any {
+func (node *Node) workspaceToolValue(session protocol.Session, request protocol.Request, output protocol.Output, timedOut bool) any {
 	if value, shaped := codeToolValue(output); shaped {
 		return value
 	}
@@ -471,9 +471,17 @@ func (node *Node) workspaceToolValue(session protocol.Session, request protocol.
 			value["sailry_command"] = preview
 		}
 	}
+	if input, ok := request.Command.Data.(*protocol.CommandRunCommandPayload); ok && !input.Background && timedOut && output.Kind == "command_result" {
+		if data, ok := value["data"].(map[string]any); ok {
+			data["notice"] = "Background command capacity was full, so the command was stopped at its timeout."
+		}
+	}
 	if input, ok := request.Command.Data.(*protocol.CommandRunCommandPayload); ok && output.Kind == "command_started" && !input.Background {
 		if data, ok := value["data"].(map[string]any); ok {
 			notice := "New guidance arrived while this command was running. It moved to the background. Use read_command or stop_command with this id."
+			if timedOut {
+				notice = "The command reached timeout_ms and is still running in the background. Use read_command with this id (wait_ms, until) to follow it, or stop_command to end it."
+			}
 			if session.Delegation != nil {
 				notice += " Read the result before returning to the parent. The command stops when this delegated task ends."
 			} else {

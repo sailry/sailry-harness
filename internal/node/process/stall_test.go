@@ -162,11 +162,17 @@ func TestStallMonitor(t *testing.T) {
 		value := start(t)
 		promotion := make(chan struct{})
 		close(promotion)
-		output, err := value.service.ExecutePromotable(context.Background(), value.launch, promotion)
+		value.launch.TimeoutMs = 2 * uint64(StallWindow/time.Millisecond)
+		output, _, err := value.service.ExecutePromotable(context.Background(), value.launch, promotion)
 		if err != nil || output.Kind != "command_started" {
 			t.Fatal(output, err)
 		}
-		armed(t, value)
+		// The foreground timeout's waiter stays on the clock beside the monitor.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := value.clock.BlockUntilContext(ctx, 2); err != nil {
+			t.Fatal("stall monitor is not waiting for the next silent period")
+		}
 		value.clock.Advance(StallWindow)
 		if report := stalled(t, value); report.Snapshot.Info.ID != value.launch.ID {
 			t.Fatal("unexpected promoted stall", report)

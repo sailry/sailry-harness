@@ -204,7 +204,8 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	foreground := engine.ForegroundToolContext(ctx, operation)
 	promotion, release := node.commandPromotion(foreground, input.Turn)
 	defer release()
-	output, err := node.processes.ExecutePromotable(foreground, launch, promotion)
+	output, timedOut, err := node.processes.ExecutePromotable(foreground, launch, promotion)
+	effect.timedOut = timedOut
 	if result, ok := output.Data.(protocol.ProcessCompletion); ok && engine.Steered(foreground) {
 		if errors.Is(err, context.Canceled) {
 			err = nil

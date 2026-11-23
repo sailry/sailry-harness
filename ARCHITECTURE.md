@@ -797,6 +797,13 @@ notice turn even if the queue resumes, report no stall, and join the user's next
 message. That message also releases the hold on services still running, so their
 follow-up and stall reports resume.
 
+A foreground `run_command` is promoted, keeping its process and ID, when queued
+guidance is pending after 30 seconds or when it reaches `timeout_ms`; its result
+then tells the model why and to follow it with `read_command` or `stop_command`.
+Hook commands keep their timeout as a stop. When the 32 background slots are
+full, a timed-out command is stopped instead and its result says so.
+Cancellation stops a foreground command, and a command that finishes before the
+promotion takes effect returns its ordinary result.
 A promoted command switches its completion capture to the most recent bytes of
 each stream. Command evidence carries truncation flags and omitted byte counts
 when the retained text can be compared with the byte totals. Background commands

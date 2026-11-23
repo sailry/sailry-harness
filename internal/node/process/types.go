@@ -37,6 +37,9 @@ type Launch struct {
 	CompletionGate <-chan struct{}
 	// promoted closes when a foreground command moves to session ownership.
 	promoted <-chan struct{}
+	// expired, when set, replaces the runner's own TimeoutMs timer: the
+	// service closes it when a timed-out command cannot move to the session.
+	expired <-chan struct{}
 }
 
 // Finished is persisted by the existing Node writer before completion publishes.

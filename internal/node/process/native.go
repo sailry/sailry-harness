@@ -152,13 +152,13 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 	}()
 	var timeout <-chan time.Time
 	var timer *time.Timer
-	if !launch.Background {
+	if !launch.Background && launch.expired == nil {
 		timer = time.NewTimer(time.Duration(launch.TimeoutMs) * time.Millisecond)
 		defer timer.Stop()
 		timeout = timer.C
 	}
 	rootDone := false
-	promoted := launch.promoted
+	promoted, expired := launch.promoted, launch.expired
 running:
 	for {
 		select {
@@ -167,11 +167,13 @@ running:
 			if timer != nil {
 				timer.Stop()
 			}
-			timeout, promoted = nil, nil
+			timeout, expired, promoted = nil, nil, nil
 			continue
 		case <-s.ctx.Done():
 		case <-ctx.Done():
 		case <-timeout:
+			completion.Outcome.Kind = "timed_out"
+		case <-expired:
 			completion.Outcome.Kind = "timed_out"
 		case failure := <-inputErrors:
 			completion.Outcome = unknownOutcome("command input failed", failure)
