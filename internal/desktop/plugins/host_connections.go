@@ -106,8 +106,21 @@ func (owner *Host) browseSshDirectory(ctx context.Context, arguments []json.RawM
 	if !cacheable {
 		return owner.readData(ctx, "browse_ssh_directory", arg)
 	}
-	if cached, ok := cache.get(key); ok {
-		return cached, nil
+	// The cache lets a remounted view render at once. Within one mount a
+	// directory is answered from it only the first time: a later listing is
+	// a reload, which must see changes made outside this view, such as in the
+	// SSH terminal.
+	owner.mu.Lock()
+	_, listed := owner.sshListed[key]
+	if owner.sshListed == nil {
+		owner.sshListed = map[sshDirectoryKey]struct{}{}
+	}
+	owner.sshListed[key] = struct{}{}
+	owner.mu.Unlock()
+	if !listed {
+		if cached, ok := cache.get(key); ok {
+			return cached, nil
+		}
 	}
 	cache.mu.Lock()
 	if flight, ok := cache.inflight[key]; ok {
@@ -127,7 +140,24 @@ func (owner *Host) browseSshDirectory(ctx context.Context, arguments []json.RawM
 	flight := &sshDirectoryFlight{done: make(chan struct{})}
 	cache.inflight[key] = flight
 	cache.mu.Unlock()
-	body, err := owner.readData(ctx, "browse_ssh_directory", arg)
+	// The shared read belongs to the view, not to its first caller, so a
+	// caller that leaves does not cancel it for the others.
+	go owner.listSshDirectory(cache, key, flight, arg)
+	select {
+	case <-flight.done:
+		if flight.err != nil {
+			return nil, flight.err
+		}
+		return append(json.RawMessage(nil), flight.body...), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-owner.ctx.Done():
+		return nil, owner.ctx.Err()
+	}
+}
+
+func (owner *Host) listSshDirectory(cache *SshDirectoryCache, key sshDirectoryKey, flight *sshDirectoryFlight, arg any) {
+	body, err := owner.readData(owner.ctx, "browse_ssh_directory", arg)
 	if err == nil {
 		if resolvedPath, ok := sshDirectoryResponsePath(body); ok {
 			cache.mu.Lock()
@@ -145,7 +175,6 @@ func (owner *Host) browseSshDirectory(ctx context.Context, arguments []json.RawM
 		delete(cache.inflight, key)
 	}
 	cache.mu.Unlock()
-	return body, err
 }
 
 func (owner *Host) prepareDatabase(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {

@@ -279,10 +279,17 @@ func (client *Client) readUsage(ctx context.Context, query protocol.UsageQuery, 
 		client.usageCache.mu.Lock()
 		if flight, ok := client.usageCache.inflight[key]; ok {
 			flight.mu.Lock()
-			flight.waiters++
+			// A flight whose waiters all left is cancelled; it stays listed
+			// until its read returns, but a new caller must not join it.
+			joined := flight.waiters > 0
+			if joined {
+				flight.waiters++
+			}
 			flight.mu.Unlock()
-			client.usageCache.mu.Unlock()
-			return waitUsageFlight(ctx, flight)
+			if joined {
+				client.usageCache.mu.Unlock()
+				return waitUsageFlight(ctx, flight)
+			}
 		}
 		runCtx, cancel := context.WithCancel(client.closing)
 		flight := &usageReadFlight{done: make(chan struct{}), cancel: cancel, waiters: 1}

@@ -206,6 +206,12 @@ func (node *Node) browseSSHDirectory(parent, scoped context.Context, timeout tim
 			}
 			return protocol.SshOutcome{Kind: "directory", Data: directory}, nil
 		}
+		// A missing or forbidden path is the server's answer over a healthy
+		// session; a fresh connection would only repeat it.
+		if fault, ok := errors.AsType[*protocol.Fault](err); ok && (fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodePermissionDenied) && timed.Err() == nil && node.ctx.Err() == nil {
+			node.sshPool.release(profile.ID, profile.Revision, pooled)
+			return protocol.SshOutcome{}, err
+		}
 		_ = pooled.close()
 		if timed.Err() != nil {
 			return protocol.SshOutcome{}, sshInterrupted(parent, timed, err, "SSH file operation cancelled; inspect the remote target before retrying", "SSH file operation interrupted; inspect the remote target before retrying", "SSH file operation timed out; inspect the remote target before retrying")

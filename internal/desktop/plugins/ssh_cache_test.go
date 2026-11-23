@@ -177,6 +177,11 @@ func TestSshDirectoryCacheAcrossRemountRefreshAndMutation(t *testing.T) {
 		t.Fatalf("expired entry did not reload: count=%d", browses.Load())
 	}
 
+	// Listing a directory again within one mount is a reload from the Node.
+	if browse(second, ".", 2); browses.Load() != 7 {
+		t.Fatalf("a reload within a mount was answered from the cache: count=%d", browses.Load())
+	}
+
 	// host_key_required responses must never be cached.
 	cache.Clear()
 	hostKeyMode.Store(true)

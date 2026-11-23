@@ -72,6 +72,9 @@ type Host struct {
 	// sample runs again. usageWatching orders the watches.
 	usageWatch    []json.RawMessage
 	usageWatching sync.Mutex
+	// sshListed holds the directories this view has listed, which it reloads
+	// from the Node instead of the shared cache.
+	sshListed map[sshDirectoryKey]struct{}
 }
 
 func NewHost(binding HostBinding) *Host {
