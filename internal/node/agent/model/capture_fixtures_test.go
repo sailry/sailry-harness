@@ -24,7 +24,7 @@ func capturedPolicyFixtures(t *testing.T) {
 		api                       protocol.ConversationModelApi
 		kind, model, effort, path string
 	}{
-		{"anthropic", protocol.ConversationModelApiAnthropic, "anthropic", "claude-opus-4-8", "high", "/v1/messages"},
+		{"anthropic", protocol.ConversationModelApiAnthropic, "anthropic", "claude-opus-4-8", "high", "/v1/messages?beta=true"},
 		{"responses", protocol.ConversationModelApiResponses, "responses", "foreign/reasoner", "high", "/v1/responses"},
 		{"compatible", protocol.ConversationModelApiChatCompletions, "chat", "foreign/reasoner", "high", "/v1/chat/completions"},
 		{"gemini", protocol.ConversationModelApiGemini, "google", "gemini-2.5-flash", "none", "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"},

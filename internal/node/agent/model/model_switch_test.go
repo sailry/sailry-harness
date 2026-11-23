@@ -180,7 +180,7 @@ func TestRecordedSessionSwitchesAcrossAnthropicResponsesAndGemini(t *testing.T) 
 		model string
 		path  string
 	}{
-		{protocol.ConversationModelApiAnthropic, "claude-sonnet-5-5", "/v1/messages"},
+		{protocol.ConversationModelApiAnthropic, "claude-sonnet-5-5", "/v1/messages?beta=true"},
 		{protocol.ConversationModelApiResponses, "gpt-6.1-sol", "/v1/responses"},
 		{protocol.ConversationModelApiGemini, "gemini-3.8-flash", "/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse"},
 	}

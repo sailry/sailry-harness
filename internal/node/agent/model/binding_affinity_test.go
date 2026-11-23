@@ -96,7 +96,7 @@ func TestAnthropicAPIKeyAffinity(t *testing.T) {
 				t.Error("changing only the Anthropic model changed the affinity metadata")
 			}
 			for index, request := range requests {
-				if request.Path != "/v1/messages" || request.Body["model"] != modelID || request.Headers.Get("x-api-key") != secret.Expose() {
+				if request.Path != "/v1/messages?beta=true" || request.Body["model"] != modelID || request.Headers.Get("x-api-key") != secret.Expose() {
 					t.Errorf("affinity changed the request route, model or API-key authentication: path=%q model=%v", request.Path, request.Body["model"])
 				}
 				want := session.String()
@@ -433,10 +433,10 @@ func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
 			userAgent := "Sailry/" + link.ProductVersion
 			if row.api == protocol.ConversationModelApiAnthropic {
 				userAgent = expectedAnthropicAPIKeyUserAgent
-				if requests[0].Path != "/v1/messages" || headers.Get("anthropic-version") != "2023-06-01" ||
+				if requests[0].Path != "/v1/messages?beta=true" || headers.Get("anthropic-version") != "2023-06-01" ||
 					headers.Get("Content-Type") != "application/json" || headers.Get("Accept") != "application/json" ||
 					headers.Get("x-api-key") != secret.Expose() || headers.Get("Authorization") != "" ||
-					headers.Get("anthropic-beta") != "" {
+					headers.Get("anthropic-beta") != "claude-code-20250219" {
 					t.Errorf("Anthropic Messages request = %s, headers %v", requests[0].Path, headers)
 				}
 			}
@@ -492,7 +492,7 @@ func TestAPIKeyCustomHeaders(t *testing.T) {
 	collect(t, language, requestCall(t, "anthropic"))
 	headers := server.captured()[0].Headers
 	if headers.Get("User-Agent") != "gateway-client/2" || headers.Get("anthropic-version") != "2026-10-21" ||
-		headers.Get("anthropic-beta") != "fixture-beta" || headers.Get("Accept") != "text/event-stream" ||
+		headers.Get("anthropic-beta") != "claude-code-20250219,fixture-beta" || headers.Get("Accept") != "text/event-stream" ||
 		headers.Get("X-Session-Id") != "pinned" || headers.Get("x-api-key") != secret.Expose() || len(headers.Values("User-Agent")) != 1 {
 		t.Errorf("received headers = %v", headers)
 	}

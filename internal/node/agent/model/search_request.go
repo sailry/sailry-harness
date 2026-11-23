@@ -63,6 +63,9 @@ func PrepareNativeSearch(ctx context.Context, binding Binding, body map[string]a
 			}
 		}
 	}
+	if err := prepareAnthropicAPIKeyBody(config, body); err != nil {
+		return nil, err
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -80,7 +83,7 @@ func PrepareNativeSearch(ctx context.Context, binding Binding, body map[string]a
 			request.Header.Set("anthropic-version", "2023-06-01")
 		}
 		if !config.OAuth {
-			if beta := anthropicBetaHeader(config.Endpoint, false, encoded, config.Headers, nil); beta != "" {
+			if beta := anthropicBetaHeader(config.Endpoint, false, config.AnthropicAPIKey, encoded, config.Headers, nil); beta != "" {
 				request.Header.Set("anthropic-beta", beta)
 				request.URL.RawQuery = "beta=true"
 			}

@@ -457,6 +457,9 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 	if config.Kind == "anthropic" && len(wireArray(body["tools"])) > 0 && body["tool_choice"] == nil {
 		body["tool_choice"] = map[string]any{"type": "auto"}
 	}
+	if err := prepareAnthropicAPIKeyBody(config, body); err != nil {
+		return nil, err
+	}
 	return body, nil
 }
 

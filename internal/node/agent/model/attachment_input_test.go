@@ -52,7 +52,7 @@ func TestChatAttachmentProviderWire(t *testing.T) {
 			},
 		},
 		{
-			api: protocol.ConversationModelApiAnthropic, response: "anthropic-text.sse", path: "/v1/messages",
+			api: protocol.ConversationModelApiAnthropic, response: "anthropic-text.sse", path: "/v1/messages?beta=true",
 			files: []string{"application/pdf"},
 			want: map[string]any{
 				"messages.0.content.1.type": "document", "messages.0.content.1.source.type": "base64",

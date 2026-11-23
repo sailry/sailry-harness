@@ -25,7 +25,7 @@ func scopeReplay(binding Binding, call *fantasy.Call, origins map[int]string) (s
 	if !found || !entry.Rig.BindsContext {
 		return "", nil
 	}
-	config := transportConfig{Kind: "anthropic", Model: binding.Config.Model}
+	config := transportConfig{Kind: "anthropic", Model: binding.Config.Model, AnthropicAPIKey: binding.Provider.Authentication == protocol.AuthenticationApiKey}
 	body, err := requestJSON(config, *call)
 	if err != nil {
 		return "", err

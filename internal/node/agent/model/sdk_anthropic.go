@@ -44,7 +44,7 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 		}
 		opts = append(opts, option.WithHeader(key, value))
 	}
-	if beta := anthropicBetaHeader(endpoint, model.config.OAuth, raw, model.config.Headers, call.Headers); beta != "" {
+	if beta := anthropicBetaHeader(endpoint, model.config.OAuth, model.config.AnthropicAPIKey, raw, model.config.Headers, call.Headers); beta != "" {
 		opts = append(opts, option.WithHeader("anthropic-beta", beta))
 		if !model.config.OAuth {
 			opts = append(opts, option.WithQuery("beta", "true"))
@@ -233,7 +233,7 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: finish})
 }
 
-func anthropicBetaHeader(endpoint string, oauth bool, raw []byte, configHeaders, callHeaders map[string]string) string {
+func anthropicBetaHeader(endpoint string, oauth, apiKey bool, raw []byte, configHeaders, callHeaders map[string]string) string {
 	var betas []string
 	seen := map[string]bool{}
 	addList := func(value string) {
@@ -244,6 +244,25 @@ func anthropicBetaHeader(endpoint string, oauth bool, raw []byte, configHeaders,
 			}
 			seen[token] = true
 			betas = append(betas, token)
+		}
+	}
+	if apiKey {
+		addList("claude-code-20250219")
+		var payload struct {
+			Thinking struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+			OutputConfig struct {
+				Effort string `json:"effort"`
+			} `json:"output_config"`
+		}
+		if json.Unmarshal(raw, &payload) == nil {
+			if payload.Thinking.Type == "adaptive" || payload.Thinking.Type == "enabled" {
+				addList("interleaved-thinking-2025-05-14")
+			}
+			if payload.OutputConfig.Effort != "" {
+				addList("effort-2025-11-24")
+			}
 		}
 	}
 	for _, headers := range []map[string]string{configHeaders, callHeaders} {

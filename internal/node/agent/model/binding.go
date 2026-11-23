@@ -48,6 +48,7 @@ type transportConfig struct {
 	JSON                       map[string]any
 	Remove                     []string
 	OAuth                      bool
+	AnthropicAPIKey            bool
 	Protection                 []protocol.Secret
 }
 
@@ -329,6 +330,7 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	switch api {
 	case protocol.ConversationModelApiAnthropic:
 		config.Kind = "anthropic"
+		config.AnthropicAPIKey = provider.Authentication == protocol.AuthenticationApiKey
 		if provider.Authentication == protocol.AuthenticationApiKey && binding.Session != (protocol.SessionID{}) {
 			// Compatible account pools can derive affinity from cache content.
 			// Keep that routing identity stable when tool results move cache markers.

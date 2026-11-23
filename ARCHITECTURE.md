@@ -501,15 +501,22 @@ Package hooks observe a bounded set of their own recent, complete tool results
 from the active turn.
 
 Anthropic API-key model discovery and conversations share the Claude Code
-print-mode User-Agent, `Accept: application/json` and `anthropic-version: 2023-06-01`.
+print-mode User-Agent, `x-app: cli`, `Accept: application/json` and
+`anthropic-version: 2023-06-01`. Messages prepends the matching client identity
+block while retaining the application's original system blocks, tools and cache
+markers. Its beta header includes the client flag and the thinking/effort flags
+used by that request, merged with configured beta values. This is shared across
+Anthropic API-key connections and model IDs; it does not select OAuth, add OAuth
+betas, rewrite tool names or generate billing attribution.
 Anthropic discovery and Messages requests derive `/v1/models` and `/v1/messages`
-from the same gateway mount. A configured beta feature selects the SDK's beta
-Messages route and sends its `anthropic-beta` value.
+from the same gateway mount. Messages uses the SDK's `?beta=true` route. Native
+Anthropic search shares the same API-key identity and session metadata.
 Other API-key routes identify as `Sailry/<product version>`. When a request has a
 session, API-key conversations carry its ID in `x-session-affinity` and
 `X-Session-Id`. Responses and Chat Completions also send it as `prompt_cache_key`.
 An API-key provider's custom headers, set in its advanced settings, replace
-defaults regardless of letter case. The transport sets credentials and framing.
+defaults regardless of letter case; Anthropic beta tokens merge with required
+request features. The transport sets credentials and framing.
 Account sign-ins set their own client identity.
 
 OpenAI API-key discovery, Responses and Chat Completions share the same base

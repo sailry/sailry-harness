@@ -23,6 +23,7 @@ func APIKeyHeaderDefaults(api protocol.ConversationModelApi) map[string]string {
 			"User-Agent":        anthropicAPIKeyUserAgent,
 			"Accept":            "application/json",
 			"anthropic-version": "2023-06-01",
+			"x-app":             "cli",
 		}
 	}
 	return map[string]string{"User-Agent": "Sailry/" + link.ProductVersion}
