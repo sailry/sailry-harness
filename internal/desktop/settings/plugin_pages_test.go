@@ -106,7 +106,7 @@ func TestContributedSettingsPages(t *testing.T) {
 
 func TestMissingSettingsSectionFallsBack(t *testing.T) {
 	s := NewLive()
-	for _, section := range []Section{Providers, Teams, Connectors, Skills, Hooks, Connections, Terminal, Runtime, Media, Decision, OCR, Knowledge, "unknown", ""} {
+	for _, section := range []Section{Providers, Teams, Connectors, Skills, Hooks, Connections, Terminal, Runtime, Media, Decision, OCR, Knowledge, Memory, Search, Browser, Computer, "unknown", ""} {
 		if s.HasSection(section) {
 			t.Errorf("unregistered section %q was available", section)
 		}

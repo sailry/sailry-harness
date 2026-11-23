@@ -1,4 +1,3 @@
 runtime_ocr: "Text recognition"
 runtime_ocr_enable: "Enable OCR"
 runtime_ocr_model: "OCR model"
-search_driver_auto: "Auto"

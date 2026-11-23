@@ -1,0 +1,6 @@
+settings_computer: "Contrôle de l’ordinateur"
+settings_computer_description: "Contrôler les applications de bureau et capturer l’écran sur l’hôte sélectionné"
+search_not_supported: "Recherche non prise en charge"
+search_sign_in: "Reconnectez-vous"
+search_model_unavailable: "Modèle indisponible"
+search_driver_auto: "Automatique"

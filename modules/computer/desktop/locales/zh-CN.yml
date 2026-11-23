@@ -1,0 +1,6 @@
+computer_settings: "电脑操作"
+computer_enabled: "启用电脑操作"
+computer_enabled_description: "允许智能体查看并操作所选主机上的桌面应用"
+computer_helper_unavailable: "当前主机上桌面操作辅助程序不可用"
+computer_permissions_section: "主机系统权限"
+computer_permissions_remote: "请在执行电脑上直接授予系统权限"

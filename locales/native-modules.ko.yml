@@ -1,0 +1,6 @@
+settings_computer: "컴퓨터 제어"
+settings_computer_description: "선택한 호스트의 데스크톱 앱을 제어하고 화면을 캡처합니다"
+search_not_supported: "검색이 지원되지 않음"
+search_sign_in: "다시 로그인하세요"
+search_model_unavailable: "모델을 사용할 수 없음"
+search_driver_auto: "자동"

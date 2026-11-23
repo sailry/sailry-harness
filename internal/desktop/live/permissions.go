@@ -68,11 +68,12 @@ func permissionStatus(goos string, kind protocol.PermissionsKind, status permiss
 	return "permission_required"
 }
 
-// permissionEntry is one grant a package declares with native handlers.
+// permissionEntry is one grant a package or native module declares.
 type permissionEntry struct {
-	owner       *Runtime
-	pack        protocol.PluginReference
-	declaration protocol.PermissionsContribution
+	owner          *Runtime
+	pack           protocol.PluginReference
+	declaration    protocol.PermissionsContribution
+	nativeComputer bool
 }
 
 type permissionCard struct {
@@ -250,16 +251,21 @@ type permissionChange struct {
 }
 
 type permissionState struct {
-	probe      permissionProbe
-	visible    bool
-	cards      []permissionCard
-	host       *Runtime
-	binding    string
-	checking   bool
-	pending    bool
-	failed     bool // a step of the running work failed; reported once when it ends
-	generation int
-	actions    settings.PermissionActions
+	probe           permissionProbe
+	visible         bool
+	cards           []permissionCard
+	host            *Runtime
+	binding         string
+	checking        bool
+	pending         bool
+	failed          bool // a step of the running work failed; reported once when it ends
+	generation      int
+	actions         settings.PermissionActions
+	computerOwner   *Runtime
+	computerRev     uint64
+	computerLoaded  bool
+	computerReading bool
+	computerEnabled bool
 }
 
 // permissionsFrame projects the page while it shows, and checks every grant
@@ -305,8 +311,63 @@ func (r *Runtime) permissionsFrame() {
 	var binding []string
 	if owner != nil {
 		entries = permissionDirectory(owner, root.pluginViewCatalog(owner))
+		hasComputerPlugin := slices.ContainsFunc(entries, func(entry permissionEntry) bool {
+			return entry.declaration.Subject == "dev.sailry.computer"
+		})
+		if !hasComputerPlugin {
+			rev := owner.snapshot().ComputerSettingsRevision
+			if state.computerOwner != owner || !state.computerLoaded || state.computerRev != rev {
+				if state.computerOwner != owner {
+					state.computerOwner = owner
+					state.computerLoaded = false
+					state.computerEnabled = false
+					state.computerReading = false
+				}
+				if !state.computerReading {
+					state.computerReading = true
+					state.computerRev = rev
+					targetOwner := owner
+					targetRev := rev
+					root.async(func() {
+						out, err := targetOwner.controller.Do(root.ctx, protocol.Command{Kind: "read_computer_settings"})
+						root.enqueue(func(*ui.Context) {
+							if state.computerOwner != targetOwner {
+								return
+							}
+							state.computerReading = false
+							state.computerLoaded = true
+							state.computerRev = targetRev
+							if err == nil && out.Kind == "computer_settings" {
+								if cfg, ok := detail[protocol.ComputerSettings](out.Data); ok {
+									state.computerEnabled = cfg.Enabled
+								}
+							}
+						})
+					})
+				}
+			}
+			if state.computerLoaded && state.computerEnabled {
+				checkName, reqName := "check", "request"
+				for _, kind := range []protocol.PermissionsKind{protocol.PermissionsKindAccessibility, protocol.PermissionsKindScreenRecording} {
+					entries = append(entries, permissionEntry{
+						owner:          owner,
+						nativeComputer: true,
+						declaration: protocol.PermissionsContribution{
+							Kind:    kind,
+							Subject: "dev.sailry.computer",
+							Check:   &checkName,
+							Request: &reqName,
+						},
+					})
+				}
+			}
+		}
 		for _, entry := range entries {
-			binding = append(binding, entry.pack.Name, entry.pack.Digest, strconv.FormatUint(entry.pack.SettingsRevision, 10), entry.declaration.Subject, string(entry.declaration.Kind))
+			if entry.nativeComputer {
+				binding = append(binding, "native-computer", entry.declaration.Subject, string(entry.declaration.Kind))
+			} else {
+				binding = append(binding, entry.pack.Name, entry.pack.Digest, strconv.FormatUint(entry.pack.SettingsRevision, 10), entry.declaration.Subject, string(entry.declaration.Kind))
+			}
 		}
 	}
 	if key := strings.Join(binding, "\x00"); state.cards == nil || owner != state.host || key != state.binding {
@@ -437,6 +498,9 @@ func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(
 // first reads the grants, so a granted or unrequestable permission never
 // prompts.
 func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]permissionChange, error) {
+	if entry.nativeComputer {
+		return r.nativeComputerPermission(entry, request)
+	}
 	call := func(request bool) (protocol.PermissionsStatus, error) {
 		var status protocol.PermissionsStatus
 		handler, kind := entry.declaration.Check, "read_plugin_callback"
@@ -488,6 +552,64 @@ func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]perm
 		changes = append(changes, change)
 	}
 	return changes, nil
+}
+
+func (r *Runtime) nativeComputerPermission(entry permissionEntry, request bool) ([]permissionChange, error) {
+	read := func() (protocol.ComputerPermissions, error) {
+		out, err := entry.owner.controller.Do(r.ctx, protocol.Command{Kind: "read_computer_permissions"})
+		if err != nil {
+			return protocol.ComputerPermissions{}, err
+		}
+		perms, ok := detail[protocol.ComputerPermissions](out.Data)
+		if !ok || out.Kind != "computer_permissions" {
+			return protocol.ComputerPermissions{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid computer permission status"}
+		}
+		return perms, nil
+	}
+	perms, err := read()
+	if err != nil {
+		return nil, err
+	}
+	if request && perms.Local && perms.Platform == "macos" {
+		var wanted protocol.ComputerPermission
+		var already bool
+		switch entry.declaration.Kind {
+		case protocol.PermissionsKindAccessibility:
+			wanted = protocol.ComputerPermissionAccessibility
+			already = perms.Accessibility != nil && *perms.Accessibility
+		case protocol.PermissionsKindScreenRecording:
+			wanted = protocol.ComputerPermissionScreenCapture
+			already = perms.ScreenCapture != nil && *perms.ScreenCapture
+		}
+		if wanted != "" && !already {
+			out, reqErr := entry.owner.controller.Do(r.ctx, protocol.Command{
+				Kind: "request_computer_permission",
+				Data: protocol.CommandRequestComputerPermissionPayload{Permission: wanted},
+			})
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			if updated, ok := detail[protocol.ComputerPermissions](out.Data); ok && out.Kind == "computer_permissions" {
+				perms = updated
+			}
+		}
+	}
+	grantStatus := func(granted *bool) string {
+		if perms.Platform != "macos" {
+			return "permission_not_needed"
+		}
+		if granted == nil {
+			return "permission_unavailable"
+		}
+		if *granted {
+			return "permission_granted"
+		}
+		return "permission_required"
+	}
+	return []permissionChange{
+		{kind: protocol.PermissionsKindAccessibility, status: grantStatus(perms.Accessibility)},
+		{kind: protocol.PermissionsKindScreenRecording, status: grantStatus(perms.ScreenCapture)},
+	}, nil
 }
 
 func (r *Runtime) permissionKind(resource string) (protocol.PermissionsKind, bool) {

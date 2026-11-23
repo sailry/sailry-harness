@@ -1,0 +1,6 @@
+settings_computer: "Computersteuerung"
+settings_computer_description: "Desktop-Apps steuern und den Bildschirm auf dem ausgewählten Host erfassen"
+search_not_supported: "Suche wird nicht unterstützt"
+search_sign_in: "Erneut anmelden"
+search_model_unavailable: "Modell nicht verfügbar"
+search_driver_auto: "Automatisch"

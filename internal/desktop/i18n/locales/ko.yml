@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: 작업의 원래 계정과 작업 공간으�
 controller_login_identity_unavailable: 이 로그인에는 복원에 필요한 확인된 계정 정보가 없습니다
 controller_login_target_changed: 작업의 원래 인증 대상이 변경되었습니다
 controller_login_provider_missing: 작업의 원래 공급자를 사용할 수 없음
+settings_browser: 브라우저
+settings_browser_description: 로그인 및 사이트 데이터 관리
+settings_search: 검색
+settings_search_description: 선택한 호스트의 검색 서비스
+settings_memory: 메모리
+settings_memory_description: 모델 검색을 위한 장기 기본 설정, 피드백 및 프로젝트 지식 관리
+settings_computer: 컴퓨터 제어
+settings_computer_description: 선택한 호스트의 데스크톱 앱을 제어하고 화면을 캡처합니다
+browser_data: 로컬 웹사이트 데이터
+browser_data_local: 웹사이트 데이터 보관
+browser_data_description: 사용 사이에 웹사이트 데이터를 유지하거나 이 시간 동안만
+browser_chrome_import: Chrome에서 가져오기
+browser_chrome_description: 쿠키를 가져올 프로필을 선택합니다. 일부 사이트에서는 다시 로그인해야 할 수도 있습니다
+browser_choose_profile: 프로필 선택
+browser_import: 가져오기
+browser_imported: 가져온 %{count} 쿠키, 건너뛰기 %{skipped}
+browser_import_failed: 쿠키 가져오기 실패
+browser_chrome_missing: Chrome 프로필을 찾을 수 없음
+browser_chrome_access_denied: Chrome 데이터 액세스 거부; 전체 디스크 액세스 확인
+browser_chrome_failed: Chrome 데이터를 읽을 수 없습니다. Chrome을 닫고 다시 시도합니다
+browser_chrome_schema: 이 Chrome 데이터 형식은 지원되지 않습니다
+browser_chrome_empty: 이 프로필에는 웹사이트 쿠키가 없습니다
+browser_chrome_key_denied: Chrome 키를 읽을 수 없습니다. 키체인 액세스 확인
+browser_chrome_cipher: 이 쿠키를 복호화할 수 없음
+browser_import_unavailable: 이 시스템에서 Chrome 가져오기를 사용할 수 없습니다
+browser_store_unavailable: 웹사이트 데이터를 유지하고 가져오려면 macOS 14 이상이 필요합니다
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: 검색
+search_default_driver: 기본 서비스
+search_fallback: 대체 서비스 사용
+search_providers: 서비스
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: 없음
+search_key_required: API 키 필요
+search_endpoint_required: 서비스 주소 필요
+search_configured: 설정됨
+search_test: 테스트
+search_reload: 새로고침
+search_retry: 다시 시도
+search_saved: 저장됨
+search_test_passed: 검색 테스트 통과
+search_settings_conflict: 검색 설정이 변경되었습니다. 새로고침하세요
+search_settings_invalid: 검색 설정을 확인하세요
+search_not_configured: 먼저 이 검색 서비스를 설정하세요
+search_test_auth_failed: 검색 인증에 실패했습니다
+search_request_failed: 검색 요청에 실패했습니다
+search_save_unknown: 검색 설정의 저장 여부를 확인할 수 없습니다. 다시 시도하거나 새로고침하세요
+search_endpoint: 서비스 주소
+search_api_key: API 키
+search_optional_key: API 키 (선택)
+search_username: 사용자 이름 (선택)
+search_password: 비밀번호 (선택)
+search_remove_key: API 키 삭제
+search_remove_basic: 로그인 정보 삭제
+search_basic_invalid: 사용자 이름과 비밀번호를 모두 입력하세요
+search_not_supported: 검색이 지원되지 않음
+search_sign_in: 다시 로그인하세요
+search_model_unavailable: 모델을 사용할 수 없음
+memory_search: 검색 메모리
+memory_global: 전체
+memory_create: 새 메모리
+memory_editor: 메모리 편집
+memory_user: 사용자 환경설정
+memory_feedback: 피드백
+memory_project: 프로젝트
+memory_reference: 참조
+memory_title: 제목
+memory_body: 내용
+memory_kind: 종류
+memory_empty: 메모리 없음
+memory_delete_confirm: 이 메모리를 삭제하면 향후 검색에서 제거됩니다
+memory_retry: 다시 시도
+memory_failed: 메모리 동작 실패
+memory_conflict: 메모리가 변경되었거나 삭제되었습니다
+memory_unknown: 결과 알 수 없음 · 원래 요청을 확인하기 위해 다시 시도하십시오
+memory_invalid: 제목과 내용을 입력하세요 · 제목 최대 160 바이트, 내용 최대 8 KB
+memory_capacity: 메모리가 가득 <0xEC><0xB0><0xBC>습니다. 더 이상 필요하지 않은 항목을 제거하십시오
+memory_all: 모든 기억
+memory_scope: 프로젝트 필터
+memory_project_unavailable: 제거된 프로젝트
+memory_configuration: 메모리 설정
+memory_enabled: 메모리 사용하기
+memory_auto_write: 자동 쓰기
+memory_auto_write_description: 모델이 메모리를 저장하고 구성하도록 허용
+memory_context_budget: 턴당 메모리 예산
+memory_budget_description: 인덱스와 검색된 콘텐츠에 의해 공유되며, 다음 턴부터 시작됩니다
+memory_review_age: 검토 간격( 일)
+memory_settings_conflict: 설정 변경 · 편집하기 전에 재로드
+memory_settings_reload: 새로고침
+memory_active: 활성
+memory_archived: 보관함
+memory_review: 검토
+memory_possible_duplicate: 가능한 중복
+memory_needs_review: 검토 필요
+memory_merge_source: 병합할 메모리 선택
+memory_merge: 병합 및 저장
+memory_merge_description: 결합된 내용 편집 · 원본 항목이 보관됩니다
+memory_duplicate: 일치하는 메모리가 존재합니다 · 업데이트 또는 병합
+memory_search_too_long: 검색 시간이 너무 길습니다
+computer_permissions_refresh: 다시 확인
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: 자동

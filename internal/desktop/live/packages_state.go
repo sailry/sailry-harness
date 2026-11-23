@@ -316,13 +316,16 @@ func (r *Runtime) projectPackages() {
 	}
 	var packages []viewmodel.Package
 	var skills []viewmodel.Skill
-	for _, summary := range r.snapshot().Plugins {
+	snap := r.snapshot()
+	installedSkillPackages := map[string]bool{}
+	for _, summary := range snap.Plugins {
 		if removed, exists := state.removed[summary.Name]; exists {
 			if summary.Revision <= removed {
 				continue
 			}
 			delete(state.removed, summary.Name)
 		}
+		installedSkillPackages[summary.Name] = true
 		info, exists := state.infos[summary.Name]
 		if exists && (info.Summary.Revision > summary.Revision || info.Summary.Revision == summary.Revision && info.Summary.SettingsRevision > summary.SettingsRevision) {
 			summary = info.Summary
@@ -357,6 +360,20 @@ func (r *Runtime) projectPackages() {
 			}
 			skills = append(skills, row)
 		}
+	}
+	for _, native := range snap.NativeSkills {
+		if installedSkillPackages[native.Package] {
+			continue
+		}
+		id := native.Package + ":" + native.Skill.Name
+		skills = append(skills, viewmodel.Skill{
+			ID:          id,
+			Name:        localizedSkill(native.Skill, r.packageLocale()),
+			Description: native.Skill.Description,
+			Enabled:     true,
+			Package:     native.Package,
+			Content:     state.documents[id],
+		})
 	}
 	sort.Slice(packages, func(first, second int) bool { return packages[first].Name < packages[second].Name })
 	sort.Slice(skills, func(first, second int) bool { return skills[first].Name < skills[second].Name })

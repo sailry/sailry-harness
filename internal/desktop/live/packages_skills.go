@@ -96,6 +96,16 @@ func (r *Runtime) loadSkillDocument(id string, done func(string, string)) {
 		r.readSkillDocument(id, source, done)
 		return
 	}
+	for _, native := range r.snapshot().NativeSkills {
+		if native.Package+":"+native.Skill.Name == id {
+			title := localizedSkill(native.Skill, r.packageLocale())
+			doc := "# " + title + "\n\n" + native.Skill.Description
+			r.packages.documents[id] = doc
+			r.projectPackages()
+			done("", doc)
+			return
+		}
+	}
 	entry, exists := r.packages.skillCatalog[id]
 	if !exists {
 		done("market_skill_document_missing", "")

@@ -321,6 +321,18 @@ type Model struct {
 	// Permissions.
 	Permissions []preview.Permission
 
+	// Native feature modules (browser, web-search, memory, computer).
+	Browser         BrowserSettings
+	BrowserActions  *BrowserActions
+	Search          SearchSettingsState
+	SearchActions   *SearchActions
+	MemorySettings  MemorySettingsState
+	MemoryActions   *MemoryActions
+	Computer        ComputerSettingsState
+	ComputerActions *ComputerActions
+	SearchPageState NativeModuleDialogHost
+	MemoryPageState NativeModuleDialogHost
+
 	// Backup (backup/*).
 	Backup   Stored[BackupTarget]
 	Archived []preview.Archived
@@ -384,6 +396,30 @@ func NewModel(d *preview.Settings) *Model {
 		Knowledge:   LocalModels{Enabled: stored(true), Models: d.Embedding, Catalog: d.Embedding, Kind: ModelsEmbedding},
 		Decision:    LocalModels{Enabled: stored(false), Model: -1, Models: d.Decision, Catalog: d.Decision, Kind: ModelsDecision},
 		Permissions: d.Permissions,
+		Browser: BrowserSettings{
+			Supported: true, Enabled: true, Persistent: true,
+			ExternalEnabled: stored(false), ExternalAvailable: true, ExternalLoaded: true,
+		},
+		Search: SearchSettingsState{
+			Revision: 1, Loaded: true, Connected: true, DefaultDriver: "auto", Fallback: true,
+			Drivers: []SearchDriver{
+				{ID: "exa", Enabled: true, KeyRequired: true, Quota: "free_quota"},
+				{ID: "tavily", Enabled: false, KeyRequired: true, Quota: "free_quota"},
+				{ID: "brave", Enabled: false, KeyRequired: true, Quota: "paid"},
+				{ID: "searxng", Enabled: false, Quota: "keyless"},
+				{ID: "model", Enabled: true, Quota: "paid"},
+			},
+		},
+		MemorySettings: MemorySettingsState{
+			Config:    stored(MemoryConfig{Enabled: true, AutoWrite: true, ContextBytes: 8192, ReviewAfterDays: 90}),
+			Loaded:    true,
+			Connected: true,
+			View:      "active",
+			Scope:     "all",
+		},
+		Computer: ComputerSettingsState{
+			Enabled: stored(false), Loaded: true, Available: true,
+		},
 		Backup: stored(BackupTarget{Endpoint: "https://dav.example.com/remote.php/dav", Prefix: "sailry",
 			Schedule: true, Time: time.Date(2026, 1, 1, 3, 0, 0, 0, time.Local), Timezone: "Asia/Shanghai", PassphraseSet: true, CredentialsSet: true}),
 		Archived: d.Archived, Sessions: d.Sessions,

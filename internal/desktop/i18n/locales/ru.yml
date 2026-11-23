@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: Войдите с исходной учётн
 controller_login_identity_unavailable: У этого входа нет подтверждённой учётной записи для восстановления
 controller_login_target_changed: Исходная цель аутентификации задачи изменилась
 controller_login_provider_missing: Исходный поставщик задачи недоступен
+settings_browser: Браузер
+settings_browser_description: Управление входом в систему и данными сайта
+settings_search: Поиск
+settings_search_description: Сервисы поиска на выбранном хосте
+settings_memory: Память
+settings_memory_description: Управление долгосрочными предпочтениями, обратной связью и знаниями о проекте для поиска модели
+settings_computer: Управление компьютером
+settings_computer_description: Управлять приложениями рабочего стола и делать снимки экрана на выбранном хосте
+browser_data: Местные данные сайта
+browser_data_local: Сохранить данные сайта
+browser_data_description: Сохранять данные веб-сайта между использованиями или только на этот раз
+browser_chrome_import: Импорт из Chrome
+browser_chrome_description: Выберите профиль для импорта файлов cookie; на некоторых сайтах может потребоваться повторный вход в систему
+browser_choose_profile: Выберите профиль
+browser_import: Импортировать
+browser_imported: Импортированные %{count} файлы cookie, пропусченные %{skipped}
+browser_import_failed: Импорт файла cookie не удался
+browser_chrome_missing: Профиль Chrome не найден
+browser_chrome_access_denied: Доступ к данным Chrome запрещен; проверьте полный доступ к диску
+browser_chrome_failed: Не удалось прочитать данные Chrome. Закройте Chrome и повторите попытку
+browser_chrome_schema: Этот формат данных Chrome не поддерживается
+browser_chrome_empty: Этот профиль не имеет cookie-файлов
+browser_chrome_key_denied: Не удалось прочитать ключ Chrome; проверьте доступ к цепочки ключей
+browser_chrome_cipher: Не удалось расшифровать этот файл cookie
+browser_import_unavailable: Импорт из Chrome недоступен в этой системе
+browser_store_unavailable: Для хранения данных веб-сайта и импорта требуется macOS 14 или более поздний
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: Поиск
+search_default_driver: Сервис по умолчанию
+search_fallback: Использовать резервные сервисы
+search_providers: Сервисы
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: Нет
+search_key_required: Нужен ключ API
+search_endpoint_required: Нужен адрес сервиса
+search_configured: Настроен
+search_test: Проверить
+search_reload: Перезагрузить
+search_retry: Повторить
+search_saved: Сохранено
+search_test_passed: Проверка поиска пройдена
+search_settings_conflict: Настройки поиска изменились; перезагрузите их
+search_settings_invalid: Проверьте настройки поиска
+search_not_configured: Сначала настройте этот сервис поиска
+search_test_auth_failed: Ошибка авторизации поиска
+search_request_failed: Ошибка запроса поиска
+search_save_unknown: Не удалось подтвердить сохранение; повторите или перезагрузите для проверки
+search_endpoint: Адрес сервиса
+search_api_key: Ключ API
+search_optional_key: Ключ API (необязательно)
+search_username: Имя пользователя (необязательно)
+search_password: Пароль (необязательно)
+search_remove_key: Удалить ключ API
+search_remove_basic: Удалить данные входа
+search_basic_invalid: Введите имя пользователя и пароль
+search_not_supported: Поиск не поддерживается
+search_sign_in: Войдите снова
+search_model_unavailable: Модель недоступна
+memory_search: Память поиска
+memory_global: Глобальный
+memory_create: Новая память
+memory_editor: Редактирование памяти
+memory_user: Предпочтения пользователя
+memory_feedback: Обратная связь
+memory_project: Проект
+memory_reference: Справочная информация
+memory_title: Название
+memory_body: Содержание
+memory_kind: Тип
+memory_empty: Нет воспоминаний
+memory_delete_confirm: Удаление этой памяти удаляет ее из будущего поиска
+memory_retry: Повторить
+memory_failed: Ошибка действия памяти
+memory_conflict: Память изменена или удалена · переоткрыть для редактирования
+memory_unknown: Результат неизвестен · повторите проверку первоначального запроса
+memory_invalid: Введите название и содержание · название до 160 байт, содержание до 8 KB
+memory_capacity: Память заполнена · удалите записи, которые вам больше не нужны
+memory_all: Все воспоминания
+memory_scope: Фильтр проектов
+memory_project_unavailable: Удалённый проект
+memory_configuration: Настройки памяти
+memory_enabled: Включить память
+memory_auto_write: Автоматическая запись
+memory_auto_write_description: Разрешить модели сохранять и организовывать память
+memory_context_budget: Бюджет памяти на ход
+memory_budget_description: Совместное использование индекса и извлеченного содержимого, начиная со следующего хода
+memory_review_age: Периодичность обзоров (в днях)
+memory_settings_conflict: Настройки изменены · перезагрузить перед редактированием
+memory_settings_reload: Перезагрузить
+memory_active: Активные
+memory_archived: Архивировано
+memory_review: Проверка
+memory_possible_duplicate: Возможное дублирование
+memory_needs_review: Обзор потребностей
+memory_merge_source: Выберите память для слияния
+memory_merge: Объединить и сохранить
+memory_merge_description: Редактировать объединенное содержимое · исходные записи будут архивированы
+memory_duplicate: Соответствующая память существует · обновить или объединить ее
+memory_search_too_long: Поиск слишком долгий
+computer_permissions_refresh: Проверьте еще раз
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: Автоматически

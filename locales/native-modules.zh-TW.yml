@@ -1,0 +1,6 @@
+settings_computer: "電腦操作"
+settings_computer_description: "在所選主機上操作桌面應用程式與擷取螢幕"
+search_not_supported: "不支援搜尋"
+search_sign_in: "請重新登入"
+search_model_unavailable: "模型無法使用"
+search_driver_auto: "自動"

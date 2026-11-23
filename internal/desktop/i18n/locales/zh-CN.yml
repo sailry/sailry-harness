@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: 请使用任务原来的账号和工作区登
 controller_login_identity_unavailable: 此次登录缺少可验证的账号标识，无法恢复任务
 controller_login_target_changed: 任务原来的认证目标已变更，无法恢复登录
 controller_login_provider_missing: 任务原来的供应商不可用
+settings_browser: 浏览器
+settings_browser_description: 管理登录状态和网站数据
+settings_search: 搜索
+settings_search_description: 当前主机的搜索服务
+settings_memory: 记忆
+settings_memory_description: 管理模型可检索的长期偏好、反馈和项目知识
+settings_computer: 电脑操作
+settings_computer_description: 在所选主机上操作桌面应用与截取屏幕
+browser_data: 本机网站数据
+browser_data_local: 保留网站数据
+browser_data_description: 开启后保留网站数据；关闭后仅在本次使用期间保留
+browser_chrome_import: 从 Chrome 导入
+browser_chrome_description: 选择档案，导入全部网站的 Cookie；部分网站可能需要重新登录
+browser_choose_profile: 选择档案
+browser_import: 导入
+browser_imported: 已导入 %{count} 个 Cookie，跳过 %{skipped} 个
+browser_import_failed: Cookie 导入失败
+browser_chrome_missing: 未找到 Chrome 档案
+browser_chrome_access_denied: 无法访问 Chrome 数据，请检查“完全磁盘访问”设置
+browser_chrome_failed: 无法读取 Chrome 数据，请关闭 Chrome 后重试
+browser_chrome_schema: 暂不支持此 Chrome 数据格式
+browser_chrome_empty: 此档案没有网站 Cookie
+browser_chrome_key_denied: 无法读取 Chrome 密钥，请检查钥匙串授权
+browser_chrome_cipher: 无法解密此 Cookie
+browser_import_unavailable: 当前系统暂不支持 Chrome 导入
+browser_store_unavailable: 保留登录状态和导入需要 macOS 14 或更新版本
+external_browser_settings_saved: 已保存外部浏览器设置
+external_browser_settings_failed: 无法保存外部浏览器设置
+external_browser_settings_conflict: 外部浏览器设置已更改，请重新加载
+external_browser_settings_unknown: 无法确认外部浏览器设置是否已保存
+search_settings: 搜索
+search_default_driver: 默认服务
+search_fallback: 使用备用服务
+search_providers: 服务
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: 无
+search_key_required: 需要 API 密钥
+search_endpoint_required: 需要服务地址
+search_configured: 已配置
+search_test: 测试
+search_reload: 重新加载
+search_retry: 重试
+search_saved: 已保存
+search_test_passed: 搜索测试通过
+search_settings_conflict: 搜索设置已更改，请重新加载
+search_settings_invalid: 请检查搜索设置
+search_not_configured: 请先配置此搜索服务
+search_test_auth_failed: 搜索身份验证失败
+search_request_failed: 搜索请求失败
+search_save_unknown: 无法确认是否已保存搜索设置，请重试或重新加载查看
+search_endpoint: 服务地址
+search_api_key: API 密钥
+search_optional_key: API 密钥（可选）
+search_username: 用户名（可选）
+search_password: 密码（可选）
+search_remove_key: 移除 API 密钥
+search_remove_basic: 移除登录凭据
+search_basic_invalid: 请同时填写用户名和密码
+search_not_supported: 不支持搜索
+search_sign_in: 请重新登录
+search_model_unavailable: 模型不可用
+memory_search: 搜索记忆
+memory_global: 全局
+memory_create: 新建记忆
+memory_editor: 编辑记忆
+memory_user: 用户偏好
+memory_feedback: 反馈
+memory_project: 项目
+memory_reference: 参考资料
+memory_title: 标题
+memory_body: 内容
+memory_kind: 类型
+memory_empty: 暂无记忆
+memory_delete_confirm: 删除这条记忆后，模型将无法再检索它
+memory_retry: 重试
+memory_failed: 记忆操作失败，请重试
+memory_conflict: 记忆已更改或删除，请返回后重新打开
+memory_unknown: 结果尚未确认，请重试查询原请求
+memory_invalid: 请填写标题和内容，标题最多 160 字节，内容最多 8 KB
+memory_capacity: 记忆已满，请删除不再需要的条目
+memory_all: 全部记忆
+memory_scope: 筛选项目
+memory_project_unavailable: 已移除项目
+memory_configuration: 记忆设置
+memory_enabled: 启用记忆
+memory_auto_write: 自动写入
+memory_auto_write_description: 允许模型自主保存和整理记忆，关闭后模型只读
+memory_context_budget: 每轮记忆预算
+memory_budget_description: 限制记忆索引与检索内容的总字节数，新轮次生效
+memory_review_age: 复查间隔（天）
+memory_settings_conflict: 设置已被其他客户端更改，请重新载入后修改
+memory_settings_reload: 重新载入
+memory_active: 使用中
+memory_archived: 已归档
+memory_review: 待整理
+memory_possible_duplicate: 可能重复
+memory_needs_review: 待复查
+memory_merge_source: 选择合并的记忆
+memory_merge: 合并并保存
+memory_merge_description: 编辑合并后的内容，保存后原条目将归档
+memory_duplicate: 已有相同内容的记忆，请更新或合并现有条目
+memory_search_too_long: 搜索内容过长，请缩短后重试
+computer_permissions_refresh: 重新检测
+computer_settings_saved: 已保存电脑操作设置
+computer_settings_failed: 无法保存电脑操作设置
+computer_settings_conflict: 电脑操作设置已更改，请重新加载
+computer_settings_unknown: 无法确认电脑操作设置是否已保存
+search_driver_auto: 自动

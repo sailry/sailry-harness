@@ -1,0 +1,6 @@
+settings_computer: "Control del equipo"
+settings_computer_description: "Controlar aplicaciones de escritorio y capturar la pantalla en el host seleccionado"
+search_not_supported: "La búsqueda no es compatible"
+search_sign_in: "Vuelve a iniciar sesión"
+search_model_unavailable: "Modelo no disponible"
+search_driver_auto: "Automático"

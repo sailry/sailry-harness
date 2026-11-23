@@ -1,0 +1,6 @@
+computer_settings: "Computer use"
+computer_enabled: "Enable computer use"
+computer_enabled_description: "Allow the agent to inspect and control desktop apps on the selected host"
+computer_helper_unavailable: "Desktop automation helper is unavailable on this host"
+computer_permissions_section: "Host system permissions"
+computer_permissions_remote: "Grant system permissions directly on the execution computer"

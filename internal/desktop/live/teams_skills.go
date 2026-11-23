@@ -62,8 +62,11 @@ func (r *Runtime) skillReferences(cv *viewmodel.Conversation) []composer.Referen
 	if r.teams == nil {
 		return nil
 	}
+	snap := r.snapshot()
 	var rows []composer.Reference
-	for _, reference := range skillPackages(r.snapshot()) {
+	installedPackages := map[string]bool{}
+	for _, reference := range skillPackages(snap) {
+		installedPackages[reference.Name] = true
 		if info, ok := r.teams.skills[reference]; ok {
 			rows = append(rows, skillRows(reference, info, r.teams.locale)...)
 			continue
@@ -87,6 +90,23 @@ func (r *Runtime) skillReferences(cv *viewmodel.Conversation) []composer.Referen
 				delete(r.teams.skillFailures, reference)
 				r.teams.skills[reference] = info
 			})
+		})
+	}
+	for _, native := range snap.NativeSkills {
+		if installedPackages[native.Package] {
+			continue
+		}
+		label := native.Skill.Name
+		if native.Skill.DisplayName != nil && *native.Skill.DisplayName != "" {
+			label = *native.Skill.DisplayName
+		}
+		if translated := native.Skill.DisplayLocales[i18n.Match(r.teams.locale)]; translated != "" {
+			label = translated
+		}
+		rows = append(rows, composer.Reference{
+			ID: native.Package + ":" + native.Skill.Name, Kind: composer.Skill,
+			Label: label, Description: native.Skill.Description,
+			Group: "reference_group_skills", Icon: icons.BookOpen,
 		})
 	}
 	return rows

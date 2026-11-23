@@ -1,0 +1,4 @@
+browser_external_section: "外部浏览器"
+browser_external_enabled: "启用外部浏览器"
+browser_external_description: "允许智能体在所选主机上自动化独立的 Chromium 浏览器"
+browser_external_unavailable: "当前主机上 Chromium 辅助程序不可用"

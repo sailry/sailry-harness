@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: Connectez-vous avec le compte et l’espace d
 controller_login_identity_unavailable: Cette connexion n’a pas d’identité de compte vérifiée pour la restauration
 controller_login_target_changed: La cible d’authentification d’origine de la tâche a changé
 controller_login_provider_missing: Le fournisseur d’origine de la tâche est indisponible
+settings_browser: Navigateur
+settings_browser_description: Gérer les données de connexion et de site
+settings_search: Recherche
+settings_search_description: Services de recherche sur l’hôte sélectionné
+settings_memory: Mémoire
+settings_memory_description: Gérer les préférences à long terme, les commentaires et les connaissances du projet pour la récupération de modèles
+settings_computer: Contrôle de l’ordinateur
+settings_computer_description: Contrôler les applications de bureau et capturer l’écran sur l’hôte sélectionné
+browser_data: Données du site Web local
+browser_data_local: Conserver les données du site web
+browser_data_description: Conserver les données du site Web entre les utilisations, ou seulement pour cette fois
+browser_chrome_import: Importer à partir de Chrome
+browser_chrome_description: Choisissez un profil pour importer ses cookies ; certains sites peuvent vous demander de vous reconnecter
+browser_choose_profile: Choisir un profil
+browser_import: Importer
+browser_imported: Cookies importés %{count}, ignorés %{skipped}
+browser_import_failed: L'importation de cookie a échoué
+browser_chrome_missing: Aucun profil Chrome trouvé
+browser_chrome_access_denied: Accès aux données Chrome refusé; vérifiez Accès complet au disque
+browser_chrome_failed: Impossible de lire les données de Chrome ; fermez Chrome et réessayez
+browser_chrome_schema: Ce format de données Chrome n'est pas pris en charge
+browser_chrome_empty: Ce profil n'a pas de cookies
+browser_chrome_key_denied: Impossible de lire la clé Chrome ; vérifiez l'accès au trousseau de clés
+browser_chrome_cipher: Impossible de déchiffrer ce cookie
+browser_import_unavailable: L'importation de Chrome n'est pas disponible sur ce système
+browser_store_unavailable: La conservation des données du site Web et l'importation nécessitent macOS 14 ou une version ultérieure
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: Recherche
+search_default_driver: Service par défaut
+search_fallback: Utiliser les services de secours
+search_providers: Services
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: Aucun
+search_key_required: Clé API requise
+search_endpoint_required: Adresse requise
+search_configured: Configuré
+search_test: Tester
+search_reload: Recharger
+search_retry: Réessayer
+search_saved: Enregistré
+search_test_passed: Test de recherche réussi
+search_settings_conflict: Les réglages de recherche ont changé ; rechargez-les
+search_settings_invalid: Vérifiez les réglages de recherche
+search_not_configured: Configurez d’abord ce service de recherche
+search_test_auth_failed: Échec de l’authentification de recherche
+search_request_failed: Échec de la recherche
+search_save_unknown: L’enregistrement n’a pas pu être confirmé ; réessayez ou rechargez pour vérifier
+search_endpoint: Adresse
+search_api_key: Clé API
+search_optional_key: Clé API (facultative)
+search_username: Identifiant (facultatif)
+search_password: Mot de passe (facultatif)
+search_remove_key: Supprimer la clé API
+search_remove_basic: Supprimer les identifiants
+search_basic_invalid: Saisissez l’identifiant et le mot de passe
+search_not_supported: Recherche non prise en charge
+search_sign_in: Reconnectez-vous
+search_model_unavailable: Modèle indisponible
+memory_search: Mémoire de recherche
+memory_global: Global
+memory_create: Une nouvelle mémoire
+memory_editor: Modifier la mémoire
+memory_user: Préférence de l'utilisateur
+memory_feedback: Commentaires
+memory_project: Projet
+memory_reference: Référence
+memory_title: Titre
+memory_body: Contenu
+memory_kind: Type
+memory_empty: Pas de souvenirs
+memory_delete_confirm: La suppression de cette mémoire la supprime de la récupération future
+memory_retry: Réessayer
+memory_failed: Action mémoire a échoué
+memory_conflict: La mémoire a été modifiée ou supprimée · rouvrir pour modifier
+memory_unknown: Résultat inconnu · réessayez pour vérifier la requête originale
+memory_invalid: Entrez un titre et un contenu · titre jusqu'à 160 octets, contenu jusqu'à 8 KB
+memory_capacity: La mémoire est pleine · supprimer les entrées dont vous n'avez plus besoin
+memory_all: Tous les souvenirs
+memory_scope: Filtrer les projets
+memory_project_unavailable: Projet supprimé
+memory_configuration: Paramètres de mémoire
+memory_enabled: Activer la mémoire
+memory_auto_write: Écriture automatique
+memory_auto_write_description: Autoriser le modèle à enregistrer et organiser la mémoire
+memory_context_budget: Budget mémoire par tour
+memory_budget_description: Partagé par l'index et le contenu récupéré, en commençant par le tour suivant
+memory_review_age: Intervalle d &apos; examen (jours)
+memory_settings_conflict: Paramètres modifiés · recharger avant d'éditer
+memory_settings_reload: Recharger
+memory_active: Actif
+memory_archived: Archivé
+memory_review: Examiner
+memory_possible_duplicate: Doublon possible
+memory_needs_review: Examen des besoins
+memory_merge_source: Choisissez un souvenir à fusionner
+memory_merge: Fusionner et enregistrer
+memory_merge_description: Modifier le contenu combiné · les entrées sources seront archivées
+memory_duplicate: La mémoire correspondante existe · mettre à jour ou fusionner
+memory_search_too_long: La recherche est trop longue
+computer_permissions_refresh: Vérifiez à nouveau
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: Automatique

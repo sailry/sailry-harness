@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: Faça login com a conta e o espaço de trabal
 controller_login_identity_unavailable: Este login não tem uma identidade de conta verificada para recuperação
 controller_login_target_changed: O destino de autenticação original da tarefa mudou
 controller_login_provider_missing: O provedor original da tarefa está indisponível
+settings_browser: Navegador
+settings_browser_description: Gerenciar dados de login e do site
+settings_search: Pesquisa
+settings_search_description: Serviços de pesquisa no host selecionado
+settings_memory: Memória
+settings_memory_description: Gerencie preferências de longo prazo, feedback e conhecimento do projeto para recuperação de modelos
+settings_computer: Controle do computador
+settings_computer_description: Controlar aplicativos de área de trabalho e capturar a tela no host selecionado
+browser_data: Dados do site local
+browser_data_local: Mantenha os dados do site
+browser_data_description: Mantenha os dados do site entre usos, ou apenas por esse tempo
+browser_chrome_import: Importar a partir do Chrome
+browser_chrome_description: Escolha um perfil para importar seus cookies; alguns sites podem exigir que você faça login novamente
+browser_choose_profile: Escolha um perfil
+browser_import: Importar
+browser_imported: Cookies importados %{count}, ignorados %{skipped}
+browser_import_failed: A importação de cookies falhou
+browser_chrome_missing: Nenhum perfil do Chrome encontrado
+browser_chrome_access_denied: Acesso a dados do Chrome negado; verifique Acesso total ao disco
+browser_chrome_failed: Não foi possível ler os dados do Chrome; feche o Chrome e tente novamente
+browser_chrome_schema: Este formato de dados do Chrome não é suportado
+browser_chrome_empty: Este perfil não tem cookies do site
+browser_chrome_key_denied: Não foi possível ler a chave do Chrome; verifique o acesso ao chaveiro
+browser_chrome_cipher: Não foi possível descriptografar este cookie
+browser_import_unavailable: A importação do Chrome não está disponível neste sistema
+browser_store_unavailable: Manter dados do site e importar requer macOS 14 ou posterior
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: Pesquisa
+search_default_driver: Serviço padrão
+search_fallback: Usar serviços alternativos
+search_providers: Serviços
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: Nenhum
+search_key_required: Chave de API necessária
+search_endpoint_required: Endereço necessário
+search_configured: Configurado
+search_test: Testar
+search_reload: Recarregar
+search_retry: Tentar novamente
+search_saved: Salvo
+search_test_passed: Teste de pesquisa concluído
+search_settings_conflict: As configurações de pesquisa mudaram; recarregue para continuar
+search_settings_invalid: Confira as configurações de pesquisa
+search_not_configured: Configure este serviço de pesquisa primeiro
+search_test_auth_failed: Falha na autenticação da pesquisa
+search_request_failed: Falha na solicitação de pesquisa
+search_save_unknown: Não foi possível confirmar o salvamento; tente novamente ou recarregue para verificar
+search_endpoint: Endereço
+search_api_key: Chave de API
+search_optional_key: Chave de API (opcional)
+search_username: Usuário (opcional)
+search_password: Senha (opcional)
+search_remove_key: Remover chave de API
+search_remove_basic: Remover credenciais
+search_basic_invalid: Informe o usuário e a senha
+search_not_supported: Pesquisa não compatível
+search_sign_in: Entre novamente
+search_model_unavailable: Modelo indisponível
+memory_search: Pesquisar na memória
+memory_global: Global
+memory_create: Uma nova memória
+memory_editor: Editar a memória
+memory_user: Preferência do usuário
+memory_feedback: Feedback
+memory_project: Projeto
+memory_reference: Referência
+memory_title: Título
+memory_body: Conteúdo
+memory_kind: Tipo
+memory_empty: Não há memórias
+memory_delete_confirm: Excluir esta memória a remove de futuras recuperações
+memory_retry: Tentar novamente
+memory_failed: A ação de memória falhou
+memory_conflict: Memória alterada ou excluída · reabrir para editar
+memory_unknown: Resultado desconhecido · tente novamente verificar a solicitação original
+memory_invalid: Digite um título e conteúdo · título até 160 bytes, conteúdo até 8 KB
+memory_capacity: A memória está cheia · remova as entradas que você não precisa mais
+memory_all: Todas as memórias
+memory_scope: Filtrar os projetos
+memory_project_unavailable: Projeto removido
+memory_configuration: Configurações de memória
+memory_enabled: Ativar a memória
+memory_auto_write: Gravações automáticas
+memory_auto_write_description: Permitir que o modelo salve e organize a memória
+memory_context_budget: Orçamento de memória por turno
+memory_budget_description: Compartilhado pelo índice e conteúdo recuperado, começando no próximo turno
+memory_review_age: Intervalo de revisão (dias)
+memory_settings_conflict: Configurações alteradas · recarregar antes de editar
+memory_settings_reload: Recarregar
+memory_active: Ativo
+memory_archived: Arquivado
+memory_review: Revisar
+memory_possible_duplicate: Possível duplicação
+memory_needs_review: Precisa de revisão
+memory_merge_source: Escolha uma memória para mesclar
+memory_merge: Mesclar e salvar
+memory_merge_description: Edite o conteúdo combinado · as entradas de origem serão arquivadas
+memory_duplicate: Memória correspondente existe · atualize ou mescle-a
+memory_search_too_long: A pesquisa é muito longa
+computer_permissions_refresh: Verifique novamente
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: Automático

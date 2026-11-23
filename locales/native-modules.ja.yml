@@ -1,0 +1,6 @@
+settings_computer: "コンピュータ操作"
+settings_computer_description: "選択したホストのデスクトップアプリを操作し画面を取得します"
+search_not_supported: "検索に対応していません"
+search_sign_in: "再ログインしてください"
+search_model_unavailable: "モデルを利用できません"
+search_driver_auto: "自動"

@@ -494,9 +494,15 @@ func (r *Runtime) browserInspect(id string) {
 	}
 }
 
-// browserSettings opens the browser package's settings.
+// browserSettings opens the native Browser settings page, falling back to a
+// legacy browser plugin page if the native module is not assembled.
 func (r *Runtime) browserSettings() {
 	root := r.localRuntime()
+	if root.App.Settings.HasSection(settings.Browser) {
+		root.App.Settings.Open(settings.Browser)
+		root.App.Navigate(shell.SettingsPage)
+		return
+	}
 	section := settings.Section("plugin:" + root.controller.Target().String() + "/browser")
 	if root.pluginViews != nil {
 		if _, exists := root.pluginViews.settings[section]; exists {

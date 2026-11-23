@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: 請使用任務原本的帳號和工作區登
 controller_login_identity_unavailable: 此次登入缺少可驗證的帳號識別，無法恢復任務
 controller_login_target_changed: 任務原本的驗證目標已變更
 controller_login_provider_missing: 任務原本的供應商無法使用
+settings_browser: 瀏覽器
+settings_browser_description: 管理登入狀態和網站資料
+settings_search: 搜尋
+settings_search_description: 目前主機的搜尋服務
+settings_memory: 記憶
+settings_memory_description: 管理模型可檢索的長期偏好、反饋和專案知識
+settings_computer: 電腦操作
+settings_computer_description: 在所選主機上操作桌面應用程式與擷取螢幕
+browser_data: 本機網站資料
+browser_data_local: 保留網站資料
+browser_data_description: 開啟後保留網站資料；關閉後僅在本次使用期間保留
+browser_chrome_import: 從 Chrome 匯入
+browser_chrome_description: 選擇檔案，匯入全部網站的 Cookie；部分網站可能需要重新登入
+browser_choose_profile: 選擇檔案
+browser_import: 匯入
+browser_imported: 已匯入 %{count} 個 Cookie，跳過 %{skipped} 個
+browser_import_failed: Cookie 匯入失敗
+browser_chrome_missing: 未找到 Chrome 檔案
+browser_chrome_access_denied: 無法訪問 Chrome 資料，請檢查“完全磁碟訪問”設定
+browser_chrome_failed: 無法讀取 Chrome 資料，請關閉 Chrome 後重試
+browser_chrome_schema: 暫不支援此 Chrome 資料格式
+browser_chrome_empty: 此檔案沒有網站 Cookie
+browser_chrome_key_denied: 無法讀取 Chrome 金鑰，請檢查鑰匙串授權
+browser_chrome_cipher: 無法解密此 Cookie
+browser_import_unavailable: 當前系統暫不支援 Chrome 匯入
+browser_store_unavailable: 保留登入狀態和匯入需要 macOS 14 或更新版本
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: 搜尋
+search_default_driver: 預設服務
+search_fallback: 使用備用服務
+search_providers: 服務
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: 無
+search_key_required: 需要 API 金鑰
+search_endpoint_required: 需要服務位址
+search_configured: 已設定
+search_test: 測試
+search_reload: 重新載入
+search_retry: 重試
+search_saved: 已儲存
+search_test_passed: 搜尋測試通過
+search_settings_conflict: 搜尋設定已變更，請重新載入
+search_settings_invalid: 請檢查搜尋設定
+search_not_configured: 請先設定此搜尋服務
+search_test_auth_failed: 搜尋驗證失敗
+search_request_failed: 搜尋請求失敗
+search_save_unknown: 無法確認是否已儲存搜尋設定，請重試或重新載入查看
+search_endpoint: 服務位址
+search_api_key: API 金鑰
+search_optional_key: API 金鑰（選填）
+search_username: 使用者名稱（選填）
+search_password: 密碼（選填）
+search_remove_key: 移除 API 金鑰
+search_remove_basic: 移除登入資訊
+search_basic_invalid: 請同時填寫使用者名稱和密碼
+search_not_supported: 不支援搜尋
+search_sign_in: 請重新登入
+search_model_unavailable: 模型無法使用
+memory_search: 搜尋記憶
+memory_global: 全域性
+memory_create: 新建記憶
+memory_editor: 編輯記憶
+memory_user: 使用者偏好
+memory_feedback: 反饋
+memory_project: 專案
+memory_reference: 參考資料
+memory_title: 標題
+memory_body: 內容
+memory_kind: 型別
+memory_empty: 暫無記憶
+memory_delete_confirm: 刪除這條記憶後，模型將無法再檢索它
+memory_retry: 重試
+memory_failed: 記憶操作失敗，請重試
+memory_conflict: 記憶已更改或刪除，請返回後重新開啟
+memory_unknown: 結果尚未確認，請重試查詢原請求
+memory_invalid: 請填寫標題和內容，標題最多 160 位元組，內容最多 8 KB
+memory_capacity: 記憶已滿，請刪除不再需要的條目
+memory_all: 全部記憶
+memory_scope: 篩選專案
+memory_project_unavailable: 已移除專案
+memory_configuration: 記憶設定
+memory_enabled: 啟用記憶
+memory_auto_write: 自動寫入
+memory_auto_write_description: 允許模型自主儲存和整理記憶，關閉後模型只讀
+memory_context_budget: 每輪記憶預算
+memory_budget_description: 限制記憶索引與檢索內容的總位元組數，新輪次生效
+memory_review_age: 複查間隔（天）
+memory_settings_conflict: 設定已被其他客戶端更改，請重新載入後修改
+memory_settings_reload: 重新載入
+memory_active: 使用中
+memory_archived: 已歸檔
+memory_review: 待整理
+memory_possible_duplicate: 可能重複
+memory_needs_review: 待複查
+memory_merge_source: 選擇合併的記憶
+memory_merge: 合併並儲存
+memory_merge_description: 編輯合併後的內容，儲存後原條目將歸檔
+memory_duplicate: 已有相同內容的記憶，請更新或合併現有條目
+memory_search_too_long: 搜尋內容過長，請縮短後重試
+computer_permissions_refresh: 重新檢測
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: 自動

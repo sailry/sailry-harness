@@ -14,8 +14,246 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/chrome"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+type browserSettingsState struct {
+	extLoaded        bool
+	extLoading       bool
+	extObservedRev   uint64
+	extModel         settings.Stored[bool]
+	extAvailable     bool
+	importing        bool
+	importingProfile string
+	profiles         map[string]chrome.Profile
+	profileList      []settings.BrowserProfile
+	actions          settings.BrowserActions
+}
+
+var externalBrowserMessages = settings.Messages{
+	Done:      "external_browser_settings_saved",
+	Failed:    "external_browser_settings_failed",
+	Conflict:  "external_browser_settings_conflict",
+	Uncertain: "external_browser_settings_unknown",
+}
+
+func browserImportErrorKey(err error, fallback string) string {
+	switch {
+	case errors.Is(err, chrome.ErrAccessDenied):
+		return "browser_chrome_access_denied"
+	case errors.Is(err, chrome.ErrSchema):
+		return "browser_chrome_schema"
+	case errors.Is(err, chrome.ErrKeyDenied):
+		return "browser_chrome_key_denied"
+	case errors.Is(err, chrome.ErrCipher):
+		return "browser_chrome_cipher"
+	case errors.Is(err, chrome.ErrMissing):
+		return "browser_chrome_missing"
+	case errors.Is(err, errBrowserImportUnavailable):
+		return "browser_import_unavailable"
+	default:
+		return fallback
+	}
+}
+
+func (r *Runtime) browserSettingsFrame() {
+	root := r.localRuntime()
+	m := root.App.Settings
+	if root.App.Page != shell.SettingsPage || m.Section != settings.Browser {
+		return
+	}
+	localState := &root.browserConfig
+	if localState.actions.SetPersistent == nil {
+		localState.actions = settings.BrowserActions{
+			SetPersistent: func(value bool) {
+				if !root.browserImportSources().supported || root.Preferences.Path == "" {
+					root.enqueue(func(c *ui.Context) {
+						kit.Toast(c, kit.Failed, i18n.T(c, "browser_store_unavailable"))
+					})
+					return
+				}
+				root.Preferences.Data.BrowserPersistent = &value
+				root.wake()
+			},
+			ScanChrome:    root.scanChromeProfiles,
+			ImportChrome:  root.importChromeProfileByID,
+			CloseProfiles: func() { localState.profileList = nil; localState.profiles = nil },
+			SaveExternal: func() {
+				owner := root.managedSettingsNode()
+				if owner == nil || !owner.controller.Connected() {
+					return
+				}
+				owner.browserConfig.extModel.Draft = m.Browser.ExternalEnabled.Draft
+				owner.saveExternalBrowserSettings()
+			},
+		}
+	}
+
+	sources := root.browserImportSources()
+	enabled := root.Preferences.Path != ""
+	persistent := root.Preferences.Data.BrowserPersistent == nil || *root.Preferences.Data.BrowserPersistent
+
+	owner := root.managedSettingsNode()
+	view := settings.BrowserSettings{
+		Supported:        sources.supported,
+		Enabled:          enabled,
+		Persistent:       persistent,
+		Importing:        localState.importing,
+		ImportingProfile: localState.importingProfile,
+		Profiles:         localState.profileList,
+	}
+	if owner == nil {
+		view.ExternalStatus = "connections_offline"
+	} else {
+		ext := &owner.browserConfig
+		if (!ext.extLoaded || owner.snapshot().ExternalBrowserSettingsRevision > ext.extObservedRev) && !ext.extLoading && !ext.extModel.Pending {
+			owner.readExternalBrowserSettings()
+		}
+		view.ExternalEnabled = ext.extModel
+		view.ExternalAvailable = ext.extAvailable
+		view.ExternalLoaded = ext.extLoaded
+	}
+	m.Browser = view
+	m.BrowserActions = &localState.actions
+}
+
+func (r *Runtime) scanChromeProfiles() {
+	root := r.localRuntime()
+	st := &root.browserConfig
+	sources := root.browserImportSources()
+	if st.importing || !sources.supported || root.Preferences.Path == "" {
+		return
+	}
+	st.importing = true
+	st.importingProfile = ""
+	root.async(func() {
+		profiles, err := sources.profiles()
+		root.enqueue(func(c *ui.Context) {
+			if err != nil {
+				st.importing = false
+				kit.Toast(c, kit.Failed, i18n.T(c, browserImportErrorKey(err, "browser_chrome_failed")))
+				return
+			}
+			if len(profiles) == 0 {
+				st.importing = false
+				kit.Toast(c, kit.Failed, i18n.T(c, "browser_chrome_missing"))
+				return
+			}
+			st.profiles = make(map[string]chrome.Profile, len(profiles))
+			list := make([]settings.BrowserProfile, 0, len(profiles))
+			for _, profile := range profiles {
+				id := protocol.NewRequestID().String()
+				st.profiles[id] = profile
+				list = append(list, settings.BrowserProfile{ID: id, Name: profile.Name})
+			}
+			if len(list) == 1 {
+				st.profileList = nil
+				st.importingProfile = list[0].ID
+				root.runChromeImport(sources, profiles[0])
+				return
+			}
+			st.importing = false
+			st.profileList = list
+		})
+	})
+}
+
+func (r *Runtime) importChromeProfileByID(id string) {
+	root := r.localRuntime()
+	st := &root.browserConfig
+	sources := root.browserImportSources()
+	if st.importing || !sources.supported || root.Preferences.Path == "" {
+		return
+	}
+	profile, ok := st.profiles[id]
+	if !ok {
+		return
+	}
+	st.importing = true
+	st.importingProfile = id
+	root.runChromeImport(sources, profile)
+}
+
+func (r *Runtime) runChromeImport(sources browserSources, profile chrome.Profile) {
+	root := r.localRuntime()
+	st := &root.browserConfig
+	root.async(func() {
+		count, skipped, err := browserImportProfile(root.ctx, sources, profile)
+		root.enqueue(func(c *ui.Context) {
+			st.importing = false
+			st.importingProfile = ""
+			if errors.Is(err, errBrowserImportCancelled) {
+				return
+			}
+			if err != nil {
+				kit.Toast(c, kit.Failed, i18n.T(c, browserImportErrorKey(err, "browser_import_failed")))
+				return
+			}
+			st.profileList = nil
+			st.profiles = nil
+			if count == 0 && skipped == 0 {
+				kit.Toast(c, kit.Done, i18n.T(c, "browser_chrome_empty"))
+				return
+			}
+			kit.Toast(c, kit.Done, i18n.T(c, "browser_imported", "count", count, "skipped", skipped))
+		})
+	})
+}
+
+func (r *Runtime) readExternalBrowserSettings() {
+	st := &r.browserConfig
+	if st.extLoading {
+		return
+	}
+	st.extLoading = true
+	st.extObservedRev = r.snapshot().ExternalBrowserSettingsRevision
+	r.execute(protocol.Command{Kind: "read_external_browser_settings"}, func(_ *ui.Context, out protocol.Output, err error) {
+		st.extLoading = false
+		if err != nil {
+			return
+		}
+		value, ok := detail[protocol.ExternalBrowserSettings](out.Data)
+		if !ok || out.Kind != "external_browser_settings" {
+			return
+		}
+		st.extLoaded = true
+		st.extAvailable = value.Available
+		if st.extModel.Draft == st.extModel.Saved {
+			st.extModel.Draft = value.Enabled
+		}
+		st.extModel.Saved = value.Enabled
+		st.extModel.Revision = value.Revision
+		st.extObservedRev = value.Revision
+	})
+}
+
+func (r *Runtime) saveExternalBrowserSettings() {
+	st := &r.browserConfig
+	if st.extModel.Pending {
+		return
+	}
+	st.extModel.Pending = true
+	req := protocol.ExternalBrowserSettings{Revision: st.extModel.Revision, Enabled: st.extModel.Draft}
+	r.saveSettingReread(protocol.Command{Kind: "save_external_browser_settings", Data: req}, externalBrowserMessages, r.readExternalBrowserSettings, func(out protocol.Output, ok bool) {
+		st.extModel.Pending = false
+		if !ok {
+			st.extModel.Draft = st.extModel.Saved
+			return
+		}
+		if value, valid := detail[protocol.ExternalBrowserSettings](out.Data); valid && out.Kind == "external_browser_settings" {
+			st.extLoaded = true
+			st.extAvailable = value.Available
+			st.extModel.Saved = value.Enabled
+			st.extModel.Draft = value.Enabled
+			st.extModel.Revision = value.Revision
+			st.extObservedRev = value.Revision
+		}
+	})
+}
 
 // The browser package's settings page: whether browser tabs keep their
 // website data, and importing a local Chrome profile's cookies into them.

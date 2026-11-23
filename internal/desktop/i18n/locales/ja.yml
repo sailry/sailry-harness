@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: タスク元のアカウントとワークス
 controller_login_identity_unavailable: このサインインには復元に使える検証済みのアカウント ID がありません
 controller_login_target_changed: タスク元の認証先が変更されました
 controller_login_provider_missing: タスク元のプロバイダを利用できません
+settings_browser: ブラウザー
+settings_browser_description: ログインとサイトデータの管理
+settings_search: 検索
+settings_search_description: 選択したホストの検索サービス
+settings_memory: メモリー
+settings_memory_description: モデル検索のための長期的な好み，フィードバックおよびプロジェクト知識の管理
+settings_computer: コンピュータ操作
+settings_computer_description: 選択したホストのデスクトップアプリを操作し画面を取得します
+browser_data: ローカルウェブサイトデータ
+browser_data_local: ウェブサイトのデータを保持
+browser_data_description: ウェブサイトのデータを使用する間、またはこの時間のみ保持します
+browser_chrome_import: Chrome からインポート
+browser_chrome_description: クッキーをインポートするプロファイルを選択します。サイトによってはログインを再度行う必要がある場合があります
+browser_choose_profile: プロファイルを選択
+browser_import: インポート
+browser_imported: クッキー %{count} をインポート、クッキー %{skipped} をスキップ
+browser_import_failed: クッキーのインポートに失敗しました
+browser_chrome_missing: Chrome プロファイルが見つかりません
+browser_chrome_access_denied: Chrome のデータアクセスが拒否されました。フルディスクアクセスをチェックしてください
+browser_chrome_failed: Chrome のデータを読み込めませんでした。Chrome を終了してやり直してください
+browser_chrome_schema: この Chrome データフォーマットはサポートされていません
+browser_chrome_empty: このプロファイルにはウェブサイトのクッキーがありません
+browser_chrome_key_denied: Chrome キーを読み込めませんでした。キーチェーンアクセスを確認してください
+browser_chrome_cipher: このクッキーを復号できませんでした
+browser_import_unavailable: このシステムでは Chrome インポートが利用できません
+browser_store_unavailable: ウェブサイトのデータを保存しインポートするには macOS 14 以上が必要です
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: 検索
+search_default_driver: 既定のサービス
+search_fallback: 代替サービスを使用
+search_providers: サービス
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: なし
+search_key_required: APIキーが必要
+search_endpoint_required: 接続先が必要
+search_configured: 設定済み
+search_test: テスト
+search_reload: 再読み込み
+search_retry: 再試行
+search_saved: 保存済み
+search_test_passed: 検索テスト成功
+search_settings_conflict: 検索設定が変更されました。再読み込みしてください
+search_settings_invalid: 検索設定を確認してください
+search_not_configured: 先にこの検索サービスを設定してください
+search_test_auth_failed: 検索の認証に失敗しました
+search_request_failed: 検索リクエストに失敗しました
+search_save_unknown: 検索設定の保存を確認できません。再試行または再読み込みしてください
+search_endpoint: 接続先
+search_api_key: APIキー
+search_optional_key: APIキー（任意）
+search_username: ユーザー名（任意）
+search_password: パスワード（任意）
+search_remove_key: APIキーを削除
+search_remove_basic: 認証情報を削除
+search_basic_invalid: ユーザー名とパスワードの両方を入力してください
+search_not_supported: 検索に対応していません
+search_sign_in: 再ログインしてください
+search_model_unavailable: モデルを利用できません
+memory_search: 検索メモリ
+memory_global: グローバル
+memory_create: 新しいメモリ
+memory_editor: メモリを編集
+memory_user: ユーザ設定
+memory_feedback: フィードバック
+memory_project: プロジェクト
+memory_reference: リファレンス
+memory_title: タイトル
+memory_body: コンテンツ
+memory_kind: タイプ
+memory_empty: 記憶なし
+memory_delete_confirm: このメモリを削除すると、将来の検索から削除されます
+memory_retry: 再試行
+memory_failed: メモリアクションに失敗しました
+memory_conflict: メモリが変更または削除されました。編集のために再開
+memory_unknown: 結果不明; 元の要求をチェックして再試行
+memory_invalid: タイトルと内容を入力します。タイトルは最大 160 バイト、内容は最大 8 KB
+memory_capacity: メモリが満タンです。もう必要ないエントリを削除してください
+memory_all: すべての記憶
+memory_scope: フィルタプロジェクト
+memory_project_unavailable: 削除されたプロジェクト
+memory_configuration: メモリの設定
+memory_enabled: メモリを有効にする
+memory_auto_write: 自動書き込み
+memory_auto_write_description: メモリの保存と整理をモデルに許可
+memory_context_budget: ターン当たりのメモリ予算
+memory_budget_description: インデックスと検索されたコンテンツによって共有され、次のターンから開始
+memory_review_age: レビュー間隔 (日)
+memory_settings_conflict: 設定が変更されました。編集する前に再読み込み
+memory_settings_reload: 再読み込み
+memory_active: アクティブ
+memory_archived: アーカイブ
+memory_review: レビュー
+memory_possible_duplicate: 可能な重複
+memory_needs_review: ニーズレビュー
+memory_merge_source: マージするメモリを選択
+memory_merge: マージして保存
+memory_merge_description: 統合されたコンテンツを編集します。ソースエントリはアーカイブされます
+memory_duplicate: 一致するメモリが存在します。更新またはマージします
+memory_search_too_long: 検索時間が長すぎます
+computer_permissions_refresh: もう一度チェック
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: 自動

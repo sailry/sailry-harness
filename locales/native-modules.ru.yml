@@ -1,0 +1,6 @@
+settings_computer: "Управление компьютером"
+settings_computer_description: "Управлять приложениями рабочего стола и делать снимки экрана на выбранном хосте"
+search_not_supported: "Поиск не поддерживается"
+search_sign_in: "Войдите снова"
+search_model_unavailable: "Модель недоступна"
+search_driver_auto: "Автоматически"

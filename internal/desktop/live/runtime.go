@@ -37,6 +37,10 @@ type Runtime struct {
 	terminals            *terminalState
 	browser              *browserState
 	browserSources       *browserSources // a test's Chrome profile, key and cookie store
+	browserConfig        browserSettingsState
+	searchSettings       searchSettingsState
+	memorySettings       memorySettingsState
+	computerSettings     computerSettingsState
 	authorizations       *authorizationState
 	packages             *packageState
 	parent               *Runtime
@@ -588,6 +592,10 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.pluginCardsFrame(c)
 	r.networkFrame(c)
 	r.browserFrame()
+	r.browserSettingsFrame()
+	r.searchSettingsFrame()
+	r.memorySettingsFrame()
+	r.computerSettingsFrame()
 	r.aboutFrame(c)
 	r.ensureConversationSelection()
 	r.attentionFrame()

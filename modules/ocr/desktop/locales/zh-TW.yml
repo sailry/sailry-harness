@@ -1,4 +1,3 @@
 runtime_ocr: "文字辨識"
 runtime_ocr_enable: "啟用 OCR"
 runtime_ocr_model: "OCR 模型"
-search_driver_auto: "自動"

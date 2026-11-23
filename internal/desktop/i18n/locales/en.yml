@@ -2107,3 +2107,115 @@ controller_login_account_mismatch: Sign in with the task's original account and 
 controller_login_identity_unavailable: This sign-in has no verified account identity for recovery
 controller_login_target_changed: The task's original authentication target has changed
 controller_login_provider_missing: The task's original provider is unavailable
+settings_browser: Browser
+settings_browser_description: Manage sign-in and site data
+settings_search: Search
+settings_search_description: Search services on the selected host
+settings_memory: Memory
+settings_memory_description: Manage long-term preferences, feedback and project knowledge for model retrieval
+settings_computer: Computer Use
+settings_computer_description: Control desktop apps and capture the screen on the selected host
+browser_data: Local website data
+browser_data_local: Keep website data
+browser_data_description: Keep website data between uses, or only for this time
+browser_chrome_import: Import from Chrome
+browser_chrome_description: Choose a profile to import its cookies; some sites may need you to sign in again
+browser_choose_profile: Choose a profile
+browser_import: Import
+browser_imported: Imported %{count} cookies, skipped %{skipped}
+browser_import_failed: Cookie import failed
+browser_chrome_missing: No Chrome profiles found
+browser_chrome_access_denied: Chrome data access denied; check Full Disk Access
+browser_chrome_failed: Could not read Chrome data; close Chrome and try again
+browser_chrome_schema: This Chrome data format is not supported
+browser_chrome_empty: This profile has no website cookies
+browser_chrome_key_denied: Could not read the Chrome key; check Keychain access
+browser_chrome_cipher: Could not decrypt this cookie
+browser_import_unavailable: Chrome import is unavailable on this system
+browser_store_unavailable: Keeping website data and importing requires macOS 14 or later
+external_browser_settings_saved: External browser settings saved
+external_browser_settings_failed: Could not save external browser settings
+external_browser_settings_conflict: External browser settings changed; reload to continue
+external_browser_settings_unknown: Saving external browser settings could not be confirmed
+search_settings: Search
+search_default_driver: Default service
+search_fallback: Use fallback services
+search_providers: Services
+search_driver_exa: Exa
+search_driver_tavily: Tavily
+search_driver_brave: Brave
+search_driver_searxng: SearXNG
+search_driver_bocha: Bocha
+search_driver_none: None
+search_key_required: API key required
+search_endpoint_required: Endpoint required
+search_configured: Configured
+search_test: Test
+search_reload: Reload
+search_retry: Retry
+search_saved: Saved
+search_test_passed: Search test passed
+search_settings_conflict: Search settings changed; reload to continue
+search_settings_invalid: Check the search settings
+search_not_configured: Configure this search service first
+search_test_auth_failed: Search authentication failed
+search_request_failed: Search request failed
+search_save_unknown: Saving search settings could not be confirmed; retry or reload to check
+search_endpoint: Endpoint
+search_api_key: API key
+search_optional_key: API key (optional)
+search_username: Username (optional)
+search_password: Password (optional)
+search_remove_key: Remove API key
+search_remove_basic: Remove sign-in
+search_basic_invalid: Enter both username and password
+search_not_supported: Search is not supported
+search_sign_in: Sign in again
+search_model_unavailable: Model unavailable
+memory_search: Search memory
+memory_global: Global
+memory_create: New memory
+memory_editor: Edit memory
+memory_user: User preference
+memory_feedback: Feedback
+memory_project: Project
+memory_reference: Reference
+memory_title: Title
+memory_body: Content
+memory_kind: Type
+memory_empty: No memories
+memory_delete_confirm: Deleting this memory removes it from future retrieval
+memory_retry: Retry
+memory_failed: Memory action failed
+memory_conflict: Memory changed or was deleted · reopen to edit
+memory_unknown: Result unknown · retry to check the original request
+memory_invalid: Enter a title and content · title up to 160 bytes, content up to 8 KB
+memory_capacity: Memory is full · remove entries you no longer need
+memory_all: All memories
+memory_scope: Filter projects
+memory_project_unavailable: Removed project
+memory_configuration: Memory settings
+memory_enabled: Enable memory
+memory_auto_write: Automatic writes
+memory_auto_write_description: Allow the model to save and organize memory
+memory_context_budget: Memory budget per turn
+memory_budget_description: Shared by the index and retrieved content, starting next turn
+memory_review_age: Review interval (days)
+memory_settings_conflict: Settings changed · reload before editing
+memory_settings_reload: Reload
+memory_active: Active
+memory_archived: Archived
+memory_review: Review
+memory_possible_duplicate: Possible duplicate
+memory_needs_review: Needs review
+memory_merge_source: Choose a memory to merge
+memory_merge: Merge and save
+memory_merge_description: Edit the combined content · source entries will be archived
+memory_duplicate: Matching memory exists · update or merge it
+memory_search_too_long: Search is too long
+computer_permissions_refresh: Check again
+computer_settings_saved: Computer use settings saved
+computer_settings_failed: Could not save computer use settings
+computer_settings_conflict: Computer use settings changed; reload to continue
+computer_settings_unknown: Saving computer use settings could not be confirmed
+search_driver_auto: Auto

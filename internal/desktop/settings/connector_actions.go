@@ -100,4 +100,10 @@ func (m *Model) CloseManagedNodeDialogs() {
 	if m.TeamPageState != nil {
 		m.TeamPageState.CloseDialogs()
 	}
+	if m.SearchPageState != nil {
+		m.SearchPageState.CloseDialogs()
+	}
+	if m.MemoryPageState != nil {
+		m.MemoryPageState.CloseDialogs()
+	}
 }

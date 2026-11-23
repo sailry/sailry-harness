@@ -10,6 +10,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	browser "github.com/sailry/sailry-harness/modules/browser/desktop"
+	computer "github.com/sailry/sailry-harness/modules/computer/desktop"
 	connections "github.com/sailry/sailry-harness/modules/connections/desktop"
 	connectors "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
@@ -19,18 +21,21 @@ import (
 	knowledge "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 	media "github.com/sailry/sailry-harness/modules/media/desktop"
+	memory "github.com/sailry/sailry-harness/modules/memory/desktop"
 	ocr "github.com/sailry/sailry-harness/modules/ocr/desktop"
 	providers "github.com/sailry/sailry-harness/modules/providers/desktop"
 	runtime "github.com/sailry/sailry-harness/modules/runtime/desktop"
 	skills "github.com/sailry/sailry-harness/modules/skills/desktop"
 	teams "github.com/sailry/sailry-harness/modules/teams/desktop"
 	terminal "github.com/sailry/sailry-harness/modules/terminal/desktop"
+	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
 
 func TestNativeSettingsPageAssembly(t *testing.T) {
 	sections := []settings.Section{
 		settings.Providers, settings.Connectors, settings.Teams, settings.Skills,
-		settings.Knowledge, settings.Media, settings.Decision, settings.Terminal,
+		settings.Knowledge, settings.Memory, settings.Media, settings.Decision,
+		settings.Search, settings.Terminal, settings.Browser, settings.Computer,
 		settings.Connections, settings.Hooks, settings.Runtime, settings.OCR,
 	}
 	for _, window := range []struct {
@@ -48,7 +53,8 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 			full := desktop.Harness()
 			workspaceOnly := shell.Assemble(files.Register, git.Register, market.Register)
 			settingsOnly := shell.Assemble(providers.Register, connectors.Register, teams.Register, skills.Register,
-				knowledge.Module(), media.Register, decision.Register, terminal.Register, connections.Register,
+				knowledge.Module(), memory.Register, media.Register, decision.Register, websearch.Register,
+				terminal.Register, browser.Register, computer.Register, connections.Register,
 				hooks.Register, runtime.Register, ocr.Register)
 			for _, variant := range []struct {
 				name                string
@@ -64,12 +70,24 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 					app := window.open(variant.assembly)
 					app.Navigate(shell.SettingsPage)
 					tester := nativePageTester(app)
+					generalBtn, foundGeneral := tester.AccessByRole(ui.RoleButton, i18n.In("en", string(settings.General)))
+					if !foundGeneral {
+						t.Error("built-in General settings are missing")
+					}
+					navButton := func(label string) bool {
+						for _, item := range tester.AccessAll() {
+							if item.Role == ui.RoleButton && item.Name == label && item.Bounds.X == generalBtn.Bounds.X {
+								return true
+							}
+						}
+						return false
+					}
 					for _, section := range sections {
 						if app.Settings.HasSection(section) != variant.settings {
 							t.Errorf("section %q availability, want %t", section, variant.settings)
 						}
 						label := i18n.In("en", string(section))
-						if _, found := tester.AccessByRole(ui.RoleButton, label); found != variant.settings {
+						if navButton(label) != variant.settings {
 							t.Errorf("section %q navigation, want %t", section, variant.settings)
 						}
 						app.Settings.Open(section)
@@ -80,9 +98,6 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 						if got := app.Settings.Section; got != want {
 							t.Errorf("opening %q selected %q, want %q", section, got, want)
 						}
-					}
-					if _, found := tester.AccessByRole(ui.RoleButton, i18n.In("en", string(settings.General))); !found {
-						t.Error("built-in General settings are missing")
 					}
 					for _, page := range full.WorkspacePages {
 						if app.NativePageEnabled(page.Page) != variant.workspace {
