@@ -29,6 +29,7 @@ node_modules/
 /.cursor/
 /.idea/
 /.vscode/
+/.wrangler/
 
 # Local development plans.
 /plans/

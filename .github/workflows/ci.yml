@@ -81,7 +81,7 @@ jobs:
           esac
           if [ -n "$base" ]; then
             changed=$(git diff --name-only "$base" HEAD)
-            grep -Eq '^native/(turso|capture|windows)/|^\.github/(workflows/ci\.yml$|actions/)' <<< "$changed" || native=false
+            grep -Eq '^native/(turso|capture|windows|fetch)/|^native/[^/]+\.lock\.json$|^\.github/(workflows/ci\.yml$|actions/)' <<< "$changed" || native=false
             grep -Eq '^(apps/mobile|assets/catalogs|cmd/sailry-mobile|internal/(mobile|client|link|protocol|shipped))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/' <<< "$changed" || mobile=false
           fi
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
@@ -172,6 +172,27 @@ jobs:
           phase: save
           modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
+
+  race:
+    if: ${{ !inputs.reuse_go }}
+    runs-on: ubuntu-24.04
+    env:
+      GO_CACHE_ROLE: race
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/go-cache
+        id: go-cache
+      - uses: ./.github/actions/turso
+      - name: Race detector
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=1
+          go test -race -p 1 -parallel 2 ./internal/client ./internal/link ./internal/mobile ./internal/protocol/wire ./internal/node/agent/engine
 
   native:
     needs: scope
