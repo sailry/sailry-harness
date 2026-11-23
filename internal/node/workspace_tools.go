@@ -43,6 +43,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if _, err := node.workspaceRoot(ctx, inv.Run.Worktree, false); err != nil {
 		return nil, err
 	}
+	node.suppressReplacedInstructions(inv)
 	catalog, err := operations.CaptureCatalog(ctx, node.profile.Ownership.Path, inv.Turn.Plugins)
 	if err != nil {
 		return nil, err
@@ -58,6 +59,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	var tools []engine.Tool
 	for _, declaration := range declarations {
 		packaged := declaration.Owner.Name != ""
+		if packaged && node.hasReplacedPlugin(declaration.Owner.Name) {
+			continue
+		}
 		if node.codeIndex == nil && codeIndexOperation(declaration.Operation) {
 			continue
 		}
@@ -335,8 +339,12 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		return nil, err
 	}
 	managed = append(managed, presented...)
+	assembled, err := node.moduleTools(ctx, inv)
+	if err != nil {
+		return nil, err
+	}
 	bound, err := node.pluginTools(ctx, inv, append(append(append(tools, connections...), browsers...), managedBrowsers...))
-	return append(append(bound, media...), managed...), err
+	return append(append(append(assembled, bound...), media...), managed...), err
 }
 
 func (node *Node) consumeWorkspaceCommand(ctx context.Context, turn protocol.TurnID, snapshot protocol.ProcessSnapshot) error {

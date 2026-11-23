@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/hostctl"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
@@ -18,7 +19,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
-	"github.com/sailry/sailry-harness/modules/code-index/node"
 )
 
 func main() {
@@ -64,7 +64,7 @@ func runService(ctx context.Context, args []string, cancel context.CancelFunc) (
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 		Telemetry:   telemetry.Options{Application: "host", Lookup: options.Environment},
-		CodeIndex:   codeindex.NewService,
+		Assembly:    hostassembly.Harness(),
 	})
 	if err != nil {
 		return 1, err

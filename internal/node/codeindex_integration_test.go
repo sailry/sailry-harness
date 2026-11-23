@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/modules/code-index/node"
@@ -571,12 +572,12 @@ func TestCodeIndexCommands(t *testing.T) {
 }
 
 // TestCodeAgentTools runs one agent turn in a default profile and calls every
-// tool of the bundled code package.
+// native code-index module tool.
 func TestCodeAgentTools(t *testing.T) {
 	requireCodeIndex(t)
-	search, outline := operations.Alias("code", "code_search"), operations.Alias("code", "code_outline")
-	codeContext, impact, ranked := operations.Alias("code", "code_context"), operations.Alias("code", "code_impact"), operations.Alias("code", "code_map")
-	pipeline := operations.Alias("code", "code_pipeline")
+	search, outline := "code_search", "code_outline"
+	codeContext, impact, ranked := "code_context", "code_impact", "code_map"
+	pipeline := "code_pipeline"
 	tools := []string{search, outline, codeContext, impact, ranked, pipeline}
 	script := &acceptanceScript{steps: []acceptanceStep{
 		{"discover", "tool_search", acceptanceArguments(map[string]any{"query": "select:" + strings.Join(tools, ",")})},
@@ -586,11 +587,11 @@ func TestCodeAgentTools(t *testing.T) {
 		{"impact", impact, acceptanceArguments(map[string]any{"name": "helper"})},
 		{"map", ranked, acceptanceArguments(map[string]any{})},
 		{"baseline_search", search, acceptanceArguments(map[string]any{"name": "helper", "limit": 8})},
-		{"baseline_read", operations.Alias("files", "read_file"), acceptanceArguments(map[string]any{"path": "cmd/server.go", "offset": 16, "limit": 1})},
+		{"baseline_read", "read_file", acceptanceArguments(map[string]any{"path": "cmd/server.go", "offset": 16, "limit": 1})},
 		{"pipeline", pipeline, acceptanceArguments(json.RawMessage(`{"steps":[{"operation":"code.search","arguments":{"name":"helper"}},{"operation":"files.read_lines","arguments":{"limit":1},"from_previous":{"path":"/symbols/0/path","offset":"/symbols/0/range/start_line","expected_revision":"/symbols/0/file_revision"}}],"select":"/lines/0/text"}`))},
 		{id: "answer"},
 	}}
-	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{CodeIndex: codeindex.NewService})
+	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{Assembly: hostassembly.Harness()})
 	defer node.Stop(context.Background())
 	root, _ := codeProject(t, codeFixture)
 	project := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
@@ -599,8 +600,8 @@ func TestCodeAgentTools(t *testing.T) {
 	session := acceptanceSession(t, node, project.ID, protocol.PermissionAsk)
 	// No approval is expected: every code tool is read-only.
 	frozen, results := acceptanceTurn(t, node, session, "Explain how the server starts", acceptanceWait, nil)
-	if !slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == "code" }) {
-		t.Fatalf("the default profile did not freeze the code package: %+v", frozen)
+	if slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == "code" }) {
+		t.Fatalf("the default profile should not freeze the retired code package: %+v", frozen)
 	}
 	requests := script.requests()
 	if len(requests) != len(script.steps) {
@@ -701,7 +702,7 @@ func TestCodeAgentTools(t *testing.T) {
 	if value, ok := selected["value"].(string); !ok || strings.TrimSpace(value) != "func helper(address string) {" || len(selected) > 2 {
 		t.Fatalf("code_pipeline did not isolate the selected source line: %v", selected)
 	}
-	baseline := acceptanceResult(t, results, "baseline_read", operations.Alias("files", "read_file"))
+	baseline := acceptanceResult(t, results, "baseline_read", "read_file")
 	baselineText := baseline["data"].(map[string]any)["lines"].([]any)[0].(map[string]any)["text"]
 	if selected["value"] != baselineText {
 		t.Fatalf("pipeline and ordinary read returned different source lines: %v and %v", selected, baseline)
@@ -723,18 +724,15 @@ func TestCodeAgentTools(t *testing.T) {
 }
 
 func TestCodeAgentToolsWithoutIndex(t *testing.T) {
-	pipeline := operations.Alias("code", "code_pipeline")
-	read := operations.Alias("files", "read_file")
-	requested := []string{pipeline, read}
-	for _, name := range []string{"code_search", "code_outline", "code_context", "code_impact", "code_map"} {
-		requested = append(requested, operations.Alias("code", name))
-	}
+	pipeline := "code_pipeline"
+	read := "read_file"
+	requested := []string{pipeline, read, "code_search", "code_outline", "code_context", "code_impact", "code_map"}
 	script := &acceptanceScript{steps: []acceptanceStep{
 		{"discover", "tool_search", acceptanceArguments(map[string]any{"query": "select:" + strings.Join(requested, ","), "limit": len(requested)})},
 		{"pipeline", pipeline, acceptanceArguments(json.RawMessage(`{"steps":[{"operation":"files.find","arguments":{"globs":["cmd/server.go"]}},{"operation":"files.read_lines","arguments":{"limit":1},"from_previous":{"path":"/paths/0"}}],"select":"/lines/0/text"}`))},
 		{id: "answer"},
 	}}
-	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{})
+	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{Assembly: moduleapi.Assembly{Modules: hostassembly.Harness().Modules}})
 	t.Cleanup(func() {
 		if err := node.Stop(context.Background()); err != nil {
 			t.Error(err)
@@ -746,10 +744,11 @@ func TestCodeAgentToolsWithoutIndex(t *testing.T) {
 	}})
 	session := acceptanceSession(t, node, project.ID, protocol.PermissionAsk)
 	frozen, results := acceptanceTurn(t, node, session, "Read the first line of the server source", acceptanceWait, nil)
-	for _, name := range []string{"code", "files"} {
-		if !slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == name }) {
-			t.Fatalf("the default profile did not freeze the %s package: %+v", name, frozen)
-		}
+	if slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == "code" }) {
+		t.Fatalf("the default profile should not freeze the retired code package: %+v", frozen)
+	}
+	if !slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == "files" }) {
+		t.Fatalf("the default profile did not freeze the files package: %+v", frozen)
 	}
 
 	requests := script.requests()

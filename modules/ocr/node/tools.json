@@ -1,0 +1,135 @@
+{
+  "tools": [
+    {
+      "name": "list_ocr_models",
+      "legacy_package": "files",
+      "description": "List available OCR definitions and installation state on this execution Node. Set installed_only to list installed models. This does not install, remove, enable or select a model.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "installed_only": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "action": "ocr_models",
+      "read_only": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "OCR models",
+        "locales": {
+          "zh-CN": "OCR 模型",
+          "zh-TW": "OCR 模型",
+          "ja": "OCR モデル",
+          "ko": "OCR 모델",
+          "fr": "Modèles OCR",
+          "de": "OCR-Modelle",
+          "es": "Modelos OCR",
+          "pt-BR": "Modelos OCR",
+          "ru": "Модели OCR",
+          "en": "OCR models"
+        },
+        "icon": "reicon:ui/magnifier"
+      }
+    },
+    {
+      "name": "install_ocr_model",
+      "legacy_package": "files",
+      "description": "Install the exact OCR model ID from list_ocr_models only when the user requests installation. This uses the shared Node installer and permission policy. Keep the immutable definition; do not silently select a model or repeat a denied or uncertain installation.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "operation": "models.install",
+      "action": "ocr_install",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Install OCR model",
+        "locales": {
+          "zh-CN": "安装 OCR 模型",
+          "zh-TW": "安裝 OCR 模型",
+          "ja": "OCR モデルをインストール",
+          "ko": "OCR 모델 설치",
+          "fr": "Installer un modèle OCR",
+          "de": "OCR-Modell installieren",
+          "es": "Instalar modelo OCR",
+          "pt-BR": "Instalar modelo OCR",
+          "ru": "Установить модель OCR",
+          "en": "Install OCR model"
+        },
+        "icon": "reicon:ui/magnifier",
+        "input": {
+          "summary": {
+            "path": "/id"
+          }
+        }
+      }
+    },
+    {
+      "name": "uninstall_ocr_model",
+      "legacy_package": "files",
+      "description": "Uninstall the exact OCR model ID only when the user requests removal. This removes installed assets, not the model definition, settings or attachments. Do not automatically repeat a denied or uncertain removal.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "operation": "models.remove",
+      "action": "ocr_remove",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Uninstall OCR model",
+        "locales": {
+          "zh-CN": "卸载 OCR 模型",
+          "zh-TW": "移除 OCR 模型",
+          "ja": "OCR モデルを削除",
+          "ko": "OCR 모델 제거",
+          "fr": "Désinstaller le modèle OCR",
+          "de": "OCR-Modell deinstallieren",
+          "es": "Desinstalar modelo OCR",
+          "pt-BR": "Desinstalar modelo OCR",
+          "ru": "Удалить модель OCR",
+          "en": "Uninstall OCR model"
+        },
+        "icon": "reicon:ui/magnifier",
+        "input": {
+          "summary": {
+            "path": "/id"
+          }
+        }
+      }
+    }
+  ]
+}

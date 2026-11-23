@@ -6,15 +6,35 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
-	"slices"
-	"strings"
 )
+
+// ToolPresentationLookup resolves presentation metadata for assembled native
+// module tools (by canonical name or superseded legacy plugin alias).
+type ToolPresentationLookup func(name string) (protocol.ToolPresentation, protocol.ToolGrouping, *protocol.ToolDisplay, bool)
+
+type toolPresentationContextKey struct{}
+
+// WithToolPresentation attaches a per-Node native module presentation resolver
+// to ctx for canonical record preparation.
+func WithToolPresentation(ctx context.Context, lookup ToolPresentationLookup) context.Context {
+	if lookup == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, toolPresentationContextKey{}, lookup)
+}
+
+func toolPresentationLookup(ctx context.Context) ToolPresentationLookup {
+	lookup, _ := ctx.Value(toolPresentationContextKey{}).(ToolPresentationLookup)
+	return lookup
+}
 
 func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical.Record) error {
 	message := record.MutableMessage()
@@ -99,6 +119,13 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 		}
 		if !declared && name == operations.LegacyUpdatePlanTool {
 			presentation, grouping, declared = protocol.ToolPresentationProgress, protocol.ToolGroupingStandalone, true
+		}
+		if !declared {
+			if lookup := toolPresentationLookup(ctx); lookup != nil {
+				if p, g, d, ok := lookup(name); ok {
+					presentation, grouping, display, declared = p, g, d, true
+				}
+			}
 		}
 		if !declared {
 			command := name

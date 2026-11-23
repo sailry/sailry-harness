@@ -30,11 +30,21 @@ func (r *Runtime) applyAssistant(x *execution) error {
 	if declaration == nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant declaration is unavailable"}
 	}
+	nativeTools := map[string]bool{}
+	legacyTools := map[string]string{}
+	for _, tool := range x.tools {
+		if tool.Binding == nil || tool.Binding.Owner.Name == "" {
+			nativeTools[tool.Definition.Name] = true
+		}
+		if legacy := tool.LegacyAlias(); legacy != "" {
+			legacyTools[legacy] = tool.Definition.Name
+		}
+	}
 	initial := map[string]bool{}
 	for _, tool := range declaration.Tools {
 		switch value := tool.Data.(type) {
 		case *protocol.PluginConversationToolBuiltinPayload:
-			if !slices.Contains(assistantBuiltins, value.Name) && !operations.IsCommandTool(value.Name) {
+			if !slices.Contains(assistantBuiltins, value.Name) && !operations.IsCommandTool(value.Name) && !nativeTools[value.Name] {
 				return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant references an unknown native tool"}
 			}
 			initial[value.Name] = true
@@ -42,12 +52,18 @@ func (r *Runtime) applyAssistant(x *execution) error {
 			if value.Server != nil {
 				initial[mcp.Alias(binding.Package.Name, *value.Server, value.Name)] = true
 			} else {
-				initial[operations.Alias(binding.Package.Name, value.Name)] = true
+				name := operations.Alias(binding.Package.Name, value.Name)
+				if native, ok := legacyTools[name]; ok {
+					name = native
+				}
+				initial[name] = true
 			}
 		case *protocol.PluginConversationToolPackagePayload:
 			name := operations.Alias(value.Package, value.Name)
 			if core := operations.LegacyCommandTool(name); core != "" {
 				name = core
+			} else if native, ok := legacyTools[name]; ok {
+				name = native
 			}
 			initial[name] = true
 		}

@@ -153,6 +153,15 @@ func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool 
 		if value.Package == "commands" && operations.IsCommandTool(value.Name) {
 			return tool.Binding != nil && tool.Binding.Owner.Name == "" && tool.Definition.Name == value.Name
 		}
+		if tool.LegacyPackage == value.Package {
+			legacy := tool.LegacyName
+			if legacy == "" {
+				legacy = tool.Definition.Name
+			}
+			if legacy == value.Name {
+				return true
+			}
+		}
 		return tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == operations.Alias(value.Package, value.Name)
 	}
 	return false

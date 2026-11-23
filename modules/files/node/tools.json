@@ -1,0 +1,1587 @@
+{
+  "tools": [
+    {
+      "name": "list_directory",
+      "legacy_package": "files",
+      "description": "List a directory in the session worktree. An empty path selects the root. Pass the returned cursor to read another page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "cursor": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "revision": {
+                "type": "string",
+                "minLength": 1
+              },
+              "directory": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "revision",
+              "directory",
+              "name"
+            ],
+            "additionalProperties": false,
+            "description": "Use null for the first page; otherwise pass the exact cursor from the previous result"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "files.list",
+      "action": "list",
+      "stream_read": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Browse directory",
+        "locales": {
+          "zh-CN": "浏览目录",
+          "zh-TW": "瀏覽目錄",
+          "ja": "ディレクトリを参照",
+          "ko": "디렉터리 탐색",
+          "fr": "Parcourir le dossier",
+          "de": "Verzeichnis durchsuchen",
+          "es": "Explorar directorio",
+          "pt-BR": "Explorar diretório",
+          "ru": "Обзор каталога",
+          "en": "Browse directory"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/entries"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/name"
+                        }
+                      },
+                      {
+                        "text": "/",
+                        "when": {
+                          "any": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/kind"
+                              },
+                              "equals": "directory"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "read_file",
+      "legacy_package": "files",
+      "description": "Read UTF-8 lines in the session worktree. offset is zero-based; limit defaults to 2000 and each response has at most 2000 lines. Model text has about a 32 KiB page budget and a 2 KiB line budget. Use next_offset for omitted lines; a shortened long line is not a new page. read_tool_output with the returned output reference retrieves captured text, but cannot recover a source line clipped at the native 128 KiB page limit and marked truncated. Results retain one-based line numbers and the full file revision, including when a line is clipped. Read a small or medium file whole in one call; page large files with next_offset instead of small windows. A repeated read of unchanged lines returns a short note. Preserve exact text for edit_file; one page is not the whole file. A .png, .jpg, .jpeg, .gif, .webp or .bmp path returns the image itself, up to 5 MiB and downscaled to a 1568-pixel long side, with its revision, format, dimensions and size; offset and limit do not apply, and images lists the reference for showing it in a reply. Models without image input receive only these facts; use inspect_image with the path to ask about the image.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 2000,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.read",
+      "action": "read",
+      "stream_read": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Read file",
+        "locales": {
+          "zh-CN": "读取文件",
+          "zh-TW": "讀取檔案",
+          "ja": "ファイルを読む",
+          "ko": "파일 읽기",
+          "fr": "Lire le fichier",
+          "de": "Datei lesen",
+          "es": "Leer archivo",
+          "pt-BR": "Ler arquivo",
+          "ru": "Прочитать файл",
+          "en": "Read file"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/lines"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/number"
+                        }
+                      },
+                      {
+                        "text": ": "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": ""
+                }
+              }
+            ]
+          },
+          "paths": {
+            "value": {
+              "source": "arguments",
+              "path": "/path"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "write_file",
+      "legacy_package": "files",
+      "description": "Write a complete UTF-8 file up to 128 KiB. Pass the revision from read_file to replace a file, or null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "text": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Revision from read_file, or null to create a new file"
+          }
+        },
+        "required": [
+          "path",
+          "text",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.write",
+      "action": "write",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Write file",
+        "locales": {
+          "zh-CN": "写入文件",
+          "zh-TW": "寫入檔案",
+          "ja": "ファイルを書き込む",
+          "ko": "파일 쓰기",
+          "fr": "Écrire le fichier",
+          "de": "Datei schreiben",
+          "es": "Escribir archivo",
+          "pt-BR": "Escrever arquivo",
+          "ru": "Записать файл",
+          "en": "Write file"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "body": {
+            "text": {
+              "source": "arguments",
+              "path": "/text"
+            },
+            "path": {
+              "source": "arguments",
+              "path": "/path"
+            },
+            "diff": {
+              "format": "checkpoint"
+            },
+            "empty": {
+              "label": "No output",
+              "locales": {
+                "zh-CN": "无输出"
+              }
+            }
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Create %{path}",
+              "locales": {
+                "zh-CN": "创建 %{path}"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              }
+            },
+            "when": {
+              "any": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/expected_revision"
+                  },
+                  "equals": null
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Replace %{path}",
+              "locales": {
+                "zh-CN": "覆盖 %{path}"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "edit_file",
+      "legacy_package": "files",
+      "description": "Edit one UTF-8 file. Supply old_text/new_text or edits, never both. Match exact whitespace and line endings in the original file. Each old_text must match once unless replace_all takes all non-overlapping matches left to right. Overlaps, missing text or stale revisions fail without writing any change. Reread on conflict. The original, result and combined old/new texts each allow 64 MiB. Verify using the returned revision and numbered edited regions with context, without rereading. Use apply_patch across files.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "old_text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "new_text": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "description": "Full file revision from read_file"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "default": false
+          },
+          "edits": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "old_text": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "new_text": {
+                  "type": "string"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "required": [
+                "old_text",
+                "new_text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "path",
+          "expected_revision"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "old_text",
+              "new_text"
+            ],
+            "not": {
+              "required": [
+                "edits"
+              ]
+            }
+          },
+          {
+            "required": [
+              "edits"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "old_text"
+                  ]
+                },
+                {
+                  "required": [
+                    "new_text"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "replace_all": {
+                "const": false
+              }
+            }
+          }
+        ]
+      },
+      "operation": "files.edit",
+      "action": "edit",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Edit file",
+        "locales": {
+          "zh-CN": "编辑文件",
+          "zh-TW": "編輯檔案",
+          "ja": "ファイルを編集",
+          "ko": "파일 편집",
+          "fr": "Modifier le fichier",
+          "de": "Datei bearbeiten",
+          "es": "Editar archivo",
+          "pt-BR": "Editar arquivo",
+          "ru": "Изменить файл",
+          "en": "Edit file"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "body": {
+            "text": {
+              "source": "arguments",
+              "path": "/new_text"
+            },
+            "path": {
+              "source": "arguments",
+              "path": "/path"
+            },
+            "diff": {
+              "format": "checkpoint"
+            }
+          },
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/edits"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/new_text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Edit %{path}",
+              "locales": {
+                "zh-CN": "编辑 %{path}"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "apply_patch",
+      "legacy_package": "files",
+      "description": "Add, update, move or delete files under one approval. Prefer edit_file or write_file for a single-file edit.\n*** Begin Patch\n*** Add File: a\n+one\n*** Update File: b\n@@ anchor\n context\n-old\n+new\n*** Delete File: c\n*** End Patch\nPrefix added lines with +, including every line of a new file. Update context (space), removals (-) and optional @@ anchors must match the current file exactly at one location, including whitespace. An additions-only hunk inserts right after that line, or at EOF with bare @@. *** Move to: renames and creates missing directories. *** End of File anchors a hunk at EOF. Read every file you update, move or delete first. A prior write counts. Reread changed files. Up to 16 files are validated before anything is written, counting a moved and edited file twice. Validation failure rejects all with per-file reasons. Writes then proceed in order and stop on failure without rolling back earlier files. Each file reports applied, failed, unknown or not_attempted. Inspect an unknown file before retrying.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The whole patch from *** Begin Patch to *** End Patch, with paths relative to the session worktree"
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.apply",
+      "action": "apply",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Apply patch",
+        "locales": {
+          "zh-CN": "应用补丁",
+          "zh-TW": "套用修補程式",
+          "ja": "パッチを適用",
+          "ko": "패치 적용",
+          "fr": "Appliquer le correctif",
+          "de": "Patch anwenden",
+          "es": "Aplicar parche",
+          "pt-BR": "Aplicar patch",
+          "ru": "Применить патч",
+          "en": "Apply patch"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M20 7h-3a2 2 0 0 1-2-2V2\" /><path d=\"M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z\" /><path d=\"M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8\" /></svg>"
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/files"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/path"
+                        }
+                      },
+                      {
+                        "text": " → ",
+                        "when": {
+                          "any": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/destination"
+                              },
+                              "equals": null,
+                              "negate": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/destination"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "No changes were applied",
+                "locales": {
+                  "zh-CN": "未应用任何更改",
+                  "zh-TW": "未套用任何變更",
+                  "ja": "変更は適用されていません",
+                  "ko": "적용된 변경 사항이 없습니다",
+                  "fr": "Aucune modification n'a été appliquée",
+                  "de": "Es wurden keine Änderungen angewendet",
+                  "es": "No se aplicó ningún cambio",
+                  "pt-BR": "Nenhuma alteração foi aplicada",
+                  "ru": "Изменения не применены",
+                  "en": "No changes were applied"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/status"
+                    },
+                    "equals": "rejected"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Some changes were not applied",
+                "locales": {
+                  "zh-CN": "部分更改未应用",
+                  "zh-TW": "部分變更未套用",
+                  "ja": "一部の変更は適用されていません",
+                  "ko": "일부 변경 사항이 적용되지 않았습니다",
+                  "fr": "Certaines modifications n'ont pas été appliquées",
+                  "de": "Einige Änderungen wurden nicht angewendet",
+                  "es": "Algunos cambios no se aplicaron",
+                  "pt-BR": "Algumas alterações não foram aplicadas",
+                  "ru": "Некоторые изменения не применены",
+                  "en": "Some changes were not applied"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/status"
+                    },
+                    "equals": "partial"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Some results are unconfirmed; inspect before retrying",
+                "locales": {
+                  "zh-CN": "部分结果未确认，请检查后再重试",
+                  "zh-TW": "部分結果未確認，請檢查後再重試",
+                  "ja": "一部の結果が未確認です。再試行の前に確認してください",
+                  "ko": "일부 결과가 확인되지 않았습니다. 다시 시도하기 전에 확인하세요",
+                  "fr": "Certains résultats ne sont pas confirmés ; vérifiez avant de réessayer",
+                  "de": "Einige Ergebnisse sind unbestätigt; vor einem erneuten Versuch prüfen",
+                  "es": "Algunos resultados no están confirmados; revísalos antes de reintentar",
+                  "pt-BR": "Alguns resultados não foram confirmados; verifique antes de tentar novamente",
+                  "ru": "Некоторые результаты не подтверждены; проверьте перед повтором",
+                  "en": "Some results are unconfirmed; inspect before retrying"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/files"
+                    },
+                    "item": "/status",
+                    "equals": "unknown"
+                  }
+                ]
+              }
+            }
+          ],
+          "paths": {
+            "value": {
+              "source": "result",
+              "path": "/data/files"
+            },
+            "item": "/path"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_file",
+      "legacy_package": "files",
+      "description": "Move a regular file to the execution Node's Trash using its current revision. Does not permanently delete files or delete directories. A conflict requires reading the current file before retrying.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "description": "Full current file revision"
+          }
+        },
+        "required": [
+          "path",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.delete",
+      "action": "remove",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Move to Trash",
+        "locales": {
+          "zh-CN": "移到废纸篓",
+          "zh-TW": "移至垃圾桶",
+          "ja": "ゴミ箱に移動",
+          "ko": "휴지통으로 이동",
+          "fr": "Mettre à la corbeille",
+          "de": "In den Papierkorb verschieben",
+          "es": "Mover a la papelera",
+          "pt-BR": "Mover para a lixeira",
+          "ru": "Переместить в корзину",
+          "en": "Move to Trash"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Move %{path} to Trash",
+              "locales": {
+                "zh-CN": "将 %{path} 移到废纸篓"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "move_file",
+      "legacy_package": "files",
+      "description": "Move a regular file to another path in the same worktree using its current revision. The destination parent must exist and the destination must be absent; never overwrite an existing entry. A conflict requires inspecting both paths before retrying.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "description": "Full current file revision"
+          }
+        },
+        "required": [
+          "path",
+          "destination",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.move",
+      "action": "move",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Move file",
+        "locales": {
+          "zh-CN": "移动文件",
+          "zh-TW": "移動檔案",
+          "ja": "ファイルを移動",
+          "ko": "파일 이동",
+          "fr": "Déplacer le fichier",
+          "de": "Datei verschieben",
+          "es": "Mover archivo",
+          "pt-BR": "Mover arquivo",
+          "ru": "Переместить файл",
+          "en": "Move file"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Move %{path} to %{destination}",
+              "locales": {
+                "zh-CN": "将 %{path} 移动到 %{destination}"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              },
+              "destination": {
+                "source": "arguments",
+                "path": "/destination"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "create_directory",
+      "legacy_package": "files",
+      "description": "Create one directory in an existing parent within the session worktree. An existing directory is unchanged; an existing file or symbolic link is a conflict. Missing parents are not created automatically.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the session worktree, with forward slashes"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.mkdir",
+      "action": "mkdir",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Create directory",
+        "locales": {
+          "zh-CN": "新建文件夹",
+          "zh-TW": "建立目錄",
+          "ja": "ディレクトリを作成",
+          "ko": "디렉터리 만들기",
+          "fr": "Créer un dossier",
+          "de": "Verzeichnis erstellen",
+          "es": "Crear directorio",
+          "pt-BR": "Criar diretório",
+          "ru": "Создать каталог",
+          "en": "Create directory"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Create %{path}",
+              "locales": {
+                "zh-CN": "创建 %{path}"
+              }
+            },
+            "values": {
+              "path": {
+                "source": "arguments",
+                "path": "/path"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "find_files",
+      "legacy_package": "files",
+      "description": "Find regular file paths by worktree-relative globs within path (default root), respecting .gitignore and never following symlinks. * does not cross /; **/* includes root and nested files. For the N most recently modified files, use globs=[\"**/*\"] and limit=N. Results are newest first, with a stable path order for equal modification times. limit defaults to 500; responses return at most 500 paths; request next_offset for another page. Partial scans have no continuation: narrow path before retrying. No shell approval is needed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "globs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "path": {
+            "type": "string",
+            "default": "",
+            "description": "Worktree-relative file or directory; empty or . selects the root"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 500,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "required": [
+          "globs"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.find",
+      "action": "find",
+      "stream_read": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Find files",
+        "locales": {
+          "zh-CN": "查找文件",
+          "zh-TW": "尋找檔案",
+          "ja": "ファイルを探す",
+          "ko": "파일 찾기",
+          "fr": "Trouver des fichiers",
+          "de": "Dateien suchen",
+          "es": "Buscar archivos",
+          "pt-BR": "Encontrar arquivos",
+          "ru": "Найти файлы",
+          "en": "Find files"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"> <circle cx=\"11\" cy=\"11\" r=\"8\"/> <path d=\"m21 21-4.3-4.3\"/> </svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/globs",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/paths"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": ""
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          },
+          "paths": {
+            "value": {
+              "source": "result",
+              "path": "/data/paths"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "search_files",
+      "legacy_package": "files",
+      "description": "Search UTF-8 with embedded ripgrep without shell approval. Honor .gitignore, .ignore and Git excludes except for an explicitly named ignored path. Never follow symlinks. Count skipped binary and non-UTF-8 files. Globs without / match basenames at any depth, others are relative to path. ! excludes and later globs win. Files mode lists matching paths. Content rows mark matches (matched=true) and neighbors (false). Count mode gives matching-line counts per file. Multiline matches across newlines. Pages hold up to 200 rows including context. Model previews have about a 32 KiB total budget and 500 characters per line. Read the original captured result via read_tool_output and its output reference. next_offset pages completed scans but cannot recover a shortened line. Incomplete scans have no continuation. Narrow path. Scans stop after 20 seconds and skip files over 64 MiB. Diagnostics report both limits. Lines over 16 KiB are marked truncated.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Text or regex to match in files. Globs filter paths."
+          },
+          "regex": {
+            "type": "boolean",
+            "default": false
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "default": false
+          },
+          "globs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "path": {
+            "type": "string",
+            "default": "",
+            "description": "Worktree-relative file or directory; empty or . selects the root"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 100,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "content",
+              "files",
+              "count"
+            ],
+            "default": "files"
+          },
+          "context": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A ripgrep file type name such as rust, js, or python"
+          },
+          "multiline": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "files.search",
+      "action": "search",
+      "stream_read": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Search files",
+        "locales": {
+          "zh-CN": "搜索文件",
+          "zh-TW": "搜尋檔案",
+          "ja": "ファイル内を検索",
+          "ko": "파일 검색",
+          "fr": "Rechercher dans les fichiers",
+          "de": "Dateiinhalte suchen",
+          "es": "Buscar en archivos",
+          "pt-BR": "Pesquisar arquivos",
+          "ru": "Поиск по файлам",
+          "en": "Search files"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"> <circle cx=\"11\" cy=\"11\" r=\"8\"/> <path d=\"m21 21-4.3-4.3\"/> </svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/query",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/matches"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/path"
+                        }
+                      },
+                      {
+                        "text": ":"
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/line_number"
+                        }
+                      },
+                      {
+                        "text": "  "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/line"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              },
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/paths"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": ""
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              },
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/counts"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/path"
+                        }
+                      },
+                      {
+                        "text": ": "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/count"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          },
+          "paths": {
+            "value": {
+              "source": "result",
+              "path": "/data/matches"
+            },
+            "item": "/path"
+          }
+        }
+      }
+    },
+    {
+      "name": "read_office",
+      "legacy_package": "files",
+      "description": "Read DOCX/PDF text, XLSX cell values and formulas, or PPTX slide text and notes from a worktree path or an attachment visible in this conversation. Use source.kind \"path\" with a worktree-relative path, or \"attachment\" with its attachment ID. Earlier attachments must belong to completed, failed or cancelled turns still visible in this conversation; queued or running future inputs are unavailable. Images and scanned PDF pages use OCR when an OCR model is installed on the Node. File sources return the revision for edits. Follow next offsets to read every section, including continuations of long parts.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Read",
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "path",
+                  "attachment"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "Worktree-relative path or visible conversation attachment ID"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "offset": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0,
+            "description": "Zero-based section offset. Long document parts continue in subsequent sections.",
+            "default": 0
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "office.read",
+      "action": "office",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Read document",
+        "locales": {
+          "zh-CN": "读取文档",
+          "zh-TW": "讀取文件",
+          "ja": "文書を読む",
+          "ko": "문서 읽기",
+          "fr": "Lire le document",
+          "de": "Dokument lesen",
+          "es": "Leer documento",
+          "pt-BR": "Ler documento",
+          "ru": "Прочитать документ",
+          "en": "Read document"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/source/value",
+            "code": true,
+            "result_path": "/data/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/sections"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n\n"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "read_notebook",
+      "legacy_package": "files",
+      "description": "Read numbered nbformat 4 cells without executing a kernel. Use next_offset to continue. Returned cell JSON retains source, metadata and saved outputs; truncated cells omit oversized content and include a bounded source preview.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 20,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "notebook.read",
+      "action": "notebook_read",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Read notebook",
+        "locales": {
+          "zh-CN": "读取 Notebook",
+          "zh-TW": "讀取筆記本",
+          "ja": "ノートブックを読む",
+          "ko": "노트북 읽기",
+          "fr": "Lire le notebook",
+          "de": "Notebook lesen",
+          "es": "Leer notebook",
+          "pt-BR": "Ler notebook",
+          "ru": "Прочитать блокнот",
+          "en": "Read notebook"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+        }
+      }
+    },
+    {
+      "name": "edit_notebook",
+      "legacy_package": "files",
+      "description": "Apply a revision-checked atomic batch to nbformat 4 cells. Replace changes only source and retains the cell ID, metadata and saved outputs. Insert creates a cell with a new ID; delete removes a cell. Zero-based indices refer to the original notebook; multiple inserts at the same index preserve batch order. Read the current revision first. No kernel is executed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          },
+          "edits": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "const": "replace"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "index",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "const": "insert"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "cell_type": {
+                      "type": "string",
+                      "enum": [
+                        "code",
+                        "markdown",
+                        "raw"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "index",
+                    "cell_type",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "const": "delete"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "index"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "path",
+          "expected_revision",
+          "edits"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "notebook.edit",
+      "action": "notebook_edit",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Edit notebook",
+        "locales": {
+          "zh-CN": "编辑 Notebook",
+          "zh-TW": "編輯筆記本",
+          "ja": "ノートブックを編集",
+          "ko": "노트북 편집",
+          "fr": "Modifier le notebook",
+          "de": "Notebook bearbeiten",
+          "es": "Editar notebook",
+          "pt-BR": "Editar notebook",
+          "ru": "Изменить блокнот",
+          "en": "Edit notebook"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "result_path": "/data/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/edits"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/kind"
+                        }
+                      },
+                      {
+                        "text": " "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/index"
+                        }
+                      },
+                      {
+                        "text": "\n",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/source"
+                              },
+                              "equals": null,
+                              "negate": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/source"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n\n"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "instructions": "Use find_files and search_files for file discovery and content search rather than shell commands. Read a worktree image with read_file when you need to see it, such as a screenshot, diagram or design; read_office extracts document text and reads conversation attachments."
+}

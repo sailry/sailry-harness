@@ -1,0 +1,183 @@
+{
+  "tools": [
+    {
+      "name": "list_worktrees",
+      "legacy_package": "worktrees",
+      "description": "List Git worktrees in this project with registered IDs. Entries without an ID must be registered before delegation. Use git_status with a registered worktree ID to inspect changes. This conversation's file tools work only in its own worktree; do not cd into another worktree to change it.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "worktrees.list",
+      "action": "list",
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "List worktrees",
+        "locales": {
+          "zh-CN": "列出工作树",
+          "zh-TW": "列出工作樹",
+          "ja": "ワークツリー一覧",
+          "ko": "워크트리 목록",
+          "fr": "Lister les arbres de travail",
+          "de": "Worktrees auflisten",
+          "es": "Listar árboles de trabajo",
+          "pt-BR": "Listar árvores de trabalho",
+          "ru": "Список рабочих деревьев",
+          "en": "List worktrees"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        }
+      }
+    },
+    {
+      "name": "create_worktree",
+      "legacy_package": "worktrees",
+      "description": "Create and register an isolated worktree and new branch in the execution Node's managed directory, starting from this turn's worktree. Use head and index_revision from git_status as expected_head and expected_index. include_changes defaults to false; set true to copy uncommitted changes. Use the returned ID with spawn_agent.worktree. This does not move this conversation or merge changes. To develop there, pass the returned ID to spawn_agent. If the user wants this conversation itself to continue there, ask them to switch it with the composer's worktree selector, then stop. Never cd into the new worktree or change it from this conversation. After a delegated child finishes, remove its worktree when it has no changes and no new commits; otherwise follow remove_worktree. Invoke directly under the current permission mode; do not request approval through ask_user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "expected_head": {
+            "type": "string"
+          },
+          "expected_index": {
+            "type": "string"
+          },
+          "include_changes": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "branch",
+          "expected_head",
+          "expected_index"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "worktrees.create",
+      "action": "create",
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Create worktree",
+        "locales": {
+          "zh-CN": "新建工作树",
+          "zh-TW": "建立工作樹",
+          "ja": "ワークツリーを作成",
+          "ko": "워크트리 만들기",
+          "fr": "Créer un arbre de travail",
+          "de": "Worktree erstellen",
+          "es": "Crear árbol de trabajo",
+          "pt-BR": "Criar árvore de trabalho",
+          "ru": "Создать рабочее дерево",
+          "en": "Create worktree"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        }
+      }
+    },
+    {
+      "name": "register_worktree",
+      "legacy_package": "worktrees",
+      "description": "Register an existing Git worktree from this project's repository. Use its absolute path from list_worktrees; the returned ID can be passed to spawn_agent. No checkout or session is moved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path of an existing worktree in this repository"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "worktrees.register",
+      "action": "register",
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Add worktree",
+        "locales": {
+          "zh-CN": "添加工作树",
+          "zh-TW": "新增工作樹",
+          "ja": "ワークツリーを追加",
+          "ko": "워크트리 추가",
+          "fr": "Ajouter un arbre de travail",
+          "de": "Worktree hinzufügen",
+          "es": "Añadir árbol de trabajo",
+          "pt-BR": "Adicionar árvore de trabalho",
+          "ru": "Добавить рабочее дерево",
+          "en": "Add worktree"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        }
+      }
+    },
+    {
+      "name": "remove_worktree",
+      "legacy_package": "worktrees",
+      "description": "Remove a clean linked worktree, keeping its branch. Use head and branch from git_status or list_worktrees as expected_head and expected_branch. Main, dirty, locked or busy worktrees, including ones with running or queued turns, cannot be removed. Sessions that used it keep their history but cannot run new turns there. When a delegated child's worktree has changes or new commits, inspect them with Git tools and its worktree ID first. Integrate with an unrestricted git merge or cherry-pick command only when appropriate; stop and report conflicts to the user without resolving them automatically. Uncommitted changes block removal; never discard work or session history to make removal succeed. Invoke directly under the current permission mode; do not request approval through ask_user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": "string"
+          },
+          "expected_head": {
+            "type": "string"
+          },
+          "expected_branch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "worktree",
+          "expected_head",
+          "expected_branch"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "worktrees.remove",
+      "action": "remove",
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Remove worktree",
+        "locales": {
+          "zh-CN": "移除工作树",
+          "zh-TW": "移除工作樹",
+          "ja": "ワークツリーを削除",
+          "ko": "워크트리 제거",
+          "fr": "Retirer l’arbre de travail",
+          "de": "Worktree entfernen",
+          "es": "Eliminar árbol de trabajo",
+          "pt-BR": "Remover árvore de trabalho",
+          "ru": "Удалить рабочее дерево",
+          "en": "Remove worktree"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        }
+      }
+    }
+  ]
+}

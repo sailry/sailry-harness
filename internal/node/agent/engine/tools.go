@@ -69,11 +69,35 @@ type Tool struct {
 	// SearchLabels are the captured display labels and translations used only
 	// for discovery. They do not enlarge the model's tool declarations.
 	SearchLabels []string
-	schema       *jsonschema.Schema
-	parentSchema *jsonschema.Schema
+	// LegacyPackage and LegacyName identify a former bundled plugin tool that
+	// this native module tool supersedes. History, tool_search, skills and
+	// assistant selectors referencing the legacy alias resolve to this tool.
+	LegacyPackage string
+	LegacyName    string
+	schema        *jsonschema.Schema
+	parentSchema  *jsonschema.Schema
 	// ExecutePrepared runs a call with arguments a package prepared. The call
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
+}
+
+// FunctionTool constructs a fantasy.FunctionTool for callers outside engine
+// without importing the model SDK directly.
+func FunctionTool(name, description string, inputSchema map[string]any) fantasy.FunctionTool {
+	return fantasy.FunctionTool{Name: name, Description: description, InputSchema: inputSchema}
+}
+
+// LegacyAlias returns the former plugin-scoped canonical alias superseded by
+// this tool, or an empty string if none applies.
+func (t Tool) LegacyAlias() string {
+	if t.LegacyPackage == "" {
+		return ""
+	}
+	name := t.LegacyName
+	if name == "" {
+		name = t.Definition.Name
+	}
+	return operations.Alias(t.LegacyPackage, name)
 }
 
 // ToolResultReader materializes a selected result for a package hook. The
@@ -246,10 +270,13 @@ func (r *Runtime) deferTools(x *execution) error {
 		case tool.Delegation && role:
 			tool.Deferred = false
 		case tool.Binding == nil || tool.Binding.Owner.Name == "":
-			// The Node's own tools state their rule where they are built.
-			// The session history tools are discoverable.
+			// The Node's own tools state their rule where they are built, and
+			// native module tools whose declared operations are visible start
+			// visible just like their former packaged bindings.
 			if slices.Contains([]string{"list_sessions", "read_session", "search_session"}, tool.Definition.Name) {
 				tool.Deferred = true
+			} else if tool.Deferred && (visibleTool(*tool) || (selected != "" && tool.LegacyPackage == selected)) {
+				tool.Deferred = false
 			}
 		default:
 			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred)
@@ -331,6 +358,16 @@ func toolWasLoaded(loaded []string, name string) bool {
 	}
 	if operations.IsCommandTool(name) {
 		return slices.Contains(loaded, operations.Alias("commands", name))
+	}
+	return false
+}
+
+func toolLoaded(loaded []string, tool Tool) bool {
+	if toolWasLoaded(loaded, tool.Definition.Name) {
+		return true
+	}
+	if legacy := tool.LegacyAlias(); legacy != "" {
+		return slices.Contains(loaded, legacy)
 	}
 	return false
 }

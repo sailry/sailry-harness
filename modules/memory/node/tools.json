@@ -1,0 +1,786 @@
+{
+  "tools": [
+    {
+      "name": "search_memory",
+      "legacy_package": "memory",
+      "description": "Search lasting memories when earlier preferences or decisions matter. Pass focused terms or an exact ID; an empty query lists recent entries. Only complete bodies with their revisions allow updates.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "action": "search",
+      "initial": true,
+      "read_only": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Search memory",
+        "locales": {
+          "zh-CN": "搜索记忆",
+          "zh-TW": "搜尋記憶",
+          "ja": "メモリを検索",
+          "ko": "메모리 검색",
+          "fr": "Rechercher une mémoire",
+          "de": "Erinnerungen suchen",
+          "es": "Buscar memoria",
+          "pt-BR": "Pesquisar memória",
+          "ru": "Поиск в памяти",
+          "en": "Search memory"
+        },
+        "icon": "reicon:devices/cpu",
+        "input": {
+          "summary": {
+            "path": "/query"
+          }
+        }
+      }
+    },
+    {
+      "name": "review_memories",
+      "legacy_package": "memory",
+      "description": "List possibly duplicate or stale active memories in the current scope. Verify the facts before merging or archiving.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "action": "review",
+      "read_only": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Review memories",
+        "locales": {
+          "zh-CN": "整理记忆",
+          "zh-TW": "檢視記憶",
+          "ja": "メモリを見直す",
+          "ko": "메모리 검토",
+          "fr": "Examiner les mémoires",
+          "de": "Erinnerungen prüfen",
+          "es": "Revisar memorias",
+          "pt-BR": "Revisar memórias",
+          "ru": "Просмотреть память",
+          "en": "Review memories"
+        },
+        "icon": "reicon:devices/cpu"
+      }
+    },
+    {
+      "name": "save_memory",
+      "legacy_package": "memory",
+      "description": "Save what the user explicitly asks to remember or what should guide future sessions, not one-off requests, approvals or local choices. Never save secrets. Default to project scope; use global only for cross-project user preferences or feedback. Omit id to create; similar memories are returned, not duplicated. To update or archive, pass id and expected_revision from a complete current body.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "global": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "feedback",
+              "project",
+              "reference"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "action": "save",
+      "initial": true,
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Save memory",
+        "locales": {
+          "zh-CN": "保存记忆",
+          "zh-TW": "儲存記憶",
+          "ja": "メモリを保存",
+          "ko": "메모리 저장",
+          "fr": "Enregistrer la mémoire",
+          "de": "Erinnerung speichern",
+          "es": "Guardar memoria",
+          "pt-BR": "Salvar memória",
+          "ru": "Сохранить память",
+          "en": "Save memory"
+        },
+        "icon": "reicon:devices/cpu",
+        "input": {
+          "summary": {
+            "path": "/title",
+            "result_path": "/receipt/title"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/title"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/receipt/title"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/body"
+                }
+              }
+            ],
+            "separator": "\n\n"
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Not saved",
+                "locales": {
+                  "en": "Not saved",
+                  "zh-CN": "未保存",
+                  "zh-TW": "未儲存",
+                  "ja": "未保存",
+                  "ko": "저장되지 않음",
+                  "fr": "Non enregistrée",
+                  "de": "Nicht gespeichert",
+                  "es": "No guardada",
+                  "pt-BR": "Não salva",
+                  "ru": "Не сохранено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "pending"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "pending"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Not saved · review memory",
+                "locales": {
+                  "en": "Not saved · review memory",
+                  "zh-CN": "未保存 · 请检查记忆",
+                  "zh-TW": "未儲存 · 請檢查記憶",
+                  "ja": "未保存 · メモリを確認",
+                  "ko": "저장되지 않음 · 메모리 확인",
+                  "fr": "Non enregistrée · vérifier la mémoire",
+                  "de": "Nicht gespeichert · Erinnerung prüfen",
+                  "es": "No guardada · revisar memoria",
+                  "pt-BR": "Não salva · revisar memória",
+                  "ru": "Не сохранено · проверьте память"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "changed"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "changed"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Already deleted",
+                "locales": {
+                  "en": "Already deleted",
+                  "zh-CN": "已被删除",
+                  "zh-TW": "已被刪除",
+                  "ja": "削除済み",
+                  "ko": "이미 삭제됨",
+                  "fr": "Déjà supprimée",
+                  "de": "Bereits gelöscht",
+                  "es": "Ya eliminada",
+                  "pt-BR": "Já excluída",
+                  "ru": "Уже удалено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "deleted"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "deleted"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "forget_memory",
+      "legacy_package": "memory",
+      "description": "Permanently delete a memory at the user's request. Pass id and expected_revision from search_memory. Prefer archiving stale facts with save_memory.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "action": "forget",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Forget memory",
+        "locales": {
+          "zh-CN": "删除记忆",
+          "zh-TW": "移除記憶",
+          "ja": "メモリを削除",
+          "ko": "메모리 삭제",
+          "fr": "Oublier la mémoire",
+          "de": "Erinnerung löschen",
+          "es": "Olvidar memoria",
+          "pt-BR": "Esquecer memória",
+          "ru": "Удалить запись памяти",
+          "en": "Forget memory"
+        },
+        "icon": "reicon:devices/cpu",
+        "input": {
+          "summary": {
+            "path": "/title",
+            "result_path": "/receipt/title"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/title"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/receipt/title"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/body"
+                }
+              }
+            ],
+            "separator": "\n\n"
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Not saved",
+                "locales": {
+                  "en": "Not saved",
+                  "zh-CN": "未保存",
+                  "zh-TW": "未儲存",
+                  "ja": "未保存",
+                  "ko": "저장되지 않음",
+                  "fr": "Non enregistrée",
+                  "de": "Nicht gespeichert",
+                  "es": "No guardada",
+                  "pt-BR": "Não salva",
+                  "ru": "Не сохранено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "pending"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "pending"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Not saved · review memory",
+                "locales": {
+                  "en": "Not saved · review memory",
+                  "zh-CN": "未保存 · 请检查记忆",
+                  "zh-TW": "未儲存 · 請檢查記憶",
+                  "ja": "未保存 · メモリを確認",
+                  "ko": "저장되지 않음 · 메모리 확인",
+                  "fr": "Non enregistrée · vérifier la mémoire",
+                  "de": "Nicht gespeichert · Erinnerung prüfen",
+                  "es": "No guardada · revisar memoria",
+                  "pt-BR": "Não salva · revisar memória",
+                  "ru": "Не сохранено · проверьте память"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "changed"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "changed"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Already deleted",
+                "locales": {
+                  "en": "Already deleted",
+                  "zh-CN": "已被删除",
+                  "zh-TW": "已被刪除",
+                  "ja": "削除済み",
+                  "ko": "이미 삭제됨",
+                  "fr": "Déjà supprimée",
+                  "de": "Bereits gelöscht",
+                  "es": "Ya eliminada",
+                  "pt-BR": "Já excluída",
+                  "ru": "Уже удалено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "deleted"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "deleted"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "consolidate_memories",
+      "legacy_package": "memory",
+      "description": "Merge memories in the same scope into one entry and archive the sources. Read every complete body with search_memory first, then pass the target id, expected_revision, merged title and body, and each source revision.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "id",
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "expected_revision",
+          "title",
+          "body",
+          "sources"
+        ],
+        "additionalProperties": false
+      },
+      "action": "consolidate",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Merge memories",
+        "locales": {
+          "zh-CN": "合并记忆",
+          "zh-TW": "合併記憶",
+          "ja": "メモリを統合",
+          "ko": "메모리 병합",
+          "fr": "Fusionner les mémoires",
+          "de": "Erinnerungen zusammenführen",
+          "es": "Combinar memorias",
+          "pt-BR": "Mesclar memórias",
+          "ru": "Объединить записи памяти",
+          "en": "Merge memories"
+        },
+        "icon": "reicon:devices/cpu",
+        "input": {
+          "summary": {
+            "path": "/title",
+            "result_path": "/receipt/title"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/title"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/receipt/title"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/receipt/body"
+                }
+              }
+            ],
+            "separator": "\n\n"
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Not saved",
+                "locales": {
+                  "en": "Not saved",
+                  "zh-CN": "未保存",
+                  "zh-TW": "未儲存",
+                  "ja": "未保存",
+                  "ko": "저장되지 않음",
+                  "fr": "Non enregistrée",
+                  "de": "Nicht gespeichert",
+                  "es": "No guardada",
+                  "pt-BR": "Não salva",
+                  "ru": "Не сохранено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "pending"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "pending"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Not saved · review memory",
+                "locales": {
+                  "en": "Not saved · review memory",
+                  "zh-CN": "未保存 · 请检查记忆",
+                  "zh-TW": "未儲存 · 請檢查記憶",
+                  "ja": "未保存 · メモリを確認",
+                  "ko": "저장되지 않음 · 메모리 확인",
+                  "fr": "Non enregistrée · vérifier la mémoire",
+                  "de": "Nicht gespeichert · Erinnerung prüfen",
+                  "es": "No guardada · revisar memoria",
+                  "pt-BR": "Não salva · revisar memória",
+                  "ru": "Не сохранено · проверьте память"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "changed"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "changed"
+                  }
+                ]
+              }
+            },
+            {
+              "message": {
+                "label": "Already deleted",
+                "locales": {
+                  "en": "Already deleted",
+                  "zh-CN": "已被删除",
+                  "zh-TW": "已被刪除",
+                  "ja": "削除済み",
+                  "ko": "이미 삭제됨",
+                  "fr": "Déjà supprimée",
+                  "de": "Bereits gelöscht",
+                  "es": "Ya eliminada",
+                  "pt-BR": "Já excluída",
+                  "ru": "Уже удалено"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/receipt"
+                    },
+                    "equals": null
+                  }
+                ],
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/status"
+                    },
+                    "equals": "deleted"
+                  },
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/context/status"
+                    },
+                    "equals": "deleted"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "instructions": "Use relevant memories or search_memory; current instructions win. When save_memory is available, honor explicit requests to remember. Otherwise save only what would guide a separate future session: the user's stated standing preferences, habits, corrections or conventions, or architectural reasons the repo cannot reveal. Skip one-off requests, plan approvals, styling and local implementation choices, progress, and facts available in code, Git or project docs. Never save secrets."
+}

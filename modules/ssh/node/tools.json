@@ -1,0 +1,787 @@
+{
+  "tools": [
+    {
+      "name": "ssh_run",
+      "legacy_package": "ssh",
+      "description": "Run a command on a saved SSH connection available to this session. Resolve the connection ID with ssh_connections; do not recreate an existing connection when it is unavailable. A first connection requires the user to confirm the exact host fingerprint in the runtime approval. Do not request credentials, accept host keys or bypass verification.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "[]"
+          },
+          "command": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600000
+          }
+        },
+        "required": [
+          "connection",
+          "command"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "ssh.run",
+      "action": "run",
+      "contexts": [
+        "workspace",
+        "ssh"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Run SSH command",
+        "locales": {
+          "zh-CN": "执行 SSH 命令",
+          "zh-TW": "執行 SSH 命令",
+          "ja": "SSH コマンドを実行",
+          "ko": "SSH 명령 실행",
+          "fr": "Exécuter une commande SSH",
+          "de": "SSH-Befehl ausführen",
+          "es": "Ejecutar comando SSH",
+          "pt-BR": "Executar comando SSH",
+          "ru": "Выполнить команду SSH",
+          "en": "Run SSH command"
+        },
+        "icon": "reicon:it/terminal-square",
+        "input": {
+          "summary": {
+            "path": "/connection",
+            "format": "connection",
+            "result_path": "/connection_name"
+          },
+          "content": {
+            "path": "/command",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "text": "stdout:\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stdout"
+                      },
+                      "equals": null,
+                      "negate": true
+                    },
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stdout"
+                      },
+                      "equals": "",
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/stdout"
+                }
+              },
+              {
+                "text": "\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stdout"
+                      },
+                      "equals": null,
+                      "negate": true
+                    },
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stdout"
+                      },
+                      "equals": "",
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "text": "stderr:\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stderr"
+                      },
+                      "equals": null,
+                      "negate": true
+                    },
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stderr"
+                      },
+                      "equals": "",
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/stderr"
+                }
+              },
+              {
+                "text": "\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stderr"
+                      },
+                      "equals": null,
+                      "negate": true
+                    },
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/stderr"
+                      },
+                      "equals": "",
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "text": "exit_code: ",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/exit_code"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/exit_code"
+                }
+              },
+              {
+                "text": "\nfingerprint: ",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/key/fingerprint"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/key/fingerprint"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "ssh_transfer",
+      "legacy_package": "ssh",
+      "description": "Upload or download a file using a saved SSH connection available to this session. Resolve the connection ID with ssh_connections; do not recreate an existing connection when it is unavailable. The local path is relative to the session worktree. Do not request credentials.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "[]"
+          },
+          "path": {
+            "type": "string"
+          },
+          "remote_path": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "download"
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "path",
+          "remote_path",
+          "direction"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "ssh.transfer",
+      "action": "transfer",
+      "contexts": [
+        "workspace",
+        "ssh"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Transfer SSH file",
+        "locales": {
+          "zh-CN": "传输 SSH 文件",
+          "zh-TW": "傳輸 SSH 檔案",
+          "ja": "SSH でファイルを転送",
+          "ko": "SSH 파일 전송",
+          "fr": "Transférer un fichier SSH",
+          "de": "SSH-Datei übertragen",
+          "es": "Transferir archivo SSH",
+          "pt-BR": "Transferir arquivo SSH",
+          "ru": "Передать файл по SSH",
+          "en": "Transfer SSH file"
+        },
+        "icon": "reicon:it/terminal-square",
+        "input": {
+          "summary": {
+            "path": "/connection",
+            "format": "connection",
+            "result_path": "/connection_name"
+          },
+          "content": {
+            "path": "/path",
+            "code": true
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "arguments",
+                  "path": "/direction"
+                }
+              },
+              {
+                "text": "\npath: "
+              },
+              {
+                "value": {
+                  "source": "arguments",
+                  "path": "/path"
+                }
+              },
+              {
+                "text": "\nremote_path: "
+              },
+              {
+                "value": {
+                  "source": "arguments",
+                  "path": "/remote_path"
+                }
+              },
+              {
+                "text": "\nbytes: ",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/bytes"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/bytes"
+                }
+              },
+              {
+                "text": "\nfingerprint: ",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/key/fingerprint"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/key/fingerprint"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "ssh_connections",
+      "legacy_package": "ssh",
+      "description": "List saved SSH connections available to this session, including IDs and revisions. Passwords, private keys and passphrases are never returned.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "ssh.connections",
+      "action": "connections",
+      "contexts": [
+        "workspace",
+        "ssh"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "SSH connections",
+        "locales": {
+          "zh-CN": "SSH 连接",
+          "zh-TW": "SSH 連線",
+          "ja": "SSH 接続",
+          "ko": "SSH 연결",
+          "fr": "Connexions SSH",
+          "de": "SSH-Verbindungen",
+          "es": "Conexiones SSH",
+          "pt-BR": "Conexões SSH",
+          "ru": "Подключения SSH",
+          "en": "SSH connections"
+        },
+        "icon": "reicon:it/terminal-square"
+      }
+    },
+    {
+      "name": "ssh_save_connection",
+      "legacy_package": "ssh",
+      "description": "Create or update an SSH connection under the session permission policy. Create requires name, host, port, username and authentication: password, private_key, key_path or agent. Supply credentials only for the requested save; key paths must be absolute on the execution Node. Update requires connection and expected_revision from ssh_connections. Omitted credentials remain unchanged; a supplied credential replaces them, and an omitted passphrase clears the replacement's passphrase. Do not echo credentials or supply host keys. Use the returned ID for SSH tools in this turn. First use requires runtime host-fingerprint approval. Do not automatically repeat a denied or uncertain save.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "connection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "Saved connection ID; omit with expected_revision to create"
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "authentication": {
+            "type": "string",
+            "enum": [
+              "password",
+              "private_key",
+              "key_path",
+              "agent"
+            ]
+          },
+          "credential": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "password"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "password"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "private_key"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "passphrase": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "key"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "key_path"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "passphrase": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "agent"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "key_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to an existing private key on the execution Node; never its contents"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "connection"
+              ],
+              "properties": {
+                "connection": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "expected_revision"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "integer"
+                }
+              }
+            },
+            "else": {
+              "required": [
+                "name",
+                "host",
+                "port",
+                "username",
+                "authentication"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "null"
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "authentication": {
+                        "enum": [
+                          "password",
+                          "private_key"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "credential"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "authentication": {
+                        "const": "key_path"
+                      }
+                    }
+                  },
+                  "then": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "credential"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "key_path"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "operation": "ssh.save",
+      "action": "save",
+      "contexts": [
+        "workspace",
+        "ssh"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Save SSH connection",
+        "locales": {
+          "zh-CN": "保存 SSH 连接",
+          "zh-TW": "儲存 SSH 連線",
+          "ja": "SSH 接続を保存",
+          "ko": "SSH 연결 저장",
+          "fr": "Enregistrer la connexion SSH",
+          "de": "SSH-Verbindung speichern",
+          "es": "Guardar conexión SSH",
+          "pt-BR": "Salvar conexão SSH",
+          "ru": "Сохранить подключение SSH",
+          "en": "Save SSH connection"
+        },
+        "icon": "reicon:it/terminal-square",
+        "input": {
+          "summary": {
+            "path": "/name",
+            "result_path": "/data/name"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/name"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "text": "\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/username"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "text": "@",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/host"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "text": ":",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/port"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "text": "\n",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/authentication"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/kind"
+                      },
+                      "equals": "ssh_profile"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "instructions": "Use ssh_connections to inspect saved profiles and their revisions. When asked to add or edit a connection, use ssh_save_connection with the chosen authentication and explicitly supplied credentials. Omit credentials to retain them; never read or echo saved credentials. Use the returned ID in this turn; the user must confirm the exact first host fingerprint through the runtime approval. Never provide or auto-trust a host key."
+}

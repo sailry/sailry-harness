@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/acceptance"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/hostctl"
@@ -24,7 +25,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/modules/code-index/node"
 )
 
 const acceptanceUsage = `Usage: sailry-host acceptance --data-dir <absolute test profile> [--start] [--suite quick|backend|ui|e2e|full|replay] [--provider <name or id> --model <id> [--effort <level>]] [--case <id> ...] [--timeout <duration>] [--report-dir <directory>] [--desktop <executable>] [--open-report]
@@ -413,7 +413,7 @@ func acceptanceClient(ctx context.Context, options acceptanceOptions) (*client.C
 		// use the Node's normal configured provider and tool implementations.
 		execution, err = node.StartWithOptions(ctx, options.profile, node.Options{
 			LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
-			CodeIndex:   codeindex.NewService,
+			Assembly:    hostassembly.Harness(),
 			Telemetry: telemetry.Options{Application: "host", Lookup: func(name string) string {
 				if name == "SAILRY_TELEMETRY" {
 					return "off"

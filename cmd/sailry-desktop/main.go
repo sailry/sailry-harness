@@ -5,16 +5,16 @@ import (
 	"os"
 
 	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/application"
 	"github.com/sailry/sailry-harness/internal/identity"
-	"github.com/sailry/sailry-harness/modules/code-index/node"
 )
 
 func main() {
 	product := identity.OfficialDesktop()
 	product.DefaultProfile = core.Default
-	if err := application.Run(os.Args[1:], application.Options{Identity: product, Assembly: desktop.Harness(), CodeIndex: codeindex.NewService}); err != nil {
+	if err := application.Run(os.Args[1:], application.Options{Identity: product, Assembly: desktop.Harness(), Host: hostassembly.Harness()}); err != nil {
 		log.Fatal(err)
 	}
 }

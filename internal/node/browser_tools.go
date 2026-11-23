@@ -52,7 +52,7 @@ func (node *Node) browserTools(ctx context.Context, inv *store.AgentInvocation) 
 	}
 	var tools []engine.Tool
 	for _, info := range infos {
-		if info.Extension == nil || info.Extension.Host == nil {
+		if info.Extension == nil || info.Extension.Host == nil || node.hasReplacedPlugin(info.Summary.Name) {
 			continue
 		}
 		for _, declaration := range info.Extension.Tools {

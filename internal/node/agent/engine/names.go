@@ -140,6 +140,10 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 			result.forward[legacy] = name
 			result.reverse[legacy] = name
 		}
+		if legacy := tool.LegacyAlias(); legacy != "" && legacy != name {
+			result.forward[legacy] = name
+			result.reverse[legacy] = name
+		}
 	}
 	return result
 }

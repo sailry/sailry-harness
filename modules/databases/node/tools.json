@@ -1,0 +1,453 @@
+{
+  "tools": [
+    {
+      "name": "database_catalog",
+      "legacy_package": "databases",
+      "description": "List databases, or tables in a selected database, using a saved connection. Credentials remain on the execution Node.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "[]"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name; omit to use the saved default"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "databases.catalog",
+      "action": "catalog",
+      "contexts": [
+        "workspace",
+        "database"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Database catalog",
+        "locales": {
+          "zh-CN": "数据库目录",
+          "zh-TW": "資料庫目錄",
+          "ja": "データベース一覧",
+          "ko": "데이터베이스 목록",
+          "fr": "Catalogue des bases de données",
+          "de": "Datenbankkatalog",
+          "es": "Catálogo de bases de datos",
+          "pt-BR": "Catálogo de bancos de dados",
+          "ru": "Каталог баз данных",
+          "en": "Database catalog"
+        },
+        "icon": "reicon:ui/database",
+        "input": {
+          "summary": {
+            "path": "/database",
+            "code": true
+          },
+          "content": {
+            "path": "/sql",
+            "code": true
+          }
+        }
+      }
+    },
+    {
+      "name": "database_query",
+      "legacy_package": "databases",
+      "description": "Run one read-only SQL statement without approval. The execution connection is forced read-only. Use this for SELECT, inspecting schema, and analysis. Results also appear in the database workspace. Use database_execute for writes; never try to disable read-only protection.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "[]"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name; omit to use the saved default"
+          },
+          "sql": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "sql"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "databases.query",
+      "action": "query",
+      "contexts": [
+        "workspace",
+        "database"
+      ],
+      "presentation": "content",
+      "display": {
+        "label": "Query database",
+        "locales": {
+          "zh-CN": "查询数据库",
+          "zh-TW": "查詢資料庫",
+          "ja": "データベースを照会",
+          "ko": "데이터베이스 조회",
+          "fr": "Interroger la base de données",
+          "de": "Datenbank abfragen",
+          "es": "Consultar base de datos",
+          "pt-BR": "Consultar banco de dados",
+          "ru": "Запрос к базе данных",
+          "en": "Query database"
+        },
+        "icon": "reicon:ui/database",
+        "input": {
+          "summary": {
+            "path": "/database",
+            "code": true
+          },
+          "content": {
+            "path": "/sql",
+            "code": true
+          }
+        },
+        "output": {
+          "table": {
+            "columns": {
+              "source": "result",
+              "path": "/data/data/columns"
+            },
+            "rows": {
+              "source": "result",
+              "path": "/data/data/rows"
+            },
+            "truncated": {
+              "source": "result",
+              "path": "/data/data/truncated"
+            },
+            "cell": {
+              "value": "/value",
+              "missing": "NULL",
+              "bytes": "hex"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "database_execute",
+      "legacy_package": "databases",
+      "description": "Execute one SQL write statement under the session permission policy. Use for INSERT, UPDATE, DELETE, and schema changes. For a missing writable SQLite file, an authorized schema write initializes it and creates missing parent directories; do not create the folder or an empty file separately. Explicit writable connection checks can also initialize a missing file. Reads, catalog, read-only connection checks, and PRAGMAs do not initialize a file. The saved connection's read-only setting still applies. Invoke this tool directly instead of asking for approval in chat. Do not retry a denied or uncertain write automatically.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "[]"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name; omit to use the saved default"
+          },
+          "sql": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "sql"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "databases.execute",
+      "action": "execute",
+      "contexts": [
+        "workspace",
+        "database"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Execute SQL",
+        "locales": {
+          "zh-CN": "执行 SQL",
+          "zh-TW": "執行 SQL",
+          "ja": "SQL を実行",
+          "ko": "SQL 실행",
+          "fr": "Exécuter du SQL",
+          "de": "SQL ausführen",
+          "es": "Ejecutar SQL",
+          "pt-BR": "Executar SQL",
+          "ru": "Выполнить SQL",
+          "en": "Execute SQL"
+        },
+        "icon": "reicon:ui/database",
+        "input": {
+          "summary": {
+            "path": "/database",
+            "code": true
+          },
+          "content": {
+            "path": "/sql",
+            "code": true
+          }
+        },
+        "output": {
+          "table": {
+            "columns": {
+              "source": "result",
+              "path": "/data/data/columns"
+            },
+            "rows": {
+              "source": "result",
+              "path": "/data/data/rows"
+            },
+            "truncated": {
+              "source": "result",
+              "path": "/data/data/truncated"
+            },
+            "cell": {
+              "value": "/value",
+              "missing": "NULL",
+              "bytes": "hex"
+            }
+          },
+          "preview": {
+            "parts": [
+              {
+                "text": "affected_rows: ",
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/data/affected_rows"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/data/affected_rows"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "database_connections",
+      "legacy_package": "databases",
+      "description": "List saved database connections available to this session, including IDs, revisions, engines and whether credentials are required. No passwords are returned.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "databases.connections",
+      "action": "connections",
+      "contexts": [
+        "workspace",
+        "database"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Database connections",
+        "locales": {
+          "zh-CN": "数据库连接",
+          "zh-TW": "資料庫連線",
+          "ja": "データベース接続",
+          "ko": "데이터베이스 연결",
+          "fr": "Connexions aux bases de données",
+          "de": "Datenbankverbindungen",
+          "es": "Conexiones de bases de datos",
+          "pt-BR": "Conexões de bancos de dados",
+          "ru": "Подключения к базам данных",
+          "en": "Database connections"
+        },
+        "icon": "reicon:ui/database"
+      }
+    },
+    {
+      "name": "database_save_connection",
+      "legacy_package": "databases",
+      "description": "Create or update a database connection under the session permission policy. Create requires name and engine, plus path for SQLite or host, port, username and database for MySQL/PostgreSQL. If database_connections returns no profiles, create without connection or expected_revision; do not reuse an ID from earlier conversation history. Saving records configuration only and does not create a SQLite file. New connections default to read_only=true; use read_only=false only for requested writes. Update requires connection and expected_revision from database_connections and preserves omitted fields and credentials. Never accept or request passwords; when credentials_required is true, the user supplies them in protected settings. Use the returned ID directly for catalog or SQL tools in this turn. Do not automatically repeat a denied or uncertain save.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "connection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$",
+            "description": "Saved connection ID; omit with expected_revision to create"
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "sqlite",
+              "mysql",
+              "postgres"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "SQLite file path on the execution Node; relative paths use the captured worktree. Saving does not create the file"
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "database": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "connection"
+              ],
+              "properties": {
+                "connection": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "expected_revision"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "integer"
+                }
+              }
+            },
+            "else": {
+              "required": [
+                "name",
+                "engine"
+              ],
+              "properties": {
+                "expected_revision": {
+                  "type": "null"
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "engine": {
+                        "const": "sqlite"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  "else": {
+                    "required": [
+                      "host",
+                      "port",
+                      "username",
+                      "database"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "operation": "databases.save",
+      "action": "save",
+      "contexts": [
+        "workspace",
+        "database"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Save database connection",
+        "locales": {
+          "zh-CN": "保存数据库连接",
+          "zh-TW": "儲存資料庫連線",
+          "ja": "データベース接続を保存",
+          "ko": "데이터베이스 연결 저장",
+          "fr": "Enregistrer la connexion",
+          "de": "Datenbankverbindung speichern",
+          "es": "Guardar conexión de base de datos",
+          "pt-BR": "Salvar conexão de banco de dados",
+          "ru": "Сохранить подключение к базе",
+          "en": "Save database connection"
+        },
+        "icon": "reicon:ui/database",
+        "input": {
+          "summary": {
+            "path": "/name",
+            "result_path": "/data/name"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/name"
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/connection"
+                },
+                "format": "json"
+              }
+            ],
+            "separator": "\n"
+          }
+        }
+      }
+    }
+  ],
+  "instructions": "Use database_connections to inspect saved profiles and their revisions. When no profiles are returned, create a connection without connection or expected_revision; do not reuse IDs from earlier conversation history. When asked to add or edit a connection, use database_save_connection; never request passwords. SQLite needs no credentials and its returned ID can be used in this turn. Saving a connection does not create its file. For a requested new SQLite database, save the connection with read_only=false and use database_execute for the authorized schema write; missing parent directories are created automatically. Explicit writable connection checks can also initialize a missing SQLite file. Do not write an empty file as a workaround or silently change a read-only connection. If credentials_required is true, ask the user to fill the protected settings field."
+}

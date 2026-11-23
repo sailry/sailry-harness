@@ -1,0 +1,1299 @@
+{
+  "tools": [
+    {
+      "name": "git_status",
+      "legacy_package": "git",
+      "description": "Read Git status without modifying the index or checkout. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "git.status",
+      "action": "status",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Git status",
+        "locales": {
+          "zh-CN": "Git 状态",
+          "zh-TW": "Git 狀態",
+          "ja": "Git の状態",
+          "ko": "Git 상태",
+          "fr": "État Git",
+          "de": "Git-Status",
+          "es": "Estado de Git",
+          "pt-BR": "Estado do Git",
+          "ru": "Состояние Git",
+          "en": "Git status"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/entries"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "text": "U",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "?",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "A",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": "added"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "M",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": "modified"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "D",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": "deleted"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "R",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": "renamed"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "T",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": "type_changed"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": " ",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/staged"
+                              },
+                              "equals": null
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "U",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "?",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": true
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "A",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": "added"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "M",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": "modified"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "D",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": "deleted"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "R",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": "renamed"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "T",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": "type_changed"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": " ",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/conflicted"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/untracked"
+                              },
+                              "equals": false
+                            },
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/unstaged"
+                              },
+                              "equals": null
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "  "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/path"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ]
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Directory",
+                "locales": {
+                  "zh-CN": "普通目录"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/kind"
+                    },
+                    "equals": "directory"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "git_diff",
+      "legacy_package": "git",
+      "description": "Read the bounded Git diff of one relative file path. Select staged, unstaged or all changes. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative to the selected worktree"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "staged",
+              "unstaged"
+            ]
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "git.diff",
+      "action": "diff",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "View diff",
+        "locales": {
+          "zh-CN": "查看差异",
+          "zh-TW": "檢視差異",
+          "ja": "差分を見る",
+          "ko": "차이 보기",
+          "fr": "Voir les différences",
+          "de": "Diff anzeigen",
+          "es": "Ver diferencias",
+          "pt-BR": "Ver diferenças",
+          "ru": "Показать изменения",
+          "en": "View diff"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z\"/>\n  <path d=\"M14 2v6h6M8 12h6M11 9v6M8 18h6\"/>\n</svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/path",
+            "code": true
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/text"
+                }
+              }
+            ]
+          },
+          "body": {
+            "text": {
+              "source": "result",
+              "path": "/data/text"
+            },
+            "path": {
+              "source": "arguments",
+              "path": "/path"
+            },
+            "diff": {
+              "format": "unified",
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/binary"
+                    },
+                    "equals": false
+                  }
+                ]
+              }
+            }
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Binary file",
+                "locales": {
+                  "zh-CN": "二进制文件"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/binary"
+                    },
+                    "equals": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "git_log",
+      "legacy_package": "git",
+      "description": "Read a page of Git commit history, optionally starting at revision and filtering a literal worktree-relative path. For the first page omit cursor or pass null, for example {\"limit\":5,\"cursor\":null}. For subsequent pages pass the exact next cursor and keep the same path filter. Cursors contain the frozen traversal head, last commit ID and cumulative row offset; never construct them from a short hash, HEAD, branch name or numeric offset. An empty repository returns an empty history. Omit worktree for this turn's directory, or select a registered worktree ID from list_worktrees in the same project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          },
+          "cursor": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "head": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{40}$"
+              },
+              "after": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{40}$"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "head",
+              "after",
+              "offset"
+            ],
+            "additionalProperties": false,
+            "description": "Omit or use null for the first page; otherwise pass the exact returned cursor"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Starting revision for the first page; omit for HEAD. Continuations keep the cursor's frozen head"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Literal worktree-relative file or directory; keep the same filter when continuing. Changes are compared with each commit's first parent"
+          },
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registered worktree ID in this turn's project; omit for the current worktree"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "git.log",
+      "action": "log",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Git history",
+        "locales": {
+          "zh-CN": "Git 日志",
+          "zh-TW": "Git 歷史",
+          "ja": "Git の履歴",
+          "ko": "Git 기록",
+          "fr": "Historique Git",
+          "de": "Git-Verlauf",
+          "es": "Historial de Git",
+          "pt-BR": "Histórico do Git",
+          "ru": "История Git",
+          "en": "Git history"
+        },
+        "icon": {
+          "svg": "<svg\n    xmlns=\"http://www.w3.org/2000/svg\"\n    width=\"24\"\n    height=\"24\"\n    viewBox=\"0 0 24 24\"\n    fill=\"none\"\n    stroke=\"currentColor\"\n    stroke-width=\"2\"\n    stroke-linecap=\"round\"\n    stroke-linejoin=\"round\"\n><rect x=\"16\" y=\"16\" width=\"6\" height=\"6\" rx=\"1\" /><rect\n        x=\"2\"\n        y=\"16\"\n        width=\"6\"\n        height=\"6\"\n        rx=\"1\"\n    /><rect x=\"9\" y=\"2\" width=\"6\" height=\"6\" rx=\"1\" /><path\n        d=\"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3\"\n    /><path d=\"M12 12V8\" /></svg>"
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/entries"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/id"
+                        },
+                        "take": 12
+                      },
+                      {
+                        "text": "  "
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/author"
+                        }
+                      },
+                      {
+                        "text": "\n"
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/message"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n\n"
+                }
+              }
+            ]
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Invalid Git history cursor; use the full cursor returned by the tool",
+                "locales": {
+                  "zh-CN": "Git 分页游标无效，请使用工具返回的完整游标"
+                }
+              },
+              "when": {
+                "any": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/message"
+                    },
+                    "equals": "expected a full Git commit object ID"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "git_show",
+      "legacy_package": "git",
+      "description": "Read a commit patch, or a UTF-8 file at a commit without changing the checkout. revision defaults to HEAD; omit path for the bounded commit patch. For file pages offset is a zero-based line offset and limit defaults to 2000; each response returns at most 2000 lines. Text includes one-based line numbers. Use the returned immutable commit and next offset for continuation. Pages are bounded to 48 KiB and files to 32 MiB; truncation and an incomplete line are explicit. Binary files return a binary marker. Select only registered worktrees in this session project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "description": "Git commit revision; defaults to HEAD"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Literal worktree-relative path"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 2000,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "git.show",
+      "action": "show",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Git show",
+        "locales": {
+          "zh-CN": "Git 查看",
+          "zh-TW": "Git 物件",
+          "ja": "Git オブジェクト",
+          "ko": "Git 객체",
+          "fr": "Objet Git",
+          "de": "Git-Objekt",
+          "es": "Objeto Git",
+          "pt-BR": "Objeto Git",
+          "ru": "Объект Git",
+          "en": "Git show"
+        },
+        "icon": "reicon:newicons/hierarchy2",
+        "input": {
+          "summary": {
+            "path": "/path",
+            "result_path": "/data/path"
+          },
+          "context": {
+            "path": "/revision"
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/text"
+                }
+              },
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/files"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/path"
+                        }
+                      },
+                      {
+                        "text": "\n"
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              }
+            ],
+            "separator": "\n"
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Binary file",
+                "locales": {
+                  "en": "Binary file",
+                  "zh-CN": "二进制文件",
+                  "zh-TW": "二進位檔案",
+                  "ja": "バイナリファイル",
+                  "ko": "바이너리 파일",
+                  "fr": "Fichier binaire",
+                  "de": "Binärdatei",
+                  "es": "Archivo binario",
+                  "pt-BR": "Arquivo binário",
+                  "ru": "Двоичный файл"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/binary"
+                    },
+                    "equals": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "git_blame",
+      "legacy_package": "git",
+      "description": "Read committed line authorship without changing the checkout. path is literal and worktree-relative; revision defaults to HEAD, excluding uncommitted changes. offset is zero-based and limit defaults to 200, at most 500. Use the returned immutable commit and next offset for continuation. Pages contain at most 48 KiB of line text; individual truncated lines are marked. Files must be committed regular UTF-8 text files at most 32 MiB. Select only registered worktrees in this session project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Git commit revision; defaults to HEAD"
+          },
+          "path": {
+            "type": "string",
+            "description": "Literal worktree-relative path"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 200,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "git.blame",
+      "action": "blame",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Git blame",
+        "locales": {
+          "zh-CN": "Git 行归属",
+          "zh-TW": "Git 逐行歸屬",
+          "ja": "Git の行の作成者",
+          "ko": "Git 줄 작성자",
+          "fr": "Auteurs des lignes Git",
+          "de": "Git-Zeilenautoren",
+          "es": "Autoría de líneas Git",
+          "pt-BR": "Autoria das linhas Git",
+          "ru": "Авторы строк Git",
+          "en": "Git blame"
+        },
+        "icon": "reicon:newicons/hierarchy2",
+        "input": {
+          "summary": {
+            "path": "/path"
+          },
+          "context": {
+            "path": "/revision"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_git_changes",
+      "legacy_package": "git",
+      "description": "List changed file metadata without reading source bodies. Omit target and cursor for all working changes; select an explicit worktree, commit or range target otherwise. Exactly one target or cursor is accepted. Continue using next verbatim; use cursor {snapshot,after_path:null} to repeat from the same frozen target. Commits and ranges resolve once to full SHAs. Each page has at most 500 entries and 48 KiB encoded JSON. Only exhausted=true and omitted_paths=0 proves complete inventory. No patches, statistics or rename similarity are computed. Select only registered worktrees in this session project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Worktree {kind:\"worktree\",data:{scope:\"all\"|\"staged\"|\"unstaged\"}}, commit {kind:\"commit\",data:{revision}}, or range {kind:\"range\",data:{base,head}}. Omit when using cursor."
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "snapshot": {
+                    "type": "object",
+                    "description": "Complete snapshot returned by the change inventory or review scope; pass it unchanged on every page"
+                  },
+                  "after_path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "snapshot",
+                  "after_path"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 200,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "operation": "git.changes",
+      "action": "changes",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Git changes",
+        "locales": {
+          "zh-CN": "Git 变更",
+          "zh-TW": "Git 變更",
+          "ja": "Git の変更",
+          "ko": "Git 변경사항",
+          "fr": "Changements Git",
+          "de": "Git-Änderungen",
+          "es": "Cambios de Git",
+          "pt-BR": "Alterações do Git",
+          "ru": "Изменения Git",
+          "en": "Git changes"
+        },
+        "icon": "reicon:newicons/hierarchy2",
+        "input": {
+          "summary": {
+            "path": "/target/kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "read_git_change",
+      "legacy_package": "git",
+      "description": "Read a literal file diff from a returned Git changes snapshot. Every request requires the unchanged snapshot, the selected file's path and its metadata_revision as expected_metadata_revision. Do not use snapshot.metadata_revision for the file revision. The first request uses offset=0; omit expected_revision unless a strong file revision is already captured. Every continuation or later check supplies the returned strong revision. offset counts mapped diff lines, limit defaults to 200 and is at most 500. Complete source lines preserve whitespace except terminal CR/LF and carry one-based old/new line numbers. Pages are bounded to 48 KiB encoded JSON without truncating lines. Binary, non-UTF-8, unsupported modes, oversized files and oversized lines return an explicit skip_reason. Commit snapshots remain fixed when references move; working snapshots reject metadata or content changes. Files are bounded to 32 MiB. Select only registered worktrees in this session project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "worktree": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot": {
+            "type": "object",
+            "description": "Complete snapshot returned by the change inventory or review scope; pass it unchanged on every page"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path of the selected file entry in this snapshot; required on every page"
+          },
+          "expected_metadata_revision": {
+            "type": "string",
+            "description": "The selected file entry's metadata_revision, not snapshot.metadata_revision"
+          },
+          "expected_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Strong revision of this file from the review scope or a previous read; required for continuation"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 200,
+            "description": "Requested rows; each response has an independent output budget and may return a continuation"
+          }
+        },
+        "required": [
+          "snapshot",
+          "path",
+          "expected_metadata_revision"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "git.change",
+      "action": "change",
+      "stream_read": true,
+      "contexts": [
+        "workspace"
+      ],
+      "presentation": "details",
+      "display": {
+        "label": "Git file change",
+        "locales": {
+          "zh-CN": "Git 文件变更",
+          "zh-TW": "Git 檔案變更",
+          "ja": "Git ファイルの変更",
+          "ko": "Git 파일 변경사항",
+          "fr": "Modification du fichier Git",
+          "de": "Git-Dateiänderung",
+          "es": "Cambio de archivo Git",
+          "pt-BR": "Alteração de arquivo Git",
+          "ru": "Изменение файла Git",
+          "en": "Git file change"
+        },
+        "icon": "reicon:newicons/hierarchy2",
+        "input": {
+          "summary": {
+            "path": "/path",
+            "result_path": "/data/path"
+          },
+          "context": {
+            "path": "/revision"
+          },
+          "target": {
+            "path": "/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/old_path"
+                },
+                "when": {
+                  "all": [
+                    {
+                      "value": {
+                        "source": "result",
+                        "path": "/data/old_path"
+                      },
+                      "equals": null,
+                      "negate": true
+                    }
+                  ]
+                }
+              },
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/lines"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "text": "+",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/kind"
+                              },
+                              "equals": "added"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": "-",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/kind"
+                              },
+                              "equals": "deleted"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "text": " ",
+                        "when": {
+                          "all": [
+                            {
+                              "value": {
+                                "source": "item",
+                                "path": "/kind"
+                              },
+                              "equals": "context"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n"
+                }
+              },
+              {
+                "value": {
+                  "source": "result",
+                  "path": "/data/skip_reason"
+                }
+              }
+            ],
+            "separator": "\n"
+          },
+          "notices": [
+            {
+              "message": {
+                "label": "Binary file",
+                "locales": {
+                  "en": "Binary file",
+                  "zh-CN": "二进制文件",
+                  "zh-TW": "二進位檔案",
+                  "ja": "バイナリファイル",
+                  "ko": "바이너리 파일",
+                  "fr": "Fichier binaire",
+                  "de": "Binärdatei",
+                  "es": "Archivo binario",
+                  "pt-BR": "Arquivo binário",
+                  "ru": "Двоичный файл"
+                }
+              },
+              "when": {
+                "all": [
+                  {
+                    "value": {
+                      "source": "result",
+                      "path": "/data/binary"
+                    },
+                    "equals": true
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

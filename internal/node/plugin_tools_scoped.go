@@ -24,6 +24,9 @@ import (
 func (node *Node) scopedTools(inv *store.AgentInvocation, catalog *operations.Catalog) ([]engine.Tool, error) {
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
+		if node.hasReplacedPlugin(declaration.Owner.Name) {
+			continue
+		}
 		if !operations.ScopedOperation(declaration.Operation) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) ||
 			!availableOperationTool(inv, declaration) ||
 			inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil && len(declaration.Contexts) == 0 {

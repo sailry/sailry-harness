@@ -20,9 +20,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
-	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -111,7 +111,7 @@ type desktopBackend struct {
 	err     error
 }
 
-func openBackend(ctx context.Context, options startupOptions, product identity.Desktop, codeIndex codeindexapi.Factory) (*desktopBackend, error) {
+func openBackend(ctx context.Context, options startupOptions, product identity.Desktop, hostAssembly moduleapi.Assembly) (*desktopBackend, error) {
 	backend := &desktopBackend{}
 	if options.Preview {
 		return backend, nil
@@ -132,7 +132,7 @@ func openBackend(ctx context.Context, options startupOptions, product identity.D
 		Network:     startupScope(options.Relays),
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 		HostRelease: product.HostRelease,
-		CodeIndex:   codeIndex,
+		Assembly:    hostAssembly,
 	})
 	if err != nil {
 		backend.closeLogs()

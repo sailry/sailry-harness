@@ -31,6 +31,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/host"
 	knowledgeservice "github.com/sailry/sailry-harness/internal/node/knowledge/service"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/ports"
 	"github.com/sailry/sailry-harness/internal/node/power"
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -79,6 +80,7 @@ type Node struct {
 	processes         *process.Service
 	watches           *workspaceWatches
 	codeIndex         *codeIndexControls
+	modules           moduleapi.Assembly
 	computerOverlay   computer.Overlay
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
@@ -160,6 +162,7 @@ type Options struct {
 	Power           power.Backend
 	Telemetry       telemetry.Options
 	CodeIndex       codeindexapi.Factory
+	Assembly        moduleapi.Assembly
 	knowledge       func(*knowledgeservice.Options)
 }
 
@@ -188,7 +191,10 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, knowledgeAdjust: options.knowledge, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, modules: options.Assembly, knowledgeAdjust: options.knowledge, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	if options.CodeIndex == nil && options.Assembly.CodeIndex != nil {
+		options.CodeIndex = options.Assembly.CodeIndex
+	}
 	for index := range value.lanes {
 		value.lanes[index] = commandLane{wake: make(chan struct{}, 1), done: make(chan struct{})}
 	}
@@ -249,7 +255,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.mediaPoll = model.MediaVideoPoll
 	options.Telemetry.RetryDirectory = filepath.Join(profile.Ownership.Path, "tmp")
 	value.telemetry = newTelemetry(options.Telemetry)
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn, PluginAvailability: value.checkPluginAvailability})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn, PluginAvailability: value.checkPluginAvailability, ToolPresentation: value.moduleToolPresentation})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()

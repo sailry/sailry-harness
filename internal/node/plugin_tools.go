@@ -64,7 +64,7 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 				labels[name] = toolSearchLabels(*declaration.Display)
 			}
 		}
-		if info.Extension != nil && info.Extension.Host != nil {
+		if info.Extension != nil && info.Extension.Host != nil && !node.hasReplacedPlugin(info.Summary.Name) {
 			for _, declaration := range info.Extension.Tools {
 				if declaration.Handler != nil {
 					alias := operations.Alias(info.Summary.Name, declaration.Name)

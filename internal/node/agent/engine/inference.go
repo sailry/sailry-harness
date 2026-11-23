@@ -123,7 +123,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	contextPackages := map[string]bool{}
 	child := x.inv.Session.Delegation != nil
 	for _, tool := range x.tools {
-		if !hasTools || child && tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
+		if !hasTools || child && tool.Deferred && !toolLoaded(state.LoadedTools, tool) {
 			continue
 		}
 		// A package's initializer can describe an active goal or continuation

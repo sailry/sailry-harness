@@ -356,7 +356,7 @@ func ValidateConnectionTrust(ctx context.Context, db *sql.Conn, turn protocol.Tu
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(capture.Plugins, binding.Owner) {
+	if binding.Owner.Name != "" && !slices.Contains(capture.Plugins, binding.Owner) {
 		return denied
 	}
 	profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", trust.Profile.String())

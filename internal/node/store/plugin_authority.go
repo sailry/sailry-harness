@@ -55,7 +55,16 @@ func pluginRequestPackage(ctx context.Context, db *sql.Conn, node, caller protoc
 		if err != nil {
 			return protocol.PluginInfo{}, false, err
 		}
-		if scope.Session == nil || *scope.Session != capture.Session || scope.Worktree == nil || *scope.Worktree != session.Worktree || !slices.Contains(capture.Plugins, scope.Package) {
+		if scope.Session == nil || *scope.Session != capture.Session || scope.Worktree == nil || *scope.Worktree != session.Worktree {
+			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin does not belong to the captured turn")
+		}
+		// Compile-time native modules run turn-scoped connection/storage commands
+		// on their own execution Node with an empty package reference, preserving
+		// sharing, approval-claim and host-key checks without requiring a plugin.
+		if scope.Package == (protocol.PluginReference{}) {
+			return protocol.PluginInfo{}, false, nil
+		}
+		if !slices.Contains(capture.Plugins, scope.Package) {
 			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin does not belong to the captured turn")
 		}
 		info, err := ResolvePluginInfo(ctx, db, scope.Package)
@@ -91,6 +100,17 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Request, info protocol.PluginInfo, dispatched bool) error {
 	scope := request.Plugin
 	if scope == nil {
+		return nil
+	}
+	if scope.Turn != nil && scope.Package == (protocol.PluginReference{}) {
+		// Native module turn-scoped requests still enforce connection sharing,
+		// claimed save approvals, and explicit SSH host-key trust checks.
+		if _, allowed, err := PluginConnectionAction(ctx, db, request); err != nil || allowed {
+			return err
+		}
+		if _, allowed, err := pluginExternalBrowserAction(ctx, db, request); err != nil || allowed {
+			return err
+		}
 		return nil
 	}
 	if info.Summary.Compatibility.Kind != "compatible" || info.Extension == nil {
