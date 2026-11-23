@@ -389,8 +389,7 @@ type Call struct {
 	DetailRevision string
 	Load           func(apply func(*Output)) (cancel func()) `json:"-"`
 
-	wrap   bool // view-only: the label wraps rather than truncates
-	repeat int  // view-only: consecutive identical calls collapsed into this row
+	wrap bool // view-only: the label wraps rather than truncates
 }
 
 // Background is where a command that runs apart from its turn is: running,

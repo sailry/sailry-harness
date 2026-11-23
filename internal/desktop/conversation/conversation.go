@@ -43,6 +43,8 @@ type State struct {
 	anchors       map[string]transcriptAnchor
 	anchorOrder   uint64
 	open          map[string]bool    // the disclosures open
+	revealOpen    string             // disclosure opened on the last click, to scroll into view
+	revealWaiting bool               // true while revealOpen awaits an async detail load
 	work          map[string]bool    // work regions the user opened or closed
 	built         map[string]bool    // lists built once, so laid out
 	presses       map[string]*press  // the pointer's button over each conversation's transcript

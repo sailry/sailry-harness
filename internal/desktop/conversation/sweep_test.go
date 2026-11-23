@@ -113,14 +113,16 @@ func TestRunningToolRowsSweep(t *testing.T) {
 	})
 	t.Run("concurrent block", func(t *testing.T) {
 		// One block of calls of one name and of another folds into one
-		// group whose closed header, the latest call, sweeps; opened, every
-		// row is its own and the running ones sweep.
+		// group whose closed header, the latest call, sweeps; opened,
+		// consecutive same-tool calls form a sweeping branch whose leaves
+		// keep their own sweep state.
 		calls := []Call{runningCall("a", "read", "a.go", false), runningCall("b", "read", "b.go", false), runningCall("c", "read", "c.go", false), runningCall("d", "grep", "d.go", false)}
 		calls[1].Running = false
 		turns := sweepTurn(ExecutingTool, Block{Kind: ToolsBlock, Calls: calls})
 		group := "d.go"
 		expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: true})
-		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go", "d.go")
+		expectSweeps(t, sweeps(t, turns, []string{group}, "read", "d.go"), map[string]bool{"read": true, "d.go": true})
+		lit := sweeps(t, turns, []string{group, "read"}, "a.go", "b.go", "c.go", "d.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": true, "b.go": false, "c.go": true, "d.go": true})
 	})
 	t.Run("with progress", func(t *testing.T) {
@@ -220,7 +222,8 @@ func TestAwaitingModelRowsSweep(t *testing.T) {
 		turns := sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls})
 		group := "c.go"
 		expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: true})
-		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go")
+		expectSweeps(t, sweeps(t, turns, []string{group}, "read", "c.go"), map[string]bool{"read": true, "c.go": true})
+		lit := sweeps(t, turns, []string{group, "read"}, "a.go", "b.go", "c.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": true, "c.go": true})
 	})
 	t.Run("with progress", func(t *testing.T) {

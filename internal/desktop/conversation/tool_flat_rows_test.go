@@ -126,6 +126,19 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				if loads != 0 {
 					t.Fatal("opening a group fetched a call's details")
 				}
+				// Consecutive Read file calls (a.go, b.go) fold into a tree branch
+				// inside the open group, keeping Search, running read, and Command
+				// on the outer rail until the branch is opened.
+				if tt.HasText("a.go") || tt.HasText("b.go") {
+					t.Fatalf("consecutive same-tool calls were not grouped into a branch: %q", tt.Texts())
+				}
+				if err := tt.Click("Read file"); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				if loads != 0 {
+					t.Fatal("opening a same-tool branch fetched a call's details")
+				}
 				var rows []ui.Rect
 				for i, detail := range details {
 					if n := textCount(tt, detail); n != 1 {
@@ -144,15 +157,15 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				if textCount(tt, label) != 2 || slices.Index(texts, label) > slices.Index(texts, "a.go") || at < 0 || !slices.Contains(texts[at:], label) {
 					t.Fatalf("the failed call is not the last row of the open group: %q", tt.Texts())
 				}
-				// The calls with a result open; the running one has none yet.
-				buttons := append(rowButtons(tt, "Read file"), rowButtons(tt, "Search")...)
-				if len(buttons) != len(details)-1 {
-					t.Fatalf("%d tool row buttons, want one per grouped call: %+v", len(buttons), buttons)
+				// Opening the Read file branch reveals both leaf rows indented
+				// together, while Search stays at the outer rail level.
+				readButtons := rowButtons(tt, "Read file")
+				if len(readButtons) != 3 || !readButtons[0].Expanded || readButtons[1].Expanded || readButtons[2].Expanded || readButtons[1].Bounds.X != readButtons[2].Bounds.X || readButtons[1].Bounds.X <= readButtons[0].Bounds.X {
+					t.Fatalf("expected one expanded Read file branch with two indented leaves: %+v", readButtons)
 				}
-				for _, b := range buttons {
-					if b.Bounds.X != buttons[0].Bounds.X || b.Expanded {
-						t.Fatalf("row %q at %v is not a closed row on the first one's level %v", b.Name, b.Bounds, buttons[0].Bounds)
-					}
+				searchButtons := rowButtons(tt, "Search")
+				if len(searchButtons) != 1 || searchButtons[0].Expanded || searchButtons[0].Bounds.X != readButtons[0].Bounds.X {
+					t.Fatalf("expected Search on the outer rail level %v, got %+v", readButtons[0].Bounds, searchButtons)
 				}
 				if err := tt.Click("b.go"); err != nil {
 					t.Fatal(err)
@@ -486,6 +499,10 @@ func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
+	if err := tt.Click("Read file"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
 	// Below the header, which repeats the latest call, the rows keep the run's order.
 	texts := tt.Texts()
 	rows := texts[slices.Index(texts, "make")+1:]
@@ -506,7 +523,7 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 	for _, reduce := range []bool{false, true} {
 		calls := []Call{
 			{ID: "a", Name: "read", Label: "Read file", Detail: "a.go", Code: true},
-			{ID: "b", Name: "read", Label: "Read file", Detail: "b.go", Code: true},
+			{ID: "b", Name: "list", Label: "List dir", Detail: "b.go", Code: true},
 		}
 		s := New()
 		tt := ui.NewTester(func(c *ui.Context) {
@@ -523,7 +540,7 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 		before, _ := tt.Find("a.go")
 		// d follows c, so the header repeats d and c.go names c's row alone.
 		calls = append(calls, Call{ID: "c", Name: "grep", Label: "Search", Detail: "c.go", Code: true, Running: true},
-			Call{ID: "d", Name: "grep", Label: "Search", Detail: "d.go", Code: true, Running: true})
+			Call{ID: "d", Name: "command", Label: "Command", Detail: "d.go", Code: true, Running: true})
 		tt.Frame()
 		tt.Advance(30 * time.Millisecond)
 		tt.Frame()
@@ -731,8 +748,8 @@ func TestToolGroupExpandNoHoverJitter(t *testing.T) {
 	}
 }
 
-func TestRepeatedToolRowsCollapse(t *testing.T) {
-	t.Run("homogeneous repeated calls collapse without double nesting", func(t *testing.T) {
+func TestTreeToolGroupsAndScrollReveal(t *testing.T) {
+	t.Run("homogeneous repeated calls collapse without count suffix or double nesting", func(t *testing.T) {
 		s := New()
 		calls := make([]Call, 5)
 		for i := range calls {
@@ -748,25 +765,24 @@ func TestRepeatedToolRowsCollapse(t *testing.T) {
 		tt.SetLocale("en")
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 		tt.Frame()
-		if textCount(tt, "Read review change") != 1 || !tt.HasText("×5") {
-			t.Fatalf("5 identical calls should collapse into a single ×5 row: %q", tt.Texts())
+		if textCount(tt, "Read review change") != 1 || tt.HasText("×5") {
+			t.Fatalf("5 identical calls should collapse into a single row without count suffix: %q", tt.Texts())
 		}
 		if err := tt.Click("Read review change"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		// Opening the repeat row reveals the 5 individual calls (plus header = 6).
 		if got := textCount(tt, "Read review change"); got != 6 {
-			t.Fatalf("opening ×5 row showed %d headers, want 6: %q", got, tt.Texts())
+			t.Fatalf("opening group showed %d headers, want 6: %q", got, tt.Texts())
 		}
 		clickRow(t, tt, "Read review change")
 		tt.Frame()
 		if !tt.HasText("diff chunk 4") {
-			t.Fatalf("opening an individual call inside a collapsed repeat did not show its output: %q", tt.Texts())
+			t.Fatalf("opening an individual call inside a collapsed group did not show its output: %q", tt.Texts())
 		}
 	})
 
-	t.Run("all-bare repeated calls stay a single plain row", func(t *testing.T) {
+	t.Run("all-bare identical calls stay a single plain row without count", func(t *testing.T) {
 		s := New()
 		calls := make([]Call, 4)
 		for i := range calls {
@@ -778,21 +794,19 @@ func TestRepeatedToolRowsCollapse(t *testing.T) {
 		}, 700, 400)
 		tt.SetLocale("en")
 		tt.Frame()
-		if textCount(tt, "Check status") != 1 || !tt.HasText("×4") || len(rowButtons(tt, "Check status")) != 0 {
-			t.Fatalf("bare repeated calls should render a non-expandable ×4 row: %q", tt.Texts())
+		if textCount(tt, "Check status") != 1 || tt.HasText("×4") || len(rowButtons(tt, "Check status")) != 0 {
+			t.Fatalf("bare identical calls should render a single plain row without count: %q", tt.Texts())
 		}
 	})
 
-	t.Run("mixed group collapses repeated middle run and keeps warning distinct", func(t *testing.T) {
+	t.Run("consecutive same-tool calls form tree branches and keep warnings distinct", func(t *testing.T) {
 		s := New()
 		calls := []Call{
-			{ID: "scope", Name: "review_scope", Label: "Review scope", Icon: "code", Warning: true, Output: &Output{Failure: "invalid arguments", ToolFailure: true}},
-			{ID: "r1", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 1"}},
-			{ID: "r2", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 2"}},
-			{ID: "r3", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 3"}},
-			{ID: "r4", Name: "read_change", Label: "Read review change", Icon: "code", Warning: true, Output: &Output{Failure: "chunk error", ToolFailure: true}},
-			{ID: "r5", Name: "read_change", Label: "Read review change", Icon: "code", Output: &Output{Text: "chunk 5"}},
-			{ID: "done", Name: "report", Label: "Report finding", Icon: "code", Output: &Output{Text: "recorded"}},
+			{ID: "ls", Name: "list_dir", Label: "List directory", Icon: "folder", Output: &Output{Text: "dir"}},
+			{ID: "r1", Name: "read_file", Label: "Read file", Icon: "file-text", Detail: "ARCHITECTURE.md", Code: true, Output: &Output{Text: "arch"}},
+			{ID: "r2", Name: "read_file", Label: "Read file", Icon: "file-text", Detail: "go.mod", Code: true, Output: &Output{Text: "mod"}},
+			{ID: "r3", Name: "read_file", Label: "Read file", Icon: "file-text", Detail: "missing.go", Code: true, Warning: true, Output: &Output{Failure: "not found", ToolFailure: true}},
+			{ID: "cmd", Name: "run_command", Label: "Command", Icon: "square-terminal", Detail: "pwd && ls", Code: true, Output: &Output{Text: "/workspace\nREADME.md", Command: true}},
 		}
 		tt := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Dark)
@@ -801,20 +815,78 @@ func TestRepeatedToolRowsCollapse(t *testing.T) {
 		tt.SetLocale("en")
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 		tt.Frame()
-		if err := tt.Click("Report finding"); err != nil {
+		if err := tt.Click("pwd && ls"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		// Inside the open group: Review scope, Read review change ×3, Read review change (warning), Read review change (single), Report finding.
-		if !tt.HasText("×3") || textCount(tt, "Read review change") != 3 {
-			t.Fatalf("expected one ×3 repeat, one distinct warning call, and one trailing single call: %q", tt.Texts())
+		// Consecutive Read file calls collapse into a single "Read file" branch
+		// without naming only one file or showing ×2; the warning read stays distinct.
+		if tt.HasText("ARCHITECTURE.md") || tt.HasText("go.mod") || tt.HasText("×2") {
+			t.Fatalf("same-tool calls did not fold cleanly into a tree branch: %q", tt.Texts())
 		}
-		if err := tt.Click("×3"); err != nil {
-			t.Fatal(err)
+		if !tt.HasText("missing.go") || !tt.HasText("List directory") {
+			t.Fatalf("warning call or sibling tool was hidden: %q", tt.Texts())
 		}
+		branch := rowButtons(tt, "Read file")
+		if len(branch) != 2 {
+			t.Fatalf("expected 1 Read file branch and 1 distinct warning Read file row, got %+v", branch)
+		}
+		tt.ClickAt(branch[0].Bounds.X+branch[0].Bounds.W/2, branch[0].Bounds.Y+branch[0].Bounds.H/2)
 		tt.Frame()
-		if got := textCount(tt, "Read review change"); got != 6 {
-			t.Fatalf("opening ×3 inside mixed group showed %d Read review change labels, want 6: %q", got, tt.Texts())
+		if !tt.HasText("ARCHITECTURE.md") || !tt.HasText("go.mod") {
+			t.Fatalf("opening Read file branch did not reveal its leaf files: %q", tt.Texts())
+		}
+	})
+
+	t.Run("expanding bottom command reveals full output in short and virtualized groups", func(t *testing.T) {
+		const cmdOutput = "line-1\nline-2\nline-3\nline-4\nline-5-tail"
+		for _, total := range []int{4, 8} {
+			t.Run(fmt.Sprintf("rows_%d", total), func(t *testing.T) {
+				s := New()
+				calls := make([]Call, total)
+				for i := range total - 1 {
+					calls[i] = Call{
+						ID: fmt.Sprintf("t-%d", i), Name: fmt.Sprintf("tool_%d", i),
+						Label: fmt.Sprintf("Step %d", i), Icon: "settings-2",
+						Output: &Output{Text: fmt.Sprintf("out %d", i)},
+					}
+				}
+				var applyAsync func(*Output)
+				calls[total-1] = Call{
+					ID: "cmd-last", Name: "run_command", Label: "Command", Icon: "square-terminal",
+					Detail: "pwd && ls", Code: true, DetailRevision: "rev-1", Output: &Output{},
+					Load: func(apply func(*Output)) func() {
+						applyAsync = apply
+						return nil
+					},
+				}
+				tt := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Dark)
+					ui.Column(c).FillWidth().Children(func() {
+						s.tools(c, calls, false)
+					})
+				}, 700, 600)
+				tt.SetLocale("en")
+				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+				tt.Frame()
+				if err := tt.Click("pwd && ls"); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				clickRow(t, tt, "Command")
+				tt.Frame()
+				if applyAsync == nil {
+					t.Fatal("clicking the bottom command row did not start loading its output")
+				}
+				// Simulate async IPC returning the command output on a subsequent frame.
+				applyAsync(&Output{Text: cmdOutput, Command: true})
+				tt.Frame()
+				tt.Frame()
+				bounds, ok := tt.Find(cmdOutput)
+				if !ok || bounds.H < 80 {
+					t.Fatalf("expanded command output at bottom of %d-row group was clipped: found=%v bounds=%v texts=%q", total, ok, bounds, tt.Texts())
+				}
+			})
 		}
 	})
 }
