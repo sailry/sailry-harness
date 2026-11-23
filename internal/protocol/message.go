@@ -8335,6 +8335,7 @@ type CommandQueueTurnPayload struct {
 	Session          SessionID         `json:"session"`
 	ExpectedRevision uint64            `json:"expected_revision"`
 	Message          ConversationInput `json:"message"`
+	AutoStart        bool              `json:"auto_start,omitempty"`
 }
 
 func DefaultCommandQueueTurnPayload() CommandQueueTurnPayload {

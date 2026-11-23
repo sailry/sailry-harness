@@ -299,6 +299,31 @@ func interruptAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID,
 	return run, HoldStoppedCommands(ctx, db, run.Session)
 }
 
+func sendQueuedNow(ctx context.Context, db *sql.Conn, item protocol.ConversationRun, active []protocol.ConversationRun, now time.Time) ([]protocol.ConversationRun, error) {
+	queue, err := ReadQueue(ctx, db, item.Session)
+	if err != nil {
+		return nil, err
+	}
+	if len(queue.Items) > 0 {
+		if err := reorderQueue(ctx, db, item.Session, item.Turn, &queue.Items[0].Turn); err != nil {
+			return nil, err
+		}
+	}
+	changed := make([]protocol.ConversationRun, 0, len(active)+1)
+	for _, run := range active {
+		stopped, err := interruptAgentTurn(ctx, db, run.Turn, now)
+		if err != nil {
+			return nil, err
+		}
+		changed = append(changed, stopped)
+	}
+	run, err := startQueued(ctx, db, item.Turn)
+	if err != nil {
+		return nil, err
+	}
+	return append(changed, run), nil
+}
+
 func reorderQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID, before *protocol.TurnID) error {
 	queue, err := ReadQueue(ctx, db, session)
 	if err != nil {
@@ -368,63 +393,69 @@ func sameCapture(ctx context.Context, db *sql.Conn, a, b protocol.TurnID) (bool,
 // waiting for it and ahead of ordinary items; input with other settings stays
 // an ordinary ready item in its place.
 func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID) error {
-	return addressGuidance(ctx, db, turn, recipient, false)
+	_, err := addressGuidance(ctx, db, turn, recipient, nil)
+	return err
 }
 
-func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID, sendNow bool) error {
+// sendAt is set only for an explicit send from the queue. It allows an input
+// with its own settings to replace the active turn when it cannot join it.
+func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID, sendAt *time.Time) ([]protocol.ConversationRun, error) {
 	source, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	target, err := ReadAgentRun(ctx, db, recipient)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if turn == recipient {
-		return new(guidanceRecipientIsSource)
+		return nil, new(guidanceRecipientIsSource)
 	}
 	if source.Kind != protocol.ConversationRunKindTask || source.Notice || source.Continuation != nil || target.Session != source.Session || target.Worktree != source.Worktree {
-		return new(guidanceScopeMismatch)
+		return nil, new(guidanceScopeMismatch)
 	}
 	if target.Kind != protocol.ConversationRunKindTask {
-		return new(guidanceRecipientNotTask)
+		return nil, new(guidanceRecipientNotTask)
 	}
 	if target.Status == protocol.ConversationStatusStopping {
-		return new(guidanceRecipientStopping)
+		return nil, new(guidanceRecipientStopping)
 	}
 	if target.Status != protocol.ConversationStatusRunning {
-		if sendNow && target.Status == protocol.ConversationStatusCompleted && target.Joined == nil {
-			return sendGuidanceToIdleQueue(ctx, db, source)
+		if sendAt != nil && target.Status == protocol.ConversationStatusCompleted && target.Joined == nil {
+			return nil, sendGuidanceToIdleQueue(ctx, db, source)
 		}
-		return new(guidanceRecipientNotRunning)
+		return nil, new(guidanceRecipientNotRunning)
 	}
 	compatible, err := sameCapture(ctx, db, turn, recipient)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	source.Guidance = &recipient
 	if err = putAgentRun(ctx, db, source); err != nil {
-		return err
+		return nil, err
 	}
 	if !compatible {
 		if err = recaptureDetachedGuidance(ctx, db, turn); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
-			return err
+			return nil, err
+		}
+		if sendAt != nil {
+			return sendQueuedNow(ctx, db, source, []protocol.ConversationRun{target}, *sendAt)
 		}
 		_, err = startQueued(ctx, db, turn)
-		return err
+		return nil, err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", turn.String(), recipient.String()); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err = startQueued(ctx, db, turn); err != nil {
-		return err
+		return nil, err
 	}
 	queue, err := ReadQueue(ctx, db, source.Session)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	others := []protocol.TurnID{}
 	last := -1
@@ -441,7 +472,7 @@ func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol
 	if last+1 < len(others) {
 		before = &others[last+1]
 	}
-	return reorderQueue(ctx, db, source.Session, turn, before)
+	return nil, reorderQueue(ctx, db, source.Session, turn, before)
 }
 
 func sendGuidanceToIdleQueue(ctx context.Context, db *sql.Conn, source protocol.ConversationRun) error {

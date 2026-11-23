@@ -118,6 +118,92 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 	}
 }
 
+func TestQueueTurnAutoStartsAfterRunningTurn(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		close(started)
+		select {
+		case <-release:
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+		case <-ctx.Done():
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
+		}
+	})
+	f.script.reset(func(step int, _ map[string]string) [][3]string {
+		if step == 1 {
+			return [][3]string{{"active", "run_command", `{"command":"first turn"}`}}
+		}
+		return nil
+	})
+	f.submit("Original task")
+	f.wait("the foreground command", started)
+	runs, _, _ := f.read()
+	first := runs[0].Turn
+	held := queueGuidanceFixture(f, "Manually held message")
+	session := commandFixture(t, f.node, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: f.session.ID}}).Data.(protocol.Session)
+	queued := commandFixture(t, f.node, protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
+		Session: session.ID, ExpectedRevision: session.Revision, AutoStart: true, Message: protocol.ConversationInput{Text: "Automatically run after the previous turn"},
+	}}).Data.(protocol.QueuedTurn)
+	_, _, queue := f.read()
+	if len(queue.Items) != 2 || queue.Items[0].Ready || queue.Items[1].Turn != queued.ID || !queue.Items[1].Ready {
+		t.Fatalf("the follow-up and held message should have different readiness: %+v", queue)
+	}
+	close(release)
+	f.until("the queued follow-up to start and complete without another command", func(runs []protocol.ConversationRun, _ []protocol.ConversationBackgroundTask) bool {
+		return slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
+			return run.Turn == first && run.Status == protocol.ConversationStatusCompleted
+		}) && slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
+			return run.Turn == queued.ID && run.Status == protocol.ConversationStatusCompleted && run.Joined == nil
+		})
+	})
+	_, _, queue = f.read()
+	if len(queue.Items) != 1 || queue.Items[0].Turn != held.Turn || queue.Items[0].Ready {
+		t.Fatalf("automatic continuation changed the held message: %+v", queue)
+	}
+}
+
+func TestGuideQueuedTurnInterruptsWithDifferentSettings(t *testing.T) {
+	started, cancelled := make(chan struct{}), make(chan struct{})
+	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
+	})
+	f.script.reset(func(step int, _ map[string]string) [][3]string {
+		if step == 1 {
+			return [][3]string{{"active", "run_command", `{"command":"in progress"}`}}
+		}
+		return nil
+	})
+	f.submit("Original task")
+	f.wait("the foreground command", started)
+	runs, _, _ := f.read()
+	recipient := runs[0].Turn
+	ordinary := queueGuidanceFixture(f, "Leave this in the queue")
+	session := commandFixture(t, f.node, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: f.session.ID}}).Data.(protocol.Session)
+	session.Config.Permission = protocol.PermissionAsk
+	commandFixture(t, f.node, protocol.Command{Kind: "set_session_config", Data: protocol.CommandSetSessionConfigPayload{
+		Session: session.ID, ExpectedRevision: session.Revision, Config: session.Config,
+	}})
+	chosen := queueGuidanceFixture(f, "Send this with the new permissions")
+	commandFixture(t, f.node, protocol.Command{Kind: "guide_queued_turn", Data: protocol.CommandGuideQueuedTurnPayload{
+		Turn: chosen.Turn, Recipient: recipient, ExpectedRevision: chosen.Revision,
+	}})
+	f.wait("foreground cancellation", cancelled)
+	f.until("the selected input to complete as its own turn", func(runs []protocol.ConversationRun, _ []protocol.ConversationBackgroundTask) bool {
+		return slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
+			return run.Turn == recipient && run.Status == protocol.ConversationStatusCancelled
+		}) && slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
+			return run.Turn == chosen.Turn && run.Status == protocol.ConversationStatusCompleted && run.Joined == nil
+		})
+	})
+	_, _, queue := f.read()
+	if len(queue.Items) != 1 || queue.Items[0].Turn != ordinary.Turn || queue.Items[0].Ready {
+		t.Fatalf("sending the selected input changed another queued item: %+v", queue)
+	}
+}
+
 func TestGuideQueuedTurnAfterRecipientCompletes(t *testing.T) {
 	f := newStopFixture(t, nil)
 	f.script.reset(func(int, map[string]string) [][3]string { return nil })

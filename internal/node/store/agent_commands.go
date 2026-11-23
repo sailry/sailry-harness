@@ -65,12 +65,14 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	case "submit_turn", "queue_turn":
 		var id protocol.SessionID
 		var revision uint64
+		ready := true
 		if request.Command.Kind == "submit_turn" {
 			v := request.Command.Data.(*protocol.CommandSubmitTurnPayload)
 			id, revision = v.Session, v.ExpectedRevision
 		} else {
 			v := request.Command.Data.(*protocol.CommandQueueTurnPayload)
 			id, revision = v.Session, v.ExpectedRevision
+			ready = v.AutoStart
 		}
 		session, err := checkedSession(ctx, db, id, revision)
 		if err != nil {
@@ -86,7 +88,7 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err = validateAgentReferences(ctx, db, session, message, nil); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, request.Command.Kind == "submit_turn")
+		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, ready)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -302,49 +304,31 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, err
 		}
 		session = run.Session
-		queue, err := ReadQueue(ctx, db, session)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		var before *protocol.TurnID
-		if len(queue.Items) > 0 {
-			id := queue.Items[0].Turn
-			before = &id
-		}
-		if err = reorderQueue(ctx, db, session, v.Turn, before); err != nil {
-			return protocol.Output{}, nil, err
-		}
 		active, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')", session.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		for _, r := range active {
-			// Send now interrupts the running turn like a user stop.
-			stopped, e := interruptAgentTurn(ctx, db, r.Turn, now)
-			if e != nil {
-				return protocol.Output{}, nil, e
-			}
-			changed = append(changed, stopped)
-		}
-		run, err = startQueued(ctx, db, v.Turn)
+		changed, err = sendQueuedNow(ctx, db, run, active, now)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		changed = append(changed, run)
 	case *protocol.CommandGuideQueuedTurnPayload:
 		run, err := checkQueueItem(ctx, db, v.Turn, v.ExpectedRevision)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = addressGuidance(ctx, db, v.Turn, v.Recipient, true); err != nil {
-			return protocol.Output{}, nil, err
-		}
-		session = run.Session
-		run, err = ReadAgentRun(ctx, db, v.Turn)
+		changed, err = addressGuidance(ctx, db, v.Turn, v.Recipient, &now)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		changed = append(changed, run)
+		session = run.Session
+		if len(changed) == 0 {
+			run, err = ReadAgentRun(ctx, db, v.Turn)
+			if err != nil {
+				return protocol.Output{}, nil, err
+			}
+			changed = append(changed, run)
+		}
 	case *protocol.CommandWithdrawGuidancePayload:
 		run, err := checkQueueItem(ctx, db, v.Turn, v.ExpectedRevision)
 		if err != nil {

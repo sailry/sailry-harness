@@ -135,6 +135,11 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 				if !ok || guide.Recipient != owner {
 					t.Fatalf("guidance sent to %v, want %v", guide.Recipient, owner)
 				}
+			} else if tc.command == "queue_turn" {
+				queued, ok := detail[protocol.CommandQueueTurnPayload](req.Command.Data)
+				if !ok || !queued.AutoStart {
+					t.Fatalf("Tab during a run must queue an automatically starting turn: %+v", req.Command.Data)
+				}
 			}
 
 			// Render the first frame of every publication, including the frames
@@ -186,7 +191,7 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 			}
 			run := protocol.ConversationRun{Session: id, Turn: sent, Kind: "task", Status: "queued", Sequence: 3, Revision: 1}
 			input := protocol.ConversationSentInput{Message: protocol.ConversationInput{Text: message}}
-			item := protocol.ConversationPending{Turn: sent, Request: &req.ID, Kind: "task", Preview: message, Revision: 1, ConfigRevision: 1, Ready: tc.command != "queue_turn"}
+			item := protocol.ConversationPending{Turn: sent, Request: &req.ID, Kind: "task", Preview: message, Revision: 1, ConfigRevision: 1, Ready: true}
 			if tc.command == "guide_turn" {
 				run.Guidance, run.Input, item.Guidance = &owner, &input, &owner
 			} else if !tc.busy {
@@ -220,12 +225,6 @@ func TestMountedSendAdmissionFrames(t *testing.T) {
 					parent.Status, parent.FinishedMs = protocol.ConversationStatusCompleted, new(int64(2000))
 					publish("run", parent)
 					waiting("parent finished", false)
-					item.Ready = true
-					item.Revision++
-					queue.Revision++
-					queue.Items = []protocol.ConversationPending{item}
-					publish("queue", queue)
-					waiting("ready to start", false)
 				}
 				run.Status, run.StartedMs = protocol.ConversationStatusRunning, new(int64(3000))
 				publish("run", run)

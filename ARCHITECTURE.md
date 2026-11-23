@@ -734,13 +734,19 @@ turn settles without joining becomes an ordinary queued turn captured again with
 the session's current settings, keeping the earlier capture only when the
 current settings are unavailable.
 
-An explicit queue send to a running recipient prioritizes the selected input at
-its next model boundary. Once the queue update commits, the Node requests
-cancellation of foreground commands, interruptible reads and interaction waits.
-Already admitted noninterruptible effects settle first. Successful and uncertain
-results stay in the original turn with the selected input. A completed recipient
-can fall back to starting the selected input in an idle, unpaused queue. A
-replacement run or a stop takes precedence over this fallback.
+While a Desktop conversation is running, Tab queues a task that can start
+automatically after the active task settles. The Node keeps any existing pause.
+Queue commands without automatic start create held items.
+
+An explicit queue send to a running recipient with matching settings prioritizes
+the selected input at its next model boundary. Once the queue update commits,
+the Node requests cancellation of foreground commands, interruptible reads and
+interaction waits. Already admitted noninterruptible effects settle first.
+Successful and uncertain results stay in the original turn. If the selected
+input has different settings, the queue send stops the recipient and runs the
+selected input first as its own task with the captured settings. A completed
+recipient can fall back to starting the selected input in an idle, unpaused
+queue. A replacement run or a stop takes precedence over this fallback.
 
 Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible

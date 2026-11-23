@@ -335,7 +335,8 @@ func insertAgentTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeID, 
 	if err = bumpQueue(ctx, db, session.ID); err != nil {
 		return value, err
 	}
-	if ready {
+	// Automatic queue input is eligible on resume. Adding it keeps any existing pause.
+	if ready && request.Command.Kind != "queue_turn" {
 		_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=0,pause_reason=NULL WHERE session=?1", session.ID.String())
 	}
 	return value, err

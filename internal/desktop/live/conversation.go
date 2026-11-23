@@ -641,6 +641,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x.finishSubmission(output, false, err == nil)
 	}
 	if exists {
+		autoStart := queue && x.comp.Running
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
 			if guide {
@@ -661,7 +662,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			var data any = protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}
 			if queue {
 				kind = "queue_turn"
-				data = protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}
+				data = protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input, AutoStart: autoStart}
 			}
 			x.submitTurn(protocol.Command{Kind: kind, Data: data}, pending, finish)
 		}

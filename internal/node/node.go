@@ -954,7 +954,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 					node.agent.StopCommitted(value)
 				}
 			case protocol.ConversationQueueUpdate:
-				if job.request.Command.Kind == "send_queued_turn" {
+				if job.request.Command.Kind == "send_queued_turn" || job.request.Command.Kind == "guide_queued_turn" {
 					for _, run := range value.Runs {
 						node.agent.StopCommitted(run)
 					}
