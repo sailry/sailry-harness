@@ -84,7 +84,7 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 
 // MainRetries bounds resends of one main or summary request. Both also share
 // the request's cumulative wait budget, regardless of the transient cause.
-const MainRetries = 9
+const MainRetries = 10
 
 // Run uses reset to discard provisional output before replaying an interrupted attempt.
 // Without it, main output that escaped to the consumer cannot be retried safely.

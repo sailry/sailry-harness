@@ -864,8 +864,8 @@ func TestCompactionAtThreshold(t *testing.T) {
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 
-// A transient failure records its chosen backoff with the request's nine-retry
-// limit, so the UI announces the same wait the scheduler actually uses.
+// A transient failure records its chosen backoff. The quick first retry is
+// numbered 0, which shows no row, and the shown retries count to nine.
 func TestTransientRetryRecord(t *testing.T) {
 	t.Parallel()
 	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
@@ -876,7 +876,7 @@ func TestTransientRetryRecord(t *testing.T) {
 	select {
 	case wait := <-f.r.clock.(*manualClock).waits:
 		delay = wait.duration
-		if delay < 4*time.Second || delay > 6*time.Second {
+		if delay < 240*time.Millisecond || delay > 360*time.Millisecond {
 			t.Fatalf("retry wait = %s", wait.duration)
 		}
 		close(wait.advance)
@@ -893,7 +893,7 @@ func TestTransientRetryRecord(t *testing.T) {
 			retries = append(retries, *execution.Retry)
 		}
 	}
-	if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(delay.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
+	if len(retries) != 1 || retries[0].Attempt != 0 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(delay.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" {
 		t.Fatalf("retries = %+v", retries)
 	}
 }
@@ -945,7 +945,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 	wait := func(f *engineFixture) clockWait {
 		select {
 		case wait := <-f.r.clock.(*manualClock).waits:
-			if wait.duration < 4*time.Second || wait.duration > 6*time.Second {
+			if wait.duration < 240*time.Millisecond || wait.duration > 360*time.Millisecond {
 				t.Fatalf("retry wait = %s", wait.duration)
 			}
 			return wait
@@ -961,7 +961,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 		waiting := wait(f)
 		// The record is there during the wait, beside the compacting draft.
 		retries, observed, _ := summaries(f)
-		if len(retries) != 1 || retries[0].Attempt != 1 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(waiting.duration.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" || observed != 1 {
+		if len(retries) != 1 || retries[0].Attempt != 0 || *retries[0].Limit != 9 || *retries[0].DelayMs != uint64(waiting.duration.Milliseconds()) || *retries[0].Code != "rate_limited" || *retries[0].Error != "slow down" || observed != 1 {
 			t.Fatalf("retries during the wait = %+v, %d observations", retries, observed)
 		}
 		if compacting(f) != 1 {

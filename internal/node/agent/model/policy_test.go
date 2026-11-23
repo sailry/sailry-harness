@@ -162,24 +162,24 @@ func TestRetryTransient(t *testing.T) {
 			})
 		}
 	}
-	t.Run("main_exhausts_nine_retries", func(t *testing.T) {
+	t.Run("main_exhausts_ten_retries", func(t *testing.T) {
 		fake := &policyModel{}
-		for i := 0; i < 11; i++ {
+		for i := 0; i < 12; i++ {
 			fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
 		}
 		timer := &policyClock{}
 		var announced []*time.Duration
 		err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, func(attempt Attempt) error { announced = append(announced, attempt.RetryDelay); return nil }, nil, nil)
-		if err == nil || fake.calls != 10 || len(timer.delays) != 9 || len(announced) != 10 || announced[9] != nil {
+		if err == nil || fake.calls != 11 || len(timer.delays) != 10 || len(announced) != 11 || announced[10] != nil {
 			t.Fatalf("exhaustion: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
 		fault := Fault(err)
 		if fault.Details.Kind != "model_recovery" || fault.Details.Data.(protocol.FaultDetailsModelRecoveryPayload).Reason != protocol.ConversationRecoveryStopAttemptsExhausted {
 			t.Fatalf("exhaustion lost its recovery reason: %+v", fault)
 		}
-		intervals := []time.Duration{1, 2, 4, 8, 16, 30, 30, 30, 30}
+		intervals := []time.Duration{300, 600, 1200, 2400, 4800, 9600, 19200, 30000, 30000, 30000}
 		for index, delay := range timer.delays {
-			base := intervals[index] * time.Second
+			base := intervals[index] * time.Millisecond
 			if delay < base*4/5 || delay > min(base*6/5, 30*time.Second) || *announced[index] != delay {
 				t.Fatalf("delay %d = %v, announced %v", index, delay, *announced[index])
 			}
@@ -187,16 +187,16 @@ func TestRetryTransient(t *testing.T) {
 	})
 	t.Run("summary_retries_as_a_main_request", func(t *testing.T) {
 		fake := &policyModel{}
-		for i := 0; i < 11; i++ {
+		for i := 0; i < 12; i++ {
 			fake.responses = append(fake.responses, []fantasy.StreamPart{errorPart(Network)})
 		}
 		timer := &policyClock{}
-		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil, nil); err == nil || fake.calls != 10 || len(timer.delays) != 9 {
+		if err := Run(t.Context(), fake, fantasy.Call{}, SummaryPurpose, timer, nil, nil, nil); err == nil || fake.calls != 11 || len(timer.delays) != 10 {
 			t.Fatalf("summary: calls=%d delays=%v error=%v", fake.calls, timer.delays, err)
 		}
-		intervals := []time.Duration{1, 2, 4, 8, 16, 30, 30, 30, 30}
+		intervals := []time.Duration{300, 600, 1200, 2400, 4800, 9600, 19200, 30000, 30000, 30000}
 		for index, delay := range timer.delays {
-			base := intervals[index] * time.Second
+			base := intervals[index] * time.Millisecond
 			if delay < base*4/5 || delay > min(base*6/5, 30*time.Second) {
 				t.Fatalf("summary delay %d = %v", index, delay)
 			}

@@ -497,15 +497,27 @@ func successfulTool(records []canonical.Record) bool {
 	return found
 }
 
+// quietRetryDelay is the longest wait, in milliseconds, of a first retry that
+// shows no row.
+const quietRetryDelay = 5000
+
 // retryRecord is the observation of an attempt that waits to be sent again,
 // which the conversation shows as the request's retry row. It is the attempt's
 // only record: its usage and timing are not observed a second time.
+//
+// The first retry is a quick resend that most transient failures clear on, so
+// it is numbered 0, which shows no row, and the rows count the retries after
+// it. A first retry that must wait at least quietRetryDelay still shows.
 func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
 	record := r.observationRecord(x, binding, purpose, attempt)
-	limit, delay := attempt.RetryLimit, uint64(attempt.RetryDelay.Milliseconds())
+	number, limit, delay := attempt.Index, attempt.RetryLimit, uint64(attempt.RetryDelay.Milliseconds())
+	if number == 0 && delay >= quietRetryDelay {
+		number = 1
+	}
+	limit = max(limit-min(limit, 1), number)
 	code := string(attempt.Failure.Kind)
 	message := attempt.Failure.Message
-	record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: attempt.Index + 1, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}
+	record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: number, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}
 	record.Metadata.Runtime.UserVisible = true
 	return record
 }

@@ -668,7 +668,7 @@ complete request durations, including time to first output. Each sample contribu
 both its reported output and its duration. Generation timing remains available for
 clients that display the interval from first model output to completion.
 
-Model request recovery permits up to nine retries and ten minutes of cumulative
+Model request recovery permits up to ten retries and ten minutes of cumulative
 waiting. Every transient failure, including rate limits and overload, uses
 exponential waits from 300 milliseconds to thirty seconds, with jitter; a
 provider that needs a slower pace says so through its wait hint. Provider
@@ -678,6 +678,10 @@ agent, which runs its own tools within a turn, may stay silent for 600 seconds.
 Direct model requests share one connection pool that sends HTTP/2 health pings
 after 15 seconds without data and retires idle connections after 30 seconds,
 so a connection a gateway dropped silently fails fast instead of stalling.
+The first retry is a quick resend that most transient failures clear on, so
+its record is numbered 0 and the transcript shows no row for it; rows count
+the nine retries after it. A first retry that must wait five seconds or more
+still shows.
 Interrupted main requests clear the failed attempt's provisional draft before retrying the same
 model step; tool calls execute only after that step completes. Consumers without
 a draft-reset boundary stop automatic retry after emitting content. Summary
