@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -232,13 +233,25 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 	return response, nil
 }
 
+// modelTransport is the connection pool shared by model requests. A model
+// stream can stay silent while the model thinks, and a NAT or gateway may drop
+// an idle connection without notice; HTTP/2 health pings detect a dead
+// connection instead of waiting for the stall timeout, and idle connections
+// are retired before typical gateway idle windows close them.
+var modelTransport = sync.OnceValue(func() *http.Transport {
+	transport := netproxy.Transport().Clone()
+	transport.IdleConnTimeout = 30 * time.Second
+	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 10 * time.Second}
+	return transport
+})
+
 func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, error) {
 	// GenAI fills an empty key from the process environment even with a custom
 	// endpoint. Only the captured provider's explicit credential may leave Node.
 	if config.Kind == "google" && config.Key == "" {
 		return nil, &Failure{Kind: NotConfigured, Message: "Gemini requires an explicitly configured API key"}
 	}
-	var transport http.RoundTripper = responseTransport{base: netproxy.Transport(), stall: stallTimeout}
+	var transport http.RoundTripper = responseTransport{base: modelTransport(), stall: stallTimeout}
 	if config.Kind == "anthropic" && config.OAuth {
 		transport = claudeTransport{base: transport}
 	}

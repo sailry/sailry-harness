@@ -675,6 +675,9 @@ provider that needs a slower pace says so through its wait hint. Provider
 wait hints are minimums, never shortened to fit the budget. A model response
 that sends nothing for 300 seconds fails as a retryable network error; an ACP
 agent, which runs its own tools within a turn, may stay silent for 600 seconds.
+Direct model requests share one connection pool that sends HTTP/2 health pings
+after 15 seconds without data and retires idle connections after 30 seconds,
+so a connection a gateway dropped silently fails fast instead of stalling.
 Interrupted main requests clear the failed attempt's provisional draft before retrying the same
 model step; tool calls execute only after that step completes. Consumers without
 a draft-reset boundary stop automatic retry after emitting content. Summary
