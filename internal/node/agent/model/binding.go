@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -143,6 +144,47 @@ func OutputLimit(binding Binding, summary bool) int64 {
 	}
 	return limit
 }
+
+// InPlaceOutputLimit is the output limit of a summary request that shares the
+// main request's cached prefix. Anthropic caches thinking parameters with the
+// messages, and a manual thinking budget follows max_tokens, so a limit that
+// would change the main request's thinking grows by its budget, keeping the
+// budget and room for want beside it, or else is the main request's own.
+func InPlaceOutputLimit(binding Binding, want int64) int64 {
+	main := OutputLimit(binding, false)
+	if main > 0 && main <= want {
+		return main
+	}
+	if PluginBound(binding.Provider) {
+		return want
+	}
+	thinking := func(limit int64) (any, int64) {
+		call := fantasy.Call{}
+		if limit > 0 {
+			call.MaxOutputTokens = &limit
+		}
+		body := requestParameters(binding, &call).Body["thinking"]
+		if call.MaxOutputTokens != nil {
+			limit = *call.MaxOutputTokens
+		}
+		return body, limit
+	}
+	original, effective := thinking(main)
+	if reduced, _ := thinking(want); effective <= 0 || reflect.DeepEqual(original, reduced) {
+		return want
+	}
+	if enabled, ok := original.(map[string]any); ok {
+		if budget, ok := enabled["budget_tokens"].(int64); ok {
+			if grown := want + budget; grown < effective {
+				if kept, _ := thinking(grown); reflect.DeepEqual(original, kept) {
+					return grown
+				}
+			}
+		}
+	}
+	return effective
+}
+
 func Summary(binding Binding) Binding {
 	result := binding
 	result.Config.Effort = protocol.Effort{Kind: "default"}

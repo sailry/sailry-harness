@@ -405,9 +405,10 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 	// The handoff needs its summary output plus room for the turn's reasoning,
 	// not the main step's whole output limit: automatic compaction starts once
 	// history leaves less than that limit free. A thinking budget must stay
-	// below the output limit, so a budget effort keeps the main limit.
-	maxOutput := int64(2 * outputLimit)
-	if main := model.OutputLimit(binding, false); main > 0 && (main < maxOutput || binding.Config.Effort.Kind == "budget") {
+	// below the output limit, so a budget effort keeps the main limit, as does
+	// a request whose cached thinking parameters follow its limit.
+	maxOutput := model.InPlaceOutputLimit(binding, int64(2*outputLimit))
+	if main := model.OutputLimit(binding, false); main > 0 && binding.Config.Effort.Kind == "budget" {
 		maxOutput = main
 	}
 	if contextTokens(state.Records)+handoff.InPlaceTokens(instructions)+uint64(maxOutput) > contextLimit {
@@ -431,8 +432,10 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 	stream.reset()
 	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
 	if err != nil {
-		switch kind := model.Classify(err).Kind; {
-		case x.ctx.Err() != nil, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+		// A request that spent its retries would spend them again on the transcript.
+		failure := model.Classify(err)
+		switch kind := failure.Kind; {
+		case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
 			return handoff.Summary{}, false, err
 		}
 		return handoff.Summary{}, false, nil

@@ -25,4 +25,10 @@ func TestInPlaceInstructions(t *testing.T) {
 	if !strings.Contains(retained, `begins "Fix the 'parser' and keep going`) || !strings.Contains(retained, "…\" onward are kept verbatim") {
 		t.Fatalf("retained tail was not quoted on one bounded line: %q", retained)
 	}
+	// A tail cut within a turn begins after its user input.
+	reply := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Parser fixed")), time.Now())
+	reply.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true}
+	if within := InPlace(200000, 16000, []canonical.Record{reply, input}); !strings.Contains(within, `assistant message that begins "Parser fixed"`) {
+		t.Fatalf("a tail within a turn was not quoted from its first message: %q", within)
+	}
 }

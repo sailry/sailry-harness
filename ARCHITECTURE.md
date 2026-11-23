@@ -623,12 +623,14 @@ When the latest main request of the same provider and model read input from
 the provider's prompt cache, and the history still fits with the summary
 output, compaction first asks for the handoff in place: the main request's
 system prompt, tools, effort and projected history unchanged, followed by the
-summary instructions as a user message that names where the retained tail
-begins. Thinking, effort and tool choice belong to the cached prefix on some
-providers, so this request keeps the turn's configuration. A tool call,
-truncated or unparseable output, or a rejected request falls back to the
-rendered transcript; rate limits, authorization failures and cancellation end
-the compaction as before. The transcript request runs at the model's lowest
+summary instructions as a user message that quotes the opening of the
+retained tail when it begins with text. Thinking, effort and tool choice belong
+to the cached prefix on some providers, so this request keeps the turn's
+configuration; its output limit grows by a manual thinking budget so the
+budget does not change. A tool call, truncated or unparseable output, or a
+rejected request falls back to the rendered transcript; rate limits,
+authorization failures, exhausted retries and cancellation end the compaction
+as before. The transcript request runs at the model's lowest
 effort from low upward, or its lowest offered effort when nothing reaches low.
 
 The active history holds stored tool payloads and asset references. A request
