@@ -116,7 +116,7 @@
     {
       "name": "read_file",
       "legacy_package": "files",
-      "description": "Read UTF-8 lines in the session worktree. offset is zero-based; limit defaults to 2000 and each response has at most 2000 lines. Model text has about a 32 KiB page budget and a 2 KiB line budget. Use next_offset for omitted lines; a shortened long line is not a new page. read_tool_output with the returned output reference retrieves captured text, but cannot recover a source line clipped at the native 128 KiB page limit and marked truncated. Results retain one-based line numbers and the full file revision, including when a line is clipped. Read a small or medium file whole in one call; page large files with next_offset instead of small windows. A repeated read of unchanged lines returns a short note. Preserve exact text for edit_file; one page is not the whole file. A .png, .jpg, .jpeg, .gif, .webp or .bmp path returns the image itself, up to 5 MiB and downscaled to a 1568-pixel long side, with its revision, format, dimensions and size; offset and limit do not apply, and images lists the reference for showing it in a reply. Models without image input receive only these facts; use inspect_image with the path to ask about the image.",
+      "description": "Read UTF-8 file lines (0-based offset, default/max 2000 lines, ~32 KiB model budget, returns 1-based line numbers and file revision). Read whole small/medium files at once and page large files via next_offset; use read_tool_output for clipped captured text. Image paths (.png/.jpg/.jpeg/.gif/.webp/.bmp, <=5 MiB) return image content + revision/dimensions (non-vision models receive metadata only).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -343,7 +343,7 @@
     {
       "name": "edit_file",
       "legacy_package": "files",
-      "description": "Edit one UTF-8 file. Supply old_text/new_text or edits, never both. Match exact whitespace and line endings in the original file. Each old_text must match once unless replace_all takes all non-overlapping matches left to right. Overlaps, missing text or stale revisions fail without writing any change. Reread on conflict. The original, result and combined old/new texts each allow 64 MiB. Verify using the returned revision and numbered edited regions with context, without rereading. Use apply_patch across files.",
+      "description": "Edit one UTF-8 file using expected_revision from read_file. Pass old_text/new_text or edits (never both). Each old_text must match uniquely unless replace_all is true. Fails atomically on overlap, missing match, or stale revision; returns updated revision and edited hunks.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -937,7 +937,7 @@
     {
       "name": "find_files",
       "legacy_package": "files",
-      "description": "Find regular file paths by worktree-relative globs within path (default root), respecting .gitignore and never following symlinks. * does not cross /; **/* includes root and nested files. For the N most recently modified files, use globs=[\"**/*\"] and limit=N. Results are newest first, with a stable path order for equal modification times. limit defaults to 500; responses return at most 500 paths; request next_offset for another page. Partial scans have no continuation: narrow path before retrying. No shell approval is needed.",
+      "description": "Find worktree-relative file paths by globs (default root), honoring .gitignore and skipping symlinks. Sorted newest-first; default/max 500 paths per page via next_offset. No shell approval needed.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1038,7 +1038,7 @@
     {
       "name": "search_files",
       "legacy_package": "files",
-      "description": "Search UTF-8 with embedded ripgrep without shell approval. Honor .gitignore, .ignore and Git excludes except for an explicitly named ignored path. Never follow symlinks. Count skipped binary and non-UTF-8 files. Globs without / match basenames at any depth, others are relative to path. ! excludes and later globs win. Files mode lists matching paths. Content rows mark matches (matched=true) and neighbors (false). Count mode gives matching-line counts per file. Multiline matches across newlines. Pages hold up to 200 rows including context. Model previews have about a 32 KiB total budget and 500 characters per line. Read the original captured result via read_tool_output and its output reference. next_offset pages completed scans but cannot recover a shortened line. Incomplete scans have no continuation. Narrow path. Scans stop after 20 seconds and skip files over 64 MiB. Diagnostics report both limits. Lines over 16 KiB are marked truncated.",
+      "description": "Search UTF-8 files with embedded ripgrep (honors .gitignore, skips symlinks/binaries, no approval needed). Modes: files, content, or count; supports globs (! excludes) and multiline. Up to 200 rows/page (~32 KiB budget); paginate via next_offset or narrow path on 20s timeout.",
       "parameters": {
         "type": "object",
         "properties": {

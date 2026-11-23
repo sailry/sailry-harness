@@ -302,14 +302,15 @@ func visibleTool(tool Tool) bool {
 }
 
 // visibleOperation names the operations offered on the first request.
+// Lower-frequency domains (apply_patch, git, web search/fetch) stay in the
+// deferred catalog and load on demand via tool_search without enlarging step-1
+// declarations.
 func visibleOperation(operation protocol.ToolOperation) bool {
 	switch operation {
 	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
-		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
+		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile,
 		protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode,
-		protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff,
 		protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand,
-		protocol.ToolOperationFetchWeb, protocol.ToolOperationSearchWeb,
 		protocol.ToolOperationProgress, protocol.ToolOperationListRoles, protocol.ToolOperationListArtifactRevisions:
 		return true
 	}
@@ -492,10 +493,9 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			}
 		}
 	}
-	wrapsTools := x.hooks.WrapsTools()
 	concurrent := func(i int) bool {
 		tool := findTool(x.tools, calls[i].Name)
-		return !asks[i] && (!executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !wrapsTools)
+		return !asks[i] && (!executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !x.hooks.WrapsTool(calls[i].Name))
 	}
 	toolContext := context.WithValue(x.ctx, foregroundToolKey{}, step)
 	var slots chan struct{}
@@ -596,6 +596,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 				results[i].Failure.Message = "Tool call did not start before queued guidance redirected the turn"
 			}
 		}
+	}
+	doomAborted := false
+	if step.Err() == nil && len(calls) > 0 {
+		doomAborted = trackDoomLoop(x, calls, results)
+	}
+	for i, call := range calls {
 		blocks = append(blocks, responseBlock(uint64(i), call, results[i]))
 		if delta := results[i].Context; delta != nil {
 			if delta.Title != nil {
@@ -640,7 +646,87 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			}
 		}
 	}
+	if doomAborted {
+		return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("turn stopped after %d consecutive identical failing tool calls", x.doomStreak)}
+	}
 	return nil
+}
+
+const (
+	doomLoopWarnAt  = 3
+	doomLoopAbortAt = 5
+)
+
+func toolResultFailed(result ToolResult) bool {
+	return result.Failure != nil || result.Error || result.ReturnedError
+}
+
+func batchFailureSignature(calls []canonical.ToolRequest, results []ToolResult) (string, bool) {
+	if len(calls) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	for i, call := range calls {
+		if !toolResultFailed(results[i]) {
+			return "", false
+		}
+		if results[i].Failure != nil && results[i].Failure.Code == protocol.ErrorCodeCancelled {
+			return "", false
+		}
+		b.WriteString(call.Name)
+		b.WriteByte(':')
+		var normalized any
+		if json.Unmarshal(call.Arguments, &normalized) == nil {
+			if raw, err := json.Marshal(normalized); err == nil {
+				b.Write(raw)
+			} else {
+				b.Write(call.Arguments)
+			}
+		} else {
+			b.Write(call.Arguments)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String(), true
+}
+
+// trackDoomLoop detects repeated consecutive identical failing tool batches.
+// At doomLoopWarnAt it appends recovery guidance to the last failing result;
+// at doomLoopAbortAt it returns true so the caller aborts after persisting the
+// paired tool response record.
+func trackDoomLoop(x *execution, calls []canonical.ToolRequest, results []ToolResult) bool {
+	sig, allFailed := batchFailureSignature(calls, results)
+	if !allFailed {
+		x.doomSignature = ""
+		x.doomStreak = 0
+		return false
+	}
+	if sig == x.doomSignature {
+		x.doomStreak++
+	} else {
+		x.doomSignature = sig
+		x.doomStreak = 1
+	}
+	if x.doomStreak >= doomLoopAbortAt {
+		return true
+	}
+	if x.doomStreak >= doomLoopWarnAt {
+		last := &results[len(results)-1]
+		note := fmt.Sprintf(" [Repeated identical failure %d times: stop retrying the same call and arguments; inspect the error, verify state, or change approach.]", x.doomStreak)
+		if last.Failure != nil {
+			copied := *last.Failure
+			copied.Message += note
+			last.Failure = &copied
+		} else if m, ok := last.Value.(map[string]any); ok {
+			cloned := make(map[string]any, len(m)+1)
+			for k, v := range m {
+				cloned[k] = v
+			}
+			cloned["doom_loop_warning"] = strings.TrimSpace(note)
+			last.Value = cloned
+		}
+	}
+	return false
 }
 
 // Each worker owns a provisional activity independently of the ordered batch

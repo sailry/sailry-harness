@@ -46,6 +46,42 @@ func Scripts(settings protocol.HooksSettings, phase protocol.HooksPhase) []Entry
 	return selected
 }
 
+// MatchesTool reports whether a hook script applies to the named tool.
+// An empty tool filter matches every tool for backward compatibility.
+// Filter entries match exact tool names or trailing-wildcard prefixes (e.g. "git_*").
+func MatchesTool(script protocol.HooksScript, tool string) bool {
+	if len(script.Tools) == 0 {
+		return true
+	}
+	for _, pattern := range script.Tools {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if pattern == "*" || pattern == tool {
+			return true
+		}
+		if prefix, ok := strings.CutSuffix(pattern, "*"); ok && strings.HasPrefix(tool, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ScriptsForTool returns enabled hook scripts for a tool phase that match the given tool name.
+func ScriptsForTool(settings protocol.HooksSettings, phase protocol.HooksPhase, tool string) []Entry {
+	selected := []Entry{}
+	if !settings.Enabled {
+		return selected
+	}
+	for _, entry := range entries(settings) {
+		if entry.Phase == phase && entry.Script.Enabled && MatchesTool(entry.Script, tool) {
+			selected = append(selected, entry)
+		}
+	}
+	return selected
+}
+
 func Validate(settings protocol.HooksSettings) error {
 	ids := map[string]bool{"before_tool": true, "after_tool": true, "turn_end": true}
 	for _, entry := range settings.Additional {
@@ -62,6 +98,12 @@ func Validate(settings protocol.HooksSettings) error {
 		script := entry.Script
 		if len(script.Name) > 1024 || strings.ContainsRune(script.Name, 0) || strings.TrimSpace(script.Command) == "" || len(script.Command) > 64*1024 || strings.ContainsRune(script.Command, 0) || script.TimeoutMs < 1 || script.TimeoutMs > 60000 {
 			return invalid("hook command or timeout is invalid")
+		}
+		for _, tool := range script.Tools {
+			trimmed := strings.TrimSpace(tool)
+			if trimmed == "" || len(trimmed) > 128 || strings.ContainsRune(tool, 0) {
+				return invalid("hook tool filter is invalid")
+			}
 		}
 	}
 	if settings.Enabled && len(entries) == 0 {

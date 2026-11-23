@@ -17,7 +17,6 @@
         "additionalProperties": false
       },
       "action": "search",
-      "initial": true,
       "read_only": true,
       "contexts": [
         "plugin",
@@ -127,7 +126,6 @@
         "additionalProperties": false
       },
       "action": "save",
-      "initial": true,
       "contexts": [
         "plugin",
         "workspace"

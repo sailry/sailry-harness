@@ -7,10 +7,11 @@ import (
 )
 
 type HooksScript struct {
-	Name      string `json:"name"`
-	Enabled   bool   `json:"enabled"`
-	Command   string `json:"command"`
-	TimeoutMs uint64 `json:"timeout_ms"`
+	Name      string   `json:"name"`
+	Enabled   bool     `json:"enabled"`
+	Command   string   `json:"command"`
+	TimeoutMs uint64   `json:"timeout_ms"`
+	Tools     []string `json:"tools,omitempty"`
 }
 
 func DefaultHooksScript() HooksScript {

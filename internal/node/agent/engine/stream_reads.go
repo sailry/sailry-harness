@@ -61,7 +61,7 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	}
 	tool := findTool(x.tools, call.Name)
 	if call.Error != nil || tool == nil || !tool.StreamRead || !tool.ReadOnly || !tool.Concurrent || tool.Approval ||
-		tool.Confirm != nil || tool.ObserveHistory != nil || tool.Delegation || x.hooks.WrapsTools() {
+		tool.Confirm != nil || tool.ObserveHistory != nil || tool.Delegation || x.hooks.WrapsTool(call.Name) {
 		reads.blocked = true
 		return
 	}

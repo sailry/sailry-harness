@@ -63,10 +63,20 @@ func New(input Capture) *Binding {
 			return nil
 		}
 		value := *script
+		if len(script.Tools) > 0 {
+			value.Tools = append([]string(nil), script.Tools...)
+		}
 		return &value
 	}
 	settings.BeforeTool, settings.AfterTool, settings.TurnEnd = clone(settings.BeforeTool), clone(settings.AfterTool), clone(settings.TurnEnd)
-	settings.Additional = append([]protocol.HooksEntry(nil), settings.Additional...)
+	additional := make([]protocol.HooksEntry, len(settings.Additional))
+	for i, entry := range settings.Additional {
+		if len(entry.Script.Tools) > 0 {
+			entry.Script.Tools = append([]string(nil), entry.Script.Tools...)
+		}
+		additional[i] = entry
+	}
+	settings.Additional = additional
 	input.Settings = settings
 	if input.Stop == nil {
 		input.Stop = context.Background()
@@ -76,6 +86,13 @@ func New(input Capture) *Binding {
 
 func (b *Binding) WrapsTools() bool {
 	return b != nil && (len(Scripts(b.captured.Settings, protocol.HooksPhaseBeforeTool)) > 0 || len(Scripts(b.captured.Settings, protocol.HooksPhaseAfterTool)) > 0)
+}
+
+// WrapsTool reports whether any enabled before_tool or after_tool hook matches
+// the named tool. Unmatched read-only tools retain full concurrency and stream
+// pre-execution.
+func (b *Binding) WrapsTool(tool string) bool {
+	return b != nil && (len(ScriptsForTool(b.captured.Settings, protocol.HooksPhaseBeforeTool, tool)) > 0 || len(ScriptsForTool(b.captured.Settings, protocol.HooksPhaseAfterTool, tool)) > 0)
 }
 func (b *Binding) Before(ctx context.Context, tool, call string) error {
 	if b == nil {
@@ -150,7 +167,12 @@ func (b *Binding) execute(ctx context.Context, ordinal uint64, input eventInput)
 		}
 	}()
 	phase := input.Event
-	scripts := Scripts(b.captured.Settings, phase)
+	var scripts []Entry
+	if phase == protocol.HooksPhaseBeforeTool || phase == protocol.HooksPhaseAfterTool {
+		scripts = ScriptsForTool(b.captured.Settings, phase, input.Tool)
+	} else {
+		scripts = Scripts(b.captured.Settings, phase)
+	}
 	if len(scripts) == 0 || b.captured.Stop.Err() != nil {
 		return nil
 	}

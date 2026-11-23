@@ -51,7 +51,12 @@ type Options struct {
 	// commands. The engine calls it once a durable stop of the session's
 	// running turn commits: a user stop, Send now or a disabled package.
 	StopTransient func(protocol.SessionID)
+	// MaxModelSteps bounds how many main-turn model inference steps a single
+	// turn may execute before halting cleanly. Zero uses defaultMaxMainModelSteps.
+	MaxModelSteps uint32
 }
+
+const defaultMaxMainModelSteps uint32 = 200
 
 type Runtime struct {
 	python            *python.Manager
@@ -65,6 +70,7 @@ type Runtime struct {
 	working           func() func()
 	stopCommands      func(protocol.SessionID)
 	stopTransient     func(protocol.SessionID)
+	maxModelSteps     uint32
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -144,6 +150,9 @@ type execution struct {
 	inputMu           sync.Mutex
 	inputWake         chan struct{}
 	output            output.Cache
+	modelSteps        uint32
+	doomSignature     string
+	doomStreak        int
 }
 
 func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hub, publish func(), options Options) *Runtime {
@@ -153,10 +162,14 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	if options.Model == nil {
 		options.Model = model.New
 	}
+	maxSteps := options.MaxModelSteps
+	if maxSteps == 0 {
+		maxSteps = defaultMaxMainModelSteps
+	}
 	base := store.WithPluginAvailability(context.Background(), options.PluginAvailability)
 	base = store.WithToolPresentation(base, options.ToolPresentation)
 	ctx, cancel := context.WithCancel(base)
-	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
+	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never

@@ -40,6 +40,16 @@ func PrepareEdits(before string, edits []protocol.FileEdit) (string, error) {
 		}
 		found := strings.Index(haystack, needle)
 		if found < 0 {
+			if !raw && !edit.ReplaceAll {
+				if matchStart, matchEnd, adjustedNew, ok, fuzzyErr := fuzzyLineMatch(haystack, needle, edit.NewText); fuzzyErr != nil {
+					return "", fuzzyErr
+				} else if ok {
+					start, end := positions[matchStart], positions[matchEnd]
+					replacement := editReplacement(before, start, end, adjustedNew)
+					matches = append(matches, textEdit{start, end, replacement})
+					continue
+				}
+			}
 			return "", invalid("old text was not found in the file")
 		}
 		if !edit.ReplaceAll {
@@ -97,6 +107,189 @@ func PrepareEdits(before string, edits []protocol.FileEdit) (string, error) {
 	}
 	after.WriteString(before[offset:])
 	return after.String(), nil
+}
+
+type lineSpan struct {
+	start, end int // byte offsets in LF-normalized text, excluding the '\n'
+	hasNL      bool
+	text       string
+}
+
+func splitLineSpans(text string) []lineSpan {
+	var spans []lineSpan
+	start := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			spans = append(spans, lineSpan{start: start, end: i, hasNL: true, text: text[start:i]})
+			start = i + 1
+		}
+	}
+	if start < len(text) {
+		spans = append(spans, lineSpan{start: start, end: len(text), hasNL: false, text: text[start:]})
+	}
+	return spans
+}
+
+func leadingIndent(line string) string {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return line[:i]
+}
+
+// fuzzyLineMatch provides controlled single-match fallback for edit_file when
+// exact matching fails due to trailing whitespace drift or a uniform
+// indentation shift. Ambiguous matches are always rejected with line numbers.
+func fuzzyLineMatch(haystack, needle, newText string) (start, end int, adjustedNew string, ok bool, err error) {
+	hasTrailingNL := strings.HasSuffix(needle, "\n")
+	rawNeedle := strings.TrimSuffix(needle, "\n")
+	if rawNeedle == "" {
+		return 0, 0, "", false, nil
+	}
+	fileLines := splitLineSpans(haystack)
+	needleLines := strings.Split(rawNeedle, "\n")
+	n := len(needleLines)
+	if n == 0 || n > len(fileLines) {
+		return 0, 0, "", false, nil
+	}
+	spanBounds := func(idx int) (int, int) {
+		s := fileLines[idx].start
+		e := fileLines[idx+n-1].end
+		if hasTrailingNL && fileLines[idx+n-1].hasNL {
+			e++
+		}
+		return s, e
+	}
+	formatLines := func(indices []int) string {
+		limit := min(len(indices), 5)
+		nums := make([]string, 0, limit+1)
+		for i := range limit {
+			nums = append(nums, strconv.Itoa(indices[i]+1))
+		}
+		if len(indices) > limit {
+			nums = append(nums, "...")
+		}
+		return strings.Join(nums, ", ")
+	}
+
+	// Pass 1: trailing-whitespace-trimmed line match.
+	trimmedNeedle := make([]string, n)
+	for i, l := range needleLines {
+		trimmedNeedle[i] = strings.TrimRight(l, " \t")
+	}
+	var pass1 []int
+	for i := 0; i <= len(fileLines)-n; i++ {
+		matched := true
+		for j := range n {
+			if strings.TrimRight(fileLines[i+j].text, " \t") != trimmedNeedle[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			pass1 = append(pass1, i)
+		}
+	}
+	if len(pass1) == 1 {
+		s, e := spanBounds(pass1[0])
+		return s, e, newText, true, nil
+	}
+	if len(pass1) > 1 {
+		return 0, 0, "", false, invalid(fmt.Sprintf("old text matched %d locations after ignoring trailing whitespace (lines %s); include more surrounding context", len(pass1), formatLines(pass1)))
+	}
+
+	// Pass 2: uniform indentation-shifted match (requires >=2 non-empty lines or >=20 trimmed chars).
+	nonEmpty := 0
+	trimmedLen := 0
+	coreNeedle := make([]string, n)
+	for i, l := range needleLines {
+		c := strings.TrimSpace(l)
+		coreNeedle[i] = c
+		if c != "" {
+			nonEmpty++
+			trimmedLen += len(c)
+		}
+	}
+	if nonEmpty < 2 && trimmedLen < 20 {
+		return 0, 0, "", false, nil
+	}
+	type indentHit struct {
+		index  int
+		add    string // prefix present in file but absent in needle
+		remove string // prefix present in needle but absent in file
+	}
+	var pass2 []indentHit
+	for i := 0; i <= len(fileLines)-n; i++ {
+		matched := true
+		deltaSet := false
+		var addPrefix, removePrefix string
+		for j := range n {
+			fileLine := fileLines[i+j].text
+			if strings.TrimSpace(fileLine) != coreNeedle[j] {
+				matched = false
+				break
+			}
+			if coreNeedle[j] == "" {
+				continue
+			}
+			fileIndent := leadingIndent(fileLine)
+			needleIndent := leadingIndent(needleLines[j])
+			var curAdd, curRemove string
+			switch {
+			case strings.HasPrefix(fileIndent, needleIndent):
+				curAdd = fileIndent[len(needleIndent):]
+			case strings.HasPrefix(needleIndent, fileIndent):
+				curRemove = needleIndent[len(fileIndent):]
+			default:
+				matched = false
+			}
+			if !matched {
+				break
+			}
+			if !deltaSet {
+				addPrefix, removePrefix, deltaSet = curAdd, curRemove, true
+			} else if curAdd != addPrefix || curRemove != removePrefix {
+				matched = false
+				break
+			}
+		}
+		if matched && deltaSet {
+			pass2 = append(pass2, indentHit{index: i, add: addPrefix, remove: removePrefix})
+		}
+	}
+	if len(pass2) == 1 {
+		hit := pass2[0]
+		s, e := spanBounds(hit.index)
+		return s, e, shiftIndent(newText, hit.add, hit.remove), true, nil
+	}
+	if len(pass2) > 1 {
+		indices := make([]int, len(pass2))
+		for i, hit := range pass2 {
+			indices[i] = hit.index
+		}
+		return 0, 0, "", false, invalid(fmt.Sprintf("old text matched %d locations with different indentation (lines %s); include more surrounding context", len(pass2), formatLines(indices)))
+	}
+	return 0, 0, "", false, nil
+}
+
+func shiftIndent(text, addPrefix, removePrefix string) string {
+	if addPrefix == "" && removePrefix == "" {
+		return text
+	}
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if addPrefix != "" {
+			lines[i] = addPrefix + line
+		} else if removePrefix != "" && strings.HasPrefix(line, removePrefix) {
+			lines[i] = line[len(removePrefix):]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func countMatches(haystack, needle string, first int) (int, []string) {

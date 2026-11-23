@@ -62,6 +62,22 @@ func TestFileTextKernels(t *testing.T) {
 	if after, err = PrepareEdits("line1\nline2\n", []protocol.FileEdit{{OldText: "line1\nline2\n", NewText: "replaced\n"}}); err != nil || after != "replaced\n" {
 		t.Fatalf("whole-file edit: %q %v", after, err)
 	}
+	// Controlled fuzzy edit: unique trailing-whitespace mismatch succeeds.
+	if after, err = PrepareEdits("alpha   \nbeta\t\ngamma\n", []protocol.FileEdit{{OldText: "alpha\nbeta", NewText: "alpha\nBETA"}}); err != nil || after != "alpha\nBETA\ngamma\n" {
+		t.Fatalf("trailing-whitespace fuzzy edit: %q %v", after, err)
+	}
+	// Controlled fuzzy edit: unique uniform indentation shift succeeds and re-indents new_text.
+	if after, err = PrepareEdits("func f() {\n\tif ok {\n\t\treturn 1\n\t}\n}\n", []protocol.FileEdit{{OldText: "if ok {\n\treturn 1\n}", NewText: "if ok {\n\treturn 2\n}"}}); err != nil || after != "func f() {\n\tif ok {\n\t\treturn 2\n\t}\n}\n" {
+		t.Fatalf("indent-shift fuzzy edit: %q %v", after, err)
+	}
+	// Controlled fuzzy edit: ambiguous trailing-whitespace matches are rejected with line numbers.
+	if _, err = PrepareEdits("dup  \nx\ndup\t\n", []protocol.FileEdit{{OldText: "dup\n", NewText: "one\n"}}); err == nil || !strings.Contains(err.Error(), "2 locations") || !strings.Contains(err.Error(), "1, 3") {
+		t.Fatalf("ambiguous fuzzy edit should fail: %v", err)
+	}
+	// Controlled fuzzy edit: replace_all stays exact (never applies fuzzy fallback).
+	if _, err = PrepareEdits("dup  \ndup  \n", []protocol.FileEdit{{OldText: "dup\n", NewText: "one\n", ReplaceAll: true}}); err == nil {
+		t.Fatal("replace_all should not use fuzzy fallback")
+	}
 	hunks, err := SplitHunks("note.txt", "one\ntwo\nthree\n", "one\nnext\nthree\n", 0)
 	if err != nil || len(hunks) != 1 || !validRevision(hunks[0].Hunk.ID) {
 		t.Fatalf("hunks: %+v %v", hunks, err)

@@ -156,8 +156,64 @@ func TestTurnEndHooks(t *testing.T) {
 			t.Fatal("hooks bound a turn that was not admitted")
 		}
 		var binding *Binding
-		if binding.WrapsTools() || binding.Before(context.Background(), "write_file", "call-write") != nil || binding.Complete(context.Background(), "completed") != nil {
+		if binding.WrapsTools() || binding.WrapsTool("read_file") || binding.Before(context.Background(), "write_file", "call-write") != nil || binding.Complete(context.Background(), "completed") != nil {
 			t.Fatal("an absent binding ran")
 		}
 	})
+}
+
+func TestToolScopedHooksFilterExecutionAndWrapping(t *testing.T) {
+	settings := protocol.DefaultHooksSettings()
+	settings.Enabled = true
+	settings.BeforeTool = &protocol.HooksScript{
+		Command:   "guard-writes",
+		Enabled:   true,
+		TimeoutMs: 5000,
+		Tools:     []string{"run_command", "write_*"},
+	}
+	if err := Validate(settings); err != nil {
+		t.Fatalf("Validate failed for valid tool filter: %v", err)
+	}
+	var claimed, launched []string
+	binding := New(Capture{
+		Settings: settings,
+		Admitted: true,
+		Claim: func(_ context.Context, _ protocol.TurnID, _ protocol.HooksPhase, _ uint64) error {
+			claimed = append(claimed, "claim")
+			return nil
+		},
+		Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
+			return nil
+		},
+		Launch: func(_ context.Context, command string, _ uint64, env map[string]string, _ string) (protocol.ProcessCompletion, error) {
+			launched = append(launched, command+":"+env["SAILRY_HOOK_TOOL"])
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+		},
+	})
+	if !binding.WrapsTools() {
+		t.Fatal("WrapsTools should remain true when any tool hook is enabled")
+	}
+	if binding.WrapsTool("read_file") {
+		t.Fatal("WrapsTool should be false for unmatched read_file")
+	}
+	if !binding.WrapsTool("run_command") || !binding.WrapsTool("write_file") {
+		t.Fatal("WrapsTool should match exact and prefix-wildcard tools")
+	}
+	if err := binding.Before(context.Background(), "read_file", "call-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 0 || len(launched) != 0 {
+		t.Fatalf("unmatched tool invoked claim/launch: claimed=%v launched=%v", claimed, launched)
+	}
+	if err := binding.Before(context.Background(), "write_file", "call-2"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(launched, []string{"guard-writes:write_file"}) {
+		t.Fatalf("matched tool launches = %v", launched)
+	}
+	bad := settings
+	bad.BeforeTool = &protocol.HooksScript{Command: "x", Enabled: true, TimeoutMs: 100, Tools: []string{"   "}}
+	if err := Validate(bad); err == nil {
+		t.Fatal("empty tool filter entry should fail validation")
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -447,6 +448,8 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			if joined {
 				x.foregroundSteered = true
+				x.doomSignature = ""
+				x.doomStreak = 0
 				continue
 			}
 		}
@@ -524,6 +527,12 @@ func (r *Runtime) turn(x *execution) error {
 		if limited {
 			return nil
 		}
+		if inv.Session.Delegation == nil && r.maxModelSteps > 0 && x.modelSteps >= r.maxModelSteps {
+			if err = r.detachForeground(x); err != nil {
+				return err
+			}
+			return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("turn stopped after reaching the %d-step safety limit", r.maxModelSteps)}
+		}
 		observed := map[string]bool{}
 		readResult := func(response *canonical.ToolResponse) (json.RawMessage, error) {
 			return r.readToolResult(x.ctx, response)
@@ -541,8 +550,10 @@ func (r *Runtime) turn(x *execution) error {
 				return r.settleForeground(x)
 			}
 		}
+		x.modelSteps++
 		if err = r.infer(x, binding, languageModel, state); err != nil {
 			if err == errQueuedSteer {
+				x.modelSteps--
 				continue
 			}
 			return err
