@@ -6,6 +6,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 	codeindex "github.com/sailry/sailry-harness/modules/code-index/node"
+	computernode "github.com/sailry/sailry-harness/modules/computer/node"
 	databasesnode "github.com/sailry/sailry-harness/modules/databases/node"
 	filesnode "github.com/sailry/sailry-harness/modules/files/node"
 	gitnode "github.com/sailry/sailry-harness/modules/git/node"
@@ -33,6 +34,7 @@ func Harness() moduleapi.Assembly {
 			memorynode.Module(),
 			browsernode.Builtin(),
 			browsernode.External(),
+			computernode.Module(),
 		},
 	}
 }

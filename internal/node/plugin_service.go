@@ -271,6 +271,10 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 	if request.Plugin == nil {
 		return nil
 	}
+	if request.Plugin.Package == store.NativeMemoryReference() {
+		info := store.NativeMemoryStorageInfo()
+		return store.CheckPluginRequest(ctx, db, request, info)
+	}
 	if request.Plugin.Surface.Kind == "card" {
 		if err := store.CheckPluginCardRequest(ctx, db, node.ID(), caller, request); err != nil {
 			return err

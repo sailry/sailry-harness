@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/computer"
@@ -11,6 +14,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+const nativeComputerOverlayOwner = "\x00native-computer"
 
 func computerCommand(kind string) bool {
 	return kind == "read_computer_permissions" || kind == "request_computer_permission"
@@ -40,25 +45,88 @@ func (node *Node) computerPermissions(ctx context.Context, caller protocol.NodeI
 	}
 	var launch *computer.Invocation
 	if probe.Gated() {
-		if request.Plugin == nil {
-			return protocol.ComputerPermissions{}, computer.Unconfigured()
-		}
-		prepared, err := node.computerLaunch(ctx, request.Plugin.Package)
-		if err != nil {
-			return protocol.ComputerPermissions{}, err
-		}
-		defer func() { _ = prepared.Release() }()
-		launch = &computer.Invocation{
-			Command:     prepared.Launch.Command,
-			Directory:   prepared.Launch.Directory,
-			Env:         prepared.Launch.Env,
-			Environment: prepared.Launch.Environment,
+		if request.Plugin != nil {
+			prepared, err := node.computerLaunch(ctx, request.Plugin.Package)
+			if err != nil {
+				return protocol.ComputerPermissions{}, err
+			}
+			defer func() { _ = prepared.Release() }()
+			launch = &computer.Invocation{
+				Command:     prepared.Launch.Command,
+				Directory:   prepared.Launch.Directory,
+				Env:         prepared.Launch.Env,
+				Environment: prepared.Launch.Environment,
+			}
+		} else {
+			nativeLaunch, err := node.nativeComputerInvocation()
+			if err != nil {
+				return protocol.ComputerPermissions{}, err
+			}
+			launch = &nativeLaunch
 		}
 	}
 	if requested {
 		return probe.Request(ctx, node.ID(), caller, input.Permission, launch)
 	}
 	return probe.Read(ctx, node.ID(), caller, launch)
+}
+
+func (node *Node) nativeComputerHome() (dataDir, homeDir string, err error) {
+	dataDir = filepath.Join(node.profile.Ownership.Path, "modules", "computer")
+	if err = os.MkdirAll(dataDir, 0o700); err != nil {
+		return "", "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "computer helper data directory is unavailable"}
+	}
+	homeDir = filepath.Join(dataDir, "agent-desktop")
+	if err = computer.PrepareHome(dataDir, homeDir); err != nil {
+		return "", "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "computer helper home is unavailable"}
+	}
+	return dataDir, homeDir, nil
+}
+
+func (node *Node) nativeComputerInvocation() (computer.Invocation, error) {
+	exe, err := computer.Executable()
+	if err != nil {
+		return computer.Invocation{}, err
+	}
+	dataDir, homeDir, err := node.nativeComputerHome()
+	if err != nil {
+		return computer.Invocation{}, err
+	}
+	env := map[string]string{"AGENT_DESKTOP_HOME": homeDir}
+	computer.Session(env)
+	environment := slices.Clone(node.environment.TerminalValues())
+	slices.Sort(environment)
+	return computer.Invocation{
+		Command:     exe,
+		Directory:   dataDir,
+		Env:         env,
+		Environment: environment,
+	}, nil
+}
+
+func (node *Node) nativeComputerAvailable() (bool, string) {
+	if _, err := computer.Executable(); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
+
+func (node *Node) stopNativeComputerOverlay(ctx context.Context) {
+	if node.begin() != nil {
+		return
+	}
+	owners := []string{"local\x00" + nativeComputerOverlayOwner}
+	if user, ok := store.UserFromContext(ctx); ok && user.ID != (protocol.UserID{}) {
+		owners = append(owners, user.ID.String()+"\x00"+nativeComputerOverlayOwner)
+	}
+	go func() {
+		defer node.work.Done()
+		for _, owner := range owners {
+			if node.computerOverlay.Tracks(owner) {
+				node.computerOverlay.Retain(owner, nil)
+			}
+		}
+	}()
 }
 
 // computerLaunch captures the helper launch of the calling package: its one

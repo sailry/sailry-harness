@@ -61,6 +61,12 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return reportDiagnostic(ctx, db, request, time.Now().UnixMilli())
 	case "save_media_settings":
 		return saveMediaSettings(ctx, db, *request.Command.Data.(*protocol.MediaSettings))
+	case "save_computer_settings":
+		value, events, err := SaveComputerSettings(ctx, db, *request.Command.Data.(*protocol.ComputerSettings))
+		return protocol.Output{Kind: "computer_settings", Data: value}, events, err
+	case "save_external_browser_settings":
+		value, events, err := SaveExternalBrowserSettings(ctx, db, *request.Command.Data.(*protocol.ExternalBrowserSettings))
+		return protocol.Output{Kind: "external_browser_settings", Data: value}, events, err
 	case "save_power_settings":
 		return savePower(ctx, db, *request.Command.Data.(*protocol.PowerSettings))
 	case "save_telemetry_settings":

@@ -257,8 +257,12 @@ func validateAgentReferences(ctx context.Context, db *sql.Conn, session protocol
 }
 
 // validateReferencedPlugin admits a plugin or skill reference only for a
-// package the turn freezes that an agent can use.
+// package the turn freezes that an agent can use, or a compile-time native
+// module skill.
 func validateReferencedPlugin(ctx context.Context, db *sql.Conn, session protocol.Session, name string, skill *string, captured []protocol.PluginReference) error {
+	if skill != nil && hasNativeSkill(ctx, name, *skill) {
+		return nil
+	}
 	references := captured
 	if captured == nil {
 		var err error

@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io/fs"
 	"runtime"
 	"slices"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -28,6 +30,7 @@ import (
 type ToolMeta struct {
 	Name          string                    `json:"name"`
 	LegacyPackage string                    `json:"legacy_package,omitempty"`
+	LegacyServer  string                    `json:"legacy_server,omitempty"`
 	LegacyName    string                    `json:"legacy_name,omitempty"`
 	Presentation  protocol.ToolPresentation `json:"presentation,omitempty"`
 	Grouping      protocol.ToolGrouping     `json:"grouping,omitempty"`
@@ -35,7 +38,8 @@ type ToolMeta struct {
 }
 
 // LegacyAlias returns the canonical alias formerly generated when this tool was
-// owned by a bundled plugin package, or an empty string if none applies.
+// owned by a bundled plugin package (or plugin MCP server), or an empty string
+// if none applies.
 func (m ToolMeta) LegacyAlias() string {
 	if m.LegacyPackage == "" {
 		return ""
@@ -43,6 +47,9 @@ func (m ToolMeta) LegacyAlias() string {
 	name := m.LegacyName
 	if name == "" {
 		name = m.Name
+	}
+	if m.LegacyServer != "" {
+		return mcp.Alias(m.LegacyPackage, m.LegacyServer, name)
 	}
 	return operations.Alias(m.LegacyPackage, name)
 }
@@ -52,6 +59,7 @@ func (m ToolMeta) LegacyAlias() string {
 type ToolSpec struct {
 	Name          string                                `json:"name"`
 	LegacyPackage string                                `json:"legacy_package,omitempty"`
+	LegacyServer  string                                `json:"legacy_server,omitempty"`
 	LegacyName    string                                `json:"legacy_name,omitempty"`
 	Description   string                                `json:"description"`
 	Operation     protocol.ToolOperation                `json:"operation,omitempty"`
@@ -124,6 +132,7 @@ func (s ToolSpec) Meta() ToolMeta {
 	return ToolMeta{
 		Name:          s.Name,
 		LegacyPackage: s.LegacyPackage,
+		LegacyServer:  s.LegacyServer,
 		LegacyName:    s.LegacyName,
 		Presentation:  presentation,
 		Grouping:      grouping,
@@ -216,7 +225,12 @@ type Host interface {
 
 	BrowserAvailable(inv *store.AgentInvocation) bool
 	ExternalBrowserAvailable() bool
+	ExternalBrowserEnabled(ctx context.Context) (bool, error)
+	CheckExternalBrowserEnabled(ctx context.Context) error
 	ExternalBrowserCloseOnCancel(ctx context.Context, session protocol.SessionID) func() error
+
+	ComputerEnabled(ctx context.Context) (bool, error)
+	ConnectComputerMCP(ctx context.Context, inv *store.AgentInvocation, catalog CatalogSpec) ([]engine.Tool, error)
 
 	PluginCaptured(inv *store.AgentInvocation, name string) (protocol.PluginReference, bool)
 	PluginInstalled(ctx context.Context, name string) (installed bool, enabled bool, err error)
@@ -225,6 +239,32 @@ type Host interface {
 	PluginStorageSearch(ctx context.Context, inv *store.AgentInvocation, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error)
 	PluginStorageTransaction(ctx context.Context, inv *store.AgentInvocation, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error)
 	ConfigureStorageApproval(ctx context.Context, db *sql.Conn, turn protocol.TurnID, value protocol.ConversationApproval) (protocol.ConversationApproval, error)
+
+	// Controller-scoped storage helpers for native module commands (outside an agent turn).
+	StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error)
+	StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error)
+	StorageTransaction(ctx context.Context, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error)
+	ProjectExists(ctx context.Context, id string) (bool, error)
+}
+
+// BuiltInSkill describes a compile-time skill bundled inside a native module.
+type BuiltInSkill struct {
+	Package string
+	Skill   protocol.PluginSkill
+	Tree    fs.FS
+}
+
+// SkillProvider is optionally implemented by native modules that ship built-in
+// skills (for example, web-search:research).
+type SkillProvider interface {
+	Skills() []BuiltInSkill
+}
+
+// CommandHandler is optionally implemented by native modules that own direct
+// Node protocol commands (such as native memory catalog CRUD).
+type CommandHandler interface {
+	HandlesCommand(kind string) bool
+	ExecuteCommand(ctx context.Context, host Host, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error)
 }
 
 // Module is one compile-time native Node feature module.
@@ -241,6 +281,61 @@ type Assembly struct {
 	Modules   []Module
 }
 
+// NativeSkillPackages returns the skill trees contributed by assembled modules.
+func (a Assembly) NativeSkillPackages() []operations.NativeSkillPackage {
+	byPkg := map[string]*operations.NativeSkillPackage{}
+	var order []string
+	for _, m := range a.Modules {
+		provider, ok := m.(SkillProvider)
+		if !ok {
+			continue
+		}
+		for _, item := range provider.Skills() {
+			if item.Package == "" || item.Tree == nil {
+				continue
+			}
+			pkg, exists := byPkg[item.Package]
+			if !exists {
+				pkg = &operations.NativeSkillPackage{Package: item.Package, Tree: item.Tree}
+				byPkg[item.Package] = pkg
+				order = append(order, item.Package)
+			}
+			pkg.Skills = append(pkg.Skills, item.Skill)
+		}
+	}
+	out := make([]operations.NativeSkillPackage, 0, len(order))
+	for _, name := range order {
+		out = append(out, *byPkg[name])
+	}
+	return out
+}
+
+// NativeSkills returns the protocol-facing metadata of all built-in module skills.
+func (a Assembly) NativeSkills() []protocol.NativeSkill {
+	var out []protocol.NativeSkill
+	for _, m := range a.Modules {
+		provider, ok := m.(SkillProvider)
+		if !ok {
+			continue
+		}
+		for _, item := range provider.Skills() {
+			out = append(out, protocol.NativeSkill{Package: item.Package, Skill: item.Skill})
+		}
+	}
+	return out
+}
+
+// CommandHandlerFor returns the assembled module owning the given protocol
+// command kind, if any.
+func (a Assembly) CommandHandlerFor(kind string) CommandHandler {
+	for _, m := range a.Modules {
+		if handler, ok := m.(CommandHandler); ok && handler.HandlesCommand(kind) {
+			return handler
+		}
+	}
+	return nil
+}
+
 // ReplacesPlugin reports whether any assembled module supersedes the tool
 // declarations of the named legacy plugin package.
 func (a Assembly) ReplacesPlugin(name string) bool {
@@ -253,12 +348,21 @@ func (a Assembly) ReplacesPlugin(name string) bool {
 }
 
 // LookupTool resolves presentation metadata for a canonical module tool name or
-// its legacy plugin alias.
+// its legacy plugin/MCP alias.
 func (a Assembly) LookupTool(name string) (ToolMeta, bool) {
 	for _, m := range a.Modules {
 		for _, meta := range m.Catalog() {
 			if meta.Name == name || (meta.LegacyPackage != "" && meta.LegacyAlias() == name) {
 				return meta, true
+			}
+			if meta.LegacyServer != "" {
+				legacyName := meta.LegacyName
+				if legacyName == "" {
+					legacyName = meta.Name
+				}
+				if engine.MCPToolName(meta.LegacyServer, legacyName) == name {
+					return meta, true
+				}
 			}
 		}
 	}
@@ -282,6 +386,7 @@ func BuildCustomTool(spec ToolSpec, instruction string, execute func(context.Con
 		Deferred:      !spec.Initial,
 		Approval:      !spec.ReadOnly,
 		LegacyPackage: spec.LegacyPackage,
+		LegacyServer:  spec.LegacyServer,
 		LegacyName:    spec.LegacyName,
 		Instruction:   strings.TrimSpace(instruction),
 		SearchLabels:  spec.SearchLabels(),

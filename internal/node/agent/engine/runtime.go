@@ -38,6 +38,7 @@ type Options struct {
 	HooksForTurn       func(context.Context, *store.AgentInvocation) *hooks.Binding
 	PluginAvailability func(protocol.PluginReference) error
 	ToolPresentation   store.ToolPresentationLookup
+	NativeSkills       []operations.NativeSkillPackage
 	// AfterTurn, when set, runs after a main task turn's end is stored. It
 	// receives the settled run and what the execution observed.
 	AfterTurn func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
@@ -71,6 +72,7 @@ type Runtime struct {
 	stopCommands      func(protocol.SessionID)
 	stopTransient     func(protocol.SessionID)
 	maxModelSteps     uint32
+	nativeSkills      []operations.NativeSkillPackage
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -169,7 +171,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	base := store.WithPluginAvailability(context.Background(), options.PluginAvailability)
 	base = store.WithToolPresentation(base, options.ToolPresentation)
 	ctx, cancel := context.WithCancel(base)
-	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
+	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never

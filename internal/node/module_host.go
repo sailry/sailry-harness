@@ -11,13 +11,17 @@ import (
 	"sync"
 
 	"charm.land/fantasy"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
 	"github.com/sailry/sailry-harness/internal/node/files"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -40,6 +44,177 @@ func (h nodeModuleHost) BrowserAvailable(inv *store.AgentInvocation) bool {
 
 func (h nodeModuleHost) ExternalBrowserAvailable() bool {
 	return h.node.externalBrowser.Available()
+}
+
+func (h nodeModuleHost) ExternalBrowserEnabled(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadExternalBrowserSettings(ctx, db)
+		if err != nil {
+			return err
+		}
+		enabled = settings.Enabled
+		return nil
+	})
+	return enabled, err
+}
+
+func (h nodeModuleHost) CheckExternalBrowserEnabled(ctx context.Context) error {
+	installed, pluginEnabled, err := h.PluginInstalled(ctx, "external-browser")
+	if err != nil {
+		return err
+	}
+	if installed {
+		if !pluginEnabled {
+			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin is disabled"}
+		}
+		return nil
+	}
+	enabled, err := h.ExternalBrowserEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "external browser is disabled"}
+	}
+	return nil
+}
+
+func (h nodeModuleHost) ComputerEnabled(ctx context.Context) (bool, error) {
+	var enabled bool
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadComputerSettings(ctx, db)
+		if err != nil {
+			return err
+		}
+		enabled = settings.Enabled
+		return nil
+	})
+	return enabled, err
+}
+
+func (h nodeModuleHost) ConnectComputerMCP(ctx context.Context, inv *store.AgentInvocation, catalog moduleapi.CatalogSpec) ([]engine.Tool, error) {
+	if ctx.Err() != nil {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "MCP startup was cancelled"}
+	}
+	nativeLaunch, err := h.node.nativeComputerInvocation()
+	if err != nil {
+		return nil, err
+	}
+	userID := inv.StorageUser.String()
+	if inv.StorageUser == (protocol.UserID{}) {
+		userID = "local"
+	}
+	owner := userID + "\x00" + nativeComputerOverlayOwner
+	session, attached := h.node.computerOverlay.Attach(owner, true, nativeLaunch)
+	env := make(map[string]string, len(nativeLaunch.Env)+1)
+	for k, v := range nativeLaunch.Env {
+		env[k] = v
+	}
+	if attached {
+		env[computer.SessionVariable] = session
+	}
+	cmd, args := computer.Disclaim(nativeLaunch.Command, []string{"mcp"})
+	keepImages := uint64(3)
+	prepared := mcp.Configuration{
+		User:   userID,
+		Server: "desktop",
+		Launch: mcp.Launch{
+			Kind:        "stdio",
+			Command:     cmd,
+			Args:        args,
+			Directory:   nativeLaunch.Directory,
+			Env:         env,
+			Environment: nativeLaunch.Environment,
+		},
+		Options: protocol.PluginMcpOptions{
+			Exclusive:  true,
+			KeepImages: &keepImages,
+			Reuse:      false,
+		},
+	}
+	lease, err := h.node.plugins.mcp.Acquire(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	descriptors, err := lease.ListCached(ctx)
+	if err != nil {
+		return nil, errors.Join(err, lease.Close())
+	}
+	var closeOnce sync.Once
+	var closeErr error
+	closeLease := func() error { closeOnce.Do(func() { closeErr = lease.Close() }); return closeErr }
+	specsByName := make(map[string]moduleapi.ToolSpec, len(catalog.Tools))
+	for _, spec := range catalog.Tools {
+		specsByName[spec.Name] = spec
+	}
+	var tools []engine.Tool
+	for _, descriptor := range descriptors {
+		spec, allowed := specsByName[descriptor.Name]
+		if !allowed || !spec.Available(inv) {
+			continue
+		}
+		body, err := json.Marshal(descriptor.InputSchema)
+		if err != nil {
+			return nil, errors.Join(err, closeLease())
+		}
+		var schema map[string]any
+		if json.Unmarshal(body, &schema) != nil || schema["type"] != "object" {
+			return nil, errors.Join(&protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "MCP tool input schema must describe an object"}, closeLease())
+		}
+		readOnly := descriptor.Annotations != nil && descriptor.Annotations.ReadOnlyHint
+		desc := descriptor.Description
+		if spec.Description != "" {
+			desc = spec.Description
+		}
+		descriptorName := descriptor.Name
+		tool := engine.Tool{
+			Definition:    fantasy.FunctionTool{Name: spec.Name, Description: desc, InputSchema: schema},
+			SchemaJSON:    body,
+			ReadOnly:      readOnly,
+			Concurrent:    readOnly,
+			Deferred:      !spec.Initial,
+			Approval:      !readOnly,
+			Binding:       &store.ApprovalBinding{Tool: spec.Name},
+			MCPAuthority:  lease.AuthorityKey(),
+			Instruction:   strings.TrimSpace(catalog.Instructions),
+			SearchLabels:  spec.SearchLabels(),
+			LegacyPackage: spec.LegacyPackage,
+			LegacyServer:  spec.LegacyServer,
+			LegacyName:    spec.LegacyName,
+			Close:         closeLease,
+		}
+		tool.Execute = func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
+			var arguments map[string]any
+			if json.Unmarshal(call.Arguments, &arguments) != nil {
+				return workspaceToolFault(&protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid MCP tool arguments"})
+			}
+			result, err := lease.Call(ctx, descriptorName, arguments, readOnly, func(ctx context.Context, request *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+				return h.node.agent.Elicit(ctx, inv.Run.Turn, call, request)
+			})
+			if err != nil {
+				return workspaceToolFault(err)
+			}
+			boundToolImages(result)
+			remaining := keepImages
+			result.Content = slices.DeleteFunc(result.Content, func(content sdk.Content) bool {
+				if _, image := content.(*sdk.ImageContent); !image {
+					return false
+				}
+				if remaining == 0 {
+					return true
+				}
+				remaining--
+				return false
+			})
+			return engine.ToolResult{Value: result, Format: canonical.MCP, Error: result.IsError}
+		}
+		tools = append(tools, tool)
+	}
+	if len(tools) == 0 {
+		return nil, closeLease()
+	}
+	return tools, nil
 }
 
 func (h nodeModuleHost) ExternalBrowserCloseOnCancel(ctx context.Context, session protocol.SessionID) func() error {
@@ -713,9 +888,10 @@ func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg modu
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		input := current.Command.Data.(*protocol.CommandUseExternalBrowserPayload)
+		check := func(ctx context.Context) error { return h.CheckExternalBrowserEnabled(ctx) }
 		output, err := h.node.externalBrowser.Execute(ctx, externalbrowser.Call{
 			Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments,
-			Check: func(ctx context.Context) error { return h.pluginGateEnabled(ctx, cfg.PluginGate) },
+			Check: check,
 		})
 		if err != nil {
 			return workspaceToolFault(err)
@@ -747,6 +923,9 @@ func (h nodeModuleHost) storageScope(ctx context.Context, inv *store.AgentInvoca
 			return ctx, protocol.PluginContext{}, err
 		}
 	}
+	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
+		ref = store.NativeMemoryReference()
+	}
 	scope := protocol.PluginContext{
 		Package:  ref,
 		Worktree: &inv.Run.Worktree,
@@ -757,6 +936,158 @@ func (h nodeModuleHost) storageScope(ctx context.Context, inv *store.AgentInvoca
 		scope.Turn = &inv.Run.Turn
 	}
 	return ctx, scope, nil
+}
+
+func (h nodeModuleHost) controllerStorageScope(ctx context.Context, namespace string) (protocol.PluginContext, error) {
+	var ref protocol.PluginReference
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, namespace)
+		if err != nil {
+			return err
+		}
+		if current != nil {
+			ref = plugins.PackageReference(*current)
+		}
+		return nil
+	})
+	if err != nil {
+		return protocol.PluginContext{}, err
+	}
+	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
+		ref = store.NativeMemoryReference()
+	}
+	if ref.Name == "" {
+		return protocol.PluginContext{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
+	}
+	return protocol.PluginContext{
+		Package: ref,
+		Surface: protocol.PluginDesktopSurface{Kind: "workspace"},
+	}, nil
+}
+
+func (h nodeModuleHost) ProjectExists(ctx context.Context, id string) (bool, error) {
+	exists := false
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		projects, err := store.ReadProjects(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, p := range projects {
+			if strings.EqualFold(p.ID.String(), id) {
+				exists = true
+				break
+			}
+		}
+		return nil
+	})
+	return exists, err
+}
+
+func (h nodeModuleHost) StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.PluginStorageEntry{}, err
+	}
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "read_plugin_value", Data: &protocol.CommandReadPluginValuePayload{Key: key, Scope: protocol.PluginStorageScopeNode}})
+	request.Plugin = &scope
+	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage read cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage read unavailable"))
+	if err != nil {
+		return protocol.PluginStorageEntry{}, err
+	}
+	entry, ok := dispatchPayload[protocol.PluginStorageEntry](output.Data)
+	if !ok {
+		return protocol.PluginStorageEntry{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage read result"}
+	}
+	return entry, nil
+}
+
+func (h nodeModuleHost) StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.PluginStorageSearchPage{}, err
+	}
+	if query.Scope == "" {
+		query.Scope = protocol.PluginStorageScopeNode
+	}
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "search_plugin_values", Data: &query})
+	request.Plugin = &scope
+	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage search cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage search unavailable"))
+	if err != nil {
+		return protocol.PluginStorageSearchPage{}, err
+	}
+	page, ok := dispatchPayload[protocol.PluginStorageSearchPage](output.Data)
+	if !ok {
+		return protocol.PluginStorageSearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage search result"}
+	}
+	return page, nil
+}
+
+func (h nodeModuleHost) StorageTransaction(ctx context.Context, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: ops}})
+	request.Plugin = &scope
+	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage transaction cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage transaction outcome is unavailable"))
+	if err != nil {
+		return nil, err
+	}
+	results, ok := dispatchPayload[[]protocol.Output](output.Data)
+	if !ok {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage transaction result"}
+	}
+	return results, nil
+}
+
+func (node *Node) dispatchModuleCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte, handler moduleapi.CommandHandler) (link.Admission, error) {
+	if err := node.begin(); err != nil {
+		return link.Admission{}, err
+	}
+	durable := request.Command.Durable()
+	completion := make(chan link.Response, 1)
+	accepted := link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: durable}, Completion: completion}
+	if durable {
+		var previous *link.Response
+		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			var err error
+			previous, err = admission.Admit(ctx, db, caller, request, body)
+			return err
+		})
+		if err != nil {
+			node.work.Done()
+			return link.Admission{}, nodeFault(err)
+		}
+		if previous != nil {
+			node.work.Done()
+			completion <- *previous
+			close(completion)
+			return accepted, nil
+		}
+	}
+	go func() {
+		defer node.work.Done()
+		defer close(completion)
+		output, events, opErr := handler.ExecuteCommand(ctx, nodeModuleHost{node: node}, caller, request)
+		res := response(output, opErr)
+		if durable {
+			err := node.profile.Store.Node.Write(context.WithoutCancel(ctx), func(db *sql.Conn) error {
+				if opErr == nil && len(events) > 0 {
+					if _, err := store.RecordEvents(context.WithoutCancel(ctx), db, node.ID(), events); err != nil {
+						return err
+					}
+				}
+				return admission.Complete(context.WithoutCancel(ctx), db, caller, request.ID, res)
+			})
+			if err != nil {
+				res = response(protocol.Output{}, err)
+			} else if opErr == nil && len(events) > 0 {
+				node.publish()
+			}
+		}
+		completion <- res
+	}()
+	return accepted, nil
 }
 
 func (h nodeModuleHost) PluginStorageGet(ctx context.Context, inv *store.AgentInvocation, namespace, key string) (protocol.PluginStorageEntry, error) {

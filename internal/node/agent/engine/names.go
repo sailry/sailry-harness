@@ -144,6 +144,16 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 			result.forward[legacy] = name
 			result.reverse[legacy] = name
 		}
+		if tool.LegacyServer != "" {
+			legacyName := tool.LegacyName
+			if legacyName == "" {
+				legacyName = name
+			}
+			if exposed := MCPToolName(tool.LegacyServer, legacyName); exposed != "" && exposed != name {
+				result.forward[exposed] = name
+				result.reverse[exposed] = name
+			}
+		}
 	}
 	return result
 }

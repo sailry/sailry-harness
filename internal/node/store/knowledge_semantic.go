@@ -211,7 +211,7 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 				return nil, false, err
 			}
 			// An old admitted turn retains access without replacing a newer package capture.
-			if *previous.Capture.Package != reference && latest != nil && plugins.PackageReference(*latest) == reference {
+			if *previous.Capture.Package != reference && (latest != nil && plugins.PackageReference(*latest) == reference || latest == nil && isNativeMemoryReference(reference)) {
 				previous.Capture.Package = &reference
 				previous.Capture.User = &user
 				if err := advanceKnowledge(previous); err != nil {
@@ -272,6 +272,7 @@ func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) 
 		return false, err
 	}
 	changed := false
+	hasMemoryPlugin := false
 	for _, info := range infos {
 		if err := semanticCancelled(ctx); err != nil {
 			return false, err
@@ -279,7 +280,20 @@ func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) 
 		if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
+		if info.Summary.Name == NativeMemoryNamespace {
+			hasMemoryPlugin = true
+		}
 		_, registered, err := ensureSemantic(ctx, db, plugins.PackageReference(info))
+		if err != nil {
+			return false, err
+		}
+		changed = changed || registered
+	}
+	if !hasMemoryPlugin {
+		if err := semanticCancelled(ctx); err != nil {
+			return false, err
+		}
+		_, registered, err := ensureSemantic(ctx, db, NativeMemoryReference())
 		if err != nil {
 			return false, err
 		}

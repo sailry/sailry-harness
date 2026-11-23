@@ -113,7 +113,7 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 		// settings view of a disabled package sends in a transaction only
 		// what it may send directly.
 		enabled := true
-		if scope.Turn == nil && scope.Invocation == nil {
+		if scope.Turn == nil && scope.Invocation == nil && !isNativeMemoryReference(scope.Package) {
 			current, err := ReadPlugin(ctx, db, scope.Package.Name)
 			if err != nil {
 				return protocol.Output{}, nil, err

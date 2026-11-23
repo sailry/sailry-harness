@@ -8669,6 +8669,15 @@ var commandVariants = variantFactories{"write_artifact": func() any { return new
 	"read_code_index_settings":         nil,
 	"read_personal_instructions":       nil,
 	"save_personal_instructions":       func() any { return new(CommandSavePersonalInstructionsPayload) },
+	"read_computer_settings":           nil,
+	"save_computer_settings":           func() any { return new(ComputerSettings) },
+	"read_external_browser_settings":   nil,
+	"save_external_browser_settings":   func() any { return new(ExternalBrowserSettings) },
+	"read_memory_catalog":              func() any { return new(CommandReadMemoryCatalogPayload) },
+	"read_memory_entry":                func() any { return new(CommandReadMemoryEntryPayload) },
+	"save_memory_entry":                func() any { return new(CommandSaveMemoryEntryPayload) },
+	"delete_memory_entry":              func() any { return new(CommandDeleteMemoryEntryPayload) },
+	"save_memory_settings":             func() any { return new(CommandSaveMemorySettingsPayload) },
 	"read_hooks":                       nil,
 	"save_hooks":                       func() any { return new(CommandSaveHooksPayload) },
 	"save_code_index_settings":         func() any { return new(CommandSaveCodeIndexSettingsPayload) },
@@ -8739,7 +8748,7 @@ func (value *Command) DecodeJSON(decoder *Decoder) error {
 	return nil
 }
 func CommandKinds() []string {
-	return append([]string{"write_artifact", "read_artifact", "list_artifacts", "list_artifact_revisions", "plugin_transaction", "call_plugin", "read_plugin_callback", "cancel_plugin_call", "report_diagnostic", "publish_notification", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "dispatch", "stop_dispatch_turn", "use_browser", "use_external_browser", "complete_browser", "read_plugin_value", "read_plugin_conversation_value", "list_plugin_keys", "write_plugin_value", "write_indexed_plugin_value", "search_plugin_values", "remove_plugin_value", "write_plugin_conversation_value", "remove_plugin_conversation_value", "list_plugin_models", "resolve_plugin_model", "request_plugin_http", "request_provider_http", "execute_provider_http", "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "generate_plugin_text", "browse_files", "manage_files", "open_port", "cancel_port", "list_databases", "save_database", "remove_database", "test_database", "check_database", "browse_database", "query_database", "cancel_database", "modify_ssh_file", "browse_ssh_directory", "download_ssh_file", "stage_ssh_upload", "finish_ssh_upload", "list_ssh", "list_ssh_terminals", "save_ssh", "remove_ssh", "trust_ssh", "list_wsl_distributions", "install_wsl_host", "read_wsl_host_install", "cancel_wsl_host_install", "install_host", "update_ssh_host", "read_host_install", "check_ssh", "open_ssh_terminal", "close_ssh_terminal", "run_ssh", "cancel_ssh", "transfer_ssh", "list_plugins", "search_skill_catalog", "search_plugin_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates", "dismiss_installation", "read_installations", "install_plugin_source", "install_catalog_plugin", "set_plugin_pinned", "install_bundled_plugin", "read_skill_document", "discover_skills", "discover_skill_upload", "discover_local_skills", "install_skill_upload", "discover_registry_skill", "install_registry_skill", "install_skill", "install_mcp", "upload_plugin", "inspect_plugin_upload", "install_plugin_upload", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_mcp", "set_plugin_mcp_allowed", "check_plugin_mcp", "list_connector_types", "inspect_connector_cli", "list_connections", "start_connector_login", "submit_connector_input", "cancel_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection", "save_plugin_mcp", "read_plugin_secret", "read_plugin_connection", "save_plugin_settings", "read_plugin_view", "install_plugin", "set_plugin_enabled", "remove_plugin", "list_roles", "put_role", "remove_role", "list_teams", "put_team", "remove_team", "read_compaction_settings", "save_compaction_settings", "read_team_settings", "save_team_settings", "list_providers", "read_provider_key", "begin_provider_login", "complete_provider_login", "cancel_provider_login", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models", "put_provider", "read_session", "list_associated_sessions", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_usage", "read_activity_catalog", "read_activity", "read_turn_capture", "read_turn", "read_tool_detail", "list_conversation_assets", "search_conversation", "list_file_checkpoints", "read_turn_diff", "read_turn_hunks", "apply_turn_hunk", "restore_file_checkpoint", "fork_conversation", "rewind_conversation", "replace_turn", "save_provider", "remove_provider", "submit_turn", "submit_task", "guide_turn", "deliver_background", "continue_turn", "compact_context", "start_queued_turn", "stop_turn", "run_command", "list_commands", "read_command", "read_command_page", "read_tool_output", "stop_commands", "stop_command", "write_command", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_terminal_settings", "read_power_settings", "read_telemetry_settings", "save_telemetry_settings", "reset_telemetry_identity", "send_diagnostics", "read_network_settings", "list_network_presets", "probe_network", "save_network_settings", "read_sandbox_settings", "save_sandbox_settings", "read_search_settings", "save_search_settings", "read_backup_settings", "save_backup_settings", "list_backups", "export_backup", "export_configuration", "import_configuration", "download_backup", "upload_backup", "restore_backup_file", "restore_backup", "read_python_settings", "save_python_settings", "decide", "read_local_model_settings", "save_local_model_settings", "read_local_models", "refresh_local_model", "register_local_model", "install_local_model", "delete_local_model", "cancel_local_model", "list_shells", "save_terminal_settings", "save_power_settings", "list_media_models", "read_media_settings", "save_media_settings", "search_models", "read_model_versions", "resolve_model", "query_knowledge", "read_knowledge_citation", "list_knowledge_collections", "create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection", "rebuild_knowledge_collection", "pause_knowledge_collection", "create_terminal", "open_terminal", "open_tool_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance", "snapshot", "inspect_host", "read_host_metrics", "use_media", "read_computer_permissions", "request_computer_permission", "stop_host_process", "inspect_request", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree", "create_git_branch", "rename_git_branch", "delete_git_branch", "switch_git_branch", "merge_git_branch", "read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "list_git_changes", "read_git_change", "read_git_context", "read_git_show", "read_git_blame", "search_files", "run_git_action", "create_git_commit", "update_git_index", "read_git_diff", "list_directory", "read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "read_hooks", "save_hooks", "save_code_index_settings", "read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "edit_notebook", "download_file", "upload_file", "upload_attachment", "finish_attachment_upload", "read_attachment", "download_attachment", "download_image", "discard_attachment", "finish_file_upload", "cancel_file_transfer", "write_file", "edit_file", "delete_file", "move_file", "apply_changes", "create_directory", "rename_entry", "copy_entry", "copy_entry_to", "move_entry_to", "trash_entry", "trash_file", "list_credentials", "register_project", "create_project", "update_project", "remove_project", "create_session", "start_session", "read_project_catalog", "read_worktree_catalog", "create_session_at", "import_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_sessions", "set_session_order", "remove_session", "move_conversation", "fork_conversation_at", "set_session_config", "set_session_roles", "set_session_team", "set_session_member_model", "queue_turn"}, "apply_git_hunk", "synthesize_speech", "count_feature", "read_plugin_memory", "identity", "configuration_follow", "read_resource_catalog", "call_host_handler", "resume_controller_login", "read_personal_instructions", "save_personal_instructions", "read_provider_directory")
+	return append([]string{"write_artifact", "read_artifact", "list_artifacts", "list_artifact_revisions", "plugin_transaction", "call_plugin", "read_plugin_callback", "cancel_plugin_call", "report_diagnostic", "publish_notification", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "dispatch", "stop_dispatch_turn", "use_browser", "use_external_browser", "complete_browser", "read_plugin_value", "read_plugin_conversation_value", "list_plugin_keys", "write_plugin_value", "write_indexed_plugin_value", "search_plugin_values", "remove_plugin_value", "write_plugin_conversation_value", "remove_plugin_conversation_value", "list_plugin_models", "resolve_plugin_model", "request_plugin_http", "request_provider_http", "execute_provider_http", "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "generate_plugin_text", "browse_files", "manage_files", "open_port", "cancel_port", "list_databases", "save_database", "remove_database", "test_database", "check_database", "browse_database", "query_database", "cancel_database", "modify_ssh_file", "browse_ssh_directory", "download_ssh_file", "stage_ssh_upload", "finish_ssh_upload", "list_ssh", "list_ssh_terminals", "save_ssh", "remove_ssh", "trust_ssh", "list_wsl_distributions", "install_wsl_host", "read_wsl_host_install", "cancel_wsl_host_install", "install_host", "update_ssh_host", "read_host_install", "check_ssh", "open_ssh_terminal", "close_ssh_terminal", "run_ssh", "cancel_ssh", "transfer_ssh", "list_plugins", "search_skill_catalog", "search_plugin_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates", "dismiss_installation", "read_installations", "install_plugin_source", "install_catalog_plugin", "set_plugin_pinned", "install_bundled_plugin", "read_skill_document", "discover_skills", "discover_skill_upload", "discover_local_skills", "install_skill_upload", "discover_registry_skill", "install_registry_skill", "install_skill", "install_mcp", "upload_plugin", "inspect_plugin_upload", "install_plugin_upload", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_mcp", "set_plugin_mcp_allowed", "check_plugin_mcp", "list_connector_types", "inspect_connector_cli", "list_connections", "start_connector_login", "submit_connector_input", "cancel_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection", "save_plugin_mcp", "read_plugin_secret", "read_plugin_connection", "save_plugin_settings", "read_plugin_view", "install_plugin", "set_plugin_enabled", "remove_plugin", "list_roles", "put_role", "remove_role", "list_teams", "put_team", "remove_team", "read_compaction_settings", "save_compaction_settings", "read_team_settings", "save_team_settings", "list_providers", "read_provider_key", "begin_provider_login", "complete_provider_login", "cancel_provider_login", "list_channel_presets", "refresh_model_catalog", "read_model_catalog", "read_model_scores", "discover_models", "put_provider", "read_session", "list_associated_sessions", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_usage", "read_activity_catalog", "read_activity", "read_turn_capture", "read_turn", "read_tool_detail", "list_conversation_assets", "search_conversation", "list_file_checkpoints", "read_turn_diff", "read_turn_hunks", "apply_turn_hunk", "restore_file_checkpoint", "fork_conversation", "rewind_conversation", "replace_turn", "save_provider", "remove_provider", "submit_turn", "submit_task", "guide_turn", "deliver_background", "continue_turn", "compact_context", "start_queued_turn", "stop_turn", "run_command", "list_commands", "read_command", "read_command_page", "read_tool_output", "stop_commands", "stop_command", "write_command", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_terminal_settings", "read_power_settings", "read_telemetry_settings", "save_telemetry_settings", "reset_telemetry_identity", "send_diagnostics", "read_network_settings", "list_network_presets", "probe_network", "save_network_settings", "read_sandbox_settings", "save_sandbox_settings", "read_search_settings", "save_search_settings", "read_backup_settings", "save_backup_settings", "list_backups", "export_backup", "export_configuration", "import_configuration", "download_backup", "upload_backup", "restore_backup_file", "restore_backup", "read_python_settings", "save_python_settings", "decide", "read_local_model_settings", "save_local_model_settings", "read_local_models", "refresh_local_model", "register_local_model", "install_local_model", "delete_local_model", "cancel_local_model", "list_shells", "save_terminal_settings", "save_power_settings", "list_media_models", "read_media_settings", "save_media_settings", "search_models", "read_model_versions", "resolve_model", "query_knowledge", "read_knowledge_citation", "list_knowledge_collections", "create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection", "rebuild_knowledge_collection", "pause_knowledge_collection", "create_terminal", "open_terminal", "open_tool_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance", "snapshot", "inspect_host", "read_host_metrics", "use_media", "read_computer_permissions", "request_computer_permission", "stop_host_process", "inspect_request", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree", "create_git_branch", "rename_git_branch", "delete_git_branch", "switch_git_branch", "merge_git_branch", "read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "list_git_changes", "read_git_change", "read_git_context", "read_git_show", "read_git_blame", "search_files", "run_git_action", "create_git_commit", "update_git_index", "read_git_diff", "list_directory", "read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "read_hooks", "save_hooks", "save_code_index_settings", "read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "edit_notebook", "download_file", "upload_file", "upload_attachment", "finish_attachment_upload", "read_attachment", "download_attachment", "download_image", "discard_attachment", "finish_file_upload", "cancel_file_transfer", "write_file", "edit_file", "delete_file", "move_file", "apply_changes", "create_directory", "rename_entry", "copy_entry", "copy_entry_to", "move_entry_to", "trash_entry", "trash_file", "list_credentials", "register_project", "create_project", "update_project", "remove_project", "create_session", "start_session", "read_project_catalog", "read_worktree_catalog", "create_session_at", "import_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_sessions", "set_session_order", "remove_session", "move_conversation", "fork_conversation_at", "set_session_config", "set_session_roles", "set_session_team", "set_session_member_model", "queue_turn"}, "apply_git_hunk", "synthesize_speech", "count_feature", "read_plugin_memory", "identity", "configuration_follow", "read_resource_catalog", "call_host_handler", "resume_controller_login", "read_personal_instructions", "save_personal_instructions", "read_provider_directory", "read_computer_settings", "save_computer_settings", "read_external_browser_settings", "save_external_browser_settings", "read_memory_catalog", "read_memory_entry", "save_memory_entry", "delete_memory_entry", "save_memory_settings")
 }
 
 type Request struct {
@@ -8776,32 +8785,36 @@ func (value Request) MarshalJSON() ([]byte, error) {
 }
 
 type Snapshot struct {
-	User                       *User                       `json:"user,omitempty"`
-	Node                       NodeID                      `json:"node"`
-	Cursor                     uint64                      `json:"cursor"`
-	Defaults                   Defaults                    `json:"defaults"`
-	Projects                   []Project                   `json:"projects"`
-	Worktrees                  []Worktree                  `json:"worktrees"`
-	Sessions                   []Session                   `json:"sessions"`
-	Terminals                  []TerminalInfo              `json:"terminals"`
-	TerminalSettingsRevision   uint64                      `json:"terminal_settings_revision"`
-	PowerSettingsRevision      uint64                      `json:"power_settings_revision"`
-	SandboxSettingsRevision    uint64                      `json:"sandbox_settings_revision"`
-	SearchSettingsRevision     uint64                      `json:"search_settings_revision"`
-	MediaSettings              MediaSettings               `json:"media_settings"`
-	Providers                  []ConversationProvider      `json:"providers"`
-	ProviderQuotas             []ConversationQuotaSnapshot `json:"provider_quotas"`
-	ProviderDirectory          bool                        `json:"provider_directory,omitempty"`
-	ModelCatalog               ConversationCatalogStatus   `json:"model_catalog"`
-	Roles                      []RoleProfile               `json:"roles"`
-	Teams                      []TeamProfile               `json:"teams"`
-	TeamSettingsRevision       uint64                      `json:"team_settings_revision"`
-	CompactionSettingsRevision uint64                      `json:"compaction_settings_revision"`
-	Ssh                        []SshProfile                `json:"ssh"`
-	Databases                  []DatabaseProfile           `json:"databases"`
-	Plugins                    []PluginSummary             `json:"plugins"`
-	Notifications              []NotificationNotice        `json:"notifications"`
-	Turns                      []TurnSummary               `json:"turns"`
+	User                            *User                       `json:"user,omitempty"`
+	Node                            NodeID                      `json:"node"`
+	Cursor                          uint64                      `json:"cursor"`
+	Defaults                        Defaults                    `json:"defaults"`
+	Projects                        []Project                   `json:"projects"`
+	Worktrees                       []Worktree                  `json:"worktrees"`
+	Sessions                        []Session                   `json:"sessions"`
+	Terminals                       []TerminalInfo              `json:"terminals"`
+	TerminalSettingsRevision        uint64                      `json:"terminal_settings_revision"`
+	PowerSettingsRevision           uint64                      `json:"power_settings_revision"`
+	SandboxSettingsRevision         uint64                      `json:"sandbox_settings_revision"`
+	SearchSettingsRevision          uint64                      `json:"search_settings_revision"`
+	MediaSettings                   MediaSettings               `json:"media_settings"`
+	Providers                       []ConversationProvider      `json:"providers"`
+	ProviderQuotas                  []ConversationQuotaSnapshot `json:"provider_quotas"`
+	ProviderDirectory               bool                        `json:"provider_directory,omitempty"`
+	ModelCatalog                    ConversationCatalogStatus   `json:"model_catalog"`
+	Roles                           []RoleProfile               `json:"roles"`
+	Teams                           []TeamProfile               `json:"teams"`
+	TeamSettingsRevision            uint64                      `json:"team_settings_revision"`
+	CompactionSettingsRevision      uint64                      `json:"compaction_settings_revision"`
+	ComputerSettingsRevision        uint64                      `json:"computer_settings_revision,omitempty"`
+	ExternalBrowserSettingsRevision uint64                      `json:"external_browser_settings_revision,omitempty"`
+	MemoryRevision                  uint64                      `json:"memory_revision,omitempty"`
+	NativeSkills                    []NativeSkill               `json:"native_skills,omitempty"`
+	Ssh                             []SshProfile                `json:"ssh"`
+	Databases                       []DatabaseProfile           `json:"databases"`
+	Plugins                         []PluginSummary             `json:"plugins"`
+	Notifications                   []NotificationNotice        `json:"notifications"`
+	Turns                           []TurnSummary               `json:"turns"`
 }
 
 func DefaultSnapshot() Snapshot {
@@ -9804,6 +9817,12 @@ var outputVariants = variantFactories{"installation_dismissed": func() any { ret
 	"host_metrics":                 func() any { return new(HostMetricsSample) },
 	"plugin_memory":                func() any { return new(PluginMemorySnapshot) },
 	"computer_permissions":         func() any { return new(ComputerPermissions) },
+	"computer_settings":            func() any { return new(ComputerSettings) },
+	"external_browser_settings":    func() any { return new(ExternalBrowserSettings) },
+	"memory_catalog":               func() any { return new(MemoryCatalog) },
+	"memory_entry":                 func() any { return new(MemoryEntry) },
+	"memory_settings":              func() any { return new(MemorySettings) },
+	"memory_deleted":               func() any { return new(OutputMemoryDeletedPayload) },
 	"host_process_signalled":       func() any { return new(OutputHostProcessSignalledPayload) },
 	"directory":                    func() any { return new(Directory) },
 	"file_content":                 func() any { return new(FileContent) },
@@ -10644,56 +10663,59 @@ func (value EventTurnQueuedPayload) MarshalJSON() ([]byte, error) {
 }
 
 var eventVariants = variantFactories{"cursor": nil, "projection_invalidated": nil, "local_models_changed": func() any { return new(EventLocalModelsChangedPayload) },
-	"local_model_settings_changed":  func() any { return new(EventLocalModelSettingsChangedPayload) },
-	"knowledge_collections_changed": nil,
-	"resource_catalog_changed":      nil,
-	"task_started":                  func() any { return new(EventTaskStartedPayload) },
-	"notification_changed":          func() any { return new(NotificationNotice) },
-	"notifications_read":            func() any { return new(EventNotificationsReadPayload) },
-	"notifications_dismissed":       func() any { return new(EventNotificationsDismissedPayload) },
-	"dispatch_changed":              func() any { return new(EventDispatchChangedPayload) },
-	"media_settings_changed":        func() any { return new(MediaSettings) },
-	"power_settings_changed":        func() any { return new(EventPowerSettingsChangedPayload) },
-	"telemetry_settings_changed":    func() any { return new(EventTelemetrySettingsChangedPayload) },
-	"terminal_settings_changed":     func() any { return new(EventTerminalSettingsChangedPayload) },
-	"sandbox_settings_changed":      func() any { return new(EventSandboxSettingsChangedPayload) },
-	"search_settings_changed":       func() any { return new(EventSearchSettingsChangedPayload) },
-	"backup_settings_changed":       func() any { return new(EventBackupSettingsChangedPayload) },
-	"python_settings_changed":       func() any { return new(EventPythonSettingsChangedPayload) },
-	"plugin_changed":                func() any { return new(PluginSummary) },
-	"connections_changed":           func() any { return new(PluginConnectorChanges) },
-	"plugin_values_changed":         func() any { return new(EventPluginValuesChangedPayload) },
-	"plugin_removed":                func() any { return new(EventPluginRemovedPayload) },
-	"role_changed":                  func() any { return new(RoleProfile) },
-	"ssh_changed":                   func() any { return new(SshProfile) },
-	"ssh_removed":                   func() any { return new(EventSshRemovedPayload) },
-	"database_changed":              func() any { return new(DatabaseProfile) },
-	"database_removed":              func() any { return new(EventDatabaseRemovedPayload) },
-	"role_removed":                  func() any { return new(EventRoleRemovedPayload) },
-	"team_changed":                  func() any { return new(TeamProfile) },
-	"team_removed":                  func() any { return new(EventTeamRemovedPayload) },
-	"compaction_settings_changed":   func() any { return new(EventCompactionSettingsChangedPayload) },
-	"team_settings_changed":         func() any { return new(EventTeamSettingsChangedPayload) },
-	"provider_changed":              func() any { return new(ConversationProvider) },
-	"credential_changed":            func() any { return new(EventCredentialChangedPayload) },
-	"provider_quota_changed":        func() any { return new(EventProviderQuotaChangedPayload) },
-	"model_catalog_changed":         func() any { return new(ConversationCatalogStatus) },
-	"provider_removed":              func() any { return new(EventProviderRemovedPayload) },
-	"conversation_changed":          func() any { return new(EventConversationChangedPayload) },
-	"tools_completed":               func() any { return new(EventToolsCompletedPayload) },
-	"terminal_changed":              func() any { return new(TerminalInfo) },
-	"project_registered":            func() any { return new(Project) },
-	"project_changed":               func() any { return new(Project) },
-	"project_removed":               func() any { return new(EventProjectRemovedPayload) },
-	"worktree_registered":           func() any { return new(Worktree) },
-	"worktree_removed":              func() any { return new(EventWorktreeRemovedPayload) },
-	"defaults_changed":              func() any { return new(Defaults) },
-	"session_changed":               func() any { return new(Session) },
-	"sessions_removed":              func() any { return new([]SessionID) },
-	"sessions_reordered":            func() any { return new([]SessionID) },
-	"session_rewound":               func() any { return new(EventSessionRewoundPayload) },
-	"turn_queued":                   func() any { return new(EventTurnQueuedPayload) },
-	"plan_accepted":                 func() any { return new(ConversationQuestionAcceptedPlan) }}
+	"local_model_settings_changed":      func() any { return new(EventLocalModelSettingsChangedPayload) },
+	"knowledge_collections_changed":     nil,
+	"resource_catalog_changed":          nil,
+	"task_started":                      func() any { return new(EventTaskStartedPayload) },
+	"notification_changed":              func() any { return new(NotificationNotice) },
+	"notifications_read":                func() any { return new(EventNotificationsReadPayload) },
+	"notifications_dismissed":           func() any { return new(EventNotificationsDismissedPayload) },
+	"dispatch_changed":                  func() any { return new(EventDispatchChangedPayload) },
+	"media_settings_changed":            func() any { return new(MediaSettings) },
+	"power_settings_changed":            func() any { return new(EventPowerSettingsChangedPayload) },
+	"telemetry_settings_changed":        func() any { return new(EventTelemetrySettingsChangedPayload) },
+	"terminal_settings_changed":         func() any { return new(EventTerminalSettingsChangedPayload) },
+	"sandbox_settings_changed":          func() any { return new(EventSandboxSettingsChangedPayload) },
+	"search_settings_changed":           func() any { return new(EventSearchSettingsChangedPayload) },
+	"computer_settings_changed":         func() any { return new(EventComputerSettingsChangedPayload) },
+	"external_browser_settings_changed": func() any { return new(EventExternalBrowserSettingsChangedPayload) },
+	"memory_changed":                    func() any { return new(EventMemoryChangedPayload) },
+	"backup_settings_changed":           func() any { return new(EventBackupSettingsChangedPayload) },
+	"python_settings_changed":           func() any { return new(EventPythonSettingsChangedPayload) },
+	"plugin_changed":                    func() any { return new(PluginSummary) },
+	"connections_changed":               func() any { return new(PluginConnectorChanges) },
+	"plugin_values_changed":             func() any { return new(EventPluginValuesChangedPayload) },
+	"plugin_removed":                    func() any { return new(EventPluginRemovedPayload) },
+	"role_changed":                      func() any { return new(RoleProfile) },
+	"ssh_changed":                       func() any { return new(SshProfile) },
+	"ssh_removed":                       func() any { return new(EventSshRemovedPayload) },
+	"database_changed":                  func() any { return new(DatabaseProfile) },
+	"database_removed":                  func() any { return new(EventDatabaseRemovedPayload) },
+	"role_removed":                      func() any { return new(EventRoleRemovedPayload) },
+	"team_changed":                      func() any { return new(TeamProfile) },
+	"team_removed":                      func() any { return new(EventTeamRemovedPayload) },
+	"compaction_settings_changed":       func() any { return new(EventCompactionSettingsChangedPayload) },
+	"team_settings_changed":             func() any { return new(EventTeamSettingsChangedPayload) },
+	"provider_changed":                  func() any { return new(ConversationProvider) },
+	"credential_changed":                func() any { return new(EventCredentialChangedPayload) },
+	"provider_quota_changed":            func() any { return new(EventProviderQuotaChangedPayload) },
+	"model_catalog_changed":             func() any { return new(ConversationCatalogStatus) },
+	"provider_removed":                  func() any { return new(EventProviderRemovedPayload) },
+	"conversation_changed":              func() any { return new(EventConversationChangedPayload) },
+	"tools_completed":                   func() any { return new(EventToolsCompletedPayload) },
+	"terminal_changed":                  func() any { return new(TerminalInfo) },
+	"project_registered":                func() any { return new(Project) },
+	"project_changed":                   func() any { return new(Project) },
+	"project_removed":                   func() any { return new(EventProjectRemovedPayload) },
+	"worktree_registered":               func() any { return new(Worktree) },
+	"worktree_removed":                  func() any { return new(EventWorktreeRemovedPayload) },
+	"defaults_changed":                  func() any { return new(Defaults) },
+	"session_changed":                   func() any { return new(Session) },
+	"sessions_removed":                  func() any { return new([]SessionID) },
+	"sessions_reordered":                func() any { return new([]SessionID) },
+	"session_rewound":                   func() any { return new(EventSessionRewoundPayload) },
+	"turn_queued":                       func() any { return new(EventTurnQueuedPayload) },
+	"plan_accepted":                     func() any { return new(ConversationQuestionAcceptedPlan) }}
 
 func (value Event) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("kind", "data", value.Kind, value.Data, eventVariants)

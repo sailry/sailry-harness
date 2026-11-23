@@ -255,7 +255,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.mediaPoll = model.MediaVideoPoll
 	options.Telemetry.RetryDirectory = filepath.Join(profile.Ownership.Path, "tmp")
 	value.telemetry = newTelemetry(options.Telemetry)
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn, PluginAvailability: value.checkPluginAvailability, ToolPresentation: value.moduleToolPresentation})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{StopCommands: func(session protocol.SessionID) { value.processes.StopAll(session) }, StopTransient: func(session protocol.SessionID) { value.processes.StopTransient(session) }, Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks, AfterTurn: value.afterTurn, PluginAvailability: value.checkPluginAvailability, ToolPresentation: value.moduleToolPresentation, NativeSkills: value.modules.NativeSkillPackages()})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()
@@ -442,6 +442,7 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 		return protocol.Snapshot{}, err
 	}
 	defer node.work.Done()
+	ctx = store.WithNativeSkills(ctx, node.modules.NativeSkills)
 	var value protocol.Snapshot
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; value, err = store.Snapshot(ctx, db, node.ID()); return err })
 	return value, nodeFault(err)
@@ -525,6 +526,9 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if computerCommand(request.Command.Kind) {
 		return node.dispatchComputer(ctx, caller, request)
 	}
+	if handler := node.modules.CommandHandlerFor(request.Command.Kind); handler != nil {
+		return node.dispatchModuleCommand(ctx, caller, request, encoded, handler)
+	}
 	if hostCommand(request.Command.Kind) {
 		return node.dispatchHost(ctx, caller, request, encoded)
 	}
@@ -561,17 +565,24 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		return accepted, nil
 	}
 	node.mu.Lock()
-	defer node.mu.Unlock()
 	if node.stopped {
+		node.mu.Unlock()
 		return link.Admission{}, unavailable()
 	}
 	if err := ctx.Err(); err != nil {
+		node.mu.Unlock()
 		return link.Admission{}, nodeFault(err)
 	}
 	if !externalCommand(request.Command) {
 		result, err := node.execute(commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
+		node.mu.Unlock()
 		if err != nil {
 			return link.Admission{}, nodeFault(err)
+		}
+		if result.Fault == nil && request.Command.Kind == "save_computer_settings" {
+			if cfg, ok := result.Output.Data.(protocol.ComputerSettings); ok && !cfg.Enabled {
+				node.stopNativeComputerOverlay(ctx)
+			}
 		}
 		node.publish()
 		node.agent.Committed()
@@ -579,6 +590,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		close(completion)
 		return accepted, nil
 	}
+	defer node.mu.Unlock()
 	var previous *link.Response
 	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
@@ -658,9 +670,9 @@ func supportedCommand(kind string) bool {
 	}
 	switch kind {
 	case "snapshot", "inspect_request", "read_session", "list_associated_sessions", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity",
-		"read_media_settings", "list_media_models":
+		"read_media_settings", "list_media_models", "read_computer_settings", "read_external_browser_settings":
 		return true
-	case "register_project", "report_diagnostic", "save_media_settings":
+	case "register_project", "report_diagnostic", "save_media_settings", "save_computer_settings", "save_external_browser_settings":
 		return true
 	case "deliver_background", "continue_turn":
 		return true
@@ -729,7 +741,7 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			output, err = store.ReadIdentityCommand(ctx, db, node.ID(), caller, request.Command)
 			return err
 		case "snapshot":
-			value, err := store.Snapshot(ctx, db, node.ID())
+			value, err := store.Snapshot(store.WithNativeSkills(ctx, node.modules.NativeSkills), db, node.ID())
 			output = protocol.Output{Kind: "snapshot", Data: value}
 			return err
 		case "inspect_request":
@@ -767,6 +779,21 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "read_media_settings":
 			value, err := store.ReadMediaSettings(ctx, db)
 			output = protocol.Output{Kind: "media_settings", Data: value}
+			return err
+		case "read_computer_settings":
+			value, err := store.ReadComputerSettings(ctx, db)
+			if err == nil {
+				value.Available, value.HelperError = node.nativeComputerAvailable()
+			}
+			output = protocol.Output{Kind: "computer_settings", Data: value}
+			return err
+		case "read_external_browser_settings":
+			value, err := store.ReadExternalBrowserSettings(ctx, db)
+			if err == nil {
+				_, browserErr := node.externalBrowser.Browser()
+				value.Available = browserErr == nil
+			}
+			output = protocol.Output{Kind: "external_browser_settings", Data: value}
 			return err
 		case "list_media_models":
 			value, err := store.MediaModels(ctx, db)
@@ -864,7 +891,7 @@ func (node *Node) run(lane *commandLane) {
 
 // commandContext uses the Node lifetime and only the admitted actor's values.
 func (node *Node) commandContext(job commandJob) context.Context {
-	ctx := store.WithPluginAvailability(store.WithUser(node.ctx, job.user), node.checkPluginAvailability)
+	ctx := store.WithNativeSkills(store.WithPluginAvailability(store.WithUser(node.ctx, job.user), node.checkPluginAvailability), node.modules.NativeSkills)
 	if job.scope != nil {
 		if storage, ok := store.CapturedUserFromContext(job.scope); ok {
 			ctx = store.WithCapturedUser(ctx, storage)
@@ -973,6 +1000,17 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				}
 				selection, _ := job.request.Command.Data.(*protocol.CommandGuideQueuedTurnPayload)
 				node.agent.QueueCommitted(value, selection)
+			case protocol.ComputerSettings:
+				if job.request.Command.Kind == "save_computer_settings" {
+					value.Available, value.HelperError = node.nativeComputerAvailable()
+					output.Data = value
+				}
+			case protocol.ExternalBrowserSettings:
+				if job.request.Command.Kind == "save_external_browser_settings" {
+					_, browserErr := node.externalBrowser.Browser()
+					value.Available = browserErr == nil
+					output.Data = value
+				}
 			}
 		}
 		for _, review := range reviewChanges {

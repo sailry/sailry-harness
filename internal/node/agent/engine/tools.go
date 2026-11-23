@@ -69,10 +69,12 @@ type Tool struct {
 	// SearchLabels are the captured display labels and translations used only
 	// for discovery. They do not enlarge the model's tool declarations.
 	SearchLabels []string
-	// LegacyPackage and LegacyName identify a former bundled plugin tool that
-	// this native module tool supersedes. History, tool_search, skills and
-	// assistant selectors referencing the legacy alias resolve to this tool.
+	// LegacyPackage, LegacyServer and LegacyName identify a former bundled
+	// plugin tool (or plugin MCP tool when LegacyServer is non-empty) that this
+	// native module tool supersedes. History, tool_search, skills and assistant
+	// selectors referencing the legacy alias resolve to this tool.
 	LegacyPackage string
+	LegacyServer  string
 	LegacyName    string
 	schema        *jsonschema.Schema
 	parentSchema  *jsonschema.Schema
@@ -87,8 +89,8 @@ func FunctionTool(name, description string, inputSchema map[string]any) fantasy.
 	return fantasy.FunctionTool{Name: name, Description: description, InputSchema: inputSchema}
 }
 
-// LegacyAlias returns the former plugin-scoped canonical alias superseded by
-// this tool, or an empty string if none applies.
+// LegacyAlias returns the former plugin-scoped (or MCP-scoped) canonical alias
+// superseded by this tool, or an empty string if none applies.
 func (t Tool) LegacyAlias() string {
 	if t.LegacyPackage == "" {
 		return ""
@@ -96,6 +98,9 @@ func (t Tool) LegacyAlias() string {
 	name := t.LegacyName
 	if name == "" {
 		name = t.Definition.Name
+	}
+	if t.LegacyServer != "" {
+		return mcp.Alias(t.LegacyPackage, t.LegacyServer, name)
 	}
 	return operations.Alias(t.LegacyPackage, name)
 }

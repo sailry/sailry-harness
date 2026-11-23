@@ -359,6 +359,24 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 			return false, err
 		}
 		snapshot.SearchSettingsRevision = change.Revision
+	case "computer_settings_changed":
+		change, err := payload[protocol.EventComputerSettingsChangedPayload](event.Data)
+		if err != nil {
+			return false, err
+		}
+		snapshot.ComputerSettingsRevision = change.Revision
+	case "external_browser_settings_changed":
+		change, err := payload[protocol.EventExternalBrowserSettingsChangedPayload](event.Data)
+		if err != nil {
+			return false, err
+		}
+		snapshot.ExternalBrowserSettingsRevision = change.Revision
+	case "memory_changed":
+		change, err := payload[protocol.EventMemoryChangedPayload](event.Data)
+		if err != nil {
+			return false, err
+		}
+		snapshot.MemoryRevision = max(snapshot.MemoryRevision+1, change.Revision)
 	case "compaction_settings_changed":
 		change, err := payload[protocol.EventCompactionSettingsChangedPayload](event.Data)
 		if err != nil {
@@ -510,9 +528,17 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		}
 		// This authenticated Node may hold runtime credentials owned by its
 		// controller. The event invalidates feature reads and carries no secret.
+	case "plugin_values_changed":
+		change, err := payload[protocol.EventPluginValuesChangedPayload](event.Data)
+		if err != nil {
+			return false, err
+		}
+		if change.Name == "memory" {
+			snapshot.MemoryRevision++
+		}
 	case "local_models_changed", "local_model_settings_changed", "knowledge_collections_changed", "resource_catalog_changed",
 		"telemetry_settings_changed", "backup_settings_changed", "python_settings_changed",
-		"plugin_values_changed", "dispatch_changed", "tools_completed", "configuration_follow_changed", "connections_changed":
+		"dispatch_changed", "tools_completed", "configuration_follow_changed", "connections_changed":
 		// These invalidate feature reads; they do not replace a Snapshot field.
 	default:
 		// An event a newer Node of this protocol version declares and this

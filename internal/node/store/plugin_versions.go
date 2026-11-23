@@ -11,6 +11,9 @@ import (
 // ReadPluginVersion reads an immutable package capture independently of its live
 // installation. It never creates inventory or substitutes a newer package.
 func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {
+	if isNativeMemoryReference(reference) {
+		return NativeMemoryStorageInfo(), nil
+	}
 	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_packages WHERE digest=?1 AND name=?2", reference.Digest, reference.Name)
 	if err != nil {
 		return protocol.PluginInfo{}, err

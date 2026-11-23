@@ -32,9 +32,42 @@ type Package struct {
 	Modes      []protocol.PluginModesDeclaration
 	Options    json.RawMessage
 	standalone bool
+	native     bool
 	tree       fs.FS
 	directory  string
 	read       func(context.Context, string, int) ([]byte, error)
+}
+
+// NativeSkillPackage describes a compile-time module skill tree embedded in the
+// binary (with files laid out under skills/<name>/SKILL.md inside Tree).
+type NativeSkillPackage struct {
+	Package string
+	Skills  []protocol.PluginSkill
+	Tree    fs.FS
+}
+
+// AddNativeSkills registers built-in skills provided by assembled native
+// modules unless an installed plugin with the same package name is already
+// captured in this turn.
+func (r *Resources) AddNativeSkills(packages []NativeSkillPackage) {
+	if r == nil {
+		return
+	}
+	for _, entry := range packages {
+		if entry.Package == "" || len(entry.Skills) == 0 || entry.Tree == nil {
+			continue
+		}
+		if slices.ContainsFunc(r.packages, func(p Package) bool { return p.Reference.Name == entry.Package }) {
+			continue
+		}
+		r.packages = append(r.packages, Package{
+			Reference: protocol.PluginReference{Name: entry.Package},
+			Skills:    slices.Clone(entry.Skills),
+			Scope:     protocol.PluginScopeHost,
+			native:    true,
+			tree:      entry.Tree,
+		})
+	}
 }
 
 type Resources struct {
@@ -220,6 +253,43 @@ func (r *Resources) Read(ctx context.Context, key, relative string) (SkillText, 
 func (r *Resources) materialize(ctx context.Context, p Package) (string, error) {
 	if p.directory != "" {
 		return p.directory, nil
+	}
+	if p.native && p.tree != nil {
+		if err := core.PrivateDirectory(r.profile); err != nil {
+			return "", err
+		}
+		profile, err := filepath.Abs(r.profile)
+		if err != nil {
+			return "", err
+		}
+		directory := filepath.Join(profile, "modules", "skills", p.Reference.Name)
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return "", err
+		}
+		err = fs.WalkDir(p.tree, ".", func(entryPath string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil || entryPath == "." {
+				return walkErr
+			}
+			target := filepath.Join(directory, filepath.FromSlash(entryPath))
+			if d.IsDir() {
+				return os.MkdirAll(target, 0o700)
+			}
+			data, err := fs.ReadFile(p.tree, entryPath)
+			if err != nil {
+				return err
+			}
+			if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, data) {
+				return nil
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				return err
+			}
+			return os.WriteFile(target, data, 0o600)
+		})
+		if err != nil {
+			return "", err
+		}
+		return directory, nil
 	}
 	if err := core.PrivateDirectory(r.profile); err != nil {
 		return "", err

@@ -38,15 +38,24 @@ type storageClient struct {
 }
 
 func (s storageClient) get(ctx context.Context, key string) (protocol.PluginStorageEntry, error) {
+	if s.inv == nil {
+		return s.host.StorageGet(ctx, storageNamespace, key)
+	}
 	return s.host.PluginStorageGet(ctx, s.inv, storageNamespace, key)
 }
 
 func (s storageClient) search(ctx context.Context, q protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
 	q.Scope = protocol.PluginStorageScopeNode
+	if s.inv == nil {
+		return s.host.StorageSearch(ctx, storageNamespace, q)
+	}
 	return s.host.PluginStorageSearch(ctx, s.inv, storageNamespace, q)
 }
 
 func (s storageClient) transaction(ctx context.Context, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
+	if s.inv == nil {
+		return s.host.StorageTransaction(ctx, storageNamespace, ops)
+	}
 	return s.host.PluginStorageTransaction(ctx, s.inv, storageNamespace, ops)
 }
 
@@ -171,7 +180,7 @@ func (s storageClient) record(ctx context.Context, id string, project *string) (
 		if err != nil {
 			return protocol.PluginStorageEntry{}, err
 		}
-		if !visibleInProject(meta.Summary, project) {
+		if s.inv != nil && !visibleInProject(meta.Summary, project) {
 			return protocol.PluginStorageEntry{}, failFault(protocol.ErrorCodePermissionDenied, "memory belongs to another project")
 		}
 	}
@@ -662,12 +671,14 @@ func (s storageClient) putOperations(ctx context.Context, input memoryEntry, exp
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := s.readSettings(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !cfg.Enabled || !cfg.AutoWrite {
-			return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+		if s.inv != nil {
+			cfg, err := s.readSettings(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !cfg.Enabled || !cfg.AutoWrite {
+				return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+			}
 		}
 		if err := checkExpectedEntry(stored, expectedRev); err != nil {
 			return nil, err
@@ -683,8 +694,18 @@ func (s storageClient) putOperations(ctx context.Context, input memoryEntry, exp
 				return nil, failFault(protocol.ErrorCodeInvalidRequest, "memory scope cannot be changed")
 			}
 		}
-		if !visibleInProject(input.Summary, project) {
-			return nil, failFault(protocol.ErrorCodePermissionDenied, "memory belongs to another project")
+		if s.inv != nil {
+			if !visibleInProject(input.Summary, project) {
+				return nil, failFault(protocol.ErrorCodePermissionDenied, "memory belongs to another project")
+			}
+		} else if input.Summary.Project != nil {
+			exists, err := s.host.ProjectExists(ctx, *input.Summary.Project)
+			if err != nil {
+				return nil, err
+			}
+			if !exists {
+				return nil, failFault(protocol.ErrorCodeNotFound, "memory project is unavailable")
+			}
 		}
 		saved, err := nextEntry(input, nowMs)
 		if err != nil {
@@ -739,12 +760,14 @@ func (s storageClient) removeOperations(ctx context.Context, id string, expected
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := s.readSettings(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !cfg.Enabled || !cfg.AutoWrite {
-			return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+		if s.inv != nil {
+			cfg, err := s.readSettings(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !cfg.Enabled || !cfg.AutoWrite {
+				return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+			}
 		}
 		previous, err := parseStoredEntry(stored)
 		if err != nil {
@@ -807,12 +830,14 @@ func (s storageClient) mergeOperations(ctx context.Context, input memoryEntry, s
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := s.readSettings(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if !cfg.Enabled || !cfg.AutoWrite {
-			return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+		if s.inv != nil {
+			cfg, err := s.readSettings(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !cfg.Enabled || !cfg.AutoWrite {
+				return nil, failFault(protocol.ErrorCodePermissionDenied, "memory access is disabled")
+			}
 		}
 		if err := checkExpectedEntry(targetRec, input.Summary.Revision); err != nil {
 			return nil, err

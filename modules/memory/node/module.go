@@ -66,17 +66,15 @@ type turnState struct {
 }
 
 func (module) ToolsForTurn(ctx context.Context, host moduleapi.Host, inv *store.AgentInvocation) ([]engine.Tool, error) {
-	// If the memory plugin is installed and explicitly disabled by the user,
-	// honor that toggle. If it is absent (custom minimal assembly without the
-	// memory settings package), storage is unavailable anyway.
+	// If a legacy memory plugin is installed and explicitly disabled by the
+	// user, honor that toggle. Once the plugin is retired, memory runs natively
+	// using the built-in "memory" storage namespace and memory/settings toggle.
 	if installed, _, err := host.PluginInstalled(ctx, storageNamespace); err != nil {
 		return nil, err
 	} else if installed {
 		if _, captured := host.PluginCaptured(inv, storageNamespace); !captured {
 			return nil, nil
 		}
-	} else {
-		return nil, nil
 	}
 
 	catalog, err := loadCatalog()

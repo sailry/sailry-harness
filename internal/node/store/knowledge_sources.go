@@ -27,6 +27,9 @@ func knowledgePackage(ctx context.Context, db *sql.Conn, scope protocol.PluginCo
 		}
 		return info, nil
 	}
+	if isNativeMemoryReference(scope.Package) {
+		return NativeMemoryStorageInfo(), nil
+	}
 	if scope.Turn != nil || scope.Invocation != nil {
 		return ResolvePluginInfo(ctx, db, scope.Package)
 	}
@@ -46,6 +49,9 @@ func currentKnowledgePlugin(ctx context.Context, db *sql.Conn, name string) (pro
 		return protocol.PluginInfo{}, err
 	}
 	if info == nil {
+		if name == NativeMemoryNamespace {
+			return NativeMemoryStorageInfo(), nil
+		}
 		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotFound, "knowledge owner plugin is unavailable")
 	}
 	if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {

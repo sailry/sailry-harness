@@ -19,6 +19,7 @@ func (r *Runtime) captureResources(x *execution) error {
 	if err != nil {
 		return err
 	}
+	x.resources.AddNativeSkills(r.nativeSkills)
 	x.skillContext, err = x.resources.Catalog(x.inv.Session.Delegation != nil)
 	if err != nil {
 		return err

@@ -318,7 +318,7 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 			return false, err
 		}
 	}
-	if present && stored.Collection.Owner.Kind == "plugin" && !stored.Capture.ExternalPackage {
+	if present && stored.Collection.Owner.Kind == "plugin" && !stored.Capture.ExternalPackage && knowledgeOwner(stored.Collection.Owner) != NativeMemoryNamespace {
 		query := "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)"
 		arguments := []any{knowledgeOwner(stored.Collection.Owner)}
 		if !strings.HasPrefix(stored.Capture.Space, "project:") {

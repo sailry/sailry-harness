@@ -153,7 +153,7 @@ func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		}
 	}
 	settings := scope.Surface.Kind == "settings"
-	if settings && info.Extension.SettingsPage == nil {
+	if settings && info.Extension.SettingsPage == nil && !isNativeMemoryReference(scope.Package) {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin has no settings contribution")
 	}
 	if !info.Summary.Enabled && !(settings && pluginSettingsAccess(request.Command.Kind)) {
@@ -232,7 +232,7 @@ func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return err
 		}
 	}
-	if scope.Turn != nil && (request.Command.Kind == "write_plugin_value" || request.Command.Kind == "write_indexed_plugin_value" || request.Command.Kind == "remove_plugin_value") || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value" {
+	if !isNativeMemoryReference(scope.Package) && (scope.Turn != nil && (request.Command.Kind == "write_plugin_value" || request.Command.Kind == "write_indexed_plugin_value" || request.Command.Kind == "remove_plugin_value") || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value") {
 		current, err := ReadPlugin(ctx, db, scope.Package.Name)
 		if err != nil {
 			return err

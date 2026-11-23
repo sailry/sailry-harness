@@ -142,8 +142,10 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 		}
 		// A turn keeps the package it started with, but browser authority
 		// follows the package as it is now.
-		if err := node.pluginEnabled(ctx, owner.Name); err != nil {
-			return workspaceToolFault(err)
+		if owner.Name != "" {
+			if err := node.pluginEnabled(ctx, owner.Name); err != nil {
+				return workspaceToolFault(err)
+			}
 		}
 		// The call goes to the controller that started the turn, never through
 		// this Node's own dispatch identity.

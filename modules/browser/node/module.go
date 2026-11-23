@@ -215,6 +215,14 @@ func (externalModule) ToolsForTurn(ctx context.Context, host moduleapi.Host, inv
 		if _, captured := host.PluginCaptured(inv, "external-browser"); !captured {
 			return nil, nil
 		}
+	} else {
+		enabled, err := host.ExternalBrowserEnabled(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			return nil, nil
+		}
 	}
 	catalog, err := loadExternalCatalog()
 	if err != nil {
