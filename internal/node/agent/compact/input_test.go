@@ -33,7 +33,7 @@ func longTurn(calls int) []canonical.Record {
 
 func TestPrepareShortensLatestTurn(t *testing.T) {
 	const output = 8000
-	base, err := Prepare(nil, 64000, output)
+	base, err := Prepare(nil, 64000, output, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 		{"user message does not fit", tokens.Text(kickoff) - 1, nil, nil, "latest user message exceeds the summary context limit"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			prepared, err := Prepare(turn, limit(row.budget), output)
+			prepared, err := Prepare(turn, limit(row.budget), output, "", 0)
 			if row.failure != "" {
 				if err == nil || err.Error() != row.failure {
 					t.Fatalf("error = %v, want %q", err, row.failure)
@@ -110,7 +110,7 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 		})
 	}
 	t.Run("marker counts the dropped records", func(t *testing.T) {
-		prepared, err := Prepare(turn, limit(omitted-1), output)
+		prepared, err := Prepare(turn, limit(omitted-1), output, "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +128,7 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 	t.Run("older turns go first", func(t *testing.T) {
 		older := longTurn(2)
 		older[0] = canonical.NewRecord(older[0].Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Older request")), older[0].Created)
-		prepared, err := Prepare(append(older, turn...), limit(whole), output)
+		prepared, err := Prepare(append(older, turn...), limit(whole), output, "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,11 +137,11 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 		}
 	})
 	t.Run("turn without a user message", func(t *testing.T) {
-		prepared, err := Prepare(turn[1:], limit(omitted/2), output)
+		prepared, err := Prepare(turn[1:], limit(omitted/2), output, "", 0)
 		if err != nil || !strings.Contains(prepared, "earlier records of this turn omitted]") || !strings.Contains(prepared, "file-11.go") {
 			t.Fatalf("prepared = %v", err)
 		}
-		if _, err = Prepare(turn[len(turn)-1:], limit(3), output); err == nil || err.Error() != "latest record exceeds the summary context limit" {
+		if _, err = Prepare(turn[len(turn)-1:], limit(3), output, "", 0); err == nil || err.Error() != "latest record exceeds the summary context limit" {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -151,7 +151,7 @@ func TestPrepareFitsSmallWindows(t *testing.T) {
 	for _, contextLimit := range []uint64{4096, 8192} {
 		t.Run(fmt.Sprint(contextLimit), func(t *testing.T) {
 			output := Output(contextLimit)
-			prepared, err := Prepare(longTurn(12), contextLimit, output, Request)
+			prepared, err := Prepare(longTurn(12), contextLimit, output, Request, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -166,18 +166,41 @@ func TestPrepareFitsSmallWindows(t *testing.T) {
 	}
 }
 
+func TestPrepareBoundsFirstRequestForLargeWindows(t *testing.T) {
+	const contextLimit = 1_000_000
+	const userRequest = "Keep the latest user request"
+	const handoff = "Preserve the previous handoff"
+	old := selectionMessage(canonical.User, canonical.Text(0, "Already summarized"))
+	summary := canonical.NewRecord(old.Turn, "compaction", &canonical.Compaction{Boundary: old.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, handoff))}, time.Time{})
+	kickoff := selectionMessage(canonical.User, canonical.Text(0, "Inspect the historical results"))
+	large := selectionMessage(canonical.Assistant, canonical.Text(0, strings.Repeat("Historical response evidence. ", 120_000)))
+	latest := selectionMessage(canonical.User, canonical.Text(0, userRequest))
+	output := Output(contextLimit)
+	prepared, err := Prepare([]canonical.Record{old, summary, kickoff, large, latest}, contextLimit, output, Request, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := selectionMessage(canonical.User, canonical.Text(0, Request))
+	if size := tokens.Chat(prepared, []canonical.Record{request}) + output; size > 128_000 {
+		t.Fatalf("first summary request used %d estimated tokens", size)
+	}
+	if !strings.Contains(prepared, handoff) || !strings.Contains(prepared, userRequest) {
+		t.Fatal("first summary request lost the prior handoff or user input")
+	}
+}
+
 func TestPrepareNeverDropsPreviousSummary(t *testing.T) {
 	old := selectionMessage(canonical.User, canonical.Text(0, "Already summarized"))
 	constraint := "Original constraint: " + strings.Repeat("keep every unresolved requirement; ", 100)
 	summary := canonical.NewRecord(old.Turn, "compaction", &canonical.Compaction{Boundary: old.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, constraint))}, time.Time{})
 	disposable := selectionMessage(canonical.User, canonical.Text(0, strings.Repeat("Outdated transcript ", 4000)))
 	latest := selectionMessage(canonical.User, canonical.Text(0, "Newest progress"))
-	prepared, err := Prepare([]canonical.Record{old, summary, disposable, latest}, 4096, Output(4096))
+	prepared, err := Prepare([]canonical.Record{old, summary, disposable, latest}, 4096, Output(4096), "", 0)
 	if err != nil || !strings.Contains(prepared, constraint) || !strings.Contains(prepared, "Newest progress") || strings.Contains(prepared, "Outdated transcript") {
 		t.Fatalf("summary was dropped while shortening later history: %v", err)
 	}
 	tooLarge := canonical.NewRecord(old.Turn, "compaction", &canonical.Compaction{Boundary: old.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, strings.Repeat("Essential prior state ", 4000)))}, time.Time{})
-	if _, err := Prepare([]canonical.Record{old, tooLarge, latest}, 4096, Output(4096)); err == nil || err.Error() != "previous summary exceeds the summary context limit" {
+	if _, err := Prepare([]canonical.Record{old, tooLarge, latest}, 4096, Output(4096), "", 0); err == nil || err.Error() != "previous summary exceeds the summary context limit" {
 		t.Fatalf("oversized prior summary = %v", err)
 	}
 }

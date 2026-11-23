@@ -75,6 +75,25 @@ func TestExhaustedProviderAccountPoolDoesNotRetry(t *testing.T) {
 	}
 }
 
+func TestContextOverflowWithoutPrimaryErrorCode(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		kind FailureKind
+	}{
+		{"message", `{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}`, ContextOverflow},
+		{"nested type", `{"response":{"error":{"code":"invalid_request","type":"context_window_exceeded"}}}`, ContextOverflow},
+		{"generic bad request", `{"error":{"message":"The request could not be processed. Please check the request parameters."}}`, InvalidRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failure := Classify(&fantasy.ProviderError{StatusCode: 400, ResponseBody: []byte(test.body)})
+			if failure.Kind != test.kind || failure.Retryable() {
+				t.Fatalf("classification: kind=%s retryable=%t", failure.Kind, failure.Retryable())
+			}
+		})
+	}
+}
+
 func TestFailureRetryHintsCopyAndPrivacy(t *testing.T) {
 	const privateAdvice = "private-retry-advice"
 	delay := uint64(9000)

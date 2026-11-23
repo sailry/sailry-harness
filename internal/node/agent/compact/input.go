@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -14,6 +15,11 @@ import (
 var promptText string
 
 const Request = "Please summarize the conversation history provided in the system prompt."
+
+// Compaction has its own context budget. A model catalog can advertise a
+// larger window than a gateway serves, and a handoff does not need to replay
+// that entire window to preserve the recent work.
+const summaryContextLimit = 128_000
 
 // Output is the output limit a summary request asks for in a context window:
 // twice the handoff's cap, since the JSON document is larger than the text
@@ -42,7 +48,18 @@ func instructions(limit uint64, messages string) string {
 	return strings.TrimSpace(strings.NewReplacer("{{ target }}", figure(limit*3/4), "{{ cap }}", figure(limit), "{{ messages }}", messages).Replace(promptText))
 }
 
-func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request ...string) (string, error) {
+func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request string, systemBytes int) (string, error) {
+	return prepare(records, contextLimit, outputLimit, request, systemBytes, 0)
+}
+
+// PrepareSmaller halves the transcript beyond the fixed instructions and prior
+// handoff, using the actual size of the rejected request as its baseline.
+func PrepareSmaller(records []canonical.Record, contextLimit, outputLimit uint64, request, rejected string) (string, bool) {
+	system, err := prepare(records, contextLimit, outputLimit, request, 0, len(rejected))
+	return system, err == nil && len(system) < len(rejected)
+}
+
+func prepare(records []canonical.Record, contextLimit, outputLimit uint64, request string, systemBytes, rejectedBytes int) (string, error) {
 	limit := Cap(contextLimit, outputLimit)
 	previousID := ""
 	for _, record := range records {
@@ -55,18 +72,16 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	previous := ""
 	for _, record := range records {
 		if record.ID == previousID {
-			previous = transcript([]canonical.Record{record}, -1)
+			previous = strings.TrimRight(transcript([]canonical.Record{record}, -1), "\n")
 		} else if !turnContext(record) {
 			filtered = append(filtered, record)
 		}
 	}
 	records = filtered
 	base := instructions(limit, "")
-	requestReserve := uint64(256)
-	if len(request) > 0 {
-		requestReserve = max(requestReserve, tokens.Text(request[0])+7)
-	}
+	requestReserve := max(256, tokens.Text(request)+7)
 	reserve := outputLimit + tokens.Text(base) + requestReserve
+	contextLimit = min(contextLimit, summaryContextLimit)
 	if contextLimit < reserve {
 		return "", fmt.Errorf("summary prompt and output exceed the context limit")
 	}
@@ -86,6 +101,21 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 			body = "[user]: " + body
 		}
 		return instructions(limit, body)
+	}
+	byteBudget := math.MaxInt
+	if systemBytes > 0 || rejectedBytes > 0 {
+		baseBytes := len(prepared(""))
+		if rejectedBytes > 0 {
+			systemBytes = baseBytes + max(0, rejectedBytes-baseBytes)/2
+		}
+		if baseBytes > systemBytes {
+			return "", fmt.Errorf("summary instructions and previous summary exceed the request byte limit")
+		}
+		separator := len("[user]: ")
+		if previous != "" {
+			separator = 1
+		}
+		byteBudget = max(0, systemBytes-baseBytes-separator)
 	}
 	var turns [][]canonical.Record
 	for _, record := range records {
@@ -109,12 +139,14 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	// Each turn is measured once and again only when it is shortened.
 	sizes := make([]uint64, len(history))
 	var count uint64
+	var bytes int
 	for i, part := range history {
 		sizes[i] = tokens.Text(part) + 2
 		count += sizes[i]
+		bytes += len(part)
 	}
 	fit := func() (string, bool) {
-		if count > budget {
+		if count > budget || bytes > byteBudget {
 			return "", false
 		}
 		var nonempty []string
@@ -124,7 +156,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 			}
 		}
 		body := strings.Join(nonempty, "\n")
-		if tokens.Text(body) > budget {
+		if len(body) > byteBudget || tokens.Text(body) > budget {
 			return "", false
 		}
 		return body, true
@@ -132,7 +164,9 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	body, ok := fit()
 	for detail := 1; !ok && detail <= 3; detail++ {
 		for i := 0; i < last; i++ {
+			bytes -= len(history[i])
 			history[i] = transcript(turns[i], detail)
+			bytes += len(history[i])
 			count -= sizes[i]
 			sizes[i] = tokens.Text(history[i]) + 2
 			count += sizes[i]
@@ -145,16 +179,16 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	// The older turns are gone. The latest one, alone, is shortened only as far
 	// as it has to be: whole, tool responses to their edges, tool responses
 	// omitted, then its oldest records.
-	if !ok && sizes[last]-2 <= budget {
+	if !ok && len(history[last]) <= byteBudget && sizes[last]-2 <= budget {
 		body, ok = history[last], true
 	}
 	for detail := 0; !ok && detail <= 1; detail++ {
 		body = transcript(turns[last], detail)
-		ok = tokens.Text(body) <= budget
+		ok = len(body) <= byteBudget && tokens.Text(body) <= budget
 	}
 	if !ok {
 		var err error
-		if body, err = recent(turns[last], budget); err != nil {
+		if body, err = recent(turns[last], budget, byteBudget); err != nil {
 			return "", err
 		}
 	}
@@ -178,7 +212,7 @@ func kickoff(record canonical.Record) bool {
 // recent is the latest turn when it does not fit with its tool responses
 // omitted: the user's message that started it, one line saying how many
 // records were left out, and the newest records that fit after it.
-func recent(turn []canonical.Record, budget uint64) (string, error) {
+func recent(turn []canonical.Record, budget uint64, byteBudget int) (string, error) {
 	head, rest := "", turn
 	if kickoff(turn[0]) {
 		head, rest = transcript(turn[:1], 1), turn[1:]
@@ -191,13 +225,16 @@ func recent(turn []canonical.Record, budget uint64) (string, error) {
 	}
 	// The estimate reserves the marker line; the joined text decides.
 	used := tokens.Text(head) + 16
+	bytes := len(head)
 	first := len(parts)
 	for first > 0 {
-		size := tokens.Text(parts[first-1]) + 1
-		if used+size > budget {
+		part := parts[first-1]
+		size := tokens.Text(part) + 1
+		if used+size > budget || bytes+len(part) > byteBudget {
 			break
 		}
 		used += size
+		bytes += len(part) + 1
 		first--
 	}
 	for ; ; first++ {
@@ -212,7 +249,7 @@ func recent(turn []canonical.Record, budget uint64) (string, error) {
 			lines = append(lines, fmt.Sprintf("[%d earlier records of this turn omitted]", first))
 		}
 		body := strings.Join(append(lines, parts[first:]...), "\n")
-		if tokens.Text(body) <= budget {
+		if len(body) <= byteBudget && tokens.Text(body) <= budget {
 			return body, nil
 		}
 		if first >= len(parts) {

@@ -189,23 +189,20 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		}
 		return failure
 	}
-	system, err := handoff.Prepare(selection.Prefix, uint64(selected.Context), uint64(output), requestText)
-	if err != nil {
-		return failed(protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, err)
-	}
 	languageModel, err := r.model(x.ctx, summaryBinding)
 	if err != nil {
 		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
 	}
-	request := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, requestText)), r.clock.Now())
-	call, err := model.BuildCall(summaryBinding, model.Request{System: system, Records: []canonical.Record{request}, MaxOutputTokens: &output, Delegated: x.inv.Session.Delegation != nil})
+	systemBytes := model.SummarySystemBytes(languageModel, requestText)
+	system, err := handoff.Prepare(selection.Prefix, uint64(selected.Context), uint64(output), requestText, systemBytes)
 	if err != nil {
-		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
+		return failed(protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, err)
 	}
+	request := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, requestText)), r.clock.Now())
 	var text strings.Builder
 	limited, textBlock := false, false
 	var usage canonical.Usage
-	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, func(attempt model.Attempt) error {
+	observe := func(attempt model.Attempt) error {
 		x.timeline.attempt(attempt)
 		// An attempt that waits to be sent again shows as a main request's does.
 		if attempt.RetryDelay != nil {
@@ -214,7 +211,8 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		usage = attempt.Usage
 		attempts = append(attempts, attempt)
 		return nil
-	}, func(part fantasy.StreamPart) bool {
+	}
+	collect := func(part fantasy.StreamPart) bool {
 		switch part.Type {
 		case fantasy.StreamPartTypeTextDelta:
 			if !textBlock && text.Len() > 0 {
@@ -231,7 +229,23 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 			}
 		}
 		return x.ctx.Err() == nil
-	}, nil)
+	}
+	run := func(system string) error {
+		call, err := model.BuildCall(summaryBinding, model.Request{System: system, Records: []canonical.Record{request}, MaxOutputTokens: &output, Delegated: x.inv.Session.Delegation != nil})
+		if err != nil {
+			return err
+		}
+		return model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
+	}
+	err = run(system)
+	if err != nil && x.ctx.Err() == nil && model.Classify(err).Kind == model.ContextOverflow {
+		// The model's actual input limit can be smaller than the captured
+		// window. Shrink the request that was refused, even if it was already
+		// well below the configured window or ACP byte limit.
+		if smaller, ok := handoff.PrepareSmaller(selection.Prefix, uint64(selected.Context), uint64(output), requestText, system); ok {
+			err = run(smaller)
+		}
+	}
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonRequestFailed
 		switch model.Classify(err).Kind {

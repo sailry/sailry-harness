@@ -141,7 +141,7 @@ func TestSelectRetainsRollingSummary(t *testing.T) {
 	if !ok || selected.Boundary.ID != boundary.ID || selected.Prefix[0].Kind != "compaction" || selected.Prefix[0].ID != summary.ID || len(selected.Tail) != 1 || selected.Tail[0].ID != latest.ID {
 		t.Fatalf("rolling selection = %+v", selected)
 	}
-	prepared, err := Prepare(selected.Prefix, 4096, Output(4096))
+	prepared, err := Prepare(selected.Prefix, 4096, Output(4096), "", 0)
 	if err != nil || !strings.Contains(prepared, "Keep the original constraint") {
 		t.Fatalf("rolling handoff lost its prior summary: %v", err)
 	}

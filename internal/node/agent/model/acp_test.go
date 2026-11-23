@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/compact"
 	"github.com/sailry/sailry-harness/internal/node/program"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -419,6 +421,47 @@ func TestACPRoute(t *testing.T) {
 		result := fixture.run(t.Context(), acpRequest(t, "", `[{"role":"user","parts":[{"kind":"text","text":`+string(large)+`}]}]`), nil)
 		if result.failure == nil || result.failure.Kind != ContextOverflow || len(fixture.received("session/prompt")) != 0 {
 			t.Fatalf("failure = %#v", result.failure)
+		}
+	})
+
+	t.Run("summarizes history beyond the replay budget", func(t *testing.T) {
+		const replayBytes = 112 * 1024
+		const contextLimit, outputLimit = 128000, 8000
+		const latest = "Keep the current deployment constraint"
+		fixture := acpFixtureModel(t, "variants", []acpFixtureReply{{Chunks: []string{`{"user_intent":["Keep the deployment constraint"]}`}}}, func(capture *ACPCapture) {
+			capture.Adapter.Acp.ReplayBytes = replayBytes
+		})
+		record := func(turn protocol.TurnID, role canonical.Role, text string) canonical.Record {
+			return canonical.NewRecord(turn, "message", canonical.NewMessage(role, canonical.Text(0, text)), time.Time{})
+		}
+		earlier := protocol.NewTurnID()
+		history := []canonical.Record{
+			record(earlier, canonical.User, "Inspect the deployment"),
+			record(earlier, canonical.Assistant, strings.Repeat("Earlier detail. 此前记录。\n", 6000)),
+			record(protocol.NewTurnID(), canonical.User, latest),
+		}
+		message, err := json.Marshal(compact.Request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		user := `[{"role":"user","parts":[{"kind":"text","text":` + string(message) + `}]}]`
+		tokenOnly, err := compact.Prepare(history, contextLimit, outputLimit, compact.Request, 0)
+		if err != nil || len(tokenOnly) <= replayBytes {
+			t.Fatalf("fixture must exceed %d bytes under a token-only budget, got %d: %v", replayBytes, len(tokenOnly), err)
+		}
+		if refused := fixture.run(t.Context(), acpRequest(t, tokenOnly, user), nil); refused.failure == nil || refused.failure.Kind != ContextOverflow {
+			t.Fatalf("oversized summary request was not rejected: %v", refused.failure)
+		}
+		system, err := compact.Prepare(history, contextLimit, outputLimit, compact.Request, SummarySystemBytes(fixture.model, compact.Request))
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := fixture.run(t.Context(), acpRequest(t, system, user), nil)
+		if result.failure != nil || !strings.Contains(result.text, "Keep the deployment constraint") {
+			t.Fatalf("budgeted request did not return a summary: %#v", result)
+		}
+		if sent := fixture.prompt(0); len(sent) > replayBytes || !strings.Contains(sent, latest) {
+			t.Fatalf("summary request was %d bytes or lost the latest user instruction", len(sent))
 		}
 	})
 

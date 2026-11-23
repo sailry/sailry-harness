@@ -590,9 +590,12 @@ contain attachment references rather than payloads and use no tool definitions;
 loaded tool declarations are retained only where used or discovered in the tail.
 An automatic cut within the current turn carries its user input and attachments.
 An overflow recovery may summarize the full visible history while carrying the
-latest user request and its pending attachments. The previous summary is never
-silently omitted to make the summary request fit. A failed request leaves the
-original context intact; there is no background compaction or second summary pass.
+latest user request and its pending attachments. Summary requests fit the
+model's context budget, capped at 128,000 estimated tokens including the output
+reserve, and any known transport byte limit. If the service
+reports a context overflow, compaction can retry once with a smaller transcript
+that retains the previous handoff. A compaction that cannot produce a usable
+summary leaves the original context intact.
 
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.

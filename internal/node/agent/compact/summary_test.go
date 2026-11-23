@@ -32,7 +32,7 @@ func TestSummaryCapFollowsWindow(t *testing.T) {
 			if output != row.output || Cap(row.context, output) != row.limit {
 				t.Fatalf("output = %d, cap = %d, want %d and %d", output, Cap(row.context, output), row.output, row.limit)
 			}
-			prompt, err := Prepare(nil, row.context, output)
+			prompt, err := Prepare(nil, row.context, output, "", 0)
 			if err != nil {
 				t.Fatal(err)
 			}
