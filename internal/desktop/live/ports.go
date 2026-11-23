@@ -375,14 +375,10 @@ func (r *Runtime) openForward(forward *client.Forwarder, source *client.ServiceS
 	if source != nil {
 		announced = source.Service.Url
 	}
-	r.openService(forwardURL(announced, forward.LocalPort()))
+	r.openService(loopbackServiceURL(announced, forward.LocalPort()))
 }
 
-// forwardURL is the address a forwarded service opens at: the URL its
-// command announced with only the host and port replaced by the local
-// listener, so its scheme, path, query and fragment survive. A forward
-// without an announced URL opens the listener's root over HTTP.
-func forwardURL(announced string, port uint16) string {
+func loopbackServiceURL(announced string, port uint16) string {
 	host := "127.0.0.1:" + strconv.Itoa(int(port))
 	if target, err := url.Parse(announced); err == nil && (target.Scheme == "http" || target.Scheme == "https") {
 		target.Host, target.User = host, nil
@@ -391,7 +387,7 @@ func forwardURL(announced string, port uint16) string {
 	return "http://" + host
 }
 
-func (x *conversationActions) forwardCommandService(port int) {
+func (x *conversationActions) openCommandService(port int) {
 	session, found := x.r.session(x.cv.ID)
 	if !found || !x.r.controller.Connected() {
 		return
@@ -400,14 +396,21 @@ func (x *conversationActions) forwardCommandService(port int) {
 	if !found || !state.Connected {
 		return
 	}
+	root := x.r.localRuntime()
 	for _, command := range state.Items {
 		if command.Status.Kind != "running" && command.Status.Kind != "stopping" {
 			continue
 		}
 		for _, service := range command.Services {
 			if int(service.Port) == port {
+				if x.r == root {
+					if root.openService != nil {
+						root.openService(loopbackServiceURL(service.Url, service.Port))
+					}
+					return
+				}
 				source := &client.ServiceSource{Session: session.ID, Command: command.ID, Service: service}
-				x.r.localRuntime().startForward(x.r.controller.Target().String(), service.Port, 0, source, true, nil)
+				root.startForward(x.r.controller.Target().String(), service.Port, 0, source, true, nil)
 				return
 			}
 		}

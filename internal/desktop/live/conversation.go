@@ -841,7 +841,7 @@ func (x *conversationActions) StopCommand(id string) {
 }
 func (x *conversationActions) OpenService(port int) {
 	if x.owned() {
-		x.forwardCommandService(port)
+		x.openCommandService(port)
 	}
 }
 func (x *conversationActions) Upload(a *composer.Attachment) {

@@ -69,15 +69,20 @@ func (r *Runtime) projectCommands(cv string, comp *composer.State, activity *com
 		id, err := protocol.ParseRequestID(text)
 		return err == nil && r.commands.busy[commandViewKey{session.ID, id}]
 	}
-	comp.ActivityCallbacks.ServiceLabel = func(port int) string {
-		if forward, _ := r.forward(r.controller.Target().String(), port); forward != nil && forward.State().Kind == "listening" {
-			return strconv.Itoa(port) + " → " + strconv.Itoa(int(forward.LocalPort()))
+	if r.parent == nil {
+		comp.ActivityCallbacks.ServiceLabel = nil
+		comp.ActivityCallbacks.ServiceBusy = nil
+	} else {
+		comp.ActivityCallbacks.ServiceLabel = func(port int) string {
+			if forward, _ := r.forward(r.controller.Target().String(), port); forward != nil && forward.State().Kind == "listening" {
+				return strconv.Itoa(port) + " → " + strconv.Itoa(int(forward.LocalPort()))
+			}
+			return strconv.Itoa(port)
 		}
-		return strconv.Itoa(port)
-	}
-	comp.ActivityCallbacks.ServiceBusy = func(port int) bool {
-		_, busy := r.forward(r.controller.Target().String(), port)
-		return busy
+		comp.ActivityCallbacks.ServiceBusy = func(port int) bool {
+			_, busy := r.forward(r.controller.Target().String(), port)
+			return busy
+		}
 	}
 	if state, ok := r.controller.Commands(session.ID); ok {
 		for _, value := range state.Items {
