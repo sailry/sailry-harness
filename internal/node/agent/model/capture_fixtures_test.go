@@ -23,7 +23,12 @@ func capturedPolicyFixtures(t *testing.T) {
 		name                      string
 		api                       protocol.ConversationModelApi
 		kind, model, effort, path string
-	}{{"anthropic", protocol.ConversationModelApiAnthropic, "anthropic", "claude-opus-4-8", "high", "/v1/messages"}, {"responses", protocol.ConversationModelApiResponses, "responses", "foreign/reasoner", "high", "/responses"}, {"compatible", protocol.ConversationModelApiChatCompletions, "chat", "foreign/reasoner", "high", "/chat/completions"}, {"gemini", protocol.ConversationModelApiGemini, "google", "gemini-2.5-flash", "none", "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"}} {
+	}{
+		{"anthropic", protocol.ConversationModelApiAnthropic, "anthropic", "claude-opus-4-8", "high", "/v1/messages"},
+		{"responses", protocol.ConversationModelApiResponses, "responses", "foreign/reasoner", "high", "/v1/responses"},
+		{"compatible", protocol.ConversationModelApiChatCompletions, "chat", "foreign/reasoner", "high", "/v1/chat/completions"},
+		{"gemini", protocol.ConversationModelApiGemini, "google", "gemini-2.5-flash", "none", "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"},
+	} {
 		t.Run("captured_"+row.name, func(t *testing.T) {
 			server := serverFixture(t, string(fixture(t, row.kind+"-text.sse")), string(fixture(t, row.kind+"-text.sse")))
 			provider := protocol.DefaultConversationProvider()

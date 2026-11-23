@@ -41,15 +41,19 @@ func discover(ctx context.Context, provider protocol.ConversationProvider, secre
 	}
 	candidates := []url.URL{*root}
 	path := strings.TrimRight(root.Path, "/")
-	if provider.Api == protocol.ConversationModelApiAnthropic {
+	openAI := provider.Api == protocol.ConversationModelApiChatCompletions || provider.Api == protocol.ConversationModelApiResponses
+	switch {
+	case openAI:
+		candidates[0] = OpenAIBaseURL(*root)
+	case provider.Api == protocol.ConversationModelApiAnthropic:
 		candidates[0].Path = strings.TrimSuffix(path, "/v1")
-	} else {
+	default:
 		last := path[strings.LastIndex(path, "/")+1:]
 		versioned := len(last) > 1 && last[0] == 'v' && last[1] >= '0' && last[1] <= '9'
 		if !versioned {
 			var versions []string
 			switch provider.Api {
-			case protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiResponses, protocol.ConversationModelApiDeepSeek:
+			case protocol.ConversationModelApiDeepSeek:
 				versions = []string{"v1"}
 			case protocol.ConversationModelApiGemini:
 				versions = []string{"v1beta", "v1"}
@@ -70,11 +74,14 @@ func discover(ctx context.Context, provider protocol.ConversationProvider, secre
 	remaining := int64(8 * 1024 * 1024)
 	for _, candidate := range candidates {
 		endpoint := strings.TrimRight(candidate.String(), "/")
-		suffix := "/models"
-		if provider.Api == protocol.ConversationModelApiAnthropic {
-			suffix = "/v1/models"
+		switch {
+		case openAI:
+			candidate = *candidate.JoinPath("models")
+		case provider.Api == protocol.ConversationModelApiAnthropic:
+			candidate.Path = strings.TrimRight(candidate.Path, "/") + "/v1/models"
+		default:
+			candidate.Path = strings.TrimRight(candidate.Path, "/") + "/models"
 		}
-		candidate.Path = strings.TrimRight(candidate.Path, "/") + suffix
 		models, found, err := discoverPages(owner, client, provider.Api, candidate, auth, &remaining)
 		if err != nil {
 			if ctx.Err() != nil {

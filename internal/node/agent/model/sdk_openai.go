@@ -20,7 +20,9 @@ import (
 )
 
 func (model *sdkModel) openAIOptions(call fantasy.Call) []option.RequestOption {
-	opts := []option.RequestOption{option.WithHTTPClient(model.client), option.WithBaseURL(strings.TrimSuffix(model.config.Endpoint, "/chat/completions")), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
+	// Supply the trailing slash with the escaped path to preserve mount segments.
+	base := strings.TrimRight(model.config.Endpoint, "/") + "/"
+	opts := []option.RequestOption{option.WithHTTPClient(model.client), option.WithBaseURL(base), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
 	for key, value := range model.config.Headers {
 		opts = append(opts, option.WithHeader(key, value))
 	}

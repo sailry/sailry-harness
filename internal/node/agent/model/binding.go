@@ -319,13 +319,22 @@ func transportBinding(binding Binding) (transportConfig, error) {
 			// Keep that routing identity stable when tool results move cache markers.
 			config.JSON["metadata"] = claudeMetadata(provider.ID.String(), binding.Session.String(), "")
 		}
-	case protocol.ConversationModelApiResponses:
+	case protocol.ConversationModelApiResponses, protocol.ConversationModelApiChatCompletions:
 		config.Kind = "responses"
-		u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/responses")
+		operation := "/responses"
+		if api == protocol.ConversationModelApiChatCompletions {
+			config.Kind = "chat"
+			operation = "/chat/completions"
+		}
+		if provider.Authentication == protocol.AuthenticationApiKey && api == provider.Api {
+			*u = providers.OpenAIBaseURL(*u)
+		} else {
+			u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), operation)
+		}
 	case protocol.ConversationModelApiGemini:
 		config.Kind = "google"
 		u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/v1beta")
-	case protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiDeepSeek, protocol.ConversationModelApiAzureAi:
+	case protocol.ConversationModelApiDeepSeek, protocol.ConversationModelApiAzureAi:
 		config.Kind = "chat"
 		u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/chat/completions")
 	default:

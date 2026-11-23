@@ -15,6 +15,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const expectedAnthropicAPIKeyUserAgent = "claude-cli/2.1.330 (external, sdk-cli)"
+
 func TestAnthropicAPIKeyAffinity(t *testing.T) {
 	providerID, session := protocol.NewProviderID(), protocol.NewSessionID()
 	var firstMetadata any
@@ -102,7 +104,7 @@ func TestAnthropicAPIKeyAffinity(t *testing.T) {
 					want = binding.Session.String()
 				}
 				if request.Headers.Get("x-session-affinity") != want || request.Headers.Get("X-Session-Id") != want ||
-					request.Headers.Get("User-Agent") != providers.DefaultClaudeAgent {
+					request.Headers.Get("User-Agent") != expectedAnthropicAPIKeyUserAgent {
 					t.Errorf("API-key request %d identity headers = %v", index, request.Headers)
 				}
 			}
@@ -361,7 +363,7 @@ func TestAPIKeyAffinityHeadersAcrossProtocols(t *testing.T) {
 			}
 			userAgent := "Sailry/" + link.ProductVersion
 			if api == protocol.ConversationModelApiAnthropic {
-				userAgent = providers.DefaultClaudeAgent
+				userAgent = expectedAnthropicAPIKeyUserAgent
 			}
 			if transport.Headers["x-session-affinity"] != session.String() || transport.Headers["X-Session-Id"] != session.String() ||
 				transport.Headers["User-Agent"] != userAgent {
@@ -430,7 +432,7 @@ func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
 			headers := requests[0].Headers
 			userAgent := "Sailry/" + link.ProductVersion
 			if row.api == protocol.ConversationModelApiAnthropic {
-				userAgent = providers.DefaultClaudeAgent
+				userAgent = expectedAnthropicAPIKeyUserAgent
 				if requests[0].Path != "/v1/messages" || headers.Get("anthropic-version") != "2023-06-01" ||
 					headers.Get("Content-Type") != "application/json" || headers.Get("Accept") != "application/json" ||
 					headers.Get("x-api-key") != secret.Expose() || headers.Get("Authorization") != "" ||

@@ -261,7 +261,10 @@ func rawRustConfig(row rawRustCase, server string) transportConfig {
 		Headers: map[string]string{"user-agent": "Sailry/" + link.ProductVersion},
 		JSON:    row.extra, Order: row.order, Remove: []string{"tool_choice"},
 	}
-	if row.kind == "google" {
+	switch row.kind {
+	case "chat":
+		config.Endpoint = strings.TrimSuffix(config.Endpoint, "/chat/completions")
+	case "google":
 		config.Endpoint = strings.TrimSuffix(config.Endpoint, "/v1beta")
 	}
 	switch row.authentication {

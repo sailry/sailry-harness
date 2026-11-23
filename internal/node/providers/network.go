@@ -126,6 +126,26 @@ func Endpoint(value string) (*url.URL, error) {
 	}
 	return endpoint, nil
 }
+
+// OpenAIBaseURL resolves the shared base for API-key inference and discovery.
+// A bare origin uses /v1. A full operation URL can explicitly select another
+// mount, including an API served at the root.
+func OpenAIBaseURL(endpoint url.URL) url.URL {
+	path := strings.TrimRight(endpoint.EscapedPath(), "/")
+	switch {
+	case path == "":
+		path = "/v1"
+	case strings.HasSuffix(path, "/chat/completions"):
+		path = strings.TrimSuffix(path, "/chat/completions")
+	case strings.HasSuffix(path, "/responses"):
+		path = strings.TrimSuffix(path, "/responses")
+	}
+	endpoint.Path, _ = url.PathUnescape(path)
+	endpoint.RawPath = path
+	endpoint.ForceQuery = false
+	return endpoint
+}
+
 func headers(provider protocol.ConversationProvider, secret *protocol.Secret) (http.Header, error) {
 	if provider.Authentication != protocol.AuthenticationApiKey {
 		_, headers, err := AccountHeaders(provider, secret)

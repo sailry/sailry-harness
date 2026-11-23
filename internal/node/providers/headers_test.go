@@ -56,7 +56,7 @@ func TestDiscoveryForwardsUserAgentAndCustomHeaders(t *testing.T) {
 	if _, err := discover(t.Context(), provider, &secret, server.Client()); err != nil {
 		t.Fatalf("default discovery failed: %v", err)
 	}
-	if seen.Get("User-Agent") != DefaultClaudeAgent || seen.Get("anthropic-version") != "2023-06-01" ||
+	if seen.Get("User-Agent") != "claude-cli/2.1.330 (external, sdk-cli)" || seen.Get("anthropic-version") != "2023-06-01" ||
 		seen.Get("Accept") != "application/json" || seen.Get("x-api-key") != "fixture-key" || seen.Get("Authorization") != "" {
 		t.Fatalf("default discovery headers = %v", seen)
 	}

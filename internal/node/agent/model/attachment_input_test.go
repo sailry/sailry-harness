@@ -34,7 +34,7 @@ func TestChatAttachmentProviderWire(t *testing.T) {
 			},
 		},
 		{
-			api: protocol.ConversationModelApiChatCompletions, response: "chat-text.sse", path: "/chat/completions",
+			api: protocol.ConversationModelApiChatCompletions, response: "chat-text.sse", path: "/v1/chat/completions",
 			files: []string{"audio/wav", "application/pdf"},
 			want: map[string]any{
 				"messages.0.content.1.type": "input_audio", "messages.0.content.1.input_audio.format": "wav",
@@ -44,7 +44,7 @@ func TestChatAttachmentProviderWire(t *testing.T) {
 			},
 		},
 		{
-			api: protocol.ConversationModelApiResponses, response: "responses-text.sse", path: "/responses",
+			api: protocol.ConversationModelApiResponses, response: "responses-text.sse", path: "/v1/responses",
 			files: []string{"application/pdf"},
 			want: map[string]any{
 				"input.1.content.0.type": "input_file", "input.1.content.0.filename": "attachment.pdf",
