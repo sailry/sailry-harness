@@ -7,9 +7,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestToastOutcomesExpireWithoutButtons(t *testing.T) {
+	uitest.Parallel(t)
 	for _, sample := range []struct {
 		name    string
 		publish func(*ui.Context, string)
@@ -23,9 +25,10 @@ func TestToastOutcomesExpireWithoutButtons(t *testing.T) {
 		{"uncertain", func(c *ui.Context, text string) { Toast(c, Uncertain, text) }},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			message := "Toast fixture " + sample.name
 			shown := false
-			window := ui.NewTester(func(c *ui.Context) {
+			window := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				SetPreferences(c, Preferences{ToastSeconds: 3})
 				if !shown {
@@ -33,9 +36,7 @@ func TestToastOutcomesExpireWithoutButtons(t *testing.T) {
 					sample.publish(c, message)
 				}
 				ToastHost(c)
-			}, 600, 400)
-			window.SetLocale("en")
-			window.SetPreferences(ui.Preferences{ReduceMotion: true, ReduceTransparency: true})
+			}, 600, 400, "en")
 			window.Advance(2 * time.Second)
 			if !window.HasText(message) {
 				t.Fatalf("the toast ended before its selected duration: %q", window.Texts())
@@ -54,8 +55,9 @@ func TestToastOutcomesExpireWithoutButtons(t *testing.T) {
 }
 
 func TestToastIgnoresPublisherAction(t *testing.T) {
+	uitest.Parallel(t)
 	shown, ran, closed := false, 0, 0
-	window := ui.NewTester(func(c *ui.Context) {
+	window := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		if !shown {
 			shown = true
@@ -63,8 +65,7 @@ func TestToastIgnoresPublisherAction(t *testing.T) {
 				Timeout: 3 * time.Second, Action: "Apply", OnAction: func() { ran++ }, OnClose: func() { closed++ }})
 		}
 		ToastHost(c)
-	}, 600, 400)
-	window.SetLocale("en")
+	}, 600, 400, "en")
 	window.Advance(time.Second)
 	body, ok := toastStatus(window)
 	if !ok || !window.HasText("Action fixture") || window.HasText("Apply") {
@@ -93,6 +94,7 @@ func toastStatus(window *ui.Tester) (ui.AccessInfo, bool) {
 }
 
 func TestToastStaysAboveNestedDialogs(t *testing.T) {
+	uitest.Parallel(t)
 	for _, sample := range []struct {
 		name   string
 		mode   theme.Mode
@@ -100,9 +102,10 @@ func TestToastStaysAboveNestedDialogs(t *testing.T) {
 	}{{"light frost", theme.Light, false}, {"dark frost", theme.Dark, false},
 		{"light opaque", theme.Light, true}, {"dark opaque", theme.Dark, true}} {
 		t.Run(sample.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			outer, inner, publish := true, false, true
 			var danger ui.Color
-			window := ui.NewTesterWith(func(c *ui.Context) {
+			window := uitest.New(func(c *ui.Context) {
 				theme.Apply(c, "", sample.mode)
 				danger = theme.Of(c).Danger
 				if publish {
@@ -112,9 +115,7 @@ func TestToastStaysAboveNestedDialogs(t *testing.T) {
 				Dialog(c.Key("outer"), &outer, func() { ui.Box(c).Size(480, 280) })
 				Dialog(c.Key("inner"), &inner, func() { ui.Box(c).Size(552, 352) }, DialogOptions{Bleed: true}).Label("Nested folder picker")
 				ToastHost(c)
-			}, 600, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: sample.reduce}})
-			window.SetLocale("en")
-			window.Frame()
+			}, 600, 400, 1, "en", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: sample.reduce}})
 			window.Advance(time.Second)
 			before := window.Image()
 			button, ok := toastStatus(window)
@@ -176,12 +177,14 @@ func toastChannelDifference(a, b uint8) int {
 }
 
 func TestToastPublishedFromOpenDialog(t *testing.T) {
+	uitest.Parallel(t)
 	for _, source := range []string{"dialog action", "queued result"} {
 		t.Run(source, func(t *testing.T) {
+			uitest.Parallel(t)
 			outer, inner, queued := true, true, false
 			var danger ui.Color
 			const message = "Unable to read folder"
-			window := ui.NewTester(func(c *ui.Context) {
+			window := uitest.New(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				danger = theme.Of(c).Danger
 				if queued {
@@ -201,9 +204,7 @@ func TestToastPublishedFromOpenDialog(t *testing.T) {
 					})
 				}, DialogOptions{Bleed: true})
 				ToastHost(c)
-			}, 600, 400)
-			window.SetLocale("en")
-			window.Frame()
+			}, 600, 400, 1, "en", uitest.Quiet)
 			window.Advance(time.Second)
 			if err := window.Click("Read folder"); err != nil {
 				t.Fatal(err)
@@ -236,8 +237,9 @@ func TestToastPublishedFromOpenDialog(t *testing.T) {
 }
 
 func TestToastSurfaceResistsModalBackdropDimming(t *testing.T) {
+	uitest.Parallel(t)
 	outer, inner, publish, fresh := false, false, true, false
-	window := ui.NewTester(func(c *ui.Context) {
+	window := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		c.Root().Background(theme.Of(c).Background)
 		if publish {
@@ -254,8 +256,7 @@ func TestToastSurfaceResistsModalBackdropDimming(t *testing.T) {
 			}
 		}, DialogOptions{Bleed: true}).Label("Folder picker")
 		ToastHost(c)
-	}, 1000, 1000)
-	window.SetLocale("en")
+	}, 1000, 1000, 1, "en", ui.TesterOptions{})
 	status := func() ui.Rect {
 		t.Helper()
 		for _, item := range window.AccessAll() {

@@ -7,19 +7,19 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestDraftLocationMenu(t *testing.T) {
+	uitest.Parallel(t)
 	state := New("local/model")
 	state.Host, state.Draft, state.Team = "local", "Keep my draft", "local-team"
 	ctx := &Context{Hosts: []Host{{ID: "local", Name: "This device"}, {ID: "remote", Name: "Debian"}},
 		Projects: []Project{{ID: "same", Host: "local", Name: "Local folder"}, {ID: "same", Host: "remote", Name: "Remote folder"}}}
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Justify(ui.End).Padding(20).Children(func() { state.contextBar(c, ctx, nil) })
-	}, 600, 480)
-	tester.SetLocale("en")
-	tester.Frame()
+	}, 600, 480, "en")
 	project, projectFound := tester.Access(i18n.In("en", "composer_no_project"))
 	host, hostFound := tester.Access("This device")
 	if !projectFound || !hostFound || host.Bounds.X < project.Bounds.X+project.Bounds.W || host.Bounds.Y != project.Bounds.Y {
@@ -64,6 +64,7 @@ func TestDraftLocationMenu(t *testing.T) {
 }
 
 func TestCapturedLocationCannotChange(t *testing.T) {
+	uitest.Parallel(t)
 	for _, reason := range []string{"readonly", "admitted", "attachments"} {
 		t.Run(reason, func(t *testing.T) {
 			state := New("original-model")

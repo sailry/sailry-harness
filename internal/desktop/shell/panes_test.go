@@ -434,7 +434,7 @@ func TestPaneDrags(t *testing.T) {
 }
 
 func testDragSessionSplits(t *testing.T) {
-	a, tt := newTester(t)
+	a, tt := newFastTester(t)
 	row := visibleSidebarRow(t, tt, "Port the neutral theme tokens")
 	// Onto the right of the conversation shown alone.
 	dragTo(t, tt, row, 1150, 400, func() {

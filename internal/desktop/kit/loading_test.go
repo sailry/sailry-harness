@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // The loading marks have their sizes and the progress role, ask for frames
@@ -19,7 +20,7 @@ import (
 // built; while they move nothing is rebuilt.
 func testLoadingMarks(t *testing.T) {
 	show, marks, scrolled, builds := true, 1, false, 0
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		builds++
 		theme.Apply(c, "", theme.Dark)
 		p := theme.Of(c)
@@ -38,7 +39,7 @@ func testLoadingMarks(t *testing.T) {
 				Indicator(c.Key(name), Thinking(st), 16).Label(name)
 			}
 		})
-	}, 300, 300)
+	}, 300, 300, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	settle := func() {
 		tt.Frame()
 		tt.Frame()

@@ -32,7 +32,7 @@ func (r *closeRequest) request() CloseRequest {
 func TestClosePrompt(t *testing.T) {
 	en := func(key string) string { return i18n.In("en", key) }
 	open := func(t *testing.T, documents ...string) (*App, *closeRequest, func(string), func() bool) {
-		a, tt := newTester(t)
+		a, tt := newFastTester(t)
 		r := &closeRequest{}
 		for _, name := range documents {
 			r.documents = append(r.documents, CloseDocument{Name: name})
@@ -59,7 +59,7 @@ func TestClosePrompt(t *testing.T) {
 		return a, r, press, shown
 	}
 	t.Run("names the documents once and stays idle", func(t *testing.T) {
-		a, tt := newTester(t)
+		a, tt := newFastTester(t)
 		r := &closeRequest{documents: []CloseDocument{{Name: "sailry/main.go"}, {Name: "sailry/notes.md"}}}
 		a.ConfirmClose(r.request())
 		a.ConfirmClose(CloseRequest{Documents: func() []CloseDocument { return []CloseDocument{{Name: "other.go"}} }})

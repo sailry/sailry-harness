@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // TestEffects groups the effect simulation and the loading marks, which
@@ -20,10 +21,10 @@ func TestEffects(t *testing.T) {
 // Theme effects ask for frames while they show, and none with Reduce
 // Motion, the Appearance switch off or a hidden window.
 func testEffectsFollowMotion(t *testing.T) {
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "great-sage", theme.Dark)
 		Draws(ui.Column(c).Fill(), Backdrop(c, "background.window"))
-	}, 400, 300)
+	}, 400, 300, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	settle := func() {
 		tt.Frame()
 		tt.Frame()
@@ -63,7 +64,7 @@ func testEffectsAreDeterministic(t *testing.T) {
 }
 
 func testEffectSimulation(t *testing.T) {
-	t.Parallel()
+	uitest.Parallel(t)
 	for _, scenario := range []string{"varies_with_seed", "remains_bounded", "loops_without_position_jump", "hides_travel_endpoints"} {
 		t.Run(scenario, func(t *testing.T) {
 			switch scenario {

@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -15,6 +16,7 @@ import (
 // AttachmentCallbacks.Pick, and are off without it or in a read-only
 // conversation.
 func TestAttachAsksTheWindowPicker(t *testing.T) {
+	uitest.Parallel(t)
 	name := i18n.In("en", "composer_attachment")
 	attach := composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true, Icon: icons.Plus}
 	open := func(readonly bool, callbacks *composer.AttachmentCallbacks) (*ui.Tester, *composer.State) {

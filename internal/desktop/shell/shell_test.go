@@ -19,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // opaque keeps the software shader interpreter out of every headless frame:
@@ -35,6 +36,18 @@ func newTester(t *testing.T) (*App, *ui.Tester) {
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("en")
 	tt.Frame()
+	return a, tt
+}
+
+// newFastTester builds the same App at uitest.Scale when screenshots are not
+// requested, cutting software rasterization cost for non-pixel shell tests.
+func newFastTester(t *testing.T) (*App, *ui.Tester) {
+	t.Helper()
+	if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+		return newTester(t)
+	}
+	a := NewWithAssembly(preview.Load(), TestHarnessAssembly())
+	tt := uitest.Fast(a.View, 1280, 820, "en")
 	return a, tt
 }
 

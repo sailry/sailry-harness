@@ -11,22 +11,25 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestMarkdownCharacterReveal(t *testing.T) {
+	uitest.Parallel(t)
 	for _, width := range []int{320, 960} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			uitest.Parallel(t)
 			src := ""
 			animated, visible, revealed := true, true, false
 			var options markdown.Options
-			tt := ui.NewTester(func(c *ui.Context) {
+			tt := uitest.New(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				ui.Column(c).Fill().Children(func() {
 					if visible {
 						revealed = markdown.Revealed(Markdown(c, src, MarkdownProps{Variant: Chat, Animated: animated, Options: &options}))
 					}
 				})
-			}, width, 600)
+			}, width, 600, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 			src = strings.Repeat("abcdefghij", 20) + "\u4e2d\u6587\U0001f331"
 			tt.Frame()
 			tt.Advance(20 * time.Millisecond)
@@ -73,15 +76,16 @@ func TestMarkdownCharacterReveal(t *testing.T) {
 }
 
 func TestMarkdownRevealBudget(t *testing.T) {
+	uitest.Parallel(t)
 	src := ""
 	var options markdown.Options
 	var revealed bool
 	var layouts func() uint64
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		revealed = markdown.Revealed(Markdown(c, src, MarkdownProps{Variant: Chat, Animated: true, Options: &options}))
 		layouts = c.TextSystem().LayoutsMade
-	}, 600, 400)
+	}, 600, 400, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	src = strings.Repeat("x", streamRevealLimit-1)
 	tt.Frame()
 	tt.Advance(20 * time.Millisecond)
@@ -116,13 +120,14 @@ func TestMarkdownRevealBudget(t *testing.T) {
 }
 
 func TestMarkdownReducedMotion(t *testing.T) {
+	uitest.Parallel(t)
 	src := ""
 	var options markdown.Options
 	var revealed bool
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		revealed = markdown.Revealed(Markdown(c, src, MarkdownProps{Animated: true, Options: &options}))
-	}, 600, 400)
+	}, 600, 400, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	src = strings.Repeat("streaming text ", 30) + "end"
 	tt.Frame()
 	if revealed {
@@ -151,35 +156,37 @@ func TestMarkdownReducedMotion(t *testing.T) {
 }
 
 func TestMarkdownPreservesExplicitReveal(t *testing.T) {
+	uitest.Parallel(t)
 	reveal := &markdown.Reveal{Unit: markdown.ByLine, Fade: -1}
 	options := markdown.Options{Reveal: reveal}
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		Markdown(c, "An unfinished line", MarkdownProps{Animated: true, Options: &options})
-	}, 600, 400)
+	}, 600, 400, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	if options.Reveal != reveal || tt.HasText("An unfinished line") {
 		t.Fatal("Kit replaced the caller's explicit reveal policy")
 	}
 }
 
 func TestMarkdownStreamingFence(t *testing.T) {
+	uitest.Parallel(t)
 	for _, tc := range []struct {
 		width    int
 		complete bool
 	}{{320, false}, {960, false}, {320, true}, {960, true}} {
 		t.Run(fmt.Sprintf("%d/complete=%v", tc.width, tc.complete), func(t *testing.T) {
+			uitest.Parallel(t)
 			src := ""
 			animated := true
 			var options markdown.Options
 			var revealed bool
-			tt := ui.NewTester(func(c *ui.Context) {
+			tt := uitest.New(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Dark)
 				ui.Column(c).Fill().Children(func() {
 					revealed = markdown.Revealed(Markdown(c, src, MarkdownProps{Variant: Chat, Animated: animated, Options: &options}))
 				})
 				ToastHost(c)
-			}, tc.width, 600)
-			tt.SetLocale("en")
+			}, tc.width, 600, uitest.Scale, "en", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 			const code = "func main() {\n\tfmt.Println(\"streaming\")\n}\n"
 			src = "```go\n" + code
 			tt.Frame()

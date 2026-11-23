@@ -8,11 +8,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestUnsyncedConversationPausesComposerAnimations(t *testing.T) {
+	uitest.Parallel(t)
 	for _, name := range []string{"indicator", "progress", "children"} {
 		t.Run(name, func(t *testing.T) {
+			uitest.Parallel(t)
 			state := New("")
 			ctx := &Context{Activity: Activity{Connected: true, Unsynced: true}}
 			switch name {
@@ -25,7 +28,7 @@ func TestUnsyncedConversationPausesComposerAnimations(t *testing.T) {
 				ctx.Activity.Children = []conversation.Child{{ID: "child", Title: "Inspect", Status: conversation.ChildRunning}}
 				state.act.children = true
 			}
-			tester := ui.NewTester(func(c *ui.Context) {
+			tester := uitest.New(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				ui.Column(c).Fill().Justify(ui.End).Padding(20).Children(func() {
 					if name == "indicator" {
@@ -34,9 +37,7 @@ func TestUnsyncedConversationPausesComposerAnimations(t *testing.T) {
 						state.activity(c, ctx, nil)
 					}
 				})
-			}, 600, 400)
-			tester.SetLocale("en")
-			tester.Frame()
+			}, 600, 400, uitest.Scale, "en", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 			tester.Advance(time.Second)
 			tester.Frame()
 			tester.Frame()
@@ -57,16 +58,15 @@ func TestUnsyncedConversationPausesComposerAnimations(t *testing.T) {
 }
 
 func TestUnsyncedConversationKeepsStopAvailable(t *testing.T) {
+	uitest.Parallel(t)
 	state := New("")
 	state.Running = true
 	ctx := &Context{Activity: Activity{Connected: true, Unsynced: true}}
 	stopped := false
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		state.sendButton(c, ctx, func() bool { return false }, func() { stopped = true })
-	}, 200, 100)
-	tester.SetLocale("en")
-	tester.Frame()
+	}, 200, 100, "en")
 	button, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "chat_stop"))
 	if !ok || button.Disabled {
 		t.Fatal("conversation failure disabled the reachable Host's Stop action", button)

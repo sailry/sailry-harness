@@ -9,14 +9,16 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // The menu paints the floating color, highlights in accent.background
 // (Palette.Hover), not the primary, and reports the item chosen.
 func TestMenuLooksAndChooses(t *testing.T) {
+	uitest.Parallel(t)
 	var p *theme.Palette
 	got := ""
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		p = theme.Of(c)
 		ui.Column(c).Fill().Padding(20).Children(func() {
@@ -30,8 +32,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 				}
 			})
 		})
-	}, 400, 300)
-	tt.Frame()
+	}, 400, 300, 1, "", ui.TesterOptions{})
 	if err := tt.Click("Open"); err != nil {
 		t.Fatal(err)
 	}
@@ -73,9 +74,10 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	// A window that sweeps its menus each frame keeps the clicks of the frame
 	// before, and a menu whose button left does not come back open with it.
 	t.Run("swept", func(t *testing.T) {
+		uitest.Parallel(t)
 		shown := true
 		var states int
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			SweepMenus(c)
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Children(func() {
@@ -86,8 +88,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 				}
 			})
 			states = len(*ui.Local(c.Root(), menuOpen{}, func() map[string]*menuEntry { return nil }))
-		}, 400, 300)
-		tt.Frame()
+		}, 400, 300, "")
 		if err := tt.Click("Open"); err != nil {
 			t.Fatal(err)
 		}
@@ -109,8 +110,9 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	})
 	// A submenu opens from its item and its items are chosen as the menu's.
 	t.Run("Submenu", func(t *testing.T) {
+		uitest.Parallel(t)
 		got := ""
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Children(func() {
 				MenuButton(c, "test", func(b ui.Element) {
@@ -128,8 +130,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 					})
 				})
 			})
-		}, 400, 300)
-		tt.Frame()
+		}, 400, 300, "")
 		if err := tt.Click("Open"); err != nil {
 			t.Fatal(err)
 		}
@@ -152,8 +153,9 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	// An item's own button runs its action and closes the menu without
 	// choosing the item.
 	t.Run("item action", func(t *testing.T) {
+		uitest.Parallel(t)
 		chosen, acted := false, 0
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Children(func() {
 				MenuButton(c, "test", func(b ui.Element) {
@@ -164,8 +166,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 					}
 				})
 			})
-		}, 400, 300)
-		tt.Frame()
+		}, 400, 300, "")
 		if err := tt.Click("Open"); err != nil {
 			t.Fatal(err)
 		}
@@ -186,8 +187,9 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	// warning's description in the warning color, and nothing redrawn at
 	// rest.
 	t.Run("choice rows", func(t *testing.T) {
+		uitest.Parallel(t)
 		var p *theme.Palette
-		tt := ui.NewTesterWith(func(c *ui.Context) {
+		tt := uitest.New(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Dark)
 			p = theme.Of(c)
 			ui.Column(c).Fill().Padding(20).Children(func() {
@@ -199,8 +201,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 					m.Item("Gamma").Description("Third").Icon(icons.TriangleAlert).Tint(theme.Tints[3]).Warning().Chosen()
 				})
 			})
-		}, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
-		tt.Frame()
+		}, 400, 300, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		if err := tt.Click("Open"); err != nil {
 			t.Fatal(err)
 		}
@@ -285,16 +286,16 @@ func TestMenuLooksAndChooses(t *testing.T) {
 
 // The select uses the text input's border for pointer and keyboard feedback.
 func TestSelectFocusFitsField(t *testing.T) {
+	uitest.Parallel(t)
 	chosen, text := "Alpha", ""
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
 			b, _ := Select(c.Key("select"), "select", "Pick", &chosen, []string{"Alpha"}, false)
 			b.FillWidth()
 			ui.TextInput(c.Key("input"), &text).Label("Name").FillWidth()
 		})
-	}, 240, 150)
-	tt.Frame()
+	}, 240, 150, 1, "", uitest.Quiet)
 	edge := func(label string) [6]color.RGBA {
 		t.Helper()
 		control, ok := tt.Access(label)
@@ -332,18 +333,19 @@ func TestSelectFocusFitsField(t *testing.T) {
 
 // The form controls line up with a text input.
 func TestControlsMatchInput(t *testing.T) {
+	uitest.Parallel(t)
 	// A select has a text input's height, and its dropdown is as wide as it.
 	t.Run("Select", func(t *testing.T) {
+		uitest.Parallel(t)
 		chosen, text := "Alpha", ""
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Dark)
 			ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
 				ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
 				b, _ := Select(c.Key("select"), "test-select", "Pick", &chosen, []string{"Alpha", "Beta"}, false)
 				b.Width(240)
 			})
-		}, 400, 400)
-		tt.Frame()
+		}, 400, 400, "")
 		in, _ := tt.Access("Name")
 		sel, ok := tt.Access("Pick")
 		if !ok || in.Bounds.H != sel.Bounds.H {
@@ -359,15 +361,15 @@ func TestControlsMatchInput(t *testing.T) {
 	})
 	// A Segmented is as high as a text input.
 	t.Run("Segmented", func(t *testing.T) {
+		uitest.Parallel(t)
 		chosen, text := 0, ""
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
 				ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
 				Segmented(c, "seg", &chosen, []string{"One", "Two"}, SegmentedProps{}).Label("Pick")
 			})
-		}, 400, 300)
-		tt.Frame()
+		}, 400, 300, "")
 		in, _ := tt.Access("Name")
 		seg, ok := tt.Access("Pick")
 		if d := in.Bounds.H - seg.Bounds.H; !ok || d > 1 || d < -1 {
@@ -378,14 +380,14 @@ func TestControlsMatchInput(t *testing.T) {
 
 // InputOTP keeps digits only, up to its length, and reports the full code.
 func TestInputOTP(t *testing.T) {
+	uitest.Parallel(t)
 	code, done := "", ""
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Padding(20).Children(func() {
 			InputOTP(c, "otp", &code, InputOTPProps{OnComplete: func(s string) { done = s }}).Label("Code")
 		})
-	}, 400, 200)
-	tt.Frame()
+	}, 400, 200, "")
 	if err := tt.Click("Code"); err != nil {
 		t.Fatal(err)
 	}
@@ -400,9 +402,10 @@ func TestInputOTP(t *testing.T) {
 
 // A SortableList moves a row from the keyboard and reports the move.
 func TestSortableListKeyboard(t *testing.T) {
+	uitest.Parallel(t)
 	items := []string{"a", "b", "c"}
 	var moved [2]int
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Padding(20).Children(func() {
 			SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag",
@@ -411,8 +414,7 @@ func TestSortableListKeyboard(t *testing.T) {
 				ui.Text(c, s)
 			})
 		})
-	}, 300, 300)
-	tt.Frame()
+	}, 300, 300, "")
 	if err := tt.Click("Drag"); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +432,7 @@ func TestSortableListKeyboard(t *testing.T) {
 	// or put back when it left, and no index outlives the list.
 	lifted := func(t *testing.T) (*[]string, *ui.Tester) {
 		items := []string{"a", "b", "c"}
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Children(func() {
 				SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag"}, func(s string, handle func()) {
@@ -438,8 +440,7 @@ func TestSortableListKeyboard(t *testing.T) {
 					ui.Text(c, s)
 				})
 			})
-		}, 300, 300)
-		tt.Frame()
+		}, 300, 300, "")
 		var handles []ui.AccessInfo
 		for _, e := range tt.AccessAll() {
 			if e.Name == "Drag" {
@@ -465,6 +466,7 @@ func TestSortableListKeyboard(t *testing.T) {
 		tt.Frame()
 	}
 	t.Run("list shrinks before the lifted row", func(t *testing.T) {
+		uitest.Parallel(t)
 		items, tt := lifted(t)
 		*items = (*items)[1:]
 		drop(tt)
@@ -473,6 +475,7 @@ func TestSortableListKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("list grows before the lifted row", func(t *testing.T) {
+		uitest.Parallel(t)
 		items, tt := lifted(t)
 		*items = append([]string{"x"}, *items...)
 		drop(tt)
@@ -481,6 +484,7 @@ func TestSortableListKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("lifted row leaves", func(t *testing.T) {
+		uitest.Parallel(t)
 		items, tt := lifted(t)
 		*items = []string{"a", "c"}
 		drop(tt)
@@ -489,8 +493,9 @@ func TestSortableListKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("list shrinks under a dragged row", func(t *testing.T) {
+		uitest.Parallel(t)
 		items := []string{"a", "b", "c"}
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			ui.Column(c).Fill().Padding(20).Children(func() {
 				SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag"}, func(s string, handle func()) {
@@ -498,8 +503,7 @@ func TestSortableListKeyboard(t *testing.T) {
 					ui.Text(c, s)
 				})
 			})
-		}, 300, 300)
-		tt.Frame()
+		}, 300, 300, "")
 		var last ui.Rect
 		for _, e := range tt.AccessAll() {
 			if e.Name == "Drag" {
@@ -527,14 +531,14 @@ func TestSortableListKeyboard(t *testing.T) {
 // A Tooltip describes its anchor and shows, on its side, once the pointer
 // rests on it.
 func TestTooltipShowsAndDescribes(t *testing.T) {
-	tt := ui.NewTester(func(c *ui.Context) {
+	uitest.Parallel(t)
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Padding(80).Children(func() {
 			b := ui.ButtonBase(c.Key("b")).Label("Share").Size(40, 24)
 			Tooltip(c, b, "Share the session", TooltipProps{Placement: Bottom, Hotkey: "⌘S"})
 		})
-	}, 400, 300)
-	tt.Frame()
+	}, 400, 300, "")
 	b, ok := tt.Access("Share")
 	if !ok || b.Description != "Share the session" {
 		t.Fatalf("anchor %+v", b)

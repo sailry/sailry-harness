@@ -17,6 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // recorded is a composer's owner that writes down what it is asked.
@@ -45,7 +46,13 @@ func composerWith(t *testing.T, width int, prepare func(*composer.State, *compos
 	cv := a.Data.Find(a.Sidebar.Selected)
 	comp := a.Composer(cv.ID)
 	actions := &recorded{}
-	tt := ui.NewTesterWith(func(c *ui.Context) {
+	scale := uitest.Scale
+	opts := uitest.Quiet
+	if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+		scale, opts = 1, opaque
+	}
+	opts.Dark = true
+	tt := uitest.New(func(c *ui.Context) {
 		kit.SetPreferences(c, kit.Preferences{})
 		ctx := preview.Composer(a.Data, cv, comp.Worktree)
 		ctx.Interactions, ctx.Queue = composer.Interactions{}, nil
@@ -54,10 +61,7 @@ func composerWith(t *testing.T, width int, prepare func(*composer.State, *compos
 			prepare(comp, ctx)
 		}
 		ui.Column(c).Fill().Justify(ui.End).Children(func() { composer.View(c, comp, ctx, actions) })
-	}, width, 520, opaque)
-	tt.SetLocale("zh-CN")
-	tt.SetDark(true)
-	tt.Frame()
+	}, width, 520, scale, "zh-CN", opts)
 	tt.Frame()
 	return tt, comp, actions
 }

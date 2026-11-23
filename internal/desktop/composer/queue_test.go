@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // owner is a composer's owner that counts what the queue's rows ask of it.
@@ -33,6 +34,8 @@ func (o *owner) Discard(*composer.Attachment) {}
 var removedCopy = []string{"Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent",
 	"Held at automatic limit", "Held after failure", "暂缓", "已暂停", "停止后暂停", "中断后暂停", "未发送", "已达自动续接上限", "失败后暂缓"}
 
+const testScale = uitest.Scale
+
 // tray draws the composer over ctx in an 760 by 640 window.
 func tray(locale string, ctx func() *composer.Context) *ui.Tester {
 	return trayOf(composer.New(preview.DemoModel), &owner{}, locale, ctx)
@@ -40,14 +43,10 @@ func tray(locale string, ctx func() *composer.Context) *ui.Tester {
 
 // trayOf is tray for a composer's state and its owner.
 func trayOf(state *composer.State, actions composer.Actions, locale string, ctx func() *composer.Context) *ui.Tester {
-	tt := ui.NewTesterWith(func(c *ui.Context) {
+	return uitest.Fast(func(c *ui.Context) {
 		kit.SetPreferences(c, kit.Preferences{})
 		ui.Column(c).Fill().Justify(ui.End).Children(func() { composer.View(c, state, ctx(), actions) })
-	}, 760, 640, ui.TesterOptions{})
-	tt.SetLocale(locale)
-	tt.Frame()
-	tt.Frame()
-	return tt
+	}, 760, 640, locale)
 }
 
 // queueHeader is the tray's header, the button named by the n messages
@@ -95,11 +94,13 @@ func buttons(tt *ui.Tester, name string) (n int) {
 // tray's header counts the messages and folds the rows away: folded until
 // the user unfolds it (fold).
 func TestQueueTray(t *testing.T) {
+	uitest.Parallel(t)
 	for _, locale := range []string{"en", "zh-CN"} {
 		d := preview.Demo(locale, "local")
 		for _, id := range []string{preview.DemoStart, "harbor-api/deploy", "harbor-api/flaky-test", "harbor-api/invoices",
 			"lumen-web/review", "lumen-web/audit", "chat/translate"} {
 			t.Run(locale+"/"+id, func(t *testing.T) {
+				uitest.Parallel(t)
 				cv := d.Find(id)
 				if cv == nil {
 					t.Fatal("not a demo conversation")
@@ -143,6 +144,7 @@ func TestQueueTray(t *testing.T) {
 	// Background commands, running or finished, are the activity strip's:
 	// they never open the tray.
 	t.Run("background work alone draws no tray", func(t *testing.T) {
+		uitest.Parallel(t)
 		tt := tray("en", func() *composer.Context {
 			return &composer.Context{Activity: composer.Activity{Connected: true, Commands: []composer.Command{
 				{ID: "soak", Command: "go test ./internal/booking -race -count=500"},
@@ -172,6 +174,7 @@ func four() []composer.Queued {
 // per composer, by a click, Enter or Space; a message being edited is never
 // folded away.
 func foldTests(t *testing.T) {
+	uitest.Parallel(t)
 	texts := func(tt *ui.Tester, queue []composer.Queued) (n int) {
 		for _, q := range queue {
 			if tt.HasText(q.Text) {
@@ -210,8 +213,10 @@ func foldTests(t *testing.T) {
 	}
 
 	t.Run("folded until clicked, then unfolded, then folded", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		tt := tray("en", view(&queue))
+		tt.SetScale(1)
 		header, ok := queueHeader(tt, "en", 4)
 		if !ok || header.Expanded || !header.Focusable || header.Disabled {
 			t.Fatalf("header %+v, found %v: %q", header, ok, tt.Texts())
@@ -296,6 +301,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("the count follows the queue, in both languages", func(t *testing.T) {
+		uitest.Parallel(t)
 		for _, row := range []struct {
 			locale    string
 			n         int
@@ -352,6 +358,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("each composer keeps its own fold", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		one, other := composer.New(preview.DemoModel), composer.New(preview.DemoModel)
 		tt := trayOf(one, &owner{}, "en", view(&queue))
@@ -369,6 +376,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("the fold is kept while the queue empties and fills", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		tt := tray("en", view(&queue))
 		fold(t, tt, "en", 4)
@@ -385,6 +393,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("Enter and Space on the focused header", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		tt := tray("en", view(&queue))
 		// Tab and Shift+Tab are the draft's own keys (queue, cycle the
@@ -426,6 +435,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("a message being edited is never folded away", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		state := composer.New(preview.DemoModel)
 		tt := trayOf(state, &owner{}, "en", view(&queue))
@@ -448,9 +458,11 @@ func foldTests(t *testing.T) {
 		if !ok || !header.Expanded || !header.Disabled {
 			t.Fatalf("header while editing: %+v, found %v", header, ok)
 		}
+		tt.SetScale(1)
 		if !line(tt, header.Bounds) {
 			t.Error("no hairline between the header and the editor")
 		}
+		tt.SetScale(testScale)
 		tt.ClickAt(header.Bounds.X+header.Bounds.W/2, header.Bounds.Y+header.Bounds.H/2)
 		settle(tt)
 		if !tt.HasText(en("queue_save")) || !drafted() {
@@ -470,6 +482,7 @@ func foldTests(t *testing.T) {
 	})
 
 	t.Run("a child session's tray", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		tt := tray("en", func() *composer.Context {
 			return &composer.Context{Child: true, Readonly: true, Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
@@ -491,6 +504,7 @@ func foldTests(t *testing.T) {
 	// The header starts as a row does: the chevron in the leading slot, the
 	// label on the rows' edge, in the rows' height.
 	t.Run("the header shares the rows' edges", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()
 		tt := tray("en", view(&queue))
 		fold(t, tt, "en", 4)
@@ -517,6 +531,7 @@ func foldTests(t *testing.T) {
 				ctx.Queue, ctx.Activity = slices.Clone(queue), composer.Activity{Connected: true}
 				return ctx
 			})
+			tt.SetScale(1)
 			tt.SetDark(dark)
 			settle(tt)
 			name := map[bool]string{true: "dark", false: "light"}[dark]
@@ -547,6 +562,7 @@ func foldTests(t *testing.T) {
 // share one left edge whatever the row is: the drag handle on a row that can
 // be moved, the loader on one being taken, the icon of its kind otherwise.
 func TestQueueLead(t *testing.T) {
+	uitest.Parallel(t)
 	file := []*composer.Attachment{{ID: "f", Name: "plan.csv", Status: composer.Ready, Progress: 1}}
 	rows := []composer.Queued{
 		{ID: "message", Text: "Queued message"},
@@ -571,6 +587,7 @@ func TestQueueLead(t *testing.T) {
 		{"a message on its way", func(ctx *composer.Context) { ctx.Outgoing = &composer.Queued{Text: "Outgoing message"} }, "hlhhil"},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			build := func() *composer.Context {
 				ctx := &composer.Context{Queue: slices.Clone(rows), Activity: composer.Activity{Connected: true}}
 				row.change(ctx)
@@ -635,6 +652,7 @@ func TestQueueLead(t *testing.T) {
 				}
 				return false
 			}
+			tt.SetScale(1)
 			img := tt.Image()
 			scale := float32(img.Bounds().Dx()) / 760
 			inked := func(box ui.Rect) bool {
@@ -678,6 +696,7 @@ func TestQueueLead(t *testing.T) {
 // chose is kept across one and back. The row's editor and a child session's
 // Read work there as in an unfolded tray.
 func TestQueueOneMessage(t *testing.T) {
+	uitest.Parallel(t)
 	en := func(key string) string { return i18n.In("en", key) }
 	var queue []composer.Queued
 	state := composer.New(preview.DemoModel)
@@ -772,6 +791,7 @@ func TestQueueOneMessage(t *testing.T) {
 	single("after Escape")
 
 	t.Run("a child session", func(t *testing.T) {
+		uitest.Parallel(t)
 		queue := four()[:1]
 		tt := tray("en", func() *composer.Context {
 			return &composer.Context{Child: true, Readonly: true, Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
@@ -785,17 +805,15 @@ func TestQueueOneMessage(t *testing.T) {
 // motionTray draws the composer over ctx as tray does, with the desktop's
 // Reduce Motion set or not from the first frame, under a stand-in for the
 // transcript ("transcript"), which has the room the composer leaves.
-func motionTray(reduce bool, ctx func() *composer.Context) *ui.Tester {
+func motionTray(reduce bool, scale float32, ctx func() *composer.Context) *ui.Tester {
 	state := composer.New(preview.DemoModel)
-	tt := ui.NewTesterWith(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		kit.SetPreferences(c, kit.Preferences{})
 		ui.Column(c).Fill().Children(func() {
 			ui.Box(c.Key("transcript")).FillWidth().Grow(1).Label("transcript")
 			composer.View(c, state, ctx(), &owner{})
 		})
-	}, 760, 640, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduce}})
-	tt.SetLocale("en")
-	tt.Frame()
+	}, 760, 640, scale, "en", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: reduce}})
 	tt.Frame()
 	return tt
 }
@@ -810,18 +828,14 @@ func motionTray(reduce bool, ctx func() *composer.Context) *ui.Tester {
 // one more row while unfolded only lifts the rows. With Reduce Motion
 // everything is at once.
 func TestQueueMotion(t *testing.T) {
+	uitest.Parallel(t)
 	en := func(key string) string { return i18n.In("en", key) }
-	var queue []composer.Queued
-	var outgoing *composer.Queued
-	view := func() *composer.Context {
-		return &composer.Context{Queue: slices.Clone(queue), Outgoing: outgoing, Activity: composer.Activity{Connected: true}}
-	}
-	box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
 	room := func(tt *ui.Tester) float32 {
 		r, _ := tt.Find("transcript")
 		return 640 - r.H
 	}
-	surface := func(tt *ui.Tester) ui.Rect {
+	surface := func(t *testing.T, tt *ui.Tester) ui.Rect {
+		t.Helper()
 		input, ok := tt.Access(en("composer"))
 		if !ok {
 			t.Fatalf("no draft: %q", tt.Texts())
@@ -845,9 +859,15 @@ func TestQueueMotion(t *testing.T) {
 	}
 
 	t.Run("in, and out from where it showed", func(t *testing.T) {
-		queue, outgoing = nil, nil
-		tt := motionTray(false, view)
-		draft, empty := surface(tt), room(tt)
+		uitest.Parallel(t)
+		var queue []composer.Queued
+		var outgoing *composer.Queued
+		view := func() *composer.Context {
+			return &composer.Context{Queue: slices.Clone(queue), Outgoing: outgoing, Activity: composer.Activity{Connected: true}}
+		}
+		box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+		tt := motionTray(false, 1, view)
+		draft, empty := surface(t, tt), room(tt)
 		outgoing = &composer.Queued{Text: "On its way"}
 		step(tt, 45*time.Millisecond)
 		mid, ok := box(tt)
@@ -855,7 +875,7 @@ func TestQueueMotion(t *testing.T) {
 		if !ok {
 			t.Fatalf("no tray coming in: %q", tt.Texts())
 		}
-		if s := surface(tt); s != draft {
+		if s := surface(t, tt); s != draft {
 			t.Errorf("the surface moved from %+v to %+v as the tray came in", draft, s)
 		}
 		settle(tt)
@@ -870,7 +890,7 @@ func TestQueueMotion(t *testing.T) {
 		if r, _ := tt.Find("transcript"); end.Y < r.Y+r.H-0.5 {
 			t.Errorf("the tray at %+v rises over the room it took, to %.1f", end, r.Y+r.H)
 		}
-		if s := surface(tt); s != draft {
+		if s := surface(t, tt); s != draft {
 			t.Errorf("the surface moved from %+v to %+v", draft, s)
 		}
 
@@ -903,8 +923,14 @@ func TestQueueMotion(t *testing.T) {
 	})
 
 	t.Run("the Node's row takes over in place", func(t *testing.T) {
-		queue, outgoing = nil, &composer.Queued{Text: "On its way"}
-		tt := motionTray(false, view)
+		uitest.Parallel(t)
+		var queue []composer.Queued
+		outgoing := &composer.Queued{Text: "On its way"}
+		view := func() *composer.Context {
+			return &composer.Context{Queue: slices.Clone(queue), Outgoing: outgoing, Activity: composer.Activity{Connected: true}}
+		}
+		box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+		tt := motionTray(false, testScale, view)
 		settle(tt)
 		was, _ := box(tt)
 		row, _ := tt.Find("On its way")
@@ -922,8 +948,13 @@ func TestQueueMotion(t *testing.T) {
 	})
 
 	t.Run("a second message after one, and back", func(t *testing.T) {
-		queue, outgoing = four()[:1], nil
-		tt := motionTray(false, view)
+		uitest.Parallel(t)
+		queue := four()[:1]
+		view := func() *composer.Context {
+			return &composer.Context{Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
+		}
+		box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+		tt := motionTray(false, testScale, view)
 		settle(tt)
 		was, _ := box(tt)
 		for _, n := range []int{2, 1} {
@@ -938,8 +969,13 @@ func TestQueueMotion(t *testing.T) {
 	})
 
 	t.Run("unfolded, a second message lifts the first", func(t *testing.T) {
-		queue, outgoing = four()[:2], nil
-		tt := motionTray(false, view)
+		uitest.Parallel(t)
+		queue := four()[:2]
+		view := func() *composer.Context {
+			return &composer.Context{Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
+		}
+		box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+		tt := motionTray(false, testScale, view)
 		fold(t, tt, "en", 2)
 		queue = four()[:1]
 		settle(tt)
@@ -961,8 +997,13 @@ func TestQueueMotion(t *testing.T) {
 	})
 
 	t.Run("Reduce Motion", func(t *testing.T) {
-		queue, outgoing = nil, nil
-		tt := motionTray(true, view)
+		uitest.Parallel(t)
+		var queue []composer.Queued
+		view := func() *composer.Context {
+			return &composer.Context{Queue: slices.Clone(queue), Activity: composer.Activity{Connected: true}}
+		}
+		box := func(tt *ui.Tester) (ui.Rect, bool) { return tt.Find(i18n.In("en", "queue_count", "count", len(queue))) }
+		tt := motionTray(true, testScale, view)
 		empty := room(tt)
 		queue = four()[:1]
 		tt.Frame()

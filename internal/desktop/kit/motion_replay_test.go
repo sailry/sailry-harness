@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/plugins/loading"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // MyGo repaints the Draw callbacks that asked for another paint, including
@@ -29,13 +30,14 @@ func nextMotionPhase(tt *ui.Tester, period, phase time.Duration) {
 }
 
 func TestAgentRestsUntilNextRevolution(t *testing.T) {
+	uitest.Parallel(t)
 	turning, paints := true, 0
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			Agent(c, "agent-7", ui.RGB(89, 127, 251), turning, 32)
 			witnessPaints(c, &paints)
 		})
-	}, 80, 60)
+	}, 80, 60, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	nextMotionPhase(tt, time.Second, 500*time.Millisecond)
 	still := bytes.Clone(tt.Image().Pix)
 	paints = 0
@@ -61,8 +63,9 @@ func TestAgentRestsUntilNextRevolution(t *testing.T) {
 }
 
 func TestSweepSleepsBetweenPasses(t *testing.T) {
+	uitest.Parallel(t)
 	paints := 0
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Children(func() {
 			var sw Sweep
@@ -74,7 +77,7 @@ func TestSweepSleepsBetweenPasses(t *testing.T) {
 			sw.Frame(row)
 			witnessPaints(c, &paints)
 		})
-	}, 400, 32)
+	}, 400, 32, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	nextMotionPhase(tt, sweepPeriod, sweepPeriod*7/8)
 	paints = 0
 	tt.Advance(sweepPeriod / 4)
@@ -88,8 +91,9 @@ func TestSweepSleepsBetweenPasses(t *testing.T) {
 }
 
 func TestShortSweepCrossesGlyphsOnWideRows(t *testing.T) {
+	uitest.Parallel(t)
 	for _, style := range []theme.Mode{theme.Light, theme.Dark} {
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.New(func(c *ui.Context) {
 			theme.Apply(c, "", style)
 			p := theme.Of(c)
 			row := ui.Row(c).Width(800).Background(p.Background)
@@ -99,7 +103,7 @@ func TestShortSweepCrossesGlyphsOnWideRows(t *testing.T) {
 				sw.Text(c, ui.RichText(c, span).SingleLine(), span)
 			})
 			sw.Frame(row)
-		}, 800, 32)
+		}, 800, 32, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		nextMotionPhase(tt, sweepPeriod, 0)
 		still := bytes.Clone(tt.Image().Pix)
 		nextMotionPhase(tt, sweepPeriod, sweepPeriod/2)
@@ -110,11 +114,13 @@ func TestShortSweepCrossesGlyphsOnWideRows(t *testing.T) {
 }
 
 func TestSweepSoftBandPreservesBase(t *testing.T) {
+	uitest.Parallel(t)
 	for _, style := range []theme.Mode{theme.Light, theme.Dark} {
 		for _, width := range []int{180, 480} {
 			t.Run(fmt.Sprintf("%v/%d", style, width), func(t *testing.T) {
+				uitest.Parallel(t)
 				animated := false
-				tt := ui.NewTester(func(c *ui.Context) {
+				tt := uitest.New(func(c *ui.Context) {
 					theme.Apply(c, "", style)
 					p := theme.Of(c)
 					ui.Column(c).Fill().Background(p.Background).Children(func() {
@@ -125,7 +131,7 @@ func TestSweepSoftBandPreservesBase(t *testing.T) {
 							sw.Text(c, e, span)
 						}
 					})
-				}, width, 32)
+				}, width, 32, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 				tt.Frame()
 				base := bytes.Clone(tt.Image().Pix)
 				animated = true
@@ -191,9 +197,10 @@ func TestSweepSoftBandPreservesBase(t *testing.T) {
 }
 
 func TestSweepRetainedLabelMatchesRichText(t *testing.T) {
+	uitest.Parallel(t)
 	var label string
 	build := func(explicitWeight bool) *ui.Tester {
-		return ui.NewTester(func(c *ui.Context) {
+		return uitest.New(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			span := ui.Span{Text: label, Size: 14, Color: theme.Of(c).Foreground}
 			e := ui.RichText(c, span).SingleLine()
@@ -202,7 +209,7 @@ func TestSweepRetainedLabelMatchesRichText(t *testing.T) {
 			}
 			var sw Sweep
 			sw.Text(c, e, span)
-		}, 160, 32)
+		}, 160, 32, 1, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	}
 	plain, rich := build(false), build(true)
 	for _, text := range []string{"Checking references", "Neue Datei", "中文と emoji 🌊", "تقرير 42"} {
@@ -219,6 +226,7 @@ func TestSweepRetainedLabelMatchesRichText(t *testing.T) {
 }
 
 func TestMotionAtViewportEdge(t *testing.T) {
+	uitest.Parallel(t)
 	for _, item := range []struct {
 		name string
 		draw func(*ui.Context) ui.Element
@@ -231,8 +239,9 @@ func TestMotionAtViewportEdge(t *testing.T) {
 		{"waiting", func(c *ui.Context) ui.Element { return Indicator(c, Waiting, 20) }},
 	} {
 		t.Run(item.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			y, mounted, paints := float32(1), true, 0
-			tt := ui.NewTester(func(c *ui.Context) {
+			tt := uitest.New(func(c *ui.Context) {
 				ui.Column(c).Fill().Children(func() {
 					ui.Box(c).Size(100, 30).Clip().Children(func() {
 						if mounted {
@@ -241,7 +250,7 @@ func TestMotionAtViewportEdge(t *testing.T) {
 					})
 					witnessPaints(c, &paints)
 				})
-			}, 120, 80)
+			}, 120, 80, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 			check := func(wantMotion bool) {
 				t.Helper()
 				tt.Frame()

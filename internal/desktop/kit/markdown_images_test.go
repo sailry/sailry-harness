@@ -10,9 +10,11 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/markdown/parser"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestDocumentParagraphImages(t *testing.T) {
+	uitest.Parallel(t)
 	for _, tc := range []struct {
 		name, source string
 		count        int
@@ -52,22 +54,24 @@ func TestDocumentParagraphImages(t *testing.T) {
 }
 
 func TestDocumentImageTextLinksReachOuterAnchor(t *testing.T) {
+	uitest.Parallel(t)
 	for _, prefix := range []string{
 		"[Install](#install) ![Logo](logo.svg) [Web](https://example.test)",
 		`<p><a href="#install">Install</a> <img src="logo.svg" alt="Logo"> <a href="https://example.test">Web</a></p>`,
 	} {
 		t.Run(prefix, func(t *testing.T) {
+			uitest.Parallel(t)
 			var scroll ui.ScrollState
 			logo := ui.MustParseSVG([]byte(`<svg viewBox="0 0 80 2"><path d="M0 0h80v2H0z"/></svg>`))
 			options := markdown.Options{LoadImage: func(string) (ui.ImageSource, error) { return logo, nil }}
 			source := prefix + "\n\n" + strings.Repeat("Paragraph before the target.\n\n", 24) + "# Install\n\nTarget."
-			tester := ui.NewTester(func(c *ui.Context) {
+			tester := uitest.Fast(func(c *ui.Context) {
 				c.DisableAnimations()
 				theme.Apply(c, "", theme.Light)
 				ui.Scroll(c).Fill().TrackScroll(&scroll).Children(func() {
 					Markdown(c, source, MarkdownProps{Options: &options})
 				})
-			}, 400, 180)
+			}, 400, 180, "")
 			click := func(name string) {
 				t.Helper()
 				link, ok := tester.AccessByRole(ui.RoleLink, name)
@@ -97,6 +101,7 @@ func TestDocumentImageTextLinksReachOuterAnchor(t *testing.T) {
 }
 
 func TestDocumentLinkedImages(t *testing.T) {
+	uitest.Parallel(t)
 	const target = "https://example.test/docs"
 	badge := ui.MustParseSVG([]byte(`<svg viewBox="0 0 80 24"><path d="M0 0h80v24H0z"/></svg>`))
 	for _, tc := range []struct{ name, source string }{
@@ -105,6 +110,7 @@ func TestDocumentLinkedImages(t *testing.T) {
 		{"HTML block", `<p align="center"><a href="` + target + `"><img src="https://badges.example.test/status?style=flat-square&amp;color=blue" alt="Badge"></a></p>`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			var opened []string
 			var menuTarget string
 			options := markdown.Options{
@@ -116,11 +122,10 @@ func TestDocumentLinkedImages(t *testing.T) {
 					}
 				},
 			}
-			tester := ui.NewTester(func(c *ui.Context) {
+			tester := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				Markdown(c, tc.source, MarkdownProps{Options: &options})
-			}, 500, 300)
-			tester.Frame()
+			}, 500, 300, "")
 			link, ok := tester.AccessByRole(ui.RoleLink, "Badge")
 			if !ok || !link.Focusable || link.Bounds.W <= 0 || link.Bounds.H <= 0 {
 				t.Fatalf("linked image is not a focusable, laid-out link: %+v, found=%v", link, ok)
@@ -144,6 +149,7 @@ func TestDocumentLinkedImages(t *testing.T) {
 }
 
 func TestDocumentBadgeLayout(t *testing.T) {
+	uitest.Parallel(t)
 	const first = "[![Build badge](https://badges.example.test/build)](#build)"
 	const second = "[![Tests badge](https://badges.example.test/tests)](#tests)"
 	for _, tc := range []struct {
@@ -158,12 +164,13 @@ func TestDocumentBadgeLayout(t *testing.T) {
 		{name: "mixed text", source: first + " between badges " + second, mixed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			const width = 500
 			options := markdown.Options{LoadImage: func(string) (ui.ImageSource, error) { return nil, nil }}
-			tester := ui.NewTester(func(c *ui.Context) {
+			tester := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				Markdown(c, tc.source, MarkdownProps{Options: &options})
-			}, width, 300)
+			}, width, 300, "")
 			bounds := func(name string) ui.Rect {
 				t.Helper()
 				link, ok := tester.AccessByRole(ui.RoleLink, name)
@@ -203,6 +210,7 @@ func TestDocumentBadgeLayout(t *testing.T) {
 }
 
 func TestDocumentImageHTMLAncestors(t *testing.T) {
+	uitest.Parallel(t)
 	runs := splitDocumentImages(`<strong>Before <a href="https://example.test">linked <img src="logo.png" alt="Logo"> text</a> after</strong>`)
 	if len(runs) != 3 || runs[1].link != "https://example.test" {
 		t.Fatalf("image and link runs %+v", runs)

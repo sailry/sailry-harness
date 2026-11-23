@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // TestDemoActions covers the demo's conversation, panel and notice actions:
@@ -28,15 +29,13 @@ func TestDemoActions(t *testing.T) {
 		a := New(preview.Load())
 		a.Settings.Model.DemoMode = true
 		var run func(*ui.Context)
-		tt := ui.NewTesterWith(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			if run != nil {
 				run(c)
 				run = nil
 			}
 			a.View(c)
-		}, 1280, 820, opaque)
-		tt.SetLocale("en")
-		tt.Frame()
+		}, 1280, 820, "en")
 		a.Sidebar.Selected = id
 		settle(tt)
 		act := func(fn func(*actions)) {

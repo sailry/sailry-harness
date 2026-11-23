@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -12,6 +13,7 @@ import (
 // keyed by its own id, so the two are separate elements: both draw, side by
 // side, and pressing one opens its panel alone.
 func TestIndicators(t *testing.T) {
+	uitest.Parallel(t)
 	const first, second = "plugin:statistics/context", "plugin:budget/spend"
 	open := map[string]bool{}
 	ring := func(id, hint string, percent float64) composer.Indicator {
@@ -57,6 +59,7 @@ func TestIndicators(t *testing.T) {
 // A docked assistant's composer draws no context bar: the location row the
 // page's composer shows under the input is not there.
 func TestDockedHasNoContextBar(t *testing.T) {
+	uitest.Parallel(t)
 	for _, docked := range []bool{false, true} {
 		tt := tray("en", func() *composer.Context {
 			return &composer.Context{Activity: composer.Activity{Connected: true}, Docked: docked}

@@ -65,12 +65,11 @@ type MarkdownProps struct {
 	// Theme (the Variant's, following the app theme while it stays
 	// Kit's), Reveal, CodeBlock, the mermaid fence and, for a Document, HTML in
 	// place when they are unset, so pass the same Options each frame: they also keep the
-	// view's images. nil uses Kit's shared Options of the Variant.
+	// view's images. nil uses the window's shared Options of the Variant.
 	Options *markdown.Options
 }
 
-// shared are the Options of views given none, by variant.
-var shared [2]markdown.Options
+type sharedMarkdownOptionsKey struct{}
 
 // MyGo reshapes a paragraph on every reveal frame. Cap the source being
 // paced, including its old prefix, so large blocks keep the caller's cadence.
@@ -87,6 +86,7 @@ var (
 func Markdown(c *ui.Context, src string, p MarkdownProps) ui.Element {
 	o := p.Options
 	if o == nil {
+		shared := *ui.Local(c.Root(), sharedMarkdownOptionsKey{}, func() *[2]markdown.Options { return new([2]markdown.Options) })
 		o = &shared[p.Variant]
 	}
 	if o.Theme == nil || isMarkdownTheme(o.Theme) {

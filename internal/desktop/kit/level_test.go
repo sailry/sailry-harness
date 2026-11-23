@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // inkRows is the ink of each device row of img across r, from 6 DIPs above
@@ -80,6 +81,7 @@ func inkMiddle(img *image.RGBA, scale float32, r ui.Rect) float64 {
 // 10 higher; there the capitals' baseline, a whole DIP, is up to half a
 // DIP from their middle's, so the texts are within one DIP of the icon.
 func testLevel(t *testing.T) {
+	uitest.Parallel(t)
 	row := func(c *ui.Context, key, label string, size float32, level, wrap bool) {
 		p := theme.Of(c)
 		height, mark := size+10, size+2
@@ -115,66 +117,67 @@ func testLevel(t *testing.T) {
 			limit = 1
 		}
 		for _, scale := range []float32{1, 2} {
-			for _, label := range []string{"HIDE", "田口"} {
-				var font ui.Font
-				tt := ui.NewTester(func(c *ui.Context) {
-					theme.Apply(c, "", theme.Dark)
-					font = ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize}
-					ui.Column(c).Fill().Background(theme.Of(c).Background).Padding(20).Gap(12).Children(func() {
-						row(c, "plain", label, size, false, false)
-						row(c, "level", label, size, true, false)
-						row(c, "wrap", label, size, true, true)
-					})
-				}, 400, 160)
-				tt.SetScale(scale)
-				tt.Frame()
-				img := tt.Image()
-				at := func(name string, measure func(*image.RGBA, float32, ui.Rect) float64) float64 {
-					r, ok := tt.Find(name)
-					if !ok {
-						t.Fatalf("no %q", name)
+			t.Run(fmt.Sprintf("size=%g/scale=%g", size, scale), func(t *testing.T) {
+				uitest.Parallel(t)
+				for _, label := range []string{"HIDE", "田口"} {
+					var font ui.Font
+					tt := uitest.New(func(c *ui.Context) {
+						theme.Apply(c, "", theme.Dark)
+						font = ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize}
+						ui.Column(c).Fill().Background(theme.Of(c).Background).Padding(20).Gap(12).Children(func() {
+							row(c, "plain", label, size, false, false)
+							row(c, "level", label, size, true, false)
+							row(c, "wrap", label, size, true, true)
+						})
+					}, 400, 160, scale, "", uitest.Quiet)
+					img := tt.Image()
+					at := func(name string, measure func(*image.RGBA, float32, ui.Rect) float64) float64 {
+						r, ok := tt.Find(name)
+						if !ok {
+							t.Fatalf("no %q", name)
+						}
+						return measure(img, scale, r)
 					}
-					return measure(img, scale, r)
-				}
-				baseline := func(name string, layout *ui.TextLayout) float32 {
-					r, ok := tt.Find(name)
-					if !ok {
-						t.Fatalf("no %q", name)
+					baseline := func(name string, layout *ui.TextLayout) float32 {
+						r, ok := tt.Find(name)
+						if !ok {
+							t.Fatalf("no %q", name)
+						}
+						// Compare the baselines the renderer paints. DirectWrite rounds
+						// to a device pixel; Core Text and Pango snap down and up in
+						// screen coordinates, with their small whole-pixel epsilon.
+						y := float64((r.Y + layout.Lines()[0].Baseline) * scale)
+						switch runtime.GOOS {
+						case "darwin":
+							y = math.Ceil(y - 1e-3)
+						case "linux":
+							y = math.Floor(y + 1e-3)
+						default:
+							y = math.Round(y)
+						}
+						return float32(y) / scale
 					}
-					// Compare the baselines the renderer paints. DirectWrite rounds
-					// to a device pixel; Core Text and Pango snap down and up in
-					// screen coordinates, with their small whole-pixel epsilon.
-					y := float64((r.Y + layout.Lines()[0].Baseline) * scale)
-					switch runtime.GOOS {
-					case "darwin":
-						y = math.Ceil(y - 1e-3)
-					case "linux":
-						y = math.Floor(y + 1e-3)
-					default:
-						y = math.Round(y)
-					}
-					return float32(y) / scale
-				}
-				plain := ui.ShapeText(label, ui.Font{Family: font.Family, Size: size}, 0)
-				sweptLine := ui.ShapeRichText([]ui.Span{{Text: label, Size: size}}, font, 0)
-				detailLine := ui.ShapeRichText([]ui.Span{{Text: "HIDE", Size: size - 1, Font: "monospace"}}, font, 0)
-				var report string
-				for _, key := range []string{"plain", "level", "wrap"} {
-					icon, text, swept, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" swept", inkCentre), at(key+" detail", inkCentre)
-					report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, swept %+.2f, detail %+.2f;", key, icon, text-icon, swept-icon, detail-icon)
-					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(text-swept))
-					if key != "plain" && off > limit {
-						t.Errorf("size %v, scale %v, %q, %s row: icon %.2f, label %.2f, swept %.2f, detail %.2f: %.2f DIPs apart", size, scale, label, key, icon, text, swept, detail, off)
-					}
-					if key != "plain" {
-						labelY, sweptY, detailY := baseline(key+" label", plain), baseline(key+" swept", sweptLine), baseline(key+" detail", detailLine)
-						if labelY != sweptY || labelY != detailY {
-							t.Errorf("size %v, scale %v, %q, %s row: baselines %.3f, %.3f, %.3f do not agree", size, scale, label, key, labelY, sweptY, detailY)
+					plain := ui.ShapeText(label, ui.Font{Family: font.Family, Size: size}, 0)
+					sweptLine := ui.ShapeRichText([]ui.Span{{Text: label, Size: size}}, font, 0)
+					detailLine := ui.ShapeRichText([]ui.Span{{Text: "HIDE", Size: size - 1, Font: "monospace"}}, font, 0)
+					var report string
+					for _, key := range []string{"plain", "level", "wrap"} {
+						icon, text, swept, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" swept", inkCentre), at(key+" detail", inkCentre)
+						report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, swept %+.2f, detail %+.2f;", key, icon, text-icon, swept-icon, detail-icon)
+						off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(text-swept))
+						if key != "plain" && off > limit {
+							t.Errorf("size %v, scale %v, %q, %s row: icon %.2f, label %.2f, swept %.2f, detail %.2f: %.2f DIPs apart", size, scale, label, key, icon, text, swept, detail, off)
+						}
+						if key != "plain" {
+							labelY, sweptY, detailY := baseline(key+" label", plain), baseline(key+" swept", sweptLine), baseline(key+" detail", detailLine)
+							if labelY != sweptY || labelY != detailY {
+								t.Errorf("size %v, scale %v, %q, %s row: baselines %.3f, %.3f, %.3f do not agree", size, scale, label, key, labelY, sweptY, detailY)
+							}
 						}
 					}
+					t.Logf("size %v, scale %v, %q:%s", size, scale, label, report)
 				}
-				t.Logf("size %v, scale %v, %q:%s", size, scale, label, report)
-			}
+			})
 		}
 	}
 }
@@ -182,15 +185,14 @@ func testLevel(t *testing.T) {
 // A code block's Copy is an icon button with no text, named for its tooltip
 // and assistive technology; it copies the code and says so in a toast.
 func testCodeCopy(t *testing.T) {
-	tt := ui.NewTester(func(c *ui.Context) {
+	uitest.Parallel(t)
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Padding(20).Children(func() {
 			Markdown(c, "```go\nfmt.Println(1)\n```", MarkdownProps{})
 		})
 		ToastHost(c)
-	}, 400, 300)
-	tt.SetLocale("en")
-	tt.Frame()
+	}, 400, 300, "en")
 	name, copied := i18n.In("en", "content_copy"), i18n.In("en", "content_copied")
 	b, ok := tt.AccessByRole(ui.RoleButton, name)
 	if !ok {

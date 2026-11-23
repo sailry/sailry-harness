@@ -7,21 +7,23 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestDocumentHTMLMermaidFence(t *testing.T) {
+	uitest.Parallel(t)
 	const source = "<pre><code class=\"language-mermaid\">flowchart TB\nA --&gt; B</code></pre>"
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		Markdown(c, source, MarkdownProps{})
-	}, 800, 600)
-	tester.Frame()
+	}, 800, 600, "")
 	if picture, ok := tester.AccessByRole(ui.RoleImage, "flowchart"); !ok || picture.Bounds.W <= 0 || picture.Bounds.H <= 0 {
 		t.Fatal("the nested Markdown view of a document HTML block lost its Mermaid renderer")
 	}
 }
 
 func TestMarkdownMermaidFenceDispatch(t *testing.T) {
+	uitest.Parallel(t)
 	const source = "```mermaid\nflowchart TB\nA --> B\n```\n\n```mermaid\nunreadable diagram\n```\n\n```other\ncustom language\n```\n\n```chart\nordinary code\n```"
 	handlers := map[string]func(*ui.Context, *markdown.CodeBlockView){
 		"other": func(c *ui.Context, b *markdown.CodeBlockView) { ui.Text(c, "handler: "+strings.TrimSpace(b.Code())) },
@@ -29,11 +31,10 @@ func TestMarkdownMermaidFenceDispatch(t *testing.T) {
 	options := markdown.Options{Code: handlers, CodeBlock: func(c *ui.Context, b *markdown.CodeBlockView) {
 		ui.Text(c, "source: "+strings.TrimSpace(b.Code()))
 	}}
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		Markdown(c, source, MarkdownProps{Options: &options})
-	}, 800, 700)
-	tester.Frame()
+	}, 800, 700, "")
 	if picture, ok := tester.AccessByRole(ui.RoleImage, "flowchart"); !ok || picture.Bounds.W <= 0 || picture.Bounds.H <= 0 {
 		t.Fatal("the closed Mermaid fence is not a diagram")
 	}

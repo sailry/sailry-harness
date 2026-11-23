@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // serviceOwner records the services a composer opens.
@@ -57,6 +58,7 @@ func pressService(t *testing.T, tester *ui.Tester, port int) ui.AccessInfo {
 // its service at once, showing no command, which only assistive technology
 // reads; a busy or offline port opens nothing.
 func TestComposerServicesOpenOnOnePress(t *testing.T) {
+	uitest.Parallel(t)
 	s := New("")
 	owner := &serviceOwner{}
 	connected, busy := true, map[int]bool{}
@@ -65,14 +67,12 @@ func TestComposerServicesOpenOnOnePress(t *testing.T) {
 		{ID: "a", Command: longCommand, Ports: []int{5173, 5174}},
 		{ID: "b", Command: "go run ./cmd/api", Ports: []int{5173}},
 	}
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Row(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
 			s.services(c, running, connected, owner)
 		})
-	}, 600, 200)
-	tester.SetLocale("en")
-	tester.Frame()
+	}, 600, 200, "en")
 
 	if chips := serviceChips(tester); len(chips) != 2 {
 		t.Fatalf("two ports show %d capsules: %q", len(chips), tester.Texts())
@@ -133,6 +133,7 @@ func shownPorts(t *testing.T, tester *ui.Tester, area ui.Rect) []ui.AccessInfo {
 // serviceRows capsules high that scrolls; no group stands between a port
 // and its press, and a port scrolled to opens with one press.
 func TestComposerServicesManyPortsOneRowEach(t *testing.T) {
+	uitest.Parallel(t)
 	s := New("")
 	owner := &serviceOwner{}
 	var ports []int
@@ -140,14 +141,12 @@ func TestComposerServicesManyPortsOneRowEach(t *testing.T) {
 		ports = append(ports, port)
 	}
 	running := []Command{{ID: "a", Command: longCommand, Ports: ports}, {ID: "b", Command: "duplicate", Ports: []int{5101, 5102}}}
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Row(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
 			s.services(c, running, true, owner)
 		})
-	}, 600, 400)
-	tester.SetLocale("en")
-	tester.Frame()
+	}, 600, 400, "en")
 
 	column, ok := tester.AccessByRole(ui.RoleScroll, i18n.In("en", "port_mappings"))
 	if !ok {
@@ -208,18 +207,17 @@ func TestComposerServicesManyPortsOneRowEach(t *testing.T) {
 // Split composers listing the same ports keep them apart: the strips
 // build side by side, and a press on one's port opens only its service.
 func TestSplitComposerSamePortsStayApart(t *testing.T) {
+	uitest.Parallel(t)
 	left, right := New(""), New("")
 	leftOwner, rightOwner := &serviceOwner{}, &serviceOwner{}
 	running := []Command{{Command: "npm run dev", Ports: []int{5173, 5174}}}
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Row(c).Fill().Padding(20).Gap(24).AlignItems(ui.Start).Children(func() {
 			left.services(c.Key("left"), running, true, leftOwner)
 			right.services(c.Key("right"), running, true, rightOwner)
 		})
-	}, 900, 200)
-	tester.SetLocale("en")
-	tester.Frame()
+	}, 900, 200, "en")
 
 	var same []ui.AccessInfo
 	for _, chip := range serviceChips(tester) {

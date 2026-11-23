@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // modelSelectFixture is three providers' models: OpenAI's take efforts and
@@ -35,8 +36,8 @@ func modelSelectFixture() []ModelOption {
 
 // modelSelectTester draws a ModelSelect 360 wide over props, which a choice
 // updates as a call site does.
-func modelSelectTester(props *ModelSelectProps, mode theme.Mode, changes *[]string) *ui.Tester {
-	tt := ui.NewTesterWith(func(c *ui.Context) {
+func modelSelectTester(props *ModelSelectProps, mode theme.Mode, scale float32, changes *[]string) *ui.Tester {
+	return uitest.New(func(c *ui.Context) {
 		theme.Apply(c, "", mode)
 		ui.Column(c).Fill().Padding(20).Background(theme.Of(c).Background).Children(func() {
 			o := *props
@@ -48,16 +49,14 @@ func modelSelectTester(props *ModelSelectProps, mode theme.Mode, changes *[]stri
 			}
 			ModelSelect(c.Key("select"), o).Width(360)
 		})
-	}, 640, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
-	tt.SetLocale("en")
-	tt.Frame()
-	return tt
+	}, 640, 520, scale, "en", uitest.Quiet)
 }
 
 // The model select names models by their display names, groups them under
 // their providers, tells the chosen one by its fill, shows the efforts of a
 // model that has any beside the list, and reports what is chosen.
 func TestModelSelect(t *testing.T) {
+	uitest.Parallel(t)
 	efforts := i18n.In("en", "composer_effort")
 	en := func(key string) string { return i18n.In("en", key) }
 	rest := func(tt *ui.Tester) {
@@ -118,9 +117,10 @@ func TestModelSelect(t *testing.T) {
 	}
 
 	t.Run("trigger", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		props := &ModelSelectProps{Label: "Model", Placeholder: "Select model", Models: models}
-		tt := modelSelectTester(props, theme.Dark, nil)
+		tt := modelSelectTester(props, theme.Dark, uitest.Scale, nil)
 		if !tt.HasText("Select model") {
 			t.Errorf("no placeholder: %q", tt.Texts())
 		}
@@ -146,10 +146,11 @@ func TestModelSelect(t *testing.T) {
 	})
 
 	t.Run("groups and efforts", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		var changes []string
 		props := &ModelSelectProps{Label: "Model", Models: models, Model: models[5].ID}
-		tt := modelSelectTester(props, theme.Dark, &changes)
+		tt := modelSelectTester(props, theme.Dark, 1, &changes)
 		open(t, tt)
 		raw(t, tt)
 		want := []string{"GPT-5.5", "GPT-6 Luna", "GPT-6 Sol", "Claude Opus 5.5", "Claude Haiku 5.5", "Qwen Max", "GLM-5"}
@@ -231,10 +232,11 @@ func TestModelSelect(t *testing.T) {
 	})
 
 	t.Run("none and auto", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		var changes []string
 		props := &ModelSelectProps{Label: "Model", None: "Inherit", AutoEffort: "Auto", Models: models, Model: models[0].ID, Effort: "high"}
-		tt := modelSelectTester(props, theme.Light, &changes)
+		tt := modelSelectTester(props, theme.Light, uitest.Scale, &changes)
 		open(t, tt)
 		if got := names(options(tt, "Model")); len(got) != 8 || got[0] != "Inherit" {
 			t.Fatalf("the list offers %q", got)
@@ -260,10 +262,11 @@ func TestModelSelect(t *testing.T) {
 	})
 
 	t.Run("keyboard", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		var changes []string
 		props := &ModelSelectProps{Label: "Model", Models: models, Model: models[4].ID}
-		tt := modelSelectTester(props, theme.Dark, &changes)
+		tt := modelSelectTester(props, theme.Dark, uitest.Scale, &changes)
 		open(t, tt)
 		key := func(k ui.Key) {
 			tt.Key(0, k)
@@ -302,13 +305,14 @@ func TestModelSelect(t *testing.T) {
 	// them; a provider's heading, at the rows' size, folds its models; the
 	// efforts have their heading.
 	t.Run("brands and folds", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		for i := range models {
 			models[i].Brand = map[string]string{"OpenAI": "openai", "Anthropic": "anthropic", "Team gateway": "qwen"}[models[i].Provider]
 		}
 		models[5].BrandName = "Qwen"
 		props := &ModelSelectProps{Label: "Model", Models: models, Model: models[0].ID}
-		tt := modelSelectTester(props, theme.Dark, nil)
+		tt := modelSelectTester(props, theme.Dark, uitest.Scale, nil)
 		open(t, tt)
 		rail := names(options(tt, en("provider_type")))
 		if !slices.Equal(rail, []string{en("provider_all"), "OpenAI", "Anthropic", "Qwen"}) {
@@ -340,13 +344,14 @@ func TestModelSelect(t *testing.T) {
 	})
 
 	t.Run("search", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		for i := range 3 {
 			models = append(models, ModelOption{ID: fmt.Sprintf("77aa/extra-%d", i), Name: fmt.Sprintf("Extra %d", i), Provider: "Team gateway"})
 		}
 		var changes []string
 		props := &ModelSelectProps{Label: "Model", Models: models, Model: models[0].ID, Effort: "low"}
-		tt := modelSelectTester(props, theme.Dark, &changes)
+		tt := modelSelectTester(props, theme.Dark, uitest.Scale, &changes)
 		open(t, tt)
 		tt.Type("claude")
 		rest(tt)
@@ -392,10 +397,11 @@ func TestModelSelect(t *testing.T) {
 	})
 
 	t.Run("states", func(t *testing.T) {
+		uitest.Parallel(t)
 		models := modelSelectFixture()
 		var changes []string
 		props := &ModelSelectProps{Label: "Model", Models: models, Model: "9f00/gone-model", Unavailable: "Model unavailable"}
-		tt := modelSelectTester(props, theme.Dark, &changes)
+		tt := modelSelectTester(props, theme.Dark, 1, &changes)
 		// A model that is not offered shows its ID after the provider's.
 		if !tt.HasText("gone-model") || tt.HasText("9f00/gone-model") {
 			t.Errorf("an unknown model shows %q", tt.Texts())
@@ -484,8 +490,7 @@ func modelSelectSnapshots(t *testing.T, open func(*testing.T, *ui.Tester), rest 
 	for _, mode := range []theme.Mode{theme.Dark, theme.Light} {
 		for _, shot := range cases {
 			props := shot.props
-			tt := modelSelectTester(&props, mode, nil)
-			tt.SetScale(2)
+			tt := modelSelectTester(&props, mode, 2, nil)
 			rest(tt)
 			if shot.opened {
 				open(t, tt)

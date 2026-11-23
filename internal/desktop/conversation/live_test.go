@@ -118,10 +118,13 @@ func (r *recorder) FileAction(_ conversation.File, a conversation.FileAction) {
 	r.fileActions = append(r.fileActions, a)
 }
 
-// transcriptShot saves the frame under the worktree's .runtime/ui-shots.
+// transcriptShot saves the frame to $SAILRY_SNAPSHOTS when set.
 func transcriptShot(t *testing.T, tt *ui.Tester, name string) {
 	t.Helper()
-	dir := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
+	dir := os.Getenv("SAILRY_SNAPSHOTS")
+	if dir == "" {
+		return
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

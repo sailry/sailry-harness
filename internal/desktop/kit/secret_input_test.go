@@ -6,9 +6,11 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestSecretInputReveal(t *testing.T) {
+	uitest.Parallel(t)
 	for _, sample := range []struct {
 		name, locale string
 		mode         theme.Mode
@@ -18,9 +20,10 @@ func TestSecretInputReveal(t *testing.T) {
 		{"dark-Chinese", "zh-CN", theme.Dark, 220},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			value, shown := "sk-test-credential", false
 			edited, submitted := false, false
-			tt := ui.NewTester(func(c *ui.Context) {
+			tt := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", sample.mode)
 				ui.Column(c).Fill().Padding(20).Children(func() {
 					ui.Column(c).Width(sample.width).Children(func() {
@@ -31,9 +34,7 @@ func TestSecretInputReveal(t *testing.T) {
 						submitted = input.Submitted() || submitted
 					})
 				})
-			}, 380, 160)
-			tt.SetLocale(sample.locale)
-			tt.Frame()
+			}, 380, 160, sample.locale)
 			field := secretInputAccess(t, tt, ui.RoleTextField, "Credential")
 			if !field.Password || field.Value != "" || field.Placeholder != "Enter credential" || tt.HasText(value) {
 				t.Fatalf("credential is not masked by default: %+v", field)
@@ -73,17 +74,16 @@ func TestSecretInputReveal(t *testing.T) {
 }
 
 func TestSecretInputDisabled(t *testing.T) {
+	uitest.Parallel(t)
 	value, shown, disabled := "stored-credential", false, false
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Padding(20).Children(func() {
 			SecretInput(c.Key("credential"), &value, &shown, SecretInputProps{
 				Label: "Credential", Disabled: disabled,
 			})
 		})
-	}, 380, 160)
-	tt.SetLocale("en")
-	tt.Frame()
+	}, 380, 160, "en")
 	field := secretInputAccess(t, tt, ui.RoleTextField, "Credential")
 	tt.ClickAt(field.Bounds.X+12, field.Bounds.Y+field.Bounds.H/2)
 	disabled = true
@@ -102,8 +102,9 @@ func TestSecretInputDisabled(t *testing.T) {
 }
 
 func TestSecretInputEyeScrollsWithInput(t *testing.T) {
+	uitest.Parallel(t)
 	value, shown := "stored-credential", false
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Scroll(c).Fill().Children(func() {
 			ui.Column(c).Padding(20).Children(func() {
@@ -111,9 +112,7 @@ func TestSecretInputEyeScrollsWithInput(t *testing.T) {
 				ui.Box(c).Height(600)
 			})
 		})
-	}, 380, 160)
-	tt.SetLocale("en")
-	tt.Frame()
+	}, 380, 160, "en")
 	show := i18n.In("en", "mcp_show_secret")
 	field := secretInputAccess(t, tt, ui.RoleTextField, "Credential")
 	eye := secretInputAccess(t, tt, ui.RoleButton, show)

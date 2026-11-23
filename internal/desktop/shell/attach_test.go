@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // attachmentPicker: Add attachment opens the window's one file picker in its
@@ -78,7 +80,7 @@ func attachmentPicker(t *testing.T) {
 	}
 
 	t.Run("preview", func(t *testing.T) {
-		a, tt := newTester(t)
+		a, tt := newFastTester(t)
 		comp := a.Composer(preview.Big)
 		attach(t, tt, 0)
 		if !a.Sidebar.Picker.Showing() {
@@ -125,7 +127,7 @@ func attachmentPicker(t *testing.T) {
 	})
 
 	t.Run("a split pane delivers to its own composer", func(t *testing.T) {
-		a, tt := newTester(t)
+		a, tt := newFastTester(t)
 		if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Right) {
 			t.Fatal("drop")
 		}
@@ -145,10 +147,17 @@ func attachmentPicker(t *testing.T) {
 		for _, mode := range []string{"dark", "light"} {
 			a := New(preview.Load())
 			a.Settings.Model.DemoMode = true
-			tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
-			tt.SetLocale("en")
-			tt.SetDark(mode == "dark")
-			tt.Frame()
+			var tt *ui.Tester
+			if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+				tt = ui.NewTesterWith(a.View, 1280, 820, opaque)
+				tt.SetLocale("en")
+				tt.SetDark(mode == "dark")
+				tt.Frame()
+			} else {
+				opts := uitest.Quiet
+				opts.Dark = mode == "dark"
+				tt = uitest.New(a.View, 1280, 820, uitest.Scale, "en", opts)
+			}
 			rest(tt)
 			if !a.Demo() || a.Sidebar.Selected != preview.DemoStart {
 				t.Fatalf("the demo is not on the window: %q", a.Sidebar.Selected)

@@ -110,7 +110,7 @@ func TestTooltips(t *testing.T) {
 // The ring now opens its summary on rest rather than a tip; with another
 // popover open it opens nothing.
 func testTooltipKeepsPopover(t *testing.T) {
-	a, tt := newTester(t)
+	a, tt := newFastTester(t)
 	m := a.Composer(a.Sidebar.Selected).Chosen(a.Data.Models)
 	chip, ok := tt.Access(i18n.In("en", "composer_model_settings") + ": " + m.Name)
 	if !ok {

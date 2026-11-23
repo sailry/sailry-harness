@@ -690,7 +690,7 @@ func testSidebarReordersSessions(t *testing.T) {
 }
 
 func TestProjectEditorAndRemoval(t *testing.T) {
-	a, tt := newTester(t)
+	a, tt := newFastTester(t)
 	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
 	clickButton(t, tt, "Add project")
 	tt.Frame()

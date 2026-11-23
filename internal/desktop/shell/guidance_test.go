@@ -54,7 +54,7 @@ func unfoldQueue(t *testing.T, tt *ui.Tester) {
 // offers Withdraw with Edit and Remove disabled and Send now hidden.
 // Withdraw puts it back in the queue.
 func TestComposerGuidesRunningTurn(t *testing.T) {
-	a, tt := newTester(t)
+	a, tt := newFastTester(t)
 	cv := a.Data.Find(preview.Big)
 	comp := a.Composer(preview.Big)
 	if !cv.Running() {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 type presentedConfirmation struct {
@@ -28,7 +29,7 @@ func newConfirmationFixture() *confirmationFixture {
 		open: true, mounted: true,
 		request: Confirmation{Title: "Delete item", Message: "Delete Notes?", Buttons: []string{"Cancel", "Delete"}, Default: 0, Cancel: 0, Destructive: []int{1}},
 	}
-	f.tester = ui.NewTester(func(c *ui.Context) {
+	f.tester = uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		BindConfirmations(c, func(request Confirmation, answer func(int)) {
 			f.presented = append(f.presented, presentedConfirmation{request, answer})
@@ -41,12 +42,14 @@ func newConfirmationFixture() *confirmationFixture {
 				}
 			}
 		}
-	}, 600, 400)
+	}, 600, 400, "")
 	return f
 }
 
 func TestNativeConfirmation(t *testing.T) {
+	uitest.Parallel(t)
 	t.Run("pending presents once and cancel never acts", func(t *testing.T) {
+		uitest.Parallel(t)
 		f := newConfirmationFixture()
 		for range 4 {
 			f.tester.Frame()
@@ -69,6 +72,7 @@ func TestNativeConfirmation(t *testing.T) {
 		}
 	})
 	t.Run("windows keep their own pending answer", func(t *testing.T) {
+		uitest.Parallel(t)
 		first, second := newConfirmationFixture(), newConfirmationFixture()
 		first.tester.Frame()
 		second.tester.Frame()
@@ -85,6 +89,7 @@ func TestNativeConfirmation(t *testing.T) {
 		}
 	})
 	t.Run("dismissal and invalid responses cancel", func(t *testing.T) {
+		uitest.Parallel(t)
 		for _, answer := range []int{-1, 2, 100} {
 			f := newConfirmationFixture()
 			f.tester.Frame()
@@ -96,6 +101,7 @@ func TestNativeConfirmation(t *testing.T) {
 		}
 	})
 	t.Run("changed requests reject obsolete responses", func(t *testing.T) {
+		uitest.Parallel(t)
 		for _, change := range []struct {
 			name string
 			run  func(*Confirmation)
@@ -130,6 +136,7 @@ func TestNativeConfirmation(t *testing.T) {
 		}
 	})
 	t.Run("closing or unmounting invalidates a pending response", func(t *testing.T) {
+		uitest.Parallel(t)
 		for _, unmount := range []bool{false, true} {
 			f := newConfirmationFixture()
 			f.tester.Frame()
@@ -155,17 +162,18 @@ func TestNativeConfirmation(t *testing.T) {
 }
 
 func TestAlertDialogUsesNativeConfirmation(t *testing.T) {
+	uitest.Parallel(t)
 	open := true
 	var shown *presentedConfirmation
 	var actions int
-	tester := ui.NewTester(func(c *ui.Context) {
+	tester := uitest.Fast(func(c *ui.Context) {
 		BindConfirmations(c, func(request Confirmation, answer func(int)) {
 			shown = &presentedConfirmation{request, answer}
 		})
 		if AlertDialog(c, &open, "Title", "Consequence", "Cancel", "Continue") == 1 {
 			actions++
 		}
-	}, 600, 400)
+	}, 600, 400, "")
 	tester.Frame()
 	if shown == nil || shown.request.Title != "Title" || shown.request.Message != "Consequence" || !slices.Equal(shown.request.Buttons, []string{"Cancel", "Continue"}) {
 		t.Fatal("AlertDialog did not use the window's native presenter")

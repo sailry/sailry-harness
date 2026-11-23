@@ -5,12 +5,14 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestDialogKeepsPressWhenEarlierOverlayAppears(t *testing.T) {
+	uitest.Parallel(t)
 	open, hover := true, false
 	clicked := 0
-	tt := ui.NewTesterWith(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		background := ui.Box(c.Key("background")).Fill()
 		x, _, inside := background.PointerPosition()
@@ -26,7 +28,7 @@ func TestDialogKeepsPressWhenEarlierOverlayAppears(t *testing.T) {
 				ui.Text(c, "Continue").FontSize(14)
 			}).OnClick(func() { clicked++ })
 		}).Width(240)
-	}, 600, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	}, 600, 400, "")
 	tt.Move(4, 4)
 	tt.Frame()
 	if hover {

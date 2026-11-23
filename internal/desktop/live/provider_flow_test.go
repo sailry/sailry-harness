@@ -79,6 +79,7 @@ func testProviderFlow(t *testing.T) {
 	defer r.Close()
 	m := r.App.Settings
 	m.Open(settings.Providers)
+	snapshots := os.Getenv("SAILRY_SNAPSHOTS") != ""
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		i18n.Bind(c, catalog)
 		r.mu.Lock()
@@ -90,9 +91,9 @@ func testProviderFlow(t *testing.T) {
 		}
 		settings.Page(c, m, r.App.Data, settings.Look{Theme: &r.App.Theme, Mode: &r.App.Mode, Effects: &r.App.Effects, Surfaces: &r.App.Surfaces})
 		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
-	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	}, 1100, 900, ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: !snapshots}})
 	tester.SetLocale("zh-CN")
-	tester.SetDark(true)
+	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
 	zh := func(key string) string { return catalog.In("zh-CN", key) }
 	await := func(what string, done func() bool) {
 		t.Helper()
@@ -108,13 +109,17 @@ func testProviderFlow(t *testing.T) {
 		tester.Advance(time.Second)
 		tester.Frame()
 	}
-	dir := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// shot writes the frame in the dark and the light appearance.
+	// shot writes the frame in the dark and the light appearance when
+	// SAILRY_SNAPSHOTS is set.
 	shot := func(name string) {
 		t.Helper()
+		dir := os.Getenv("SAILRY_SNAPSHOTS")
+		if dir == "" {
+			return
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
 		for _, dark := range []bool{false, true} {
 			tester.SetDark(dark)
 			settle()

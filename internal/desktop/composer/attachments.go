@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -21,7 +22,7 @@ import (
 // message carries up to MaxAttachments.
 
 // seq numbers the attachments the composer makes.
-var seq int
+var seq atomic.Int64
 
 const pastedImageThumbnailEdge = 480
 
@@ -37,8 +38,7 @@ func (s *State) add(c *ui.Context, list []*Attachment, actions Actions) {
 		return
 	}
 	for _, a := range list {
-		seq++
-		a.ID = fmt.Sprintf("attachment-%d", seq)
+		a.ID = fmt.Sprintf("attachment-%d", seq.Add(1))
 		s.Attachments = append(s.Attachments, a)
 		actions.Upload(a)
 	}

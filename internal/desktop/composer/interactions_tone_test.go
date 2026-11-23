@@ -7,12 +7,14 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // TestInteractionCapsuleTones checks that a pending approval washes its
 // capsule in Warning and a pending question in Info, on both themes, while
 // an approval capsule holding only receipts keeps the muted chip.
 func TestInteractionCapsuleTones(t *testing.T) {
+	uitest.Parallel(t)
 	const width, height = 480, 200
 	const none, warm, cool = 0, 1, -1 // the wash's lean: none, amber, blue
 	for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
@@ -29,14 +31,13 @@ func TestInteractionCapsuleTones(t *testing.T) {
 				func(s *State, c *ui.Context) { s.ask(c, &Ask{ID: "q", Prompt: "Which?"}, nil) }, cool},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
+				uitest.Parallel(t)
 				s := New("local/model")
-				tt := ui.NewTester(func(c *ui.Context) {
+				tt := uitest.New(func(c *ui.Context) {
 					theme.Apply(c, "", mode)
 					ui.Column(c).Fill().Padding(40).AlignItems(ui.Start).Background(theme.Of(c).Background).
 						Children(func() { tc.view(s, c) })
-				}, width, height)
-				tt.SetLocale("en")
-				tt.Frame()
+				}, width, height, 1, "en", ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 				capsule, ok := tt.Access(tc.label)
 				if !ok {
 					t.Fatalf("capsule %q not drawn; texts=%v", tc.label, tt.Texts())

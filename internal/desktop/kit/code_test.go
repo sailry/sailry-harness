@@ -7,18 +7,19 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // Editable code shows the caret; a diff's background is the opaque
 // surface, so MyGo tints its changed lines over it rather than white.
 func TestCodeLooks(t *testing.T) {
+	uitest.Parallel(t)
 	var caret, diff, surface ui.Color
-	tt := ui.NewTester(func(c *ui.Context) {
+	_ = uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		caret, diff = codeTheme(c, lookEditable).Cursor, codeTheme(c, lookDiff).Background
 		surface = theme.Of(c).Background.Alpha(1)
-	}, 400, 300)
-	tt.Frame()
+	}, 400, 300, "")
 	if caret.A == 0 {
 		t.Error("an editable view hides the caret")
 	}
@@ -28,13 +29,13 @@ func TestCodeLooks(t *testing.T) {
 	// Code leaves out trailing line breaks, so no empty last line shows, and
 	// its theme draws no caret and no background but in messages' blocks.
 	t.Run("TrimsAndHidesCaret", func(t *testing.T) {
+		uitest.Parallel(t)
 		var th, bg, block ui.Color
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			Code(c, ui.Column(c).FillWidth(), "a\nb\n\n", CodeOptions{})
 			th, bg, block = CodeTheme(c, false).Cursor, CodeTheme(c, false).Background, CodeTheme(c, true).Background
-		}, 400, 300)
-		tt.Frame()
+		}, 400, 300, "")
 		e, ok := tt.Access("Code editor")
 		if !ok {
 			t.Fatal("no editor")
@@ -53,16 +54,15 @@ func TestCodeLooks(t *testing.T) {
 	// A diff is unified until its window's choice splits it, in place: the
 	// same state, so what was expanded and scrolled stays.
 	t.Run("DiffSplits", func(t *testing.T) {
+		uitest.Parallel(t)
 		var split *bool
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			split = DiffSplit(c)
 			ui.Column(c).Fill().Children(func() {
 				Diff(c, ui.Column(c.Key("diff")).Grow(1).MinHeight(0), "a\nb\n", "a\nc\n", DiffOptions{Split: *split})
 			})
-		}, 600, 300)
-		tt.SetLocale("en")
-		tt.Frame()
+		}, 600, 300, "en")
 		divided := func() bool {
 			for _, e := range tt.AccessAll() {
 				if e.Role == ui.RoleSplitter {
@@ -92,14 +92,14 @@ func TestCodeLooks(t *testing.T) {
 // A long line stays inside a wrapping code view, as high as its rows, and
 // runs past a plain one.
 func TestCodeWrap(t *testing.T) {
+	uitest.Parallel(t)
 	line := strings.Repeat("wrap me ", 80)
 	for _, wrap := range []bool{false, true} {
 		var st *editor.State
-		tt := ui.NewTester(func(c *ui.Context) {
+		tt := uitest.Fast(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			Code(c, ui.Column(c).Width(300), line, CodeOptions{Wrap: wrap, Bind: func(s *editor.State) { st = s }})
-		}, 400, 600)
-		tt.Frame()
+		}, 400, 600, "")
 		tt.Frame()
 		e, ok := tt.Access("Code editor")
 		if !ok || st == nil {

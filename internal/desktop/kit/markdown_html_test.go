@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 	"strings"
 	"testing"
 )
@@ -8,6 +9,7 @@ import (
 // An HTML block splits into runs, centred or not, each as Markdown: links
 // stay links and images retain their sources and descriptions.
 func TestHTMLChunks(t *testing.T) {
+	uitest.Parallel(t)
 	chunks := splitHTML(`<p align="center">
   <a href="docs/hosts.md">Hosts</a> ·
   <a href="https://example.com"><img src="badge.svg" alt="Badge"></a>

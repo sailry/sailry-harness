@@ -13,11 +13,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func overviewSectionTester(s *composer.OverviewState, o *composer.Overview) *ui.Tester {
 	var hidden bool
-	tt := ui.NewTester(func(c *ui.Context) {
+	return uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		ui.Column(c).Fill().Padding(24).AlignItems(ui.End).Background(theme.Of(c).Background).Children(func() {
 			if s.Docked {
@@ -26,13 +27,11 @@ func overviewSectionTester(s *composer.OverviewState, o *composer.Overview) *ui.
 				composer.OverviewButton(c, s, o, 32, &hidden)
 			}
 		})
-	}, 420, 870)
-	tt.SetLocale("en")
-	tt.Frame()
-	return tt
+	}, 420, 870, "en")
 }
 
 func TestOverviewSectionDisclosure(t *testing.T) {
+	uitest.Parallel(t)
 	const step, child, first, last = "Check the overview", "Review agent", "First artifact", "Last artifact"
 	en := func(key string) string { return i18n.In("en", key) }
 	status := en("chat_running")
@@ -50,6 +49,7 @@ func TestOverviewSectionDisclosure(t *testing.T) {
 		docked bool
 	}{{"card", true}, {"popover", false}} {
 		t.Run(tc.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			s := &composer.OverviewState{Docked: tc.docked}
 			popover := !tc.docked
 			var opened []bool
@@ -158,6 +158,7 @@ func TestOverviewSectionDisclosure(t *testing.T) {
 }
 
 func TestOverviewChildRowsAndChangesFold(t *testing.T) {
+	uitest.Parallel(t)
 	en := func(key string) string { return i18n.In("en", key) }
 	working := en("chat_running")
 	var child, change string
@@ -253,6 +254,7 @@ func TestOverviewChildRowsAndChangesFold(t *testing.T) {
 }
 
 func TestOverviewSectionChevron(t *testing.T) {
+	uitest.Parallel(t)
 	o := &composer.Overview{Session: true, Steps: []conversation.Step{{Text: "Verify layout", State: conversation.StepCompleted}}}
 	tt := overviewSectionTester(&composer.OverviewState{Docked: true}, o)
 	const scale = 2

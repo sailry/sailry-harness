@@ -7,9 +7,11 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 func TestModelFeatureTooltips(t *testing.T) {
+	uitest.Parallel(t)
 	for _, test := range []struct {
 		name     string
 		feature  Feature
@@ -25,17 +27,16 @@ func TestModelFeatureTooltips(t *testing.T) {
 			label: "Format", tip: "Format · " + i18n.In("en", "composer_feature_description")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			state := New("fixture")
 			if test.selected != "" {
 				state.Features = map[string]string{test.feature.ID: test.selected}
 			}
 			model := Model{Features: []Feature{test.feature}}
-			tester := ui.NewTester(func(c *ui.Context) {
+			tester := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Dark)
 				ui.Row(c.Key("features")).Padding(80).Gap(8).Children(func() { state.features(c, model) })
-			}, 400, 240)
-			tester.SetLocale("en")
-			tester.Frame()
+			}, 400, 240, "en")
 			button, found := tester.Access(test.label)
 			if !found || button.Description != test.tip {
 				t.Fatalf("feature lost its label or detailed description: %+v", button)

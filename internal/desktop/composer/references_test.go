@@ -1,6 +1,7 @@
 package composer_test
 
 import (
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -18,6 +19,7 @@ import (
 // key the Tester panics on the duplicate, and a running app would leak one
 // row's pointer, selection and scrolling to the other.
 func TestReferencePickerKeepsSameIDRowsDistinct(t *testing.T) {
+	uitest.Parallel(t)
 	file := composer.Reference{ID: "notes", Source: "files", Kind: composer.File, Label: "notes", Icon: icons.File}
 	plugin := composer.Reference{ID: "notes", Source: "plugins", Kind: composer.Plugin, Label: "Notes plugin", Icon: icons.Puzzle}
 

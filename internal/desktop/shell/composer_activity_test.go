@@ -13,7 +13,7 @@ import (
 // popovers open, and actions reaching the host only say so; an idle one
 // shows only the Git badge, and a strip without capsules keeps its row.
 func TestActivityStrip(t *testing.T) {
-	a, tt := newTester(t)
+	a, tt := newFastTester(t)
 	added, removed := 0, 0
 	for _, f := range a.Data.Workspace.Changes {
 		added += f.Added

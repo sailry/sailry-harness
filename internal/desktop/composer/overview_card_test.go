@@ -10,24 +10,23 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/uitest"
 )
 
 // A session's card keeps its place before there is anything to list: its
 // head over one line saying nothing is there yet.
 func TestOverviewCardWithNothingToList(t *testing.T) {
+	uitest.Parallel(t)
 	o := &composer.Overview{Session: true}
 	if !composer.OverviewCardShown(o) {
 		t.Fatal("a session with nothing to list has no card")
 	}
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		ui.Column(c).Fill().Padding(24).Children(func() {
 			composer.OverviewCard(c, &composer.OverviewState{}, o, 520)
 		})
-	}, 400, 400)
-	tt.SetLocale("en")
-	tt.Frame()
-	tt.Frame()
+	}, 400, 400, "en")
 	if _, ok := tt.AccessByRole(ui.RoleComplementary, i18n.In("en", "chat_assets_title")); !ok {
 		t.Fatalf("no card: %q", tt.Texts())
 	}
@@ -40,6 +39,7 @@ func TestOverviewCardWithNothingToList(t *testing.T) {
 // line without flickering tool-call descriptions in between, in both the
 // docked card and a narrow window's popover.
 func TestOverviewHeadShowsStateAndElapsed(t *testing.T) {
+	uitest.Parallel(t)
 	const elapsed = "5s"
 	state := i18n.In("en", "chat_running")
 	progress := i18n.In("en", "chat_assets_progress")
@@ -49,13 +49,14 @@ func TestOverviewHeadShowsStateAndElapsed(t *testing.T) {
 		width  int
 	}{{"card", true, 400}, {"narrow popover", false, 360}} {
 		t.Run(view.name, func(t *testing.T) {
+			uitest.Parallel(t)
 			o := &composer.Overview{
 				Session: true, Turn: true, Status: conversation.Running, Elapsed: 5 * time.Second,
 				Steps: []conversation.Step{{Text: "Check the head", State: conversation.StepInProgress}},
 			}
 			s := &composer.OverviewState{Docked: view.docked}
 			var hidden bool
-			tt := ui.NewTester(func(c *ui.Context) {
+			tt := uitest.Fast(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Dark)
 				ui.Column(c).Fill().Padding(24).AlignItems(ui.End).Children(func() {
 					if s.Docked {
@@ -64,9 +65,7 @@ func TestOverviewHeadShowsStateAndElapsed(t *testing.T) {
 						composer.OverviewButton(c, s, o, 32, &hidden)
 					}
 				})
-			}, view.width, 600)
-			tt.SetLocale("en")
-			tt.Frame()
+			}, view.width, 600, "en")
 			if !view.docked {
 				if err := tt.Click(i18n.In("en", "chat_assets_title")); err != nil {
 					t.Fatal(err)
@@ -98,17 +97,15 @@ func TestOverviewHeadShowsStateAndElapsed(t *testing.T) {
 
 // A long step is one line of the card's progress, cut short, not a block.
 func TestOverviewCardStepsOneLine(t *testing.T) {
+	uitest.Parallel(t)
 	long := strings.Repeat("Read the architecture, ownership and permission boundaries ", 4)
 	o := &composer.Overview{Session: true, Steps: []conversation.Step{{Text: long, State: conversation.StepCompleted}}}
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := uitest.Fast(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		ui.Column(c).Fill().Padding(24).Children(func() {
 			composer.OverviewCard(c, &composer.OverviewState{}, o, 520)
 		})
-	}, 400, 400)
-	tt.SetLocale("en")
-	tt.Frame()
-	tt.Frame()
+	}, 400, 400, "en")
 	found := false
 	for _, e := range tt.AccessAll() {
 		if strings.HasPrefix(e.Name, "Read the architecture") {
