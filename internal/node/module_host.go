@@ -361,7 +361,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		mu.Unlock()
 	}
 	var observed workspaceRevisions
-	if op == protocol.ToolOperationApplyChanges {
+	if observesRevisions(op) {
 		tool.ObserveHistory = observed.update
 	}
 	tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
@@ -372,6 +372,10 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			if err != nil {
 				return err
 			}
+		}
+		args, err := observed.resolve(op, args)
+		if err != nil {
+			return err
 		}
 		sandbox := protocol.DefaultSandboxSettings()
 		if op == protocol.ToolOperationRunCommand {

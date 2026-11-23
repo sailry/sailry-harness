@@ -819,7 +819,7 @@ approval for command input and stopping follows the live process identity.
 | Service | Implemented boundary |
 | --- | --- |
 | Commands | Workspace sandbox on macOS and Linux by default; private temporary files, read-only toolchains and no network; full permission grants the full environment |
-| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure |
+| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure. An omitted model revision resolves at Prepare to the one the conversation last observed, so the admitted command carries it |
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |

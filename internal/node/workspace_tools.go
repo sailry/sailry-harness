@@ -108,7 +108,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		}
 		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		var observed workspaceRevisions
-		if declaration.Operation == protocol.ToolOperationApplyChanges {
+		if observesRevisions(declaration.Operation) {
 			tool.ObserveHistory = observed.update
 		}
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
@@ -126,7 +126,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			}
 			// Full access is the admitted turn's policy, including for children.
 			// Normalize access before approval captures the command to execute.
-			command, err := operations.Command(declaration.Operation, call.Arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull)
+			arguments, err := observed.resolve(declaration.Operation, call.Arguments)
+			if err != nil {
+				return err
+			}
+			command, err := operations.Command(declaration.Operation, arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull)
 			if declaration.Operation == protocol.ToolOperationApplyChanges {
 				var patch struct {
 					Input string `json:"input"`
@@ -608,6 +612,47 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 		r.invalidateTree(data.From)
 		r.invalidateTree(data.To)
 	}
+}
+
+func observesRevisions(operation protocol.ToolOperation) bool {
+	switch operation {
+	case protocol.ToolOperationApplyChanges, protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile,
+		protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationEditNotebook:
+		return true
+	}
+	return false
+}
+
+// resolve fills an omitted expected_revision of a single-file mutation with
+// the revision this conversation last observed, so the admitted command
+// carries a concrete revision and a later external change still conflicts.
+// An unobserved write creates; other mutations require a prior read.
+func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments json.RawMessage) (json.RawMessage, error) {
+	if operation == protocol.ToolOperationApplyChanges || !observesRevisions(operation) {
+		return arguments, nil
+	}
+	var values map[string]json.RawMessage
+	if json.Unmarshal(arguments, &values) != nil || values == nil {
+		// operations.Command reports malformed arguments.
+		return arguments, nil
+	}
+	if _, ok := values["expected_revision"]; ok {
+		return arguments, nil
+	}
+	var path string
+	if json.Unmarshal(values["path"], &path) != nil {
+		return arguments, nil
+	}
+	revision, ok := r.paths[path]
+	switch {
+	case ok:
+		values["expected_revision"], _ = json.Marshal(revision)
+	case operation == protocol.ToolOperationWriteFile:
+		values["expected_revision"] = json.RawMessage("null")
+	default:
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
+	}
+	return json.Marshal(values)
 }
 
 func (r *workspaceRevisions) invalidateTree(path string) {
