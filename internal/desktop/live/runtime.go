@@ -751,7 +751,18 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	maps.DeleteFunc(r.conversationEdits, func(id string, _ conversationEdit) bool { return gone(id) })
 	maps.DeleteFunc(r.composerOutgoing, func(id string, _ *conversationOutgoing) bool { return gone(id) })
 	maps.DeleteFunc(r.composerTrayOutgoing, func(id string, _ *conversationOutgoing) bool { return gone(id) })
+	maps.DeleteFunc(r.acknowledged, func(id string, _ uint64) bool { return gone(id) })
+	maps.DeleteFunc(r.queueHalts, func(id string, _ protocol.ConversationQueuePause) bool { return gone(id) })
+	maps.DeleteFunc(r.usageFailed, func(id string, _ bool) bool { return gone(id) })
+	maps.DeleteFunc(r.guidanceSent, func(id string, _ map[protocol.TurnID]sentGuidance) bool { return gone(id) })
 	maps.DeleteFunc(r.queuedSends, func(id protocol.SessionID, _ map[protocol.TurnID]*queuedSend) bool { return !known[id] })
+	if r.App != nil && !r.App.Demo() {
+		maps.DeleteFunc(r.composerBases, func(comp *composer.State, _ protocol.SessionConfig) bool { return !r.App.HasDraft(comp) })
+		maps.DeleteFunc(r.sessionBases, func(comp *composer.State, _ *sessionBaseStart) bool { return !r.App.HasDraft(comp) })
+		if r.parent == nil {
+			maps.DeleteFunc(r.usage.dictated, func(comp *composer.State, _ bool) bool { return !r.App.HasDraft(comp) })
+		}
+	}
 	for id, retry := range r.turnRetries {
 		if !r.busy[retry.key] && gone(id) {
 			r.forgetTurnRetry(id)
@@ -1067,6 +1078,7 @@ func (r *Runtime) forgetRemovedSessions(ids []protocol.SessionID) {
 	for _, id := range ids {
 		if removed[id] {
 			r.App.ForgetSession(id.String())
+			r.localRuntime().releaseDraftComposer(id.String())
 		}
 	}
 }

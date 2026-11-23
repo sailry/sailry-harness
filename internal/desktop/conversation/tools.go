@@ -233,7 +233,7 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
 		t.Children(func() { head(hovered, open, sw) }).OnClick(func() {
-			if len(group) != 0 {
+			if len(group) != 0 && group[0] != nil {
 				group[0].HoldPlace()
 			}
 			s.toggle(key)

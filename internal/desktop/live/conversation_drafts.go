@@ -291,11 +291,13 @@ func (r *Runtime) releaseDraftComposer(id string) {
 		delete(owner.composerInitialized, id)
 		delete(owner.composerObserved, id)
 		owner.clearComposerBase(comp)
+		delete(owner.sessionBases, comp)
 		if owner.teams != nil {
 			delete(owner.teams.composers, id)
 		}
 	}
 	release(r)
+	delete(r.localRuntime().usage.dictated, comp)
 	for _, bound := range r.bindings {
 		release(bound)
 	}

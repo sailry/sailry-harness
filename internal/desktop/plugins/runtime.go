@@ -176,7 +176,10 @@ func (runtime *Runtime) Mount(bundle Bundle, pluginContext PluginContext) (_ *Mo
 		focusHandles: map[uint64]*ui.Handle{},
 		nativeText:   map[uint64]string{}, images: map[string]ui.ImageSource{},
 	}
-	mounted.engine = moejs.NewRuntime(moejs.Options{Importer: &moejs.Importer{Resolve: mounted.resolveModule}})
+	mounted.engine = moejs.NewRuntime(moejs.Options{
+		MemoryLimit: nodeplugins.ScriptMemoryBytes,
+		Importer:    &moejs.Importer{Resolve: mounted.resolveModule},
+	})
 	mounted.unroot = mounted.engine.AddLiveRoots(func(add func(moejs.Value)) {
 		add(mounted.helper)
 		for _, promise := range mounted.pending {
@@ -326,6 +329,9 @@ func (mounted *Mounted) schedule(_ *moejs.Realm, _ moejs.Value, arguments []moej
 	milliseconds := arguments[1].AsNumber()
 	if math.IsNaN(milliseconds) || math.IsInf(milliseconds, 0) || milliseconds < 0 || milliseconds >= float64(time.Duration(1<<63-1))/float64(time.Millisecond) {
 		return moejs.Undefined(), errors.New("plugin timer delay is outside the supported duration range")
+	}
+	if previous := mounted.timers[identifier]; previous != nil {
+		previous.Stop()
 	}
 	mounted.timers[identifier] = mounted.runtime.clock.AfterFunc(time.Duration(milliseconds*float64(time.Millisecond)), func() {
 		mounted.enqueue(runtimeCompletion{id: identifier, timer: true})
@@ -703,9 +709,9 @@ func (mounted *Mounted) execute(budget time.Duration, body func(context.Context)
 		cancel()
 		var interruption *moejs.InterruptedError
 		if errors.As(result, &interruption) && mounted.jobsHeld {
-			mounted.engine.Realm().DropJobs(result)
+			engine.Realm().DropJobs(result)
 			mounted.jobsHeld = false
-			result = mounted.engine.Realm().ReleaseJobs(result)
+			result = engine.Realm().ReleaseJobs(result)
 		}
 		engine.ClearInterrupt()
 		if !mounted.jobsHeld {

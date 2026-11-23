@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -364,6 +365,19 @@ func (a *App) ForgetSession(id string) {
 	}
 	delete(w.focus, t)
 	delete(w.hosts, t)
+}
+
+// HasDraft reports whether the window currently retains the given composer state.
+func (a *App) HasDraft(state *composer.State) bool {
+	if state == nil {
+		return false
+	}
+	for _, draft := range a.drafts {
+		if draft == state {
+			return true
+		}
+	}
+	return false
 }
 
 // closeShownTab is ⌘W on a session standing alone: its tab closes as its
