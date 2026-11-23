@@ -140,11 +140,81 @@ func TestMainTurnStepLimit(t *testing.T) {
 	fixture := newFixture(t, model, step)
 	fixture.r.maxModelSteps = 3
 	fixture.start()
-	run := fixture.waitRun(fixture.submit("Loop forever"), protocol.ConversationStatusFailed)
-	if run.Error == nil || !strings.Contains(run.Error.Message, "3-step safety limit") {
-		t.Fatalf("expected step-limit failure, got %+v", run.Error)
+	run := fixture.waitRun(fixture.submit("Loop forever"), protocol.ConversationStatusCompleted)
+	if run.Error != nil {
+		t.Fatalf("expected clean turn-limit completion, got error %+v", run.Error)
 	}
 	if len(model.calls) != 3 {
 		t.Fatalf("expected exactly 3 model calls, got %d", len(model.calls))
 	}
+	foundNote := false
+	for _, record := range fixture.state().Records {
+		if record.Metadata.Runtime != nil && record.Metadata.Runtime.Notes != nil && record.Metadata.Runtime.Notes.TurnLimit {
+			foundNote = true
+		}
+	}
+	if !foundNote {
+		t.Fatal("expected user-visible turn_limit note after reaching step limit")
+	}
+}
+
+func TestMainTurnStepLimitResetsOnGuidanceAndCanDisable(t *testing.T) {
+	t.Parallel()
+	t.Run("guidance_resets_step_budget", func(t *testing.T) {
+		t.Parallel()
+		step2Started := make(chan struct{})
+		releaseStep2 := make(chan struct{})
+		step := objectTool("tick", true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+			if call.ID == "t1" {
+				close(step2Started)
+				<-releaseStep2
+			}
+			return ToolResult{Value: map[string]any{"ok": true}}
+		})
+		model := &scriptedModel{scripts: []script{
+			response(call("t0", "tick", `{}`), finish()),
+			response(call("t1", "tick", `{}`), finish()),
+			// Guidance joins here and resets x.modelSteps to 0.
+			response(call("t2", "tick", `{}`), finish()),
+			response(call("t3", "tick", `{}`), finish()),
+			response(text("Completed after guidance"), finish()),
+		}}
+		fixture := newFixture(t, model, step)
+		fixture.r.maxModelSteps = 3
+		fixture.start()
+		turn := fixture.submit("Start long work")
+		select {
+		case <-step2Started:
+		case <-fixture.ctx.Done():
+			t.Fatal("timed out waiting for step 2 tool")
+		}
+		fixture.command("guide_turn", &protocol.CommandGuideTurnPayload{
+			Recipient: turn, ExpectedRevision: fixture.session.Revision, Message: protocol.ConversationInput{Text: "Keep going"},
+		})
+		close(releaseStep2)
+		run := fixture.waitRun(turn, protocol.ConversationStatusCompleted)
+		if run.Error != nil {
+			t.Fatalf("unexpected error after guidance reset: %+v", run.Error)
+		}
+		if len(model.calls) != 5 {
+			t.Fatalf("expected 5 model calls after guidance reset, got %d", len(model.calls))
+		}
+		for _, record := range fixture.state().Records {
+			if record.Metadata.Runtime != nil && record.Metadata.Runtime.Notes != nil && record.Metadata.Runtime.Notes.TurnLimit {
+				t.Fatal("guidance did not reset the model step counter")
+			}
+		}
+	})
+
+	t.Run("negative_option_disables_limit", func(t *testing.T) {
+		t.Parallel()
+		r := New(nil, protocol.NodeID{}, "", nil, nil, Options{MaxModelSteps: -1})
+		if r.maxModelSteps != 0 {
+			t.Fatalf("negative MaxModelSteps should disable limit, got %d", r.maxModelSteps)
+		}
+		def := New(nil, protocol.NodeID{}, "", nil, nil, Options{})
+		if def.maxModelSteps != defaultMaxMainModelSteps {
+			t.Fatalf("default MaxModelSteps = %d, want %d", def.maxModelSteps, defaultMaxMainModelSteps)
+		}
+	})
 }

@@ -54,6 +54,16 @@ func TestFileTextKernels(t *testing.T) {
 	if after, err = ApplyPatchChunks("func main() {\n\tfmt.Println(\"hi\")   \n}\n", []PatchChunk{{Old: []string{"fmt.Println(\"hi\")"}, New: []string{"\tfmt.Println(\"bye\")"}}}); err != nil || !strings.Contains(after, "bye") {
 		t.Fatalf("fuzzy patch failed: %q %v", after, err)
 	}
+	// Fuzzy patch matching preserves original text of untouched context lines (e.g., tabs in Makefile/Python).
+	tabFile := "all:\n\techo one\n\techo two\n\techo three\n"
+	tabPatch := "*** Begin Patch\n*** Update File: Makefile\n@@\n     echo one\n-    echo two\n+\techo TWO\n     echo three\n*** End Patch"
+	parsedTab, err := ParsePatch(tabPatch)
+	if err != nil || len(parsedTab) != 1 {
+		t.Fatalf("parse tab patch: %v", err)
+	}
+	if after, err = ApplyPatchChunks(tabFile, parsedTab[0].Chunks); err != nil || after != "all:\n\techo one\n\techo TWO\n\techo three\n" {
+		t.Fatalf("fuzzy patch rewrote untouched context lines: got %q, err=%v", after, err)
+	}
 	// Duplicate edit errors report match count and line numbers.
 	if _, err = PrepareEdits("alpha\nbeta\nalpha\n", []protocol.FileEdit{{OldText: "alpha", NewText: "gamma"}}); err == nil || !strings.Contains(err.Error(), "2 matches") || !strings.Contains(err.Error(), "1, 3") {
 		t.Fatalf("duplicate edit diagnostics: %v", err)
@@ -61,6 +71,17 @@ func TestFileTextKernels(t *testing.T) {
 	// Whole-file edit fast path.
 	if after, err = PrepareEdits("line1\nline2\n", []protocol.FileEdit{{OldText: "line1\nline2\n", NewText: "replaced\n"}}); err != nil || after != "replaced\n" {
 		t.Fatalf("whole-file edit: %q %v", after, err)
+	}
+	// Whole-file fast path still rejects empty old_text, NUL bytes, and oversized budgets.
+	if _, err = PrepareEdits("", []protocol.FileEdit{{OldText: "", NewText: "x"}}); err == nil {
+		t.Fatal("whole-file edit accepted empty old_text on empty file")
+	}
+	if _, err = PrepareEdits("a\x00b", []protocol.FileEdit{{OldText: "a\x00b", NewText: "clean"}}); err == nil {
+		t.Fatal("whole-file edit accepted NUL byte in before/old_text")
+	}
+	halfMax := strings.Repeat("a", protocol.MAX_EDIT_BYTES/2+1)
+	if _, err = PrepareEdits(halfMax, []protocol.FileEdit{{OldText: halfMax, NewText: halfMax}}); err == nil {
+		t.Fatal("whole-file edit bypassed MAX_EDIT_BYTES budget")
 	}
 	// Controlled fuzzy edit: unique trailing-whitespace mismatch succeeds.
 	if after, err = PrepareEdits("alpha   \nbeta\t\ngamma\n", []protocol.FileEdit{{OldText: "alpha\nbeta", NewText: "alpha\nBETA"}}); err != nil || after != "alpha\nBETA\ngamma\n" {

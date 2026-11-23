@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -640,4 +641,131 @@ func TestMCPPoolUserIsolation(t *testing.T) {
 	if again.connection != leases[1].connection {
 		t.Fatal("another user's connection was retired")
 	}
+}
+
+func TestMCPPoolLargeServerSelectedToolsAndListChanged(t *testing.T) {
+	t.Run("large server succeeds when selected subset fits budget", func(t *testing.T) {
+		server := sdk.NewServer(&sdk.Implementation{Name: "large", Version: "1"}, nil)
+		for i := range 300 {
+			name := fmt.Sprintf("tool-%03d", i)
+			sdk.AddTool(server, &sdk.Tool{Name: name}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
+				return &sdk.CallToolResult{}, nil, nil
+			})
+		}
+		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+			clientWire, serverWire := sdk.NewInMemoryTransports()
+			serverSession, err := server.Connect(t.Context(), serverWire, nil)
+			if err != nil {
+				return nil, err
+			}
+			t.Cleanup(func() { _ = serverSession.Close() })
+			opts := &sdk.ClientOptions{ElicitationHandler: elicit}
+			if launch.OnToolsChanged != nil {
+				onChange := launch.OnToolsChanged
+				opts.ToolListChangedHandler = func(context.Context, *sdk.ToolListChangedRequest) { onChange() }
+			}
+			return sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, opts).Connect(ctx, clientWire, nil)
+		}})
+		defer pool.Close()
+
+		reference := protocol.PluginReference{Name: "large", Digest: "v1", SettingsRevision: 1}
+		summary := protocol.DefaultPluginSummary()
+		summary.Name, summary.Digest, summary.SettingsRevision, summary.Revision, summary.Enabled = reference.Name, reference.Digest, 1, 1, true
+		if err := pool.Observe(summary, ""); err != nil {
+			t.Fatal(err)
+		}
+		pool.FinishInventory("")
+		opts := protocol.DefaultPluginMcpOptions()
+		opts.Reuse = true
+
+		// Without a filter, 300 tools still exceeds maxTools (256).
+		unfiltered, err := pool.Acquire(t.Context(), Configuration{Package: reference, Server: "srv", Options: opts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := unfiltered.List(t.Context()); err == nil {
+			t.Fatal("unfiltered 300-tool server should exceed maxTools")
+		}
+		_ = unfiltered.Close()
+
+		// With an explicit 3-tool selection, List and ListCached succeed.
+		selected := []string{"tool-001", "tool-150", "tool-299"}
+		lease, err := pool.Acquire(t.Context(), Configuration{Package: reference, Server: "srv", Options: opts, Tools: &selected})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lease.Close()
+		tools, err := lease.List(t.Context())
+		if err != nil {
+			t.Fatalf("selected tools from 300-tool server failed: %v", err)
+		}
+		if len(tools) != 3 {
+			t.Fatalf("got %d tools, want 3", len(tools))
+		}
+		cached, err := lease.ListCached(t.Context())
+		if err != nil || len(cached) != 3 {
+			t.Fatalf("ListCached = %d, err=%v", len(cached), err)
+		}
+	})
+
+	t.Run("tools/list_changed notification invalidates descriptor cache", func(t *testing.T) {
+		server := sdk.NewServer(&sdk.Implementation{Name: "dynamic", Version: "1"}, nil)
+		sdk.AddTool(server, &sdk.Tool{Name: "initial"}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{}, nil, nil
+		})
+		notified := make(chan struct{}, 1)
+		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+			clientWire, serverWire := sdk.NewInMemoryTransports()
+			serverSession, err := server.Connect(t.Context(), serverWire, nil)
+			if err != nil {
+				return nil, err
+			}
+			t.Cleanup(func() { _ = serverSession.Close() })
+			opts := &sdk.ClientOptions{ElicitationHandler: elicit}
+			if launch.OnToolsChanged != nil {
+				onChange := launch.OnToolsChanged
+				opts.ToolListChangedHandler = func(context.Context, *sdk.ToolListChangedRequest) {
+					onChange()
+					select {
+					case notified <- struct{}{}:
+					default:
+					}
+				}
+			}
+			return sdk.NewClient(&sdk.Implementation{Name: "fixture", Version: "1"}, opts).Connect(ctx, clientWire, nil)
+		}})
+		defer pool.Close()
+
+		reference := protocol.PluginReference{Name: "dynamic", Digest: "v1", SettingsRevision: 1}
+		summary := protocol.DefaultPluginSummary()
+		summary.Name, summary.Digest, summary.SettingsRevision, summary.Revision, summary.Enabled = reference.Name, reference.Digest, 1, 1, true
+		if err := pool.Observe(summary, ""); err != nil {
+			t.Fatal(err)
+		}
+		pool.FinishInventory("")
+		opts := protocol.DefaultPluginMcpOptions()
+		opts.Reuse = true
+
+		lease, err := pool.Acquire(t.Context(), Configuration{Package: reference, Server: "srv", Options: opts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lease.Close()
+		first, err := lease.ListCached(t.Context())
+		if err != nil || len(first) != 1 || first[0].Name != "initial" {
+			t.Fatalf("initial tools = %+v, err=%v", first, err)
+		}
+		sdk.AddTool(server, &sdk.Tool{Name: "added"}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
+			return &sdk.CallToolResult{}, nil, nil
+		})
+		select {
+		case <-notified:
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for tools/list_changed notification")
+		}
+		updated, err := lease.ListCached(t.Context())
+		if err != nil || len(updated) != 2 {
+			t.Fatalf("tools after tools/list_changed = %d, err=%v", len(updated), err)
+		}
+	})
 }

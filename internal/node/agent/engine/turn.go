@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -450,6 +449,7 @@ func (r *Runtime) turn(x *execution) error {
 				x.foregroundSteered = true
 				x.doomSignature = ""
 				x.doomStreak = 0
+				x.modelSteps = 0
 				continue
 			}
 		}
@@ -531,7 +531,11 @@ func (r *Runtime) turn(x *execution) error {
 			if err = r.detachForeground(x); err != nil {
 				return err
 			}
-			return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("turn stopped after reaching the %d-step safety limit", r.maxModelSteps)}
+			value := &canonical.Note{Note: canonical.OperationNote{Kind: "turn_limit"}}
+			record := canonical.NewRecord(x.inv.Run.Turn, "operation", &canonical.Operation{Kind: "note", Data: value}, r.clock.Now())
+			record.Provenance.Author = "system"
+			record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, Notes: &canonical.OperationNotes{TurnLimit: true}}
+			return r.save(x.ctx, x.inv.Session.ID, record)
 		}
 		observed := map[string]bool{}
 		readResult := func(response *canonical.ToolResponse) (json.RawMessage, error) {

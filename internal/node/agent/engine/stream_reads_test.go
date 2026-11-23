@@ -273,8 +273,8 @@ func TestStreamReadsRejectRewrittenDuplicateCallID(t *testing.T) {
 	if len(responseIDs) != 2 || responseIDs[0] != "dup" || responseIDs[1] == "dup" {
 		t.Fatalf("duplicate call ID was not rewritten: %v", responseIDs)
 	}
-	if len(seenIDs) < 2 || seenIDs[len(seenIDs)-1] != responseIDs[1] {
-		t.Fatalf("tool executed with stale ID %v instead of rewritten ID %s", seenIDs, responseIDs[1])
+	if len(seenIDs) != 2 || seenIDs[0] != "dup" || seenIDs[1] != responseIDs[1] {
+		t.Fatalf("duplicate-ID read ran %d times (%v), want exactly once per step with rewritten ID %s", len(seenIDs), seenIDs, responseIDs[1])
 	}
 }
 

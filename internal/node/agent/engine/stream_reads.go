@@ -24,8 +24,26 @@ type streamedReads struct {
 	pending  map[*canonical.ToolRequest]*streamedRead
 	skipped  map[*canonical.ToolRequest]canonical.ToolRequest
 	accepted map[string]*streamedRead
+	priorIDs map[string]bool
 	next     int
 	blocked  bool
+}
+
+func priorToolCallIDs(records []canonical.Record) map[string]bool {
+	var seen map[string]bool
+	for _, record := range records {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
+				if call, ok := block.Data.(*canonical.ToolRequest); ok && call.ID != "" {
+					if seen == nil {
+						seen = map[string]bool{}
+					}
+					seen[call.ID] = true
+				}
+			}
+		}
+	}
+	return seen
 }
 
 type streamedRead struct {
@@ -57,6 +75,12 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	}
 	call := *request
 	x.names.restoreCall(&call)
+	if call.ID != "" && reads.priorIDs[call.ID] {
+		// separateRepeatedCalls will rewrite this call ID once the stream ends,
+		// so starting it speculatively under the stale ID would run it twice.
+		reads.blocked = true
+		return
+	}
 	if call.Error == nil && streamReadTransparent(call.Name) {
 		return
 	}

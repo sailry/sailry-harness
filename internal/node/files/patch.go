@@ -288,8 +288,13 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		for i, text := range new {
 			style := ending
-			if original, ok := kept[i]; ok && original < len(old) && lines[at+original].ending != "" {
-				style = lines[at+original].ending
+			if original, ok := kept[i]; ok && original < len(old) {
+				if mode > 0 {
+					text = lines[at+original].text
+				}
+				if lines[at+original].ending != "" {
+					style = lines[at+original].ending
+				}
 			}
 			inserted = append(inserted, patchLine{text, style})
 		}

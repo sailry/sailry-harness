@@ -53,8 +53,9 @@ type Options struct {
 	// running turn commits: a user stop, Send now or a disabled package.
 	StopTransient func(protocol.SessionID)
 	// MaxModelSteps bounds how many main-turn model inference steps a single
-	// turn may execute before halting cleanly. Zero uses defaultMaxMainModelSteps.
-	MaxModelSteps uint32
+	// turn may execute before halting cleanly with a turn-limit note. Zero uses
+	// defaultMaxMainModelSteps; a negative value disables the limit.
+	MaxModelSteps int
 }
 
 const defaultMaxMainModelSteps uint32 = 200
@@ -165,8 +166,11 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	if options.Model == nil {
 		options.Model = model.New
 	}
-	maxSteps := options.MaxModelSteps
-	if maxSteps == 0 {
+	var maxSteps uint32
+	switch {
+	case options.MaxModelSteps > 0:
+		maxSteps = uint32(options.MaxModelSteps)
+	case options.MaxModelSteps == 0:
 		maxSteps = defaultMaxMainModelSteps
 	}
 	base := store.WithPluginAvailability(context.Background(), options.PluginAvailability)

@@ -439,6 +439,19 @@ func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol
 		if err != nil {
 			return nil, err
 		}
+		queued, err := readQueuedMessage(ctx, db, turn)
+		if err != nil {
+			return nil, err
+		}
+		session, err := ReadSession(ctx, db, source.Session)
+		if err != nil {
+			return nil, err
+		}
+		frozen := session
+		frozen.Config, frozen.Roles = targetSettings.turn.Config, targetSettings.turn.Roles
+		if err = validateAgentReferences(ctx, db, frozen, queued.Message, targetSettings.turn.Plugins); err != nil {
+			return nil, err
+		}
 		if err = saveTurnSettings(ctx, db, turn, targetSettings); err != nil {
 			return nil, err
 		}

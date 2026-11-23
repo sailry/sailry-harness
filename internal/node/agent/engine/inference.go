@@ -228,7 +228,8 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model, ReplayPrefix: model.ReplayPrefix(call)}}
 		return out
 	}
-	reads := &streamedReads{}
+	priorIDs := priorToolCallIDs(state.Records)
+	reads := &streamedReads{priorIDs: priorIDs}
 	defer func() { reads.close() }()
 	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {
 		out := newOutput()
@@ -283,7 +284,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			return streamErr == nil
 		}, func() {
 			out = newOutput()
-			reads = &streamedReads{}
+			reads = &streamedReads{priorIDs: priorIDs}
 		})
 		steered := Steered(streamCtx) && x.ctx.Err() == nil && (err == nil || model.Classify(err).Kind == model.Cancelled)
 		endModelStep()

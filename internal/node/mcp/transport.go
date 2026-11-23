@@ -17,16 +17,17 @@ import (
 )
 
 type Launch struct {
-	Kind        string
-	Command     string
-	Args        []string
-	Env         map[string]string
-	Directory   string
-	URL         string
-	Headers     map[string]string
-	OAuth       auth.OAuthHandler
-	Client      *http.Client
-	Environment []string
+	Kind           string
+	Command        string
+	Args           []string
+	Env            map[string]string
+	Directory      string
+	URL            string
+	Headers        map[string]string
+	OAuth          auth.OAuthHandler
+	Client         *http.Client
+	Environment    []string
+	OnToolsChanged func()
 }
 
 func (launch Launch) identity() any {
@@ -40,11 +41,16 @@ func (launch Launch) identity() any {
 }
 
 func Open(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-	client := sdk.NewClient(&sdk.Implementation{Name: "Sailry", Version: "1"}, &sdk.ClientOptions{
+	options := &sdk.ClientOptions{
 		Capabilities: &sdk.ClientCapabilities{Elicitation: &sdk.ElicitationCapabilities{
 			Form: &sdk.FormElicitationCapabilities{}, URL: &sdk.URLElicitationCapabilities{},
 		}}, ElicitationHandler: elicit,
-	})
+	}
+	if launch.OnToolsChanged != nil {
+		onChange := launch.OnToolsChanged
+		options.ToolListChangedHandler = func(context.Context, *sdk.ToolListChangedRequest) { onChange() }
+	}
+	client := sdk.NewClient(&sdk.Implementation{Name: "Sailry", Version: "1"}, options)
 	var transport sdk.Transport
 	switch launch.Kind {
 	case "stdio":

@@ -20,9 +20,10 @@ func PrepareEdits(before string, edits []protocol.FileEdit) (string, error) {
 	if len(edits) == 0 || !utf8.ValidString(before) {
 		return "", invalid("invalid file edit content or count")
 	}
-	if len(edits) == 1 && edits[0].OldText == before && utf8.ValidString(edits[0].NewText) && nonnull(edits[0].NewText) && len(edits[0].NewText) <= protocol.MAX_EDIT_BYTES {
-		// Fast path for whole-file replacement (e.g., apply_patch edits) without
-		// doubling memory against MAX_EDIT_BYTES or scanning the entire text twice.
+	if len(edits) == 1 && edits[0].OldText != "" && edits[0].OldText == before && nonnull(before) &&
+		utf8.ValidString(edits[0].NewText) && nonnull(edits[0].NewText) &&
+		len(edits[0].OldText)+len(edits[0].NewText) <= protocol.MAX_EDIT_BYTES {
+		// Fast path for whole-file replacement without scanning the entire text twice.
 		return edits[0].NewText, nil
 	}
 	var matches []textEdit
