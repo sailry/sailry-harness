@@ -18,22 +18,25 @@ func TestHTTP524Recovery(t *testing.T) {
 	const latency = 2 * time.Minute
 	const backoff = 30 * time.Second // The gateway's Retry-After.
 	for _, test := range []struct {
-		name     string
-		recovers bool
-		latency  time.Duration
-		deadline time.Duration
-		observe  time.Duration
-		stalls   bool
-		consume  time.Duration
-		cancelAt time.Duration
-		requests int
-		waits    int
-		elapsed  time.Duration
+		name           string
+		recovers       bool
+		latency        time.Duration
+		deadline       time.Duration
+		observe        time.Duration
+		stalls         bool
+		consume        time.Duration
+		cancelAt       time.Duration
+		requests       int
+		waits          int
+		elapsed        time.Duration
+		transportStall time.Duration
+		failureMessage string
 	}{
 		{name: "second request succeeds", recovers: true, latency: latency, requests: 2, waits: 1, elapsed: latency + backoff},
 		{name: "persistent gateway timeout", latency: latency, requests: 2, waits: 1, elapsed: 2*latency + backoff},
-		{name: "slow first request", latency: 5 * time.Minute, requests: 1, elapsed: 5 * time.Minute},
-		{name: "retry stalls until request window ends", latency: latency, stalls: true, requests: 2, waits: 1, elapsed: 10 * time.Minute},
+		{name: "slow first request", latency: stallTimeout - time.Second, requests: 1, elapsed: stallTimeout - time.Second},
+		{name: "retry stalls before request window ends", latency: latency, stalls: true, requests: 2, waits: 1, elapsed: latency + backoff + stallTimeout, failureMessage: "Model stream sent no data for 300 seconds"},
+		{name: "retry stalls until request window ends", latency: latency, stalls: true, requests: 2, waits: 1, elapsed: retryWaitBudget, transportStall: retryWaitBudget, failureMessage: "Model retry timed out waiting for output after HTTP 524"},
 		{name: "productive retry outlives window", latency: latency, recovers: true, consume: 8 * time.Minute, requests: 2, waits: 1, elapsed: latency + backoff + 8*time.Minute},
 		{name: "upstream wait reaches deadline", latency: latency, deadline: latency + backoff, requests: 1, elapsed: latency},
 		{name: "next gateway wait exceeds remaining runtime", latency: latency, deadline: 2*latency + backoff/2, requests: 1, elapsed: latency},
@@ -74,7 +77,11 @@ func TestHTTP524Recovery(t *testing.T) {
 						return &http.Response{StatusCode: 524, Header: http.Header{"Retry-After": {"30"}, "Content-Type": {"text/html"}}, Body: io.NopCloser(bytes.NewBufferString("<html>Origin timed out</html>"))}, nil
 					}
 				})
-				language := &sdkModel{config: transportConfig{Kind: "responses", Model: "fixture", Endpoint: "https://fixture.invalid"}, client: &http.Client{Transport: responseTransport{base: trip, stall: stallTimeout}}}
+				transportStall := stallTimeout
+				if test.transportStall > 0 {
+					transportStall = test.transportStall
+				}
+				language := &sdkModel{config: transportConfig{Kind: "responses", Model: "fixture", Endpoint: "https://fixture.invalid"}, client: &http.Client{Transport: responseTransport{base: trip, stall: transportStall}}}
 				var attempts []Attempt
 				finished, waits := false, 0
 				started := time.Now()
@@ -102,6 +109,9 @@ func TestHTTP524Recovery(t *testing.T) {
 					t.Fatalf("finished=%t error=%v", finished, err)
 				}
 				failure := Classify(err)
+				if test.failureMessage != "" && (failure == nil || failure.Message != test.failureMessage) {
+					t.Fatalf("failure = %+v, want message %q", failure, test.failureMessage)
+				}
 				if test.cancelAt > 0 {
 					if failure == nil || failure.Kind != Cancelled || failure.Exhausted || failure.WaitExhausted {
 						t.Fatalf("cancellation lost to retry policy: %+v", failure)

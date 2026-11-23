@@ -198,8 +198,12 @@ func checkModelFailureRecovery(t *testing.T, failure *fantasy.ProviderError, kin
 					continue
 				}
 				if execution := record.Metadata.Execution; execution != nil && execution.Retry != nil {
+					retry := execution.Retry
+					if retry.Attempt != uint64(retries) || retry.Limit == nil || *retry.Limit != uint64(retryLimit-1) {
+						t.Fatalf("wrong canonical retry number or limit: %+v", retry)
+					}
 					retries++
-					if retry := execution.Retry; retry.Limit == nil || *retry.Limit != uint64(retryLimit) || retry.Status == nil || int(*retry.Status) != failure.StatusCode || retry.Code == nil || *retry.Code != string(kind) || retry.Error == nil || *retry.Error != diagnostic {
+					if retry.Status == nil || int(*retry.Status) != failure.StatusCode || retry.Code == nil || *retry.Code != string(kind) || retry.Error == nil || *retry.Error != diagnostic {
 						t.Fatalf("retry lost the provider error or actual HTTP status: %+v", retry)
 					}
 					if message.Usage != nil && !reflect.DeepEqual(*message.Usage, canonical.Usage{}) {
