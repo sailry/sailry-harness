@@ -232,7 +232,7 @@ func historyEntry(commit *object.Commit, path string) (object.TreeEntry, error) 
 }
 
 func (s *Service) Commit(ctx context.Context, root, revision string) (protocol.GitCommit, error) {
-	r, err := s.openReadWorktree(ctx, root)
+	r, err := s.openDiffWorktree(ctx, root)
 	if err != nil {
 		return protocol.GitCommit{}, err
 	}
@@ -284,10 +284,10 @@ func (s *Service) Commit(ctx context.Context, root, revision string) (protocol.G
 		}
 		a, b := content{}, content{}
 		if change.From.Name != "" {
-			a, err = blobContent(r, change.From.TreeEntry.Hash, change.From.TreeEntry.Mode, 1024*1024)
+			a, err = blobContent(r, change.From.TreeEntry.Hash, change.From.TreeEntry.Mode, statLimit)
 		}
 		if err == nil && change.To.Name != "" {
-			b, err = blobContent(r, change.To.TreeEntry.Hash, change.To.TreeEntry.Mode, 1024*1024)
+			b, err = blobContent(r, change.To.TreeEntry.Hash, change.To.TreeEntry.Mode, statLimit)
 		}
 		if err != nil {
 			return result, err

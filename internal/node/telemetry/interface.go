@@ -309,6 +309,7 @@ type Watchdog struct {
 	mu        sync.Mutex
 	visible   bool
 	suspended bool
+	paused    int
 	closed    bool
 	running   bool
 	touched   time.Time
@@ -317,6 +318,9 @@ type Watchdog struct {
 	pending  time.Time
 	waiting  bool
 	reported bool
+	graceSeq uint64
+	grace    map[uint64]time.Time
+	stop     chan struct{}
 	done     sync.WaitGroup
 }
 
@@ -325,7 +329,7 @@ func NewWatchdog(options WatchdogOptions) *Watchdog {
 	if options.Clock == nil {
 		options.Clock = clockwork.NewRealClock()
 	}
-	return &Watchdog{options: options}
+	return &Watchdog{options: options, stop: make(chan struct{})}
 }
 
 // Touch records interface activity: a frame was drawn.
@@ -355,11 +359,85 @@ func (w *Watchdog) Suspended(suspended bool) {
 	w.mu.Unlock()
 }
 
+// Pause increments the modal pause count while an OS-owned loop (such as a
+// native dialog) blocks the interface thread, returning a release callback.
+func (w *Watchdog) Pause() func() {
+	if w == nil {
+		return func() {}
+	}
+	w.mu.Lock()
+	w.paused++
+	w.mu.Unlock()
+	var released bool
+	return func() {
+		w.mu.Lock()
+		if released {
+			w.mu.Unlock()
+			return
+		}
+		released = true
+		w.paused--
+		if w.paused == 0 {
+			w.pending = w.options.Clock.Now()
+		}
+		w.mu.Unlock()
+	}
+}
+
+// Extend adds a bounded grace window for expected long warmup work (such as
+// first-frame GPU shader compilation), returning a release callback.
+func (w *Watchdog) Extend(limit time.Duration) func() {
+	if w == nil || limit <= 0 {
+		return func() {}
+	}
+	w.mu.Lock()
+	if w.grace == nil {
+		w.grace = make(map[uint64]time.Time)
+	}
+	w.graceSeq++
+	id := w.graceSeq
+	w.grace[id] = w.options.Clock.Now().Add(limit)
+	w.mu.Unlock()
+	var released bool
+	return func() {
+		w.mu.Lock()
+		if released {
+			w.mu.Unlock()
+			return
+		}
+		released = true
+		if _, active := w.grace[id]; active {
+			delete(w.grace, id)
+			if len(w.grace) == 0 && w.waiting {
+				w.pending = w.options.Clock.Now()
+			}
+		}
+		w.mu.Unlock()
+	}
+}
+
+func (w *Watchdog) inGraceLocked(now time.Time) bool {
+	active := false
+	for id, deadline := range w.grace {
+		if now.Before(deadline) {
+			active = true
+		} else {
+			delete(w.grace, id)
+		}
+	}
+	return active
+}
+
 // Close stops the heartbeat.
 func (w *Watchdog) Close() {
 	w.mu.Lock()
+	already := w.closed
 	w.closed = true
+	stop := w.stop
 	w.mu.Unlock()
+	if !already && stop != nil {
+		close(stop)
+	}
 	w.done.Wait()
 }
 
@@ -369,7 +447,15 @@ func (w *Watchdog) watch() {
 	last := clock.Now()
 	for {
 		timer := clock.NewTimer(watchInterval)
-		<-timer.Chan()
+		select {
+		case <-timer.Chan():
+		case <-w.stop:
+			timer.Stop()
+			w.mu.Lock()
+			w.running = false
+			w.mu.Unlock()
+			return
+		}
 		now := clock.Now()
 		stalled := now.Sub(last) >= 2*watchInterval
 		last = now
@@ -380,7 +466,7 @@ func (w *Watchdog) watch() {
 			w.mu.Unlock()
 			return
 		}
-		if stalled || w.suspended || !w.visible {
+		if stalled || w.suspended || w.paused > 0 || !w.visible {
 			// Not the interface's fault: measure again from here.
 			w.pending = now
 		}
@@ -397,7 +483,7 @@ func (w *Watchdog) watch() {
 				w.waiting, w.reported = false, false
 				w.mu.Unlock()
 			})
-		case !w.reported && now.Sub(w.pending) >= HangAfter:
+		case !w.reported && !w.inGraceLocked(now) && now.Sub(w.pending) >= HangAfter:
 			w.reported = true
 			w.mu.Unlock()
 			w.hang()

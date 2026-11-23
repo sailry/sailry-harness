@@ -44,13 +44,17 @@ func (s *Service) openReadWorktree(ctx context.Context, root string) (*gogit.Rep
 }
 
 func (s *Service) openDiffWorktree(ctx context.Context, root string) (*gogit.Repository, error) {
+	return s.openBoundedWorktree(ctx, root, statLimit)
+}
+
+func (s *Service) openBoundedWorktree(ctx context.Context, root string, limit int64) (*gogit.Repository, error) {
 	r, err := s.openReadWorktree(ctx, root)
 	if err != nil {
 		return nil, err
 	}
 	// Reuse the resolved Git filesystem. PlainOpen cannot set the threshold
-	// that lets status and diff see a large loose object's size without inflating it.
-	options := filesystem.Options{LargeObjectThreshold: statLimit}
+	// that lets bounded blob reads inspect a large loose object's size without inflating it.
+	options := filesystem.Options{LargeObjectThreshold: limit}
 	switch store := r.Storer.(type) {
 	case *filesystem.Storage:
 		r.Storer = filesystem.NewStorageWithOptions(store.Filesystem(), cache.NewObjectLRUDefault(), options)

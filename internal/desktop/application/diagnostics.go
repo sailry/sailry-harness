@@ -3,6 +3,7 @@ package application
 import (
 	"log"
 	"path/filepath"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -10,6 +11,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 )
+
+// firstFrameGrace covers first-frame GPU shader pipeline compilation (such as
+// Metal makePipelines on Intel macOS) while still reporting real deadlocks past 30s.
+const firstFrameGrace = 30 * time.Second
 
 // interfaceReports keeps the interface's crash and hang traces beside the
 // application's log, and reports them while error reports are on.
@@ -57,9 +62,22 @@ func (reports *interfaceReports) watch(window *mygo.Window, app *shell.App) {
 	if reports == nil || reports.watchdog == nil {
 		return
 	}
+	presented := false
+	var endWarmup func()
 	before := app.Hooks.BeforeFrame
 	app.Hooks.BeforeFrame = func(c *ui.Context) {
-		reports.watchdog.Touch()
+		if !presented {
+			presented = true
+			end := reports.extend(firstFrameGrace)
+			endWarmup = end
+			reports.watchdog.Touch()
+			go mygo.RunOnMain(func() {
+				end()
+				reports.watchdog.Touch()
+			})
+		} else {
+			reports.watchdog.Touch()
+		}
 		if before != nil {
 			before(c)
 		}
@@ -77,9 +95,33 @@ func (reports *interfaceReports) watch(window *mygo.Window, app *shell.App) {
 	window.OnHide(shown(false))
 	window.OnMinimize(shown(false))
 	window.OnClosed(func() {
+		if endWarmup != nil {
+			endWarmup()
+		}
 		delete(reports.visible, window)
 		reports.apply()
 	})
+}
+
+func (reports *interfaceReports) pause() func() {
+	if reports == nil || reports.watchdog == nil {
+		return func() {}
+	}
+	return reports.watchdog.Pause()
+}
+
+func (reports *interfaceReports) extend(limit time.Duration) func() {
+	if reports == nil || reports.watchdog == nil {
+		return func() {}
+	}
+	return reports.watchdog.Extend(limit)
+}
+
+func callPause(pause func() func()) func() {
+	if pause == nil {
+		return func() {}
+	}
+	return pause()
 }
 
 func (reports *interfaceReports) apply() {

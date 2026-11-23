@@ -215,7 +215,7 @@ func Run(args []string, config Options) error {
 				windowPrefs.save(app.Prefs())
 			}
 		}
-		present := nativeConfirmations(entry)
+		present := nativeConfirmations(entry, backend.reports.pause)
 		entry.window = mygo.NewWindow(mygo.WindowOptions{
 			Title: name, Width: 1280, Height: 820, MinWidth: 1024, MinHeight: 768,
 			StateKey: "main", TitleBarStyle: mygo.TitleBarHidden,
@@ -239,8 +239,8 @@ func Run(args []string, config Options) error {
 				speech.SetSynthesizer(backend.Client.SynthesizeSpeech)
 				speech.OnStarted(runtime.CountReadAloud)
 			}
-			bindConversation(ctx, entry, speech)
-			bindFiles(entry, backend.Client.Target())
+			bindConversation(ctx, entry, speech, backend.reports.pause)
+			bindFiles(entry, backend.Client.Target(), backend.reports.pause)
 			runtime.SetWebViewWindow(entry.window)
 			runtime.SetOpenService(func(address string) {
 				if err := mygo.Shell.OpenExternal(address); err != nil {
@@ -272,7 +272,9 @@ func Run(args []string, config Options) error {
 				})
 			}
 			runtime.SetPickKeyFile(func(selected func(string)) {
+				resume := backend.reports.pause()
 				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "ssh_key_file")})
+				resume()
 				if err != nil {
 					runtime.Report(err)
 					return
@@ -282,7 +284,9 @@ func Run(args []string, config Options) error {
 				}
 			})
 			runtime.SetPickDirectory(func(selected func(string)) {
+				resume := backend.reports.pause()
 				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "directory_title"), Directory: true})
+				resume()
 				if err != nil {
 					runtime.Report(err)
 					return

@@ -515,7 +515,7 @@ func (s *Service) readResource(ctx context.Context, root, path string, r *gogit.
 	return c.data, "", nil
 }
 func (s *Service) changeBytes(ctx context.Context, root string, snapshot protocol.GitChangeSnapshot, path, metadata string) (candidate, []byte, []byte, string, string, error) {
-	r, err := s.openReadWorktree(ctx, root)
+	r, err := s.openBoundedWorktree(ctx, root, maxFile)
 	if err != nil {
 		return candidate{}, nil, nil, "", "", err
 	}

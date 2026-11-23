@@ -16,19 +16,23 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-func bindFiles(entry *desktopWindow, local protocol.NodeID) {
+func bindFiles(entry *desktopWindow, local protocol.NodeID, pause func() func()) {
 	runtime := entry.live
 	runtime.SetNativeFileActions(live.NativeFileActions{LocalNode: local, RenderDocument: func(ctx context.Context, artifact protocol.ArtifactSummary, html string, done func([]byte, error)) {
 		go func() { data, err := exporter.PreviewImage(ctx, entry.window, html); done(data, err) }()
 	}, PickFiles: func(selected func([]string)) {
+		resume := callPause(pause)
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "composer_attachment"), Multiple: true})
+		resume()
 		if err != nil {
 			runtime.Report(err)
 			return
 		}
 		selected(paths)
 	}, SaveFile: func(name string, selected func(string)) {
+		resume := callPause(pause)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: entry.window, DefaultPath: name, CreateDirectories: true})
+		resume()
 		if err != nil {
 			runtime.Report(err)
 			return

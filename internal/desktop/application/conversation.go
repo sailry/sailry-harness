@@ -17,7 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func bindConversation(ctx context.Context, entry *desktopWindow, speech *reader.Service) {
+func bindConversation(ctx context.Context, entry *desktopWindow, speech *reader.Service, pause func() func()) {
 	runtime := entry.live
 	runtime.SetReaderActive(speech.Active)
 	runtime.SetReadAloud(func(session, turn, text string) {
@@ -65,7 +65,9 @@ func bindConversation(ctx context.Context, entry *desktopWindow, speech *reader.
 		}
 		name = string([]rune(name)[:min(len([]rune(name)), 120)])
 		lang := i18n.Match(mygo.App.Locale())
+		resume := callPause(pause)
 		destination, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Parent: entry.window, Title: i18n.In(lang, "conversation_export"), DefaultPath: name + "." + format.Extension(), Filters: []mygo.FileFilter{{Name: i18n.In(lang, key), Extensions: []string{format.Extension()}}}, CreateDirectories: true})
+		resume()
 		if err != nil {
 			runtime.ReportExport(err)
 			return

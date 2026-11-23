@@ -10,12 +10,14 @@ import (
 // nativeConfirmations attaches every confirmation to its owning native window.
 // The worker lets the originating frame return. MyGo presents the dialog on
 // the UI thread, where Windows runs its own message loop until dismissal.
-func nativeConfirmations(entry *desktopWindow) kit.ConfirmationPresenter {
+func nativeConfirmations(entry *desktopWindow, pause func() func()) kit.ConfirmationPresenter {
 	return func(request kit.Confirmation, answer func(int)) {
 		go func() {
 			options, indexes := nativeConfirmationOptions(request)
 			options.Parent = entry.window
+			resume := callPause(pause)
 			result, err := mygo.Dialog.Message(options)
+			resume()
 			choice := request.Cancel
 			if err != nil {
 				log.Printf("native confirmation: %v", err)

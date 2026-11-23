@@ -32,8 +32,10 @@ func newProfileRestart(backend *desktopBackend, relaunch func()) *profileRestart
 		profile: backend.Path, check: node.CheckRestoredProfile, stop: backend.Stop, swap: node.SwapProfile,
 		main: mygo.RunOnMain, relaunch: relaunch,
 		failed: func(err error) {
+			resume := backend.reports.pause()
 			_, _ = mygo.Dialog.Message(mygo.MessageOptions{Type: mygo.MessageError,
 				Message: i18n.In(i18n.Match(mygo.App.Locale()), "backup_restart_failed"), Detail: err.Error()})
+			resume()
 		},
 	}
 }

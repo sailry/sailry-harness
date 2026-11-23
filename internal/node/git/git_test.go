@@ -455,6 +455,28 @@ func TestGitReadMapping(t *testing.T) {
 		s.Invalidate(root)
 		check(protocol.GitDiffScopeStaged, protocol.GitDiffScopeUnstaged, uncounted, protocol.GitLineStats{})
 	})
+	t.Run("commit_marks_oversized_loose_blob_binary", func(t *testing.T) {
+		root, r, _ := fixture(t)
+		const path = "large.bin"
+		if err := os.WriteFile(filepath.Join(root, path), make([]byte, statLimit+1), 0644); err != nil {
+			t.Fatal(err)
+		}
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Add(path); err != nil {
+			t.Fatal(err)
+		}
+		commit, err := w.Commit("Oversized loose blob", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(250, 0)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := fixtureService().Commit(ctx, root, commit.String())
+		if err != nil || len(got.Files) != 1 || !got.Files[0].Binary || got.Files[0].Path != path {
+			t.Fatalf("Commit = %+v, %v", got, err)
+		}
+	})
 	t.Run("status_line_statistics_are_bounded", func(t *testing.T) {
 		root, _, commit := fixture(t)
 		// One byte over the limit: such a file is marked, not read and hashed.
