@@ -500,12 +500,14 @@ retain the original evidence.
 Package hooks observe a bounded set of their own recent, complete tool results
 from the active turn.
 
-API-key model requests identify as `Sailry/<product version>` and carry the
-session ID in `x-session-affinity` and `X-Session-Id`; Responses and Chat
-Completions also send it as `prompt_cache_key`. A request without a session sends neither.
-An API-key provider's custom headers, set in its advanced settings, replace these
-defaults of any letter case. Credential and framing headers stay the
-transport's. Account sign-ins keep their own client identity.
+Anthropic API-key model discovery and conversations share the Claude CLI
+User-Agent, `Accept: application/json` and `anthropic-version: 2023-06-01`.
+Other API-key routes identify as `Sailry/<product version>`. When a request has a
+session, API-key conversations carry its ID in `x-session-affinity` and
+`X-Session-Id`. Responses and Chat Completions also send it as `prompt_cache_key`.
+An API-key provider's custom headers, set in its advanced settings, replace
+defaults regardless of letter case. The transport sets credentials and framing.
+Account sign-ins set their own client identity.
 
 Anthropic API-key requests carry an opaque, stable session identity so compatible
 account pools do not infer a new route when cache breakpoints move. Replies with

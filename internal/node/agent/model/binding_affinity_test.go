@@ -102,7 +102,7 @@ func TestAnthropicAPIKeyAffinity(t *testing.T) {
 					want = binding.Session.String()
 				}
 				if request.Headers.Get("x-session-affinity") != want || request.Headers.Get("X-Session-Id") != want ||
-					request.Headers.Get("User-Agent") != "Sailry/"+link.ProductVersion {
+					request.Headers.Get("User-Agent") != providers.DefaultClaudeAgent {
 					t.Errorf("API-key request %d identity headers = %v", index, request.Headers)
 				}
 			}
@@ -359,8 +359,12 @@ func TestAPIKeyAffinityHeadersAcrossProtocols(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			userAgent := "Sailry/" + link.ProductVersion
+			if api == protocol.ConversationModelApiAnthropic {
+				userAgent = providers.DefaultClaudeAgent
+			}
 			if transport.Headers["x-session-affinity"] != session.String() || transport.Headers["X-Session-Id"] != session.String() ||
-				transport.Headers["User-Agent"] != "Sailry/"+link.ProductVersion {
+				transport.Headers["User-Agent"] != userAgent {
 				t.Errorf("headers = %v", transport.Headers)
 			}
 			transport, err = transportBinding(Binding{Provider: provider, Config: selection, Secret: &secret})
@@ -424,7 +428,17 @@ func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
 				t.Fatalf("requests = %d, want 1", len(requests))
 			}
 			headers := requests[0].Headers
-			if headers.Get("User-Agent") != "Sailry/"+link.ProductVersion || headers.Get("x-session-affinity") != session.String() ||
+			userAgent := "Sailry/" + link.ProductVersion
+			if row.api == protocol.ConversationModelApiAnthropic {
+				userAgent = providers.DefaultClaudeAgent
+				if requests[0].Path != "/v1/messages" || headers.Get("anthropic-version") != "2023-06-01" ||
+					headers.Get("Content-Type") != "application/json" || headers.Get("Accept") != "application/json" ||
+					headers.Get("x-api-key") != secret.Expose() || headers.Get("Authorization") != "" ||
+					headers.Get("anthropic-beta") != "" {
+					t.Errorf("Anthropic Messages request = %s, headers %v", requests[0].Path, headers)
+				}
+			}
+			if headers.Get("User-Agent") != userAgent || headers.Get("x-session-affinity") != session.String() ||
 				headers.Get("X-Session-Id") != session.String() || !strings.Contains(headers.Get(row.key), secret.Expose()) {
 				t.Errorf("received headers = %v", headers)
 			}
@@ -458,7 +472,10 @@ func TestAPIKeyCustomHeaders(t *testing.T) {
 	provider.ID, provider.Enabled = protocol.NewProviderID(), true
 	provider.Api, provider.Authentication, provider.Endpoint = protocol.ConversationModelApiAnthropic, protocol.AuthenticationApiKey, server.URL
 	// Stored providers are validated; the transport still keeps the credential its own.
-	provider.Headers = map[string]string{"user-agent": "claude-cli/9", "anthropic-beta": "fixture-beta", "X-Session-Id": "pinned", "x-api-key": "other"}
+	provider.Headers = map[string]string{
+		"user-agent": "gateway-client/2", "Anthropic-Version": "2026-10-21", "anthropic-beta": "fixture-beta",
+		"accept": "text/event-stream", "X-Session-Id": "pinned", "x-api-key": "other",
+	}
 	selection := protocol.DefaultSessionConfig()
 	selection.Provider, selection.Model = provider.ID, "fixture-model"
 	secret := protocol.NewSecret("fixture-api-key")
@@ -472,8 +489,9 @@ func TestAPIKeyCustomHeaders(t *testing.T) {
 	}
 	collect(t, language, requestCall(t, "anthropic"))
 	headers := server.captured()[0].Headers
-	if headers.Get("User-Agent") != "claude-cli/9" || headers.Get("anthropic-beta") != "fixture-beta" || headers.Get("X-Session-Id") != "pinned" ||
-		headers.Get("x-api-key") != secret.Expose() || len(headers.Values("User-Agent")) != 1 {
+	if headers.Get("User-Agent") != "gateway-client/2" || headers.Get("anthropic-version") != "2026-10-21" ||
+		headers.Get("anthropic-beta") != "fixture-beta" || headers.Get("Accept") != "text/event-stream" ||
+		headers.Get("X-Session-Id") != "pinned" || headers.Get("x-api-key") != secret.Expose() || len(headers.Values("User-Agent")) != 1 {
 		t.Errorf("received headers = %v", headers)
 	}
 }

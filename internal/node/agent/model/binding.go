@@ -233,8 +233,14 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	if err != nil {
 		return transportConfig{}, err
 	}
-	// Account authentication replaces this User-Agent with its own client identity.
-	config := transportConfig{Model: binding.Config.Model, Endpoint: u.String(), Headers: map[string]string{"User-Agent": "Sailry/" + link.ProductVersion}, Query: map[string]string{}, JSON: map[string]any{}, Remove: []string{"tool_choice"}, RemoveHeaders: []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key"}}
+	var headers map[string]string
+	if provider.Authentication == protocol.AuthenticationApiKey {
+		headers = providers.APIKeyHeaderDefaults(provider.Api)
+	} else {
+		// Account authentication can supply its own client identity.
+		headers = map[string]string{"User-Agent": "Sailry/" + link.ProductVersion}
+	}
+	config := transportConfig{Model: binding.Config.Model, Endpoint: u.String(), Headers: headers, Query: map[string]string{}, JSON: map[string]any{}, Remove: []string{"tool_choice"}, RemoveHeaders: []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key"}}
 	if binding.Secret != nil {
 		config.Key = binding.Secret.Expose()
 	}
@@ -385,7 +391,7 @@ func transportBinding(binding Binding) (transportConfig, error) {
 		}
 		config.RemoveHeaders = remove
 	}
-	if provider.Api == protocol.ConversationModelApiAnthropic || provider.Api == protocol.ConversationModelApiAzureAi {
+	if provider.Api == protocol.ConversationModelApiAzureAi {
 		config.Headers["anthropic-version"] = "2023-06-01"
 	}
 	// The provider's own headers replace defaults of any letter case; the

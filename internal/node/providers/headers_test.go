@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -57,12 +56,14 @@ func TestDiscoveryForwardsUserAgentAndCustomHeaders(t *testing.T) {
 	if _, err := discover(t.Context(), provider, &secret, server.Client()); err != nil {
 		t.Fatalf("default discovery failed: %v", err)
 	}
-	if seen.Get("User-Agent") != "Sailry/"+link.ProductVersion || seen.Get("anthropic-version") != "2023-06-01" || seen.Get("x-api-key") != "fixture-key" {
+	if seen.Get("User-Agent") != DefaultClaudeAgent || seen.Get("anthropic-version") != "2023-06-01" ||
+		seen.Get("Accept") != "application/json" || seen.Get("x-api-key") != "fixture-key" || seen.Get("Authorization") != "" {
 		t.Fatalf("default discovery headers = %v", seen)
 	}
 
 	provider.Headers = map[string]string{
 		"user-agent":     "gateway-client/2",
+		"accept":         "application/vnd.gateway+json",
 		"anthropic-beta": "custom-beta-1",
 		"X-Tenant-Id":    "tenant-a",
 		"x-api-key":      "untrusted",
@@ -73,7 +74,7 @@ func TestDiscoveryForwardsUserAgentAndCustomHeaders(t *testing.T) {
 	}
 	if seen.Get("User-Agent") != "gateway-client/2" || len(seen.Values("User-Agent")) != 1 ||
 		seen.Get("anthropic-beta") != "custom-beta-1" || seen.Get("X-Tenant-Id") != "tenant-a" ||
-		seen.Get("x-api-key") != "fixture-key" || seen.Get("anthropic-version") != "2023-06-01" {
+		seen.Get("x-api-key") != "fixture-key" || seen.Get("anthropic-version") != "2023-06-01" || seen.Get("Accept") != "application/vnd.gateway+json" {
 		t.Fatalf("custom discovery headers = %v", seen)
 	}
 }

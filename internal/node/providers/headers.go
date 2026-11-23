@@ -4,12 +4,26 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/http/httpguts"
 )
 
 // maxCustomHeaders bounds the request headers one provider adds.
 const maxCustomHeaders = 32
+
+// APIKeyHeaderDefaults keeps native model discovery and conversation requests
+// on the same client and protocol defaults before applying provider overrides.
+func APIKeyHeaderDefaults(api protocol.ConversationModelApi) map[string]string {
+	if api == protocol.ConversationModelApiAnthropic {
+		return map[string]string{
+			"User-Agent":        DefaultClaudeAgent,
+			"Accept":            "application/json",
+			"anthropic-version": "2023-06-01",
+		}
+	}
+	return map[string]string{"User-Agent": "Sailry/" + link.ProductVersion}
+}
 
 // reservedHeaders carry credentials or message framing that the transport
 // sets itself; a custom value would misplace a key or corrupt the body.

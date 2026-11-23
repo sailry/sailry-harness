@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/netproxy"
-	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -132,7 +131,10 @@ func headers(provider protocol.ConversationProvider, secret *protocol.Secret) (h
 		_, headers, err := AccountHeaders(provider, secret)
 		return headers, err
 	}
-	result := http.Header{"User-Agent": {"Sailry/" + link.ProductVersion}}
+	result := make(http.Header)
+	for name, value := range APIKeyHeaderDefaults(provider.Api) {
+		result.Set(name, value)
+	}
 	credentialHeader := "authorization"
 	switch provider.Api {
 	case protocol.ConversationModelApiAnthropic:
@@ -161,9 +163,6 @@ func headers(provider protocol.ConversationProvider, secret *protocol.Secret) (h
 			return nil, invalid("provider credential is invalid")
 		}
 		result.Set(credentialHeader, value)
-	}
-	if provider.Api == protocol.ConversationModelApiAnthropic {
-		result.Set("anthropic-version", "2023-06-01")
 	}
 	for name, value := range provider.Headers {
 		if strings.EqualFold(name, credentialHeader) || ReservedHeader(name) {
