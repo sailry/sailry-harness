@@ -164,7 +164,7 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 			params.Remove = append(params.Remove, "budget_tokens")
 		}
 	case protocol.ConversationModelApiAnthropic:
-		entry, _ := catalogEntry("anthropic", binding.Config.Model)
+		entry, listed := catalogEntry("anthropic", binding.Config.Model)
 		output := int64(4096)
 		if call.MaxOutputTokens == nil {
 			call.MaxOutputTokens = &output
@@ -172,20 +172,35 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 			output = *call.MaxOutputTokens
 		}
 		adaptive := entry.Rig.Adaptive
-		always := adaptive && !entry.canDisable()
+		manual := listed && entry.Reasoning || params.Body["budget_tokens"] != nil
+		off := ""
+		if adaptive && entry.canDisable() {
+			off = entry.Rig.ThinkingOff
+			if off == "" {
+				off = "disabled"
+			}
+		}
+		var native *protocol.ConversationAnthropicCapabilities
+		if model != nil && model.Capabilities != nil {
+			native = model.Capabilities.Anthropic
+		}
+		if native != nil && len(native.ThinkingTypes) > 0 {
+			modes := native.ThinkingTypes
+			adaptive, manual = modes["adaptive"], modes["enabled"]
+			off = ""
+			if modes["disabled"] {
+				off = "disabled"
+			} else if modes["between_tools"] {
+				off = "between_tools"
+			}
+		}
+		always := adaptive && off == ""
 		on := enabled && (always || (effort.Kind != "default" && effort.Kind != "none") || effort.Kind == "default" && params.Body["budget_tokens"] != nil)
 		if on && adaptive {
 			if params.Body["thinking"] == nil {
 				params.Body["thinking"] = map[string]any{"type": "adaptive"}
 			}
-			selected := level
-			if selected == "" || selected == "none" {
-				selected = "high"
-			}
-			if params.Body["output_config"] == nil {
-				params.Body["output_config"] = map[string]any{"effort": selected}
-			}
-		} else if on {
+		} else if on && manual {
 			budget := int64(16000)
 			switch effort.Kind {
 			case "budget":
@@ -209,12 +224,24 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 			if budget >= 1024 && params.Body["thinking"] == nil {
 				params.Body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 			}
-		} else if adaptive && !always && params.Body["thinking"] == nil {
-			off := entry.Rig.ThinkingOff
-			if off == "" {
-				off = "disabled"
-			}
+		} else if adaptive && off != "" && params.Body["thinking"] == nil {
 			params.Body["thinking"] = map[string]any{"type": off}
+		}
+		if on && params.Body["output_config"] == nil {
+			selected := level
+			if selected == "minimal" {
+				selected = "low"
+			}
+			if native != nil && len(native.EffortLevels) > 0 {
+				if native.EffortLevels[selected] {
+					params.Body["output_config"] = map[string]any{"effort": selected}
+				}
+			} else if adaptive && entry.Rig.Adaptive {
+				if selected == "" || selected == "none" {
+					selected = "high"
+				}
+				params.Body["output_config"] = map[string]any{"effort": selected}
+			}
 		}
 		if thinking, ok := params.Body["thinking"].(map[string]any); ok && strings.Contains(strings.ToLower(binding.Config.Model), "claude") && (thinking["type"] == "enabled" || thinking["type"] == "adaptive") {
 			if _, ok := thinking["display"]; !ok {

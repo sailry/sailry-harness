@@ -150,15 +150,22 @@ func (value ConversationDiscoveryModel) MarshalJSON() ([]byte, error) {
 }
 
 type ConversationDiscoveryCapabilities struct {
-	Features      []ConversationFeaturesFeature `json:"features,omitempty"`
-	Vision        *bool                         `json:"vision"`
-	Tools         *bool                         `json:"tools"`
-	Reasoning     *bool                         `json:"reasoning"`
-	Efforts       *[]Effort                     `json:"efforts"`
-	DefaultEffort *Effort                       `json:"default_effort"`
+	Features      []ConversationFeaturesFeature      `json:"features,omitempty"`
+	Vision        *bool                              `json:"vision"`
+	Tools         *bool                              `json:"tools"`
+	Reasoning     *bool                              `json:"reasoning"`
+	Efforts       *[]Effort                          `json:"efforts"`
+	DefaultEffort *Effort                            `json:"default_effort"`
+	Anthropic     *ConversationAnthropicCapabilities `json:"anthropic,omitempty"`
 	// Options are what a plugin adapter's discovery recorded about the model
 	// for its own prepare, which receives them in its request options.
 	Options map[string]json.RawMessage `json:"options,omitempty"`
+}
+
+// ConversationAnthropicCapabilities records the request modes reported by the Models API.
+type ConversationAnthropicCapabilities struct {
+	ThinkingTypes map[string]bool `json:"thinking_types,omitempty"`
+	EffortLevels  map[string]bool `json:"effort_levels,omitempty"`
 }
 
 func DefaultConversationDiscoveryCapabilities() ConversationDiscoveryCapabilities {

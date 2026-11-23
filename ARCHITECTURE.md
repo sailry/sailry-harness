@@ -523,6 +523,9 @@ context-bound thinking retain a digest of the projected request that produced
 them. When that prefix changes or an older block has no verified prefix, private
 reasoning is omitted from the outgoing projection; canonical text, tool calls and
 results remain intact.
+Anthropic thinking parameters use the capability flags reported by `/v1/models`
+or the reviewed capability snapshot for known models. Models without either
+source use their server's default thinking and effort.
 
 Provider editing can switch a declared protocol route while retaining the
 provider identity, credentials and model settings. The editor masks explicitly

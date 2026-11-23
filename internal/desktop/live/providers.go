@@ -842,7 +842,7 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		if i := slices.IndexFunc(old, func(v protocol.ConversationModel) bool { return v.ID == model.ID }); i >= 0 {
 			m = old[i]
 			if discovered && known.Capabilities != nil {
-				m = nodeproviders.RefreshAccountSpeed(p, m, known.Capabilities)
+				m = nodeproviders.RefreshDiscoveredCapabilities(p, m, known.Capabilities)
 				// Refresh discovered adapter options alongside account speed.
 				if known.Capabilities.Options != nil {
 					capabilities := protocol.DefaultConversationDiscoveryCapabilities()

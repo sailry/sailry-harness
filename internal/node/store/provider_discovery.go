@@ -11,13 +11,13 @@ import (
 
 // CompleteProviderModelDiscovery adds an account's discovered models after sign-in.
 // The captured revision keeps a late result from replacing edits or a new login.
-// Existing models keep their configuration and adopt current native OAuth speed tiers.
+// Existing models keep their configuration and adopt current native capabilities.
 func CompleteProviderModelDiscovery(ctx context.Context, db *sql.Conn, node protocol.NodeID, captured protocol.ConversationProvider, catalog protocol.ConversationDiscoveryCatalog) ([]protocol.Event, error) {
 	provider := captured
 	provider.Models = slices.Clone(captured.Models)
 	for _, found := range catalog.Models {
 		if index := slices.IndexFunc(provider.Models, func(model protocol.ConversationModel) bool { return model.ID == found.ID }); index >= 0 {
-			provider.Models[index] = providers.RefreshAccountSpeed(provider, provider.Models[index], found.Capabilities)
+			provider.Models[index] = providers.RefreshDiscoveredCapabilities(provider, provider.Models[index], found.Capabilities)
 			continue
 		}
 		model := protocol.DefaultConversationModel()

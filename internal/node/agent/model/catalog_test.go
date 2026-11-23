@@ -45,6 +45,7 @@ func TestClaudeThinkingParameters(t *testing.T) {
 		api                 protocol.ConversationModelApi
 		thinking, output    map[string]any
 		reasoning           any
+		native              *protocol.ConversationAnthropicCapabilities
 	}{
 		{
 			name: "dotted high", model: "claude-haiku-5.5", effort: "high", api: protocol.ConversationModelApiAnthropic,
@@ -75,6 +76,35 @@ func TestClaudeThinkingParameters(t *testing.T) {
 			thinking: map[string]any{"type": "adaptive", "display": "summarized"}, output: map[string]any{"effort": "high"},
 		},
 		{
+			name: "unlisted fable 5.2 low", model: "claude-fable-5-2", effort: "low", api: protocol.ConversationModelApiAnthropic,
+		},
+		{
+			name: "unlisted model with saved budget", model: "fixture-future-claude", effort: "budget", api: protocol.ConversationModelApiAnthropic,
+		},
+		{
+			name: "unlisted model with saved off choice", model: "fixture-future-claude", effort: "none", api: protocol.ConversationModelApiAnthropic,
+		},
+		{
+			name: "advertised adaptive and low", model: "fixture-future-claude", effort: "minimal", api: protocol.ConversationModelApiAnthropic,
+			native:   &protocol.ConversationAnthropicCapabilities{ThinkingTypes: map[string]bool{"adaptive": true, "enabled": false}, EffortLevels: map[string]bool{"low": true}},
+			thinking: map[string]any{"type": "adaptive", "display": "summarized"}, output: map[string]any{"effort": "low"},
+		},
+		{
+			name: "advertised unsupported effort", model: "fixture-future-claude", effort: "low", api: protocol.ConversationModelApiAnthropic,
+			native:   &protocol.ConversationAnthropicCapabilities{ThinkingTypes: map[string]bool{"adaptive": true}, EffortLevels: map[string]bool{"low": false, "high": true}},
+			thinking: map[string]any{"type": "adaptive", "display": "summarized"},
+		},
+		{
+			name: "advertised adaptive overrides old catalog", model: "claude-haiku-4-5", effort: "high", api: protocol.ConversationModelApiAnthropic,
+			native:   &protocol.ConversationAnthropicCapabilities{ThinkingTypes: map[string]bool{"adaptive": true, "enabled": false}, EffortLevels: map[string]bool{"high": true}},
+			thinking: map[string]any{"type": "adaptive", "display": "summarized"}, output: map[string]any{"effort": "high"},
+		},
+		{
+			name: "advertised between tools", model: "fixture-future-claude", effort: "none", api: protocol.ConversationModelApiAnthropic,
+			native:   &protocol.ConversationAnthropicCapabilities{ThinkingTypes: map[string]bool{"adaptive": true, "between_tools": true, "disabled": false}},
+			thinking: map[string]any{"type": "between_tools"},
+		},
+		{
 			name: "legacy high", model: "claude-haiku-4-5", effort: "high", api: protocol.ConversationModelApiAnthropic,
 			thinking: map[string]any{"type": "enabled", "budget_tokens": int64(16000), "display": "summarized"},
 		},
@@ -87,8 +117,14 @@ func TestClaudeThinkingParameters(t *testing.T) {
 			provider := protocol.DefaultConversationProvider()
 			provider.Api, provider.Authentication = row.api, protocol.AuthenticationApiKey
 			provider.Endpoint = "https://fixture.invalid/v1"
+			if row.native != nil {
+				provider.Models = []protocol.ConversationModel{{ID: row.model, Reasoning: true, Capabilities: &protocol.ConversationDiscoveryCapabilities{Anthropic: row.native}}}
+			}
 			config := protocol.DefaultSessionConfig()
 			config.Model, config.Effort = row.model, protocol.Effort{Kind: row.effort}
+			if row.effort == "budget" {
+				config.Effort.Data = new(int32(4096))
+			}
 			binding := Binding{Provider: provider, Config: config}
 			output := int64(20000)
 			params := requestParameters(binding, &fantasy.Call{MaxOutputTokens: &output})

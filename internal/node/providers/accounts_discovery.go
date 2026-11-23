@@ -372,18 +372,30 @@ func accountFeatures(raw json.RawMessage) ([]protocol.ConversationFeaturesFeatur
 	return result, nil
 }
 
-// RefreshAccountSpeed applies the matched model's native OAuth service tiers
-// without replacing other configured model capabilities.
-func RefreshAccountSpeed(provider protocol.ConversationProvider, model protocol.ConversationModel, discovered *protocol.ConversationDiscoveryCapabilities) protocol.ConversationModel {
-	if provider.Authentication != protocol.AuthenticationChatGptOAuth || provider.Api != protocol.ConversationModelApiResponses || discovered == nil {
+// RefreshDiscoveredCapabilities updates the native request capabilities of a
+// saved model while preserving its configuration.
+func RefreshDiscoveredCapabilities(provider protocol.ConversationProvider, model protocol.ConversationModel, discovered *protocol.ConversationDiscoveryCapabilities) protocol.ConversationModel {
+	if discovered == nil {
 		return model
 	}
-	speed := func(feature protocol.ConversationFeaturesFeature) bool { return feature.ID == "speed" }
-	advertised := slices.IndexFunc(discovered.Features, speed)
+	anthropic := provider.Api == protocol.ConversationModelApiAnthropic && discovered.Anthropic != nil
+	if !anthropic && (provider.Authentication != protocol.AuthenticationChatGptOAuth || provider.Api != protocol.ConversationModelApiResponses) {
+		return model
+	}
 	capabilities := protocol.DefaultConversationDiscoveryCapabilities()
 	if model.Capabilities != nil {
 		capabilities = *model.Capabilities
 	}
+	if anthropic {
+		capabilities.Anthropic = discovered.Anthropic
+		if discovered.Reasoning != nil {
+			capabilities.Reasoning = discovered.Reasoning
+		}
+		model.Capabilities = &capabilities
+		return model
+	}
+	speed := func(feature protocol.ConversationFeaturesFeature) bool { return feature.ID == "speed" }
+	advertised := slices.IndexFunc(discovered.Features, speed)
 	current := slices.IndexFunc(capabilities.Features, speed)
 	switch {
 	case current < 0 && (advertised < 0 || len(capabilities.Features) >= maxModelFeatures):

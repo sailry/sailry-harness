@@ -226,7 +226,7 @@ func parseDiscovery(api protocol.ConversationModelApi, value map[string]json.Raw
 		if err != nil {
 			return nil, nil, err
 		}
-		model.Capabilities, err = discoveryCapabilities(entry)
+		model.Capabilities, err = discoveryCapabilities(api, entry)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -288,7 +288,7 @@ func optionalString(raw json.RawMessage) (*string, error) {
 	}
 	return &value, nil
 }
-func discoveryCapabilities(entry map[string]json.RawMessage) (*protocol.ConversationDiscoveryCapabilities, error) {
+func discoveryCapabilities(api protocol.ConversationModelApi, entry map[string]json.RawMessage) (*protocol.ConversationDiscoveryCapabilities, error) {
 	value := protocol.DefaultConversationDiscoveryCapabilities()
 	nested := object(entry["capabilities"])
 	for _, item := range []struct {
@@ -353,11 +353,41 @@ func discoveryCapabilities(entry map[string]json.RawMessage) (*protocol.Conversa
 			}
 		}
 	}
-	if value.Vision == nil && value.Tools == nil && value.Reasoning == nil && value.Efforts == nil && value.DefaultEffort == nil {
+	if api == protocol.ConversationModelApiAnthropic {
+		thinking := object(nested["thinking"])
+		modes := anthropicSupport(object(thinking["types"]), "adaptive", "enabled", "disabled", "between_tools")
+		efforts := anthropicSupport(object(nested["effort"]), "low", "medium", "high", "xhigh", "max")
+		if len(modes) > 0 || len(efforts) > 0 {
+			value.Anthropic = &protocol.ConversationAnthropicCapabilities{ThinkingTypes: modes, EffortLevels: efforts}
+		}
+		if value.Reasoning == nil {
+			var supported bool
+			if raw := thinking["supported"]; len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &supported) == nil {
+				value.Reasoning = &supported
+			} else if modes["adaptive"] || modes["enabled"] {
+				value.Reasoning = new(true)
+			}
+		}
+	}
+	if value.Vision == nil && value.Tools == nil && value.Reasoning == nil && value.Efforts == nil && value.DefaultEffort == nil && value.Anthropic == nil {
 		return nil, nil
 	}
 	return &value, nil
 }
+
+func anthropicSupport(raw map[string]json.RawMessage, names ...string) map[string]bool {
+	value := map[string]bool{}
+	for _, name := range names {
+		var entry struct {
+			Supported *bool `json:"supported"`
+		}
+		if len(raw[name]) > 0 && json.Unmarshal(raw[name], &entry) == nil && entry.Supported != nil {
+			value[name] = *entry.Supported
+		}
+	}
+	return value
+}
+
 func validEffort(name string) bool {
 	switch name {
 	case "none", "minimal", "low", "medium", "high", "xhigh", "max":
