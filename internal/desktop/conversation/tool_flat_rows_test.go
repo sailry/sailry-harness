@@ -637,3 +637,96 @@ func TestFailedCommandStaysFoldedAfterStop(t *testing.T) {
 		t.Fatalf("opening the command lost its input or failure: %q", tt.Texts())
 	}
 }
+
+// Expanding a tool group or one of its rows must settle its exact height on
+// the click frame so hovering over the rows never causes the group or content
+// below it to jump.
+func TestToolGroupExpandNoHoverJitter(t *testing.T) {
+	for _, count := range []int{2, 3, 4, 5, 6, 8} {
+		for _, size := range []uint8{12, 14, 18} {
+			t.Run(fmt.Sprintf("calls_%d_size_%d", count, size), func(t *testing.T) {
+				s := New()
+				calls := make([]Call, count)
+				for i := range count {
+					detail := fmt.Sprintf("dir-%02d", i+1)
+					calls[i] = Call{
+						ID:     detail,
+						Name:   "list_directory",
+						Label:  "List directory",
+						Icon:   "folder",
+						Detail: detail,
+						Code:   true,
+						Output: &Output{Text: "line1\nline2\nline3\nline4"},
+					}
+				}
+				const marker = "below-group-marker"
+				tt := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Dark)
+					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
+					ui.Column(c).FillWidth().Gap(8).Children(func() {
+						s.tools(c, calls, false)
+						ui.Text(c, marker).FontSize(float32(size))
+					})
+				}, 700, 600)
+				tt.SetLocale("en")
+				tt.Frame()
+
+				// Click the folded group header to expand it (single frame after click).
+				latest := fmt.Sprintf("dir-%02d", count)
+				if err := tt.Click(latest); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+
+				afterExpand, ok := tt.Find(marker)
+				if !ok {
+					t.Fatalf("marker below group disappeared after expand: %q", tt.Texts())
+				}
+				firstVisible := fmt.Sprintf("dir-%02d", max(1, count-4))
+				rowBox, ok := tt.Find(firstVisible)
+				if !ok {
+					t.Fatalf("expected row %q after expand: %q", firstVisible, tt.Texts())
+				}
+
+				// Move pointer over the expanded row and rebuild (simulating hover).
+				tt.Move(rowBox.X+rowBox.W/2, rowBox.Y+rowBox.H/2)
+				tt.Frame()
+				afterHover, _ := tt.Find(marker)
+				if afterHover != afterExpand {
+					t.Fatalf("hover after group expand moved content below from %v to %v", afterExpand, afterHover)
+				}
+
+				// For short groups, opening and closing an inner row must also
+				// settle its height on the click frame without shifting on hover.
+				if count == 2 {
+					if err := tt.Click("dir-01"); err != nil {
+						t.Fatal(err)
+					}
+					tt.Frame()
+					afterRowOpen, _ := tt.Find(marker)
+					if afterRowOpen.Y <= afterExpand.Y {
+						t.Fatalf("expanding inner row did not push content below down: before=%v after=%v", afterExpand, afterRowOpen)
+					}
+					tt.Move(afterRowOpen.X+4, afterRowOpen.Y+4)
+					tt.Frame()
+					if afterRowHover, _ := tt.Find(marker); afterRowHover != afterRowOpen {
+						t.Fatalf("hover after inner row expand moved content below from %v to %v", afterRowOpen, afterRowHover)
+					}
+					if err := tt.Click("dir-01"); err != nil {
+						t.Fatal(err)
+					}
+					tt.Frame()
+					afterRowClose, _ := tt.Find(marker)
+					if afterRowClose != afterExpand {
+						t.Fatalf("collapsing inner row did not restore height immediately: got=%v want=%v", afterRowClose, afterExpand)
+					}
+					tt.Move(rowBox.X+rowBox.W/2, rowBox.Y+rowBox.H/2)
+					tt.Frame()
+					if afterCloseHover, _ := tt.Find(marker); afterCloseHover != afterExpand {
+						t.Fatalf("hover after inner row collapse moved content below from %v to %v", afterExpand, afterCloseHover)
+					}
+				}
+			})
+		}
+	}
+}

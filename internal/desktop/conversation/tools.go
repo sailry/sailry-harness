@@ -296,6 +296,19 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	}, 8, 8, func(rail ui.Element) {
 		const visibleRows = 5
 		height := visibleRows*rowHeight(textSize(c)) + (visibleRows-1)*railGap
+		if len(calls) <= visibleRows {
+			// MyGo's ui.List estimates unmeasured rows at Space(8) (32 DIPs)
+			// during its parent's layout pass, so a short group opens taller
+			// than its rows and snaps shorter on the next hover rebuild. Lay
+			// small groups out directly in ui.Scroll so the exact height is
+			// measured on the first frame, including inner row toggles.
+			ui.Scroll(c.Key("tool-rows-fit")).MaxHeight(height).Gap(railGap).Children(func() {
+				for _, call := range calls {
+					ui.Column(c.Key("enter-" + call.ID)).Shrink(0).Transition(toolRowEnter).Children(func() { s.row(c, call) })
+				}
+			})
+			return
+		}
 		list := ui.Local(rail, "tool-rows", func() ui.ListState { return ui.ListState{FollowEnd: true} })
 		list.Key = func(i int) any { return calls[i].ID }
 		session, resolveImage := s.renderSession, s.resolveImage
@@ -307,7 +320,7 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 			defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
 			call := calls[i]
 			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, list) })
-		}).MaxHeight(height).Gap(railGap)
+		}).Height(height).Gap(railGap)
 	})
 }
 
