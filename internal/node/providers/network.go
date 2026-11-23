@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/netproxy"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -131,32 +132,44 @@ func headers(provider protocol.ConversationProvider, secret *protocol.Secret) (h
 		_, headers, err := AccountHeaders(provider, secret)
 		return headers, err
 	}
-	result := http.Header{}
-	if secret != nil {
-		name, value := "authorization", "Bearer "+secret.Expose()
-		switch provider.Api {
-		case protocol.ConversationModelApiAnthropic:
-			name, value = "x-api-key", secret.Expose()
-		case protocol.ConversationModelApiGemini:
-			name, value = "x-goog-api-key", secret.Expose()
-		case protocol.ConversationModelApiAzureAi, protocol.ConversationModelApiAzureOpenAi:
-			name, value = "api-key", secret.Expose()
+	result := http.Header{"User-Agent": {"Sailry/" + link.ProductVersion}}
+	credentialHeader := "authorization"
+	switch provider.Api {
+	case protocol.ConversationModelApiAnthropic:
+		credentialHeader = "x-api-key"
+	case protocol.ConversationModelApiGemini:
+		credentialHeader = "x-goog-api-key"
+	case protocol.ConversationModelApiAzureAi, protocol.ConversationModelApiAzureOpenAi:
+		credentialHeader = "api-key"
+	}
+	var injection *protocol.PluginModelAuthInjection
+	if provider.Binding != nil && *provider.Binding != nil && (**provider.Binding).KeyInjection != nil {
+		injection = (**provider.Binding).KeyInjection
+		if err := validateInjection(*injection); err != nil {
+			return nil, err
 		}
-		if provider.Binding != nil && *provider.Binding != nil {
-			if injection := (**provider.Binding).KeyInjection; injection != nil {
-				if err := validateInjection(*injection); err != nil {
-					return nil, err
-				}
-				name, value = injection.Header, strings.ReplaceAll(injection.Template, "{key}", secret.Expose())
-			}
+		credentialHeader = injection.Header
+	}
+	if secret != nil {
+		value := secret.Expose()
+		if injection != nil {
+			value = strings.ReplaceAll(injection.Template, "{key}", value)
+		} else if credentialHeader == "authorization" {
+			value = "Bearer " + value
 		}
 		if strings.ContainsAny(value, "\r\n") {
 			return nil, invalid("provider credential is invalid")
 		}
-		result.Set(name, value)
+		result.Set(credentialHeader, value)
 	}
 	if provider.Api == protocol.ConversationModelApiAnthropic {
 		result.Set("anthropic-version", "2023-06-01")
+	}
+	for name, value := range provider.Headers {
+		if strings.EqualFold(name, credentialHeader) || ReservedHeader(name) {
+			continue
+		}
+		result.Set(name, value)
 	}
 	return result, nil
 }

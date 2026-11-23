@@ -90,3 +90,29 @@ func TestAnthropicInitialThinkingSurvivesReplay(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicAPIKeyBetaHeaders(t *testing.T) {
+	manualWithTools := []byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"tools":[{"name":"read"}]}`)
+	adaptiveWithTools := []byte(`{"thinking":{"type":"adaptive"},"tools":[{"name":"read"}]}`)
+	fastBody := []byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"tools":[{"name":"read"}],"speed":"fast"}`)
+
+	if got := anthropicBetaHeader("https://api.anthropic.com", false, manualWithTools, nil, nil); got != "interleaved-thinking-2025-05-14" {
+		t.Fatalf("official manual thinking beta = %q", got)
+	}
+	if got := anthropicBetaHeader("https://api.anthropic.com", false, adaptiveWithTools, nil, nil); got != "" {
+		t.Fatalf("official adaptive thinking beta = %q, want empty", got)
+	}
+	if got := anthropicBetaHeader("https://api.anthropic.com", false, fastBody,
+		map[string]string{"Anthropic-Beta": "custom-1, interleaved-thinking-2025-05-14"},
+		map[string]string{"anthropic-beta": "custom-2,custom-1"}); got != "custom-1,interleaved-thinking-2025-05-14,custom-2,fast-mode-2026-02-01" {
+		t.Fatalf("merged beta = %q", got)
+	}
+	if got := anthropicBetaHeader("https://gateway.example.test", false, manualWithTools, nil, nil); got != "" {
+		t.Fatalf("third-party endpoint received unexpected auto beta: %q", got)
+	}
+	if got := anthropicBetaHeader("https://gateway.example.test", false, manualWithTools,
+		map[string]string{"anthropic-beta": "custom-1"},
+		map[string]string{"Anthropic-Beta": "custom-2,custom-1"}); got != "custom-1,custom-2" {
+		t.Fatalf("third-party merged custom beta = %q", got)
+	}
+}

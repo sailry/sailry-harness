@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -25,10 +26,19 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	// or a local profile of the machine to a request for the configured provider.
 	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
 	for key, value := range model.config.Headers {
+		if strings.EqualFold(key, "anthropic-beta") {
+			continue
+		}
 		opts = append(opts, option.WithHeader(key, value))
 	}
 	for key, value := range call.Headers {
+		if strings.EqualFold(key, "anthropic-beta") {
+			continue
+		}
 		opts = append(opts, option.WithHeader(key, value))
+	}
+	if beta := anthropicBetaHeader(endpoint, model.config.OAuth, raw, model.config.Headers, call.Headers); beta != "" {
+		opts = append(opts, option.WithHeader("anthropic-beta", beta))
 	}
 	if call.UserAgent != "" {
 		opts = append(opts, option.WithHeader("User-Agent", call.UserAgent))
@@ -211,4 +221,52 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 		finish = fantasy.FinishReasonUnknown
 	}
 	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: finish})
+}
+
+func anthropicBetaHeader(endpoint string, oauth bool, raw []byte, configHeaders, callHeaders map[string]string) string {
+	var betas []string
+	seen := map[string]bool{}
+	addList := func(value string) {
+		for _, part := range strings.Split(value, ",") {
+			token := strings.TrimSpace(part)
+			if token == "" || seen[token] {
+				continue
+			}
+			seen[token] = true
+			betas = append(betas, token)
+		}
+	}
+	for _, headers := range []map[string]string{configHeaders, callHeaders} {
+		for key, value := range headers {
+			if strings.EqualFold(key, "anthropic-beta") {
+				addList(value)
+			}
+		}
+	}
+	if !oauth && isOfficialAnthropicEndpoint(endpoint) {
+		var payload struct {
+			Thinking struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+			Tools []json.RawMessage `json:"tools"`
+			Speed string            `json:"speed"`
+		}
+		if json.Unmarshal(raw, &payload) == nil {
+			if payload.Thinking.Type == "enabled" && len(payload.Tools) > 0 {
+				addList("interleaved-thinking-2025-05-14")
+			}
+			if payload.Speed == "fast" {
+				addList("fast-mode-2026-02-01")
+			}
+		}
+	}
+	return strings.Join(betas, ",")
+}
+
+func isOfficialAnthropicEndpoint(endpoint string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "api.anthropic.com")
 }
