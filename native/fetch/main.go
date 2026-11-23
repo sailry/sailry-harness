@@ -45,6 +45,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/shipped"
 )
@@ -210,7 +211,8 @@ func archive(asset target) ([]byte, error) {
 	data, err := os.ReadFile(cached)
 	downloaded := errors.Is(err, fs.ErrNotExist)
 	if downloaded {
-		response, err := http.Get(asset.URL)
+		client := &http.Client{Timeout: 5 * time.Minute}
+		response, err := client.Get(asset.URL)
 		if err != nil {
 			return nil, err
 		}
@@ -231,10 +233,27 @@ func archive(asset target) ([]byte, error) {
 		if err := os.MkdirAll(cache, 0o755); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(cached+".part", data, 0o644); err != nil {
+		tmp, err := os.CreateTemp(cache, asset.Archive+".*.part")
+		if err != nil {
 			return nil, err
 		}
-		if err := os.Rename(cached+".part", cached); err != nil {
+		tmpName := tmp.Name()
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return nil, err
+		}
+		if err := tmp.Chmod(0o644); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return nil, err
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpName)
+			return nil, err
+		}
+		if err := os.Rename(tmpName, cached); err != nil {
+			_ = os.Remove(tmpName)
 			return nil, err
 		}
 	}

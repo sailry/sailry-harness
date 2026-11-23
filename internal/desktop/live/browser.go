@@ -24,13 +24,14 @@ import (
 // the controller side of each Node's browser calls, and the sandboxed
 // document views. Everything but serving runs on MyGo's main thread.
 type browserState struct {
-	window    *mygo.Window
-	available bool
-	tabs      map[string]*browserTab
-	watching  bool
-	serving   map[*Runtime]context.CancelFunc
-	documents map[string]*documentView
-	sources   map[string]documentSource
+	window     *mygo.Window
+	available  bool
+	tabs       map[string]*browserTab
+	watching   bool
+	watchTimer *time.Timer
+	serving    map[*Runtime]context.CancelFunc
+	documents  map[string]*documentView
+	sources    map[string]documentSource
 	// drafts are the unsent form answers of document revisions, by form,
 	// kept while the app runs so a reloaded page restores them.
 	drafts map[documentDraftKey]map[string]json.RawMessage
@@ -89,7 +90,10 @@ func (r *Runtime) watchBrowserNavigation() {
 		return
 	}
 	state.watching = true
-	time.AfterFunc(250*time.Millisecond, func() {
+	if state.watchTimer != nil {
+		state.watchTimer.Stop()
+	}
+	state.watchTimer = time.AfterFunc(250*time.Millisecond, func() {
 		if r.ctx.Err() != nil {
 			return
 		}

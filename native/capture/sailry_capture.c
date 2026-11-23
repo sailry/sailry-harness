@@ -73,6 +73,9 @@ SAILRY_API int sailry_capture_devices(char* output, size_t capacity) {
     ma_device_info* devices;
     ma_uint32 count;
     size_t used = 0;
+    if (capacity > 0 && output == NULL) {
+        return MA_INVALID_ARGS;
+    }
     ma_result result = ma_context_init(NULL, 0, NULL, &context);
     if (result != MA_SUCCESS) {
         return result;
@@ -104,7 +107,7 @@ SAILRY_API int sailry_capture_devices(char* output, size_t capacity) {
         output[used++] = '\t';
         for (size_t character = 0; character < length; character++) {
             char value = devices[index].name[character];
-            output[used++] = value == '\t' || value == '\n' ? ' ' : value;
+            output[used++] = value == '\t' || value == '\n' || value == '\r' ? ' ' : value;
         }
         output[used++] = '\n';
         output[used] = '\0';
@@ -146,6 +149,10 @@ SAILRY_API sailry_capture* sailry_capture_open(const char* device, int* result) 
     sailry_capture* capture;
     ma_device_config config;
     ma_device_id id;
+    int ignored = 0;
+    if (result == NULL) {
+        result = &ignored;
+    }
     if (device != NULL && !sailry_capture_identifier(device, &id)) {
         *result = MA_INVALID_ARGS;
         return NULL;
@@ -191,8 +198,17 @@ SAILRY_API ma_uint32 sailry_capture_dropped(sailry_capture* capture) { return ma
 // Reports 1 once the device stopped without sailry_capture_stop.
 SAILRY_API ma_uint32 sailry_capture_failed(sailry_capture* capture) { return ma_atomic_uint32_get(&capture->failed); }
 
-SAILRY_API int sailry_capture_start(sailry_capture* capture) { return ma_device_start(&capture->device); }
+SAILRY_API int sailry_capture_start(sailry_capture* capture) {
+    if (capture == NULL) {
+        return MA_INVALID_ARGS;
+    }
+    ma_atomic_uint32_set(&capture->stopping, 0);
+    return ma_device_start(&capture->device);
+}
 SAILRY_API int sailry_capture_stop(sailry_capture* capture) {
+    if (capture == NULL) {
+        return MA_INVALID_ARGS;
+    }
     ma_atomic_uint32_set(&capture->stopping, 1);
     return ma_device_stop(&capture->device);
 }
@@ -214,6 +230,9 @@ SAILRY_API ma_uint32 sailry_capture_read(sailry_capture* capture, float* output,
 }
 
 SAILRY_API void sailry_capture_close(sailry_capture* capture) {
+    if (capture == NULL) {
+        return;
+    }
     ma_atomic_uint32_set(&capture->stopping, 1);
     ma_device_uninit(&capture->device);
     ma_pcm_rb_uninit(&capture->buffer);

@@ -93,6 +93,12 @@ func Load(directory string, release bool) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
+	ok := false
+	defer func() {
+		if !ok {
+			closeLibrary(handle)
+		}
+	}()
 	for _, binding := range []struct {
 		name   string
 		target any
@@ -113,6 +119,7 @@ func Load(directory string, release bool) error {
 	if got := versionString(); got != Version {
 		return fmt.Errorf("%w: miniaudio %s does not match pinned %s", ErrUnavailable, got, Version)
 	}
+	ok = true
 	loaded = path
 	return nil
 }
@@ -127,6 +134,12 @@ type Device struct {
 
 // Devices lists the input devices of the default audio backend.
 func Devices() ([]Device, error) {
+	mutex.Lock()
+	ready := loaded != ""
+	mutex.Unlock()
+	if !ready {
+		return nil, ErrUnavailable
+	}
 	buffer := make([]byte, 256*1024)
 	if count := listDevices(&buffer[0], uintptr(len(buffer))); count < 0 {
 		return nil, fmt.Errorf("input devices could not be listed (miniaudio result %d)", count)

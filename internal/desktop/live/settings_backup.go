@@ -56,9 +56,10 @@ type backupSettingsState struct {
 	partial bool
 	listing bool
 
-	schedule backupSchedule
-	changed  time.Time
-	refused  *backupSchedule
+	schedule      backupSchedule
+	scheduleTimer *time.Timer
+	changed       time.Time
+	refused       *backupSchedule
 
 	shown                   *Runtime
 	visible                 bool
@@ -485,7 +486,10 @@ func (r *Runtime) saveBackupSchedule(now time.Time) {
 	if draft != s.schedule {
 		s.schedule, s.changed = draft, now
 		if draft.enabled == saved.enabled {
-			time.AfterFunc(backupScheduleDelay, func() { r.enqueue(func(*ui.Context) {}) })
+			if s.scheduleTimer != nil {
+				s.scheduleTimer.Stop()
+			}
+			s.scheduleTimer = time.AfterFunc(backupScheduleDelay, func() { r.enqueue(func(*ui.Context) {}) })
 		}
 	}
 	if draft == saved {

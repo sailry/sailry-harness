@@ -28,6 +28,7 @@ const (
 	desktopLoadBudget  = 10 * time.Second
 	desktopTaskBudget  = 5 * time.Second
 	desktopFrameBudget = 2 * time.Second
+	maxPluginAsync     = 64
 )
 
 type Runtime struct {
@@ -40,38 +41,42 @@ type Runtime struct {
 }
 
 type Mounted struct {
-	runtime    *Runtime
-	engine     *moejs.Runtime
-	bundle     Bundle
-	context    PluginContext
-	stop       context.Context
-	cancel     context.CancelFunc
-	closed     bool
-	suspended  bool
-	helper     moejs.Value
-	modules    map[string]*moejs.Module
-	execution  context.Context
-	jobsHeld   bool
-	jobsPosted bool
-	unroot     func()
-	transient  []moejs.Value
-	next       uint64
-	pending    map[uint64]*desktopPromise
-	timers     map[uint64]clockwork.Timer
-	queueMu    sync.Mutex
-	queue      []runtimeCompletion
-	failure    error
-	last       *NativeElement
-	inputs     map[uint64]*string
-	toggles    map[uint64]*bool
-	popovers   map[uint64]*bool
-	selectors  map[uint64]*int
-	widgetIDs  map[string]uint64
-	nextWidget uint64
-	viewport   [2]float32
-	palette    *theme.Palette
-	nativeText map[uint64]string
-	images     map[string]ui.ImageSource
+	runtime     *Runtime
+	engine      *moejs.Runtime
+	bundle      Bundle
+	context     PluginContext
+	stop        context.Context
+	cancel      context.CancelFunc
+	closed      bool
+	suspended   bool
+	helper      moejs.Value
+	modules     map[string]*moejs.Module
+	execution   context.Context
+	jobsHeld    bool
+	jobsPosted  bool
+	unroot      func()
+	transient   []moejs.Value
+	next        uint64
+	pending     map[uint64]*desktopPromise
+	timers      map[uint64]clockwork.Timer
+	asyncSlots  chan struct{}
+	queueMu     sync.Mutex
+	queue       []runtimeCompletion
+	failure     error
+	last        *NativeElement
+	inputs      map[uint64]*string
+	toggles     map[uint64]*bool
+	popovers    map[uint64]*bool
+	selectors   map[uint64]*int
+	widgetIDs   map[string]uint64
+	seenWidgets map[uint64]struct{}
+	seenKeys    map[string]struct{}
+	seenImages  map[string]struct{}
+	nextWidget  uint64
+	viewport    [2]float32
+	palette     *theme.Palette
+	nativeText  map[uint64]string
+	images      map[string]ui.ImageSource
 	// scrolling is the chain of elements being built, with the axes each
 	// scrolls; scrollBoxes holds the scrolling ones' last laid out boxes.
 	scrolling []scrollParent
@@ -171,8 +176,10 @@ func (runtime *Runtime) Mount(bundle Bundle, pluginContext PluginContext) (_ *Mo
 	mounted := &Mounted{
 		runtime: runtime, bundle: bundle, context: pluginContext, stop: stop, cancel: cancel,
 		modules: map[string]*moejs.Module{}, pending: map[uint64]*desktopPromise{}, timers: map[uint64]clockwork.Timer{},
-		inputs: map[uint64]*string{}, toggles: map[uint64]*bool{}, popovers: map[uint64]*bool{},
+		asyncSlots: make(chan struct{}, maxPluginAsync),
+		inputs:     map[uint64]*string{}, toggles: map[uint64]*bool{}, popovers: map[uint64]*bool{},
 		selectors: map[uint64]*int{}, widgetIDs: map[string]uint64{},
+		seenWidgets: map[uint64]struct{}{}, seenKeys: map[string]struct{}{}, seenImages: map[string]struct{}{},
 		focusHandles: map[uint64]*ui.Handle{},
 		nativeText:   map[uint64]string{}, images: map[string]ui.ImageSource{},
 	}
@@ -308,10 +315,16 @@ func (mounted *Mounted) async(_ *moejs.Realm, _ moejs.Value, arguments []moejs.V
 	if operation == nil {
 		return fail(fmt.Errorf("plugin asynchronous export %s.%s is unavailable", module, name))
 	}
+	select {
+	case mounted.asyncSlots <- struct{}{}:
+	default:
+		return fail(errors.New("plugin asynchronous call capacity exhausted"))
+	}
 	mounted.next++
 	identifier := mounted.next
 	mounted.pending[identifier] = &desktopPromise{value: promise, resolve: resolve, reject: reject}
 	go func() {
+		defer func() { <-mounted.asyncSlots }()
 		result, err := operation(mounted.stop, values)
 		mounted.enqueue(runtimeCompletion{id: identifier, data: result, err: err})
 	}()

@@ -441,6 +441,14 @@ func (r *Runtime) Close() error {
 	r.closeCommands()
 	r.closeAttachments()
 	r.invalidateFilePreview(nil)
+	if r.backupSettings.scheduleTimer != nil {
+		r.backupSettings.scheduleTimer.Stop()
+		r.backupSettings.scheduleTimer = nil
+	}
+	if r.browser != nil && r.browser.watchTimer != nil {
+		r.browser.watchTimer.Stop()
+		r.browser.watchTimer = nil
+	}
 	r.closeWorkspace()
 	r.cancel()
 	r.workers.Wait()

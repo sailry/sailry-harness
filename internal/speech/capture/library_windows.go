@@ -11,3 +11,7 @@ func openLibrary(path string) (uintptr, error) {
 func lookup(handle uintptr, name string) (uintptr, error) {
 	return windows.GetProcAddress(windows.Handle(handle), name)
 }
+
+func closeLibrary(handle uintptr) {
+	_ = windows.FreeLibrary(windows.Handle(handle))
+}

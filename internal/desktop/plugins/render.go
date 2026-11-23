@@ -25,7 +25,7 @@ func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
 		if mounted.last == nil {
 			return ui.Box(context), nil
 		}
-		element, err := mounted.renderElement(context, mounted.last)
+		element, err := mounted.renderFrame(context, mounted.last)
 		if err == nil && element != (ui.Element{}) {
 			element.Disabled(true).DimDisabled(false)
 		}
@@ -54,7 +54,58 @@ func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
 	if err != nil {
 		return ui.Element{}, err
 	}
-	return mounted.renderElement(context, element)
+	return mounted.renderFrame(context, element)
+}
+
+func (mounted *Mounted) renderFrame(context *ui.Context, root *NativeElement) (ui.Element, error) {
+	clear(mounted.seenKeys)
+	clear(mounted.seenWidgets)
+	clear(mounted.seenImages)
+	result, err := mounted.renderElement(context, root)
+	if err != nil || mounted.closed {
+		return result, err
+	}
+	for key, id := range mounted.widgetIDs {
+		if _, ok := mounted.seenKeys[key]; !ok {
+			delete(mounted.widgetIDs, key)
+			delete(mounted.inputs, id)
+			delete(mounted.toggles, id)
+			delete(mounted.popovers, id)
+			delete(mounted.selectors, id)
+			delete(mounted.scrollBoxes, id)
+		}
+	}
+	for id := range mounted.inputs {
+		if _, ok := mounted.seenWidgets[id]; !ok {
+			delete(mounted.inputs, id)
+		}
+	}
+	for id := range mounted.toggles {
+		if _, ok := mounted.seenWidgets[id]; !ok {
+			delete(mounted.toggles, id)
+		}
+	}
+	for id := range mounted.popovers {
+		if _, ok := mounted.seenWidgets[id]; !ok {
+			delete(mounted.popovers, id)
+		}
+	}
+	for id := range mounted.selectors {
+		if _, ok := mounted.seenWidgets[id]; !ok {
+			delete(mounted.selectors, id)
+		}
+	}
+	for id := range mounted.scrollBoxes {
+		if _, ok := mounted.seenWidgets[id]; !ok {
+			delete(mounted.scrollBoxes, id)
+		}
+	}
+	for name := range mounted.images {
+		if _, ok := mounted.seenImages[name]; !ok {
+			delete(mounted.images, name)
+		}
+	}
+	return result, nil
 }
 
 func (mounted *Mounted) renderElement(context *ui.Context, element *NativeElement) (ui.Element, error) {
@@ -562,6 +613,9 @@ func (mounted *Mounted) changeState(state map[string]any, value string) {
 }
 
 func (mounted *Mounted) image(name string) (ui.ImageSource, error) {
+	if mounted.seenImages != nil {
+		mounted.seenImages[name] = struct{}{}
+	}
 	if image, exists := mounted.images[name]; exists {
 		return image, nil
 	}

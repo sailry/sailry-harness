@@ -717,6 +717,38 @@ export default class extends View {
 			t.Fatalf("replaced timer still fired at old deadline: %d completions", firedEarly)
 		}
 	})
+	t.Run("unmounted dynamic widgets and images are pruned on rerender", func(t *testing.T) {
+		_, mounted := runtimeFixture(t, `
+import {View,div,image} from "gpui-kit";
+import {Button,Checkbox} from "gpui-component";
+export default class extends View {
+  init(){this.show=true;}
+  render(){
+    const root = div().child(new Button("toggle").label("Toggle").on_click((e,cx)=>{this.show=!this.show;cx.notify();}));
+    if(this.show){
+      root.child(new Checkbox("dyn-check").label("Dynamic").checked(true)).child(image("dev.sailry.platform/desktop/dyn.svg"));
+    }
+    return root;
+  }
+}`, RuntimeBindings{})
+		mounted.bundle.Files["dev.sailry.platform/desktop/dyn.svg"] = `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8"><rect width="8" height="8" fill="blue"/></svg>`
+		var renderErr error
+		tester := ui.NewTester(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			_, renderErr = mounted.Render(view)
+		}, 420, 260)
+		tester.Frame()
+		if renderErr != nil || len(mounted.toggles) != 1 || len(mounted.images) != 1 {
+			t.Fatalf("initial render: err=%v toggles=%d images=%d", renderErr, len(mounted.toggles), len(mounted.images))
+		}
+		if err := tester.Click("Toggle"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+		if renderErr != nil || len(mounted.toggles) != 0 || len(mounted.images) != 0 {
+			t.Fatalf("unmounted widgets/images were not pruned: err=%v toggles=%d images=%d", renderErr, len(mounted.toggles), len(mounted.images))
+		}
+	})
 }
 
 func runtimeFixture(t *testing.T, source string, bindings RuntimeBindings) (*Runtime, *Mounted) {
