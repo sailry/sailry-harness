@@ -52,6 +52,7 @@ fi
 jq -s . "$jobs.lines" > "$jobs" || fallback 'Unable to verify completed CI jobs'
 required='[
   "lint",
+  "race",
   "test (ubuntu-24.04, linux-0)",
   "test (ubuntu-24.04, linux-1)",
   "test (ubuntu-24.04, linux-2)",

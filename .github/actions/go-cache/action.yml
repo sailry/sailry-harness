@@ -4,6 +4,9 @@ inputs:
   phase:
     description: Restore before checks or save afterward
     default: restore
+  modules-scope:
+    description: Module cache scope (full or mobile) so partial mobile installs never poison the full module cache
+    default: full
   modules-hit:
     description: Exact module cache hit from the restore phase
     default: 'false'
@@ -38,22 +41,23 @@ runs:
         unset GOROOT
         export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
         # setup-go exports GOTOOLCHAIN=local, so the keys name the Go that runs.
-        printf 'modules=%s\nbuild=%s\ngo=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" "$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+        # Weekly build epochs bound GOCACHE size instead of snowballing across commits.
+        printf 'modules=%s\nbuild=%s\ngo=%s\nepoch=%s\n' \
+          "$(go env GOMODCACHE)" "$(go env GOCACHE)" "$(go env GOVERSION)" "$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
     - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       id: modules
       if: inputs.phase == 'restore'
       with:
         path: ${{ steps.paths.outputs.modules }}
-        key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ hashFiles('go.sum') }}
+        key: go-modules-v2-${{ inputs.modules-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          go-modules-v2-full-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ hashFiles('go.sum') }}
     - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       id: build
       if: inputs.phase == 'restore'
       with:
         path: ${{ steps.paths.outputs.build }}
-        key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
-        restore-keys: |
-          go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
-          go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-
+        key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ steps.paths.outputs.epoch }}
     # Composite actions have no post hook. Callers explicitly save under
     # !cancelled(), so a failed assertion does not discard valid compiler work.
     # Pull requests restore the branch caches and leave the shared quota alone.
@@ -61,9 +65,17 @@ runs:
       if: ${{ !cancelled() && inputs.phase == 'save' && github.event_name != 'pull_request' && inputs.modules-hit != 'true' && steps.paths.outcome == 'success' }}
       with:
         path: ${{ steps.paths.outputs.modules }}
-        key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ hashFiles('go.sum') }}
+        key: go-modules-v2-${{ inputs.modules-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ hashFiles('go.sum') }}
+    - name: Drop cached test verdicts before saving build objects
+      if: ${{ !cancelled() && inputs.phase == 'save' && github.event_name != 'pull_request' && inputs.save-build == 'true' && inputs.build-hit != 'true' && steps.paths.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        unset GOROOT
+        export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+        go clean -testcache
     - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       if: ${{ !cancelled() && inputs.phase == 'save' && github.event_name != 'pull_request' && inputs.save-build == 'true' && inputs.build-hit != 'true' && steps.paths.outcome == 'success' }}
       with:
         path: ${{ steps.paths.outputs.build }}
-        key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+        key: go-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.go }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ steps.paths.outputs.epoch }}

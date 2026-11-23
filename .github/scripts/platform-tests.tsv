@@ -1,4 +1,4 @@
-# Native boundaries run in full; shared engine and UI packages use focused regressions.
+# Native boundaries run in full; shared engine and UI packages use focused OS-relevant regressions.
 cmd/sailry-desktop	all
 internal/core	all
 internal/desktop/application	all
@@ -14,6 +14,6 @@ internal/ssh	all
 internal/node	^Test(CopilotSignIn|ProfileLeftovers)$
 internal/node/agent/engine	^TestLargeInstructionsReachModel$
 internal/desktop/kit	^Test(NativeConfirmation|AlertDialogUsesNativeConfirmation|DialogKeepsPressWhenEarlierOverlayAppears)$
-internal/desktop/live	^Test(Authorization(FixedPortCallback|OccupiedCallbackPort|PasteOnlyCallback)|AttachmentLocalIO|DemoMode|Update(PendingNativeInput|FlushPendingWindows|FlushWithoutLockFrame)|SSHWindowsPairingGuidance)$
+internal/desktop/live	^Test(Authorization(FixedPortCallback|OccupiedCallbackPort|PasteOnlyCallback)|AttachmentLocalIO|Update(PendingNativeInput|FlushPendingWindows|FlushWithoutLockFrame))$
 internal/desktop/panel	^TestEditorTakesFocusBesideTree$
-internal/desktop/shell	^Test(CloseShortcut|MenuCommandsScoped|InputKeepsEditingKeys|Menu|NativeClosePrompt|ProjectMenu|ShortcutRecorder)$
+internal/desktop/shell	^Test(CloseShortcut|MenuCommandsScoped|InputKeepsEditingKeys|Menu|NativeClosePrompt|ShortcutRecorder)$

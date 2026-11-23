@@ -25,7 +25,7 @@ runs:
         path: |
           .runtime/native/${{ steps.target.outputs.name }}/${{ steps.target.outputs.library }}
           .runtime/native/${{ steps.target.outputs.name }}/SHA256SUMS
-        key: turso-native-v1-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/**') }}
+        key: turso-native-v2-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'native/turso/rust-toolchain.toml', 'native/turso/build.sh', 'native/turso/src/**') }}
     - name: Pinned Rust toolchain
       if: steps.runtime.outputs.cache-hit != 'true'
       shell: bash
@@ -35,12 +35,20 @@ runs:
       if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
       with:
         version: 0.16.0
-        use-cache: false
+        use-cache: true
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      id: zigbuild
+      if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
+      with:
+        path: ~/.cargo/bin/cargo-zigbuild
+        key: cargo-zigbuild-v1-${{ runner.os }}-${{ runner.arch }}-0.23.4
     - name: GNU libc target
       if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cargo install cargo-zigbuild --version 0.23.4 --locked
+        if [ ! -x "$HOME/.cargo/bin/cargo-zigbuild" ]; then
+          cargo install cargo-zigbuild --version 0.23.4 --locked
+        fi
         echo 'SAILRY_GLIBC=2.34' >> "$GITHUB_ENV"
     - name: Build
       if: steps.runtime.outputs.cache-hit != 'true'
@@ -80,4 +88,4 @@ runs:
         path: |
           .runtime/native/${{ steps.target.outputs.name }}/${{ steps.target.outputs.library }}
           .runtime/native/${{ steps.target.outputs.name }}/SHA256SUMS
-        key: turso-native-v1-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/**') }}
+        key: turso-native-v2-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'native/turso/rust-toolchain.toml', 'native/turso/build.sh', 'native/turso/src/**') }}

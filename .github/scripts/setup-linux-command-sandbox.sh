@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-sudo apt-get update
-sudo apt-get install --yes bubblewrap netcat-openbsd apparmor "$@"
+sudo apt-get update -o Acquire::Languages=none
+sudo apt-get install --no-install-recommends --yes bubblewrap netcat-openbsd apparmor "$@"
 sysctl kernel.unprivileged_userns_clone user.max_user_namespaces kernel.apparmor_restrict_unprivileged_userns || true
 
 # Keep the host's user namespace restriction enabled. Prefer the runner's

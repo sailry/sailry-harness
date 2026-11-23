@@ -53,41 +53,72 @@ jobs:
   scope:
     runs-on: ubuntu-24.04
     outputs:
+      go: ${{ steps.scope.outputs.go }}
       native: ${{ steps.scope.outputs.native }}
       mobile: ${{ steps.scope.outputs.mobile }}
+      mobile_build: ${{ steps.scope.outputs.mobile_build }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        if: github.event_name == 'pull_request'
         with:
-          fetch-depth: 0
+          fetch-depth: 2
       - name: Changed inputs
         id: scope
         env:
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Releases and manual runs verify every build. A missing push base
-          # also falls back to the full set.
+          # Releases and manual runs verify every build. Missing push bases or
+          # truncated API comparisons fall back to the full set.
+          go_checks=true
           native=true
           mobile=true
-          base=
+          mobile_build=true
+          changed=
+          have_changed=false
           case "$GITHUB_EVENT_NAME" in
-            pull_request) base=HEAD^1 ;;
+            pull_request)
+              changed=$(git diff --name-only HEAD^1 HEAD)
+              have_changed=true
+              ;;
             push)
               case "$GITHUB_REF" in
                 refs/tags/*) ;;
-                *) if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; fi ;;
+                *)
+                  if [ -n "$BEFORE" ] && [ "$BEFORE" != '0000000000000000000000000000000000000000' ]; then
+                    if compare=$(gh api "repos/$GH_REPO/compare/$BEFORE...$GITHUB_SHA" 2>/dev/null); then
+                      # GitHub caps compare responses at 300 files; fall back if saturated.
+                      count=$(jq '.files | length' <<<"$compare")
+                      if [ "$count" -lt 300 ]; then
+                        changed=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<<"$compare" | sort -u)
+                        have_changed=true
+                      fi
+                    fi
+                  fi
+                  ;;
               esac
               ;;
           esac
-          if [ -n "$base" ]; then
-            changed=$(git diff --name-only "$base" HEAD)
-            grep -Eq '^native/(turso|capture|windows|fetch)/|^native/[^/]+\.lock\.json$|^\.github/(workflows/ci\.yml$|actions/)' <<< "$changed" || native=false
-            grep -Eq '^(apps/mobile|assets/catalogs|cmd/sailry-mobile|internal/(mobile|client|link|protocol|shipped))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/' <<< "$changed" || mobile=false
+          if [ "$have_changed" = true ] && [ -n "$changed" ]; then
+            non_go_paths='^(docs/|third_party_licenses/|apps/mobile/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|(README|CONTRIBUTING|ARCHITECTURE|AGENTS|CHANGELOG|SECURITY|LICENSE[^/]*)\.md$|LICENSE$)'
+            go_inputs=$(grep -Ev "$non_go_paths" <<<"$changed" || true)
+            if [ -z "$go_inputs" ]; then
+              go_checks=false
+            fi
+            grep -Eq '^native/(turso|capture|windows)/|^\.github/(workflows/ci\.yml$|actions/turso/)' <<<"$changed" || native=false
+            grep -Eq '^(apps/mobile|assets/catalogs|cmd/sailry-mobile|internal/(mobile|client|link|protocol|identity))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/(flutter|android|go-cache)/' <<<"$changed" || mobile=false
+            non_mobile_tests=$(grep -Ev '^apps/mobile/test/' <<<"$changed" || true)
+            if [ "$mobile" != true ] || ! grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol|identity))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/(flutter|android|go-cache)/' <<<"$non_mobile_tests"; then
+              mobile_build=false
+            fi
           fi
-          printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
+          printf 'go=%s\nnative=%s\nmobile=%s\nmobile_build=%s\n' "$go_checks" "$native" "$mobile" "$mobile_build" >> "$GITHUB_OUTPUT"
 
   lint:
-    if: ${{ !inputs.reuse_go }}
+    needs: scope
+    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
     runs-on: ubuntu-24.04
     env:
       GO_CACHE_ROLE: lint
@@ -116,15 +147,26 @@ jobs:
             printf 'gofmt differs:\n%s\n' "$files" >&2
             exit 1
           fi
-      # The integration tag adds files and removes none, so one pass also
-      # compiles the integration tests that no routine job runs.
+      # The integration tag adds files and removes none, so one pass per OS also
+      # compiles the integration tests that no routine job runs. Run the three
+      # OS passes concurrently, plus cgo vet for the mobile C ABI exports.
       - name: Vet
         run: |
+          set -euo pipefail
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          pids=()
           for goos in linux windows darwin; do
-            GOOS=$goos go vet -tags integration ./...
+            GOOS=$goos go vet -tags integration ./... &
+            pids+=($!)
           done
+          CGO_ENABLED=1 go vet ./cmd/sailry-mobile &
+          pids+=($!)
+          status=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || status=1
+          done
+          exit "$status"
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:
@@ -133,7 +175,8 @@ jobs:
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
   test:
-    if: ${{ !inputs.reuse_go }}
+    needs: scope
+    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +217,8 @@ jobs:
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
   race:
-    if: ${{ !inputs.reuse_go }}
+    needs: scope
+    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
     runs-on: ubuntu-24.04
     env:
       GO_CACHE_ROLE: race
@@ -192,7 +236,16 @@ jobs:
         run: |
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=1
-          go test -race -p 1 -parallel 2 ./internal/client ./internal/link ./internal/mobile ./internal/protocol/wire ./internal/node/agent/engine
+          go test -race -p 2 -parallel 4 \
+            ./internal/client ./internal/link ./internal/mobile ./internal/protocol/wire \
+            ./internal/node/agent/engine ./internal/node/mcp ./internal/node/process \
+            ./internal/node/telemetry ./internal/node/fswatch ./internal/node/externalbrowser
+      - uses: ./.github/actions/go-cache
+        if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
+        with:
+          phase: save
+          modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
+          build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
   native:
     needs: scope
@@ -222,7 +275,7 @@ jobs:
             .runtime/native/${{ matrix.target }}/libsailry-capture.so
             .runtime/native/${{ matrix.target }}/libsailry-capture.dylib
             .runtime/native/${{ matrix.target }}/sailry-capture.dll
-          key: native-capture-v1-${{ matrix.target }}-${{ hashFiles('native/capture/**') }}
+          key: native-capture-v2-${{ matrix.target }}-${{ hashFiles('native/capture/sailry_capture.c', 'native/capture/miniaudio.lock.json', 'native/capture/build.sh') }}
       - name: Build capture
         if: steps.capture.outputs.cache-hit != 'true'
         run: sh native/capture/build.sh
@@ -287,27 +340,30 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - uses: ./.github/actions/go-cache
         id: go-cache
-        if: ${{ !inputs.skip_mobile_builds }}
+        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
+        with:
+          modules-scope: mobile
       - uses: ./.github/actions/flutter
       - uses: ./.github/actions/android
-        if: ${{ !inputs.skip_mobile_builds }}
+        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
-      - run: flutter test
+      - run: flutter test --concurrency=4
       - name: Build ARM64 release APK
-        if: ${{ !inputs.skip_mobile_builds }}
+        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
         run: flutter build apk --release --no-pub --target-platform android-arm64
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:
           phase: save
+          modules-scope: mobile
           modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
   mobile-ios:
     name: apps/mobile (iOS)
     needs: scope
-    if: ${{ needs.scope.outputs.mobile == 'true' && !inputs.skip_mobile_builds }}
+    if: ${{ needs.scope.outputs.mobile_build == 'true' && !inputs.skip_mobile_builds && !inputs.reuse_mobile }}
     runs-on: macos-15
     env:
       CGO_ENABLED: ''
@@ -320,6 +376,8 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - uses: ./.github/actions/go-cache
         id: go-cache
+        with:
+          modules-scope: mobile
       - uses: ./.github/actions/flutter
       - name: Xcode version
         run: xcodebuild -version
@@ -330,6 +388,7 @@ jobs:
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:
           phase: save
+          modules-scope: mobile
           modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
@@ -410,17 +469,18 @@ jobs:
         env:
           PACKAGES: ${{ inputs.integration_packages }}
           SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
-        # Isolate the concurrent storage corpus from other packages' CPU
-        # and disk workloads; measure hardware budgets separately below.
+        # Run only tests declared in //go:build integration files so default unit
+        # suites already verified by test lanes are not repeated across 3 OSes.
         run: |
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
           # The release set already exercises libp2p direct and relay routes.
-          # Keep that local transport check when a manual run narrows the set.
-          if [ -n "$PACKAGES" ]; then
+          # Keep that local transport check when a manual run omits ./internal/link.
+          if [ -n "$PACKAGES" ] && ! grep -Eq '(^|[[:space:]])\./internal/link([[:space:]]|$)' <<<"$PACKAGES"; then
             go test -tags integration ./internal/link -run '^TestLibp2pLink'
           fi
-          go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
+          # shellcheck disable=SC2086
+          bash .github/scripts/test.sh integration ${PACKAGES:-$RELEASE_PACKAGES}
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:

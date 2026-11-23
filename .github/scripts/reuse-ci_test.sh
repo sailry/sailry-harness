@@ -18,6 +18,7 @@ jq -n --arg sha "$sha" --arg repo "$repo" '{
 jq '{workflow_runs:[.]}' "$fixture/base/run.json" > "$fixture/base/runs.json"
 jq -n '{jobs:([
   "lint",
+  "race",
   "test (ubuntu-24.04, linux-0)",
   "test (ubuntu-24.04, linux-1)",
   "test (ubuntu-24.04, linux-2)",

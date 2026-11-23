@@ -1,5 +1,5 @@
 name: Flutter
-description: Install the Flutter version pinned in apps/mobile/.flutter-version
+description: Install and cache the Flutter version pinned in apps/mobile/.flutter-version and its Pub cache
 runs:
   using: composite
   steps:
@@ -14,3 +14,5 @@ runs:
       with:
         flutter-version: ${{ steps.version.outputs.version }}
         channel: stable
+        cache: true
+        pub-cache: true

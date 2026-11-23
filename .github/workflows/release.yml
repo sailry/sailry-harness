@@ -94,7 +94,7 @@ jobs:
             ($checks | length) > 0 and all($checks[];
               .conclusion == "success" or
               (.conclusion == "skipped" and
-                (.name == "checks / lint" or .name == "checks / test" or
+                (.name == "checks / lint" or .name == "checks / race" or .name == "checks / test" or
                  (.name | startswith("checks / test (")) or
                  .name == "checks / apps/mobile (Android)" or .name == "checks / apps/mobile (iOS)"))) and
             ($integration | length) == 3 and all($integration[]; .conclusion == "success") and
@@ -144,19 +144,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
+      GO_CACHE_ROLE: test
       SAILRY_SIGNING: developer-id
       APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
       SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
       SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+      SAILRY_RUST_LICENSES_CACHE: ${{ github.workspace }}/.runtime/licenses/turso-${{ matrix.triple }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+      - uses: ./.github/actions/go-cache
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: turso-licenses
         with:
-          go-version-file: go.mod
-      # The license collection reads the crate metadata with the pinned cargo.
+          path: .runtime/licenses/turso-${{ matrix.triple }}
+          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .runtime/native/dl
+          key: native-dl-v1-${{ matrix.target }}-${{ hashFiles('native/*.lock.json', 'internal/localmodels/decision/llama-runtime.lock.json') }}
+      # The license collection reads the crate metadata with the pinned cargo on cache miss.
       - name: Pinned Rust toolchain
+        if: steps.turso-licenses.outputs.cache-hit != 'true'
         working-directory: native/turso
         run: rustup toolchain install
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -229,19 +239,31 @@ jobs:
     needs: checks
     runs-on: ubuntu-24.04
     env:
+      GO_CACHE_ROLE: test
       SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
       SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+      SAILRY_RUST_LICENSES_CACHE: ${{ github.workspace }}/.runtime/licenses/turso-x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+      - uses: ./.github/actions/go-cache
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: turso-licenses
         with:
-          go-version-file: go.mod
-      - name: Pinned Rust toolchain and NSIS
+          path: .runtime/licenses/turso-x86_64-pc-windows-msvc
+          key: turso-licenses-v1-x86_64-pc-windows-msvc-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .runtime/native/dl
+          key: native-dl-v1-windows-amd64-${{ hashFiles('native/*.lock.json', 'internal/localmodels/decision/llama-runtime.lock.json') }}
+      - name: Pinned Rust toolchain
+        if: steps.turso-licenses.outputs.cache-hit != 'true'
+        working-directory: native/turso
+        run: rustup toolchain install
+      - name: NSIS
         run: |
-          (cd native/turso && rustup toolchain install)
-          sudo apt-get update
+          sudo apt-get update -o Acquire::Languages=none
           sudo apt-get install --no-install-recommends --yes nsis
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -273,16 +295,26 @@ jobs:
           - { os: ubuntu-24.04-arm, target: linux-arm64, triple: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.os }}
     env:
+      GO_CACHE_ROLE: test
       SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
       SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+      SAILRY_RUST_LICENSES_CACHE: ${{ github.workspace }}/.runtime/licenses/turso-${{ matrix.triple }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+      - uses: ./.github/actions/go-cache
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: turso-licenses
         with:
-          go-version-file: go.mod
+          path: .runtime/licenses/turso-${{ matrix.triple }}
+          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .runtime/native/dl
+          key: native-dl-v1-${{ matrix.target }}-${{ hashFiles('native/*.lock.json', 'internal/localmodels/decision/llama-runtime.lock.json') }}
       - name: Pinned Rust toolchain
+        if: steps.turso-licenses.outputs.cache-hit != 'true'
         working-directory: native/turso
         run: rustup toolchain install
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -311,14 +343,15 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: ''
+      GO_CACHE_ROLE: mobile-android
       VERSION: ${{ needs.version.outputs.version }}
       BUILD: ${{ needs.version.outputs.build }}
       ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.mod
+          modules-scope: mobile
       - uses: ./.github/actions/flutter
       - uses: ./.github/actions/android
       - name: Distribution keystore
@@ -382,15 +415,16 @@ jobs:
     runs-on: macos-15
     env:
       CGO_ENABLED: ''
+      GO_CACHE_ROLE: mobile-ios
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       VERSION: ${{ needs.version.outputs.version }}
       BUILD: ${{ needs.version.outputs.build }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.mod
+          modules-scope: mobile
       - uses: ./.github/actions/flutter
       - name: Native prerequisites
         run: |
@@ -523,14 +557,13 @@ jobs:
       contents: write
       actions: read
     env:
+      GO_CACHE_ROLE: lint
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
-        with:
-          go-version-file: go.mod
+      - uses: ./.github/actions/go-cache
       - name: Reuse completed non-macOS packages
         if: needs.version.outputs.reuse_run != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

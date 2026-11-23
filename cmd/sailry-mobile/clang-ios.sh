@@ -9,4 +9,5 @@ case "$sdk" in
     iphonesimulator) target="$architecture-apple-ios$version-simulator" ;;
     *) printf '%s\n' 'Unsupported Apple SDK' >&2; exit 1 ;;
 esac
-exec xcrun --sdk "$sdk" clang -target "$target" -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" "$@"
+sysroot=${SDKROOT:-$(xcrun --sdk "$sdk" --show-sdk-path)}
+exec xcrun --sdk "$sdk" clang -target "$target" -isysroot "$sysroot" "$@"

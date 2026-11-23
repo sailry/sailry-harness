@@ -261,38 +261,50 @@ and full indexing.
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
 pull requests, on `main`, manually, and when `release.yml` calls it:
 
-- `lint`: Go formatting and `go vet -tags integration ./...` for Linux,
-  Windows and macOS. The tag adds the integration files to the default ones,
-  so integration tests that no routine job runs are still compiled.
-- `test`: Linux runs the complete Go suite with cgo disabled on every event.
-  Four lanes, `linux-0` through `linux-3`, balance complete packages and the
-  top-level tests, examples and fuzz seeds of `desktop/live` and `desktop/shell`,
-  retaining each parent's subtests. Measured duration hints affect placement
-  only; new packages and tests join automatically. macOS and Windows each have one `platform`
-  lane: `go build ./...` followed by selected native-boundary package suites and
-  focused shared-package regressions in `.github/scripts/platform-tests.tsv`.
-  Tests in OS-suffixed or build-constrained files compiled for that OS join
-  automatically, including new cases. A suite entry naming a missing package
-  or matching no test fails the lane. The three-platform vet still checks the
-  full test source. The routing fixture runs in `lint` with a fake Go:
-  `bash .github/scripts/test_test.sh`.
-- Go setup and cache handling share local actions. Each test job restores its
-  own target's Turso runtime from a cache keyed by `native/turso`, or builds
-  it, without waiting for other platforms; the checksum recorded with that
-  build detects a damaged cache entry. One writer per operating system saves
-  the test compiler cache even after a test failure; cancelled runs and pull
-  requests do not save it. Mobile jobs install the Flutter version named in
-  `apps/mobile/.flutter-version` and the Android toolchain through local
-  actions.
+- `lint`: Go formatting, concurrent `go vet -tags integration ./...` for Linux,
+  Windows and macOS, and `CGO_ENABLED=1 go vet ./cmd/sailry-mobile`. The tag
+  adds the integration files to the default ones, so integration tests that no
+  routine job runs are still compiled.
+- `test`: Linux runs the complete Go suite with cgo disabled on code changes
+  (documentation-only changes skip Go jobs). Four lanes, `linux-0` through
+  `linux-3`, balance complete packages and the top-level tests, examples and
+  fuzz seeds of `desktop/live` and `desktop/shell`, retaining each parent's
+  subtests. Measured duration hints affect placement only; new packages and
+  tests join automatically. macOS and Windows each have one `platform` lane:
+  command linking (`go build ./cmd/sailry-desktop ./cmd/sailry-host`) followed
+  by batched native-boundary package suites and focused OS-relevant regressions
+  in `.github/scripts/platform-tests.tsv`. Tests in OS-suffixed or
+  OS-build-constrained files compiled for that OS join automatically, including
+  new cases. A suite entry naming a missing package or matching no test fails
+  the lane. The three-platform vet still checks the full test source. The
+  routing fixture runs in `lint` with a fake Go: `bash .github/scripts/test_test.sh`.
+- `race`: runs `CGO_ENABLED=1 go test -race` on concurrency-heavy backend, Link
+  and Mobile adapter packages and saves its own `go-cache` role.
+- Go setup and cache handling share local actions. Full Go jobs and Mobile jobs
+  use separate module cache scopes so Mobile builds never overwrite the full
+  module cache, and compiler caches rotate weekly instead of growing across
+  commits. Each test job restores its own target's Turso runtime from a cache
+  keyed by `native/turso` build inputs, or builds it, without waiting for other
+  platforms; the checksum recorded with that build detects a damaged cache
+  entry. One writer per operating system saves the test compiler cache even
+  after a test failure; cancelled runs and pull requests do not save it. Mobile
+  jobs install and cache the Flutter version named in
+  `apps/mobile/.flutter-version`, Pub packages, Gradle dependencies and the
+  Android toolchain through local actions.
 - `native`: stage the pinned Turso and capture libraries for supported targets,
   plus the app-local C++ runtime on Windows. The `native-<goos>-<goarch>`
   artifact includes `SHA256SUMS` and is read by `native/fetch -artifacts`.
-- `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds for Mobile, shared Client/Link/Protocol or build-input changes; CI uses a disposable APK signer and disables iOS signing.
+- `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds
+  for Mobile, shared Client/Link/Protocol/Identity or build-input changes
+  (test-only Mobile edits skip the iOS/APK release builds); CI uses a disposable
+  APK signer and disables iOS signing.
 - `integration`: never on pull requests or main. Manually with the
   `integration` input it tests `integration_packages`; left empty, and in a
   release, it tests the release set named in the workflow: packages that need
-  no downloaded model and no external service. Each leg verifies its native
-  artifact and runs the Link tests against local peers and a private relay.
+  no downloaded model and no external service, executing only tests declared in
+  `//go:build integration` files so default unit suites are not repeated. Each
+  leg verifies its native artifact and runs the Link tests against local peers
+  and a private relay.
 
 New commits cancel obsolete pull-request and branch-push CI runs. Manual
 integration checks and tag releases keep their own runs.
@@ -303,13 +315,13 @@ except `publish`:
 - `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
   and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
 - `checks`: reuse a successful default-branch CI run for the exact source
-  commit, then run integration tests. Go checks require a successful lint job
-  and all six test lanes; Flutter checks are reused only if that run completed
-  them. Missing evidence falls back to the corresponding checks. The native
-  job always runs in the release, from its content cache when the sources are
-  unchanged, so every release run holds its own native artifacts for packaging
-  and later repairs. Final signed Mobile packages replace the duplicate
-  unsigned builds.
+  commit, then run integration tests. Go checks require a successful lint job,
+  race job and all six test lanes; Flutter checks are reused only if that run
+  completed them. Missing evidence falls back to the corresponding checks. The
+  native job always runs in the release, from its content cache when the sources
+  are unchanged, so every release run holds its own native artifacts for
+  packaging and later repairs. Final signed Mobile packages replace the
+  duplicate unsigned builds.
 - `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
   macOS Host archive, signed with the Developer ID certificate.
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the

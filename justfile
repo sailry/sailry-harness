@@ -102,13 +102,13 @@ check:
 test:
     go test ./...
 
-# Run the Desktop UI and composition tests.
+# Run the Desktop UI and composition tests, including native module desktop pages.
 test-desktop:
-    go test ./internal/desktop/... ./cmd/sailry-desktop/...
+    go test $(go list ./... | grep -E '/(internal/desktop|cmd/sailry-desktop|modules/[^/]+/desktop)(/|$)')
 
 # Run the tests of every package outside Desktop.
 test-backend:
-    go test $(go list ./... | grep -v -e '/internal/desktop' -e '/cmd/sailry-desktop')
+    go test $(go list ./... | grep -v -E '/(internal/desktop|cmd/sailry-desktop|modules/[^/]+/desktop)(/|$)')
 
 # Run integration-tagged tests of the named packages, for example ./internal/link.
 test-integration +packages:

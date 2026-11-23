@@ -5,22 +5,66 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 
 lane=${1:?A test lane is required}
 case "$lane" in
-  linux-0|linux-1|linux-2|linux-3|platform) ;;
+  linux-0|linux-1|linux-2|linux-3|platform|integration) ;;
   *) echo "Unknown test lane: $lane" >&2; exit 1 ;;
 esac
 
-# Every event tests every package. Tests also read schemas, lock files and
-# source trees that the import graph does not record.
-go list ./... > "$RUNNER_TEMP/packages.txt"
+extract_tests() {
+  local directory=$1
+  shift
+  local file
+  for file in "$@"; do
+    awk '/^func[[:space:]]+((Test|Example|Fuzz)([A-Z0-9_][[:alnum:]_]*)?)[[:space:]]*\(/ {
+      name = $2
+      sub(/\(.*/, "", name)
+      if (name != "TestMain") print name
+    }' "$directory/$file"
+  done
+}
+
+module=$(go list -m)
+
+if [ "$lane" = integration ]; then
+  shift
+  if [ "$#" -eq 0 ]; then
+    echo 'At least one package is required for integration mode' >&2
+    exit 1
+  fi
+  go list -tags integration -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' "$@" > "$RUNNER_TEMP/integration-files.txt"
+  while IFS=$'\t' read -r -a files; do
+    package=${files[0]}
+    directory=${package#"$module"/}
+    [ "$package" != "$module" ] || directory=.
+    selected=()
+    for file in "${files[@]:1}"; do
+      if grep -Eq '^//go:build (.*[^[:alnum:]_])?integration([^[:alnum:]_]|$)' "$directory/$file"; then
+        selected+=("$file")
+      fi
+    done
+    if [ "${#selected[@]}" -eq 0 ]; then
+      continue
+    fi
+    pattern=$(extract_tests "$directory" "${selected[@]}" | LC_ALL=C sort -u | awk '
+      { printf "%s%s", separator, $0; separator = "|" }
+      END { print "" }
+    ')
+    if [ -n "$pattern" ]; then
+      go test -p 1 -timeout 20m -tags integration "$package" -run "^($pattern)$"
+    fi
+  done < "$RUNNER_TEMP/integration-files.txt"
+  exit 0
+fi
+
+# Every event lists active package test files for the target OS via go list
+# (zero compilation) instead of compiling test binaries just to list names.
+go list -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' ./... > "$RUNNER_TEMP/package-files.txt"
+awk -F '\t' '{ print $1 }' "$RUNNER_TEMP/package-files.txt" > "$RUNNER_TEMP/packages.txt"
 
 if [ "$lane" = platform ]; then
   platform=$(go env GOOS)
   case "$platform" in darwin|windows) ;; *) echo "No platform suite for $platform" >&2; exit 1 ;; esac
-  go build ./...
-  module=$(go list -m)
-  # Go supplies only the files compiled for this OS, excluding integration
-  # files. New OS-specific tests join the suite without a hand-maintained name.
-  go list -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' ./... > "$RUNNER_TEMP/platform-files.txt"
+  # Cross-platform vet already compiles every package; verify native command linking here.
+  go build ./cmd/sailry-desktop ./cmd/sailry-host
   suite=$(cd "$(dirname "$0")" && pwd)/platform-tests.tsv
   # A renamed or removed package must not silently leave the curated suite.
   while IFS=$'\t' read -r directory _; do
@@ -32,13 +76,14 @@ if [ "$lane" = platform ]; then
       exit 1
     fi
   done < "$suite"
+  all_packages=()
   while IFS=$'\t' read -r -a files; do
     package=${files[0]}
     directory=${package#"$module"/}
     [ "$package" != "$module" ] || directory=.
     rule=$(awk -F '\t' -v package="$directory" '$1 == package { print $2 }' "$suite")
     if [ "$rule" = all ]; then
-      go test -p 1 -timeout 20m "$package"
+      all_packages+=("$package")
       continue
     fi
     auto=$RUNNER_TEMP/platform-auto.txt
@@ -46,12 +91,12 @@ if [ "$lane" = platform ]; then
     for file in "${files[@]:1}"; do
       scoped=false
       case "$file" in *_"$platform"_test.go|*_"$platform"_*_test.go) scoped=true ;; esac
-      if [ "$scoped" = true ] || grep -q '^//go:build ' "$directory/$file"; then
-        awk '/^func[[:space:]]+(Test|Example|Fuzz)[[:alnum:]_]*[[:space:]]*\(/ { name=$2; sub(/\(.*/, "", name); if (name != "TestMain") print name }' "$directory/$file" >> "$auto"
+      if [ "$scoped" = true ] || grep -Eq '^//go:build (.*[^[:alnum:]_])?(darwin|windows|linux|unix)([^[:alnum:]_]|$)' "$directory/$file"; then
+        extract_tests "$directory" "$file" >> "$auto"
       fi
     done
     [ -n "$rule" ] || [ -s "$auto" ] || continue
-    go test -list . "$package" > "$RUNNER_TEMP/platform-tests.txt"
+    extract_tests "$directory" "${files[@]:1}" | LC_ALL=C sort -u > "$RUNNER_TEMP/platform-tests.txt"
     if [ -n "$rule" ] && ! grep -Eq "$rule" "$RUNNER_TEMP/platform-tests.txt"; then
       echo "Platform selector matches no tests: $package $rule" >&2
       exit 1
@@ -66,26 +111,31 @@ if [ "$lane" = platform ]; then
     if [ -n "$pattern" ]; then
       go test -p 1 -timeout 20m "$package" -run "^($pattern)$"
     fi
-  done < "$RUNNER_TEMP/platform-files.txt"
+  done < "$RUNNER_TEMP/package-files.txt"
+  if [ "${#all_packages[@]}" -gt 0 ]; then
+    go test -timeout 20m "${all_packages[@]}"
+  fi
   exit 0
 fi
 
-module=$(go list -m)
 units=$RUNNER_TEMP/test-units.tsv
 : > "$units"
 ui_packages=()
-while IFS= read -r package; do
+while IFS=$'\t' read -r -a files; do
+  package=${files[0]}
   [ -n "$package" ] || continue
+  directory=${package#"$module"/}
+  [ "$package" != "$module" ] || directory=.
   case "$package" in
     */internal/desktop/live|*/internal/desktop/shell)
       ui_packages+=("$package")
-      list="$RUNNER_TEMP/${package##*/}-tests.txt"
-      go test -list . "$package" > "$list"
-      awk -v package="$package" '/^(Test|Example|Fuzz)[^[:space:]]*$/ { print package "\t" $0 }' "$list" >> "$units"
+      if [ "${#files[@]}" -gt 1 ]; then
+        extract_tests "$directory" "${files[@]:1}" | LC_ALL=C sort -u | awk -v package="$package" '{ print package "\t" $0 }' >> "$units"
+      fi
       ;;
     *) printf '%s\t*\n' "$package" >> "$units" ;;
   esac
-done < "$RUNNER_TEMP/packages.txt"
+done < "$RUNNER_TEMP/package-files.txt"
 
 # Duration hints affect placement, never discovery. Whole packages remain
 # indivisible; UI parents carry all their subtests. New units use defaults.
@@ -119,15 +169,22 @@ awk -F '\t' -v lane="$batch" '
   $1 == lane { count++; cost += $4 }
   END { printf "Linux lane %d: %d units, estimated %.1fs\n", lane, count, cost }
 ' "$RUNNER_TEMP/test-plan.tsv"
-packages=()
+backend_packages=()
+desktop_packages=()
 while IFS= read -r package; do
-  [ -z "$package" ] || packages+=("$package")
+  [ -z "$package" ] || case "$package" in
+    */internal/desktop/*|*/modules/*/desktop) desktop_packages+=("$package") ;;
+    *) backend_packages+=("$package") ;;
+  esac
 done < <(awk -F '\t' -v lane="$batch" '$1 == lane && $3 == "*" { print $2 }' "$RUNNER_TEMP/test-plan.tsv")
 
-# Rasterizers already use each runner's CPUs. Lanes provide parallelism
-# without making package binaries compete on one small runner.
-if [ "${#packages[@]}" -gt 0 ]; then
-  go test -p 1 -timeout 20m "${packages[@]}"
+# Non-UI backend packages compile and execute concurrently; UI rasterizers
+# already fan out across runner cores and stay at -p 1.
+if [ "${#backend_packages[@]}" -gt 0 ]; then
+  go test -p 2 -timeout 20m "${backend_packages[@]}"
+fi
+if [ "${#desktop_packages[@]}" -gt 0 ]; then
+  go test -p 1 -timeout 20m "${desktop_packages[@]}"
 fi
 if [ "${#ui_packages[@]}" -gt 0 ]; then
   for package in "${ui_packages[@]}"; do
