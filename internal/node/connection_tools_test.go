@@ -350,8 +350,8 @@ func testConnectionTools(t *testing.T) {
 				if exists != entry.visible(operation) {
 					t.Errorf("%s conversation: %s visible = %v", entry.name, operation, exists)
 				}
-				if exists && (tool.ReadOnly != declarations[operation].ReadOnly || tool.Approval == tool.ReadOnly || tool.Concurrent) {
-					t.Errorf("%s conversation: %s read-only %v, approval %v", entry.name, operation, tool.ReadOnly, tool.Approval)
+				if exists && (tool.ReadOnly != declarations[operation].ReadOnly || tool.Approval == tool.ReadOnly || tool.Concurrent != declarations[operation].Concurrent || (!tool.ReadOnly && tool.Concurrent)) {
+					t.Errorf("%s conversation: %s read-only %v, approval %v, concurrent %v", entry.name, operation, tool.ReadOnly, tool.Approval, tool.Concurrent)
 				}
 			}
 		}

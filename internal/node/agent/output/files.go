@@ -8,7 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const fileBytes = 32 * 1024
+const fileBytes = 48 * 1024
 const fileLineBytes = 2 * 1024
 
 type fileRange struct{ first, last uint64 }
@@ -116,7 +116,7 @@ func renderFile(page protocol.FileLines, body string, shown *fileRange, shortene
 		value += "For omitted line text, use read_tool_output with output, offset=0 and limit for the original result JSON\n"
 	}
 	if next != nil {
-		value += fmt.Sprintf("Next file page: read_file with offset=%d\n", *next)
+		value += fmt.Sprintf("Next file page: read_file with offset=%d (do not use read_tool_output for further file lines)\n", *next)
 	}
 	value += encoded(map[string]any{"output": source, "next_offset": next, "truncated": page.Truncated})
 	return value
@@ -124,7 +124,7 @@ func renderFile(page protocol.FileLines, body string, shown *fileRange, shortene
 func unchangedFile(page protocol.FileLines, first, last uint64, source map[string]any) string {
 	value := fmt.Sprintf("%s\nLines %d–%d are unchanged since an earlier read_file result in this conversation; revision %s\n", page.Path, first, last, page.Revision)
 	if page.NextOffset != nil {
-		value += fmt.Sprintf("Next file page: read_file with offset=%d\n", *page.NextOffset)
+		value += fmt.Sprintf("Next file page: read_file with offset=%d (do not use read_tool_output for further file lines)\n", *page.NextOffset)
 	}
 	return value + encoded(map[string]any{"output": source, "next_offset": page.NextOffset})
 }

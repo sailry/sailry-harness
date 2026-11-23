@@ -64,14 +64,14 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		}
 	}
 	SetToolSchemas(&call, request.ToolSchemas)
+	for _, tool := range request.Tools {
+		call.Tools = append(call.Tools, tool)
+	}
 	params := requestParameters(binding, &call)
 	call.ProviderOptions[parametersKey] = params
 	cache := cacheOptions(binding)
 	if request.System != "" {
 		call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleSystem, Content: []fantasy.MessagePart{fantasy.TextPart{Text: request.System, ProviderOptions: cache}}})
-	}
-	for _, tool := range request.Tools {
-		call.Tools = append(call.Tools, tool)
 	}
 	records := request.visibleRecords()
 	origins := map[int]string{}

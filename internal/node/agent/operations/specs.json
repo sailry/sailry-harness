@@ -1787,7 +1787,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "databases.save",
@@ -1854,7 +1854,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "ssh.save",
@@ -2004,7 +2004,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "databases.query",
@@ -2044,7 +2044,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "databases.execute",
@@ -2685,7 +2685,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "storage.list",
@@ -2716,7 +2716,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "storage.set",

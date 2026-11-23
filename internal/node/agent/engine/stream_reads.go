@@ -22,6 +22,7 @@ type streamedReads struct {
 	slots    chan struct{}
 	workers  sync.WaitGroup
 	pending  map[*canonical.ToolRequest]*streamedRead
+	skipped  map[*canonical.ToolRequest]canonical.ToolRequest
 	accepted map[string]*streamedRead
 	next     int
 	blocked  bool
@@ -60,13 +61,23 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 		return
 	}
 	tool := findTool(x.tools, call.Name)
-	if call.Error != nil || tool == nil || !tool.StreamRead || !tool.ReadOnly || !tool.Concurrent || tool.Approval ||
+	if call.Error != nil || tool == nil || !tool.ReadOnly || !tool.Concurrent || tool.Approval ||
 		tool.Confirm != nil || tool.ObserveHistory != nil || tool.Delegation || x.hooks.WrapsTool(call.Name) {
 		reads.blocked = true
 		return
 	}
 	if validateToolArguments(tool, call).Failure != nil {
 		reads.blocked = true
+		return
+	}
+	// A read-only concurrent tool without StreamRead joins the same concurrent
+	// batch as following reads and does not mutate state they observe, so it
+	// need not block later native reads from starting during the stream.
+	if !tool.StreamRead {
+		if reads.skipped == nil {
+			reads.skipped = make(map[*canonical.ToolRequest]canonical.ToolRequest)
+		}
+		reads.skipped[request] = call
 		return
 	}
 	if reads.ctx == nil {
@@ -130,6 +141,7 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 // first unresolved call can reuse reads that started during the stream.
 func (reads *streamedReads) adopt(blocks []canonical.Block) bool {
 	if len(reads.pending) == 0 {
+		reads.skipped = nil
 		return false
 	}
 	reads.accepted = make(map[string]*streamedRead, len(reads.pending))
@@ -139,6 +151,12 @@ func (reads *streamedReads) adopt(blocks []canonical.Block) bool {
 			continue
 		}
 		if request.Error == nil && streamReadTransparent(request.Name) {
+			continue
+		}
+		if skipped, ok := reads.skipped[request]; ok {
+			if request.Error != nil || request.ID != skipped.ID || request.Name != skipped.Name || !bytes.Equal(request.Arguments, skipped.Arguments) {
+				break
+			}
 			continue
 		}
 		job := reads.pending[request]
@@ -157,7 +175,7 @@ func (reads *streamedReads) adopt(blocks []canonical.Block) bool {
 			<-job.done
 		}
 	}
-	reads.pending = nil
+	reads.pending, reads.skipped = nil, nil
 	return len(reads.accepted) > 0
 }
 
@@ -172,6 +190,6 @@ func (reads *streamedReads) close() {
 	if reads != nil && reads.end != nil {
 		reads.end()
 		reads.workers.Wait()
-		reads.end, reads.pending, reads.accepted = nil, nil, nil
+		reads.end, reads.pending, reads.skipped, reads.accepted = nil, nil, nil, nil
 	}
 }

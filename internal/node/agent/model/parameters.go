@@ -121,6 +121,11 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 			params.Body["thinking"] = thinking
 		}
 		if api == protocol.ConversationModelApiResponses {
+			if len(call.Tools) > 0 {
+				if _, exists := params.Body["parallel_tool_calls"]; !exists {
+					params.Body["parallel_tool_calls"] = true
+				}
+			}
 			isReasoning := enabled && (reasoning != nil || openai || responsesModel.MatchString(binding.Config.Model))
 			if isReasoning {
 				params.Body["include"] = []string{"reasoning.encrypted_content"}
@@ -329,6 +334,9 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 		}
 		if removeOrder("reasoning_effort") {
 			appendOrder("reasoning")
+		}
+		if params.Body["parallel_tool_calls"] != nil {
+			appendOrder("parallel_tool_calls")
 		}
 	} else if openaiAPI && call.MaxOutputTokens != nil {
 		if params.Body["max_completion_tokens"] != nil {

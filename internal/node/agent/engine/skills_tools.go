@@ -75,7 +75,7 @@ func (r *Runtime) skillTools(x *execution) []Tool {
 		if resource {
 			name, description, schema = "read_skill_resource", "Read complete UTF-8 text from a file relative to an available skill's directory. Use package:skill and a normalized relative path. Binary or oversized resources report an error, not a partial file.", readSchema
 		}
-		tools = append(tools, jsonTool(name, description, schema, true, resource, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+		tool := jsonTool(name, description, schema, true, resource, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 			if ctx.Err() != nil || x.ctx.Err() != nil {
 				return invalidTool("skill invocation is no longer active")
 			}
@@ -109,7 +109,9 @@ func (r *Runtime) skillTools(x *execution) []Tool {
 				}
 			}
 			return ToolResult{Value: out}
-		}))
+		})
+		tool.StreamRead = resource
+		tools = append(tools, tool)
 	}
 	return tools
 }

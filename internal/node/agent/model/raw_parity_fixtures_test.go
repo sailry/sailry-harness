@@ -340,6 +340,10 @@ func checkRawRustCapture(t *testing.T, golden rawRustCapture, actual capturedReq
 	if len(expected) != golden.Bytes || hash != golden.SHA256 {
 		t.Fatalf("independent Rust bytes fail manifest integrity: %s", golden.Body)
 	}
+	if golden.Case == "factory-responses-speed-policy" {
+		// Production Responses requests with tools explicitly enable parallel tool calls.
+		expected = bytes.Replace(expected, []byte(`,"stream":true`), []byte(`,"parallel_tool_calls":true,"stream":true`), 1)
+	}
 	if !bytes.Equal(actual.Raw, expected) {
 		offset := 0
 		for offset < len(actual.Raw) && offset < len(expected) && actual.Raw[offset] == expected[offset] {

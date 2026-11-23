@@ -311,3 +311,58 @@ func TestStreamReadsContinuePastUpdatePlan(t *testing.T) {
 	close(finishStream)
 	f.waitRun(turn, protocol.ConversationStatusCompleted)
 }
+
+func TestStreamReadsContinuePastConcurrentReadOnlyTool(t *testing.T) {
+	readStarted := make(chan string, 2)
+	finishStream := make(chan struct{})
+	var fetchRan atomic.Bool
+	fetch := objectTool("web_fetch", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		fetchRan.Store(true)
+		return ToolResult{Value: "fetched"}
+	})
+	read := objectTool("read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		readStarted <- "read"
+		return ToolResult{Value: "file"}
+	})
+	read.StreamRead = true
+	model := &scriptedModel{scripts: []script{
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			response(call("f1", "web_fetch", `{}`), call("r1", "read", `{}`))(ctx, request, yield)
+			select {
+			case <-finishStream:
+				response(text("Loaded"), finish())(ctx, request, yield)
+			case <-ctx.Done():
+			}
+		},
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, model, fetch, read)
+	f.start()
+	turn := f.submit("Fetch and read")
+	select {
+	case <-readStarted:
+	case <-f.ctx.Done():
+		t.Fatal("stream read did not start past concurrent read-only tool")
+	}
+	if fetchRan.Load() {
+		t.Fatal("non-StreamRead tool executed before the model stream committed")
+	}
+	close(finishStream)
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if !fetchRan.Load() {
+		t.Fatal("non-StreamRead tool did not execute after the stream committed")
+	}
+	var ids []string
+	for _, record := range f.state().Records {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
+				if resp, ok := block.Data.(*canonical.ToolResponse); ok {
+					ids = append(ids, resp.ID)
+				}
+			}
+		}
+	}
+	if !slices.Equal(ids, []string{"f1", "r1"}) {
+		t.Fatalf("result order = %v, want [f1 r1]", ids)
+	}
+}

@@ -91,6 +91,9 @@ func productionRawRustFixtures(t *testing.T, captures map[string]rawRustCapture)
 				t.Fatalf("missing independent source factory capture %s", row.name)
 			}
 			checkRawRustCapture(t, golden, requests[0])
+			if row.kind == "responses" {
+				checkValue(t, requests[0].Body, "parallel_tool_calls", true)
+			}
 			if row.kind == "google" {
 				checkValue(t, requests[0].Body, "generationConfig.stopSequences", []any{"END"})
 				checkValue(t, requests[0].Body, "generationConfig.candidateCount", float64(1))

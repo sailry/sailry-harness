@@ -247,3 +247,61 @@ func TestAudienceOwnsUnchangedToolOutput(t *testing.T) {
 		t.Fatal("audience projection modified canonical output")
 	}
 }
+
+func TestFilePreviewFitsUpTo48KiBAndPaginatesAbove(t *testing.T) {
+	makeFile := func(count int) canonical.Record {
+		lines := make([]protocol.FileLine, count)
+		size := uint64(0)
+		for i := range lines {
+			text := fmt.Sprintf("const line%04d = %q\n", i+1, strings.Repeat("x", 64))
+			lines[i] = protocol.FileLine{Number: uint64(i + 1), Text: text}
+			size += uint64(len(text))
+		}
+		return resultRecord("file", map[string]any{
+			"kind": "file_lines",
+			"data": protocol.FileLines{Path: "tools.go", Lines: lines, Size: size, Revision: "rev-1", Offset: 0},
+		}, canonical.JSON)
+	}
+
+	t.Run("fits_38kib_in_single_page", func(t *testing.T) {
+		record := makeFile(420) // ~36 KiB raw text, > 32 KiB old limit, < 48 KiB new limit
+		var cache Cache
+		projected := cache.Project([]canonical.Record{record})
+		value := onlyResponse(&projected[0])
+		envelope := object(decode(value.Result.Value))
+		bytes, lines := size(envelope)
+		if bytes > MaxBytes || lines > MaxLines {
+			t.Fatalf("projected file exceeded bounds: %d bytes, %d lines", bytes, lines)
+		}
+		text := projectedText(projected[0])
+		if !strings.Contains(text, "Lines 1–420;") || !strings.Contains(text, "420\tconst line0420") {
+			t.Fatalf("36 KiB file was paginated unexpectedly: tail=%q", text[max(0, len(text)-240):])
+		}
+		if strings.Contains(text, "Next file page:") || !strings.Contains(text, `"next_offset":null`) {
+			t.Fatalf("unexpected pagination metadata: tail=%q", text[max(0, len(text)-240):])
+		}
+	})
+
+	t.Run("paginates_60kib_cleanly_within_max_bytes", func(t *testing.T) {
+		record := makeFile(720) // ~62 KiB raw text, > 48 KiB limit
+		var cache Cache
+		projected := cache.Project([]canonical.Record{record})
+		value := onlyResponse(&projected[0])
+		envelope := object(decode(value.Result.Value))
+		bytes, lines := size(envelope)
+		if bytes > MaxBytes || lines > MaxLines {
+			t.Fatalf("paginated file exceeded bounds: %d bytes, %d lines", bytes, lines)
+		}
+		text := projectedText(projected[0])
+		if !strings.Contains(text, "Next file page: read_file with offset=") || !strings.Contains(text, "do not use read_tool_output") {
+			t.Fatalf("pagination guidance missing: tail=%q", text[max(0, len(text)-240):])
+		}
+		var receipt struct {
+			Output     protocol.ToolOutputOutputReference `json:"output"`
+			NextOffset *uint64                            `json:"next_offset"`
+		}
+		if err := json.Unmarshal([]byte(text[strings.LastIndexByte(text, '\n')+1:]), &receipt); err != nil || receipt.Output.Call != "file" || receipt.NextOffset == nil || *receipt.NextOffset == 0 {
+			t.Fatalf("invalid pagination receipt: %q, err=%v", text[strings.LastIndexByte(text, '\n')+1:], err)
+		}
+	})
+}

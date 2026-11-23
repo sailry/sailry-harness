@@ -201,6 +201,9 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 			if options.Include != nil {
 				body["include"] = options.Include
 			}
+			if options.ParallelToolCalls != nil {
+				body["parallel_tool_calls"] = *options.ParallelToolCalls
+			}
 		}
 		// GPT-6.2 caches reusable instructions at the front of input.
 		// Keep explicit request-level overrides in their original place.
@@ -404,6 +407,9 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 			body["max_tokens"] = *call.MaxOutputTokens
 		}
 		body["tools"] = genericTools(call, false)
+		if options, ok := call.ProviderOptions[openai.Name].(*openai.ProviderOptions); ok && options != nil && options.ParallelToolCalls != nil {
+			body["parallel_tool_calls"] = *options.ParallelToolCalls
+		}
 		body["stream_options"] = map[string]any{"include_usage": true}
 	}
 	if config.Kind != "google" && call.Temperature != nil {
@@ -430,6 +436,10 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 					generation[field] = setting
 				}
 				body[key] = generation
+			} else if key == "parallel_tool_calls" {
+				if _, exists := body[key]; !exists {
+					body[key] = value
+				}
 			} else {
 				body[key] = value
 			}
