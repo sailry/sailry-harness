@@ -159,7 +159,7 @@ jobs:
         id: turso-licenses
         with:
           path: .runtime/licenses/turso-${{ matrix.triple }}
-          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq', 'internal/node/host/deployment/licenses.sh') }}
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .runtime/native/dl
@@ -252,7 +252,7 @@ jobs:
         id: turso-licenses
         with:
           path: .runtime/licenses/turso-x86_64-pc-windows-msvc
-          key: turso-licenses-v1-x86_64-pc-windows-msvc-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+          key: turso-licenses-v1-x86_64-pc-windows-msvc-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq', 'internal/node/host/deployment/licenses.sh') }}
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .runtime/native/dl
@@ -308,7 +308,7 @@ jobs:
         id: turso-licenses
         with:
           path: .runtime/licenses/turso-${{ matrix.triple }}
-          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq') }}
+          key: turso-licenses-v1-${{ matrix.triple }}-${{ hashFiles('native/turso/Cargo.toml', 'native/turso/Cargo.lock', 'internal/node/host/deployment/dependencies.jq', 'internal/node/host/deployment/licenses.sh') }}
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .runtime/native/dl

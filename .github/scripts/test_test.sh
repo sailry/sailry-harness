@@ -75,8 +75,11 @@ case "$1 ${2:-}" in
     if test "${1:-}" = -tags; then
       test "$2" = integration
       shift 2
-      test "$#" -eq 3 && test "$2" = -run
-      printf '%s\t%s\t%s\n' "$SAILRY_CI_LANE" "$1" "$3" >> "$SAILRY_CI_FIXTURE/calls"
+      if test "$#" -eq 3 && test "$2" = -run; then
+        printf '%s\t%s\t%s\n' "$SAILRY_CI_LANE" "$1" "$3" >> "$SAILRY_CI_FIXTURE/calls"
+      else
+        for package in "$@"; do printf '%s\t%s\tall\n' "$SAILRY_CI_LANE" "$package"; done >> "$SAILRY_CI_FIXTURE/calls"
+      fi
     elif test "$#" -eq 3 && test "$2" = -run; then
       printf '%s\t%s\t%s\n' "$SAILRY_CI_LANE" "$1" "$3" >> "$SAILRY_CI_FIXTURE/calls"
     else
@@ -339,7 +342,27 @@ META
 directory=$fixture/integration-mode
 mkdir "$directory"
 : > "$fixture/calls"
-(cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_LANE=integration bash "$script" integration ./internal/node/store ./internal/core) > "$directory/output" 2>&1
+(cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=linux SAILRY_CI_LANE=integration bash "$script" integration ./internal/node/store ./internal/core) > "$directory/output" 2>&1
 diff -u <(printf 'integration\t%s/internal/node/store\t^(TestHotPaths|TestStorageLoad)$\n' "$module") "$fixture/calls"
+
+# Packages without integration tests fail rather than pass having run nothing.
+printf '%s/internal/core\tshared_test.go\n' "$module" > "$fixture/integration.metadata"
+directory=$fixture/integration-empty
+mkdir "$directory"
+: > "$fixture/calls"
+status=0
+(cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=linux SAILRY_CI_LANE=integration bash "$script" integration ./internal/core) > "$directory/output" 2>&1 || status=$?
+test "$status" -eq 1
+grep -q 'No integration tests in: ./internal/core' "$directory/output"
+test ! -s "$fixture/calls"
+
+# Test lanes run only on Linux, so other systems run whole package suites.
+for platform in darwin windows; do
+  directory=$fixture/integration-$platform
+  mkdir "$directory"
+  : > "$fixture/calls"
+  (cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=$platform SAILRY_CI_LANE=integration bash "$script" integration ./internal/node/store ./internal/core) > "$directory/output" 2>&1
+  diff -u <(printf 'integration\t./internal/node/store\tall\nintegration\t./internal/core\tall\n') "$fixture/calls"
+done
 
 echo 'Test lane routing fixtures passed'

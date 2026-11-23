@@ -30,6 +30,12 @@ if [ "$lane" = integration ]; then
     echo 'At least one package is required for integration mode' >&2
     exit 1
   fi
+  # Test lanes run only on Linux, so other systems run each package's whole suite.
+  if [ "$(go env GOOS)" != linux ]; then
+    go test -p 1 -timeout 20m -tags integration "$@"
+    exit 0
+  fi
+  ran=0
   go list -tags integration -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' "$@" > "$RUNNER_TEMP/integration-files.txt"
   while IFS=$'\t' read -r -a files; do
     package=${files[0]}
@@ -50,8 +56,13 @@ if [ "$lane" = integration ]; then
     ')
     if [ -n "$pattern" ]; then
       go test -p 1 -timeout 20m -tags integration "$package" -run "^($pattern)$"
+      ran=1
     fi
   done < "$RUNNER_TEMP/integration-files.txt"
+  if [ "$ran" -eq 0 ]; then
+    echo "No integration tests in: $*" >&2
+    exit 1
+  fi
   exit 0
 fi
 
@@ -113,7 +124,7 @@ if [ "$lane" = platform ]; then
     fi
   done < "$RUNNER_TEMP/package-files.txt"
   if [ "${#all_packages[@]}" -gt 0 ]; then
-    go test -timeout 20m "${all_packages[@]}"
+    go test -p 1 -timeout 20m "${all_packages[@]}"
   fi
   exit 0
 fi

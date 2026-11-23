@@ -266,7 +266,7 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
   adds the integration files to the default ones, so integration tests that no
   routine job runs are still compiled.
 - `test`: Linux runs the complete Go suite with cgo disabled on code changes
-  (documentation-only changes skip Go jobs). Four lanes, `linux-0` through
+  (changes only to documentation, licenses or `apps/mobile` skip Go jobs). Four lanes, `linux-0` through
   `linux-3`, balance complete packages and the top-level tests, examples and
   fuzz seeds of `desktop/live` and `desktop/shell`, retaining each parent's
   subtests. Measured duration hints affect placement only; new packages and
@@ -301,8 +301,10 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
 - `integration`: never on pull requests or main. Manually with the
   `integration` input it tests `integration_packages`; left empty, and in a
   release, it tests the release set named in the workflow: packages that need
-  no downloaded model and no external service, executing only tests declared in
-  `//go:build integration` files so default unit suites are not repeated. Each
+  no downloaded model and no external service. Linux executes only tests
+  declared in `//go:build integration` files, since its test lanes run the
+  default suites, and fails when the packages declare none; macOS and Windows
+  run each package's whole suite. Each
   leg verifies its native artifact and runs the Link tests against local peers
   and a private relay.
 

@@ -469,8 +469,8 @@ jobs:
         env:
           PACKAGES: ${{ inputs.integration_packages }}
           SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
-        # Run only tests declared in //go:build integration files so default unit
-        # suites already verified by test lanes are not repeated across 3 OSes.
+        # Linux runs only tests declared in //go:build integration files, which
+        # its test lanes do not cover; macOS and Windows run whole suites.
         run: |
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
