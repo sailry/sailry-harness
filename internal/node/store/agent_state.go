@@ -251,6 +251,9 @@ func AppendCanonicalWithProvider(ctx context.Context, db *sql.Conn, session prot
 	if _, err = db.ExecContext(ctx, "INSERT INTO agent_events(sequence,session,id,turn,body) VALUES(?1,?2,?3,?4,?5)", sequence, session.String(), record.ID, record.Turn.String(), body); err != nil {
 		return protocol.ConversationEntry{}, nil, err
 	}
+	if err = insertAgentUsageRecord(ctx, db, sequence, session, record); err != nil {
+		return protocol.ConversationEntry{}, nil, err
+	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_events(session,sequence) VALUES(?1,?2)", session.String(), sequence); err != nil {
 		return protocol.ConversationEntry{}, nil, err
 	}

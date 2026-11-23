@@ -42,26 +42,18 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	report.Days = usageBuckets(query.StartMs, query.EndMs, 86400000, offset)
 	recentStart := max(query.StartMs, query.EndMs-2*86400000)
 	report.Recent = usageBuckets(recentStart, query.EndMs, 1800000, offset)
-	projects, _ := encode(query.Projects)
-	worktrees, _ := encode(query.Worktrees)
-	providers, _ := encode(query.Providers)
-	models, _ := encode(query.Models)
-	if query.Projects == nil {
-		projects = []byte("[]")
-	}
-	if query.Worktrees == nil {
-		worktrees = []byte("[]")
-	}
-	if query.Providers == nil {
-		providers = []byte("[]")
-	}
-	if query.Models == nil {
-		models = []byte("[]")
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return report, err
 	}
+	lookups, err := loadUsageLookups(ctx, db, user.ID.String())
+	if err != nil {
+		return report, err
+	}
+	projectFilter := usageIDFilter(query.Projects)
+	worktreeFilter := usageIDFilter(query.Worktrees)
+	providerFilter := usageIDFilter(query.Providers)
+	modelFilter := usageStringFilter(query.Models)
 	index := 0
 	switch query.Dimension {
 	case protocol.UsageDimensionModel:
@@ -71,7 +63,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	case protocol.UsageDimensionWorktree:
 		index = 3
 	}
-	rows, err := db.QueryContext(ctx, agentUsageRows, time.UnixMilli(query.StartMs).UTC().Format("2006-01-02T15:04:05"), time.UnixMilli(query.EndMs).UTC().Format("2006-01-02T15:04:05"), string(projects), string(worktrees), string(providers), string(models), 100001, user.ID.String())
+	rows, err := db.QueryContext(ctx, agentUsageRecordRows, time.UnixMilli(query.StartMs).UTC().Format("2006-01-02T15:04:05"), time.UnixMilli(query.EndMs).UTC().Format("2006-01-02T15:04:05"))
 	if err != nil {
 		return report, err
 	}
@@ -79,25 +71,73 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	// beside the open statement on the same connection.
 	defer rows.Close()
 	var (
-		row     usageRow
-		stored  canonical.Usage
-		usage   sql.RawBytes
-		scanned int
+		createdText       string
+		sequence          uint64
+		sessionID         string
+		turnText          string
+		usage             sql.RawBytes
+		sourceRaw         sql.RawBytes
+		elapsedRaw        sql.NullInt64
+		firstRaw          sql.NullInt64
+		mediaRaw          sql.NullString
+		reasoningStreamed bool
+		stored            canonical.Usage
+		usageScratch      usageDecodeScratch
+		scanned           int
 	)
 	groups := map[string]*protocol.UsageGroup{}
 	resources := map[string]protocol.UsageKey{}
 	scopes := map[usageScopeKey]*usageScope{}
+	turns := map[string]*usageTurnMeta{}
 	latest := usageLatest{items: []protocol.UsageRequest{}}
 	prices := &modelPrices{}
 	for rows.Next() {
+		if err = rows.Scan(&createdText, &sequence, &sessionID, &turnText, &usage, &sourceRaw, &elapsedRaw, &firstRaw, &mediaRaw, &reasoningStreamed); err != nil {
+			return report, err
+		}
+		meta := turns[turnText]
+		if meta == nil {
+			meta, err = loadUsageTurnMeta(ctx, db, lookups, turnText)
+			if err != nil {
+				return report, err
+			}
+			turns[turnText] = meta
+		}
+		if !meta.accessible {
+			continue
+		}
+		if len(projectFilter) > 0 {
+			if !meta.projectID.Valid {
+				continue
+			}
+			if _, ok := projectFilter[meta.projectID.String]; !ok {
+				continue
+			}
+		}
+		if len(worktreeFilter) > 0 {
+			if _, ok := worktreeFilter[meta.worktreeID]; !ok {
+				continue
+			}
+		}
+		resolved, err := resolveUsageProvider(ctx, db, lookups, meta, sessionID, mediaRaw, sourceRaw)
+		if err != nil {
+			return report, err
+		}
+		if len(providerFilter) > 0 {
+			if _, ok := providerFilter[resolved.providerID]; !ok {
+				continue
+			}
+		}
+		if len(modelFilter) > 0 {
+			if _, ok := modelFilter[resolved.model]; !ok {
+				continue
+			}
+		}
 		if scanned == 100000 {
 			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
 		}
 		scanned++
-		if err = rows.Scan(&row.time, &row.scope.provider, &row.model, &row.scope.project, &row.scope.worktree, &row.api, &row.authentication, &row.endpoint, &usage, &row.elapsed, &row.media, &row.sequence, &row.scope.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scopeName, &row.scope.resource, &row.scope.assistant, &row.preset); err != nil {
-			return report, err
-		}
-		created, e := time.Parse(time.RFC3339Nano, row.time)
+		created, e := time.Parse(time.RFC3339Nano, createdText)
 		if e != nil {
 			return report, e
 		}
@@ -105,20 +145,24 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if ms < query.StartMs || ms >= query.EndMs {
 			continue
 		}
-		row.scope.model = row.model
-		scope := scopes[row.scope]
+		scopeKey := usageScopeKey{
+			provider:  resolved.providerID,
+			model:     resolved.model,
+			worktree:  meta.worktreeID,
+			session:   sessionID,
+			project:   meta.projectID,
+			resource:  meta.resource,
+			assistant: meta.assistant,
+		}
+		scope := scopes[scopeKey]
 		if scope == nil {
-			if scope, e = newUsageScope(row.scope); e != nil {
+			if scope, e = newUsageScope(scopeKey); e != nil {
 				return report, e
 			}
-			scopes[row.scope] = scope
+			scopes[scopeKey] = scope
 			for i, key := range scope.keys {
 				resources[scope.texts[i]] = key
 			}
-		}
-		turn, e := protocol.ParseTurnID(row.turn)
-		if e != nil {
-			return report, e
 		}
 		keyText := scope.texts[index]
 		group := groups[keyText]
@@ -128,13 +172,13 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			group = &g
 			groups[keyText] = group
 		}
-		providerName := row.scope.provider
-		if row.providerName.Valid {
-			providerName = row.providerName.String
+		providerName := resolved.providerID
+		if resolved.providerName.Valid {
+			providerName = resolved.providerName.String
 		}
 		name := providerName
 		if index == 2 {
-			name = row.scopeName
+			name = meta.scopeName
 		}
 		// The group is named after its latest response.
 		if index < 3 && name != "" && (group.Name == nil || *group.Name != name) {
@@ -144,13 +188,12 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if len(groups) > 4096 || len(resources) > 4096*4 {
 			return report, invalid("usage report exceeds the group or resource limit; narrow the filters")
 		}
-		// The scanned bytes are decoded without a copy; only the provider body
-		// is retained.
+		// Decode into reusable scratch values to avoid per-row pointer allocations.
 		stored = canonical.Usage{}
-		if e = stored.UnmarshalJSON(usage); e != nil {
+		if e = decodeUsageFast(usage, &stored, &usageScratch); e != nil {
 			return report, e
 		}
-		cost, e := readAgentCost(ctx, db, prices, row.media.String, row.preset.String, row.api.String, row.model, stored)
+		cost, e := readAgentCost(ctx, db, prices, mediaRaw.String, resolved.preset, resolved.api, resolved.model, stored)
 		if e != nil {
 			return report, e
 		}
@@ -159,13 +202,13 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if stored.Input != nil && stored.Output != nil {
 			complete = &tokens
 		}
-		elapsed, elapsedKnown := usageMicros(row.elapsed)
-		first, firstKnown := usageMicros(row.first)
+		elapsed, elapsedKnown := usageMicros(elapsedRaw)
+		first, firstKnown := usageMicros(firstRaw)
 		var generation *protocol.UsageGeneration
 		if stored.Output != nil && elapsedKnown && firstKnown {
-			generation = tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
+			generation = tokens.DecodeGeneration(&elapsed, &first, reasoningStreamed)
 		}
-		throughput := usageThroughput(stored.Output, row.elapsed, row.first, row.media)
+		throughput := usageThroughput(stored.Output, elapsedRaw, firstRaw, mediaRaw)
 		if e = addUsageMetrics(&report.Totals, complete, cost, generation, throughput); e != nil {
 			return report, e
 		}
@@ -177,7 +220,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			return report, e
 		}
 		if complete != nil {
-			addUsageModel(&report.Days[day], row.model, tokens)
+			addUsageModel(&report.Days[day], resolved.model, tokens)
 		}
 		if ms >= recentStart {
 			bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
@@ -185,12 +228,12 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 				return report, e
 			}
 			if complete != nil {
-				addUsageModel(&report.Recent[bucket], row.model, tokens)
+				addUsageModel(&report.Recent[bucket], resolved.model, tokens)
 			}
 		}
-		position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: row.sequence}
+		position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: sequence}
 		if before := query.Before; before != nil && (ms > before.TimestampMs || ms == before.TimestampMs &&
-			(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && row.sequence >= before.Sequence)) {
+			(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && sequence >= before.Sequence)) {
 			continue
 		}
 		if !latest.admits(position) {
@@ -199,17 +242,20 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		request := protocol.DefaultUsageRequest()
 		request.Position = position
 		request.Session = scope.session
-		request.Turn = turn
+		request.Turn = meta.turn
 		request.Project = scope.project
-		request.ScopeName = row.scopeName
+		request.ScopeName = meta.scopeName
 		request.Worktree = scope.worktree
 		request.Provider = scope.provider
 		request.ProviderName = providerName
-		request.Model = row.model
+		request.Model = resolved.model
 		request.Tokens = tokens
 		request.MissingInputTokens, request.MissingOutputTokens = stored.Input == nil, stored.Output == nil
 		request.CachedInputReported = stored.CacheRead != nil
-		request.CacheWrite = stored.CacheWrite
+		if stored.CacheWrite != nil {
+			v := *stored.CacheWrite
+			request.CacheWrite = &v
+		}
 		// Copies escape only for the requests a page keeps.
 		if elapsedKnown {
 			v := elapsed
@@ -220,7 +266,8 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			request.FirstTokenUs = &v
 		}
 		if cost != nil {
-			request.UsdMicros = &cost.UsdMicros
+			v := cost.UsdMicros
+			request.UsdMicros = &v
 		}
 		latest.add(request)
 	}
@@ -281,21 +328,537 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	return report, nil
 }
 
-// usageRow holds the columns of the response being aggregated.
-type usageRow struct {
-	time                          string
-	model                         string
-	scope                         usageScopeKey
-	api, authentication, endpoint sql.NullString
-	elapsed                       sql.NullInt64
-	media                         sql.NullString
-	sequence                      uint64
-	turn                          string
-	first                         sql.NullInt64
-	reasoningStreamed             bool
-	providerName                  sql.NullString
-	scopeName                     string
-	preset                        sql.NullString
+type usageProjectInfo struct {
+	name       string
+	accessible bool
+}
+
+type usageProviderMeta struct {
+	id           string
+	api          string
+	providerName sql.NullString
+	preset       string
+}
+
+type usageMediaBinding struct {
+	model    string
+	provider usageProviderMeta
+}
+
+type usageLookups struct {
+	userID        string
+	localUserID   string
+	projects      map[string]usageProjectInfo
+	savedPresets  map[string]string
+	sessionMedia  map[string]map[string]usageMediaBinding
+	databaseNames map[string]sql.NullString
+	sshNames      map[string]sql.NullString
+}
+
+func loadUsageLookups(ctx context.Context, db *sql.Conn, userID string) (*usageLookups, error) {
+	lookups := &usageLookups{
+		userID:       userID,
+		projects:     map[string]usageProjectInfo{},
+		savedPresets: map[string]string{},
+	}
+	var localID sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT id FROM users WHERE local=1").Scan(&localID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	lookups.localUserID = localID.String
+	projectRows, err := db.QueryContext(ctx, "SELECT id,name,visibility,owner FROM projects")
+	if err != nil {
+		return nil, err
+	}
+	for projectRows.Next() {
+		var id, name, visibility string
+		var owner sql.NullString
+		if err = projectRows.Scan(&id, &name, &visibility, &owner); err != nil {
+			_ = projectRows.Close()
+			return nil, err
+		}
+		effectiveOwner := lookups.localUserID
+		if owner.Valid {
+			effectiveOwner = owner.String
+		}
+		lookups.projects[id] = usageProjectInfo{
+			name:       name,
+			accessible: visibility == "shared" || effectiveOwner == userID,
+		}
+	}
+	if err = errors.Join(projectRows.Err(), projectRows.Close()); err != nil {
+		return nil, err
+	}
+	presetRows, err := db.QueryContext(ctx, "SELECT id,json_extract(body,'$.provider.preset.id') FROM providers WHERE json_extract(body,'$.provider.preset.source.kind')='builtin'")
+	if err != nil {
+		return nil, err
+	}
+	for presetRows.Next() {
+		var id string
+		var preset sql.NullString
+		if err = presetRows.Scan(&id, &preset); err != nil {
+			_ = presetRows.Close()
+			return nil, err
+		}
+		if preset.Valid {
+			lookups.savedPresets[id] = preset.String
+		}
+	}
+	if err = errors.Join(presetRows.Err(), presetRows.Close()); err != nil {
+		return nil, err
+	}
+	return lookups, nil
+}
+
+func (lookups *usageLookups) connectionName(ctx context.Context, db *sql.Conn, kind, id string) (sql.NullString, error) {
+	var cache map[string]sql.NullString
+	var query string
+	switch kind {
+	case "database":
+		if lookups.databaseNames == nil {
+			lookups.databaseNames = map[string]sql.NullString{}
+		}
+		cache, query = lookups.databaseNames, "SELECT json_extract(body,'$.name') FROM database_profiles WHERE id=?1"
+	case "ssh":
+		if lookups.sshNames == nil {
+			lookups.sshNames = map[string]sql.NullString{}
+		}
+		cache, query = lookups.sshNames, "SELECT json_extract(body,'$.name') FROM ssh_profiles WHERE id=?1"
+	default:
+		return sql.NullString{}, nil
+	}
+	if cached, ok := cache[id]; ok {
+		return cached, nil
+	}
+	var name sql.NullString
+	if err := db.QueryRowContext(ctx, query, id).Scan(&name); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return sql.NullString{}, err
+	}
+	cache[id] = name
+	return name, nil
+}
+
+func (lookups *usageLookups) mediaBinding(ctx context.Context, db *sql.Conn, sessionID, mediaKey string) (*usageMediaBinding, error) {
+	if lookups.sessionMedia == nil {
+		lookups.sessionMedia = map[string]map[string]usageMediaBinding{}
+	}
+	entries, loaded := lookups.sessionMedia[sessionID]
+	if !loaded {
+		var body []byte
+		err := db.QueryRowContext(ctx, "SELECT body FROM session_media WHERE session=?1", sessionID).Scan(&body)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		if len(body) > 0 {
+			var raw map[string]struct {
+				Model    string          `json:"model"`
+				Provider json.RawMessage `json:"provider"`
+			}
+			if json.Unmarshal(body, &raw) == nil {
+				entries = make(map[string]usageMediaBinding, len(raw))
+				for key, item := range raw {
+					entries[key] = usageMediaBinding{
+						model:    item.Model,
+						provider: decodeUsageProviderMeta(item.Provider),
+					}
+				}
+			}
+		}
+		lookups.sessionMedia[sessionID] = entries
+	}
+	if entries == nil {
+		return nil, nil
+	}
+	binding, ok := entries[mediaKey]
+	if !ok {
+		return nil, nil
+	}
+	return &binding, nil
+}
+
+type usageTurnMeta struct {
+	turn       protocol.TurnID
+	projectID  sql.NullString
+	worktreeID string
+	accessible bool
+	providerID string
+	model      string
+	captured   usageProviderMeta
+	resource   sql.NullString
+	assistant  sql.NullString
+	scopeName  string
+}
+
+func loadUsageTurnMeta(ctx context.Context, db *sql.Conn, lookups *usageLookups, turnText string) (*usageTurnMeta, error) {
+	meta := &usageTurnMeta{}
+	var projectID, sessionOwner sql.NullString
+	var worktreeID string
+	var configRaw, capturedRaw []byte
+	err := db.QueryRowContext(ctx, agentUsageTurnMetaQuery, turnText).Scan(&projectID, &sessionOwner, &worktreeID, &configRaw, &capturedRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return meta, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	meta.projectID = projectID
+	meta.worktreeID = worktreeID
+	if !projectID.Valid {
+		owner := lookups.localUserID
+		if sessionOwner.Valid {
+			owner = sessionOwner.String
+		}
+		meta.accessible = owner == lookups.userID
+	} else if info, ok := lookups.projects[projectID.String]; ok {
+		meta.accessible = info.accessible
+		meta.scopeName = info.name
+	}
+	if !meta.accessible {
+		return meta, nil
+	}
+	turn, err := protocol.ParseTurnID(turnText)
+	if err != nil {
+		return nil, err
+	}
+	meta.turn = turn
+	var cfg struct {
+		Provider  string          `json:"provider"`
+		Model     string          `json:"model"`
+		Resource  json.RawMessage `json:"resource"`
+		Assistant json.RawMessage `json:"assistant"`
+	}
+	_ = json.Unmarshal(configRaw, &cfg)
+	meta.providerID = cfg.Provider
+	meta.model = cfg.Model
+	if raw := bytes.TrimSpace(cfg.Resource); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		meta.resource = sql.NullString{String: string(raw), Valid: true}
+	}
+	if raw := bytes.TrimSpace(cfg.Assistant); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		meta.assistant = sql.NullString{String: string(raw), Valid: true}
+	}
+	meta.captured = decodeUsageProviderMeta(capturedRaw)
+	if !projectID.Valid {
+		name, err := resolveUsageScopeName(ctx, db, lookups, meta.resource, meta.assistant)
+		if err != nil {
+			return nil, err
+		}
+		meta.scopeName = name
+	}
+	return meta, nil
+}
+
+type usageDecodeScratch struct {
+	input, output, total, cacheRead, cacheWrite, reasoning uint64
+}
+
+// decodeUsageFast parses compact canonical.Usage JSON objects without
+// reflection for the common case (no nested pricing object), falling back to
+// canonical.Usage.UnmarshalJSON when pricing or non-trivial syntax appears.
+func decodeUsageFast(data []byte, dst *canonical.Usage, scratch *usageDecodeScratch) error {
+	if bytes.Contains(data, []byte(`"pricing"`)) || bytes.Contains(data, []byte(`\u`)) {
+		return dst.UnmarshalJSON(data)
+	}
+	i, n := 0, len(data)
+	skipWS := func() {
+		for i < n && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n' || data[i] == '\r') {
+			i++
+		}
+	}
+	skipWS()
+	if i >= n || data[i] != '{' {
+		return dst.UnmarshalJSON(data)
+	}
+	i++
+	skipWS()
+	if i < n && data[i] == '}' {
+		return nil
+	}
+	for {
+		skipWS()
+		if i >= n || data[i] != '"' {
+			return dst.UnmarshalJSON(data)
+		}
+		i++
+		keyStart := i
+		for i < n && data[i] != '"' {
+			if data[i] == '\\' {
+				return dst.UnmarshalJSON(data)
+			}
+			i++
+		}
+		if i >= n {
+			return dst.UnmarshalJSON(data)
+		}
+		key := data[keyStart:i]
+		i++
+		skipWS()
+		if i >= n || data[i] != ':' {
+			return dst.UnmarshalJSON(data)
+		}
+		i++
+		skipWS()
+		if i >= n {
+			return dst.UnmarshalJSON(data)
+		}
+		parseUint := func(slot *uint64) (**uint64, bool) { return nil, false }
+		_ = parseUint
+		if bytes.Equal(key, []byte("provider")) {
+			valStart := i
+			depth := 0
+			inStr := false
+			for i < n {
+				c := data[i]
+				if inStr {
+					if c == '\\' {
+						i += 2
+						continue
+					}
+					if c == '"' {
+						inStr = false
+					}
+					i++
+					continue
+				}
+				switch c {
+				case '"':
+					inStr = true
+				case '{', '[':
+					depth++
+				case '}', ']':
+					if depth == 0 {
+						goto providerDone
+					}
+					depth--
+				case ',':
+					if depth == 0 {
+						goto providerDone
+					}
+				}
+				i++
+			}
+		providerDone:
+			raw := bytes.TrimSpace(data[valStart:i])
+			if !bytes.Equal(raw, []byte("null")) {
+				dst.Provider = raw
+			}
+		} else if bytes.Equal(key, []byte("cost")) {
+			for i < n && data[i] != ',' && data[i] != '}' {
+				i++
+			}
+		} else if data[i] == 'n' && i+4 <= n && string(data[i:i+4]) == "null" {
+			i += 4
+		} else if data[i] >= '0' && data[i] <= '9' {
+			var val uint64
+			for i < n && data[i] >= '0' && data[i] <= '9' {
+				d := uint64(data[i] - '0')
+				if val > (math.MaxUint64-d)/10 {
+					return dst.UnmarshalJSON(data)
+				}
+				val = val*10 + d
+				i++
+			}
+			if i < n && (data[i] == '.' || data[i] == 'e' || data[i] == 'E') {
+				return dst.UnmarshalJSON(data)
+			}
+			switch string(key) {
+			case "input":
+				scratch.input = val
+				dst.Input = &scratch.input
+			case "output":
+				scratch.output = val
+				dst.Output = &scratch.output
+			case "total":
+				scratch.total = val
+				dst.Total = &scratch.total
+			case "cache_read":
+				scratch.cacheRead = val
+				dst.CacheRead = &scratch.cacheRead
+			case "cache_write":
+				scratch.cacheWrite = val
+				dst.CacheWrite = &scratch.cacheWrite
+			case "reasoning":
+				scratch.reasoning = val
+				dst.Reasoning = &scratch.reasoning
+			default:
+				return dst.UnmarshalJSON(data)
+			}
+		} else {
+			return dst.UnmarshalJSON(data)
+		}
+		skipWS()
+		if i >= n {
+			return dst.UnmarshalJSON(data)
+		}
+		if data[i] == ',' {
+			i++
+			continue
+		}
+		if data[i] == '}' {
+			return nil
+		}
+		return dst.UnmarshalJSON(data)
+	}
+}
+
+func resolveUsageScopeName(ctx context.Context, db *sql.Conn, lookups *usageLookups, resource, assistant sql.NullString) (string, error) {
+	if resource.Valid {
+		var parsed struct {
+			Kind string  `json:"kind"`
+			ID   *string `json:"id"`
+		}
+		if json.Unmarshal([]byte(resource.String), &parsed) == nil {
+			if parsed.ID != nil {
+				if parsed.Kind == "database" || parsed.Kind == "ssh" {
+					name, err := lookups.connectionName(ctx, db, parsed.Kind, *parsed.ID)
+					if err != nil {
+						return "", err
+					}
+					if name.Valid {
+						return name.String, nil
+					}
+				}
+				return *parsed.ID, nil
+			}
+		}
+	}
+	if assistant.Valid {
+		var parsed struct {
+			ID      *string `json:"id"`
+			Package *struct {
+				Name *string `json:"name"`
+			} `json:"package"`
+		}
+		if json.Unmarshal([]byte(assistant.String), &parsed) == nil && parsed.ID != nil && parsed.Package != nil && parsed.Package.Name != nil {
+			return *parsed.Package.Name + ":" + *parsed.ID, nil
+		}
+	}
+	return "", nil
+}
+
+func decodeUsageProviderMeta(raw []byte) usageProviderMeta {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return usageProviderMeta{}
+	}
+	var parsed struct {
+		ID     string  `json:"id"`
+		Name   *string `json:"name"`
+		API    string  `json:"api"`
+		Preset *struct {
+			ID     string `json:"id"`
+			Source struct {
+				Kind string `json:"kind"`
+			} `json:"source"`
+		} `json:"preset"`
+	}
+	if json.Unmarshal(raw, &parsed) != nil {
+		return usageProviderMeta{}
+	}
+	meta := usageProviderMeta{id: parsed.ID, api: parsed.API}
+	if parsed.Name != nil {
+		meta.providerName = sql.NullString{String: *parsed.Name, Valid: true}
+	}
+	if parsed.Preset != nil && parsed.Preset.Source.Kind == "builtin" {
+		meta.preset = parsed.Preset.ID
+	}
+	return meta
+}
+
+type usageResolvedProvider struct {
+	providerID   string
+	model        string
+	api          string
+	providerName sql.NullString
+	preset       string
+}
+
+func resolveUsageProvider(ctx context.Context, db *sql.Conn, lookups *usageLookups, meta *usageTurnMeta, sessionID string, media sql.NullString, sourceRaw []byte) (usageResolvedProvider, error) {
+	var assigned *usageMediaBinding
+	if media.Valid {
+		var err error
+		assigned, err = lookups.mediaBinding(ctx, db, sessionID, media.String)
+		if err != nil {
+			return usageResolvedProvider{}, err
+		}
+	}
+	var resolved usageResolvedProvider
+	var provider usageProviderMeta
+	source := bytes.TrimSpace(sourceRaw)
+	if len(source) > 0 && !bytes.Equal(source, []byte("null")) {
+		var parsed struct {
+			ID    *string `json:"id"`
+			Model *string `json:"model"`
+			Name  *string `json:"name"`
+			API   string  `json:"api"`
+		}
+		_ = json.Unmarshal(source, &parsed)
+		if parsed.ID != nil {
+			resolved.providerID = *parsed.ID
+			provider.id = *parsed.ID
+		}
+		if parsed.Model != nil {
+			resolved.model = *parsed.Model
+		}
+		provider.api = parsed.API
+		if parsed.Name != nil {
+			provider.providerName = sql.NullString{String: *parsed.Name, Valid: true}
+		}
+	} else if assigned != nil {
+		resolved.providerID = assigned.provider.id
+		resolved.model = assigned.model
+		provider = assigned.provider
+	} else {
+		resolved.providerID = meta.providerID
+		resolved.model = meta.model
+		provider = meta.captured
+	}
+	if resolved.providerID == "" {
+		if assigned != nil {
+			resolved.providerID = assigned.provider.id
+		} else {
+			resolved.providerID = meta.providerID
+		}
+	}
+	if resolved.model == "" {
+		if assigned != nil {
+			resolved.model = assigned.model
+		} else {
+			resolved.model = meta.model
+		}
+	}
+	resolved.api = provider.api
+	resolved.providerName = provider.providerName
+	switch {
+	case meta.captured.id == provider.id && meta.captured.preset != "":
+		resolved.preset = meta.captured.preset
+	case assigned != nil && assigned.provider.id == provider.id && assigned.provider.preset != "":
+		resolved.preset = assigned.provider.preset
+	default:
+		resolved.preset = lookups.savedPresets[provider.id]
+	}
+	return resolved, nil
+}
+
+func usageIDFilter[ID interface{ String() string }](values []ID) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value.String()] = struct{}{}
+	}
+	return set
+}
+
+func usageStringFilter(values []string) map[string]struct{} {
+	if len(values) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
 }
 
 // usageScopeKey is the stored identity from which a response's report keys

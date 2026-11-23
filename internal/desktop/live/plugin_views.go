@@ -57,6 +57,9 @@ type pluginViewState struct {
 	// remounts are the bundles of the usage pages the Demo mode switch
 	// disposed (demoChanged), which their next mounts take.
 	remounts map[pluginMountKey]protocol.PluginDesktopBundle
+	// sshDirectories caches recent SSH sidebar directory listings across
+	// navigation switches so returning to the SSH panel renders immediately.
+	sshDirectories *desktopplugins.SshDirectoryCache
 }
 
 type pluginMountedView struct {
@@ -113,15 +116,16 @@ func (r *Runtime) initPluginViews() {
 		return
 	}
 	r.pluginViews = &pluginViewState{
-		mounts:       map[pluginMountKey]*pluginMountedView{},
-		registries:   map[pluginScopeKey]*pluginContributionOwner{},
-		drafts:       map[string]*viewmodel.Conversation{},
-		navigation:   map[string]pluginNavigationEntry{},
-		settings:     map[settings.Section]pluginSettingsEntry{},
-		schemas:      map[settings.Section]*pluginSchemaSettings{},
-		failures:     map[pluginMountKey]pluginViewFailure{},
-		icons:        map[string]*ui.SVG{},
-		iconFailures: map[string]bool{},
+		mounts:         map[pluginMountKey]*pluginMountedView{},
+		registries:     map[pluginScopeKey]*pluginContributionOwner{},
+		drafts:         map[string]*viewmodel.Conversation{},
+		navigation:     map[string]pluginNavigationEntry{},
+		settings:       map[settings.Section]pluginSettingsEntry{},
+		schemas:        map[settings.Section]*pluginSchemaSettings{},
+		failures:       map[pluginMountKey]pluginViewFailure{},
+		icons:          map[string]*ui.SVG{},
+		iconFailures:   map[string]bool{},
+		sshDirectories: desktopplugins.NewSshDirectoryCache(nil),
 	}
 	r.App.Hooks.SelectPlugin = r.selectPluginView
 	r.App.Hooks.PluginPage = r.renderPluginPage
@@ -137,7 +141,10 @@ func (r *Runtime) closePluginViews() {
 	}
 	if r.parent == nil {
 		state.closed = true
+		state.sshDirectories.Clear()
 		root.showPluginDetails(nil)
+	} else {
+		state.sshDirectories.InvalidateNode(r.controller.Target())
 	}
 	for key, mounted := range state.mounts {
 		if r.parent == nil || mounted.owner == r {
@@ -460,7 +467,8 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		ExecutionResources: executionResources,
 		ReadFiles:          slices.Contains(actions, protocol.PluginActionReadFiles),
 		UsageSources:       root.pluginUsageSources, UsageChanges: root.pluginUsageChanges(mounted.ctx),
-		UsageSample: root.pluginUsageSample(),
+		UsageSample:       root.pluginUsageSample(),
+		SshDirectoryCache: root.pluginViews.sshDirectories,
 	})
 	mounted.host = host
 	modules, err := host.Modules()
@@ -544,6 +552,9 @@ func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
 func (r *Runtime) disconnectPluginView(mounted *pluginMountedView) {
 	if mounted.disconnected || mounted.failure != nil {
 		return
+	}
+	if views := r.localRuntime().pluginViews; views != nil && mounted.owner != nil {
+		views.sshDirectories.InvalidateNode(mounted.owner.controller.Target())
 	}
 	mounted.disconnected = true
 	mounted.loading = false

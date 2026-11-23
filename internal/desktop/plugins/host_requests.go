@@ -164,6 +164,11 @@ func (owner *Host) complete(ctx context.Context, identity string, confirm bool) 
 			break
 		}
 	}
+	if owner.binding.SshDirectoryCache != nil {
+		if profile, mutates := sshMutationProfile(request.Command); mutates {
+			owner.binding.SshDirectoryCache.InvalidateProfile(owner.target(), profile)
+		}
+	}
 	owner.mu.Lock()
 	settingsErr := owner.settings.finish(request.ID, output, failure)
 	owner.mu.Unlock()
@@ -204,6 +209,11 @@ func (owner *Host) outcome(ctx context.Context, identity string) (json.RawMessag
 		body, err := json.Marshal(outcome.Data)
 		if err != nil || json.Unmarshal(body, &result) != nil {
 			return nil, hostInvalid("invalid plugin request outcome")
+		}
+		if owner.binding.SshDirectoryCache != nil {
+			if profile, mutates := sshMutationProfile(request.Command); mutates {
+				owner.binding.SshDirectoryCache.InvalidateProfile(owner.target(), profile)
+			}
 		}
 		owner.mu.Lock()
 		var output protocol.Output

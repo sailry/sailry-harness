@@ -62,6 +62,7 @@ type Node struct {
 	networkProbes     *networkProbes
 	hostSampler       *host.Sampler
 	hostInstalls      *host.Installations
+	sshPool           *sshBrowsePool
 	wsl               *wsl.Service
 	databases         databaseOperations
 	ports             *ports.Service
@@ -366,6 +367,7 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"agent turns", quiet(node.agent.Stop)},
 		{"logins", quiet(node.closeAuth)},
 		{"terminals", node.terminals.Close},
+		{"ssh browse pool", node.sshPool.close},
 		{"network", func() error {
 			if node.network == nil {
 				return nil

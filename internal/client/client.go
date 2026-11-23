@@ -59,11 +59,12 @@ type Client struct {
 	conversations         map[protocol.SessionID]*conversationWatch
 	conversationBookmarks []conversationBookmark
 	conversationOwners    sync.WaitGroup
+	usageCache            *usageReadCache
 }
 
 func New(transport link.Transport) *Client {
 	closing, abort := context.WithCancel(context.Background())
-	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func()), closing: closing, abort: abort}
+	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func()), closing: closing, abort: abort, usageCache: newUsageReadCache()}
 }
 
 func (client *Client) Target() protocol.NodeID { return client.transport.Target() }

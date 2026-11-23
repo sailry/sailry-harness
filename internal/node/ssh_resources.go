@@ -141,6 +141,9 @@ func (node *Node) runSSHResource(ctx context.Context, caller protocol.NodeID, re
 		return protocol.SshOutcome{}, err
 	}
 	defer finish()
+	if browse, ok := request.Command.Data.(*protocol.CommandBrowseSshDirectoryPayload); ok {
+		return node.browseSSHDirectory(ctx, scoped, resource.timeout, profile, credential, browse)
+	}
 	connection, err := ssh.ConnectWithRecovery(scoped, clockwork.NewRealClock(), profile, credential)
 	if err != nil {
 		var required *ssh.HostKeyRequired
@@ -182,6 +185,59 @@ func (node *Node) runSSHResource(ctx context.Context, caller protocol.NodeID, re
 		return protocol.SshOutcome{}, err
 	}
 	return outcome, nil
+}
+
+// browseSSHDirectory reuses an idle authenticated SFTP session for the same
+// profile revision when available, retrying once with a fresh connection if a
+// pooled session went stale. Read-only listings are idempotent, so a stale
+// pooled transport is never surfaced as an error.
+func (node *Node) browseSSHDirectory(parent, scoped context.Context, timeout time.Duration, profile protocol.SshProfile, credential protocol.SshCredential, input *protocol.CommandBrowseSshDirectoryPayload) (protocol.SshOutcome, error) {
+	timed, cancel := context.WithTimeout(scoped, timeout)
+	defer cancel()
+	if pooled := node.sshPool.acquire(profile.ID, profile.Revision); pooled != nil {
+		stop := context.AfterFunc(timed, func() { _ = pooled.close() })
+		directory, err := ssh.List(pooled.sftp, input.Path, input.After)
+		stop()
+		if err == nil {
+			if timed.Err() == nil && node.ctx.Err() == nil {
+				node.sshPool.release(profile.ID, profile.Revision, pooled)
+			} else {
+				_ = pooled.close()
+			}
+			return protocol.SshOutcome{Kind: "directory", Data: directory}, nil
+		}
+		_ = pooled.close()
+		if timed.Err() != nil {
+			return protocol.SshOutcome{}, sshInterrupted(parent, timed, err, "SSH file operation cancelled; inspect the remote target before retrying", "SSH file operation interrupted; inspect the remote target before retrying", "SSH file operation timed out; inspect the remote target before retrying")
+		}
+	}
+	connection, err := ssh.ConnectWithRecovery(scoped, clockwork.NewRealClock(), profile, credential)
+	if err != nil {
+		var required *ssh.HostKeyRequired
+		if errors.As(err, &required) {
+			return required.Outcome(), nil
+		}
+		return protocol.SshOutcome{}, sshConnectionFailure(scoped, err)
+	}
+	sftpClient, err := ssh.OpenSFTP(connection)
+	if err != nil {
+		_ = connection.Close()
+		return protocol.SshOutcome{}, sshInterrupted(parent, timed, err, "SSH file operation cancelled; inspect the remote target before retrying", "SSH file operation interrupted; inspect the remote target before retrying", "SSH file operation timed out; inspect the remote target before retrying")
+	}
+	entry := &sshBrowseConn{conn: connection, sftp: sftpClient}
+	stop := context.AfterFunc(timed, func() { _ = entry.close() })
+	directory, err := ssh.List(entry.sftp, input.Path, input.After)
+	stop()
+	if err != nil {
+		_ = entry.close()
+		return protocol.SshOutcome{}, sshInterrupted(parent, timed, err, "SSH file operation cancelled; inspect the remote target before retrying", "SSH file operation interrupted; inspect the remote target before retrying", "SSH file operation timed out; inspect the remote target before retrying")
+	}
+	if timed.Err() == nil && node.ctx.Err() == nil {
+		node.sshPool.release(profile.ID, profile.Revision, entry)
+	} else {
+		_ = entry.close()
+	}
+	return protocol.SshOutcome{Kind: "directory", Data: directory}, nil
 }
 
 // runSSHFiles performs one SFTP operation on an authenticated connection.

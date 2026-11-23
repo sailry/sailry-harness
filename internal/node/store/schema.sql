@@ -432,6 +432,20 @@ CREATE INDEX IF NOT EXISTS agent_usage_time ON agent_events(
     max(0,coalesce(coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),0)),
     max(0,coalesce(coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),0))
 ) WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object';
+CREATE TABLE IF NOT EXISTS agent_usage_records (
+    sequence INTEGER PRIMARY KEY REFERENCES agent_events(sequence),
+    session TEXT NOT NULL REFERENCES sessions(id),
+    turn TEXT NOT NULL REFERENCES turns(id),
+    created_sec TEXT NOT NULL,
+    created TEXT NOT NULL,
+    usage BLOB NOT NULL,
+    source BLOB,
+    elapsed_us INTEGER,
+    first_token_us INTEGER,
+    media TEXT,
+    reasoning_streamed INTEGER NOT NULL DEFAULT 0 CHECK(reasoning_streamed IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS agent_usage_records_time ON agent_usage_records(created_sec,sequence);
 CREATE TABLE IF NOT EXISTS agent_approvals (
     id TEXT PRIMARY KEY,
     turn TEXT NOT NULL REFERENCES turns(id),

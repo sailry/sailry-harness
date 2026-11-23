@@ -20,6 +20,7 @@ func (node *Node) initHost(options Options) {
 	}
 	deployment.Release = options.HostRelease
 	node.hostInstalls = host.NewInstallations(deployment)
+	node.sshPool = newSSHBrowsePool(nil)
 	node.wsl = wsl.NewServiceForRelease(options.HostRelease)
 }
 
@@ -177,6 +178,9 @@ func (node *Node) executeHost(ctx context.Context, caller protocol.NodeID, reque
 		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	if configuration && operationErr == nil {
+		if profileID, ok := sshConfigurationProfileID(request.Command); ok {
+			node.sshPool.invalidate(profileID)
+		}
 		node.publish()
 	}
 	return response(output, operationErr)

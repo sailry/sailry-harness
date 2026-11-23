@@ -8,9 +8,144 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"sync"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+const usageReadCacheMaxEntries = 24
+
+type usageCacheEntry struct {
+	key        string
+	generation uint64
+	report     protocol.UsageReport
+	used       uint64
+}
+
+type usageReadFlight struct {
+	mu      sync.Mutex
+	done    chan struct{}
+	cancel  context.CancelFunc
+	waiters int
+	report  protocol.UsageReport
+	err     error
+}
+
+// usageReadCache deduplicates concurrent identical ReadUsage calls and retains
+// recent reports valid at the Client's current observation generation and
+// cursor so reopening or refreshing the usage view reuses already-fetched data.
+type usageReadCache struct {
+	mu       sync.Mutex
+	clock    uint64
+	entries  map[string]*usageCacheEntry
+	inflight map[string]*usageReadFlight
+}
+
+func newUsageReadCache() *usageReadCache {
+	return &usageReadCache{
+		entries:  map[string]*usageCacheEntry{},
+		inflight: map[string]*usageReadFlight{},
+	}
+}
+
+func (cache *usageReadCache) clear() {
+	if cache == nil {
+		return
+	}
+	cache.mu.Lock()
+	clear(cache.entries)
+	cache.mu.Unlock()
+}
+
+func (cache *usageReadCache) get(key string, generation, cursor uint64) (protocol.UsageReport, bool) {
+	if cache == nil {
+		return protocol.UsageReport{}, false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	entry, ok := cache.entries[key]
+	if !ok {
+		return protocol.UsageReport{}, false
+	}
+	if entry.generation != generation || entry.report.Cursor < cursor {
+		delete(cache.entries, key)
+		return protocol.UsageReport{}, false
+	}
+	cache.clock++
+	entry.used = cache.clock
+	return copyValue(entry.report), true
+}
+
+func (cache *usageReadCache) put(key string, generation uint64, report protocol.UsageReport) {
+	if cache == nil {
+		return
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.clock++
+	if existing, ok := cache.entries[key]; ok {
+		if existing.generation == generation && existing.report.Cursor > report.Cursor {
+			return
+		}
+		existing.generation = generation
+		existing.report = copyValue(report)
+		existing.used = cache.clock
+		return
+	}
+	if len(cache.entries) >= usageReadCacheMaxEntries {
+		var oldestKey string
+		var oldestUsed uint64
+		for k, v := range cache.entries {
+			if oldestKey == "" || v.used < oldestUsed {
+				oldestKey, oldestUsed = k, v.used
+			}
+		}
+		delete(cache.entries, oldestKey)
+	}
+	cache.entries[key] = &usageCacheEntry{
+		key:        key,
+		generation: generation,
+		report:     copyValue(report),
+		used:       cache.clock,
+	}
+}
+
+func (client *Client) usageObservationState() (connected bool, hasSnapshot bool, generation, cursor uint64) {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	connected = client.connected
+	generation = client.project.generation
+	if client.project.snapshot != nil {
+		hasSnapshot = true
+		cursor = client.project.snapshot.Cursor
+	}
+	return connected, hasSnapshot, generation, cursor
+}
+
+func usageReadKey(query protocol.UsageQuery, scope usageScope, scoped bool) string {
+	type keyPayload struct {
+		Query   protocol.UsageQuery     `json:"query"`
+		Scoped  bool                    `json:"scoped,omitempty"`
+		Resolve bool                    `json:"resolve,omitempty"`
+		Context *protocol.PluginContext `json:"context,omitempty"`
+	}
+	payload := keyPayload{Query: query, Scoped: scoped, Resolve: scope.resolve}
+	if scoped {
+		ctxCopy := copyValue(scope.context)
+		payload.Context = &ctxCopy
+	}
+	body, _ := json.Marshal(payload)
+	return string(body)
+}
+
+func (client *Client) cachedUsage(ctx context.Context, query protocol.UsageQuery) (protocol.UsageReport, bool) {
+	connected, hasSnapshot, generation, cursor := client.usageObservationState()
+	if !connected || !hasSnapshot {
+		return protocol.UsageReport{}, false
+	}
+	selected, scoped := usageScopeFor(ctx, client.Target())
+	return client.usageCache.get(usageReadKey(query, selected, scoped), generation, cursor)
+}
 
 type usageView struct {
 	Report     *protocol.UsageReport `json:"report"`
@@ -86,10 +221,20 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 				observer.notify()
 				continue
 			}
+			if !forced {
+				if cached, ok := client.cachedUsage(observer.ctx, query); ok && (state.Report == nil || cached.Cursor >= state.Report.Cursor) {
+					state.Refreshing = false
+					state.Report = &cached
+					state.Error = observerFault(client.Err())
+					observer.mu.Unlock()
+					observer.notify()
+					continue
+				}
+			}
 			state.Refreshing = true
 			observer.mu.Unlock()
 			observer.notify()
-			report, err := client.ReadUsage(observer.ctx, query)
+			report, err := client.readUsage(observer.ctx, query, forced)
 			observer.mu.Lock()
 			state.Connected = client.Connected()
 			state.Refreshing = false
@@ -116,8 +261,83 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 }
 
 func (client *Client) ReadUsage(ctx context.Context, query protocol.UsageQuery) (protocol.UsageReport, error) {
+	return client.readUsage(ctx, query, false)
+}
+
+func (client *Client) readUsage(ctx context.Context, query protocol.UsageQuery, bypassCache bool) (protocol.UsageReport, error) {
+	selected, scoped := usageScopeFor(ctx, client.Target())
+	connected, hasSnapshot, generation, cursor := client.usageObservationState()
+	cacheable := connected && hasSnapshot && client.usageCache != nil
+	if !cacheable {
+		return client.fetchUsage(ctx, query, selected, scoped)
+	}
+	key := usageReadKey(query, selected, scoped)
+	if !bypassCache {
+		if cached, ok := client.usageCache.get(key, generation, cursor); ok {
+			return cached, nil
+		}
+		client.usageCache.mu.Lock()
+		if flight, ok := client.usageCache.inflight[key]; ok {
+			flight.mu.Lock()
+			flight.waiters++
+			flight.mu.Unlock()
+			client.usageCache.mu.Unlock()
+			return waitUsageFlight(ctx, flight)
+		}
+		runCtx, cancel := context.WithCancel(client.closing)
+		flight := &usageReadFlight{done: make(chan struct{}), cancel: cancel, waiters: 1}
+		client.usageCache.inflight[key] = flight
+		client.usageCache.mu.Unlock()
+		go func() {
+			defer cancel()
+			report, err := client.fetchUsage(runCtx, query, selected, scoped)
+			if err == nil {
+				stillConnected, stillHasSnapshot, currentGen, _ := client.usageObservationState()
+				if stillConnected && stillHasSnapshot && currentGen == generation {
+					client.usageCache.put(key, generation, report)
+				}
+			}
+			flight.report, flight.err = report, err
+			close(flight.done)
+			client.usageCache.mu.Lock()
+			if client.usageCache.inflight[key] == flight {
+				delete(client.usageCache.inflight, key)
+			}
+			client.usageCache.mu.Unlock()
+		}()
+		return waitUsageFlight(ctx, flight)
+	}
+	report, err := client.fetchUsage(ctx, query, selected, scoped)
+	if err == nil {
+		stillConnected, stillHasSnapshot, currentGen, _ := client.usageObservationState()
+		if stillConnected && stillHasSnapshot && currentGen == generation {
+			client.usageCache.put(key, generation, report)
+		}
+	}
+	return report, err
+}
+
+func waitUsageFlight(ctx context.Context, flight *usageReadFlight) (protocol.UsageReport, error) {
+	select {
+	case <-flight.done:
+		if flight.err != nil {
+			return protocol.UsageReport{}, flight.err
+		}
+		return copyValue(flight.report), nil
+	case <-ctx.Done():
+		flight.mu.Lock()
+		flight.waiters--
+		if flight.waiters == 0 {
+			flight.cancel()
+		}
+		flight.mu.Unlock()
+		return protocol.UsageReport{}, fault(protocol.ErrorCodeCancelled, "request was cancelled before its completion")
+	}
+}
+
+func (client *Client) fetchUsage(ctx context.Context, query protocol.UsageQuery, selected usageScope, scoped bool) (protocol.UsageReport, error) {
 	request := client.Prepare(protocol.Command{Kind: "read_usage", Data: query})
-	if selected, scoped := usageScopeFor(ctx, client.Target()); scoped {
+	if scoped {
 		scope := copyValue(selected.context)
 		if selected.resolve {
 			output, err := client.Do(ctx, protocol.Command{Kind: "list_plugins"})

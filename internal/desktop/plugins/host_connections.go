@@ -82,7 +82,7 @@ func (owner *Host) connectionModule() HostModule {
 			return owner.prepareData(ctx, "open_ssh_terminal", values)
 		}),
 		hostAsync("browseDatabase", owner.readOperation("browse_database", namedArgumentsWithDefaults(map[string]any{"database": nil}, "profile", "expected_revision", "database"))),
-		hostAsync("browseSshDirectory", owner.readOperation("browse_ssh_directory", firstArgument)),
+		hostAsync("browseSshDirectory", owner.browseSshDirectory),
 		hostAsync("requestOutcome", func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 			identity, err := hostValue[string](arguments, 0)
 			if err != nil {
@@ -91,6 +91,61 @@ func (owner *Host) connectionModule() HostModule {
 			return owner.outcome(ctx, identity)
 		}),
 	}}
+}
+
+func (owner *Host) browseSshDirectory(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+	arg, err := firstArgument(arguments)
+	if err != nil {
+		return nil, err
+	}
+	cache := owner.binding.SshDirectoryCache
+	if cache == nil || len(arguments) == 0 {
+		return owner.readData(ctx, "browse_ssh_directory", arg)
+	}
+	key, cacheable := parseSshBrowseKey(owner.target(), arguments[0])
+	if !cacheable {
+		return owner.readData(ctx, "browse_ssh_directory", arg)
+	}
+	if cached, ok := cache.get(key); ok {
+		return cached, nil
+	}
+	cache.mu.Lock()
+	if flight, ok := cache.inflight[key]; ok {
+		cache.mu.Unlock()
+		select {
+		case <-flight.done:
+			if flight.err != nil {
+				return nil, flight.err
+			}
+			return append(json.RawMessage(nil), flight.body...), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-owner.ctx.Done():
+			return nil, owner.ctx.Err()
+		}
+	}
+	flight := &sshDirectoryFlight{done: make(chan struct{})}
+	cache.inflight[key] = flight
+	cache.mu.Unlock()
+	body, err := owner.readData(ctx, "browse_ssh_directory", arg)
+	if err == nil {
+		if resolvedPath, ok := sshDirectoryResponsePath(body); ok {
+			cache.mu.Lock()
+			stillCurrent := cache.inflight[key] == flight
+			cache.mu.Unlock()
+			if stillCurrent {
+				cache.put(key, body, resolvedPath)
+			}
+		}
+	}
+	flight.body, flight.err = append(json.RawMessage(nil), body...), err
+	close(flight.done)
+	cache.mu.Lock()
+	if cache.inflight[key] == flight {
+		delete(cache.inflight, key)
+	}
+	cache.mu.Unlock()
+	return body, err
 }
 
 func (owner *Host) prepareDatabase(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {

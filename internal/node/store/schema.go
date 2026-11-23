@@ -215,6 +215,11 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 			return err
 		}
 	}
+	if definition.state == schemaUpdate && definition.plan.created["agent_usage_records"] {
+		if err := backfillAgentUsageRecords(ctx, connection); err != nil {
+			return err
+		}
+	}
 	if definition.state != schemaCurrent {
 		if err := initializeDefaults(ctx, connection); err != nil {
 			return err

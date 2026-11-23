@@ -31,6 +31,9 @@ type HostBinding struct {
 	// UsageSample is the sample the usage calls answer from at first;
 	// SetUsageSample changes it.
 	UsageSample *UsageSample
+	// SshDirectoryCache retains recent SSH directory listings across view
+	// remounts; its owner clears it on close or disconnect.
+	SshDirectoryCache *SshDirectoryCache
 }
 
 type UsageSource struct {
@@ -100,6 +103,17 @@ func NewHost(binding HostBinding) *Host {
 	}
 	owner.settings.current = binding.Scope.Package
 	owner.native.PreparedRequest = owner.prepared
+	if binding.SshDirectoryCache != nil {
+		previous := owner.native.OnEmit
+		owner.native.OnEmit = func(name string, value any) {
+			if profile, refresh := sshRefreshEventTarget(name, value); refresh {
+				binding.SshDirectoryCache.InvalidateProfile(owner.target(), profile)
+			}
+			if previous != nil {
+				previous(name, value)
+			}
+		}
+	}
 	owner.settings.surface = binding.Scope.Surface.Kind == "settings"
 	owner.changes = newHostChanges(owner)
 	owner.changes.start()

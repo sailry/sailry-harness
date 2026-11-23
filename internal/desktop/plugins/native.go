@@ -36,6 +36,8 @@ type NativeBinding struct {
 	// ModelPopup shows the names, marks and scores of the ones its catalog
 	// lists. Without it a model shows under its catalog's own identifiers.
 	Models func() []kit.ModelOption
+	// OnEmit observes native UI events before they are queued for scripts.
+	OnEmit func(name string, value any)
 	state  *nativeState
 }
 
@@ -202,6 +204,9 @@ func (binding *NativeBinding) queue(name string, capacity int) *nativeQueue {
 }
 
 func (binding *NativeBinding) emit(name string, value any) {
+	if binding.OnEmit != nil {
+		binding.OnEmit(name, value)
+	}
 	body, err := json.Marshal(value)
 	if err != nil {
 		return

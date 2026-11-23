@@ -162,6 +162,7 @@ func (client *Client) Close() error {
 	client.mu.Lock()
 	client.connected = false
 	client.mu.Unlock()
+	client.usageCache.clear()
 	client.lifecycle.Unlock()
 	client.changed()
 	return err
@@ -281,6 +282,7 @@ func (client *Client) observe(watch *observation) {
 		client.mu.Lock()
 		client.connected = false
 		client.mu.Unlock()
+		client.usageCache.clear()
 	}()
 	delay := 250 * time.Millisecond
 	wake := client.retried()
@@ -330,8 +332,12 @@ func (client *Client) observe(watch *observation) {
 		}
 		client.mu.Lock()
 		client.connected = faultCode(err) == protocol.ErrorCodeBusy && client.connected
+		connected := client.connected
 		client.err = err
 		client.mu.Unlock()
+		if !connected {
+			client.usageCache.clear()
+		}
 		client.changed()
 		if !transient(err) {
 			return

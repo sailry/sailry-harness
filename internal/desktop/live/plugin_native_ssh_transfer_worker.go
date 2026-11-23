@@ -90,6 +90,12 @@ func (access sshTransferAccess) release(stream protocol.StreamID) {
 	access.owner.cancelAttachmentStream(stream)
 }
 
+func (access sshTransferAccess) invalidateDirectoryCache() {
+	if views := access.owner.localRuntime().pluginViews; views != nil {
+		views.sshDirectories.InvalidateProfile(access.owner.controller.Target(), access.profile.ID.String())
+	}
+}
+
 // sshTransferProgress limits progress publications to one per 75 ms.
 func sshTransferProgress(update func(sshTransferStatus)) func(copied, size uint64, final bool) {
 	last := time.Time{}
@@ -143,6 +149,7 @@ func (access sshTransferAccess) uploadEntries(ctx context.Context, source, remot
 			if !sshTransferPublished(resolution.Output) {
 				return sshTransferKey("files_upload_failed")
 			}
+			access.invalidateDirectoryCache()
 			plan.copied += plan.entries[plan.index].size
 			plan.index++
 		case client.RequestAbsent:
@@ -225,6 +232,7 @@ func (access sshTransferAccess) uploadEntries(ctx context.Context, source, remot
 		outcome, _ := detail[protocol.SshOutcome](output.Data)
 		switch {
 		case err == nil && sshTransferPublished(output):
+			access.invalidateDirectoryCache()
 		case err == nil && output.Kind == "ssh_outcome" && outcome.Kind == "host_key_required":
 			plan.pending = nil
 			return sshTransferKey("ssh_key_changed")
