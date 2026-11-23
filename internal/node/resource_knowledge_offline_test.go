@@ -13,6 +13,7 @@ import (
 )
 
 func TestExecutionLocalKnowledgeRemainsUsableWithoutController(t *testing.T) {
+	t.Parallel()
 	execution := nodeFixture(t)
 	controller := protocol.NodeID{88}
 	var actor protocol.User
@@ -82,6 +83,7 @@ func (transport *resourceKnowledgePageTransport) Resource(ctx context.Context, c
 }
 
 func TestKnowledgeSearchKeepsSuccessfulHitsAndUnavailableSources(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	missing := protocol.NodeID{89}
 	page := protocol.DefaultKnowledgePage()

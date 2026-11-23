@@ -15,6 +15,7 @@ import (
 )
 
 func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
+	t.Parallel()
 	for _, summary := range []bool{false, true} {
 		name := "main"
 		if summary {
@@ -86,6 +87,7 @@ func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
 }
 
 func TestTCPDialTimeoutPersistsRetryLimitAndTerminalAttempt(t *testing.T) {
+	t.Parallel()
 	dial := &net.OpError{Op: "dial", Net: "tcp", Addr: &net.TCPAddr{Port: 443}, Err: os.ErrDeadlineExceeded}
 	cause := &url.Error{Op: "Post", URL: "https://fixture.invalid", Err: dial}
 	part := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{Message: "model stream failed", Cause: cause}}

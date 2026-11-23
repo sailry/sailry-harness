@@ -137,6 +137,7 @@ func (f stopFixture) submit(text string) {
 // instead of starting a turn, and that message releases the hold on a service
 // still running.
 func TestUserStopEndsCommandWork(t *testing.T) {
+	t.Parallel()
 	blocking, testsStopped, serviceStopped, serviceExit := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		cancelled := protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}
@@ -255,6 +256,7 @@ func TestUserStopEndsCommandWork(t *testing.T) {
 // stops its command work like a user stop and holds the result for the input
 // that was sent.
 func TestSendNowEndsCommandWork(t *testing.T) {
+	t.Parallel()
 	blocking, testsStopped := make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		switch launch.Command {
@@ -307,6 +309,7 @@ func TestSendNowEndsCommandWork(t *testing.T) {
 // after a stop cancelled its turn's operation but before it was in the
 // process table the stop scanned: it is stopped unless it is a service.
 func TestStoppedOperationStopsLateCommand(t *testing.T) {
+	t.Parallel()
 	stopped := map[string]chan struct{}{"late": make(chan struct{}), "service": make(chan struct{})}
 	f := newStopFixture(t, func(ctx context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		<-ctx.Done()

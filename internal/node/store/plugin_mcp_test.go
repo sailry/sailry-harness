@@ -14,6 +14,7 @@ import (
 )
 
 func TestMCPConfigurationAuthority(t *testing.T) {
+	t.Parallel()
 	t.Run("bound secret destination and explicit allow revision", func(t *testing.T) {
 		_, _, storage := schemaFixture(t)
 		ctx := t.Context()

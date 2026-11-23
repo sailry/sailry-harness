@@ -15,6 +15,7 @@ import (
 )
 
 func TestNativePlanPersistsOrderedProgressInPlanMode(t *testing.T) {
+	t.Parallel()
 	const earlier = `{"title":null,"steps":[{"description":"Read inputs","state":"in_progress"}]}`
 	const current = `{"title":"Plan checks","steps":[{"description":"Read inputs","state":"completed"},{"description":"Run checks","state":"pending"}]}`
 	checking, release := make(chan struct{}), make(chan struct{})
@@ -74,6 +75,7 @@ func TestNativePlanPersistsOrderedProgressInPlanMode(t *testing.T) {
 }
 
 func TestChildRestoresCompactedPlanOnlyWithItsPlanTool(t *testing.T) {
+	t.Parallel()
 	const plan = `{"title":"Child checks","steps":[{"description":"Verify the result","state":"in_progress"}]}`
 	for _, selected := range []bool{false, true} {
 		name := "unselected"
@@ -120,6 +122,7 @@ func TestChildRestoresCompactedPlanOnlyWithItsPlanTool(t *testing.T) {
 }
 
 func TestNextTurnRestoresOnlyRewoundPlan(t *testing.T) {
+	t.Parallel()
 	const open = `{"title":"Audit","steps":[{"description":"Verify the inputs","state":"pending"}]}`
 	const closed = `{"title":"Audit","steps":[{"description":"Verify the inputs","state":"completed"}]}`
 	const resume = "Resume from the retained turn"
@@ -152,6 +155,7 @@ func TestNextTurnRestoresOnlyRewoundPlan(t *testing.T) {
 }
 
 func TestNativePlanRejectsTextOverHistoryBudget(t *testing.T) {
+	t.Parallel()
 	tool := updatePlanTool()
 	const start = `{"title":null,"steps":[{"description":"`
 	const end = `","state":"pending"}]}`

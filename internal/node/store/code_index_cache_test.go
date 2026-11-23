@@ -26,6 +26,7 @@ INSERT INTO symbols VALUES(1,'src/old.go','Old','go','{}','old','','','');
 `
 
 func TestOpenCodeIndexRebuildsOnlyRecognizedCache(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, fixture := range []struct {
 		name, extra string

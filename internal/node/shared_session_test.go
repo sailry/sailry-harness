@@ -18,6 +18,7 @@ import (
 )
 
 func TestSharedSessionQueuesUsersInCanonicalHistory(t *testing.T) {
+	t.Parallel()
 	held := &connectionHeldModel{started: make(chan struct{}), release: make(chan struct{})}
 	var once sync.Once
 	finish := func() { once.Do(func() { close(held.release) }) }

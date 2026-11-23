@@ -70,6 +70,7 @@ func TestStdioCommandFallsBackToProcessPath(t *testing.T) {
 // A server that exits non-zero when its input closes is gone all the same:
 // its exit status is not a cleanup failure.
 func TestCommandCloseExitStatus(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fixture server is a shell command")
 	}

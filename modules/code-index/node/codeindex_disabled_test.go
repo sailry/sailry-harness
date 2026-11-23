@@ -9,6 +9,7 @@ import (
 )
 
 func TestCodeIndexCommandsUnavailable(t *testing.T) {
+	t.Parallel()
 	node, tree := indexNodeFixture(t)
 	name := "main"
 	commands := []protocol.Command{

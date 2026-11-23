@@ -11,6 +11,7 @@ import (
 )
 
 func TestUnassignedReminderToolKeepsDiscoveryLabels(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	session := sessionFixture(t, node)
 	invocation := &store.AgentInvocation{Session: session, Turn: protocol.DefaultQueuedTurn(), Run: protocol.DefaultConversationRun()}

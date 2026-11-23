@@ -43,6 +43,7 @@ func (script *hookedScript) Stream(ctx context.Context, call fantasy.Call) (fant
 // and that both browsers follow their conversation and their package as they
 // are now. No browser is started.
 func TestBrowserToolBinding(t *testing.T) {
+	t.Parallel()
 	// The package tool is selected by its alias; the model reads and calls
 	// it by the name the package declares.
 	alias := operations.Alias("browser", "browser_tabs")

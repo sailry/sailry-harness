@@ -128,6 +128,7 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 }
 
 func TestCodeIndexSettingsProjectListJSON(t *testing.T) {
+	t.Parallel()
 	for _, field := range []string{"", `,"persistent":false`, `,"persistent":true`, `,"persistent_projects":[]`} {
 		expected := `{"revision":0,"enabled":true` + field + "}"
 		var settings protocol.CodeIndexSettings

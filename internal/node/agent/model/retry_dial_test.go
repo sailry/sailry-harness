@@ -21,6 +21,7 @@ func fixtureTCPDialTimeout() *net.OpError {
 }
 
 func TestMainTCPDialTimeoutStopsAfterThreeAttempts(t *testing.T) {
+	t.Parallel()
 	for _, provider := range []string{"responses", "chat", "anthropic", "google", "plugin", "plugin proxy"} {
 		t.Run(provider, func(t *testing.T) {
 			var timeout error = fixtureTCPDialTimeout()
@@ -82,6 +83,7 @@ func TestMainTCPDialTimeoutStopsAfterThreeAttempts(t *testing.T) {
 }
 
 func TestMainTCPDialTimeoutStreakResets(t *testing.T) {
+	t.Parallel()
 	dial := fixtureTCPDialTimeout()
 	throttled := &fantasy.ProviderError{StatusCode: http.StatusTooManyRequests, ResponseHeaders: map[string]string{"Retry-After": "40"}}
 	fake := &policyModel{startErrors: []error{dial, dial, throttled, dial, dial}, responses: make([][]fantasy.StreamPart, 6)}
@@ -107,6 +109,7 @@ func TestMainTCPDialTimeoutStreakResets(t *testing.T) {
 }
 
 func TestTCPDialTimeoutScope(t *testing.T) {
+	t.Parallel()
 	dial := fixtureTCPDialTimeout()
 	proxy := func(cause error) error {
 		return &url.Error{Op: "Post", URL: "https://fixture.invalid", Err: &net.OpError{Op: "proxyconnect", Net: "tcp", Err: cause}}
@@ -159,6 +162,7 @@ func TestTCPDialTimeoutScope(t *testing.T) {
 }
 
 func TestTCPDialTimeoutHonorsCancellation(t *testing.T) {
+	t.Parallel()
 	for _, wait := range []bool{true, false} {
 		name := "on third dial"
 		if wait {

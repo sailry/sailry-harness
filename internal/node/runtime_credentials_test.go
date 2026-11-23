@@ -62,6 +62,7 @@ DO UPDATE SET body=excluded.body,revision=excluded.revision`,
 }
 
 func TestExecutorWaitResumesOnlyUnsentSameAccountStep(t *testing.T) {
+	t.Parallel()
 	node, ctx, provider, reference, write := runtimeCredentialFixture(t)
 	var requests atomic.Int32
 	node.auth.client = &http.Client{Transport: accountHTTP(func(*http.Request) (*http.Response, error) {
@@ -99,6 +100,7 @@ func TestExecutorWaitResumesOnlyUnsentSameAccountStep(t *testing.T) {
 }
 
 func TestExecutorCredentialWaitCancelsAndRejectsChangedAccount(t *testing.T) {
+	t.Parallel()
 	for _, fixture := range []string{"cancel", "changed generation", "revoked"} {
 		t.Run(fixture, func(t *testing.T) {
 			node, owner, provider, reference, write := runtimeCredentialFixture(t)
@@ -141,6 +143,7 @@ func TestExecutorCredentialWaitCancelsAndRejectsChangedAccount(t *testing.T) {
 }
 
 func TestPairedNodeMCPSourceUsesItsOwnAuthorization(t *testing.T) {
+	t.Parallel()
 	node, ctx, _, _, write := runtimeCredentialFixture(t)
 	record := store.ConnectorRecord{
 		ID: protocol.NewRequestID(), Plugin: "fixture", Connector: "account", Method: protocol.PluginConnectorKindMcpOauth,

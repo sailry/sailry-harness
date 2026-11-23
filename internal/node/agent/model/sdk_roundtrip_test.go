@@ -124,6 +124,7 @@ func BenchmarkSDKRoundTripPreparedLongHistory(b *testing.B) {
 }
 
 func TestResponseTransportUsesPreparedRequestSnapshot(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{"model":"fixture-model","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"history"}]}]}`)
 	transport, request, capture := newResponsesRoundTripFixture(t, raw)
 	var sent []byte
@@ -158,6 +159,7 @@ func TestResponseTransportUsesPreparedRequestSnapshot(t *testing.T) {
 }
 
 func TestSDKResponsesStreamKeepsPreparedRequestSnapshot(t *testing.T) {
+	t.Parallel()
 	config := transportConfig{
 		Kind:     "responses",
 		Model:    "fixture-model",
@@ -225,6 +227,7 @@ func TestSDKResponsesStreamKeepsPreparedRequestSnapshot(t *testing.T) {
 }
 
 func TestResponseTransportSnapshotDoesNotReplaceChangedRequests(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{"model":"fixture","input":[]}`)
 	changed := []byte(`{"model":"changed","input":[]}`)
 	tests := []struct {

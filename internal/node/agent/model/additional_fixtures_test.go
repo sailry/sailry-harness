@@ -428,6 +428,7 @@ func b4GeminiBufferedUsage(t *testing.T) {
 // TestCopilotRequestHeaders checks what a Copilot generation request declares
 // about itself, and that no other account kind receives those headers.
 func TestCopilotRequestHeaders(t *testing.T) {
+	t.Parallel()
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Api, provider.Authentication, provider.Enabled = protocol.NewProviderID(), protocol.ConversationModelApiChatCompletions, protocol.AuthenticationCopilot, true
 	entry := protocol.DefaultConversationModel()

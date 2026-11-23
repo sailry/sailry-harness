@@ -20,6 +20,7 @@ import (
 )
 
 func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
+	t.Parallel()
 	const diagnostic = `error: code=502 reason="UPSTREAM_USAGE_MISSING" message="Upstream response is missing billable token usage; settlement was not completed" metadata=map[]`
 	raw, err := json.Marshal(map[string]any{"error": map[string]any{"type": "api_error", "message": diagnostic}})
 	if err != nil {
@@ -29,16 +30,19 @@ func TestUpstreamUsageMissingRecoveryDoesNotReplayTools(t *testing.T) {
 }
 
 func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
+	t.Parallel()
 	reset := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
 	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error(), model.MainRetries)
 }
 
 func TestHTTP524RecoveryDoesNotReplayTools(t *testing.T) {
+	t.Parallel()
 	const diagnostic = "origin timed out (HTTP 524)"
 	checkModelFailureRecovery(t, &fantasy.ProviderError{StatusCode: 524, Message: diagnostic}, model.Unavailable, diagnostic, 1)
 }
 
 func TestAttemptPricesAreFrozenAndCountedOnce(t *testing.T) {
+	t.Parallel()
 	billed := func(part fantasy.StreamPart, input, output int64) fantasy.StreamPart {
 		part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{Reported: true, Input: &input, Output: &output}}
 		return part

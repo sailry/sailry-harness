@@ -15,6 +15,7 @@ import (
 )
 
 func TestPluginCertificateVerificationDoesNotRetry(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("model request sent without a trusted certificate")
 	}))
@@ -58,6 +59,7 @@ func TestPluginCertificateVerificationDoesNotRetry(t *testing.T) {
 }
 
 func TestPluginDiscoveryCertificateDiagnosticRedactsCredentials(t *testing.T) {
+	t.Parallel()
 	const credential = "private-token"
 	// Put the credential across the diagnostic length limit.
 	const prefix = "tls: failed to verify certificate: "

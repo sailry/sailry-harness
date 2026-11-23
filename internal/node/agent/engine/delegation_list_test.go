@@ -10,6 +10,7 @@ import (
 )
 
 func TestSubagentListingTool(t *testing.T) {
+	t.Parallel()
 	f, x := delegationFixture(t)
 	if err := f.r.captureTools(x); err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 )
 
 func TestClaude55CatalogCompatibility(t *testing.T) {
+	t.Parallel()
 	for _, family := range []string{"haiku", "sonnet", "opus"} {
 		t.Run(family, func(t *testing.T) {
 			canonical := "claude-" + family + "-5-5"
@@ -40,6 +41,7 @@ func TestClaude55CatalogCompatibility(t *testing.T) {
 }
 
 func TestClaudeThinkingParameters(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, model, effort string
 		api                 protocol.ConversationModelApi

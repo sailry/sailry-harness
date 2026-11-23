@@ -100,6 +100,7 @@ func TestSaveNetworkAppliesBeforeStoring(t *testing.T) {
 }
 
 func TestRetiredIrohSelectionDoesNotBlockNetworkStartup(t *testing.T) {
+	t.Parallel()
 	for _, retired := range []protocol.NetworkSelection{
 		{Kind: "iroh"},
 		{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://old-relay.example/"}}},

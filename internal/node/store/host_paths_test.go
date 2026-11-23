@@ -9,6 +9,7 @@ import (
 )
 
 func TestControllerFileLocationsDoNotAppearOnExecutionNode(t *testing.T) {
+	t.Parallel()
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		path := `C:\private\archive.sqlite`

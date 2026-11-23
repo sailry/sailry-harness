@@ -9,6 +9,7 @@ import (
 )
 
 func TestContextTokensAfterRollingCompaction(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	old := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Earlier task")), manualNow())
 	tail := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Recent evidence")), manualNow())

@@ -11,6 +11,7 @@ import (
 )
 
 func TestPluginCustomHeadersOverrideDefaultsWithinConfiguredOrigin(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, credentialHeader string
 		key                    bool
@@ -79,6 +80,7 @@ func TestPluginCustomHeadersOverrideDefaultsWithinConfiguredOrigin(t *testing.T)
 }
 
 func TestPluginPreparedAffinityHeaderCaseConflict(t *testing.T) {
+	t.Parallel()
 	requests := 0
 	model, _, _ := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
 		requests++
@@ -106,6 +108,7 @@ func TestPluginPreparedAffinityHeaderCaseConflict(t *testing.T) {
 }
 
 func TestPluginDefaultUserAgent(t *testing.T) {
+	t.Parallel()
 	var seen []string
 	model, _, _ := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
 		seen = append(seen, request.Header.Get("User-Agent"))

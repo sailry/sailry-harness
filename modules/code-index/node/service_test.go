@@ -173,6 +173,7 @@ func equal(t *testing.T, label string, got, want any) {
 // TestGraphBounds transcribes the Rust graph assertions: resolution tiers,
 // the impact depth cap, paging, map ranking and rejected unbounded queries.
 func TestGraphBounds(t *testing.T) {
+	t.Parallel()
 	t.Run("callers resolve by preference", func(t *testing.T) {
 		f := newFixture(t)
 		f.write(
@@ -354,6 +355,7 @@ func TestGraphBounds(t *testing.T) {
 }
 
 func TestReconcileFollowsWatchChangeAfterFinishedPass(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("old.go", "package fixture\nfunc Old() {}\n")
 	initial := f.search("Old")
@@ -386,6 +388,7 @@ func TestReconcileFollowsWatchChangeAfterFinishedPass(t *testing.T) {
 }
 
 func TestSearchRefreshBatchesChangedFiles(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	for index, path := range []string{"first.go", "second.go"} {
 		var source strings.Builder
@@ -422,6 +425,7 @@ func TestSearchRefreshBatchesChangedFiles(t *testing.T) {
 }
 
 func TestCachedMetadataOwnsItsValues(t *testing.T) {
+	t.Parallel()
 	cache := records{entries: map[string]cached{}}
 	file := Parsed{Path: "main.go", Hash: "content-hash", Language: "go", Status: StatusParsed}
 	cache.insert(&file, Fingerprint)
@@ -438,6 +442,7 @@ func TestCachedMetadataOwnsItsValues(t *testing.T) {
 // changes and deletions, rows written under other extraction rules are parsed
 // again, and a deleted database is rebuilt to the same answers.
 func TestIndexRebuildable(t *testing.T) {
+	t.Parallel()
 	t.Run("follows updates and deletions", func(t *testing.T) {
 		f := newFixture(t)
 		f.chain()

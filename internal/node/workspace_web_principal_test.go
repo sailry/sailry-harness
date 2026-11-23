@@ -19,6 +19,7 @@ import (
 )
 
 func TestWorkspaceSearchKeepsPersonalCredentialsAndCaches(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	var mu sync.Mutex
 	calls := map[string]int{}

@@ -11,6 +11,7 @@ import (
 )
 
 func TestHistoryPacksShortInterleavedTurnsOnOlderPages(t *testing.T) {
+	t.Parallel()
 	storage, node, session, long, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -60,6 +61,7 @@ func TestHistoryPacksShortInterleavedTurnsOnOlderPages(t *testing.T) {
 }
 
 func TestHistoryPagesKeepGuidanceWithItsRecipient(t *testing.T) {
+	t.Parallel()
 	storage, node, session, recipient, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -155,6 +157,7 @@ func TestHistoryPagesKeepGuidanceWithItsRecipient(t *testing.T) {
 }
 
 func TestHistoryPagesKeepGuidanceFromAnEmptyCancelledRecipient(t *testing.T) {
+	t.Parallel()
 	storage, node, session, recipient, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {

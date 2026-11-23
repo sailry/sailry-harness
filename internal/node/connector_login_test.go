@@ -10,6 +10,7 @@ import (
 // A confidential OAuth client renews with its secret; a public one has none
 // to send.
 func TestConnectorRefreshClientSecret(t *testing.T) {
+	t.Parallel()
 	for _, confidential := range []bool{true, false} {
 		client := protocol.PluginConnectorClientFields{ClientID: "client"}
 		record := store.ConnectorRecord{Method: protocol.PluginConnectorKindOauth2, Fields: map[string]string{"client": "fixture-client"}}

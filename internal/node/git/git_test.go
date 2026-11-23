@@ -791,6 +791,7 @@ func TestGitMutationMapping(t *testing.T) {
 }
 
 func TestCLIArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		action protocol.GitAction

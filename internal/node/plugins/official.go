@@ -126,7 +126,28 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 		if selected.Commit != "" {
 			return protocol.PluginInfo{}, officialSelectionChanged()
 		}
-		entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
+		if manager.bundled == nil {
+			if err := ctx.Err(); err != nil {
+				return protocol.PluginInfo{}, err
+			}
+			cached, err := loadEmbeddedBundled(name)
+			if err != nil {
+				return protocol.PluginInfo{}, err
+			}
+			inspected, err := cached.cloneInfo()
+			if err != nil {
+				return protocol.PluginInfo{}, err
+			}
+			if !sameOptionalString(inspected.Summary.Version, version) || inspected.Summary.Digest != selection.Info.Summary.Digest {
+				return protocol.PluginInfo{}, officialSelectionChanged()
+			}
+			info, err := manager.publishEmbeddedBundled(ctx, cached.entries, inspected, false)
+			if err == nil {
+				applyOfficialMetadata(&info, entry, *selected)
+			}
+			return info, err
+		}
+		entries, issues, err := captureBundled(ctx, manager.bundled, name)
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}

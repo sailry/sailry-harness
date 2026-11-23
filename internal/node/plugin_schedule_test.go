@@ -68,6 +68,7 @@ func (script *scheduleScript) Stream(_ context.Context, call fantasy.Call) (fant
 // callbacks: a schedule starts its session in the worktree the task stored,
 // and a task created in a team conversation runs with that team.
 func TestScheduledTaskStart(t *testing.T) {
+	t.Parallel()
 	script := &scheduleScript{}
 	// Task tools compare a start time with the script engine's wall clock, so
 	// the dispatch clock starts at the same instant.

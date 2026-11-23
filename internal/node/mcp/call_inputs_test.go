@@ -61,6 +61,7 @@ func inputFixtureResult(ctx context.Context, request *sdk.CallToolRequest, input
 }
 
 func TestMCPConcurrentInputs(t *testing.T) {
+	t.Parallel()
 	for _, cancelFirst := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cancel=%t", cancelFirst), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -155,6 +156,7 @@ func TestMCPConcurrentInputs(t *testing.T) {
 }
 
 func TestMCPInputWaitPausesOnlyItsCall(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		_, lease := inputFixture(t, inputFixtureResult)
 		answer := make(chan struct{})
@@ -202,6 +204,7 @@ func TestMCPInputWaitPausesOnlyItsCall(t *testing.T) {
 }
 
 func TestMCPReadInputFailureKeepsConnection(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		pool, lease := inputFixture(t, inputFixtureResult)
 		denied := &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "input is not permitted"}

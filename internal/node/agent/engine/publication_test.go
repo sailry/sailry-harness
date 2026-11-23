@@ -15,6 +15,7 @@ import (
 )
 
 func TestConversationPublication(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "resubscribe_fences_unobserved_commit", "bounded_admission", "unobserved_statistics", "unobserved_refresh"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t, &scriptedModel{})
@@ -306,6 +307,7 @@ func TestConversationPublication(t *testing.T) {
 }
 
 func TestConversationStatisticsChildAppend(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t, &scriptedModel{})
 	t.Cleanup(func() {
 		f.r.cancel()

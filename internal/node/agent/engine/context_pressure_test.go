@@ -51,6 +51,7 @@ func pressureProjection(history []canonical.Record, cache *output.Cache, canRead
 }
 
 func TestContextPressureToolHeavyHistory(t *testing.T) {
+	t.Parallel()
 	var history []canonical.Record
 	for i := range 7 {
 		input := uint64(31000)
@@ -125,6 +126,7 @@ func TestContextPressureToolHeavyHistory(t *testing.T) {
 }
 
 func TestContextPressureIgnoresObservationsBeforeCheckpoint(t *testing.T) {
+	t.Parallel()
 	first := canonical.NewMessage(canonical.User, canonical.Text(0, "Task"))
 	history := []canonical.Record{{ID: "first", Turn: protocol.TurnID{1}, Kind: "message", Data: &first}}
 	history = append(history, pressureExchange(0, 1000, "one.go")...)
@@ -139,6 +141,7 @@ func TestContextPressureIgnoresObservationsBeforeCheckpoint(t *testing.T) {
 }
 
 func TestContextPressureRetainedTailAfterCheckpoint(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name     string
 		retained int
@@ -232,6 +235,7 @@ func TestContextPressureRetainedTailAfterCheckpoint(t *testing.T) {
 }
 
 func TestContextPressureScalesWithLargeWindow(t *testing.T) {
+	t.Parallel()
 	makeHistory := func(window uint32, batches int) []canonical.Record {
 		var history []canonical.Record
 		for i := range batches {
@@ -283,6 +287,7 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 }
 
 func TestContextPressureProtectsInstructionalTools(t *testing.T) {
+	t.Parallel()
 	turn := protocol.TurnID{1}
 	purpose, finish, window := canonical.PurposeMain, canonical.Completed, uint32(64_000)
 	input := uint64(32_000)

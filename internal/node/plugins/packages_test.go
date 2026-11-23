@@ -369,6 +369,33 @@ func TestBundledPackageContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Run("cached embedded inspection returns isolated clones", func(t *testing.T) {
+		first, err := manager.InspectBundled(t.Context(), "reminders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		first.Summary.Name = "mutated"
+		if len(first.Versions) > 0 {
+			first.Versions[0].Withdrawn = true
+		}
+		second, err := manager.InspectBundled(t.Context(), "reminders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if second.Summary.Name != "reminders" || (len(second.Versions) > 0 && second.Versions[0].Withdrawn) {
+			t.Fatalf("cached bundled inspection leaked mutation: %+v", second)
+		}
+		uncached := NewManager(t.TempDir())
+		uncached.bundled = sailry.Plugins
+		direct, err := uncached.InspectBundled(t.Context(), "reminders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if second.Summary.Digest != direct.Summary.Digest || !sameOptionalString(second.Summary.Version, direct.Summary.Version) ||
+			len(second.Skills) != len(direct.Skills) || len(second.Mcp) != len(direct.Mcp) || len(second.Versions) != len(direct.Versions) {
+			t.Fatalf("cached bundled inspection differs from direct read: cached=%+v direct=%+v", second.Summary, direct.Summary)
+		}
+	})
 }
 
 func TestPackageSchemasAndSkills(t *testing.T) {

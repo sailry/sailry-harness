@@ -14,6 +14,7 @@ import (
 // TestToolImageBounds covers the images an MCP server returns, such as a
 // computer-use screenshot of a whole display.
 func TestToolImageBounds(t *testing.T) {
+	t.Parallel()
 	encode := func(width, height int, noise bool) []byte {
 		picture := image.NewNRGBA(image.Rect(0, 0, width, height))
 		if noise {

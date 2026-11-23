@@ -60,6 +60,7 @@ func newHistoryConfigurationFixture(t testing.TB) historyConfigurationFixture {
 }
 
 func TestHistoryConfigurationProjectionKeepsLiveEntriesAndTurnCursor(t *testing.T) {
+	t.Parallel()
 	f := newHistoryConfigurationFixture(t)
 	ctx := t.Context()
 	if err := f.storage.Node.Read(ctx, func(db *sql.Conn) error {
@@ -114,6 +115,7 @@ func TestHistoryConfigurationProjectionKeepsLiveEntriesAndTurnCursor(t *testing.
 }
 
 func TestHistoryConfigurationProjectionDoesNotRepairCorruptRows(t *testing.T) {
+	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	large := strings.Repeat("x", 4096)

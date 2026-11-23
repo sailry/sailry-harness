@@ -12,6 +12,7 @@ import (
 // TestFileMutationProtection keeps writes out of registered worktrees and Node
 // storage while a conversation without a project writes its managed workspace.
 func TestFileMutationProtection(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	config := sessionConfigFixture(t, node)
 	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)

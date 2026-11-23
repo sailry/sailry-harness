@@ -10,6 +10,7 @@ import (
 // A role's and a team's icon may name a generated avatar by its seed; a
 // project's may not, and no icon may name one by anything else.
 func TestRoleAvatarAppearance(t *testing.T) {
+	t.Parallel()
 	role := protocol.DefaultRoleProfile()
 	role.ID, role.Key, role.Name = protocol.NewRoleID(), "review", "Review"
 	for icon, valid := range map[string]bool{"avatar-fox": true, "avatar-k3f9x2a1": true, "avatar-" + strings.Repeat("a", 32): true, "code": true, "avatar-" + strings.Repeat("a", 33): false, "avatar-Fox": false, "avatar-fox-1": false, "avatar-": false, "fox": false} {

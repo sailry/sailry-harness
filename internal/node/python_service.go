@@ -110,6 +110,11 @@ func (node *Node) retainPackagePython(ctx context.Context, startup bool) error {
 	var retained []python.Requirements
 	node.plugins.mu.Lock()
 	unavailable := maps.Clone(node.plugins.unavailable)
+	var freshlyPublished map[string]struct{}
+	if startup {
+		freshlyPublished = node.plugins.publishedOnStartup
+		node.plugins.publishedOnStartup = nil
+	}
 	node.plugins.mu.Unlock()
 	if unavailable == nil {
 		unavailable = make(map[string]struct{})
@@ -124,7 +129,24 @@ func (node *Node) retainPackagePython(ctx context.Context, startup bool) error {
 	incomplete := false
 	for _, info := range installed {
 		reference := plugins.PackageReference(info)
-		requirements, err := node.checkInstalledPackage(ctx, info)
+		var requirements *python.Requirements
+		var err error
+		if _, fresh := freshlyPublished[reference.Digest]; fresh && info.Skill == nil && info.Origin != nil && info.Origin.Kind == "bundled" {
+			content, ok, readErr := node.plugins.manager.ReadBundledResource(reference, "requirements.txt", 512*1024)
+			if ok {
+				if errors.Is(readErr, plugins.ErrResourceMissing) {
+					requirements, err = nil, nil
+				} else if readErr != nil {
+					err = readErr
+				} else {
+					requirements, err = python.NewRequirements(reference, string(content))
+				}
+			} else {
+				requirements, err = node.checkInstalledPackage(ctx, info)
+			}
+		} else {
+			requirements, err = node.checkInstalledPackage(ctx, info)
+		}
 		if err != nil && startup && info.Origin != nil && info.Origin.Kind == "bundled" && ctx.Err() == nil {
 			if _, restoreErr := node.plugins.manager.RestoreBundled(ctx, reference); restoreErr == nil {
 				requirements, err = node.checkInstalledPackage(ctx, info)

@@ -13,6 +13,7 @@ import (
 )
 
 func TestFoundryMessageCacheUsesResolvedTransport(t *testing.T) {
+	t.Parallel()
 	for _, route := range []struct {
 		publisher, upstream, path, response string
 	}{

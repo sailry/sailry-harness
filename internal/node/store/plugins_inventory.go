@@ -68,6 +68,30 @@ func PluginRecorded(ctx context.Context, db *sql.Conn, name string) (bool, error
 	return recorded, err
 }
 
+func RecordedPluginNames(ctx context.Context, db *sql.Conn) (map[string]bool, error) {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT name FROM plugin_user_installations WHERE user=?1", user)
+	if err != nil {
+		return nil, err
+	}
+	recorded := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		recorded[name] = true
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	return recorded, nil
+}
+
 func pluginRevision(ctx context.Context, db *sql.Conn, name string) (uint64, uint64, error) {
 	user, err := pluginUserID(ctx, db)
 	if err != nil {

@@ -30,6 +30,7 @@ import (
 // authority, the bundled package's tools in a real turn, approval and plan
 // mode. Every call here ends before a browser would be acquired.
 func TestExternalBrowserRouting(t *testing.T) {
+	t.Parallel()
 	tool := func(name string) string { return operations.Alias("external-browser", name) }
 	worker, planner := &mediaScript{results: map[string]string{}}, &mediaScript{results: map[string]string{}}
 	late := &hookedScript{mediaScript: &mediaScript{results: map[string]string{}}}

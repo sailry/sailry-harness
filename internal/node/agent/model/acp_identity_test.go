@@ -37,6 +37,7 @@ func cloneACPModel(t *testing.T, source *acpModel) *acpModel {
 }
 
 func TestACPLeaseIdentity(t *testing.T) {
+	t.Parallel()
 	for _, probe := range []struct {
 		name   string
 		mutate func(*testing.T, *acpModel)
@@ -130,6 +131,7 @@ func TestACPLeaseIdentity(t *testing.T) {
 }
 
 func TestACPLeaseReusesCompatibleCapture(t *testing.T) {
+	t.Parallel()
 	fixture := acpFixtureModel(t, "meta", nil, nil)
 	entry, agent, err := fixture.model.lease(t.Context(), true)
 	if err != nil {
@@ -164,6 +166,7 @@ func TestACPLeaseReusesCompatibleCapture(t *testing.T) {
 }
 
 func TestACPDiscoveryIdentityAndPackageLimit(t *testing.T) {
+	t.Parallel()
 	fixture := acpFixtureModel(t, "meta", nil, nil)
 	fixture.model.capture.Pool.Limit = 1
 	entry, agent, err := fixture.model.lease(t.Context(), true)

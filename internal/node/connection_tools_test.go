@@ -82,6 +82,7 @@ func connectionModelConfig(t *testing.T, node *Node) protocol.SessionConfig {
 }
 
 func testConnectionTools(t *testing.T) {
+	t.Parallel()
 	t.Run("detached", testDetachedConnectionTools)
 	t.Run("classification", func(t *testing.T) {
 		readOnly := []protocol.ToolOperation{protocol.ToolOperationListDatabaseConnections, protocol.ToolOperationListSshConnections,

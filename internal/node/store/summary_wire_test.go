@@ -11,6 +11,7 @@ import (
 )
 
 func TestToolSummaryOmitsUndisclosedOutput(t *testing.T) {
+	t.Parallel()
 	const source = "package source_body_marker\nfunc example() {}\n"
 	body, err := json.Marshal(map[string]any{"text": source, "path": "result-only-path.go"})
 	if err != nil {
@@ -72,6 +73,7 @@ func TestToolSummaryOmitsUndisclosedOutput(t *testing.T) {
 }
 
 func TestSummaryFailuresKeepDetails(t *testing.T) {
+	t.Parallel()
 	const message = "Permission denied"
 	result := json.RawMessage(`{"error":"Permission denied"}`)
 	errorValue := protocol.ToolDisplayProjectionReference{Source: protocol.ToolDisplayProjectionSourceResult, Path: "/error"}
@@ -103,6 +105,7 @@ func TestSummaryFailuresKeepDetails(t *testing.T) {
 }
 
 func TestUndeclaredSummaryDoesNotAcquireOutput(t *testing.T) {
+	t.Parallel()
 	result := json.RawMessage(`{"text":"canonical-only-source"}`)
 	raw := &rawAgentTool{Name: "read_file", Arguments: json.RawMessage(`{"path":"input.go"}`), Result: &result,
 		Presentation: protocol.ToolPresentationSummary, Grouping: protocol.ToolGroupingSequence}
@@ -124,6 +127,7 @@ func TestUndeclaredSummaryDoesNotAcquireOutput(t *testing.T) {
 }
 
 func TestFailureOverridesSuccessPreview(t *testing.T) {
+	t.Parallel()
 	const message = "bound conversations cannot create another connection"
 	const original = `{"error":{"code":"permission_denied","message":"bound conversations cannot create another connection"}}`
 	result := json.RawMessage(original)
@@ -149,6 +153,7 @@ func TestFailureOverridesSuccessPreview(t *testing.T) {
 }
 
 func TestToolSummaryPreservesRevisionAndNormalizedSize(t *testing.T) {
+	t.Parallel()
 	result := json.RawMessage(`{ "z": [9007199254740999, "<b>"], "a": 1, "a": 2 }`)
 	for _, output := range []*json.RawMessage{nil, &result} {
 		raw := rawAgentTool{Name: "test", Arguments: json.RawMessage(`{"path":"a&b"}`), Result: output, Presentation: protocol.ToolPresentationSummary, Grouping: protocol.ToolGroupingSequence}

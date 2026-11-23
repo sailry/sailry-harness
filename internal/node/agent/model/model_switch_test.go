@@ -14,6 +14,7 @@ import (
 )
 
 func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
+	t.Parallel()
 	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiResponses} {
 		t.Run(string(api), func(t *testing.T) {
 			kind := "chat"
@@ -145,6 +146,7 @@ func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
 }
 
 func TestRecordedSessionSwitchesAcrossAnthropicResponsesAndGemini(t *testing.T) {
+	t.Parallel()
 	responses := []string{"Sonnet response", "GPT response", "Gemini response"}
 	fixtureResponse := func(name, text string) string {
 		t.Helper()

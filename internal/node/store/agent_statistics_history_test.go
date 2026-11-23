@@ -12,6 +12,7 @@ import (
 )
 
 func TestAgentStatisticsHistoryReads(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	write := func(callback func(*sql.Conn) error) {
@@ -113,6 +114,7 @@ func TestAgentStatisticsHistoryReads(t *testing.T) {
 }
 
 func TestAgentStatisticsHistoryPricingAndBudget(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	var previous *AgentStatisticsHistory
@@ -197,6 +199,7 @@ func TestAgentStatisticsHistoryPricingAndBudget(t *testing.T) {
 }
 
 func TestAgentStatisticsHistoryMembershipAndVisibility(t *testing.T) {
+	t.Parallel()
 	storage, node, parent, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	write := func(callback func(*sql.Conn) error) {

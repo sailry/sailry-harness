@@ -16,6 +16,7 @@ import (
 )
 
 func TestForegroundChildCompletionHookSettlement(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, end     string
 		exitCode      int32
@@ -145,6 +146,7 @@ func TestForegroundChildCompletionHookSettlement(t *testing.T) {
 }
 
 func TestParentSettlementRetriesChildWrites(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, boundary string
 		refuseFinish   bool

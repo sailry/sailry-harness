@@ -17,7 +17,9 @@ import (
 // TestWorker covers what a pass does around its sources: watching them and
 // surviving the ones it cannot read.
 func TestWorker(t *testing.T) {
+	t.Parallel()
 	t.Run("watches request a pass for indexed entries only", func(t *testing.T) {
+		t.Parallel()
 		fixture := newHarness(t)
 		root := t.TempDir()
 		write(t, filepath.Join(root, "notes", "first.md"), "first note\n")
@@ -47,7 +49,7 @@ func TestWorker(t *testing.T) {
 			select {
 			case <-requested:
 				return true
-			case <-time.After(time.Second):
+			case <-time.After(250 * time.Millisecond):
 				return false
 			}
 		}
@@ -67,6 +69,7 @@ func TestWorker(t *testing.T) {
 	})
 
 	t.Run("a source that cannot be read is recorded and the pass continues", func(t *testing.T) {
+		t.Parallel()
 		fixture := newHarness(t)
 		root := t.TempDir()
 		write(t, filepath.Join(root, "a.md"), "alpha notes\n")

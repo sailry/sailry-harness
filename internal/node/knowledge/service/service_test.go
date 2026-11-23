@@ -277,6 +277,7 @@ func wantCode(t *testing.T, err error, want protocol.ErrorCode) {
 // TestKnowledgeQuery ports the keyword, binding and ranking cases of the
 // Rust index tests and adds the service bounds.
 func TestKnowledgeQuery(t *testing.T) {
+	t.Parallel()
 	fixture := newHarness(t)
 	ctx := t.Context()
 	index := fixture.service.index
@@ -638,6 +639,7 @@ func TestKnowledgeQuery(t *testing.T) {
 // TestCitationRecheck reads citations through the current source and
 // reports stale revisions and missing chunks as the Rust service does.
 func TestCitationRecheck(t *testing.T) {
+	t.Parallel()
 	fixture := newHarness(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -774,6 +776,7 @@ func TestCitationRecheck(t *testing.T) {
 // worker: keyword only without a model, vectors once one is selected and
 // installed, pause, rebuild and delete.
 func TestCollectionLifecycle(t *testing.T) {
+	t.Parallel()
 	fixture := newHarness(t)
 	ctx := t.Context()
 	root := t.TempDir()

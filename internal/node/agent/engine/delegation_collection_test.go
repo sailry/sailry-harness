@@ -16,6 +16,7 @@ import (
 )
 
 func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
+	t.Parallel()
 	const answer = "Unique completed child response"
 	f, parent := delegationFixture(t, &scriptedModel{scripts: []script{response(text(answer), finish())}})
 	spawn := saveDelegationCall(t, f, parent, "foreground", false)
@@ -72,6 +73,7 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 }
 
 func TestPluginStopCollectsOverlappingChildWithoutAnotherModelCall(t *testing.T) {
+	t.Parallel()
 	const answer = "Collected independent result"
 	childStarted, stopInference := make(chan struct{}), make(chan struct{})
 	release := make(chan struct{})
@@ -131,6 +133,7 @@ func TestPluginStopCollectsOverlappingChildWithoutAnotherModelCall(t *testing.T)
 }
 
 func TestPluginStopGuidanceDetachesOverlappingChild(t *testing.T) {
+	t.Parallel()
 	childStarted, stopInference := make(chan struct{}), make(chan struct{})
 	release := make(chan struct{})
 	parent := &scriptedModel{scripts: []script{
@@ -198,6 +201,7 @@ func TestPluginStopGuidanceDetachesOverlappingChild(t *testing.T) {
 }
 
 func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
+	t.Parallel()
 	const (
 		firstGuidance  = "Continue while the first check runs."
 		secondGuidance = "Verify and summarize the first check."
@@ -298,6 +302,7 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 }
 
 func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *testing.T) {
+	t.Parallel()
 	const (
 		slowTask   = "Check the slow independent area"
 		fastTask   = "Check the fast independent area"
@@ -395,6 +400,7 @@ func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *t
 }
 
 func TestWaitAgentReturnsPendingBeforeForegroundAdmissionIsReleased(t *testing.T) {
+	t.Parallel()
 	f, parent := delegationFixture(t, &scriptedModel{})
 	spawn := saveDelegationCall(t, f, parent, "foreground", false)
 	if result := f.r.spawnChild(parent, spawn, spawn.Arguments); result.Failure != nil {
@@ -421,6 +427,7 @@ func TestWaitAgentReturnsPendingBeforeForegroundAdmissionIsReleased(t *testing.T
 }
 
 func TestParentModelFailureDetachesOverlappingChild(t *testing.T) {
+	t.Parallel()
 	const childAnswer = "Result from the overlapping child"
 	childStarted, finishChild := make(chan struct{}), make(chan struct{})
 	integration := make(chan fantasy.Call, 1)

@@ -24,9 +24,11 @@ import (
 )
 
 func TestOneRequestPerStep(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"tool then response", "bounded empty responses", "output limit prevents empty retry", "partial failure", "redacted before text",
 		"failed stream with a tool call", "tool panic", "turn panic", "credential renewed mid-turn", "provider reuses a tool ID"} {
 		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
 			m := &scriptedModel{}
 			var executed atomic.Int32
 			var expire func()
@@ -213,6 +215,7 @@ func TestOneRequestPerStep(t *testing.T) {
 	}
 }
 func TestParallelReadOnlyOrder(t *testing.T) {
+	t.Parallel()
 	for _, count := range []int{2, 9} {
 		t.Run(string(rune('0'+count)), func(t *testing.T) {
 			started := make(chan string, 16)
@@ -411,6 +414,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 	})
 }
 func TestGuidanceJoinsAtBoundary(t *testing.T) {
+	t.Parallel()
 	received, interrupted := make(chan struct{}), make(chan struct{})
 	m := &scriptedModel{scripts: []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
 		if !yield(text("Working")) {
@@ -453,6 +457,7 @@ func TestGuidanceJoinsAtBoundary(t *testing.T) {
 // TestGuidanceBatchPerInference joins one bounded batch before each model
 // call; the remainder waits for the next boundary rather than the same one.
 func TestGuidanceBatchPerInference(t *testing.T) {
+	t.Parallel()
 	running, release := make(chan struct{}), make(chan struct{})
 	tool := objectTool("gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
 		close(running)
@@ -497,6 +502,7 @@ func TestGuidanceBatchPerInference(t *testing.T) {
 	}
 }
 func TestQueueOrder(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(text("First reply"), finish()), response(text("Second reply"), finish())}}
 	f := newFixture(t, m)
 	f.start()
@@ -580,6 +586,7 @@ func TestQueueOrder(t *testing.T) {
 	})
 }
 func TestStopSealsInterrupted(t *testing.T) {
+	t.Parallel()
 	partial := make(chan struct{})
 	closed := make(chan struct{})
 	m := &scriptedModel{scripts: []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
@@ -720,6 +727,7 @@ func TestStopSealsInterrupted(t *testing.T) {
 	})
 }
 func TestCommittedStopCleansCommandsAfterContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	run := protocol.ConversationRun{Turn: protocol.NewTurnID(), Session: protocol.NewSessionID(), Status: protocol.ConversationStatusStopping}
@@ -738,6 +746,7 @@ func TestCommittedStopCleansCommandsAfterContextCancellation(t *testing.T) {
 }
 
 func TestRestartNoReplay(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{}
 	f := newFixture(t, m)
 	turn := f.submit("Task")
@@ -805,6 +814,7 @@ func TestRestartNoReplay(t *testing.T) {
 	})
 }
 func TestCompactionAtThreshold(t *testing.T) {
+	t.Parallel()
 	configured := uint32(700)
 	for _, row := range []struct {
 		tokens     uint64
@@ -857,6 +867,7 @@ func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC
 // A transient failure records its chosen backoff with the request's nine-retry
 // limit, so the UI announces the same wait the scheduler actually uses.
 func TestTransientRetryRecord(t *testing.T) {
+	t.Parallel()
 	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
 	f := newFixture(t, &scriptedModel{scripts: []script{response(limited), response(text("Done"), finish())}})
 	f.start()
@@ -891,6 +902,7 @@ func TestTransientRetryRecord(t *testing.T) {
 // request does, once, and a turn stopped during the wait ends at once without
 // a failure and without its compacting draft.
 func TestSummaryRetryRecord(t *testing.T) {
+	t.Parallel()
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	limited := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "slow down"}}
 	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
@@ -1007,6 +1019,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 	})
 }
 func TestReactiveCompactionAtMostTwo(t *testing.T) {
+	t.Parallel()
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
 	m := &scriptedModel{scripts: []script{response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, response(text("Third partial evidence"), overflow)}}
@@ -1023,6 +1036,7 @@ func TestReactiveCompactionAtMostTwo(t *testing.T) {
 }
 
 func TestReactiveCompactionStopsWithoutNewMaterial(t *testing.T) {
+	t.Parallel()
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
 	m := &scriptedModel{scripts: []script{response(overflow), summary, response(overflow)}}
@@ -1038,6 +1052,7 @@ func TestReactiveCompactionStopsWithoutNewMaterial(t *testing.T) {
 }
 
 func TestThresholdCompactionSkipsWhenAllHistoryIsRetained(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(call("probe", "probe", `{}`), finish()), response(text("Done"), finish())}}
 	probe := objectTool("probe", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		return ToolResult{Value: "Tool completed"}
@@ -1061,6 +1076,7 @@ func TestThresholdCompactionSkipsWhenAllHistoryIsRetained(t *testing.T) {
 }
 
 func TestThresholdCompactionKeepsReactiveRecoveryBounded(t *testing.T) {
+	t.Parallel()
 	overflow := response(text("New partial evidence"), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}})
 	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
 	m := &scriptedModel{scripts: []script{overflow, summary, overflow, summary, overflow}}
@@ -1082,6 +1098,7 @@ func TestThresholdCompactionKeepsReactiveRecoveryBounded(t *testing.T) {
 }
 
 func TestCompactionKeepsPendingAttachmentsWithoutReadingOldOnes(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{
 		response(text("Read the old note. "+strings.Repeat("Older completed evidence. ", 2000)), finish()),
 		response(text(`{"user_intent":["Read the pending attachment"]}`), finish()),
@@ -1167,6 +1184,7 @@ func TestCompactionKeepsPendingAttachmentsWithoutReadingOldOnes(t *testing.T) {
 }
 
 func TestCompactionKeepsRecords(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(text("Original answer"), finish()), response(text(`{"user_intent":["Task"],"files":[{"path":"a.go","summary":"pending"}]}`), finish())}}
 	f := newFixture(t, m)
 	f.start()
@@ -1194,6 +1212,7 @@ func TestCompactionKeepsRecords(t *testing.T) {
 }
 
 func TestOrphanToolResultDoesNotSuppressCurrentEvidence(t *testing.T) {
+	t.Parallel()
 	page := map[string]any{"kind": "file_lines", "data": map[string]any{"path": "fixture.go", "lines": []any{map[string]any{"number": 1, "text": "first line\n"}}, "size": 11, "revision": "file-revision", "offset": 0, "truncated": false}}
 	result := ToolResult{Value: page}
 	m := &scriptedModel{scripts: []script{response(text("Earlier reply"), finish()), response(call("current", "read_file", `{}`), finish()), response(text("Done"), finish())}}
@@ -1223,6 +1242,7 @@ func TestOrphanToolResultDoesNotSuppressCurrentEvidence(t *testing.T) {
 }
 
 func TestSystemPromptByteStable(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(text("First"), finish()), response(text("Second"), finish())}}
 	f := newFixture(t, m)
 	f.start()
@@ -1240,6 +1260,7 @@ func TestSystemPromptByteStable(t *testing.T) {
 	}
 }
 func TestTurnSettlement(t *testing.T) {
+	t.Parallel()
 	t.Run("stop closes the pending question as cancelled", func(t *testing.T) {
 		m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
 		f := newFixture(t, m)
@@ -1322,6 +1343,7 @@ func TestTurnSettlement(t *testing.T) {
 }
 
 func TestTurnEndHookStatus(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name    string
 		scripts []script
@@ -1383,6 +1405,7 @@ func TestTurnEndHookStatus(t *testing.T) {
 }
 
 func TestGuidanceBatch(t *testing.T) {
+	t.Parallel()
 	// prompt returns the user inputs of one model request, in order, leaving
 	// out the context the engine adds around them.
 	prompt := func(request fantasy.Call) []string {
@@ -1543,6 +1566,7 @@ func TestGuidanceBatch(t *testing.T) {
 // stay whole in history under their own turns; input sent while the failed last
 // attempt settles goes back to the queue whole and starts its own turn.
 func TestGuidanceBatchOverflow(t *testing.T) {
+	t.Parallel()
 	one, two, three := strings.Repeat("one ", 500), strings.Repeat("two ", 500), strings.Repeat("three ", 500)
 	carried := func(request fantasy.Call) []string {
 		var out []string
@@ -1686,6 +1710,7 @@ func TestGuidanceBatchOverflow(t *testing.T) {
 }
 
 func TestTurnPhases(t *testing.T) {
+	t.Parallel()
 	t.Run("an excluded wait removes only its owner's time", func(t *testing.T) {
 		micros := func(value *uint64) uint64 {
 			if value == nil {

@@ -12,6 +12,7 @@ import (
 )
 
 func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(call("title", "set_session_title", `{"title":"Brief conversation"}`), finish())}}
 	for range 8 {
 		m.scripts = append(m.scripts, response(text("Here"), finish()))

@@ -6,6 +6,7 @@ import (
 )
 
 func TestWorkspaceLocks(t *testing.T) {
+	t.Parallel()
 	// within reports whether the lock was taken before the wait ended.
 	within := func(wait time.Duration, lock func() func()) (func(), bool) {
 		taken := make(chan func(), 1)

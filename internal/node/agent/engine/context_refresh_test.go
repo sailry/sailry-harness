@@ -16,6 +16,7 @@ import (
 )
 
 func TestToollessModelClearsPluginCapabilityContext(t *testing.T) {
+	t.Parallel()
 	const (
 		enabledInstruction  = "Active goal: call update_goal after verification."
 		disabledInstruction = "New active goal state: call update_goal."
@@ -69,6 +70,7 @@ func TestToollessModelClearsPluginCapabilityContext(t *testing.T) {
 }
 
 func TestCollaborateOffersNativeProgressTool(t *testing.T) {
+	t.Parallel()
 	model := &scriptedModel{scripts: []script{response(text("Completed"), finish())}}
 	f := newFixture(t, model)
 	config := f.session.Config
@@ -85,6 +87,7 @@ func TestCollaborateOffersNativeProgressTool(t *testing.T) {
 }
 
 func TestGuidanceRefreshesPlanAndRetainsToolDiscoveryWithoutCompaction(t *testing.T) {
+	t.Parallel()
 	const originalPlan = `{"title":"Coordinate two fixes","steps":[{"description":"Fix the first report","state":"completed"},{"description":"Verify the second report","state":"in_progress"}]}`
 	cold := objectTool("optional_probe", true, true, nil)
 	remaining := objectTool("remaining_probe", true, true, nil)

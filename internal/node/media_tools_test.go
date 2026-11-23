@@ -110,6 +110,7 @@ func (eyes *mediaEyes) Stream(_ context.Context, call fantasy.Call) (fantasy.Str
 // confinement, plan mode and read-aloud synthesis against a local fake
 // provider.
 func TestMediaTools(t *testing.T) {
+	t.Parallel()
 	t.Run("routing", func(t *testing.T) {
 		entry := func(id string, vision bool, generates ...protocol.MediaGeneration) protocol.ConversationModel {
 			value := protocol.DefaultConversationModel()

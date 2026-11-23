@@ -12,6 +12,7 @@ import (
 )
 
 func TestScanBudgetKeepsFinishedPrefix(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("a.rs", "pub fn original() {}\n")
 	baseline := f.search("original")
@@ -74,6 +75,7 @@ func TestScanBudgetKeepsFinishedPrefix(t *testing.T) {
 }
 
 func TestScanParentCancellationIsNotBudget(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("a.rs", "pub fn initial() {}\n")
 	baseline := f.search("initial")

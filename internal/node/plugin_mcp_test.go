@@ -22,6 +22,7 @@ import (
 )
 
 func TestStandaloneMCPArgumentEditKeepsEnvironment(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	const name, token = "mcp-edit-fixture", "fixture-token"
 	install := func(revision uint64, command string, args []string, secret protocol.PluginSettingsSecretUpdate) protocol.Command {
@@ -71,6 +72,7 @@ func TestStandaloneMCPArgumentEditKeepsEnvironment(t *testing.T) {
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestMCPPackageAndScriptCapture(t *testing.T) {
+	t.Parallel()
 	t.Run("conversation selects MCP and preserves scripted native receipt", pluginMCPConversationAcceptance)
 	t.Run("assistant conversation uses its declared workspace, packages, tools and context", pluginAssistantAcceptance)
 	t.Run("startup omits unavailable servers and preserves terminal cleanup", func(t *testing.T) {

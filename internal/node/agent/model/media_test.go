@@ -25,6 +25,7 @@ import (
 // TestMediaDrivers checks channel selection and every media request shape
 // against a local fake. No provider is contacted.
 func TestMediaDrivers(t *testing.T) {
+	t.Parallel()
 	var pixels bytes.Buffer
 	if err := png.Encode(&pixels, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)

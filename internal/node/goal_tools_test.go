@@ -9,6 +9,7 @@ import (
 )
 
 func TestCoreGoalStateCompatibility(t *testing.T) {
+	t.Parallel()
 	legacy, err := readGoalValue(protocol.PluginStorageConversationEntry{
 		Present: true, Value: json.RawMessage(`{"id":"legacy","description":"Finish the checks","state":"in_progress"}`),
 	})
@@ -45,6 +46,7 @@ func TestCoreGoalStateCompatibility(t *testing.T) {
 }
 
 func TestCoreGoalExecutorRequiresOfficialPackage(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		packageName, origin, tool string
 		want                      bool

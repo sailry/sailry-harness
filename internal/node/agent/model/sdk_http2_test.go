@@ -24,6 +24,7 @@ import (
 )
 
 func TestHTTP2TransportFailureClassification(t *testing.T) {
+	t.Parallel()
 	protocol := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
 	for _, cause := range []error{
 		protocol,
@@ -215,6 +216,7 @@ func localConnectProxy(t *testing.T, target string) *url.URL {
 }
 
 func TestSDKHTTP2ProtocolResetWithoutReplay(t *testing.T) {
+	t.Parallel()
 	for _, complete := range []bool{false, true} {
 		t.Run(fmt.Sprintf("choice_complete_%t", complete), func(t *testing.T) {
 			reason := "null"
@@ -266,6 +268,7 @@ func TestSDKHTTP2ProtocolResetWithoutReplay(t *testing.T) {
 }
 
 func TestSDKHTTP2ProtocolRecoveryIsRequestScoped(t *testing.T) {
+	t.Parallel()
 	prefixes := map[string]string{
 		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"Discarded\"}\n\n",
 		"google":    "data: {\"candidates\":[{\"index\":0,\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"Discarded\"}]}}]}\n\n",

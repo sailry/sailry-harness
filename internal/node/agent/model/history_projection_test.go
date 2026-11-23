@@ -15,6 +15,7 @@ import (
 )
 
 func TestVisibleRecordsCanBeProjectedAgain(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	message := func(text string) canonical.Record {
 		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, text)), time.Time{})
@@ -41,6 +42,7 @@ func TestVisibleRecordsCanBeProjectedAgain(t *testing.T) {
 }
 
 func TestToolFailureRequestIncludesReadableDiagnosticsAndKeepsRawFallback(t *testing.T) {
+	t.Parallel()
 	provider := protocol.DefaultConversationProvider()
 	provider.Api = protocol.ConversationModelApiChatCompletions
 	binding := Binding{Provider: provider, Config: protocol.DefaultSessionConfig()}
@@ -97,6 +99,7 @@ func TestToolFailureRequestIncludesReadableDiagnosticsAndKeepsRawFallback(t *tes
 }
 
 func TestRollingSummaryRetainsTailAndResetsReadProjection(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	message := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
 		return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), time.Time{})
@@ -178,6 +181,7 @@ func TestRollingSummaryRetainsTailAndResetsReadProjection(t *testing.T) {
 }
 
 func TestAnsweredPairsReusedIDsByOccurrence(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	request := func() canonical.Record {
 		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{
@@ -208,6 +212,7 @@ func TestAnsweredPairsReusedIDsByOccurrence(t *testing.T) {
 }
 
 func TestBuildProjectedCallMatchesRawAudience(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	call := canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: "c", Name: "sample", Arguments: json.RawMessage(`{}`)}}
 	result := canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "c", Name: "sample", Format: canonical.MCP, Status: canonical.ToolSuccess, Result: canonical.Payload{Value: json.RawMessage(`{"content":[{"type":"text","text":"secret-fixture","annotations":{"audience":["user"]}},{"type":"text","text":"allowed-fixture"}]}`)}}}
@@ -256,6 +261,7 @@ func TestBuildProjectedCallMatchesRawAudience(t *testing.T) {
 }
 
 func TestVisibleAnsweredRecordsMatchesLegacyRequests(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	message := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
 		return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), time.Time{})
@@ -368,6 +374,7 @@ func TestVisibleAnsweredRecordsMatchesLegacyRequests(t *testing.T) {
 }
 
 func TestAnthropicParallelToolCoalescingAndBreakpoints(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	makeMsg := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
 		msg := canonical.NewMessage(role, blocks...)
@@ -425,6 +432,7 @@ func TestAnthropicParallelToolCoalescingAndBreakpoints(t *testing.T) {
 }
 
 func TestGeminiPreservesThoughtSignatureAcrossTurns(t *testing.T) {
+	t.Parallel()
 	turn1, turn2 := protocol.NewTurnID(), protocol.NewTurnID()
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Api = protocol.NewProviderID(), protocol.ConversationModelApiGemini

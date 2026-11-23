@@ -125,6 +125,7 @@ func (rows *readAdmissionRows) Next(values []driver.Value) error {
 }
 
 func TestReadAdmissionWaitsForWriterCommit(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const pin = "SELECT rootpage FROM sqlite_schema LIMIT 1"
 		busy := fmt.Errorf("%w: database is locked", turso.ErrTursoBusy)

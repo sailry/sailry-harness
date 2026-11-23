@@ -13,6 +13,7 @@ import (
 )
 
 func TestAnthropicCompatibleEndpoint(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct{ name, configured, prefix, beta string }{
 		{name: "origin"},
 		{name: "versioned base", configured: "/v1/"},

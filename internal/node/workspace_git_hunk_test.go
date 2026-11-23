@@ -17,6 +17,7 @@ import (
 )
 
 func testManualGitHunkAdmission(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	session := sessionFixture(t, node)
 	write := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: session.Worktree, Path: "source.txt", Text: "before\n"}}))

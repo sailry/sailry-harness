@@ -197,6 +197,7 @@ func waitResourceDirectory(t *testing.T, node *Node, ctx context.Context, change
 }
 
 func TestResourceDirectoryObservesCreationAndRestoresOfflineAfterRestart(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	transport, remote, ctx, changes := watchResourceDirectory(t, controller, source)
 	waitResourceDirectory(t, controller, ctx, changes, func(values []protocol.ResourceSource) bool { return len(values) == 1 })
@@ -248,6 +249,7 @@ func TestResourceDirectoryObservesCreationAndRestoresOfflineAfterRestart(t *test
 }
 
 func TestResourceDirectoryRejectsPartialDeletionAndReconcilesFullReconnect(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	created := commandFixture(t, source, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Remote project", Path: t.TempDir()}}).Data.(protocol.Project)
 	transport, remote, ctx, changes := watchResourceDirectory(t, controller, source)
@@ -275,6 +277,7 @@ func TestResourceDirectoryRejectsPartialDeletionAndReconcilesFullReconnect(t *te
 }
 
 func TestResourceDirectoryRevocationClearsMemoryAndDisk(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	commandFixture(t, source, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Remote project", Path: t.TempDir()}})
 	transport, remote, ctx, changes := watchResourceDirectory(t, controller, source)
@@ -305,6 +308,7 @@ func TestResourceDirectoryRevocationClearsMemoryAndDisk(t *testing.T) {
 }
 
 func TestResourceDirectoryReconnectUpdatesExistingProject(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	created := commandFixture(t, source, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Before reconnect", Path: t.TempDir()}}).Data.(protocol.Project)
 	transport, remote, ctx, changes := watchResourceDirectory(t, controller, source)
@@ -343,6 +347,7 @@ func TestResourceDirectoryReconnectUpdatesExistingProject(t *testing.T) {
 }
 
 func TestResourceDirectoryKeepsConnectedDiskSummariesUnavailableUntilMetadataIsConfirmed(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	packageDir := t.TempDir()
 	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"fixture-reader","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["knowledge.read"]}}}`
@@ -461,6 +466,7 @@ func TestResourceDirectoryKeepsConnectedDiskSummariesUnavailableUntilMetadataIsC
 }
 
 func TestResourceDirectoryRevocationDiscardsInFlightSuccessfulCapture(t *testing.T) {
+	t.Parallel()
 	controller, source := nodeFixture(t), nodeFixture(t)
 	project := commandFixture(t, source, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Revoked private project", Path: t.TempDir()}}).Data.(protocol.Project)
 	transport := newResourceDirectoryTransport(t, source)

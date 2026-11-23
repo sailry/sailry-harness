@@ -25,6 +25,7 @@ import (
 // endpoint that cannot be reached, refuses, answers nothing definite, and
 // finally issues a new grant.
 func TestConnectorRenewal(t *testing.T) {
+	t.Parallel()
 	node := systemNodeFixture(t, Options{DispatchClock: clockwork.NewFakeClockAt(time.Unix(0, 0)), MCP: fixtureMCPOptions()})
 	ctx := t.Context()
 	source := t.TempDir()

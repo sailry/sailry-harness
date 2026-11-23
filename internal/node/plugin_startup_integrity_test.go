@@ -19,6 +19,7 @@ import (
 )
 
 func TestStartupIsolatesUnavailablePlugin(t *testing.T) {
+	t.Parallel()
 	for _, damage := range []string{"missing", "changed"} {
 		t.Run(damage, func(t *testing.T) {
 			ctx := t.Context()
@@ -161,6 +162,7 @@ func waitForUnavailablePluginTurn(t *testing.T, node *Node, turn protocol.TurnID
 }
 
 func TestStartupRestoresExactBundledPackages(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	owner := nodeFixture(t)
 	profile := owner.profile.Ownership.Path

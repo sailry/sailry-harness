@@ -13,6 +13,7 @@ import (
 )
 
 func TestImageHistoryModelSwitch(t *testing.T) {
+	t.Parallel()
 	for _, current := range []bool{false, true} {
 		for _, textAdapter := range []bool{false, true} {
 			t.Run(fmt.Sprintf("current %v text adapter %v", current, textAdapter), func(t *testing.T) {
@@ -74,6 +75,7 @@ func TestImageHistoryModelSwitch(t *testing.T) {
 }
 
 func TestOmittedImageAttachmentUsesCapturedInspection(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name                   string
 		vision, tools, inspect bool

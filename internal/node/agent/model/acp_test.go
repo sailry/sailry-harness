@@ -318,6 +318,7 @@ func (fixture *acpFixture) prompt(index int) string {
 const acpUser = `[{"role":"user","parts":[{"kind":"text","text":"hi"}]}]`
 
 func TestACPRoute(t *testing.T) {
+	t.Parallel()
 	t.Run("streams a plain reply with reasoning and usage", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta,variants", []acpFixtureReply{{Thoughts: []string{"thin", "king"}, Chunks: []string{"Hel", "lo"},
 			Usage: map[string]any{"inputTokens": 10, "cachedReadTokens": 30, "outputTokens": 7, "thoughtTokens": 5, "totalTokens": 47}}}, nil)
@@ -591,6 +592,7 @@ func TestACPRoute(t *testing.T) {
 // chosen by a start argument, a key in the declared environment and an
 // authentication method the agent is asked to use.
 func TestACPRouteSecondVendor(t *testing.T) {
+	t.Parallel()
 	method := "fixture_login"
 	shape := func(capture *ACPCapture) {
 		capture.Adapter.Acp.SystemMeta, capture.Adapter.Acp.Efforts = nil, nil
@@ -627,6 +629,7 @@ func TestACPRouteSecondVendor(t *testing.T) {
 }
 
 func TestACPDiscovery(t *testing.T) {
+	t.Parallel()
 	t.Run("folds effort variants and sends no prompt", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta,variants", nil, nil)
 		catalog, err := DiscoverACP(t.Context(), fixture.model.binding, fixture.model.capture)

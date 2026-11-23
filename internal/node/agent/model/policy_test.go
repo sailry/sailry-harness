@@ -109,6 +109,7 @@ func TestAttemptTimingIncludesDispatchAndStreamTail(t *testing.T) {
 }
 
 func TestRetryTransient(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name string
 		body string
@@ -244,6 +245,7 @@ func (ctx *policyDeadlineContext) Err() error {
 }
 
 func TestExpiredParentDoesNotAnnounceRetry(t *testing.T) {
+	t.Parallel()
 	for _, finalIndex := range []int{0, MainRetries} {
 		t.Run(fmt.Sprintf("attempt_%d", finalIndex+1), func(t *testing.T) {
 			ctx := &policyDeadlineContext{Context: t.Context(), done: make(chan struct{})}
@@ -272,6 +274,7 @@ func TestExpiredParentDoesNotAnnounceRetry(t *testing.T) {
 }
 
 func TestRetryExhaustionRequiresRecoverableRetryableFailure(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"transient", "partial", "keepalive", "permanent", "canceled", "consumer_release", "observer_canceled", "summary_partial"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -329,6 +332,7 @@ func TestRetryExhaustionRequiresRecoverableRetryableFailure(t *testing.T) {
 }
 
 func TestFirstTokenRequiresOutput(t *testing.T) {
+	t.Parallel()
 	accumulator := &pluginAccumulator{}
 	parts, err := accumulator.push(pluginDeltas(t, `[{"kind":"tool_call","index":0,"id":"call"},{"kind":"tool_call","index":0,"name":"read"}]`))
 	if err != nil || len(parts) != 2 {
@@ -351,6 +355,7 @@ func TestFirstTokenRequiresOutput(t *testing.T) {
 }
 
 func TestNoRetryAfterOutputWithoutReset(t *testing.T) {
+	t.Parallel()
 	for _, event := range []fantasy.StreamPart{textPart("partial"), {Type: fantasy.StreamPartTypeToolInputDelta, ID: "call", Delta: "{"}} {
 		t.Run(string(event.Type), func(t *testing.T) {
 			fake := &policyModel{responses: [][]fantasy.StreamPart{{event, errorPart(Network)}}}
@@ -372,6 +377,7 @@ func TestNoRetryAfterOutputWithoutReset(t *testing.T) {
 	})
 }
 func TestPermanentErrorTerminal(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []FailureKind{NotConfigured, Authentication, ContextOverflow, Quota, InvalidRequest, InvalidResponse, Unsupported, Cancelled, Other} {
 		t.Run(string(kind), func(t *testing.T) {
 			fake := &policyModel{responses: [][]fantasy.StreamPart{{errorPart(kind)}}}
@@ -400,6 +406,7 @@ func TestPermanentErrorTerminal(t *testing.T) {
 	})
 }
 func TestErrorMapping(t *testing.T) {
+	t.Parallel()
 	sdkFailureFixtures(t)
 	for _, row := range []struct {
 		name   string
@@ -435,6 +442,7 @@ func TestErrorMapping(t *testing.T) {
 	})
 }
 func TestUsagePerAttempt(t *testing.T) {
+	t.Parallel()
 	zero, first, second := int64(0), int64(11), int64(7)
 	reported := func(input, output *int64) fantasy.StreamPart {
 		part := finishPart()

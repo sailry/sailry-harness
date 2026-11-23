@@ -18,6 +18,7 @@ import (
 )
 
 func TestConnectorBindChecksSelectedCLIAccount(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture requires a Unix executable")
 	}
@@ -99,6 +100,7 @@ printf '%s' '{"hosts":{"github.com":[{"login":"current-account","active":true}]}
 
 // Over 1 s: the Node start installs and verifies the bundled packages.
 func TestPluginConnectorAccess(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	entry := "dev.sailry.platform/host/main.js"

@@ -16,6 +16,7 @@ import (
 )
 
 func testPluginMessageCommandOutputs(t *testing.T) {
+	t.Parallel()
 	t.Run("queued result retains the captured session", func(t *testing.T) {
 		session := protocol.NewSessionID()
 		child := protocol.NewRequest(protocol.NodeID{1}, protocol.Command{Kind: "call_plugin"})

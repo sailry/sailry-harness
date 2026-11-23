@@ -21,6 +21,7 @@ type resourceCatalogTransport struct {
 }
 
 func TestKnowledgePrefixFollowsSourcePages(t *testing.T) {
+	t.Parallel()
 	query := protocol.DefaultKnowledgeQuery()
 	query.Query, query.Limit, query.Offset = "reference", 10, 195
 	leaf := query
@@ -55,6 +56,7 @@ func TestKnowledgePrefixFollowsSourcePages(t *testing.T) {
 }
 
 func TestKnowledgePrefixRetainsUnconsumedSourceCursor(t *testing.T) {
+	t.Parallel()
 	query := protocol.DefaultKnowledgeQuery()
 	query.Query, query.Limit = "reference", 5
 	request := protocol.NewRequest(protocol.NodeID{4}, protocol.Command{Kind: "query_knowledge", Data: &query})
@@ -69,6 +71,7 @@ func TestKnowledgePrefixRetainsUnconsumedSourceCursor(t *testing.T) {
 }
 
 func TestKnowledgePrefixRejectsInvalidCursorBeforeReturning(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name string
 		hits int
@@ -94,6 +97,7 @@ func TestKnowledgePrefixRejectsInvalidCursorBeforeReturning(t *testing.T) {
 }
 
 func TestResourceProjectionRetainsOnlyUnavailableContent(t *testing.T) {
+	t.Parallel()
 	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy, protocol.ErrorCodeCancelled, protocol.ErrorCodeOutcomeUnknown} {
 		if !resourceCacheAllowed(&protocol.Fault{Code: code}) {
 			t.Fatalf("unavailable source %s discarded its projection", code)
@@ -107,6 +111,7 @@ func TestResourceProjectionRetainsOnlyUnavailableContent(t *testing.T) {
 }
 
 func TestStorageControllerCatalogDoesNotCallBackToController(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	controller := protocol.NodeID{46}
 	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
@@ -179,6 +184,7 @@ func resourceCatalogFixture(t *testing.T, node *Node, peers map[protocol.NodeID]
 }
 
 func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	remoteID := protocol.NodeID{44}
 	remote := client.New(&resourceCatalogTransport{target: remoteID})
@@ -220,6 +226,7 @@ func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
 }
 
 func TestResourceCatalogPersistsUnchangedRefreshWithoutInvalidation(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	remoteID := protocol.NodeID{46}
 	remote := client.New(&resourceCatalogTransport{target: remoteID})
@@ -262,6 +269,7 @@ func TestResourceCatalogPersistsUnchangedRefreshWithoutInvalidation(t *testing.T
 }
 
 func TestKnowledgeTargetMustMatchOriginalRequest(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	foreign := protocol.NodeID{45}
 	definition := protocol.DefaultKnowledgeDefinition()

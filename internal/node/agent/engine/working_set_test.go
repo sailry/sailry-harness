@@ -20,6 +20,7 @@ import (
 )
 
 func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
+	t.Parallel()
 	const batchSize = 40
 	const latest = "Keep the original inventory IDs in the final report."
 	const attachmentText = "Fixture inventory includes item ZX-42."
@@ -122,6 +123,7 @@ func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
 }
 
 func TestLargeFixedPromptBelowWindowThreshold(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{
 		workingSetBatch(0, 1, 134_000),
 		workingSetBatch(1, 1, 150_000),
@@ -154,6 +156,7 @@ func TestLargeFixedPromptBelowWindowThreshold(t *testing.T) {
 }
 
 func TestWorkingSetPreservesExplicitPercentAndModelLimit(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(text("Done"), finish())}}
 	f := newFixture(t, m)
 	setWorkingSetWindow(t, f)

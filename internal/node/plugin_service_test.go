@@ -23,11 +23,13 @@ import (
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestPluginRuntimeAdmission(t *testing.T) {
+	t.Parallel()
 	t.Run("Status scheduling", testPluginStatusScheduling)
 	t.Run("native slash commands", testPluginMessageCommandOutputs)
 	t.Run("ssh resources", testSSHResourceRules)
 	t.Run("connection tools", testConnectionTools)
 	t.Run("callback storage receipt and read-only authority", func(t *testing.T) {
+		t.Parallel()
 		node := nodeFixture(t)
 		diagnostic := protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_plugin_memory", Data: protocol.CommandReadPluginMemoryPayload{}})
 		accepted, err := node.Dispatch(t.Context(), node.ID(), diagnostic)
@@ -155,6 +157,7 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		}
 	})
 	t.Run("a command whose transaction fails is settled with its failure", func(t *testing.T) {
+		t.Parallel()
 		node := nodeFixture(t)
 		selected := snapshotFixture(t, node).Plugins[0]
 		exec := func(statement string) {
@@ -184,6 +187,7 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		}
 	})
 	t.Run("bootstrap removal and settings survive restart", func(t *testing.T) {
+		t.Parallel()
 		node := nodeFixture(t)
 		initial := snapshotFixture(t, node).Plugins
 		if len(initial) != len(plugins.BundledDefaults()) {

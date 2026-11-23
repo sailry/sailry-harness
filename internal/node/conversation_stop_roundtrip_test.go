@@ -11,6 +11,7 @@ import (
 )
 
 func TestConversationStopThenSendQueuedRoundTrip(t *testing.T) {
+	t.Parallel()
 	held := &shutdownScript{started: make(chan context.Context, 2), finish: make(chan struct{})}
 	node := startShutdownNode(t, filepath.Join(t.TempDir(), "profile"), held)
 	session := sessionFixture(t, node)

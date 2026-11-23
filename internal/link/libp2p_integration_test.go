@@ -1,3 +1,5 @@
+//go:build integration
+
 package link
 
 import (
@@ -71,14 +73,6 @@ func startLibp2pTestRelay(t *testing.T, seed byte) (string, *libp2pRelayCounter)
 		t.Fatalf("relay did not bind only loopback TCP: %v", host.Addrs())
 	}
 	return fmt.Sprintf("%s/p2p/%s", host.Addrs()[0], host.ID()), counter
-}
-
-func libp2pTestIdentity(first byte) Identity {
-	var identity Identity
-	for index := range identity.seed {
-		identity.seed[index] = first + byte(index)
-	}
-	return identity
 }
 
 type libp2pTestHandler struct {

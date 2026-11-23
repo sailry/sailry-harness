@@ -18,6 +18,7 @@ import (
 const reportedUsageMissingDiagnostic = `error: code=502 reason="UPSTREAM_USAGE_MISSING" message="Upstream response is missing billable token usage; settlement was not completed" metadata=map[]`
 
 func TestUpstreamUsageMissingClassification(t *testing.T) {
+	t.Parallel()
 	envelope := func(code, reason, message string) string {
 		raw, err := json.Marshal(map[string]any{"error": map[string]any{"code": code, "reason": reason, "message": message}})
 		if err != nil {
@@ -58,6 +59,7 @@ func TestUpstreamUsageMissingClassification(t *testing.T) {
 }
 
 func TestSDKUpstreamUsageMissingRecovery(t *testing.T) {
+	t.Parallel()
 	raw, err := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "api_error", "message": reportedUsageMissingDiagnostic}})
 	if err != nil {
 		t.Fatal(err)

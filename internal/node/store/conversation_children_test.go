@@ -9,6 +9,7 @@ import (
 )
 
 func TestReadConversationChildRequiresCurrentParentMembership(t *testing.T) {
+	t.Parallel()
 	storage, node, parent, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {

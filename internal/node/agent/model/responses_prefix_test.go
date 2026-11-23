@@ -17,6 +17,7 @@ import (
 )
 
 func TestResponsesSerializedPrefixContinuations(t *testing.T) {
+	t.Parallel()
 	for _, modelID := range []string{"gpt-6.2-sol", "gpt-6-astra"} {
 		t.Run(modelID, func(t *testing.T) {
 			responses := make([]string, 10)

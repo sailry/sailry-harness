@@ -13,6 +13,7 @@ import (
 )
 
 func TestReadSessionOverviewAndUsageBuiltins(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{}
 	f := newFixtureWithTimeout(t, m, 15*time.Second)
 	charged := finish()

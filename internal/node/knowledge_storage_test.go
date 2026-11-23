@@ -94,6 +94,7 @@ func seedKnowledgeFixtureEmbedding(t *testing.T, path string) {
 // semantic collection, and a fixture package owns an explicit storage
 // collection.
 func TestKnowledgeStorage(t *testing.T) {
+	t.Parallel()
 	script := &knowledgeStorageScript{results: map[string]string{}}
 	var encoded atomic.Int64
 	type catalogBarrier struct {

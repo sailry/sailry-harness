@@ -42,6 +42,7 @@ func terminalFixture(t *testing.T, node *Node, id protocol.TerminalID) protocol.
 }
 
 func TestProjectRemovalClosesResources(t *testing.T) {
+	t.Parallel()
 	record := func(t *testing.T, node *Node, worktree protocol.WorktreeID, status string) protocol.TerminalID {
 		t.Helper()
 		terminal := protocol.DefaultTerminalInfo()

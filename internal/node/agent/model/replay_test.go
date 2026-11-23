@@ -47,6 +47,7 @@ func replayFixtureResult() fantasy.Message {
 }
 
 func TestScopeReplayPreservesOnlyMatchingNativeThinking(t *testing.T) {
+	t.Parallel()
 	binding := replayFixtureBinding()
 	initial := replayFixtureCall()
 	prefix, err := scopeReplay(binding, &initial, nil)
@@ -90,6 +91,7 @@ func TestScopeReplayPreservesOnlyMatchingNativeThinking(t *testing.T) {
 }
 
 func TestScopeReplayRetainsFreshThinkingAfterAChangedPrefix(t *testing.T) {
+	t.Parallel()
 	binding := replayFixtureBinding()
 	initial := replayFixtureCall()
 	originalPrefix, err := scopeReplay(binding, &initial, nil)
@@ -131,6 +133,7 @@ func TestScopeReplayRetainsFreshThinkingAfterAChangedPrefix(t *testing.T) {
 }
 
 func TestScopeReplayIgnoresCacheAnnotationsButKeepsBusinessFields(t *testing.T) {
+	t.Parallel()
 	binding := replayFixtureBinding()
 	initial := replayFixtureCall()
 	prefix, err := scopeReplay(binding, &initial, nil)
@@ -169,6 +172,7 @@ func TestScopeReplayIgnoresCacheAnnotationsButKeepsBusinessFields(t *testing.T) 
 }
 
 func TestScopeReplayRemovesEmptyAssistantEnvelopesAndFramesMessages(t *testing.T) {
+	t.Parallel()
 	binding := replayFixtureBinding()
 	call := replayFixtureCall()
 	without := replayFixtureCall()
@@ -197,6 +201,7 @@ func TestScopeReplayRemovesEmptyAssistantEnvelopesAndFramesMessages(t *testing.T
 }
 
 func TestScopeReplayLeavesOtherProtocolsAndLegacyModelsUntouched(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		api   protocol.ConversationModelApi
 		model string
@@ -225,6 +230,7 @@ func TestScopeReplayLeavesOtherProtocolsAndLegacyModelsUntouched(t *testing.T) {
 }
 
 func TestScopeReplayScopesTheTransportFlavor(t *testing.T) {
+	t.Parallel()
 	binding := replayFixtureBinding()
 	binding.Provider.Authentication = protocol.AuthenticationApiKey
 	initial := replayFixtureCall()

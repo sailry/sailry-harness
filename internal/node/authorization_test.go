@@ -14,6 +14,7 @@ import (
 )
 
 func TestCommandAuthorizationCoverage(t *testing.T) {
+	t.Parallel()
 	registered := map[string]bool{}
 	for _, kind := range protocol.CommandKinds() {
 		registered[kind] = true
@@ -32,6 +33,7 @@ func TestCommandAuthorizationCoverage(t *testing.T) {
 }
 
 func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	owner, other := protocol.NodeID{31}, protocol.NodeID{32}

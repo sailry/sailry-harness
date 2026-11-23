@@ -69,6 +69,7 @@ func pluginDeltas(t *testing.T, source string) []protocol.PluginModelAdapterWire
 }
 
 func TestPluginModelWireParity(t *testing.T) {
+	t.Parallel()
 	t.Run("retains neutral messages and exact schemas", func(t *testing.T) {
 		model, binding, _ := pluginFixture(t, "", nil)
 		maximum := int64(128)
@@ -306,6 +307,7 @@ func TestPluginModelWireParity(t *testing.T) {
 }
 
 func TestPluginModelTransport(t *testing.T) {
+	t.Parallel()
 	t.Run("native HTTP hides credentials and private response headers", func(t *testing.T) {
 		requests := 0
 		model, binding, capture := pluginFixture(t, `

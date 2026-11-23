@@ -17,6 +17,7 @@ import (
 )
 
 func TestMCPPoolKey(t *testing.T) {
+	t.Parallel()
 	clock := clockwork.NewFakeClockAt(time.Unix(100, 0))
 	var opened atomic.Int32
 	pool := New(t.Context(), Options{Clock: clock, Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
@@ -140,6 +141,7 @@ func TestMCPPoolKey(t *testing.T) {
 }
 
 func TestMCPCleanupUnknown(t *testing.T) {
+	t.Parallel()
 	t.Run("retain both acquisition cleanup failures", func(t *testing.T) {
 		pool := New(t.Context(), Options{Open: func(ctx context.Context, launch Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
 			return fakeSession(t, ctx, elicit, nil)
@@ -376,6 +378,7 @@ func (fixture *lifecycleFixture) open(t *testing.T) func(context.Context, Launch
 }
 
 func TestMCPLifecycle(t *testing.T) {
+	t.Parallel()
 	summary := protocol.PluginSummary{Name: "lifecycle", Digest: "capture", SettingsRevision: 1, Revision: 1, Enabled: true}
 	summary.Compatibility.Kind = "compatible"
 	reference := protocol.PluginReference{Name: summary.Name, Digest: summary.Digest, SettingsRevision: summary.SettingsRevision}
@@ -599,6 +602,7 @@ func TestMCPLifecycle(t *testing.T) {
 }
 
 func TestMCPPoolUserIsolation(t *testing.T) {
+	t.Parallel()
 	pool := New(t.Context(), Options{Open: func(ctx context.Context, _ Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
 		return fakeSession(t, ctx, elicit, nil)
 	}})
@@ -644,6 +648,7 @@ func TestMCPPoolUserIsolation(t *testing.T) {
 }
 
 func TestMCPPoolLargeServerSelectedToolsAndListChanged(t *testing.T) {
+	t.Parallel()
 	t.Run("large server succeeds when selected subset fits budget", func(t *testing.T) {
 		server := sdk.NewServer(&sdk.Implementation{Name: "large", Version: "1"}, nil)
 		for i := range 300 {

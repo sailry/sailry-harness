@@ -48,6 +48,7 @@ func (listener tlsRecordListener) Accept() (net.Conn, error) {
 type tlsRecordConnKey struct{}
 
 func TestSDKBadRecordMACRecovery(t *testing.T) {
+	t.Parallel()
 	const responseDelta = `data: {"type":"response.output_text.delta","item_id":"message","delta":"Discarded"}`
 	const toolCall = `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"stable-call","name":"read","arguments":"{}"}}`
 	for _, test := range []struct {
@@ -235,6 +236,7 @@ func TestSDKBadRecordMACRecovery(t *testing.T) {
 }
 
 func TestSDKCertificateVerificationDoesNotRetry(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("model request sent without a trusted certificate")
 	}))
@@ -281,6 +283,7 @@ func (body *discardedSDKBody) Close() error {
 }
 
 func TestSDKFailedRoundTripClosesDiscardedBody(t *testing.T) {
+	t.Parallel()
 	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: "https://fixture.test", Key: "fixture-key"})
 	if err != nil {
 		t.Fatal(err)

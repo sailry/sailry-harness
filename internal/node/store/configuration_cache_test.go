@@ -34,6 +34,7 @@ func controllerCacheFixture(t *testing.T) (*Store, protocol.NodeID, protocol.Nod
 }
 
 func TestConfigurationCacheStatusIgnoresLegacyCopyConflicts(t *testing.T) {
+	t.Parallel()
 	storage, _, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		user, err := CurrentUser(ctx, db)
@@ -73,6 +74,7 @@ VALUES(?1,'providers','old',?2,1,'old','conflict','legacy mirror conflict','{}',
 }
 
 func TestRuntimeCredentialEvent(t *testing.T) {
+	t.Parallel()
 	for _, event := range []string{"provider_changed", "provider_removed", "credential_changed", "connections_changed", "plugin_changed", "plugin_removed"} {
 		if !RuntimeCredentialEvent(event) {
 			t.Errorf("%s did not wake credential listeners", event)
@@ -84,6 +86,7 @@ func TestRuntimeCredentialEvent(t *testing.T) {
 }
 
 func TestConfigurationCacheKeepsCapturedRuntimeCredentialsAndVersions(t *testing.T) {
+	t.Parallel()
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		provider := providerFixture()
@@ -152,6 +155,7 @@ func TestConfigurationCacheKeepsCapturedRuntimeCredentialsAndVersions(t *testing
 }
 
 func TestPersonalConfigurationUsesNodeLocalRowsForPairedUser(t *testing.T) {
+	t.Parallel()
 	storage, _, _, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		if value, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media"); err != nil || value != nil {

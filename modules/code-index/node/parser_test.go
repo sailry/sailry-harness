@@ -23,6 +23,7 @@ const (
 
 // TestCodeOutline replays the outline fixtures of the Rust code index.
 func TestCodeOutline(t *testing.T) {
+	t.Parallel()
 	var parser Parser
 	ctx := context.Background()
 	for _, fixture := range []struct {
@@ -156,6 +157,7 @@ type referenced struct {
 
 // TestCodeReferences replays the reference fixtures of the Rust code index.
 func TestCodeReferences(t *testing.T) {
+	t.Parallel()
 	var parser Parser
 	for _, fixture := range []struct {
 		path, source string

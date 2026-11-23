@@ -11,6 +11,7 @@ import (
 // Presented files carry their worktree path, media type, size and revision,
 // once each; a missing, escaping or directory path refuses the whole call.
 func TestPresentFiles(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

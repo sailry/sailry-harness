@@ -20,6 +20,7 @@ import (
 )
 
 func TestLargePublishedToolDetailThroughLocalAPI(t *testing.T) {
+	t.Parallel()
 	owner := nodeFixture(t)
 	session := sessionFixture(t, owner)
 	queued := commandFixture(t, owner, protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{

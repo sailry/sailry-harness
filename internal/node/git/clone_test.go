@@ -9,6 +9,7 @@ import (
 // A value url.Parse refuses still has to be an scp-style address: a
 // helper::address form would start git-remote-<helper>.
 func TestCloneURLForms(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		url  string
 		runs bool

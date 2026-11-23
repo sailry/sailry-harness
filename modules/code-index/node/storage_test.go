@@ -12,6 +12,7 @@ import (
 )
 
 func TestPersistentCodeExclusionsKeepOnlyMetadata(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("code.go", "package fixture\nfunc Kept() {}\n",
 		"settings.json", `{"hidden":true}`,
@@ -43,6 +44,7 @@ func TestPersistentCodeExclusionsKeepOnlyMetadata(t *testing.T) {
 }
 
 func TestUnmarkedMinifiedCodeKeepsOnlyMetadata(t *testing.T) {
+	t.Parallel()
 	parser := &Parser{}
 	const file = "public/script.js"
 	source := "/*! bundled script */\n" + strings.Repeat("hidden();", 2000)
@@ -53,6 +55,7 @@ func TestUnmarkedMinifiedCodeKeepsOnlyMetadata(t *testing.T) {
 }
 
 func TestTransientCodeIndexQueriesAndIsolation(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	first, err := newTransientIndex(ctx)
 	if err != nil {

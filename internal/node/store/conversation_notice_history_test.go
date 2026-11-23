@@ -9,6 +9,7 @@ import (
 )
 
 func TestNoticeRunHistoryDoesNotExposeInput(t *testing.T) {
+	t.Parallel()
 	storage, node, session, first, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {

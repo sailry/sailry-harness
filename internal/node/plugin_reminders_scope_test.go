@@ -17,6 +17,7 @@ import (
 )
 
 func TestReminderCallbackOutlivesSourceSession(t *testing.T) {
+	t.Parallel()
 	// Keep dispatch before the reminder's due time. The callback below runs the
 	// bundled JavaScript directly, after its originating session is removed.
 	clock := clockwork.NewFakeClockAt(time.Unix(0, 0))

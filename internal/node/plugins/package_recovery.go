@@ -19,7 +19,24 @@ var (
 // RestoreBundled repairs only a digest that this build can reproduce from its
 // embedded package. A damaged published entry is retained outside the digest namespace.
 func (manager *Manager) RestoreBundled(ctx context.Context, reference protocol.PluginReference) (protocol.PluginInfo, error) {
-	entries, issues, err := captureBundled(ctx, manager.bundledFiles(), reference.Name)
+	if manager.bundled == nil {
+		if err := ctx.Err(); err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		cached, err := loadEmbeddedBundled(reference.Name)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		if len(cached.issues) != 0 || cached.digest != reference.Digest {
+			return protocol.PluginInfo{}, packageFault("matching bundled plugin package is unavailable")
+		}
+		info, err := cached.cloneInfo()
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		return manager.publishEmbeddedBundled(ctx, cached.entries, info, true)
+	}
+	entries, issues, err := captureBundled(ctx, manager.bundled, reference.Name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -91,7 +108,7 @@ func (manager *Manager) publishEntries(ctx context.Context, entries []packageEnt
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if repair {
+	if repair && old != nil {
 		if err := verifyPublished(ctx, packages, staging, digest); err != nil {
 			return err
 		}

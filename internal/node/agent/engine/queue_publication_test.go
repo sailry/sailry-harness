@@ -15,6 +15,7 @@ import (
 )
 
 func TestQueuePublicationAfterImmediateStop(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name       string
 		claimed    bool

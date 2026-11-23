@@ -8,6 +8,7 @@ import (
 )
 
 func TestIdleStatusExpiryDoesNotEvictReplacement(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	synctest.Test(t, func(t *testing.T) {
 		s := New(Options{})

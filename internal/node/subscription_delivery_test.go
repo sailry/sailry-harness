@@ -11,6 +11,7 @@ import (
 )
 
 func TestSubscriptionReadsOnlyTheDeliveredCursorWithCurrentAccess(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	caller := protocol.NodeID{37}

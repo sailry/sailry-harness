@@ -8,6 +8,7 @@ import (
 )
 
 func TestConfigurationFollowRetiresManualCopyControls(t *testing.T) {
+	t.Parallel()
 	for action, expected := range map[string]protocol.ErrorCode{
 		"set_source":  protocol.ErrorCodeInvalidRequest,
 		"set_target":  protocol.ErrorCodeInvalidRequest,

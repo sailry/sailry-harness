@@ -514,6 +514,29 @@ func TestUpdateBackupBeforeApply(t *testing.T) {
 	})
 }
 
+func TestFreshSchemaReferenceAuditAndCache(t *testing.T) {
+	t.Parallel()
+	_, _, storage := schemaFixture(t)
+	ctx := t.Context()
+	if err := storage.Node.Read(ctx, func(connection *sql.Conn) error {
+		return auditReferences(ctx, connection)
+	}); err != nil {
+		t.Fatalf("fresh store failed foreign-key reference audit: %v", err)
+	}
+	first, err := referenceSchema(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[schemaObject{"table", "mutated_probe"}] = "CREATE TABLE mutated_probe(id INTEGER)"
+	second, err := referenceSchema(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := second[schemaObject{"table", "mutated_probe"}]; leaked {
+		t.Fatal("cached referenceSchema returned a shared mutable map")
+	}
+}
+
 func readOnlySchemaInteger(t *testing.T, path, query string) int64 {
 	t.Helper()
 	connector, err := turso.Connector(path, true)

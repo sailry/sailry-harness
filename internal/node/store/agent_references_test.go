@@ -89,6 +89,7 @@ func agentHistoryFixture(t testing.TB, mode protocol.WorkMode) (*Store, protocol
 }
 
 func TestReadToolOutputAfterLegacyPairRepair(t *testing.T) {
+	t.Parallel()
 	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	const call, tool = "legacy-poll", "read_command"

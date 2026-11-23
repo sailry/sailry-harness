@@ -37,6 +37,7 @@ func (p *pacedWatch) Next(ctx context.Context) (protocol.Update, error) {
 func (p *pacedWatch) Close() error { close(p.closed); return nil }
 
 func TestIndexWatchCoalescedInvalidations(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	p := &pacedWatch{requests: make(chan chan error), closed: make(chan struct{})}
 	f.service.watch = func(context.Context, string, protocol.WorktreeID) (link.Subscription, error) { return p, nil }

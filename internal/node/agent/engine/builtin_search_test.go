@@ -14,6 +14,7 @@ import (
 )
 
 func TestDiscoveryMatchesCapturedLabelsAndCapabilities(t *testing.T) {
+	t.Parallel()
 	tool := jsonTool("task_records", "Manage calendar entries", `{"type":"object"}`, true, true, nil)
 	tool.Deferred = true
 	tool.SearchLabels = []string{"Reminders", "待办提醒", "알림"}
@@ -40,6 +41,7 @@ func TestDiscoveryMatchesCapturedLabelsAndCapabilities(t *testing.T) {
 }
 
 func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {
+	t.Parallel()
 	for _, hosted := range []bool{false, true} {
 		name := "declared instructions"
 		if hosted {
@@ -95,6 +97,7 @@ func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {
 }
 
 func TestLocalizedDiscoveryLoadsNextRequest(t *testing.T) {
+	t.Parallel()
 	deferred := objectTool("task_records", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		t.Error("discovery executed the tool")
 		return ToolResult{}
@@ -130,6 +133,7 @@ func TestLocalizedDiscoveryLoadsNextRequest(t *testing.T) {
 // next one, while the loaded tool runs through call_tool under its real name
 // and its own approval.
 func TestDiscoveryKeepsTheCachedPrefix(t *testing.T) {
+	t.Parallel()
 	executed := 0
 	deferred := objectTool("task_records", false, false, func(_ context.Context, call canonical.ToolRequest) ToolResult {
 		executed++

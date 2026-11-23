@@ -11,6 +11,7 @@ import (
 )
 
 func TestSharedPluginVersionExcludesInstallationPin(t *testing.T) {
+	t.Parallel()
 	_, node, storage := schemaFixture(t)
 	ctx := t.Context()
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {

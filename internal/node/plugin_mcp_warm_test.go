@@ -18,6 +18,7 @@ import (
 // Over 1 s: the Node starts twice, and each start installs and verifies the
 // bundled packages.
 func TestMCPWarm(t *testing.T) {
+	t.Parallel()
 	const name = "mcp-warm"
 	var opened, refuse atomic.Int32
 	options := &mcp.Options{Warm: true, Open: func(ctx context.Context, launch mcp.Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {

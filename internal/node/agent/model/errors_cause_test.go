@@ -12,6 +12,7 @@ import (
 )
 
 func TestResponsesStreamFailureKeepsProviderMessage(t *testing.T) {
+	t.Parallel()
 	const diagnostic = "The service is temporarily unavailable. Please retry later."
 	for _, message := range []string{diagnostic, diagnostic + " (request id: fixture-request)"} {
 		event := fmt.Sprintf(`data: {"type":"response.failed","response":{"error":{"code":"server_error","message":%q}}}`, message)
@@ -32,6 +33,7 @@ func TestResponsesStreamFailureKeepsProviderMessage(t *testing.T) {
 }
 
 func TestStreamFailureKeepsTransportCause(t *testing.T) {
+	t.Parallel()
 	cause := &url.Error{Op: "Post", URL: "https://private.example/v1/responses", Err: errors.New("read tcp: connection reset by peer")}
 	failure := Classify(&fantasy.ProviderError{Message: "model stream failed", Cause: cause})
 	if failure.Message != "model stream failed: read tcp: connection reset by peer" || strings.Contains(failure.Message, "private.example") {

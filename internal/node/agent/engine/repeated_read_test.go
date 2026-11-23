@@ -18,6 +18,7 @@ import (
 )
 
 func TestRepeatedFileReadAndCanonicalReadback(t *testing.T) {
+	t.Parallel()
 	const reads, lines, pageLimit = 8, 180, 8192
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

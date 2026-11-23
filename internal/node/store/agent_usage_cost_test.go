@@ -132,6 +132,7 @@ func TestAgentCostScalesBeforeRounding(t *testing.T) {
 }
 
 func TestAgentCostRateRange(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		products uint128
 		rate     uint32

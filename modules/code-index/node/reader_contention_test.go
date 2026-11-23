@@ -15,6 +15,7 @@ import (
 )
 
 func TestCodeScansYieldToWaitingOutlineBetweenFiles(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"live", "persistent"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -83,6 +84,7 @@ func TestCodeScansYieldToWaitingOutlineBetweenFiles(t *testing.T) {
 }
 
 func TestLiveReaderWaitBudgetAndCancellation(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		f := newFixture(t)
 		f.write("main.rs", "fn run() {}")
@@ -126,6 +128,7 @@ func TestLiveReaderWaitBudgetAndCancellation(t *testing.T) {
 }
 
 func TestLiveReaderWaitPreservesInspectedPrefix(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		f := newFixture(t)
 		f.write("a.rs", "fn first() {}", "b.rs", "fn second() {}")

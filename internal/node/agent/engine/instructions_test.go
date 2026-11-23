@@ -18,6 +18,7 @@ import (
 )
 
 func TestInstructionRecordCapacity(t *testing.T) {
+	t.Parallel()
 	// Both files fit raw reads and fit individually when encoded. Together,
 	// JSON's escaping fills the same history frame used by AppendCanonical.
 	content := strings.Repeat("<", protocol.MAX_FRAME_BYTES/12)
@@ -41,6 +42,7 @@ func TestInstructionRecordCapacity(t *testing.T) {
 }
 
 func TestInstructionContextCapacity(t *testing.T) {
+	t.Parallel()
 	policy, personal := "Captured policy", "Personal preference"
 	context := canonical.Context{Policy: &policy, Personal: &personal, Guides: map[string]canonical.Guide{
 		"guide": {Path: "AGENTS.md", Content: strings.Repeat("Preserve all instructions.\n", 7000)},
@@ -63,6 +65,7 @@ func TestInstructionContextCapacity(t *testing.T) {
 }
 
 func TestLargeInstructionsReachModel(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name  string
 		limit uint32

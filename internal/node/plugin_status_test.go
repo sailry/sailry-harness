@@ -15,6 +15,7 @@ import (
 
 // Over 1 s: the Node start installs and verifies the bundled packages.
 func TestPluginStatusStartsFromPinnedEventCursor(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	caller := protocol.NodeID{31}

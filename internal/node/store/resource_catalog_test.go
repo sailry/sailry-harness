@@ -11,6 +11,7 @@ import (
 )
 
 func TestResourceCatalogSurvivesRestartAndSeparatesAccessPrincipals(t *testing.T) {
+	t.Parallel()
 	profile, entry, storage := schemaFixture(t)
 	source := protocol.NodeID{99}
 	var owners []protocol.User
@@ -116,6 +117,7 @@ func TestResourceCatalogSurvivesRestartAndSeparatesAccessPrincipals(t *testing.T
 }
 
 func TestResourceCatalogReplacesOnlyCompleteSuccessfulSources(t *testing.T) {
+	t.Parallel()
 	_, entry, storage := schemaFixture(t)
 	source, other := protocol.NodeID{91}, protocol.NodeID{92}
 	project := protocol.Project{ID: protocol.NewProjectID(), Name: "Retained project"}

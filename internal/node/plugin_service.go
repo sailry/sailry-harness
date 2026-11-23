@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
-	"slices"
 	"sync"
 	"time"
 
@@ -33,14 +32,15 @@ type pluginInvocation struct {
 }
 
 type pluginControls struct {
-	manager      *plugins.Manager
-	inventoryMu  sync.Mutex
-	unavailable  map[string]struct{}
-	memory       *plugins.MemoryTracker
-	python       *python.Manager
-	pythonWake   chan struct{}
-	preparations []protocol.PythonPreparation
-	mcp          *mcp.Pool
+	manager            *plugins.Manager
+	inventoryMu        sync.Mutex
+	unavailable        map[string]struct{}
+	publishedOnStartup map[string]struct{}
+	memory             *plugins.MemoryTracker
+	python             *python.Manager
+	pythonWake         chan struct{}
+	preparations       []protocol.PythonPreparation
+	mcp                *mcp.Pool
 	// programs are the running programs of package adapters.
 	programs      *program.Pool
 	warm          chan struct{}
@@ -88,18 +88,53 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) (sta
 	}); err != nil {
 		return err
 	}
+	var activeUsers []protocol.User
 	for _, user := range users {
-		if user.State != "active" {
-			continue
+		if user.State == "active" {
+			activeUsers = append(activeUsers, user)
 		}
-		if err := node.initializeUserPlugins(ctx, user, true); err != nil {
+	}
+	plans := make([]userPluginPlan, 0, len(activeUsers))
+	published := map[string]struct{}{}
+	for _, user := range activeUsers {
+		plan, err := node.prepareUserPlugins(ctx, user, true)
+		if err != nil {
+			return err
+		}
+		for _, digest := range plan.publishedDigests {
+			published[digest] = struct{}{}
+		}
+		plans = append(plans, plan)
+	}
+	summariesByUser := make([][]protocol.PluginSummary, len(plans))
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		for index, plan := range plans {
+			if plan.hasChanges() {
+				summaries, err := applyUserPluginPlan(ctx, db, plan)
+				if err != nil {
+					return err
+				}
+				summariesByUser[index] = summaries
+			} else {
+				summariesByUser[index] = plan.summaries
+			}
+		}
+		_, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1 WHERE singleton=1")
+		return err
+	}); err != nil {
+		return err
+	}
+	for index, plan := range plans {
+		if err := node.observeUserPluginInventory(plan.user, summariesByUser[index]); err != nil {
 			return err
 		}
 	}
-	return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		_, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1 WHERE singleton=1")
-		return err
-	})
+	if len(published) != 0 {
+		node.plugins.mu.Lock()
+		node.plugins.publishedOnStartup = published
+		node.plugins.mu.Unlock()
+	}
+	return nil
 }
 
 // InitializeUserPlugins installs bundled defaults without copying another user's
@@ -108,33 +143,79 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 	return node.initializeUserPlugins(ctx, user, false)
 }
 
+type pendingPluginInstall struct {
+	info     protocol.PluginInfo
+	revision uint64
+	enabled  bool
+}
+
+type userPluginPlan struct {
+	user             protocol.User
+	summaries        []protocol.PluginSummary
+	installs         []pendingPluginInstall
+	retirements      []string
+	publishedDigests []string
+}
+
+func (plan userPluginPlan) hasChanges() bool {
+	return len(plan.installs) != 0 || len(plan.retirements) != 0
+}
+
 func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User, startup bool) error {
-	ctx = store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
-	for _, entry := range plugins.BundledDefaults() {
-		var current *protocol.PluginInfo
-		var recorded bool
-		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	plan, err := node.prepareUserPlugins(ctx, user, startup)
+	if err != nil {
+		return err
+	}
+	summaries := plan.summaries
+	if plan.hasChanges() {
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			var err error
-			current, err = store.ReadPlugin(ctx, db, entry.Name)
-			if err != nil {
-				return err
-			}
-			recorded, err = store.PluginRecorded(ctx, db, entry.Name)
+			summaries, err = applyUserPluginPlan(ctx, db, plan)
 			return err
-		})
+		}); err != nil {
+			return err
+		}
+	}
+	return node.observeUserPluginInventory(user, summaries)
+}
+
+func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, startup bool) (userPluginPlan, error) {
+	plan := userPluginPlan{user: user}
+	userCtx := store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
+	var infos []protocol.PluginInfo
+	var recorded map[string]bool
+	if err := node.profile.Store.Node.Read(userCtx, func(db *sql.Conn) error {
+		var err error
+		infos, err = store.ReadPluginInfos(userCtx, db)
 		if err != nil {
 			return err
 		}
-		if current != nil && current.Summary.Pinned {
+		recorded, err = store.RecordedPluginNames(userCtx, db)
+		return err
+	}); err != nil {
+		return plan, err
+	}
+	installed := make(map[string]protocol.PluginInfo, len(infos))
+	plan.summaries = make([]protocol.PluginSummary, 0, len(infos))
+	for _, info := range infos {
+		installed[info.Summary.Name] = info
+		plan.summaries = append(plan.summaries, info.Summary)
+	}
+	defaults := plugins.BundledDefaults()
+	defaultNames := make(map[string]bool, len(defaults))
+	for _, entry := range defaults {
+		defaultNames[entry.Name] = true
+		current, hasCurrent := installed[entry.Name]
+		if hasCurrent && current.Summary.Pinned {
 			continue
 		}
-		if recorded && current == nil || current != nil && (current.Origin == nil || current.Origin.Kind != "bundled") {
+		if recorded[entry.Name] && !hasCurrent || hasCurrent && (current.Origin == nil || current.Origin.Kind != "bundled") {
 			continue
 		}
-		inspected, err := node.plugins.manager.InspectBundled(ctx, entry.Name)
+		inspected, err := node.plugins.manager.InspectBundled(userCtx, entry.Name)
 		if err != nil {
-			if !startup || ctx.Err() != nil {
-				return err
+			if !startup || userCtx.Err() != nil {
+				return plan, err
 			}
 			logUnavailablePackage(protocol.PluginReference{Name: entry.Name}, "bundled plugin inspection failed", err)
 			continue
@@ -142,102 +223,50 @@ func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User,
 		if plugins.IsWithdrawn(inspected) {
 			continue
 		}
-		if current != nil && !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
+		if hasCurrent && !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
 			continue
 		}
 		var info protocol.PluginInfo
 		if startup {
-			info, err = node.plugins.manager.RestoreBundled(ctx, plugins.PackageReference(inspected))
+			info, err = node.plugins.manager.RestoreBundled(userCtx, plugins.PackageReference(inspected))
 		} else {
-			info, err = node.plugins.manager.InstallBundled(ctx, entry.Name)
+			info, err = node.plugins.manager.InstallBundled(userCtx, entry.Name)
 		}
 		if err != nil {
-			if !startup || ctx.Err() != nil {
-				return err
+			if !startup || userCtx.Err() != nil {
+				return plan, err
 			}
 			logUnavailablePackage(plugins.PackageReference(inspected), "bundled plugin installation failed", err)
 			continue
 		}
 		revision := uint64(0)
-		if current != nil {
+		if hasCurrent {
 			revision = current.Summary.Revision
 		}
-		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			_, err := store.InstallPlugin(ctx, db, info, revision, entry.Enabled)
-			return err
-		}); err != nil {
-			return err
-		}
+		plan.installs = append(plan.installs, pendingPluginInstall{info: info, revision: revision, enabled: entry.Enabled})
+		plan.publishedDigests = append(plan.publishedDigests, info.Summary.Digest)
 	}
-	for _, name := range plugins.RetiredBundled() {
-		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			current, err := store.ReadPlugin(ctx, db, name)
-			if err != nil || current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
-				return err
-			}
-			// Preserve explicit user enable/disable choices when retiring a
-			// bundled plugin into its native module equivalent.
-			switch name {
-			case "computer":
-				if current.Summary.Enabled {
-					if cfg, cfgErr := store.ReadComputerSettings(ctx, db); cfgErr == nil && cfg.Revision == 0 {
-						if _, _, saveErr := store.SaveComputerSettings(ctx, db, protocol.ComputerSettings{Revision: 0, Enabled: true}); saveErr != nil {
-							return saveErr
-						}
-					}
-				}
-			case "external-browser":
-				if current.Summary.Enabled {
-					if cfg, cfgErr := store.ReadExternalBrowserSettings(ctx, db); cfgErr == nil && cfg.Revision == 0 {
-						if _, _, saveErr := store.SaveExternalBrowserSettings(ctx, db, protocol.ExternalBrowserSettings{Revision: 0, Enabled: true}); saveErr != nil {
-							return saveErr
-						}
-					}
-				}
-			case "memory":
-				if !current.Summary.Enabled {
-					if migErr := store.MigrateRetiredMemoryEnabled(ctx, db, false); migErr != nil {
-						return migErr
-					}
-				}
-			}
-			_, err = store.RemovePlugin(ctx, db, name, current.Summary.Revision)
-			return err
-		}); err != nil {
-			return err
-		}
-	}
-	var summaries []protocol.PluginSummary
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		summaries, err = store.ReadPlugins(ctx, db)
-		return err
-	}); err != nil {
-		return err
-	}
-	defaults := plugins.BundledDefaults()
 	retired := plugins.RetiredBundled()
+	retiredNames := make(map[string]bool, len(retired))
+	for _, name := range retired {
+		retiredNames[name] = true
+		if current, hasCurrent := installed[name]; hasCurrent && current.Origin != nil && current.Origin.Kind == "bundled" {
+			plan.retirements = append(plan.retirements, name)
+		}
+	}
 	// Upgrade already-installed unpinned optional bundled packages (for example,
 	// packages removed from BundledDefaults) without installing them on new profiles.
-	for i, summary := range summaries {
-		if summary.Pinned || slices.Contains(retired, summary.Name) ||
-			slices.ContainsFunc(defaults, func(entry plugins.DefaultPackage) bool { return entry.Name == summary.Name }) {
+	for _, current := range infos {
+		name := current.Summary.Name
+		if current.Summary.Pinned || retiredNames[name] || defaultNames[name] {
 			continue
 		}
-		var current *protocol.PluginInfo
-		if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			var err error
-			current, err = store.ReadPlugin(ctx, db, summary.Name)
-			return err
-		}); err != nil {
-			return err
-		}
-		if current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
+		if current.Origin == nil || current.Origin.Kind != "bundled" {
 			continue
 		}
-		inspected, err := node.plugins.manager.InspectBundled(ctx, summary.Name)
+		inspected, err := node.plugins.manager.InspectBundled(userCtx, name)
 		if err != nil {
-			if !startup || ctx.Err() != nil {
+			if !startup || userCtx.Err() != nil {
 				continue
 			}
 			continue
@@ -247,27 +276,72 @@ func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User,
 		}
 		var info protocol.PluginInfo
 		if startup {
-			info, err = node.plugins.manager.RestoreBundled(ctx, plugins.PackageReference(inspected))
+			info, err = node.plugins.manager.RestoreBundled(userCtx, plugins.PackageReference(inspected))
 		} else {
-			info, err = node.plugins.manager.InstallBundled(ctx, summary.Name)
+			info, err = node.plugins.manager.InstallBundled(userCtx, name)
 		}
 		if err != nil {
-			if !startup || ctx.Err() != nil {
-				return err
+			if !startup || userCtx.Err() != nil {
+				return plan, err
 			}
 			logUnavailablePackage(plugins.PackageReference(inspected), "bundled plugin upgrade failed", err)
 			continue
 		}
-		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			updated, err := store.InstallPlugin(ctx, db, info, current.Summary.Revision, current.Summary.Enabled)
-			if err == nil {
-				summaries[i] = updated.Summary
-			}
-			return err
-		}); err != nil {
-			return err
+		plan.installs = append(plan.installs, pendingPluginInstall{info: info, revision: current.Summary.Revision, enabled: current.Summary.Enabled})
+		plan.publishedDigests = append(plan.publishedDigests, info.Summary.Digest)
+	}
+	return plan, nil
+}
+
+func applyUserPluginPlan(ctx context.Context, db *sql.Conn, plan userPluginPlan) ([]protocol.PluginSummary, error) {
+	userCtx := store.WithCapturedUser(store.WithUser(ctx, plan.user), plan.user.ID)
+	for _, item := range plan.installs {
+		if _, err := store.InstallPlugin(userCtx, db, item.info, item.revision, item.enabled); err != nil {
+			return nil, err
 		}
 	}
+	for _, name := range plan.retirements {
+		current, err := store.ReadPlugin(userCtx, db, name)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
+			continue
+		}
+		// Preserve explicit user enable/disable choices when retiring a
+		// bundled plugin into its native module equivalent.
+		switch name {
+		case "computer":
+			if current.Summary.Enabled {
+				if cfg, cfgErr := store.ReadComputerSettings(userCtx, db); cfgErr == nil && cfg.Revision == 0 {
+					if _, _, saveErr := store.SaveComputerSettings(userCtx, db, protocol.ComputerSettings{Revision: 0, Enabled: true}); saveErr != nil {
+						return nil, saveErr
+					}
+				}
+			}
+		case "external-browser":
+			if current.Summary.Enabled {
+				if cfg, cfgErr := store.ReadExternalBrowserSettings(userCtx, db); cfgErr == nil && cfg.Revision == 0 {
+					if _, _, saveErr := store.SaveExternalBrowserSettings(userCtx, db, protocol.ExternalBrowserSettings{Revision: 0, Enabled: true}); saveErr != nil {
+						return nil, saveErr
+					}
+				}
+			}
+		case "memory":
+			if !current.Summary.Enabled {
+				if migErr := store.MigrateRetiredMemoryEnabled(userCtx, db, false); migErr != nil {
+					return nil, migErr
+				}
+			}
+		}
+		if _, err := store.RemovePlugin(userCtx, db, name, current.Summary.Revision); err != nil {
+			return nil, err
+		}
+	}
+	return store.ReadPlugins(userCtx, db)
+}
+
+func (node *Node) observeUserPluginInventory(user protocol.User, summaries []protocol.PluginSummary) error {
 	for _, summary := range summaries {
 		if err := node.plugins.mcp.Observe(summary, user.ID.String()); err != nil {
 			return err

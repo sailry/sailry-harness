@@ -13,6 +13,7 @@ import (
 )
 
 func TestFailureRetryHints(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name       string
 		status     int
@@ -66,6 +67,7 @@ func TestFailureRetryHints(t *testing.T) {
 }
 
 func TestExhaustedProviderAccountPoolDoesNotRetry(t *testing.T) {
+	t.Parallel()
 	failure := Classify(&fantasy.ProviderError{
 		StatusCode:   502,
 		ResponseBody: []byte(`{"error":{"code":"server_error","message":"All available accounts exhausted"}}`),
@@ -76,6 +78,7 @@ func TestExhaustedProviderAccountPoolDoesNotRetry(t *testing.T) {
 }
 
 func TestContextOverflowWithoutPrimaryErrorCode(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name string
 		body string
@@ -95,6 +98,7 @@ func TestContextOverflowWithoutPrimaryErrorCode(t *testing.T) {
 }
 
 func TestFailureRetryHintsCopyAndPrivacy(t *testing.T) {
+	t.Parallel()
 	const privateAdvice = "private-retry-advice"
 	delay := uint64(9000)
 	original := &Failure{Kind: Unavailable, Message: "private-token failed", retryAfter: []string{privateAdvice}, retryAfterMs: &delay, overloaded: true, Exhausted: true, WaitExhausted: true}
@@ -121,6 +125,7 @@ func TestFailureRetryHintsCopyAndPrivacy(t *testing.T) {
 }
 
 func TestResponseHintsPreserveFailureKind(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []FailureKind{Authentication, ContextOverflow, Quota, InvalidRequest, InvalidResponse, Cancelled, Other} {
 		t.Run(string(kind), func(t *testing.T) {
 			failure := Classify(withResponseHints(&Failure{Kind: kind, Message: "failed", overloaded: true}, 503, http.Header{"retry-after": {"7", "11"}}))
@@ -132,6 +137,7 @@ func TestResponseHintsPreserveFailureKind(t *testing.T) {
 }
 
 func TestFaultRecoveryExhaustionReason(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name           string
 		attempts, wait bool

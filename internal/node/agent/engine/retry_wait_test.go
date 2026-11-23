@@ -11,6 +11,7 @@ import (
 )
 
 func TestRetryWaitExhaustionPersistsWithoutExhaustingAttempts(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(fantasy.StreamPart{
 		Type: fantasy.StreamPartTypeError,
 		Error: &fantasy.ProviderError{

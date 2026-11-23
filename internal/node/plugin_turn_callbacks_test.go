@@ -44,6 +44,7 @@ func (script *afterTurnModel) Stream(context.Context, fantasy.Call) (fantasy.Str
 // handler continues the conversation once: the callback is called for the
 // user's turn and again, marked automatic, for the turn it started.
 func TestPluginAfterTurn(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	script := &afterTurnModel{}

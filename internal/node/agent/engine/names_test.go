@@ -312,6 +312,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 // that tool's canonical call, and history shows an undeclared tool's call as
 // the call_tool call that ran it.
 func TestDispatchedCallsKeepCanonicalNames(t *testing.T) {
+	t.Parallel()
 	deleteFile := packageTool("files", "delete_file", protocol.ToolOperationDeleteFile, false, nil)
 	alias := deleteFile.Definition.Name
 	names := captureExposure([]Tool{deleteFile, jsonTool("tool_search", "", `{"type":"object"}`, true, true, nil), callTool()}, nil)

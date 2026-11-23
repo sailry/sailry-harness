@@ -14,6 +14,7 @@ import (
 )
 
 func TestLoginRecoveryContinuesUnsentStepWithoutRepeatingCompletedTool(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{
 		response(call("effect", "probe", `{}`), finish()),
 		response(text("Continued after sign-in"), finish()),

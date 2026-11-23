@@ -56,6 +56,7 @@ func mixedPressureResults(target int) []mixedPressureResult {
 }
 
 func TestContextPressureMixedToolFollowup(t *testing.T) {
+	t.Parallel()
 	results := mixedPressureResults(26 * 1024)
 	m := &scriptedModel{}
 	var tools []Tool
@@ -185,6 +186,7 @@ func mixedPressureHistory(results []mixedPressureResult) []canonical.Record {
 }
 
 func TestContextPressureMixedBelowThresholdStable(t *testing.T) {
+	t.Parallel()
 	results := mixedPressureResults(6 * 1024)
 	history := mixedPressureHistory(results)
 	original, err := json.Marshal(history)

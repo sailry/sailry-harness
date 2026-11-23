@@ -301,6 +301,7 @@ func TestAgentStatistics(t *testing.T) {
 }
 
 func TestLatencyTimelineUsesMatchedAttempts(t *testing.T) {
+	t.Parallel()
 	var latency agentStatisticLatency
 	latency.observe(protocol.ConversationObservationAttempt{ResponseUs: ptr(uint64(70))})
 	latency.observe(protocol.ConversationObservationAttempt{FirstTokenUs: ptr(uint64(110))})
@@ -387,6 +388,7 @@ func TestAgentStatisticsPreservesAnthropicCacheWritePricing(t *testing.T) {
 }
 
 func TestDecodeGenerationRequiresMatchedTiming(t *testing.T) {
+	t.Parallel()
 	elapsed, first := uint64(10), uint64(4)
 	tokens := protocol.ConversationUsage{Output: 12, Reasoning: 5}
 	for _, times := range [][2]*uint64{{nil, &first}, {&elapsed, nil}, {&first, &first}, {&first, &elapsed}} {

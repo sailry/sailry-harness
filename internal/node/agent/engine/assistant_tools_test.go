@@ -11,6 +11,7 @@ import (
 )
 
 func TestAssistantPreferencesKeepOrdinaryToolDiscovery(t *testing.T) {
+	t.Parallel()
 	fixture, x := delegationFixture(t)
 	done := func(context.Context, canonical.ToolRequest) ToolResult { return ToolResult{Value: true} }
 	fixture.r.tools = []Tool{

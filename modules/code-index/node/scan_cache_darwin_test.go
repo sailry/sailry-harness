@@ -13,6 +13,7 @@ import (
 )
 
 func TestAPFSWriteGenerationAndWritableMapping(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	var volume unix.Statfs_t
 	if err := unix.Statfs(f.root, &volume); err != nil {

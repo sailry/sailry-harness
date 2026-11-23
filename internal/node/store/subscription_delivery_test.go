@@ -10,6 +10,7 @@ import (
 )
 
 func TestEventMemberVisibilityKeepsCapturedAudienceAndMissingProjectOwner(t *testing.T) {
+	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {

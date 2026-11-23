@@ -26,6 +26,7 @@ import (
 )
 
 func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
+	t.Parallel()
 	t.Run("official assembly catalog and retired code package", func(t *testing.T) {
 		assembly := hostassembly.Harness()
 		if assembly.CodeIndex == nil {

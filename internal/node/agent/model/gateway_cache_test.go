@@ -11,6 +11,7 @@ import (
 )
 
 func TestGatewayCacheAffinityOnWire(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, model, endpointPath, kind string
 		api                             protocol.ConversationModelApi
@@ -75,6 +76,7 @@ func TestGatewayCacheAffinityOnWire(t *testing.T) {
 }
 
 func TestFoundryAzureOpenAICacheAffinityFromDeployment(t *testing.T) {
+	t.Parallel()
 	response := string(fixture(t, "responses-text.sse"))
 	captured := make(chan map[string]any, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -9,6 +9,7 @@ import (
 )
 
 func TestProgressSummaryRequiresSuccessfulDeclaredResult(t *testing.T) {
+	t.Parallel()
 	arguments := json.RawMessage(`{"title":null,"steps":[{"description":"Inspect","state":"completed"}]}`)
 	for _, format := range []canonical.ToolFormat{canonical.JSON, canonical.MCP} {
 		t.Run(string(format), func(t *testing.T) {

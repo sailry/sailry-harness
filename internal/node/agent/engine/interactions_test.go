@@ -72,6 +72,7 @@ func (f *engineFixture) waitingQuestion() protocol.ConversationQuestion {
 	}
 }
 func TestApprovalDeadline(t *testing.T) {
+	t.Parallel()
 	// A tool asks for every call, or a read-only tool asks for the one call
 	// that also writes; the plain call beside it runs without asking.
 	for _, test := range []struct {
@@ -128,6 +129,7 @@ func TestApprovalDeadline(t *testing.T) {
 	}
 }
 func TestApprovalSettlesBeforeCall(t *testing.T) {
+	t.Parallel()
 	var executions atomic.Int32
 	var f *engineFixture
 	tool := objectTool("write", false, false, func(ctx context.Context, request canonical.ToolRequest) ToolResult {
@@ -178,6 +180,7 @@ func TestApprovalSettlesBeforeCall(t *testing.T) {
 }
 
 func TestDeniedToolReleasesPreparedCall(t *testing.T) {
+	t.Parallel()
 	var pending atomic.Int32
 	tool := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
 		t.Error("denied tool executed")
@@ -202,6 +205,7 @@ func TestDeniedToolReleasesPreparedCall(t *testing.T) {
 }
 
 func TestReadBeforeAnApprovalRunsFirst(t *testing.T) {
+	t.Parallel()
 	readDone := make(chan struct{})
 	read := objectTool("read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		close(readDone)
@@ -230,6 +234,7 @@ func TestReadBeforeAnApprovalRunsFirst(t *testing.T) {
 }
 
 func TestQuestionSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
 	f := newFixture(t, m)
 	f.start()

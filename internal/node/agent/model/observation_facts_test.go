@@ -14,6 +14,7 @@ import (
 )
 
 func TestAttemptObservesFinalBodyAndHTTPPhases(t *testing.T) {
+	t.Parallel()
 	for _, oauth := range []bool{false, true} {
 		name := "API key"
 		if oauth {
@@ -69,6 +70,7 @@ func TestAttemptObservesFinalBodyAndHTTPPhases(t *testing.T) {
 }
 
 func TestPromptOnlyObservationLeavesTransportSizeUnknown(t *testing.T) {
+	t.Parallel()
 	timer := &policyClock{}
 	ctx, capture := captureAttempt(t.Context(), fantasy.Call{}, timer, timer.Now())
 	capturePrepared(ctx, []byte("Prompt without its transport envelope or attachments"), false)
@@ -80,6 +82,7 @@ func TestPromptOnlyObservationLeavesTransportSizeUnknown(t *testing.T) {
 }
 
 func TestAdjacentResponsesObserveTheFinalSDKBody(t *testing.T) {
+	t.Parallel()
 	var history observation.ResponsesHistory
 	session, firstTurn, nextTurn := protocol.NewSessionID(), protocol.NewTurnID(), protocol.NewTurnID()
 	ctx, trace := history.Start(t.Context(), session, firstTurn)
@@ -180,6 +183,7 @@ func TestAdjacentResponsesObserveTheFinalSDKBody(t *testing.T) {
 }
 
 func TestResponsesBoundaryRetriesRespectTransportReceipts(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []struct {
 		name string
 		gap  bool

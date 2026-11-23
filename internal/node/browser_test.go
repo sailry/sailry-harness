@@ -16,6 +16,7 @@ import (
 // the controller that started it, only that controller settles it, and a call
 // without an answer ends as its action allows.
 func TestBrowserCallRouting(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		var registry browserRegistry
 		ctx := t.Context()

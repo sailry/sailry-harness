@@ -29,6 +29,7 @@ func same(left, right []knowledge.Ranked) bool {
 // vector with Vector.Cosine and sorting all of them, which is what a query
 // did before vectors were kept in memory and scanned in parallel.
 func TestSemanticScan(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	random := rand.New(rand.NewPCG(7, 11))
 	direction := func(dimension int) []float32 {
@@ -125,7 +126,7 @@ func TestSemanticScan(t *testing.T) {
 	for position := range shared {
 		shared[position] = direction(dimension)
 	}
-	publish := func(binding Binding, source, chunks int, tag string) {
+	makeDocument := func(source, chunks int, tag string) (Document, []Part) {
 		t.Helper()
 		parts := make([]Part, chunks)
 		for position := range parts {
@@ -141,9 +142,17 @@ func TestSemanticScan(t *testing.T) {
 				Position: protocol.KnowledgePosition{Kind: "lines", Data: protocol.KnowledgePositionLinesPayload{Start: uint32(position + 1), End: uint32(position + 1)}}}
 		}
 		document := Document{Locator: fmt.Sprintf("notes/%d.md", source), Revision: fmt.Sprint(random.Uint64()), ModifiedMs: uint64(source), Tags: []string{tag}, Embedded: true}
+		return document, parts
+	}
+	var serialCache map[string][]knowledge.Ranked
+	invalidateSerial := func() { serialCache = nil }
+	publish := func(binding Binding, source, chunks int, tag string) {
+		t.Helper()
+		document, parts := makeDocument(source, chunks, tag)
 		if err := index.Replace(ctx, binding, document, parts); err != nil {
 			t.Fatal(err)
 		}
+		invalidateSerial()
 	}
 	var bindings []Binding
 	for _, sources := range []int{120, 10} {
@@ -151,8 +160,18 @@ func TestSemanticScan(t *testing.T) {
 		if err := index.Bind(ctx, binding); err != nil {
 			t.Fatal(err)
 		}
-		for source := range sources {
-			publish(binding, source, 40, []string{"even", "odd"}[source%2])
+		// Batch initial fixture seeding into one transaction per collection so
+		// setup does not pay 130 separate MVCC + FTS commits.
+		if err := index.publish(ctx, binding.ID.String(), func(db *sql.Conn) error {
+			for source := range sources {
+				document, parts := makeDocument(source, 40, []string{"even", "odd"}[source%2])
+				if err := replaceSource(ctx, db, binding, document, parts); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
 		bindings = append(bindings, binding)
 	}
@@ -213,7 +232,7 @@ func TestSemanticScan(t *testing.T) {
 	}
 	// check runs every query and returns the unfiltered ranking.
 	var check func(t *testing.T, state string) []knowledge.Ranked
-	rank := func(t *testing.T, state string, queries map[string]func(*protocol.KnowledgeQuery)) (unfiltered []knowledge.Ranked) {
+	rank := func(t *testing.T, state string, queries map[string]func(*protocol.KnowledgeQuery), cacheable bool) (unfiltered []knowledge.Ranked) {
 		t.Helper()
 		for name, change := range queries {
 			query := protocol.DefaultKnowledgeQuery()
@@ -225,7 +244,20 @@ func TestSemanticScan(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				want := serial(t, db, query)
+				var want []knowledge.Ranked
+				if cacheable {
+					var ok bool
+					want, ok = serialCache[name]
+					if !ok {
+						want = serial(t, db, query)
+						if serialCache == nil {
+							serialCache = map[string][]knowledge.Ranked{}
+						}
+						serialCache[name] = want
+					}
+				} else {
+					want = serial(t, db, query)
+				}
 				if (name == "none") != (len(want) == 0) || len(want) != 0 && mode != protocol.KnowledgeModeSemantic {
 					t.Fatalf("%s, %s: reference has %d candidates in mode %s", state, name, len(want), mode)
 				}
@@ -242,7 +274,7 @@ func TestSemanticScan(t *testing.T) {
 		}
 		return unfiltered
 	}
-	check = func(t *testing.T, state string) []knowledge.Ranked { t.Helper(); return rank(t, state, queries) }
+	check = func(t *testing.T, state string) []knowledge.Ranked { t.Helper(); return rank(t, state, queries, true) }
 	kept := func(binding Binding) *cached {
 		index.vectors.mu.Lock()
 		defer index.vectors.mu.Unlock()
@@ -267,7 +299,7 @@ func TestSemanticScan(t *testing.T) {
 		// Both collections hold this source, with 40 chunks each.
 		replaced := "notes/3.md"
 		source := map[string]func(*protocol.KnowledgeQuery){"source": func(query *protocol.KnowledgeQuery) { query.Path = &replaced }}
-		before := rank(t, "before the write", source)
+		before := rank(t, "before the write", source, false)
 		publish(large, 3, 25, "odd")
 		if kept(large) != nil {
 			t.Fatal("vectors of a replaced source stayed in memory")
@@ -276,16 +308,18 @@ func TestSemanticScan(t *testing.T) {
 			t.Fatal("a write to one collection dropped another's vectors")
 		}
 		check(t, "after the write")
-		if after := rank(t, "after the write", source); len(before) != 80 || len(after) != 65 {
+		if after := rank(t, "after the write", source, false); len(before) != 80 || len(after) != 65 {
 			t.Fatalf("the replaced source ranked %d chunks before and %d after", len(before), len(after))
 		}
 		if err := index.Prune(ctx, large, nil, []string{"notes/"}); err != nil || kept(large) != nil {
 			t.Fatalf("vectors after a prune = %v %v", kept(large), err)
 		}
+		invalidateSerial()
 		check(t, "after a prune")
 		if err := index.Retain(ctx, []protocol.KnowledgeID{large.ID, small.ID}); err != nil || kept(large) != nil || kept(small) != nil {
 			t.Fatalf("vectors after retaining collections = %v %v %v", kept(large), kept(small), err)
 		}
+		invalidateSerial()
 		check(t, "after retaining")
 	})
 	t.Run("a collection being written is read from the database", func(t *testing.T) {
@@ -318,6 +352,7 @@ func TestSemanticScan(t *testing.T) {
 		if err := index.Bind(ctx, small); err != nil {
 			t.Fatal(err)
 		}
+		invalidateSerial()
 		if got := check(t, "one collection fits"); !same(got, want) {
 			t.Fatal("ranking changed under a smaller budget")
 		}
@@ -329,6 +364,7 @@ func TestSemanticScan(t *testing.T) {
 		if err := index.Retain(ctx, []protocol.KnowledgeID{large.ID, small.ID}); err != nil {
 			t.Fatal(err)
 		}
+		invalidateSerial()
 		if got := check(t, "over the budget"); !same(got, want) {
 			t.Fatal("ranking changed without kept vectors")
 		}

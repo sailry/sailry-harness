@@ -8,6 +8,7 @@ import (
 )
 
 func TestCheckSSHReportsHandshakeFailure(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

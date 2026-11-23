@@ -9,6 +9,7 @@ import (
 )
 
 func TestOperationDrainSealsTurn(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		turn := protocol.NewTurnID()
 		ctx, cancel := context.WithCancel(context.Background())

@@ -11,6 +11,7 @@ import (
 )
 
 func TestPluginReinstall(t *testing.T) {
+	t.Parallel()
 	for _, explicitRevision := range []bool{false, true} {
 		t.Run(fmt.Sprintf("explicit revision %v", explicitRevision), func(t *testing.T) {
 			_, _, storage := schemaFixture(t)
@@ -89,6 +90,7 @@ func TestPluginReinstall(t *testing.T) {
 }
 
 func TestPluginConcurrentReinstall(t *testing.T) {
+	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	var removed protocol.PluginSummary

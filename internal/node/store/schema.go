@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/core"
@@ -291,10 +292,10 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	if err := validate(ctx, connection); err != nil {
 		return err
 	}
-	// Every connection enforces foreign keys, so a database this build left
-	// current holds no orphan and is not scanned again at each start. One
-	// that was just created, updated or restored is audited.
-	if definition.state == schemaCurrent {
+	// Every connection enforces foreign keys, so a newly created database or
+	// one this build left current holds no orphan and is not scanned again at
+	// each start. Upgraded and restored databases are audited.
+	if definition.state != schemaUpdate {
 		return nil
 	}
 	return auditReferences(ctx, connection)
@@ -386,12 +387,52 @@ func verifyGeneration(ctx context.Context, connection *sql.Conn, path string) er
 	return nil
 }
 
+var (
+	baseReferenceSchemaMu    sync.RWMutex
+	baseReferenceSchemaCache schemaObjects
+)
+
 func referenceSchema(ctx context.Context, parent string, additional ...string) (schemaObjects, error) {
+	if len(additional) == 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return cachedBaseReferenceSchema()
+	}
 	directory := filepath.Join(parent, ".schema-reference-"+uuid.NewString())
 	if err := core.PrivateDirectory(directory); err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(directory)
+	return buildReferenceSchemaAt(ctx, directory, additional...)
+}
+
+func cachedBaseReferenceSchema() (schemaObjects, error) {
+	baseReferenceSchemaMu.RLock()
+	cached := baseReferenceSchemaCache
+	baseReferenceSchemaMu.RUnlock()
+	if cached != nil {
+		return maps.Clone(cached), nil
+	}
+	baseReferenceSchemaMu.Lock()
+	defer baseReferenceSchemaMu.Unlock()
+	if baseReferenceSchemaCache != nil {
+		return maps.Clone(baseReferenceSchemaCache), nil
+	}
+	directory, err := os.MkdirTemp("", "sailry-schema-ref-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(directory)
+	objects, err := buildReferenceSchemaAt(context.Background(), directory)
+	if err != nil {
+		return nil, err
+	}
+	baseReferenceSchemaCache = objects
+	return maps.Clone(objects), nil
+}
+
+func buildReferenceSchemaAt(ctx context.Context, directory string, additional ...string) (schemaObjects, error) {
 	handle, err := OpenHandle(ctx, filepath.Join(directory, "reference.turso"))
 	if err != nil {
 		return nil, err

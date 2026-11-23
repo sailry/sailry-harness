@@ -13,6 +13,7 @@ import (
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestRetainedMCPAuthorization(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"disabled connection", "changed credential", "withdrawn server permission"} {
 		t.Run(scenario, func(t *testing.T) {
 			node := nodeFixture(t)
@@ -104,6 +105,7 @@ func TestRetainedMCPAuthorization(t *testing.T) {
 // A connector whose every credential is optional starts its server without
 // an account; one that requires a credential waits for its account.
 func TestOptionalConnectorMCPWithoutAccount(t *testing.T) {
+	t.Parallel()
 	for _, optional := range []string{"true", "false"} {
 		t.Run("optional "+optional, func(t *testing.T) {
 			node := nodeFixture(t)

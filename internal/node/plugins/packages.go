@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -360,8 +361,83 @@ func captureBundled(ctx context.Context, files fs.FS, name string) ([]packageEnt
 	return entries, issues, err
 }
 
+type embeddedBundledPackage struct {
+	entries     []packageEntry
+	issues      []protocol.PluginIssue
+	encodedInfo []byte
+	digest      string
+}
+
+var (
+	embeddedBundledMu    sync.RWMutex
+	embeddedBundledCache = map[string]*embeddedBundledPackage{}
+)
+
+// loadEmbeddedBundled inspects an immutable embedded bundled package once per
+// process and caches its entries, digest and serialized metadata. Callers must
+// treat entries and issues as read-only and obtain PluginInfo via cloneInfo.
+func loadEmbeddedBundled(name string) (*embeddedBundledPackage, error) {
+	if !ValidateName(name) {
+		return nil, packageFault("invalid bundled package name")
+	}
+	embeddedBundledMu.RLock()
+	cached, ok := embeddedBundledCache[name]
+	embeddedBundledMu.RUnlock()
+	if ok {
+		return cached, nil
+	}
+	entries, issues, err := captureBundled(context.Background(), sailry.Plugins, name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := describePackage(entries, issues, name)
+	if err != nil {
+		return nil, err
+	}
+	info.Origin = &protocol.PluginOrigin{Kind: "bundled"}
+	if err := applyBundledMetadata(&info, nil); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(info)
+	if err != nil {
+		return nil, err
+	}
+	built := &embeddedBundledPackage{
+		entries:     entries,
+		issues:      issues,
+		encodedInfo: encoded,
+		digest:      info.Summary.Digest,
+	}
+	embeddedBundledMu.Lock()
+	if existing, exists := embeddedBundledCache[name]; exists {
+		embeddedBundledMu.Unlock()
+		return existing, nil
+	}
+	embeddedBundledCache[name] = built
+	embeddedBundledMu.Unlock()
+	return built, nil
+}
+
+func (cached *embeddedBundledPackage) cloneInfo() (protocol.PluginInfo, error) {
+	var info protocol.PluginInfo
+	if err := json.Unmarshal(cached.encodedInfo, &info); err != nil {
+		return protocol.PluginInfo{}, err
+	}
+	return info, nil
+}
+
 func (manager *Manager) InspectBundled(ctx context.Context, name string) (protocol.PluginInfo, error) {
-	entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
+	if manager.bundled == nil {
+		if err := ctx.Err(); err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		cached, err := loadEmbeddedBundled(name)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		return cached.cloneInfo()
+	}
+	entries, issues, err := captureBundled(ctx, manager.bundled, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -375,7 +451,11 @@ func (manager *Manager) InspectBundled(ctx context.Context, name string) (protoc
 }
 
 func (manager *Manager) bundledMetadata(info *protocol.PluginInfo) error {
-	withdrawals, err := bundledWithdrawals(manager.bundled)
+	return applyBundledMetadata(info, manager.bundled)
+}
+
+func applyBundledMetadata(info *protocol.PluginInfo, files fs.FS) error {
+	withdrawals, err := bundledWithdrawals(files)
 	if err != nil {
 		return err
 	}
@@ -397,11 +477,55 @@ func IsWithdrawn(info protocol.PluginInfo) bool {
 }
 
 func (manager *Manager) InstallBundled(ctx context.Context, name string) (protocol.PluginInfo, error) {
-	entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
+	if manager.bundled == nil {
+		if err := ctx.Err(); err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		cached, err := loadEmbeddedBundled(name)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		info, err := cached.cloneInfo()
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		return manager.publishEmbeddedBundled(ctx, cached.entries, info, false)
+	}
+	entries, issues, err := captureBundled(ctx, manager.bundled, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
 	return manager.publish(ctx, entries, issues, name, protocol.PluginOrigin{Kind: "bundled"})
+}
+
+func (manager *Manager) publishEmbeddedBundled(ctx context.Context, entries []packageEntry, info protocol.PluginInfo, repair bool) (protocol.PluginInfo, error) {
+	if IsWithdrawn(info) {
+		return info, packageFault("bundled plugin version is withdrawn")
+	}
+	for _, issue := range info.Issues {
+		if issue.Kind == protocol.PluginIssueKindInvalidSkills || issue.Kind == protocol.PluginIssueKindInvalidSkill {
+			return info, packageFault("plugin skills must be valid before installation")
+		}
+	}
+	if err := EnsureCompatible(info.Summary.Compatibility); err != nil {
+		return info, err
+	}
+	return info, manager.publishEntries(ctx, entries, info.Summary.Digest, repair)
+}
+
+// ReadBundledResource reads a single resource from the cached embedded package
+// matching reference without re-walking the published directory. It returns
+// ok=false when reference does not match an embedded package in this build.
+func (manager *Manager) ReadBundledResource(reference protocol.PluginReference, name string, limit int) ([]byte, bool, error) {
+	if manager.bundled != nil || !resourcePath(name) || limit < 0 || limit > MaxPackageBytes {
+		return nil, false, nil
+	}
+	cached, err := loadEmbeddedBundled(reference.Name)
+	if err != nil || cached.digest != reference.Digest {
+		return nil, false, nil
+	}
+	data, err := readCapturedResource(cached.entries, name, limit)
+	return data, true, err
 }
 
 func (manager *Manager) publish(ctx context.Context, entries []packageEntry, issues []protocol.PluginIssue, name string, origin protocol.PluginOrigin) (protocol.PluginInfo, error) {

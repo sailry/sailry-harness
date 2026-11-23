@@ -17,6 +17,7 @@ func (failedPluginBody) Read([]byte) (int, error) { return 0, errors.New("fixtur
 func (failedPluginBody) Close() error             { return nil }
 
 func TestPluginRetryHintsAcrossResponseFailures(t *testing.T) {
+	t.Parallel()
 	const prepare = `export function prepare(input) { return {method:"POST",url:input.endpoint+"/messages",body:"{}"}; }`
 	const decode = `export function decode(input) { return {state:null,deltas:input.events.map(event=>JSON.parse(event.data))}; }`
 	const classify = `export function classify(input) { return {class:"unavailable",message:"busy",retry_after_ms:9000,code:"overloaded_error"}; }`
@@ -84,6 +85,7 @@ func TestPluginRetryHintsAcrossResponseFailures(t *testing.T) {
 }
 
 func TestPluginPreparationRetryHint(t *testing.T) {
+	t.Parallel()
 	requests := 0
 	model, binding, _ := pluginFixture(t, `export function prepare(input) { return {refusal:{class:"rate_limited",message:"busy",retry_after_ms:9000}}; }`, func(*http.Request) (*http.Response, error) {
 		requests++

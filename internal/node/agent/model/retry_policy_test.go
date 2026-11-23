@@ -10,6 +10,7 @@ import (
 )
 
 func TestRetryWaitBudgetIsSharedAcrossFailures(t *testing.T) {
+	t.Parallel()
 	for _, purpose := range []Purpose{Main, SummaryPurpose} {
 		for _, waits := range [][]int{{240, 240, 121}, {300, 300, 1}} {
 			t.Run(fmt.Sprintf("%s/%v", purpose, waits), func(t *testing.T) {
@@ -49,6 +50,7 @@ func TestRetryWaitBudgetIsSharedAcrossFailures(t *testing.T) {
 }
 
 func TestRetryHintMinimum(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2037, time.October, 21, 7, 28, 0, 0, time.UTC)
 	for _, sample := range []struct {
 		name    string

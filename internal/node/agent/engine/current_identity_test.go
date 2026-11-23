@@ -9,6 +9,7 @@ import (
 )
 
 func TestCurrentExecutionIdentityAfterForkAndCompaction(t *testing.T) {
+	t.Parallel()
 	model := &scriptedModel{scripts: []script{response(text("Original answer"), finish()), response(text("Fork answer"), finish())}}
 	fixture := newFixture(t, model)
 	fixture.start()

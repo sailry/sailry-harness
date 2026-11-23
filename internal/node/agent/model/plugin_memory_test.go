@@ -13,6 +13,7 @@ import (
 )
 
 func TestPluginModelMemory(t *testing.T) {
+	t.Parallel()
 	t.Run("stream lifetime uses the captured package", func(t *testing.T) {
 		for _, finish := range []string{"complete", "cancel"} {
 			t.Run(finish, func(t *testing.T) {

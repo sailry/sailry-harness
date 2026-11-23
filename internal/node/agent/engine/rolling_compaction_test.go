@@ -36,6 +36,7 @@ func compactionPrefix(t *testing.T, f *engineFixture, x *execution) store.AgentS
 }
 
 func TestRollingCompactionPreservesTailAcrossUpdatesAndFailure(t *testing.T) {
+	t.Parallel()
 	modelScript := &scriptedModel{scripts: []script{
 		response(text(`{"user_intent":["First rolling state"]}`), finish()),
 		response(text(`{"user_intent":["Second rolling state"]}`), finish()),
@@ -123,6 +124,7 @@ func TestRollingCompactionPreservesTailAcrossUpdatesAndFailure(t *testing.T) {
 }
 
 func TestRollingCompactionAdvancesWithinOneLongToolTurn(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue the original task"]}`), finish())}}
 	f, x, binding, _ := compactionFixture(t, m)
 	binding.Provider.Models[0].Context = 16000

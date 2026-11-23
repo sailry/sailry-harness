@@ -9,6 +9,7 @@ import (
 )
 
 func TestOpenAIParallelToolCalls(t *testing.T) {
+	t.Parallel()
 	provider := protocol.DefaultConversationProvider()
 	provider.ID = protocol.NewProviderID()
 	provider.Enabled = true

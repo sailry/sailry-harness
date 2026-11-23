@@ -183,6 +183,7 @@ func (fixture *mcpCallFixture) fault(call *mcpHeldCall, code protocol.ErrorCode)
 }
 
 func TestMCPConcurrentReadsRefillSlots(t *testing.T) {
+	t.Parallel()
 	for _, version := range []string{"2026-07-28", "2025-11-25"} {
 		t.Run(version, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -220,6 +221,7 @@ func TestMCPConcurrentReadsRefillSlots(t *testing.T) {
 }
 
 func TestMCPQueuedWriterPrecedesLaterReads(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newMCPCallFixture(t, "2026-07-28")
 		lease := fixture.acquire(fixture.config())
@@ -248,6 +250,7 @@ func TestMCPQueuedWriterPrecedesLaterReads(t *testing.T) {
 }
 
 func TestMCPExclusiveWritesAcrossConnections(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newMCPCallFixture(t, "2026-07-28")
 		config := fixture.config()
@@ -272,6 +275,7 @@ func TestMCPExclusiveWritesAcrossConnections(t *testing.T) {
 }
 
 func TestMCPReadInterruptionKeepsSharedConnection(t *testing.T) {
+	t.Parallel()
 	for _, timedOut := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cancel", true: "timeout"}[timedOut], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -309,6 +313,7 @@ func TestMCPReadInterruptionKeepsSharedConnection(t *testing.T) {
 }
 
 func TestMCPQueuedCancellationDoesNotDispatch(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newMCPCallFixture(t, "2026-07-28")
 		lease := fixture.acquire(fixture.config())
@@ -340,6 +345,7 @@ func TestMCPQueuedCancellationDoesNotDispatch(t *testing.T) {
 }
 
 func TestMCPWriteCancellationRetiresWithoutReplay(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newMCPCallFixture(t, "2026-07-28")
 		lease := fixture.acquire(fixture.config())

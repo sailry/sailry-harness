@@ -18,6 +18,7 @@ import (
 )
 
 func TestLiveCodeQueryCoverage(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.chain()
 	f.write(".gitignore", "ignored/\n", "ignored/a.rs", "pub fn ignored() { a(); }\n")
@@ -67,6 +68,7 @@ func TestLiveCodeQueryCoverage(t *testing.T) {
 }
 
 func TestLiveGraphRevalidatesCachedSelection(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.chain()
 	const side = "other/side.rs"
@@ -161,6 +163,7 @@ func TestLiveGraphRevalidatesCachedSelection(t *testing.T) {
 }
 
 func TestLiveGraphReclassifiesEditedShebang(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	const body = "def bridge():\n    start_work()\n"
 	const script = "#!/usr/bin/env python3\n" + body
@@ -182,6 +185,7 @@ func TestLiveGraphReclassifiesEditedShebang(t *testing.T) {
 }
 
 func TestLiveReuseKeepsWorktreesSeparate(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("same.rs", "pub fn original() {}\n", ".sailry/worktrees/hidden/source.rs", "pub fn hidden() {}\n")
 	var reused bool
@@ -233,6 +237,7 @@ func TestLiveReuseKeepsWorktreesSeparate(t *testing.T) {
 }
 
 func TestLiveResultReusesCompleteDerivation(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	const original = "// α \npub fn alpha() {}\n"
 	const changed = "// β\npub fn alpha() { }\n"
@@ -291,6 +296,7 @@ func TestLiveResultReusesCompleteDerivation(t *testing.T) {
 }
 
 func TestOwnLiveParsePreservesSharedScopes(t *testing.T) {
+	t.Parallel()
 	parsed := parseDenseReferences(t, new(Parser), denseGoSource())
 	owned, size := ownLiveParse(&parsed)
 	if owned == nil || size == 0 || !reflect.DeepEqual(owned, &parsed) {

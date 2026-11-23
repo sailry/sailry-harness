@@ -13,6 +13,7 @@ import (
 )
 
 func TestStreamingRetryResetsOnlyTheFailedAttempt(t *testing.T) {
+	t.Parallel()
 	for _, event := range []fantasy.StreamPart{
 		textPart("discard"),
 		{Type: fantasy.StreamPartTypeReasoningDelta, ID: "thought", Delta: "discard"},
@@ -67,6 +68,7 @@ func TestStreamingRetryResetsOnlyTheFailedAttempt(t *testing.T) {
 }
 
 func TestStreamingRetryPreservesTerminalOutputAndCancellation(t *testing.T) {
+	t.Parallel()
 	t.Run("attempt limit", func(t *testing.T) {
 		fake := &policyModel{}
 		for index := range MainRetries + 1 {
@@ -115,6 +117,7 @@ func TestStreamingRetryPreservesTerminalOutputAndCancellation(t *testing.T) {
 }
 
 func TestTruncatedResponseIsDistinctFromMalformedOrRejectedResponse(t *testing.T) {
+	t.Parallel()
 	var object any
 	syntax := json.Unmarshal([]byte(`{broken`), &object)
 	for _, cause := range []error{

@@ -17,6 +17,7 @@ import (
 )
 
 func TestResponsesObservationHandoffAndRestart(t *testing.T) {
+	t.Parallel()
 	response, err := os.ReadFile("../model/testdata/responses-text.sse")
 	if err != nil {
 		t.Fatal(err)

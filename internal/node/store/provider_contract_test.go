@@ -16,6 +16,7 @@ import (
 )
 
 func TestMixedGatewayDiscoverySavesProtocolEfforts(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" || r.Method != http.MethodGet {
 			http.NotFound(w, r)
@@ -74,6 +75,7 @@ func TestMixedGatewayDiscoverySavesProtocolEfforts(t *testing.T) {
 }
 
 func TestProviderSaveTracksDefaultOAuthCatalogVersion(t *testing.T) {
+	t.Parallel()
 	_, node, storage := schemaFixture(t)
 	ctx := t.Context()
 	provider := providerFixture()

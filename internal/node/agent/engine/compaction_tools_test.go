@@ -13,6 +13,7 @@ import (
 )
 
 func TestReactiveCompactionRediscoversUnloadedTool(t *testing.T) {
+	t.Parallel()
 	const target = "read_session"
 	const plan = `{"title":"Lookup","steps":[{"description":"Verify the lookup","state":"in_progress"}]}`
 	candidates := func(request fantasy.Call) []string {

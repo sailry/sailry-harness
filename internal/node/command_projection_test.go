@@ -68,6 +68,7 @@ func (model *commandPollingModel) Stream(ctx context.Context, call fantasy.Call)
 }
 
 func TestCommandPollingProjection(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	const sample = `sample_count=$(($sample_count + 1)); sample_status="$sample_count"; `

@@ -42,6 +42,7 @@ func requireAgentPlan(t *testing.T, records []canonical.Record, expected string)
 }
 
 func TestLatestAgentPlanPreservesHistoryAcrossGuidance(t *testing.T) {
+	t.Parallel()
 	oldTurn := protocol.NewTurnID()
 	oldCall, oldResult := agentPlanRecords(oldTurn, "main", "plan", operations.LegacyUpdatePlanTool, pendingAgentPlan, pendingAgentPlan)
 	planCall, planResult := agentPlanRecords(oldTurn, "main", "update", operations.UpdatePlanTool, activeAgentPlan, activeAgentPlan)
@@ -76,6 +77,7 @@ func TestLatestAgentPlanPreservesHistoryAcrossGuidance(t *testing.T) {
 }
 
 func TestLatestAgentPlanIgnoresInvalidUpdates(t *testing.T) {
+	t.Parallel()
 	name := operations.Alias("progress", "update_plan")
 	turn := protocol.NewTurnID()
 	oldCall, oldResult := agentPlanRecords(turn, "main", "previous", name, pendingAgentPlan, pendingAgentPlan)
@@ -125,6 +127,7 @@ func TestLatestAgentPlanIgnoresInvalidUpdates(t *testing.T) {
 }
 
 func TestLatestAgentPlanSettledUpdateClearsOlderPlan(t *testing.T) {
+	t.Parallel()
 	name := operations.Alias("progress", "update_plan")
 	turn := protocol.NewTurnID()
 	olderCall, olderResult := agentPlanRecords(turn, "main", "earlier", name, pendingAgentPlan, pendingAgentPlan)

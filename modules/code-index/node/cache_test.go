@@ -33,6 +33,7 @@ func cacheFixture(t *testing.T, dir string, modified time.Time) {
 }
 
 func TestCodeIndexCachePruning(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	// The startup sweep uses the wall clock. Test retention at a later time.
 	now := time.Now().Add(3 * 24 * time.Hour)
@@ -86,6 +87,7 @@ func TestCodeIndexCachePruning(t *testing.T) {
 }
 
 func TestCodeIndexCachePruningLeavesSymlinks(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	outside := filepath.Join(f.profile, "other-data")
 	cacheFixture(t, outside, time.Now().Add(-2*cacheMaxAge))
@@ -106,6 +108,7 @@ func TestCodeIndexCachePruningLeavesSymlinks(t *testing.T) {
 }
 
 func TestCodeIndexIdleProtectsAnAdmittedQuery(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx, w, end, err := f.service.begin(context.Background(), f.id, f.root, true)
 	if err != nil {
@@ -124,6 +127,7 @@ func TestCodeIndexIdleProtectsAnAdmittedQuery(t *testing.T) {
 }
 
 func TestCodeIndexLiveQueriesDoNotKeepThePersistentIndexOpen(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("source.go", "package example\nfunc Target() {}\n")
 	f.search("Target")

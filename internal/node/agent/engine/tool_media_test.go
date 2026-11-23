@@ -18,6 +18,7 @@ import (
 // TestToolMedia runs a tool that returns a picture and reads the request the
 // next step sends: the picture is media on its result, never text.
 func TestToolMedia(t *testing.T) {
+	t.Parallel()
 	pixels := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 64))
 	encoded := base64.StdEncoding.EncodeToString(pixels)
 	// The attachment is what a tool stores for display only.

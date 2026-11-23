@@ -12,6 +12,7 @@ import (
 )
 
 func TestWorktreeCleanupCooldown(t *testing.T) {
+	t.Parallel()
 	var kept keptWorktrees
 	first, second := protocol.NewWorktreeID(), protocol.NewWorktreeID()
 	now := time.Now()

@@ -20,6 +20,7 @@ import (
 )
 
 func TestContextPressureBuiltinHistoryReplay(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{}
 	f := newFixtureWithTimeout(t, m, 20*time.Second)
 	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {

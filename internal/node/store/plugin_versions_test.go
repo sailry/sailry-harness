@@ -27,6 +27,7 @@ func catalogStorageExtension(collections []protocol.PluginStorageCollection) *pr
 }
 
 func TestCatalogSwitchChecksMCPSecretDestination(t *testing.T) {
+	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -79,6 +80,7 @@ func TestCatalogSwitchChecksMCPSecretDestination(t *testing.T) {
 }
 
 func TestCatalogDowngradeUsesResourceAccess(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"shared conversation", "owned project conversation", "revoked conversation", "removed project", "private foreign project"} {
 		t.Run(scenario, func(t *testing.T) {
 			_, _, storage := schemaFixture(t)
@@ -152,6 +154,7 @@ func TestCatalogDowngradeUsesResourceAccess(t *testing.T) {
 }
 
 func TestCatalogVersionSwitchPreservesState(t *testing.T) {
+	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -239,6 +242,7 @@ func TestCatalogVersionSwitchPreservesState(t *testing.T) {
 }
 
 func TestCatalogSwitchRejectsIncompatibleState(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"settings type", "removed settings", "stored data", "unsupported API"} {
 		t.Run(scenario, func(t *testing.T) {
 			_, _, storage := schemaFixture(t)

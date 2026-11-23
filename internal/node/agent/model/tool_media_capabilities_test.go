@@ -13,6 +13,7 @@ import (
 )
 
 func TestPluginToolImageCapabilities(t *testing.T) {
+	t.Parallel()
 	pixels := []byte("\x89PNG\r\n\x1a\nfixture")
 	encoded := base64.StdEncoding.EncodeToString(pixels)
 	resource := base64.StdEncoding.EncodeToString([]byte("non-image resource"))

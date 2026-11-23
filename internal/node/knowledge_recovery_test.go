@@ -12,6 +12,7 @@ import (
 )
 
 func TestKnowledgeRecoveryRetainsForeignPluginScopeAndCurrentVisibility(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	nodeID := node.ID()
 	ctx := t.Context()

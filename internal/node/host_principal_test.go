@@ -10,6 +10,7 @@ import (
 )
 
 func TestHostCommandsRetainRemotePrincipal(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	owner, other := protocol.NodeID{94}, protocol.NodeID{95}

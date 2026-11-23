@@ -9,6 +9,7 @@ import (
 )
 
 func TestAssistantToolsAddOrdinaryContext(t *testing.T) {
+	t.Parallel()
 	for _, resource := range []protocol.PluginConversationResource{protocol.PluginConversationResourceSsh, protocol.PluginConversationResourceDatabase} {
 		t.Run(string(resource), func(t *testing.T) {
 			invocation := &store.AgentInvocation{}
@@ -36,6 +37,7 @@ func TestAssistantToolsAddOrdinaryContext(t *testing.T) {
 }
 
 func TestConversationToolContexts(t *testing.T) {
+	t.Parallel()
 	project := protocol.NewProjectID()
 	assistant := &protocol.PluginConversationBinding{Package: protocol.PluginReference{Name: "assistant"}, ID: "fixture"}
 	database := &protocol.ConnectionResource{Kind: "database"}

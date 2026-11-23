@@ -15,6 +15,7 @@ import (
 )
 
 func TestHTTP408RetriesOnlyThroughSailryPolicy(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
 		t.Run(kind, func(t *testing.T) {
 			success := fixture(t, kind+"-text.sse")
@@ -70,6 +71,7 @@ func TestHTTP408RetriesOnlyThroughSailryPolicy(t *testing.T) {
 }
 
 func TestSDKPreheaderEOFRetriesTheSameRequest(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
 		t.Run(kind, func(t *testing.T) {
 			var requests atomic.Int32
@@ -136,6 +138,7 @@ func TestSDKPreheaderEOFRetriesTheSameRequest(t *testing.T) {
 }
 
 func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
+	t.Parallel()
 	prefixes := map[string]string{
 		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"discard\"}\n\n",
 		"chat":      "data: {\"id\":\"chat\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"discard\"},\"finish_reason\":null}]}\n\n",
@@ -196,6 +199,7 @@ func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 }
 
 func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"responses", "anthropic", "google", "chat"} {
 		endings := []string{"idle", "truncated"}
 		if kind == "responses" {
@@ -299,6 +303,7 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 }
 
 func TestResponsesTailWithoutTerminalRetries(t *testing.T) {
+	t.Parallel()
 	for _, sample := range []struct {
 		name, tail string
 	}{
@@ -337,6 +342,7 @@ func TestResponsesTailWithoutTerminalRetries(t *testing.T) {
 }
 
 func TestSDKIncompleteToolCallIsRejected(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		kind, frame string
 	}{
@@ -363,6 +369,7 @@ func TestSDKIncompleteToolCallIsRejected(t *testing.T) {
 }
 
 func TestSDKCancellationReleasesRequestWithoutRetry(t *testing.T) {
+	t.Parallel()
 	prefixes := map[string]string{
 		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"retain\"}\n\n",
 		"chat":      "data: {\"id\":\"chat\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"retain\"},\"finish_reason\":null}]}\n\n",

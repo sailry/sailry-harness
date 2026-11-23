@@ -13,6 +13,7 @@ import (
 )
 
 func TestResponsesWirePreservesContentBreakpoints(t *testing.T) {
+	t.Parallel()
 	var input []any
 	if err := json.Unmarshal([]byte(`[
 		{"type":"message","role":"developer","content":[
@@ -44,6 +45,7 @@ func TestResponsesWirePreservesContentBreakpoints(t *testing.T) {
 }
 
 func TestResponsesFinalCacheMode(t *testing.T) {
+	t.Parallel()
 	const key = "prompt_cache_options"
 	const explicit = `{"mode":"explicit","ttl":"30m"}`
 	for _, tc := range []struct {
@@ -111,6 +113,7 @@ func cachePresetBinding(t *testing.T, endpoint string, body map[string]json.RawM
 }
 
 func TestResponsesPresetCacheBreakpoints(t *testing.T) {
+	t.Parallel()
 	reserved := protocol.DefaultConversationPresetsRequestPolicy()
 	reserved.Models = []string{"gpt-6.2-astra"}
 	reserved.Body["input"] = json.RawMessage(`[]`)
@@ -158,6 +161,7 @@ func TestResponsesPresetCacheBreakpoints(t *testing.T) {
 }
 
 func TestResponsesGeneratedCacheBreakpoints(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"explicit", "implicit"} {
 		t.Run(mode, func(t *testing.T) {
 			sse := string(fixture(t, "responses-text.sse"))

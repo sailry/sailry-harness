@@ -66,6 +66,7 @@ func saveDelegationCall(t *testing.T, f *engineFixture, x *execution, id string,
 }
 
 func TestGuideAgentCanOverlapOutsideCollaborate(t *testing.T) {
+	t.Parallel()
 	f, parent := delegationFixture(t, &scriptedModel{scripts: []script{response(text("First result"), finish())}})
 	spawn := saveDelegationCall(t, f, parent, "initial", true)
 	admitted := f.r.spawnChild(parent, spawn, spawn.Arguments)
@@ -97,6 +98,7 @@ func TestGuideAgentCanOverlapOutsideCollaborate(t *testing.T) {
 }
 
 func TestStopAgentStopsAndCollectsChild(t *testing.T) {
+	t.Parallel()
 	started := make(chan struct{})
 	blocker := func(ctx context.Context, _ fantasy.Call, _ func(fantasy.StreamPart) bool) {
 		close(started)
@@ -136,6 +138,7 @@ func TestStopAgentStopsAndCollectsChild(t *testing.T) {
 }
 
 func TestChildTurnLimitIsRuntimeNote(t *testing.T) {
+	t.Parallel()
 	f, x := delegationFixture(t)
 	x.childRole = &protocol.RoleProfile{MaxTurns: new(uint32(0))}
 	limited, err := f.r.childTurnLimit(x, f.state())
@@ -156,6 +159,7 @@ func TestChildTurnLimitIsRuntimeNote(t *testing.T) {
 }
 
 func TestWaitAgent(t *testing.T) {
+	t.Parallel()
 	for _, guidance := range []bool{false, true} {
 		name := "bounded observation keeps queued child"
 		if guidance {
@@ -226,6 +230,7 @@ func TestWaitAgent(t *testing.T) {
 }
 
 func TestDelegationHandoff(t *testing.T) {
+	t.Parallel()
 	for _, outcome := range []string{"completed", "failed recipient", "cancelled successor", "cancelled queued successor"} {
 		t.Run("final boundary guidance "+outcome, func(t *testing.T) {
 			successorStarted := make(chan struct{})
@@ -587,6 +592,7 @@ func (f *engineFixture) childTurns() []protocol.TurnID {
 }
 
 func TestCollaborateWithOneModelRunsChildrenInParallel(t *testing.T) {
+	t.Parallel()
 	started := make(chan fantasy.Call, 2)
 	release := make(chan struct{})
 	child := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
@@ -658,6 +664,7 @@ func TestCollaborateWithOneModelRunsChildrenInParallel(t *testing.T) {
 }
 
 func TestParentEndSettlesChildren(t *testing.T) {
+	t.Parallel()
 	for _, ending := range []string{"user stop", "user stop during hook", "user stop while closing", "failed parent"} {
 		t.Run(ending, func(t *testing.T) {
 			childStarted, parentWaiting := make(chan struct{}), make(chan struct{})
@@ -829,6 +836,7 @@ func TestParentEndSettlesChildren(t *testing.T) {
 }
 
 func TestChildSettlementPublishesAgedDelegation(t *testing.T) {
+	t.Parallel()
 	f, parent := delegationFixture(t)
 	spawn := saveDelegationCall(t, f, parent, "child", false)
 	if result := f.r.spawnChild(parent, spawn, spawn.Arguments); result.Failure != nil {
@@ -925,6 +933,7 @@ func TestChildSettlementPublishesAgedDelegation(t *testing.T) {
 }
 
 func TestStopSingleChild(t *testing.T) {
+	t.Parallel()
 	childStarted := make(chan struct{})
 	var once sync.Once
 	step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
@@ -1037,6 +1046,7 @@ func TestStopSingleChild(t *testing.T) {
 }
 
 func TestChildWorkspacePreflight(t *testing.T) {
+	t.Parallel()
 	// A package tool bound to agents.delegate or agents.guide sends its own
 	// arguments; its host script prepares the ones that describe the child.
 	record := func(f *engineFixture) *[]protocol.WorktreeID {
@@ -1110,6 +1120,7 @@ func TestChildWorkspacePreflight(t *testing.T) {
 }
 
 func TestTeamRosterDescribesRolesAndAllowsGenericSpawn(t *testing.T) {
+	t.Parallel()
 	f, x := delegationFixture(t)
 	call := saveDelegationCall(t, f, x, "team-child", false)
 	x.inv.Turn.Roles.Profiles = []protocol.RoleProfile{{Key: "reviewer", Name: "Reviewer", ReadOnly: true, Description: "Review code"}}

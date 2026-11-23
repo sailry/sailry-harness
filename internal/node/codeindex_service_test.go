@@ -10,6 +10,7 @@ import (
 )
 
 func TestCodeIndexUnavailablePreservesSettings(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	var saved protocol.CodeIndexSettings

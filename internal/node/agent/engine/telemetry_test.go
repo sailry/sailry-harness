@@ -15,6 +15,7 @@ import (
 // registers and names a package's tool only for a package the application
 // ships.
 func TestCountedTools(t *testing.T) {
+	t.Parallel()
 	catalog, err := operations.Bundled()
 	if err != nil || len(catalog.Tools) == 0 {
 		t.Fatal(err)

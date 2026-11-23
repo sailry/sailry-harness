@@ -10,6 +10,7 @@ import (
 )
 
 func TestToolCleanupPanicSettlesAndReleasesAllResources(t *testing.T) {
+	t.Parallel()
 	var firstClosed, secondClosed atomic.Int32
 	first := objectTool("first", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		return ToolResult{}

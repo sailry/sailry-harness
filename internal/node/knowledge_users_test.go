@@ -23,6 +23,7 @@ import (
 // The real indexing worker must restore each stored source's user rather than
 // reading every source as the Node's local maintenance principal.
 func TestKnowledgeUserAndProjectStorage(t *testing.T) {
+	t.Parallel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	seedKnowledgeFixtureEmbedding(t, profile)
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})

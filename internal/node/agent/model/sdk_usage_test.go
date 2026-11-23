@@ -9,6 +9,7 @@ import (
 )
 
 func TestAnthropicUsageBreakdownSurvivesStreaming(t *testing.T) {
+	t.Parallel()
 	body := string(fixture(t, "anthropic-text.sse"))
 	body = strings.Replace(body, `"cache_creation_input_tokens":4`, `"cache_creation_input_tokens":4,"cache_creation":{"ephemeral_1h_input_tokens":4,"ephemeral_5m_input_tokens":0},"service_tier":"standard"`, 1)
 	body = strings.Replace(body, `"usage":{"output_tokens":3}`, `"usage":{"output_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":0}}`, 1)
@@ -47,6 +48,7 @@ func TestAnthropicUsageBreakdownSurvivesStreaming(t *testing.T) {
 }
 
 func TestChatCacheUsageFields(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, fields string
 		cached       uint64
@@ -81,6 +83,7 @@ func TestChatCacheUsageFields(t *testing.T) {
 }
 
 func TestOpenAICacheWritesPreserveInputTotals(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"chat", "responses"} {
 		t.Run(kind, func(t *testing.T) {
 			body := string(fixture(t, kind+"-text.sse"))

@@ -122,6 +122,7 @@ var fixtureRoots = []string{"artifacts/session/item", "attachments/one", "link.k
 
 // Over 1 s: sealing and opening run scrypt at the production work factor.
 func TestBackupArchiveLayout(t *testing.T) {
+	t.Parallel()
 	profile, files := fixtureProfile(t)
 	snapshot := fixtureSnapshot(t, profile, files, fixtureRoots)
 	var buffer bytes.Buffer
@@ -132,6 +133,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	packed := fixturePack(t, snapshot)
 
 	t.Run("container", func(t *testing.T) {
+		t.Parallel()
 		compressed, err := gzip.NewReader(bytes.NewReader(plain))
 		if err != nil {
 			t.Fatal(err)
@@ -194,6 +196,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("refused archives", func(t *testing.T) {
+		t.Parallel()
 		valid := func() Manifest {
 			digest := strings.Repeat("0", 64)
 			return Manifest{Version: 1, OriginalProfile: profile, Files: []File{
@@ -285,6 +288,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("local target", func(t *testing.T) {
+		t.Parallel()
 		// Only a folder inside the profile, or one that contains it, is
 		// refused; neighbours are not, however they are spelled.
 		root := t.TempDir()
@@ -343,6 +347,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("encryption and storage", func(t *testing.T) {
+		t.Parallel()
 		passphrase := protocol.NewSecret("correct horse battery")
 		directory := filepath.Join(t.TempDir(), "backups")
 		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
@@ -472,6 +477,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("a failed online copy retains the committed local backup", func(t *testing.T) {
+		t.Parallel()
 		for _, test := range []struct {
 			name   string
 			status int
@@ -527,6 +533,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("retention and damaged records", func(t *testing.T) {
+		t.Parallel()
 		passphrase := protocol.NewSecret(fixturePassphrase)
 		directory := filepath.Join(t.TempDir(), "backups")
 		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}, Auth: Auth{Passphrase: &passphrase}}
@@ -628,6 +635,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 	})
 
 	t.Run("a refused export leaves nothing behind", func(t *testing.T) {
+		t.Parallel()
 		directory := filepath.Join(t.TempDir(), "backups")
 		plan := Plan{Local: &protocol.BackupLocal{Directory: directory, Enabled: true}}
 		// An archive without content has no segment to commit.

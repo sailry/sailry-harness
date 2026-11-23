@@ -129,6 +129,7 @@ func controllerLoginRunFixture(t *testing.T) (*Node, context.Context, *store.Age
 }
 
 func TestControllerLoginRecoveryRequiresRetainedReplacementAndReplaysReceipt(t *testing.T) {
+	t.Parallel()
 	node, ctx, invocation, old, write := controllerLoginRunFixture(t)
 	var run protocol.ConversationRun
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -220,6 +221,7 @@ func TestControllerLoginRecoveryRequiresRetainedReplacementAndReplaysReceipt(t *
 }
 
 func TestControllerLoginRecoveryRejectsStoppedTask(t *testing.T) {
+	t.Parallel()
 	node, ctx, invocation, _, _ := controllerLoginRunFixture(t)
 	var run protocol.ConversationRun
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -243,6 +245,7 @@ func TestControllerLoginRecoveryRejectsStoppedTask(t *testing.T) {
 }
 
 func TestControllerLoginNaturalRenewalClearsManualRecoveryWait(t *testing.T) {
+	t.Parallel()
 	node, ctx, invocation, runtime, write := controllerLoginRunFixture(t)
 	operation, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -319,6 +322,7 @@ func TestControllerLoginNaturalRenewalClearsManualRecoveryWait(t *testing.T) {
 }
 
 func TestControllerLoginWaitingRefreshesSameReferenceLegacyMetadata(t *testing.T) {
+	t.Parallel()
 	node, ctx, invocation, runtime, write := controllerLoginRunFixture(t)
 	operation, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -414,6 +418,7 @@ func (model *controllerLoginStepModel) Stream(_ context.Context, _ fantasy.Call)
 }
 
 func TestControllerLoginExplicitRecoveryContinuesAfterCompletedTool(t *testing.T) {
+	t.Parallel()
 	node, ctx, invocation, runtime, write := controllerLoginRunFixture(t)
 	future := uint64(time.Now().Add(time.Hour).UnixMilli())
 	runtime.ExpiresAtMs, runtime.Revision = &future, 2

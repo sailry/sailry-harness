@@ -54,6 +54,7 @@ func (body *heldJSONBody) Close() error {
 func (body *heldJSONBody) finish() { body.releaseOnce.Do(func() { close(body.release) }) }
 
 func TestMCPHTTPJSONCancellationKeepsConnection(t *testing.T) {
+	t.Parallel()
 	for _, deadline := range []bool{false, true} {
 		t.Run(map[bool]string{false: "cancel", true: "deadline"}[deadline], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -182,6 +183,7 @@ func (body *observedResponseBody) Close() error {
 }
 
 func TestMCPHTTPJSONBodyLimit(t *testing.T) {
+	t.Parallel()
 	for _, size := range []int{maxMessage, maxMessage + 1, maxMessage + 1024} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			body := &observedResponseBody{reader: strings.NewReader(strings.Repeat("x", size))}
@@ -254,6 +256,7 @@ func httpJSONFailureFixture(body func() io.Reader) (Launch, *atomic.Int32) {
 }
 
 func TestMCPHTTPJSONReadErrorSurvivesSDKWrapping(t *testing.T) {
+	t.Parallel()
 	launch, submitted := httpJSONFailureFixture(func() io.Reader {
 		return io.MultiReader(strings.NewReader(`{"jsonrpc":"2.0",`), truncatedJSONReader{})
 	})
@@ -271,6 +274,7 @@ func TestMCPHTTPJSONReadErrorSurvivesSDKWrapping(t *testing.T) {
 }
 
 func TestMCPHTTPIncompleteToolResultIsNotRejection(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		body func() io.Reader
@@ -315,6 +319,7 @@ func TestMCPHTTPIncompleteToolResultIsNotRejection(t *testing.T) {
 }
 
 func TestMCPHTTPLeavesStreamingAndErrorBodiesUnread(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name        string
 		status      int

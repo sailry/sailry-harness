@@ -76,6 +76,7 @@ func (script *pluginStorageScript) Stream(_ context.Context, call fantasy.Call) 
 // TestPluginStorageTools runs a real turn in which the model calls the
 // task-notes example's declared storage and progress tools.
 func TestPluginStorageTools(t *testing.T) {
+	t.Parallel()
 	script := &pluginStorageScript{results: map[string]string{}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{

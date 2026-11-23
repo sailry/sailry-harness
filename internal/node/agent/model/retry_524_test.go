@@ -14,6 +14,7 @@ import (
 )
 
 func TestHTTP524Recovery(t *testing.T) {
+	t.Parallel()
 	const latency = 2 * time.Minute
 	const backoff = 30 * time.Second // The gateway's Retry-After.
 	for _, test := range []struct {
@@ -127,6 +128,7 @@ func TestHTTP524Recovery(t *testing.T) {
 }
 
 func TestHTTP524KeepsOtherTransientRetries(t *testing.T) {
+	t.Parallel()
 	for _, purpose := range []Purpose{Main, SummaryPurpose} {
 		t.Run(string(purpose), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -148,6 +150,7 @@ func TestHTTP524KeepsOtherTransientRetries(t *testing.T) {
 }
 
 func TestHTTP524AfterFinishDoesNotReplay(t *testing.T) {
+	t.Parallel()
 	failure := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: 524, Message: "origin timed out"}}
 	fake := &policyModel{responses: [][]fantasy.StreamPart{{textPart("answer"), finishPart(), failure}}}
 	commits, resets := 0, 0

@@ -15,6 +15,7 @@ import (
 )
 
 func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
+	t.Parallel()
 	for _, outcome := range []string{"cancelled", "exited", "unknown"} {
 		t.Run(outcome, func(t *testing.T) {
 			started, cancelled := make(chan struct{}), make(chan struct{})
@@ -119,6 +120,7 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 }
 
 func TestQueueTurnAutoStartsAfterRunningTurn(t *testing.T) {
+	t.Parallel()
 	started, release := make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		close(started)
@@ -163,6 +165,7 @@ func TestQueueTurnAutoStartsAfterRunningTurn(t *testing.T) {
 }
 
 func TestGuideQueuedTurnAdoptsRunningSettingsAndJoins(t *testing.T) {
+	t.Parallel()
 	started, cancelled := make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		close(started)
@@ -205,6 +208,7 @@ func TestGuideQueuedTurnAdoptsRunningSettingsAndJoins(t *testing.T) {
 }
 
 func TestGuideQueuedTurnAfterRecipientCompletes(t *testing.T) {
+	t.Parallel()
 	f := newStopFixture(t, nil)
 	f.script.reset(func(int, map[string]string) [][3]string { return nil })
 	f.submit("Finish the first task")
@@ -228,6 +232,7 @@ func TestGuideQueuedTurnAfterRecipientCompletes(t *testing.T) {
 }
 
 func TestGuideQueuedTurnCannotInterruptReplacement(t *testing.T) {
+	t.Parallel()
 	started, cancelled, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		close(started)

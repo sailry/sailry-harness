@@ -84,6 +84,7 @@ func (script *turnFactsModel) Stream(_ context.Context, call fantasy.Call) (fant
 // the tools the model called, the turn's and the session's usage, and the
 // automatic chain with the limit the continuation declared.
 func TestPluginTurnFacts(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	script := &turnFactsModel{}

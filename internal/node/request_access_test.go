@@ -19,6 +19,7 @@ import (
 )
 
 func TestOutcomeRecoveryUsesCurrentAccessAndSecretFreeScope(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	caller := protocol.NodeID{91}
@@ -102,6 +103,7 @@ func TestOutcomeRecoveryUsesCurrentAccessAndSecretFreeScope(t *testing.T) {
 }
 
 func TestCapturedCallbackSurvivesDeviceRevocation(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	caller := protocol.NodeID{92}
@@ -161,6 +163,7 @@ func TestCapturedCallbackSurvivesDeviceRevocation(t *testing.T) {
 }
 
 func TestTransferRetainsDeletedWorktreeScope(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		edge uint32

@@ -22,6 +22,7 @@ const fixtureChildFailure = fixtureChildFailureMarker + " \"quoted\"\n</runtime>
 const fixtureChildTitle = "Background fixture"
 
 func TestNoticeTurnCollectsLaterCommandResult(t *testing.T) {
+	t.Parallel()
 	entered, release := make(chan fantasy.Call, 1), make(chan struct{})
 	resumed := make(chan fantasy.Call, 1)
 	main := &scriptedModel{scripts: []script{
@@ -100,6 +101,7 @@ func TestNoticeTurnCollectsLaterCommandResult(t *testing.T) {
 }
 
 func TestBackgroundChildFailureAtTurnBoundary(t *testing.T) {
+	t.Parallel()
 	for _, boundary := range []string{"tool", "stream", "approval", "wait_agent", "stop"} {
 		t.Run(boundary, func(t *testing.T) {
 			entered, finishStep, failChild := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -200,6 +202,7 @@ func TestBackgroundChildFailureAtTurnBoundary(t *testing.T) {
 }
 
 func TestBackgroundChildFailureAfterParentEnds(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"automatic", "legacy failure before queued input", "stopped child"} {
 		t.Run(scenario, func(t *testing.T) {
 			failChild := make(chan struct{})
@@ -331,6 +334,7 @@ func TestBackgroundChildFailureAfterParentEnds(t *testing.T) {
 }
 
 func TestForegroundChildFailureStaysInForeground(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	f, parent := delegationFixture(t, &scriptedModel{scripts: []script{scriptedChildFailure(release)}})
 	spawn := saveDelegationCall(t, f, parent, "foreground-failure", false)
@@ -369,6 +373,7 @@ func TestForegroundChildFailureStaysInForeground(t *testing.T) {
 }
 
 func TestBackgroundChildFailureDeliveryRollsBackWithCanonicalAppend(t *testing.T) {
+	t.Parallel()
 	f, parent := delegationFixture(t)
 	const uncertain = "The original child effect could not be confirmed"
 	f.r.authorizeProvider = func(context.Context, *store.AgentInvocation) error {

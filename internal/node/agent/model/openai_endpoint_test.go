@@ -11,6 +11,7 @@ import (
 )
 
 func TestOpenAICompatibleEndpoint(t *testing.T) {
+	t.Parallel()
 	for _, api := range []struct {
 		protocol protocol.ConversationModelApi
 		kind     string

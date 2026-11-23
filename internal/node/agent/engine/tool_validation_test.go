@@ -9,6 +9,7 @@ import (
 )
 
 func TestToolValidationErrorOrderInNextRequest(t *testing.T) {
+	t.Parallel()
 	tool := jsonTool("probe", "Fixture tool", `{
 		"type":"object", "additionalProperties":false,
 		"properties":{

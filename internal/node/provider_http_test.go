@@ -23,6 +23,7 @@ func (ctx *providerWaitingContext) Done() <-chan struct{} {
 }
 
 func TestProviderResourceWaiterFetchesAfterAnotherCallersFailure(t *testing.T) {
+	t.Parallel()
 	node := &Node{auth: &authControls{resources: map[[32]byte]*providerDocument{}}}
 	key := [32]byte{1}
 	started, release, first := make(chan struct{}), make(chan struct{}), make(chan error, 1)

@@ -117,6 +117,7 @@ func (script *agentToolScript) Stream(_ context.Context, call fantasy.Call) (fan
 // calls the plugin, MCP and skill managers, the role and team catalog tools,
 // a package's roles.* operations and the files package's OCR model tools.
 func TestAgentManagementTools(t *testing.T) {
+	t.Parallel()
 	script := &agentToolScript{}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	var processMu sync.Mutex
@@ -1008,6 +1009,7 @@ func TestAgentManagementTools(t *testing.T) {
 }
 
 func TestWorkspaceRevisionsTrackPatchReceipts(t *testing.T) {
+	t.Parallel()
 	var observed workspaceRevisions
 	var records []canonical.Record
 	add := func(id, status, raw string, byValue bool) {

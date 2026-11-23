@@ -19,6 +19,7 @@ import (
 // Count delivered source bytes, not candidate opens. A miss isolates scan I/O;
 // the extra body on a hit belongs to result validation, even on a warm scan.
 func TestScanContentReads(t *testing.T) {
+	t.Parallel()
 	for _, fallback := range []bool{false, true} {
 		name := "native stamps"
 		if fallback {
@@ -103,6 +104,7 @@ func TestScanContentReads(t *testing.T) {
 }
 
 func TestQuietScanDiscovery(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	const first = "pub fn before() {}\n"
 	const second = "pub fn second() {}\n"
@@ -156,6 +158,7 @@ func TestQuietScanDiscovery(t *testing.T) {
 }
 
 func TestChangeWhileCheckingDoesNotCommitStaleParse(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.write("one.rs", "pub fn before() {}\n")
 	initial := f.search("before")

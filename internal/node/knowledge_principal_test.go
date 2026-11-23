@@ -10,6 +10,7 @@ import (
 )
 
 func TestKnowledgeCommandsRetainRemotePrincipal(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	callers := []protocol.NodeID{node.ID(), {93}, {94}}

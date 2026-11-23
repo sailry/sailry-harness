@@ -18,6 +18,7 @@ import (
 )
 
 func TestStreamRecoveryClearsDraftWithoutReplayingCompletedTools(t *testing.T) {
+	t.Parallel()
 	for _, event := range []fantasy.StreamPart{
 		text("Discarded text"),
 		{Type: fantasy.StreamPartTypeReasoningDelta, ID: "thought", Delta: "Discarded reasoning"},
@@ -143,6 +144,7 @@ func TestStreamRecoveryClearsDraftWithoutReplayingCompletedTools(t *testing.T) {
 }
 
 func TestStreamRecoveryExhaustionKeepsOnlyFinalPartialAndStructuredFailure(t *testing.T) {
+	t.Parallel()
 	m := &scriptedModel{}
 	for index := range model.MainRetries + 1 {
 		m.scripts = append(m.scripts, response(text(fmt.Sprintf("Partial attempt %d", index))))

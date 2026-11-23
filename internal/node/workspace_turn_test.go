@@ -54,6 +54,7 @@ func (m *workspaceScript) Stream(ctx context.Context, call fantasy.Call) (fantas
 }
 
 func TestNodeHooksCapture(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	config := sessionConfigFixture(t, node)
@@ -144,6 +145,7 @@ func TestNodeHooksCapture(t *testing.T) {
 }
 
 func TestWorkspaceNativeTurn(t *testing.T) {
+	t.Parallel()
 	script := &workspaceScript{name: "write_file"}
 	before := "before\n"
 	expected := fmt.Sprintf("%x", blake3.Sum256([]byte(before)))

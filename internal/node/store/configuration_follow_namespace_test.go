@@ -10,6 +10,7 @@ import (
 )
 
 func TestRetiredRoleConfigurationLeavesHistoricalRowsAndLocalNamespace(t *testing.T) {
+	t.Parallel()
 	storage, _, _, ctx := controllerCacheFixture(t)
 	role := protocol.DefaultRoleProfile()
 	role.ID, role.Key, role.Name, role.Revision = protocol.NewRoleID(), "reviewer", "Reviewer", 1

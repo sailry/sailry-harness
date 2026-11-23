@@ -14,6 +14,7 @@ import (
 )
 
 func TestCanonicalProjectionSuppressesOnlyLegacyDuplicateDiagnostics(t *testing.T) {
+	t.Parallel()
 	const diagnostic = "Model stream ended before a completion event"
 	for _, sample := range []struct {
 		name    string
@@ -60,6 +61,7 @@ func TestCanonicalProjectionSuppressesOnlyLegacyDuplicateDiagnostics(t *testing.
 }
 
 func TestStoredProjectionKeepsResourcePositionsAfterLegacyDiagnostic(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	message := canonical.NewMessage(canonical.Assistant,
 		canonical.Text(0, "Fixture diagnostic"),
@@ -89,6 +91,7 @@ func TestStoredProjectionKeepsResourcePositionsAfterLegacyDiagnostic(t *testing.
 }
 
 func TestHistoryPageMatchesOnlyRequestedCallsAtResponseSequence(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {

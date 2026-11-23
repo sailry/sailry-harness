@@ -12,6 +12,7 @@ import (
 )
 
 func TestHostHandlerUsesCapturedPackageAndOriginalReceipt(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	var info protocol.PluginInfo
 	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
@@ -56,6 +57,7 @@ func TestHostHandlerUsesCapturedPackageAndOriginalReceipt(t *testing.T) {
 }
 
 func TestHostHandlerRejectsUndeclaredAndMismatchedScope(t *testing.T) {
+	t.Parallel()
 	reference := protocol.PluginReference{Name: "fixture", Digest: strings.Repeat("a", 64)}
 	scope := protocol.DefaultPluginContext()
 	scope.Package = reference

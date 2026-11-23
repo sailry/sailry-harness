@@ -22,6 +22,7 @@ func BenchmarkConversationAssetsAppendIncremental(b *testing.B) {
 }
 
 func TestConversationAssetsCheckpoint(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	var reads ConversationAssetReads
@@ -132,6 +133,7 @@ func TestConversationAssetsCheckpoint(t *testing.T) {
 }
 
 func TestConversationAssetsCheckpointMutableDependencies(t *testing.T) {
+	t.Parallel()
 	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	var reads ConversationAssetReads
@@ -215,6 +217,7 @@ func TestConversationAssetsCheckpointMutableDependencies(t *testing.T) {
 }
 
 func TestConversationAssetCheckpointDependencyBound(t *testing.T) {
+	t.Parallel()
 	var reads ConversationAssetReads
 	entry := assetCheckpoint{deps: newAssetDependencies()}
 	for index := range assetDependencyLimit + 1 {

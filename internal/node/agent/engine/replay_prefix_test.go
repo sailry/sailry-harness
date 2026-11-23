@@ -15,6 +15,7 @@ import (
 )
 
 func TestClaudeToolContinuationScopesBoundThinking(t *testing.T) {
+	t.Parallel()
 	for _, discovery := range []bool{false, true} {
 		name := "ordinary tool"
 		if discovery {

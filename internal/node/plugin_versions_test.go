@@ -21,6 +21,7 @@ import (
 )
 
 func TestOfficialVersionOperationsUseRequestLedger(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 	t.Cleanup(server.Close)
@@ -99,6 +100,7 @@ func TestOfficialVersionOperationsUseRequestLedger(t *testing.T) {
 }
 
 func TestUploadedPluginUpdateUsesExecutingNode(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	current := protocol.DefaultPluginInfo()
 	version := "1.0.0"
@@ -175,6 +177,7 @@ func TestUploadedPluginUpdateUsesExecutingNode(t *testing.T) {
 }
 
 func TestPluginNodeInstallRetainsGitUpdateBranch(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	directory := t.TempDir()
 	repository, err := git.PlainInit(directory, false)

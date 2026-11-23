@@ -14,6 +14,7 @@ import (
 // TestToolResultMedia holds every wire to the same rule: an image a tool
 // returned reaches a vision model as an image and never as base64 text.
 func TestToolResultMedia(t *testing.T) {
+	t.Parallel()
 	pixels := []byte("\x89PNG\r\n\x1a\nfixture")
 	encoded := base64.StdEncoding.EncodeToString(pixels)
 	request := func(response canonical.ToolResponse) Request {

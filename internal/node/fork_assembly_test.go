@@ -17,6 +17,7 @@ import (
 )
 
 func TestForkNodeOptionsMCP(t *testing.T) {
+	t.Parallel()
 	const endpoint = "https://fork.invalid/mcp"
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -108,6 +109,7 @@ func TestForkNodeOptionsMCP(t *testing.T) {
 }
 
 func TestForkNodeStartupFailureClosesMCPPool(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	clock := startupClock{Clock: clockwork.NewFakeClock(), cancel: cancel, stopped: make(chan struct{})}

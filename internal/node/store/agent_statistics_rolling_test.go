@@ -10,6 +10,7 @@ import (
 )
 
 func TestAgentContextCountsRollingSummaryAndRetainedTail(t *testing.T) {
+	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {

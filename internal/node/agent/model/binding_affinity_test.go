@@ -18,6 +18,7 @@ import (
 const expectedAnthropicAPIKeyUserAgent = "claude-cli/2.1.330 (external, sdk-cli)"
 
 func TestAnthropicAPIKeyAffinity(t *testing.T) {
+	t.Parallel()
 	providerID, session := protocol.NewProviderID(), protocol.NewSessionID()
 	var firstMetadata any
 	for _, modelID := range []string{"claude-haiku-4-5", "claude-opus-5-5", "claude-haiku-5.5", "claude-future-fixture", "compatible-fixture"} {
@@ -119,6 +120,7 @@ func TestAnthropicAPIKeyAffinity(t *testing.T) {
 }
 
 func TestAnthropicAffinityProtocolScope(t *testing.T) {
+	t.Parallel()
 	for _, api := range []protocol.ConversationModelApi{
 		protocol.ConversationModelApiChatCompletions,
 		protocol.ConversationModelApiResponses,
@@ -151,6 +153,7 @@ func TestAnthropicAffinityProtocolScope(t *testing.T) {
 }
 
 func TestAnthropicOAuthAffinityPreservesIdentity(t *testing.T) {
+	t.Parallel()
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Api = protocol.NewProviderID(), protocol.ConversationModelApiAnthropic
 	provider.Authentication, provider.Endpoint = protocol.AuthenticationClaudeOAuth, "https://api.anthropic.com"
@@ -182,6 +185,7 @@ func TestAnthropicOAuthAffinityPreservesIdentity(t *testing.T) {
 }
 
 func TestChatGPTOAuthAffinityOnTheWire(t *testing.T) {
+	t.Parallel()
 	response := string(fixture(t, "responses-text.sse"))
 	server := serverFixture(t, response, response, response, response)
 	provider := protocol.DefaultConversationProvider()
@@ -244,6 +248,7 @@ func TestChatGPTOAuthAffinityOnTheWire(t *testing.T) {
 }
 
 func TestSignInWithChatGPTResponsesCacheOnTheWire(t *testing.T) {
+	t.Parallel()
 	response := string(fixture(t, "responses-text.sse"))
 	server := serverFixture(t, response)
 	provider := protocol.DefaultConversationProvider()
@@ -295,6 +300,7 @@ func TestSignInWithChatGPTResponsesCacheOnTheWire(t *testing.T) {
 }
 
 func TestResponsesPlacesReusableDeveloperInstructionsFirst(t *testing.T) {
+	t.Parallel()
 	for _, modelID := range []string{"gpt-6.2-sol", "compatible/gpt-6.2-astra", "gpt-6.1-sol"} {
 		t.Run(modelID, func(t *testing.T) {
 			server := serverFixture(t, string(fixture(t, "responses-text.sse")))
@@ -343,6 +349,7 @@ func TestResponsesPlacesReusableDeveloperInstructionsFirst(t *testing.T) {
 }
 
 func TestAPIKeyAffinityHeadersAcrossProtocols(t *testing.T) {
+	t.Parallel()
 	for _, api := range []protocol.ConversationModelApi{
 		protocol.ConversationModelApiAnthropic,
 		protocol.ConversationModelApiChatCompletions,
@@ -394,6 +401,7 @@ func readAffinityIdentity(t *testing.T, body map[string]any) map[string]string {
 }
 
 func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		api      protocol.ConversationModelApi
 		kind     string
@@ -449,6 +457,7 @@ func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
 }
 
 func TestPromptCacheKeyRequiresSession(t *testing.T) {
+	t.Parallel()
 	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiResponses, protocol.ConversationModelApiChatCompletions} {
 		t.Run(string(api), func(t *testing.T) {
 			provider := protocol.DefaultConversationProvider()
@@ -469,6 +478,7 @@ func TestPromptCacheKeyRequiresSession(t *testing.T) {
 }
 
 func TestAPIKeyCustomHeaders(t *testing.T) {
+	t.Parallel()
 	server := serverFixture(t, string(fixture(t, "anthropic-text.sse")))
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Enabled = protocol.NewProviderID(), true

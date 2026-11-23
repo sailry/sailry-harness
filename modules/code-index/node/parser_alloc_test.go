@@ -28,6 +28,7 @@ func parseDenseReferences(t testing.TB, parser *Parser, source string) Parsed {
 }
 
 func TestParseDenseReferences(t *testing.T) {
+	t.Parallel()
 	source := denseGoSource()
 	file := parseDenseReferences(t, new(Parser), source)
 	scope := Scope{Name: "run", Kind: "function", StartLine: 1, EndLine: denseCalls + 2}
@@ -50,6 +51,7 @@ func TestParseDenseReferences(t *testing.T) {
 }
 
 func TestEncloseRangeBoundaries(t *testing.T) {
+	t.Parallel()
 	symbol := func(name, kind string, start, end uint32) Symbol {
 		return Symbol{Name: name, Kind: kind, Range: Range{StartByte: start, EndByte: end}}
 	}

@@ -15,6 +15,7 @@ import (
 )
 
 func TestQueuedGuidanceWaitsForNoninterruptibleTool(t *testing.T) {
+	t.Parallel()
 	started, release := make(chan struct{}), make(chan struct{})
 	var skipped atomic.Int32
 	tool := objectTool("noninterruptible", false, false, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
@@ -83,6 +84,7 @@ func TestQueuedGuidanceWaitsForNoninterruptibleTool(t *testing.T) {
 }
 
 func TestQueuedGuidanceInterruptsParallelTools(t *testing.T) {
+	t.Parallel()
 	started, cancelled := make(chan string, 2), make(chan string, 2)
 	tool := objectTool("parallel_read", true, true, func(ctx context.Context, req canonical.ToolRequest) ToolResult {
 		started <- req.ID
@@ -116,6 +118,7 @@ func TestQueuedGuidanceInterruptsParallelTools(t *testing.T) {
 }
 
 func TestQueuedGuidanceCanWithdrawDuringNonInterruptibleTool(t *testing.T) {
+	t.Parallel()
 	running, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	tool := objectTool("keep_working", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
@@ -156,6 +159,7 @@ func TestQueuedGuidanceCanWithdrawDuringNonInterruptibleTool(t *testing.T) {
 }
 
 func TestQueuedGuidanceTakesNextBoundedModelInput(t *testing.T) {
+	t.Parallel()
 	running, release := make(chan struct{}), make(chan struct{})
 	tool := objectTool("gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
 		close(running)
@@ -196,6 +200,7 @@ func TestQueuedGuidanceTakesNextBoundedModelInput(t *testing.T) {
 }
 
 func TestGuidanceInterruptsActiveModelStream(t *testing.T) {
+	t.Parallel()
 	t.Run("preserves partial text and drops tool request without error", func(t *testing.T) {
 		streaming, interrupted := make(chan struct{}), make(chan struct{})
 		var toolCalls atomic.Int32
@@ -316,6 +321,7 @@ func TestGuidanceInterruptsActiveModelStream(t *testing.T) {
 }
 
 func TestQueuedGuidanceCancelsPendingInteraction(t *testing.T) {
+	t.Parallel()
 	t.Run("approval", func(t *testing.T) {
 		var calls atomic.Int32
 		tool := objectTool("needs_approval", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
@@ -393,6 +399,7 @@ func (f *engineFixture) steerQueued(recipient protocol.TurnID, item protocol.Con
 }
 
 func TestDirectGuideTurnInterruptsRunningTools(t *testing.T) {
+	t.Parallel()
 	started, cancelled := make(chan struct{}), make(chan struct{})
 	tool := objectTool("slow_read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
 		close(started)
@@ -430,6 +437,7 @@ func TestDirectGuideTurnInterruptsRunningTools(t *testing.T) {
 }
 
 func TestContextTokensExcludesUnreplayedReasoning(t *testing.T) {
+	t.Parallel()
 	turn := protocol.NewTurnID()
 	input, output, reasoning, total := uint64(10_000), uint64(8_000), uint64(6_000), uint64(18_000)
 	unsigned := canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "Scratchpad"}}, canonical.Text(1, "Answer"))

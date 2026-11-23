@@ -12,6 +12,7 @@ import (
 )
 
 func TestPersonalInstructionsCommands(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	root := node.profile.Ownership.Path
 	value := func(data any) protocol.PersonalInstructions {

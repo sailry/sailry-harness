@@ -13,6 +13,7 @@ import (
 )
 
 func TestSDKResponseFailuresRetainAllRetryAfterValues(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
 		for _, status := range []int{503, 200} {
 			name := kind + "/HTTP"

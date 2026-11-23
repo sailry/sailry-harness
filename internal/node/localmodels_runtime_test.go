@@ -52,6 +52,7 @@ func textPDF() []byte {
 // documents with text are read as before. Starting and stopping the Node
 // takes most of its two seconds.
 func TestLocalModelRuntime(t *testing.T) {
+	t.Parallel()
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
 		Environment: &environment, MCP: fixtureMCPOptions(),

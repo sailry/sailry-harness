@@ -19,6 +19,7 @@ import (
 )
 
 func TestRestorePackageWithEmptyDirectories(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	profile, source := t.TempDir(), t.TempDir()
 	const name = "empty-directory-fixture"
@@ -65,6 +66,7 @@ func TestRestorePackageWithEmptyDirectories(t *testing.T) {
 }
 
 func TestUnpackPackageDirectoryEntries(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	sum := fmt.Sprintf("%x", sha256.Sum256(nil))
 	dir := "plugins/packages/" + sum + "/empty"
@@ -112,6 +114,7 @@ func TestUnpackPackageDirectoryEntries(t *testing.T) {
 }
 
 func TestBackupPackageDirectoryBoundaries(t *testing.T) {
+	t.Parallel()
 	digest := strings.Repeat("a", 64)
 	root := "plugins/packages/" + digest
 	for _, test := range []struct {

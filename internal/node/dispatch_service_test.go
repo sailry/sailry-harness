@@ -16,6 +16,7 @@ import (
 )
 
 func TestDispatchTickIsolatesUsersAndRetriesTheirInitialRecovery(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	profile, err := OpenProfile(ctx, filepath.Join(t.TempDir(), "profile"))
 	if err != nil {

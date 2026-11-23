@@ -33,6 +33,7 @@ func (transport accountHTTP) RoundTrip(request *http.Request) (*http.Response, e
 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	for _, summary := range snapshotFixture(t, node).Plugins {
 		if summary.Name == "openai-auth" {
@@ -393,6 +394,7 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 // Node's workflow driver against a local server standing in for GitHub.
 // Over 3 s: a Node start, then two polls at GitHub's one-second interval.
 func TestCopilotSignIn(t *testing.T) {
+	t.Parallel()
 	const sessionLifetime = time.Hour
 	// Keep proactive renewal behind the fixture's explicit grant transitions.
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})

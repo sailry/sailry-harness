@@ -224,50 +224,62 @@ func chunkKey(binding Binding, document Document, ordinal int, part Part) string
 
 // Replace publishes one verified source atomically.
 func (index Index) Replace(ctx context.Context, binding Binding, document Document, parts []Part) error {
+	return index.publish(ctx, binding.ID.String(), func(db *sql.Conn) error {
+		return replaceSource(ctx, db, binding, document, parts)
+	})
+}
+
+func replaceSource(ctx context.Context, db *sql.Conn, binding Binding, document Document, parts []Part) error {
 	modified, err := integer(document.ModifiedMs)
 	if err != nil {
 		return err
 	}
-	return index.publish(ctx, binding.ID.String(), func(db *sql.Conn) error {
-		found, err := current(ctx, db, binding)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return changedCollection()
-		}
-		var source int64
-		if err := db.QueryRowContext(ctx, "INSERT INTO sources(collection,locator,revision,modified_ms,tags,embedded) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(collection,locator) DO UPDATE SET revision=excluded.revision,modified_ms=excluded.modified_ms,tags=excluded.tags,embedded=excluded.embedded RETURNING id",
-			binding.ID.String(), document.Locator, document.Revision, modified, tagsJSON(document.Tags), document.Embedded).Scan(&source); err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(ctx, "DELETE FROM file_stamps WHERE source=?1", source); err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(ctx, "DELETE FROM chunks WHERE source=?1", source); err != nil {
-			return err
-		}
-		for ordinal, part := range parts {
-			var vector any
-			if part.Vector != nil {
-				if binding.Model == "" {
-					return invalid("knowledge vector requires a captured model")
-				}
-				bytes := part.Vector.Encode()
-				if _, err := knowledge.DecodeVector(bytes, binding.Dimension); err != nil {
-					return err
-				}
-				vector = bytes
+	found, err := current(ctx, db, binding)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return changedCollection()
+	}
+	var source int64
+	if err := db.QueryRowContext(ctx, "INSERT INTO sources(collection,locator,revision,modified_ms,tags,embedded) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(collection,locator) DO UPDATE SET revision=excluded.revision,modified_ms=excluded.modified_ms,tags=excluded.tags,embedded=excluded.embedded RETURNING id",
+		binding.ID.String(), document.Locator, document.Revision, modified, tagsJSON(document.Tags), document.Embedded).Scan(&source); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "DELETE FROM file_stamps WHERE source=?1", source); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "DELETE FROM chunks WHERE source=?1", source); err != nil {
+		return err
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	insert, err := db.PrepareContext(ctx, "INSERT INTO chunks(key,source,ordinal,title,text,field0,field1,cjk0,cjk1,position,vector) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
+	if err != nil {
+		return err
+	}
+	defer insert.Close()
+	for ordinal, part := range parts {
+		var vector any
+		if part.Vector != nil {
+			if binding.Model == "" {
+				return invalid("knowledge vector requires a captured model")
 			}
-			if _, err := db.ExecContext(ctx, "INSERT INTO chunks(key,source,ordinal,title,text,field0,field1,cjk0,cjk1,position,vector) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-				chunkKey(binding, document, ordinal, part), source, ordinal, part.Title, part.Text,
-				knowledge.Field(part.Title), knowledge.Field(part.Text), knowledge.Index(part.Title), knowledge.Index(part.Text),
-				encoded(part.Position), vector); err != nil {
+			bytes := part.Vector.Encode()
+			if _, err := knowledge.DecodeVector(bytes, binding.Dimension); err != nil {
 				return err
 			}
+			vector = bytes
 		}
-		return nil
-	})
+		if _, err := insert.ExecContext(ctx,
+			chunkKey(binding, document, ordinal, part), source, ordinal, part.Title, part.Text,
+			knowledge.Field(part.Title), knowledge.Field(part.Text), knowledge.Index(part.Title), knowledge.Index(part.Text),
+			encoded(part.Position), vector); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Prune drops the sources a scan no longer found. Sources below a kept

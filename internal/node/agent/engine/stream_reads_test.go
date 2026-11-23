@@ -14,6 +14,7 @@ import (
 )
 
 func TestStreamReadsOverlapAndRespectSerialCalls(t *testing.T) {
+	t.Parallel()
 	started := make(chan string, 4)
 	finishStream, finishReads := make(chan struct{}), make(chan struct{})
 	var mutated atomic.Bool
@@ -148,6 +149,7 @@ func TestStreamReadsOverlapAndRespectSerialCalls(t *testing.T) {
 }
 
 func TestStreamReadsAreCancelledBeforeRetry(t *testing.T) {
+	t.Parallel()
 	started, stopped := make(chan struct{}), make(chan struct{})
 	var attempts atomic.Int32
 	read := objectTool("read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
@@ -205,6 +207,7 @@ func TestStreamReadsAreCancelledBeforeRetry(t *testing.T) {
 }
 
 func TestStreamReadsAreCancelledWithTheTurn(t *testing.T) {
+	t.Parallel()
 	started, stopped := make(chan struct{}), make(chan struct{})
 	read := objectTool("read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
 		close(started)
@@ -245,6 +248,7 @@ func TestStreamReadsAreCancelledWithTheTurn(t *testing.T) {
 }
 
 func TestStreamReadsRejectRewrittenDuplicateCallID(t *testing.T) {
+	t.Parallel()
 	var seenIDs []string
 	read := objectTool("read", true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
 		seenIDs = append(seenIDs, call.ID)
@@ -279,6 +283,7 @@ func TestStreamReadsRejectRewrittenDuplicateCallID(t *testing.T) {
 }
 
 func TestStreamReadsContinuePastUpdatePlan(t *testing.T) {
+	t.Parallel()
 	started := make(chan string, 2)
 	finishStream := make(chan struct{})
 	read := objectTool("read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
@@ -313,6 +318,7 @@ func TestStreamReadsContinuePastUpdatePlan(t *testing.T) {
 }
 
 func TestStreamReadsContinuePastConcurrentReadOnlyTool(t *testing.T) {
+	t.Parallel()
 	readStarted := make(chan string, 2)
 	finishStream := make(chan struct{})
 	var fetchRan atomic.Bool

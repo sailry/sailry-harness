@@ -16,6 +16,7 @@ import (
 )
 
 func TestLegacyProgressToolDoesNotDuplicateCore(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	info, err := node.plugins.manager.InstallBundled(ctx, "progress")
@@ -30,6 +31,7 @@ func TestLegacyProgressToolDoesNotDuplicateCore(t *testing.T) {
 }
 
 func TestLegacyCommandsKeepDirectResourceScope(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
 	// Simulate an older captured commands package that still declared its four
@@ -61,6 +63,7 @@ func TestLegacyCommandsKeepDirectResourceScope(t *testing.T) {
 }
 
 func TestBeforeModelResultsKeepRecentCompleteResultsOfThisTurn(t *testing.T) {
+	t.Parallel()
 	current, earlier := protocol.NewTurnID(), protocol.NewTurnID()
 	result := func(turn protocol.TurnID, id, name, body string) canonical.Record {
 		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
@@ -111,6 +114,7 @@ func pluginSelectedOperations(info protocol.PluginInfo, names []string) []protoc
 }
 
 func TestPluginTurnInput(t *testing.T) {
+	t.Parallel()
 	delegate, apply, query, transfer := protocol.ToolOperationDelegateAgent, protocol.ToolOperationApplyRoles, protocol.ToolOperationQueryDatabase, protocol.ToolOperationTransferSsh
 	options := json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"depth":{"type":"string","default":"quick"},"strict":{"type":"boolean"}},"required":[],"additionalProperties":false}`)
 	extension := protocol.DefaultPluginExtension()

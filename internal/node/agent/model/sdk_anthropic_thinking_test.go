@@ -12,6 +12,7 @@ import (
 )
 
 func TestAnthropicInitialThinkingSurvivesReplay(t *testing.T) {
+	t.Parallel()
 	for _, row := range []struct {
 		name, initial, delta, signature, signatureDelta string
 	}{
@@ -92,6 +93,7 @@ func TestAnthropicInitialThinkingSurvivesReplay(t *testing.T) {
 }
 
 func TestAnthropicAPIKeyBetaHeaders(t *testing.T) {
+	t.Parallel()
 	manualWithTools := []byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"tools":[{"name":"read"}]}`)
 	adaptiveWithTools := []byte(`{"thinking":{"type":"adaptive"},"tools":[{"name":"read"}]}`)
 	fastBody := []byte(`{"thinking":{"type":"enabled","budget_tokens":4096},"tools":[{"name":"read"}],"speed":"fast"}`)

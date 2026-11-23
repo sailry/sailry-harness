@@ -10,6 +10,7 @@ import (
 )
 
 func TestRetiredPersonalStorageTransferRejectsNewRequests(t *testing.T) {
+	t.Parallel()
 	node := nodeFixture(t)
 	source := protocol.NodeID{97}
 	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {

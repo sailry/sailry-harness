@@ -18,6 +18,7 @@ import (
 )
 
 func TestCompactionHandoff(t *testing.T) {
+	t.Parallel()
 	t.Run("structured candidates", func(t *testing.T) {
 		for _, row := range []struct {
 			name, document, want string
@@ -496,6 +497,7 @@ func TestCompactionHandoff(t *testing.T) {
 }
 
 func TestCompactionRetriesContextOverflowWithSmallerTranscript(t *testing.T) {
+	t.Parallel()
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{
 		StatusCode:   400,
 		ResponseBody: []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}`),

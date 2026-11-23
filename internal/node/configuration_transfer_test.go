@@ -16,6 +16,7 @@ import (
 )
 
 func TestConfigurationImportFollowsPluginKnowledge(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	passes := make(chan []store.KnowledgeStored)
 	node := systemNodeFixture(t, Options{knowledge: func(options *knowledgeservice.Options) {
