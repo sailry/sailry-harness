@@ -317,7 +317,7 @@ func (r *Runtime) projectPackages() {
 	var packages []viewmodel.Package
 	var skills []viewmodel.Skill
 	snap := r.snapshot()
-	installedSkillPackages := map[string]bool{}
+	enabledSkillPackages := map[string]bool{}
 	for _, summary := range snap.Plugins {
 		if removed, exists := state.removed[summary.Name]; exists {
 			if summary.Revision <= removed {
@@ -325,7 +325,9 @@ func (r *Runtime) projectPackages() {
 			}
 			delete(state.removed, summary.Name)
 		}
-		installedSkillPackages[summary.Name] = true
+		if summary.Enabled {
+			enabledSkillPackages[summary.Name] = true
+		}
 		info, exists := state.infos[summary.Name]
 		if exists && (info.Summary.Revision > summary.Revision || info.Summary.Revision == summary.Revision && info.Summary.SettingsRevision > summary.SettingsRevision) {
 			summary = info.Summary
@@ -362,7 +364,7 @@ func (r *Runtime) projectPackages() {
 		}
 	}
 	for _, native := range snap.NativeSkills {
-		if installedSkillPackages[native.Package] {
+		if enabledSkillPackages[native.Package] {
 			continue
 		}
 		id := native.Package + ":" + native.Skill.Name
@@ -370,8 +372,8 @@ func (r *Runtime) projectPackages() {
 			ID:          id,
 			Name:        localizedSkill(native.Skill, r.packageLocale()),
 			Description: native.Skill.Description,
+			BuiltIn:     true,
 			Enabled:     true,
-			Package:     native.Package,
 			Content:     state.documents[id],
 		})
 	}

@@ -581,7 +581,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		}
 		if result.Fault == nil && request.Command.Kind == "save_computer_settings" {
 			if cfg, ok := result.Output.Data.(protocol.ComputerSettings); ok && !cfg.Enabled {
-				node.stopNativeComputerOverlay(ctx)
+				node.stopNativeComputerOverlay()
 			}
 		}
 		node.publish()
@@ -970,6 +970,21 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		if _, err := db.ExecContext(ctx, "RELEASE sailry_command"); err != nil {
 			return err
 		}
+		if operationErr == nil {
+			switch value := output.Data.(type) {
+			case protocol.ComputerSettings:
+				if job.request.Command.Kind == "save_computer_settings" {
+					value.Available, value.HelperError = node.nativeComputerAvailable()
+					output.Data = value
+				}
+			case protocol.ExternalBrowserSettings:
+				if job.request.Command.Kind == "save_external_browser_settings" {
+					_, browserErr := node.externalBrowser.Browser()
+					value.Available = browserErr == nil
+					output.Data = value
+				}
+			}
+		}
 		if _, err := store.RecordEvents(ctx, db, node.ID(), changes); err != nil {
 			return err
 		}
@@ -1000,17 +1015,6 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				}
 				selection, _ := job.request.Command.Data.(*protocol.CommandGuideQueuedTurnPayload)
 				node.agent.QueueCommitted(value, selection)
-			case protocol.ComputerSettings:
-				if job.request.Command.Kind == "save_computer_settings" {
-					value.Available, value.HelperError = node.nativeComputerAvailable()
-					output.Data = value
-				}
-			case protocol.ExternalBrowserSettings:
-				if job.request.Command.Kind == "save_external_browser_settings" {
-					_, browserErr := node.externalBrowser.Browser()
-					value.Available = browserErr == nil
-					output.Data = value
-				}
 			}
 		}
 		for _, review := range reviewChanges {

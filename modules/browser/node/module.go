@@ -238,7 +238,6 @@ func (externalModule) ToolsForTurn(ctx context.Context, host moduleapi.Host, inv
 		tool, err := host.ExternalBrowserTool(inv, moduleapi.ExternalBrowserToolConfig{
 			Spec:         spec,
 			Instruction:  catalog.Instructions,
-			PluginGate:   "external-browser",
 			Close:        closeStopped,
 			PrepareArgs:  prepareExternal(action),
 			FormatResult: formatExternalResult,

@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Chrome 키를 읽을 수 없습니다. 키체인 액�
 browser_chrome_cipher: 이 쿠키를 복호화할 수 없음
 browser_import_unavailable: 이 시스템에서 Chrome 가져오기를 사용할 수 없습니다
 browser_store_unavailable: 웹사이트 데이터를 유지하고 가져오려면 macOS 14 이상이 필요합니다
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: 외부 브라우저 설정을 저장했습니다
+external_browser_settings_failed: 외부 브라우저 설정을 저장할 수 없습니다
+external_browser_settings_conflict: 외부 브라우저 설정이 변경되었습니다. 계속하려면 다시 불러오세요
+external_browser_settings_unknown: 외부 브라우저 설정의 저장 여부를 확인할 수 없습니다
 search_settings: 검색
 search_default_driver: 기본 서비스
 search_fallback: 대체 서비스 사용
@@ -2214,8 +2214,8 @@ memory_merge_description: 결합된 내용 편집 · 원본 항목이 보관됩�
 memory_duplicate: 일치하는 메모리가 존재합니다 · 업데이트 또는 병합
 memory_search_too_long: 검색 시간이 너무 길습니다
 computer_permissions_refresh: 다시 확인
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: 컴퓨터 제어 설정을 저장했습니다
+computer_settings_failed: 컴퓨터 제어 설정을 저장할 수 없습니다
+computer_settings_conflict: 컴퓨터 제어 설정이 변경되었습니다. 계속하려면 다시 불러오세요
+computer_settings_unknown: 컴퓨터 제어 설정의 저장 여부를 확인할 수 없습니다
 search_driver_auto: 자동

@@ -204,7 +204,7 @@ func fuzzyLineMatch(haystack, needle, newText string) (start, end int, adjustedN
 	trimmedLen := 0
 	coreNeedle := make([]string, n)
 	for i, l := range needleLines {
-		c := strings.TrimSpace(l)
+		c := strings.Trim(l, " \t")
 		coreNeedle[i] = c
 		if c != "" {
 			nonEmpty++
@@ -226,7 +226,7 @@ func fuzzyLineMatch(haystack, needle, newText string) (start, end int, adjustedN
 		var addPrefix, removePrefix string
 		for j := range n {
 			fileLine := fileLines[i+j].text
-			if strings.TrimSpace(fileLine) != coreNeedle[j] {
+			if strings.Trim(fileLine, " \t") != coreNeedle[j] {
 				matched = false
 				break
 			}
@@ -237,10 +237,10 @@ func fuzzyLineMatch(haystack, needle, newText string) (start, end int, adjustedN
 			needleIndent := leadingIndent(needleLines[j])
 			var curAdd, curRemove string
 			switch {
-			case strings.HasPrefix(fileIndent, needleIndent):
-				curAdd = fileIndent[len(needleIndent):]
-			case strings.HasPrefix(needleIndent, fileIndent):
-				curRemove = needleIndent[len(fileIndent):]
+			case strings.HasSuffix(fileIndent, needleIndent):
+				curAdd = fileIndent[:len(fileIndent)-len(needleIndent)]
+			case strings.HasSuffix(needleIndent, fileIndent):
+				curRemove = needleIndent[:len(needleIndent)-len(fileIndent)]
 			default:
 				matched = false
 			}

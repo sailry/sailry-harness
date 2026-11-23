@@ -69,6 +69,7 @@ type Skill struct {
 	ID, Name, Description string
 	Package               string
 	Origin                string
+	BuiltIn               bool
 	Enabled, Update       bool
 	Installed             bool
 	Content               string

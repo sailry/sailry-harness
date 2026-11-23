@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"sync"
 
@@ -26,6 +28,42 @@ func NativeMemoryReference() protocol.PluginReference {
 
 func isNativeMemoryReference(ref protocol.PluginReference) bool {
 	return ref.Name == NativeMemoryNamespace && ref.Digest == nativeMemoryDigest
+}
+
+// ReadMemoryRevision returns the highest stored revision across the current
+// user's native memory catalog and settings rows so Snapshots detect offline
+// memory mutations across reconnects.
+func ReadMemoryRevision(ctx context.Context, db *sql.Conn) (uint64, error) {
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return 0, err
+	}
+	var rev uint64
+	err = db.QueryRowContext(ctx, "SELECT coalesce(max(revision),0) FROM plugin_space_values WHERE space=?1 AND name=?2 AND key IN ('memory/catalog','memory/settings')", space, NativeMemoryNamespace).Scan(&rev)
+	return rev, err
+}
+
+// MigrateRetiredMemoryEnabled preserves a user's disabled choice when retiring
+// the bundled memory plugin if native memory/settings has not been written yet.
+func MigrateRetiredMemoryEnabled(ctx context.Context, db *sql.Conn, enabled bool) error {
+	if enabled {
+		return nil
+	}
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return err
+	}
+	var exists int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM plugin_space_values WHERE space=?1 AND name=?2 AND key='memory/settings' AND value IS NOT NULL", space, NativeMemoryNamespace).Scan(&exists); err != nil {
+		return err
+	}
+	if exists != 0 {
+		return nil
+	}
+	body := []byte(`{"v":1,"settings":{"enabled":false,"auto_write":true,"context_bytes":8192,"review_after_days":90}}`)
+	_, err = db.ExecContext(ctx, `INSERT INTO plugin_space_values(space,name,key,revision,value,index_data) VALUES(?1,?2,'memory/settings',1,?3,NULL)
+ON CONFLICT(space,name,key) DO UPDATE SET revision=revision+1,value=excluded.value,index_data=NULL WHERE value IS NULL`, space, NativeMemoryNamespace, body)
+	return err
 }
 
 // NativeMemoryStorageInfo returns the built-in storage declaration for the

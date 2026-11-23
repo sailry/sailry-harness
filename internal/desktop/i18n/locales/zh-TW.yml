@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: 無法讀取 Chrome 金鑰，請檢查鑰匙串授權
 browser_chrome_cipher: 無法解密此 Cookie
 browser_import_unavailable: 當前系統暫不支援 Chrome 匯入
 browser_store_unavailable: 保留登入狀態和匯入需要 macOS 14 或更新版本
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: 已儲存外部瀏覽器設定
+external_browser_settings_failed: 無法儲存外部瀏覽器設定
+external_browser_settings_conflict: 外部瀏覽器設定已變更，請重新載入以繼續
+external_browser_settings_unknown: 無法確認外部瀏覽器設定是否已儲存
 search_settings: 搜尋
 search_default_driver: 預設服務
 search_fallback: 使用備用服務
@@ -2214,8 +2214,8 @@ memory_merge_description: 編輯合併後的內容，儲存後原條目將歸檔
 memory_duplicate: 已有相同內容的記憶，請更新或合併現有條目
 memory_search_too_long: 搜尋內容過長，請縮短後重試
 computer_permissions_refresh: 重新檢測
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: 已儲存電腦操作設定
+computer_settings_failed: 無法儲存電腦操作設定
+computer_settings_conflict: 電腦操作設定已變更，請重新載入以繼續
+computer_settings_unknown: 無法確認電腦操作設定是否已儲存
 search_driver_auto: 自動

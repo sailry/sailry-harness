@@ -13,10 +13,10 @@ import (
 type computerSettingsState struct {
 	loaded      bool
 	loading     bool
+	loadFailed  bool
 	observedRev uint64
 	enabled     settings.Stored[bool]
 	available   bool
-	helperError string
 	checking    bool
 	permsLoaded bool
 	permissions []preview.Permission
@@ -56,7 +56,7 @@ func (r *Runtime) computerSettingsFrame() {
 			ShowApp:           root.showPermissionApp,
 		}
 	}
-	if (!st.loaded || owner.snapshot().ComputerSettingsRevision > st.observedRev) && !st.loading && !st.enabled.Pending {
+	if ((!st.loaded && !st.loadFailed) || owner.snapshot().ComputerSettingsRevision > st.observedRev) && !st.loading && !st.enabled.Pending {
 		owner.readComputerSettings()
 	}
 	if st.loaded && st.enabled.Saved && !st.permsLoaded && !st.checking {
@@ -66,7 +66,6 @@ func (r *Runtime) computerSettingsFrame() {
 		Enabled:      st.enabled,
 		Loaded:       st.loaded,
 		Available:    st.available,
-		HelperError:  st.helperError,
 		Checking:     st.checking,
 		HostReadOnly: owner != root,
 		Permissions:  st.permissions,
@@ -80,19 +79,21 @@ func (r *Runtime) readComputerSettings() {
 		return
 	}
 	st.loading = true
+	st.loadFailed = false
 	st.observedRev = r.snapshot().ComputerSettingsRevision
 	r.execute(protocol.Command{Kind: "read_computer_settings"}, func(_ *ui.Context, out protocol.Output, err error) {
 		st.loading = false
 		if err != nil {
+			st.loadFailed = true
 			return
 		}
 		value, ok := detail[protocol.ComputerSettings](out.Data)
 		if !ok || out.Kind != "computer_settings" {
+			st.loadFailed = true
 			return
 		}
 		st.loaded = true
 		st.available = value.Available
-		st.helperError = value.HelperError
 		if st.enabled.Draft == st.enabled.Saved {
 			st.enabled.Draft = value.Enabled
 		}
@@ -117,8 +118,8 @@ func (r *Runtime) saveComputerSettings() {
 		}
 		if value, valid := detail[protocol.ComputerSettings](out.Data); valid && out.Kind == "computer_settings" {
 			st.loaded = true
+			st.loadFailed = false
 			st.available = value.Available
-			st.helperError = value.HelperError
 			st.enabled.Saved = value.Enabled
 			st.enabled.Draft = value.Enabled
 			st.enabled.Revision = value.Revision

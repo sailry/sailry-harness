@@ -200,7 +200,6 @@ type BrowserToolConfig struct {
 type ExternalBrowserToolConfig struct {
 	Spec         ToolSpec
 	Instruction  string
-	PluginGate   string
 	Close        func() error
 	PrepareArgs  func(ctx context.Context, args json.RawMessage) (json.RawMessage, error)
 	FormatResult func(ctx context.Context, result engine.ToolResult) engine.ToolResult
@@ -208,8 +207,6 @@ type ExternalBrowserToolConfig struct {
 
 // Host exposes narrowly scoped Node execution services to native modules.
 type Host interface {
-	NodeID() protocol.NodeID
-
 	WorkspaceTool(inv *store.AgentInvocation, cfg WorkspaceToolConfig) (engine.Tool, error)
 	ScopedTool(inv *store.AgentInvocation, cfg ScopedToolConfig) (engine.Tool, error)
 	ConnectionTool(inv *store.AgentInvocation, cfg ConnectionToolConfig) (engine.Tool, error)
@@ -226,7 +223,6 @@ type Host interface {
 	BrowserAvailable(inv *store.AgentInvocation) bool
 	ExternalBrowserAvailable() bool
 	ExternalBrowserEnabled(ctx context.Context) (bool, error)
-	CheckExternalBrowserEnabled(ctx context.Context) error
 	ExternalBrowserCloseOnCancel(ctx context.Context, session protocol.SessionID) func() error
 
 	ComputerEnabled(ctx context.Context) (bool, error)

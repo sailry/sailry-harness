@@ -1,0 +1,4 @@
+browser_external_section: "外部瀏覽器"
+browser_external_enabled: "啟用外部瀏覽器"
+browser_external_description: "允許代理人在所選主機上自動化獨立的 Chromium 瀏覽器"
+browser_external_unavailable: "此主機上的 Chromium 輔助程式無法使用"

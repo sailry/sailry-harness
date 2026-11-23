@@ -1,0 +1,6 @@
+computer_settings: "コンピュータ操作"
+computer_enabled: "コンピュータ操作を有効にする"
+computer_enabled_description: "選択したホスト上のデスクトップアプリをエージェントが参照・操作できるようにします"
+computer_helper_unavailable: "このホストではデスクトップ自動操作ヘルパーを利用できません"
+computer_permissions_section: "ホストのシステム権限"
+computer_permissions_remote: "実行先のコンピュータ上で直接システム権限を許可してください"

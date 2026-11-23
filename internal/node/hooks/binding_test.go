@@ -156,7 +156,7 @@ func TestTurnEndHooks(t *testing.T) {
 			t.Fatal("hooks bound a turn that was not admitted")
 		}
 		var binding *Binding
-		if binding.WrapsTools() || binding.WrapsTool("read_file") || binding.Before(context.Background(), "write_file", "call-write") != nil || binding.Complete(context.Background(), "completed") != nil {
+		if binding.WrapsTool("read_file") || binding.Before(context.Background(), "write_file", "call-write") != nil || binding.Complete(context.Background(), "completed") != nil {
 			t.Fatal("an absent binding ran")
 		}
 	})
@@ -190,9 +190,6 @@ func TestToolScopedHooksFilterExecutionAndWrapping(t *testing.T) {
 			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		},
 	})
-	if !binding.WrapsTools() {
-		t.Fatal("WrapsTools should remain true when any tool hook is enabled")
-	}
 	if binding.WrapsTool("read_file") {
 		t.Fatal("WrapsTool should be false for unmatched read_file")
 	}

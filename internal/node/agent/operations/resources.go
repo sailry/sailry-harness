@@ -262,29 +262,84 @@ func (r *Resources) materialize(ctx context.Context, p Package) (string, error) 
 		if err != nil {
 			return "", err
 		}
-		directory := filepath.Join(profile, "modules", "skills", p.Reference.Name)
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return "", err
+		parent := profile
+		for _, segment := range []string{"modules", "skills", p.Reference.Name} {
+			parent = filepath.Join(parent, segment)
+			info, statErr := os.Lstat(parent)
+			if errors.Is(statErr, os.ErrNotExist) {
+				if err := os.Mkdir(parent, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+					return "", err
+				}
+				continue
+			}
+			if statErr != nil {
+				return "", statErr
+			}
+			if !info.IsDir() {
+				return "", resourceFault(protocol.ErrorCodeUnavailable, "native skill resource directory changed")
+			}
 		}
+		directory := parent
 		err = fs.WalkDir(p.tree, ".", func(entryPath string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil || entryPath == "." {
 				return walkErr
 			}
 			target := filepath.Join(directory, filepath.FromSlash(entryPath))
 			if d.IsDir() {
-				return os.MkdirAll(target, 0o700)
+				info, statErr := os.Lstat(target)
+				if errors.Is(statErr, os.ErrNotExist) {
+					return os.MkdirAll(target, 0o700)
+				}
+				if statErr != nil {
+					return statErr
+				}
+				if !info.IsDir() {
+					return resourceFault(protocol.ErrorCodeUnavailable, "native skill resource directory changed")
+				}
+				return nil
 			}
 			data, err := fs.ReadFile(p.tree, entryPath)
 			if err != nil {
 				return err
 			}
-			if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, data) {
-				return nil
+			if info, statErr := os.Lstat(target); statErr == nil {
+				if !info.Mode().IsRegular() {
+					return resourceFault(protocol.ErrorCodeUnavailable, "native skill resource changed")
+				}
+				if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, data) {
+					return nil
+				}
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				return statErr
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			dir := filepath.Dir(target)
+			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return err
 			}
-			return os.WriteFile(target, data, 0o600)
+			tmp, err := os.CreateTemp(dir, ".skill-*")
+			if err != nil {
+				return err
+			}
+			tmpPath := tmp.Name()
+			if _, err := tmp.Write(data); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmpPath)
+				return err
+			}
+			if err := tmp.Chmod(0o600); err != nil {
+				_ = tmp.Close()
+				_ = os.Remove(tmpPath)
+				return err
+			}
+			if err := tmp.Close(); err != nil {
+				_ = os.Remove(tmpPath)
+				return err
+			}
+			if err := os.Rename(tmpPath, target); err != nil {
+				_ = os.Remove(tmpPath)
+				return err
+			}
+			return nil
 		})
 		if err != nil {
 			return "", err

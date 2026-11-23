@@ -7,8 +7,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// ReadComputerSettings returns the machine-wide Computer Use setting stored
+// under the local Node owner row in user_personal_settings (avoiding a new
+// singleton table while sharing one setting across all machine administrators
+// and agent turns).
 func ReadComputerSettings(ctx context.Context, db *sql.Conn) (protocol.ComputerSettings, error) {
-	value, err := readPersonalSetting[protocol.ComputerSettings](ctx, db, "computer")
+	local, err := LocalUser(ctx, db)
+	if err != nil {
+		return protocol.DefaultComputerSettings(), err
+	}
+	value, err := readBody[protocol.ComputerSettings](ctx, db, "SELECT body FROM user_personal_settings WHERE user=?1 AND kind='computer'", local.ID.String())
 	if value == nil {
 		return protocol.DefaultComputerSettings(), err
 	}
@@ -16,6 +24,10 @@ func ReadComputerSettings(ctx context.Context, db *sql.Conn) (protocol.ComputerS
 }
 
 func SaveComputerSettings(ctx context.Context, db *sql.Conn, input protocol.ComputerSettings) (protocol.ComputerSettings, []protocol.Event, error) {
+	local, err := LocalUser(ctx, db)
+	if err != nil {
+		return protocol.ComputerSettings{}, nil, err
+	}
 	current, err := ReadComputerSettings(ctx, db)
 	if err != nil {
 		return protocol.ComputerSettings{}, nil, err
@@ -35,7 +47,7 @@ func SaveComputerSettings(ctx context.Context, db *sql.Conn, input protocol.Comp
 	if err != nil {
 		return protocol.ComputerSettings{}, nil, err
 	}
-	if err = writePersonalSetting(ctx, db, "computer", body); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO user_personal_settings(user,kind,body) VALUES(?1,'computer',?2) ON CONFLICT(user,kind) DO UPDATE SET body=excluded.body", local.ID.String(), body); err != nil {
 		return protocol.ComputerSettings{}, nil, err
 	}
 	return stored, []protocol.Event{{Kind: "computer_settings_changed", Data: protocol.EventComputerSettingsChangedPayload{Revision: stored.Revision}}}, nil

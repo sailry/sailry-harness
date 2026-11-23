@@ -24,6 +24,7 @@ import (
 type browserSettingsState struct {
 	extLoaded        bool
 	extLoading       bool
+	extLoadFailed    bool
 	extObservedRev   uint64
 	extModel         settings.Stored[bool]
 	extAvailable     bool
@@ -63,10 +64,14 @@ func browserImportErrorKey(err error, fallback string) string {
 func (r *Runtime) browserSettingsFrame() {
 	root := r.localRuntime()
 	m := root.App.Settings
+	localState := &root.browserConfig
 	if root.App.Page != shell.SettingsPage || m.Section != settings.Browser {
+		if !localState.importing && (len(localState.profileList) > 0 || len(localState.profiles) > 0) {
+			localState.profileList = nil
+			localState.profiles = nil
+		}
 		return
 	}
-	localState := &root.browserConfig
 	if localState.actions.SetPersistent == nil {
 		localState.actions = settings.BrowserActions{
 			SetPersistent: func(value bool) {
@@ -110,7 +115,7 @@ func (r *Runtime) browserSettingsFrame() {
 		view.ExternalStatus = "connections_offline"
 	} else {
 		ext := &owner.browserConfig
-		if (!ext.extLoaded || owner.snapshot().ExternalBrowserSettingsRevision > ext.extObservedRev) && !ext.extLoading && !ext.extModel.Pending {
+		if ((!ext.extLoaded && !ext.extLoadFailed) || owner.snapshot().ExternalBrowserSettingsRevision > ext.extObservedRev) && !ext.extLoading && !ext.extModel.Pending {
 			owner.readExternalBrowserSettings()
 		}
 		view.ExternalEnabled = ext.extModel
@@ -157,6 +162,11 @@ func (r *Runtime) scanChromeProfiles() {
 				return
 			}
 			st.importing = false
+			if root.App.Page != shell.SettingsPage || root.App.Settings.Section != settings.Browser {
+				st.profiles = nil
+				st.profileList = nil
+				return
+			}
 			st.profileList = list
 		})
 	})
@@ -186,7 +196,7 @@ func (r *Runtime) runChromeImport(sources browserSources, profile chrome.Profile
 		root.enqueue(func(c *ui.Context) {
 			st.importing = false
 			st.importingProfile = ""
-			if errors.Is(err, errBrowserImportCancelled) {
+			if errors.Is(err, errBrowserImportCancelled) || errors.Is(err, errBrowserViewClosed) {
 				return
 			}
 			if err != nil {
@@ -210,14 +220,17 @@ func (r *Runtime) readExternalBrowserSettings() {
 		return
 	}
 	st.extLoading = true
+	st.extLoadFailed = false
 	st.extObservedRev = r.snapshot().ExternalBrowserSettingsRevision
 	r.execute(protocol.Command{Kind: "read_external_browser_settings"}, func(_ *ui.Context, out protocol.Output, err error) {
 		st.extLoading = false
 		if err != nil {
+			st.extLoadFailed = true
 			return
 		}
 		value, ok := detail[protocol.ExternalBrowserSettings](out.Data)
 		if !ok || out.Kind != "external_browser_settings" {
+			st.extLoadFailed = true
 			return
 		}
 		st.extLoaded = true

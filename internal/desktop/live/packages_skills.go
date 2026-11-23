@@ -98,11 +98,10 @@ func (r *Runtime) loadSkillDocument(id string, done func(string, string)) {
 	}
 	for _, native := range r.snapshot().NativeSkills {
 		if native.Package+":"+native.Skill.Name == id {
-			title := localizedSkill(native.Skill, r.packageLocale())
-			doc := "# " + title + "\n\n" + native.Skill.Description
-			r.packages.documents[id] = doc
-			r.projectPackages()
-			done("", doc)
+			r.readSkillDocument(id, protocol.PluginSkillsDocumentSource{
+				Kind: "bundled",
+				Data: protocol.PluginSkillsDocumentSourceBundledPayload{Package: native.Package, Skill: native.Skill.Name},
+			}, done)
 			return
 		}
 	}

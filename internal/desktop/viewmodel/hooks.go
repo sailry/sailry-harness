@@ -12,6 +12,7 @@ const (
 type Hook struct {
 	ID, Name, Command string
 	Phase             HookPhase
+	Tools             []string
 	TimeoutMS         int
 	Enabled           bool
 }

@@ -2,6 +2,7 @@ package live
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -124,7 +125,7 @@ func hookDraft(value protocol.HooksSettings) settings.HookSettings {
 	draft := settings.HookSettings{Enabled: value.Enabled, Scripts: []viewmodel.Hook{}}
 	add := func(id string, phase viewmodel.HookPhase, script *protocol.HooksScript) {
 		if script != nil {
-			draft.Scripts = append(draft.Scripts, viewmodel.Hook{ID: id, Name: script.Name, Command: script.Command, Phase: phase, TimeoutMS: int(script.TimeoutMs), Enabled: script.Enabled})
+			draft.Scripts = append(draft.Scripts, viewmodel.Hook{ID: id, Name: script.Name, Command: script.Command, Phase: phase, Tools: slices.Clone(script.Tools), TimeoutMS: int(script.TimeoutMs), Enabled: script.Enabled})
 		}
 	}
 	add("before_tool", viewmodel.BeforeTool, value.BeforeTool)
@@ -192,7 +193,7 @@ func (r *Runtime) saveHooks(draft settings.HookSettings) {
 		case viewmodel.TurnEnd:
 			phase = protocol.HooksPhaseTurnEnd
 		}
-		script := protocol.HooksScript{Name: entry.Name, Enabled: entry.Enabled, Command: entry.Command, TimeoutMs: uint64(entry.TimeoutMS)}
+		script := protocol.HooksScript{Name: entry.Name, Enabled: entry.Enabled, Command: entry.Command, Tools: slices.Clone(entry.Tools), TimeoutMs: uint64(entry.TimeoutMS)}
 		switch entry.ID {
 		case "before_tool":
 			value.BeforeTool = &script

@@ -59,5 +59,15 @@ func (module) ToolsForTurn(ctx context.Context, host moduleapi.Host, inv *store.
 	if err != nil {
 		return nil, err
 	}
+	anyAvailable := false
+	for _, spec := range catalog.Tools {
+		if spec.Available(inv) {
+			anyAvailable = true
+			break
+		}
+	}
+	if !anyAvailable {
+		return nil, nil
+	}
 	return host.ConnectComputerMCP(ctx, inv, catalog)
 }

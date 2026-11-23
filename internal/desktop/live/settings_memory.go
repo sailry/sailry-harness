@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -15,10 +16,12 @@ import (
 type memorySettingsState struct {
 	loaded           bool
 	loading          bool
+	loadFailed       bool
 	refreshQueued    bool
 	generation       uint64
 	observedRev      uint64
 	observedProjects string
+	shown            *Runtime
 	view             string
 	scope            string
 	query            string
@@ -31,6 +34,8 @@ type memorySettingsState struct {
 	projects         []settings.MemoryProjectOption
 	loadError        string
 	pendingRequest   *protocol.Request
+	pendingOp        string
+	pendingBusy      bool
 	actions          settings.MemoryActions
 }
 
@@ -58,10 +63,26 @@ func memoryUncertain(code protocol.ErrorCode) bool {
 func (r *Runtime) memorySettingsFrame() {
 	root := r.localRuntime()
 	m := root.App.Settings
-	if root.App.Page != shell.SettingsPage || m.Section != settings.Memory {
+	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Memory
+	var owner *Runtime
+	if visible {
+		owner = root.managedSettingsNode()
+	}
+	if root.memorySettings.shown != owner {
+		if prev := root.memorySettings.shown; prev != nil {
+			if m.MemoryPageState != nil {
+				m.MemoryPageState.CloseDialogs()
+			}
+			if !prev.memorySettings.pendingBusy {
+				prev.memorySettings.pendingRequest = nil
+				prev.memorySettings.pendingOp = ""
+			}
+		}
+		root.memorySettings.shown = owner
+	}
+	if !visible {
 		return
 	}
-	owner := root.managedSettingsNode()
 	if owner == nil {
 		m.MemorySettings = settings.MemorySettingsState{Status: "connections_offline"}
 		m.MemoryActions = nil
@@ -91,13 +112,18 @@ func (r *Runtime) memorySettingsFrame() {
 				st.configError = ""
 				st.configRetry = false
 				st.configRequest = nil
-				owner.refreshMemoryCatalog()
+				if owner.controller.Connected() {
+					owner.refreshMemoryCatalog()
+				} else {
+					root.wake()
+				}
 			},
 			LoadEntry:   owner.loadMemoryEntry,
 			SaveEntry:   owner.saveMemoryEntry,
 			DeleteEntry: owner.deleteMemoryEntry,
 			ForgetPending: func() {
 				st.pendingRequest = nil
+				st.pendingOp = ""
 			},
 		}
 	}
@@ -115,7 +141,7 @@ func (r *Runtime) memorySettingsFrame() {
 	}
 	st.projects = projects
 
-	if (!st.loaded || snap.MemoryRevision != st.observedRev || projKey.String() != st.observedProjects) && !st.loading {
+	if ((!st.loaded && !st.loadFailed) || snap.MemoryRevision != st.observedRev || projKey.String() != st.observedProjects) && !st.loading {
 		st.observedProjects = projKey.String()
 		owner.refreshMemoryCatalog()
 	}
@@ -148,6 +174,7 @@ func (r *Runtime) refreshMemoryCatalog() {
 		return
 	}
 	st.loading = true
+	st.loadFailed = false
 	st.loadError = ""
 	st.generation++
 	gen := st.generation
@@ -190,6 +217,7 @@ func (r *Runtime) refreshMemoryCatalog() {
 				}
 			}()
 			if err != nil {
+				st.loadFailed = true
 				key := "memory_failed"
 				if faultCode(err) == protocol.ErrorCodeInvalidRequest {
 					key = "memory_search_too_long"
@@ -200,6 +228,7 @@ func (r *Runtime) refreshMemoryCatalog() {
 			}
 			cat, ok := detail[protocol.MemoryCatalog](out.Data)
 			if !ok || out.Kind != "memory_catalog" {
+				st.loadFailed = true
 				st.loadError = "memory_failed"
 				kit.Toast(c, kit.Failed, i18n.T(c, "memory_failed"))
 				return
@@ -216,6 +245,7 @@ func (r *Runtime) refreshMemoryCatalog() {
 			st.config.Saved = cfg
 			st.config.Revision = cat.Settings.Revision
 			st.loaded = true
+			st.loadFailed = false
 			st.entries = convertMemorySummaries(cat.Entries)
 			if !needAllActive {
 				st.allActive = slices.Clone(st.entries)
@@ -283,7 +313,7 @@ func (r *Runtime) saveMemoryConfig() {
 		st.configRequest = &copied
 	}
 	r.async(func() {
-		out, err := r.controller.Execute(r.ctx, req)
+		out, err := r.controller.Settle(r.ctx, req)
 		r.enqueue(func(c *ui.Context) {
 			st.config.Pending = false
 			if err != nil {
@@ -293,11 +323,14 @@ func (r *Runtime) saveMemoryConfig() {
 					key = "memory_settings_conflict"
 				}
 				st.configError = key
-				if memoryUncertain(code) {
+				if !client.Released(err) && memoryUncertain(code) {
 					st.configRetry = true
 				} else {
 					st.configRetry = false
 					st.configRequest = nil
+					if client.Released(err) && code == protocol.ErrorCodeOutcomeUnknown {
+						r.refreshMemoryCatalog()
+					}
 				}
 				kit.Toast(c, kit.Failed, i18n.T(c, key))
 				return
@@ -346,8 +379,13 @@ func (r *Runtime) loadMemoryEntry(id string, done func(entry settings.MemoryEntr
 
 func (r *Runtime) saveMemoryEntry(draft settings.MemorySaveDraft, done func(ok bool, retry bool, errKey string)) {
 	st := &r.memorySettings
+	if st.pendingBusy || !r.controller.Connected() {
+		done(false, false, "memory_failed")
+		return
+	}
+	opKey := "save:" + draft.ID
 	var req protocol.Request
-	if st.pendingRequest != nil {
+	if st.pendingRequest != nil && st.pendingOp == opKey {
 		req = *st.pendingRequest
 	} else {
 		payload := protocol.CommandSaveMemoryEntryPayload{
@@ -374,22 +412,30 @@ func (r *Runtime) saveMemoryEntry(draft settings.MemorySaveDraft, done func(ok b
 		req = r.controller.Prepare(protocol.Command{Kind: "save_memory_entry", Data: payload})
 		copied := req
 		st.pendingRequest = &copied
+		st.pendingOp = opKey
 	}
+	st.pendingBusy = true
 	r.async(func() {
-		_, err := r.controller.Execute(r.ctx, req)
+		_, err := r.controller.Settle(r.ctx, req)
 		r.enqueue(func(c *ui.Context) {
+			st.pendingBusy = false
 			if err != nil {
 				code := faultCode(err)
 				key := memoryErrorKey(code)
-				retry := memoryUncertain(code)
+				retry := !client.Released(err) && memoryUncertain(code)
 				if !retry {
 					st.pendingRequest = nil
+					st.pendingOp = ""
+					if client.Released(err) && code == protocol.ErrorCodeOutcomeUnknown {
+						r.refreshMemoryCatalog()
+					}
 				}
 				kit.Toast(c, kit.Failed, i18n.T(c, key))
 				done(false, retry, key)
 				return
 			}
 			st.pendingRequest = nil
+			st.pendingOp = ""
 			r.refreshMemoryCatalog()
 			done(true, false, "")
 		})
@@ -398,8 +444,13 @@ func (r *Runtime) saveMemoryEntry(draft settings.MemorySaveDraft, done func(ok b
 
 func (r *Runtime) deleteMemoryEntry(id string, revision uint64, done func(ok bool, retry bool, errKey string)) {
 	st := &r.memorySettings
+	if st.pendingBusy || !r.controller.Connected() {
+		done(false, false, "memory_failed")
+		return
+	}
+	opKey := "delete:" + id
 	var req protocol.Request
-	if st.pendingRequest != nil {
+	if st.pendingRequest != nil && st.pendingOp == opKey {
 		req = *st.pendingRequest
 	} else {
 		req = r.controller.Prepare(protocol.Command{
@@ -408,22 +459,30 @@ func (r *Runtime) deleteMemoryEntry(id string, revision uint64, done func(ok boo
 		})
 		copied := req
 		st.pendingRequest = &copied
+		st.pendingOp = opKey
 	}
+	st.pendingBusy = true
 	r.async(func() {
-		_, err := r.controller.Execute(r.ctx, req)
+		_, err := r.controller.Settle(r.ctx, req)
 		r.enqueue(func(c *ui.Context) {
+			st.pendingBusy = false
 			if err != nil {
 				code := faultCode(err)
 				key := memoryErrorKey(code)
-				retry := memoryUncertain(code)
+				retry := !client.Released(err) && memoryUncertain(code)
 				if !retry {
 					st.pendingRequest = nil
+					st.pendingOp = ""
+					if client.Released(err) && code == protocol.ErrorCodeOutcomeUnknown {
+						r.refreshMemoryCatalog()
+					}
 				}
 				kit.Toast(c, kit.Failed, i18n.T(c, key))
 				done(false, retry, key)
 				return
 			}
 			st.pendingRequest = nil
+			st.pendingOp = ""
 			r.refreshMemoryCatalog()
 			done(true, false, "")
 		})

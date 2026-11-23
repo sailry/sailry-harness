@@ -1,0 +1,6 @@
+computer_settings: "電腦操作"
+computer_enabled: "啟用電腦操作"
+computer_enabled_description: "允許代理人檢視並操作所選主機上的桌面應用程式"
+computer_helper_unavailable: "此主機上的桌面操作輔助程式無法使用"
+computer_permissions_section: "主機系統權限"
+computer_permissions_remote: "請在執行電腦上直接授予系統權限"

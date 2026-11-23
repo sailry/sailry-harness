@@ -33,6 +33,8 @@ var (
 )
 
 type pageState struct {
+	generation     uint64
+	syncQuery      bool
 	editorOpen     bool
 	editingID      string
 	editingRev     uint64
@@ -54,6 +56,8 @@ type pageState struct {
 }
 
 func (st *pageState) CloseDialogs() {
+	st.generation++
+	st.syncQuery = true
 	st.editorOpen = false
 	st.editorLoading = false
 	st.editorSaving = false
@@ -168,16 +172,14 @@ func renderConfiguration(c *ui.Context, s *settings.State, m *settings.MemorySet
 						saveConfig()
 					})
 				}
-				if !m.ConfigRetry {
-					kit.Secondary(c.Key("reload"), t("memory_settings_reload")).Disabled(cfg.Pending).OnClick(func() {
-						if act != nil && act.ReloadConfig != nil {
-							act.ReloadConfig()
-						} else {
-							cfg.Draft = cfg.Saved
-							m.ConfigError = ""
-						}
-					})
-				}
+				kit.Secondary(c.Key("reload"), t("memory_settings_reload")).Disabled(cfg.Pending).OnClick(func() {
+					if act != nil && act.ReloadConfig != nil {
+						act.ReloadConfig()
+					} else {
+						cfg.Draft = cfg.Saved
+						m.ConfigError = ""
+					}
+				})
 			})
 		}
 	})
@@ -197,6 +199,10 @@ func renderToolbar(c *ui.Context, s *settings.State, st *pageState, m *settings.
 			}
 		}
 		ui.Row(c.Key("filters")).Margin(0, 0, 0, ui.Auto).AlignItems(ui.Center).Gap(8).Wrap().Children(func() {
+			if st.syncQuery {
+				st.syncQuery = false
+				st.lastQuery = m.Query
+			}
 			ui.SearchField(c.Key("memory-search"), &m.Query).Label(t("memory_search")).Placeholder(t("memory_search")).Width(180)
 			if m.Query != st.lastQuery {
 				st.lastQuery = m.Query
@@ -213,17 +219,17 @@ func renderToolbar(c *ui.Context, s *settings.State, st *pageState, m *settings.
 				scopeOpts = append(scopeOpts, kit.SelectOption{Value: project.ID, Label: project.Name})
 			}
 			scope := m.Scope
-			if el, changed := kit.SelectField(c, "memory-scope", &scope, kit.SelectProps{
+			el, changed := kit.SelectField(c, "memory-scope", &scope, kit.SelectProps{
 				Label:       t("memory_scope"),
 				Placeholder: t("memory_all"),
 				Options:     scopeOpts,
-			}); changed {
+			})
+			el.Width(180)
+			if changed {
 				m.Scope = scope
 				if act != nil && act.Refresh != nil {
 					act.Refresh()
 				}
-			} else {
-				el.Width(180)
 			}
 			kit.Primary(c.Key("memory-create"), t("memory_create"), busy || st.editorSaving || st.deleteSaving).
 				Children(func() { ui.Text(c, t("memory_create")).FontSize(14).SingleLine() }).
@@ -232,9 +238,17 @@ func renderToolbar(c *ui.Context, s *settings.State, st *pageState, m *settings.
 					if m.Scope != "all" && m.Scope != "global" {
 						project = m.Scope
 					}
+					if act != nil && act.ForgetPending != nil {
+						act.ForgetPending()
+					}
 					st.CloseDialogs()
 					st.editorOpen = true
+					st.editingID = ""
+					st.editingRev = 0
 					st.editingProject = project
+					st.title = ""
+					st.body = ""
+					st.archived = false
 					st.kind = "user"
 				})
 		})
@@ -297,9 +311,15 @@ func renderCatalog(c *ui.Context, s *settings.State, st *pageState, m *settings.
 					})
 				}, nil, func() {
 					kit.Action(c.Key("edit"), icons.Pencil, t("settings_edit"), busy).OnClick(func() {
+						if act != nil && act.ForgetPending != nil {
+							act.ForgetPending()
+						}
 						openMemoryEditor(st, entry, s.Live, act)
 					})
 					kit.Action(c.Key("delete"), icons.Trash, t("settings_delete"), busy).OnClick(func() {
+						if act != nil && act.ForgetPending != nil {
+							act.ForgetPending()
+						}
 						st.CloseDialogs()
 						st.deleteOpen = true
 						st.deleteTarget = entry
@@ -323,8 +343,9 @@ func openMemoryEditor(st *pageState, entry settings.MemoryEntryItem, live bool, 
 	if live && act != nil && act.LoadEntry != nil {
 		st.editorLoading = true
 		id := entry.ID
+		gen := st.generation
 		act.LoadEntry(id, func(loaded settings.MemoryEntryItem, body string, errKey string) {
-			if !st.editorOpen || st.editingID != id {
+			if st.generation != gen || !st.editorOpen || st.editingID != id {
 				return
 			}
 			st.editorLoading = false
@@ -347,7 +368,8 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 	t := func(key string) string { return i18n.T(c, key) }
 	p := theme.Of(c)
 	open := st.editorOpen
-	locked := st.editorLoading || st.editorSaving || st.editorRetry
+	loadFailed := st.editorError != "" && st.editingRev > 0 && st.body == ""
+	locked := st.editorLoading || st.editorSaving || st.editorRetry || loadFailed
 
 	kit.Dialog(c.Key("memory-editor-dialog"), &open, func() {
 		dialogTitle := t("memory_create")
@@ -359,6 +381,9 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 			if st.editorLoading {
 				ui.Row(c).Height(120).Center().Children(func() { kit.Busy(c) })
 			} else {
+				if loadFailed {
+					kit.Alert(c, "editor-load-error", kit.Negative, t(st.editorError), nil)
+				}
 				kit.Field(c, "title", t("memory_title"), "", func() {
 					ui.TextInput(c.Key("input"), &st.title).Label(t("memory_title")).Placeholder(t("memory_title_hint")).Disabled(locked).FillWidth()
 				})
@@ -394,7 +419,11 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 								cand := cand
 								if menu.Item(cand.Title).Chosen() && act != nil && act.LoadEntry != nil {
 									st.editorLoading = true
+									gen := st.generation
 									act.LoadEntry(cand.ID, func(loaded settings.MemoryEntryItem, body string, errKey string) {
+										if st.generation != gen || !st.editorOpen {
+											return
+										}
 										st.editorLoading = false
 										if errKey != "" || loaded.Project != st.editingProject || loaded.Archived {
 											return
@@ -422,7 +451,7 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 					}
 					st.CloseDialogs()
 				})
-				if st.editorError != "" && st.editingRev > 0 && st.body == "" {
+				if loadFailed {
 					kit.Secondary(c.Key("reload"), t("memory_retry")).OnClick(func() {
 						openMemoryEditor(st, settings.MemoryEntryItem{
 							ID: st.editingID, Revision: st.editingRev, Project: st.editingProject,
@@ -436,7 +465,7 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 				} else if len(st.sources) > 0 {
 					saveLabel = t("memory_merge")
 				}
-				kit.PrimaryBusy(c.Key("save"), saveLabel, st.editorLoading || !m.Connected, st.editorSaving).OnClick(func() {
+				kit.PrimaryBusy(c.Key("save"), saveLabel, st.editorLoading || loadFailed || !m.Connected, st.editorSaving).OnClick(func() {
 					title := strings.TrimSpace(st.title)
 					if !validMemoryInput(title, st.body) {
 						kit.Toast(c, kit.Failed, t("memory_invalid"))
@@ -457,7 +486,11 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 						return
 					}
 					st.editorSaving = true
+					gen := st.generation
 					act.SaveEntry(draft, func(ok bool, retry bool, errKey string) {
+						if st.generation != gen {
+							return
+						}
 						st.editorSaving = false
 						st.editorRetry = retry
 						st.editorError = errKey
@@ -503,7 +536,11 @@ func renderDelete(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 						return
 					}
 					st.deleteSaving = true
+					gen := st.generation
 					act.DeleteEntry(st.deleteTarget.ID, st.deleteTarget.Revision, func(ok bool, retry bool, _ string) {
+						if st.generation != gen {
+							return
+						}
 						st.deleteSaving = false
 						st.deleteRetry = retry
 						if ok {

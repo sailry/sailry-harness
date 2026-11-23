@@ -39,8 +39,13 @@ const (
 	FeatureUseSettingsPlugins      FeatureUse = "settings.section.plugins"
 	FeatureUseSettingsSkills       FeatureUse = "settings.section.skills"
 	FeatureUseSettingsKnowledge    FeatureUse = "settings.section.knowledge"
+	FeatureUseSettingsMemory       FeatureUse = "settings.section.memory"
+	FeatureUseSettingsMedia        FeatureUse = "settings.section.media"
 	FeatureUseSettingsDecision     FeatureUse = "settings.section.decision"
+	FeatureUseSettingsSearch       FeatureUse = "settings.section.search"
 	FeatureUseSettingsTerminal     FeatureUse = "settings.section.terminal"
+	FeatureUseSettingsBrowser      FeatureUse = "settings.section.browser"
+	FeatureUseSettingsComputer     FeatureUse = "settings.section.computer"
 	FeatureUseSettingsConnections  FeatureUse = "settings.section.connections"
 	FeatureUseSettingsHooks        FeatureUse = "settings.section.hooks"
 	FeatureUseSettingsRuntime      FeatureUse = "settings.section.runtime"
@@ -88,28 +93,31 @@ const (
 	FeatureUseThemePackage        FeatureUse = "theme.change.package"
 
 	// A settings family whose save was sent, never its values.
-	FeatureUseSaveProvider    FeatureUse = "settings.save.provider"
-	FeatureUseSaveTeam        FeatureUse = "settings.save.team"
-	FeatureUseSaveRole        FeatureUse = "settings.save.role"
-	FeatureUseSaveConnector   FeatureUse = "settings.save.connector"
-	FeatureUseSaveMCP         FeatureUse = "settings.save.mcp"
-	FeatureUseSavePlugin      FeatureUse = "settings.save.plugin"
-	FeatureUseSaveHooks       FeatureUse = "settings.save.hooks"
-	FeatureUseSaveBackup      FeatureUse = "settings.save.backup"
-	FeatureUseSaveTerminal    FeatureUse = "settings.save.terminal"
-	FeatureUseSaveMedia       FeatureUse = "settings.save.media"
-	FeatureUseSavePower       FeatureUse = "settings.save.power"
-	FeatureUseSaveTelemetry   FeatureUse = "settings.save.telemetry"
-	FeatureUseSaveNetwork     FeatureUse = "settings.save.network"
-	FeatureUseSaveSandbox     FeatureUse = "settings.save.sandbox"
-	FeatureUseSaveSearch      FeatureUse = "settings.save.search"
-	FeatureUseSaveCompaction  FeatureUse = "settings.save.compaction"
-	FeatureUseSavePython      FeatureUse = "settings.save.python"
-	FeatureUseSaveLocalModels FeatureUse = "settings.save.local_models"
-	FeatureUseSaveCodeIndex   FeatureUse = "settings.save.code_index"
-	FeatureUseSaveKnowledge   FeatureUse = "settings.save.knowledge"
-	FeatureUseSaveSSH         FeatureUse = "settings.save.ssh"
-	FeatureUseSaveDatabase    FeatureUse = "settings.save.database"
+	FeatureUseSaveProvider        FeatureUse = "settings.save.provider"
+	FeatureUseSaveTeam            FeatureUse = "settings.save.team"
+	FeatureUseSaveRole            FeatureUse = "settings.save.role"
+	FeatureUseSaveConnector       FeatureUse = "settings.save.connector"
+	FeatureUseSaveMCP             FeatureUse = "settings.save.mcp"
+	FeatureUseSavePlugin          FeatureUse = "settings.save.plugin"
+	FeatureUseSaveHooks           FeatureUse = "settings.save.hooks"
+	FeatureUseSaveBackup          FeatureUse = "settings.save.backup"
+	FeatureUseSaveTerminal        FeatureUse = "settings.save.terminal"
+	FeatureUseSaveMedia           FeatureUse = "settings.save.media"
+	FeatureUseSavePower           FeatureUse = "settings.save.power"
+	FeatureUseSaveTelemetry       FeatureUse = "settings.save.telemetry"
+	FeatureUseSaveNetwork         FeatureUse = "settings.save.network"
+	FeatureUseSaveSandbox         FeatureUse = "settings.save.sandbox"
+	FeatureUseSaveSearch          FeatureUse = "settings.save.search"
+	FeatureUseSaveCompaction      FeatureUse = "settings.save.compaction"
+	FeatureUseSavePython          FeatureUse = "settings.save.python"
+	FeatureUseSaveLocalModels     FeatureUse = "settings.save.local_models"
+	FeatureUseSaveCodeIndex       FeatureUse = "settings.save.code_index"
+	FeatureUseSaveKnowledge       FeatureUse = "settings.save.knowledge"
+	FeatureUseSaveSSH             FeatureUse = "settings.save.ssh"
+	FeatureUseSaveDatabase        FeatureUse = "settings.save.database"
+	FeatureUseSaveComputer        FeatureUse = "settings.save.computer"
+	FeatureUseSaveExternalBrowser FeatureUse = "settings.save.external_browser"
+	FeatureUseSaveMemory          FeatureUse = "settings.save.memory"
 )
 
 var featureUses = []FeatureUse{
@@ -117,9 +125,11 @@ var featureUses = []FeatureUse{
 	FeatureUsePageHost, FeatureUsePageSettings, FeatureUsePageNotifications, FeatureUsePageProject, FeatureUsePagePluginThirdParty,
 	FeatureUseSettingsGeneral, FeatureUseSettingsAppearance, FeatureUseSettingsConversation, FeatureUseSettingsShortcuts,
 	FeatureUseSettingsDictation, FeatureUseSettingsProviders, FeatureUseSettingsConnectors, FeatureUseSettingsTeams,
-	FeatureUseSettingsPlugins, FeatureUseSettingsSkills, FeatureUseSettingsKnowledge, FeatureUseSettingsDecision,
-	FeatureUseSettingsTerminal, FeatureUseSettingsConnections, FeatureUseSettingsHooks, FeatureUseSettingsRuntime,
-	FeatureUseSettingsOCR, FeatureUseSettingsPermissions, FeatureUseSettingsBackup, FeatureUseSettingsAbout, FeatureUseSettingsPluginPage,
+	FeatureUseSettingsPlugins, FeatureUseSettingsSkills, FeatureUseSettingsKnowledge, FeatureUseSettingsMemory,
+	FeatureUseSettingsMedia, FeatureUseSettingsDecision, FeatureUseSettingsSearch, FeatureUseSettingsTerminal,
+	FeatureUseSettingsBrowser, FeatureUseSettingsComputer, FeatureUseSettingsConnections, FeatureUseSettingsHooks,
+	FeatureUseSettingsRuntime, FeatureUseSettingsOCR, FeatureUseSettingsPermissions, FeatureUseSettingsBackup,
+	FeatureUseSettingsAbout, FeatureUseSettingsPluginPage,
 	FeatureUsePanelBrowser, FeatureUsePanelTerminal, FeatureUsePanelFiles, FeatureUsePanelGit, FeatureUsePanelHistory,
 	FeatureUsePanelDocuments, FeatureUsePanelArtifact, FeatureUsePanelSubagent, FeatureUsePaneSplit,
 	FeatureUseComposerSubmit, FeatureUseComposerHasAttachment, FeatureUseComposerHasReference, FeatureUseComposerDictated,
@@ -132,7 +142,7 @@ var featureUses = []FeatureUse{
 	FeatureUseSaveHooks, FeatureUseSaveBackup, FeatureUseSaveTerminal, FeatureUseSaveMedia, FeatureUseSavePower, FeatureUseSaveTelemetry,
 	FeatureUseSaveNetwork, FeatureUseSaveSandbox, FeatureUseSaveSearch, FeatureUseSaveCompaction, FeatureUseSavePython,
 	FeatureUseSaveLocalModels, FeatureUseSaveCodeIndex, FeatureUseSaveKnowledge, FeatureUseSaveSSH,
-	FeatureUseSaveDatabase,
+	FeatureUseSaveDatabase, FeatureUseSaveComputer, FeatureUseSaveExternalBrowser, FeatureUseSaveMemory,
 }
 
 // FeatureUses lists the fixed identifiers. FeatureUsePagePluginOfficial is

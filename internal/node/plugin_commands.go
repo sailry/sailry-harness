@@ -540,6 +540,9 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 		value, err := node.plugins.manager.DiscoverRegistry(ctx, input.Source)
 		return protocol.Output{Kind: "registry_skill_discovery", Data: value}, err
 	case *protocol.CommandReadSkillDocumentPayload:
+		if value, ok, err := node.readNativeSkillDocument(input.Source); ok || err != nil {
+			return protocol.Output{Kind: "skill_document", Data: value}, err
+		}
 		value, err := node.plugins.manager.ReadSkillDocument(ctx, input.Source)
 		return protocol.Output{Kind: "skill_document", Data: value}, err
 	case *protocol.CommandDiscoverLocalSkillsPayload:

@@ -1,0 +1,6 @@
+computer_settings: "Controle do computador"
+computer_enabled: "Ativar controle do computador"
+computer_enabled_description: "Permitir que o agente inspecione e controle aplicativos de área de trabalho no host selecionado"
+computer_helper_unavailable: "O auxiliar de automação de área de trabalho não está disponível neste host"
+computer_permissions_section: "Permissões do sistema do host"
+computer_permissions_remote: "Conceda as permissões do sistema diretamente no computador de execução"

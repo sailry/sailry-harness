@@ -155,7 +155,7 @@ func (m *page) skillCard(c *ui.Context, s *settings.State, sk *preview.Skill) {
 				settings.PreviewNotice(c)
 			})
 		}
-		if ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled")+" "+sk.Name).Disabled(sk.Package != "" || busy).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
+		if ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled")+" "+sk.Name).Disabled(sk.BuiltIn || sk.Package != "" || busy).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
 			m.PackageActions.Toggle(sk.ID, sk.Enabled)
 		}
 		kit.MenuButton(c.Key("menu"), "skill-menu-"+sk.ID, func(b ui.Element) {
@@ -163,6 +163,9 @@ func (m *page) skillCard(c *ui.Context, s *settings.State, sk *preview.Skill) {
 		}, func(menu *kit.Menu) {
 			if menu.Item(t("plugins_information")).Icon(icons.Info).Chosen() {
 				s.ShowDetails(settings.DetailSkill, sk.ID)
+			}
+			if sk.BuiltIn {
+				return
 			}
 			if sk.Package != "" {
 				if menu.Item(t("skills_manage_package")).Icon(icons.Puzzle).Chosen() {

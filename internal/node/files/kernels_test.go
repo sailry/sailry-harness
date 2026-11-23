@@ -70,6 +70,10 @@ func TestFileTextKernels(t *testing.T) {
 	if after, err = PrepareEdits("func f() {\n\tif ok {\n\t\treturn 1\n\t}\n}\n", []protocol.FileEdit{{OldText: "if ok {\n\treturn 1\n}", NewText: "if ok {\n\treturn 2\n}"}}); err != nil || after != "func f() {\n\tif ok {\n\t\treturn 2\n\t}\n}\n" {
 		t.Fatalf("indent-shift fuzzy edit: %q %v", after, err)
 	}
+	// Controlled fuzzy edit: mixed tab+space indent shift preserves tab prefix order.
+	if after, err = PrepareEdits("func f() {\n\t    x := 1\n\t    y := 2\n}\n", []protocol.FileEdit{{OldText: "    x := 1\n    y := 2", NewText: "    x := 10\n    y := 20"}}); err != nil || after != "func f() {\n\t    x := 10\n\t    y := 20\n}\n" {
+		t.Fatalf("mixed tab+space indent-shift fuzzy edit: %q %v", after, err)
+	}
 	// Controlled fuzzy edit: ambiguous trailing-whitespace matches are rejected with line numbers.
 	if _, err = PrepareEdits("dup  \nx\ndup\t\n", []protocol.FileEdit{{OldText: "dup\n", NewText: "one\n"}}); err == nil || !strings.Contains(err.Error(), "2 locations") || !strings.Contains(err.Error(), "1, 3") {
 		t.Fatalf("ambiguous fuzzy edit should fail: %v", err)

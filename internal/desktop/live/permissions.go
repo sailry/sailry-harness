@@ -262,8 +262,10 @@ type permissionState struct {
 	generation      int
 	actions         settings.PermissionActions
 	computerOwner   *Runtime
+	computerGen     uint64
 	computerRev     uint64
 	computerLoaded  bool
+	computerFailed  bool
 	computerReading bool
 	computerEnabled bool
 }
@@ -279,6 +281,9 @@ func (r *Runtime) permissionsFrame() {
 			state.visible, state.checking, state.pending = false, false, false
 			m.SetBusy(settings.BusyPermissions, false)
 			state.generation++
+			state.computerGen++
+			state.computerReading = false
+			state.computerFailed = false
 			state.failed = false
 		}
 		return
@@ -314,37 +319,45 @@ func (r *Runtime) permissionsFrame() {
 		hasComputerPlugin := slices.ContainsFunc(entries, func(entry permissionEntry) bool {
 			return entry.declaration.Subject == "dev.sailry.computer"
 		})
-		if !hasComputerPlugin {
+		if !hasComputerPlugin && owner.machineSettingsStatus() == "" && owner.controller.Connected() {
 			rev := owner.snapshot().ComputerSettingsRevision
-			if state.computerOwner != owner || !state.computerLoaded || state.computerRev != rev {
-				if state.computerOwner != owner {
-					state.computerOwner = owner
-					state.computerLoaded = false
-					state.computerEnabled = false
-					state.computerReading = false
-				}
-				if !state.computerReading {
-					state.computerReading = true
-					state.computerRev = rev
-					targetOwner := owner
-					targetRev := rev
-					root.async(func() {
-						out, err := targetOwner.controller.Do(root.ctx, protocol.Command{Kind: "read_computer_settings"})
-						root.enqueue(func(*ui.Context) {
-							if state.computerOwner != targetOwner {
-								return
-							}
-							state.computerReading = false
-							state.computerLoaded = true
-							state.computerRev = targetRev
-							if err == nil && out.Kind == "computer_settings" {
-								if cfg, ok := detail[protocol.ComputerSettings](out.Data); ok {
-									state.computerEnabled = cfg.Enabled
-								}
-							}
-						})
+			if state.computerOwner != owner {
+				state.computerOwner = owner
+				state.computerGen++
+				state.computerLoaded = false
+				state.computerFailed = false
+				state.computerEnabled = false
+				state.computerReading = false
+			}
+			if ((!state.computerLoaded && !state.computerFailed) || state.computerRev != rev) && !state.computerReading {
+				state.computerReading = true
+				state.computerFailed = false
+				state.computerRev = rev
+				targetOwner := owner
+				targetGen := state.computerGen
+				targetRev := rev
+				root.async(func() {
+					out, err := targetOwner.controller.Do(root.ctx, protocol.Command{Kind: "read_computer_settings"})
+					root.enqueue(func(*ui.Context) {
+						if state.computerOwner != targetOwner || state.computerGen != targetGen {
+							return
+						}
+						state.computerReading = false
+						if err != nil || out.Kind != "computer_settings" {
+							state.computerFailed = true
+							return
+						}
+						cfg, ok := detail[protocol.ComputerSettings](out.Data)
+						if !ok {
+							state.computerFailed = true
+							return
+						}
+						state.computerLoaded = true
+						state.computerFailed = false
+						state.computerRev = max(targetRev, cfg.Revision)
+						state.computerEnabled = cfg.Enabled
 					})
-				}
+				})
 			}
 			if state.computerLoaded && state.computerEnabled {
 				checkName, reqName := "check", "request"
@@ -443,14 +456,23 @@ func (state *permissionState) report(c *ui.Context) {
 
 func (r *Runtime) checkPermissions() {
 	state := &r.permissions
+	state.computerFailed = false
 	if state.checking || state.pending {
 		return
 	}
 	var steps []func() func(*ui.Context)
+	checkedNativeComputer := false
 	for _, card := range state.cards {
-		if card.check {
-			steps = append(steps, r.permissionStep(card, false))
+		if !card.check {
+			continue
 		}
+		if card.entry != nil && card.entry.nativeComputer {
+			if checkedNativeComputer {
+				continue
+			}
+			checkedNativeComputer = true
+		}
+		steps = append(steps, r.permissionStep(card, false))
 	}
 	if len(steps) == 0 {
 		return
@@ -599,7 +621,7 @@ func (r *Runtime) nativeComputerPermission(entry permissionEntry, request bool) 
 			return "permission_not_needed"
 		}
 		if granted == nil {
-			return "permission_unavailable"
+			return "permission_unknown"
 		}
 		if *granted {
 			return "permission_granted"
@@ -713,6 +735,9 @@ func permissionBundle(executable string) string {
 
 // showPermissionApp reveals the application to drag into the system's list.
 func (r *Runtime) showPermissionApp() {
+	if r.permissions.probe.goos == "" {
+		r.permissions.probe = systemPermissions()
+	}
 	executable, _ := os.Executable()
 	bundle := permissionBundle(executable)
 	if bundle == "" || r.permissions.probe.goos != "darwin" {

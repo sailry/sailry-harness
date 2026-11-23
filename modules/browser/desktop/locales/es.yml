@@ -1,0 +1,4 @@
+browser_external_section: "Navegador externo"
+browser_external_enabled: "Habilitar navegador externo"
+browser_external_description: "Permitir que el agente automatice un navegador Chromium aislado en el host seleccionado"
+browser_external_unavailable: "El asistente de Chromium no está disponible en este host"

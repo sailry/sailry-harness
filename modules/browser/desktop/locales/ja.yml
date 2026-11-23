@@ -1,0 +1,4 @@
+browser_external_section: "外部ブラウザ"
+browser_external_enabled: "外部ブラウザを有効にする"
+browser_external_description: "選択したホスト上で独立した Chromium ブラウザをエージェントが自動操作できるようにします"
+browser_external_unavailable: "このホストでは Chromium ヘルパーを利用できません"

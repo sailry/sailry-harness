@@ -1,0 +1,6 @@
+computer_settings: "컴퓨터 제어"
+computer_enabled: "컴퓨터 제어 사용"
+computer_enabled_description: "에이전트가 선택한 호스트의 데스크톱 앱을 확인하고 제어할 수 있도록 허용합니다"
+computer_helper_unavailable: "이 호스트에서는 데스크톱 자동화 도우미를 사용할 수 없습니다"
+computer_permissions_section: "호스트 시스템 권한"
+computer_permissions_remote: "실행 컴퓨터에서 직접 시스템 권한을 부여하세요"

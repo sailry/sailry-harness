@@ -194,94 +194,7 @@ func (s storageClient) browseMemories(ctx context.Context, project *string, allP
 }
 
 func (s storageClient) reviewCatalog(ctx context.Context, cfg memorySettings, project *string, allProjects bool) ([]reviewCandidate, error) {
-	return stableRead(func() ([]reviewCandidate, error) {
-		before, err := s.head(ctx)
-		if err != nil {
-			return nil, err
-		}
-		var anyTags []string
-		if !allProjects {
-			anyTags = []string{scopeTag(project)}
-		}
-		recs, err := s.indexed(ctx, protocol.PluginStorageSearch{
-			Terms: []string{}, All: []string{}, Any: anyTags, Mode: protocol.KnowledgeModeKeyword, Weights: [2]uint16{3, 1},
-		}, 0)
-		if err != nil {
-			return nil, err
-		}
-		after, err := s.head(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if before.record.Revision != after.record.Revision {
-			return nil, snapshotChangedError{msg: "memory catalog changed"}
-		}
-		entriesByID := make(map[string]storedEntry, len(recs))
-		var selected []memorySummary
-		for _, rec := range recs {
-			meta, err := parseStoredEntry(rec)
-			if err != nil {
-				return nil, err
-			}
-			entriesByID[meta.Summary.ID] = meta
-			if !meta.Summary.Archived && (allProjects || sameProject(meta.Summary.Project, project)) {
-				selected = append(selected, meta.Summary)
-			}
-		}
-		slices.SortFunc(selected, compareSummaryOrder)
-		nowMs, err := s.clock(ctx)
-		if err != nil {
-			return nil, err
-		}
-		pages := map[string]bodyPageRecord{}
-		fingerprints := make([][]string, len(selected))
-		for i, sum := range selected {
-			meta := entriesByID[sum.ID]
-			src, ok := pages[meta.BodyPage]
-			if !ok {
-				src, err = s.page(ctx, meta.BodyPage)
-				if err != nil {
-					return nil, err
-				}
-				pages[meta.BodyPage] = src
-			}
-			if err := s.unchanged(ctx, after.record.Revision); err != nil {
-				return nil, err
-			}
-			full, err := resolveBody(meta, src)
-			if err != nil {
-				return nil, err
-			}
-			if full.Summary.ID != sum.ID || full.Summary.Revision != sum.Revision || !sameProject(full.Summary.Project, sum.Project) || full.Summary.Archived != sum.Archived {
-				return nil, failFault(protocol.ErrorCodeRevisionConflict, "memory revision changed during review")
-			}
-			fingerprints[i] = uniqueSortedTerms(full.Body)
-		}
-		if err := s.unchanged(ctx, after.record.Revision); err != nil {
-			return nil, err
-		}
-		staleThreshold := int64(cfg.ReviewAfterDays) * 86_400_000
-		var candidates []reviewCandidate
-		for i, sum := range selected {
-			var dupOf *string
-			for j := 0; j < i; j++ {
-				if sameProject(selected[j].Project, sum.Project) && nearSets(fingerprints[j], fingerprints[i]) {
-					id := selected[j].ID
-					dupOf = &id
-					break
-				}
-			}
-			age := nowMs - sum.UpdatedAtMs
-			if age < 0 {
-				age = 0
-			}
-			stale := age >= staleThreshold
-			if dupOf != nil || stale {
-				candidates = append(candidates, reviewCandidate{Summary: sum, DuplicateOf: dupOf, Stale: stale})
-			}
-		}
-		return candidates, nil
-	})
+	return s.reviewMemoriesScope(ctx, cfg, project, allProjects, true)
 }
 
 func (s storageClient) readCatalogCommand(ctx context.Context, input protocol.CommandReadMemoryCatalogPayload) (protocol.MemoryCatalog, error) {
@@ -436,6 +349,9 @@ func (s storageClient) saveEntryCommand(ctx context.Context, input protocol.Comm
 		id = newUUIDv4()
 	}
 
+	if input.ExpectedRevision > uint64(maxSafeInt) {
+		return protocol.MemoryEntry{}, 0, failFault(protocol.ErrorCodeInvalidRequest, "invalid expected_revision")
+	}
 	var mergeSources []mergeSourceRef
 	if len(input.MergeSources) > 0 {
 		mergeSources = make([]mergeSourceRef, 0, len(input.MergeSources))
@@ -443,6 +359,9 @@ func (s storageClient) saveEntryCommand(ctx context.Context, input protocol.Comm
 			norm, err := normalizeID(src.ID)
 			if err != nil {
 				return protocol.MemoryEntry{}, 0, err
+			}
+			if src.Revision < 1 || src.Revision > uint64(maxSafeInt) {
+				return protocol.MemoryEntry{}, 0, failFault(protocol.ErrorCodeInvalidRequest, "invalid merge source revision")
 			}
 			mergeSources = append(mergeSources, mergeSourceRef{ID: norm, Revision: int64(src.Revision)})
 		}
@@ -501,6 +420,9 @@ func (s storageClient) deleteEntryCommand(ctx context.Context, input protocol.Co
 	id, err := normalizeID(input.ID)
 	if err != nil {
 		return "", 0, err
+	}
+	if input.ExpectedRevision < 1 || input.ExpectedRevision > uint64(maxSafeInt) {
+		return "", 0, failFault(protocol.ErrorCodeInvalidRequest, "invalid expected_revision")
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		ops, err := s.removeOperations(ctx, id, int64(input.ExpectedRevision), nil)

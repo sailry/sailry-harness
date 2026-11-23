@@ -150,8 +150,10 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 				legacyName = name
 			}
 			if exposed := MCPToolName(tool.LegacyServer, legacyName); exposed != "" && exposed != name {
-				result.forward[exposed] = name
-				result.reverse[exposed] = name
+				if _, taken := result.reverse[exposed]; !taken && !registered[exposed] {
+					result.forward[exposed] = name
+					result.reverse[exposed] = name
+				}
 			}
 		}
 	}

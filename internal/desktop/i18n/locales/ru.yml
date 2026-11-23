@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Не удалось прочитать ключ Chrom
 browser_chrome_cipher: Не удалось расшифровать этот файл cookie
 browser_import_unavailable: Импорт из Chrome недоступен в этой системе
 browser_store_unavailable: Для хранения данных веб-сайта и импорта требуется macOS 14 или более поздний
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: Настройки внешнего браузера сохранены
+external_browser_settings_failed: Не удалось сохранить настройки внешнего браузера
+external_browser_settings_conflict: Настройки внешнего браузера изменились; обновите страницу, чтобы продолжить
+external_browser_settings_unknown: Не удалось подтвердить сохранение настроек внешнего браузера
 search_settings: Поиск
 search_default_driver: Сервис по умолчанию
 search_fallback: Использовать резервные сервисы
@@ -2214,8 +2214,8 @@ memory_merge_description: Редактировать объединенное с
 memory_duplicate: Соответствующая память существует · обновить или объединить ее
 memory_search_too_long: Поиск слишком долгий
 computer_permissions_refresh: Проверьте еще раз
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: Настройки управления компьютером сохранены
+computer_settings_failed: Не удалось сохранить настройки управления компьютером
+computer_settings_conflict: Настройки управления компьютером изменились; обновите страницу, чтобы продолжить
+computer_settings_unknown: Не удалось подтвердить сохранение настроек управления компьютером
 search_driver_auto: Автоматически

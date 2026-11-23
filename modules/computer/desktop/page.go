@@ -93,7 +93,7 @@ func render(c *ui.Context, s *settings.State) {
 						if perm.Settings {
 							actionKey = "permission_settings"
 						}
-						kit.Secondary(c.Key("request"), t(actionKey)).Height(28).Disabled(absent).OnClick(func() {
+						kit.Secondary(c.Key("request"), t(actionKey)).Height(28).Disabled(absent || m.Checking).OnClick(func() {
 							if perm.Settings && act.OpenSettings != nil {
 								act.OpenSettings(perm.Resource)
 							} else {
@@ -110,7 +110,11 @@ func render(c *ui.Context, s *settings.State) {
 			return x.Status != "permission_granted" && x.Status != "permission_not_needed" && x.Status != "permission_remote" && x.Status != "permission_unavailable"
 		}) {
 			kit.Alert(c, "disk-help", kit.Info, t("permission_disk_help"), func() {
-				kit.TextAction(c.Key("show-app"), t("permission_show_app"), false).OnClick(func() {
+				label := t("permission_show_app")
+				kit.GhostLook(c, ui.ButtonBase(c.Key("show-app")).Label(label), false).Height(28).PaddingX(8).Gap(6).Shrink(0).Children(func() {
+					ui.Icon(c, icons.FolderOpen).FontSize(14)
+					ui.Text(c, label).FontSize(14).SingleLine()
+				}).OnClick(func() {
 					if act != nil && act.ShowApp != nil {
 						act.ShowApp()
 					}

@@ -85,7 +85,7 @@ type SearchSettingsState struct {
 // SearchActions are the live Web Search settings page callbacks.
 type SearchActions struct {
 	Reload        func()
-	Retry         func()
+	Retry         func() bool
 	SetDefault    func(driver string)
 	SetFallback   func(enabled bool)
 	SetEnabled    func(driver string, enabled bool)
@@ -176,7 +176,6 @@ type ComputerSettingsState struct {
 	Enabled      Stored[bool]
 	Loaded       bool
 	Available    bool
-	HelperError  string
 	Status       string
 	Checking     bool
 	HostReadOnly bool

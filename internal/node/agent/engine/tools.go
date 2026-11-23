@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -722,13 +723,35 @@ func trackDoomLoop(x *execution, calls []canonical.ToolRequest, results []ToolRe
 			copied := *last.Failure
 			copied.Message += note
 			last.Failure = &copied
+		} else if mcpRes, ok := last.Value.(*sdk.CallToolResult); ok && mcpRes != nil {
+			cloned := *mcpRes
+			cloned.Content = append(slices.Clone(mcpRes.Content), &sdk.TextContent{Text: strings.TrimSpace(note)})
+			last.Value = &cloned
 		} else if m, ok := last.Value.(map[string]any); ok {
 			cloned := make(map[string]any, len(m)+1)
 			for k, v := range m {
 				cloned[k] = v
 			}
+			if errObj, ok := cloned["error"].(map[string]any); ok {
+				errCopy := make(map[string]any, len(errObj))
+				for k, v := range errObj {
+					errCopy[k] = v
+				}
+				if msg, ok := errCopy["message"].(string); ok {
+					errCopy["message"] = msg + note
+				} else {
+					errCopy["message"] = strings.TrimSpace(note)
+				}
+				cloned["error"] = errCopy
+			}
 			cloned["doom_loop_warning"] = strings.TrimSpace(note)
 			last.Value = cloned
+		} else {
+			last.Value = map[string]any{
+				"error":             map[string]any{"message": strings.TrimSpace(note)},
+				"result":            last.Value,
+				"doom_loop_warning": strings.TrimSpace(note),
+			}
 		}
 	}
 	return false

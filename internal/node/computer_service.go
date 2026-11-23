@@ -111,21 +111,13 @@ func (node *Node) nativeComputerAvailable() (bool, string) {
 	return true, ""
 }
 
-func (node *Node) stopNativeComputerOverlay(ctx context.Context) {
+func (node *Node) stopNativeComputerOverlay() {
 	if node.begin() != nil {
 		return
 	}
-	owners := []string{"local\x00" + nativeComputerOverlayOwner}
-	if user, ok := store.UserFromContext(ctx); ok && user.ID != (protocol.UserID{}) {
-		owners = append(owners, user.ID.String()+"\x00"+nativeComputerOverlayOwner)
-	}
 	go func() {
 		defer node.work.Done()
-		for _, owner := range owners {
-			if node.computerOverlay.Tracks(owner) {
-				node.computerOverlay.Retain(owner, nil)
-			}
-		}
+		node.computerOverlay.RetainSuffix("\x00" + nativeComputerOverlayOwner)
 	}()
 }
 

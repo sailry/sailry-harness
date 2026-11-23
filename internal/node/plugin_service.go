@@ -174,6 +174,32 @@ func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User,
 			if err != nil || current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
 				return err
 			}
+			// Preserve explicit user enable/disable choices when retiring a
+			// bundled plugin into its native module equivalent.
+			switch name {
+			case "computer":
+				if current.Summary.Enabled {
+					if cfg, cfgErr := store.ReadComputerSettings(ctx, db); cfgErr == nil && cfg.Revision == 0 {
+						if _, _, saveErr := store.SaveComputerSettings(ctx, db, protocol.ComputerSettings{Revision: 0, Enabled: true}); saveErr != nil {
+							return saveErr
+						}
+					}
+				}
+			case "external-browser":
+				if current.Summary.Enabled {
+					if cfg, cfgErr := store.ReadExternalBrowserSettings(ctx, db); cfgErr == nil && cfg.Revision == 0 {
+						if _, _, saveErr := store.SaveExternalBrowserSettings(ctx, db, protocol.ExternalBrowserSettings{Revision: 0, Enabled: true}); saveErr != nil {
+							return saveErr
+						}
+					}
+				}
+			case "memory":
+				if !current.Summary.Enabled {
+					if migErr := store.MigrateRetiredMemoryEnabled(ctx, db, false); migErr != nil {
+						return migErr
+					}
+				}
+			}
 			_, err = store.RemovePlugin(ctx, db, name, current.Summary.Revision)
 			return err
 		}); err != nil {
@@ -272,6 +298,14 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 		return nil
 	}
 	if request.Plugin.Package == store.NativeMemoryReference() {
+		if caller != node.ID() || request.Plugin.Invocation != nil {
+			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "native memory storage is internal to this Node"}
+		}
+		if legacy, err := store.ReadPlugin(ctx, db, store.NativeMemoryNamespace); err != nil {
+			return err
+		} else if legacy != nil {
+			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "memory storage is owned by the installed memory plugin"}
+		}
 		info := store.NativeMemoryStorageInfo()
 		return store.CheckPluginRequest(ctx, db, request, info)
 	}

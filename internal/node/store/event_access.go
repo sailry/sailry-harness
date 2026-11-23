@@ -103,7 +103,7 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 		return eventAudience{Kind: "provider", Owner: &user.ID}, err
 	case "knowledge_collections_changed", "projection_invalidated":
 		return eventAudience{Kind: "reset"}, nil
-	case "model_catalog_changed":
+	case "model_catalog_changed", "computer_settings_changed":
 		return eventAudience{Kind: "host"}, nil
 	}
 	if event.Kind == "plugin_values_changed" {

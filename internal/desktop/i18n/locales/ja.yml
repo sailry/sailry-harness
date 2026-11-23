@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Chrome キーを読み込めませんでした。キ�
 browser_chrome_cipher: このクッキーを復号できませんでした
 browser_import_unavailable: このシステムでは Chrome インポートが利用できません
 browser_store_unavailable: ウェブサイトのデータを保存しインポートするには macOS 14 以上が必要です
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: 外部ブラウザの設定を保存しました
+external_browser_settings_failed: 外部ブラウザの設定を保存できませんでした
+external_browser_settings_conflict: 外部ブラウザの設定が変更されました。再読み込みして続行してください
+external_browser_settings_unknown: 外部ブラウザの設定が保存されたか確認できませんでした
 search_settings: 検索
 search_default_driver: 既定のサービス
 search_fallback: 代替サービスを使用
@@ -2214,8 +2214,8 @@ memory_merge_description: 統合されたコンテンツを編集します。ソ
 memory_duplicate: 一致するメモリが存在します。更新またはマージします
 memory_search_too_long: 検索時間が長すぎます
 computer_permissions_refresh: もう一度チェック
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: コンピュータ操作の設定を保存しました
+computer_settings_failed: コンピュータ操作の設定を保存できませんでした
+computer_settings_conflict: コンピュータ操作の設定が変更されました。再読み込みして続行してください
+computer_settings_unknown: コンピュータ操作の設定が保存されたか確認できませんでした
 search_driver_auto: 自動

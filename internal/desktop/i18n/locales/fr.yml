@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Impossible de lire la clé Chrome ; vérifiez l'accè
 browser_chrome_cipher: Impossible de déchiffrer ce cookie
 browser_import_unavailable: L'importation de Chrome n'est pas disponible sur ce système
 browser_store_unavailable: La conservation des données du site Web et l'importation nécessitent macOS 14 ou une version ultérieure
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: Paramètres du navigateur externe enregistrés
+external_browser_settings_failed: Impossible d’enregistrer les paramètres du navigateur externe
+external_browser_settings_conflict: Les paramètres du navigateur externe ont changé ; rechargez pour continuer
+external_browser_settings_unknown: Impossible de confirmer l’enregistrement des paramètres du navigateur externe
 search_settings: Recherche
 search_default_driver: Service par défaut
 search_fallback: Utiliser les services de secours
@@ -2214,8 +2214,8 @@ memory_merge_description: Modifier le contenu combiné · les entrées sources s
 memory_duplicate: La mémoire correspondante existe · mettre à jour ou fusionner
 memory_search_too_long: La recherche est trop longue
 computer_permissions_refresh: Vérifiez à nouveau
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: Paramètres de contrôle de l’ordinateur enregistrés
+computer_settings_failed: Impossible d’enregistrer les paramètres de contrôle de l’ordinateur
+computer_settings_conflict: Les paramètres de contrôle de l’ordinateur ont changé ; rechargez pour continuer
+computer_settings_unknown: Impossible de confirmer l’enregistrement des paramètres de contrôle de l’ordinateur
 search_driver_auto: Automatique

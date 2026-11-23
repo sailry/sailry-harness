@@ -1,0 +1,6 @@
+computer_settings: "Contrôle de l’ordinateur"
+computer_enabled: "Activer le contrôle de l’ordinateur"
+computer_enabled_description: "Autoriser l’agent à inspecter et contrôler les applications de bureau sur l’hôte sélectionné"
+computer_helper_unavailable: "L’assistant d’automatisation de bureau n’est pas disponible sur cet hôte"
+computer_permissions_section: "Autorisations système de l’hôte"
+computer_permissions_remote: "Accordez les autorisations système directement sur l’ordinateur d’exécution"

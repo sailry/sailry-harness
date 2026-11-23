@@ -153,7 +153,7 @@ func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		}
 	}
 	settings := scope.Surface.Kind == "settings"
-	if settings && info.Extension.SettingsPage == nil && !isNativeMemoryReference(scope.Package) {
+	if settings && info.Extension.SettingsPage == nil {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin has no settings contribution")
 	}
 	if !info.Summary.Enabled && !(settings && pluginSettingsAccess(request.Command.Kind)) {

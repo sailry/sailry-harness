@@ -110,7 +110,11 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 			if feed.Version != 1 || !commitHash(feed.Commit) || len(feed.Skills) > 4096 {
 				return result, packageFault("invalid official skill catalog")
 			}
+			retired := RetiredBundled()
 			for _, item := range feed.Skills {
+				if slices.Contains(retired, item.Package) {
+					continue
+				}
 				skillName := strings.TrimSuffix(strings.TrimPrefix(item.Path, "skills/"), "/SKILL.md")
 				if !ValidateName(item.Package) || item.Path != "skills/"+skillName+"/SKILL.md" || strings.Contains(skillName, "/") {
 					return result, packageFault("invalid official skill catalog identity")

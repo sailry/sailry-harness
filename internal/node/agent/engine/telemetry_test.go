@@ -57,6 +57,11 @@ func TestCountedTools(t *testing.T) {
 		if counted, ok := CountedTool(registered, "write_file"); ok {
 			t.Errorf("an unregistered name is counted: %+v", counted)
 		}
+		// Native module tools bind approval without a plugin owner and must count as built-ins, not third_party.
+		nativeBound := []Tool{{Definition: fantasy.FunctionTool{Name: "read_file"}, Binding: &store.ApprovalBinding{Tool: "read_file"}}}
+		if counted, ok := CountedTool(nativeBound, "read_file"); !ok || counted != (telemetry.Tool{Source: "builtin", Name: "read_file"}) {
+			t.Errorf("native module tool with empty plugin owner was misclassified as %+v (%v)", counted, ok)
+		}
 	})
 
 	t.Run("only a shipped package's tool is named", func(t *testing.T) {

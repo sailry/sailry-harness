@@ -23,6 +23,7 @@ func Page() settings.NativePage {
 }
 
 type pageState struct {
+	generation     uint64
 	editorOpen     bool
 	driver         string
 	openedRevision uint64
@@ -41,6 +42,7 @@ type pageState struct {
 }
 
 func (st *pageState) CloseDialogs() {
+	st.generation++
 	st.editorOpen = false
 	st.saving = false
 	st.retry = false
@@ -86,6 +88,16 @@ func render(c *ui.Context, s *settings.State) {
 				kit.SecondaryBusy(c.Key("retry"), t("search_retry"), m.Pending).OnClick(func() {
 					if act != nil && act.Retry != nil {
 						act.Retry()
+					}
+				})
+				kit.Secondary(c.Key("reload-abandon"), t("search_reload")).Disabled(m.Pending).OnClick(func() {
+					if act != nil {
+						if act.ForgetPending != nil {
+							act.ForgetPending()
+						}
+						if act.Reload != nil {
+							act.Reload()
+						}
 					}
 				})
 			}
@@ -321,9 +333,8 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState) {
 				}
 				kit.PrimaryBusy(c.Key("save"), saveLabel, m.Loading || !m.Connected, st.saving).OnClick(func() {
 					if st.retry {
-						if act != nil && act.Retry != nil {
+						if act != nil && act.Retry != nil && act.Retry() {
 							st.saving = true
-							act.Retry()
 						}
 						return
 					}
@@ -371,6 +382,11 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState) {
 								} else if draft.Key.Action == "clear" {
 									m.Drivers[i].KeyConfigured = false
 								}
+								if draft.Basic.Action == "set" {
+									m.Drivers[i].BasicConfigured = true
+								} else if draft.Basic.Action == "clear" {
+									m.Drivers[i].BasicConfigured = false
+								}
 								m.Drivers[i].ModelProvider = draft.ModelProvider
 								m.Drivers[i].ModelID = draft.ModelID
 							}
@@ -380,7 +396,11 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState) {
 						return
 					}
 					st.saving = true
+					gen := st.generation
 					act.SaveDriver(draft, func(ok bool, retry bool) {
+						if st.generation != gen {
+							return
+						}
 						st.saving = false
 						st.retry = retry
 						if ok {
@@ -427,8 +447,13 @@ func driverDetail(c *ui.Context, m *settings.SearchSettingsState, driver setting
 			parts = append(parts, i18n.T(c, "search_model_follow"))
 		} else {
 			key := driver.ModelProvider + "/" + driver.ModelID
-			if !slices.ContainsFunc(m.ModelOptions, func(opt kit.ModelOption) bool { return opt.ID == key }) {
+			idx := slices.IndexFunc(m.ModelOptions, func(opt kit.ModelOption) bool { return opt.ID == key })
+			if idx < 0 {
 				parts = append(parts, i18n.T(c, "search_model_unavailable"))
+			} else if label := m.ModelOptions[idx].Name; label != "" {
+				parts = append(parts, label)
+			} else {
+				parts = append(parts, driver.ModelID)
 			}
 		}
 	}

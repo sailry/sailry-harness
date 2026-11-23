@@ -1,0 +1,6 @@
+computer_settings: "Computersteuerung"
+computer_enabled: "Computersteuerung aktivieren"
+computer_enabled_description: "Dem Agenten erlauben, Desktop-Apps auf dem ausgewählten Host zu prüfen und zu steuern"
+computer_helper_unavailable: "Das Hilfsprogramm für die Desktop-Automatisierung ist auf diesem Host nicht verfügbar"
+computer_permissions_section: "Systemberechtigungen des Hosts"
+computer_permissions_remote: "Systemberechtigungen direkt auf dem ausführenden Computer erteilen"

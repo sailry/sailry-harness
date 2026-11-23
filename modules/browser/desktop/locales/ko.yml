@@ -1,0 +1,4 @@
+browser_external_section: "외부 브라우저"
+browser_external_enabled: "외부 브라우저 사용"
+browser_external_description: "에이전트가 선택한 호스트에서 격리된 Chromium 브라우저를 자동화할 수 있도록 허용합니다"
+browser_external_unavailable: "이 호스트에서는 Chromium 도우미를 사용할 수 없습니다"

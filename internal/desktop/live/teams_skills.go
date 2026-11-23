@@ -3,7 +3,6 @@ package live
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -26,14 +25,7 @@ func skillRows(reference protocol.PluginReference, info protocol.PluginInfo, loc
 	}
 	var rows []composer.Reference
 	for _, skill := range info.Skills {
-		label := skill.Name
-		if skill.DisplayName != nil && *skill.DisplayName != "" {
-			label = *skill.DisplayName
-		}
-		if translated := skill.DisplayLocales[i18n.Match(locale)]; translated != "" {
-			label = translated
-		}
-		rows = append(rows, composer.Reference{ID: reference.Name + ":" + skill.Name, Kind: composer.Skill, Label: label, Description: skill.Description, Group: "reference_group_skills", Icon: icons.BookOpen})
+		rows = append(rows, composer.Reference{ID: reference.Name + ":" + skill.Name, Kind: composer.Skill, Label: localizedSkill(skill, locale), Description: skill.Description, Group: "reference_group_skills", Icon: icons.BookOpen})
 	}
 	return rows
 }
@@ -96,16 +88,9 @@ func (r *Runtime) skillReferences(cv *viewmodel.Conversation) []composer.Referen
 		if installedPackages[native.Package] {
 			continue
 		}
-		label := native.Skill.Name
-		if native.Skill.DisplayName != nil && *native.Skill.DisplayName != "" {
-			label = *native.Skill.DisplayName
-		}
-		if translated := native.Skill.DisplayLocales[i18n.Match(r.teams.locale)]; translated != "" {
-			label = translated
-		}
 		rows = append(rows, composer.Reference{
 			ID: native.Package + ":" + native.Skill.Name, Kind: composer.Skill,
-			Label: label, Description: native.Skill.Description,
+			Label: localizedSkill(native.Skill, r.teams.locale), Description: native.Skill.Description,
 			Group: "reference_group_skills", Icon: icons.BookOpen,
 		})
 	}

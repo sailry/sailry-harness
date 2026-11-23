@@ -94,15 +94,20 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	} else if settings != nil {
 		value.CompactionSettingsRevision = settings.Revision
 	}
-	if settings, err := readPersonalSetting[protocol.ComputerSettings](ctx, db, "computer"); err != nil {
+	if settings, err := ReadComputerSettings(ctx, db); err != nil {
 		return value, err
-	} else if settings != nil {
+	} else {
 		value.ComputerSettingsRevision = settings.Revision
 	}
 	if settings, err := readPersonalSetting[protocol.ExternalBrowserSettings](ctx, db, "external_browser"); err != nil {
 		return value, err
 	} else if settings != nil {
 		value.ExternalBrowserSettingsRevision = settings.Revision
+	}
+	if rev, err := ReadMemoryRevision(ctx, db); err != nil {
+		return value, err
+	} else {
+		value.MemoryRevision = rev
 	}
 	if skills := nativeSkills(ctx); len(skills) > 0 {
 		value.NativeSkills = append([]protocol.NativeSkill(nil), skills...)

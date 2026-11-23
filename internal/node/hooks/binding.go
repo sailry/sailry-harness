@@ -84,10 +84,6 @@ func New(input Capture) *Binding {
 	return &Binding{captured: input}
 }
 
-func (b *Binding) WrapsTools() bool {
-	return b != nil && (len(Scripts(b.captured.Settings, protocol.HooksPhaseBeforeTool)) > 0 || len(Scripts(b.captured.Settings, protocol.HooksPhaseAfterTool)) > 0)
-}
-
 // WrapsTool reports whether any enabled before_tool or after_tool hook matches
 // the named tool. Unmatched read-only tools retain full concurrency and stream
 // pre-execution.

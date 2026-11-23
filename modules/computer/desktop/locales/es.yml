@@ -1,0 +1,6 @@
+computer_settings: "Control del equipo"
+computer_enabled: "Habilitar control del equipo"
+computer_enabled_description: "Permitir que el agente inspeccione y controle aplicaciones de escritorio en el host seleccionado"
+computer_helper_unavailable: "El asistente de automatización de escritorio no está disponible en este host"
+computer_permissions_section: "Permisos del sistema del host"
+computer_permissions_remote: "Concede los permisos del sistema directamente en el equipo de ejecución"

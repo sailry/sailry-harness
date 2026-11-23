@@ -39,6 +39,9 @@ func (m *Model) SetSkillContent(id, content string) {
 
 // SkillSource labels an installed or market skill by its origin.
 func SkillSource(c *ui.Context, s *preview.Skill) string {
+	if s.BuiltIn {
+		return i18n.T(c, "market_details_source_official")
+	}
 	if s.Package != "" {
 		return i18n.T(c, "skills_package_source", "name", s.Package)
 	}

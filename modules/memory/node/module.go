@@ -175,6 +175,7 @@ func (module) ToolsForTurn(ctx context.Context, host moduleapi.Host, inv *store.
 		if err != nil {
 			return nil, err
 		}
+		tool.Binding = &store.ApprovalBinding{Tool: spec.Name}
 		tool.ContextParts = parts
 		tool.BeforeModel = beforeModel
 		if !isReadTool {

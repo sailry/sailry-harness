@@ -397,14 +397,25 @@ type reviewCandidate struct {
 }
 
 func (s storageClient) reviewMemories(ctx context.Context, cfg memorySettings, project *string) ([]reviewCandidate, error) {
+	return s.reviewMemoriesScope(ctx, cfg, project, false, false)
+}
+
+func (s storageClient) reviewMemoriesScope(ctx context.Context, cfg memorySettings, project *string, allProjects, exactScope bool) ([]reviewCandidate, error) {
 	return stableRead(func() ([]reviewCandidate, error) {
 		before, err := s.head(ctx)
 		if err != nil {
 			return nil, err
 		}
-		anyTags := []string{scopeTag(nil)}
-		if project != nil {
-			anyTags = append(anyTags, scopeTag(project))
+		var anyTags []string
+		if !allProjects {
+			if exactScope {
+				anyTags = []string{scopeTag(project)}
+			} else {
+				anyTags = []string{scopeTag(nil)}
+				if project != nil {
+					anyTags = append(anyTags, scopeTag(project))
+				}
+			}
 		}
 		recs, err := s.indexed(ctx, protocol.PluginStorageSearch{
 			Terms: []string{}, All: []string{}, Any: anyTags, Mode: protocol.KnowledgeModeKeyword, Weights: [2]uint16{3, 1},
@@ -427,7 +438,10 @@ func (s storageClient) reviewMemories(ctx context.Context, cfg memorySettings, p
 				return nil, err
 			}
 			entriesByID[meta.Summary.ID] = meta
-			if !meta.Summary.Archived && visibleInProject(meta.Summary, project) {
+			if meta.Summary.Archived {
+				continue
+			}
+			if allProjects || (exactScope && sameProject(meta.Summary.Project, project)) || (!exactScope && visibleInProject(meta.Summary, project)) {
 				selected = append(selected, meta.Summary)
 			}
 		}

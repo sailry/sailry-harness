@@ -274,17 +274,19 @@ INSERT INTO cookies VALUES('.example.test','other','',x'763131aa','/',1,1,1,0,0,
 				t.Fatalf("the page reports an unsupported system: %q", nativeTester.Texts())
 			}
 		}
-		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
-		if err := os.MkdirAll(shots, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		file, err := os.Create(filepath.Join(shots, "browser-settings-zh-CN.png"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer file.Close()
-		if err := png.Encode(file, nativeTester.Image()); err != nil {
-			t.Fatal(err)
+		if os.Getenv("SAILRY_UI_SHOTS") != "" {
+			shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
+			if err := os.MkdirAll(shots, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			file, err := os.Create(filepath.Join(shots, "browser-settings-zh-CN.png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			if err := png.Encode(file, nativeTester.Image()); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 }

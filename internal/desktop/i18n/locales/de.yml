@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Der Chrome-Schlüssel konnte nicht gelesen werden; ü
 browser_chrome_cipher: Dieses Cookie konnte nicht entschlüsselt werden
 browser_import_unavailable: Der Chrome-Import ist auf diesem System nicht verfügbar
 browser_store_unavailable: Das Speichern und Importieren von Website-Daten erfordert macOS 14 oder höher
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: Einstellungen für externen Browser gespeichert
+external_browser_settings_failed: Einstellungen für externen Browser konnten nicht gespeichert werden
+external_browser_settings_conflict: Einstellungen für externen Browser wurden geändert; zum Fortfahren neu laden
+external_browser_settings_unknown: Speichern der Einstellungen für externen Browser konnte nicht bestätigt werden
 search_settings: Suche
 search_default_driver: Standarddienst
 search_fallback: Ausweichdienste verwenden
@@ -2214,8 +2214,8 @@ memory_merge_description: Bearbeiten Sie den zusammengefassten Inhalt · Quellen
 memory_duplicate: Passender Speicher existiert · aktualisieren oder zusammenführen
 memory_search_too_long: Die Suche ist zu lang
 computer_permissions_refresh: Überprüfen Sie erneut
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: Einstellungen für Computersteuerung gespeichert
+computer_settings_failed: Einstellungen für Computersteuerung konnten nicht gespeichert werden
+computer_settings_conflict: Einstellungen für Computersteuerung wurden geändert; zum Fortfahren neu laden
+computer_settings_unknown: Speichern der Computersteuerungseinstellungen konnte nicht bestätigt werden
 search_driver_auto: Automatisch

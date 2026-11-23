@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"sync"
@@ -34,8 +35,6 @@ type nodeModuleHost struct {
 
 var _ moduleapi.Host = nodeModuleHost{}
 
-func (h nodeModuleHost) NodeID() protocol.NodeID { return h.node.ID() }
-
 func (h nodeModuleHost) HasCodeIndex() bool { return h.node.codeIndex != nil }
 
 func (h nodeModuleHost) BrowserAvailable(inv *store.AgentInvocation) bool {
@@ -59,7 +58,7 @@ func (h nodeModuleHost) ExternalBrowserEnabled(ctx context.Context) (bool, error
 	return enabled, err
 }
 
-func (h nodeModuleHost) CheckExternalBrowserEnabled(ctx context.Context) error {
+func (h nodeModuleHost) checkExternalBrowserEnabled(ctx context.Context) error {
 	installed, pluginEnabled, err := h.PluginInstalled(ctx, "external-browser")
 	if err != nil {
 		return err
@@ -76,6 +75,27 @@ func (h nodeModuleHost) CheckExternalBrowserEnabled(ctx context.Context) error {
 	}
 	if !enabled {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "external browser is disabled"}
+	}
+	return nil
+}
+
+func (h nodeModuleHost) checkComputerEnabled(ctx context.Context) error {
+	installed, pluginEnabled, err := h.PluginInstalled(ctx, "computer")
+	if err != nil {
+		return err
+	}
+	if installed {
+		if !pluginEnabled {
+			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin is disabled"}
+		}
+		return nil
+	}
+	enabled, err := h.ComputerEnabled(ctx)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "computer use is disabled"}
 	}
 	return nil
 }
@@ -131,6 +151,9 @@ func (h nodeModuleHost) ConnectComputerMCP(ctx context.Context, inv *store.Agent
 			Exclusive:  true,
 			KeepImages: &keepImages,
 			Reuse:      false,
+		},
+		Validate: func(ctx context.Context) error {
+			return h.checkComputerEnabled(store.WithUser(ctx, inv.User))
 		},
 	}
 	lease, err := h.node.plugins.mcp.Acquire(ctx, prepared)
@@ -888,7 +911,7 @@ func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg modu
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		input := current.Command.Data.(*protocol.CommandUseExternalBrowserPayload)
-		check := func(ctx context.Context) error { return h.CheckExternalBrowserEnabled(ctx) }
+		check := func(ctx context.Context) error { return h.checkExternalBrowserEnabled(ctx) }
 		output, err := h.node.externalBrowser.Execute(ctx, externalbrowser.Call{
 			Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments,
 			Check: check,
@@ -983,11 +1006,7 @@ func (h nodeModuleHost) ProjectExists(ctx context.Context, id string) (bool, err
 	return exists, err
 }
 
-func (h nodeModuleHost) StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error) {
-	scope, err := h.controllerStorageScope(ctx, namespace)
-	if err != nil {
-		return protocol.PluginStorageEntry{}, err
-	}
+func (h nodeModuleHost) storageGet(ctx context.Context, scope protocol.PluginContext, key string) (protocol.PluginStorageEntry, error) {
 	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "read_plugin_value", Data: &protocol.CommandReadPluginValuePayload{Key: key, Scope: protocol.PluginStorageScopeNode}})
 	request.Plugin = &scope
 	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage read cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage read unavailable"))
@@ -1001,11 +1020,7 @@ func (h nodeModuleHost) StorageGet(ctx context.Context, namespace, key string) (
 	return entry, nil
 }
 
-func (h nodeModuleHost) StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
-	scope, err := h.controllerStorageScope(ctx, namespace)
-	if err != nil {
-		return protocol.PluginStorageSearchPage{}, err
-	}
+func (h nodeModuleHost) storageSearch(ctx context.Context, scope protocol.PluginContext, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
 	if query.Scope == "" {
 		query.Scope = protocol.PluginStorageScopeNode
 	}
@@ -1022,11 +1037,7 @@ func (h nodeModuleHost) StorageSearch(ctx context.Context, namespace string, que
 	return page, nil
 }
 
-func (h nodeModuleHost) StorageTransaction(ctx context.Context, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
-	scope, err := h.controllerStorageScope(ctx, namespace)
-	if err != nil {
-		return nil, err
-	}
+func (h nodeModuleHost) storageTransaction(ctx context.Context, scope protocol.PluginContext, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
 	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: ops}})
 	request.Plugin = &scope
 	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage transaction cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage transaction outcome is unavailable"))
@@ -1038,6 +1049,65 @@ func (h nodeModuleHost) StorageTransaction(ctx context.Context, namespace string
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage transaction result"}
 	}
 	return results, nil
+}
+
+func (h nodeModuleHost) StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.PluginStorageEntry{}, err
+	}
+	return h.storageGet(ctx, scope, key)
+}
+
+func (h nodeModuleHost) StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.PluginStorageSearchPage{}, err
+	}
+	return h.storageSearch(ctx, scope, query)
+}
+
+func (h nodeModuleHost) StorageTransaction(ctx context.Context, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return h.storageTransaction(ctx, scope, ops)
+}
+
+func (node *Node) readNativeSkillDocument(source protocol.PluginSkillsDocumentSource) (protocol.PluginSkillsDocument, bool, error) {
+	if source.Kind != "bundled" {
+		return protocol.PluginSkillsDocument{}, false, nil
+	}
+	var input protocol.PluginSkillsDocumentSourceBundledPayload
+	raw, err := json.Marshal(source.Data)
+	if err != nil || json.Unmarshal(raw, &input) != nil {
+		return protocol.PluginSkillsDocument{}, false, nil
+	}
+	for _, pkg := range node.modules.NativeSkillPackages() {
+		if pkg.Package != input.Package || pkg.Tree == nil {
+			continue
+		}
+		for _, meta := range pkg.Skills {
+			if meta.Name != input.Skill {
+				continue
+			}
+			path := meta.Path
+			if path == "" {
+				path = "skills/" + meta.Name + "/SKILL.md"
+			}
+			data, readErr := fs.ReadFile(pkg.Tree, path)
+			if readErr != nil {
+				return protocol.PluginSkillsDocument{}, true, readErr
+			}
+			skill, parseErr := plugins.ParseSkill(data, meta.Name)
+			if parseErr != nil {
+				return protocol.PluginSkillsDocument{}, true, parseErr
+			}
+			return protocol.PluginSkillsDocument{Skill: skill, Content: string(data)}, true, nil
+		}
+	}
+	return protocol.PluginSkillsDocument{}, false, nil
 }
 
 func (node *Node) dispatchModuleCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte, handler moduleapi.CommandHandler) (link.Admission, error) {
@@ -1065,23 +1135,31 @@ func (node *Node) dispatchModuleCommand(ctx context.Context, caller protocol.Nod
 			return accepted, nil
 		}
 	}
+	execCtx := ctx
+	if durable {
+		// Admitted durable mutations run on the Node lifetime so an observer
+		// disconnect cannot abort them mid-flight after admission.
+		execCtx = node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request})
+	}
 	go func() {
 		defer node.work.Done()
 		defer close(completion)
-		output, events, opErr := handler.ExecuteCommand(ctx, nodeModuleHost{node: node}, caller, request)
+		output, events, opErr := handler.ExecuteCommand(execCtx, nodeModuleHost{node: node}, caller, request)
 		res := response(output, opErr)
 		if durable {
-			err := node.profile.Store.Node.Write(context.WithoutCancel(ctx), func(db *sql.Conn) error {
+			published := false
+			err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
 				if opErr == nil && len(events) > 0 {
-					if _, err := store.RecordEvents(context.WithoutCancel(ctx), db, node.ID(), events); err != nil {
+					if _, err := store.RecordEvents(execCtx, db, node.ID(), events); err != nil {
 						return err
 					}
+					published = true
 				}
-				return admission.Complete(context.WithoutCancel(ctx), db, caller, request.ID, res)
+				return admission.Complete(execCtx, db, caller, request.ID, res)
 			})
 			if err != nil {
-				res = response(protocol.Output{}, err)
-			} else if opErr == nil && len(events) > 0 {
+				res = node.settle(caller, request.ID, res)
+			} else if published {
 				node.publish()
 			}
 		}
@@ -1098,17 +1176,7 @@ func (h nodeModuleHost) PluginStorageGet(ctx context.Context, inv *store.AgentIn
 	if scope.Package.Name == "" {
 		return protocol.PluginStorageEntry{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
 	}
-	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "read_plugin_value", Data: &protocol.CommandReadPluginValuePayload{Key: key, Scope: protocol.PluginStorageScopeNode}})
-	request.Plugin = &scope
-	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage read cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage read unavailable"))
-	if err != nil {
-		return protocol.PluginStorageEntry{}, err
-	}
-	entry, ok := dispatchPayload[protocol.PluginStorageEntry](output.Data)
-	if !ok {
-		return protocol.PluginStorageEntry{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage read result"}
-	}
-	return entry, nil
+	return h.storageGet(ctx, scope, key)
 }
 
 func (h nodeModuleHost) PluginStorageSearch(ctx context.Context, inv *store.AgentInvocation, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
@@ -1119,20 +1187,7 @@ func (h nodeModuleHost) PluginStorageSearch(ctx context.Context, inv *store.Agen
 	if scope.Package.Name == "" {
 		return protocol.PluginStorageSearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
 	}
-	if query.Scope == "" {
-		query.Scope = protocol.PluginStorageScopeNode
-	}
-	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "search_plugin_values", Data: &query})
-	request.Plugin = &scope
-	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage search cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage search unavailable"))
-	if err != nil {
-		return protocol.PluginStorageSearchPage{}, err
-	}
-	page, ok := dispatchPayload[protocol.PluginStorageSearchPage](output.Data)
-	if !ok {
-		return protocol.PluginStorageSearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage search result"}
-	}
-	return page, nil
+	return h.storageSearch(ctx, scope, query)
 }
 
 func (h nodeModuleHost) PluginStorageTransaction(ctx context.Context, inv *store.AgentInvocation, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {
@@ -1146,17 +1201,7 @@ func (h nodeModuleHost) PluginStorageTransaction(ctx context.Context, inv *store
 	if scope.Package.Name == "" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
 	}
-	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: ops}})
-	request.Plugin = &scope
-	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage transaction cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage transaction outcome is unavailable"))
-	if err != nil {
-		return nil, err
-	}
-	results, ok := dispatchPayload[[]protocol.Output](output.Data)
-	if !ok {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage transaction result"}
-	}
-	return results, nil
+	return h.storageTransaction(ctx, scope, ops)
 }
 
 func (h nodeModuleHost) ConfigureStorageApproval(ctx context.Context, db *sql.Conn, turn protocol.TurnID, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {

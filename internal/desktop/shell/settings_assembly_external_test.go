@@ -98,6 +98,7 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 						if got := app.Settings.Section; got != want {
 							t.Errorf("opening %q selected %q, want %q", section, got, want)
 						}
+						tester.Frame()
 					}
 					for _, page := range full.WorkspacePages {
 						if app.NativePageEnabled(page.Page) != variant.workspace {

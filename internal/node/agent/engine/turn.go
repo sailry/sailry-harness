@@ -538,10 +538,22 @@ func (r *Runtime) turn(x *execution) error {
 			return r.readToolResult(x.ctx, response)
 		}
 		for _, tool := range x.tools {
-			if tool.BeforeModel == nil || tool.Binding == nil || observed[tool.Binding.Owner.Name] {
+			if tool.BeforeModel == nil {
 				continue
 			}
-			observed[tool.Binding.Owner.Name] = true
+			var ownerKey string
+			switch {
+			case tool.Binding != nil && tool.Binding.Owner.Name != "":
+				ownerKey = "plugin:" + tool.Binding.Owner.Name
+			case tool.LegacyPackage != "":
+				ownerKey = "native:" + tool.LegacyPackage
+			default:
+				ownerKey = "tool:" + tool.Definition.Name
+			}
+			if observed[ownerKey] {
+				continue
+			}
+			observed[ownerKey] = true
 			stopped, err := tool.BeforeModel(x.ctx, state.Records, readResult)
 			if err != nil {
 				return err

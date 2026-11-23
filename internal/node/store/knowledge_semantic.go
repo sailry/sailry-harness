@@ -277,11 +277,11 @@ func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) 
 		if err := semanticCancelled(ctx); err != nil {
 			return false, err
 		}
-		if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
-			continue
-		}
 		if info.Summary.Name == NativeMemoryNamespace {
 			hasMemoryPlugin = true
+		}
+		if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+			continue
 		}
 		_, registered, err := ensureSemantic(ctx, db, plugins.PackageReference(info))
 		if err != nil {

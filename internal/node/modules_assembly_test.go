@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -121,6 +122,30 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		if !slices.ContainsFunc(snap.NativeSkills, func(s protocol.NativeSkill) bool { return s.Package == "web-search" && s.Skill.Name == "research" }) {
 			t.Fatalf("native web-search:research skill missing from snapshot: %+v", snap.NativeSkills)
 		}
+		// Native skill document reads serve the embedded SKILL.md via read_skill_document.
+		skillDoc := commandFixture(t, n, protocol.Command{
+			Kind: "read_skill_document",
+			Data: protocol.CommandReadSkillDocumentPayload{
+				Source: protocol.PluginSkillsDocumentSource{
+					Kind: "bundled",
+					Data: protocol.PluginSkillsDocumentSourceBundledPayload{Package: "web-search", Skill: "research"},
+				},
+			},
+		}).Data.(protocol.PluginSkillsDocument)
+		if skillDoc.Skill.Name != "research" || strings.TrimSpace(skillDoc.Content) == "" {
+			t.Fatalf("read_skill_document returned unexpected native skill doc: %+v", skillDoc)
+		}
+		// Remote callers cannot spoof the internal native memory reference on read_plugin_value.
+		remoteCaller := protocol.NodeID{99}
+		spoofReq := protocol.NewRequest(n.ID(), protocol.Command{
+			Kind: "read_plugin_value",
+			Data: &protocol.CommandReadPluginValuePayload{Key: "memory/settings", Scope: protocol.PluginStorageScopeNode},
+		})
+		spoofReq.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "settings"}, Package: store.NativeMemoryReference()}
+		var spoofFault *protocol.Fault
+		if _, err := n.Dispatch(t.Context(), remoteCaller, spoofReq); !errors.As(err, &spoofFault) || spoofFault.Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("remote caller spoofing NativeMemoryReference got err = %v, want permission_denied", err)
+		}
 		compCfg := commandFixture(t, n, protocol.Command{Kind: "read_computer_settings"}).Data.(protocol.ComputerSettings)
 		if compCfg.Enabled {
 			t.Fatalf("native computer should default disabled: %+v", compCfg)
@@ -147,11 +172,21 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		if memEntry.Summary.ID == "" || memEntry.Body != "Saved directly via native module command" {
 			t.Fatalf("save_memory_entry returned unexpected entry: %+v", memEntry)
 		}
+		if afterMemSnap := snapshotFixture(t, n); afterMemSnap.MemoryRevision == 0 {
+			t.Fatalf("Snapshot.MemoryRevision stayed 0 after save_memory_entry")
+		}
 		memCat := commandFixture(t, n, protocol.Command{Kind: "read_memory_catalog", Data: protocol.CommandReadMemoryCatalogPayload{View: "active"}}).Data.(protocol.MemoryCatalog)
 		if !slices.ContainsFunc(memCat.Entries, func(e protocol.MemorySummary) bool { return e.ID == memEntry.Summary.ID }) {
 			t.Fatalf("read_memory_catalog missing saved entry: %+v", memCat.Entries)
 		}
-		commandFixture(t, n, protocol.Command{Kind: "delete_memory_entry", Data: protocol.CommandDeleteMemoryEntryPayload{ID: memEntry.Summary.ID, ExpectedRevision: memEntry.Summary.Revision}})
+		// Add search_memory -> save_memory(id, expected_revision) steps to verify BeforeModel read-authority capture for native memory tools.
+		script.steps = append(script.steps,
+			[][3]string{{"mem-read-id", "search_memory", `{"query":"Native note"}`}},
+			[][3]string{{
+				"mem-update", "save_memory",
+				`{"id":"` + memEntry.Summary.ID + `","expected_revision":1,"kind":"user","title":"Native note updated","body":"Updated inside turn after BeforeModel read authority"}`,
+			}},
+		)
 
 		// Disable files and git UI plugins: native modules must keep serving tools.
 		for _, pkg := range []string{"files", "git"} {
@@ -256,6 +291,10 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		if !strings.Contains(results["mem-search"], "Prefer compact tables") {
 			t.Fatalf("search_memory = %q", results["mem-search"])
 		}
+		if !strings.Contains(results["mem-update"], `"revision":2`) {
+			t.Fatalf("save_memory update (requires BeforeModel read authority) = %q", results["mem-update"])
+		}
+		commandFixture(t, n, protocol.Command{Kind: "delete_memory_entry", Data: protocol.CommandDeleteMemoryEntryPayload{ID: memEntry.Summary.ID, ExpectedRevision: 2}})
 
 		// Canonical history carries native tool names and localized presentations.
 		var state store.AgentState

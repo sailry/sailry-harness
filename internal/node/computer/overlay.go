@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -175,6 +176,21 @@ func (overlay *Overlay) Retain(pack string, allowed []string) {
 			kept = kept || name == home.pack
 		}
 		if !kept {
+			overlay.end(home)
+		}
+	}
+}
+
+// RetainSuffix ends every tracked session whose owner ends with suffix.
+func (overlay *Overlay) RetainSuffix(suffix string) {
+	if suffix == "" {
+		return
+	}
+	overlay.init()
+	overlay.lock <- struct{}{}
+	defer func() { <-overlay.lock }()
+	for _, home := range overlay.homes {
+		if strings.HasSuffix(home.pack, suffix) {
 			overlay.end(home)
 		}
 	}

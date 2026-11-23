@@ -60,6 +60,13 @@ func (r *Runtime) recoverFailedReads(refresh bool) {
 		state.connectionsFailed = false
 		r.initConnectorUI()
 	}
+	r.browserConfig.extLoadFailed = false
+	r.computerSettings.loadFailed = false
+	r.searchSettings.loadFailed = false
+	r.memorySettings.loadFailed = false
+	if root := r.localRuntime(); root.permissions.computerFailed && root.permissions.computerOwner == r {
+		root.permissions.computerFailed = false
+	}
 	if refresh {
 		// The open settings page can belong to a different Node than Refresh.
 		root := r.localRuntime()

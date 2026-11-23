@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -16,15 +17,18 @@ import (
 )
 
 type searchSettingsState struct {
-	loaded         bool
-	loading        bool
-	pending        bool
-	refreshQueued  bool
-	observedRev    uint64
-	saved          *protocol.SearchSettings
-	models         []kit.ModelOption
-	pendingRequest *pendingSearchRequest
-	actions        settings.SearchActions
+	loaded            bool
+	loading           bool
+	loadFailed        bool
+	pending           bool
+	refreshQueued     bool
+	observedRev       uint64
+	observedProviders uint64
+	shown             *Runtime
+	saved             *protocol.SearchSettings
+	models            []kit.ModelOption
+	pendingRequest    *pendingSearchRequest
+	actions           settings.SearchActions
 }
 
 type pendingSearchRequest struct {
@@ -216,10 +220,25 @@ func filterSearchModels(catalog protocol.PluginModelsCatalog) []kit.ModelOption 
 func (r *Runtime) searchSettingsFrame() {
 	root := r.localRuntime()
 	m := root.App.Settings
-	if root.App.Page != shell.SettingsPage || m.Section != settings.Search {
+	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Search
+	var owner *Runtime
+	if visible {
+		owner = root.managedSettingsNode()
+	}
+	if root.searchSettings.shown != owner {
+		if prev := root.searchSettings.shown; prev != nil {
+			if m.SearchPageState != nil {
+				m.SearchPageState.CloseDialogs()
+			}
+			if !prev.searchSettings.pending {
+				prev.searchSettings.pendingRequest = nil
+			}
+		}
+		root.searchSettings.shown = owner
+	}
+	if !visible {
 		return
 	}
-	owner := root.managedSettingsNode()
 	if owner == nil {
 		m.Search = settings.SearchSettingsState{Status: "connections_offline"}
 		m.SearchActions = nil
@@ -242,7 +261,8 @@ func (r *Runtime) searchSettingsFrame() {
 		}
 	}
 	snap := owner.snapshot()
-	if (!st.loaded || snap.SearchSettingsRevision > st.observedRev) && !st.loading && !st.pending && st.pendingRequest == nil {
+	providersRev := owner.controller.ProviderRevision()
+	if ((!st.loaded && !st.loadFailed) || snap.SearchSettingsRevision > st.observedRev || (st.loaded && providersRev != st.observedProviders)) && !st.loading && !st.pending && st.pendingRequest == nil {
 		owner.loadSearchSettings()
 	}
 
@@ -274,7 +294,9 @@ func (r *Runtime) loadSearchSettings() {
 		return
 	}
 	st.loading = true
+	st.loadFailed = false
 	st.observedRev = r.snapshot().SearchSettingsRevision
+	providersRev := r.controller.ProviderRevision()
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_search_settings"})
 		modelsOut, modelsErr := r.controller.Do(r.ctx, protocol.Command{Kind: "list_plugin_models"})
@@ -287,18 +309,22 @@ func (r *Runtime) loadSearchSettings() {
 				}
 			}()
 			if err != nil {
+				st.loadFailed = true
 				kit.Toast(c, kit.Failed, i18n.T(c, searchErrorKey(err, false, false)))
 				return
 			}
 			val, ok := detail[protocol.SearchSettings](out.Data)
 			if !ok || out.Kind != "search_settings" {
+				st.loadFailed = true
 				kit.Toast(c, kit.Failed, i18n.T(c, "search_request_failed"))
 				return
 			}
 			copied := cloneSearchSettings(val)
 			st.saved = &copied
 			st.loaded = true
+			st.loadFailed = false
 			st.observedRev = val.Revision
+			st.observedProviders = providersRev
 			if modelsErr == nil && modelsOut.Kind == "plugin_models" {
 				if cat, valid := detail[protocol.PluginModelsCatalog](modelsOut.Data); valid {
 					st.models = filterSearchModels(cat)
@@ -320,22 +346,28 @@ func (r *Runtime) startSearchRequest(cmd protocol.Command, writing, testing bool
 	r.retrySearchRequest()
 }
 
-func (r *Runtime) retrySearchRequest() {
+func (r *Runtime) retrySearchRequest() bool {
 	st := &r.searchSettings
 	if st.pendingRequest == nil || st.pending || !r.controller.Connected() {
-		return
+		return false
 	}
 	pending := st.pendingRequest
 	st.pending = true
 	r.async(func() {
-		out, err := r.controller.Execute(r.ctx, pending.request)
+		var out protocol.Output
+		var err error
+		if pending.writing {
+			out, err = r.controller.Settle(r.ctx, pending.request)
+		} else {
+			out, err = r.controller.Execute(r.ctx, pending.request)
+		}
 		r.enqueue(func(c *ui.Context) {
 			st.pending = false
 			if err != nil {
 				code := faultCode(err)
 				key := searchErrorKey(err, pending.writing, pending.testing)
 				kit.Toast(c, kit.Failed, i18n.T(c, key))
-				if pending.writing && (code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable) {
+				if pending.writing && !client.Released(err) && (code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable) {
 					if pending.done != nil {
 						pending.done(false, true)
 					}
@@ -345,13 +377,17 @@ func (r *Runtime) retrySearchRequest() {
 				if pending.done != nil {
 					pending.done(false, false)
 				}
-				r.loadSearchSettings()
+				if pending.writing {
+					r.loadSearchSettings()
+				}
 				return
 			}
+			updated := false
 			if val, ok := detail[protocol.SearchSettings](out.Data); ok && out.Kind == "search_settings" {
 				copied := cloneSearchSettings(val)
 				st.saved = &copied
 				st.observedRev = val.Revision
+				updated = true
 			}
 			toastKey := "search_saved"
 			if pending.testing {
@@ -362,9 +398,12 @@ func (r *Runtime) retrySearchRequest() {
 			if pending.done != nil {
 				pending.done(true, false)
 			}
-			r.loadSearchSettings()
+			if pending.writing && !updated {
+				r.loadSearchSettings()
+			}
 		})
 	})
+	return true
 }
 
 func (r *Runtime) setSearchDefaultDriver(choice string) {

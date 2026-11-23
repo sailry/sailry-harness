@@ -1,0 +1,4 @@
+browser_external_section: "Внешний браузер"
+browser_external_enabled: "Включить внешний браузер"
+browser_external_description: "Разрешить агенту автоматизировать изолированный браузер Chromium на выбранном хосте"
+browser_external_unavailable: "Вспомогательный модуль Chromium недоступен на этом хосте"

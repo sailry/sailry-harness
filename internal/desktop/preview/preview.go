@@ -141,7 +141,7 @@ func Load() *Data {
 	d.Plugins = []Plugin{
 		{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Official: true, Enabled: true},
 		{ID: "terminal", Name: "Terminal", Description: "Ghostty terminals beside the conversation", Version: "0.2.0", Official: true, Enabled: true},
-		{ID: "browser", Name: "Browser", Description: "Pages the agent reads and annotates", Version: "0.1.4", Official: true, Enabled: false},
+		{ID: "reminders", Name: "Reminders", Description: "Scheduled prompts and follow-ups", Version: "0.1.4", Official: true, Enabled: false},
 		{ID: "knowledge", Name: "Knowledge", Description: "Local documents searched by meaning", Version: "0.1.1", Official: true, Enabled: true},
 		{ID: "figma", Name: "Figma", Description: "Frames and comments from design files", Version: "0.1.0", Official: false, Enabled: false},
 		{ID: "linear", Name: "Linear", Description: "Issues linked to conversations", Version: "0.2.3", Official: false, Enabled: true},

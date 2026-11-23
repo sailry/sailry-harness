@@ -2133,10 +2133,10 @@ browser_chrome_key_denied: Não foi possível ler a chave do Chrome; verifique o
 browser_chrome_cipher: Não foi possível descriptografar este cookie
 browser_import_unavailable: A importação do Chrome não está disponível neste sistema
 browser_store_unavailable: Manter dados do site e importar requer macOS 14 ou posterior
-external_browser_settings_saved: External browser settings saved
-external_browser_settings_failed: Could not save external browser settings
-external_browser_settings_conflict: External browser settings changed; reload to continue
-external_browser_settings_unknown: Saving external browser settings could not be confirmed
+external_browser_settings_saved: Configurações do navegador externo salvas
+external_browser_settings_failed: Não foi possível salvar as configurações do navegador externo
+external_browser_settings_conflict: As configurações do navegador externo foram alteradas; recarregue para continuar
+external_browser_settings_unknown: Não foi possível confirmar o salvamento das configurações do navegador externo
 search_settings: Pesquisa
 search_default_driver: Serviço padrão
 search_fallback: Usar serviços alternativos
@@ -2214,8 +2214,8 @@ memory_merge_description: Edite o conteúdo combinado · as entradas de origem s
 memory_duplicate: Memória correspondente existe · atualize ou mescle-a
 memory_search_too_long: A pesquisa é muito longa
 computer_permissions_refresh: Verifique novamente
-computer_settings_saved: Computer use settings saved
-computer_settings_failed: Could not save computer use settings
-computer_settings_conflict: Computer use settings changed; reload to continue
-computer_settings_unknown: Saving computer use settings could not be confirmed
+computer_settings_saved: Configurações de controle do computador salvas
+computer_settings_failed: Não foi possível salvar as configurações de controle do computador
+computer_settings_conflict: As configurações de controle do computador foram alteradas; recarregue para continuar
+computer_settings_unknown: Não foi possível confirmar o salvamento das configurações de controle do computador
 search_driver_auto: Automático

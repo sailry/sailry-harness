@@ -99,6 +99,12 @@ func responseContent(binding Binding, response canonical.ToolResponse, assets ma
 	failed := response.Status == canonical.ToolErrorStatus || response.Format == canonical.MCPError
 	if failed {
 		if message := protocol.ToolErrorMessage(json.RawMessage(raw)); message != "" {
+			var extra struct {
+				Warning string `json:"doom_loop_warning"`
+			}
+			if json.Unmarshal([]byte(raw), &extra) == nil && extra.Warning != "" && !strings.Contains(message, extra.Warning) {
+				message += " " + extra.Warning
+			}
 			return "Tool error: " + message, nil, nil
 		}
 	}
