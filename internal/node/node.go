@@ -953,6 +953,12 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				if job.request.Command.Kind == "stop_turn" {
 					node.agent.StopCommitted(value)
 				}
+			case protocol.QueuedTurn:
+				if job.request.Command.Kind == "guide_turn" {
+					if payload, ok := job.request.Command.Data.(*protocol.CommandGuideTurnPayload); ok {
+						node.agent.GuideCommitted(value, payload.Recipient)
+					}
+				}
 			case protocol.ConversationQueueUpdate:
 				if job.request.Command.Kind == "send_queued_turn" || job.request.Command.Kind == "guide_queued_turn" {
 					for _, run := range value.Runs {

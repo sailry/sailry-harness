@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -89,7 +90,12 @@ func TestContextPressureMixedToolFollowup(t *testing.T) {
 		response(call("mixed-readback", "read_tool_output", string(args)), workingSetUsage(1500))(ctx, request, yield)
 	}, response(text("The earlier inspection was successful."), workingSetUsage(1600)))
 	f := newFixtureWithTimeout(t, m, 20*time.Second, tools...)
-	setWorkingSetWindow(t, f)
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].context',64000)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	f.start()
 	var first protocol.TurnID
 	for batch := range len(results) / 2 {

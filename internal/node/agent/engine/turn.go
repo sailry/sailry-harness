@@ -512,7 +512,7 @@ func (r *Runtime) turn(x *execution) error {
 			continue
 		}
 		if finishing && !x.callbackPending {
-			if r.hasQueuedSteer(x) {
+			if r.hasQueuedSteer(x) || r.hasDirectSteer(x) {
 				continue
 			}
 			return nil
@@ -654,6 +654,7 @@ func (r *Runtime) guidance(x *execution) (bool, error) {
 	})
 	if err == nil {
 		x.queuedSteer = nil
+		x.directSteer = false
 	}
 	if err == nil && len(entries) > 0 {
 		r.publish()

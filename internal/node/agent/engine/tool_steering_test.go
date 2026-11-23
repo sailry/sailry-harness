@@ -280,3 +280,56 @@ func (f *engineFixture) steerQueued(recipient protocol.TurnID, item protocol.Con
 	f.t.Helper()
 	return f.command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{Turn: item.Turn, Recipient: recipient, ExpectedRevision: item.Revision}).Data.(protocol.ConversationQueueUpdate)
 }
+
+func TestDirectGuideTurnInterruptsRunningTools(t *testing.T) {
+	started, cancelled := make(chan struct{}), make(chan struct{})
+	tool := objectTool("slow_read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
+		close(started)
+		<-ctx.Done()
+		if !Steered(ctx) {
+			t.Error("direct guide_turn did not mark tool context as steered")
+		}
+		close(cancelled)
+		return toolFault(ctx.Err())
+	})
+	m := &scriptedModel{scripts: []script{
+		response(call("read", "slow_read", `{}`), finish()),
+		response(text("Redirected via direct guidance"), finish()),
+	}}
+	f := newFixture(t, m, tool)
+	f.start()
+	turn := f.submit("Read slowly")
+	select {
+	case <-started:
+	case <-f.ctx.Done():
+		t.Fatal("tool did not start")
+	}
+	f.command("guide_turn", &protocol.CommandGuideTurnPayload{
+		Recipient: turn, ExpectedRevision: f.session.Revision, Message: protocol.ConversationInput{Text: "Stop reading and summarize"},
+	})
+	select {
+	case <-cancelled:
+	case <-f.ctx.Done():
+		t.Fatal("direct guide_turn did not interrupt the running foreground tool")
+	}
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if m.count() != 2 {
+		t.Fatalf("model requests = %d, want 2", m.count())
+	}
+}
+
+func TestContextTokensExcludesUnreplayedReasoning(t *testing.T) {
+	turn := protocol.NewTurnID()
+	input, output, reasoning, total := uint64(10_000), uint64(8_000), uint64(6_000), uint64(18_000)
+	unsigned := canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "Scratchpad"}}, canonical.Text(1, "Answer"))
+	unsigned.Usage = &canonical.Usage{Input: &input, Output: &output, Reasoning: &reasoning, Total: &total}
+	if got := contextTokens([]canonical.Record{{ID: "a", Turn: turn, Kind: "message", Data: &unsigned}}); got != 12_000 {
+		t.Fatalf("unsigned reasoning contextTokens = %d, want 12000", got)
+	}
+	sig := "signed-thinking-blob"
+	signed := canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "Plan", Signature: &sig}}, canonical.Text(1, "Answer"))
+	signed.Usage = &canonical.Usage{Input: &input, Output: &output, Reasoning: &reasoning, Total: &total}
+	if got := contextTokens([]canonical.Record{{ID: "b", Turn: turn, Kind: "message", Data: &signed}}); got != 18_000 {
+		t.Fatalf("signed reasoning contextTokens = %d, want 18000", got)
+	}
+}

@@ -367,6 +367,99 @@ func TestVisibleAnsweredRecordsMatchesLegacyRequests(t *testing.T) {
 	}
 }
 
+func TestAnthropicParallelToolCoalescingAndBreakpoints(t *testing.T) {
+	turn := protocol.NewTurnID()
+	makeMsg := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
+		msg := canonical.NewMessage(role, blocks...)
+		return canonical.NewRecord(turn, "message", &msg, time.Time{})
+	}
+	user := makeMsg(canonical.User, canonical.Text(0, "Inspect 12 files"))
+	var reqBlocks, resBlocks []canonical.Block
+	for i := range 12 {
+		id := "call-" + strconv.Itoa(i)
+		reqBlocks = append(reqBlocks, canonical.Block{Index: uint64(i), Kind: "tool_request", Data: &canonical.ToolRequest{ID: id, Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)}})
+		resBlocks = append(resBlocks, canonical.Block{Index: uint64(i), Kind: "tool_response", Data: &canonical.ToolResponse{
+			ID: id, Name: "read_file", Revision: strings.Repeat("b", 64), Status: canonical.ToolSuccess, Format: canonical.JSON,
+			Result: canonical.Payload{Value: json.RawMessage(`{"ok":true}`)},
+		}})
+	}
+	assistant := makeMsg(canonical.Assistant, reqBlocks...)
+	toolMsg := makeMsg(canonical.User, resBlocks...)
+
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api = protocol.NewProviderID(), protocol.ConversationModelApiAnthropic
+	provider.Authentication = protocol.AuthenticationApiKey
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model = provider.ID, "claude-opus-5-5"
+	binding := Binding{Provider: provider, Config: config, Session: protocol.NewSessionID()}
+
+	call, err := BuildCall(binding, Request{System: "Stable system", Records: []canonical.Record{user, assistant, toolMsg}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := requestJSON(transportConfig{Kind: "anthropic", Model: config.Model}, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("anthropic messages = %d, want 3 (user + assistant + single coalesced tool_result user message)", len(messages))
+	}
+	// Prior user message MUST hold the earlier conversation cache breakpoint.
+	userBlocks := messages[0].(map[string]any)["content"].([]any)
+	if userBlocks[len(userBlocks)-1].(map[string]any)["cache_control"] == nil {
+		t.Fatal("prior user message lost its cache breakpoint across a parallel tool batch")
+	}
+	// All 12 tool results must be coalesced into messages[2] with cache_control only on the final block.
+	toolBlocks := messages[2].(map[string]any)["content"].([]any)
+	if len(toolBlocks) != 12 {
+		t.Fatalf("coalesced tool_result count = %d, want 12", len(toolBlocks))
+	}
+	for i, raw := range toolBlocks {
+		block := raw.(map[string]any)
+		hasCache := block["cache_control"] != nil
+		if hasCache != (i == len(toolBlocks)-1) {
+			t.Fatalf("tool_result[%d] cache_control=%v, want %v", i, hasCache, i == len(toolBlocks)-1)
+		}
+	}
+}
+
+func TestGeminiPreservesThoughtSignatureAcrossTurns(t *testing.T) {
+	turn1, turn2 := protocol.NewTurnID(), protocol.NewTurnID()
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api = protocol.NewProviderID(), protocol.ConversationModelApiGemini
+	provider.Authentication = protocol.AuthenticationApiKey
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model = provider.ID, "gemini-3-pro"
+	binding := Binding{Provider: provider, Config: config, Session: protocol.NewSessionID()}
+	scope := Scope(binding)
+
+	sig := "c2lnbmVkLXRob3VnaHQ="
+	u1Msg := canonical.NewMessage(canonical.User, canonical.Text(0, "First question"))
+	u1 := canonical.NewRecord(turn1, "message", &u1Msg, time.Time{})
+	a1Msg := canonical.NewMessage(canonical.Assistant,
+		canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "Plan", Signature: &sig}},
+		canonical.Text(1, "First answer"),
+	)
+	a1 := canonical.NewRecord(turn1, "message", &a1Msg, time.Time{})
+	a1.Metadata.Execution = &canonical.Execution{Source: &scope}
+	u2Msg := canonical.NewMessage(canonical.User, canonical.Text(0, "Second question"))
+	u2 := canonical.NewRecord(turn2, "message", &u2Msg, time.Time{})
+
+	call, err := BuildCall(binding, Request{System: "Stable", Records: []canonical.Record{u1, a1, u2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := requestJSON(transportConfig{Kind: "google", Model: config.Model}, call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(body)
+	if !strings.Contains(string(raw), sig) {
+		t.Fatalf("prior turn Gemini thoughtSignature was stripped on turn 2: %s", raw)
+	}
+}
+
 func BenchmarkModelHistoryProjection(b *testing.B) {
 	const count, tail = 4096, 256
 	message := canonical.NewMessage(canonical.User, canonical.Text(0, "Recorded progress"))

@@ -39,6 +39,36 @@ func (r *Runtime) QueueCommitted(update protocol.ConversationQueueUpdate, select
 	}
 }
 
+// GuideCommitted delivers direct composer guidance under publication so it
+// interrupts active foreground tools, approvals and questions without altering
+// explicit guide_queued_turn batch priority or cancelling future model calls.
+func (r *Runtime) GuideCommitted(turn protocol.QueuedTurn, recipient protocol.TurnID) {
+	if recipient == (protocol.TurnID{}) {
+		return
+	}
+	r.mu.Lock()
+	owner := r.active[recipient]
+	if owner != nil && (owner.inv.Session.ID != turn.Session || owner.ctx.Err() != nil) {
+		owner = nil
+	}
+	if owner != nil {
+		owner.directSteer = true
+	}
+	r.mu.Unlock()
+	if owner != nil && owner.interruptTools != nil {
+		owner.interruptTools(errQueuedSteer)
+	}
+}
+
+func (r *Runtime) hasDirectSteer(x *execution) bool {
+	if x.foregroundSteered {
+		return false
+	}
+	unlock := r.LockPublication()
+	defer unlock()
+	return x.directSteer
+}
+
 func (r *Runtime) beginToolStep(x *execution) (context.Context, func()) {
 	step, cancel := context.WithCancelCause(x.ctx)
 	unlock := r.LockPublication()

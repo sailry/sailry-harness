@@ -204,6 +204,11 @@ func (f *engineFixture) command(kind string, data any) protocol.Output {
 		selection, _ := data.(*protocol.CommandGuideQueuedTurnPayload)
 		f.r.QueueCommitted(update, selection)
 	}
+	if turn, ok := output.Data.(protocol.QueuedTurn); err == nil && ok && kind == "guide_turn" {
+		if payload, ok := data.(*protocol.CommandGuideTurnPayload); ok {
+			f.r.GuideCommitted(turn, payload.Recipient)
+		}
+	}
 	publication()
 	if err != nil {
 		f.t.Fatal(err)

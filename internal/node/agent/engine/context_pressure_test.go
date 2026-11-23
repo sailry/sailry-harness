@@ -231,6 +231,49 @@ func TestContextPressureRetainedTailAfterCheckpoint(t *testing.T) {
 	}
 }
 
+func TestContextPressureScalesWithLargeWindow(t *testing.T) {
+	makeHistory := func(window uint32, batches int) []canonical.Record {
+		var history []canonical.Record
+		for i := range batches {
+			exchange := pressureExchange(i, 1200, fmt.Sprintf("pkg/large%d.go", i))
+			obs := exchange[0].Metadata.Execution.Observation
+			w := window
+			obs.ContextLimit = &w
+			history = append(history, exchange...)
+		}
+		return history
+	}
+	// 12 batches (~120 KiB) exceeds the 64K window budget (96 KiB) but stays
+	// untouched on 200K and 1M windows to preserve their prompt cache prefix.
+	small := makeHistory(64_000, 12)
+	medium := makeHistory(200_000, 12)
+	large := makeHistory(1_000_000, 12)
+	if pressureLimitBytes(small) != toolOutputPressureBytes {
+		t.Fatalf("64K limit = %d, want %d", pressureLimitBytes(small), toolOutputPressureBytes)
+	}
+	if pressureLimitBytes(medium) != mediumWindowPressureBytes {
+		t.Fatalf("200K limit = %d, want %d", pressureLimitBytes(medium), mediumWindowPressureBytes)
+	}
+	if pressureLimitBytes(large) != largeWindowPressureBytes {
+		t.Fatalf("1M limit = %d, want %d", pressureLimitBytes(large), largeWindowPressureBytes)
+	}
+	baselineMedium := new(output.Cache).Project(model.VisibleAnsweredRecords(medium))
+	if !reflect.DeepEqual(pressureProjection(medium, new(output.Cache), true), baselineMedium) {
+		t.Fatal("200K window rewrote prefix below its scaled pressure budget")
+	}
+	baselineLarge := new(output.Cache).Project(model.VisibleAnsweredRecords(large))
+	if !reflect.DeepEqual(pressureProjection(large, new(output.Cache), true), baselineLarge) {
+		t.Fatal("1M window rewrote prefix below its scaled pressure budget")
+	}
+	// Above the 200K scaled budget (256 KiB), older batches still fold cleanly.
+	heavy := makeHistory(200_000, 32)
+	beforeHeavy := new(output.Cache).Project(model.VisibleAnsweredRecords(heavy))
+	afterHeavy := pressureProjection(heavy, new(output.Cache), true)
+	if reflect.DeepEqual(beforeHeavy, afterHeavy) {
+		t.Fatal("200K window failed to fold once past its scaled budget")
+	}
+}
+
 func BenchmarkContextPressureHistoryReplay(b *testing.B) {
 	session, turn := protocol.SessionID{1}, protocol.TurnID{1}
 	page := protocol.DefaultConversationSearchPage()

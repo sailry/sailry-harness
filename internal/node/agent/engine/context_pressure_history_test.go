@@ -22,7 +22,12 @@ import (
 func TestContextPressureBuiltinHistoryReplay(t *testing.T) {
 	m := &scriptedModel{}
 	f := newFixtureWithTimeout(t, m, 20*time.Second)
-	setWorkingSetWindow(t, f)
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].context',64000)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	session, archivedTurn, revision := pressureArchiveFixture(t, f)
 	complete := finish()
 	complete.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{
