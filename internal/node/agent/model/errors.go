@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -237,7 +238,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		f.Message = "Model stream ended before a completion event"
 	}
 	if errors.Is(err, stallError{}) {
-		f.Kind, f.Message = Network, "Model stream sent no data for 600 seconds"
+		f.Kind, f.Message = Network, fmt.Sprintf("Model stream sent no data for %d seconds", int(stallTimeout/time.Second))
 	}
 	f.retainResponseHints(err)
 	f.Message = safeDiagnostic(f.Message, secrets)

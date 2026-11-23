@@ -19,20 +19,21 @@ const (
 )
 
 type retryPolicy struct {
-	network, overloaded backoff.ExponentialBackOff
-	waited              time.Duration
-	dialTimeouts        uint64
-	originDeadline      time.Time
-	retryAt             time.Time
+	schedule       backoff.ExponentialBackOff
+	waited         time.Duration
+	dialTimeouts   uint64
+	originDeadline time.Time
+	retryAt        time.Time
 }
 
 func newRetryPolicy() retryPolicy {
+	// Most transient failures clear at once, so the first resend is quick.
+	// Rate limits and overload share the schedule: a provider that needs a
+	// slower pace says so through its wait hint.
 	policy := retryPolicy{
-		network:    backoff.ExponentialBackOff{InitialInterval: time.Second, RandomizationFactor: 0.2, Multiplier: 2, MaxInterval: 30 * time.Second},
-		overloaded: backoff.ExponentialBackOff{InitialInterval: 5 * time.Second, RandomizationFactor: 0.2, Multiplier: 2, MaxInterval: time.Minute},
+		schedule: backoff.ExponentialBackOff{InitialInterval: 300 * time.Millisecond, RandomizationFactor: 0.2, Multiplier: 2, MaxInterval: 30 * time.Second},
 	}
-	policy.network.Reset()
-	policy.overloaded.Reset()
+	policy.schedule.Reset()
 	return policy
 }
 
@@ -76,15 +77,10 @@ func (policy *retryPolicy) firstOutputTimer(start time.Time, cancel context.Canc
 }
 
 func (policy *retryPolicy) next(ctx context.Context, attempt Attempt, now time.Time) (time.Duration, bool) {
-	failure := attempt.Failure
-	schedule := &policy.network
-	if failure.Kind == RateLimited || failure.overloaded {
-		schedule = &policy.overloaded
-	}
 	// The library caps the nominal interval, before jitter. Keep our actual
 	// local wait within its cap; a provider's minimum may still exceed it.
-	delay := min(schedule.NextBackOff(), schedule.MaxInterval)
-	delay = max(delay, retryHint(failure, now))
+	delay := min(policy.schedule.NextBackOff(), policy.schedule.MaxInterval)
+	delay = max(delay, retryHint(attempt.Failure, now))
 	if !policy.originDeadline.IsZero() {
 		policy.retryAt = now.Add(delay)
 	}

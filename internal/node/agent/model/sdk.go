@@ -134,8 +134,8 @@ func sameRequestBody(left, right io.ReadCloser) bool {
 }
 
 // stallTimeout is how long a model response may send nothing, counted from
-// the request and again from each read. It is the reference's read timeout.
-const stallTimeout = 600 * time.Second
+// the request and again from each read.
+const stallTimeout = 300 * time.Second
 
 type responseTransport struct {
 	base  http.RoundTripper

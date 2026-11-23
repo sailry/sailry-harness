@@ -124,7 +124,7 @@ func TestSDKPreheaderEOFRetriesTheSameRequest(t *testing.T) {
 			first, last := attempts[0], attempts[1]
 			if first.Failure == nil || first.Failure.Kind != Network || first.Failure.Message != "Model connection ended before response headers" || !first.Failure.Retryable() ||
 				first.Status != nil || first.ResponseUs != nil || first.RetryDelay == nil || *first.RetryDelay != timer.delays[0] ||
-				timer.delays[0] < 800*time.Millisecond || timer.delays[0] > 1200*time.Millisecond ||
+				timer.delays[0] < 240*time.Millisecond || timer.delays[0] > 360*time.Millisecond ||
 				last.Failure != nil || last.Status == nil || *last.Status != http.StatusOK || first.RequestID != last.RequestID || last.Index != 1 {
 				t.Fatalf("preheader EOF lost its transport boundary or retry identity: %+v", attempts)
 			}

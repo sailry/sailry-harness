@@ -63,10 +63,15 @@ func NewACP(binding Binding, capture ACPCapture) (fantasy.LanguageModel, error) 
 		return nil, &Failure{Kind: NotConfigured, Message: "captured model adapter is unavailable"}
 	}
 	if capture.stall == 0 {
-		capture.stall = stallTimeout
+		capture.stall = acpStallTimeout
 	}
 	return &acpModel{binding: binding, capture: capture}, nil
 }
+
+// acpStallTimeout is how long an ACP agent may stay silent. The agent runs its
+// own tools inside one prompt turn, so a long command can leave the session
+// quiet longer than a model stream's stallTimeout.
+const acpStallTimeout = 600 * time.Second
 
 func (model *acpModel) Provider() string { return "sailry-plugin" }
 func (model *acpModel) Model() string    { return model.binding.Config.Model }

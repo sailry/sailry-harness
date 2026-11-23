@@ -114,8 +114,10 @@ func TestRetryTransient(t *testing.T) {
 		body string
 		wait time.Duration
 	}{
-		{"service unavailable", `{"error":{"code":"service_unavailable","message":"unavailable"}}`, time.Second},
-		{"explicit overload", `{"error":{"code":"api_error","type":"overloaded_error","message":"busy"}}`, 5 * time.Second},
+		{"service unavailable", `{"error":{"code":"service_unavailable","message":"unavailable"}}`, 300 * time.Millisecond},
+		// Overload shares the quick schedule; a provider that needs a slower
+		// pace sends a wait hint.
+		{"explicit overload", `{"error":{"code":"api_error","type":"overloaded_error","message":"busy"}}`, 300 * time.Millisecond},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fake := &policyModel{responses: [][]fantasy.StreamPart{{{
@@ -141,11 +143,9 @@ func TestRetryTransient(t *testing.T) {
 				if err != nil || fake.calls != 2 || len(observations) != 2 || len(output) != 2 {
 					t.Fatalf("retry result: calls=%d observations=%d output=%d error=%v", fake.calls, len(observations), len(output), err)
 				}
-				// Main and summary requests use the same transient policy.
-				want := time.Second
-				if kind == RateLimited {
-					want = 5 * time.Second
-				}
+				// Main and summary requests, and every transient cause, use the
+				// same schedule.
+				want := 300 * time.Millisecond
 				if len(timer.delays) != 1 || timer.delays[0] < want*4/5 || timer.delays[0] > want*6/5 {
 					t.Errorf("retry delays = %v", timer.delays)
 				}
