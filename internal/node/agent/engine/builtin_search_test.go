@@ -32,6 +32,11 @@ func TestDiscoveryMatchesCapturedLabelsAndCapabilities(t *testing.T) {
 			t.Fatalf("query %q discovered unrelated tools: %+v", query, matched)
 		}
 	}
+	dbTool := jsonTool("db_query", "Run SQL against a database", `{"type":"object"}`, true, true, nil)
+	dbTool.Deferred = true
+	if matched := builtinMatches([]Tool{tool, dbTool}, "db", 8); len(matched) != 1 || matched[0].Definition.Name != "db_query" {
+		t.Fatalf("2-char query \"db\" matched %+v, want db_query", matched)
+	}
 }
 
 func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {

@@ -30,10 +30,10 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 	}
 	query = strings.ToLower(query)
 	terms := map[string]bool{}
-	stop := strings.Fields("and are can could for from get have how into need please that the their them these this those tool tools use using want what when where which with would you")
+	stop := strings.Fields("am an and are as at be by can could do for from get have how if in into is it me my need no of on or please so that the their them these this those to tool tools up us use using want we what when where which with would you")
 	for _, term := range strings.FieldsFunc(query, func(c rune) bool { return !unicode.IsLetter(c) && !unicode.IsNumber(c) }) {
 		characters := []rune(term)
-		if (len(characters) >= 3 || len(characters) == 2 && slices.ContainsFunc(characters, func(c rune) bool { return c > unicode.MaxASCII })) && !slices.Contains(stop, term) {
+		if len(characters) >= 2 && !slices.Contains(stop, term) {
 			terms[term] = true
 		}
 	}

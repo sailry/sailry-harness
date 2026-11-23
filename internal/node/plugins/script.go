@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MoeForge/moejs"
@@ -106,22 +107,41 @@ func runScript(ctx context.Context, bundle ScriptBundle, handler string, input a
 	return result, nil
 }
 
-func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, bridge *scriptBridge, pure bool) (_ *scriptVM, result error) {
-	if err := scriptCheck(ctx, deadline, pure); err != nil {
-		return nil, err
-	}
-	runtime := &scriptVM{ctx: ctx, deadline: deadline, bridge: bridge, pure: pure}
-	builtins := map[string]string{}
-	names := []string{"sdk", "http", "models", "decisions", "connectors", "cards", "installations"}
-	if pure {
-		names = []string{"adapter"}
-	}
+var (
+	scriptHostBuiltins = sync.OnceValues(func() (map[string]string, error) {
+		return loadScriptBuiltins([]string{"sdk", "http", "models", "decisions", "connectors", "cards", "installations"})
+	})
+	scriptPureBuiltins = sync.OnceValues(func() (map[string]string, error) {
+		return loadScriptBuiltins([]string{"adapter"})
+	})
+)
+
+func loadScriptBuiltins(names []string) (map[string]string, error) {
+	builtins := make(map[string]string, len(names))
 	for _, name := range names {
 		source, err := scriptFiles.ReadFile("script/" + name + ".js")
 		if err != nil {
 			return nil, scriptEngine(err)
 		}
 		builtins["sailry/"+name] = string(source)
+	}
+	return builtins, nil
+}
+
+func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, bridge *scriptBridge, pure bool) (_ *scriptVM, result error) {
+	if err := scriptCheck(ctx, deadline, pure); err != nil {
+		return nil, err
+	}
+	runtime := &scriptVM{ctx: ctx, deadline: deadline, bridge: bridge, pure: pure}
+	var builtins map[string]string
+	var err error
+	if pure {
+		builtins, err = scriptPureBuiltins()
+	} else {
+		builtins, err = scriptHostBuiltins()
+	}
+	if err != nil {
+		return nil, err
 	}
 	if _, ok := bundle.Files[bundle.Entry]; !ok {
 		return nil, scriptInvalid("plugin host entry is missing")

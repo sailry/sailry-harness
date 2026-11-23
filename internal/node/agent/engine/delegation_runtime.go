@@ -361,6 +361,7 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 			}
 		}
 		pending := false
+		deliveredAny := false
 		for _, child := range children {
 			var state store.ChildState
 			unlock := r.LockPublication()
@@ -377,15 +378,18 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 			})
 			unlock()
 			if err != nil {
-				return false, false, err
+				return deliveredAny, false, err
 			}
 			if childPending(state.Run) {
 				pending = pending || finishing || !current.overlap
 				continue
 			}
 			if err := r.deliverForeground(x, state); err != nil {
-				return false, false, err
+				return deliveredAny, false, err
 			}
+			deliveredAny = true
+		}
+		if deliveredAny {
 			return true, false, nil
 		}
 		if !pending || acceptGuidance && x.foregroundSteered {

@@ -198,41 +198,54 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		start, from int
 		pattern     []string
 		fixed       bool
+		mode        uint8
 	}
 	var replacements []replacement
 	var positions []located
 	cursor := 0
-	matches := func(pattern []string, start int) bool {
+	matchLine := func(a, b string, mode uint8) bool {
+		switch mode {
+		case 1:
+			return strings.TrimRight(a, " \t") == strings.TrimRight(b, " \t")
+		case 2:
+			return strings.TrimSpace(a) == strings.TrimSpace(b)
+		default:
+			return a == b
+		}
+	}
+	matchesMode := func(pattern []string, start int, mode uint8) bool {
 		if start < 0 || start+len(pattern) > len(lines) {
 			return false
 		}
 		for i, text := range pattern {
-			if lines[start+i].text != text {
+			if !matchLine(lines[start+i].text, text, mode) {
 				return false
 			}
 		}
 		return true
 	}
-	seek := func(pattern []string, start int, eof bool) int {
-		if eof {
-			at := len(lines) - len(pattern)
-			if at >= start && matches(pattern, at) {
-				return at
+	seek := func(pattern []string, start int, eof bool) (int, uint8) {
+		for mode := uint8(0); mode <= 2; mode++ {
+			if eof {
+				at := len(lines) - len(pattern)
+				if at >= start && matchesMode(pattern, at, mode) {
+					return at, mode
+				}
+				continue
 			}
-			return -1
-		}
-		for at := start; at+len(pattern) <= len(lines); at++ {
-			if matches(pattern, at) {
-				return at
+			for at := start; at+len(pattern) <= len(lines); at++ {
+				if matchesMode(pattern, at, mode) {
+					return at, mode
+				}
 			}
 		}
-		return -1
+		return -1, 0
 	}
 	for index, chunk := range chunks {
 		previous := cursor
-		anchor := -1
+		anchor, anchorMode := -1, uint8(0)
 		if chunk.Context != nil {
-			anchor = seek([]string{*chunk.Context}, cursor, false)
+			anchor, anchorMode = seek([]string{*chunk.Context}, cursor, false)
 			if anchor < 0 {
 				return "", invalid(fmt.Sprintf("hunk %d: @@ context line was not found", index+1))
 			}
@@ -243,7 +256,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 			at := len(lines)
 			if anchor >= 0 && !chunk.EndOfFile {
 				at = cursor
-				positions = append(positions, located{anchor, previous, []string{*chunk.Context}, false})
+				positions = append(positions, located{anchor, previous, []string{*chunk.Context}, false, anchorMode})
 			}
 			var inserted []patchLine
 			for _, text := range new {
@@ -252,13 +265,13 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 			replacements = append(replacements, replacement{at, 0, inserted})
 			continue
 		}
-		at := seek(old, cursor, chunk.EndOfFile)
+		at, mode := seek(old, cursor, chunk.EndOfFile)
 		if at < 0 && len(old) > 0 && old[len(old)-1] == "" {
 			old = old[:len(old)-1]
 			if len(new) > 0 && new[len(new)-1] == "" {
 				new = new[:len(new)-1]
 			}
-			at = seek(old, cursor, chunk.EndOfFile)
+			at, mode = seek(old, cursor, chunk.EndOfFile)
 		}
 		if at < 0 {
 			return "", invalid(fmt.Sprintf("hunk %d: expected lines were not found", index+1))
@@ -267,7 +280,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		if anchor >= 0 {
 			start = anchor
 		}
-		positions = append(positions, located{start, cursor, old, chunk.EndOfFile})
+		positions = append(positions, located{start, cursor, old, chunk.EndOfFile, mode})
 		var inserted []patchLine
 		kept := map[int]int{}
 		for _, pair := range chunk.Kept {
@@ -293,7 +306,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		first := -1
 		for at := p.from; at+len(p.pattern) <= bound; at++ {
-			if matches(p.pattern, at) {
+			if matchesMode(p.pattern, at, p.mode) {
 				if first >= 0 {
 					return "", invalid(fmt.Sprintf("patch hunk matches multiple locations at lines %d and %d; add context lines or an @@ line", first+1, at+1))
 				}

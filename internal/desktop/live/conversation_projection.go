@@ -516,6 +516,10 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			call.Background = projectBackground(page.Background[index])
 		}
 	}
+	entryIndex := make(map[string]*protocol.ConversationEntry, len(page.Entries))
+	for i := range page.Entries {
+		entryIndex[page.Entries[i].ID] = &page.Entries[i]
+	}
 	var interactions composer.Interactions
 	for _, a := range page.Approvals {
 		if projected := calls[toolCallKey(a.Entry, a.Index)]; projected != nil {
@@ -549,7 +553,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if position, ok := positions[owners[a.Turn]]; ok {
 			turns[position].Reply.Phase = conversation.WaitingUser
 		}
-		call := callAt(page, a.Entry, a.Index)
+		call := callAtIndex(entryIndex, a.Entry, a.Index)
 		v := projectApproval(a, call, language)
 		if call != nil {
 			if projected := calls[toolCallKey(a.Entry, a.Index)]; projected != nil {
@@ -563,7 +567,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if position, ok := positions[owners[q.Turn]]; ok && q.State.Kind == "pending" {
 			turns[position].Reply.Phase = conversation.WaitingUser
 		}
-		call := callAt(page, q.Entry, q.Index)
+		call := callAtIndex(entryIndex, q.Entry, q.Index)
 		if call == nil || call.Summary == nil || call.Summary.Question == nil || *call.Summary.Question == nil {
 			continue
 		}
@@ -594,7 +598,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			if reply.Phase != conversation.AwaitingResponse {
 				continue
 			}
-			reply.Waiting = waitingConversationChildren(snapshot, owner)
+			reply.Waiting = waitingConversationChildrenIndexed(snapshot, owner, entryIndex)
 			if reply.Waiting > 0 {
 				reply.Phase = conversation.WaitingChildren
 			}
@@ -649,6 +653,14 @@ func continuationMarker(continuation *protocol.ConversationContinuation) *conver
 }
 
 func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn protocol.TurnID) int {
+	entryIndex := make(map[string]*protocol.ConversationEntry, len(snapshot.Page.Entries))
+	for i := range snapshot.Page.Entries {
+		entryIndex[snapshot.Page.Entries[i].ID] = &snapshot.Page.Entries[i]
+	}
+	return waitingConversationChildrenIndexed(snapshot, turn, entryIndex)
+}
+
+func waitingConversationChildrenIndexed(snapshot protocol.ConversationSnapshot, turn protocol.TurnID, entryIndex map[string]*protocol.ConversationEntry) int {
 	page := snapshot.Page
 	runIndex := slices.IndexFunc(page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == turn })
 	if runIndex < 0 || page.Runs[runIndex].Status != "running" || page.Runs[runIndex].Kind != "task" {
@@ -753,7 +765,7 @@ scan:
 		if child.Run.Status != "queued" && child.Run.Status != "running" && child.Run.Status != "stopping" {
 			continue
 		}
-		call := callAt(page, child.Origin.Entry, child.Origin.Index)
+		call := callAtIndex(entryIndex, child.Origin.Entry, child.Origin.Index)
 		if call != nil && (call.Summary == nil || !call.Summary.Delegation.Background) && (final || !child.Origin.Overlap) {
 			count++
 		}
@@ -823,6 +835,15 @@ func runStatus(status protocol.ConversationStatus) conversation.RunStatus {
 		return conversation.Failed
 	}
 	return conversation.Completed
+}
+
+func callAtIndex(index map[string]*protocol.ConversationEntry, entry string, part uint64) *protocol.ConversationPartToolCallPayload {
+	if e := index[entry]; e != nil && part < uint64(len(e.Parts)) && e.Parts[part].Kind == "tool_call" {
+		if v, ok := detail[protocol.ConversationPartToolCallPayload](e.Parts[part].Data); ok {
+			return &v
+		}
+	}
+	return nil
 }
 
 func callAt(page protocol.ConversationPage, entry string, index uint64) *protocol.ConversationPartToolCallPayload {

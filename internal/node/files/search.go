@@ -157,6 +157,9 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 			current := row{start, end, lineNumber, matched}
 			if matched {
 				matches++
+				if input.Mode == protocol.SearchModeFiles {
+					break
+				}
 				if input.Mode == protocol.SearchModeContent {
 					for index := 0; index < len(pending); index++ {
 						emit(pending[(head+index)%len(pending)])
@@ -198,6 +201,10 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 				}
 			}
 			position++
+		}
+		// Stop walking once the page is filled and at least one extra hit confirms truncation.
+		if position > input.Offset+limit {
+			return false, nil
 		}
 		return true, nil
 	})

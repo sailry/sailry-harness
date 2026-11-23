@@ -62,16 +62,22 @@ func (files *Files) ReadLines(ctx context.Context, relative string, offset, limi
 			return protocol.FileLines{}, fileFault(protocol.ErrorCodeInvalidRequest, "binary file cannot be displayed as text")
 		}
 		valid := len(chunk)
-		for position := 0; position < len(chunk); {
-			character, size := utf8.DecodeRune(chunk[position:])
-			if character == utf8.RuneError && size == 1 {
-				if !utf8.FullRune(chunk[position:]) {
-					valid = position
-					break
+		if !utf8.Valid(chunk) {
+			for position := 0; position < len(chunk); {
+				character, size := utf8.DecodeRune(chunk[position:])
+				if character == utf8.RuneError && size == 1 {
+					if !utf8.FullRune(chunk[position:]) {
+						valid = position
+						break
+					}
+					return protocol.FileLines{}, fileFault(protocol.ErrorCodeInvalidRequest, "file is not UTF-8 text")
 				}
-				return protocol.FileLines{}, fileFault(protocol.ErrorCodeInvalidRequest, "file is not UTF-8 text")
+				position += size
 			}
-			position += size
+		}
+		if !collecting && (!page.Truncated || page.NextOffset != nil) {
+			pending = copy(buffer[:], chunk[valid:])
+			continue
 		}
 		for _, fragment := range strings.SplitAfter(string(chunk[:valid]), "\n") {
 			if fragment == "" {

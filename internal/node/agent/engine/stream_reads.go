@@ -7,7 +7,12 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 )
+
+func streamReadTransparent(name string) bool {
+	return operations.IsUpdatePlanTool(name) || name == "set_session_title"
+}
 
 const maxConcurrentTools = 16
 
@@ -51,6 +56,9 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	}
 	call := *request
 	x.names.restoreCall(&call)
+	if call.Error == nil && streamReadTransparent(call.Name) {
+		return
+	}
 	tool := findTool(x.tools, call.Name)
 	if call.Error != nil || tool == nil || !tool.StreamRead || !tool.ReadOnly || !tool.Concurrent || tool.Approval ||
 		tool.Confirm != nil || tool.ObserveHistory != nil || tool.Delegation || x.hooks.WrapsTools() {
@@ -128,6 +136,9 @@ func (reads *streamedReads) adopt(blocks []canonical.Block) bool {
 	for _, block := range blocks {
 		request, ok := block.Data.(*canonical.ToolRequest)
 		if !ok || externalToolCall(*request) {
+			continue
+		}
+		if request.Error == nil && streamReadTransparent(request.Name) {
 			continue
 		}
 		job := reads.pending[request]

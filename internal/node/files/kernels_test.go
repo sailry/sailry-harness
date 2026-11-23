@@ -50,6 +50,18 @@ func TestFileTextKernels(t *testing.T) {
 	if _, err = ApplyPatchChunks("a\nx\na\n", []PatchChunk{{Old: []string{"a"}, New: []string{"b"}}}); err == nil || !strings.Contains(err.Error(), "lines 1 and 3") {
 		t.Fatalf("ambiguous hunk locations: %v", err)
 	}
+	// Fuzzy seek handles trailing whitespace and indentation drift uniquely.
+	if after, err = ApplyPatchChunks("func main() {\n\tfmt.Println(\"hi\")   \n}\n", []PatchChunk{{Old: []string{"fmt.Println(\"hi\")"}, New: []string{"\tfmt.Println(\"bye\")"}}}); err != nil || !strings.Contains(after, "bye") {
+		t.Fatalf("fuzzy patch failed: %q %v", after, err)
+	}
+	// Duplicate edit errors report match count and line numbers.
+	if _, err = PrepareEdits("alpha\nbeta\nalpha\n", []protocol.FileEdit{{OldText: "alpha", NewText: "gamma"}}); err == nil || !strings.Contains(err.Error(), "2 matches") || !strings.Contains(err.Error(), "1, 3") {
+		t.Fatalf("duplicate edit diagnostics: %v", err)
+	}
+	// Whole-file edit fast path.
+	if after, err = PrepareEdits("line1\nline2\n", []protocol.FileEdit{{OldText: "line1\nline2\n", NewText: "replaced\n"}}); err != nil || after != "replaced\n" {
+		t.Fatalf("whole-file edit: %q %v", after, err)
+	}
 	hunks, err := SplitHunks("note.txt", "one\ntwo\nthree\n", "one\nnext\nthree\n", 0)
 	if err != nil || len(hunks) != 1 || !validRevision(hunks[0].Hunk.ID) {
 		t.Fatalf("hunks: %+v %v", hunks, err)

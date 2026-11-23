@@ -37,14 +37,42 @@ type preparedConversation struct {
 }
 
 func (r *Runtime) prepareConversation(id protocol.SessionID, state client.ConversationState, language string) *preparedConversation {
+	return r.prepareConversationWith(id, state, language, nil)
+}
+
+func samePageMetadata(a, b protocol.ConversationPage) bool {
+	if a.Session != b.Session || a.Revision != b.Revision || len(a.Entries) != len(b.Entries) ||
+		len(a.Runs) != len(b.Runs) || len(a.Queue.Items) != len(b.Queue.Items) || a.Queue.Revision != b.Queue.Revision {
+		return false
+	}
+	if len(a.Entries) > 0 && &a.Entries[0] != &b.Entries[0] {
+		return false
+	}
+	for i := range a.Runs {
+		if a.Runs[i].Turn != b.Runs[i].Turn || a.Runs[i].Status != b.Runs[i].Status || a.Runs[i].Sequence != b.Runs[i].Sequence {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Runtime) prepareConversationWith(id protocol.SessionID, state client.ConversationState, language string, cached *preparedConversation) *preparedConversation {
 	p := &preparedConversation{state: state, language: language, view: viewmodel.Conversation{ID: id.String()}, blank: state.HasBlankHistoryTurn()}
 	v := &p.view
 	v.Turns, v.Session, v.Waiting, v.Queue, p.clocks = projectTranscript(state, language)
 	r.enrichDetails(v, state, language)
 	r.enrichQueue(v, state.Snapshot.Page.Queue)
-	p.references = r.conversationReferences(v.ID, state.Snapshot.Page)
-	p.attachments = attachmentParts(state.Snapshot.Page)
-	p.controls = controlFacts(state.Snapshot.Page)
+	// Pure streaming draft deltas leave Page.Entries and Page.Runs untouched;
+	// reuse the previously scanned references, attachments and control facts.
+	if cached != nil && cached.language == language && samePageMetadata(state.Snapshot.Page, cached.state.Snapshot.Page) {
+		p.references = cached.references
+		p.attachments = cached.attachments
+		p.controls = cached.controls
+	} else {
+		p.references = r.conversationReferences(v.ID, state.Snapshot.Page)
+		p.attachments = attachmentParts(state.Snapshot.Page)
+		p.controls = controlFacts(state.Snapshot.Page)
+	}
 	for i := range v.Turns {
 		for j := range v.Turns[i].Reply.Blocks {
 			b := &v.Turns[i].Reply.Blocks[j]
@@ -124,6 +152,7 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 		var previous client.ConversationState
 		var previousLocale *string
 		var previousRequest uint64
+		var previousPrepared *preparedConversation
 		for ctx.Err() == nil {
 			select {
 			case <-ctx.Done():
@@ -148,7 +177,8 @@ func (r *Runtime) startConversationFeed(id protocol.SessionID, language string) 
 			same := sameTranscriptSource(state, previous) && locale == previousLocale && request == previousRequest
 			p := &preparedConversation{state: state}
 			if !same && locale != nil {
-				p = r.prepareConversation(id, state, *locale)
+				p = r.prepareConversationWith(id, state, *locale, previousPrepared)
+				previousPrepared = p
 			}
 			p.request = request
 			<-lane

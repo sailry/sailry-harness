@@ -99,27 +99,28 @@ type serviceLock struct {
 }
 
 type connection struct {
-	pool        *Pool
-	key         connectionKey
-	reference   protocol.PluginReference
-	ready       chan struct{}
-	session     *sdk.ClientSession
-	fault       error
-	cancel      context.CancelFunc
-	leases      int
-	retired     bool
-	used        time.Time
-	reuse       bool
-	exclusive   *serviceLock
-	calls       *semaphore.Weighted
-	mu          sync.Mutex
-	poisoned    bool
-	closing     bool
-	closeOnce   sync.Once
-	closeDone   chan struct{}
-	closeErr    error
-	release     func() error
-	descriptors []*sdk.Tool
+	pool             *Pool
+	key              connectionKey
+	reference        protocol.PluginReference
+	ready            chan struct{}
+	session          *sdk.ClientSession
+	fault            error
+	cancel           context.CancelFunc
+	leases           int
+	retired          bool
+	used             time.Time
+	reuse            bool
+	exclusive        *serviceLock
+	calls            *semaphore.Weighted
+	mu               sync.Mutex
+	poisoned         bool
+	closing          bool
+	closeOnce        sync.Once
+	closeDone        chan struct{}
+	closeErr         error
+	release          func() error
+	descriptors      []*sdk.Tool
+	descriptorsReady bool
 }
 
 type Lease struct {
@@ -508,7 +509,7 @@ func (pool *Pool) Changes() []string {
 // List reads the server's tools. Its outcome is what the server reports as
 // its runtime, except for a caller that gave up.
 func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
-	tools, err := lease.list(ctx)
+	tools, err := lease.list(ctx, true)
 	failure := err
 	if err != nil && ctx.Err() != nil {
 		failure = cancelled()
@@ -519,12 +520,58 @@ func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
 	return tools, err
 }
 
-func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
+// ListCached returns cached tool descriptors on an already-inspected healthy
+// connection before falling back to a wire ListTools call.
+func (lease *Lease) ListCached(ctx context.Context) ([]*sdk.Tool, error) {
+	tools, err := lease.list(ctx, false)
+	failure := err
+	if err != nil && ctx.Err() != nil {
+		failure = cancelled()
+	}
+	lease.pool.mu.Lock()
+	lease.pool.report(lease.connection, protocol.PluginMcpRuntimeStateConnected, len(tools), failure)
+	lease.pool.mu.Unlock()
+	return tools, err
+}
+
+func (lease *Lease) filterDescriptors(all []*sdk.Tool) []*sdk.Tool {
+	selected := lease.config.Tools
+	if selected == nil {
+		return slices.Clone(all)
+	}
+	filtered := make([]*sdk.Tool, 0, len(all))
+	for _, tool := range all {
+		if slices.Contains(*selected, tool.Name) {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
+
+func (lease *Lease) list(ctx context.Context, refresh bool) ([]*sdk.Tool, error) {
 	connection := lease.connection
+	if !refresh {
+		connection.mu.Lock()
+		cached := connection.descriptorsReady && !connection.poisoned && connection.fault == nil
+		all := connection.descriptors
+		connection.mu.Unlock()
+		if cached {
+			return lease.filterDescriptors(all), nil
+		}
+	}
 	if err := connection.lock(ctx, connection.calls, maxCalls); err != nil {
 		return nil, err
 	}
 	defer connection.calls.Release(maxCalls)
+	if !refresh {
+		connection.mu.Lock()
+		cached := connection.descriptorsReady && !connection.poisoned && connection.fault == nil
+		all := connection.descriptors
+		connection.mu.Unlock()
+		if cached {
+			return lease.filterDescriptors(all), nil
+		}
+	}
 	listing, cancel := context.WithCancel(ctx)
 	defer cancel()
 	timer := lease.pool.clock.NewTimer(10 * time.Second)
@@ -539,7 +586,7 @@ func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 		case <-listing.Done():
 		}
 	}()
-	var tools []*sdk.Tool
+	var all []*sdk.Tool
 	names, cursors := map[string]bool{}, map[string]bool{}
 	cursor := ""
 	total := 0
@@ -553,30 +600,22 @@ func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 			if listing.Err() == nil && (!errors.As(err, &remote) || errors.As(err, &responseFailure)) {
 				connection.mu.Lock()
 				connection.poisoned = true
+				connection.descriptorsReady = false
 				connection.mu.Unlock()
 			}
 			return nil, unavailable()
 		}
 		for _, tool := range page.Tools {
-			if selected := lease.config.Tools; selected != nil {
-				found := false
-				for _, name := range *selected {
-					found = found || name == tool.Name
-				}
-				if !found {
-					continue
-				}
-			}
 			body, err := json.Marshal(tool)
 			if err != nil {
 				return nil, unavailable()
 			}
 			total += len(body)
-			if len(tools) >= maxTools || total > maxToolBytes || tool.Name == "" || names[tool.Name] {
+			if len(all) >= maxTools || total > maxToolBytes || tool.Name == "" || names[tool.Name] {
 				return nil, unavailable()
 			}
 			names[tool.Name] = true
-			tools = append(tools, tool)
+			all = append(all, tool)
 		}
 		cursor = page.NextCursor
 		if cursor == "" {
@@ -588,9 +627,10 @@ func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 		cursors[cursor] = true
 	}
 	connection.mu.Lock()
-	connection.descriptors = tools
+	connection.descriptors = all
+	connection.descriptorsReady = true
 	connection.mu.Unlock()
-	return tools, nil
+	return lease.filterDescriptors(all), nil
 }
 
 func (lease *Lease) Close() error {

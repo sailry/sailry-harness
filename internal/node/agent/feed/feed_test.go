@@ -534,3 +534,45 @@ func TestBackgroundFeedDeduplicationFollowsCurrentPage(t *testing.T) {
 		t.Fatal("changed background task revision was not published")
 	}
 }
+
+func TestDraftStreamingIncrementalAccumulation(t *testing.T) {
+	session, turn := protocol.NewSessionID(), protocol.NewTurnID()
+	h := New(protocol.NodeID{1})
+	stream := h.Reserve(session, nil).Subscribe(feedSnapshot(session))
+	defer stream.Close()
+	nextUpdate(t, stream, "conversation_snapshot")
+	run := protocol.DefaultConversationRun()
+	run.Session, run.Turn, run.Worktree = session, turn, protocol.NewWorktreeID()
+	run.Status, run.Kind = protocol.ConversationStatusRunning, protocol.ConversationRunKindTask
+	h.Publish(session, protocol.ConversationChange{Kind: "run", Data: run})
+
+	samples := []string{"hello ", "world\n", `"quoted" & <tag>`, "\u0001\t\\end", "中文测试"}
+	var want strings.Builder
+	for _, chunk := range samples {
+		want.WriteString(chunk)
+		draft := protocol.ConversationDraft{
+			ID:     "reply",
+			Turn:   turn,
+			Author: "assistant",
+			Parts:  []protocol.ConversationPart{{Kind: "text", Data: chunk}},
+		}
+		if err := h.Delta(session, draft); err != nil {
+			t.Fatalf("delta %q: %v", chunk, err)
+		}
+		encoded, err := json.Marshal(chunk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := jsonEscapedLen(chunk); got != len(encoded)-2 {
+			t.Fatalf("jsonEscapedLen(%q) = %d, want %d (json=%s)", chunk, got, len(encoded)-2, encoded)
+		}
+	}
+	reserved := h.Reserve(session, nil)
+	defer reserved.Close()
+	if len(reserved.Drafts) != 1 || len(reserved.Drafts[0].Parts) != 1 {
+		t.Fatalf("unexpected merged drafts: %+v", reserved.Drafts)
+	}
+	if got, _ := reserved.Drafts[0].Parts[0].Data.(string); got != want.String() {
+		t.Fatalf("merged draft = %q, want %q", got, want.String())
+	}
+}

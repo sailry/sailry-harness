@@ -84,7 +84,7 @@ func (node *Node) connectMCPTools(ctx context.Context, invocation *store.AgentIn
 	if err != nil {
 		return nil, err
 	}
-	descriptors, err := lease.List(ctx)
+	descriptors, err := lease.ListCached(ctx)
 	if err != nil {
 		return nil, errors.Join(err, lease.Close())
 	}

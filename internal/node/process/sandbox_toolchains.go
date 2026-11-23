@@ -4,20 +4,77 @@ package process
 
 import (
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
+	"time"
 )
+
+type toolchainCacheKey struct {
+	search, home, profile string
+}
+
+type toolchainDirStamp struct {
+	path    string
+	exists  bool
+	modTime time.Time
+	size    int64
+}
+
+type toolchainCacheEntry struct {
+	stamps   []toolchainDirStamp
+	paths    []allowedPath
+	links    map[string]string
+	resolved string
+}
+
+var (
+	toolchainCacheMu sync.Mutex
+	toolchainCache   = map[toolchainCacheKey]toolchainCacheEntry{}
+)
+
+func stampToolchainDirs(entries []string) []toolchainDirStamp {
+	stamps := make([]toolchainDirStamp, len(entries))
+	for i, dir := range entries {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			stamps[i] = toolchainDirStamp{path: dir}
+			continue
+		}
+		stamps[i] = toolchainDirStamp{path: dir, exists: true, modTime: info.ModTime(), size: info.Size()}
+	}
+	return stamps
+}
 
 func (policy *sandboxPolicy) configurePaths(search string) {
 	delete(policy.variables, "PATH")
 	if search == "" {
 		return
 	}
-	paths := filepath.SplitList(search)
+	rawEntries := filepath.SplitList(search)
+	key := toolchainCacheKey{search: search, home: policy.home, profile: policy.profile}
+	stamps := stampToolchainDirs(rawEntries)
+	toolchainCacheMu.Lock()
+	cached, ok := toolchainCache[key]
+	toolchainCacheMu.Unlock()
+	if ok && slices.Equal(cached.stamps, stamps) {
+		for _, entry := range cached.paths {
+			if !slices.ContainsFunc(policy.paths, func(existing allowedPath) bool { return within(existing.path, entry.path) }) {
+				policy.paths = append(policy.paths, entry)
+			}
+		}
+		maps.Copy(policy.links, cached.links)
+		policy.variables["PATH"] = cached.resolved
+		return
+	}
+	scratch := sandboxPolicy{variables: map[string]string{}, links: map[string]string{}, home: policy.home, profile: policy.profile}
+	paths := slices.Clone(rawEntries)
 	visited := map[string]bool{}
 	for index, entry := range paths {
-		directory := policy.read(entry)
+		directory := scratch.read(entry)
 		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
 			continue
 		}
@@ -26,16 +83,34 @@ func (policy *sandboxPolicy) configurePaths(search string) {
 			continue
 		}
 		visited[directory] = true
-		policy.libraries(directory)
+		scratch.libraries(directory)
 		entries, err := os.ReadDir(directory)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
-			policy.executable(filepath.Join(directory, entry.Name()), search, visited)
+			scratch.executable(filepath.Join(directory, entry.Name()), search, visited)
 		}
 	}
-	policy.variables["PATH"] = strings.Join(paths, string(os.PathListSeparator))
+	resolved := strings.Join(paths, string(os.PathListSeparator))
+	toolchainCacheMu.Lock()
+	if len(toolchainCache) >= 32 {
+		clear(toolchainCache)
+	}
+	toolchainCache[key] = toolchainCacheEntry{
+		stamps:   stamps,
+		paths:    slices.Clone(scratch.paths),
+		links:    maps.Clone(scratch.links),
+		resolved: resolved,
+	}
+	toolchainCacheMu.Unlock()
+	for _, entry := range scratch.paths {
+		if !slices.ContainsFunc(policy.paths, func(existing allowedPath) bool { return within(existing.path, entry.path) }) {
+			policy.paths = append(policy.paths, entry)
+		}
+	}
+	maps.Copy(policy.links, scratch.links)
+	policy.variables["PATH"] = resolved
 }
 
 func systemToolchain(path string) bool {

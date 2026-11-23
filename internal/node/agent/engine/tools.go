@@ -153,13 +153,7 @@ func (r *Runtime) captureTools(x *execution) error {
 	}
 	for i := range x.tools {
 		tool := &x.tools[i]
-		compiler := jsonschema.NewCompiler()
-		compiler.UseLoader(jsonschema.SchemeURLLoader{})
-		location := "urn:sailry:tool:" + tool.Definition.Name
-		if err := compiler.AddResource(location, tool.Definition.InputSchema); err != nil {
-			return err
-		}
-		schema, err := compiler.Compile(location)
+		schema, err := compileToolSchema(tool.Definition.Name, tool.SchemaJSON, tool.Definition.InputSchema)
 		if err != nil {
 			return err
 		}
@@ -169,6 +163,38 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.delegationTools = captureInheritedTools(x.tools)
 	}
 	return nil
+}
+
+var compiledToolSchemas sync.Map
+
+func compileToolSchema(name string, raw json.RawMessage, inputSchema any) (*jsonschema.Schema, error) {
+	if len(raw) == 0 && inputSchema != nil {
+		if encoded, err := json.Marshal(inputSchema); err == nil {
+			raw = encoded
+		}
+	}
+	var key [32]byte
+	cacheable := len(raw) > 0
+	if cacheable {
+		key = blake3.Sum256(raw)
+		if cached, ok := compiledToolSchemas.Load(key); ok {
+			return cached.(*jsonschema.Schema), nil
+		}
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(jsonschema.SchemeURLLoader{})
+	location := "urn:sailry:tool:" + name
+	if err := compiler.AddResource(location, inputSchema); err != nil {
+		return nil, err
+	}
+	schema, err := compiler.Compile(location)
+	if err != nil {
+		return nil, err
+	}
+	if cacheable {
+		compiledToolSchemas.Store(key, schema)
+	}
+	return schema, nil
 }
 
 func (r *Runtime) closeTools(x *execution) error {

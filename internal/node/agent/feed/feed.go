@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -23,10 +24,60 @@ type Hub struct {
 	sessions map[protocol.SessionID]*sessionFeed
 }
 
+type draftBuffer struct {
+	meta     protocol.ConversationDraft
+	parts    []protocol.ConversationPart
+	builders []*strings.Builder
+}
+
+func clonePartData(data any) any {
+	switch v := data.(type) {
+	case json.RawMessage:
+		cloned := slices.Clone(v)
+		return &cloned
+	case *json.RawMessage:
+		if v == nil {
+			return nil
+		}
+		cloned := slices.Clone(*v)
+		return &cloned
+	default:
+		return copyValue(data)
+	}
+}
+
+func (b *draftBuffer) materialize() protocol.ConversationDraft {
+	out := b.meta
+	if len(b.parts) > 0 {
+		out.Parts = make([]protocol.ConversationPart, len(b.parts))
+		for i, part := range b.parts {
+			if b.builders[i] != nil {
+				part.Data = b.builders[i].String()
+			} else if part.Data != nil {
+				part.Data = clonePartData(part.Data)
+			}
+			out.Parts[i] = part
+		}
+	}
+	return out
+}
+
+func (b *draftBuffer) byteLen() int {
+	total := 0
+	for i, part := range b.parts {
+		if b.builders[i] != nil {
+			total += jsonEscapedLen(b.builders[i].String()) + partOverhead
+		} else {
+			total += partBytes(part)
+		}
+	}
+	return total
+}
+
 type sessionFeed struct {
 	sequence uint64
 	active   *protocol.TurnID
-	drafts   []protocol.ConversationDraft
+	drafts   []draftBuffer
 	// finalized holds the active turn's most recently committed entries, whose
 	// late deltas are dropped; nil seals the turn against every delta.
 	// finalizedOrder lists them oldest first so the oldest leaves at the bound.
@@ -134,7 +185,7 @@ func (h *Hub) Publish(id protocol.SessionID, change protocol.ConversationChange)
 			f.seal()
 		}
 		if run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning && run.Status != protocol.ConversationStatusStopping {
-			f.drafts = slices.DeleteFunc(f.drafts, func(d protocol.ConversationDraft) bool { return d.Turn == run.Turn })
+			f.drafts = slices.DeleteFunc(f.drafts, func(d draftBuffer) bool { return d.meta.Turn == run.Turn })
 			if f.active != nil && *f.active == run.Turn {
 				f.active = nil
 				f.accept()
@@ -159,7 +210,7 @@ func (h *Hub) Publish(id protocol.SessionID, change protocol.ConversationChange)
 			// A canonical user entry can replace the projected sent input.
 			delete(f.replay.metadata, metadataKey{kind: "run", turn: turn})
 		}
-		f.drafts = slices.DeleteFunc(f.drafts, func(d protocol.ConversationDraft) bool { return d.Turn == turn && d.ID == entryID })
+		f.drafts = slices.DeleteFunc(f.drafts, func(d draftBuffer) bool { return d.meta.Turn == turn && d.meta.ID == entryID })
 		if f.active != nil && *f.active == turn && f.finalized != nil && !f.finalized[entryID] {
 			// A delta follows its entry's commit only briefly, so the most
 			// recent entries are enough and a long turn keeps streaming.
@@ -176,10 +227,8 @@ func (h *Hub) Publish(id protocol.SessionID, change protocol.ConversationChange)
 	}
 	if len(f.drafts) != draftCount {
 		f.bytes = 0
-		for _, draft := range f.drafts {
-			for _, part := range draft.Parts {
-				f.bytes += partBytes(part)
-			}
+		for i := range f.drafts {
+			f.bytes += f.drafts[i].byteLen()
 		}
 	}
 	f.publish(change, key)
@@ -207,8 +256,6 @@ func (h *Hub) PublishBackground(id protocol.SessionID, tasks []protocol.Conversa
 }
 
 func (h *Hub) Delta(id protocol.SessionID, draft protocol.ConversationDraft) error {
-	body := encodeChange(protocol.ConversationChange{Kind: "delta", Data: draft})
-	draft = *decodeChange(body).Data.(*protocol.ConversationDraft)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	f := h.sessions[id]
@@ -216,25 +263,25 @@ func (h *Hub) Delta(id protocol.SessionID, draft protocol.ConversationDraft) err
 		return nil
 	}
 	index := -1
-	for i, current := range f.drafts {
-		if current.ID == draft.ID && current.Turn == draft.Turn {
+	for i := range f.drafts {
+		if f.drafts[i].meta.ID == draft.ID && f.drafts[i].meta.Turn == draft.Turn {
 			index = i
 			break
 		}
 	}
-	var previous *protocol.ConversationPart
-	if index >= 0 && len(f.drafts[index].Parts) > 0 {
-		previous = &f.drafts[index].Parts[len(f.drafts[index].Parts)-1]
+	var previousKind string
+	if index >= 0 && len(f.drafts[index].parts) > 0 {
+		previousKind = f.drafts[index].parts[len(f.drafts[index].parts)-1].Kind
 	}
 	bytes := 0
 	for i := range draft.Parts {
 		part := &draft.Parts[i]
-		merged := previous != nil && previous.Kind == part.Kind && (part.Kind == "text" || part.Kind == "thinking")
+		merged := previousKind != "" && previousKind == part.Kind && (part.Kind == "text" || part.Kind == "thinking")
 		bytes += partBytes(*part)
 		if merged {
 			bytes -= partOverhead
 		}
-		previous = part
+		previousKind = part.Kind
 	}
 	if bytes > maxDraftBytes-f.bytes {
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "streaming output exceeds its buffer limit"}
@@ -242,21 +289,35 @@ func (h *Hub) Delta(id protocol.SessionID, draft protocol.ConversationDraft) err
 	if index < 0 {
 		stored := draft
 		stored.Parts = nil
-		f.drafts = append(f.drafts, stored)
+		f.drafts = append(f.drafts, draftBuffer{meta: stored})
 		index = len(f.drafts) - 1
 	}
 	current := &f.drafts[index]
 	for _, part := range draft.Parts {
-		last := len(current.Parts) - 1
-		if last >= 0 && current.Parts[last].Kind == part.Kind && (part.Kind == "text" || part.Kind == "thinking") {
-			a, _ := payload[string](current.Parts[last].Data)
-			b, _ := payload[string](part.Data)
-			current.Parts[last].Data = a + b
-		} else {
-			current.Parts = append(current.Parts, part)
+		last := len(current.parts) - 1
+		if part.Kind == "text" || part.Kind == "thinking" {
+			text, _ := payload[string](part.Data)
+			if last >= 0 && current.parts[last].Kind == part.Kind && current.builders[last] != nil {
+				current.builders[last].WriteString(text)
+				continue
+			}
+			var sb strings.Builder
+			sb.WriteString(text)
+			current.parts = append(current.parts, protocol.ConversationPart{Kind: part.Kind})
+			current.builders = append(current.builders, &sb)
+			continue
 		}
+		if part.Data != nil {
+			part.Data = clonePartData(part.Data)
+		}
+		current.parts = append(current.parts, part)
+		current.builders = append(current.builders, nil)
 	}
 	f.bytes += bytes
+	var body []byte
+	if len(f.observers) != 0 {
+		body = encodeChange(protocol.ConversationChange{Kind: "delta", Data: draft})
+	}
 	f.advance(body, metadataKey{})
 	return nil
 }
@@ -266,8 +327,34 @@ func partBytes(part protocol.ConversationPart) int {
 		return 0
 	}
 	text, _ := payload[string](part.Data)
-	body, _ := json.Marshal(text)
-	return len(body) + partOverhead - 2
+	return jsonEscapedLen(text) + partOverhead
+}
+
+// jsonEscapedLen matches len(json.Marshal(text)) - 2 without allocating.
+func jsonEscapedLen(s string) int {
+	n := len(s)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' && c < 0x80 {
+			continue
+		}
+		if c < 0x80 {
+			switch c {
+			case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+				n++
+			default:
+				// \u00XX escapes control chars and HTML-sensitive chars (<, >, &).
+				n += 5
+			}
+			continue
+		}
+		// U+2028 (E2 80 A8) and U+2029 (E2 80 A9) are escaped as \u2028/\u2029 by encoding/json.
+		if c == 0xe2 && i+2 < len(s) && s[i+1] == 0x80 && (s[i+2] == 0xa8 || s[i+2] == 0xa9) {
+			n += 3
+			i += 2
+		}
+	}
+	return n
 }
 
 func encodeChange(change protocol.ConversationChange) []byte {
@@ -336,7 +423,14 @@ func (h *Hub) Reserve(id protocol.SessionID, closed <-chan struct{}) *Reserved {
 	// A fitted snapshot need not contain every run. Do not hide its first
 	// authoritative publication behind a frame older than the reservation.
 	clear(f.replay.metadata)
-	return &Reserved{Sequence: f.sequence, Drafts: copyValue(f.drafts), subscription: stream}
+	var drafts []protocol.ConversationDraft
+	if len(f.drafts) > 0 {
+		drafts = make([]protocol.ConversationDraft, len(f.drafts))
+		for i := range f.drafts {
+			drafts[i] = f.drafts[i].materialize()
+		}
+	}
+	return &Reserved{Sequence: f.sequence, Drafts: drafts, subscription: stream}
 }
 func (r *Reserved) Close() error { return r.subscription.Close() }
 

@@ -336,30 +336,49 @@ func applyCanonicalState(ctx context.Context, db *sql.Conn, session protocol.Ses
 			return err
 		}
 	}
+	hasRequests := false
+	if message := record.Message(); message != nil {
+		for _, block := range message.Content {
+			if _, ok := block.Data.(*canonical.ToolRequest); ok {
+				hasRequests = true
+				break
+			}
+		}
+	}
+	if !hasRequests && (context == nil || context.LoadedTools == nil) {
+		return nil
+	}
 	var loaded []string
+	var hadRow bool
 	if value, err := readBody[[]string](ctx, db, "SELECT body FROM agent_state WHERE owner=?1 AND key='sailry.context.loaded_tools'", session.String()); err != nil {
 		return err
 	} else if value != nil {
 		loaded = *value
+		hadRow = true
 	}
+	beforeLen := len(loaded)
+	changed := false
 	if context != nil && context.LoadedTools != nil {
 		if record.Kind == "compaction" {
 			loaded = nil
+			changed = true
 		}
 		for _, name := range *context.LoadedTools {
 			if !slices.Contains(loaded, name) {
 				loaded = append(loaded, name)
+				changed = true
 			}
 		}
 	}
-	if message := record.Message(); message != nil {
-		for _, block := range message.Content {
+	if hasRequests {
+		for _, block := range record.Message().Content {
 			if call, ok := block.Data.(*canonical.ToolRequest); ok && !slices.Contains(loaded, call.Name) {
 				loaded = append(loaded, call.Name)
+				changed = true
 			}
 		}
 	}
-	if len(loaded) > 0 || context != nil && context.LoadedTools != nil {
+	if changed || (!hadRow && (len(loaded) > 0 || context != nil && context.LoadedTools != nil)) || len(loaded) != beforeLen {
 		if loaded == nil {
 			loaded = []string{}
 		}

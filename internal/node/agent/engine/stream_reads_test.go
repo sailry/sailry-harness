@@ -277,3 +277,37 @@ func TestStreamReadsRejectRewrittenDuplicateCallID(t *testing.T) {
 		t.Fatalf("tool executed with stale ID %v instead of rewritten ID %s", seenIDs, responseIDs[1])
 	}
 }
+
+func TestStreamReadsContinuePastUpdatePlan(t *testing.T) {
+	started := make(chan string, 2)
+	finishStream := make(chan struct{})
+	read := objectTool("read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		started <- "read"
+		return ToolResult{Value: true}
+	})
+	read.StreamRead = true
+	plan := objectTool("update_plan", true, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: true}
+	})
+	model := &scriptedModel{scripts: []script{
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			response(call("p1", "update_plan", `{}`), call("r1", "read", `{}`))(ctx, request, yield)
+			select {
+			case <-finishStream:
+				response(text("Planned"), finish())(ctx, request, yield)
+			case <-ctx.Done():
+			}
+		},
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, model, plan, read)
+	f.start()
+	turn := f.submit("Plan and read")
+	select {
+	case <-started:
+	case <-f.ctx.Done():
+		t.Fatal("stream read did not start past update_plan")
+	}
+	close(finishStream)
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+}
