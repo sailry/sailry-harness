@@ -145,8 +145,18 @@ func formattedExa(text string) ([]protocol.SearchResult, error) {
 	if strings.TrimSpace(text) == "No search results found. Please try a different query." {
 		return []protocol.SearchResult{}, nil
 	}
+	// Page text can contain its own Markdown rules, so a separator starts a
+	// new result only when a Title line follows it.
+	var blocks []string
+	for index, part := range strings.Split(text, "\n\n---\n\n") {
+		if index == 0 || strings.HasPrefix(part, "Title: ") {
+			blocks = append(blocks, part)
+		} else {
+			blocks[len(blocks)-1] += "\n\n---\n\n" + part
+		}
+	}
 	entries := []any{}
-	for _, entry := range strings.Split(text, "\n\n---\n\n") {
+	for _, entry := range blocks {
 		var title, url, published *string
 		var snippet strings.Builder
 		content := false
