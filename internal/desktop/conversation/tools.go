@@ -224,7 +224,7 @@ func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bo
 }
 
 // wrapping is a disclosure whose row may wrap its label (rowSize).
-func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element)) {
+func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element), group ...*ui.ListState) {
 	open := s.opened(key)
 	size := textSize(c)
 	ui.Column(c.Key(key)).Children(func() {
@@ -232,7 +232,12 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
-		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
+		t.Children(func() { head(hovered, open, sw) }).OnClick(func() {
+			if len(group) != 0 {
+				group[0].HoldPlace()
+			}
+			s.toggle(key)
+		})
 		sw.Frame(t)
 		if open {
 			rail := Rail(c).Padding(top, 0, bottom, railPad(size))
@@ -286,12 +291,23 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	head := groupHead(calls)
-	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+	s.wrapping(c, "tool-group-"+calls[0].ID, false, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
-	}, 8, 8, func() {
-		for _, call := range calls {
-			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call) })
-		}
+	}, 8, 8, func(rail ui.Element) {
+		const visibleRows = 5
+		height := visibleRows*rowHeight(textSize(c)) + (visibleRows-1)*railGap
+		list := ui.Local(rail, "tool-rows", func() ui.ListState { return ui.ListState{FollowEnd: true} })
+		list.Key = func(i int) any { return calls[i].ID }
+		session, resolveImage := s.renderSession, s.resolveImage
+		ui.List(c.Key("tool-rows"), list, len(calls), func(i int) {
+			// MyGo can build a virtual row during layout, after the transcript
+			// row has restored the shared renderer's scope.
+			previousSession, previousResolve := s.renderSession, s.resolveImage
+			s.renderSession, s.resolveImage = session, resolveImage
+			defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
+			call := calls[i]
+			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, list) })
+		}).MaxHeight(height).Gap(railGap)
 	})
 }
 
@@ -307,7 +323,7 @@ func groupHead(calls []Call) Call {
 }
 
 // row is one call: its body is its output.
-func (s *State) row(c *ui.Context, call Call) {
+func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
 	if call.Name == "generate_image" && call.Output != nil && len(call.Output.Images) > 0 {
 		// Generated pictures belong in the answer and output inventory. Keep the
 		// original references for reply embeds without repeating the preview here.
@@ -360,7 +376,7 @@ func (s *State) row(c *ui.Context, call Call) {
 		if card != nil {
 			card(c)
 		}
-	})
+	}, group...)
 }
 
 // The visible, open rail owns the formatted result. MyGo can keep a focused

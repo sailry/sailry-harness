@@ -81,11 +81,10 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 		{ID: "r1", Name: "read", Label: "Read file", Icon: "file-text", Detail: "a.go", Code: true, Output: &Output{Text: "out a"}},
 		{ID: "r2", Name: "read", Label: "Read file", Icon: "file-text", Detail: "b.go", Code: true, Output: &Output{Text: "out b"}},
 		{ID: "g1", Name: "grep", Label: "Search", Icon: "search", Detail: "c.go", Code: true, Output: &Output{Text: "out c"}},
-		{ID: "r3", Name: "read", Label: "Read file", Icon: "file-text", Detail: "d.go", Code: true, Output: &Output{Text: "out d"}},
 		runningCall("r4", "read", "current.go", false),
 		{ID: "err", Name: "command", Label: "Command", Code: true, Failed: true, Error: "Command failed"},
 	}
-	details := []string{"a.go", "b.go", "c.go", "d.go", "current.go"}
+	details := []string{"a.go", "b.go", "c.go", "current.go"}
 	const label = "Command"
 	for _, size := range []uint8{12, 14, 18} {
 		for _, width := range []int{480, 900} {
@@ -111,7 +110,7 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				if len(groups) != 1 || groups[0].Expanded || textCount(tt, label) != 1 || tt.HasText("Command failed") {
 					t.Fatalf("every call of the run, active and failed ones included, should fold into one group: %q", tt.Texts())
 				}
-				if tt.HasText("6") {
+				if tt.HasText("5") {
 					t.Fatalf("the folded group shows its call count: %q", tt.Texts())
 				}
 				for _, detail := range details {
@@ -159,7 +158,7 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 					t.Fatal(err)
 				}
 				tt.Frame()
-				if !tt.HasText("out b") || tt.HasText("out a") || tt.HasText("out c") || tt.HasText("out d") || loads != 1 {
+				if !tt.HasText("out b") || tt.HasText("out a") || tt.HasText("out c") || loads != 1 {
 					t.Fatalf("one click did not open its own result alone: %q, %d detail loads", tt.Texts(), loads)
 				}
 				for _, detail := range details {
@@ -543,6 +542,73 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 			t.Fatalf("reduce %v: the new row was %v high during the entry and %v after it", reduce, mid.H, end.H)
 		}
 	}
+}
+
+func TestToolGroupScrollFollowsLatestUntilScrolledAway(t *testing.T) {
+	s := New()
+	var calls []Call
+	appendTool := func() {
+		id := fmt.Sprintf("tool-%02d", len(calls)+1)
+		calls = append(calls, Call{ID: id, Name: "read", Label: "Read file", Detail: id, Code: true})
+	}
+	for range 8 {
+		appendTool()
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Scroll(c.Key("transcript")).Fill().Children(func() {
+			s.tools(c, calls, true)
+			ui.Box(c.Key("tail")).Height(600)
+		})
+	}, 600, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tt.SetLocale("en")
+	if err := tt.Click("tool-08"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	visible := func(name string) (ui.Rect, bool) {
+		bounds, found := tt.Find(name)
+		return bounds, found && bounds.W > 0 && bounds.H > 0
+	}
+	shown := func(name string) bool {
+		_, ok := visible(name)
+		return ok
+	}
+	assertBottom := func(stage string) {
+		t.Helper()
+		first := len(calls) - 5
+		// The header repeats the latest call. Check the other visible rows
+		// and the one immediately above the viewport.
+		for _, call := range calls[first : len(calls)-1] {
+			if !shown(call.Detail) {
+				t.Fatalf("%s: %q is outside the viewport at the bottom: %q", stage, call.Detail, tt.Texts())
+			}
+		}
+		if previous := calls[first-1].Detail; shown(previous) {
+			t.Fatalf("%s: %q is visible above the latest five rows: %q", stage, previous, tt.Texts())
+		}
+	}
+	assertBottom("open")
+	row, _ := visible("tool-04")
+	appendTool()
+	tt.Frame()
+	assertBottom("first append")
+	x, y := row.X+row.W/2, row.Y+row.H/2
+	tt.Scroll(x, y, 0, -64)
+	anchored, ok := visible("tool-04")
+	if !ok || anchored.Y <= row.Y {
+		t.Fatalf("scrolling did not reveal earlier tools inside the group: %q", tt.Texts())
+	}
+	appendTool()
+	tt.Frame()
+	if got, ok := visible("tool-04"); !ok || got != anchored || shown("tool-09") {
+		t.Fatalf("an appended tool moved the manually scrolled group: %v, want %v; %q", got, anchored, tt.Texts())
+	}
+	tt.Scroll(x, y, 0, 160)
+	assertBottom("scroll back down")
+	appendTool()
+	tt.Frame()
+	assertBottom("append after scrolling back down")
 }
 
 func TestFailedCommandStaysFoldedAfterStop(t *testing.T) {
