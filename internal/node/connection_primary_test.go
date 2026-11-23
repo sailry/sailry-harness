@@ -11,6 +11,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -29,7 +30,8 @@ func testSSHPrimary(t *testing.T, node *Node, ordinary protocol.Session, primary
 	config := ordinary.Config
 	config.Resource = &protocol.ConnectionResource{Kind: "ssh", Data: primary.ID}
 	owner := declarations[protocol.ToolOperationSaveSshConnection].Owner
-	config.Assistant = &protocol.PluginConversationBinding{Package: owner, ID: "ssh"}
+	sshPlugin := commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "ssh"}}).Data.(protocol.PluginInfo)
+	config.Assistant = &protocol.PluginConversationBinding{Package: plugins.PackageReference(sshPlugin), ID: "ssh"}
 	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)
 	controller := protocol.NodeID{93}
 	trustedCallerFixture(t, node, controller)

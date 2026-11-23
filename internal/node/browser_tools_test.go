@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -54,7 +55,7 @@ func TestBrowserToolBinding(t *testing.T) {
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	directory := filepath.Join(t.TempDir(), "profile")
 	options := Options{
-		Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		Assembly: hostassembly.Harness(), Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
 			switch binding.Config.Model {
 			case "absent":
 				return absent, nil

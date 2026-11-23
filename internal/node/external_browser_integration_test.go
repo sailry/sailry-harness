@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
@@ -59,7 +60,7 @@ func TestExternalBrowserNodeIntegration(t *testing.T) {
 	profile = filepath.Join(profile, "profile")
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), profile, Options{
-		Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return worker, nil },
+		Assembly: hostassembly.Harness(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return worker, nil },
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(context.Context, process.Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
 			return protocol.ProcessCompletion{}, errors.New("browser integration must not launch a process through the process service")
 		}},

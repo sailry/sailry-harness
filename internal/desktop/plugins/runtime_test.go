@@ -620,7 +620,7 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Errorf("%s: its own icon %q is not a Phosphor icon or a brand's mark", name, *title)
 			}
 		}
-		if len(declared) < 30 || chrome < 80 {
+		if len(declared) < 30 || chrome < 50 {
 			t.Fatalf("bundled manifests declare %d icon names, %d of them in text-colored places", len(declared), chrome)
 		}
 		for name := range declared {

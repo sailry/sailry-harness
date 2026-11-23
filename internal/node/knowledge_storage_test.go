@@ -17,6 +17,7 @@ import (
 
 	"charm.land/fantasy"
 
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -110,7 +111,7 @@ func TestKnowledgeStorage(t *testing.T) {
 	start := func(t *testing.T) {
 		t.Helper()
 		started, err := StartWithOptions(ctx, profile, Options{
-			Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+			Assembly: hostassembly.Harness(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 			Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(context.Context, process.Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
 				return protocol.ProcessCompletion{}, errors.New("storage knowledge must not launch a process")
 			}},

@@ -19,6 +19,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -91,22 +92,9 @@ func (script *delegationScript) Stream(_ context.Context, _ fantasy.Call) (fanta
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestChildApprovalPath(t *testing.T) {
 	t.Parallel()
-	catalog, err := operations.Bundled()
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := &delegationScript{root: t.TempDir(), children: map[protocol.SessionID]*workspaceScript{}}
-	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationWriteFile && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
-			script.write = tool.Name
-			break
-		}
-	}
-	if script.write == "" {
-		t.Fatal("native write tool is unavailable")
-	}
+	script := &delegationScript{root: t.TempDir(), write: "write_file", children: map[protocol.SessionID]*workspaceScript{}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
+	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +349,7 @@ func installGuideFixture(t *testing.T, node *Node) {
 func reviewDelegation(t *testing.T) {
 	script := &reviewScript{results: map[string]string{}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
+	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
 	if err != nil {
 		t.Fatal(err)
 	}

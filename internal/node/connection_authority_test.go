@@ -78,10 +78,11 @@ func testDetachedConnectionAuthority(t *testing.T, node *Node, session protocol.
 	}
 	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
 		target := protocol.ConnectionResource{Kind: "database", Data: created.ID}
-		for _, owner := range []protocol.PluginReference{dbOwner, sshOwner} {
+		nativeOwner := protocol.PluginReference{}
+		for _, owner := range []protocol.PluginReference{nativeOwner, dbOwner, sshOwner} {
 			proved, err := store.ConnectionCreated(t.Context(), db, turn, owner, target)
-			if err != nil || proved != (owner == dbOwner) {
-				return fmt.Errorf("creation proof for %s = %v: %v", owner.Name, proved, err)
+			if err != nil || proved != (owner == nativeOwner) {
+				return fmt.Errorf("creation proof for %q = %v: %v", owner.Name, proved, err)
 			}
 		}
 		return nil

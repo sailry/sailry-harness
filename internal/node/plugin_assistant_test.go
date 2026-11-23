@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -67,7 +68,7 @@ func pluginAssistantAcceptance(t *testing.T) {
 	var launches atomic.Int32
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			if launch.Command != "fixture inherited command" || launch.Access != protocol.ProcessAccessUnrestricted {
 				return protocol.ProcessCompletion{}, errors.New("assistant command lost its captured input or access")

@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -144,20 +144,7 @@ func TestNodeHooksCapture(t *testing.T) {
 }
 
 func TestWorkspaceNativeTurn(t *testing.T) {
-	catalog, err := operations.Bundled()
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := &workspaceScript{}
-	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationWriteFile && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
-			script.name = tool.Name
-			break
-		}
-	}
-	if script.name == "" {
-		t.Fatal("bundled workspace write declaration is missing")
-	}
+	script := &workspaceScript{name: "write_file"}
 	before := "before\n"
 	expected := fmt.Sprintf("%x", blake3.Sum256([]byte(before)))
 	args, _ := json.Marshal(map[string]any{"path": "note.txt", "text": "after\n", "expected_revision": expected})
@@ -199,7 +186,7 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		},
 	}
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Process: processOptions, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil }})
+	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Process: processOptions, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

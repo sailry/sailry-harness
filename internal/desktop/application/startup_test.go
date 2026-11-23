@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 )
 
 const startupRelay = "/ip4/127.0.0.1/tcp/30001/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
@@ -65,7 +66,7 @@ func TestDesktopStartupLogUnavailable(t *testing.T) {
 	previous := os.Stderr
 	os.Stderr = stderr
 	t.Cleanup(func() { os.Stderr = previous; _ = stderr.Close() })
-	backend, err := openBackend(t.Context(), startupOptions{}, identity.Desktop{DefaultProfile: profile}, nil)
+	backend, err := openBackend(t.Context(), startupOptions{}, identity.Desktop{DefaultProfile: profile}, moduleapi.Assembly{})
 	if backend != nil {
 		_ = backend.Close()
 		t.Fatal("started a second Node in the profile")
@@ -95,7 +96,7 @@ func TestPreviewFlagNoNode(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		backend, err := openBackend(context.Background(), options, identity.Desktop{DefaultProfile: path}, nil)
+		backend, err := openBackend(context.Background(), options, identity.Desktop{DefaultProfile: path}, moduleapi.Assembly{})
 		if err != nil {
 			t.Fatal(err)
 		}

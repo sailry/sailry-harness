@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
@@ -20,6 +21,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 )
 
 // TestExternalBrowserRouting proves the Node side of the managed browser
@@ -32,7 +34,7 @@ func TestExternalBrowserRouting(t *testing.T) {
 	late := &hookedScript{mediaScript: &mediaScript{results: map[string]string{}}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		Assembly: hostassembly.Harness(), Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
 			switch binding.Config.Model {
 			case "worker":
 				return worker, nil
@@ -55,8 +57,8 @@ func TestExternalBrowserRouting(t *testing.T) {
 		t.Skip("no Chrome, Chromium or Edge is installed on this host; every call answers not_configured")
 	}
 	var declared []string
-	for _, declaration := range commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "external-browser"}}).Data.(protocol.PluginInfo).Extension.Tools {
-		declared = append(declared, tool(declaration.Name))
+	for _, declaration := range browsernode.External().Catalog() {
+		declared = append(declared, declaration.Name)
 	}
 	// Discovery loads at most eight tools per call.
 	var discover [][3]string

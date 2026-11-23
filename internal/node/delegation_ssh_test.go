@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -147,7 +148,7 @@ func TestChildInheritsCapturedSSHTools(t *testing.T) {
 		}
 	}}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(ctx, filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment,
+	node, err := StartWithOptions(ctx, filepath.Join(t.TempDir(), "profile"), Options{Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment,
 		Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
 			if binding.Session == parent.ID {
 				return parentModel, nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -43,7 +44,7 @@ func testDetachedConnectionTools(t *testing.T) {
 	peer.allowPassword.Store(true)
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Environment: &environment, MCP: fixtureMCPOptions(),
+		Assembly: hostassembly.Harness(), Environment: &environment, MCP: fixtureMCPOptions(),
 		Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 	})
 	if err != nil {
@@ -386,7 +387,7 @@ func testDetachedConnectionTools(t *testing.T) {
 	if value := responses["roles"]; value == nil || value.Status != canonical.ToolSuccess || value.Name != operations.Alias(pluginName, pluginTool) {
 		t.Errorf("the initially declared plugin tool did not execute: %+v", value)
 	}
-	if value := responses["global-ssh-run"]; value == nil || value.Status != canonical.ToolSuccess || value.Name != operations.Alias(owners["ssh"].Name, "ssh_run") {
+	if value := responses["global-ssh-run"]; value == nil || value.Status != canonical.ToolSuccess || value.Name != "ssh_run" {
 		t.Fatalf("deferred ssh_run did not execute through call_tool: %+v", value)
 	}
 	assertDetachedSSHResult(t, script.results["global-ssh-run"])

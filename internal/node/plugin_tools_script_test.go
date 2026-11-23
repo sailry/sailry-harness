@@ -2,6 +2,8 @@ package node
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -30,7 +32,21 @@ func TestLegacyProgressToolDoesNotDuplicateCore(t *testing.T) {
 func TestLegacyCommandsKeepDirectResourceScope(t *testing.T) {
 	node := nodeFixture(t)
 	ctx := t.Context()
-	info, err := node.plugins.manager.InstallBundled(ctx, "commands")
+	// Simulate an older captured commands package that still declared its four
+	// host command handlers so historical captures preserve direct-resource scope.
+	source := t.TempDir()
+	entry := filepath.Join(source, "dev.sailry.platform", "host", "main.js")
+	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entry, []byte(`export function run(a){return a;} export function read(a){return a;} export function stop(a){return a;} export function write(a){return a;}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"commands","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["process.read","process.control"],"host":{"entry":"dev.sailry.platform/host/main.js","resources":["dev.sailry.platform/host/main.js"],"handlers":["run","read","stop","write"]},"tools":[{"name":"run_command","description":"Run command","handler":{"name":"run","operation":"process.run","parameters":{"type":"object"}}},{"name":"read_command","description":"Read command","handler":{"name":"read","operation":"process.read","parameters":{"type":"object"}}},{"name":"stop_command","description":"Stop command","handler":{"name":"stop","operation":"process.stop","parameters":{"type":"object"}}},{"name":"write_command","description":"Write command","handler":{"name":"write","operation":"process.write","parameters":{"type":"object"}}}]}}}`
+	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := node.plugins.manager.Install(ctx, source, "", "commands")
 	if err != nil {
 		t.Fatal(err)
 	}

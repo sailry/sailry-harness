@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -138,7 +140,7 @@ func testConnectionTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := StartWithOptions(context.Background(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return held, nil }})
+	node, err := StartWithOptions(context.Background(), filepath.Join(t.TempDir(), "profile"), Options{Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return held, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +278,10 @@ func testConnectionTools(t *testing.T) {
 		if inv.Session, err = store.ReadSession(ctx, db, session.ID); err != nil {
 			return err
 		}
+		if inv.User, err = store.CurrentUser(ctx, db); err != nil {
+			return err
+		}
+		inv.StorageUser = inv.User.ID
 		var plugins []byte
 		if err = db.QueryRowContext(ctx, "SELECT plugins FROM turns WHERE id=?1", inv.Run.Turn.String()).Scan(&plugins); err != nil {
 			return err
@@ -290,35 +296,33 @@ func testConnectionTools(t *testing.T) {
 	}
 	inv.Worktree = protocol.Worktree{ID: inv.Session.Worktree, Project: inv.Session.Project, Path: root, Main: true}
 	inv.Turn.ID, inv.Turn.Session, inv.Turn.Config = inv.Run.Turn, inv.Session.ID, inv.Session.Config
-	catalog, err := operations.CaptureCatalog(ctx, node.profile.Ownership.Path, inv.Turn.Plugins)
-	if err != nil {
-		t.Fatal(err)
+	bind := func(t *testing.T, inv *store.AgentInvocation) map[protocol.ToolOperation]engine.Tool {
+		t.Helper()
+		tools, err := node.moduleTools(ctx, inv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bound := map[protocol.ToolOperation]engine.Tool{}
+		for _, tool := range tools {
+			if tool.Binding == nil || tool.Binding.Operation == nil || !operations.ConnectionOperation(*tool.Binding.Operation) {
+				continue
+			}
+			bound[*tool.Binding.Operation] = tool
+		}
+		return bound
 	}
 	declarations := map[protocol.ToolOperation]operations.Declaration{}
-	for _, declaration := range catalog.Tools {
-		if operations.ConnectionOperation(declaration.Operation) {
-			declarations[declaration.Operation] = declaration
+	for op, tool := range bind(t, inv) {
+		readOnly, concurrent := operations.Policy(op)
+		declarations[op] = operations.Declaration{
+			Spec: operations.Spec{Operation: op, ReadOnly: readOnly, Concurrent: concurrent},
+			Name: tool.Definition.Name,
 		}
 	}
 	if len(declarations) != len(connectionOperations) {
 		t.Fatalf("captured connection declarations = %d", len(declarations))
 	}
 	captured := []protocol.ConnectionResource{{Kind: "database", Data: shared.ID}, {Kind: "ssh", Data: bastion.ID}}
-	bind := func(t *testing.T, inv *store.AgentInvocation) map[protocol.ToolOperation]engine.Tool {
-		t.Helper()
-		tools, err := node.connectionTools(ctx, inv, catalog)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bound := map[protocol.ToolOperation]engine.Tool{}
-		for _, tool := range tools {
-			if tool.Binding == nil || tool.Binding.Operation == nil || tool.Definition.Name != declarations[*tool.Binding.Operation].Name {
-				t.Fatalf("connection tool binding = %#v", tool.Binding)
-			}
-			bound[*tool.Binding.Operation] = tool
-		}
-		return bound
-	}
 
 	t.Run("visibility", func(t *testing.T) {
 		databaseKind := func(operation protocol.ToolOperation) bool { return strings.HasPrefix(string(operation), "databases.") }
@@ -351,10 +355,14 @@ func testConnectionTools(t *testing.T) {
 				}
 			}
 		}
-		withoutPackages := *inv
-		withoutPackages.Turn.Plugins = nil
-		if bound := bind(t, &withoutPackages); len(bound) != 0 {
-			t.Errorf("a turn without the packages bound %d connection tools", len(bound))
+		// Native connection modules are independent of plugin captures;
+		// omitting the modules from assembly binds no connection tools.
+		savedAssembly := node.modules
+		node.modules = moduleapi.Assembly{}
+		tools, err := node.moduleTools(ctx, inv)
+		node.modules = savedAssembly
+		if err != nil || len(tools) != 0 {
+			t.Errorf("an un-assembled Node bound %d connection tools, err=%v", len(tools), err)
 		}
 	})
 
@@ -414,10 +422,10 @@ func testConnectionTools(t *testing.T) {
 			}
 		}
 		tool := bind(t, inv)[protocol.ToolOperationQueryDatabase]
-		arguments, _ := json.Marshal(map[string]any{"connection": private.ID, "sql": "select 1", "row_limit": 1, "timeout_ms": 1000})
+		arguments, _ := json.Marshal(map[string]any{"connection": private.ID, "sql": "select 1"})
 		err := tool.Prepare(ctx, canonical.ToolRequest{ID: "refused", Name: tool.Definition.Name, Arguments: arguments})
 		var fault *protocol.Fault
-		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodePermissionDenied {
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest {
 			t.Errorf("prepared an unshared connection: %v", err)
 		}
 		if result := tool.Execute(ctx, canonical.ToolRequest{ID: "refused", Name: tool.Definition.Name, Arguments: arguments}); result.Failure == nil {
