@@ -854,9 +854,26 @@ func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest,
 		return Manifest{}, invalid("backup contains missing entries")
 	}
 	// The gzip trailer and the end of the encrypted stream are checked only
-	// when the input is read to its end.
-	if _, err := io.Copy(io.Discard, compressed); err != nil {
-		return Manifest{}, damaged(ctx)
+	// when the input is read to its end. Bound trailing bytes so a gzip
+	// stream cannot spin past the tar EOF marker.
+	const maxTrailingBytes = 1 << 20
+	var trailing [4096]byte
+	var discarded int64
+	for {
+		if err := cancelled(ctx); err != nil {
+			return Manifest{}, err
+		}
+		n, err := compressed.Read(trailing[:])
+		discarded += int64(n)
+		if discarded > maxTrailingBytes {
+			return Manifest{}, invalid("backup archive contains unexpected trailing data")
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return Manifest{}, damaged(ctx)
+		}
 	}
 	return manifest, nil
 }

@@ -71,7 +71,7 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 		defer close(job.done)
 		defer cancel()
 		metric, started := r.telemetry.Capture(), time.Now()
-		defer func() { observeTool(metric, reads.ctx, x.tools, call.Name, job.result, started) }()
+		defer func() { observeTool(metric, ctx, x.tools, call.Name, job.result, started) }()
 		defer containToolPanic(x, call, &job.result)
 		if ctx.Err() != nil {
 			return
@@ -121,7 +121,7 @@ func (reads *streamedReads) adopt(blocks []canonical.Block) bool {
 			continue
 		}
 		job := reads.pending[request]
-		if job == nil || request.Error != nil || request.Name != job.call.Name || !bytes.Equal(request.Arguments, job.call.Arguments) {
+		if job == nil || request.Error != nil || request.ID != job.call.ID || request.Name != job.call.Name || !bytes.Equal(request.Arguments, job.call.Arguments) {
 			break
 		}
 		reads.accepted[request.ID] = job

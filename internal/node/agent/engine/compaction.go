@@ -160,12 +160,21 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	output := model.OutputLimit(binding, true)
 	cap := handoff.Cap(uint64(selected.Context), uint64(output))
 	summaryID := protocol.NewRequestID().String()
+	hideCompacting := func() {
+		if !manual {
+			r.feed.Publish(x.inv.Session.ID, protocol.ConversationChange{
+				Kind: "hidden",
+				Data: protocol.ConversationChangeHiddenPayload{ID: summaryID, Turn: x.inv.Run.Turn},
+			})
+		}
+	}
 	if !manual {
 		progress, _ := json.Marshal(map[string]any{"type": "compacting", "started_ms": r.clock.Now().UnixMilli()})
 		_ = r.feed.Delta(x.inv.Session.ID, protocol.ConversationDraft{ID: summaryID, Turn: x.inv.Run.Turn, Author: "sailry", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(progress)}}})
 	}
 	binding, err := r.credential(x, binding)
 	if err != nil {
+		hideCompacting()
 		return err
 	}
 	summaryBinding := model.Summary(binding)
@@ -177,6 +186,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	// A compaction that ends without a summary leaves its billed attempts and
 	// one record saying where and why it stopped; a stopped turn is no failure.
 	failed := func(stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, failure error) error {
+		hideCompacting()
 		var records []canonical.Record
 		for _, attempt := range attempts {
 			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))

@@ -1,7 +1,9 @@
 package wire
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
 	"runtime"
 	"sync"
 
@@ -11,8 +13,23 @@ import (
 
 const compressedFlag uint32 = 1 << 31
 const minimumCompressedBytes = 1024
+const directDecodeLimit = 64 << 10
 const frameEncoderConcurrency = 8
 const frameEncoderWindow = 1 << 20
+
+var streamDecoderPool = sync.Pool{
+	New: func() any {
+		decoder, err := zstd.NewReader(nil,
+			zstd.WithDecoderConcurrency(1),
+			zstd.WithDecoderMaxMemory(uint64(protocol.MAX_FRAME_BYTES)),
+			zstd.WithDecoderMaxWindow(uint64(protocol.MAX_FRAME_BYTES)),
+		)
+		if err != nil {
+			return nil
+		}
+		return decoder
+	},
+}
 
 // EncodeAll retains a history buffer for each worker that encodes multi-block
 // frames. Bound both the pool and its history to limit retained memory.
@@ -81,11 +98,37 @@ func decode(prefix uint32, payload []byte, enabled bool, maximum int) ([]byte, e
 	if !validLength(declared) || declared > maximum {
 		return nil, invalid()
 	}
-	decoder, err := frameDecoder()
-	if err != nil {
+	var header zstd.Header
+	if err := header.Decode(payload[4:]); err != nil || header.WindowSize > uint64(maximum) ||
+		header.HasFCS && header.FrameContentSize != uint64(declared) {
 		return nil, invalid()
 	}
-	decoded, err := decoder.DecodeAll(payload[4:], make([]byte, 0, declared))
+	if declared <= directDecodeLimit {
+		decoder, err := frameDecoder()
+		if err != nil {
+			return nil, invalid()
+		}
+		decoded, err := decoder.DecodeAll(payload[4:], make([]byte, 0, declared))
+		if err != nil || len(decoded) != declared {
+			clear(decoded)
+			return nil, invalid()
+		}
+		return decoded, nil
+	}
+	// Stream larger frames so a crafted header cannot force a full-frame
+	// allocation before the compressed stream produces matching bytes.
+	reader, _ := streamDecoderPool.Get().(*zstd.Decoder)
+	if reader == nil {
+		return nil, invalid()
+	}
+	defer func() {
+		_ = reader.Reset(nil)
+		streamDecoderPool.Put(reader)
+	}()
+	if err := reader.Reset(bytes.NewReader(payload[4:])); err != nil {
+		return nil, invalid()
+	}
+	decoded, err := io.ReadAll(io.LimitReader(reader, int64(declared)+1))
 	if err != nil || len(decoded) != declared {
 		clear(decoded)
 		return nil, invalid()

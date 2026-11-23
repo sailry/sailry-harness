@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -75,6 +76,8 @@ func (writer *writer) run() {
 	}
 }
 
+const maxWriteBatch = 64
+
 // batch commits the queued jobs together. Its jobs end in one of three ways:
 // committed; known to be uncommitted, with the job's own error or a retryable
 // busy fault for work another job's failure or a refused COMMIT rolled back;
@@ -123,7 +126,7 @@ func (writer *writer) batch(first *writeJob) {
 			}
 		}
 		completed = append(completed, job)
-		if failure != nil {
+		if failure != nil || len(completed) >= maxWriteBatch {
 			break
 		}
 		select {
@@ -214,16 +217,26 @@ func (writer *writer) settle(ctx context.Context) error {
 // it still holds; the new one must be able to take the write lock.
 func (writer *writer) reopen(ctx context.Context) error {
 	discard := func(connection *sql.Conn) {
+		if connection == nil {
+			return
+		}
 		_ = connection.Raw(func(any) error { return driver.ErrBadConn })
 		_ = connection.Close()
 	}
 	discard(writer.connection)
+	writer.connection = nil
 	connection, err := writer.database.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err = connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err == nil {
-		_, err = connection.ExecContext(ctx, "ROLLBACK")
+	var mode string
+	if err = connection.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err == nil && strings.EqualFold(mode, "mvcc") {
+		_, err = connection.ExecContext(ctx, "PRAGMA mvcc_checkpoint_threshold=527360")
+	}
+	if err == nil {
+		if _, err = connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err == nil {
+			_, err = connection.ExecContext(ctx, "ROLLBACK")
+		}
 	}
 	if err != nil {
 		discard(connection)

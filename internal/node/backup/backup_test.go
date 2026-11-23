@@ -644,3 +644,53 @@ func TestBackupArchiveLayout(t *testing.T) {
 		}
 	})
 }
+
+func TestUnpackRejectsExcessiveTrailingGzipData(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	key := bytes.Repeat([]byte{7}, 32)
+	db := []byte("node database")
+	sum := func(b []byte) string {
+		h := sha256.Sum256(b)
+		return hex.EncodeToString(h[:])
+	}
+	manifest, err := json.Marshal(Manifest{
+		Version:         1,
+		Node:            protocol.NodeID{1},
+		OriginalProfile: t.TempDir(),
+		Files: []File{
+			{Path: identityName, Size: uint64(len(key)), SHA256: sum(key), Mode: 0o600},
+			{Path: "storage/" + databaseNames[0], Size: uint64(len(db)), SHA256: sum(db), Mode: 0o600},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTar := func(name string, body []byte) {
+		t.Helper()
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTar(manifestName, manifest)
+	writeTar(identityName, key)
+	writeTar("storage/"+databaseNames[0], db)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Write > 1 MiB of trailing bytes directly into the gzip stream past tar EOF.
+	if _, err := gz.Write(make([]byte, (1<<20)+4096)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Unpack(t.Context(), &buf, t.TempDir()); code(err) != protocol.ErrorCodeInvalidRequest || !strings.Contains(err.Error(), "trailing") {
+		t.Fatalf("excessive trailing gzip data = %v, want trailing invalid_request", err)
+	}
+}

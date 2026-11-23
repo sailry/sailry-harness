@@ -243,3 +243,37 @@ func TestStreamReadsAreCancelledWithTheTurn(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamReadsRejectRewrittenDuplicateCallID(t *testing.T) {
+	var seenIDs []string
+	read := objectTool("read", true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		seenIDs = append(seenIDs, call.ID)
+		return ToolResult{Value: call.ID}
+	})
+	read.StreamRead = true
+	model := &scriptedModel{scripts: []script{
+		response(call("dup", "read", `{}`), finish()),
+		response(call("dup", "read", `{}`), finish()),
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, model, read)
+	f.start()
+	turn := f.submit("Read twice with reused call ID")
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	var responseIDs []string
+	for _, record := range f.state().Records {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
+				if resp, ok := block.Data.(*canonical.ToolResponse); ok {
+					responseIDs = append(responseIDs, resp.ID)
+				}
+			}
+		}
+	}
+	if len(responseIDs) != 2 || responseIDs[0] != "dup" || responseIDs[1] == "dup" {
+		t.Fatalf("duplicate call ID was not rewritten: %v", responseIDs)
+	}
+	if len(seenIDs) < 2 || seenIDs[len(seenIDs)-1] != responseIDs[1] {
+		t.Fatalf("tool executed with stale ID %v instead of rewritten ID %s", seenIDs, responseIDs[1])
+	}
+}

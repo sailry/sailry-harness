@@ -150,15 +150,19 @@ func New(profile string, watch Watch) *Service {
 func (s *Service) releaseIdle(now time.Time) {
 	s.maintenance.Lock()
 	defer s.maintenance.Unlock()
+	var idle []*worktree
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	for id, worktree := range s.worktrees {
-		if now.Sub(worktree.used) >= idleRelease && worktree.access.TryLock() {
-			worktree.stop()
-			_ = worktree.closeIndex()
-			worktree.access.Unlock()
+	for id, wt := range s.worktrees {
+		if now.Sub(wt.used) >= idleRelease && wt.access.TryLock() {
+			idle = append(idle, wt)
 			delete(s.worktrees, id)
 		}
+	}
+	s.mutex.Unlock()
+	for _, wt := range idle {
+		wt.stop()
+		_ = wt.closeIndex()
+		wt.access.Unlock()
 	}
 }
 

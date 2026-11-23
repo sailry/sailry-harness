@@ -20,12 +20,13 @@ type sdkConnection interface {
 }
 
 type connection struct {
-	mu       sync.Mutex
-	base     sdkConnection
-	database uintptr
-	pointer  sdk.TursoConnection
-	rows     map[*rows]struct{}
-	closed   bool
+	mu         sync.Mutex
+	base       sdkConnection
+	database   uintptr
+	pointer    sdk.TursoConnection
+	statements map[*statement]struct{}
+	rows       map[*rows]struct{}
+	closed     bool
 }
 
 // Preserve database/sql's distinction between an absent byte slice and a
@@ -121,10 +122,16 @@ func (op *operation) result(err error) error {
 }
 
 func (connection *connection) run(ctx context.Context, callback func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
 	if connection.closed {
 		return sdk.ErrTursoConnClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	op := newOperation(ctx, connection.pointer)
 	defer op.close()
@@ -145,6 +152,9 @@ func (connection *connection) Close() error {
 	for cursor := range connection.rows {
 		_ = cursor.close()
 	}
+	for stmt := range connection.statements {
+		_ = stmt.close()
+	}
 	err := connection.base.Close()
 	bridge.close(connection.database)
 	connection.closed = true
@@ -156,15 +166,33 @@ func (connection *connection) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (connection *connection) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	var prepared driver.Stmt
-	err := connection.run(ctx, func() (err error) {
-		prepared, err = connection.base.PrepareContext(ctx, query)
-		return err
-	})
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &statement{Stmt: prepared, connection: connection}, nil
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if connection.closed {
+		return nil, sdk.ErrTursoConnClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	op := newOperation(ctx, connection.pointer)
+	defer op.close()
+	if err := op.enter(); err != nil {
+		return nil, err
+	}
+	prepared, err := connection.base.PrepareContext(ctx, query)
+	op.leave()
+	if err != nil {
+		return nil, op.result(err)
+	}
+	stmt := &statement{Stmt: prepared, connection: connection}
+	if connection.statements == nil {
+		connection.statements = map[*statement]struct{}{}
+	}
+	connection.statements[stmt] = struct{}{}
+	return stmt, nil
 }
 
 func (connection *connection) ExecContext(ctx context.Context, query string, arguments []driver.NamedValue) (driver.Result, error) {
@@ -183,10 +211,16 @@ func (connection *connection) QueryContext(ctx context.Context, query string, ar
 }
 
 func (connection *connection) query(ctx context.Context, callback func() (driver.Rows, error)) (driver.Rows, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
 	if connection.closed {
 		return nil, sdk.ErrTursoConnClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	op := newOperation(ctx, connection.pointer)
 	if err := op.enter(); err != nil {
@@ -258,6 +292,22 @@ func (tx *transaction) Rollback() error {
 type statement struct {
 	driver.Stmt
 	connection *connection
+	closed     bool
+}
+
+func (statement *statement) close() error {
+	if statement.closed {
+		return nil
+	}
+	statement.closed = true
+	delete(statement.connection.statements, statement)
+	return statement.Stmt.Close()
+}
+
+func (statement *statement) Close() error {
+	statement.connection.mu.Lock()
+	defer statement.connection.mu.Unlock()
+	return statement.close()
 }
 
 func (statement *statement) Exec(arguments []driver.Value) (driver.Result, error) {

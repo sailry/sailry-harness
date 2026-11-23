@@ -98,3 +98,12 @@ func TestConcurrentCompressedFrames(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectsForgedMaxDeclaredCompressedLength(t *testing.T) {
+	frame := binary.BigEndian.AppendUint32(nil, compressedFlag|uint32(12))
+	frame = binary.BigEndian.AppendUint32(frame, uint32(protocol.MAX_FRAME_BYTES))
+	frame = append(frame, []byte("not-zstd")...)
+	if _, err := NewReader(true).Raw(bytes.NewReader(frame)); err == nil {
+		t.Fatal("accepted invalid compressed frame")
+	}
+}

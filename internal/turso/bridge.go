@@ -37,7 +37,7 @@ func openConnection(ctx context.Context, path string) (*connection, error) {
 	// The public constructor delegates every statement, binding and row to the
 	// official SDK. Only native ownership and context interruption live here.
 	base := sdk.NewConnection(pointer, nil)
-	opened := &connection{base: base, database: database, pointer: pointer, rows: make(map[*rows]struct{})}
+	opened := &connection{base: base, database: database, pointer: pointer, statements: make(map[*statement]struct{}), rows: make(map[*rows]struct{})}
 	if err := base.SetBusyTimeout(0); err != nil {
 		_ = opened.Close()
 		return nil, err

@@ -195,6 +195,9 @@ func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
 	if exclusive.pinned != 0 {
 		return nil, errors.New("database has pinned read transactions")
 	}
+	if exclusive.writer.failed != nil || exclusive.Connection() == nil {
+		return nil, errors.New("database writer connection is unavailable")
+	}
 	rows, err := exclusive.Connection().QueryContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 	if err != nil {
 		return nil, err
