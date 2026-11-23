@@ -430,11 +430,20 @@ func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol
 	if err != nil {
 		return nil, err
 	}
-	source.Guidance = &recipient
-	if err = putAgentRun(ctx, db, source); err != nil {
-		return nil, err
-	}
 	if !compatible {
+		if sendAt != nil {
+			if source.Guidance != nil {
+				source.Guidance = nil
+				if err = putAgentRun(ctx, db, source); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			source.Guidance = &recipient
+			if err = putAgentRun(ctx, db, source); err != nil {
+				return nil, err
+			}
+		}
 		if err = recaptureDetachedGuidance(ctx, db, turn); err != nil {
 			return nil, err
 		}
@@ -445,6 +454,10 @@ func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol
 			return sendQueuedNow(ctx, db, source, []protocol.ConversationRun{target}, *sendAt)
 		}
 		_, err = startQueued(ctx, db, turn)
+		return nil, err
+	}
+	source.Guidance = &recipient
+	if err = putAgentRun(ctx, db, source); err != nil {
 		return nil, err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=?2,revision=revision+1 WHERE turn=?1", turn.String(), recipient.String()); err != nil {

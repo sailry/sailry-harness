@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -110,7 +111,11 @@ func runPostgres(ctx context.Context, operation Operation, target endpoint, quer
 	if err != nil {
 		return empty, connectionError(err, operation.Password)
 	}
-	defer connection.Close(ctx)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = connection.Close(closeCtx)
+	}()
 	// Preparation rejects multiple statements; the simple protocol then keeps
 	// PostgreSQL's text representation for arbitrary and extension types.
 	description, err := connection.Prepare(ctx, "", query.SQL, nil)

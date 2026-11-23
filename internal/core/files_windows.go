@@ -97,7 +97,7 @@ func renameFileBetween(source *os.Root, from string, target *os.Root, to string)
 	length := len(name) - 1
 	buffer := make([]byte, int(unsafe.Offsetof(layout.FileName))+2*length)
 	information := (*renameInformation)(unsafe.Pointer(&buffer[0]))
-	information.ReplaceIfExists = 1
+	information.ReplaceIfExists = 0
 	information.RootDirectory = windows.Handle(targetDirectory.Fd())
 	information.FileNameLength = uint32(2 * length)
 	copy(unsafe.Slice(&information.FileName[0], length), name[:length])

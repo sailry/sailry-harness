@@ -131,7 +131,14 @@ func (fetcher *Fetcher) transport(proxy *url.URL) (http.RoundTripper, error) {
 }
 
 func fetchTransport(proxy *url.URL, dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
-	return &http.Transport{Proxy: http.ProxyURL(proxy), DialContext: dial, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	return &http.Transport{
+		Proxy:                 http.ProxyURL(proxy),
+		DialContext:           dial,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	}
 }
 
 func (fetcher *Fetcher) dialPublic(ctx context.Context, network, address string) (net.Conn, error) {
@@ -153,7 +160,7 @@ func (fetcher *Fetcher) dialPublic(ctx context.Context, network, address string)
 	for _, address := range addresses {
 		connection, failure := fetcher.options.DialContext(ctx, network, net.JoinHostPort(address.String(), port))
 		if failure == nil {
-			return &webConnection{Conn: connection}, nil
+			return connection, nil
 		}
 		err = failure
 		if ctx.Err() != nil {
@@ -161,15 +168,6 @@ func (fetcher *Fetcher) dialPublic(ctx context.Context, network, address string)
 		}
 	}
 	return nil, err
-}
-
-type webConnection struct{ net.Conn }
-
-func (connection *webConnection) Read(value []byte) (int, error) {
-	if err := connection.Conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		return 0, err
-	}
-	return connection.Conn.Read(value)
 }
 
 func (fetcher *Fetcher) Close() error {

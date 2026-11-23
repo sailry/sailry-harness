@@ -234,14 +234,21 @@ func create(client *sftp.Client, path string, directory bool) error {
 	return nil
 }
 
+const (
+	maxSFTPTreeDepth   = 64
+	maxSFTPTreeEntries = 100_000
+)
+
 func remove(client *sftp.Client, path string) error {
 	type step struct {
 		path    string
+		depth   int
 		visited bool
 	}
 	pending := []step{{path: path}}
 	// Once an entry is removed, a lost read leaves the rest unknown too.
 	read := sftpRead
+	processed := 0
 	for len(pending) > 0 {
 		current := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
@@ -251,6 +258,10 @@ func remove(client *sftp.Client, path string) error {
 			}
 			read = sftpChange
 			continue
+		}
+		processed++
+		if processed > maxSFTPTreeEntries {
+			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "remote directory tree exceeds removal limit"}
 		}
 		metadata, err := client.Lstat(current.path)
 		if err != nil {
@@ -263,14 +274,17 @@ func remove(client *sftp.Client, path string) error {
 			read = sftpChange
 			continue
 		}
-		pending = append(pending, step{current.path, true})
+		if current.depth >= maxSFTPTreeDepth {
+			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "remote directory nesting exceeds limit"}
+		}
+		pending = append(pending, step{path: current.path, depth: current.depth, visited: true})
 		entries, err := client.ReadDir(current.path)
 		if err != nil {
 			return read(err)
 		}
 		for _, entry := range entries {
 			if !strings.ContainsAny(entry.Name(), "/\x00") {
-				pending = append(pending, step{path: joinRemote(current.path, entry.Name())})
+				pending = append(pending, step{path: joinRemote(current.path, entry.Name()), depth: current.depth + 1})
 			}
 		}
 	}

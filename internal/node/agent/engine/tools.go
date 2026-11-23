@@ -435,6 +435,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		return !asks[i] && (!executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !wrapsTools)
 	}
 	toolContext := context.WithValue(x.ctx, foregroundToolKey{}, step)
+	var slots chan struct{}
+	if x.streamReads != nil && x.streamReads.slots != nil {
+		slots = x.streamReads.slots
+	} else {
+		slots = make(chan struct{}, maxConcurrentTools)
+	}
 	for start := 0; start < len(calls); {
 		if step.Err() != nil {
 			break
@@ -472,6 +478,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			workers.Add(1)
 			go func(i int) {
 				defer workers.Done()
+				select {
+				case slots <- struct{}{}:
+					defer func() { <-slots }()
+				case <-step.Done():
+					return
+				}
 				call := calls[i]
 				metric, started := r.telemetry.Capture(), time.Now()
 				defer func() { observeTool(metric, x.ctx, x.tools, call.Name, results[i], started) }()

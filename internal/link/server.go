@@ -197,7 +197,9 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 	}
 	switch envelope.Call.Kind {
 	case wire.CallInspect:
-		compression.Store(envelope.Zstd)
+		if envelope.Zstd {
+			compression.Store(true)
+		}
 		endpoint := link.endpointReply()
 		if ep, ok := link.endpoint.(*libp2pEndpoint); ok && relayInspectStream(stream) {
 			endpoint.LANListeners = ep.lanListeners()

@@ -88,6 +88,8 @@ func TestRootRejectsEscape(t *testing.T) {
 		}{
 			{".sailry/worktrees/id/file", true},
 			{".SAILRY/WORKTREES/id/file", true},
+			{".sailry\u200b/worktrees/id/file", true},
+			{"sailry~1/worktr~1/id/file", true},
 			{".ſailry/worktrees/id/file", false},
 			{".sailry/worKtrees/id/file", false},
 		} {

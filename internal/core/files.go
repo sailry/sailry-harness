@@ -118,21 +118,34 @@ func fileComponents(value string, allowRoot bool, access FileAccess, mutation bo
 	return parts, nil
 }
 
-// gitMetadataName reports a name that a file system may resolve to .git: any
-// letter case, the NTFS short name, or one with HFS+ ignorable code points.
-func gitMetadataName(name string) bool {
-	name = strings.Map(func(character rune) rune {
-		if character >= 0x200c && character <= 0x200f || character >= 0x202a && character <= 0x202e || character >= 0x206a && character <= 0x206f || character == 0xfeff {
+func stripIgnorableName(name string) string {
+	return strings.Map(func(character rune) rune {
+		if character == 0x00ad || character == 0x200b || character == 0x2060 ||
+			character >= 0x200c && character <= 0x200f ||
+			character >= 0x202a && character <= 0x202e ||
+			character >= 0x206a && character <= 0x206f ||
+			character == 0xfeff {
 			return -1
 		}
 		return character
 	}, name)
+}
+
+// gitMetadataName reports a name that a file system may resolve to .git: any
+// letter case, the NTFS short name, or one with HFS+ ignorable code points.
+func gitMetadataName(name string) bool {
+	name = stripIgnorableName(name)
 	return strings.EqualFold(name, ".git") || strings.EqualFold(name, "git~1")
 }
 
 func managedFileDirectory(parent, name string) bool {
-	return len(parent) == len(".sailry") && len(name) == len("worktrees") &&
-		strings.EqualFold(parent, ".sailry") && strings.EqualFold(name, "worktrees")
+	parent = stripIgnorableName(parent)
+	name = stripIgnorableName(name)
+	isSailry := len(parent) == len(".sailry") && strings.EqualFold(parent, ".sailry") ||
+		len(parent) == len("sailry~1") && strings.EqualFold(parent, "sailry~1")
+	isWorktrees := len(name) == len("worktrees") && strings.EqualFold(name, "worktrees") ||
+		len(name) == len("worktr~1") && strings.EqualFold(name, "worktr~1")
+	return isSailry && isWorktrees
 }
 
 func (files *Files) parent(relative string, mutation bool) (*os.Root, string, error) {
@@ -396,6 +409,8 @@ func fileIOFault(err error) error {
 	code := protocol.ErrorCodeInvalidRequest
 	if errors.Is(err, fs.ErrNotExist) {
 		code = protocol.ErrorCodeNotFound
+	} else if errors.Is(err, fs.ErrExist) {
+		code = protocol.ErrorCodeConflict
 	} else if errors.Is(err, fs.ErrPermission) {
 		code = protocol.ErrorCodePermissionDenied
 	}

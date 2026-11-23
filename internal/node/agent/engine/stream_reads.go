@@ -9,9 +9,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 )
 
+const maxConcurrentTools = 16
+
 type streamedReads struct {
 	ctx      context.Context
 	end      func()
+	slots    chan struct{}
 	workers  sync.WaitGroup
 	pending  map[*canonical.ToolRequest]*streamedRead
 	accepted map[string]*streamedRead
@@ -60,6 +63,7 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	}
 	if reads.ctx == nil {
 		reads.ctx, reads.end = r.beginToolStep(x)
+		reads.slots = make(chan struct{}, maxConcurrentTools)
 		reads.pending = make(map[*canonical.ToolRequest]*streamedRead)
 	}
 	ctx, cancel := context.WithCancel(reads.ctx)
@@ -70,6 +74,12 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 		defer reads.workers.Done()
 		defer close(job.done)
 		defer cancel()
+		select {
+		case reads.slots <- struct{}{}:
+			defer func() { <-reads.slots }()
+		case <-ctx.Done():
+			return
+		}
 		metric, started := r.telemetry.Capture(), time.Now()
 		defer func() { observeTool(metric, ctx, x.tools, call.Name, job.result, started) }()
 		defer containToolPanic(x, call, &job.result)

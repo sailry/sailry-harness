@@ -57,6 +57,8 @@ func runSQLite(ctx context.Context, operation Operation, requested string, query
 		flags |= sqlite3.SQLITE_OPEN_READONLY
 	case create:
 		// SQLite itself refuses a symbolic link substituted after the checks.
+		// Apply NOFOLLOW only on creation; SQLite inherits it into VACUUM INTO
+		// and ATTACH targets, which rejects canonicalized OS aliases like /var on macOS.
 		flags |= sqlite3.SQLITE_OPEN_READWRITE | sqlite3.SQLITE_OPEN_CREATE | sqlite3.SQLITE_OPEN_NOFOLLOW
 	default:
 		flags |= sqlite3.SQLITE_OPEN_READWRITE

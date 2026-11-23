@@ -104,7 +104,12 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 	if err := connection.lock(ctx, connection.calls, weight); err != nil {
 		return nil, err
 	}
-	defer connection.calls.Release(weight)
+	released := false
+	defer func() {
+		if !released {
+			connection.calls.Release(weight)
+		}
+	}()
 	if ctx.Err() != nil || lease.pool.ctx.Err() != nil {
 		return nil, cancelled()
 	}
@@ -130,7 +135,9 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 		err   error
 	}
 	completed := make(chan response, 1)
+	released = true
 	go func() {
+		defer connection.calls.Release(weight)
 		value, err := connection.session.CallTool(operation, &sdk.CallToolParams{Name: name, Arguments: arguments})
 		completed <- response{value, err}
 	}()

@@ -192,8 +192,11 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			if f.Change.Kind == "entry" && len(page.Entries) > 0 && x.Sequence <= page.Entries[len(page.Entries)-1].Sequence {
 				return Ignored, fault(protocol.ErrorCodeInvalidRequest, "conversation history order changed")
 			}
+			needsSort := len(page.Entries) > 0 && x.Sequence < page.Entries[len(page.Entries)-1].Sequence
 			page.Entries = append(page.Entries, x)
-			slices.SortFunc(page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
+			if needsSort {
+				slices.SortFunc(page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
+			}
 			if p.liveStart == nil {
 				p.liveStart = new(x.Sequence)
 			}
