@@ -217,7 +217,7 @@
     {
       "name": "write_file",
       "legacy_package": "files",
-      "description": "Write a complete UTF-8 file up to 1 MiB. expected_revision defaults to the revision last seen in this conversation, or creates the file if none was seen; pass null to create without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
+      "description": "Write a complete UTF-8 file up to 1 MiB. Pass the revision from read_file to replace a file; omit it or pass null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -233,7 +233,7 @@
               "string",
               "null"
             ],
-            "description": "Revision to replace, or null to create. Optional; defaults to the revision last seen in this conversation, else creates"
+            "description": "Revision to replace; omit or null to create"
           }
         },
         "required": [

@@ -120,7 +120,7 @@
             "string",
             "null"
           ],
-          "description": "Revision to replace, or null to create. Optional; defaults to the revision last seen in this conversation, else creates"
+          "description": "Revision to replace; omit or null to create"
         }
       },
       "required": [

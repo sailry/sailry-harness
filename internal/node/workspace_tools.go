@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	pathpkg "path"
 	"slices"
 	"strings"
 	"sync"
@@ -626,7 +627,9 @@ func observesRevisions(operation protocol.ToolOperation) bool {
 // resolve fills an omitted expected_revision of a single-file mutation with
 // the revision this conversation last observed, so the admitted command
 // carries a concrete revision and a later external change still conflicts.
-// An unobserved write creates; other mutations require a prior read.
+// write_file never defaults to replacing: an omitted revision creates, so its
+// approval prompt, which reads the model's arguments, names the real effect.
+// Other mutations require a prior read.
 func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments json.RawMessage) (json.RawMessage, error) {
 	if operation == protocol.ToolOperationApplyChanges || !observesRevisions(operation) {
 		return arguments, nil
@@ -644,11 +647,14 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 		return arguments, nil
 	}
 	revision, ok := r.paths[path]
+	if !ok && path != "" {
+		revision, ok = r.paths[pathpkg.Clean(path)]
+	}
 	switch {
-	case ok:
-		values["expected_revision"], _ = json.Marshal(revision)
 	case operation == protocol.ToolOperationWriteFile:
 		values["expected_revision"] = json.RawMessage("null")
+	case ok:
+		values["expected_revision"], _ = json.Marshal(revision)
 	default:
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
 	}

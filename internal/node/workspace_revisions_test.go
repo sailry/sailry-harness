@@ -47,6 +47,15 @@ func TestWorkspaceRevisionsResolveOmittedRevision(t *testing.T) {
 		_, err = files.Prepare(context.Background(), root, command, core.RestrictedFiles)
 		return command, err
 	}
+	// observedCommand stops before file preparation, for arguments whose
+	// admitted command is the assertion.
+	observedCommand := func(op protocol.ToolOperation, args string) (protocol.Command, error) {
+		resolved, err := observed.resolve(op, json.RawMessage(args))
+		if err != nil {
+			return protocol.Command{}, err
+		}
+		return operations.Command(op, resolved, worktree, session, turn, nil, false)
+	}
 	faultCode := func(err error) protocol.ErrorCode {
 		var fault *protocol.Fault
 		if !errors.As(err, &fault) {
@@ -83,9 +92,13 @@ func TestWorkspaceRevisionsResolveOmittedRevision(t *testing.T) {
 	if _, err := prepare(protocol.ToolOperationWriteFile, `{"path":"b.txt","text":"replace\n"}`); err == nil {
 		t.Fatal("an unobserved write replaced an existing file")
 	}
-	command, err = prepare(protocol.ToolOperationWriteFile, `{"path":"a.txt","text":"replace\n"}`)
-	if err != nil || *command.Data.(*protocol.CommandWriteFilePayload).ExpectedRevision != read {
-		t.Fatalf("write to an observed path: %v", err)
+	command, err = observedCommand(protocol.ToolOperationWriteFile, `{"path":"a.txt","text":"replace\n"}`)
+	if err != nil || command.Data.(*protocol.CommandWriteFilePayload).ExpectedRevision != nil {
+		t.Fatalf("an omitted write revision must create, never replace: %v", err)
+	}
+	command, err = observedCommand(protocol.ToolOperationEditFile, `{"path":"./a.txt","old_text":"one","new_text":"two"}`)
+	if err != nil || command.Data.(*protocol.CommandEditFilePayload).ExpectedRevision != read {
+		t.Fatalf("edit of a dot-relative observed path: %v", err)
 	}
 	if _, err := prepare(protocol.ToolOperationWriteFile, `{"path":"a.txt","text":"replace\n","expected_revision":null}`); err == nil {
 		t.Fatal("explicit null replaced an existing file")
@@ -97,7 +110,6 @@ func TestWorkspaceRevisionsResolveOmittedRevision(t *testing.T) {
 		args string
 	}{
 		{protocol.ToolOperationEditFile, `{"path":"a.txt","old_text":"changed","new_text":"x"}`},
-		{protocol.ToolOperationWriteFile, `{"path":"a.txt","text":"replace\n"}`},
 		{protocol.ToolOperationDeleteFile, `{"path":"a.txt"}`},
 	} {
 		if _, err := prepare(stale.op, stale.args); faultCode(err) != protocol.ErrorCodeRevisionConflict {
