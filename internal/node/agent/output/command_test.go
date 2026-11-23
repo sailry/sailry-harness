@@ -102,7 +102,7 @@ func TestCommandProjectionBoundsLargeFailure(t *testing.T) {
 	summary := object(got["data"])
 	stdout := object(summary["stdout"])
 	shown := text(stdout["text"])
-	if len(result.Result.Value) > MaxBytes || commandLines(got) > MaxLines || !utf8.ValidString(shown) || !strings.HasPrefix(shown, first) ||
+	if len(result.Result.Value) > commandPreviewBytes || commandLines(got) > MaxLines || !utf8.ValidString(shown) || !strings.HasPrefix(shown, first) ||
 		!strings.HasPrefix(completion.Stdout.Text, shown) || len(shown) >= len(completion.Stdout.Text) || stdout["truncated"] != true {
 		t.Fatal("model bound did not keep an exact, UTF-8 aligned foreground prefix")
 	}
@@ -187,6 +187,9 @@ func TestCommandProjectionBoundsPage(t *testing.T) {
 			}
 			if ref := object(got["output"]); ref["call"] != source.ID || ref["revision"] != source.Revision || object(data["info"])["id"] != info.ID.String() {
 				t.Fatal("bounded page lost its canonical reference or process ID")
+			}
+			if !strings.Contains(text(got["read"]), "before continuing with next_offset") {
+				t.Fatal("bounded page must recover the hidden suffix before advancing the stream cursor")
 			}
 			want := object(decode([]byte(encoded(page))))
 			delete(want, "info")

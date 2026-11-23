@@ -287,6 +287,7 @@ func inputRecord(turn protocol.TurnID, input protocol.ConversationInput, nowCloc
 }
 
 func (r *Runtime) turn(x *execution) error {
+	defer func() { x.streamReads.close() }()
 	inv := x.inv
 	if err := r.captureResources(x); err != nil {
 		return err
@@ -738,11 +739,18 @@ func pendingCalls(records []canonical.Record, admitted map[string]bool) []canoni
 		if request == nil {
 			continue
 		}
-		var meta map[string]any
-		_ = json.Unmarshal(request.ToolMeta, &meta)
-		if meta[canonical.ExternalDispatchKey] != true {
+		if !externalToolCall(*request) {
 			calls = append(calls, *request)
 		}
 	}
 	return calls
+}
+
+func externalToolCall(call canonical.ToolRequest) bool {
+	if len(call.ToolMeta) == 0 {
+		return false
+	}
+	var meta map[string]json.RawMessage
+	_ = json.Unmarshal(call.ToolMeta, &meta)
+	return string(meta[canonical.ExternalDispatchKey]) == "true"
 }

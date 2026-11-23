@@ -91,6 +91,14 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		switch declaration.Operation {
+		case protocol.ToolOperationListDirectory, protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines,
+			protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
+			protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode,
+			protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff, protocol.ToolOperationReadGitLog,
+			protocol.ToolOperationReadGitShow, protocol.ToolOperationReadGitBlame, protocol.ToolOperationListGitChanges, protocol.ToolOperationReadGitChange:
+			tool.StreamRead = inv.Worktree.Project != nil && tool.ReadOnly && tool.Concurrent
+		}
 		if !packaged && declaration.Display != nil {
 			tool.SearchLabels = toolSearchLabels(*declaration.Display)
 		}

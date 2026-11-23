@@ -7,6 +7,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -15,6 +16,14 @@ func (owner *pluginScriptTurn) bindNative(tool, bound engine.Tool, declaration p
 	tool.Delegation = bound.Delegation
 	tool.ObserveHistory = bound.ObserveHistory
 	tool.Confirm, tool.ConfigureApproval, tool.Approved, tool.Close = bound.Confirm, bound.ConfigureApproval, bound.Approved, bound.Close
+	evaluate := owner.evaluate
+	if bound.StreamRead && handler.Result == nil {
+		pack, _, official := operations.Official(owner.scope.Package, tool.Definition.Name)
+		if official && (pack == "files" || pack == "git" || pack == "code") {
+			tool.StreamRead = true
+			evaluate = owner.evaluateNativeRead
+		}
+	}
 	var mu sync.Mutex
 	calls := map[string]canonical.ToolRequest{}
 	tool.ReleasePrepared = func(call canonical.ToolRequest) {
@@ -30,7 +39,7 @@ func (owner *pluginScriptTurn) bindNative(tool, bound engine.Tool, declaration p
 		if json.Unmarshal(call.Arguments, &input) != nil {
 			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid plugin tool arguments"}
 		}
-		prepared, err := owner.evaluate(ctx, handler.Name, declaration.Name, call.ID, input, true)
+		prepared, err := evaluate(ctx, handler.Name, declaration.Name, call.ID, input, true)
 		if err != nil {
 			return err
 		}

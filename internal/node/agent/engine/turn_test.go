@@ -240,7 +240,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			f := newFixture(t, m, tool)
 			f.start()
 			turn := f.submit("Read")
-			for range min(count, 8) {
+			for range count {
 				select {
 				case <-started:
 				case <-f.ctx.Done():
@@ -275,29 +275,13 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 					t.Fatalf("active calls %v, want %q", ids, want)
 				}
 			}
-			checkActive("abcdefgh"[:min(count, 8)])
-			if count > 8 {
-				// One finished call frees its slot: the ninth starts while the
-				// other seven, the first included, are still running.
-				close(release["b"])
-				select {
-				case id := <-started:
-					if id != "i" || running.Load() != 8 {
-						t.Fatalf("freed slot started %q with %d running", id, running.Load())
-					}
-				case <-f.ctx.Done():
-					t.Fatal("a slow call delayed the start of the ninth")
-				}
-				checkActive("acdefghi")
-			}
-			for id, done := range release {
-				if count <= 8 || id != "b" {
-					close(done)
-				}
+			checkActive("abcdefghi"[:count])
+			for i := count - 1; i >= 0; i-- {
+				close(release[string(rune('a'+i))])
 			}
 			f.waitRun(turn, protocol.ConversationStatusCompleted)
 			checkActive("")
-			if maxRunning.Load() != int32(min(count, 8)) {
+			if maxRunning.Load() != int32(count) {
 				t.Fatalf("concurrency=%d", maxRunning.Load())
 			}
 			var got []string
@@ -319,7 +303,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			}
 		})
 	}
-	t.Run("stopped turn starts no call beyond the window", func(t *testing.T) {
+	t.Run("stop cancels all concurrent reads and skips the next serial call", func(t *testing.T) {
 		var starts atomic.Int32
 		started, stopped, hold := make(chan struct{}, 16), make(chan struct{}, 16), make(chan struct{})
 		tool := objectTool("read", true, true, func(ctx context.Context, _ canonical.ToolRequest) ToolResult {
@@ -330,22 +314,27 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			<-hold
 			return ToolResult{}
 		})
+		serial := objectTool("serial", true, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			starts.Add(1)
+			return ToolResult{Value: "Unexpected serial execution"}
+		})
 		parts := []fantasy.StreamPart{}
 		for i := range 9 {
 			parts = append(parts, call(string(rune('a'+i)), "read", `{}`))
 		}
-		f := newFixture(t, &scriptedModel{scripts: []script{response(append(parts, finish())...)}}, tool)
+		parts = append(parts, call("j", "serial", `{}`), finish())
+		f := newFixture(t, &scriptedModel{scripts: []script{response(parts...)}}, tool, serial)
 		f.start()
 		turn := f.submit("Read")
-		for range 8 {
+		for range 9 {
 			select {
 			case <-started:
 			case <-f.ctx.Done():
-				t.Fatal("window did not fill")
+				t.Fatal("concurrent reads did not all start")
 			}
 		}
 		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
-		for range 8 {
+		for range 9 {
 			select {
 			case <-stopped:
 			case <-f.ctx.Done():
@@ -354,7 +343,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 		}
 		close(hold)
 		f.waitRun(turn, protocol.ConversationStatusCancelled)
-		if starts.Load() != 8 {
+		if starts.Load() != 9 {
 			t.Fatalf("stopped turn started %d calls", starts.Load())
 		}
 		observed := map[string]protocol.ErrorCode{}
@@ -365,7 +354,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			}
 			for _, block := range message.Content {
 				result, ok := block.Data.(*canonical.ToolResponse)
-				if !ok || result.Name != "read" {
+				if !ok || result.Name != "read" && result.Name != "serial" {
 					continue
 				}
 				var fault struct{ Data protocol.Fault }
@@ -375,7 +364,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 				observed[result.ID] = fault.Data.Code
 			}
 		}
-		if len(observed) != 9 || observed["a"] != protocol.ErrorCodeOutcomeUnknown || observed["i"] != protocol.ErrorCodeCancelled {
+		if len(observed) != 10 || observed["a"] != protocol.ErrorCodeOutcomeUnknown || observed["i"] != protocol.ErrorCodeOutcomeUnknown || observed["j"] != protocol.ErrorCodeCancelled {
 			t.Fatalf("stopped call outcomes: %v", observed)
 		}
 	})

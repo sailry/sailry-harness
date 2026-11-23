@@ -274,24 +274,26 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 // call_tool call naming a captured tool becomes that tool's own call, so
 // approvals, execution, history and presentation see the real tool.
 func (e *exposure) restore(blocks []canonical.Block) {
-	if e == nil {
+	for _, block := range blocks {
+		if call, ok := block.Data.(*canonical.ToolRequest); ok {
+			e.restoreCall(call)
+		}
+	}
+}
+
+func (e *exposure) restoreCall(call *canonical.ToolRequest) {
+	if e == nil || call.Error != nil {
 		return
 	}
-	for _, block := range blocks {
-		call, ok := block.Data.(*canonical.ToolRequest)
-		if !ok || call.Error != nil {
-			continue
+	if call.Name == callToolName {
+		if name, arguments, ok := e.undispatch(call.Arguments); ok {
+			call.Name, call.Arguments = name, arguments
 		}
-		if call.Name == callToolName {
-			if name, arguments, ok := e.undispatch(call.Arguments); ok {
-				call.Name, call.Arguments = name, arguments
-			}
-		}
-		call.Name = e.alias(call.Name)
-		if call.Name == "tool_search" {
-			if arguments, changed := e.query(call.Arguments, e.reverse); changed {
-				call.Arguments = arguments
-			}
+	}
+	call.Name = e.alias(call.Name)
+	if call.Name == "tool_search" {
+		if arguments, changed := e.query(call.Arguments, e.reverse); changed {
+			call.Arguments = arguments
 		}
 	}
 }

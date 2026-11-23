@@ -21,14 +21,15 @@ import (
 )
 
 type streamOutput struct {
-	sources  canonical.Sources
-	record   canonical.Record
-	blocks   []canonical.Block
-	slots    map[string]int
-	indices  map[string]uint64
-	calls    map[string]bool
-	finished bool
-	limited  bool
+	sources   canonical.Sources
+	record    canonical.Record
+	blocks    []canonical.Block
+	slots     map[string]int
+	indices   map[string]uint64
+	calls     map[string]bool
+	toolSlots []int
+	finished  bool
+	limited   bool
 }
 
 // credential resolves the captured account before each model call. The
@@ -224,6 +225,8 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model, ReplayPrefix: model.ReplayPrefix(call)}}
 		return out
 	}
+	reads := &streamedReads{}
+	defer func() { reads.close() }()
 	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {
 		out := newOutput()
 		var streamErr error
@@ -233,6 +236,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			return errQueuedSteer
 		}
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
+			if attempt.Failure != nil {
+				reads.close()
+			}
 			r.observeModel(metric, binding, attempt)
 			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
@@ -253,6 +259,16 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				streamErr = e
 				return false
 			}
+			if part.Type == fantasy.StreamPartTypeToolCall {
+				for !reads.blocked && reads.next < len(out.toolSlots) {
+					request, ok := out.blocks[out.toolSlots[reads.next]].Data.(*canonical.ToolRequest)
+					if !ok {
+						break
+					}
+					reads.next++
+					r.startStreamRead(x, reads, request)
+				}
+			}
 			if (part.Type == fantasy.StreamPartTypeTextDelta || part.Type == fantasy.StreamPartTypeReasoningDelta) && part.Delta != "" {
 				kind := "text"
 				if part.Type == fantasy.StreamPartTypeReasoningDelta {
@@ -261,7 +277,10 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				streamErr = r.feed.Delta(x.inv.Session.ID, protocol.ConversationDraft{ID: out.record.ID, Turn: x.inv.Run.Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: kind, Data: part.Delta}}})
 			}
 			return streamErr == nil
-		}, func() { out = newOutput() })
+		}, func() {
+			out = newOutput()
+			reads = &streamedReads{}
+		})
 		if streamErr != nil {
 			err = streamErr
 		}
@@ -337,6 +356,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				record.Metadata.Runtime = &runtime
 				return r.save(x.ctx, x.inv.Session.ID, record)
 			}
+			if reads.adopt(out.blocks) {
+				x.streamReads, reads = reads, nil
+			}
 			return nil
 		}
 		if len(billing) > 0 {
@@ -361,6 +383,8 @@ func (out *streamOutput) slot(id, kind string) *canonical.Block {
 		block.Data = &canonical.TextContent{}
 	case "thinking":
 		block.Data = &canonical.Thinking{}
+	case "tool_request":
+		out.toolSlots = append(out.toolSlots, index)
 	}
 	out.blocks = append(out.blocks, block)
 	return &out.blocks[index]

@@ -35,6 +35,8 @@ type Tool struct {
 	SchemaJSON json.RawMessage
 	ReadOnly   bool
 	Concurrent bool
+	// StreamRead permits a native read to start before its model response is committed.
+	StreamRead bool
 	Deferred   bool
 	Delegation bool
 	Approval   bool
@@ -320,8 +322,18 @@ func findTool(tools []Tool, name string) *Tool {
 }
 
 func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
-	step, end := r.beginToolStep(x)
-	defer end()
+	var step context.Context
+	if reads := x.streamReads; reads != nil {
+		step = reads.ctx
+		defer func() {
+			reads.close()
+			x.streamReads = nil
+		}()
+	} else {
+		var end func()
+		step, end = r.beginToolStep(x)
+		defer end()
+	}
 	// Discovery answers with the names this turn offers its tools under.
 	r.exposure(x, state)
 	// Commit leading plan receipts before the work they introduce can block
@@ -355,6 +367,11 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	child := x.inv.Session.Delegation != nil
 	readOnlyChild := child && (planning || x.childRole != nil && x.childRole.ReadOnly)
 	for i, call := range calls {
+		if x.streamReads.read(call.ID) != nil {
+			executable[i] = true
+			marks = append(marks, r.executableRecord(x, call, true))
+			continue
+		}
 		if step.Err() != nil {
 			break
 		}
@@ -376,20 +393,8 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
 			continue
 		}
-		var arguments any
-		if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
-			results[i] = invalidTool("invalid tool arguments")
-			continue
-		}
-		if err := tool.schema.Validate(arguments); err != nil {
-			if validation, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
-				orderValidationErrors(validation)
-			}
-			results[i] = invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
-			continue
-		}
-		if tool.parentSchema != nil && tool.parentSchema.Validate(arguments) != nil {
-			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "tool arguments exceed the parent turn capture"}}
+		if invalid := validateToolArguments(tool, call); invalid.Failure != nil {
+			results[i] = invalid
 			continue
 		}
 		if tool.ObserveHistory != nil {
@@ -417,32 +422,17 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	if err := r.save(x.ctx, x.inv.Session.ID, marks...); err != nil {
 		return err
 	}
-	for i, call := range calls {
-		if step.Err() != nil {
-			break
-		}
-		tool := findTool(x.tools, call.Name)
-		if !asks[i] || results[i].Value != nil || results[i].Failure != nil {
-			continue
-		}
-		approved, err := r.approval(x, step, call, tool)
-		if err == errQueuedSteer {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		executable[i] = approved
-		if !approved {
-			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
-		}
-		if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
-			return err
+	if x.streamReads != nil {
+		for _, call := range calls {
+			if read := x.streamReads.read(call.ID); read != nil {
+				read.publishActivity(func() func() { return r.toolActivity(x, call) })
+			}
 		}
 	}
+	wrapsTools := x.hooks.WrapsTools()
 	concurrent := func(i int) bool {
 		tool := findTool(x.tools, calls[i].Name)
-		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !asks[i] && !x.hooks.WrapsTools()
+		return !asks[i] && (!executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !wrapsTools)
 	}
 	toolContext := context.WithValue(x.ctx, foregroundToolKey{}, step)
 	for start := 0; start < len(calls); {
@@ -454,35 +444,38 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			for end < len(calls) && concurrent(end) {
 				end++
 			}
+		} else if asks[start] {
+			call := calls[start]
+			approved, err := r.approval(x, step, call, findTool(x.tools, call.Name))
+			if err == errQueuedSteer {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			executable[start] = approved
+			if !approved {
+				results[start] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
+			}
+			if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
+				return err
+			}
 		}
-		// At most eight calls of a run execute at once; a finished call frees
-		// its slot for the next one.
-		slots := make(chan struct{}, 8)
 		var workers sync.WaitGroup
 		for i := start; i < end; i++ {
-			if !executable[i] {
+			if !executable[i] || x.streamReads.read(calls[i].ID) != nil {
 				continue
 			}
-			slots <- struct{}{}
-			// Cancellation may arrive while a worker slot is occupied.
 			if step.Err() != nil {
-				<-slots
 				break
 			}
 			workers.Add(1)
 			go func(i int) {
 				defer workers.Done()
-				defer func() { <-slots }()
-				metric, started := r.telemetry.Capture(), time.Now()
-				defer func() { observeTool(metric, x.ctx, x.tools, calls[i].Name, results[i], started) }()
-				// A panicking tool fails its own call; the turn and the Node continue.
-				defer func() {
-					if value := recover(); value != nil {
-						logPanic(x, "tool", calls[i].ID, value)
-						results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
-					}
-				}()
 				call := calls[i]
+				metric, started := r.telemetry.Capture(), time.Now()
+				defer func() { observeTool(metric, x.ctx, x.tools, call.Name, results[i], started) }()
+				defer containToolPanic(x, call, &results[i])
 				if step.Err() != nil {
 					return
 				}
@@ -508,11 +501,20 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			}(i)
 		}
 		workers.Wait()
+		for i := start; i < end; i++ {
+			if read := x.streamReads.read(calls[i].ID); read != nil {
+				<-read.done
+			}
+		}
 		start = end
 	}
 	blocks := make([]canonical.Block, 0, len(calls))
 	var contextDelta canonical.Context
 	for i, call := range calls {
+		if read := x.streamReads.read(call.ID); read != nil {
+			<-read.done
+			results[i], startedCalls[i] = read.result, read.ran
+		}
 		if (executable[i] || step.Err() != nil) && results[i].Value == nil && results[i].Failure == nil {
 			results[i] = interruptedTool(startedCalls[i])
 			if !startedCalls[i] && Steered(step) {
@@ -666,6 +668,30 @@ func logPanic(x *execution, operation, call string, value any) {
 	logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", operation),
 		slog.String("session", x.inv.Session.ID.String()), slog.String("turn", x.inv.Run.Turn.String()), slog.String("call", call),
 		slog.String("exception", fmt.Sprint(value)), slog.String("detail", strings.Join(frames, " < ")))
+}
+
+func containToolPanic(x *execution, call canonical.ToolRequest, result *ToolResult) {
+	if value := recover(); value != nil {
+		logPanic(x, "tool", call.ID, value)
+		*result = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
+	}
+}
+
+func validateToolArguments(tool *Tool, call canonical.ToolRequest) ToolResult {
+	var arguments any
+	if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
+		return invalidTool("invalid tool arguments")
+	}
+	if err := tool.schema.Validate(arguments); err != nil {
+		if validation, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
+			orderValidationErrors(validation)
+		}
+		return invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
+	}
+	if tool.parentSchema != nil && tool.parentSchema.Validate(arguments) != nil {
+		return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "tool arguments exceed the parent turn capture"}}
+	}
+	return ToolResult{}
 }
 
 func invalidTool(message string) ToolResult {

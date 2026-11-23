@@ -663,11 +663,14 @@ arguments; the response boundary turns that call into the tool's own canonical
 call before approval, execution and storage, and request projection shows an
 undeclared tool's stored call as the `call_tool` call that ran it. Records,
 approvals, hooks and presentation therefore name the real tool.
-Approvals settle before execution. A command run with workspace access needs
-no prompt, and neither does stopping it or writing to it: the admitted launch
-request in the same session records that access. Adjacent read-only concurrent calls run in
-groups of at most eight and retain result order. Node owns approval and question
-deadlines.
+Each tool requiring approval waits for its decision before execution. A command
+run with workspace access needs no prompt, and its admitted launch also permits
+stopping it or writing to it from the same session. Adjacent concurrent reads can
+run together and retain call order in history. Eligible native reads can begin
+as soon as the model streams their complete arguments. The Node cancels those
+reads on a failed stream and writes their results only after the corresponding
+tool calls commit. Writes, approvals and tool hooks retain their ordering.
+Node owns approval and question deadlines.
 
 Goal reads and updates execute in the Node. The Goals surface and continuation
 policy use the same conversation values and revision fences, including the

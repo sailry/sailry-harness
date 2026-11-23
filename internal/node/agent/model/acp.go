@@ -637,14 +637,12 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		}
 	}
 
-	parser, accumulator := &acpParser{}, pluginAccumulator{secrets: model.secrets()}
+	parser, accumulator := &acpParser{}, pluginAccumulator{secrets: model.secrets(), completeCalls: true}
 	emit := func(deltas ...protocol.PluginModelAdapterWireDelta) (bool, error) {
 		parts, err := accumulator.push(deltas)
 		if err != nil {
 			return false, err
 		}
-		// The finish delta ends the reply: the accumulated calls, the usage
-		// and the finish reason follow it.
 		if accumulator.finished {
 			ended, err := accumulator.finish()
 			if err != nil {

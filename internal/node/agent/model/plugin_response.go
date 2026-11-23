@@ -82,15 +82,30 @@ type pluginCall struct {
 	arguments strings.Builder
 }
 
+func (call *pluginCall) streamPart() (fantasy.StreamPart, error) {
+	if call.id == "" {
+		return fantasy.StreamPart{}, &Failure{Kind: InvalidResponse, Message: "model tool call identifier is missing"}
+	}
+	part := pluginIndexed(fantasy.StreamPartTypeToolCall, call.index)
+	part.ID, part.ToolCallName, part.ToolCallInput = call.id, call.name, call.arguments.String()
+	var arguments map[string]json.RawMessage
+	if json.Unmarshal([]byte(part.ToolCallInput), &arguments) != nil || arguments == nil {
+		part.ToolCallInput = "null"
+		part.ProviderMetadata[pluginMetadataKey] = &pluginOutputMetadata{ToolError: &canonical.ToolError{Code: -32602, Message: "tool arguments must be a JSON object"}}
+	}
+	return part, nil
+}
+
 type pluginAccumulator struct {
-	calls     map[uint64]*pluginCall
-	usage     UsageMetadata
-	reason    protocol.PluginModelAdapterWireFinish
-	finished  bool
-	index     uint64
-	content   string
-	signature strings.Builder
-	secrets   []protocol.Secret
+	calls         map[uint64]*pluginCall
+	usage         UsageMetadata
+	reason        protocol.PluginModelAdapterWireFinish
+	finished      bool
+	completeCalls bool // ACP emits each parsed tool block as one complete delta.
+	index         uint64
+	content       string
+	signature     strings.Builder
+	secrets       []protocol.Secret
 }
 
 func (accumulator *pluginAccumulator) part(kind string) uint64 {
@@ -160,6 +175,15 @@ func (accumulator *pluginAccumulator) push(deltas []protocol.PluginModelAdapterW
 			if value.ArgumentsDelta != nil {
 				call.arguments.WriteString(*value.ArgumentsDelta)
 			}
+			if accumulator.completeCalls {
+				part, err := call.streamPart()
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, part)
+				delete(accumulator.calls, value.Index)
+				continue
+			}
 			part := pluginIndexed(fantasy.StreamPartTypeKeepalive, call.index)
 			part.ToolCallName = call.name
 			part.ProviderMetadata[pluginMetadataKey] = &pluginOutputMetadata{Output: true}
@@ -202,16 +226,9 @@ func (accumulator *pluginAccumulator) finish() ([]fantasy.StreamPart, error) {
 	}
 	slices.Sort(keys)
 	for _, key := range keys {
-		call := accumulator.calls[key]
-		if call.id == "" {
-			return nil, &Failure{Kind: InvalidResponse, Message: "model tool call identifier is missing"}
-		}
-		part := pluginIndexed(fantasy.StreamPartTypeToolCall, call.index)
-		part.ID, part.ToolCallName, part.ToolCallInput = call.id, call.name, call.arguments.String()
-		var arguments map[string]json.RawMessage
-		if json.Unmarshal([]byte(part.ToolCallInput), &arguments) != nil || arguments == nil {
-			part.ToolCallInput = "null"
-			part.ProviderMetadata[pluginMetadataKey] = &pluginOutputMetadata{ToolError: &canonical.ToolError{Code: -32602, Message: "tool arguments must be a JSON object"}}
+		part, err := accumulator.calls[key].streamPart()
+		if err != nil {
+			return nil, err
 		}
 		parts = append(parts, part)
 	}

@@ -1317,7 +1317,7 @@
       "additionalProperties": false
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "worktrees.create",

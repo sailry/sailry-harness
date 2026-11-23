@@ -13,6 +13,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 )
 
+// Command execution previews use the same approximate 10,000-token budget
+// as Codex unified exec. The original result and stream pages keep their own
+// limits and remain readable by reference.
+const commandPreviewBytes = 10_000 * 4
+
 func commandToolName(name string) string {
 	if legacy := operations.LegacyCommandTool(name); legacy != "" {
 		name = legacy
@@ -44,8 +49,12 @@ func projectCommand(response *canonical.ToolResponse, name string, source map[st
 	if !validOutputReference(text(source["call"]), text(source["revision"])) {
 		return false
 	}
+	budget := MaxBytes
+	if name == "run_command" {
+		budget = commandPreviewBytes
+	}
 	if ref := object(value["output"]); ref["call"] == source["call"] && ref["revision"] == source["revision"] &&
-		commandLines(value) <= MaxLines && len(commandJSON(value)) <= MaxBytes {
+		commandLines(value) <= MaxLines && len(commandJSON(value)) <= budget {
 		return true
 	}
 	kind, data := text(value["kind"]), object(value["data"])
@@ -132,7 +141,7 @@ func projectCommand(response *canonical.ToolResponse, name string, source map[st
 	spans = appendCommandState(spans, object(info["status"]))
 	spans = appendCommandSpan(spans, data, "notice", false)
 	spans = appendCommandSpan(spans, data, "sandbox_notice", false)
-	if !fitCommandBody(result, info, spans) {
+	if !fitCommandBody(result, info, spans, budget) {
 		return false
 	}
 	for _, capture := range captures {
@@ -256,16 +265,19 @@ func commandLines(value any) int {
 	return lines
 }
 
-func fitCommandBody(result, info map[string]any, spans []commandSpan) bool {
-	if commandLines(result) <= MaxLines && len(commandJSON(result)) <= MaxBytes {
+func fitCommandBody(result, info map[string]any, spans []commandSpan, budget int) bool {
+	if commandLines(result) <= MaxLines && len(commandJSON(result)) <= budget {
 		return true
 	}
 	result["preview_truncated"] = true
 	result["read"] = "Read the original result with read_tool_output using output and offset=0. Stream ranges, flags and cursors describe the original result."
+	if result["kind"] == "command_output_page" {
+		result["read"] = "Read the rest of this page with read_tool_output using output and offset=0 before continuing with next_offset. The cursor advances past the original page."
+	}
 	if items := array(result["data"]); items != nil {
 		return fitCommandList(result, items)
 	}
-	return fitCommandInfo(result, info, spans, MaxBytes, MaxLines)
+	return fitCommandInfo(result, info, spans, budget, MaxLines)
 }
 
 func fitCommandInfo(result, info map[string]any, spans []commandSpan, bytes, lines int) bool {

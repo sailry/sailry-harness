@@ -201,6 +201,34 @@ func TestDeniedToolReleasesPreparedCall(t *testing.T) {
 	}
 }
 
+func TestReadBeforeAnApprovalRunsFirst(t *testing.T) {
+	readDone := make(chan struct{})
+	read := objectTool("read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		close(readDone)
+		return ToolResult{Value: "Read"}
+	})
+	write := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		t.Error("denied tool executed")
+		return ToolResult{}
+	})
+	write.Approval = true
+	m := &scriptedModel{scripts: []script{
+		response(call("read", "read", `{}`), call("write", "write", `{}`), finish()),
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, m, read, write)
+	f.start()
+	turn := f.submit("Read, then write")
+	approval := f.waitingApproval()
+	select {
+	case <-readDone:
+	default:
+		t.Fatal("the later approval blocked an earlier read")
+	}
+	f.command("resolve_approval", &protocol.CommandResolveApprovalPayload{Session: f.session.ID, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: "deny"}})
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+}
+
 func TestQuestionSurvivesRestart(t *testing.T) {
 	m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
 	f := newFixture(t, m)

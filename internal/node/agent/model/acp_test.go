@@ -500,6 +500,22 @@ func TestACPRoute(t *testing.T) {
 		}
 	})
 
+	t.Run("emits a complete tool before the prompt ends", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{{
+			Chunks: []string{`<tool_call>{"name":"read","arguments":{"path":`, `"sample.go"}}</tool_call>`}, Hang: true,
+		}}, nil)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		result := fixture.run(ctx, acpRequest(t, "", acpUser, "read"), func(part fantasy.StreamPart) {
+			if part.Type == fantasy.StreamPartTypeToolCall {
+				cancel()
+			}
+		})
+		if len(result.calls) != 1 || result.calls[0].ToolCallInput != `{"path":"sample.go"}` || result.failure == nil || result.failure.Kind != Cancelled {
+			t.Fatalf("complete call not received during the held prompt: %#v", result)
+		}
+	})
+
 	t.Run("reports a program that ends in the middle of a reply", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{{Chunks: []string{"partial"}, Crash: true}, {Chunks: []string{"again"}}}, nil)
 		result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil)

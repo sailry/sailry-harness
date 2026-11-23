@@ -36,22 +36,11 @@ type pluginScriptTurn struct {
 }
 
 func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call string, input any, readOnly bool) (json.RawMessage, error) {
-	ctx = store.WithCapturedUser(store.WithUser(ctx, owner.invocation.User), owner.invocation.StorageUser)
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
-	identityTool := tool
-	if !strings.HasPrefix(tool, "turn.") {
-		identityTool = plugins.ToolAlias(owner.info.Summary.Name, tool)
-	}
-	identity := plugins.ToolCallIdentity(owner.invocation.Run.Turn, owner.scope.Package, identityTool, call)
-	operation, cancel := context.WithCancel(ctx)
-	defer cancel()
-	scope := owner.scope
-	operation = owner.node.plugins.memory.Context(operation, scope.Package, "tool", pluginMemoryUser(operation))
+	identity := owner.callIdentity(tool, call)
 	execution := &plugins.ScriptExecution{CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: readOnly, Turn: owner.state, Writes: owner.writes[identity]}
-	result, err := plugins.RunTool(operation, owner.bundle, handler, input, plugins.ScriptEnvironment{
-		Context: scope, Target: owner.node.ID(), Deadline: time.Now().Add(plugins.ScriptCallTimeout),
-	}, owner.node.dispatchCallbackResult, execution)
+	result, err := owner.runTool(ctx, handler, input, execution)
 	if owner.writes == nil {
 		owner.writes = map[protocol.RequestID]uint64{}
 	}
@@ -59,8 +48,37 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	if err == nil && execution.StagedTurn != nil {
 		owner.state = slices.Clone(execution.StagedTurn)
 	}
+	return result, err
+}
+
+// The bundled native read adapters only convert arguments. Each can use its
+// own script execution without retaining state or locking the package turn.
+func (owner *pluginScriptTurn) evaluateNativeRead(ctx context.Context, handler, tool, call string, input any, _ bool) (json.RawMessage, error) {
+	identity := owner.callIdentity(tool, call)
+	return owner.runTool(ctx, handler, input, &plugins.ScriptExecution{
+		CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: true,
+	})
+}
+
+func (owner *pluginScriptTurn) callIdentity(tool, call string) protocol.RequestID {
+	identityTool := tool
+	if !strings.HasPrefix(tool, "turn.") {
+		identityTool = plugins.ToolAlias(owner.info.Summary.Name, tool)
+	}
+	return plugins.ToolCallIdentity(owner.invocation.Run.Turn, owner.scope.Package, identityTool, call)
+}
+
+func (owner *pluginScriptTurn) runTool(ctx context.Context, handler string, input any, execution *plugins.ScriptExecution) (json.RawMessage, error) {
+	ctx = store.WithCapturedUser(store.WithUser(ctx, owner.invocation.User), owner.invocation.StorageUser)
+	operation, cancel := context.WithCancel(ctx)
+	defer cancel()
+	scope := owner.scope
+	operation = owner.node.plugins.memory.Context(operation, scope.Package, "tool", pluginMemoryUser(operation))
+	result, err := plugins.RunTool(operation, owner.bundle, handler, input, plugins.ScriptEnvironment{
+		Context: scope, Target: owner.node.ID(), Deadline: time.Now().Add(plugins.ScriptCallTimeout),
+	}, owner.node.dispatchCallbackResult, execution)
 	if err == nil {
-		result = plugins.StampCards(result, owner.node.ID(), scope, owner.info, identity)
+		result = plugins.StampCards(result, owner.node.ID(), scope, owner.info, *execution.CallID)
 	}
 	return result, err
 }

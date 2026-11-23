@@ -122,6 +122,7 @@ type execution struct {
 	commandsStopped   bool                    // guarded by Runtime.publication
 	queuedSteer       []protocol.TurnID       // guarded by Runtime.publication
 	interruptTools    context.CancelCauseFunc // guarded by Runtime.publication
+	streamReads       *streamedReads
 	operations        uint64
 	operationsDone    chan struct{}
 	attachments       map[protocol.AttachmentID]*attachmentMaterial
