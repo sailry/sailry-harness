@@ -428,3 +428,14 @@ func TestTextDecodingFixtures(t *testing.T) {
 }
 
 func fileUint(value uint64) *uint64 { return &value }
+
+func TestSaveWriteLimit(t *testing.T) {
+	files, _ := testFiles(t)
+	text := strings.Repeat("x", protocol.MAX_WRITE_BYTES)
+	if _, err := files.Save(context.Background(), "large.txt", text, nil); err != nil {
+		t.Fatalf("write at the limit failed: %v", err)
+	}
+	if _, err := files.Save(context.Background(), "oversized.txt", text+"x", nil); !isFileFault(err, protocol.ErrorCodeInvalidRequest) {
+		t.Fatalf("oversized write error = %v", err)
+	}
+}

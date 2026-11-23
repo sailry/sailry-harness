@@ -95,7 +95,7 @@ func (files *Files) fileTarget(ctx context.Context, relative string, limit uint6
 func (target *FileTarget) Close() error { return target.parent.Close() }
 
 func (files *Files) Save(ctx context.Context, relative, text string, expected *string) (protocol.FileWritten, error) {
-	if len(text) > protocol.MAX_FILE_BYTES || strings.IndexByte(text, 0) >= 0 || expected != nil && !validFileRevision(*expected) {
+	if len(text) > protocol.MAX_WRITE_BYTES || strings.IndexByte(text, 0) >= 0 || expected != nil && !validFileRevision(*expected) {
 		return protocol.FileWritten{}, fileFault(protocol.ErrorCodeInvalidRequest, "invalid file content or revision")
 	}
 	if expected == nil {

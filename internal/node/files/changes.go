@@ -225,7 +225,7 @@ func prepareChange(ctx context.Context, f *core.Files, change protocol.FileChang
 			return p, e
 		}
 		p.Before = &before
-		if p.Operation == "write" && len(before) > protocol.MAX_FILE_BYTES {
+		if p.Operation == "write" && len(before) > protocol.MAX_WRITE_BYTES {
 			return p, invalid("file exceeds the whole-file write limit; edit it instead")
 		}
 		if p.Operation == "edit" {

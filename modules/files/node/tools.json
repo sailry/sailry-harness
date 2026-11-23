@@ -217,7 +217,7 @@
     {
       "name": "write_file",
       "legacy_package": "files",
-      "description": "Write a complete UTF-8 file up to 128 KiB. Pass the revision from read_file to replace a file, or null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
+      "description": "Write a complete UTF-8 file up to 1 MiB. Pass the revision from read_file to replace a file, or null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
       "parameters": {
         "type": "object",
         "properties": {

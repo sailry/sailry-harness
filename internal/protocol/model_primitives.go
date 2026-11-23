@@ -12,6 +12,7 @@ const (
 	MAX_FRAME_BYTES           = 16 * 1024 * 1024
 	MAX_FILE_BYTES            = 128 * 1024
 	MAX_EDIT_BYTES            = 64 * 1024 * 1024
+	MAX_WRITE_BYTES           = 1024 * 1024
 	MAX_FILE_LINES            = 2000
 	MAX_FIND_MATCHES          = 500
 	MAX_DIRECTORY_ENTRIES     = 500

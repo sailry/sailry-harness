@@ -374,7 +374,7 @@ func ResolvePatchWithRevisions(ctx context.Context, root, input string, observed
 			if e != nil {
 				return nil, e
 			}
-			if len(hunk.Contents) > protocol.MAX_FILE_BYTES {
+			if len(hunk.Contents) > protocol.MAX_WRITE_BYTES {
 				return nil, invalid("added file exceeds the content limit")
 			}
 			changes = append(changes, protocol.FileChange{Kind: "create", Data: protocol.FileChangeCreatePayload{Path: hunk.Path, Text: hunk.Contents}})
