@@ -91,7 +91,8 @@ func testConnectionTools(t *testing.T) {
 				t.Errorf("%s is not a connection operation", operation)
 			}
 			read, concurrent := operations.Policy(operation)
-			if read != slices.Contains(readOnly, operation) || concurrent {
+			// Read-only connection operations may run together; writes stay ordered.
+			if read != slices.Contains(readOnly, operation) || concurrent != read {
 				t.Errorf("%s policy = read-only %v, concurrent %v", operation, read, concurrent)
 			}
 		}
