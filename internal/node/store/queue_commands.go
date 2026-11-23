@@ -388,17 +388,18 @@ func sameCapture(ctx context.Context, db *sql.Conn, a, b protocol.TurnID) (bool,
 	return bytes.Equal(frozen[0], frozen[1]), nil
 }
 
-// tagGuidance addresses a queued input to the running turn. Compatible input
-// waits for that turn's next boundary, placed after the guidance already
-// waiting for it and ahead of ordinary items; input with other settings stays
-// an ordinary ready item in its place.
+// tagGuidance addresses a queued input to the running turn under the running
+// turn's frozen settings, placed after the guidance already waiting for it and
+// ahead of ordinary items.
 func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID) error {
 	_, err := addressGuidance(ctx, db, turn, recipient, nil)
 	return err
 }
 
-// sendAt is set only for an explicit send from the queue. It allows an input
-// with its own settings to replace the active turn when it cannot join it.
+// sendAt is set only for an explicit send from the queue. When the recipient is
+// still running, the queued input adopts the recipient's frozen settings and
+// joins it directly; when the recipient has already completed, it falls back to
+// starting in an idle unpaused queue.
 func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.TurnID, sendAt *time.Time) ([]protocol.ConversationRun, error) {
 	source, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
@@ -431,30 +432,19 @@ func addressGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol
 		return nil, err
 	}
 	if !compatible {
-		if sendAt != nil {
-			if source.Guidance != nil {
-				source.Guidance = nil
-				if err = putAgentRun(ctx, db, source); err != nil {
-					return nil, err
-				}
-			}
-		} else {
-			source.Guidance = &recipient
-			if err = putAgentRun(ctx, db, source); err != nil {
-				return nil, err
-			}
-		}
-		if err = recaptureDetachedGuidance(ctx, db, turn); err != nil {
+		// Guiding a running turn always joins it under the running turn's
+		// frozen settings rather than splitting into a separate queued turn or
+		// stopping the active reply.
+		targetSettings, err := readTurnSettings(ctx, db, recipient)
+		if err != nil {
 			return nil, err
 		}
-		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
+		if err = saveTurnSettings(ctx, db, turn, targetSettings); err != nil {
 			return nil, err
 		}
-		if sendAt != nil {
-			return sendQueuedNow(ctx, db, source, []protocol.ConversationRun{target}, *sendAt)
+		if source, err = ReadAgentRun(ctx, db, turn); err != nil {
+			return nil, err
 		}
-		_, err = startQueued(ctx, db, turn)
-		return nil, err
 	}
 	source.Guidance = &recipient
 	if err = putAgentRun(ctx, db, source); err != nil {

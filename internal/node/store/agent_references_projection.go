@@ -80,27 +80,32 @@ func boundedReferenceRun(run protocol.ConversationRun, t *referenceTruncation) r
 	}
 	return referenceTurn{Turn: run.Turn, Worktree: run.Worktree, Sequence: run.Sequence, Kind: run.Kind, Status: run.Status, Joined: run.Joined, Error: run.Error, Started: run.StartedMs, Finished: run.FinishedMs, Input: run.Input}
 }
-func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.SessionID, entry protocol.ConversationEntry, t *referenceTruncation) (map[string]any, error) {
+func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.SessionID, entry protocol.ConversationEntry, includeTools bool, t *referenceTruncation) (map[string]any, error) {
 	parts := []any{}
 	size := 0
 	trimmed := false
 	var record *canonical.Record
 	var sequence uint64
-	for _, part := range entry.Parts {
-		if part.Kind == "tool_call" || part.Kind == "tool_result" {
-			var body []byte
-			if err := db.QueryRowContext(ctx, "SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn=?2 AND e.id=?3", session.String(), entry.Turn.String(), entry.ID).Scan(&sequence, &body); err != nil {
-				return nil, err
+	if includeTools {
+		for _, part := range entry.Parts {
+			if part.Kind == "tool_call" || part.Kind == "tool_result" {
+				var body []byte
+				if err := db.QueryRowContext(ctx, "SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn=?2 AND e.id=?3", session.String(), entry.Turn.String(), entry.ID).Scan(&sequence, &body); err != nil {
+					return nil, err
+				}
+				var value canonical.Record
+				if err := json.Unmarshal(body, &value); err != nil {
+					return nil, err
+				}
+				record = &value
+				break
 			}
-			var value canonical.Record
-			if err := json.Unmarshal(body, &value); err != nil {
-				return nil, err
-			}
-			record = &value
-			break
 		}
 	}
 	for index, part := range entry.Parts {
+		if !includeTools && (part.Kind == "tool_call" || part.Kind == "tool_result" || part.Kind == "thinking" || part.Kind == "redacted_thinking") {
+			continue
+		}
 		encoded, err := encode(part)
 		if err != nil {
 			return nil, err
@@ -213,13 +218,18 @@ type referenceConversation struct {
 	referenceTruncation
 }
 
-func boundedReferenceConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, history protocol.ConversationHistory) ([]byte, error) {
+func boundedReferenceConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, history protocol.ConversationHistory, includeTools bool) ([]byte, error) {
 	response := referenceConversation{Page: referencePage{Session: history.Page.Session, Revision: history.Page.Revision, Entries: []map[string]any{}, Runs: []referenceTurn{}, NextBefore: history.Page.NextBefore}, Missing: append([]protocol.TurnID{}, history.Missing...), referenceTruncation: newReferenceTruncation()}
 	owners := historyOwners(history.Page.Runs)
 	for _, entry := range history.Page.Entries {
-		value, err := boundedReferenceEntry(ctx, db, session, entry, &response.referenceTruncation)
+		value, err := boundedReferenceEntry(ctx, db, session, entry, includeTools, &response.referenceTruncation)
 		if err != nil {
 			return nil, err
+		}
+		if !includeTools {
+			if parts, ok := value["parts"].([]any); ok && len(parts) == 0 {
+				continue
+			}
 		}
 		response.Page.Entries = append(response.Page.Entries, value)
 	}
@@ -283,13 +293,18 @@ type referenceContinuation struct {
 	referenceTruncation
 }
 
-func boundedReferenceTurn(ctx context.Context, db *sql.Conn, session protocol.SessionID, history protocol.ConversationTurnHistory) ([]byte, error) {
+func boundedReferenceTurn(ctx context.Context, db *sql.Conn, session protocol.SessionID, history protocol.ConversationTurnHistory, includeTools bool) ([]byte, error) {
 	response := referenceContinuation{Revision: history.Revision, Entries: []map[string]any{}, NextBefore: history.NextBefore, referenceTruncation: newReferenceTruncation()}
 	response.Run = boundedReferenceRun(history.Run, &response.referenceTruncation)
 	for _, entry := range history.Entries {
-		value, err := boundedReferenceEntry(ctx, db, session, entry, &response.referenceTruncation)
+		value, err := boundedReferenceEntry(ctx, db, session, entry, includeTools, &response.referenceTruncation)
 		if err != nil {
 			return nil, err
+		}
+		if !includeTools {
+			if parts, ok := value["parts"].([]any); ok && len(parts) == 0 {
+				continue
+			}
 		}
 		response.Entries = append(response.Entries, value)
 	}

@@ -203,7 +203,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(visible, []string{"set_session_title", "ask_user", operations.UpdatePlanTool, "read_tool_output", operations.Alias("files", "read_file"), operations.Alias("memory", "search_memory"), "tool_search", callToolName}) ||
+		if !slices.Equal(visible, []string{operations.UpdatePlanTool, "read_tool_output", operations.Alias("files", "read_file"), operations.Alias("memory", "search_memory"), "tool_search", callToolName}) ||
 			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file")}) {
 			t.Fatalf("default child visible=%v deferred=%v", visible, deferred)
 		}
@@ -225,6 +225,8 @@ func TestToolSelectionAndNames(t *testing.T) {
 		}
 		for _, unavailable := range []protocol.PluginConversationTool{
 			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "list_subagents"}),
+			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "ask_user"}),
+			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "set_session_title"}),
 			selection("package", &protocol.PluginConversationToolPackagePayload{Package: "fixture", Name: "child_only"}),
 		} {
 			tools := []protocol.PluginConversationTool{unavailable}

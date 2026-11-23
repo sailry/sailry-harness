@@ -21,7 +21,7 @@ func TestSendQueuedAfterStopChecksOriginalRequest(t *testing.T) {
 	run := protocol.ConversationRun{Session: session, Turn: recipient, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning, Sequence: 1, Revision: 1}
 	snapshot.Page.Runs = []protocol.ConversationRun{run}
 	first := protocol.ConversationPending{Turn: other, Kind: protocol.ConversationRunKindTask, Revision: 1, ConfigRevision: 1, Ready: true, Preview: "First queued input"}
-	chosen := protocol.ConversationPending{Turn: queued, Request: &original, Kind: protocol.ConversationRunKindTask, Revision: 7, ConfigRevision: 1, Ready: true, Guidance: &recipient, Preview: "Chosen queued input"}
+	chosen := protocol.ConversationPending{Turn: queued, Request: &original, Kind: protocol.ConversationRunKindTask, Revision: 7, ConfigRevision: 1, Ready: true, Preview: "Chosen queued input"}
 	snapshot.Page.Queue = protocol.ConversationQueue{Revision: 1, Items: []protocol.ConversationPending{first, chosen}}
 	r, cv, transport, frame := watchCallbackTranscript(t, snapshot)
 	paused := snapshot.Page.Queue

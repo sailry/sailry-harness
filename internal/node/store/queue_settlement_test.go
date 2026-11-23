@@ -839,6 +839,31 @@ func TestGuidanceQueue(t *testing.T) {
 					if got := captured(queued); got != changed {
 						return fmt.Errorf("queued input captured permission %v, want %v", got, changed)
 					}
+					// Direct guide_turn with stale session revision still succeeds under
+					// the running turn's frozen settings (no config/revision interception).
+					staleGuided, err := command("guide_turn", &protocol.CommandGuideTurnPayload{
+						Recipient: turn, ExpectedRevision: current.Revision, Message: protocol.ConversationInput{Text: "Stale revision guide"},
+					})
+					if err != nil {
+						return fmt.Errorf("guide_turn rejected stale session revision: %v", err)
+					}
+					staleID := staleGuided.Data.(protocol.QueuedTurn).ID
+					if got := captured(staleID); got != captured(turn) {
+						return fmt.Errorf("stale-revision guide captured permission %v, want %v", got, captured(turn))
+					}
+					// Promoting a queued item with differing settings adopts the running
+					// turn's frozen settings and joins it rather than splitting.
+					if _, err = command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{
+						Turn: queued, Recipient: turn, ExpectedRevision: revision(queued),
+					}); err != nil {
+						return fmt.Errorf("guide_queued_turn with differing settings failed: %v", err)
+					}
+					if err = order([]protocol.TurnID{staleID, queued}, &turn, &turn); err != nil {
+						return fmt.Errorf("guide_queued_turn did not address item to running turn: %v", err)
+					}
+					if got := captured(queued); got != captured(turn) {
+						return fmt.Errorf("guided queued item kept permission %v, want running turn's %v", got, captured(turn))
+					}
 				case "released guidance takes current settings":
 					// Guidance the turn never joined becomes its own turn and
 					// runs with the session's settings when it was released.

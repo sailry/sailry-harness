@@ -115,32 +115,26 @@ func TestQueuedGuidanceInterruptsParallelTools(t *testing.T) {
 	}
 }
 
-func TestQueuedGuidanceCanWithdrawBeforeToolsStart(t *testing.T) {
-	streaming, release := make(chan struct{}), make(chan struct{})
+func TestQueuedGuidanceCanWithdrawDuringNonInterruptibleTool(t *testing.T) {
+	running, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
 	tool := objectTool("keep_working", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
 		calls.Add(1)
+		close(running)
+		<-release
 		return ToolResult{Value: "original work"}
 	})
 	m := &scriptedModel{scripts: []script{
-		func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			close(streaming)
-			select {
-			case <-release:
-				_ = yield(call("original", "keep_working", `{}`)) && yield(finish())
-			case <-ctx.Done():
-				t.Error("queued guidance interrupted the active model stream")
-			}
-		},
+		response(call("original", "keep_working", `{}`), finish()),
 		response(text("Original work finished"), finish()),
 	}}
 	f := newFixture(t, m, tool)
 	f.start()
 	turn := f.submit("Keep the original task")
 	select {
-	case <-streaming:
+	case <-running:
 	case <-f.ctx.Done():
-		t.Fatal("model stream did not start")
+		t.Fatal("non-interruptible tool did not start")
 	}
 	item := f.queueForSteering("Direction I will withdraw")
 	update := f.steerQueued(turn, item)
@@ -162,27 +156,24 @@ func TestQueuedGuidanceCanWithdrawBeforeToolsStart(t *testing.T) {
 }
 
 func TestQueuedGuidanceTakesNextBoundedModelInput(t *testing.T) {
-	streaming, release := make(chan struct{}), make(chan struct{})
+	running, release := make(chan struct{}), make(chan struct{})
+	tool := objectTool("gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		close(running)
+		<-release
+		return ToolResult{Value: "done"}
+	})
 	m := &scriptedModel{scripts: []script{
-		func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			close(streaming)
-			select {
-			case <-release:
-				_ = yield(text("First reply")) && yield(finish())
-			case <-ctx.Done():
-				t.Error("queued guidance interrupted the active model stream")
-			}
-		},
+		response(call("gate", "gate", `{}`), finish()),
 		response(text("Selected input handled"), finish()),
 		response(text("Last input handled"), finish()),
 	}}
-	f := newFixture(t, m)
+	f := newFixture(t, m, tool)
 	f.start()
 	turn := f.submit("Original task")
 	select {
-	case <-streaming:
+	case <-running:
 	case <-f.ctx.Done():
-		t.Fatal("model stream did not start")
+		t.Fatal("non-interruptible tool did not start")
 	}
 	for i := range 16 {
 		f.command("guide_turn", &protocol.CommandGuideTurnPayload{
@@ -202,6 +193,126 @@ func TestQueuedGuidanceTakesNextBoundedModelInput(t *testing.T) {
 	if !strings.Contains(first, item.Preview) || strings.Contains(first, "Earlier guidance 15") || !strings.Contains(next, "Earlier guidance 15") {
 		t.Fatalf("selected guidance or bounded remainder was not delivered: %s\n%s", first, next)
 	}
+}
+
+func TestGuidanceInterruptsActiveModelStream(t *testing.T) {
+	t.Run("preserves partial text and drops tool request without error", func(t *testing.T) {
+		streaming, interrupted := make(chan struct{}), make(chan struct{})
+		var toolCalls atomic.Int32
+		tool := objectTool("unreached_tool", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			toolCalls.Add(1)
+			return ToolResult{Value: "should not execute"}
+		})
+		m := &scriptedModel{scripts: []script{
+			func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				if !yield(text("Partial draft before steer")) {
+					return
+				}
+				if !yield(call("partial-call", "unreached_tool", `{}`)) {
+					return
+				}
+				close(streaming)
+				<-ctx.Done()
+				close(interrupted)
+			},
+			response(text("Redirected answer"), finish()),
+		}}
+		f := newFixture(t, m, tool)
+		f.start()
+		turn := f.submit("Original task")
+		select {
+		case <-streaming:
+		case <-f.ctx.Done():
+			t.Fatal("model stream did not start")
+		}
+		guided := f.command("guide_turn", &protocol.CommandGuideTurnPayload{
+			Recipient: turn, ExpectedRevision: f.session.Revision, Message: protocol.ConversationInput{Text: "Stop and switch direction"},
+		}).Data.(protocol.QueuedTurn).ID
+		select {
+		case <-interrupted:
+		case <-f.ctx.Done():
+			t.Fatal("guide_turn did not interrupt the active model stream")
+		}
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		if run := f.waitRun(guided, protocol.ConversationStatusCompleted); run.Joined == nil || *run.Joined != turn {
+			t.Fatalf("guidance did not join active turn: %+v", run)
+		}
+		if toolCalls.Load() != 0 {
+			t.Fatalf("dropped partial tool call executed %d times", toolCalls.Load())
+		}
+		if m.count() != 2 {
+			t.Fatalf("model requests = %d, want 2", m.count())
+		}
+		var sawInterrupted, sawError, sawToolRequest bool
+		for _, record := range f.state().Records {
+			msg := record.Message()
+			if msg == nil || msg.Role != canonical.Assistant {
+				continue
+			}
+			if msg.Error != nil {
+				sawError = true
+			}
+			for _, block := range msg.Content {
+				if block.Kind == "tool_request" {
+					sawToolRequest = true
+				}
+				if tc, ok := block.Data.(*canonical.TextContent); ok && tc.Text == "Partial draft before steer" && msg.Finish != nil && *msg.Finish == canonical.Interrupted {
+					sawInterrupted = true
+				}
+			}
+		}
+		if !sawInterrupted {
+			t.Fatal("partial streamed text was not preserved with interrupted finish")
+		}
+		if sawError {
+			t.Fatal("streaming steer wrote an assistant error record")
+		}
+		if sawToolRequest {
+			t.Fatal("partial tool_request was persisted on steered stream")
+		}
+		mustHaveText(t, f.state().Records, "Redirected answer")
+	})
+
+	t.Run("drops tool-only steered stream without empty assistant message", func(t *testing.T) {
+		streaming, interrupted := make(chan struct{}), make(chan struct{})
+		tool := objectTool("unreached_tool", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			return ToolResult{Value: "unused"}
+		})
+		m := &scriptedModel{scripts: []script{
+			func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				if !yield(call("only-call", "unreached_tool", `{}`)) {
+					return
+				}
+				close(streaming)
+				<-ctx.Done()
+				close(interrupted)
+			},
+			response(text("Clean follow-up"), finish()),
+		}}
+		f := newFixture(t, m, tool)
+		f.start()
+		turn := f.submit("Original task")
+		select {
+		case <-streaming:
+		case <-f.ctx.Done():
+			t.Fatal("model stream did not start")
+		}
+		f.command("guide_turn", &protocol.CommandGuideTurnPayload{
+			Recipient: turn, ExpectedRevision: f.session.Revision, Message: protocol.ConversationInput{Text: "Skip the tool"},
+		})
+		select {
+		case <-interrupted:
+		case <-f.ctx.Done():
+			t.Fatal("guide_turn did not interrupt tool-only stream")
+		}
+		f.waitRun(turn, protocol.ConversationStatusCompleted)
+		for _, record := range f.state().Records {
+			if msg := record.Message(); msg != nil && msg.Role == canonical.Assistant && len(msg.Content) == 0 && (record.Metadata.Runtime == nil || record.Metadata.Runtime.UserVisible) {
+				t.Fatalf("steered tool-only stream wrote an empty visible assistant message: %+v", record)
+			}
+		}
+		mustHaveText(t, f.state().Records, "Clean follow-up")
+	})
 }
 
 func TestQueuedGuidanceCancelsPendingInteraction(t *testing.T) {

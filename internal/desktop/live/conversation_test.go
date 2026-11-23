@@ -881,6 +881,7 @@ func TestComposerSendRouting(t *testing.T) {
 		{"new_project_session", "draft/1", "start_session", false, "", false},
 		{"existing", "existing", "submit_turn", false, "", false},
 		{"running_guides", "existing", "guide_turn", true, "", false},
+		{"running_guides_ignores_composer_config", "existing", "guide_turn", true, "", false},
 		{"failure_retains_draft", "existing", "submit_turn", false, protocol.ErrorCodeUnavailable, false},
 		{"unknown_retains_request", "existing", "submit_turn", false, protocol.ErrorCodeOutcomeUnknown, false},
 		{"configuration_before_admission", "existing", "submit_turn", false, "", true},
@@ -1119,6 +1120,15 @@ func TestComposerSendRouting(t *testing.T) {
 				if got := actions.controls(protocol.TurnID{6}); got.ReadOnly || !got.NoEdit || !got.NoRewind || !got.NoFork || !got.NoWorktree {
 					t.Fatalf("running turn controls = %+v", got)
 				}
+			}
+			if row.name == "running_guides_ignores_composer_config" {
+				// Simulate the user changing mode/permission/model in the
+				// composer while a turn is running; Enter-to-guide must bypass
+				// config/team mutations and guide directly under the running
+				// turn's frozen settings.
+				message.Mode = composer.Plan
+				message.Permission = composer.FullAccess
+				message.Model = modelKey(provider, "other-model")
 			}
 			if row.configure {
 				session, _ := r.session(id)
@@ -1369,6 +1379,15 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			if last := commands[len(commands)-1]; last.Command.Kind != row.kind || last.Target != node {
 				t.Fatalf("send target = %#v", last)
+			}
+			if row.name == "running_guides_ignores_composer_config" {
+				transport.mu.Lock()
+				for _, req := range transport.requests {
+					if req.Command.Kind == "set_session_config" || req.Command.Kind == "set_session_team" {
+						t.Errorf("guiding a running turn unexpectedly sent %s", req.Command.Kind)
+					}
+				}
+				transport.mu.Unlock()
 			}
 			if row.name == "replace_references" {
 				p := commands[len(commands)-1].Command.Data.(protocol.CommandReplaceTurnPayload)

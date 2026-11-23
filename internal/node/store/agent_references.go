@@ -31,6 +31,7 @@ type agentReferenceList struct {
 type agentReferenceRead struct {
 	Session       protocol.SessionID `json:"session"`
 	Mode          *string            `json:"mode"`
+	IncludeTools  bool               `json:"include_tools"`
 	Before        *protocol.TurnID   `json:"before"`
 	Turn          *protocol.TurnID   `json:"turn"`
 	Revision      *uint64            `json:"revision"`

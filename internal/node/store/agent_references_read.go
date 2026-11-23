@@ -66,7 +66,7 @@ func readAgentReferenceHistory(ctx context.Context, db *sql.Conn, options agentR
 		if err != nil {
 			return nil, err
 		}
-		return boundedReferenceTurn(ctx, db, options.Session, history)
+		return boundedReferenceTurn(ctx, db, options.Session, history, options.IncludeTools)
 	}
 	if options.BeforeEntry != nil {
 		return nil, invalid("entry cursor requires a turn")
@@ -75,7 +75,7 @@ func readAgentReferenceHistory(ctx context.Context, db *sql.Conn, options agentR
 	if err != nil {
 		return nil, err
 	}
-	return boundedReferenceConversation(ctx, db, options.Session, history)
+	return boundedReferenceConversation(ctx, db, options.Session, history, options.IncludeTools)
 }
 
 func readReferenceSnapshotRevision(ctx context.Context, db *sql.Conn, session protocol.SessionID, expected *uint64, required bool) (uint64, error) {
@@ -133,7 +133,7 @@ func readAgentReferenceEntry(ctx context.Context, db *sql.Conn, session protocol
 		return nil, err
 	}
 	value := referenceEntry{Revision: revision, referenceTruncation: newReferenceTruncation()}
-	if value.Entry, err = boundedReferenceEntry(ctx, db, session, entry, &value.referenceTruncation); err != nil {
+	if value.Entry, err = boundedReferenceEntry(ctx, db, session, entry, true, &value.referenceTruncation); err != nil {
 		return nil, err
 	}
 	return encode(value)

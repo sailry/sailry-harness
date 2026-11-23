@@ -162,7 +162,7 @@ func TestQueueTurnAutoStartsAfterRunningTurn(t *testing.T) {
 	}
 }
 
-func TestGuideQueuedTurnInterruptsWithDifferentSettings(t *testing.T) {
+func TestGuideQueuedTurnAdoptsRunningSettingsAndJoins(t *testing.T) {
 	started, cancelled := make(chan struct{}), make(chan struct{})
 	f := newStopFixture(t, func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		close(started)
@@ -191,11 +191,11 @@ func TestGuideQueuedTurnInterruptsWithDifferentSettings(t *testing.T) {
 		Turn: chosen.Turn, Recipient: recipient, ExpectedRevision: chosen.Revision,
 	}})
 	f.wait("foreground cancellation", cancelled)
-	f.until("the selected input to complete as its own turn", func(runs []protocol.ConversationRun, _ []protocol.ConversationBackgroundTask) bool {
+	f.until("the selected input to join the running turn under its frozen settings", func(runs []protocol.ConversationRun, _ []protocol.ConversationBackgroundTask) bool {
 		return slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
-			return run.Turn == recipient && run.Status == protocol.ConversationStatusCancelled
+			return run.Turn == recipient && run.Status == protocol.ConversationStatusCompleted
 		}) && slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
-			return run.Turn == chosen.Turn && run.Status == protocol.ConversationStatusCompleted && run.Joined == nil
+			return run.Turn == chosen.Turn && run.Status == protocol.ConversationStatusCompleted && run.Joined != nil && *run.Joined == recipient
 		})
 	})
 	_, _, queue := f.read()

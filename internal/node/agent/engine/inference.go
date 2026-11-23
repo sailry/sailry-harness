@@ -54,6 +54,9 @@ func (r *Runtime) credential(x *execution, binding model.Binding) (model.Binding
 }
 
 func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fantasy.LanguageModel, state store.AgentState) error {
+	// Foreground wait has already passed for this step; clear foregroundSteered
+	// so any new guidance arriving during streaming immediately redirects it.
+	x.foregroundSteered = false
 	binding, err := r.credential(x, captured)
 	if err != nil {
 		return err
@@ -232,10 +235,11 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		var streamErr error
 		var attempts []model.Attempt
 		metric := r.telemetry.Capture()
-		if r.hasQueuedSteer(x) {
+		if r.hasQueuedSteer(x) || r.hasDirectSteer(x) {
 			return errQueuedSteer
 		}
-		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
+		streamCtx, endModelStep := r.beginModelStep(x)
+		err = model.Run(streamCtx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			if attempt.Failure != nil {
 				reads.close()
 			}
@@ -252,7 +256,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			attempts = append(attempts, attempt)
 			return nil
 		}, func(part fantasy.StreamPart) bool {
-			if x.ctx.Err() != nil {
+			if streamCtx.Err() != nil {
 				return false
 			}
 			if e := out.receive(part); e != nil {
@@ -281,6 +285,11 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			out = newOutput()
 			reads = &streamedReads{}
 		})
+		steered := Steered(streamCtx) && x.ctx.Err() == nil && (err == nil || model.Classify(err).Kind == model.Cancelled)
+		endModelStep()
+		if steered {
+			reads.close()
+		}
 		if streamErr != nil {
 			err = streamErr
 		}
@@ -294,9 +303,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		for _, attempt := range attempts {
 			billing = append(billing, r.observationRecord(x, binding, purpose, attempt))
 		}
-		if x.ctx.Err() != nil || err != nil || !empty || emptyAttempt == 3 || out.limited || successfulTool(state.Records) {
+		if x.ctx.Err() != nil || steered || err != nil || !empty || emptyAttempt == 3 || out.limited || successfulTool(state.Records) {
 			finish := canonical.Completed
-			if x.ctx.Err() != nil {
+			if x.ctx.Err() != nil || steered {
 				finish = canonical.Interrupted
 			} else if err != nil {
 				finish = canonical.Failed
@@ -305,16 +314,17 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			message.Sources = out.sources
 			message.PartCount = uint64(len(out.blocks))
 			for _, block := range out.blocks {
-				// A response whose stream failed never requested its tools: the
-				// source reader emits calls only after a completed stream.
-				if block.Data != nil && (err == nil || block.Kind != "tool_request") {
+				// A response whose stream failed or was steered mid-flight never
+				// requested its tools: the source reader emits calls only after
+				// a completed stream.
+				if block.Data != nil && (err == nil && !steered || block.Kind != "tool_request") {
 					message.Content = append(message.Content, block)
 				}
 			}
 			message.Model = &binding.Config.Model
 			message.Finish = &finish
 			out.record.Metadata.Runtime.OutputLimitReached = out.limited
-			if empty && err == nil && x.ctx.Err() == nil && !out.limited {
+			if empty && err == nil && x.ctx.Err() == nil && !steered && !out.limited {
 				if successfulTool(state.Records) {
 					out.record.Metadata.Runtime.UserVisible = false
 				} else {
@@ -324,7 +334,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				}
 			}
 			out.record.Data = &message
-			if len(billing) > 0 && (len(message.Content) > 0 || out.finished || out.limited) {
+			if len(billing) > 0 && (len(message.Content) > 0 || !steered && (out.finished || out.limited)) {
 				last := billing[len(billing)-1]
 				billing = billing[:len(billing)-1]
 				message.Usage = last.Message().Usage
@@ -335,13 +345,16 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 					return e
 				}
 			}
-			if len(message.Content) > 0 || out.finished || out.limited {
+			if len(message.Content) > 0 || !steered && (out.finished || out.limited) {
 				if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &binding.Provider, out.record); e != nil {
 					return e
 				}
 			}
 			if x.ctx.Err() != nil {
 				return x.ctx.Err()
+			}
+			if steered {
+				return errQueuedSteer
 			}
 			if err != nil {
 				failure := model.Classify(err)

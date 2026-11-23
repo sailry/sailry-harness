@@ -411,18 +411,14 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 	})
 }
 func TestGuidanceJoinsAtBoundary(t *testing.T) {
-	received, release := make(chan struct{}), make(chan struct{})
+	received, interrupted := make(chan struct{}), make(chan struct{})
 	m := &scriptedModel{scripts: []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
 		if !yield(text("Working")) {
 			return
 		}
 		close(received)
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return
-		}
-		yield(finish())
+		<-ctx.Done()
+		close(interrupted)
 	}, response(text("Follow-up handled"), finish())}}
 	f := newFixture(t, m)
 	f.start()
@@ -436,15 +432,17 @@ func TestGuidanceJoinsAtBoundary(t *testing.T) {
 	input.Text = "Guidance"
 	output := f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input})
 	guided := output.Data.(protocol.QueuedTurn).ID
-	if m.count() != 1 {
-		t.Fatal("guidance interrupted the active HTTP owner")
+	select {
+	case <-interrupted:
+	case <-f.ctx.Done():
+		t.Fatal("guidance did not interrupt the active model stream")
 	}
-	close(release)
 	f.waitRun(turn, protocol.ConversationStatusCompleted)
 	run := f.waitRun(guided, protocol.ConversationStatusCompleted)
 	if run.Joined == nil || *run.Joined != turn {
 		t.Fatal("guidance lost its response owner")
 	}
+	mustHaveText(t, f.state().Records, "Working")
 	mustHaveText(t, f.state().Records, "Guidance")
 	mustHaveText(t, f.state().Records, "Follow-up handled")
 	if m.count() != 2 {
@@ -455,23 +453,24 @@ func TestGuidanceJoinsAtBoundary(t *testing.T) {
 // TestGuidanceBatchPerInference joins one bounded batch before each model
 // call; the remainder waits for the next boundary rather than the same one.
 func TestGuidanceBatchPerInference(t *testing.T) {
-	received, release := make(chan struct{}), make(chan struct{})
-	m := &scriptedModel{scripts: []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
-		close(received)
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return
-		}
-		_ = yield(text("Working")) && yield(finish())
-	}, response(text("First batch handled"), finish()), response(text("Remainder handled"), finish())}}
-	f := newFixture(t, m)
+	running, release := make(chan struct{}), make(chan struct{})
+	tool := objectTool("gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		close(running)
+		<-release
+		return ToolResult{Value: "done"}
+	})
+	m := &scriptedModel{scripts: []script{
+		response(call("gate", "gate", `{}`), finish()),
+		response(text("First batch handled"), finish()),
+		response(text("Remainder handled"), finish()),
+	}}
+	f := newFixture(t, m, tool)
 	f.start()
 	turn := f.submit("Initial")
 	select {
-	case <-received:
+	case <-running:
 	case <-f.ctx.Done():
-		t.Fatal("model did not start")
+		t.Fatal("non-interruptible tool did not start")
 	}
 	// The store's batch takes 16 messages; one more must wait.
 	const queued = 17
@@ -1406,21 +1405,6 @@ func TestGuidanceBatch(t *testing.T) {
 		input.Text = value
 		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
 	}
-	// held is a model step that reports its request and waits to be released.
-	held := func(requests chan<- fantasy.Call, release <-chan struct{}, reply string) script {
-		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			if !yield(text(reply)) {
-				return
-			}
-			requests <- request
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return
-			}
-			yield(finish())
-		}
-	}
 	started := func(t *testing.T, f *engineFixture, requests <-chan fantasy.Call) fantasy.Call {
 		t.Helper()
 		select {
@@ -1433,16 +1417,48 @@ func TestGuidanceBatch(t *testing.T) {
 	}
 	t.Run("pending guidance joins one model step", func(t *testing.T) {
 		requests := make(chan fantasy.Call, 3)
+		gateStarted := make(chan int, 2)
 		first, second := make(chan struct{}), make(chan struct{})
-		m := &scriptedModel{scripts: []script{held(requests, first, "Working"), held(requests, second, "Adjusted"), response(text("Done"), finish())}}
-		f := newFixture(t, m)
+		var gateCount atomic.Int32
+		gate := objectTool("gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			n := int(gateCount.Add(1))
+			gateStarted <- n
+			if n == 1 {
+				<-first
+			} else {
+				<-second
+			}
+			return ToolResult{Value: "ok"}
+		})
+		observe := func(reply script) script {
+			return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				requests <- request
+				reply(ctx, request, yield)
+			}
+		}
+		m := &scriptedModel{scripts: []script{
+			observe(response(call("g1", "gate", `{}`), finish())),
+			observe(response(call("g2", "gate", `{}`), finish())),
+			observe(response(text("Done"), finish())),
+		}}
+		f := newFixture(t, m, gate)
 		f.start()
 		turn := f.submit("Initial")
 		started(t, f, requests)
+		select {
+		case <-gateStarted:
+		case <-f.ctx.Done():
+			t.Fatal("first gate did not start")
+		}
 		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
 		close(first)
 		if got := prompt(started(t, f, requests)); !reflect.DeepEqual(got, []string{"Initial", "One", "Two", "Three"}) {
 			t.Fatalf("second request carried %v", got)
+		}
+		select {
+		case <-gateStarted:
+		case <-f.ctx.Done():
+			t.Fatal("second gate did not start")
 		}
 		// Guidance sent after the batch was taken joins the next step.
 		late := guide(f, turn, "Four")
@@ -1474,22 +1490,28 @@ func TestGuidanceBatch(t *testing.T) {
 		}
 	})
 	t.Run("guidance outliving a failed turn starts one turn", func(t *testing.T) {
-		requests := make(chan fantasy.Call, 2)
-		release := make(chan struct{})
-		failing := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			requests <- request
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return
+		closing, release := make(chan struct{}), make(chan struct{})
+		var closed atomic.Int32
+		gate := objectTool("close_gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+			return ToolResult{Value: "ok"}
+		})
+		gate.Close = func() error {
+			if closed.Add(1) == 1 {
+				close(closing)
+				<-release
 			}
-			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+			return nil
 		}
+		failing := response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
 		m := &scriptedModel{scripts: []script{failing, response(text("Handled together"), finish())}}
-		f := newFixture(t, m)
+		f := newFixture(t, m, gate)
 		f.start()
 		turn := f.submit("Initial")
-		started(t, f, requests)
+		select {
+		case <-closing:
+		case <-f.ctx.Done():
+			t.Fatal("failed turn did not reach cleanup")
+		}
 		guided := []protocol.TurnID{guide(f, turn, "One"), guide(f, turn, "Two"), guide(f, turn, "Three")}
 		close(release)
 		// The failed step takes no guidance; the queue keeps running and the
@@ -1518,8 +1540,8 @@ func TestGuidanceBatch(t *testing.T) {
 // TestGuidanceBatchOverflow covers a batch of guidance that overfills the
 // context: the turn compacts and retries like any other overflow, fails on a
 // context_overflow step when that cannot recover, and loses nothing. Joined inputs
-// stay whole in history under their own turns; input sent during the last
-// attempt goes back to the queue whole and starts its own turn.
+// stay whole in history under their own turns; input sent while the failed last
+// attempt settles goes back to the queue whole and starts its own turn.
 func TestGuidanceBatchOverflow(t *testing.T) {
 	one, two, three := strings.Repeat("one ", 500), strings.Repeat("two ", 500), strings.Repeat("three ", 500)
 	carried := func(request fantasy.Call) []string {
@@ -1548,50 +1570,45 @@ func TestGuidanceBatchOverflow(t *testing.T) {
 		input.Text = value
 		return f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
 	}
-	requests := make(chan fantasy.Call, 2)
-	first, second := make(chan struct{}), make(chan struct{})
+	firstStarted, first := make(chan struct{}), make(chan struct{})
+	closing, second := make(chan struct{}), make(chan struct{})
+	var closed atomic.Int32
+	gate := objectTool("overflow_gate", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		close(firstStarted)
+		<-first
+		return ToolResult{Value: "ok"}
+	})
+	gate.Close = func() error {
+		if closed.Add(1) == 1 {
+			close(closing)
+			<-second
+		}
+		return nil
+	}
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
-	// held reports its request and waits before it ends with part.
-	held := func(release <-chan struct{}, parts ...fantasy.StreamPart) script {
-		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			requests <- request
-			select {
-			case <-release:
-			case <-ctx.Done():
-				return
-			}
-			for _, part := range parts {
-				if !yield(part) {
-					return
-				}
-			}
-		}
-	}
-	started := func(f *engineFixture) fantasy.Call {
-		t.Helper()
-		select {
-		case request := <-requests:
-			return request
-		case <-f.ctx.Done():
-			t.Fatal("model step did not start")
-			return fantasy.Call{}
-		}
-	}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
 	m := &scriptedModel{scripts: []script{
-		held(first, text("Working"), finish()),
-		response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, held(second, overflow),
+		response(call("g1", "overflow_gate", `{}`), finish()),
+		response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, response(overflow),
 		response(text("Answered"), finish()),
 	}}
-	f := newFixture(t, m)
+	f := newFixture(t, m, gate)
 	f.start()
 	turn := f.submit("Initial")
-	started(f)
+	select {
+	case <-firstStarted:
+	case <-f.ctx.Done():
+		t.Fatal("overflow gate did not start")
+	}
 	joined := []protocol.TurnID{guide(f, turn, one), guide(f, turn, two)}
 	close(first)
-	// Both recoveries are spent; guidance sent during the last attempt has no
-	// boundary left to join at.
-	started(f)
+	// Both recoveries are spent and the final overflow has failed; guidance
+	// arriving before settlement has no boundary left to join at.
+	select {
+	case <-closing:
+	case <-f.ctx.Done():
+		t.Fatal("failed overflow turn did not reach cleanup")
+	}
 	late := guide(f, turn, three)
 	close(second)
 	failed := f.waitRun(turn, protocol.ConversationStatusFailed)

@@ -345,3 +345,138 @@ func queryAgentHistoryFixture(ctx context.Context, storage *Store, node protocol
 	})
 	return body, err
 }
+
+func TestReadSessionFiltersToolsByDefaultAndSupportsIncludeTools(t *testing.T) {
+	t.Parallel()
+	storage, node, sourceSession, sourceTurn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	source := AgentHistorySource{Caller: node, Session: sourceSession.ID, Turn: sourceTurn}
+	var session protocol.Session
+	var turn protocol.TurnID
+	var toolResultEntry protocol.ConversationEntry
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		output, _, err := createSession(ctx, db, node, "", protocol.CommandCreateSessionPayload{Config: &sourceSession.Config})
+		if err != nil {
+			return err
+		}
+		session = output.Data.(protocol.Session)
+		turn, err = delegationFixtureParent(ctx, db, node, session, now)
+		if err != nil {
+			return err
+		}
+		user := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Check the files")), now)
+		user.Provenance.Author = "user"
+		if _, _, err = AppendCanonical(ctx, db, session.ID, user); err != nil {
+			return err
+		}
+		// Thinking + tool_call only entry (should be skipped when include_tools is false).
+		call := canonical.ToolRequest{ID: "call-1", Name: "fixture_tool", Arguments: json.RawMessage(`{"path":"SECRET_TOOL_ARG"}`)}
+		toolOnly := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant,
+			canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "PRIVATE_THOUGHT"}},
+			canonical.Block{Index: 1, Kind: "tool_request", Data: &call},
+		), now.Add(time.Second))
+		toolOnly.Provenance.Author = "assistant"
+		if _, _, err = AppendCanonical(ctx, db, session.ID, toolOnly); err != nil {
+			return err
+		}
+		payload, err := encode(map[string]any{"output": "RAW_TOOL_OUTPUT_NOISE"})
+		if err != nil {
+			return err
+		}
+		toolResultEntry, err = appendActivityFixtureToolResult(ctx, db, session.ID, turn, payload, now.Add(2*time.Second))
+		if err != nil {
+			return err
+		}
+		final := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant,
+			canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "FINAL_THOUGHT"}},
+			canonical.Text(1, "Clean final answer"),
+		), now.Add(3*time.Second))
+		final.Provenance.Author = "assistant"
+		if _, _, err = AppendCanonical(ctx, db, session.ID, final); err != nil {
+			return err
+		}
+		_, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now.Add(4*time.Second))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default detail read omits tool_call, tool_result, thinking, and empty entries.
+	body, err := queryAgentHistoryFixture(ctx, storage, node, source, fmt.Sprintf(`{"session":%q}`, session.ID.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "Check the files") || !strings.Contains(text, "Clean final answer") {
+		t.Fatalf("default detail read lost conversation text: %s", text)
+	}
+	for _, forbidden := range []string{"SECRET_TOOL_ARG", "RAW_TOOL_OUTPUT_NOISE", "PRIVATE_THOUGHT", "FINAL_THOUGHT", `"tool_call"`, `"tool_result"`, `"thinking"`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("default detail read leaked %s: %s", forbidden, text)
+		}
+	}
+	var filtered struct {
+		Page struct {
+			Revision uint64           `json:"revision"`
+			Entries  []map[string]any `json:"entries"`
+		} `json:"page"`
+	}
+	if err := json.Unmarshal(body, &filtered); err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered.Page.Entries) != 2 {
+		t.Fatalf("default detail read returned %d entries, want 2 (user + final assistant): %s", len(filtered.Page.Entries), text)
+	}
+
+	// Explicit include_tools: true includes raw tool calls, results, and thinking.
+	withTools, err := queryAgentHistoryFixture(ctx, storage, node, source, fmt.Sprintf(`{"session":%q,"include_tools":true}`, session.ID.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withToolsText := string(withTools)
+	for _, expected := range []string{"SECRET_TOOL_ARG", "RAW_TOOL_OUTPUT_NOISE", "PRIVATE_THOUGHT", "Clean final answer"} {
+		if !strings.Contains(withToolsText, expected) {
+			t.Fatalf("include_tools:true read missed %s: %s", expected, withToolsText)
+		}
+	}
+
+	// Explicit entry_sequence lookup still returns full tool entry details by default.
+	exact, err := queryAgentHistoryFixture(ctx, storage, node, source, fmt.Sprintf(`{"session":%q,"turn":%q,"revision":%d,"entry_sequence":%d}`, session.ID.String(), turn.String(), filtered.Page.Revision, toolResultEntry.Sequence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(exact), "RAW_TOOL_OUTPUT_NOISE") {
+		t.Fatalf("entry_sequence lookup omitted tool payload: %s", string(exact))
+	}
+}
+
+func TestChildResponseFallsBackToTextOnToolCallingTurnLimitStep(t *testing.T) {
+	t.Parallel()
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		call := canonical.ToolRequest{ID: "last-call", Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)}
+		record := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant,
+			canonical.Block{Index: 0, Kind: "thinking", Data: &canonical.Thinking{Text: "Internal reasoning"}},
+			canonical.Text(1, "Progress summary before turn limit"),
+			canonical.Block{Index: 2, Kind: "tool_request", Data: &call},
+		), now)
+		record.Provenance.Author = "assistant"
+		_, _, err := AppendCanonical(ctx, db, session.ID, record)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got *string
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		got, err = childResponse(ctx, db, turn)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || *got != "Progress summary before turn limit" {
+		t.Fatalf("childResponse fallback = %v, want %q", got, "Progress summary before turn limit")
+	}
+	_ = node
+}

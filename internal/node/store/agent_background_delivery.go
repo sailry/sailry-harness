@@ -29,7 +29,7 @@ const backgroundDeliverable = backgroundReady + " AND delivery IS NULL"
 const backgroundEligible = "session=?1 AND " + backgroundDeliverable
 const backgroundInputEligible = "session=?1 AND state='pending' AND delivery IS NULL AND (kind='command' OR kind='agent' AND " + backgroundChild + " AND (json_extract(body,'$.task.outcome')!='failed' OR json_extract(body,'$.task.recovered')=0))"
 const backgroundBatch = 16
-const backgroundBatchBytes = 32 * 1024
+const backgroundBatchBytes = 128 * 1024
 
 // automaticLimit bounds how many automatic turns, notice turns and package
 // continuations alike, a session starts in a row without user input. A notice
@@ -183,9 +183,9 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 	}
 	// Cap both current and legacy output so the oldest result can fit on its
 	// own even if every retained byte needs JSON escaping.
-	responseLimit, streamLimit := 4096, 2048
+	responseLimit, streamLimit := 16384, 2048
 	if record.Response != nil && (record.Stdout != nil || record.Stderr != nil) {
-		responseLimit, streamLimit = 2048, 1024
+		responseLimit, streamLimit = 12288, 1024
 	}
 	if record.Response != nil {
 		total := uint64(len(*record.Response))

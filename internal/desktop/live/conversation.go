@@ -614,6 +614,31 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		failed()
 		return
 	}
+	finish := func(output protocol.Output, err error) {
+		// An unknown turn may already have landed. Only a definite result
+		// settles the originating form, including later request reconciliation.
+		if x.settled != nil && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+			x.settled(err == nil)
+		}
+		x.finishSubmission(output, false, err == nil)
+	}
+	// Direct composer guidance always joins the active turn under its frozen
+	// settings: ignore any pending or changed composer model/mode/team edits.
+	if guide && exists && !draftSession {
+		if run, ok := x.activeRun(); ok && acceptsGuidance(run) {
+			input := conversationInput(m)
+			x.submitTurn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, pending, func(output protocol.Output, err error) {
+				finish(output, err)
+				if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted && queued.Session == session.ID && queued.ID != (protocol.TurnID{}) {
+					x.guided(queued.ID, run.Turn)
+				}
+			})
+		} else {
+			x.unavailable()
+			failed()
+		}
+		return
+	}
 	config, _, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
 		x.r.discardCapturedOutgoing(x.cv.ID, pending)
@@ -632,32 +657,10 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x.start(m, config, !guide && !queue)
 		return
 	}
-	finish := func(output protocol.Output, err error) {
-		// An unknown turn may already have landed. Only a definite result
-		// settles the originating form, including later request reconciliation.
-		if x.settled != nil && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-			x.settled(err == nil)
-		}
-		x.finishSubmission(output, false, err == nil)
-	}
 	if exists {
 		autoStart := queue && x.comp.Running
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
-			if guide {
-				if run, ok := x.activeRun(); ok && acceptsGuidance(run) {
-					x.submitTurn(protocol.Command{Kind: "guide_turn", Data: protocol.CommandGuideTurnPayload{Recipient: run.Turn, ExpectedRevision: session.Revision, Message: input}}, pending, func(output protocol.Output, err error) {
-						finish(output, err)
-						if queued, admitted := detail[protocol.QueuedTurn](output.Data); err == nil && admitted && queued.Session == session.ID && queued.ID != (protocol.TurnID{}) {
-							x.guided(queued.ID, run.Turn)
-						}
-					})
-				} else {
-					x.unavailable()
-					failed()
-				}
-				return
-			}
 			kind := "submit_turn"
 			var data any = protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}
 			if queue {

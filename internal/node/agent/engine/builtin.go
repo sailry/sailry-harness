@@ -25,29 +25,33 @@ func toolFault(err error) ToolResult {
 	return ToolResult{Failure: &protocol.Fault{Code: code, Message: err.Error()}}
 }
 func (r *Runtime) builtins(x *execution) []Tool {
-	values := []Tool{
-		jsonTool("set_session_title", "Set a short, recognizable title for this conversation in the user's language. This only changes this session's display title; the session title instructions say when to call it.", `{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string","minLength":1}}}`, true, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
-			if ctx.Err() != nil || x.ctx.Err() != nil {
-				return invalidTool("title update was cancelled")
-			}
-			var arguments struct {
-				Title string `json:"title"`
-			}
-			if json.Unmarshal(call.Arguments, &arguments) != nil {
-				return invalidTool("invalid title arguments")
-			}
-			title := strings.TrimSpace(arguments.Title)
-			if title == "" || strings.IndexFunc(title, unicode.IsControl) >= 0 {
-				return invalidTool("title must be nonempty single-line text")
-			}
-			return ToolResult{Value: map[string]string{"title": title}, Context: &canonical.Context{Title: &title}}
-		}),
-		jsonTool("ask_user", "Ask the user one text or single/multiple-choice question, optionally allowing another answer. Put the best-supported option first and label it (Recommended). On timeout the tool returns that option as an automatic recommendation, not a user answer. Do not ask for tool permissions or confirmation of requested work; the runtime handles approvals. Answers do not grant tool permissions. Never ask for passwords or secrets: questions and answers are stored in history. Cancellation is not consent; plan acceptance requires an explicit user response.", askUserSchema, false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
-			if ctx.Err() != nil || x.ctx.Err() != nil {
-				return invalidTool("question was cancelled")
-			}
-			return r.question(x, ForegroundToolContext(ctx, x.ctx), call)
-		}),
+	child := x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil
+	var values []Tool
+	if !child {
+		values = append(values,
+			jsonTool("set_session_title", "Set a short, recognizable title for this conversation in the user's language. This only changes this session's display title; the session title instructions say when to call it.", `{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string","minLength":1}}}`, true, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+				if ctx.Err() != nil || x.ctx.Err() != nil {
+					return invalidTool("title update was cancelled")
+				}
+				var arguments struct {
+					Title string `json:"title"`
+				}
+				if json.Unmarshal(call.Arguments, &arguments) != nil {
+					return invalidTool("invalid title arguments")
+				}
+				title := strings.TrimSpace(arguments.Title)
+				if title == "" || strings.IndexFunc(title, unicode.IsControl) >= 0 {
+					return invalidTool("title must be nonempty single-line text")
+				}
+				return ToolResult{Value: map[string]string{"title": title}, Context: &canonical.Context{Title: &title}}
+			}),
+			jsonTool("ask_user", "Ask the user one text or single/multiple-choice question, optionally allowing another answer. Put the best-supported option first and label it (Recommended). On timeout the tool returns that option as an automatic recommendation, not a user answer. Do not ask for tool permissions or confirmation of requested work; the runtime handles approvals. Answers do not grant tool permissions. Never ask for passwords or secrets: questions and answers are stored in history. Cancellation is not consent; plan acceptance requires an explicit user response.", askUserSchema, false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+				if ctx.Err() != nil || x.ctx.Err() != nil {
+					return invalidTool("question was cancelled")
+				}
+				return r.question(x, ForegroundToolContext(ctx, x.ctx), call)
+			}),
+		)
 	}
 	values = append(values, updatePlanTool())
 	source := store.AgentHistorySource{Caller: x.inv.Caller, Session: x.inv.Session.ID, Turn: x.inv.Run.Turn}

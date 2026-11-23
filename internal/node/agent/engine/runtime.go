@@ -132,6 +132,7 @@ type execution struct {
 	queuedSteer       []protocol.TurnID       // guarded by Runtime.publication
 	directSteer       bool                    // guarded by Runtime.publication
 	interruptTools    context.CancelCauseFunc // guarded by Runtime.publication
+	interruptStream   context.CancelCauseFunc // guarded by Runtime.publication
 	streamReads       *streamedReads
 	operations        uint64
 	operationsDone    chan struct{}

@@ -244,20 +244,42 @@ func foldTests(t *testing.T) {
 		if n := texts(tt, queue); n != 4 {
 			t.Errorf("the unfolded tray shows %d rows of 4: %q", n, tt.Texts())
 		}
-		for key, want := range map[string]int{"queue_edit": 4, "queue_send_now": sends + 4, "queue_delete": 4, "queue_withdraw": 1, "queue_drag": 3} {
+		for key, want := range map[string]int{"queue_edit": 4, "queue_send_now": sends + 3, "queue_delete": 4, "queue_withdraw": 1, "queue_drag": 3} {
 			if n := buttons(tt, en(key)); n != want {
 				t.Errorf("%d %q, want %d", n, en(key), want)
 			}
 		}
-		// The guiding row's Edit and Remove are off, as before.
+		// The guiding row's Edit and Remove are off, and Send now is hidden
+		// while guidance is already joining the active reply.
 		off := 0
+		var guidingText string
+		for _, q := range queue {
+			if q.Guided {
+				guidingText = q.Text
+				break
+			}
+		}
+		var guidingRow ui.Rect
 		for _, e := range tt.AccessAll() {
+			if e.Name == guidingText && e.Bounds.W > guidingRow.W {
+				guidingRow = e.Bounds
+			}
 			if e.Role == ui.RoleButton && e.Disabled && (e.Name == en("queue_edit") || e.Name == en("queue_delete")) {
 				off++
 			}
 		}
 		if off != 2 {
 			t.Errorf("%d disabled Edit and Remove, want the guiding row's 2", off)
+		}
+		if guidingRow.W == 0 {
+			t.Fatalf("guiding row %q not found in accessibility tree", guidingText)
+		}
+		for _, e := range tt.AccessAll() {
+			cx, cy := e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2
+			if e.Role == ui.RoleButton && e.Name == en("queue_send_now") &&
+				cx >= guidingRow.X && cx <= guidingRow.X+guidingRow.W && cy >= guidingRow.Y && cy <= guidingRow.Y+guidingRow.H {
+				t.Errorf("guiding row unexpectedly rendered a %q button", en("queue_send_now"))
+			}
 		}
 		if !line(tt, header.Bounds) {
 			t.Error("the unfolded tray draws no hairline under its header")

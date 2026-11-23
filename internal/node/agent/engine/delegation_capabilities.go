@@ -78,7 +78,7 @@ func childSchedulingTool(tool Tool) bool {
 	}
 	if tool.Binding == nil {
 		switch tool.Definition.Name {
-		case "spawn_agent", "guide_agent", "wait_agent", "list_subagents", "stop_agent":
+		case "spawn_agent", "guide_agent", "wait_agent", "list_subagents", "stop_agent", "set_session_title", "ask_user":
 			return true
 		}
 	}

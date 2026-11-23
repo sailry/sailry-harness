@@ -756,8 +756,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				record.Stdout = new(strings.Repeat("\x01", 12*1024))
-				record.Stderr = new(strings.Repeat("\x02", 12*1024))
+				record.Response = new(strings.Repeat("\x01", 20*1024))
 				if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 					return err
 				}

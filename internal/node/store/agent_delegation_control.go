@@ -312,6 +312,7 @@ func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*st
 		return nil, err
 	}
 	defer rows.Close()
+	var fallback *string
 	for rows.Next() {
 		var body sql.RawBytes
 		if err := rows.Scan(&body); err != nil {
@@ -337,12 +338,25 @@ func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*st
 				}
 			}
 		}
-		if valid && text.Len() > 0 {
+		if strings.TrimSpace(text.String()) == "" {
+			continue
+		}
+		if valid {
 			value := text.String()
 			return &value, nil
 		}
+		// If the child stopped on a tool-calling step (for example at its
+		// turn limit) with no pure final reply, fall back to its latest
+		// assistant text while still stripping all tool and thinking blocks.
+		if fallback == nil {
+			value := text.String()
+			fallback = &value
+		}
 	}
-	return nil, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return fallback, nil
 }
 func PendingGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) (bool, error) {
 	var pending bool

@@ -331,8 +331,8 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 		if item.Guided {
 			queueSmall(c, "withdraw", icons.Undo, i18n.T(c, "queue_withdraw"), blocked, func() { actions.WithdrawGuidance(item.ID) })
 		}
-		if !item.Notice && !ctx.Child {
-			queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), blocked || item.Guided && !item.Joining, func() { actions.SendQueued(item.ID) })
+		if !item.Notice && !ctx.Child && !item.Guided {
+			queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), blocked, func() { actions.SendQueued(item.ID) })
 		}
 		queueSmall(c, "delete", icons.Delete, i18n.T(c, "queue_delete"), blocked || item.Guided, func() { actions.RemoveQueued(item.ID) })
 	})
@@ -352,7 +352,9 @@ func (s *State) outgoingRow(c *ui.Context, item Queued) {
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
 		}
 		queueSmall(c, "edit", icons.Replace, i18n.T(c, "queue_edit"), true, func() {})
-		queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), true, func() {})
+		if !item.Guided {
+			queueSmall(c, "send", icons.ArrowUp, i18n.T(c, "queue_send_now"), true, func() {})
+		}
 		queueSmall(c, "delete", icons.Delete, i18n.T(c, "queue_delete"), true, func() {})
 	})
 }

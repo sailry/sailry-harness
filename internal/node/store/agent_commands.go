@@ -125,26 +125,27 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if origin != nil {
 			return guideDelegatedTurn(ctx, db, caller, request, target, *v, now)
 		}
-		session, err := checkedSession(ctx, db, target.Session, v.ExpectedRevision)
+		session, err := ReadSession(ctx, db, target.Session)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if err = validateAgentInput(v.Message); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err = validateAgentReferences(ctx, db, session, v.Message, nil); err != nil {
-			return protocol.Output{}, nil, err
-		}
 		if session.Delegation != nil {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 		}
 		// Guidance joins the running turn, so it freezes every setting that
-		// turn captured and is compatible with it by construction: a model or
-		// mode chosen since applies to the next queued turn, and a model removed
-		// since does not reject the guidance. Guidance that ends up as its own
-		// turn is captured again from the session (releaseGuidance).
+		// turn captured and ignores any composer config edits made since.
+		// Guidance that ends up as its own turn is recaptured from the session
+		// on release (releaseGuidance).
 		settings, err := readTurnSettings(ctx, db, target.Turn)
 		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		frozen := session
+		frozen.Config, frozen.Roles = settings.turn.Config, settings.turn.Roles
+		if err = validateAgentReferences(ctx, db, frozen, v.Message, settings.turn.Plugins); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		turn, err := insertAgentTurn(ctx, db, caller, request, session, settings, true)

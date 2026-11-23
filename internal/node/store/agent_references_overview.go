@@ -16,7 +16,7 @@ const (
 	referenceOverviewCandidates = 8
 	referenceOverviewTextParts  = 8
 	referenceOverviewInputBytes = 320
-	referenceOverviewReplyBytes = 768
+	referenceOverviewReplyBytes = 2048
 	referenceOverviewErrorBytes = 256
 	referenceOverviewPageBytes  = 16 * 1024
 )

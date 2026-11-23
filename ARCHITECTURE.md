@@ -713,8 +713,14 @@ model failed, its plan was reviewed or guidance ended a plugin stop, its
 undelivered foreground children detach to background delivery instead of being
 cancelled: they keep running and their results arrive as a notice or with the
 next input. A stop still cancels them. Automatic child results keep the first
-4 KiB of the answer and mark a cut with `response_truncated` and the full byte
-count; `wait_agent` with the exact turn returns all of it. Waiting for a child is
+16 KiB of the answer (falling back to text-only assistant content stripped of
+tool and thinking blocks if the child hit its turn limit on a tool step) and
+mark a cut with `response_truncated` and the full byte count; `wait_agent` with
+the exact turn returns all of it. Delegated children do not expose `ask_user` or
+`set_session_title`, so ambiguities return to the parent in the child's final
+message. `read_session` detail mode omits raw `tool_call`, `tool_result` and
+`thinking` blocks by default (`include_tools: true` opts back in), while exact
+`entry_sequence` lookups return full entry details. Waiting for a child is
 accounted for separately from active tool execution. Child commands may run
 in the background while the child works. The child collects any needed results
 before its task ends, when the Node stops its remaining commands.
@@ -733,28 +739,32 @@ Listing does not resume, collect or replay work. An explicit spawn using a
 listed child session starts a new child turn with its own admission receipt;
 waiting only observes a specific execution.
 
-Input received during a running task is durable guidance, consumed at a model
-boundary. Guidance is admitted with every setting its running turn captured,
-so a model or mode chosen meanwhile applies to later queued turns, and a model
-removed meanwhile does not reject it. Each boundary takes up to 16 messages or
-32 KiB, at least one message; the rest joins at the next boundary. Guidance its
-turn settles without joining becomes an ordinary queued turn captured again with
-the session's current settings, keeping the earlier capture only when the
-current settings are unavailable.
+Input received during a running task is durable guidance. Guidance is admitted
+directly with the running turn's frozen settings (ignoring intervening session
+configuration or revision changes), so a model or mode chosen meanwhile applies
+to later queued turns, and a model removed meanwhile does not reject it. Once
+committed, guidance interrupts active model streaming (preserving any streamed
+text or reasoning as `interrupted` without writing an error record and dropping
+partial `tool_request` blocks), foreground commands, interruptible reads and
+interaction waits so the guidance joins at the next boundary. Each boundary
+takes up to 16 messages or 128 KiB, at least one message; the rest joins at the
+next boundary. Guidance its turn settles without joining becomes an ordinary
+queued turn captured again with the session's current settings, keeping the
+earlier capture only when the current settings are unavailable.
 
 While a Desktop conversation is running, Tab queues a task that can start
 automatically after the active task settles. The Node keeps any existing pause.
 Queue commands without automatic start create held items.
 
-An explicit queue send to a running recipient with matching settings prioritizes
-the selected input at its next model boundary. Once the queue update commits,
-the Node requests cancellation of foreground commands, interruptible reads and
-interaction waits. Already admitted noninterruptible effects settle first.
-Successful and uncertain results stay in the original turn. If the selected
-input has different settings, the queue send stops the recipient and runs the
-selected input first as its own task with the captured settings. A completed
-recipient can fall back to starting the selected input in an idle, unpaused
-queue. A replacement run or a stop takes precedence over this fallback.
+An explicit queue send (`guide_queued_turn`) to a running recipient adopts the
+recipient's frozen settings and prioritizes the selected input at its next
+boundary rather than stopping the recipient or splitting into a separate queued
+turn. Once the queue update commits, the Node requests cancellation of active
+model streaming, foreground commands, interruptible reads and interaction waits.
+Already admitted noninterruptible effects settle first. Successful and uncertain
+results stay in the original turn. A completed recipient can fall back to
+starting the selected input in an idle, unpaused queue. A replacement run or a
+stop takes precedence over this fallback.
 
 Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible

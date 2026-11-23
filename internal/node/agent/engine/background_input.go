@@ -36,7 +36,7 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 			result.Notice.Summary = new(store.ChildTurnLimitSummary)
 		}
 		if state.Response != nil {
-			result.ChildResponse(*state.Response, uint64(len(*state.Response)), 4096)
+			result.ChildResponse(*state.Response, uint64(len(*state.Response)), 16384)
 		}
 	case protocol.ConversationStatusCancelled:
 		result.Notice.Outcome = protocol.ConversationBackgroundOutcomeCancelled

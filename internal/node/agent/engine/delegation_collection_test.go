@@ -204,8 +204,8 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 		firstAnswer    = "First child verified result"
 		secondAnswer   = "Second child verified result"
 	)
-	parentRequests, childRequests := make(chan fantasy.Call, 3), make(chan fantasy.Call, 2)
-	finishSecondStep, finishThirdStep := make(chan struct{}), make(chan struct{})
+	parentRequests, childRequests := make(chan fantasy.Call, 4), make(chan fantasy.Call, 2)
+	finishSecondStep, finishThirdStep, finishFourthStep := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	finishFirstChild, finishSecondChild := make(chan struct{}), make(chan struct{})
 	observe := func(requests chan<- fantasy.Call, release <-chan struct{}, reply script) script {
 		return func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
@@ -223,7 +223,8 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 	parent := &scriptedModel{scripts: []script{
 		response(call("first", "spawn_agent", `{"task":"Run the first check","overlap":false}`), finish()),
 		observe(parentRequests, finishSecondStep, response(call("second", "spawn_agent", `{"task":"Run the second check"}`), finish())),
-		observe(parentRequests, finishThirdStep, response(text("First check summarized"), finish())),
+		observe(parentRequests, finishThirdStep, response(text("Interrupted before second guidance"), finish())),
+		observe(parentRequests, finishFourthStep, response(text("First check summarized"), finish())),
 		observe(parentRequests, nil, response(text("Both checks summarized"), finish())),
 	}}
 	child := &scriptedModel{scripts: []script{
@@ -269,18 +270,19 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 		t.Fatalf("first guided request should carry guidance but not the pending result: %s", request)
 	}
 
-	// Settle the first child while the parent is still in the guided model step.
-	second := guide(secondGuidance)
+	// Let the first guided step spawn the second child, settle the first
+	// child so the parent resumes, and steer the active stream with the second guidance.
+	close(finishSecondStep)
+	await(childRequests, "second child during the guided step")
 	close(finishFirstChild)
 	f.waitRun(turns[0], protocol.ConversationStatusCompleted)
-	close(finishSecondStep)
+	await(parentRequests, "parent after first child finishes")
+	second := guide(secondGuidance)
 	if request := promptText(await(parentRequests, "parent after second guidance")); !strings.Contains(request, secondGuidance) || strings.Count(request, firstAnswer) != 1 {
 		t.Fatalf("second guided request should carry guidance and the completed result exactly once: %s", request)
 	}
-	// The new spawn must have been released before this guided request returns.
-	await(childRequests, "second child during the guided step")
 	close(finishSecondChild)
-	close(finishThirdStep)
+	close(finishFourthStep)
 	if request := promptText(await(parentRequests, "parent after the second child finishes")); strings.Count(request, firstAnswer) != 1 || strings.Count(request, secondAnswer) != 1 {
 		t.Fatalf("next request should carry both results without redelivery: %s", request)
 	}
@@ -290,8 +292,8 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 			t.Fatalf("guidance %s did not join the original turn", id)
 		}
 	}
-	if count := parent.count(); count != 4 {
-		t.Fatalf("parent requests = %d, want four", count)
+	if count := parent.count(); count != 5 {
+		t.Fatalf("parent requests = %d, want five", count)
 	}
 }
 

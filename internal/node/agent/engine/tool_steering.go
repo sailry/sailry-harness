@@ -15,7 +15,7 @@ type foregroundToolKey struct{}
 // QueueCommitted reconciles steering against the durable queue under publication.
 func (r *Runtime) QueueCommitted(update protocol.ConversationQueueUpdate, selection *protocol.CommandGuideQueuedTurnPayload) {
 	r.mu.Lock()
-	var owner *execution
+	var interruptTools, interruptStream context.CancelCauseFunc
 	for _, x := range r.active {
 		if x.inv.Session.ID != update.Session || x.ctx.Err() != nil {
 			continue
@@ -30,33 +30,41 @@ func (r *Runtime) QueueCommitted(update protocol.ConversationQueueUpdate, select
 			if !slices.Contains(x.queuedSteer, selection.Turn) {
 				x.queuedSteer = append(x.queuedSteer, selection.Turn)
 			}
-			owner = x
+			interruptTools, interruptStream = x.interruptTools, x.interruptStream
 		}
 	}
 	r.mu.Unlock()
-	if owner != nil && owner.interruptTools != nil {
-		owner.interruptTools(errQueuedSteer)
+	if interruptTools != nil {
+		interruptTools(errQueuedSteer)
+	}
+	if interruptStream != nil {
+		interruptStream(errQueuedSteer)
 	}
 }
 
 // GuideCommitted delivers direct composer guidance under publication so it
-// interrupts active foreground tools, approvals and questions without altering
-// explicit guide_queued_turn batch priority or cancelling future model calls.
+// immediately interrupts active foreground tools, approvals, questions, and
+// in-flight model streaming to steer the running turn.
 func (r *Runtime) GuideCommitted(turn protocol.QueuedTurn, recipient protocol.TurnID) {
 	if recipient == (protocol.TurnID{}) {
 		return
 	}
 	r.mu.Lock()
+	var interruptTools, interruptStream context.CancelCauseFunc
 	owner := r.active[recipient]
 	if owner != nil && (owner.inv.Session.ID != turn.Session || owner.ctx.Err() != nil) {
 		owner = nil
 	}
 	if owner != nil {
 		owner.directSteer = true
+		interruptTools, interruptStream = owner.interruptTools, owner.interruptStream
 	}
 	r.mu.Unlock()
-	if owner != nil && owner.interruptTools != nil {
-		owner.interruptTools(errQueuedSteer)
+	if interruptTools != nil {
+		interruptTools(errQueuedSteer)
+	}
+	if interruptStream != nil {
+		interruptStream(errQueuedSteer)
 	}
 }
 
@@ -69,11 +77,27 @@ func (r *Runtime) hasDirectSteer(x *execution) bool {
 	return x.directSteer
 }
 
+func (r *Runtime) beginModelStep(x *execution) (context.Context, func()) {
+	step, cancel := context.WithCancelCause(x.ctx)
+	unlock := r.LockPublication()
+	x.interruptStream = cancel
+	if len(x.queuedSteer) > 0 || x.directSteer {
+		cancel(errQueuedSteer)
+	}
+	unlock()
+	return step, func() {
+		unlock := r.LockPublication()
+		x.interruptStream = nil
+		unlock()
+		cancel(nil)
+	}
+}
+
 func (r *Runtime) beginToolStep(x *execution) (context.Context, func()) {
 	step, cancel := context.WithCancelCause(x.ctx)
 	unlock := r.LockPublication()
 	x.interruptTools = cancel
-	if len(x.queuedSteer) > 0 {
+	if len(x.queuedSteer) > 0 || x.directSteer {
 		cancel(errQueuedSteer)
 	}
 	unlock()
