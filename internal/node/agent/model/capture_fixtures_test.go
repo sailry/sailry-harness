@@ -138,8 +138,14 @@ func capturedPolicyFixtures(t *testing.T) {
 			}
 		}
 		summary := Summary(binding)
-		if summary.Config.Effort.Kind != "none" || binding.Config.Effort.Kind != "high" || OutputLimit(binding, true) != 4096 {
+		if summary.Config.Effort.Kind != "low" || binding.Config.Effort.Kind != "high" || OutputLimit(binding, true) != 4096 {
 			t.Fatalf("summary policy=%+v", summary.Config.Effort)
+		}
+		// A model with nothing at or above low summarizes at its lowest effort.
+		minimal := binding
+		minimal.Provider.Models = []protocol.ConversationModel{{ID: "fixture", Output: 4096, Reasoning: true, Efforts: []protocol.Effort{{Kind: "minimal"}, {Kind: "none"}}}}
+		if got := Summary(minimal).Config.Effort.Kind; got != "none" {
+			t.Fatalf("summary effort without low = %q, want none", got)
 		}
 		// The summary output is twice the handoff cap of the window, within the
 		// model's own limit; a 200,000 token window keeps 8,000.

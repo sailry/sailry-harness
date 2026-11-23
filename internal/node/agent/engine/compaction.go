@@ -13,6 +13,7 @@ import (
 	handoff "github.com/sailry/sailry-harness/internal/node/agent/compact"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
+	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/agent/tokens"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -205,65 +206,68 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if manual && strings.TrimSpace(x.inv.Message.Text) != "" {
 		requestText += "\n\nUser focus for the handoff:\n" + x.inv.Message.Text
 	}
-	var attempts []model.Attempt
+	var attempts compactionAttempts
 	// A compaction that ends without a summary leaves its billed attempts and
 	// one record saying where and why it stopped; a stopped turn is no failure.
 	failed := func(stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, failure error) error {
 		hideCompacting()
 		var records []canonical.Record
 		for _, attempt := range attempts {
-			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
+			records = append(records, r.observationRecord(x, attempt.binding, canonical.PurposeCompaction, attempt.attempt))
 		}
 		if x.ctx.Err() == nil {
-			records = append(records, r.compactionFailure(x, summaryBinding, state.Records, manual, stage, reason, attempts, failure))
+			records = append(records, r.compactionFailure(x, summaryBinding, state.Records, manual, stage, reason, attempts.requests(), failure))
 		}
 		if e := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &summaryBinding.Provider, records...); e != nil {
 			return e
 		}
 		return failure
 	}
+	stream := &summaryStream{}
+	// current is the configuration the running attempt uses; its observations
+	// record the effort that was actually requested.
+	current := summaryBinding
+	observe := func(attempt model.Attempt) error {
+		x.timeline.attempt(attempt)
+		// An attempt that waits to be sent again shows as a main request's does.
+		if attempt.RetryDelay != nil {
+			return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &current.Provider, r.retryRecord(x, current, canonical.PurposeCompaction, attempt))
+		}
+		stream.usage = attempt.Usage
+		attempts = append(attempts, compactionAttempt{attempt: attempt, binding: current})
+		return nil
+	}
+	collect := func(part fantasy.StreamPart) bool { return stream.receive(part) && x.ctx.Err() == nil }
+
 	languageModel, err := r.model(x.ctx, summaryBinding)
 	if err != nil {
 		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
 	}
 	systemBytes := model.SummarySystemBytes(languageModel, requestText)
+	// A summary of a history that still fits reuses the main request when the
+	// provider served the latest main request from its prompt cache: the
+	// cached prefix then costs a fraction of a fresh transcript. Without that
+	// evidence, an overflow recovery, or a model that replays a bounded
+	// transcript, the rendered handoff is smaller and cheaper.
+	if keepRecent && systemBytes == 0 && servedFromCache(binding, state.Records) {
+		current = binding
+		summary, ok, err := r.inPlaceSummary(x, binding, state, selection.Tail, requestText, uint64(selected.Context), uint64(output), cap, observe, collect, stream)
+		if err != nil {
+			return failed(protocol.ConversationCompactionStageRequest, compactionReason(err), err)
+		}
+		if ok {
+			return r.saveCompaction(x, state, selection, manual, preserved, retainMedia, summaryID, binding, summary, stream.usage, attempts)
+		}
+		stream.reset()
+		current = summaryBinding
+	}
 	system, err := handoff.Prepare(selection.Prefix, uint64(selected.Context), uint64(output), requestText, systemBytes)
 	if err != nil {
 		return failed(protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, err)
 	}
 	request := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, requestText)), r.clock.Now())
-	var text strings.Builder
-	limited, textBlock := false, false
-	var usage canonical.Usage
-	observe := func(attempt model.Attempt) error {
-		x.timeline.attempt(attempt)
-		// An attempt that waits to be sent again shows as a main request's does.
-		if attempt.RetryDelay != nil {
-			return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &summaryBinding.Provider, r.retryRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
-		}
-		usage = attempt.Usage
-		attempts = append(attempts, attempt)
-		return nil
-	}
-	collect := func(part fantasy.StreamPart) bool {
-		switch part.Type {
-		case fantasy.StreamPartTypeTextDelta:
-			if !textBlock && text.Len() > 0 {
-				text.WriteByte('\n')
-			}
-			text.WriteString(part.Delta)
-			textBlock = true
-		case fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeReasoningEnd, fantasy.StreamPartTypeToolCall:
-			textBlock = false
-		case fantasy.StreamPartTypeFinish:
-			switch strings.ToLower(string(part.FinishReason)) {
-			case "length", "max_tokens", "max_output_tokens":
-				limited = true
-			}
-		}
-		return x.ctx.Err() == nil
-	}
 	run := func(system string) error {
+		stream.reset()
 		call, err := model.BuildCall(summaryBinding, model.Request{System: system, Records: []canonical.Record{request}, MaxOutputTokens: &output, Delegated: x.inv.Session.Delegation != nil})
 		if err != nil {
 			return err
@@ -283,32 +287,168 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		err = run(system)
 	}
 	if err != nil {
-		reason := protocol.ConversationCompactionReasonRequestFailed
-		switch model.Classify(err).Kind {
-		case model.RateLimited, model.Quota:
-			reason = protocol.ConversationCompactionReasonRateLimited
-		case model.Authentication, model.NotConfigured:
-			reason = protocol.ConversationCompactionReasonAuthorizationFailed
-		case model.ContextOverflow:
-			reason = protocol.ConversationCompactionReasonContextOverflow
-		case model.InvalidRequest, model.Unsupported:
-			reason = protocol.ConversationCompactionReasonServiceRejected
-		case model.InvalidResponse:
-			reason = protocol.ConversationCompactionReasonIncompleteResponse
-		}
-		return failed(protocol.ConversationCompactionStageRequest, reason, err)
+		return failed(protocol.ConversationCompactionStageRequest, compactionReason(err), err)
 	}
-	if limited {
+	if stream.limited {
 		return failed(protocol.ConversationCompactionStageSummary, protocol.ConversationCompactionReasonTruncatedSummary, fmt.Errorf("compaction summary reached its output limit"))
 	}
-	summary, err := handoff.Parse(text.String(), cap)
+	summary, err := handoff.Parse(stream.text.String(), cap)
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonUnexpectedOutput
-		if strings.TrimSpace(text.String()) == "" {
+		if strings.TrimSpace(stream.text.String()) == "" {
 			reason = protocol.ConversationCompactionReasonEmptySummary
 		}
 		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}
+	return r.saveCompaction(x, state, selection, manual, preserved, retainMedia, summaryID, summaryBinding, summary, stream.usage, attempts)
+}
+
+// servedFromCache reports whether the latest main request of this provider
+// and model read part of its input from the provider's prompt cache.
+func servedFromCache(binding model.Binding, records []canonical.Record) bool {
+	for i := len(records) - 1; i >= 0; i-- {
+		record := records[i]
+		message := record.Message()
+		if message == nil || message.Role != canonical.Assistant || message.Usage == nil || compactionUsage(record) {
+			continue
+		}
+		execution := record.Metadata.Execution
+		if execution == nil || execution.Source == nil || execution.Purpose == nil || *execution.Purpose != canonical.PurposeMain {
+			continue
+		}
+		if execution.Source.ID != binding.Provider.ID || execution.Source.Model != binding.Config.Model {
+			return false
+		}
+		return message.Usage.CacheRead != nil && *message.Usage.CacheRead > 0
+	}
+	return false
+}
+
+// compactionAttempt is one billed summary request and the configuration it
+// ran with.
+type compactionAttempt struct {
+	attempt model.Attempt
+	binding model.Binding
+}
+type compactionAttempts []compactionAttempt
+
+func (a compactionAttempts) requests() []model.Attempt {
+	out := make([]model.Attempt, len(a))
+	for i, value := range a {
+		out[i] = value.attempt
+	}
+	return out
+}
+
+// summaryStream collects one summary attempt's text and how it ended.
+type summaryStream struct {
+	text                           strings.Builder
+	limited, textBlock, toolCalled bool
+	usage                          canonical.Usage
+}
+
+func (s *summaryStream) reset() {
+	s.text.Reset()
+	s.limited, s.textBlock, s.toolCalled = false, false, false
+}
+func (s *summaryStream) receive(part fantasy.StreamPart) bool {
+	switch part.Type {
+	case fantasy.StreamPartTypeTextDelta:
+		if !s.textBlock && s.text.Len() > 0 {
+			s.text.WriteByte('\n')
+		}
+		s.text.WriteString(part.Delta)
+		s.textBlock = true
+	case fantasy.StreamPartTypeToolCall:
+		s.toolCalled = true
+		s.textBlock = false
+	case fantasy.StreamPartTypeReasoningDelta, fantasy.StreamPartTypeReasoningEnd:
+		s.textBlock = false
+	case fantasy.StreamPartTypeFinish:
+		switch strings.ToLower(string(part.FinishReason)) {
+		case "length", "max_tokens", "max_output_tokens":
+			s.limited = true
+		}
+	}
+	return true
+}
+
+func compactionReason(err error) protocol.ConversationCompactionReason {
+	switch model.Classify(err).Kind {
+	case model.RateLimited, model.Quota:
+		return protocol.ConversationCompactionReasonRateLimited
+	case model.Authentication, model.NotConfigured:
+		return protocol.ConversationCompactionReasonAuthorizationFailed
+	case model.ContextOverflow:
+		return protocol.ConversationCompactionReasonContextOverflow
+	case model.InvalidRequest, model.Unsupported:
+		return protocol.ConversationCompactionReasonServiceRejected
+	case model.InvalidResponse:
+		return protocol.ConversationCompactionReasonIncompleteResponse
+	}
+	return protocol.ConversationCompactionReasonRequestFailed
+}
+
+// inPlaceSummary asks for the handoff with the main request's system prompt,
+// tools, effort and history unchanged, followed by the summary instructions,
+// so the provider can serve the conversation from its prompt cache. Thinking,
+// effort and tool choice are part of that cached prefix on some providers,
+// which is why the request keeps the turn's own configuration. ok is false
+// when this request cannot produce a usable handoff and the rendered
+// transcript should be tried instead; err reports a failure that the
+// transcript request would meet as well.
+func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state store.AgentState, tail []canonical.Record, requestText string, contextLimit, outputLimit, cap uint64, observe func(model.Attempt) error, collect func(fantasy.StreamPart) bool, stream *summaryStream) (handoff.Summary, bool, error) {
+	instructions := handoff.InPlace(contextLimit, outputLimit, tail)
+	if requestText != handoff.Request {
+		instructions += strings.TrimPrefix(requestText, handoff.Request)
+	}
+	// The handoff needs its summary output plus room for the turn's reasoning,
+	// not the main step's whole output limit: automatic compaction starts once
+	// history leaves less than that limit free. A thinking budget must stay
+	// below the output limit, so a budget effort keeps the main limit.
+	maxOutput := int64(2 * outputLimit)
+	if main := model.OutputLimit(binding, false); main > 0 && (main < maxOutput || binding.Config.Effort.Kind == "budget") {
+		maxOutput = main
+	}
+	if contextTokens(state.Records)+handoff.InPlaceTokens(instructions)+uint64(maxOutput) > contextLimit {
+		return handoff.Summary{}, false, nil
+	}
+	request, err := r.mainRequest(x, binding, state, prompt.Instruction(x.inv.Session.Delegation != nil))
+	if err != nil {
+		return handoff.Summary{}, false, err
+	}
+	request.MaxOutputTokens = &maxOutput
+	ask := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, instructions)), r.clock.Now())
+	request.Records = append(request.Records, ask)
+	call, err := model.BuildVisibleProjectedCall(binding, request)
+	if err != nil {
+		return handoff.Summary{}, false, err
+	}
+	languageModel, err := r.model(x.ctx, binding)
+	if err != nil {
+		return handoff.Summary{}, false, err
+	}
+	stream.reset()
+	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
+	if err != nil {
+		switch kind := model.Classify(err).Kind; {
+		case x.ctx.Err() != nil, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+			return handoff.Summary{}, false, err
+		}
+		return handoff.Summary{}, false, nil
+	}
+	if stream.toolCalled || stream.limited {
+		return handoff.Summary{}, false, nil
+	}
+	summary, err := handoff.Parse(stream.text.String(), cap)
+	if err != nil {
+		return handoff.Summary{}, false, nil
+	}
+	return summary, true, nil
+}
+
+// saveCompaction records a parsed handoff as the conversation's checkpoint.
+func (r *Runtime) saveCompaction(x *execution, state store.AgentState, selection handoff.Selection, manual bool, preserved *canonical.Record, retainMedia bool, summaryID string, summaryBinding model.Binding, summary handoff.Summary, usage canonical.Usage, attempts compactionAttempts) error {
 	rendered := summary.Render()
 	boundary := selection.Boundary
 	message := canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
@@ -337,9 +477,10 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	var records []canonical.Record
 	if len(attempts) > 0 {
 		for _, attempt := range attempts[:len(attempts)-1] {
-			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
+			records = append(records, r.observationRecord(x, attempt.binding, canonical.PurposeCompaction, attempt.attempt))
 		}
-		last := r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempts[len(attempts)-1])
+		final := attempts[len(attempts)-1]
+		last := r.observationRecord(x, final.binding, canonical.PurposeCompaction, final.attempt)
 		record.Metadata.Execution = last.Metadata.Execution
 	}
 	records = append(records, record)

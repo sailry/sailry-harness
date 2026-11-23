@@ -134,8 +134,8 @@ func TestCompactionHandoff(t *testing.T) {
 		if captured.Secret == nil || captured.Secret.Expose() != renewed {
 			t.Fatal("summary request kept the credential captured at turn start")
 		}
-		if captured.Provider.ID != binding.Provider.ID || captured.Provider.Endpoint != binding.Provider.Endpoint || captured.Config.Model != binding.Config.Model || captured.Config.Effort.Kind != "none" || binding.Config.Effort.Kind != "high" {
-			t.Fatal("summary did not retain the captured provider/model with independent lowest effort")
+		if captured.Provider.ID != binding.Provider.ID || captured.Provider.Endpoint != binding.Provider.Endpoint || captured.Config.Model != binding.Config.Model || captured.Config.Effort.Kind != "low" || binding.Config.Effort.Kind != "high" {
+			t.Fatal("summary did not retain the captured provider/model with independent low effort")
 		}
 		request := m.calls[0]
 		if len(request.Tools) != 0 || request.MaxOutputTokens == nil || *request.MaxOutputTokens != 8000 || len(request.Prompt) != 2 || !strings.Contains(request.Prompt[1].Content[0].(fantasy.TextPart).Text, x.inv.Message.Text) {

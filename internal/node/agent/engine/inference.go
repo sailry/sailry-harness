@@ -167,34 +167,12 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		state.Records = append(state.Records, *contextRecord)
 	}
 	instruction := prompt.Instruction(x.inv.Session.Delegation != nil)
-	system := prompt.System(instruction, state.Context)
-	tools := r.declarations(x, binding, state)
-	schemas := map[string]json.RawMessage{}
-	for _, tool := range tools {
-		if captured := findTool(x.tools, tool.Name); captured != nil && len(captured.SchemaJSON) > 0 {
-			schemas[tool.Name] = captured.SchemaJSON
-		}
-	}
-	projected := model.VisibleAnsweredRecords(state.Records)
-	if err = r.hydrateModelToolResults(x.ctx, projected); err != nil {
-		return err
-	}
-	projectContextPressure(projected, state.Records, tools)
-	projected = x.output.Project(projected)
-	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
+	request, err := r.mainRequest(x, binding, state, instruction)
 	if err != nil {
 		return err
 	}
-	projected = hydrated
-	assets, err := r.modelAssetsWith(x.ctx, projected, attachmentAssets)
-	if err != nil {
-		return err
-	}
-	projected, tools, schemas = x.names.request(projected, tools, schemas)
-	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
-		return err
-	}
-	call, err := model.BuildVisibleProjectedCall(binding, model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets, Delegated: x.inv.Session.Delegation != nil})
+	system, projected := request.System, request.Records
+	call, err := model.BuildVisibleProjectedCall(binding, request)
 	if err != nil {
 		return err
 	}
@@ -643,4 +621,38 @@ func (out *streamOutput) order() {
 			}
 		}
 	}
+}
+
+// mainRequest assembles the system prompt, declared tools and projected
+// history of a main model step. Compaction reuses it unchanged so a summary
+// request shares the provider prompt cache of the conversation it replaces.
+func (r *Runtime) mainRequest(x *execution, binding model.Binding, state store.AgentState, instruction string) (model.Request, error) {
+	system := prompt.System(instruction, state.Context)
+	tools := r.declarations(x, binding, state)
+	schemas := map[string]json.RawMessage{}
+	for _, tool := range tools {
+		if captured := findTool(x.tools, tool.Name); captured != nil && len(captured.SchemaJSON) > 0 {
+			schemas[tool.Name] = captured.SchemaJSON
+		}
+	}
+	projected := model.VisibleAnsweredRecords(state.Records)
+	if err := r.hydrateModelToolResults(x.ctx, projected); err != nil {
+		return model.Request{}, err
+	}
+	projectContextPressure(projected, state.Records, tools)
+	projected = x.output.Project(projected)
+	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
+	if err != nil {
+		return model.Request{}, err
+	}
+	projected = hydrated
+	assets, err := r.modelAssetsWith(x.ctx, projected, attachmentAssets)
+	if err != nil {
+		return model.Request{}, err
+	}
+	projected, tools, schemas = x.names.request(projected, tools, schemas)
+	if err = r.toolMediaAssets(x.ctx, binding, projected, assets); err != nil {
+		return model.Request{}, err
+	}
+	return model.Request{System: system, Records: projected, Tools: tools, ToolSchemas: schemas, Assets: assets, Delegated: x.inv.Session.Delegation != nil}, nil
 }

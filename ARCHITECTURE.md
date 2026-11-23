@@ -601,7 +601,7 @@ original records. The retained tail targets at most 20,000 estimated tokens or
 20% of the model window, whichever is smaller; the newest indivisible exchange
 can exceed that soft target. The summary is projected before
 that tail even though its checkpoint is appended later in storage. Summaries
-contain attachment references rather than payloads and use no tool definitions;
+contain attachment references rather than payloads; transcript summary requests use no tool definitions;
 loaded tool declarations are retained only where used or discovered in the tail.
 An automatic cut within the current turn carries its user input and attachments.
 An overflow recovery may summarize the full visible history while carrying the
@@ -611,6 +611,18 @@ reserve, and any known transport byte limit. If the service
 reports a context overflow, compaction can retry once with a smaller transcript
 that retains the previous handoff. A compaction that cannot produce a usable
 summary leaves the original context intact.
+
+When the latest main request of the same provider and model read input from
+the provider's prompt cache, and the history still fits with the summary
+output, compaction first asks for the handoff in place: the main request's
+system prompt, tools, effort and projected history unchanged, followed by the
+summary instructions as a user message that names where the retained tail
+begins. Thinking, effort and tool choice belong to the cached prefix on some
+providers, so this request keeps the turn's configuration. A tool call,
+truncated or unparseable output, or a rejected request falls back to the
+rendered transcript; rate limits, authorization failures and cancellation end
+the compaction as before. The transcript request runs at the model's lowest
+effort from low upward, or its lowest offered effort when nothing reaches low.
 
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.

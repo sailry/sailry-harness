@@ -146,12 +146,27 @@ func Summary(binding Binding) Binding {
 	result := binding
 	result.Config.Effort = protocol.Effort{Kind: "default"}
 	if model := metadata(binding); model != nil && model.Reasoning {
-		rank := int64(1 << 62)
+		// A handoff is the only record of the history it replaces, so it keeps
+		// some reasoning: the lowest effort from low upward, or the model's
+		// lowest when it offers nothing at or above low.
+		const floor = 2 // effortRank of "low"
+		rank, fallback := int64(1<<62), int64(1<<62)
+		var lowest protocol.Effort
 		for _, effort := range model.Efforts {
-			if value, ok := effortRank(effort); ok && value < rank {
+			value, ok := effortRank(effort)
+			if !ok {
+				continue
+			}
+			if value >= floor && value < rank {
 				rank = value
 				result.Config.Effort = effort
 			}
+			if value < fallback {
+				fallback, lowest = value, effort
+			}
+		}
+		if rank == 1<<62 && fallback != 1<<62 {
+			result.Config.Effort = lowest
 		}
 	}
 	if result.Config.Effort.Kind == "budget" {
