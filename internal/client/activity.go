@@ -159,6 +159,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		existing := slices.IndexFunc(feed.notices, func(notice Notice) bool { return notice.ID == id })
 		if existing >= 0 {
 			feed.notices[existing].Read, feed.notices[existing].Details = entry.Read, entry.Content.Details
+			applyNotificationDetails(&feed.notices[existing], entry)
 			continue
 		}
 		notice := Notice{ID: id, Title: entry.Content.Title, Message: entry.Content.Message,
@@ -172,24 +173,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 				}
 			}
 		}
-		if entry.Content.Details != nil && entry.Content.Details.Kind == "task" {
-			if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
-				notice.Kind = "failed"
-				switch task.Status {
-				case protocol.ConversationStatusCompleted:
-					notice.Kind = "completed"
-				case protocol.ConversationStatusRunning:
-					// The Node's durable notice of a scheduled run that waits.
-					notice.Kind = "input"
-					if entry.Content.Kind == protocol.NotificationKindWarning {
-						notice.Kind = "approval"
-					}
-				}
-				if task.Error != nil {
-					notice.Error = &protocol.Fault{Code: *task.Error}
-				}
-			}
-		}
+		applyNotificationDetails(&notice, entry)
 		if notice.Project == nil && notice.Worktree != nil {
 			for _, worktree := range snapshot.Worktrees {
 				if worktree.ID == *notice.Worktree {
@@ -227,7 +211,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		}
 		// The Node already told this wait durably; one notice per wait.
 		if slices.ContainsFunc(feed.notices, func(notice Notice) bool {
-			if notice.ID.Target.Kind != "notification" || notice.Kind != kind || notice.Session == nil || *notice.Session != session.ID {
+			if notice.ID.Target.Kind != "notification" || notice.Kind != kind || notice.Session == nil || *notice.Session != session.ID || notice.Details == nil {
 				return false
 			}
 			task, err := payload[protocol.NotificationDetailsTask](notice.Details.Data)
@@ -253,6 +237,30 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		return attention > protocol.NotificationLimit
 	})
 	feed.primed = true
+}
+
+func applyNotificationDetails(notice *Notice, entry protocol.NotificationNotice) {
+	notice.Kind = "notification"
+	notice.Error = nil
+	if entry.Content.Details == nil || entry.Content.Details.Kind != "task" {
+		return
+	}
+	if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
+		notice.Kind = "failed"
+		switch task.Status {
+		case protocol.ConversationStatusCompleted:
+			notice.Kind = "completed"
+		case protocol.ConversationStatusRunning:
+			// The Node's durable notice of a scheduled run that waits.
+			notice.Kind = "input"
+			if entry.Content.Kind == protocol.NotificationKindWarning {
+				notice.Kind = "approval"
+			}
+		}
+		if task.Error != nil {
+			notice.Error = &protocol.Fault{Code: *task.Error}
+		}
+	}
 }
 
 func sameAttention(a, b protocol.ActivitySummary) bool {

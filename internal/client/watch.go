@@ -25,6 +25,10 @@ type observation struct {
 // ends or Close, so a caller that gives up on the error closes the Client.
 // Any other failure leaves it unstarted.
 func (client *Client) Start(ctx context.Context) error {
+	return client.start(ctx, ctx)
+}
+
+func (client *Client) start(dialCtx, lifetimeCtx context.Context) error {
 	client.lifecycle.Lock()
 	if client.closed {
 		client.lifecycle.Unlock()
@@ -34,8 +38,8 @@ func (client *Client) Start(ctx context.Context) error {
 		client.lifecycle.Unlock()
 		return nil
 	}
-	client.context, client.stop = context.WithCancel(ctx)
-	scoped, release := client.interruptible(ctx)
+	client.context, client.stop = context.WithCancel(lifetimeCtx)
+	scoped, release := client.interruptible(dialCtx)
 	watch, err := client.openObservation(scoped)
 	release()
 	if err != nil {
@@ -43,7 +47,7 @@ func (client *Client) Start(ctx context.Context) error {
 		client.connected, client.err = false, err
 		client.mu.Unlock()
 	}
-	if err != nil && transient(err) && ctx.Err() == nil && client.closing.Err() == nil {
+	if err != nil && transient(err) && dialCtx.Err() == nil && lifetimeCtx.Err() == nil && client.closing.Err() == nil {
 		watch = client.retryObservation()
 	}
 	if watch == nil {

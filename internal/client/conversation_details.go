@@ -24,9 +24,11 @@ type conversationDetail struct {
 }
 
 type conversationDetailRead struct {
-	done  chan struct{}
-	value protocol.ToolDetail
-	err   error
+	done    chan struct{}
+	waiters int
+	cancel  context.CancelFunc
+	value   protocol.ToolDetail
+	err     error
 }
 
 func detailKey(ref protocol.ToolDetailReference) string { b, _ := json.Marshal(ref); return string(b) }
@@ -53,33 +55,54 @@ func (c *Client) cachedConversationDetail(key string, ref protocol.ToolDetailRef
 
 // ReadConversationDetail validates bounded pages against the captured revision.
 func (c *Client) ReadConversationDetail(ctx context.Context, ref protocol.ToolDetailReference) (protocol.ToolDetail, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.ToolDetail{}, err
+	}
 	if v, ok := c.ConversationDetail(ref); ok {
 		return v, nil
 	}
 	key := detailKey(ref)
 	c.conversationMu.Lock()
-	if pending := c.conversationDetailReads[key]; pending != nil {
-		c.conversationMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return protocol.ToolDetail{}, ctx.Err()
-		case <-pending.done:
-			return copyValue(pending.value), pending.err
+	pending := c.conversationDetailReads[key]
+	if pending == nil {
+		if c.conversationDetailReads == nil {
+			c.conversationDetailReads = map[string]*conversationDetailRead{}
 		}
+		readCtx, cancel := context.WithCancel(c.closing)
+		pending = &conversationDetailRead{done: make(chan struct{}), cancel: cancel}
+		c.conversationDetailReads[key] = pending
+		c.conversationOwners.Add(1)
+		go func() {
+			defer c.conversationOwners.Done()
+			value, err := c.readConversationDetail(readCtx, ref)
+			c.conversationMu.Lock()
+			pending.value, pending.err = copyValue(value), err
+			if c.conversationDetailReads[key] == pending {
+				delete(c.conversationDetailReads, key)
+			}
+			close(pending.done)
+			c.conversationMu.Unlock()
+			cancel()
+		}()
 	}
-	if c.conversationDetailReads == nil {
-		c.conversationDetailReads = map[string]*conversationDetailRead{}
+	pending.waiters++
+	c.conversationMu.Unlock()
+	select {
+	case <-ctx.Done():
+		c.conversationMu.Lock()
+		pending.waiters--
+		cancel := pending.waiters == 0
+		if cancel && c.conversationDetailReads[key] == pending {
+			delete(c.conversationDetailReads, key)
+		}
+		c.conversationMu.Unlock()
+		if cancel {
+			pending.cancel()
+		}
+		return protocol.ToolDetail{}, ctx.Err()
+	case <-pending.done:
+		return copyValue(pending.value), pending.err
 	}
-	pending := &conversationDetailRead{done: make(chan struct{})}
-	c.conversationDetailReads[key] = pending
-	c.conversationMu.Unlock()
-	value, err := c.readConversationDetail(ctx, ref)
-	c.conversationMu.Lock()
-	pending.value, pending.err = copyValue(value), err
-	delete(c.conversationDetailReads, key)
-	close(pending.done)
-	c.conversationMu.Unlock()
-	return value, err
 }
 
 // ReadToolDetail reads original tool data against a captured reference without

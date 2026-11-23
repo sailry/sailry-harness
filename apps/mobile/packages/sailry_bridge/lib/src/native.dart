@@ -123,13 +123,17 @@ class NativeBridge {
     final request = _nextRequest();
     final completer = Completer<Object?>();
     _pending[request] = completer;
-    final operation = method.toNativeUtf8();
-    final data = utf8.encode(jsonEncode(arguments));
-    final input = calloc<Uint8>(data.length);
-    input.asTypedList(data.length).setAll(0, data);
-    final immediate = calloc<Pointer<Uint8>>();
-    final immediateLength = calloc<Uint64>();
+    Pointer<Utf8>? operation;
+    Pointer<Uint8>? input;
+    Pointer<Pointer<Uint8>>? immediate;
+    Pointer<Uint64>? immediateLength;
     try {
+      final data = utf8.encode(jsonEncode(arguments));
+      operation = method.toNativeUtf8();
+      input = calloc<Uint8>(data.length);
+      input.asTypedList(data.length).setAll(0, data);
+      immediate = calloc<Pointer<Uint8>>();
+      immediateLength = calloc<Uint64>();
       final accepted = subscribe
           ? bindings.sailry_subscribe(
               identifier,
@@ -165,23 +169,27 @@ class NativeBridge {
       _pending.remove(request);
       if (!completer.isCompleted) completer.completeError(error, stack);
     } finally {
-      calloc.free(operation);
-      calloc.free(input);
-      calloc.free(immediate);
-      calloc.free(immediateLength);
+      if (operation != null) calloc.free(operation);
+      if (input != null) calloc.free(input);
+      if (immediate != null) calloc.free(immediate);
+      if (immediateLength != null) calloc.free(immediateLength);
     }
     return completer.future;
   }
 
   Object? invokeSync(String method, Map<String, Object?> arguments) {
     if (_closing) throw StateError('native bridge is closed');
-    final operation = method.toNativeUtf8();
-    final data = JsonUtf8Encoder().convert(arguments);
-    final input = calloc<Uint8>(data.length);
-    input.asTypedList(data.length).setAll(0, data);
-    final immediate = calloc<Pointer<Uint8>>();
-    final immediateLength = calloc<Uint64>();
+    Pointer<Utf8>? operation;
+    Pointer<Uint8>? input;
+    Pointer<Pointer<Uint8>>? immediate;
+    Pointer<Uint64>? immediateLength;
     try {
+      final data = JsonUtf8Encoder().convert(arguments);
+      operation = method.toNativeUtf8();
+      input = calloc<Uint8>(data.length);
+      input.asTypedList(data.length).setAll(0, data);
+      immediate = calloc<Pointer<Uint8>>();
+      immediateLength = calloc<Uint64>();
       final accepted = bindings.sailry_invoke(
         identifier,
         0,
@@ -202,11 +210,13 @@ class NativeBridge {
       }
       return result.value;
     } finally {
-      if (immediate.value != nullptr) bindings.sailry_free(immediate.value);
-      calloc.free(operation);
-      calloc.free(input);
-      calloc.free(immediate);
-      calloc.free(immediateLength);
+      if (immediate != null && immediate.value != nullptr) {
+        bindings.sailry_free(immediate.value);
+      }
+      if (operation != null) calloc.free(operation);
+      if (input != null) calloc.free(input);
+      if (immediate != null) calloc.free(immediate);
+      if (immediateLength != null) calloc.free(immediateLength);
     }
   }
 

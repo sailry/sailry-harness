@@ -663,3 +663,65 @@ func TestRefreshRetriesAfterObservationEnded(t *testing.T) {
 		})
 	}
 }
+
+func TestActivityFeedUpdateClearsTaskDetailsSafely(t *testing.T) {
+	t.Parallel()
+	session := protocol.Session{ID: protocol.SessionID{1}}
+	notificationID := protocol.NewNotificationID()
+	entry := protocol.NotificationNotice{
+		ID: notificationID, Sequence: 1,
+		Content: protocol.NotificationDraft{
+			Title: "Approval", Kind: protocol.NotificationKindWarning, Session: &session.ID,
+			Details: &protocol.NotificationDetails{Kind: "task", Data: protocol.NotificationDetailsTask{Status: protocol.ConversationStatusRunning}},
+		},
+	}
+	var feed activityFeed
+	snap := projectionSnapshot(1)
+	snap.Sessions = []protocol.Session{session}
+	snap.Notifications = []protocol.NotificationNotice{entry}
+	feed.observe(snap)
+	if len(feed.notices) != 1 || feed.notices[0].Kind != "approval" {
+		t.Fatalf("initial task notice = %+v", feed.notices)
+	}
+	// Updating the same notification with nil Details must recompute Kind and not panic.
+	entry.Content.Details = nil
+	entry.Read = true
+	snap.Cursor = 2
+	snap.Notifications = []protocol.NotificationNotice{entry}
+	session.Activity = protocol.ActivitySummary{
+		Run:     &protocol.ConversationRun{Sequence: 1, Status: protocol.ConversationStatusRunning},
+		Waiting: new(protocol.ActivityWaitingApproval),
+	}
+	snap.Sessions = []protocol.Session{session}
+	feed.observe(snap)
+	var updated *Notice
+	for i := range feed.notices {
+		if feed.notices[i].ID.Target.Kind == "notification" && feed.notices[i].ID.Target.Notification == notificationID {
+			updated = &feed.notices[i]
+			break
+		}
+	}
+	if updated == nil || updated.Kind != "notification" {
+		t.Fatalf("updated notice retained stale kind: %+v", feed.notices)
+	}
+}
+
+func TestObserverCancelDoesNotStopStartedClient(t *testing.T) {
+	t.Parallel()
+	transport := &clientTransport{subscriptions: []*clientSubscription{testSubscription(projectionSnapshot(1))}}
+	controller := New(transport)
+	defer controller.Close()
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	obs1, err := controller.Watch(ctx1, "watch", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := obs1.Next(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	cancel1()
+	_ = obs1.Close()
+	if controller.context.Err() != nil {
+		t.Fatal("closing first observer stopped shared Client observation")
+	}
+}

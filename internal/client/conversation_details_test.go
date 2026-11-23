@@ -213,6 +213,72 @@ func TestReadConversationDetailNotifiesEvictedConversations(t *testing.T) {
 	}
 }
 
+func TestReadConversationDetailSurvivesFirstWaiterCancel(t *testing.T) {
+	t.Parallel()
+	ref := toolDetailReferenceFixture()
+	detail := protocol.DefaultToolDetail()
+	detail.Arguments = json.RawMessage(`{"command":"echo ok"}`)
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	transport := toolDetailTransportFixture(t, ref, func(protocol.CommandReadToolDetailPayload) protocol.ToolDetailPage {
+		close(started)
+		<-release
+		return protocol.ToolDetailPage{Reference: ref, TotalBytes: uint64(len(encoded)), Text: string(encoded)}
+	})
+	controller := New(transport)
+	defer controller.Close()
+	summary := protocol.DefaultToolDetailSummary()
+	summary.Revision, summary.HasDetails = ref.Revision, true
+	call := protocol.DefaultConversationPartToolCallPayload()
+	call.ID, call.Name, call.Summary = ref.Call, "run_command", &summary
+	snapshot := protocol.DefaultConversationSnapshot()
+	snapshot.Page.Session = ref.Session
+	snapshot.Page.Entries = []protocol.ConversationEntry{{ID: ref.Entry, Turn: ref.Turn, Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: call}}}}
+	projection := NewConversationProjection(controller.Target(), ref.Session, 1)
+	projection.snapshot = &snapshot
+	controller.conversations = map[protocol.SessionID]*conversationWatch{ref.Session: {projection: projection}}
+	defer func() { controller.conversations = nil }()
+
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	defer cancel1()
+	type outcome struct {
+		detail protocol.ToolDetail
+		err    error
+	}
+	first := make(chan outcome, 1)
+	second := make(chan outcome, 1)
+	go func() {
+		v, e := controller.ReadConversationDetail(ctx1, ref)
+		first <- outcome{v, e}
+	}()
+	<-started
+	go func() {
+		v, e := controller.ReadConversationDetail(t.Context(), ref)
+		second <- outcome{v, e}
+	}()
+	for {
+		controller.conversationMu.Lock()
+		pending := controller.conversationDetailReads[detailKey(ref)]
+		ready := pending != nil && pending.waiters == 2
+		controller.conversationMu.Unlock()
+		if ready {
+			break
+		}
+	}
+	cancel1()
+	if res := <-first; res.err == nil {
+		t.Fatal("first waiter did not cancel")
+	}
+	close(release)
+	if res := <-second; res.err != nil || !reflect.DeepEqual(res.detail, detail) {
+		t.Fatalf("second waiter poisoned by first cancel: %+v, %v", res.detail, res.err)
+	}
+}
+
 func toolDetailReferenceFixture() protocol.ToolDetailReference {
 	return protocol.ToolDetailReference{Session: protocol.SessionID{1}, Turn: protocol.TurnID{2}, Entry: "pending-tool", Call: new("pending-call"), Revision: strings.Repeat("a", 64)}
 }

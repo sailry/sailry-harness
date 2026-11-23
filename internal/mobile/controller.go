@@ -187,6 +187,9 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 			if err != nil {
 				detach()
 				cancel()
+				for _, shared := range clients {
+					_ = shared.Close()
+				}
 				return nil, err
 			}
 			clients = append(clients, client.New(owner.endpoint.Via(route.Entry, route.Target.ID)))
