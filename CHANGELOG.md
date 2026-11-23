@@ -3,6 +3,14 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.10](https://github.com/sailry/sailry-harness/releases/tag/v0.2.10) — 2026-11-24
+
+- Improve Anthropic-compatible gateway requests and discovery, use advertised thinking capabilities, and accept OpenAI endpoint URLs with or without a trailing operation.
+- Resume queued turns and apply user guidance during streaming. Recover context-limit errors while preserving prompt cache reuse and reasoning settings.
+- Run workspace, code index, connection, memory, browser, computer-use, and web-search tools in native modules, with corresponding Desktop settings.
+- Group repeated tool calls, wrap long tool output, and keep timed-out foreground commands running in the background.
+- Speed up Statistics and SSH browsing, refresh SSH listings in place, and recover stalled model connections sooner.
+
 ## [0.2.9](https://github.com/sailry/sailry-harness/releases/tag/v0.2.9) — 2026-11-23
 
 - Open workspace text in the built-in editor with one click, including files without a recognized extension. Keep unsupported files selected in the file list and refresh file lists in place.
