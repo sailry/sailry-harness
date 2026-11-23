@@ -127,6 +127,16 @@ func Endpoint(value string) (*url.URL, error) {
 	return endpoint, nil
 }
 
+// AnthropicBaseURL returns the mount before the versioned Messages and Models routes.
+func AnthropicBaseURL(endpoint url.URL) url.URL {
+	path := strings.TrimRight(endpoint.EscapedPath(), "/")
+	path = strings.TrimSuffix(strings.TrimSuffix(path, "/messages"), "/v1")
+	endpoint.Path, _ = url.PathUnescape(path)
+	endpoint.RawPath = path
+	endpoint.ForceQuery = false
+	return endpoint
+}
+
 // OpenAIBaseURL resolves the shared base for API-key inference and discovery.
 // A bare origin uses /v1. A full operation URL can explicitly select another
 // mount, including an API served at the root.

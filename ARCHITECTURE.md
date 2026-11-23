@@ -502,6 +502,9 @@ from the active turn.
 
 Anthropic API-key model discovery and conversations share the Claude Code
 print-mode User-Agent, `Accept: application/json` and `anthropic-version: 2023-06-01`.
+Anthropic discovery and Messages requests derive `/v1/models` and `/v1/messages`
+from the same gateway mount. A configured beta feature selects the SDK's beta
+Messages route and sends its `anthropic-beta` value.
 Other API-key routes identify as `Sailry/<product version>`. When a request has a
 session, API-key conversations carry its ID in `x-session-affinity` and
 `X-Session-Id`. Responses and Chat Completions also send it as `prompt_cache_key`.

@@ -13,6 +13,7 @@ import (
 	fantasyanthropic "charm.land/fantasy/providers/anthropic"
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 )
 
 type anthropicBlock struct {
@@ -21,7 +22,13 @@ type anthropicBlock struct {
 }
 
 func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
-	endpoint := strings.TrimSuffix(strings.TrimSuffix(model.config.Endpoint, "/messages"), "/v1")
+	parsed, err := url.Parse(model.config.Endpoint)
+	if err != nil {
+		emitter.fail(err)
+		return
+	}
+	base := providers.AnthropicBaseURL(*parsed)
+	endpoint := base.String() + "/"
 	// WithoutEnvironmentDefaults keeps the SDK from adding ANTHROPIC_* variables
 	// or a local profile of the machine to a request for the configured provider.
 	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
@@ -39,6 +46,9 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	}
 	if beta := anthropicBetaHeader(endpoint, model.config.OAuth, raw, model.config.Headers, call.Headers); beta != "" {
 		opts = append(opts, option.WithHeader("anthropic-beta", beta))
+		if !model.config.OAuth {
+			opts = append(opts, option.WithQuery("beta", "true"))
+		}
 	}
 	if call.UserAgent != "" {
 		opts = append(opts, option.WithHeader("User-Agent", call.UserAgent))
