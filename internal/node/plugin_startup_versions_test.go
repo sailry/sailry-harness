@@ -55,7 +55,7 @@ func TestRetiredProgressKeepsCapturedPackage(t *testing.T) {
 func TestPinnedBundledVersionSurvivesInitialization(t *testing.T) {
 	node := nodeFixture(t)
 	ctx := t.Context()
-	const name = "memory"
+	const name = "reminders"
 	const removedName = "brief"
 	source := t.TempDir()
 	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"` + name + `","version":"0.0.0"}`

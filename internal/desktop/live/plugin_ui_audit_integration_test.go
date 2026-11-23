@@ -25,11 +25,12 @@ import (
 )
 
 // pluginAuditPackages are the bundled packages that contribute a rail page or
-// a Settings page. Files and Git stay native core pages.
+// a Settings page. Core and native modules own Files, Git, Browser, Search,
+// Memory, and Computer settings natively.
 var pluginAuditPackages = []string{
-	"activity-board", "browser", "city-trader", "databases", "doudizhu", "external-browser", "gomoku",
-	"liars-dice", "memory", "poker", "reminders", "reversi", "scheduled-tasks", "ssh",
-	"statistics", "task-plaza", "web-search", "xiangqi",
+	"activity-board", "city-trader", "databases", "doudizhu", "gomoku",
+	"liars-dice", "poker", "reminders", "reversi", "scheduled-tasks", "ssh",
+	"statistics", "task-plaza", "xiangqi",
 }
 
 // auditPluginPages renders every bundled plugin page from its real manifest
@@ -174,20 +175,16 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 			tester.Frame()
 		}
 	}
-	// The Search settings page is exercised last, in Chinese and dark: its
+	// The native Search settings page is exercised last, in Chinese and dark: its
 	// drags and saves come after every page was drawn at rest.
 	tester.SetLocale("zh-CN")
 	tester.SetDark(true)
 	runtime.App.Mode = theme.Dark
 	settle("package locale zh-CN", func() bool { return runtime.packageLocale() == "zh-CN" })
-	for section, entry := range runtime.pluginViews.settings {
-		if entry.info.Summary.Name == "web-search" {
-			runtime.App.Settings.Open(section)
-			runtime.App.Navigate(shell.SettingsPage)
-			rest()
-			auditSearchSettings(t, ctx, runtime, tester, do, settle, rest, func(step string) { save("web-search-" + step + "-zh-CN-dark") })
-		}
-	}
+	runtime.App.Settings.Open(settings.Search)
+	runtime.App.Navigate(shell.SettingsPage)
+	rest()
+	auditSearchSettings(t, ctx, runtime, tester, do, settle, rest, func(step string) { save("web-search-" + step + "-zh-CN-dark") })
 	for _, mounted := range runtime.pluginViews.mounts {
 		if mounted.failure != nil {
 			t.Errorf("package %s failed: %v", mounted.scope.Package.Name, mounted.failure)
@@ -287,12 +284,11 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 		t.Fatalf("search settings: unexpected default order %v", services)
 	}
 	// The application's rows: a title alone is the minimum row height, and
-	// a described row is its padding, title, gap and description. The
-	// core row over the page (enable the package) starts at the same edge.
-	enable, service, fallback := find("启用插件"), find("默认服务"), find("使用备用服务")
+	// a described row is its padding, title, gap and description.
+	service, fallback := find("默认服务"), find("使用备用服务")
 	// The Kit select of the first row is a fraction over its 32 control.
-	if pitch := fallback.Y - service.Y; pitch < kit.RowMinHeight || pitch >= kit.RowMinHeight+1 || enable.X != service.X || enable.H != service.H {
-		t.Errorf("search settings: rows %v and %v are not %v apart, or off the core row %v", service, fallback, float32(kit.RowMinHeight), enable)
+	if pitch := fallback.Y - service.Y; pitch < kit.RowMinHeight || pitch >= kit.RowMinHeight+1 {
+		t.Errorf("search settings: rows %v and %v are not %v apart", service, fallback, float32(kit.RowMinHeight))
 	}
 	// Each described row is as high as its own two lines: a detail mixing
 	// scripts is a fraction higher than one in a single script.
@@ -371,11 +367,6 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 	runtime.App.Settings.Open(settings.General)
 	rest()
 	save("core-general")
-	for _, mounted := range runtime.pluginViews.mounts {
-		if mounted.scope.Package.Name == "web-search" && mounted.failure != nil {
-			t.Fatalf("search settings: %v", mounted.failure)
-		}
-	}
 }
 
 // kitPageColumn is the content width of kit.Page: its 800 column less its

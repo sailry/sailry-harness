@@ -174,7 +174,7 @@ func TestBrowserToolBinding(t *testing.T) {
 		}
 	})
 
-	t.Run("a browser tool follows its package as it is now", func(t *testing.T) {
+	t.Run("a browser tool follows controller availability during a turn", func(t *testing.T) {
 		// This controller has a browser from here on.
 		calls, err := node.Subscribe(t.Context(), node.ID(), protocol.Topic{Kind: "browser"})
 		if err != nil {
@@ -194,26 +194,12 @@ func TestBrowserToolBinding(t *testing.T) {
 				_ = node.browsers.complete(node.ID(), call.ID, protocol.BrowserResult{Ok: &listed})
 			}
 		}()
-		// The user disables the package after the turn's first browser call.
+		// The controller disconnects its browser subscription after the first browser call.
 		present.before = func(step int) {
 			if step != 3 {
 				return
 			}
-			accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "browser"}}))
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			info := (<-accepted.Completion).Output.Data.(protocol.PluginInfo)
-			accepted, err = node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "set_plugin_enabled",
-				Data: protocol.CommandSetPluginEnabledPayload{Name: "browser", ExpectedRevision: info.Summary.Revision, Enabled: false}}))
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			if outcome := <-accepted.Completion; outcome.Fault != nil {
-				t.Error(outcome.Fault)
-			}
+			calls.Close()
 		}
 		run(t, "present")
 		present.mu.Lock()
@@ -223,10 +209,10 @@ func TestBrowserToolBinding(t *testing.T) {
 			t.Fatalf("%s was not offered to a controller with a browser: %q", tabs, results["discover"])
 		}
 		if !strings.Contains(results["first"], `"tabs"`) || strings.Contains(results["first"], "error") {
-			t.Fatalf("browser call of an enabled package = %q", results["first"])
+			t.Fatalf("browser call while connected = %q", results["first"])
 		}
-		if !strings.Contains(results["second"], "plugin is disabled") || served.Load() != 1 {
-			t.Fatalf("browser call of a disabled package = %q after %d calls reached the browser", results["second"], served.Load())
+		if !strings.Contains(results["second"], "browser controller is disconnected") || served.Load() != 1 {
+			t.Fatalf("browser call after disconnect = %q after %d calls reached the browser", results["second"], served.Load())
 		}
 	})
 

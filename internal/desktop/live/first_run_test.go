@@ -1272,9 +1272,6 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(str
 	if tester.HasText(zh("connector_mcp_failed")) || count("check_plugin_mcp") != 0 {
 		t.Errorf("a new profile shows a failed connector or checked one: %q", tester.Texts())
 	}
-	if st := service("computer"); st.Problem != "connector_package_disabled" {
-		t.Errorf("computer %+v", *st)
-	}
 	if st := service("context7"); st.Problem != "connector_not_connected" || st.Failed {
 		t.Errorf("context7 %+v", *st)
 	}
@@ -1291,11 +1288,6 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(str
 
 	// Each item does its action; none of them here reaches the network.
 	before := len(sent())
-	choose("computer", []string{"connector_details"}, "connector_details")
-	if !tester.HasText(zh("connector_mcp_server")) || !tester.HasText("desktop") {
-		t.Errorf("computer's details: %q", tester.Texts())
-	}
-	press(zh("close"))
 	choose("context7", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_add_credentials")
 	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("Context7") {
 		t.Fatalf("Add credentials did not open context7's editor: %q", tester.Texts())
@@ -1322,22 +1314,6 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(str
 	}
 	shots("connectors-package-configure")
 	press(zh("settings_cancel"))
-
-	// The enabled computer package without its helper is unavailable and
-	// says why; it has nothing to reconnect.
-	computer, _ := r.connectorPackage("mcp:computer")
-	r.connectorCommand(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "computer", ExpectedRevision: computer.Summary.Revision, Enabled: true}}, nil)
-	settle()
-	settle()
-	if st := service("computer"); st.Problem != "connector_unavailable" || !strings.Contains(st.Reason, "helper") {
-		t.Errorf("computer without its helper %+v", *st)
-	}
-	choose("computer", []string{"connector_details"}, "connector_details")
-	if !tester.HasText(service("computer").Reason) {
-		t.Errorf("computer's details do not give the reason: %q", tester.Texts())
-	}
-	shots("connectors-helper-missing-details")
-	press(zh("close"))
 
 	// This stateful server retains a session whose termination must be
 	// acknowledged; the newer stateless protocol has no session to close.

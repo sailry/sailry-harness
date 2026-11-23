@@ -114,6 +114,7 @@ func pluginViewFixture(t testing.TB, source *pluginViewTestNode) *Runtime {
 	}
 	root := &Runtime{
 		ctx: ctx, cancel: cancel, controller: controller, packages: newPackageState(),
+		busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
 		App: shell.NewLive(data), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
 	}
 	for _, draft := range data.Unassigned {

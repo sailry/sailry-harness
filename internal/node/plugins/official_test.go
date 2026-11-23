@@ -221,7 +221,7 @@ func TestBundledOfficialSelection(t *testing.T) {
 	defer server.Close()
 	manager := NewManager(t.TempDir())
 	manager.OfficialURL = server.URL
-	selection, err := manager.InspectOfficial(t.Context(), "memory", nil, false)
+	selection, err := manager.InspectOfficial(t.Context(), "reminders", nil, false)
 	if err != nil || selection.Info.Origin == nil || selection.Info.Origin.Kind != "bundled" || selection.Source != (protocol.PluginSkillsResolved{}) || selection.Path != "" {
 		t.Fatalf("bundled fallback selection: %+v %v", selection, err)
 	}
@@ -260,7 +260,7 @@ func TestBundledOfficialSelectionRevalidatesCatalog(t *testing.T) {
 			defer server.Close()
 			manager := NewManager(t.TempDir())
 			manager.OfficialURL = server.URL
-			selection, err := manager.InspectOfficial(t.Context(), "memory", nil, false)
+			selection, err := manager.InspectOfficial(t.Context(), "reminders", nil, false)
 			if err != nil || selection.Info.Origin == nil || selection.Info.Origin.Kind != "bundled" {
 				t.Fatalf("offline inspection: %+v %v", selection, err)
 			}
@@ -269,8 +269,8 @@ func TestBundledOfficialSelectionRevalidatesCatalog(t *testing.T) {
 			encoded, err := json.Marshal(map[string]any{
 				"version": 1, "source_commit": commit,
 				"packages": []any{map[string]any{
-					"id":       "memory",
-					"manifest": map[string]any{"$schema": ManifestSchema, "name": "memory", "version": version},
+					"id":       "reminders",
+					"manifest": map[string]any{"$schema": ManifestSchema, "name": "reminders", "version": version},
 					"versions": []any{map[string]any{"version": version, "commit": commit, "withdrawn": current.withdrawn}},
 				}},
 			})
@@ -293,7 +293,7 @@ func TestOnlineCatalogKeepsFullHistoryWithNewerBundle(t *testing.T) {
 	t.Parallel()
 	commit := strings.Repeat("a", 40)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`{"version":1,"source_commit":"` + commit + `","packages":[{"id":"memory","manifest":{"$schema":"` + ManifestSchema + `","name":"memory","version":"0.0.1"},"versions":[{"version":"0.0.1","commit":"` + commit + `"},{"version":"0.0.0","commit":"` + strings.Repeat("b", 40) + `"}]}]}`))
+		_, _ = writer.Write([]byte(`{"version":1,"source_commit":"` + commit + `","packages":[{"id":"reminders","manifest":{"$schema":"` + ManifestSchema + `","name":"reminders","version":"0.0.1"},"versions":[{"version":"0.0.1","commit":"` + commit + `"},{"version":"0.0.0","commit":"` + strings.Repeat("b", 40) + `"}]}]}`))
 	}))
 	defer server.Close()
 	manager := NewManager(t.TempDir())
@@ -302,7 +302,7 @@ func TestOnlineCatalogKeepsFullHistoryWithNewerBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == "memory" })
+	index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == "reminders" })
 	if index < 0 || entries[index].Bundled || len(entries[index].Versions) != 2 || *entries[index].Version != "0.0.1" {
 		t.Fatalf("bundled fallback replaced online history: %+v", entries)
 	}

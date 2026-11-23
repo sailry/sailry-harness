@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -161,19 +162,45 @@ func TestExternalBrowserRouting(t *testing.T) {
 			t.Fatalf("refused calls left browser sessions %v", sessions)
 		}
 
-		// A package may use the browser only while it is enabled and only
-		// inside the scope it was given.
+		// Native external browser is disabled by default; enabling it via
+		// save_external_browser_settings makes the native module tools active.
+		extCfg := commandFixture(t, node, protocol.Command{Kind: "read_external_browser_settings"}).Data.(protocol.ExternalBrowserSettings)
+		if extCfg.Enabled {
+			t.Fatal("native external browser is enabled by default")
+		}
+		savedExt := commandFixture(t, node, protocol.Command{Kind: "save_external_browser_settings", Data: protocol.ExternalBrowserSettings{
+			Revision: extCfg.Revision, Enabled: true,
+		}}).Data.(protocol.ExternalBrowserSettings)
+		if !savedExt.Enabled {
+			t.Fatalf("save_external_browser_settings did not enable: %+v", savedExt)
+		}
+
+		// A third-party package may still use the browser only while enabled
+		// and only inside its captured scope and declared permissions.
+		fixtureDir := t.TempDir()
+		manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"ext-browser-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["external_browser.read","external_browser.control"]}}}`
+		if err := os.WriteFile(filepath.Join(fixtureDir, "plugin.json"), []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := node.plugins.manager.Install(t.Context(), fixtureDir, "", "ext-browser-fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+			var err error
+			installed, err = store.InstallPlugin(t.Context(), db, installed, 0, false)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		read := func() protocol.PluginInfo {
-			return commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "external-browser"}}).Data.(protocol.PluginInfo)
+			return commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "ext-browser-fixture"}}).Data.(protocol.PluginInfo)
 		}
 		info := read()
-		if info.Summary.Enabled {
-			t.Fatal("the managed browser package is enabled by default")
-		}
 		scope := &protocol.PluginContext{Package: plugins.PackageReference(info), Worktree: &session.Worktree, Session: &session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 		_, fault = use(session.ID, session.Worktree, protocol.ExternalBrowserActionCloseSession, `{}`, scope)
 		refused(fault, protocol.ErrorCodeNotConfigured, "plugin is disabled")
-		commandFixture(t, node, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "external-browser", ExpectedRevision: info.Summary.Revision, Enabled: true}})
+		commandFixture(t, node, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "ext-browser-fixture", ExpectedRevision: info.Summary.Revision, Enabled: true}})
 		info = read()
 		scope.Package = plugins.PackageReference(info)
 		output, fault = use(session.ID, session.Worktree, protocol.ExternalBrowserActionCloseSession, `{}`, scope)
@@ -293,7 +320,7 @@ func TestExternalBrowserRouting(t *testing.T) {
 		}
 	})
 
-	t.Run("a package disabled during its turn stops driving the browser", func(t *testing.T) {
+	t.Run("disabling external browser during a turn stops driving the browser", func(t *testing.T) {
 		late.steps = [][][3]string{
 			{{"discover", "tool_search", `{"query":"select:` + tool("browser_close_session") + `"}`}},
 			{{"enabled", tool("browser_close_session"), `{}`}},
@@ -303,14 +330,14 @@ func TestExternalBrowserRouting(t *testing.T) {
 			if step != 3 {
 				return
 			}
-			accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "external-browser"}}))
+			accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_external_browser_settings"}))
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			info := (<-accepted.Completion).Output.Data.(protocol.PluginInfo)
-			accepted, err = node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "set_plugin_enabled",
-				Data: protocol.CommandSetPluginEnabledPayload{Name: "external-browser", ExpectedRevision: info.Summary.Revision, Enabled: false}}))
+			cfg := (<-accepted.Completion).Output.Data.(protocol.ExternalBrowserSettings)
+			accepted, err = node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_external_browser_settings",
+				Data: protocol.ExternalBrowserSettings{Revision: cfg.Revision, Enabled: false}}))
 			if err != nil {
 				t.Error(err)
 				return
@@ -324,10 +351,10 @@ func TestExternalBrowserRouting(t *testing.T) {
 		results := late.results
 		late.mu.Unlock()
 		if !strings.Contains(results["enabled"], `"closed":true`) {
-			t.Fatalf("call of the enabled package = %q", results["enabled"])
+			t.Fatalf("call while enabled = %q", results["enabled"])
 		}
-		if !strings.Contains(results["disabled"], "plugin is disabled") || strings.Contains(results["disabled"], `"closed"`) {
-			t.Fatalf("call of the disabled package = %q", results["disabled"])
+		if !strings.Contains(results["disabled"], "external browser is disabled") || strings.Contains(results["disabled"], `"closed"`) {
+			t.Fatalf("call after disabling = %q", results["disabled"])
 		}
 	})
 }

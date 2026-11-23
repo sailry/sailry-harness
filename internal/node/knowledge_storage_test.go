@@ -165,19 +165,17 @@ func TestKnowledgeStorage(t *testing.T) {
 	}
 	const notes, reader, blind = "knowledge-notes-fixture", "knowledge-reader-fixture", "knowledge-blind-fixture"
 	references := map[string]protocol.PluginReference{}
-	// Memory is the bundled package the Node installed with its own manifest.
+	// Memory is served by the native module without an installed plugin package.
 	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
 		info, err := store.ReadPlugin(t.Context(), db, "memory")
-		if err == nil && (info == nil || !info.Summary.Enabled || info.Origin == nil || info.Origin.Kind != "bundled") {
-			err = errors.New("bundled memory package is not enabled")
-		}
-		if err == nil {
-			references["memory"] = plugins.PackageReference(*info)
+		if err == nil && info != nil {
+			err = errors.New("retired memory plugin remained installed")
 		}
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
+	references["memory"] = store.NativeMemoryReference()
 	for name, source := range map[string]string{
 		notes:  fixture(notes, "storage.read", "storage.write", "conversation.read", "conversation.control", "knowledge.read", "knowledge.write"),
 		reader: fixture(reader, "storage.read", "knowledge.read", "knowledge.write"),

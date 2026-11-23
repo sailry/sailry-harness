@@ -48,7 +48,7 @@ func TestRestoreBundledRejectsLinkedPackageStore(t *testing.T) {
 	}
 	profile, target := t.TempDir(), t.TempDir()
 	manager := NewManager(profile)
-	info, err := manager.InspectBundled(t.Context(), "memory")
+	info, err := manager.InspectBundled(t.Context(), "reminders")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -195,24 +195,14 @@ func TestSystemPermissionsUI(t *testing.T) {
 	desk := newSystemDesk(t, ctx, profile, node.Options{})
 	provider, model := desk.provider("http://127.0.0.1:9/v1")
 	session := desk.session(desk.project("Permission workspace"), provider, model, "Permission notes")
-	computer := func() (protocol.PluginInfo, bool) {
-		if !slices.ContainsFunc(desk.setup.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == "computer" }) {
-			return protocol.PluginInfo{}, false
-		}
-		return detail[protocol.PluginInfo](desk.do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "computer"}}).Data)
-	}
 	enable := func(enabled bool) {
 		t.Helper()
-		info, installed := computer()
-		if !installed {
-			if !enabled {
-				return
-			}
-			desk.do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "computer"}})
-			info, _ = computer()
+		cfg, ok := detail[protocol.ComputerSettings](desk.do(protocol.Command{Kind: "read_computer_settings"}).Data)
+		if !ok {
+			t.Fatal("read_computer_settings did not return computer settings")
 		}
-		if info.Summary.Enabled != enabled {
-			desk.do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "computer", ExpectedRevision: info.Summary.Revision, Enabled: enabled}})
+		if cfg.Enabled != enabled {
+			desk.do(protocol.Command{Kind: "save_computer_settings", Data: protocol.ComputerSettings{Revision: cfg.Revision, Enabled: enabled}})
 		}
 	}
 	enable(false)

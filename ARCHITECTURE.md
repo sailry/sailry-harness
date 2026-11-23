@@ -73,8 +73,8 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `cmd/sailry-desktop`, `internal/assembly/desktop` | Official product identity and native page selection |
 | `internal/assembly/host` | Explicit official Node module assembly selected by Desktop and Host entry points |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
-| `modules/*/desktop` | Native workspace and settings pages selected at build time |
-| `modules/*/node` | Compile-time native Node tool modules (`files`, `ocr`, `git`, `worktrees`, `code-index`, `web-search`, `databases`, `ssh`, `memory`, `browser`) and the optional code index engine |
+| `modules/*/desktop` | Compile-time native workspace and settings pages (`files`, `git`, `market`, `providers`, `connectors`, `teams`, `skills`, `knowledge`, `memory`, `media`, `decision`, `web-search`, `terminal`, `browser`, `computer`, `connections`, `hooks`, `runtime`, `ocr`) |
+| `modules/*/node` | Compile-time native Node modules (`files`, `ocr`, `git`, `worktrees`, `code-index`, `web-search`, `databases`, `ssh`, `memory`, `browser`, `external-browser`, `computer`) and the optional code index engine |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
 | `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
 | [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
@@ -812,7 +812,7 @@ approval for command input and stopping follows the live process identity.
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
-Core agent tool domains (files, OCR models, Git, worktrees, code-index, web search/fetch, databases, SSH, memory, and built-in/external browser) live in compile-time native Go modules under `modules/*/node` against the leaf `internal/node/moduleapi` contract. Official Desktop and Host entry points select them explicitly through `internal/assembly/host` (`Harness()`); forks may omit or replace individual modules without modifying `internal/node`. Native module tools execute directly in Go with zero JavaScript VM dispatch while preserving legacy package tool aliases (`plugin_<hash>_<name>`) for historical transcripts, roles, assistants and presentation lookup. The pure-tool `code` package is retired (`RetiredBundled()`), while companion packages (`files`, `git`, `worktrees`, `web-search`, `databases`, `ssh`, `memory`, `browser`, `external-browser`, `commands`) retain their Desktop panels, status badges, storage schemas, skills and settings pages without duplicating Node tool handlers. The `office` package continues to provide its bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time native features assembled by official entry points under `modules/*/{node,desktop}` via `internal/assembly/{host,desktop}`), and **Plugins** (installable and removable packages in `plugins/`). Native Node modules (`files`, `ocr`, `git`, `worktrees`, `code-index`, `web-search`, `databases`, `ssh`, `memory`, `browser`, `external-browser`, `computer`) bind against the leaf `internal/node/moduleapi` contract, execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) are retired from `plugins/` (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and `office` provides bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
 
 On-demand code relations validate candidate files under the current worktree
 access and ignore rules. A bounded memory cache reuses lexical tests and index
@@ -824,7 +824,9 @@ Hook commands receive one UTF-8 JSON object on standard input followed by EOF.
 The fields are `schema_version` (currently 1), `hook_event_name`, `node_id`,
 `session_id`, `turn_id`, `worktree_id`, `cwd` and, for a project worktree,
 `project_id`. Tool events (`before_tool` and `after_tool`) carry `tool_name` and
-the same `tool_use_id` for the two sides of one call. `after_tool` reports
+the same `tool_use_id` for the two sides of one call, and each hook rule may
+optionally restrict `tools` to matching canonical tool names (with legacy plugin
+aliases resolved before matching). `after_tool` reports
 `status` as `succeeded` or `failed`. `turn_end` reports `completed` or `failed`
 for task turns that finish without a stop. Tool arguments, tool output, prompts
 and credentials are outside this contract. The `SAILRY_HOOK_*` environment

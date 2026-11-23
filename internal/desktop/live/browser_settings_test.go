@@ -17,8 +17,13 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/chrome"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -233,39 +238,40 @@ INSERT INTO cookies VALUES('.example.test','other','',x'763131aa','/',1,1,1,0,0,
 		}
 	})
 
-	t.Run("renders the package page in Chinese", func(t *testing.T) {
+	t.Run("renders the native browser settings page in Chinese", func(t *testing.T) {
 		value := true
 		root.Preferences.Data.BrowserPersistent = &value
-		files := map[string]string{}
-		for _, name := range []string{"settings.js", "locales.js"} {
-			body, err := os.ReadFile(filepath.Join("..", "..", "..", "plugins", "browser", "dev.sailry.platform", "desktop", name))
-			if err != nil {
-				t.Fatal(err)
+		assembly := desktop.Harness()
+		root.App.Settings.SetNativePages(assembly.SettingsPages)
+		root.App.Navigate(shell.SettingsPage)
+		root.App.Settings.Open(settings.Browser)
+		catalog := i18n.New(assembly.Locales...)
+		nativeTester := ui.NewTesterWith(func(c *ui.Context) {
+			i18n.Bind(c, catalog)
+			theme.Apply(c, "", theme.Dark)
+			root.browserSettingsFrame()
+			root.mu.Lock()
+			queued := root.queue
+			root.queue = nil
+			root.mu.Unlock()
+			for _, apply := range queued {
+				apply(c)
 			}
-			files["dev.sailry.platform/desktop/"+name] = string(body)
+			settings.Page(c, root.App.Settings, nil, settings.Look{})
+		}, 900, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		nativeTester.SetLocale("zh-CN")
+		nativeTester.Frame()
+		nativeTester.Frame()
+		if !nativeTester.HasText("从 Chrome 导入") {
+			t.Fatalf("the native browser settings page did not show its import control; visible text: %q", nativeTester.Texts())
 		}
-		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_view", Data: protocol.PluginDesktopBundle{
-			Package: scope.Package, Entry: entry, Files: files,
-		}}}
-		root.pluginViews.locale = "zh-CN"
-		page = &pluginSettingsEntry{section: "plugin/browser", owner: root, info: info, scope: scope}
-		root.pluginViews.settings[page.section] = *page
-		deadline := time.Now().Add(20 * time.Second)
-		for !tester.HasText("从 Chrome 导入") {
-			if time.Now().After(deadline) {
-				t.Fatalf("the page did not show its import control; visible text: %q", tester.Texts())
-			}
-			time.Sleep(5 * time.Millisecond)
-			tester.Advance(16 * time.Millisecond)
-			tester.Frame()
-		}
-		retain, exists := tester.AccessByRole(ui.RoleSwitch, "")
+		retain, exists := nativeTester.AccessByRole(ui.RoleSwitch, "")
 		if !exists || retain.Disabled {
-			t.Fatalf("the persistence switch is missing or disabled; visible text: %q", tester.Texts())
+			t.Fatalf("the persistence switch is missing or disabled; visible text: %q", nativeTester.Texts())
 		}
-		for _, text := range tester.Texts() {
+		for _, text := range nativeTester.Texts() {
 			if strings.Contains(text, "暂不支持") {
-				t.Fatalf("the page reports an unsupported system: %q", tester.Texts())
+				t.Fatalf("the page reports an unsupported system: %q", nativeTester.Texts())
 			}
 		}
 		shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
@@ -277,7 +283,7 @@ INSERT INTO cookies VALUES('.example.test','other','',x'763131aa','/',1,1,1,0,0,
 			t.Fatal(err)
 		}
 		defer file.Close()
-		if err := png.Encode(file, tester.Image()); err != nil {
+		if err := png.Encode(file, nativeTester.Image()); err != nil {
 			t.Fatal(err)
 		}
 	})

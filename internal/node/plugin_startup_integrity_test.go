@@ -164,7 +164,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	ctx := t.Context()
 	owner := nodeFixture(t)
 	profile := owner.profile.Ownership.Path
-	const missing, changed, removed, olderName = "goals", "memory", "brief", "files"
+	const missing, changed, removed, olderName = "goals", "reminders", "brief", "files"
 	olderSource := t.TempDir()
 	if err := os.WriteFile(filepath.Join(olderSource, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"`+olderName+`","version":"0.0.0"}`), 0o600); err != nil {
 		t.Fatal(err)

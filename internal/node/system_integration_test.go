@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/computer"
-	"github.com/sailry/sailry-harness/internal/node/mcp"
-	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -95,11 +95,7 @@ func (script *computerScript) Stream(_ context.Context, call fantasy.Call) (fant
 		return nil, errors.New("unexpected extra model request")
 	}
 	if step == 2 {
-		var names []string
-		for _, tool := range call.Tools {
-			names = append(names, tool.GetName())
-		}
-		script.offered.Store(names)
+		script.offered.Store(callableTools(call))
 	}
 	return func(yield func(fantasy.StreamPart) bool) {
 		part := fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall}
@@ -120,28 +116,19 @@ func (script *computerScript) Stream(_ context.Context, call fantasy.Call) (fant
 	}, nil
 }
 
-// computerPackage installs and enables the bundled computer package.
-func computerPackage(t *testing.T, node *Node) protocol.PluginInfo {
+// enableNativeComputer turns on the native computer module on the Node.
+func enableNativeComputer(t *testing.T, node *Node) protocol.ComputerSettings {
 	t.Helper()
-	read := func() (protocol.PluginInfo, bool) {
-		if !slices.ContainsFunc(snapshotFixture(t, node).Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == "computer" }) {
-			return protocol.PluginInfo{}, false
-		}
-		return commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "computer"}}).Data.(protocol.PluginInfo), true
+	current := commandFixture(t, node, protocol.Command{Kind: "read_computer_settings"}).Data.(protocol.ComputerSettings)
+	if !current.Enabled {
+		current = commandFixture(t, node, protocol.Command{Kind: "save_computer_settings", Data: protocol.ComputerSettings{
+			Revision: current.Revision, Enabled: true,
+		}}).Data.(protocol.ComputerSettings)
 	}
-	info, installed := read()
-	if !installed {
-		commandFixture(t, node, protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "computer"}})
-		info, _ = read()
+	if !current.Enabled {
+		t.Fatalf("native computer module did not enable: %+v", current)
 	}
-	if !info.Summary.Enabled {
-		commandFixture(t, node, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "computer", ExpectedRevision: info.Summary.Revision, Enabled: true}})
-		info, _ = read()
-	}
-	if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" || len(info.Issues) != 0 {
-		t.Fatalf("the bundled computer package is not usable: %+v, issues %+v", info.Summary, info.Issues)
-	}
-	return info
+	return current
 }
 
 // TestSystemComputerIntegration is the computer-use acceptance against a
@@ -218,21 +205,19 @@ func TestSystemComputerIntegration(t *testing.T) {
 	}
 	t.Log("step 1 passed: the helper is located through SAILRY_HELPERS_DIR and beside the executable only; PATH, an empty directory and a non-executable file are Unavailable")
 
-	// A real Node with the real stdio MCP launcher and a scripted model.
-	script := &computerScript{read: mcp.Alias("computer", "desktop", "desktop_snapshot"), control: mcp.Alias("computer", "desktop", "desktop_click")}
+	// A real Node with the official host assembly, real stdio MCP launcher and scripted model.
+	script := &computerScript{read: "desktop_snapshot", control: "desktop_click"}
 	node, err := StartWithOptions(ctx, filepath.Join(t.TempDir(), "profile"), Options{
-		Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Assembly: hostassembly.Harness(),
+		Model:    func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer node.Stop(context.Background())
-	info := computerPackage(t, node)
-	reference := plugins.PackageReference(info)
+	enableNativeComputer(t, node)
 	scoped := func(command protocol.Command) protocol.Request {
-		request := protocol.NewRequest(node.ID(), command)
-		request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "permissions"}, Package: reference}
-		return request
+		return protocol.NewRequest(node.ID(), command)
 	}
 	dispatch := func(caller protocol.NodeID, request protocol.Request) (protocol.ComputerPermissions, *protocol.Fault) {
 		t.Helper()
@@ -285,10 +270,6 @@ func TestSystemComputerIntegration(t *testing.T) {
 	}
 	if calls := helperCalls(t, helper, ""); len(calls) != 0 {
 		t.Fatalf("the unlocated helper ran: %v", calls)
-	}
-	// Without a captured helper configuration the command is not configured.
-	if value, fault := dispatch(node.ID(), protocol.NewRequest(node.ID(), read)); fault == nil || fault.Code != protocol.ErrorCodeNotConfigured || fault.Message != "computer use requires a captured helper configuration" {
-		t.Fatalf("read without a package = %+v, %v", value, fault)
 	}
 	t.Log("step 2 passed: with no helper both commands fault Unavailable \"computer helper is missing\"; the helper on PATH never ran")
 
@@ -343,6 +324,11 @@ func TestSystemComputerIntegration(t *testing.T) {
 	before = len(helperCalls(t, helper, "run "))
 	remote := node.ID()
 	remote[0] ^= 0xff
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		return store.PairLinkPeer(ctx, db, remote, link.DirectionController)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if value, fault := dispatch(remote, protocol.NewRequest(node.ID(), request(protocol.ComputerPermissionAccessibility))); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied || fault.Message != "system permissions must be granted on the execution device" {
 		t.Fatalf("request from another device = %+v, %v", value, fault)
 	}
@@ -427,8 +413,8 @@ func TestSystemComputerIntegration(t *testing.T) {
 		}
 	}
 	offered, _ := script.offered.Load().([]string)
-	// The model reads an MCP tool as mcp__{server}__{tool}.
-	for _, name := range []string{"mcp__desktop__desktop_snapshot", "mcp__desktop__desktop_click"} {
+	// Native computer tools are exposed under their bare desktop_* names.
+	for _, name := range []string{"desktop_snapshot", "desktop_click"} {
 		if count := len(slices.DeleteFunc(slices.Clone(offered), func(candidate string) bool { return candidate != name })); count != 1 {
 			t.Fatalf("the helper tool %s was offered %d times: %v", name, count, offered)
 		}

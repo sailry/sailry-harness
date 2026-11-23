@@ -36,12 +36,12 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 			ids = append(ids, m.ID())
 			totalTools += len(m.Catalog())
 		}
-		for _, want := range []string{"files", "ocr", "git", "worktrees", "code-index", "web-search", "databases", "ssh", "memory", "browser", "external-browser"} {
+		for _, want := range []string{"files", "ocr", "git", "worktrees", "code-index", "web-search", "databases", "ssh", "memory", "browser", "external-browser", "computer"} {
 			if !slices.Contains(ids, want) {
 				t.Errorf("official host assembly missing module %q (got %v)", want, ids)
 			}
 		}
-		if totalTools < 100 {
+		if totalTools < 120 {
 			t.Fatalf("unexpected catalog tool count = %d", totalTools)
 		}
 		// Legacy alias lookup resolves bare names and former plugin_<hash>_* aliases.
@@ -54,9 +54,14 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		if meta, ok := assembly.LookupTool(operations.Alias("external-browser", "browser_navigate")); !ok || meta.Name != "external_browser_navigate" {
 			t.Fatalf("legacy alias lookup failed for external-browser/browser_navigate: %+v %v", meta, ok)
 		}
-		// plugins/code is retired; plugins/office stays active with its skills.
-		if !slices.Contains(plugins.RetiredBundled(), "code") {
-			t.Fatalf("code is not in RetiredBundled: %v", plugins.RetiredBundled())
+		if meta, ok := assembly.LookupTool("desktop_snapshot"); !ok || meta.Display == nil || meta.Display.Locales["zh-CN"] == "" {
+			t.Fatalf("bare tool presentation missing for desktop_snapshot: %+v %v", meta, ok)
+		}
+		// Retired core-adjacent packages are listed in RetiredBundled; office stays active with its skills.
+		for _, retired := range []string{"code", "web-search", "external-browser", "browser", "computer", "memory"} {
+			if !slices.Contains(plugins.RetiredBundled(), retired) {
+				t.Fatalf("%s is not in RetiredBundled: %v", retired, plugins.RetiredBundled())
+			}
 		}
 		if slices.Contains(plugins.RetiredBundled(), "office") {
 			t.Fatalf("office must not be retired (it provides Office skills): %v", plugins.RetiredBundled())
@@ -102,14 +107,51 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		}
 		defer n.Stop(context.Background())
 
-		// Verify office plugin is installed with its skills, while code is retired.
+		// Verify retired packages are absent, office stays installed, and native skills/commands work.
 		installed := commandFixture(t, n, protocol.Command{Kind: "list_plugins"}).Data.([]protocol.PluginSummary)
-		if slices.ContainsFunc(installed, func(s protocol.PluginSummary) bool { return s.Name == "code" }) {
-			t.Fatalf("retired code package was still installed: %+v", installed)
+		for _, retired := range []string{"code", "web-search", "external-browser", "browser", "computer", "memory"} {
+			if slices.ContainsFunc(installed, func(s protocol.PluginSummary) bool { return s.Name == retired }) {
+				t.Fatalf("retired %s package was still installed: %+v", retired, installed)
+			}
 		}
 		if !slices.ContainsFunc(installed, func(s protocol.PluginSummary) bool { return s.Name == "office" && s.Enabled }) {
 			t.Fatalf("office skills package was not installed and enabled")
 		}
+		snap := snapshotFixture(t, n)
+		if !slices.ContainsFunc(snap.NativeSkills, func(s protocol.NativeSkill) bool { return s.Package == "web-search" && s.Skill.Name == "research" }) {
+			t.Fatalf("native web-search:research skill missing from snapshot: %+v", snap.NativeSkills)
+		}
+		compCfg := commandFixture(t, n, protocol.Command{Kind: "read_computer_settings"}).Data.(protocol.ComputerSettings)
+		if compCfg.Enabled {
+			t.Fatalf("native computer should default disabled: %+v", compCfg)
+		}
+		savedComp := commandFixture(t, n, protocol.Command{Kind: "save_computer_settings", Data: protocol.ComputerSettings{Revision: compCfg.Revision, Enabled: true}}).Data.(protocol.ComputerSettings)
+		if !savedComp.Enabled || savedComp.Revision <= compCfg.Revision {
+			t.Fatalf("save_computer_settings failed: %+v", savedComp)
+		}
+		commandFixture(t, n, protocol.Command{Kind: "save_computer_settings", Data: protocol.ComputerSettings{Revision: savedComp.Revision, Enabled: false}})
+
+		extCfg := commandFixture(t, n, protocol.Command{Kind: "read_external_browser_settings"}).Data.(protocol.ExternalBrowserSettings)
+		if extCfg.Enabled {
+			t.Fatalf("native external browser should default disabled: %+v", extCfg)
+		}
+		savedExt := commandFixture(t, n, protocol.Command{Kind: "save_external_browser_settings", Data: protocol.ExternalBrowserSettings{Revision: extCfg.Revision, Enabled: true}}).Data.(protocol.ExternalBrowserSettings)
+		if !savedExt.Enabled || savedExt.Revision <= extCfg.Revision {
+			t.Fatalf("save_external_browser_settings failed: %+v", savedExt)
+		}
+		commandFixture(t, n, protocol.Command{Kind: "save_external_browser_settings", Data: protocol.ExternalBrowserSettings{Revision: savedExt.Revision, Enabled: false}})
+
+		memEntry := commandFixture(t, n, protocol.Command{Kind: "save_memory_entry", Data: protocol.CommandSaveMemoryEntryPayload{
+			Title: "Native note", Kind: "user", Body: "Saved directly via native module command",
+		}}).Data.(protocol.MemoryEntry)
+		if memEntry.Summary.ID == "" || memEntry.Body != "Saved directly via native module command" {
+			t.Fatalf("save_memory_entry returned unexpected entry: %+v", memEntry)
+		}
+		memCat := commandFixture(t, n, protocol.Command{Kind: "read_memory_catalog", Data: protocol.CommandReadMemoryCatalogPayload{View: "active"}}).Data.(protocol.MemoryCatalog)
+		if !slices.ContainsFunc(memCat.Entries, func(e protocol.MemorySummary) bool { return e.ID == memEntry.Summary.ID }) {
+			t.Fatalf("read_memory_catalog missing saved entry: %+v", memCat.Entries)
+		}
+		commandFixture(t, n, protocol.Command{Kind: "delete_memory_entry", Data: protocol.CommandDeleteMemoryEntryPayload{ID: memEntry.Summary.ID, ExpectedRevision: memEntry.Summary.Revision}})
 
 		// Disable files and git UI plugins: native modules must keep serving tools.
 		for _, pkg := range []string{"files", "git"} {

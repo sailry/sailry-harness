@@ -86,8 +86,8 @@ func TestExternalBrowserNodeIntegration(t *testing.T) {
 			}
 		}
 	}
-	info := commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "external-browser"}}).Data.(protocol.PluginInfo)
-	commandFixture(t, node, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "external-browser", ExpectedRevision: info.Summary.Revision, Enabled: true}})
+	extCfg := commandFixture(t, node, protocol.Command{Kind: "read_external_browser_settings"}).Data.(protocol.ExternalBrowserSettings)
+	commandFixture(t, node, protocol.Command{Kind: "save_external_browser_settings", Data: protocol.ExternalBrowserSettings{Revision: extCfg.Revision, Enabled: true}})
 	secret := protocol.NewSecret("browser-key")
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Name, provider.Enabled = protocol.NewProviderID(), "Browser fixture", true
