@@ -105,6 +105,27 @@ func isHex64(s string) bool {
 	return true
 }
 
+// optionalRevision validates a supplied revision. An omitted revision is left
+// for the Node, which resolves it from this conversation's observations.
+func optionalRevision(args map[string]any) (string, error) {
+	v, ok := args["expected_revision"]
+	if !ok {
+		return "", nil
+	}
+	rev, ok := v.(string)
+	if !ok || !isHex64(rev) {
+		return "", invalid("expected_revision must be the 64-character revision from read_file")
+	}
+	return rev, nil
+}
+
+func withRevision(out map[string]any, rev string) map[string]any {
+	if rev != "" {
+		out["expected_revision"] = rev
+	}
+	return out
+}
+
 func safeInt(v any) (int64, bool) {
 	switch n := v.(type) {
 	case json.Number:
@@ -244,15 +265,15 @@ func prepareWrite(_ context.Context, raw json.RawMessage) (json.RawMessage, erro
 	if !ok {
 		return nil, invalid("")
 	}
-	var expected any
-	if v, ok := args["expected_revision"]; ok && v != nil {
-		s, ok := v.(string)
-		if !ok {
-			return nil, invalid("")
+	out := map[string]any{"path": path, "text": text}
+	if v, ok := args["expected_revision"]; ok {
+		// Explicit null creates; an omitted revision is resolved by the Node.
+		if _, ok := v.(string); !ok && v != nil {
+			return nil, invalid("expected_revision must be a string or null")
 		}
-		expected = s
+		out["expected_revision"] = v
 	}
-	return json.Marshal(map[string]any{"path": path, "text": text, "expected_revision": expected})
+	return json.Marshal(out)
 }
 
 func prepareEdit(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -264,9 +285,9 @@ func prepareEdit(_ context.Context, raw json.RawMessage) (json.RawMessage, error
 	if !ok {
 		return nil, invalid("path must be a string")
 	}
-	rev, ok := args["expected_revision"].(string)
-	if !ok || !isHex64(rev) {
-		return nil, invalid("expected_revision must be the 64-character revision from read_file")
+	rev, err := optionalRevision(args)
+	if err != nil {
+		return nil, err
 	}
 	if editsVal, hasEdits := args["edits"]; hasEdits {
 		if _, hasOld := args["old_text"]; hasOld {
@@ -305,7 +326,7 @@ func prepareEdit(_ context.Context, raw json.RawMessage) (json.RawMessage, error
 				}
 			}
 		}
-		return json.Marshal(map[string]any{"path": path, "edits": list, "expected_revision": rev})
+		return json.Marshal(withRevision(map[string]any{"path": path, "edits": list}, rev))
 	}
 	oldText, ok := args["old_text"].(string)
 	if !ok || oldText == "" {
@@ -315,7 +336,7 @@ func prepareEdit(_ context.Context, raw json.RawMessage) (json.RawMessage, error
 	if !ok {
 		return nil, invalid("new_text must be a string")
 	}
-	out := map[string]any{"path": path, "old_text": oldText, "new_text": newText, "expected_revision": rev}
+	out := withRevision(map[string]any{"path": path, "old_text": oldText, "new_text": newText}, rev)
 	if ra, hasRA := args["replace_all"]; hasRA {
 		b, ok := ra.(bool)
 		if !ok {
@@ -347,11 +368,11 @@ func prepareDelete(_ context.Context, raw json.RawMessage) (json.RawMessage, err
 	if !ok {
 		return nil, invalid("")
 	}
-	rev, ok := args["expected_revision"].(string)
-	if !ok || !isHex64(rev) {
-		return nil, invalid("")
+	rev, err := optionalRevision(args)
+	if err != nil {
+		return nil, err
 	}
-	return json.Marshal(map[string]any{"path": path, "expected_revision": rev})
+	return json.Marshal(withRevision(map[string]any{"path": path}, rev))
 }
 
 func prepareMove(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -367,11 +388,11 @@ func prepareMove(_ context.Context, raw json.RawMessage) (json.RawMessage, error
 	if !ok {
 		return nil, invalid("")
 	}
-	rev, ok := args["expected_revision"].(string)
-	if !ok || !isHex64(rev) {
-		return nil, invalid("")
+	rev, err := optionalRevision(args)
+	if err != nil {
+		return nil, err
 	}
-	return json.Marshal(map[string]any{"path": path, "destination": dst, "expected_revision": rev})
+	return json.Marshal(withRevision(map[string]any{"path": path, "destination": dst}, rev))
 }
 
 func prepareMkdir(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -608,9 +629,9 @@ func prepareNotebookEdit(_ context.Context, raw json.RawMessage) (json.RawMessag
 	if !ok {
 		return nil, invalid("")
 	}
-	rev, ok := args["expected_revision"].(string)
-	if !ok || !isHex64(rev) {
-		return nil, invalid("")
+	rev, err := optionalRevision(args)
+	if err != nil {
+		return nil, err
 	}
 	edits, ok := args["edits"].([]any)
 	if !ok || len(edits) == 0 {
@@ -656,5 +677,5 @@ func prepareNotebookEdit(_ context.Context, raw json.RawMessage) (json.RawMessag
 			}
 		}
 	}
-	return json.Marshal(map[string]any{"path": path, "expected_revision": rev, "edits": edits})
+	return json.Marshal(withRevision(map[string]any{"path": path, "edits": edits}, rev))
 }

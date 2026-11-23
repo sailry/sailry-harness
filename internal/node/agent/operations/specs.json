@@ -105,7 +105,7 @@
   },
   {
     "operation": "files.write",
-    "description": "Write UTF-8 text using the expected file revision",
+    "description": "Write UTF-8 text, replacing the observed or given revision or creating the file",
     "parameters": {
       "type": "object",
       "properties": {
@@ -119,13 +119,13 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Revision to replace, or null to create. Optional; defaults to the revision last seen in this conversation, else creates"
         }
       },
       "required": [
         "path",
-        "text",
-        "expected_revision"
+        "text"
       ],
       "additionalProperties": false
     },
@@ -179,12 +179,12 @@
         },
         "expected_revision": {
           "type": "string",
-          "pattern": "^[a-fA-F0-9]{64}$"
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "description": "Optional; defaults to the revision last seen in this conversation"
         }
       },
       "required": [
-        "path",
-        "expected_revision"
+        "path"
       ],
       "additionalProperties": false,
       "oneOf": [
@@ -239,12 +239,12 @@
         },
         "expected_revision": {
           "type": "string",
-          "pattern": "^[a-fA-F0-9]{64}$"
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "description": "Optional; defaults to the revision last seen in this conversation"
         }
       },
       "required": [
-        "path",
-        "expected_revision"
+        "path"
       ],
       "additionalProperties": false
     },
@@ -265,13 +265,13 @@
         },
         "expected_revision": {
           "type": "string",
-          "pattern": "^[a-fA-F0-9]{64}$"
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "description": "Optional; defaults to the revision last seen in this conversation"
         }
       },
       "required": [
         "path",
-        "destination",
-        "expected_revision"
+        "destination"
       ],
       "additionalProperties": false
     },
@@ -535,7 +535,8 @@
           "type": "string"
         },
         "expected_revision": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional; defaults to the revision last seen in this conversation"
         },
         "edits": {
           "description": "Indices refer to the notebook before this batch is applied.",
@@ -548,7 +549,6 @@
       "additionalProperties": false,
       "required": [
         "path",
-        "expected_revision",
         "edits"
       ],
       "$defs": {

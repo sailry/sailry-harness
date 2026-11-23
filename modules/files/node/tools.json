@@ -217,7 +217,7 @@
     {
       "name": "write_file",
       "legacy_package": "files",
-      "description": "Write a complete UTF-8 file up to 128 KiB. Pass the revision from read_file to replace a file, or null to create a new file without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
+      "description": "Write a complete UTF-8 file up to 128 KiB. expected_revision defaults to the revision last seen in this conversation, or creates the file if none was seen; pass null to create without replacing an existing entry. Missing parent directories are created for new files. A conflict requires reading the current file before another edit. Prefer edit_file for partial changes and larger files.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -233,13 +233,12 @@
               "string",
               "null"
             ],
-            "description": "Revision from read_file, or null to create a new file"
+            "description": "Revision to replace, or null to create. Optional; defaults to the revision last seen in this conversation, else creates"
           }
         },
         "required": [
           "path",
-          "text",
-          "expected_revision"
+          "text"
         ],
         "additionalProperties": false
       },
@@ -343,7 +342,7 @@
     {
       "name": "edit_file",
       "legacy_package": "files",
-      "description": "Edit one UTF-8 file using expected_revision from read_file. Pass old_text/new_text or edits (never both). Each old_text must match uniquely unless replace_all is true. Fails atomically on overlap, missing match, or stale revision; returns updated revision and edited hunks.",
+      "description": "Edit one UTF-8 file read in this conversation. Pass old_text/new_text or edits (never both). Each old_text must match uniquely unless replace_all is true. Fails atomically on overlap, missing match, or stale revision; returns updated revision and edited hunks.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -361,7 +360,7 @@
           "expected_revision": {
             "type": "string",
             "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Full file revision from read_file"
+            "description": "Optional; defaults to the revision last seen in this conversation"
           },
           "replace_all": {
             "type": "boolean",
@@ -394,8 +393,7 @@
           }
         },
         "required": [
-          "path",
-          "expected_revision"
+          "path"
         ],
         "additionalProperties": false,
         "oneOf": [
@@ -712,7 +710,7 @@
     {
       "name": "delete_file",
       "legacy_package": "files",
-      "description": "Move a regular file to the execution Node's Trash using its current revision. Does not permanently delete files or delete directories. A conflict requires reading the current file before retrying.",
+      "description": "Move a regular file read in this conversation to the execution Node's Trash, checking its revision. Does not permanently delete files or delete directories. A conflict requires reading the current file before retrying.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -723,12 +721,11 @@
           "expected_revision": {
             "type": "string",
             "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Full current file revision"
+            "description": "Optional; defaults to the revision last seen in this conversation"
           }
         },
         "required": [
-          "path",
-          "expected_revision"
+          "path"
         ],
         "additionalProperties": false
       },
@@ -786,7 +783,7 @@
     {
       "name": "move_file",
       "legacy_package": "files",
-      "description": "Move a regular file to another path in the same worktree using its current revision. The destination parent must exist and the destination must be absent; never overwrite an existing entry. A conflict requires inspecting both paths before retrying.",
+      "description": "Move a regular file read in this conversation to another path in the same worktree, checking its revision. The destination parent must exist and the destination must be absent; never overwrite an existing entry. A conflict requires inspecting both paths before retrying.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -801,13 +798,12 @@
           "expected_revision": {
             "type": "string",
             "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Full current file revision"
+            "description": "Optional; defaults to the revision last seen in this conversation"
           }
         },
         "required": [
           "path",
-          "destination",
-          "expected_revision"
+          "destination"
         ],
         "additionalProperties": false
       },
@@ -1396,7 +1392,7 @@
     {
       "name": "edit_notebook",
       "legacy_package": "files",
-      "description": "Apply a revision-checked atomic batch to nbformat 4 cells. Replace changes only source and retains the cell ID, metadata and saved outputs. Insert creates a cell with a new ID; delete removes a cell. Zero-based indices refer to the original notebook; multiple inserts at the same index preserve batch order. Read the current revision first. No kernel is executed.",
+      "description": "Apply a revision-checked atomic batch to nbformat 4 cells. Replace changes only source and retains the cell ID, metadata and saved outputs. Insert creates a cell with a new ID; delete removes a cell. Zero-based indices refer to the original notebook; multiple inserts at the same index preserve batch order. Read the notebook first. No kernel is executed.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1405,7 +1401,8 @@
           },
           "expected_revision": {
             "type": "string",
-            "pattern": "^[0-9a-fA-F]{64}$"
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "description": "Optional; defaults to the revision last seen in this conversation"
           },
           "edits": {
             "type": "array",
@@ -1486,7 +1483,6 @@
         },
         "required": [
           "path",
-          "expected_revision",
           "edits"
         ],
         "additionalProperties": false
