@@ -18,7 +18,6 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/mobile"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
 var bridges = struct {
@@ -54,12 +53,7 @@ func sailry_invoke(bridge, handle C.uint64_t, method *C.char, input *C.uint8_t, 
 		return 0
 	}
 	name := C.GoString(method)
-	limit := C.uint64_t(protocol.MAX_FRAME_BYTES)
-	if handle == 0 && name == mobile.SessionLanesMethod {
-		// A session list comes from a paged snapshot and can exceed one frame.
-		limit = wire.MaxSnapshotBytes
-	}
-	data, valid := copyInput(input, length, limit)
+	data, valid := copyInput(input, length, C.uint64_t(protocol.MAX_FRAME_BYTES))
 	if !valid {
 		return 0
 	}

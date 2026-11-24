@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"reflect"
 	"runtime"
 	"strings"
@@ -723,5 +724,46 @@ func TestObserverCancelDoesNotStopStartedClient(t *testing.T) {
 	_ = obs1.Close()
 	if controller.context.Err() != nil {
 		t.Fatal("closing first observer stopped shared Client observation")
+	}
+}
+
+func TestWatchViewCarriesSessionLanes(t *testing.T) {
+	t.Parallel()
+	snapshot := projectionSnapshot(1)
+	running := projectionSession(1, 1)
+	running.Config.Mode, running.Config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
+	running.Config.Provider = protocol.ProviderID{1}
+	snapshot.Sessions = []protocol.Session{running}
+	snapshot.Worktrees = []protocol.Worktree{{ID: running.Worktree}}
+	transport := &clientTransport{subscriptions: []*clientSubscription{testSubscription(snapshot)}}
+	controller := New(transport)
+	defer controller.Close()
+	observer, err := controller.Watch(t.Context(), "watch", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observer.Close()
+	want := ProjectActivity(protocol.ActivityCatalog{Sessions: snapshot.Sessions}, nil).SessionLanes
+	for {
+		encoded, err := observer.Next(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var view struct {
+			Connected bool                    `json:"connected"`
+			Lanes     map[string]ActivityLane `json:"session_lanes"`
+		}
+		if err := json.Unmarshal(encoded, &view); err != nil {
+			t.Fatal(err)
+		}
+		if view.Lanes == nil {
+			t.Fatalf("view without session lanes: %s", encoded)
+		}
+		if view.Connected {
+			if !maps.Equal(view.Lanes, want) || len(want) != 1 {
+				t.Fatalf("session lanes = %v, want %v", view.Lanes, want)
+			}
+			return
+		}
 	}
 }

@@ -1037,7 +1037,7 @@ void main() {
     );
   }
 
-  testWidgets('task rows and filters use one host session lane projection', (
+  testWidgets('task rows and filters use the host session lanes', (
     tester,
   ) async {
     final child = {
@@ -1046,16 +1046,11 @@ void main() {
       'delegation': {'session': 'session'},
     };
     final initial = [conversation(), child];
-    final projected = <List<Object?>>[];
-    var lane = 'running';
     final host = HostConnection.test(
       id: 'host',
       label: 'Host',
       snapshot: {'sessions': initial},
-      projectSessionLanes: (sessions) {
-        projected.add(sessions);
-        return {'session': lane};
-      },
+      sessionLanes: const {'session': 'running'},
       command: (_, _) async => preview('Preview'),
     );
     final session = AppSession.test(hosts: [host]);
@@ -1064,7 +1059,6 @@ void main() {
 
     TaskRow row() => tester.widget(find.byType(TaskRow));
     final translate = tester.element(find.byType(TaskRow)).tr;
-    expect(projected.single, same(initial));
     expect(find.text('Delegated child'), findsNothing);
     expect(find.text(translate('tasksActive')), findsOneWidget);
     expect(row().tone, StatusTone.running);
@@ -1076,13 +1070,12 @@ void main() {
     host.snapshot = {...host.snapshot, 'projects': []};
     host.notifyListeners();
     await tester.pump();
-    expect(projected, hasLength(1));
 
     for (final (unread, next, tone) in [
       (true, 'failed', StatusTone.danger),
       (false, 'idle', null),
     ]) {
-      lane = next;
+      host.sessionLanes = {'session': next};
       final record = conversation(unread: unread);
       final activity = record['activity'] as Map<String, dynamic>;
       (activity['run'] as Map<String, dynamic>)['status'] = 'failed';
@@ -1094,7 +1087,6 @@ void main() {
       expect(row().tone, tone);
     }
     expect(find.byKey(const ValueKey('task-status-dot')), findsNothing);
-    expect(projected, hasLength(3));
     await release(tester, session);
   });
 

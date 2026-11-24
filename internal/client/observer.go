@@ -229,13 +229,18 @@ func (client *Client) watchView(ctx context.Context) *Observer {
 			telemetry = link.ConnectionInfo{}
 		}
 		targets := map[string]protocol.SessionID{}
+		lanes := map[string]ActivityLane{}
 		if snapshot != nil {
 			targets = childTargets(*snapshot)
+			// Lanes depend on child sessions the list leaves out, so the view
+			// carries every session's lane rather than having each controller
+			// send the whole session list back to be projected.
+			lanes = ProjectActivity(protocol.ActivityCatalog{Sessions: snapshot.Sessions}, nil).SessionLanes
 		}
 		return map[string]any{
 			"snapshot": snapshot, "connected": connected, "connection": telemetry,
 			"error": observerFault(failure), "notifications": client.Notices(),
-			"child_targets": targets,
+			"child_targets": targets, "session_lanes": lanes,
 		}, nil
 	}
 	observer.release = client.OnChange(observer.notify)

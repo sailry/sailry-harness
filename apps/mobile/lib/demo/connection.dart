@@ -160,7 +160,6 @@ class DemoConnection implements Connection {
       },
     ],
     'sessions': _sessions,
-    'session_lanes': Map<String, String>.of(_sessionLanes),
     'providers': [_provider],
     'terminals': [if (_terminalRunning) _terminal],
     'roles': <dynamic>[],
@@ -324,6 +323,7 @@ class DemoConnection implements Connection {
       'connected': true,
       'connection': {'route': 'p2p', 'rtt_ms': 3},
       'snapshot': snapshot,
+      'session_lanes': Map<String, String>.of(_sessionLanes),
     },
   );
 

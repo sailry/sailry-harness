@@ -4,26 +4,12 @@ import (
 	"encoding/json"
 
 	"github.com/sailry/sailry-harness/internal/client"
-	"github.com/sailry/sailry-harness/internal/protocol"
 )
-
-const SessionLanesMethod = "session_lanes"
 
 func Sync(method string, data []byte) ([]byte, bool) {
 	var value any
 	var err error
 	switch method {
-	case SessionLanesMethod:
-		var input struct {
-			Sessions []protocol.Session `json:"sessions"`
-		}
-		// These sessions are a Node's reported snapshot, with the same tolerance
-		// for newer fields and values as the original observation.
-		if decodeErr := protocol.DecodeAs(protocol.PeerData, data, &input); decodeErr != nil || input.Sessions == nil {
-			err = invalid("invalid session lane arguments")
-		} else {
-			value = client.ProjectActivity(protocol.ActivityCatalog{Sessions: input.Sessions}, nil).SessionLanes
-		}
 	case "project_modes", "select_mode", "session_link":
 		var input struct {
 			Config string `json:"config"`
