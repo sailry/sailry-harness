@@ -285,3 +285,49 @@ func caseCompact(run *caseRun) error {
 	run.evidence("compaction", "Canonical handoff inspected and prior context recalled in a new model turn")
 	return run.requireText(view, "COMPACT-MEMORY-8624")
 }
+
+// caseCompactNative compacts without a focus, so a route with its own
+// compaction uses it and any other falls back to Sailry's handoff. The Node
+// log's native_compaction entry says which one ran.
+func caseCompactNative(run *caseRun) error {
+	if err := run.standard(); err != nil {
+		return err
+	}
+	for index := range 3 {
+		text := fmt.Sprintf("Remember the test-only secret-free token NATIVE-MEMORY-5317 and record %d. %s Reply only ACK, without tools.", index+1, strings.Repeat("Acceptance history fixture. ", 150))
+		if _, err := run.ask(text); err != nil {
+			return err
+		}
+	}
+	if err := run.refreshSession(); err != nil {
+		return err
+	}
+	output, err := run.command(run.ctx, "compact_context", protocol.CommandCompactContextPayload{Session: run.session.ID, ExpectedRevision: run.session.Revision})
+	if err != nil {
+		return err
+	}
+	turn, err := run.recordTurn(output, "queued_turn")
+	if err != nil {
+		return err
+	}
+	view, err := run.wait(turn.ID, nil)
+	if err != nil {
+		return err
+	}
+	if view.run.Status != protocol.ConversationStatusCompleted || view.run.Kind != protocol.ConversationRunKindCompaction {
+		return fail("Compaction without a focus did not complete as a compaction turn")
+	}
+	view, err = run.ask("Without tools, return only the test-only token from the earlier conversation records.")
+	if err != nil {
+		return err
+	}
+	if err := run.requireText(view, "NATIVE-MEMORY-5317"); err != nil {
+		return err
+	}
+	view, err = run.ask("Without tools, reply with the record numbers you were asked to remember, as digits separated by commas.")
+	if err != nil {
+		return err
+	}
+	run.evidence("compaction", "Compacted without a focus; the token was recalled in two later turns on the compacted context")
+	return run.requireText(view, "3")
+}

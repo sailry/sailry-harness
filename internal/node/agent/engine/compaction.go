@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/agent/tokens"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -441,11 +443,14 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 	compacted, err := model.CompactNative(x.ctx, languageModel, binding, call, r.clock, observe)
 	switch {
 	case err == nil:
+		nativeOutcome(binding, route, "native", nil)
 		return compacted, true, nil
 	case errors.Is(err, model.ErrNativeUnsupported):
 		r.nativeRejected.Store(key, true)
+		nativeOutcome(binding, route, "unsupported", err)
 		return model.Compacted{}, false, nil
 	case errors.Is(err, model.ErrNativeUnusable):
+		nativeOutcome(binding, route, "unusable", err)
 		return model.Compacted{}, false, nil
 	}
 	failure := model.Classify(err)
@@ -453,7 +458,21 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 	case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
 		return model.Compacted{}, false, err
 	}
+	nativeOutcome(binding, route, "failed", err)
 	return model.Compacted{}, false, nil
+}
+
+// nativeOutcome records whether a route compacted natively or fell back to
+// Sailry's handoff, the only place that choice is observable after the fact.
+func nativeOutcome(binding model.Binding, route model.Route, outcome string, err error) {
+	attrs := []slog.Attr{slog.String("area", "agent"), slog.String("operation", "native_compaction"), slog.String("outcome", outcome),
+		slog.String("provider", binding.Provider.ID.String()), slog.String("method", route.Native), slog.String("model", binding.Config.Model)}
+	level := slog.LevelInfo
+	if err != nil {
+		level = slog.LevelWarn
+		attrs = append(attrs, slog.String("exception", err.Error()))
+	}
+	logging.Emit(level, attrs...)
 }
 
 // readableCheckpoint writes Sailry's readable handoff for the latest

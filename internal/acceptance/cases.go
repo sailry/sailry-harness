@@ -43,6 +43,7 @@ func backendCases() []backendCase {
 		{"C02", "Edit, remove and send queued input", false, nil, caseQueue},
 		{"P01", "Compact an empty conversation without a model reply", false, nil, caseCompactEmpty},
 		{"P02", "Preserve context through manual compaction", false, nil, caseCompact},
+		{"P03", "Preserve context through route-native compaction", false, nil, caseCompactNative},
 	}
 }
 
