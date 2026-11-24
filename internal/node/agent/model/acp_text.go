@@ -324,7 +324,7 @@ func (parser *acpParser) pending() *acpMalformed {
 	case parser.failed != nil:
 		return parser.failed
 	case parser.inside:
-		return &acpMalformed{index: parser.attempt + 1, reason: "the reply ended inside it"}
+		return &acpMalformed{index: parser.attempt + 1, reason: acpUnread(parser.buffer)}
 	case parser.asked > 0 && parser.attempt == 0:
 		return &acpMalformed{index: parser.asked, reason: "the reply wrote no tool call"}
 	}
@@ -397,6 +397,33 @@ func acpRepair(body string) (string, bool) {
 	return out.String(), changed
 }
 
+// acpReadCall decodes the body of a call, without a code fence and repaired
+// where that makes it parse.
+func acpReadCall(body string) (acpCallJSON, error) {
+	body = strings.TrimSpace(body)
+	body = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(body, "```json"), "```"), "```"))
+	parsed, failure := acpDecodeCall(body)
+	if failure != nil {
+		if repaired, changed := acpRepair(body); changed {
+			if fixed, again := acpDecodeCall(repaired); again == nil {
+				return fixed, nil
+			}
+		}
+	}
+	return parsed, failure
+}
+
+// acpUnread says why a reply that ended inside a call left it unread: the
+// JSON error of its body where a closing tag ended one, else that it ended.
+func acpUnread(buffer string) string {
+	if at := strings.LastIndex(buffer, acpCallClose); at >= 0 {
+		if _, failure := acpReadCall(buffer[:at]); failure != nil {
+			return failure.Error()
+		}
+	}
+	return "the reply ended inside it"
+}
+
 func acpCallBody(buffer string) (call acpToolCall, rest string, complete bool, err error) {
 	from, closed := 0, false
 	for {
@@ -405,16 +432,7 @@ func acpCallBody(buffer string) (call acpToolCall, rest string, complete bool, e
 			break
 		}
 		closed = true
-		body := strings.TrimSpace(buffer[:from+at])
-		body = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(body, "```json"), "```"), "```"))
-		parsed, failure := acpDecodeCall(body)
-		if failure != nil {
-			if repaired, changed := acpRepair(body); changed {
-				if fixed, again := acpDecodeCall(repaired); again == nil {
-					parsed, failure = fixed, nil
-				}
-			}
-		}
+		parsed, failure := acpReadCall(buffer[:from+at])
 		after := from + at + len(acpCallClose)
 		if failure == nil {
 			if parsed.Name == "" {

@@ -172,12 +172,16 @@ type acpSlot struct {
 }
 
 // take reserves the slot of owner for one request: its free stored slot,
-// else a new one. While another request of the same Sailry session holds
-// the stored slot, this one uses an agent session that is not kept. take
-// returns the agent sessions of the slots a new one evicted.
+// else a new one. A request without a Sailry session, or one whose session's
+// stored slot another request holds, gets a slot without an owner that is not
+// stored: its agent session ends with the request. take returns the agent
+// sessions of the slots a new one evicted.
 func (agent *acpAgent) take(owner protocol.SessionID) (*acpSlot, []string) {
 	agent.mu.Lock()
 	defer agent.mu.Unlock()
+	if owner == (protocol.SessionID{}) {
+		return &acpSlot{busy: true}, nil
+	}
 	if slot := agent.slots[owner]; slot != nil {
 		if slot.busy {
 			return &acpSlot{busy: true}, nil
@@ -254,16 +258,41 @@ type acpSession struct {
 	ConfigOptions []acpOption `json:"configOptions"`
 }
 
+type acpUsage struct {
+	InputTokens       *int64 `json:"inputTokens"`
+	OutputTokens      *int64 `json:"outputTokens"`
+	CachedReadTokens  *int64 `json:"cachedReadTokens"`
+	CachedWriteTokens *int64 `json:"cachedWriteTokens"`
+	ThoughtTokens     *int64 `json:"thoughtTokens"`
+	TotalTokens       *int64 `json:"totalTokens"`
+}
+
+// plus adds the usage of another prompt of the same reply.
+func (usage *acpUsage) plus(other *acpUsage) *acpUsage {
+	if usage == nil {
+		return other
+	}
+	if other == nil {
+		return usage
+	}
+	sum := func(a, b *int64) *int64 {
+		if a == nil {
+			return b
+		}
+		if b == nil {
+			return a
+		}
+		total := *a + *b
+		return &total
+	}
+	return &acpUsage{InputTokens: sum(usage.InputTokens, other.InputTokens), OutputTokens: sum(usage.OutputTokens, other.OutputTokens),
+		CachedReadTokens: sum(usage.CachedReadTokens, other.CachedReadTokens), CachedWriteTokens: sum(usage.CachedWriteTokens, other.CachedWriteTokens),
+		ThoughtTokens: sum(usage.ThoughtTokens, other.ThoughtTokens), TotalTokens: sum(usage.TotalTokens, other.TotalTokens)}
+}
+
 type acpPrompted struct {
-	StopReason string `json:"stopReason"`
-	Usage      *struct {
-		InputTokens       *int64 `json:"inputTokens"`
-		OutputTokens      *int64 `json:"outputTokens"`
-		CachedReadTokens  *int64 `json:"cachedReadTokens"`
-		CachedWriteTokens *int64 `json:"cachedWriteTokens"`
-		ThoughtTokens     *int64 `json:"thoughtTokens"`
-		TotalTokens       *int64 `json:"totalTokens"`
-	} `json:"usage"`
+	StopReason string    `json:"stopReason"`
+	Usage      *acpUsage `json:"usage"`
 }
 
 // acpChoices flattens a select option's values, grouped or not.
@@ -656,6 +685,20 @@ func (model *acpModel) reserve(ctx context.Context, agent *acpAgent) *acpSlot {
 	return slot
 }
 
+// discard ends the agent session of a slot that is not stored. A program
+// that is retired takes its sessions with it.
+func (model *acpModel) discard(ctx context.Context, agent *acpAgent, session string, live bool) {
+	if session == "" {
+		return
+	}
+	agent.mu.Lock()
+	delete(agent.commands, session)
+	agent.mu.Unlock()
+	if live && agent.close {
+		_, _ = acpCall[json.RawMessage](context.WithoutCancel(ctx), agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": session})
+	}
+}
+
 type acpEvent struct {
 	reasoning bool
 	text      string
@@ -675,6 +718,9 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	defer func() { model.capture.Pool.Release(entry, keep) }()
 	slot := model.reserve(ctx, agent)
 	defer agent.give(slot)
+	if slot.owner == (protocol.SessionID{}) {
+		defer func() { model.discard(ctx, agent, slot.session, keep) }()
+	}
 	// A session this slot opened for its Sailry session holds a history that
 	// a new session replaces. A request without a session claims nothing.
 	stale := slot.session != "" && slot.owner != (protocol.SessionID{})
@@ -729,14 +775,32 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	// From here the session's content is uncertain until the reply is whole.
 	slot.seen, slot.prefixed = nil, true
 	model.keep(agent, slot)
-	events, finished := make(chan acpEvent), make(chan struct{})
-	defer close(finished)
+	// One SDK goroutine delivers the notifications of every session in the
+	// program, so the sink only queues: a slow consumer of this reply must not
+	// hold back the others. The SDK answers a prompt after handling the
+	// notifications sent before the answer, so the queue holds the whole reply
+	// once the answer arrives.
+	var queue struct {
+		sync.Mutex
+		events []acpEvent
+	}
+	wake := make(chan struct{}, 1)
+	drain := func() []acpEvent {
+		queue.Lock()
+		defer queue.Unlock()
+		events := queue.events
+		queue.events = nil
+		return events
+	}
 	session := slot.session
 	agent.mu.Lock()
 	agent.sinks[session] = func(reasoning bool, text string) {
+		queue.Lock()
+		queue.events = append(queue.events, acpEvent{reasoning, text})
+		queue.Unlock()
 		select {
-		case events <- acpEvent{reasoning, text}:
-		case <-finished:
+		case wake <- struct{}{}:
+		default:
 		}
 	}
 	agent.mu.Unlock()
@@ -764,7 +828,8 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		defer settle.Stop()
 		for {
 			select {
-			case <-events:
+			case <-wake:
+				drain()
 			case <-done:
 				return
 			case <-settle.C:
@@ -795,7 +860,7 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		}
 		return true, nil
 	}
-	calls, resends := uint64(0), 0
+	calls, resends, spent := uint64(0), 0, (*acpUsage)(nil)
 	answer := func(text string) (bool, error) {
 		out, found, err := parser.feed(text)
 		if err != nil {
@@ -811,6 +876,21 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		}
 		return emit(deltas...)
 	}
+	deliver := func(events []acpEvent) (bool, error) {
+		for _, event := range events {
+			var open bool
+			var err error
+			if event.reasoning {
+				open, err = emit(protocol.PluginModelAdapterWireDelta{Kind: "reasoning", Data: &protocol.PluginModelAdapterWireDeltaReasoningPayload{Text: &event.text}})
+			} else {
+				open, err = answer(event.text)
+			}
+			if err != nil || !open {
+				return open, err
+			}
+		}
+		return true, nil
+	}
 	stall := time.NewTimer(model.capture.stall)
 	defer stall.Stop()
 	for {
@@ -821,15 +901,9 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		case <-stall.C:
 			keep = false
 			return &Failure{Kind: Network, Message: fmt.Sprintf("Model stream sent no data for %d seconds", int(model.capture.stall.Seconds()))}
-		case event := <-events:
+		case <-wake:
 			stall.Reset(model.capture.stall)
-			var open bool
-			if event.reasoning {
-				open, err = emit(protocol.PluginModelAdapterWireDelta{Kind: "reasoning", Data: &protocol.PluginModelAdapterWireDeltaReasoningPayload{Text: &event.text}})
-			} else {
-				open, err = answer(event.text)
-			}
-			if err != nil || !open {
+			if open, err := deliver(drain()); err != nil || !open {
 				abandon()
 				return err
 			}
@@ -838,18 +912,24 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 				keep = false
 				return model.failure(ctx, agent, finished.err)
 			}
+			// The reply's last chunks were queued before its answer.
+			if open, err := deliver(drain()); err != nil || !open {
+				return err
+			}
 			// A call the agent wrote wrong is asked for again in the same
 			// session; the calls read before it stand.
 			if malformed := parser.pending(); malformed != nil && finished.prompted.StopReason == "end_turn" {
 				if resends == acpResends {
 					return errACPCall
 				}
-				resends++
+				resends, spent = resends+1, spent.plus(finished.prompted.Usage)
 				parser.resume(malformed)
 				stall.Reset(model.capture.stall)
 				send([]any{map[string]any{"type": "text", "text": acpCorrection(malformed)}})
 				continue
 			}
+			// Every prompt of the reply counts, its corrections included.
+			finished.prompted.Usage = spent.plus(finished.prompted.Usage)
 			return model.finish(agent, slot, digests, parser, finished.prompted, emit)
 		}
 	}
