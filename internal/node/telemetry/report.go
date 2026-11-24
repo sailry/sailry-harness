@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
@@ -169,10 +168,12 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 			hash.Write(encoded)
 		}
 	}
+	// Frames group by function, not line, so an unchanged failure keeps its
+	// group when a release moves the code around it.
 	if trace != nil && fields["reason_code"] == nil {
 		for _, frame := range trace.Frames {
 			hash.Write([]byte(frame.Module + frame.Function + frame.Filename))
-			hash.Write(binary.LittleEndian.AppendUint64(nil, uint64(frame.Lineno)))
+			hash.Write([]byte{0})
 		}
 	}
 	event := &sentry.Event{

@@ -35,6 +35,7 @@ func TestRecordFailure(t *testing.T) {
 		{"wrapped", Failed, fmt.Errorf("reading: %w", protocol.Fault{Code: protocol.ErrorCodeNotFound}), slog.LevelError, "not_found"},
 		{"other error", Failed, errors.New("disk failed"), slog.LevelError, "internal"},
 		{"no error", Failed, nil, slog.LevelError, "unspecified"},
+		{"setup", Failed, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Git executable not found on execution Node"}, slog.LevelWarn, "not_configured"},
 		{"cancelled", Failed, &protocol.Fault{Code: protocol.ErrorCodeCancelled}, slog.LevelWarn, "cancelled"},
 		{"conflict", Conflict, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict}, slog.LevelWarn, "revision_conflict"},
 		{"uncertain", Uncertain, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}, slog.LevelWarn, "outcome_unknown"},

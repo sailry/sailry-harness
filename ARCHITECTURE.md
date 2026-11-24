@@ -1479,7 +1479,8 @@ silently rerunning uncertain effects. Notifications have one Node-owned store.
 Automatic error reporting is inactive while its switch is off. Configuration
 refusals carry a bounded reason through command admission and completion. Explicit
 setup states (such as missing defaults, sign-in required or a disabled provider)
-are warnings kept as breadcrumbs, not standalone Sentry errors. Missing captured configuration,
+are warnings kept as breadcrumbs, not standalone Sentry errors; Desktop logs every
+`not_configured` failure, such as a missing Git executable, as a warning. Missing captured configuration,
 missing retained credentials and unclassified failures remain errors.
 
 Two Sentry groups need more evidence than their titles provide:
@@ -1514,7 +1515,8 @@ For covered queue and workspace commands, Node adds a fresh random UUIDv4
 (`report_ref`) to the delivered fault and its log record, not to the stored
 receipt. Match that value to the Desktop failure to trace one delivery. It is
 not a request, session or user ID, is not reused on redelivery and is not part
-of the Sentry grouping fingerprint. Only allowlisted fields leave the log;
+of the Sentry grouping fingerprint. Stack frames enter the fingerprint by module,
+function and file, not line, so a release does not regroup an unchanged failure. Only allowlisted fields leave the log;
 fault text, paths, credentials and conversation contents do not.
 
 Only a failed automatic **operation report** can enter the retry queue; Node

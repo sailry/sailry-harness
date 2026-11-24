@@ -20,7 +20,8 @@ func Fail(c *ui.Context, outcome Outcome, key string, err error) {
 // RecordFailure logs a failure shown to the user under its stable operation
 // name. A failed outcome is an error. A Node-issued reference may accompany
 // the public diagnostic fields; the fault message stays in the local log.
-// Conflicts, uncertain outcomes and cancellations are warnings.
+// Conflicts, uncertain outcomes and cancellations are warnings, as are
+// Desktop's not_configured setup states; a plugin's chosen code stays as given.
 func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...slog.Attr) {
 	fault := failureFault(err)
 	code := string(fault.Code)
@@ -42,7 +43,7 @@ func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...
 		}
 	}
 	level := slog.LevelError
-	if outcome != Failed || code == string(protocol.ErrorCodeCancelled) {
+	if outcome != Failed || code == string(protocol.ErrorCodeCancelled) || area == "desktop" && code == string(protocol.ErrorCodeNotConfigured) {
 		level = slog.LevelWarn
 	}
 	attrs = append(attrs, slog.String("area", area), slog.String("operation", operation),

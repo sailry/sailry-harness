@@ -75,3 +75,20 @@ func TestReasonFingerprint(t *testing.T) {
 		t.Fatal("distinct reasons grouped together")
 	}
 }
+
+// A failure without a reason groups by its stack's functions: a release that
+// moves its lines keeps the group, and another call path opens its own.
+func TestStackFingerprintIgnoresLines(t *testing.T) {
+	c, _ := control(true, false)
+	defer c.Close()
+	fields := logging.Remote(logging.Fields{"area": "desktop", "operation": "inspect_git", "phase": "failed", "code": "busy"})
+	group := func(function string, line int) string {
+		return c.eventLocked("operation", fields, &sentry.Stacktrace{Frames: []sentry.Frame{{Module: "live", Function: function, Filename: "workspace_state.go", Lineno: line}}}).Fingerprint[0]
+	}
+	if group("reportRead", 401) != group("reportRead", 412) {
+		t.Fatal("a moved line split an unchanged failure")
+	}
+	if group("reportRead", 401) == group("reportWrite", 401) {
+		t.Fatal("distinct call paths grouped together")
+	}
+}
