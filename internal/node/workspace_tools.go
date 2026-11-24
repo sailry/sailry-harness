@@ -29,9 +29,7 @@ type workspaceToolCall struct {
 	prepared       *files.Prepared
 	approval       protocol.ApprovalID
 	commandControl *process.ControlTarget
-	// external is the volume root of a Full-permission call outside the
-	// session worktree (workspace_external.go), or "".
-	external string
+	fileScope      externalFileScope
 }
 
 const childRunCommandDescription = "Run a command on the Node. Provide a short description and use the admitted worktree by default. The foreground timeout defaults to 120000 ms. For longer work use background=true, then read_command with wait_ms to collect the result before returning to the parent. Background commands stop when the delegated task ends. Use pty=true with background=true for a command that needs a terminal. Output reports truncation. Invoke the tool directly so it can obtain consent when needed."
@@ -184,7 +182,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 				}
 			}
 			if files.SupportsMutation(command.Kind) {
-				if err = node.protectWorkspaceMutation(inv.Worktree.Path, inv.Worktree.Path, command, current.prepared); err != nil {
+				if err = node.protectWorkspaceMutation(inv.Worktree.Path, inv.Worktree.Path, command, current.prepared, externalFileScope{}); err != nil {
 					return err
 				}
 			}
@@ -530,9 +528,10 @@ func (node *Node) workspaceToolValue(session protocol.Session, request protocol.
 // workspaceRevisions follows the canonical history visible to this turn. Receipts
 // from a successful write are observations of its new revision, like reads.
 type workspaceRevisions struct {
-	paths map[string]string
-	count int
-	last  string
+	paths    map[string]string
+	count    int
+	last     string
+	worktree string
 }
 
 func (r *workspaceRevisions) update(records []canonical.Record) {
@@ -581,6 +580,7 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 	data := value.Data
 	if value.Kind == "file_changes" {
 		for _, file := range data.Files {
+			file.Path, file.Destination = r.pathKey(file.Path), r.pathKey(file.Destination)
 			switch file.Status {
 			case protocol.ChangeStatusUnknown:
 				delete(r.paths, file.Path)
@@ -608,14 +608,14 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 	switch value.Kind {
 	case "file_content", "file_lines", "file_written", "notebook_page":
 		if data.Revision != "" {
-			r.paths[data.Path] = data.Revision
+			r.paths[r.pathKey(data.Path)] = data.Revision
 		}
 	case "entry_trashed":
-		r.invalidateTree(data.Path)
+		r.invalidateTree(r.pathKey(data.Path))
 	case "entry_moved":
 		// Generic entry operations may move directories across roots.
-		r.invalidateTree(data.From)
-		r.invalidateTree(data.To)
+		r.invalidateTree(r.pathKey(data.From))
+		r.invalidateTree(r.pathKey(data.To))
 	}
 }
 
@@ -652,8 +652,7 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 	}
 	revision, ok := r.paths[path]
 	if !ok && path != "" {
-		// Results name paths with forward slashes, Windows ones included.
-		revision, ok = r.paths[pathpkg.Clean(filepath.ToSlash(path))]
+		revision, ok = r.paths[r.pathKey(path)]
 	}
 	switch {
 	case operation == protocol.ToolOperationWriteFile:
@@ -664,6 +663,20 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
 	}
 	return json.Marshal(values)
+}
+
+func (r *workspaceRevisions) pathKey(path string) string {
+	if filepath.IsAbs(path) {
+		path = filepath.Clean(path)
+		if r.worktree != "" {
+			path = localPath(r.worktree, path)
+		}
+		return filepath.ToSlash(path)
+	}
+	if path == "" {
+		return ""
+	}
+	return pathpkg.Clean(filepath.ToSlash(path))
 }
 
 func (r *workspaceRevisions) invalidateTree(path string) {

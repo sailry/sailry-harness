@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -11,23 +12,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Full permission runs commands under the Node's OS access, so its file tools
-// reach the same places: an absolute path outside the session worktree runs
-// the same confined file operation from that path's volume root instead of a
-// registered worktree. Those calls have no worktree, so they take no worktree
-// locks, checkpoints or durable admission; revisions still guard their writes.
+// An outside path runs the confined operation from its volume root. A change
+// set that also names worktree files retains that worktree's effect ownership.
+type externalFileScope struct {
+	root     string
+	worktree string
+}
 
 // externalPathKeys are the file tool arguments that name paths.
 var externalPathKeys = []string{"path", "destination"}
 
 // patchPathPrefixes introduce the paths of an apply_patch input.
 var patchPathPrefixes = []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "}
-
-// within reports whether clean absolute path lies in root or is root.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
 
 // localPath maps an absolute path inside the worktree to its worktree-relative
 // form; other paths are unchanged.
@@ -36,11 +32,11 @@ func localPath(worktree, path string) string {
 		return path
 	}
 	clean := filepath.Clean(path)
-	if clean == worktree {
-		return "."
-	}
-	if within(worktree, clean) {
+	if withinWorkspace(clean, worktree) {
 		rel, _ := filepath.Rel(worktree, clean)
+		if rel == "." {
+			return ""
+		}
 		return filepath.ToSlash(rel)
 	}
 	return path
@@ -50,7 +46,7 @@ func localPath(worktree, path string) string {
 // worktree, or "" when every path is in the worktree.
 func externalRoot(worktree string, paths []string) string {
 	for _, path := range paths {
-		if filepath.IsAbs(path) && !within(worktree, filepath.Clean(path)) {
+		if filepath.IsAbs(path) && !withinWorkspace(filepath.Clean(path), worktree) {
 			return filepath.VolumeName(path) + string(filepath.Separator)
 		}
 	}
@@ -62,6 +58,9 @@ func externalRoot(worktree string, paths []string) string {
 func rootPath(worktree, root, path string) (string, error) {
 	absolute := path
 	if !filepath.IsAbs(path) {
+		if err := core.CheckFilePath(path); err != nil {
+			return "", err
+		}
 		absolute = filepath.Join(worktree, filepath.FromSlash(path))
 	}
 	absolute = filepath.Clean(absolute)
@@ -127,8 +126,8 @@ func patchPaths(input string, change func(string) (string, error)) (string, erro
 	for i, line := range lines {
 		for _, prefix := range patchPathPrefixes {
 			if path, ok := strings.CutPrefix(line, prefix); ok {
-				trimmed := strings.TrimRight(path, "\r")
-				next, err := change(strings.TrimSpace(trimmed))
+				trimmed := strings.TrimSuffix(path, "\r")
+				next, err := change(trimmed)
 				if err != nil {
 					return "", err
 				}
@@ -150,40 +149,108 @@ func collectFileArgPaths(op protocol.ToolOperation, args json.RawMessage) []stri
 	return paths
 }
 
-// absoluteResult rewrites the paths of a file tool result run from root back
-// to absolute paths, so the model reads, and later revisions match, the paths
-// it named.
-func absoluteResult(root string, value any) any {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return value
+func (scope externalFileScope) resultPath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
 	}
-	var tree any
-	if json.Unmarshal(raw, &tree) != nil {
-		return value
+	path = filepath.Join(scope.root, filepath.FromSlash(path))
+	if scope.worktree != "" {
+		path = localPath(scope.worktree, path)
 	}
-	var walk func(any)
-	walk = func(node any) {
-		switch v := node.(type) {
-		case map[string]any:
-			for key, child := range v {
-				switch key {
-				case "path", "destination", "from", "to":
-					if path, ok := child.(string); ok && path != "" && !filepath.IsAbs(path) {
-						v[key] = filepath.ToSlash(filepath.Join(root, filepath.FromSlash(path)))
-						continue
-					}
-				}
-				walk(child)
+	return filepath.ToSlash(path)
+}
+
+// result names only the paths defined by the file protocol. Opaque notebook
+// values, cursor names and other file content are returned in their own format.
+func (scope externalFileScope) result(output protocol.Output) protocol.Output {
+	path := scope.resultPath
+	paths := func(values []string) []string {
+		values = slices.Clone(values)
+		for i := range values {
+			values[i] = path(values[i])
+		}
+		return values
+	}
+	diagnostics := func(values []protocol.SearchDiagnostic) []protocol.SearchDiagnostic {
+		values = slices.Clone(values)
+		for i := range values {
+			values[i].Path = path(values[i].Path)
+		}
+		return values
+	}
+	switch value := output.Data.(type) {
+	case protocol.Directory:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.FileContent:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.FileLines:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.FileImage:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.FileNames:
+		value.Paths, value.Diagnostics = paths(value.Paths), diagnostics(value.Diagnostics)
+		output.Data = value
+	case protocol.SearchResults:
+		value.Paths, value.Diagnostics = paths(value.Paths), diagnostics(value.Diagnostics)
+		value.Matches, value.Counts = slices.Clone(value.Matches), slices.Clone(value.Counts)
+		for i := range value.Matches {
+			value.Matches[i].Path = path(value.Matches[i].Path)
+		}
+		for i := range value.Counts {
+			value.Counts[i].Path = path(value.Counts[i].Path)
+		}
+		output.Data = value
+	case protocol.NotebookPage:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.FileWritten:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.OutputDirectoryCreatedPayload:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.OutputEntryTrashedPayload:
+		value.Path = path(value.Path)
+		output.Data = value
+	case protocol.OutputEntryMovedPayload:
+		value.From, value.To = path(value.From), path(value.To)
+		output.Data = value
+	case protocol.FileChanges:
+		value.Files = slices.Clone(value.Files)
+		for i := range value.Files {
+			entry := &value.Files[i]
+			if entry.Path != "" {
+				entry.Path = path(entry.Path)
 			}
-		case []any:
-			for _, child := range v {
-				walk(child)
+			if entry.Destination != nil {
+				destination := path(*entry.Destination)
+				entry.Destination = &destination
 			}
 		}
+		output.Data = value
 	}
-	walk(tree)
-	return tree
+	return output
+}
+
+// checkpoints presents only the worktree writes to the checkpoint store,
+// retaining the original command bound to its admission receipt.
+func (scope externalFileScope) checkpoints(prepared *files.Prepared) *files.Prepared {
+	if scope.worktree == "" {
+		return prepared
+	}
+	local := *prepared
+	local.Changes = nil
+	for _, entry := range prepared.Changes {
+		entry.Path = scope.resultPath(entry.Path)
+		if !filepath.IsAbs(entry.Path) {
+			local.Changes = append(local.Changes, entry)
+		}
+	}
+	return &local
 }
 
 // rootRevisions keys observed revisions by their paths relative to root.
@@ -224,7 +291,7 @@ func (node *Node) externalFileIO(ctx context.Context, caller protocol.NodeID, re
 	case files.SupportsRead(command.Kind):
 		return node.inspectWorkspaceFiles(ctx, request, root, access)
 	case fileTextMutation(command.Kind):
-		if err := node.protectWorkspaceMutation(root, root, command, prepared); err != nil {
+		if err := node.protectWorkspaceMutation(root, root, command, prepared, externalFileScope{}); err != nil {
 			return protocol.Output{}, err
 		}
 		if prepared == nil {
@@ -234,7 +301,7 @@ func (node *Node) externalFileIO(ctx context.Context, caller protocol.NodeID, re
 		}
 		return files.Apply(ctx, root, prepared)
 	case files.SupportsMutation(command.Kind):
-		if err := node.protectWorkspaceMutation(root, root, command, prepared); err != nil {
+		if err := node.protectWorkspaceMutation(root, root, command, prepared, externalFileScope{}); err != nil {
 			return protocol.Output{}, err
 		}
 		return files.MutateEntries(ctx, root, root, command, access)
