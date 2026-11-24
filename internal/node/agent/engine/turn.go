@@ -17,6 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -350,7 +351,7 @@ func (r *Runtime) turn(x *execution) error {
 	}
 	sandboxed := sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull && (runtime.GOOS == "darwin" || runtime.GOOS == "linux")
 	commands := capturedModel(binding).Tools && findTool(x.tools, "run_command") != nil
-	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, os.Getenv("SHELL"), inv.Worktree.Project != nil, commands, sandboxed)
+	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, process.NewEnvironment(os.Environ()).Shell(), inv.Worktree.Project != nil, commands, sandboxed)
 	personal, err := prompt.CapturePersonal(x.ctx, r.profile)
 	if err != nil {
 		return err
