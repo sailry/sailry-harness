@@ -77,10 +77,10 @@ class TaskRow extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: TypeScale.body,
                                 fontWeight: dim
-                                    ? FontWeight.w400
+                                    ? FontWeight.w500
                                     : FontWeight.w600,
                                 color: dim
-                                    ? colors.onSurface.withValues(alpha: .8)
+                                    ? colors.onSurface.withValues(alpha: .88)
                                     : colors.onSurface,
                               ),
                             ),

@@ -130,7 +130,9 @@ abstract final class SailryTheme {
     final dark = brightness == Brightness.dark;
     final brand = choice.color(brightness);
     final selection = brand.withValues(alpha: dark ? .22 : .14);
-    final ink = Color(dark ? 0xffeeece4 : 0xff282722);
+    // Primary text sits near the extremes and secondary text clearly below
+    // it, so titles and their second lines read as two levels.
+    final ink = Color(dark ? 0xfff4f2ec : 0xff1f1e1a);
     final background = Color(dark ? 0xff101112 : 0xffeeebe6);
     final colors =
         ColorScheme.fromSeed(
@@ -152,7 +154,7 @@ abstract final class SailryTheme {
           surfaceContainerHighest: Color(dark ? 0x19b9bfa5 : 0x8cd5d2c9),
           surfaceTint: Colors.transparent,
           onSurface: ink,
-          onSurfaceVariant: Color(dark ? 0xff9d9f93 : 0xff77746b),
+          onSurfaceVariant: Color(dark ? 0xff85877e : 0xff85827a),
           outline: Color(dark ? 0x11e6eed3 : 0x69ffffff),
           outlineVariant: Color(dark ? 0x14d1ddbf : 0x16494637),
         );
