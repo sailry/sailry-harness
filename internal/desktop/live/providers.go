@@ -58,8 +58,25 @@ func (r *Runtime) refreshModelCatalog() {
 	})
 }
 
-// followModelCatalog refreshes missing network datasets once on entering the
-// page. A failed fetch waits for another visit or the explicit Update action.
+const modelCatalogStaleAfter = 24 * time.Hour
+
+func modelCatalogStale(status protocol.ConversationCatalogStatus, now time.Time) bool {
+	cutoff := now.Add(-modelCatalogStaleAfter).UnixMilli()
+	if cutoff <= 0 {
+		return false
+	}
+	stale := func(checked, updated *uint64) bool {
+		ts := checked
+		if ts == nil {
+			ts = updated
+		}
+		return ts != nil && int64(*ts) <= cutoff
+	}
+	return stale(nil, status.UpdatedAtMs) || stale(status.Scores.CheckedAtMs, status.Scores.UpdatedAtMs)
+}
+
+// followModelCatalog refreshes missing or stale network datasets once on
+// entering the page. A failed fetch waits for another visit or Update.
 func (r *Runtime) followModelCatalog() {
 	root := r.localRuntime()
 	if root.App.Page != shell.SettingsPage || root.App.Settings.Section != settings.Providers {
@@ -72,7 +89,7 @@ func (r *Runtime) followModelCatalog() {
 	}
 	r.modelCatalogEntered = true
 	status := r.snapshot().ModelCatalog
-	if status.UpdatedAtMs == nil || status.Scores.UpdatedAtMs == nil {
+	if status.UpdatedAtMs == nil || status.Scores.UpdatedAtMs == nil || modelCatalogStale(status, time.Now()) {
 		r.refreshModelCatalog()
 	}
 }

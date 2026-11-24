@@ -78,6 +78,7 @@ func ParseScores(raw []byte) (*ScoresDataset, error) {
 		Candidate       string   `json:"candidate_id"`
 		Model           string   `json:"model_id"`
 		Effort          string   `json:"reasoning_effort"`
+		ListingReplaces string   `json:"listing_replaces"`
 		Overall         *float32 `json:"overall_score"`
 		Backend         *float64 `json:"backend_score"`
 		Frontend        *float64 `json:"frontend_score"`
@@ -103,35 +104,52 @@ func ParseScores(raw []byte) (*ScoresDataset, error) {
 		return nil, unavailable("model scores snapshot is invalid")
 	}
 	sort.SliceStable(snapshot.Entries, func(i, j int) bool { return snapshot.Entries[i].Candidate < snapshot.Entries[j].Candidate })
-	result := &ScoresDataset{Batch: snapshot.Batch, PublishedAt: snapshot.Published, Aliases: map[string]string{}}
-	seen := map[string]bool{}
-	models := map[string]bool{}
-	for _, entry := range snapshot.Entries {
-		if entry.Overall == nil || !validScore(float64(*entry.Overall)) || entry.Model == "" || len(entry.Model) > 256 {
-			continue
-		}
-		axes := []*float64{entry.Backend, entry.Frontend, entry.Knowledge, entry.Aesthetic, entry.Maintainability}
-		valid := true
-		var rounded [5]uint8
-		for i, axis := range axes {
-			if axis == nil || !validScore(*axis) {
-				valid = false
-				break
-			}
-			rounded[i] = uint8(math.Round(*axis))
-		}
-		if !valid {
-			continue
-		}
+	resolveEffort := func(entry row) (string, bool) {
 		effort := entry.Effort
 		if override, ok := document.Efforts[entry.Model][effort]; ok {
 			effort = override
 		}
 		switch effort {
 		case "low", "medium", "high", "xhigh", "max":
+			return effort, true
 		case "default", "unknown":
-			effort = "default"
+			return "default", true
 		default:
+			return "", false
+		}
+	}
+	validEntry := func(entry row) ([5]uint8, string, bool) {
+		var rounded [5]uint8
+		if entry.Overall == nil || !validScore(float64(*entry.Overall)) || entry.Model == "" || len(entry.Model) > 256 {
+			return rounded, "", false
+		}
+		axes := []*float64{entry.Backend, entry.Frontend, entry.Knowledge, entry.Aesthetic, entry.Maintainability}
+		for i, axis := range axes {
+			if axis == nil || !validScore(*axis) {
+				return rounded, "", false
+			}
+			rounded[i] = uint8(math.Round(*axis))
+		}
+		effort, ok := resolveEffort(entry)
+		return rounded, effort, ok
+	}
+	replaced := map[string]bool{}
+	for _, entry := range snapshot.Entries {
+		if entry.ListingReplaces != "" {
+			if _, _, ok := validEntry(entry); ok {
+				replaced[entry.ListingReplaces] = true
+			}
+		}
+	}
+	result := &ScoresDataset{Batch: snapshot.Batch, PublishedAt: snapshot.Published, Aliases: map[string]string{}}
+	seen := map[string]bool{}
+	models := map[string]bool{}
+	for _, entry := range snapshot.Entries {
+		if replaced[entry.Candidate] {
+			continue
+		}
+		rounded, effort, ok := validEntry(entry)
+		if !ok {
 			continue
 		}
 		key := entry.Model + "\x00" + effort
@@ -206,10 +224,14 @@ func validScore(value float64) bool {
 }
 func NormalizeScoreName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if at := strings.Index(name, "/"); at >= 0 {
+	if at := strings.LastIndex(name, "/"); at >= 0 {
 		name = name[at+1:]
 	}
-	name = strings.NewReplacer(".", "-", "_", "-").Replace(name)
+	name = strings.TrimSuffix(name, ":free")
+	tokens := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '.' || r == '_' || r == '-' || r == ' ' || r == '\t'
+	})
+	name = strings.Join(tokens, "-")
 	name = strings.TrimSuffix(name, "-latest")
 	parts := strings.Split(name, "-")
 	n := len(parts)
@@ -232,6 +254,23 @@ func NormalizeScoreName(name string) string {
 	}
 	return name
 }
+
+func stripScoreEffort(normalized string) (string, string) {
+	for _, effort := range []string{"xhigh", "minimal", "medium", "high", "low"} {
+		if base, ok := strings.CutSuffix(normalized, "-"+effort); ok && base != "" {
+			return base, effort
+		}
+	}
+	return normalized, ""
+}
+
+// ScoreEffortHint returns the reasoning effort encoded as a trailing suffix on
+// a model identifier (for example "-high"), or "" when none is present.
+func ScoreEffortHint(name string) string {
+	_, effort := stripScoreEffort(NormalizeScoreName(name))
+	return effort
+}
+
 func ResolveScore(candidates []string, models []string, aliases map[string]string) *string {
 	matches := map[string]bool{}
 	for _, candidate := range candidates {
@@ -254,6 +293,31 @@ func ResolveScore(candidates []string, models []string, aliases map[string]strin
 		if normalized == "k2-8" {
 			for _, model := range models {
 				if NormalizeScoreName(model) == "kimi-for-coding" {
+					matches[model] = true
+				}
+			}
+		}
+	}
+	if len(matches) == 0 {
+		for _, candidate := range candidates {
+			normalized := NormalizeScoreName(candidate)
+			base, _ := stripScoreEffort(normalized)
+			direct := false
+			for _, model := range models {
+				modelNorm := NormalizeScoreName(model)
+				modelBase, _ := stripScoreEffort(modelNorm)
+				if modelNorm == base || modelBase == base {
+					matches[model] = true
+					direct = true
+				}
+			}
+			if direct {
+				continue
+			}
+			for alias, model := range aliases {
+				aliasNorm := NormalizeScoreName(alias)
+				aliasBase, _ := stripScoreEffort(aliasNorm)
+				if aliasNorm == base || aliasBase == base {
 					matches[model] = true
 				}
 			}

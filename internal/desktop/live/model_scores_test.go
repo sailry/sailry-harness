@@ -107,3 +107,55 @@ func TestModelProjectionReusesCatalog(t *testing.T) {
 		}
 	})
 }
+
+func TestModelProjectionUsesEffortHintForEncodedIDs(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{1}
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Revision, provider.Enabled = protocol.ProviderID{4}, 1, true
+		provider.Name, provider.Api, provider.Authentication = "Fixture", "responses", "api_key"
+		provider.Models = []protocol.ConversationModel{
+			{ID: "agy-cli/claude-sonnet-5-5-low", DefaultEffort: protocol.Effort{Kind: "default"}},
+			{ID: "agy-cli/claude-sonnet-5-5-high", DefaultEffort: protocol.Effort{Kind: "default"}},
+		}
+		snapshot.Providers = []protocol.ConversationProvider{provider}
+		r, source := snapshotFixture(t, snapshot)
+		source.respond = func(req protocol.Request) link.Response {
+			if req.Command.Kind != "read_model_scores" {
+				return link.Response{}
+			}
+			return link.Response{Output: protocol.Output{Kind: "model_scores", Data: protocol.ConversationCatalogScores{
+				Scores: []protocol.ConversationCatalogScoresModelScore{
+					{
+						Provider: provider.ID,
+						Model:    "agy-cli/claude-sonnet-5-5-low",
+						Efforts: []protocol.ConversationCatalogScoresEffortScore{
+							{Effort: protocol.Effort{Kind: "low"}, Overall: 61.5},
+							{Effort: protocol.Effort{Kind: "high"}, Overall: 84.2},
+						},
+					},
+					{
+						Provider: provider.ID,
+						Model:    "agy-cli/claude-sonnet-5-5-high",
+						Efforts: []protocol.ConversationCatalogScoresEffortScore{
+							{Effort: protocol.Effort{Kind: "low"}, Overall: 61.5},
+							{Effort: protocol.Effort{Kind: "high"}, Overall: 84.2},
+						},
+					},
+				},
+			}}}
+		}
+		tester := pluginUpdateQueueTester(r)
+		r.projectModels()
+		synctest.Wait()
+		tester.Frame()
+		synctest.Wait()
+		if len(r.nodeModels) != 2 || r.nodeModels[0].Score == nil || r.nodeModels[1].Score == nil {
+			t.Fatalf("projected models missing scores: %+v", r.nodeModels)
+		}
+		if float32(r.nodeModels[0].Score.Overall) != float32(61.5) || float32(r.nodeModels[1].Score.Overall) != float32(84.2) {
+			t.Fatalf("effort-hint scores = (%.2f, %.2f), want (61.5, 84.2)", r.nodeModels[0].Score.Overall, r.nodeModels[1].Score.Overall)
+		}
+	})
+}

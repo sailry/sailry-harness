@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -72,7 +73,13 @@ func (r *Runtime) projectModel(p protocol.ConversationProvider, m protocol.Conve
 		name = *m.DisplayName
 	}
 	id := modelKey(p.ID, m.ID)
-	v := composer.Model{ID: id, Name: name, Provider: p.Name, Reasoning: m.Reasoning, Family: modelFamily(p.Api), DefaultEffort: effortName(m.DefaultEffort), Score: r.measuredScore(id, m.DefaultEffort)}
+	scoreEffort := m.DefaultEffort
+	if scoreEffort.Kind == "" || scoreEffort.Kind == "default" {
+		if hinted := nodeproviders.ScoreEffortHint(m.ID); hinted != "" {
+			scoreEffort = protocol.Effort{Kind: hinted}
+		}
+	}
+	v := composer.Model{ID: id, Name: name, Provider: p.Name, Reasoning: m.Reasoning, Family: modelFamily(p.Api), DefaultEffort: effortName(m.DefaultEffort), Score: r.measuredScore(id, scoreEffort)}
 	for _, e := range m.Efforts {
 		v.Efforts = append(v.Efforts, effortName(e))
 	}

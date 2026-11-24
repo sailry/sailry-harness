@@ -3,6 +3,7 @@ package live
 import (
 	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -15,26 +16,33 @@ import (
 
 func TestModelCatalogInitialPageFetch(t *testing.T) {
 	for _, test := range []struct {
-		name                      string
-		metadata, scores, bundled bool
+		name                             string
+		metadata, scores, bundled, stale bool
 	}{
-		{"empty catalog", false, false, false},
-		{"metadata already available", true, false, false},
-		{"scores already available", false, true, false},
-		{"catalog already available", true, true, false},
-		{"bundled metadata", false, false, true},
-		{"bundled metadata with scores", false, true, true},
+		{"empty catalog", false, false, false, false},
+		{"metadata already available", true, false, false, false},
+		{"scores already available", false, true, false, false},
+		{"catalog already available", true, true, false, false},
+		{"stale scores refresh on visit", true, true, false, true},
+		{"bundled metadata", false, false, true, false},
+		{"bundled metadata with scores", false, true, true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node = protocol.NodeID{1}
 			snapshot.ModelCatalog.Bundled = test.bundled
-			updated := uint64(1)
+			fresh := uint64(time.Now().UnixMilli())
+			old := uint64(time.Now().Add(-48 * time.Hour).UnixMilli())
 			if test.metadata {
-				snapshot.ModelCatalog.UpdatedAtMs = &updated
+				snapshot.ModelCatalog.UpdatedAtMs = &fresh
 			}
 			if test.scores {
-				snapshot.ModelCatalog.Scores.UpdatedAtMs = &updated
+				ts := fresh
+				if test.stale {
+					ts = old
+				}
+				snapshot.ModelCatalog.Scores.UpdatedAtMs = &ts
+				snapshot.ModelCatalog.Scores.CheckedAtMs = &ts
 			}
 			transport := &conversationTestTransport{snapshot: snapshot}
 			transport.handle = func(request protocol.Request) (link.Response, bool) {
@@ -82,7 +90,7 @@ func TestModelCatalogInitialPageFetch(t *testing.T) {
 			r.App.Settings.Open(settings.Providers)
 			settle()
 			expected := 0
-			if !test.metadata || !test.scores {
+			if !test.metadata || !test.scores || test.stale {
 				expected = 1
 			}
 			if catalog := r.App.Settings.Catalog; catalog.Bundled != test.bundled || !test.metadata && catalog.Last != "" {

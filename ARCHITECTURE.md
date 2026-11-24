@@ -547,7 +547,8 @@ Each Node embeds a models.dev metadata snapshot for offline capability and
 reasoning-effort lookup. Its successfully downloaded catalog takes precedence;
 failed downloads retain the last usable data. The bundled source has no network
 update timestamp. Desktop displays the Node's source and attempts one refresh on
-entering model settings when metadata or scores have never been downloaded.
+entering model settings when metadata or scores have never been downloaded or
+were last checked more than 24 hours ago.
 Missing metadata blocks adding channels or discovering models with a prompt to
 update model data; it does not block deletion. The repository refreshes the
 snapshot every six hours when its content changes, and releases embed their
