@@ -736,6 +736,9 @@ func (x *conversationActions) Stop() {
 		if turn, err := protocol.ParseTurnID(x.cv.Turns[len(x.cv.Turns)-1].ID); err == nil {
 			x.r.command(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: turn}}, "session_changed", nil)
 		}
+	} else if callbacks := x.comp.ActivityCallbacks; callbacks != nil && callbacks.StopChildren != nil {
+		// A reply that ended can leave its subagents running.
+		callbacks.StopChildren()
 	}
 }
 func (x *conversationActions) LoadOlder() {

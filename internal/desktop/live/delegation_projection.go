@@ -20,8 +20,10 @@ func (r *Runtime) watchChild(id protocol.SessionID) {
 
 func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, language string) {
 	ctx.Activity.Children = nil
+	comp.Stoppable = false
 	if comp.ActivityCallbacks != nil {
 		comp.ActivityCallbacks.ChildElapsed, comp.ActivityCallbacks.StopChild, comp.ActivityCallbacks.ChildBusy = nil, nil, nil
+		comp.ActivityCallbacks.StopChildren = nil
 	}
 	session, ok := r.session(cv.ID)
 	if !ok {
@@ -122,6 +124,19 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 				return
 			}
 			r.stopChild(parent, target.Child.Run)
+		}
+	}
+	// A failed reply hands its subagents to background delivery; the
+	// conversation's Stop still reaches them while they run.
+	stop := comp.ActivityCallbacks.StopChild
+	comp.ActivityCallbacks.StopChildren = func() {
+		for id := range targets {
+			stop(id)
+		}
+	}
+	for _, target := range targets {
+		if status := target.Child.Run.Status; target.Listed && (status == protocol.ConversationStatusQueued || status == protocol.ConversationStatusRunning) {
+			comp.Stoppable = !comp.Running
 		}
 	}
 }

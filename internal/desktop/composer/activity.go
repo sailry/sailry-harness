@@ -53,8 +53,11 @@ type ActivityCallbacks struct {
 	ChildElapsed func(string, time.Time) string
 	// StopChild stops that subagent only; ChildBusy is true while the stop
 	// is in flight. Without StopChild the rows carry no Stop.
-	StopChild       func(string)
-	ChildBusy       func(string) bool
+	StopChild func(string)
+	ChildBusy func(string) bool
+	// StopChildren stops every running subagent of the conversation; Stop
+	// calls it once the reply has ended.
+	StopChildren    func()
 	CommandState    func() (bool, bool)
 	CommandError    func(string) bool
 	CommandBusy     func(string) bool

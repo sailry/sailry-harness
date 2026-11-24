@@ -53,6 +53,9 @@ type State struct {
 	Model             string  // the chosen Model's ID
 	Effort            float64 // index into the chosen model's efforts
 	Running           bool    // a reply is running: Stop replaces Send
+	// Stoppable: the reply ended but the conversation's subagents still run.
+	// While the draft is empty Stop replaces Send and stops them.
+	Stoppable bool
 	// Searching is set by the page while its search bar shows: Escape
 	// closes the bar before it reaches the composer.
 	Searching bool
@@ -492,12 +495,16 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 // the draft is not deliverable.
 func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop func()) {
 	v := theme.Of(c).Variant
-	if s.Running {
-		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
+	if s.Running || s.Stoppable && !s.hasInput() {
+		label := "chat_stop"
+		if !s.Running {
+			label = "subagent_stop"
+		}
+		b := kit.Primary(c.Key("stop"), i18n.T(c, label), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
 		if v != nil {
 			kit.Fill(c, b, v.Composer.Stop, false)
 		}
-		kit.Tooltip(c, b, i18n.T(c, "chat_stop"))
+		kit.Tooltip(c, b, i18n.T(c, label))
 		b.Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
