@@ -111,6 +111,9 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			if name == "guide_agent" {
 				display.Input.Content = field("/message")
 			}
+			// Steering a child is work of the turn, read apart from what
+			// the turn looked at, as launching one is.
+			p.Groupings[name] = protocol.ToolGroupingStandalone
 		case "list_subagents":
 			p.Tools[name] = protocol.ToolPresentationSummary
 		default:

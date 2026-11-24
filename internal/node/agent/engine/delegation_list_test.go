@@ -57,3 +57,29 @@ func TestSubagentListingTool(t *testing.T) {
 		t.Fatal("a captured assistant could not prioritize the native list")
 	}
 }
+
+// Launching and steering children declare standalone rows, so the turn's
+// delegation reads apart from the calls it groups; listing them is a read
+// and joins the run.
+func TestDelegationToolGrouping(t *testing.T) {
+	t.Parallel()
+	f, x := delegationFixture(t)
+	if err := f.r.captureTools(x); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]protocol.ToolGrouping{
+		"spawn_agent": protocol.ToolGroupingStandalone, "guide_agent": protocol.ToolGroupingStandalone,
+		"wait_agent": protocol.ToolGroupingStandalone, "stop_agent": protocol.ToolGroupingStandalone,
+		"list_subagents": "",
+	} {
+		if findTool(x.tools, name) == nil {
+			t.Fatalf("fixture lacks %s", name)
+		}
+		call := canonical.ToolRequest{ID: name, Name: name, Arguments: json.RawMessage(`{}`)}
+		record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &call}), f.r.clock.Now())
+		f.r.captureCorePresentation(&record)
+		if p := record.Metadata.Presentation; p == nil || p.Groupings[name] != want {
+			t.Fatalf("%s grouping = %+v, want %q", name, p, want)
+		}
+	}
+}

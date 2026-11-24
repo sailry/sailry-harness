@@ -3,8 +3,11 @@ package filesnode
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestPrepareLeavesOmittedRevisionToNode(t *testing.T) {
@@ -37,5 +40,20 @@ func TestPrepareLeavesOmittedRevisionToNode(t *testing.T) {
 	}
 	if _, err := prepareEdit(context.Background(), json.RawMessage(`{"path":"a","old_text":"x","new_text":"y","expected_revision":"short"}`)); err == nil {
 		t.Fatal("a malformed revision was accepted")
+	}
+}
+
+// Edits declare standalone rows, so a transcript shows the changes a turn
+// made apart from the reads and searches it groups.
+func TestCatalogGroupsEditsApart(t *testing.T) {
+	edits := []string{"write_file", "edit_file", "apply_patch", "delete_file", "move_file", "edit_notebook"}
+	for _, meta := range Module().Catalog() {
+		want := protocol.ToolGroupingSequence
+		if slices.Contains(edits, meta.Name) {
+			want = protocol.ToolGroupingStandalone
+		}
+		if meta.Grouping != want {
+			t.Errorf("%s grouping = %q, want %q", meta.Name, meta.Grouping, want)
+		}
 	}
 }
