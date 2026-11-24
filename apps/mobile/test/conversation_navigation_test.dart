@@ -969,9 +969,15 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pump(const Duration(milliseconds: 300));
         expect(_message('Owned transcript'), findsOneWidget);
+        // The pill floats centered over the transcript instead of
+        // pushing it down.
         expect(
-          tester.getRect(find.byType(ConnectionBanner)).bottom,
-          lessThanOrEqualTo(tester.getRect(find.byType(LiveTimeline)).top),
+          tester.getCenter(find.byKey(const ValueKey('connection-banner'))).dx,
+          moreOrLessEquals(tester.getCenter(find.byType(LiveTimeline)).dx),
+        );
+        expect(
+          tester.getRect(find.byType(LiveTimeline)).top,
+          tester.getRect(find.byType(LiveConversationPage)).top,
         );
         expect(
           find.descendant(

@@ -1030,151 +1030,163 @@ class _LiveConversationPageState extends State<LiveConversationPage>
               ),
             ),
           ],
-          bodyBuilder: (context, bottomInset) => LayoutBuilder(
-            builder: (context, constraints) => Column(
-              children: [
-                if (hasBanner)
-                  SizedBox(height: ConversationFrame.contentInset(context)),
-                if (_historyPending != null)
-                  MaterialBanner(
-                    content: Text(context.tr('conversationUnknown')),
-                    actions: [
-                      TextButton(
-                        onPressed: _historyBusy ? null : _checkHistory,
-                        child: Text(context.tr('messageCheck')),
-                      ),
-                    ],
-                  ),
-                if (_backup != null)
-                  MaterialBanner(
-                    content: Text(context.tr('messageHistoryUpdated')),
-                    actions: [
-                      TextButton(
-                        onPressed: () => _openSession(_backup!),
-                        child: Text(context.tr('messageBackup')),
-                      ),
-                      IconButton(
-                        tooltip: context.tr('close'),
-                        onPressed: () => setState(() => _backup = null),
-                        icon: const AppIcon('close'),
-                      ),
-                    ],
-                  ),
-                if (_pendingSend != null)
-                  MaterialBanner(
-                    content: Text(context.tr('conversationUnknown')),
-                    actions: [
-                      TextButton(
-                        onPressed: _sending || !connected ? null : _checkSend,
-                        child: Text(context.tr('conversationCheckResult')),
-                      ),
-                    ],
-                  ),
-                if (hasTranscript)
-                  ConnectionBanner(
-                    visible: showConnectionBanner,
-                    reconnecting: recovering,
-                    topInset: hasBanner
-                        ? 0
-                        : ConversationFrame.contentInset(context),
-                    failureKey: failureKey,
-                    onRetry: retry,
-                  ),
-                Expanded(
-                  child: unavailable && !hasTranscript
-                      ? Padding(
-                          padding: EdgeInsets.only(
-                            top: ConversationFrame.contentInset(context),
-                            bottom: bottomInset,
+          bodyBuilder: (context, bottomInset) => Stack(
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) => Column(
+                  children: [
+                    if (hasBanner)
+                      SizedBox(height: ConversationFrame.contentInset(context)),
+                    if (_historyPending != null)
+                      MaterialBanner(
+                        content: Text(context.tr('conversationUnknown')),
+                        actions: [
+                          TextButton(
+                            onPressed: _historyBusy ? null : _checkHistory,
+                            child: Text(context.tr('messageCheck')),
                           ),
-                          child: loading
-                              ? DeferredLoading(
-                                  label: context.tr('conversationLoading'),
-                                )
-                              : DisconnectedState(
-                                  reconnecting: recovering,
-                                  failureKey: failureKey,
-                                  onRetry: retry,
-                                ),
-                        )
-                      : connected && !hasTranscript
-                      ? CustomScrollView(
-                          slivers: [
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: EmptyState(
-                                icon: 'chat',
-                                message: context.tr('conversationEmpty'),
+                        ],
+                      ),
+                    if (_backup != null)
+                      MaterialBanner(
+                        content: Text(context.tr('messageHistoryUpdated')),
+                        actions: [
+                          TextButton(
+                            onPressed: () => _openSession(_backup!),
+                            child: Text(context.tr('messageBackup')),
+                          ),
+                          IconButton(
+                            tooltip: context.tr('close'),
+                            onPressed: () => setState(() => _backup = null),
+                            icon: const AppIcon('close'),
+                          ),
+                        ],
+                      ),
+                    if (_pendingSend != null)
+                      MaterialBanner(
+                        content: Text(context.tr('conversationUnknown')),
+                        actions: [
+                          TextButton(
+                            onPressed: _sending || !connected
+                                ? null
+                                : _checkSend,
+                            child: Text(context.tr('conversationCheckResult')),
+                          ),
+                        ],
+                      ),
+                    Expanded(
+                      child: unavailable && !hasTranscript
+                          ? Padding(
+                              padding: EdgeInsets.only(
+                                top: ConversationFrame.contentInset(context),
+                                bottom: bottomInset,
                               ),
-                            ),
-                          ],
-                        )
-                      : !_settled
-                      ? Padding(
-                          padding: EdgeInsets.only(
-                            top: ConversationFrame.contentInset(context),
-                            bottom: bottomInset,
-                          ),
-                          child: DeferredLoading(
-                            label: context.tr('conversationLoading'),
-                          ),
-                        )
-                      : LiveTimeline(
-                          key: ValueKey((widget.host.id, widget.sessionId)),
-                          controller: _scroll,
-                          padding: EdgeInsets.fromLTRB(
-                            20,
-                            hasBanner || showConnectionBanner
-                                ? 0
-                                : ConversationFrame.contentInset(context),
-                            20,
-                            bottomInset + 8,
-                          ),
-                          older: [
-                            if (view['older_error'] != null)
-                              Text(
-                                key: const ValueKey('older-error'),
-                                context.tr(
-                                  connectionFailureKey(view['older_error']) ??
-                                      'conversationFailed',
-                                ),
-                              ),
-                            if (_hasOlder && view['loading_older'] == true)
-                              const Padding(
-                                key: ValueKey('older'),
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Center(
-                                  child: SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                              child: loading
+                                  ? DeferredLoading(
+                                      label: context.tr('conversationLoading'),
+                                    )
+                                  : DisconnectedState(
+                                      reconnecting: recovering,
+                                      failureKey: failureKey,
+                                      onRetry: retry,
                                     ),
+                            )
+                          : connected && !hasTranscript
+                          ? CustomScrollView(
+                              slivers: [
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: EmptyState(
+                                    icon: 'chat',
+                                    message: context.tr('conversationEmpty'),
                                   ),
                                 ),
+                              ],
+                            )
+                          : !_settled
+                          ? Padding(
+                              padding: EdgeInsets.only(
+                                top: ConversationFrame.contentInset(context),
+                                bottom: bottomInset,
                               ),
-                          ],
-                          transcript: _transcript,
-                          connected: view['connected'] == true,
-                          session: _session,
-                          host: widget.host,
-                          command: _command,
-                          onPlanFeedback: _sendPlanFeedback,
-                          pendingPlanFeedback: _pendingPlanFeedback,
-                          toolOutput: _trackTools,
-                          onOpenChild: _openChild,
-                          onOpenLink: _openReplyLink,
-                          onTurnAction: _canUseHistory ? _turnAction : null,
-                          canChangeHistory: _canChangeHistory,
-                          sending: _sending || _pendingSend != null,
-                          artifactActions: _artifactActions,
-                          artifactChanges: _view,
-                          canRestore: () => _canChangeHistory,
-                          turnKey: (turn) =>
-                              _turnKeys.putIfAbsent(turn, GlobalKey.new),
-                        ),
+                              child: DeferredLoading(
+                                label: context.tr('conversationLoading'),
+                              ),
+                            )
+                          : LiveTimeline(
+                              key: ValueKey((widget.host.id, widget.sessionId)),
+                              controller: _scroll,
+                              padding: EdgeInsets.fromLTRB(
+                                20,
+                                hasBanner
+                                    ? 0
+                                    : ConversationFrame.contentInset(context),
+                                20,
+                                bottomInset + 8,
+                              ),
+                              older: [
+                                if (view['older_error'] != null)
+                                  Text(
+                                    key: const ValueKey('older-error'),
+                                    context.tr(
+                                      connectionFailureKey(
+                                            view['older_error'],
+                                          ) ??
+                                          'conversationFailed',
+                                    ),
+                                  ),
+                                if (_hasOlder && view['loading_older'] == true)
+                                  const Padding(
+                                    key: ValueKey('older'),
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Center(
+                                      child: SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              transcript: _transcript,
+                              connected: view['connected'] == true,
+                              session: _session,
+                              host: widget.host,
+                              command: _command,
+                              onPlanFeedback: _sendPlanFeedback,
+                              pendingPlanFeedback: _pendingPlanFeedback,
+                              toolOutput: _trackTools,
+                              onOpenChild: _openChild,
+                              onOpenLink: _openReplyLink,
+                              onTurnAction: _canUseHistory ? _turnAction : null,
+                              canChangeHistory: _canChangeHistory,
+                              sending: _sending || _pendingSend != null,
+                              artifactActions: _artifactActions,
+                              artifactChanges: _view,
+                              canRestore: () => _canChangeHistory,
+                              turnKey: (turn) =>
+                                  _turnKeys.putIfAbsent(turn, GlobalKey.new),
+                            ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              if (hasTranscript)
+                Positioned(
+                  top: ConversationFrame.contentInset(context) - 4,
+                  left: 20,
+                  right: 20,
+                  child: Center(
+                    child: ConnectionBanner(
+                      visible: showConnectionBanner,
+                      reconnecting: recovering,
+                      failureKey: failureKey,
+                      onRetry: retry,
+                    ),
+                  ),
+                ),
+            ],
           ),
           composer: SafeArea(
             top: false,

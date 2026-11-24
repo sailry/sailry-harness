@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/theme.dart';
 
 /// Disclosure state is presentation only; Client owns subscription recovery.
 class ErrorDetails extends StatelessWidget {
@@ -32,27 +33,31 @@ class ErrorDetails extends StatelessWidget {
   );
 }
 
-/// A compact notice above the transcript viewport.
+/// A single-line pill floating at the top center of the transcript, shaped
+/// like a toast so a reconnect never moves the conversation. Reconnecting
+/// takes the warning tone; a lost connection takes the error tone with its
+/// reason and a retry.
 class ConnectionBanner extends StatelessWidget {
   const ConnectionBanner({
     super.key,
     required this.visible,
     required this.reconnecting,
-    this.topInset = 0,
     this.failureKey,
     this.onRetry,
   });
 
   final bool visible;
   final bool reconnecting;
-  final double topInset;
   final String? failureKey;
   final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
+    final colors = Theme.of(context).colorScheme;
+    final tone = reconnecting
+        ? SailryTheme.accentColor(context, AccentTone.yellow)
+        : colors.error;
+    final retry = !reconnecting ? onRetry : null;
     return AnimatedSwitcher(
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
@@ -61,74 +66,97 @@ class ConnectionBanner extends StatelessWidget {
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) => FadeTransition(
         opacity: animation,
-        child: SizeTransition(
-          sizeFactor: animation,
-          alignment: Alignment.topCenter,
+        child: SlideTransition(
+          position: Tween(
+            begin: const Offset(0, -.4),
+            end: Offset.zero,
+          ).animate(animation),
           child: child,
         ),
       ),
       child: !visible
-          ? const SizedBox(width: double.infinity)
-          : Padding(
+          ? const SizedBox.shrink()
+          : Semantics(
               key: const ValueKey('connection-banner'),
-              padding: EdgeInsets.fromLTRB(16, topInset + 4, 16, 8),
-              child: Semantics(
-                liveRegion: true,
-                child: Surface(
-                  radius: 16,
-                  padding: EdgeInsets.fromLTRB(
-                    14,
-                    4,
-                    !reconnecting && onRetry != null ? 4 : 14,
-                    4,
+              liveRegion: true,
+              child: Surface(
+                radius: 20,
+                padding: EdgeInsets.zero,
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: tone.withValues(alpha: .12),
+                    shape: StadiumBorder(
+                      side: BorderSide(color: tone.withValues(alpha: .35)),
+                    ),
                   ),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 36),
-                    child: Row(
-                      children: [
-                        SizedBox.square(
-                          dimension: 16,
-                          child: reconnecting
-                              ? const CircularProgressIndicator(strokeWidth: 2)
-                              : AppIcon(
-                                  'cloud-off',
-                                  size: 16,
-                                  color: colors.error,
-                                ),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      14,
+                      0,
+                      retry == null ? 16 : 4,
+                      0,
+                    ),
+                    child: SizedBox(
+                      height: 36,
+                      child: DefaultTextStyle.merge(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: TypeScale.secondary,
+                          color: tone,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                context.tr(
-                                  reconnecting
-                                      ? 'conversationReconnecting'
-                                      : 'conversationUnavailable',
-                                ),
-                                style: theme.textTheme.bodyMedium,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox.square(
+                              dimension: 14,
+                              child: reconnecting
+                                  ? CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: tone,
+                                    )
+                                  : AppIcon('cloud-off', size: 14, color: tone),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              context.tr(
+                                reconnecting
+                                    ? 'conversationReconnecting'
+                                    : 'conversationUnavailable',
                               ),
-                              if (failureKey case final key?)
-                                Text(
-                                  context.tr(key),
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: colors.onSurfaceVariant,
+                            ),
+                            if (!reconnecting && failureKey != null) ...[
+                              Text(
+                                ' · ',
+                                style: TextStyle(
+                                  color: tone.withValues(alpha: .6),
+                                ),
+                              ),
+                              Flexible(
+                                child: Text(
+                                  context.tr(failureKey!),
+                                  style: TextStyle(
+                                    color: tone.withValues(alpha: .8),
                                   ),
                                 ),
+                              ),
                             ],
-                          ),
+                            if (retry != null)
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: tone,
+                                  visualDensity: VisualDensity.compact,
+                                  textStyle: const TextStyle(
+                                    fontSize: TypeScale.secondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: retry,
+                                child: Text(context.tr('retry')),
+                              ),
+                          ],
                         ),
-                        if (!reconnecting && onRetry != null)
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: onRetry,
-                            child: Text(context.tr('retry')),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
