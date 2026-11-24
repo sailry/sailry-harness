@@ -30,10 +30,9 @@ const (
 	teamRow     = 40
 )
 
-// The model picker's columns: the rail, the list and the efforts, a hairline
-// in a gap of 8 on each side between them. The list is what the page has
-// beside the others: listWidth where the window has room for it. The rail
-// is its tiles, Back's and a family's alike, and railPad on each side.
+// The model picker has a gap after the rail and a hairline with two gaps
+// between the models and the efforts. The list is listWidth where the window
+// has room for it. The rail fits its tiles and railPad on each side.
 const (
 	railTile    = 32
 	railIcon    = 18
@@ -42,7 +41,7 @@ const (
 	listWidth   = 236
 	effortWidth = 132
 	columnGap   = 8
-	pickerWidth = railWidth + listWidth + effortWidth + 2*(2*columnGap+1)
+	pickerWidth = railWidth + listWidth + effortWidth + 3*columnGap + 1
 	// pickerReserve is what the picker's page leaves of the window's height:
 	// the composer under the popover, the popover's own edges and the rows
 	// the compact settings popover has under the page.

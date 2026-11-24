@@ -20,7 +20,7 @@ import (
 )
 
 func TestDefaultWorkingSetCompactsTwoToolHeavyTurns(t *testing.T) {
-	t.Parallel()
+	// Run the 280-tool fixture serially to keep race builds within its deadline.
 	const batchSize = 40
 	const latest = "Keep the original inventory IDs in the final report."
 	const attachmentText = "Fixture inventory includes item ZX-42."

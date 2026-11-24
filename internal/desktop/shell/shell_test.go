@@ -333,23 +333,12 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if hi < rest+10 || lo < rest-2 {
 		t.Errorf("the sheen over the highest effort's fill: rest %d, darkest %d, lightest %d", rest, lo, hi)
 	}
-	// The model list chooses another model; a reasoning model's efforts are
-	// the column beside the list, which follows the pointer moving on the
-	// model's row. No menu opens over the panel.
+	// Clicking a reasoning model opens its effort column beside the list.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
-	// The list opens under the pointer; choosing a provider does not
-	// depend on which row the pointer happens to rest on.
 	clickButton(t, tt, i18n.In("en", "provider_openai"))
-	row, ok := tt.AccessByRole(ui.RoleButton, "GPT-5.2")
-	if !ok {
-		t.Fatalf("no model row GPT-5.2: %q", tt.Texts())
-	}
-	// One move onto the row gives it the column. No time has passed since
-	// the list opened: the popover has the picker's size all the same,
-	// with every row in it.
-	tt.Move(row.Bounds.X+20, row.Bounds.Y+row.Bounds.H/2)
+	clickButton(t, tt, "GPT-5.2")
 	tt.Frame()
-	pickerContained(t, tt, "as the picker opens", "Reasoning effort", ui.Rect{W: 1280, H: 820}, "GPT-5.2")
+	pickerContained(t, tt, "after clicking a model", "Reasoning effort", ui.Rect{W: 1280, H: 820}, "GPT-5.2")
 	if _, ok := tt.AccessByRole(ui.RoleMenuItem, ""); ok {
 		t.Errorf("a menu opens over the model list: %q", tt.Texts())
 	}
