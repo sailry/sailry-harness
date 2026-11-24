@@ -308,13 +308,15 @@ func visibleTool(tool Tool) bool {
 }
 
 // visibleOperation names the operations offered on the first request.
-// Lower-frequency domains (apply_patch, git, web search/fetch) stay in the
-// deferred catalog and load on demand via tool_search without enlarging step-1
-// declarations.
+// Everyday coding workflows (file reads/edits/patches, git status/diff, code
+// search/outline, and commands) start visible without a tool_search round-trip,
+// while lower-frequency domains (web, extra git subcommands, worktree
+// management) stay in the deferred catalog.
 func visibleOperation(operation protocol.ToolOperation) bool {
 	switch operation {
 	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
-		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile,
+		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
+		protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff,
 		protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode,
 		protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand,
 		protocol.ToolOperationProgress, protocol.ToolOperationListRoles, protocol.ToolOperationListArtifactRevisions:

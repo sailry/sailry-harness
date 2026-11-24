@@ -305,14 +305,12 @@ func TestAgentManagementTools(t *testing.T) {
 		turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string { return "deny" }, func(step int, results map[string]string) [][3]string {
 			switch step {
 			case 1:
-				return [][3]string{{"load-patch", "tool_search", `{"limit":1,"query":"select:apply_patch"}`}}
-			case 2:
 				return [][3]string{{"create", "apply_patch", `{"input":"*** Begin Patch\n*** Add File: repeated.txt\n+first\n*** End Patch"}`}}
-			case 3:
+			case 2:
 				return [][3]string{{"update", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-first\n+second\n*** End Patch"}`}}
-			case 4:
+			case 3:
 				return [][3]string{{"update-again", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-second\n+third\n*** End Patch"}`}}
-			case 5:
+			case 4:
 				contents, err := os.ReadFile(path)
 				if err != nil || string(contents) != "third\n" {
 					t.Errorf("consecutive native patch results: file=%q error=%v", contents, err)
@@ -323,7 +321,7 @@ func TestAgentManagementTools(t *testing.T) {
 					return nil
 				}
 				return [][3]string{{"stale", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-third\n+fourth\n*** End Patch"}`}}
-			case 6:
+			case 5:
 				if !strings.Contains(results["stale"], "repeated.txt") || !strings.Contains(results["stale"], "changed since") {
 					t.Errorf("external modification: %s", results["stale"])
 				}

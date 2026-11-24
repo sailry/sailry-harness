@@ -32,6 +32,9 @@ func TestSystemPromptByteStable(t *testing.T) {
 		want := "Command sandbox: enabled"
 		if permission == protocol.PermissionFull {
 			want = "without the workspace sandbox"
+			if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), "outside the current worktree") {
+				t.Fatal("Full permission policy does not explain direct command handling for out-of-worktree targets")
+			}
 		}
 		if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), want) {
 			t.Fatalf("%s policy does not describe its command sandbox", permission)
@@ -53,7 +56,9 @@ func TestCollaborateWorkflowUsesAvailableDelegation(t *testing.T) {
 	available := Workflow(protocol.WorkModeFlagship, false, true)
 	unavailable := Workflow(protocol.WorkModeFlagship, false, false)
 	child := Workflow(protocol.WorkModeFlagship, true, false)
-	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "use the current model") {
+	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "use the current model") ||
+		!strings.Contains(available, "Handle small, straightforward or tightly coupled tasks directly") ||
+		!strings.Contains(available, "Do not duplicate in the parent") {
 		t.Fatalf("missing collaboration instructions: %q", available)
 	}
 	if !strings.Contains(unavailable, "Delegation is unavailable") || strings.Contains(unavailable, "spawn_agent") {
@@ -78,7 +83,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
 				initialPlan, "skip the tool for simple tasks", "without claiming a saved plan", revisePlan,
 				"do not guess at a saved plan", "build a fresh plan from the current scope and confirmed evidence",
-				"Use a separate tool batch if a plan update must precede other calls or depends on their results",
+				"Batch update_plan in the same turn alongside real tool calls",
 				"read the corresponding results", "leave unrun required checks pending", "not proof of completion or new authorization",
 			} {
 				if !strings.Contains(parent, phrase) {

@@ -1579,5 +1579,5 @@
       }
     }
   ],
-  "instructions": "Use find_files and search_files for file discovery and content search rather than shell commands. Read a worktree image with read_file when you need to see it, such as a screenshot, diagram or design; read_office extracts document text and reads conversation attachments."
+  "instructions": "Within the session worktree, prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands, and batch independent reads in one turn. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

@@ -363,3 +363,38 @@ func TestDispatchedCallsKeepCanonicalNames(t *testing.T) {
 		t.Fatalf("projection changed the stored call: %+v", stored)
 	}
 }
+
+func TestVisibleOperationsExposeEverydayCodingTools(t *testing.T) {
+	t.Parallel()
+	done := func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: map[string]any{"ok": true}}
+	}
+	tools := []Tool{
+		packageTool("files", "apply_patch", protocol.ToolOperationApplyChanges, false, done),
+		packageTool("git", "git_status", protocol.ToolOperationInspectGit, false, done),
+		packageTool("git", "git_diff", protocol.ToolOperationReadGitDiff, false, done),
+		packageTool("git", "git_log", protocol.ToolOperationReadGitLog, false, done),
+		packageTool("git", "git_blame", protocol.ToolOperationReadGitBlame, false, done),
+	}
+	model := &scriptedModel{scripts: []script{response(text("Done"), finish())}}
+	fixture := newFixture(t, model, tools...)
+	fixture.start()
+	fixture.waitRun(fixture.submit("Check tool visibility"), protocol.ConversationStatusCompleted)
+	first := offeredNames(model.calls[0])
+	for _, visible := range []string{"apply_patch", "git_status", "git_diff"} {
+		if !slices.Contains(first, visible) {
+			t.Errorf("expected everyday coding tool %q in initial declarations: %v", visible, first)
+		}
+	}
+	for _, deferred := range []string{"git_log", "git_blame"} {
+		if slices.Contains(first, deferred) {
+			t.Errorf("expected low-frequency tool %q to stay deferred: %v", deferred, first)
+		}
+	}
+	context := promptText(model.calls[0])
+	for _, deferred := range []string{"git_log", "git_blame"} {
+		if !strings.Contains(context, deferred) {
+			t.Errorf("deferred catalog is missing %q:\n%s", deferred, context)
+		}
+	}
+}

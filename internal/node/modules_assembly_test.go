@@ -265,8 +265,8 @@ func TestNativeHostAssemblyLifecycleAndOmission(t *testing.T) {
 		results := script.results
 		offered := script.offered
 		script.mu.Unlock()
-		if len(offered) == 0 || !slices.Contains(offered[0], "read_file") {
-			t.Fatalf("read_file not offered natively when files plugin is disabled: %v", offered)
+		if len(offered) == 0 || !slices.Contains(offered[0], "read_file") || !slices.Contains(offered[0], "apply_patch") || !slices.Contains(offered[0], "git_status") || !slices.Contains(offered[0], "git_diff") {
+			t.Fatalf("core native coding tools not offered on step 1: %v", offered)
 		}
 		if !strings.Contains(results["read-bare"], "hello native modules") {
 			t.Fatalf("read-bare = %q", results["read-bare"])
