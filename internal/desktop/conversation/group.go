@@ -6,6 +6,7 @@ import "strings"
 // them without a view.
 
 // groupable reports a call that joins the calls around it into one block.
+// A tool's declaration chooses it (grouping: standalone sets Standalone).
 func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 
 // Compact prepares a reply's blocks for display: blank text goes, calls
@@ -208,4 +209,22 @@ func lastLines(text string) (string, int) {
 		return strings.Join(lines, "\n"), 0
 	}
 	return strings.Join(lines[len(lines)-100:], "\n"), len(lines) - 100
+}
+
+// previewText is what a closed preview of lines shows: a command's last
+// previewLines, as its end is what it came to, and another text's first.
+// Shown in full it is at most expandedLines. hidden is how many lines are
+// left out.
+func previewText[T any](lines []T, full, command bool) (shown []T, hidden int) {
+	limit := previewLines
+	if full {
+		limit = expandedLines
+	}
+	if len(lines) <= limit {
+		return lines, 0
+	}
+	if command {
+		return lines[len(lines)-limit:], len(lines) - limit
+	}
+	return lines[:limit], len(lines) - limit
 }

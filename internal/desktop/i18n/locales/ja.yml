@@ -132,6 +132,10 @@ tool_failed: ツールの実行に失敗しました
 approval_pending: 承認待ち
 content_copied: コピー
 tool_copy: コピー
+tool_rows_earlier: Show %{count} earlier
+output_show_all: Show all %{count} lines
+output_show_less: Show less
+diff_more_lines: '%{count} 行を追加'
 tool_interrupted: 未確認結果
 tool_not_executed: 承認が中断されました。実行されません
 tool_not_found: ターゲットが見つかりません

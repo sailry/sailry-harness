@@ -140,6 +140,10 @@ approval_pending
 content_copied
 # Tools and turns
 tool_copy
+tool_rows_earlier
+output_show_all
+output_show_less
+diff_more_lines
 tool_interrupted
 tool_not_executed
 tool_not_found

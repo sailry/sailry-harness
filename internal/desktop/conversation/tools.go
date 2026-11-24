@@ -18,8 +18,7 @@ import (
 
 // Layout metrics.
 const (
-	detailMax = 480      // mono details
-	diffRow   = 13 * 1.6 // Kit's code line, as the diff viewer's
+	detailMax = 480 // mono details
 )
 
 // textSize is the size of the transcript's content text in DIPs: the
@@ -230,7 +229,7 @@ func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bo
 }
 
 // wrapping is a disclosure whose row may wrap its label (rowSize).
-func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element), group ...*ui.ListState) {
+func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element)) {
 	open := s.opened(key)
 	size := textSize(c)
 	col := ui.Column(c.Key(key))
@@ -239,12 +238,7 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
-		t.Children(func() { head(hovered, open, sw) }).OnClick(func() {
-			if len(group) != 0 && group[0] != nil {
-				group[0].HoldPlace()
-			}
-			s.toggle(key)
-		})
+		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
 		sw.Frame(t)
 		if open {
 			revealing := s.revealOpen == key
@@ -366,53 +360,47 @@ func subGroupHead(run []Call) Call {
 	return head
 }
 
-func (s *State) hasOpenCall(calls []Call) bool {
-	return slices.ContainsFunc(calls, func(call Call) bool { return s.opened("tools-" + call.ID) })
-}
-
-func (s *State) hasOpenRuns(runs [][]Call) bool {
-	for _, run := range runs {
-		if len(run) == 1 {
-			if s.opened("tools-" + run[0].ID) {
-				return true
-			}
-		} else if s.opened("tool-sub-"+run[0].ID) || s.hasOpenCall(run) {
-			return true
-		}
-	}
-	return false
-}
-
-// fitRows lays out a group of at most five rows directly. Closed, it shows
-// them all; with a call or branch open it grows to its content, whose
-// outputs carry their own caps, so an opened body ends on the rail rather
-// than being cut at a fixed viewport.
-func fitRows(c *ui.Context, key string, height float32, expanded bool, rows func()) {
-	box := ui.Scroll(c.Key(key)).Gap(railGap)
-	if !expanded {
-		box.MaxHeight(height)
-	}
-	box.Children(rows)
-}
-
-// groupHeight caps a closed-rows tool group to five rows, and expands the
-// viewport when an inner call or nested branch is open so expanded command
-// outputs or subtrees remain comfortably visible instead of clipping.
-func (s *State) groupHeight(c *ui.Context, expanded bool) float32 {
-	const visibleRows = 5
-	size := textSize(c)
-	base := visibleRows*rowHeight(size) + (visibleRows-1)*railGap
-	if !expanded {
-		return base
-	}
-	return base + outputMax(size) + 48
-}
+// The transcript is a conversation's only scroll: a group lays its rows out
+// as the transcript's own content and an output shows a preview that opens
+// in place, so the wheel never stops in a nested viewport and an opened row
+// grows its group rather than leaving a fixed viewport partly empty.
+const (
+	shownRows     = 8   // a group's latest rows shown before Show earlier
+	earlierPage   = 50  // the rows each Show earlier adds above them
+	previewLines  = 12  // a closed output's lines, diff rows or table rows
+	expandedLines = 400 // an output shown in full, bounding one row's layout
+)
 
 // toolRowEnter brings a call that joins an open group in below the rows
 // already there. MyGo shows it in place while the system asks for less motion.
 // Only the entry moves: selecting Colors alone keeps later layout changes,
 // as a row above opening, instant like the disclosures themselves.
 var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: kit.EaseOut, Colors: true, Enter: &ui.Motion{Collapse: true}}
+
+// rows lays out n rows of an open disclosure, keyed by id: the latest
+// shownRows, with Show earlier above them adding a page at a time. What it
+// added is the rail's, so a closed group opens on its latest rows again.
+func (s *State) rows(c *ui.Context, rail ui.Element, n int, id func(int) string, render func(int)) {
+	more := ui.Local(rail, "earlier", func() int { return 0 })
+	shown := min(n, shownRows+*more)
+	if hidden := n - shown; hidden > 0 {
+		s.revealRow(c, "earlier", "chevron-up", i18n.T(c, "tool_rows_earlier", "count", min(hidden, earlierPage)), func() { *more += earlierPage })
+	}
+	for i := n - shown; i < n; i++ {
+		ui.Column(c.Key("enter-" + id(i))).Shrink(0).Transition(toolRowEnter).Children(func() { render(i) })
+	}
+}
+
+// revealRow is a row-styled control that shows more of the transcript in
+// place: earlier rows of a group, or the rest of an output.
+func (s *State) revealRow(c *ui.Context, key, icon, label string, click func()) {
+	call := Call{Label: label, Icon: icon}
+	row := rowSize(ui.ButtonBase(c.Key(key)).Label(label), textSize(c), false).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+		Justify(ui.Start).Cursor(ui.CursorPointer)
+	hovered := row.Hovered() || row.FocusVisible()
+	sw := &kit.Sweep{}
+	row.Children(func() { summary(c, call, hovered, false, false, sw) }).OnClick(click)
+}
 
 // A group discloses call headers. Individual rows still own their outputs.
 // Every call of a run joins it whatever its state, so a call that starts,
@@ -422,62 +410,30 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	runs := groupSameToolCalls(calls)
 	key := "tool-group-" + calls[0].ID
 	head := groupHead(calls)
-	if len(runs) == 1 {
-		if allSameDetail(calls) && !slices.ContainsFunc(calls, s.hasDisclosure) {
-			plain(c, key, head)
-			return
-		}
-		s.wrapping(c, key, false, func(hovered, open bool, sw *kit.Sweep) {
-			summary(c, head, hovered, true, open, sw)
-		}, 8, 8, func(rail ui.Element) {
-			s.callRows(c, rail, "tool-rows", calls, s.hasOpenCall(calls))
-		})
+	if len(runs) == 1 && allSameDetail(calls) && !slices.ContainsFunc(calls, s.hasDisclosure) {
+		plain(c, key, head)
 		return
 	}
 	s.wrapping(c, key, false, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(rail ui.Element) {
-		const visibleRows = 5
-		expanded := s.hasOpenRuns(runs)
-		height := s.groupHeight(c, expanded)
-		renderRun := func(run []Call, list ...*ui.ListState) {
-			if len(run) == 1 {
-				s.row(c, run[0], list...)
-			} else {
-				s.subGroup(c, "tool-sub-"+run[0].ID, run, list...)
-			}
-		}
-		if len(runs) <= visibleRows {
-			// MyGo's ui.List estimates unmeasured rows at Space(8) (32 DIPs)
-			// during its parent's layout pass, so a short group opens taller
-			// than its rows and snaps shorter on the next hover rebuild. Lay
-			// small groups out directly in ui.Scroll so the exact height is
-			// measured on the first frame, including inner row toggles.
-			fitRows(c, "tool-rows-fit", height, expanded, func() {
-				for _, run := range runs {
-					ui.Column(c.Key("enter-" + run[0].ID)).Shrink(0).Transition(toolRowEnter).Children(func() { renderRun(run) })
-				}
-			})
+		if len(runs) == 1 {
+			s.callRows(c, rail, calls)
 			return
 		}
-		list := ui.Local(rail, "tool-rows", func() ui.ListState { return ui.ListState{FollowEnd: true} })
-		list.Key = func(i int) any { return runs[i][0].ID }
-		session, resolveImage := s.renderSession, s.resolveImage
-		ui.List(c.Key("tool-rows"), list, len(runs), func(i int) {
-			// MyGo can build a virtual row during layout, after the transcript
-			// row has restored the shared renderer's scope.
-			previousSession, previousResolve := s.renderSession, s.resolveImage
-			s.renderSession, s.resolveImage = session, resolveImage
-			defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
-			run := runs[i]
-			ui.Column(c.Key("enter-" + run[0].ID)).Transition(toolRowEnter).Children(func() { renderRun(run, list) })
-		}).Height(height).Gap(railGap)
+		s.rows(c, rail, len(runs), func(i int) string { return runs[i][0].ID }, func(i int) {
+			if run := runs[i]; len(run) == 1 {
+				s.row(c, run[0])
+			} else {
+				s.subGroup(c, "tool-sub-"+run[0].ID, run)
+			}
+		})
 	})
 }
 
 // subGroup folds consecutive calls of the same tool into a collapsible tree
 // branch. Identical calls with no inspectable output stay a single plain row.
-func (s *State) subGroup(c *ui.Context, key string, run []Call, group ...*ui.ListState) {
+func (s *State) subGroup(c *ui.Context, key string, run []Call) {
 	head := subGroupHead(run)
 	if allSameDetail(run) && !slices.ContainsFunc(run, s.hasDisclosure) {
 		plain(c, key, head)
@@ -485,32 +441,11 @@ func (s *State) subGroup(c *ui.Context, key string, run []Call, group ...*ui.Lis
 	}
 	s.wrapping(c, key, false, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
-	}, 8, 8, func(rail ui.Element) {
-		s.callRows(c, rail, "sub-rows", run, s.hasOpenCall(run))
-	}, group...)
+	}, 8, 8, func(rail ui.Element) { s.callRows(c, rail, run) })
 }
 
-func (s *State) callRows(c *ui.Context, rail ui.Element, keyPrefix string, calls []Call, expanded bool) {
-	const visibleRows = 5
-	height := s.groupHeight(c, expanded)
-	if len(calls) <= visibleRows {
-		fitRows(c, keyPrefix+"-fit", height, expanded, func() {
-			for _, call := range calls {
-				ui.Column(c.Key("enter-" + call.ID)).Shrink(0).Transition(toolRowEnter).Children(func() { s.row(c, call) })
-			}
-		})
-		return
-	}
-	list := ui.Local(rail, keyPrefix, func() ui.ListState { return ui.ListState{FollowEnd: true} })
-	list.Key = func(i int) any { return calls[i].ID }
-	session, resolveImage := s.renderSession, s.resolveImage
-	ui.List(c.Key(keyPrefix), list, len(calls), func(i int) {
-		previousSession, previousResolve := s.renderSession, s.resolveImage
-		s.renderSession, s.resolveImage = session, resolveImage
-		defer func() { s.renderSession, s.resolveImage = previousSession, previousResolve }()
-		call := calls[i]
-		ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call, list) })
-	}).Height(height).Gap(railGap)
+func (s *State) callRows(c *ui.Context, rail ui.Element, calls []Call) {
+	s.rows(c, rail, len(calls), func(i int) string { return calls[i].ID }, func(i int) { s.row(c, calls[i]) })
 }
 
 // groupHead is a group's header: its latest call, shown and coloured as
@@ -542,7 +477,7 @@ func (s *State) hasDisclosure(call Call) bool {
 }
 
 // row is one call: its body is its output.
-func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
+func (s *State) row(c *ui.Context, call Call) {
 	call = normalizeCallOutput(call)
 	// A call whose loaded output has nothing to draw does not open: its
 	// row already says all there is.
@@ -591,7 +526,7 @@ func (s *State) row(c *ui.Context, call Call, group ...*ui.ListState) {
 		if card != nil {
 			card(c)
 		}
-	}, group...)
+	})
 }
 
 // The visible, open rail owns the formatted result. MyGo can keep a focused
@@ -670,7 +605,7 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 			notice(c, o.Failure, failureTone(c, o))
 		}
 		if o.Table != nil {
-			table(c, o.Table)
+			s.table(c, o.Table)
 		}
 		if o.Diff != nil {
 			s.diff(c, o.Diff)
@@ -680,11 +615,13 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 			if o.Command {
 				text, _ = lastLines(text)
 			}
+			lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+			full := ui.Local(box, "text-full", func() bool { return false })
+			shown, hidden := previewText(lines, *full, o.Command)
 			// Long lines wrap within the row rather than scrolling sideways.
-			ui.Scroll(c).MaxHeight(outputMax(size)).Children(func() {
-				ui.Text(c, text).Font("monospace").FontSize(size).LineHeight(20.0 / 14).
-					Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
-			})
+			ui.Text(c, strings.Join(shown, "\n")).Font("monospace").FontSize(size).LineHeight(20.0 / 14).
+				Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
+			s.previewToggle(c, "text-more", full, len(lines), hidden)
 		}
 		if len(o.Images) > 0 {
 			s.thumbnails(c, "output-images", o.Images, false)
@@ -779,22 +716,38 @@ func (s *State) diff(c *ui.Context, d *Diff) {
 				}
 			})
 		})
-		// MyGo's diff viewer, unified, at most five rows in view.
-		rows := min(max(len(d.Lines), 1), 5)
-		old, new := d.Texts()
-		box := ui.Scroll(c.Key("diff")).MaxHeight(float32(rows) * diffRow)
+		// MyGo's diff viewer, unified, fitted to the rows it shows.
+		box := ui.Column(c.Key("diff"))
+		full := ui.Local(box, "diff-full", func() bool { return false })
+		lines, hidden := previewText(d.Lines, *full, false)
+		old, new := (&Diff{Lines: lines}).Texts()
 		kit.Diff(c, box, old, new, kit.DiffOptions{Language: editor.LanguageFor(d.Path), Fit: true, NoNumbers: true})
+		if len(d.Lines) > previewLines {
+			ui.Column(c).PaddingX(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
+				s.previewToggle(c, "diff-more", full, len(d.Lines), hidden)
+			})
+		}
 	})
 }
 
-// table is tabular output: 180 DIP columns, at most five rows in view,
-// each 28 DIPs at 14.
-func table(c *ui.Context, t *Table) {
+// table is tabular output: 180 DIP columns, each row 28 DIPs at 14. It
+// scrolls sideways alone, so vertical wheel motion stays the transcript's,
+// and its rows preview as an output's lines do.
+func (s *State) table(c *ui.Context, t *Table) {
 	p := theme.Of(c)
 	size := textSize(c)
 	height := size + 14
-	rows := min(max(len(t.Rows), 1), 5)
-	ui.ScrollBoth(c).MaxHeight(float32(rows+1) * height).Children(func() {
+	box := ui.Column(c).Gap(4)
+	full := ui.Local(box, "table-full", func() bool { return false })
+	rows, hidden := previewText(t.Rows, *full, false)
+	box.Children(func() {
+		s.tableRows(c, p, size, height, t.Columns, rows)
+		s.previewToggle(c, "table-more", full, len(t.Rows), hidden)
+	})
+}
+
+func (s *State) tableRows(c *ui.Context, p *theme.Palette, size, height float32, columns []string, rows [][]string) {
+	ui.ScrollHorizontal(c).Children(func() {
 		cells := func(values []string, head bool) {
 			ui.Row(c).Height(height).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				for _, v := range values {
@@ -806,11 +759,28 @@ func table(c *ui.Context, t *Table) {
 				}
 			})
 		}
-		cells(t.Columns, true)
-		for _, r := range t.Rows {
+		cells(columns, true)
+		for _, r := range rows {
 			cells(r, false)
 		}
 	})
+}
+
+// previewToggle shows the rest of a preview of total lines, hidden of them
+// still left out, or returns it to its preview. Shown in full, a text
+// longer than expandedLines says how much more Copy holds.
+func (s *State) previewToggle(c *ui.Context, key string, full *bool, total, hidden int) {
+	if total <= previewLines {
+		return
+	}
+	if *full {
+		if hidden > 0 {
+			notice(c, i18n.T(c, "diff_more_lines", "count", hidden), theme.Of(c).MutedForeground)
+		}
+		s.revealRow(c, key, "chevron-up", i18n.T(c, "output_show_less"), func() { *full = false })
+		return
+	}
+	s.revealRow(c, key, "chevron-down", i18n.T(c, "output_show_all", "count", total), func() { *full = true })
 }
 
 // steps is a task's progress.

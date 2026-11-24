@@ -1208,7 +1208,12 @@ revision-scoped summaries. Their open disclosure owns the formatted result and
 cancels outstanding reads when it closes or leaves the virtualized list.
 Consecutive tool calls share one folded group until text, a subagent, an
 interaction or a standalone call breaks the run; the task's progress card keeps
-its place without splitting it. Calls keep their rows as they start, settle or
+its place without splitting it. A tool's declared `grouping` decides whether it
+stands alone: file edits and launching or steering a subagent do, so a turn's
+changes read apart from what it inspected. The transcript is a conversation's
+only scroll: an open group lays out its latest eight rows with Show earlier above
+them, and a command output, diff or table shows twelve lines with Show all
+opening it in place, bounded at 400 lines. Calls keep their rows as they start, settle or
 fail, and the group's header shows the latest call as that call's own row
 would. Opening the process of a completed reply leaves its tool groups and
 results folded until chosen separately. Those choices live only in the window.

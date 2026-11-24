@@ -132,6 +132,10 @@ tool_failed: Werkzeugausführung fehlgeschlagen
 approval_pending: Warten auf Genehmigung
 content_copied: Kopiert
 tool_copy: Kopieren
+tool_rows_earlier: Show %{count} earlier
+output_show_all: Show all %{count} lines
+output_show_less: Show less
+diff_more_lines: '%{count} mehr Zeilen'
 tool_interrupted: Ergebnis unbestätigt
 tool_not_executed: Genehmigung unterbrochen; nicht ausgeführt
 tool_not_found: Ziel nicht gefunden

@@ -478,3 +478,24 @@ func testElapsed(t *testing.T) {
 }
 
 func secs(n int) time.Duration { return time.Duration(n) * time.Second }
+
+// A closed preview keeps a command's last lines and another text's first;
+// shown in full it is bounded, and a short text is whole either way.
+func TestPreviewText(t *testing.T) {
+	var lines []int
+	for i := range expandedLines + 5 {
+		lines = append(lines, i)
+	}
+	if shown, hidden := previewText(lines, false, true); len(shown) != previewLines || shown[0] != len(lines)-previewLines || hidden != len(lines)-previewLines {
+		t.Fatalf("command preview %v, %d hidden", shown, hidden)
+	}
+	if shown, hidden := previewText(lines, false, false); len(shown) != previewLines || shown[0] != 0 || hidden != len(lines)-previewLines {
+		t.Fatalf("text preview %v, %d hidden", shown, hidden)
+	}
+	if shown, hidden := previewText(lines, true, false); len(shown) != expandedLines || hidden != 5 {
+		t.Fatalf("full text %d lines, %d hidden", len(shown), hidden)
+	}
+	if shown, hidden := previewText(lines[:3], false, true); len(shown) != 3 || hidden != 0 {
+		t.Fatalf("short text %v, %d hidden", shown, hidden)
+	}
+}

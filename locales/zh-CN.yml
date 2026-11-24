@@ -179,6 +179,9 @@ tool_result: 结果
 command_result: 执行结果
 tool_copy: 复制
 diff_more_lines: "还有 %{count} 行"
+tool_rows_earlier: "显示更早的 %{count} 项"
+output_show_all: "显示全部 %{count} 行"
+output_show_less: "收起"
 approval_live_count: "待审批 %{count} 项"
 approval_receipt: 审批回执
 approval_create_file: "创建 %{path}"

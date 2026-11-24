@@ -132,6 +132,10 @@ tool_failed: 工具执行失败
 approval_pending: 等待审批
 content_copied: 已复制
 tool_copy: 复制
+tool_rows_earlier: 显示更早的 %{count} 项
+output_show_all: 显示全部 %{count} 行
+output_show_less: 收起
+diff_more_lines: 还有 %{count} 行
 tool_interrupted: 结果未确认
 tool_not_executed: 审批已中断，未执行
 tool_not_found: 未找到目标

@@ -317,9 +317,10 @@ func TestToolRowPathList(t *testing.T) {
 	}
 }
 
-// A command's row opens from the keyboard onto its last 100 lines and no
-// note of the lines left out, Copy takes the whole original output, and the
-// keyboard closes the row again.
+// A command's row opens from the keyboard onto the last lines of its
+// retained 100, which Show all reveals in place without a note of the
+// lines left out; Copy takes the whole original output, and the keyboard
+// closes the row again.
 func TestToolRowCommandKeyboard(t *testing.T) {
 	var lines []string
 	for i := range 130 {
@@ -334,7 +335,7 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		s.tools(c, calls, true)
-	}, 900, 600)
+	}, 900, 2400)
 	tt.SetLocale("en")
 	tt.Frame()
 	before := tt.Texts()
@@ -357,8 +358,25 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 			added = append(added, s)
 		}
 	}
-	if len(added) != 1 || added[0] != shown {
-		t.Fatalf("Enter opened %q, want the last 100 lines alone", added)
+	retained := strings.Split(shown, "\n")
+	preview := strings.Join(retained[len(retained)-previewLines:], "\n")
+	showAll := i18n.In("en", "output_show_all", "count", len(retained))
+	if len(added) == 0 || added[0] != preview || slices.ContainsFunc(added[1:], func(s string) bool { return s != showAll }) {
+		t.Fatalf("Enter opened %q, want the last %d lines and %q", added, previewLines, showAll)
+	}
+	if err := tt.Click(showAll); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if textCount(tt, shown) != 1 || textCount(tt, preview) != 0 || tt.HasText(i18n.In("en", "diff_more_lines", "count", 30)) {
+		t.Fatalf("Show all did not reveal the retained 100 lines alone: %q", tt.Texts())
+	}
+	if err := tt.Click(i18n.In("en", "output_show_less")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if textCount(tt, preview) != 1 || textCount(tt, shown) != 0 {
+		t.Fatalf("Show less did not return to the preview: %q", tt.Texts())
 	}
 	if rows := rowButtons(tt, "Run"); !rows[0].Expanded || rows[1].Expanded {
 		t.Fatalf("the open row is not the focused one: %+v", rows)
@@ -390,7 +408,7 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	focus()
 	tt.Key(0, ui.KeySpace)
 	tt.Frame()
-	if tt.HasText(shown) {
+	if textCount(tt, preview) != 0 {
 		t.Fatalf("Space did not close the row: %q", tt.Texts())
 	}
 }
@@ -561,14 +579,18 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 	}
 }
 
-func TestToolGroupScrollFollowsLatestUntilScrolledAway(t *testing.T) {
+// An open group is the transcript's own content, with no viewport of its
+// own: it shows its latest rows, a run that grows keeps showing its newest,
+// Show earlier adds earlier rows above them, and the wheel over the rows
+// scrolls the transcript.
+func TestToolGroupShowsLatestRowsWithoutInnerScroll(t *testing.T) {
 	s := New()
 	var calls []Call
 	appendTool := func() {
 		id := fmt.Sprintf("tool-%02d", len(calls)+1)
 		calls = append(calls, Call{ID: id, Name: "read", Label: "Read file", Detail: id, Code: true})
 	}
-	for range 8 {
+	for range 10 {
 		appendTool()
 	}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
@@ -579,53 +601,40 @@ func TestToolGroupScrollFollowsLatestUntilScrolledAway(t *testing.T) {
 		})
 	}, 600, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	tt.SetLocale("en")
-	if err := tt.Click("tool-08"); err != nil {
+	if err := tt.Click("tool-10"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	visible := func(name string) (ui.Rect, bool) {
-		bounds, found := tt.Find(name)
-		return bounds, found && bounds.W > 0 && bounds.H > 0
-	}
-	shown := func(name string) bool {
-		_, ok := visible(name)
-		return ok
-	}
-	assertBottom := func(stage string) {
+	latest := func(stage string) {
 		t.Helper()
-		first := len(calls) - 5
-		// The header repeats the latest call. Check the other visible rows
-		// and the one immediately above the viewport.
-		for _, call := range calls[first : len(calls)-1] {
-			if !shown(call.Detail) {
-				t.Fatalf("%s: %q is outside the viewport at the bottom: %q", stage, call.Detail, tt.Texts())
+		for i, call := range calls[:len(calls)-1] {
+			if shown := tt.HasText(call.Detail); shown != (i >= len(calls)-shownRows) {
+				t.Fatalf("%s: %q shown %v, want the latest %d rows: %q", stage, call.Detail, shown, shownRows, tt.Texts())
 			}
 		}
-		if previous := calls[first-1].Detail; shown(previous) {
-			t.Fatalf("%s: %q is visible above the latest five rows: %q", stage, previous, tt.Texts())
+	}
+	latest("open")
+	appendTool()
+	tt.Frame()
+	latest("append")
+	earlier := i18n.In("en", "tool_rows_earlier", "count", len(calls)-shownRows)
+	if err := tt.Click(earlier); err != nil {
+		t.Fatalf("no %q: %v; %q", earlier, err, tt.Texts())
+	}
+	tt.Frame()
+	for _, call := range calls {
+		if !tt.HasText(call.Detail) {
+			t.Fatalf("Show earlier left %q out: %q", call.Detail, tt.Texts())
 		}
 	}
-	assertBottom("open")
-	row, _ := visible("tool-04")
-	appendTool()
-	tt.Frame()
-	assertBottom("first append")
-	x, y := row.X+row.W/2, row.Y+row.H/2
-	tt.Scroll(x, y, 0, -64)
-	anchored, ok := visible("tool-04")
-	if !ok || anchored.Y <= row.Y {
-		t.Fatalf("scrolling did not reveal earlier tools inside the group: %q", tt.Texts())
+	if tt.HasText(earlier) {
+		t.Fatalf("Show earlier stayed with nothing left to show: %q", tt.Texts())
 	}
-	appendTool()
-	tt.Frame()
-	if got, ok := visible("tool-04"); !ok || got != anchored || shown("tool-09") {
-		t.Fatalf("an appended tool moved the manually scrolled group: %v, want %v; %q", got, anchored, tt.Texts())
+	row, _ := tt.Find("tool-05")
+	tt.Scroll(row.X+row.W/2, row.Y+row.H/2, 0, 120)
+	if moved, _ := tt.Find("tool-05"); moved.Y >= row.Y {
+		t.Fatalf("the wheel over the group did not scroll the transcript: %v then %v", row, moved)
 	}
-	tt.Scroll(x, y, 0, 160)
-	assertBottom("scroll back down")
-	appendTool()
-	tt.Frame()
-	assertBottom("append after scrolling back down")
 }
 
 func TestFailedCommandStaysFoldedAfterStop(t *testing.T) {

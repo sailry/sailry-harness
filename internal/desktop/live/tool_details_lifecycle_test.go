@@ -23,6 +23,8 @@ import (
 func TestDesktopLargeToolDetailLifecycle(t *testing.T) {
 	const bodyMarker = "Full tool result sentinel"
 	const turnCount = 32
+	// The marker heads the result, so it stays in the preview an open
+	// row shows.
 	body := bodyMarker + "\n" + strings.Repeat("A result line from the tool.\n", 6000)
 	first, other := protocol.SessionID{1}, protocol.SessionID{2}
 	node, worktree := protocol.NodeID{3}, protocol.WorktreeID{4}
@@ -189,7 +191,7 @@ func TestDesktopLargeToolDetailLifecycle(t *testing.T) {
 	}
 	measure("closed")
 	click("detail_fixture")
-	settle("show full result", func() bool { return tester.HasText(body) })
+	settle("show full result", func() bool { return tester.HasText(bodyMarker) })
 	check("open", 1)
 	if r.pluginCards == nil || len(r.pluginCards.cards) != 1 {
 		t.Fatal("open disclosure did not attach its captured plugin card")
@@ -205,20 +207,20 @@ func TestDesktopLargeToolDetailLifecycle(t *testing.T) {
 	t.Logf("steady open: %d B allocated per frame over %d frames", (steadyStats.TotalAlloc-previousAlloc)/steadyFrames, steadyFrames)
 	previousAlloc = steadyStats.TotalAlloc
 	click("detail_fixture")
-	if tester.HasText(body) {
+	if tester.HasText(bodyMarker) {
 		t.Fatal("folded disclosure kept its formatted result")
 	}
 	check("folded", 1)
 	measure("folded")
 	click("detail_fixture")
-	settle("reopen full result", func() bool { return tester.HasText(body) })
+	settle("reopen full result", func() bool { return tester.HasText(bodyMarker) })
 	list.ScrollTo(turnCount-2, ui.Start)
 	settle("scroll out of the virtual window", func() bool {
 		start, _ := list.Visible()
-		return start > 0 && !tester.HasText(body) && !hasThumbnail()
+		return start > 0 && !tester.HasText(bodyMarker) && !hasThumbnail()
 	})
 	check("offscreen", 2)
-	if r.attachments.files[imageKey].path == "" || tester.HasText(body) {
+	if r.attachments.files[imageKey].path == "" || tester.HasText(bodyMarker) {
 		t.Fatal("offscreen turn lost its image reference or kept rendering its full output")
 	}
 	measure("offscreen")
@@ -232,7 +234,7 @@ func TestDesktopLargeToolDetailLifecycle(t *testing.T) {
 	close(gate.reply)
 	r.workers.Wait()
 	frame()
-	if tester.HasText(body) || r.pluginCards != nil && len(r.pluginCards.cards) != 0 || r.attachments.files[imageKey].path != "" {
+	if tester.HasText(bodyMarker) || r.pluginCards != nil && len(r.pluginCards.cards) != 0 || r.attachments.files[imageKey].path != "" {
 		t.Fatal("late response restored the closed page's tool output, card, or attachment")
 	}
 	check("replaced", 3)
@@ -246,7 +248,7 @@ func TestDesktopLargeToolDetailLifecycle(t *testing.T) {
 	gate.reply <- gate.result
 	close(gate.reply)
 	r.workers.Wait()
-	if len(r.queue) == 0 || tester.HasText(body) {
+	if len(r.queue) == 0 || tester.HasText(bodyMarker) {
 		t.Fatal("fixture did not queue a formatted detail before closing")
 	}
 	if err := r.Close(); err != nil {

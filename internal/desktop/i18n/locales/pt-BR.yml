@@ -132,6 +132,10 @@ tool_failed: A execução da ferramenta falhou
 approval_pending: À espera de aprovação
 content_copied: Copiado
 tool_copy: Copiar
+tool_rows_earlier: Show %{count} earlier
+output_show_all: Show all %{count} lines
+output_show_less: Show less
+diff_more_lines: '%{count} mais linhas'
 tool_interrupted: Resultado não confirmado
 tool_not_executed: Aprovação interrompida; não executada
 tool_not_found: Página não encontrada

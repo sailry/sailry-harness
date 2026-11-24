@@ -185,9 +185,17 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	render()
 	render()
 	wantRequests := []string{"read_tool_detail", "read_command", "read_command_page", "read_command_page", "read_command_page"}
-	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(tail) || tester.HasText(prefix) || tester.HasText("Partial results") || tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
-		t.Fatalf("opening did not render the real old result once: %v; %q", got, tester.Texts())
+	lines := strings.Split(tail, "\n")
+	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(strings.Join(lines[len(lines)-12:], "\n")) || tester.HasText(tail) || tester.HasText(prefix) || tester.HasText("Partial results") || tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
+		t.Fatalf("opening did not render the real old result's preview once: %v; %q", got, tester.Texts())
 	}
+	click(i18n.In("en", "output_show_all", "count", len(lines)))
+	render()
+	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(tail) || tester.HasText(prefix) {
+		t.Fatalf("Show all did not reveal the retained result without another read: %v; %q", got, tester.Texts())
+	}
+	click(i18n.In("en", "output_show_less"))
+	render()
 	copyLabel := i18n.In("en", "tool_copy")
 	copyButton, ok := tester.AccessByRole(ui.RoleButton, copyLabel)
 	if !ok {
@@ -206,7 +214,7 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	transport.mu.Unlock()
 	click(copyLabel)
 	render()
-	if tester.Clipboard() != prefix+tail || !tester.HasText(tail) {
+	if tester.Clipboard() != prefix+tail || !tester.HasText(strings.Join(lines[len(lines)-12:], "\n")) {
 		t.Fatal("eviction replaced the clipboard or removed the existing preview")
 	}
 	blocks := conversation.Compact(cv.Turns[0].Reply.Blocks)
