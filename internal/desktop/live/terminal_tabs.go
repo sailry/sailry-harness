@@ -81,7 +81,11 @@ func (r *Runtime) initTerminalActions() {
 	actions := r.App.Sidebar.Actions
 	actions.NewTerminal = func(project *viewmodel.Project) { r.newProjectTerminal(project, "") }
 	actions.Terminals = r.projectTerminals
-	actions.OpenTerminal = r.showWorkspaceTerminal
+	// A sidebar row opens its terminal as a session row does: a kept tab.
+	actions.OpenTerminal = func(id string) {
+		r.showWorkspaceTerminal(id)
+		r.localRuntime().App.KeepWorkspaceTerminal(id)
+	}
 	actions.CloseTerminal = r.closeLiveTerminal
 }
 

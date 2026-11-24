@@ -32,6 +32,15 @@ func selectionKey(cv *preview.Conversation) string {
 
 func selectingRows(mods ui.Modifiers) bool { return mods&(ui.Shift|ui.Ctrl|ui.Cmd) != 0 }
 
+// rowCurrent is the conversation whose row is selected: none while a
+// terminal row is.
+func (s *State) rowCurrent() *preview.Conversation {
+	if s.Terminal != "" {
+		return nil
+	}
+	return s.Current()
+}
+
 func (s *State) syncRows(current *preview.Conversation) {
 	var key string
 	if current != nil {
@@ -101,7 +110,7 @@ func rangeOrder(rows []sessionRow, anchor, clicked int) (string, []string) {
 }
 
 func (s *State) menuTargets(cv *preview.Conversation) []*preview.Conversation {
-	s.syncRows(s.Current())
+	s.syncRows(s.rowCurrent())
 	key := selectionKey(cv)
 	if !s.rows.Has(key) {
 		s.rows.anchor = sessionPosition{key, rowAny}

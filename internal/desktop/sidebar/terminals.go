@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"regexp"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -26,28 +28,40 @@ func (s *State) terminals(c *ui.Context, pr *preview.Project) {
 	}
 }
 
-// terminal is a terminal's row, a session row's look with the terminal's
-// mark in the status slot. Clicking it shows the terminal; its right-click
-// menu is the system's.
+// terminal is a terminal's row, a session row's look: its title without the
+// shell's user@host prefix, and the terminal's mark where a session shows its
+// age. It is selected while the workspace shows the terminal. Clicking it
+// opens the terminal's kept tab; its right-click menu is the system's.
 func (s *State) terminal(c *ui.Context, t Terminal) {
 	p := theme.Of(c)
-	title := t.Title
+	title := TerminalTitle(t.Title)
 	if title == "" {
 		title = i18n.T(c, "terminal")
 	}
 	b := ui.ButtonBase(c.Key("terminal/" + t.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
-	hovered := b.Hovered()
-	b.Background(p.SidebarItem(false, hovered))
+	hovered, selected := b.Hovered(), s.Terminal == t.ID
+	b.Background(p.SidebarItem(selected, hovered))
 	text := p.MutedForeground
-	if hovered {
+	switch {
+	case selected:
+		b.AccessSelected(true)
+		text = p.SidebarAccentForeground
+	case hovered:
 		text = p.SidebarForeground
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.terminalMenu(c, m, t, title) }).OnClick(func() { s.openTerminal(t.ID) })
 	b.TextColor(text).Children(func() {
-		ui.Icon(c, icons.Terminal).FontSize(12).TextColor(p.MutedForeground).
-			Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
 		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
+		ui.Icon(c, icons.Terminal).FontSize(12).TextColor(p.MutedForeground.Alpha(0.6)).PassThrough()
 	})
+}
+
+// shellPrompt is the user@host: a shell's default window title leads with.
+var shellPrompt = regexp.MustCompile(`^[^\s@:]+@[^\s:]+:\s*`)
+
+// TerminalTitle is a terminal's title without its shell's user@host prefix.
+func TerminalTitle(title string) string {
+	return shellPrompt.ReplaceAllString(title, "")
 }
 
 func (s *State) openTerminal(id string) {

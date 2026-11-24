@@ -603,6 +603,10 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 			} else if a.Page == PluginPage && a.PluginNavigation != nil {
 				a.PluginNavigation(c)
 			} else {
+				a.Sidebar.Terminal = ""
+				if t := a.panes.Active; t.Kind == panes.Terminal && a.HasWorkspaceTerminal(t.ID) {
+					a.Sidebar.Terminal = t.ID
+				}
 				sidebar.View(c, a.Sidebar)
 			}
 		})

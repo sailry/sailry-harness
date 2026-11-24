@@ -35,8 +35,11 @@ type State struct {
 	Metrics      *Metrics
 	Selected     string // conversation ID
 	SelectedHost string
-	Preview      bool
-	Archived     bool // show archived sessions across the sidebar, without changing selection
+	// Terminal is the project terminal the workspace shows, whose row is
+	// selected instead of a conversation's; the shell sets it.
+	Terminal string
+	Preview  bool
+	Archived bool // show archived sessions across the sidebar, without changing selection
 	// Sort is the order of the projects and of the conversations in the
 	// chats and in each project, as a Sort: the session order preference,
 	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
@@ -218,7 +221,7 @@ func (s *State) Order() []string {
 func View(c *ui.Context, s *State) {
 	s.drawn = false
 	s.current = s.Current()
-	s.syncRows(s.current)
+	s.syncRows(s.rowCurrent())
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
 		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
 		if v := theme.Of(c).Variant; v != nil {
