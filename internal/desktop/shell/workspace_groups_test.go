@@ -603,6 +603,78 @@ func TestHeaderTabsOpen(t *testing.T) {
 	}
 }
 
+// Dragging a header tab past another moves it there: the strip and the
+// saved order follow, and a plain click still shows a tab.
+func TestHeaderTabsDragToReorder(t *testing.T) {
+	a, tt := workspaceGroupsFixture(t, 1280)
+	a.Data.Unassigned = append(a.Data.Unassigned, &viewmodel.Conversation{ID: "f", Title: "Conversation f"})
+	for _, id := range []string{"e", "f"} {
+		a.OpenConversation(id)
+		tt.Frame()
+		tt.Frame()
+	}
+	group := func(n int) string { return i18n.In("en", "pane_group", "number", n) }
+	order := func() []string {
+		t.Helper()
+		names := []string{group(1), group(2), "Conversation e", "Conversation f"}
+		slices.SortFunc(names, func(x, y string) int {
+			bx, okx := headerButton(tt, x)
+			by, oky := headerButton(tt, y)
+			if !okx || !oky {
+				t.Fatalf("missing tab %q or %q", x, y)
+			}
+			return int(bx.Bounds.X - by.Bounds.X)
+		})
+		return names
+	}
+	if got := order(); !slices.Equal(got, []string{group(1), group(2), "Conversation e", "Conversation f"}) {
+		t.Fatalf("opening order %q", got)
+	}
+	drag := func(source, target string, after bool) {
+		t.Helper()
+		s, _ := headerButton(tt, source)
+		d, _ := headerButton(tt, target)
+		x, y := s.Bounds.X+s.Bounds.W/2, s.Bounds.Y+s.Bounds.H/2
+		to := d.Bounds.X + d.Bounds.W/4
+		if after {
+			to = d.Bounds.X + d.Bounds.W*3/4
+		}
+		tt.Press(x, y)
+		tt.Frame()
+		for _, step := range []float32{x + (to-x)/4, x + (to-x)/2, to} {
+			tt.Move(step, y)
+			tt.Frame()
+		}
+		tt.Release(to, y)
+		tt.Frame()
+		tt.Frame()
+	}
+	// f before the first group, then the first group past e.
+	drag("Conversation f", group(1), false)
+	want := []string{"Conversation f", group(1), group(2), "Conversation e"}
+	if got := order(); !slices.Equal(got, want) {
+		t.Fatalf("after dragging f to the front: %q, want %q", got, want)
+	}
+	drag(group(1), "Conversation e", true)
+	want = []string{"Conversation f", group(2), "Conversation e", group(1)}
+	if got := order(); !slices.Equal(got, want) {
+		t.Fatalf("after dragging the group past e: %q, want %q", got, want)
+	}
+	restored := NewLive(a.Data)
+	restored.SetPrefs(a.prefs())
+	if !slices.Equal(restored.panes.order, a.panes.order) {
+		t.Fatalf("restored order %v, want %v", restored.panes.order, a.panes.order)
+	}
+	// The drags chose no tab; a click still does.
+	b, _ := headerButton(tt, "Conversation e")
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	tt.Frame()
+	if a.panes.Active != session("e") {
+		t.Fatalf("clicking the moved tab: active %v", a.panes.Active)
+	}
+}
+
 // A session shown without a tab leaves ⌘W to the window, while its pane keys
 // still work. Closing its tab before that leaves the session as it was.
 func TestCloseWithoutTabKeepsPaneKeys(t *testing.T) {

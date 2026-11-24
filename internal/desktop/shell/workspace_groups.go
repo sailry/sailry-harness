@@ -71,6 +71,45 @@ func (t headerTab) key() any {
 	return t.alone
 }
 
+// targets are the panes a tab shows: a group's, or the one standing alone.
+func (t headerTab) targets() []panes.Target {
+	if t.group != nil {
+		return t.group.Targets()
+	}
+	return []panes.Target{t.alone}
+}
+
+// tabPlace is a tab's place in the workspace's tab order: its first target
+// there, or -1 before orderTabs gives it one.
+func (a *App) tabPlace(t headerTab) int {
+	members := t.targets()
+	return slices.IndexFunc(a.panes.order, func(o panes.Target) bool { return slices.Contains(members, o) })
+}
+
+// headerTabDrag is the value a header tab drags: the tab's key.
+type headerTabDrag struct{ key any }
+
+// moveTab puts the tab keyed source before target, or after it, by moving
+// the source's entry in the tab order, which the window's preferences keep.
+func (a *App) moveTab(tabs []headerTab, source any, target headerTab, after bool) {
+	from := slices.IndexFunc(tabs, func(t headerTab) bool { return t.key() == source })
+	if from < 0 || source == target.key() {
+		return
+	}
+	src, dst := a.tabPlace(tabs[from]), a.tabPlace(target)
+	if src < 0 || dst < 0 {
+		return
+	}
+	w := &a.panes
+	moved, anchor := w.order[src], w.order[dst]
+	out := slices.Delete(slices.Clone(w.order), src, src+1)
+	at := slices.Index(out, anchor)
+	if after {
+		at++
+	}
+	w.order = slices.Insert(out, at, moved)
+}
+
 // headerTabs are the conversation page's tabs, as an editor's, in the
 // order they opened: the open ones, a passing one for a terminal shown alone
 // otherwise, and the split groups. A session shown without having been
@@ -138,19 +177,10 @@ func (a *App) openTab(t panes.Target) {
 // except a kept tab's or a saved group's not loaded yet, which come back.
 func (a *App) orderTabs(tabs []headerTab) {
 	w := &a.panes
-	targets := func(t headerTab) []panes.Target {
-		if t.group != nil {
-			return t.group.Targets()
-		}
-		return []panes.Target{t.alone}
-	}
-	place := func(t headerTab) int {
-		members := targets(t)
-		return slices.IndexFunc(w.order, func(o panes.Target) bool { return slices.Contains(members, o) })
-	}
+	place := a.tabPlace
 	for _, t := range tabs {
 		if place(t) < 0 {
-			w.order = append(w.order, targets(t)[0])
+			w.order = append(w.order, t.targets()[0])
 		}
 	}
 	slices.SortStableFunc(tabs, func(x, y headerTab) int { return place(x) - place(y) })
@@ -249,6 +279,7 @@ func (a *App) workspaceGroups(c *ui.Context, width float32) {
 				}
 			}
 			b.Shrink(0)
+			a.tabReorder(c, b, t, tabs)
 			if t.group != nil {
 				a.groupTab(c, b, t, hovered)
 				continue
@@ -256,6 +287,32 @@ func (a *App) workspaceGroups(c *ui.Context, width float32) {
 			a.aloneTab(c, b, t, tabs, hovered)
 		}
 	})
+}
+
+// tabReorder makes a header tab drag into another place in the strip, as
+// More's rows do: dimmed in place while the copy follows the pointer, it
+// goes before the tab it is dropped on, or after it past its middle, an
+// insertion line marking that edge while it is over the tab.
+func (a *App) tabReorder(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab) {
+	b.Drag(headerTabDrag{t.key()})
+	if b.Dragging() {
+		b.Opacity(0.5)
+	}
+	x, _, in := b.PointerPosition()
+	after := x >= b.Bounds().W/2
+	if v, ok := ui.Drop[headerTabDrag](b); ok && in {
+		a.moveTab(tabs, v.key, t, after)
+	}
+	if v, ok := ui.DragOver[headerTabDrag](b); ok && in && v.key != t.key() {
+		primary := theme.Of(c).Primary
+		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+			at := r.X
+			if after {
+				at = r.X + r.W - 2
+			}
+			pt.Fill(ui.Rect{X: at, Y: r.Y + 4, W: 2, H: r.H - 8}, primary, 1)
+		})
+	}
 }
 
 // groupTab is a split group's tab: it shows the group, and its menu undoes
