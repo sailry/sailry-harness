@@ -173,7 +173,6 @@ class _ActivityStripState extends State<ActivityStrip> {
       if (activity.isEmpty && _status.entries.isEmpty && widget.queue == null) {
         return const SizedBox.shrink();
       }
-      final colors = Theme.of(context).colorScheme;
       final progress = activity.progress;
       final ports = activity.ports;
       return ComposerChipRow(
@@ -184,23 +183,15 @@ class _ActivityStripState extends State<ActivityStrip> {
             _Chip(
               label: context.tr('activityProgress'),
               compact: true,
-              leading: SizedBox.square(
-                dimension: 15,
-                child: CircularProgressIndicator(
-                  value:
-                      progressCounts(progress).$1 / progressCounts(progress).$2,
-                  strokeWidth: 2.5,
-                  color: colors.onSurface,
-                  backgroundColor: colors.outlineVariant,
-                ),
-              ),
+              icon: 'task',
+              running: true,
               value:
                   '${progressCounts(progress).$1}/${progressCounts(progress).$2}',
               onPressed: _open,
             ),
           if (activity.children.isNotEmpty)
             _Chip(
-              icon: 'spark',
+              icon: 'bot',
               running: true,
               label: context.tr('conversationChild'),
               value: '${activity.children.length}',
@@ -236,8 +227,7 @@ class _Chip extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onPressed,
-    this.icon,
-    this.leading,
+    required this.icon,
     this.running = false,
     this.compact = false,
   });
@@ -247,8 +237,7 @@ class _Chip extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback onPressed;
-  final String? icon;
-  final Widget? leading;
+  final String icon;
   final bool running;
 
   @override
@@ -260,12 +249,11 @@ class _Chip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         spacing: 6,
         children: [
-          leading ??
-              AppIcon(
-                icon!,
-                size: 15,
-                color: running ? colors.onSurface : colors.onSurfaceVariant,
-              ),
+          AppIcon(
+            icon,
+            size: 15,
+            color: running ? colors.onSurface : colors.onSurfaceVariant,
+          ),
           if (!compact) Text(label),
           Text(value, style: TextStyle(color: colors.onSurface)),
         ],
@@ -371,7 +359,7 @@ class _ActivitySheet extends StatelessWidget {
             ToolRow(icon: 'clock', label: text(task['title']), running: true),
           for (final task in activity.held)
             ToolRow(
-              icon: object(task['kind'])['kind'] == 'agent' ? 'spark' : 'clock',
+              icon: object(task['kind'])['kind'] == 'agent' ? 'bot' : 'clock',
               label: text(task['title']),
               detail: backgroundHoldText(task, context.tr),
               tone: RowTone.pending,

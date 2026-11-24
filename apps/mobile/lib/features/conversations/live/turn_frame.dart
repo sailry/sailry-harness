@@ -148,7 +148,7 @@ class _TurnFrameState extends State<TurnFrame> {
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: ToolRow(
-              icon: 'spark',
+              icon: 'bot',
               label: waiting == 1
                   ? context.tr('conversationWaitingChild')
                   : context

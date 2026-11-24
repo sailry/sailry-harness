@@ -38,7 +38,7 @@ Widget toolIcon(Map<String, dynamic> call, Color color) {
     'load_skill' || 'read_skill_resource' => 'file',
     'list_sessions' => 'chat',
     'search_session' => 'search',
-    _ when objects(call['children']).isNotEmpty => 'spark',
+    _ when objects(call['children']).isNotEmpty => 'bot',
     _ when call['progress'] != null => 'check',
     _ when object(resolved['command']).isNotEmpty => 'terminal',
     _ when object(call['question']).isNotEmpty => 'chat',
