@@ -313,15 +313,15 @@ func providerForm(c *ui.Context, m *Controller, e *providerEditor) {
 			kit.Field(c, "billing-rate", label, t("provider_billing_rate_hint"), func() { billingRateInput(c, e, label) })
 		}
 		if e.method.OAuth != ([4]string{}) || !e.login() {
-			// A disclosure: the chevron turns down while the settings show.
+			// A disclosure: the chevron after the label turns down while the settings show.
 			label, chevron := t("provider_oauth_advanced"), icons.ChevronRight
 			if e.advanced {
 				chevron = icons.ChevronDown
 			}
 			kit.GhostLook(c, ui.ButtonBase(c.Key("advanced")).Label(label).Expanded(e.advanced), false).Height(28).PaddingX(4).Gap(4).AlignSelf(ui.Start).
 				Children(func() {
-					ui.Icon(c, chevron).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 					ui.Text(c, label).FontSize(14).SingleLine()
+					ui.Icon(c, chevron).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 				}).OnClick(func() {
 				e.advanced = !e.advanced
 				// Opening starts a channel without headers on an empty row;
