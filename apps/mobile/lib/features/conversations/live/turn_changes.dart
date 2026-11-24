@@ -245,13 +245,13 @@ class _TurnChangesState extends State<TurnChanges> {
                   context
                       .tr('turnChangesCount')
                       .replaceAll('{count}', '${files.length}'),
-                  style: const TextStyle(fontSize: 14),
+                  style: const TextStyle(fontSize: TypeScale.secondary),
                 ),
               ),
               Text(
                 '+$added',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: TypeScale.secondary,
                   color: SailryTheme.statusColor(context, StatusTone.success),
                 ),
               ),
@@ -259,7 +259,7 @@ class _TurnChangesState extends State<TurnChanges> {
               Text(
                 '−$removed',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: TypeScale.secondary,
                   color: SailryTheme.statusColor(context, StatusTone.danger),
                 ),
               ),

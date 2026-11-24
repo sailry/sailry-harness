@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../ui/theme.dart';
 
 /// A single-choice sheet row with a trailing radio mark.
 class ChoiceRow extends StatelessWidget {
@@ -46,7 +47,10 @@ class ChoiceRow extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15, color: colors.onSurface),
+                    style: TextStyle(
+                      fontSize: TypeScale.body,
+                      color: colors.onSurface,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),

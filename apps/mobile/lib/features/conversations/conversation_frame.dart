@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../ui/kit.dart';
 import '../../ui/page_heading.dart';
+import '../../ui/theme.dart';
 
 /// Conversation content scrolls behind the floating controls and themed fade.
 class ConversationFrame extends StatelessWidget {
@@ -140,7 +141,10 @@ class ConversationFrame extends StatelessWidget {
                             ] else if (ModalRoute.canPopOf(context) ==
                                 true) ...[
                               Expanded(
-                                child: PageHeading(title: title!, size: 18),
+                                child: PageHeading(
+                                  title: title!,
+                                  size: TypeScale.heading,
+                                ),
                               ),
                               if (leading != null) ...[
                                 const SizedBox(width: 4),

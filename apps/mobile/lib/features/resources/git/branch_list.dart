@@ -4,6 +4,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import 'model.dart';
+import '../../../ui/theme.dart';
 
 /// Flat branch list: local branches, a remote group, then create actions.
 class BranchList extends StatelessWidget {
@@ -61,13 +62,16 @@ class BranchList extends StatelessWidget {
                         if (detail != null)
                           TextSpan(
                             text: '  $detail',
-                            style: TextStyle(fontSize: 12, color: dim),
+                            style: TextStyle(
+                              fontSize: TypeScale.caption,
+                              color: dim,
+                            ),
                           ),
                       ],
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(fontSize: TypeScale.secondary),
                   ),
                 ),
                 ?trailing,
@@ -106,7 +110,7 @@ class BranchList extends StatelessWidget {
             padding: const EdgeInsets.only(top: 18, bottom: 2),
             child: Text(
               context.tr('gitRemote'),
-              style: TextStyle(fontSize: 13, color: dim),
+              style: TextStyle(fontSize: TypeScale.secondary, color: dim),
             ),
           ),
           for (final (index, entry) in groups.remote.indexed)
@@ -117,7 +121,7 @@ class BranchList extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               context.tr('resourcePartial'),
-              style: TextStyle(fontSize: 12, color: dim),
+              style: TextStyle(fontSize: TypeScale.caption, color: dim),
             ),
           ),
         const SizedBox(height: 18),

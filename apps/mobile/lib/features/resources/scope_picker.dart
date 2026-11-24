@@ -115,7 +115,7 @@ class ScopeRow extends StatelessWidget {
                                     maxLines: titleLines,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      fontSize: 14,
+                                      fontSize: TypeScale.secondary,
                                       fontWeight: selected
                                           ? FontWeight.w500
                                           : null,
@@ -140,7 +140,7 @@ class ScopeRow extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: TypeScale.caption,
                                   height: 1.3,
                                   color: colors.onSurfaceVariant,
                                 ),

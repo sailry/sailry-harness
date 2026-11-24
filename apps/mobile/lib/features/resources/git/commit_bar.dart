@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/theme.dart';
 
 typedef CommitChoice = ({bool skipHooks, bool push});
 
@@ -92,7 +93,7 @@ class CommitBar extends StatelessWidget {
                 enabled: onCommit != null,
                 minLines: 1,
                 maxLines: 4,
-                style: const TextStyle(fontSize: 15, height: 1.5),
+                style: const TextStyle(fontSize: TypeScale.body, height: 1.5),
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   hintText: context.tr('commitMessage'),

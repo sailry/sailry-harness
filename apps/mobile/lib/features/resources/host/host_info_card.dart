@@ -188,7 +188,10 @@ class _Latency extends StatelessWidget {
               text: current == null ? '—' : '${current!.round()}',
               children: [
                 if (current != null)
-                  TextSpan(text: ' ms', style: mutedStyle(context, 13)),
+                  TextSpan(
+                    text: ' ms',
+                    style: mutedStyle(context, TypeScale.secondary),
+                  ),
               ],
             ),
             style: const TextStyle(
@@ -242,7 +245,10 @@ class RoutePill extends StatelessWidget {
                 'relay' => 'connectionRouteRelay',
                 _ => 'connectionRouteUnknown',
               }),
-              style: TextStyle(fontSize: 12, color: colors.onSurface),
+              style: TextStyle(
+                fontSize: TypeScale.caption,
+                color: colors.onSurface,
+              ),
             ),
           ],
         ),
@@ -323,7 +329,7 @@ class CountsCard extends StatelessWidget {
                           Text(
                             '$count',
                             style: const TextStyle(
-                              fontSize: 18,
+                              fontSize: TypeScale.heading,
                               height: 1.3,
                               fontWeight: FontWeight.w600,
                               fontFeatures: figures,

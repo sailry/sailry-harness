@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'theme.dart';
 
 /// An action revealed by swiping a row: a rounded tile standing apart from
 /// the row and from its neighbor, rather than SlidableAction's flush block.
@@ -43,7 +44,7 @@ class SwipeAction extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12.5, color: foreground),
+              style: TextStyle(fontSize: TypeScale.caption, color: foreground),
             ),
           ],
         ),

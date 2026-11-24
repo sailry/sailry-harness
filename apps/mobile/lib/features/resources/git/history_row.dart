@@ -5,6 +5,7 @@ import '../../../runtime/json.dart';
 import '../../conversations/live/recency.dart';
 import 'branch_card.dart';
 import 'model.dart';
+import '../../../ui/theme.dart';
 
 /// Two-line commit row: subject and short hash, then references, author
 /// and time.
@@ -65,7 +66,7 @@ class HistoryRow extends StatelessWidget {
                       text(entry['message']).split('\n').first,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: TypeScale.secondary),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -73,7 +74,7 @@ class HistoryRow extends StatelessWidget {
                     shortHash(text(entry['id'])),
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontSize: 12,
+                      fontSize: TypeScale.caption,
                       color: dim,
                     ),
                   ),
@@ -93,7 +94,7 @@ class HistoryRow extends StatelessWidget {
                       meta,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: dim),
+                      style: TextStyle(fontSize: TypeScale.caption, color: dim),
                     ),
                   ),
                 ],
@@ -127,7 +128,7 @@ class _ReferencePill extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: TypeScale.caption,
             color: current ? colors.onSurface : colors.onSurfaceVariant,
             fontWeight: current ? FontWeight.w500 : null,
           ),

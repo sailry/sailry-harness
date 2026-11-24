@@ -35,6 +35,7 @@ class PillTabs<T> extends StatelessWidget {
           style: TextButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             minimumSize: const Size(0, 36),
+            textStyle: const TextStyle(fontSize: TypeScale.secondary),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             backgroundColor: active ? brand.selection : Colors.transparent,
             disabledBackgroundColor: active
@@ -56,7 +57,7 @@ class PillTabs<T> extends StatelessWidget {
                   TextSpan(
                     text: '  ${item.count}',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: TypeScale.caption,
                       color: colors.onSurfaceVariant.withValues(alpha: .65),
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),

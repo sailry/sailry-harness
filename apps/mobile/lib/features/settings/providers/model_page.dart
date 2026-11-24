@@ -8,6 +8,7 @@ import 'field_sheet.dart';
 import 'parts.dart';
 import 'reasoning_card.dart';
 import 'rules.dart';
+import '../../../ui/theme.dart';
 
 /// Settings of one model; every change saves the provider to its Node.
 class ModelPage extends StatefulWidget {
@@ -126,7 +127,7 @@ class _ModelPageState extends State<ModelPage> {
           '${text(provider['name'])} · $_id',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: dimText(context, 12),
+          style: dimText(context, TypeScale.caption),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -214,6 +215,6 @@ class _GroupLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 12, bottom: 4),
-    child: Text(label, style: dimText(context, 12)),
+    child: Text(label, style: dimText(context, TypeScale.caption)),
   );
 }

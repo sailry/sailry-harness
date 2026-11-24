@@ -6,6 +6,7 @@ import '../../ui/project_icon.dart';
 import '../../runtime/session.dart';
 import '../../runtime/json.dart';
 import 'scope_picker.dart';
+import '../../ui/theme.dart';
 
 typedef ResourceTarget = ({HostConnection host, Map<String, dynamic> worktree});
 
@@ -115,7 +116,7 @@ Future<String?> showLiveWorkspacePicker(
                     child: Text(
                       text(item['name']),
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: TypeScale.caption,
                         color: colors.onSurfaceVariant,
                       ),
                     ),

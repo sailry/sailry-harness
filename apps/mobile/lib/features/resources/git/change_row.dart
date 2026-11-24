@@ -34,7 +34,7 @@ class StatusBadge extends StatelessWidget {
         status.letter,
         style: TextStyle(
           fontFamily: 'monospace',
-          fontSize: 11,
+          fontSize: TypeScale.caption,
           height: 1,
           fontWeight: FontWeight.w600,
           color: color,
@@ -46,7 +46,7 @@ class StatusBadge extends StatelessWidget {
 
 /// Added and removed line counts; empty when both are zero.
 class LineCounts extends StatelessWidget {
-  const LineCounts(this.stats, {super.key, this.size = 12});
+  const LineCounts(this.stats, {super.key, this.size = TypeScale.caption});
   final LineStats stats;
   final double size;
 
@@ -98,7 +98,7 @@ class PathLabel extends StatelessWidget {
             TextSpan(
               text: '  $directory',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: TypeScale.caption,
                 color: Theme.of(
                   context,
                 ).colorScheme.onSurfaceVariant.withValues(alpha: .65),

@@ -37,7 +37,10 @@ class _File extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final muted = TextStyle(fontSize: 12, color: colors.onSurfaceVariant);
+    final muted = TextStyle(
+      fontSize: TypeScale.caption,
+      color: colors.onSurfaceVariant,
+    );
     final kind = switch (file['kind']) {
       'added' => context.tr('fileChangesAdded'),
       'modified' => context.tr('fileChangesModified'),
@@ -65,7 +68,7 @@ class _File extends StatelessWidget {
                 path,
                 style: const TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 13,
+                  fontSize: TypeScale.secondary,
                   height: 1.5,
                 ),
               ),

@@ -157,7 +157,7 @@ class _PromptCard extends StatelessWidget {
           Text(
             context.tr('welcome${name}Detail'),
             style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 12,
+              fontSize: TypeScale.caption,
               height: 1.4,
               color: theme.colorScheme.onSurfaceVariant,
             ),

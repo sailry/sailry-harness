@@ -7,6 +7,7 @@ import 'branch_card.dart';
 import 'change_row.dart';
 import 'model.dart';
 import 'summary.dart';
+import '../../../ui/theme.dart';
 
 /// Branch, sync and the first changes; hidden outside a Git repository.
 class GitOverviewCard extends StatelessWidget {
@@ -44,7 +45,7 @@ class GitOverviewCard extends StatelessWidget {
                 child: Text(
                   context.tr('noChanges'),
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: TypeScale.secondary,
                     color: colors.onSurfaceVariant,
                   ),
                 ),
@@ -85,7 +86,7 @@ class GitOverviewCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: TypeScale.secondary,
                           color: colors.onSurfaceVariant,
                         ),
                       ),

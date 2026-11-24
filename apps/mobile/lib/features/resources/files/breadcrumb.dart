@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../ui/kit.dart';
+import '../../../ui/theme.dart';
 
 /// Worktree-relative ancestors of [directory], root first.
 List<({String label, String path})> crumbs(String directory) {
@@ -73,7 +74,7 @@ class Breadcrumb extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: TypeScale.secondary,
                           color: current
                               ? colors.onSurface
                               : colors.onSurfaceVariant,

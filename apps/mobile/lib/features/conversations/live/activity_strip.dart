@@ -18,6 +18,7 @@ import 'status_feed.dart';
 import 'glass_chip.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
+import '../../../ui/theme.dart';
 
 /// Core activity still running for a conversation, and the background results
 /// the Node holds for the user's next message.
@@ -303,7 +304,7 @@ class _ActivitySheet extends StatelessWidget {
       child: Text(
         context.tr(key),
         style: TextStyle(
-          fontSize: transcriptFontSize,
+          fontSize: TypeScale.secondary,
           color: colors.onSurfaceVariant.withValues(alpha: .65),
         ),
       ),

@@ -7,6 +7,7 @@ import '../../../ui/kit.dart';
 import 'controller.dart';
 import 'parts.dart';
 import 'rules.dart';
+import '../../../ui/theme.dart';
 
 /// Keeps discovered selections until the Node saves them.
 Future<void> showDiscoverySheet(
@@ -249,12 +250,12 @@ class _Candidate extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: TypeScale.secondary,
                         fontFamily: 'monospace',
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(detail, style: dimText(context, 12)),
+                    Text(detail, style: dimText(context, TypeScale.caption)),
                   ],
                 ),
               ),

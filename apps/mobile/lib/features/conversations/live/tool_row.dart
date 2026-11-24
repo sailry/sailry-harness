@@ -8,7 +8,7 @@ import '../../../ui/theme.dart';
 import 'activity.dart';
 
 /// Transcript rows share one size, as in the desktop disclosure rows.
-const transcriptFontSize = 14.0;
+const transcriptFontSize = TypeScale.body;
 
 enum RowTone { normal, failed, pending }
 

@@ -59,7 +59,10 @@ class HostStatusBar extends StatelessWidget {
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 220);
-    final muted = TextStyle(fontSize: 13, color: colors.onSurfaceVariant);
+    final muted = TextStyle(
+      fontSize: TypeScale.secondary,
+      color: colors.onSurfaceVariant,
+    );
     return Semantics(
       button: true,
       label: [title, ?word, ?route, ?latency].join(', '),

@@ -118,7 +118,7 @@ class _DiffFileState extends State<DiffFile> {
                             TextSpan(
                               text: '  $folder',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: TypeScale.caption,
                                 color: colors.onSurfaceVariant,
                               ),
                             ),
@@ -126,14 +126,14 @@ class _DiffFileState extends State<DiffFile> {
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: TypeScale.secondary),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     '+$added',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: TypeScale.caption,
                       color: SailryTheme.statusColor(
                         context,
                         StatusTone.success,
@@ -144,7 +144,7 @@ class _DiffFileState extends State<DiffFile> {
                   Text(
                     '−$removed',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: TypeScale.caption,
                       color: SailryTheme.statusColor(
                         context,
                         StatusTone.danger,
@@ -174,7 +174,7 @@ class _DiffFileState extends State<DiffFile> {
                     child: Text(
                       context.tr('resourcePartial'),
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: TypeScale.caption,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
@@ -241,7 +241,7 @@ class UnifiedDiff extends StatelessWidget {
         .fold(1, (width, value) => value > width ? value : width);
     final style = TextStyle(
       fontFamily: 'monospace',
-      fontSize: 12.5,
+      fontSize: TypeScale.caption,
       height: 1.6,
       color: colors.onSurface,
     );

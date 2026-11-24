@@ -98,21 +98,21 @@ class UsageSummary extends StatelessWidget {
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: _muted(context, 13),
+            style: _muted(context, TypeScale.secondary),
           ),
         ),
         const SizedBox(width: 6),
         Text(
           compact(value) ?? unknown,
           style: const TextStyle(
-            fontSize: 13,
+            fontSize: TypeScale.secondary,
             fontWeight: FontWeight.w500,
             fontFeatures: _figures,
           ),
         ),
         if (share != null) ...[
           const SizedBox(width: 6),
-          Text(percent(share)!, style: _faint(context, 13)),
+          Text(percent(share)!, style: _faint(context, TypeScale.secondary)),
         ],
       ],
     );
@@ -138,7 +138,7 @@ class UsageSummary extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(context.tr('tokens'), style: _muted(context, 13)),
+        Text(context.tr('tokens'), style: _muted(context, TypeScale.secondary)),
         const SizedBox(height: 2),
         Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -162,7 +162,7 @@ class UsageSummary extends StatelessWidget {
                   grouped(overview.total)!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: _faint(context, 15),
+                  style: _faint(context, TypeScale.body),
                 ),
               ),
             ],
@@ -221,7 +221,7 @@ class UsageSummary extends StatelessWidget {
                       ? null
                       : Text(
                           context.tr('usageSpeedUnit'),
-                          style: _faint(context, 12),
+                          style: _faint(context, TypeScale.caption),
                         ),
                 ),
                 right: _Metric(
@@ -232,7 +232,10 @@ class UsageSummary extends StatelessWidget {
                           onTap: () => showAppSheet(
                             context,
                             context.tr('estimatedCost'),
-                            child: Text(priced, style: _muted(context, 14)),
+                            child: Text(
+                              priced,
+                              style: _muted(context, TypeScale.secondary),
+                            ),
                           ),
                         )
                       : null,
@@ -246,7 +249,7 @@ class UsageSummary extends StatelessWidget {
           Text(
             context.tr('settingsUsagePartial'),
             key: const ValueKey('usage-partial'),
-            style: _faint(context, 12),
+            style: _faint(context, TypeScale.caption),
           ),
         ],
       ],
@@ -324,7 +327,7 @@ class _Metric extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: _muted(context, 12),
+          style: _muted(context, TypeScale.caption),
         ),
         const SizedBox(height: 4),
         Row(
@@ -368,7 +371,10 @@ class _PartialTag extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
         child: Text(
           context.tr('usageCostPartial'),
-          style: _muted(context, 11).copyWith(fontWeight: FontWeight.w500),
+          style: _muted(
+            context,
+            TypeScale.caption,
+          ).copyWith(fontWeight: FontWeight.w500),
         ),
       ),
     ),
@@ -387,7 +393,10 @@ class UsageHeading extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: TypeScale.body,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         if (trailing != null) ...[
           const SizedBox(width: 12),
@@ -448,7 +457,7 @@ class UsageTrend extends StatelessWidget {
                     const SizedBox(width: 5),
                     Text(
                       context.tr(_series[index]),
-                      style: _muted(context, 12),
+                      style: _muted(context, TypeScale.caption),
                     ),
                   ],
                 ),
@@ -462,7 +471,7 @@ class UsageTrend extends StatelessWidget {
             context
                 .tr('usageActiveDays')
                 .replaceAll('{count}', '${year.active}'),
-            style: _faint(context, 12),
+            style: _faint(context, TypeScale.caption),
           ),
           const SizedBox(height: 8),
           _Heatmap(columns: year.columns, cells: year.cells, color: series[0]),
@@ -471,7 +480,7 @@ class UsageTrend extends StatelessWidget {
         Text(
           context.tr('usageLocalTime'),
           textAlign: TextAlign.right,
-          style: _faint(context, 12),
+          style: _faint(context, TypeScale.caption),
         ),
       ],
     );
@@ -498,7 +507,7 @@ class _TrendChart extends StatelessWidget {
         (peak, bucket) => math.max(peak, bucket.tokens?.total ?? 0),
       ),
     );
-    final tick = _faint(context, 11);
+    final tick = _faint(context, TypeScale.caption);
     return SizedBox(
       height: 170,
       child: LayoutBuilder(
@@ -547,7 +556,7 @@ class _TrendChart extends StatelessWidget {
                     return BarTooltipItem(
                       usageHeading(bucket, unit),
                       TextStyle(
-                        fontSize: 12,
+                        fontSize: TypeScale.caption,
                         fontWeight: FontWeight.w500,
                         color: scheme.onSurface,
                         fontFeatures: _figures,
@@ -763,7 +772,7 @@ class UsageRows extends StatelessWidget {
         child: Text(
           context.tr('usageEmpty'),
           textAlign: TextAlign.center,
-          style: _faint(context, 13),
+          style: _faint(context, TypeScale.secondary),
         ),
       );
     }
@@ -790,14 +799,14 @@ class UsageRows extends StatelessWidget {
                             if (shown[index].note case final note?)
                               TextSpan(
                                 text: '  $note',
-                                style: _faint(context, 13),
+                                style: _faint(context, TypeScale.secondary),
                               ),
                           ],
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 14,
+                          fontSize: TypeScale.secondary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -806,7 +815,7 @@ class UsageRows extends StatelessWidget {
                     Text(
                       compact(shown[index].total) ?? unknown,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: TypeScale.secondary,
                         fontWeight: FontWeight.w500,
                         fontFeatures: _figures,
                       ),
@@ -827,7 +836,7 @@ class UsageRows extends StatelessWidget {
                   children: [
                     Text(
                       percent(shown[index].share) ?? unknown,
-                      style: _muted(context, 12),
+                      style: _muted(context, TypeScale.caption),
                     ),
                     Text(
                       context
@@ -838,7 +847,7 @@ class UsageRows extends StatelessWidget {
                                 ? unknown
                                 : '${shown[index].hit!.round()}%',
                           ),
-                      style: _faint(context, 12),
+                      style: _faint(context, TypeScale.caption),
                     ),
                     Text(
                       context
@@ -847,13 +856,13 @@ class UsageRows extends StatelessWidget {
                             '{count}',
                             grouped(shown[index].responses)!,
                           ),
-                      style: _faint(context, 12),
+                      style: _faint(context, TypeScale.caption),
                     ),
                     Text(
                       shown[index].cost == null
                           ? unknown
                           : '\$${shown[index].cost}',
-                      style: _faint(context, 12),
+                      style: _faint(context, TypeScale.caption),
                     ),
                   ],
                 ),

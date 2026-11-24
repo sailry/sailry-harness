@@ -366,7 +366,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 12,
+                  fontSize: TypeScale.caption,
                   color: colors.onSurfaceVariant.withValues(alpha: .65),
                 ),
               ),
@@ -475,7 +475,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
           enableSuggestions: false,
           style: const TextStyle(
             fontFamily: 'monospace',
-            fontSize: 14,
+            fontSize: TypeScale.secondary,
             height: 1.6,
           ),
           onChanged: (value) => setState(() => _draft!.text = value),
@@ -507,7 +507,7 @@ class _Note extends StatelessWidget {
     child: Text(
       message,
       style: TextStyle(
-        fontSize: 12,
+        fontSize: TypeScale.caption,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
     ),

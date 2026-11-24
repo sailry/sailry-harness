@@ -75,7 +75,7 @@ class TaskRow extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 15,
+                                fontSize: TypeScale.body,
                                 fontWeight: dim
                                     ? FontWeight.w400
                                     : FontWeight.w600,
@@ -90,7 +90,7 @@ class TaskRow extends StatelessWidget {
                             Text(
                               time!,
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: TypeScale.secondary,
                                 fontFeatures: const [
                                   FontFeature.tabularFigures(),
                                 ],
@@ -113,7 +113,7 @@ class TaskRow extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: TypeScale.secondary,
                                 color: colors.onSurfaceVariant,
                               ),
                             ),

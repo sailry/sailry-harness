@@ -7,10 +7,13 @@ import '../../../ui/theme.dart';
 import '../../../ui/toast.dart';
 import 'rules.dart';
 
-TextStyle dimText(BuildContext context, [double size = 13]) => TextStyle(
-  fontSize: size,
-  color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: .65),
-);
+TextStyle dimText(BuildContext context, [double size = TypeScale.secondary]) =>
+    TextStyle(
+      fontSize: size,
+      color: Theme.of(
+        context,
+      ).colorScheme.onSurfaceVariant.withValues(alpha: .65),
+    );
 
 /// Runs a Node edit and reports a failure as a toast.
 Future<bool> attempt(
@@ -58,7 +61,7 @@ class SectionCard extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 15,
+                  fontSize: TypeScale.body,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -114,7 +117,7 @@ class FieldRow extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 48),
         child: Row(
           children: [
-            Text(label, style: const TextStyle(fontSize: 15)),
+            Text(label, style: const TextStyle(fontSize: TypeScale.body)),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
@@ -123,7 +126,7 @@ class FieldRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: TypeScale.secondary,
                   color: colors.onSurfaceVariant,
                   fontFamily: mono ? 'monospace' : null,
                 ),
@@ -168,7 +171,9 @@ class SwitchRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
         ],
-        Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
+        Expanded(
+          child: Text(label, style: const TextStyle(fontSize: TypeScale.body)),
+        ),
         AppSwitch(value: value, onChanged: onChanged),
       ],
     ),
@@ -237,7 +242,7 @@ class DefaultTag extends StatelessWidget {
       ),
       child: Text(
         context.tr('providerDefault'),
-        style: TextStyle(fontSize: 11, color: color),
+        style: TextStyle(fontSize: TypeScale.caption, color: color),
       ),
     );
   }
@@ -264,7 +269,10 @@ class ProviderAvatar extends StatelessWidget {
       ),
       child: Text(
         initial,
-        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          fontSize: TypeScale.body,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -296,7 +304,7 @@ class ActionCard extends StatelessWidget {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 15, color: color),
+        style: TextStyle(fontSize: TypeScale.body, color: color),
       ),
     );
   }

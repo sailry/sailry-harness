@@ -8,6 +8,7 @@ import '../../../ui/kit.dart';
 import 'branch_card.dart';
 import 'change_row.dart';
 import 'model.dart';
+import '../../../ui/theme.dart';
 
 enum DiffAction { toggle, discard }
 
@@ -43,7 +44,7 @@ Future<DiffAction?> showDiffSheet(
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: TypeScale.body,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -63,7 +64,7 @@ Future<DiffAction?> showDiffSheet(
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: 'monospace',
-                    fontSize: 12,
+                    fontSize: TypeScale.caption,
                     color: colors.onSurfaceVariant.withValues(alpha: .65),
                   ),
                 ),

@@ -11,6 +11,7 @@ import 'overview_cards.dart';
 import 'project_form.dart';
 import 'scope_picker.dart';
 import 'workspace.dart';
+import '../../ui/theme.dart';
 
 /// Opens a project's resources without changing the chat list's filter.
 void openProjectResources(
@@ -152,7 +153,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: TypeScale.caption,
                 color: Theme.of(
                   context,
                 ).colorScheme.onSurfaceVariant.withValues(alpha: .65),

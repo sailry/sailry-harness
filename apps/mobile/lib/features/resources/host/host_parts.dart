@@ -6,22 +6,24 @@ import 'metric_history.dart';
 
 const figures = [FontFeature.tabularFigures()];
 
-TextStyle dimStyle(BuildContext context, [double size = 12]) => TextStyle(
-  fontSize: size,
-  height: 1.3,
-  color: chartDim(context),
-  fontFeatures: figures,
-);
+TextStyle dimStyle(BuildContext context, [double size = TypeScale.caption]) =>
+    TextStyle(
+      fontSize: size,
+      height: 1.3,
+      color: chartDim(context),
+      fontFeatures: figures,
+    );
 
-TextStyle mutedStyle(BuildContext context, [double size = 12]) => TextStyle(
-  fontSize: size,
-  height: 1.3,
-  color: Theme.of(context).colorScheme.onSurfaceVariant,
-  fontFeatures: figures,
-);
+TextStyle mutedStyle(BuildContext context, [double size = TypeScale.caption]) =>
+    TextStyle(
+      fontSize: size,
+      height: 1.3,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      fontFeatures: figures,
+    );
 
 const titleStyle = TextStyle(
-  fontSize: 15,
+  fontSize: TypeScale.body,
   height: 1.3,
   fontWeight: FontWeight.w600,
   fontFeatures: figures,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../content/code.dart';
+import '../../../ui/theme.dart';
 
 /// Full-width highlighted source with a dim line-number gutter.
 class CodeView extends StatelessWidget {
@@ -10,7 +11,7 @@ class CodeView extends StatelessWidget {
 
   static const _style = TextStyle(
     fontFamily: 'monospace',
-    fontSize: 13,
+    fontSize: TypeScale.secondary,
     height: 1.6,
   );
 

@@ -25,7 +25,10 @@ class ListGroup extends StatelessWidget {
               header: true,
               child: Text(
                 title,
-                style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+                style: TextStyle(
+                  fontSize: TypeScale.secondary,
+                  color: colors.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -111,7 +114,7 @@ class ListGroupRow extends StatelessWidget {
                           Text(
                             title,
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: TypeScale.body,
                               color:
                                   color ??
                                   (chosen ? brand.color : colors.onSurface),
@@ -121,7 +124,7 @@ class ListGroupRow extends StatelessWidget {
                             Text(
                               subtitle,
                               style: TextStyle(
-                                fontSize: 12.5,
+                                fontSize: TypeScale.caption,
                                 height: 1.3,
                                 color: colors.onSurfaceVariant,
                               ),

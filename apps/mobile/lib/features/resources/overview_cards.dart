@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../ui/kit.dart';
+import '../../ui/theme.dart';
 
 /// One entry row of [ResourceEntries].
 typedef ResourceEntry = ({
@@ -51,14 +52,17 @@ class ResourceEntries extends StatelessWidget {
                             entry.label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15),
+                            style: const TextStyle(fontSize: TypeScale.body),
                           ),
                         ),
                         if (entry.detail != null) ...[
                           const SizedBox(width: 8),
                           Text(
                             entry.detail!,
-                            style: TextStyle(fontSize: 13, color: dim),
+                            style: TextStyle(
+                              fontSize: TypeScale.secondary,
+                              color: dim,
+                            ),
                           ),
                         ],
                         const SizedBox(width: 8),

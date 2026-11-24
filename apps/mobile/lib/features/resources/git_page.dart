@@ -17,6 +17,7 @@ import 'git/diff_sheet.dart';
 import 'git/history_row.dart';
 import 'git/model.dart';
 import 'workspace.dart';
+import '../../ui/theme.dart';
 
 class GitPage extends StatefulWidget {
   const GitPage({super.key, this.hostId, this.worktreeId});
@@ -572,7 +573,10 @@ class _GroupTitle extends StatelessWidget {
     ).colorScheme.onSurfaceVariant.withValues(alpha: .65);
     return Padding(
       padding: const EdgeInsets.only(top: 14, bottom: 2),
-      child: Text('$label  $count', style: TextStyle(fontSize: 13, color: dim)),
+      child: Text(
+        '$label  $count',
+        style: TextStyle(fontSize: TypeScale.secondary, color: dim),
+      ),
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:re_highlight/languages/all.dart';
 import '../l10n/strings.dart';
 import '../ui/kit.dart';
 import '../ui/toast.dart';
+import '../ui/theme.dart';
 
 final _highlight = Highlight()..registerLanguages(builtinAllLanguages);
 
@@ -89,7 +90,7 @@ class _CodeTextState extends State<CodeText> {
     final colors = Theme.of(context).colorScheme;
     final style = TextStyle(
       fontFamily: 'monospace',
-      fontSize: 13,
+      fontSize: TypeScale.secondary,
       height: 1.6,
       color: colors.onSurface,
     ).merge(widget.style);

@@ -119,7 +119,10 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
         children: [
           Text(
             current?.$2 ?? '',
-            style: TextStyle(fontSize: 15, color: colors.onSurfaceVariant),
+            style: TextStyle(
+              fontSize: TypeScale.body,
+              color: colors.onSurfaceVariant,
+            ),
           ),
           const SizedBox(width: 6),
           AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),

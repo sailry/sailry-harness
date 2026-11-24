@@ -25,6 +25,7 @@ import 'project_bar.dart';
 import 'recency.dart';
 import 'task_filters.dart';
 import 'terminal_tasks.dart';
+import '../../../ui/theme.dart';
 
 class LiveTasksPage extends StatefulWidget {
   const LiveTasksPage({
@@ -686,7 +687,7 @@ class _GroupTitle extends StatelessWidget {
     child: Text(
       label,
       style: TextStyle(
-        fontSize: 13,
+        fontSize: TypeScale.secondary,
         color: Theme.of(
           context,
         ).colorScheme.onSurfaceVariant.withValues(alpha: .65),

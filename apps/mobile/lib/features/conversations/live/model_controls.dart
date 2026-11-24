@@ -6,6 +6,7 @@ import '../../../ui/kit.dart';
 import 'choice_row.dart';
 import 'team.dart';
 import 'team_controls.dart';
+import '../../../ui/theme.dart';
 
 /// Edits a configuration draft; the owning form admits the revision to the Node.
 /// With a team, the model and effort act on the selected avatar.
@@ -361,7 +362,7 @@ class _ModelChoicesState extends State<ModelChoices> {
                     child: Text(
                       text(provider['name']),
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: TypeScale.secondary,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
@@ -452,7 +453,7 @@ class _ModelChoicesState extends State<ModelChoices> {
                           child: Text(
                             name.characters.firstOrNull?.toUpperCase() ?? '?',
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: TypeScale.body,
                               fontWeight: FontWeight.w600,
                               color: selected
                                   ? colors.onSurface
@@ -515,7 +516,7 @@ class _FeatureChoice extends StatelessWidget {
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 15, color: colors.onSurface),
+            style: TextStyle(fontSize: TypeScale.body, color: colors.onSurface),
           ),
         ),
         Expanded(

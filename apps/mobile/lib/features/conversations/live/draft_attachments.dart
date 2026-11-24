@@ -4,6 +4,7 @@ import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import 'attachments.dart';
+import '../../../ui/theme.dart';
 
 class DraftAttachments extends StatelessWidget {
   const DraftAttachments({
@@ -70,7 +71,10 @@ class DraftAttachments extends StatelessWidget {
                           : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 13, color: colors.onSurface),
+                      style: TextStyle(
+                        fontSize: TypeScale.secondary,
+                        color: colors.onSurface,
+                      ),
                     ),
                   ),
                   IconButton(

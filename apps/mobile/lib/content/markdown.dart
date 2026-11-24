@@ -106,7 +106,7 @@ class MarkdownContent extends StatelessWidget {
 MarkdownStyleSheet contentStyleSheet(ThemeData theme, {bool muted = false}) {
   final colors = theme.colorScheme;
   final body = TextStyle(
-    fontSize: 14,
+    fontSize: TypeScale.secondary,
     height: 1.7,
     color: muted ? colors.onSurfaceVariant : colors.onSurface,
   );

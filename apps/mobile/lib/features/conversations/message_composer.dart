@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
 import '../../ui/kit.dart';
+import '../../ui/theme.dart';
 
 class MessageComposer extends StatelessWidget {
   const MessageComposer({
@@ -93,7 +94,10 @@ class MessageComposer extends StatelessWidget {
                         enabled: enabled,
                         minLines: 1,
                         maxLines: 6,
-                        style: const TextStyle(fontSize: 15, height: 1.5),
+                        style: const TextStyle(
+                          fontSize: TypeScale.body,
+                          height: 1.5,
+                        ),
                         textInputAction: TextInputAction.newline,
                         decoration: InputDecoration(
                           hintText: context.tr('describeTask'),

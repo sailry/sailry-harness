@@ -6,6 +6,7 @@ import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import '../conversations/live/presentation.dart';
 import 'files/entry_data.dart';
+import '../../ui/theme.dart';
 
 /// Browses the selected execution host using the same Client API as Desktop.
 class HostFilePicker extends StatefulWidget {
@@ -175,7 +176,7 @@ class _HostFilePickerState extends State<HostFilePicker> {
                                   final modified? => Text(
                                     modified,
                                     style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: TypeScale.caption,
                                       color: Theme.of(
                                         context,
                                       ).colorScheme.onSurfaceVariant,

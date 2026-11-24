@@ -71,7 +71,7 @@ class HostTabsHeader extends SliverPersistentHeaderDelegate {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: TypeScale.secondary,
                   fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
                 ),
               ),
@@ -175,7 +175,7 @@ class _SortMenu extends StatelessWidget {
         children: [
           Text(
             context.tr(byMemory ? 'hostSortMemory' : 'hostSortCpu'),
-            style: const TextStyle(fontSize: 12),
+            style: const TextStyle(fontSize: TypeScale.caption),
           ),
           const SizedBox(width: 3),
           const AppIcon('down', size: 12),
@@ -287,7 +287,7 @@ class ProcessList extends StatelessWidget {
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
+                    style: const TextStyle(fontSize: TypeScale.secondary),
                   ),
                 ),
                 SizedBox(
@@ -297,7 +297,10 @@ class ProcessList extends StatelessWidget {
                         ? basisPercent(process['cpu_basis_points'])
                         : '—',
                     textAlign: TextAlign.end,
-                    style: const TextStyle(fontSize: 14, fontFeatures: figures),
+                    style: const TextStyle(
+                      fontSize: TypeScale.secondary,
+                      fontFeatures: figures,
+                    ),
                   ),
                 ),
                 SizedBox(
@@ -432,7 +435,9 @@ class ProjectList extends StatelessWidget {
                                 text(project['name']),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14),
+                                style: const TextStyle(
+                                  fontSize: TypeScale.secondary,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/theme.dart';
 
 const _tabular = [FontFeature.tabularFigures()];
 
@@ -26,7 +27,7 @@ class SyncPill extends StatelessWidget {
     child: Text(
       '↑${sync.ahead} ↓${sync.behind}',
       style: TextStyle(
-        fontSize: 12,
+        fontSize: TypeScale.caption,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
         fontFeatures: _tabular,
       ),
@@ -70,7 +71,7 @@ class BranchHeader extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: TypeScale.body,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -83,7 +84,7 @@ class BranchHeader extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: TypeScale.caption,
                           color: colors.onSurfaceVariant.withValues(alpha: .65),
                         ),
                       ),
@@ -193,7 +194,10 @@ class _ActionButton extends StatelessWidget {
               ),
               child: Text(
                 '$badge',
-                style: const TextStyle(fontSize: 11, fontFeatures: _tabular),
+                style: const TextStyle(
+                  fontSize: TypeScale.caption,
+                  fontFeatures: _tabular,
+                ),
               ),
             ),
           ],

@@ -183,7 +183,7 @@ class _EffortChip extends StatelessWidget {
                         Text(
                           value,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: TypeScale.secondary,
                             fontFamily: 'monospace',
                             color: foreground,
                             fontWeight: selected ? FontWeight.w500 : null,

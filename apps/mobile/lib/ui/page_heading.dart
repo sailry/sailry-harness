@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/strings.dart';
 import 'icons.dart';
+import 'theme.dart';
 
 /// Route-owned navigation preserves native back handling and PopScope guards.
 class PageHeading extends StatelessWidget {
@@ -9,7 +10,7 @@ class PageHeading extends StatelessWidget {
     super.key,
     required this.title,
     this.enabled = true,
-    this.size = 22,
+    this.size = TypeScale.title,
     this.subtitle,
     this.accessory,
   });

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
+import '../../../ui/theme.dart';
 
 /// Search-field styled project switcher above the task filters.
 class ProjectBar extends StatelessWidget {
@@ -53,7 +54,7 @@ class ProjectBar extends StatelessWidget {
       name,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: TextStyle(fontSize: 15, color: colors.onSurface),
+      style: TextStyle(fontSize: TypeScale.body, color: colors.onSurface),
     );
     final search = onSearch == null
         ? null
@@ -93,7 +94,10 @@ class ProjectBar extends StatelessWidget {
                   child: TextField(
                     autofocus: true,
                     onChanged: onQuery,
-                    style: TextStyle(fontSize: 15, color: colors.onSurface),
+                    style: TextStyle(
+                      fontSize: TypeScale.body,
+                      color: colors.onSurface,
+                    ),
                     // The bar is the field; the theme's outline and fill
                     // would draw a second box inside it.
                     decoration: InputDecoration(
@@ -105,7 +109,7 @@ class ProjectBar extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       hintText: context.tr('searchTasks'),
                       hintStyle: TextStyle(
-                        fontSize: 15,
+                        fontSize: TypeScale.body,
                         color: colors.onSurfaceVariant,
                       ),
                     ),
@@ -161,7 +165,7 @@ class ProjectBar extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 15,
+                                fontSize: TypeScale.body,
                                 color: colors.onSurfaceVariant.withValues(
                                   alpha: .65,
                                 ),

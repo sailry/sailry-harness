@@ -608,7 +608,7 @@ class FloatingNavigation extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: TypeScale.caption,
                                 height: 1.2,
                                 fontWeight: selected == item.id
                                     ? FontWeight.w600

@@ -161,7 +161,7 @@ class StatusDetails extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 22,
+                fontSize: TypeScale.title,
                 fontWeight: FontWeight.w600,
                 color: colors.onSurface,
                 fontFeatures: const [FontFeature.tabularFigures()],
@@ -171,7 +171,10 @@ class StatusDetails extends StatelessWidget {
               capturedLabel(context, detail['label']),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+              style: TextStyle(
+                fontSize: TypeScale.caption,
+                color: colors.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -216,7 +219,7 @@ class StatusDetails extends StatelessWidget {
                           Text(
                             capturedLabel(context, detail['label']),
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: TypeScale.caption,
                               color: colors.onSurfaceVariant,
                             ),
                           ),

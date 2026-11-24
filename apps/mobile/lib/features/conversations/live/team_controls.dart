@@ -6,6 +6,7 @@ import '../../../ui/kit.dart';
 import '../../../ui/identity_avatar.dart';
 import 'choice_row.dart';
 import 'team.dart';
+import '../../../ui/theme.dart';
 
 /// A team's appearance; the Default team and plain teams share one icon.
 class TeamIcon extends StatelessWidget {
@@ -74,7 +75,10 @@ class TeamBar extends StatelessWidget {
                         teamName(state.execution, team, context.tr),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 14, color: colors.onSurface),
+                        style: TextStyle(
+                          fontSize: TypeScale.secondary,
+                          color: colors.onSurface,
+                        ),
                       ),
                     ),
                     AppIcon(

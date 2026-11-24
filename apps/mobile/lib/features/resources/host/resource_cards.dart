@@ -6,6 +6,7 @@ import '../../../ui/kit.dart';
 import 'host_parts.dart';
 import 'metric_charts.dart';
 import 'metric_history.dart';
+import '../../../ui/theme.dart';
 
 const _cardPadding = EdgeInsets.fromLTRB(16, 14, 16, 14);
 
@@ -187,7 +188,7 @@ Widget _ringCenter(BuildContext context, String value, String detail) =>
           Text(
             value,
             style: const TextStyle(
-              fontSize: 17,
+              fontSize: TypeScale.heading,
               height: 1.2,
               fontWeight: FontWeight.w600,
               fontFeatures: figures,
@@ -198,7 +199,7 @@ Widget _ringCenter(BuildContext context, String value, String detail) =>
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: dimStyle(context, 10.5),
+            style: dimStyle(context, TypeScale.caption),
           ),
         ],
       ),
@@ -468,7 +469,10 @@ class _Partition extends StatelessWidget {
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, fontFeatures: figures),
+                  style: const TextStyle(
+                    fontSize: TypeScale.secondary,
+                    fontFeatures: figures,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),

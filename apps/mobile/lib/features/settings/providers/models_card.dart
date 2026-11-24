@@ -5,6 +5,7 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import 'parts.dart';
 import 'rules.dart';
+import '../../../ui/theme.dart';
 
 /// Models of a provider with fetch and manual add actions.
 class ModelsCard extends StatelessWidget {
@@ -71,7 +72,10 @@ class _Action extends StatelessWidget {
     ),
     onPressed: onPressed,
     icon: AppIcon(icon, size: 15),
-    label: Text(context.tr(label), style: const TextStyle(fontSize: 13)),
+    label: Text(
+      context.tr(label),
+      style: const TextStyle(fontSize: TypeScale.secondary),
+    ),
   );
 }
 
@@ -102,7 +106,7 @@ class _ModelRow extends StatelessWidget {
                       modelLabel(model),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 15),
+                      style: const TextStyle(fontSize: TypeScale.body),
                     ),
                   ),
                   if (isDefault) ...[

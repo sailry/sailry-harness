@@ -88,7 +88,7 @@ class Segments<T> extends StatelessWidget {
         ? AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 160),
             style: TextStyle(
-              fontSize: 13,
+              fontSize: TypeScale.secondary,
               fontWeight: FontWeight.w500,
               color: color,
             ),

@@ -11,6 +11,7 @@ import 'field_sheet.dart';
 import 'parts.dart';
 import 'provider_page.dart';
 import 'rules.dart';
+import '../../../ui/theme.dart';
 
 /// Model services of one Node, including Desktop presets and logins.
 class ProvidersPage extends StatefulWidget {
@@ -127,7 +128,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
               child: Text(
                 context.tr('providerDesktopHint'),
                 textAlign: TextAlign.center,
-                style: dimText(context, 12),
+                style: dimText(context, TypeScale.caption),
               ),
             ),
           ],
@@ -178,7 +179,7 @@ class _ProviderRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 15,
+                          fontSize: TypeScale.body,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -190,7 +191,7 @@ class _ProviderRow extends StatelessWidget {
                           detail,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: dimText(context, 12),
+                          style: dimText(context, TypeScale.caption),
                         ),
                       ],
                     ],
@@ -202,7 +203,7 @@ class _ProviderRow extends StatelessWidget {
                       .tr('providerModelCount')
                       .replaceAll('{count}', '$count'),
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: TypeScale.secondary,
                     color: colors.onSurfaceVariant,
                   ),
                 ),

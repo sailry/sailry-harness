@@ -29,6 +29,26 @@ enum Brand {
 }
 
 /// The theme's brand color and the tint a selected row stands on.
+/// The app's five text sizes. Pages use these instead of literal sizes;
+/// figures meant to be read at a glance, such as usage totals, chart axes
+/// and file-type badges, keep their own.
+abstract final class TypeScale {
+  /// Page headings.
+  static const double title = 22;
+
+  /// Card and conversation headings.
+  static const double heading = 17;
+
+  /// List titles, fields, buttons and message text.
+  static const double body = 16;
+
+  /// Second lines, previews and labels.
+  static const double secondary = 14;
+
+  /// Times, counts and badges.
+  static const double caption = 12;
+}
+
 class SailryBrand extends ThemeExtension<SailryBrand> {
   const SailryBrand({required this.color, required this.selection});
 
@@ -165,21 +185,45 @@ abstract final class SailryTheme {
       hoverColor: feedbackTone.withValues(alpha: hoverOpacity),
       focusColor: feedbackTone.withValues(alpha: focusOpacity),
       textTheme: base.textTheme.copyWith(
-        bodyMedium: TextStyle(fontSize: 14, height: 1.55, color: ink),
-        bodyLarge: TextStyle(fontSize: 14, height: 1.55, color: ink),
-        bodySmall: TextStyle(fontSize: 14, height: 1.55, color: ink),
-        labelSmall: TextStyle(fontSize: 14, height: 1.2, color: ink),
-        labelMedium: TextStyle(fontSize: 14, height: 1.2, color: ink),
-        labelLarge: TextStyle(fontSize: 14, height: 1.2, color: ink),
+        bodyLarge: TextStyle(
+          fontSize: TypeScale.body,
+          height: 1.55,
+          color: ink,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: TypeScale.body,
+          height: 1.55,
+          color: ink,
+        ),
+        bodySmall: TextStyle(
+          fontSize: TypeScale.secondary,
+          height: 1.5,
+          color: ink,
+        ),
+        labelLarge: TextStyle(
+          fontSize: TypeScale.body,
+          height: 1.2,
+          color: ink,
+        ),
+        labelMedium: TextStyle(
+          fontSize: TypeScale.secondary,
+          height: 1.2,
+          color: ink,
+        ),
+        labelSmall: TextStyle(
+          fontSize: TypeScale.caption,
+          height: 1.2,
+          color: ink,
+        ),
         titleLarge: TextStyle(
-          fontSize: 22,
+          fontSize: TypeScale.title,
           height: 1.3,
           fontWeight: FontWeight.w600,
           color: ink,
         ),
         titleMedium: TextStyle(
-          fontSize: 16,
-          height: 1.5,
+          fontSize: TypeScale.heading,
+          height: 1.45,
           fontWeight: FontWeight.w600,
           color: ink,
         ),
@@ -247,7 +291,11 @@ abstract final class SailryTheme {
         style:
             MenuItemButton.styleFrom(
               foregroundColor: ink,
-              textStyle: TextStyle(fontSize: 14, height: 1.5, color: ink),
+              textStyle: TextStyle(
+                fontSize: TypeScale.body,
+                height: 1.5,
+                color: ink,
+              ),
               minimumSize: const Size(48, 48),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               shape: RoundedRectangleBorder(
@@ -302,9 +350,9 @@ abstract final class SailryTheme {
         selectedTileColor: selection,
         selectedColor: brand,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        titleTextStyle: TextStyle(fontSize: 14, color: ink),
+        titleTextStyle: TextStyle(fontSize: TypeScale.body, color: ink),
         subtitleTextStyle: TextStyle(
-          fontSize: 14,
+          fontSize: TypeScale.secondary,
           color: colors.onSurfaceVariant,
         ),
       ),
@@ -322,11 +370,14 @@ abstract final class SailryTheme {
         side: BorderSide.none,
         backgroundColor: colors.surfaceContainer,
         selectedColor: colors.surfaceContainerHigh,
-        labelStyle: TextStyle(fontSize: 14, color: ink),
+        labelStyle: TextStyle(fontSize: TypeScale.secondary, color: ink),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       tooltipTheme: TooltipThemeData(
-        textStyle: TextStyle(fontSize: 14, color: colors.surface),
+        textStyle: TextStyle(
+          fontSize: TypeScale.secondary,
+          color: colors.surface,
+        ),
       ),
       expansionTileTheme: const ExpansionTileThemeData(
         shape: Border(),

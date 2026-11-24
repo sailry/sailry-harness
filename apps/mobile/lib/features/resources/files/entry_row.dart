@@ -37,7 +37,10 @@ class SearchBarButton extends StatelessWidget {
                       label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14, color: dim),
+                      style: TextStyle(
+                        fontSize: TypeScale.secondary,
+                        color: dim,
+                      ),
                     ),
                   ),
                 ],
@@ -139,7 +142,7 @@ class FileEntryRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: TypeScale.body,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -148,7 +151,7 @@ class FileEntryRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 12.5,
+                      fontSize: TypeScale.caption,
                       color: dim,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),

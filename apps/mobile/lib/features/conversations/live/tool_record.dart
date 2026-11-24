@@ -12,6 +12,7 @@ import 'tool_display.dart';
 import 'tool_heading.dart';
 import 'tool_output.dart';
 import 'tool_row.dart';
+import '../../../ui/theme.dart';
 
 /// A call's loaded arguments, or an inline question's bounded specification.
 /// An approval card never shows them; a question card reads its prompt here.
@@ -188,7 +189,7 @@ class _ToolRecordState extends State<ToolRecord> {
           limit == null ? value : lines.take(limit).join('\n'),
           style: const TextStyle(
             fontFamily: 'monospace',
-            fontSize: 13,
+            fontSize: TypeScale.secondary,
             height: 1.5,
           ),
         ),

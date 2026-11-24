@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../ui/kit.dart';
-import 'tool_row.dart' show transcriptFontSize;
+import '../../../ui/theme.dart';
 
 /// Pill above the composer in the same glass material as cards.
 class GlassChip extends StatelessWidget {
@@ -29,7 +29,7 @@ class GlassChip extends StatelessWidget {
               maxLines: 1,
               softWrap: false,
               style: TextStyle(
-                fontSize: transcriptFontSize,
+                fontSize: TypeScale.secondary,
                 color: colors.onSurfaceVariant,
               ),
               child: child,

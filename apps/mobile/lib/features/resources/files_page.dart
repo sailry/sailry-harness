@@ -11,6 +11,7 @@ import 'file_navigation.dart';
 import 'files/breadcrumb.dart';
 import 'files/entry_data.dart';
 import 'files/entry_row.dart';
+import '../../ui/theme.dart';
 
 class FilesPage extends StatefulWidget {
   const FilesPage({
@@ -245,7 +246,7 @@ class _FilesPageState extends State<FilesPage> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   context.tr('resourcePartial'),
-                  style: TextStyle(fontSize: 12, color: dim),
+                  style: TextStyle(fontSize: TypeScale.caption, color: dim),
                 ),
               ),
           ],
