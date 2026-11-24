@@ -26,6 +26,7 @@ type workspaceCompletion struct {
 	release        func()
 	after          func()
 	commandControl *process.ControlTarget
+	fileScope      externalFileScope
 	// timedOut marks a foreground command that reached its timeout.
 	timedOut bool
 }
@@ -280,7 +281,11 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return node.workspaceGitEffect(ctx, request, root, effect)
 	}
 	if files.SupportsMutation(command.Kind) {
-		if err := node.protectWorkspaceMutation(source, root, command, prepared); err != nil {
+		scope := effect.fileScope
+		if scope.worktree != "" && resolvedPath(filepath.Clean(root)) != scope.worktree {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "worktree changed while the operation waited; retry"}
+		}
+		if err := node.protectWorkspaceMutation(source, root, command, prepared, scope); err != nil {
 			return protocol.Output{}, err
 		}
 		node.watches.changed(root, nil)
@@ -295,6 +300,10 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 				if err != nil {
 					return protocol.Output{}, err
 				}
+			}
+			if scope.worktree != "" {
+				output, err := files.Apply(ctx, scope.root, prepared)
+				return scope.result(output), err
 			}
 			return files.Apply(ctx, root, prepared)
 		}
@@ -598,9 +607,16 @@ func (node *Node) managedWorkspace(db *sql.Conn, tree protocol.Worktree) (bool, 
 	}
 	return false, nil
 }
-func (node *Node) protectWorkspaceMutation(source, root string, command protocol.Command, prepared *files.Prepared) error {
+func (node *Node) protectWorkspaceMutation(source, root string, command protocol.Command, prepared *files.Prepared, scope externalFileScope) error {
 	var targets []entryTarget
 	add := func(root, path string) {
+		if scope.worktree != "" {
+			if local := scope.resultPath(path); filepath.IsAbs(local) {
+				root = scope.root
+			} else {
+				path = local
+			}
+		}
 		if !slices.Contains(targets, entryTarget{root, path}) {
 			targets = append(targets, entryTarget{root, path})
 		}

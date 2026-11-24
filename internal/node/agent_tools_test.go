@@ -25,6 +25,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -331,6 +332,47 @@ func TestAgentManagementTools(t *testing.T) {
 		content, err := os.ReadFile(path)
 		if err != nil || string(content) != "third\nexternal\n" {
 			t.Fatalf("stale patch modified external content: file=%q error=%v", content, err)
+		}
+	})
+	t.Run("mixed file patch keeps worktree receipts and revisions", func(t *testing.T) {
+		name := "mixed-local.txt"
+		local := filepath.Join(root, name)
+		outside := filepath.Join(t.TempDir(), "mixed-external.txt")
+		if err := os.WriteFile(local, []byte("before\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		patch := "*** Begin Patch\n*** Update File: " + name + "\n@@\n-before\n+after\n*** Add File: " + filepath.ToSlash(outside) + "\n+outside\n*** End Patch"
+		args, err := json.Marshal(map[string]string{"input": patch})
+		if err != nil {
+			t.Fatal(err)
+		}
+		session, _, history := turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string {
+			t.Fatal("full permission must not ask")
+			return "deny"
+		}, func(step int, _ map[string]string) [][3]string {
+			switch step {
+			case 1:
+				return [][3]string{{"mixed-read", "read_file", `{"path":"mixed-local.txt"}`}}
+			case 2:
+				return [][3]string{{"mixed-patch", "apply_patch", string(args)}}
+			case 3:
+				return [][3]string{{"mixed-edit", "edit_file", `{"path":"mixed-local.txt","old_text":"after","new_text":"next"}`}}
+			}
+			return nil
+		})
+		for path, want := range map[string]string{local: "next\n", outside: "outside\n"} {
+			if got, err := os.ReadFile(path); err != nil || string(got) != want {
+				t.Errorf("file %q = %q, %v, want %q", path, got, err, want)
+			}
+		}
+		page := commandFixture(t, node, protocol.Command{Kind: "list_file_checkpoints", Data: protocol.CommandListFileCheckpointsPayload{Session: session.ID, Turn: history.Page.Runs[0].Turn, Limit: 10}}).Data.(protocol.ConversationCheckpointPage)
+		if len(page.Files) != 2 {
+			t.Fatalf("checkpoint count = %d, want 2: %+v", len(page.Files), page.Files)
+		}
+		for _, checkpoint := range page.Files {
+			if checkpoint.Path != name || files.CheckpointReceipt(checkpoint) != protocol.ConversationCheckpointReceiptWritten {
+				t.Errorf("invalid worktree checkpoint: %+v", checkpoint)
+			}
 		}
 	})
 	t.Run("full permission file tools reach absolute paths outside the worktree", func(t *testing.T) {

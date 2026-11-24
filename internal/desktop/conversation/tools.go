@@ -3,6 +3,7 @@ package conversation
 import (
 	"cmp"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"slices"
 	"strings"
@@ -368,7 +369,7 @@ const (
 	shownRows     = 8   // a group's latest rows shown before Show earlier
 	earlierPage   = 50  // the rows each Show earlier adds above them
 	previewLines  = 12  // a closed output's lines, diff rows or table rows
-	expandedLines = 400 // an output shown in full, bounding one row's layout
+	expandedLines = 400 // expanded text or diff lines
 )
 
 // toolRowEnter brings a call that joins an open group in below the rows
@@ -377,17 +378,34 @@ const (
 // as a row above opening, instant like the disclosures themselves.
 var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: kit.EaseOut, Colors: true, Enter: &ui.Motion{Collapse: true}}
 
-// rows lays out n rows of an open disclosure, keyed by id: the latest
-// shownRows, with Show earlier above them adding a page at a time. What it
-// added is the rail's, so a closed group opens on its latest rows again.
-func (s *State) rows(c *ui.Context, rail ui.Element, n int, id func(int) string, render func(int)) {
+// rows keeps expanded rows mounted when new calls push them out of the
+// latest rows. The rail owns the page of earlier rows.
+func (s *State) rows(c *ui.Context, rail ui.Element, n int, key func(int) string, render func(int)) {
 	more := ui.Local(rail, "earlier", func() int { return 0 })
-	shown := min(n, shownRows+*more)
-	if hidden := n - shown; hidden > 0 {
-		s.revealRow(c, "earlier", "chevron-up", i18n.T(c, "tool_rows_earlier", "count", min(hidden, earlierPage)), func() { *more += earlierPage })
+	first := max(0, n-shownRows-*more)
+	hidden, additional := 0, first
+	var open []int
+	for i := first - 1; i >= 0; i-- {
+		if s.opened(key(i)) {
+			open = append(open, i)
+		} else {
+			hidden++
+			if hidden == earlierPage {
+				additional = first - i
+			}
+		}
 	}
-	for i := n - shown; i < n; i++ {
-		ui.Column(c.Key("enter-" + id(i))).Shrink(0).Transition(toolRowEnter).Children(func() { render(i) })
+	if hidden > 0 {
+		s.revealRow(c, "earlier", "chevron-up", i18n.T(c, "tool_rows_earlier", "count", min(hidden, earlierPage)), func() { *more += additional })
+	}
+	draw := func(i int) {
+		ui.Column(c.Key("enter-" + key(i))).Shrink(0).Transition(toolRowEnter).Children(func() { render(i) })
+	}
+	for _, i := range slices.Backward(open) {
+		draw(i)
+	}
+	for i := first; i < n; i++ {
+		draw(i)
 	}
 }
 
@@ -418,10 +436,19 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(rail ui.Element) {
 		if len(runs) == 1 {
+			// A newly appended tool may turn these flat rows into a subgroup.
+			if slices.ContainsFunc(calls, func(call Call) bool { return s.opened("tools-" + call.ID) }) {
+				s.open["tool-sub-"+calls[0].ID] = true
+			}
 			s.callRows(c, rail, calls)
 			return
 		}
-		s.rows(c, rail, len(runs), func(i int) string { return runs[i][0].ID }, func(i int) {
+		s.rows(c, rail, len(runs), func(i int) string {
+			if run := runs[i]; len(run) == 1 {
+				return "tools-" + run[0].ID
+			}
+			return "tool-sub-" + runs[i][0].ID
+		}, func(i int) {
 			if run := runs[i]; len(run) == 1 {
 				s.row(c, run[0])
 			} else {
@@ -445,7 +472,7 @@ func (s *State) subGroup(c *ui.Context, key string, run []Call) {
 }
 
 func (s *State) callRows(c *ui.Context, rail ui.Element, calls []Call) {
-	s.rows(c, rail, len(calls), func(i int) string { return calls[i].ID }, func(i int) { s.row(c, calls[i]) })
+	s.rows(c, rail, len(calls), func(i int) string { return "tools-" + calls[i].ID }, func(i int) { s.row(c, calls[i]) })
 }
 
 // groupHead is a group's header: its latest call, shown and coloured as
@@ -675,6 +702,14 @@ func copyOf(o *Output) string {
 			parts = append(parts, string(o.Diff.Op(l))+l.Text)
 		}
 	}
+	if o.Table != nil {
+		var tableText strings.Builder
+		writer := csv.NewWriter(&tableText)
+		writer.Comma = '\t'
+		_ = writer.Write(o.Table.Columns)
+		_ = writer.WriteAll(o.Table.Rows)
+		parts = append(parts, strings.TrimSuffix(tableText.String(), "\n"))
+	}
 	return strings.Join(parts, "\n")
 }
 
@@ -730,26 +765,27 @@ func (s *State) diff(c *ui.Context, d *Diff) {
 	})
 }
 
-// table is tabular output: 180 DIP columns, each row 28 DIPs at 14. It
-// scrolls sideways alone, so vertical wheel motion stays the transcript's,
-// and its rows preview as an output's lines do.
+// table scrolls sideways alone. The transcript scrolls vertically through
+// all rows of an expanded table.
 func (s *State) table(c *ui.Context, t *Table) {
 	p := theme.Of(c)
 	size := textSize(c)
-	height := size + 14
 	box := ui.Column(c).Gap(4)
 	full := ui.Local(box, "table-full", func() bool { return false })
-	rows, hidden := previewText(t.Rows, *full, false)
+	rows := t.Rows
+	if !*full {
+		rows = rows[:min(len(rows), previewLines)]
+	}
 	box.Children(func() {
-		s.tableRows(c, p, size, height, t.Columns, rows)
-		s.previewToggle(c, "table-more", full, len(t.Rows), hidden)
+		tableRows(c, p, size, t.Columns, rows)
+		s.previewToggle(c, "table-more", full, len(t.Rows), 0)
 	})
 }
 
-func (s *State) tableRows(c *ui.Context, p *theme.Palette, size, height float32, columns []string, rows [][]string) {
+func tableRows(c *ui.Context, p *theme.Palette, size float32, columns []string, rows [][]string) {
 	ui.ScrollHorizontal(c).Children(func() {
 		cells := func(values []string, head bool) {
-			ui.Row(c).Height(height).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
+			ui.Row(c).Height(size+14).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				for _, v := range values {
 					cell := ui.Text(c, v).FontSize(size).SingleLine().Width(180).PaddingX(8)
 					kit.Tooltip(c, cell, v)

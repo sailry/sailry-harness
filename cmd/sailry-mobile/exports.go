@@ -46,13 +46,15 @@ import (
 type bridge struct {
 	runtime *mobile.Runtime
 	port    C.int64_t
+	closing chan struct{}
 }
 
 var bridges = struct {
 	sync.Mutex
-	next   uint64
-	values map[uint64]bridge
-}{values: map[uint64]bridge{}}
+	apiInitialized bool
+	next           uint64
+	values         map[uint64]*bridge
+}{values: map[uint64]*bridge{}}
 
 // sailry_open starts a bridge whose results are posted to a Dart port.
 //
@@ -64,34 +66,38 @@ var bridges = struct {
 //
 //export sailry_open
 func sailry_open(api unsafe.Pointer, port C.int64_t) C.uint64_t {
-	if api == nil || C.Dart_InitializeApiDL(api) != 0 {
+	if api == nil {
 		return 0
 	}
 	bridges.Lock()
+	defer bridges.Unlock()
+	if !bridges.apiInitialized {
+		if C.Dart_InitializeApiDL(api) != 0 {
+			return 0
+		}
+		bridges.apiInitialized = true
+	}
+	var predecessors []<-chan struct{}
+	for id, existing := range bridges.values {
+		if existing.closing == nil && C.sailry_alive(existing.port) == 0 {
+			existing.closeLocked(id, 0)
+		}
+		if existing.closing != nil {
+			predecessors = append(predecessors, existing.closing)
+		}
+	}
 	bridges.next++
 	handle := bridges.next
-	var once sync.Once
-	orphaned := func() { once.Do(func() { go closeBridge(handle, 0) }) }
 	runtime := mobile.New(func(request uint64, data []byte) {
 		var bytes *C.uint8_t
 		if len(data) > 0 {
 			bytes = (*C.uint8_t)(unsafe.Pointer(&data[0]))
 		}
 		if C.sailry_post(port, C.uint64_t(request), bytes, C.uint64_t(len(data))) == 0 {
-			orphaned()
+			closeBridge(handle, 0)
 		}
-	})
-	var stale []uint64
-	for id, existing := range bridges.values {
-		if C.sailry_alive(existing.port) == 0 {
-			stale = append(stale, id)
-		}
-	}
-	bridges.values[handle] = bridge{runtime: runtime, port: port}
-	bridges.Unlock()
-	for _, id := range stale {
-		closeBridge(id, 0)
-	}
+	}, predecessors...)
+	bridges.values[handle] = &bridge{runtime: runtime, port: port}
 	return C.uint64_t(handle)
 }
 
@@ -152,18 +158,35 @@ func sailry_close(handle, request C.uint64_t) {
 
 func closeBridge(handle, request uint64) {
 	bridges.Lock()
-	entry, found := bridges.values[handle]
-	delete(bridges.values, handle)
-	bridges.Unlock()
-	if found {
-		go entry.runtime.Close(request)
+	if entry := bridges.values[handle]; entry != nil {
+		entry.closeLocked(handle, request)
 	}
+	bridges.Unlock()
+}
+
+// Keep closing entries visible until their profile locks are released.
+func (entry *bridge) closeLocked(handle, request uint64) {
+	if entry.closing != nil {
+		return
+	}
+	done := make(chan struct{})
+	entry.closing = done
+	go func() {
+		entry.runtime.Close(request)
+		bridges.Lock()
+		delete(bridges.values, handle)
+		close(done)
+		bridges.Unlock()
+	}()
 }
 
 func getBridge(handle C.uint64_t) *mobile.Runtime {
 	bridges.Lock()
 	defer bridges.Unlock()
-	return bridges.values[uint64(handle)].runtime
+	if entry := bridges.values[uint64(handle)]; entry != nil && entry.closing == nil {
+		return entry.runtime
+	}
+	return nil
 }
 
 func copyInput(data *C.uint8_t, length, limit C.uint64_t) ([]byte, bool) {

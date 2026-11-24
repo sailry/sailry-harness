@@ -251,8 +251,12 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       final restored = HostConnection._(id, address, null)
         ..cache = store
         .._restored = true
-        .._applyPeerMetadata(decoded)
-        .._applyView(view, live: false);
+        .._applyPeerMetadata(decoded);
+      if (restored._nativeInvalid) {
+        restored.dispose();
+        continue;
+      }
+      restored._applyView(view, live: false);
       unawaited(restored._restorePreviews());
       restored.addListener(_changed);
       _hosts.add(restored);
@@ -293,13 +297,15 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (_closed || controller != opened) {
         throw StateError('controller is closed');
       }
-      // A cached host without saved trust is no longer reachable from here.
+      // A routed cache stays while its entry is trusted. The resource
+      // directory will confirm or remove the route after startup.
       for (final stale in [
         for (final host in _hosts)
-          if (host._restored) host,
+          if (host._restored &&
+              (!host.routed || this.host(host.entryId)?._restored != false))
+            host,
       ]) {
         await _remove(stale, opened, forget: false);
-        await cache?.removeScope(hostCacheScope(stale.id));
       }
       _peerPoll?.cancel();
       _peerPoll = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -415,15 +421,24 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
               }
               await _change(owner, () async {
                 final ids = <String>{};
+                final incomplete = <String>{};
                 for (final address in addresses) {
-                  final id = _addressRouteKey(object(jsonDecode(address)));
+                  final decoded = object(jsonDecode(address));
+                  final id = _addressRouteKey(decoded);
                   if (id.isEmpty) {
                     throw const FormatException('endpoint has no identity');
                   }
                   ids.add(id);
+                  if (decoded['resource_routes_incomplete'] == true) {
+                    incomplete.add(id);
+                  }
                 }
                 for (final target in List.of(_hosts)) {
-                  if (!target.isDemo && !ids.contains(target.id)) {
+                  if (!target.isDemo &&
+                      !ids.contains(target.id) &&
+                      !(target._restored &&
+                          target.routed &&
+                          incomplete.contains(target.entryId))) {
                     await _remove(target, owner, forget: false);
                   }
                 }
@@ -482,7 +497,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       registered
         .._connection = connection
         .._restored = false
-        .._applyPeerMetadata(decoded)
+        .._applyPeerMetadata(decoded, attached: true)
         .._rememberAddress();
       unawaited(registered.watch());
       if (select) {
@@ -612,14 +627,23 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     bool forget = true,
   }) async {
     if (host(target.id) != target) return;
+    Future<void>? purge;
     if (target.isDemo) {
       await _demoPreferences?.setBool(_demoEnabledKey, false);
       await _demoPreferences?.setBool(_demoSelectedKey, false);
-    } else if (forget) {
-      await owner!.forget(address: target.address);
-      await cache?.removeScope(hostCacheScope(target.id));
+    } else {
+      if (forget) await owner!.forget(address: target.address);
+      final store = target.cache ?? cache;
+      target
+        ..cache = null
+        .._nativeInvalid = true
+        .._clearCachedViews();
+      purge = store?.removeScope(target.cacheScope);
     }
-    if (_closed || controller != owner || host(target.id) != target) return;
+    if (_closed || controller != owner || host(target.id) != target) {
+      await purge;
+      return;
+    }
     if (!target.routed) {
       for (final child in List.of(_hosts)) {
         if (child.routed && child.entryId == target.nodeId) {
@@ -643,6 +667,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       target.dispose();
     }
+    await purge;
     if (target.isDemo && _hosts.isEmpty && await _savedPeers(profilePath)) {
       try {
         await _ensureController();
@@ -718,7 +743,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _release();
     await cache?.close();
-    await cache?.store?.close();
   }
 
   Future<void> _release() async {
@@ -813,6 +837,7 @@ class HostConnection extends ChangeNotifier {
   CommandHandler? _handler;
   Connection get connection =>
       _connection ?? (throw StateError('test connection has no native handle'));
+  bool get hasConnection => _connection != null && !_closed;
   String? _label;
   String _directoryName = '';
   bool _sourceUnavailable = false;
@@ -828,7 +853,10 @@ class HostConnection extends ChangeNotifier {
           ? _directoryName
           : (id.length > 12 ? id.substring(0, 12) : id));
 
-  void _applyPeerMetadata(Map<String, dynamic> address) {
+  void _applyPeerMetadata(
+    Map<String, dynamic> address, {
+    bool attached = false,
+  }) {
     final relationship = object(address['relationship']);
     final nextDirect = relationship.isEmpty || relationship['direct'] == true;
     final rawSources = relationship['sources'];
@@ -862,24 +890,13 @@ class HostConnection extends ChangeNotifier {
     if (unavailable) {
       connected = false;
       error = sourceFault;
-      if (const {
-        'permission_denied',
-        'not_found',
-        'expired',
-      }.contains(_sourceFaultCode)) {
-        _nativeInvalid = true;
-        _directorySnapshot = {};
-        snapshot = {};
-        sessionLanes = const {};
-        notifications = [];
-        childTargets = {};
-      }
+      if (_accessEnded(_sourceFaultCode)) _loseAccess();
     }
     direct = nextDirect;
     sources = List.unmodifiable(nextSources);
     _directoryName = name;
     _applyDirectorySnapshot();
-    if (changed && !_closed) notifyListeners();
+    if ((changed || attached) && !_closed) notifyListeners();
   }
 
   void _applyDirectorySnapshot() {
@@ -962,7 +979,7 @@ class HostConnection extends ChangeNotifier {
   void _applyView(Map<String, dynamic> view, {required bool live}) {
     connected = live && view['connected'] == true && !_sourceUnavailable;
     transport = connected ? object(view['connection']) : {};
-    error = live ? view['error'] : null;
+    error = live ? view['error'] ?? (_sourceUnavailable ? error : null) : null;
     notifications = live ? objects(view['notifications']) : [];
     // A Client that has not reached the Node yet reports no snapshot; the
     // catalog last seen stays listed, as offline, until one arrives.
@@ -1004,10 +1021,34 @@ class HostConnection extends ChangeNotifier {
   }
 
   void _rememberAddress() {
-    if (!isDemo) cache?.put('${cacheScope}address', address, raw: address);
+    if (!isDemo && !_nativeInvalid) {
+      cache?.put('${cacheScope}address', address, raw: address);
+    }
   }
 
   final _previews = <String, List<String>>{};
+
+  void _clearCachedViews() {
+    _viewSaved = null;
+    _unsavedView = null;
+    _previews.clear();
+  }
+
+  static bool _accessEnded(String code) =>
+      const {'permission_denied', 'not_found', 'expired'}.contains(code);
+
+  void _loseAccess() {
+    _nativeInvalid = true;
+    connected = false;
+    transport = {};
+    _directorySnapshot = {};
+    snapshot = {};
+    sessionLanes = const {};
+    notifications = [];
+    childTargets = {};
+    _clearCachedViews();
+    unawaited(cache?.removeScope(cacheScope));
+  }
 
   /// The last message preview read for [session] and the activity stamp it
   /// was read at, kept so a list renders before its rows refresh.
@@ -1017,6 +1058,7 @@ class HostConnection extends ChangeNotifier {
   }
 
   void keepPreview(String session, String stamp, String text) {
+    if (_closed || _nativeInvalid) return;
     final current = _previews[session];
     if (current != null && current[0] == stamp && current[1] == text) return;
     _previews[session] = [stamp, text];
@@ -1032,7 +1074,7 @@ class HostConnection extends ChangeNotifier {
 
   Future<void> _restorePreviews() async {
     final stored = await cache?.read('${cacheScope}previews', jsonObject);
-    if (stored == null || _closed) return;
+    if (stored == null || _closed || _nativeInvalid) return;
     var changed = false;
     for (final MapEntry(:key, :value) in stored.entries) {
       if (value is List &&
@@ -1071,23 +1113,16 @@ class HostConnection extends ChangeNotifier {
         final fault = view['error'];
         observedError = fault is Map ? fault : null;
         final code = text(object(fault)['code'], _sourceFaultCode);
-        if (const {
-          'permission_denied',
-          'not_found',
-          'expired',
-        }.contains(code)) {
-          _nativeInvalid = true;
-          _directorySnapshot = {};
-          snapshot = {};
-          sessionLanes = const {};
-          notifications = [];
-          childTargets = {};
-          _previews.clear();
-          unawaited(cache?.removeScope(cacheScope));
+        if (_accessEnded(code)) {
+          _loseAccess();
         } else {
           _applyDirectorySnapshot();
           // Only a confirmed view is worth showing at the next start.
           if (connected && !isDemo && view['snapshot'] != null) {
+            if (_nativeInvalid) {
+              _nativeInvalid = false;
+              _rememberAddress();
+            }
             _keepView(view, raw);
           }
         }
@@ -1097,14 +1132,9 @@ class HostConnection extends ChangeNotifier {
       }
     } catch (failure) {
       if (!_closed && !_restarting) {
-        if (failure is BridgeFailure &&
-            const {
-              'cancelled',
-              'permission_denied',
-              'not_found',
-              'expired',
-            }.contains(failure.code)) {
-          _nativeInvalid = true;
+        if (failure is BridgeFailure) {
+          if (_accessEnded(failure.code)) _loseAccess();
+          if (failure.code == 'cancelled') _nativeInvalid = true;
         }
         connected = false;
         transport = {};

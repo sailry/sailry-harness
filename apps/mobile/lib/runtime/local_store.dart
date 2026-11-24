@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
@@ -13,7 +14,7 @@ import 'package:drift_flutter/drift_flutter.dart';
 /// to it ends.
 ///
 /// The schema is two tables, so it is declared in SQL rather than through
-/// drift's code generator; readers subscribe to [changes] instead of
+/// drift's code generator; readers subscribe to [searchChanges] instead of
 /// generated stream queries.
 class LocalStore extends GeneratedDatabase {
   LocalStore(super.executor);
@@ -30,6 +31,7 @@ class LocalStore extends GeneratedDatabase {
 
   static const _entries = 'entries';
   static const _search = 'message_search';
+  int? _indexTextSinceTrim;
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => const [];
@@ -63,9 +65,9 @@ class LocalStore extends GeneratedDatabase {
     },
   );
 
-  /// Emits after entries or the search index change.
-  Stream<void> changes({bool search = false}) =>
-      tableUpdates(TableUpdateQuery.onTableName(search ? _search : _entries));
+  /// Emits after the search index changes.
+  Stream<void> get searchChanges =>
+      tableUpdates(TableUpdateQuery.onTableName(_search));
 
   Future<String?> value(String key) async {
     final rows = await customSelect(
@@ -90,7 +92,6 @@ class LocalStore extends GeneratedDatabase {
         );
       }
     });
-    notifyUpdates({const TableUpdate(_entries)});
   }
 
   Future<List<String>> keys(String prefix) async {
@@ -99,6 +100,11 @@ class LocalStore extends GeneratedDatabase {
       variables: _range(prefix),
     ).get();
     return [for (final row in rows) row.read<String>('key')];
+  }
+
+  /// Discards an unreadable cached entry.
+  Future<void> removeEntry(String key) async {
+    await customStatement('DELETE FROM $_entries WHERE key = ?', [key]);
   }
 
   /// Every entry and indexed message under [prefix].
@@ -113,7 +119,7 @@ class LocalStore extends GeneratedDatabase {
         [for (final value in _range(prefix)) value.value],
       );
     });
-    notifyUpdates({const TableUpdate(_entries), const TableUpdate(_search)});
+    notifyUpdates({const TableUpdate(_search)});
   }
 
   /// Removes the least recently written entries beyond [budget] characters.
@@ -133,7 +139,6 @@ class LocalStore extends GeneratedDatabase {
         await customStatement('DELETE FROM $_entries WHERE key = ?', [key]);
       }
     });
-    notifyUpdates({const TableUpdate(_entries)});
   }
 
   /// Replaces the indexed text [source] contributed for one session.
@@ -141,8 +146,12 @@ class LocalStore extends GeneratedDatabase {
     String scope,
     String session,
     String source,
-    List<String> bodies,
-  ) async {
+    List<String> bodies, {
+    required int budget,
+  }) async {
+    // Compact an existing index on its first write, then amortize the scan.
+    final interval = budget ~/ 8;
+    var pending = _indexTextSinceTrim ?? interval;
     await transaction(() async {
       await customStatement(
         'DELETE FROM $_search WHERE scope = ? AND session = ? AND source = ?',
@@ -155,44 +164,58 @@ class LocalStore extends GeneratedDatabase {
           'VALUES (?, ?, ?, ?)',
           [scope, session, source, body],
         );
+        pending += body.length;
+      }
+      if (pending >= interval) {
+        await customStatement(
+          '''
+          DELETE FROM $_search WHERE rowid <= (
+            SELECT MAX(rowid) FROM (
+              SELECT rowid, SUM(LENGTH(body)) OVER (ORDER BY rowid DESC) AS size
+              FROM $_search
+            ) WHERE size > ?
+          )''',
+          [budget],
+        );
+        pending = 0;
       }
     });
+    _indexTextSinceTrim = pending;
     notifyUpdates({const TableUpdate(_search)});
   }
 
-  /// Sessions whose indexed messages contain [query], newest index first,
-  /// with the text that matched.
-  Future<List<({String scope, String session, String body})>> search(
+  /// One matching message per eligible session, newest index first.
+  Future<List<({String session, String body})>> search(
     String query, {
+    required String scope,
+    required Set<String> sessions,
     int limit = 200,
   }) async {
     final needle = query.trim();
-    if (needle.isEmpty) return const [];
+    if (needle.isEmpty || sessions.isEmpty) return const [];
     // Trigrams need three characters; shorter text scans with LIKE.
-    final rows = needle.runes.length >= 3
-        ? await customSelect(
-            'SELECT scope, session, body FROM $_search '
-            'WHERE $_search MATCH ? ORDER BY rowid DESC LIMIT ?',
-            variables: [
-              Variable.withString('body : "${needle.replaceAll('"', '""')}"'),
-              Variable.withInt(limit),
-            ],
-          ).get()
-        : await customSelect(
-            'SELECT scope, session, body FROM $_search '
-            "WHERE body LIKE ? ESCAPE '\\' ORDER BY rowid DESC LIMIT ?",
-            variables: [
-              Variable.withString('%${_escapeLike(needle)}%'),
-              Variable.withInt(limit),
-            ],
-          ).get();
+    final trigram = needle.runes.length >= 3;
+    final predicate = trigram ? '$_search MATCH ?' : "body LIKE ? ESCAPE '\\'";
+    final pattern = trigram
+        ? 'body : "${needle.replaceAll('"', '""')}"'
+        : '%${_escapeLike(needle)}%';
+    // SQLite returns body from the row contributing MAX(rowid). Binding the
+    // eligible IDs as one JSON value avoids a parameter per catalog row.
+    final rows = await customSelect(
+      'SELECT session, body, MAX(rowid) AS latest FROM $_search '
+      'WHERE $predicate AND scope = ? '
+      'AND session IN (SELECT value FROM json_each(?)) '
+      'GROUP BY session ORDER BY latest DESC LIMIT ?',
+      variables: [
+        Variable.withString(pattern),
+        Variable.withString(scope),
+        Variable.withString(jsonEncode(sessions.toList())),
+        Variable.withInt(limit),
+      ],
+    ).get();
     return [
       for (final row in rows)
-        (
-          scope: row.read<String>('scope'),
-          session: row.read<String>('session'),
-          body: row.read<String>('body'),
-        ),
+        (session: row.read<String>('session'), body: row.read<String>('body')),
     ];
   }
 

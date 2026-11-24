@@ -18,12 +18,14 @@ import 'package:sailry_mobile/features/conversations/live/queue.dart';
 import 'package:sailry_mobile/features/conversations/live/statistics.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/conversations/live/timeline.dart';
+import 'package:sailry_mobile/features/conversations/live/transcript_index.dart';
 import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/features/conversations/task_row.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/resources/scope_picker.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
+import 'package:sailry_mobile/runtime/query_cache.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart' show EmptyState, pushPage;
 import 'package:sailry_mobile/ui/theme.dart';
@@ -210,6 +212,68 @@ class _Directory extends Fake implements Controller {
   void dispose() {}
 }
 
+class _RecoveringDirectory extends _Directory {
+  final connection = Completer<Connection>();
+  List<String>? catalog;
+
+  @override
+  Future<List<String>> savedPeers() => super.peers();
+
+  @override
+  Future<List<String>> peers() async => catalog ?? await super.peers();
+
+  @override
+  Future<Connection> connect({required String address}) => connection.future;
+}
+
+class _ReadyHostUpdates extends Fake implements Updates {
+  final _ended = Completer<String>();
+  bool _started = false;
+
+  @override
+  Future<String> next() async {
+    if (_started) return _ended.future;
+    _started = true;
+    return '{"connected":true}';
+  }
+
+  @override
+  Future<void> close() async => _ended.complete('{}');
+
+  @override
+  void dispose() {}
+}
+
+class _RecoveredConnection extends _LifecycleConnection {
+  @override
+  Future<Updates> watch() async => _ReadyHostUpdates();
+}
+
+class _RecordedCache extends QueryCache {
+  final payloads = <String, String>{};
+  final indexed = <(String, String, String), List<String>>{};
+
+  @override
+  void put(String key, Object value, {String? raw, int? size}) {
+    super.put(key, value, raw: raw, size: size);
+    if (raw != null) payloads[key] = raw;
+  }
+
+  @override
+  Future<List<String>> persistedKeys(String prefix) async =>
+      payloads.keys.where((key) => key.startsWith(prefix)).toList();
+
+  @override
+  Future<void> index(
+    String scope,
+    String session,
+    String source,
+    List<String> bodies,
+  ) async {
+    indexed[(scope, session, source)] = bodies;
+  }
+}
+
 Finder _message(String text) => find.byWidgetPredicate(
   (widget) => widget is MarkdownContent && widget.data == text,
 );
@@ -268,6 +332,107 @@ Map<String, dynamic> _transcript(
 }
 
 void main() {
+  testWidgets(
+    'cold routed cache survives until the entry confirms its catalog',
+    (tester) async {
+      const route = 'target/resource';
+      final scope = hostCacheScope(route);
+      const address = '{"id":"resource","route":{"entry":"target"}}';
+      final view = {
+        'snapshot': {
+          'sessions': [conversation()],
+        },
+      };
+      final cache = _RecordedCache()
+        ..put('${scope}address', address, raw: address)
+        ..put('${scope}view', view, raw: jsonEncode(view));
+      final directory = _RecoveringDirectory()
+        ..catalog = ['{"id":"target","resource_routes_incomplete":true}']
+        ..connection.complete(_RecoveredConnection());
+      final session = AppSession.test(
+        ready: false,
+        cache: cache,
+        initialize: () async {},
+        openController: (_, _) async => directory,
+      );
+      await session.start(path: 'unused-controller');
+      await session.refreshHosts(refreshConnections: false);
+      final restored = session.host(route)!;
+      expect(restored.connected, isFalse);
+      expect(restored.hasConnection, isFalse);
+      expect(restored.snapshot, view['snapshot']);
+
+      directory.catalog = ['{"id":"target"}'];
+      await session.refreshHosts(refreshConnections: false);
+      expect(session.host(route), isNull);
+      expect(cache.peek<Object>('${scope}view'), isNull);
+      await release(tester, session);
+    },
+  );
+
+  testWidgets('cached conversation waits for its recovered host connection', (
+    tester,
+  ) async {
+    final item = conversation(unread: false);
+    final scope = hostCacheScope('target');
+    final view = {
+      'snapshot': {
+        'sessions': [item],
+      },
+    };
+    final payload = jsonEncode(_transcript('session', 'Cached reply'));
+    final cache = _RecordedCache()
+      ..put('${scope}address', '{"id":"target"}', raw: '{"id":"target"}')
+      ..put('${scope}view', view, raw: jsonEncode(view))
+      ..put(
+        '${scope}conversation/session',
+        transcriptIndex(payload),
+        raw: payload,
+      );
+    final directory = _RecoveringDirectory();
+    final session = AppSession.test(
+      ready: false,
+      cache: cache,
+      initialize: () async {},
+      openController: (_, _) async => directory,
+    );
+    final startup = session.start(path: 'unused-controller');
+    await tester.pump();
+    final host = session.host('target')!;
+    expect(host.hasConnection, isFalse);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: item,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(_message('Cached reply'), findsOneWidget);
+    expect(find.byKey(const ValueKey('connection-banner')), findsNothing);
+    expect(
+      tester.widget<MessageComposer>(find.byType(MessageComposer)).enabled,
+      isFalse,
+    );
+
+    final connection = _RecoveredConnection();
+    directory.connection.complete(connection);
+    await startup;
+    await tester.pump();
+    expect(connection.watches, ['session']);
+    connection.feeds.single.publish(_transcript('session', 'Fresh reply'));
+    await tester.pumpAndSettle();
+    expect(_message('Fresh reply'), findsOneWidget);
+    expect(
+      tester.widget<MessageComposer>(find.byType(MessageComposer)).enabled,
+      isTrue,
+    );
+    await release(tester, session);
+  });
+
   testWidgets('an update near the tail preserves an active drag', (
     tester,
   ) async {
@@ -617,6 +782,7 @@ void main() {
           {...conversation(title: id, unread: false), 'id': id},
       ];
       var fork = 0;
+      final cache = _RecordedCache();
       final host = HostConnection.test(
         id: 'entry/target',
         label: 'Host',
@@ -629,8 +795,8 @@ void main() {
           expect(data?['session'], fork == 0 ? 'session' : 'first-fork');
           return {'data': branches[fork++]};
         },
-      );
-      final session = AppSession.test(hosts: [host]);
+      )..cache = cache;
+      final session = AppSession.test(hosts: [host], cache: cache);
       final navigator = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
         screen(
@@ -712,6 +878,14 @@ void main() {
       expect(scroll.offset, 180);
 
       final firstCover = await openFork('first-fork', 'session', original);
+      expect(
+        cache.payloads['${host.cacheScope}conversation/session'],
+        contains('Original body'),
+      );
+      expect(
+        cache.indexed[(host.cacheScope, 'session', 'transcript')],
+        contains('Original body'),
+      );
       final firstFork = connection.feeds.last..lateDelivery = true;
       final branchDraft = draft()..text = 'Unsent branch text';
       timeline().controller.jumpTo(20);
@@ -964,7 +1138,11 @@ void main() {
           ..connected = false
           ..error = outage
           ..notifyListeners();
-        feed.publish({'connected': false, 'error': outage});
+        feed.publish({
+          'connected': false,
+          'error': outage,
+          'snapshot': {'page': <String, dynamic>{}},
+        });
         // The reconnecting banner's spinner never settles.
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pump(const Duration(milliseconds: 300));
@@ -1406,7 +1584,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
     final previous = tester.widget<ConversationFrame>(
       find.byType(ConversationFrame),
     );

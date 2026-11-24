@@ -362,6 +362,10 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		mu.Unlock()
 	}
 	var observed workspaceRevisions
+	fullFiles := inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op)
+	if fullFiles {
+		observed.worktree = inv.Worktree.Path
+	}
 	if observesRevisions(op) {
 		tool.ObserveHistory = observed.update
 	}
@@ -375,19 +379,22 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		worktree := filepath.Clean(inv.Worktree.Path)
-		external := ""
-		if inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op) {
+		var scope externalFileScope
+		if fullFiles {
 			worktree = resolvedPath(worktree)
-			canonical := func(path string) (string, error) { return canonicalPath(path), nil }
+			canonical := func(path string) (string, error) { return localPath(worktree, canonicalPath(path)), nil }
 			var err error
 			if args, err = fileArgPaths(op, args, canonical); err != nil {
 				return err
 			}
-			external = externalRoot(worktree, collectFileArgPaths(op, args))
-			if external == "" {
-				local := func(path string) (string, error) { return localPath(worktree, path), nil }
-				if args, err = fileArgPaths(op, args, local); err != nil {
-					return err
+			paths := collectFileArgPaths(op, args)
+			scope.root = externalRoot(worktree, paths)
+			if scope.root != "" {
+				for _, path := range paths {
+					if !filepath.IsAbs(path) {
+						scope.worktree = worktree
+						break
+					}
 				}
 			}
 		}
@@ -396,9 +403,9 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			return err
 		}
 		root := worktree
-		if external != "" {
-			root = external
-			if args, err = fileArgPaths(op, args, func(path string) (string, error) { return rootPath(worktree, external, path) }); err != nil {
+		if scope.root != "" {
+			root = scope.root
+			if args, err = fileArgPaths(op, args, func(path string) (string, error) { return rootPath(worktree, root, path) }); err != nil {
 				return err
 			}
 		}
@@ -421,8 +428,8 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return err
 			}
 			revisions := observed.paths
-			if external != "" {
-				revisions = rootRevisions(worktree, external, revisions)
+			if scope.root != "" {
+				revisions = rootRevisions(worktree, root, revisions)
 			}
 			changes, e := files.ResolvePatchWithRevisions(ctx, root, patch.Input, revisions, core.RestrictedFiles)
 			if e != nil {
@@ -454,7 +461,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		request := protocol.NewRequest(h.node.ID(), command)
-		current := &workspaceToolCall{request: request, external: external}
+		current := &workspaceToolCall{request: request, fileScope: scope}
 		if fileTextMutation(command.Kind) {
 			current.prepared, err = files.Prepare(ctx, root, command, core.RestrictedFiles)
 			if err != nil {
@@ -462,7 +469,11 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		if files.SupportsMutation(command.Kind) {
-			if err = h.node.protectWorkspaceMutation(root, root, command, current.prepared); err != nil {
+			target := root
+			if scope.worktree != "" {
+				target = inv.Worktree.Path
+			}
+			if err = h.node.protectWorkspaceMutation(target, target, command, current.prepared, scope); err != nil {
 				return err
 			}
 		}
@@ -500,12 +511,13 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		request := current.request
-		if current.external != "" {
-			output, err := h.node.externalFileIO(ctx, inv.Caller, request, current.prepared, current.external)
+		scope := current.fileScope
+		if scope.root != "" && scope.worktree == "" {
+			output, err := h.node.externalFileIO(ctx, inv.Caller, request, current.prepared, scope.root)
 			if err != nil {
 				return workspaceToolFault(err)
 			}
-			value := absoluteResult(current.external, h.node.workspaceToolValue(inv.Session, request, output, false))
+			value := h.node.workspaceToolValue(inv.Session, request, scope.result(output), false)
 			result := engine.ToolResult{Value: value, ReturnedError: workspaceOutputFailed(output), ReturnedFailure: workspaceOutputFailure(output)}
 			if cfg.FormatResult != nil && result.Failure == nil {
 				result = cfg.FormatResult(ctx, args, result)
@@ -529,8 +541,8 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				if previous != nil {
 					return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "tool effect was already admitted and will not replay"}
 				}
-				if current.prepared != nil {
-					return store.CaptureFileCheckpointsRequest(ctx, db, inv.Run.Turn, current.approval, request, current.prepared)
+				if current.prepared != nil && current.prepared.Rejected == nil {
+					return store.CaptureFileCheckpointsRequest(ctx, db, inv.Run.Turn, current.approval, request, scope.checkpoints(current.prepared))
 				}
 				return nil
 			})
@@ -539,7 +551,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return workspaceToolFault(err)
 			}
 		}
-		effect := &workspaceCompletion{commandControl: current.commandControl}
+		effect := &workspaceCompletion{commandControl: current.commandControl, fileScope: scope}
 		defer effect.close()
 		output, effectErr := h.node.workspaceIO(ctx, inv.Caller, request, current.prepared, effect)
 		if !readOnly {

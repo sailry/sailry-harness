@@ -109,6 +109,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   );
   Object? _error;
   bool get _watching => _observation != null;
+  bool _waitingForHost = false;
   bool _retrying = false;
   bool _away = false;
   bool _current = false;
@@ -174,7 +175,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
 
   void _restoreCached() {
     final cache = widget.host.cache;
-    if (cache == null) return;
+    if (cache == null || _ownerEnded) return;
     final kept = cache.peek<TranscriptIndex>(_cacheKey);
     if (kept != null) {
       _settled = true;
@@ -183,8 +184,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     }
     unawaited(
       cache.read(_cacheKey, transcriptIndex).then((stored) {
-        if (stored == null || !mounted || _ownerEnded) return;
-        if (_transcript.view.isNotEmpty) return;
+        if (stored == null || !mounted || _covered || _ownerEnded) return;
+        if (_snapshot.isNotEmpty) return;
         setState(() => _showCached(stored));
       }),
     );
@@ -196,7 +197,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _view.value = {
       ...transcript.view,
       'connected': false,
-      'error': null,
+      'error': _view.value['error'],
       'statistics_error': null,
     };
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -293,6 +294,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       return;
     }
     _acknowledge();
+    if (_waitingForHost && widget.host.hasConnection) unawaited(_watch());
     _updateStatistics();
     if (mounted) setState(() {});
   }
@@ -371,6 +373,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
 
   Future<void> _watch() async {
     if (_closed || _covered || _ownerEnded || _watching) return;
+    _waitingForHost = !widget.host.hasConnection;
+    if (_waitingForHost) return;
     // Reacquire after release, including a handle that was still opening.
     late final Future<ConversationUpdates?> observation;
     bool ownsObservation() => identical(_observation, observation);
@@ -409,21 +413,12 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           return;
         }
         _error = null;
-        final code = object(fault)['code'];
-        if (value['connected'] != true &&
-            value['snapshot'] == null &&
-            _snapshot.isNotEmpty &&
-            !_cached &&
-            (fault == null || code == 'unavailable' || code == 'busy')) {
-          // A recovering observation can begin without a snapshot on the same owner.
+        final live = value['connected'] == true;
+        if (transcript.snapshot.isEmpty || (!live && _snapshot.isNotEmpty)) {
+          // A recovering observation may deliver faults before the new view.
           _view.value = {..._view.value, 'connected': false, 'error': fault};
           _updateStatistics();
           _artifactActions.changed();
-          continue;
-        }
-        // A recovering observation without a snapshot keeps the cached one.
-        if (_cached && value['snapshot'] == null) {
-          _view.value = {..._view.value, 'error': fault};
           continue;
         }
         final following =
@@ -431,8 +426,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             (!_scroll.hasClients ||
                 (_scroll.position.extentBefore == 0 &&
                     !_scroll.position.isScrollingNotifier.value));
-        _cached = false;
-        _payload = payload;
+        _cached = !live;
+        _payload = live ? payload : null;
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         final detailErrors = newDetailErrors(_view.value, value).toList();
@@ -797,6 +792,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       _returnOffset ??= distance < _followDistance ? 0 : distance;
       _covered = true;
       _error = null;
+      _keep(persist: true);
+      _payload = null;
+      _cached = false;
       _discardView();
     }
 

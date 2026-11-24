@@ -637,6 +637,80 @@ func TestToolGroupShowsLatestRowsWithoutInnerScroll(t *testing.T) {
 	}
 }
 
+func TestToolGroupKeepsExpandedCallVisibleWhenAppending(t *testing.T) {
+	s := New()
+	var calls []Call
+	appendRead := func(i int) {
+		id := fmt.Sprintf("read-%02d", i)
+		calls = append(calls, Call{ID: id, Name: "read", Label: "Read file", Detail: id + ".txt", Code: true, Output: &Output{Text: "read result"}})
+	}
+	for i := 1; i <= 10; i++ {
+		appendRead(i)
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		s.tools(c, calls, true)
+	}, 700, 640)
+	tt.SetLocale("en")
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	if err := tt.Click("read-10.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("read-08.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("read result") {
+		t.Fatal("opening the call did not show its detail")
+	}
+
+	for i := 11; i <= 17; i++ {
+		appendRead(i)
+	}
+	tt.Frame()
+	if !tt.HasText("read-08.txt") || !tt.HasText("read result") {
+		t.Fatalf("appending calls evicted the expanded row: %q", tt.Texts())
+	}
+	calls = append(calls, Call{ID: "search", Name: "search", Label: "Search files", Detail: "pattern"})
+	tt.Frame()
+	if !tt.HasText("read-08.txt") || !tt.HasText("read result") {
+		t.Fatalf("creation of the subgroup hid the expanded row: %q", tt.Texts())
+	}
+}
+
+func TestToolTableShowsAndCopiesRowsPastExpandedTextLimit(t *testing.T) {
+	rows := make([][]string, expandedLines+1)
+	for i := range rows {
+		rows[i] = []string{fmt.Sprintf("row-%03d", i)}
+	}
+	output := &Output{Table: &Table{Columns: []string{"id"}, Rows: rows}}
+	calls := []Call{{ID: "query", Name: "database_query", Label: "Query database", Output: output}}
+	s := New()
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Scroll(c).Fill().Children(func() { s.tools(c, calls, true) })
+	}, 600, 720)
+	tt.SetLocale("en")
+	if err := tt.Click("Query database"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click(i18n.In("en", "output_show_all", "count", len(rows))); err != nil {
+		t.Fatalf("show all table rows: %v; %q", err, tt.Texts())
+	}
+	tt.Frame()
+	tt.Scroll(300, 650, 0, 100000)
+	tt.Frame()
+	if row, ok := tt.Find("row-400"); !ok || row.Y+row.H <= 0 || row.Y >= 720 {
+		t.Fatalf("the last table row cannot be reached by scrolling: %+v, found %v", row, ok)
+	}
+	copyText := copyOf(output)
+	if !strings.Contains(copyText, "row-000") || !strings.Contains(copyText, "row-400") {
+		t.Fatal("copy omitted rows from the full table")
+	}
+}
+
 func TestFailedCommandStaysFoldedAfterStop(t *testing.T) {
 	const failure = "exit status 2"
 	s := New()

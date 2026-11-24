@@ -145,14 +145,20 @@ func TerminalActivity(info protocol.TerminalInfo) (ActivityLane, bool) {
 	return ActivityIdle, true
 }
 
-func ProjectActivity(catalog protocol.ActivityCatalog, unread []protocol.TerminalID) ActivityProjection {
-	projection := ActivityProjection{
-		SessionLanes: map[string]ActivityLane{}, TerminalLanes: map[string]ActivityLane{},
-		ActivityOrder: []string{},
+func sessionActivityLanes(sessions []protocol.Session, lanes []Lane) map[string]ActivityLane {
+	projected := make(map[string]ActivityLane, len(sessions))
+	for i, session := range sessions {
+		projected[session.ID.String()] = activityLane(lanes[i])
 	}
+	return projected
+}
+
+func ProjectActivity(catalog protocol.ActivityCatalog, unread []protocol.TerminalID) ActivityProjection {
 	lanes := AggregateLanes(catalog.Sessions)
-	for i, session := range catalog.Sessions {
-		projection.SessionLanes[session.ID.String()] = activityLane(lanes[i])
+	projection := ActivityProjection{
+		SessionLanes:  sessionActivityLanes(catalog.Sessions, lanes),
+		TerminalLanes: map[string]ActivityLane{},
+		ActivityOrder: []string{},
 	}
 	terminals := make([]TerminalActivityLane, 0, len(catalog.Terminals))
 	for _, terminal := range catalog.Terminals {

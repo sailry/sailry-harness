@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show mapEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/catalog.dart';
 import '../../../runtime/json.dart';
+import '../../../runtime/query_cache.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
@@ -50,6 +52,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   /// Sessions whose locally indexed messages contain the search, with the
   /// text that matched, so a search also finds content while offline.
   Map<(String, String), String> _contentMatches = const {};
+  ({QueryCache cache, HostConnection host, String query, Set<String> sessions})?
+  _contentSearch;
   int _contentQuery = 0;
   StreamSubscription<void>? _indexChanges;
   Timer? _clock;
@@ -84,6 +88,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     if (oldWidget.session != widget.session) {
       oldWidget.session.removeListener(_changed);
       widget.session.addListener(_changed);
+      _bindSearch();
+      _searchContent();
       _catalogDirty = true;
     }
     if (oldWidget.sessionsOnly != widget.sessionsOnly) _catalogDirty = true;
@@ -104,6 +110,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
 
   void _changed() {
     _catalogDirty = true;
+    if (_searching) _searchContent();
     if (mounted && _previewActive) setState(() {});
   }
 
@@ -121,48 +128,74 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   void _setSearching(bool searching) {
     _updateControls(() {
       _searching = searching;
-      if (!searching) {
-        _search = '';
-        _contentMatches = const {};
-      }
+      if (!searching) _search = '';
     });
-    _contentQuery++;
+    _bindSearch();
+    _searchContent();
+  }
+
+  void _setFilter(String filter) {
+    _updateControls(() => _filter = filter);
+    _searchContent();
+  }
+
+  void _bindSearch() {
     unawaited(_indexChanges?.cancel());
-    _indexChanges = searching
-        ? widget.session.cache?.searchChanges.listen((_) => _searchContent())
+    _indexChanges = _searching
+        ? widget.session.cache?.searchChanges.listen(
+            (_) => _searchContent(indexChanged: true),
+          )
         : null;
   }
 
-  void _searchContent() {
+  void _searchContent({bool indexChanged = false}) {
     final cache = widget.session.cache;
+    final host = widget.session.selectedHost;
     final query = _search.trim();
-    final request = ++_contentQuery;
-    if (cache == null || query.isEmpty) {
-      if (_contentMatches.isNotEmpty) {
-        _updateControls(() => _contentMatches = const {});
+    if (cache == null || host == null || host.isDemo || query.isEmpty) {
+      if (_contentSearch != null) {
+        _contentQuery++;
+        _contentSearch = null;
+        _contentMatches = const {};
       }
       return;
     }
-    cache
-        .search(query)
-        .then(
-          (hits) {
-            if (!mounted || request != _contentQuery) return;
-            final matches = <(String, String), String>{};
-            for (final hit in hits) {
-              final host = hostIdFromScope(hit.scope);
-              if (host == null) continue;
-              matches.putIfAbsent((
-                host,
-                hit.session,
-              ), () => searchExcerpt(hit.body, query));
-            }
-            _updateControls(() => _contentMatches = matches);
-          },
-          onError: (Object error) {
-            debugPrint('Offline search unavailable: $error');
-          },
-        );
+    final sessions = <String>{
+      for (final session in objects(host.snapshot['sessions']))
+        if (_includesSession(session, _laneOf(host, session)))
+          text(session['id']),
+    };
+    final previous = _contentSearch;
+    final sameSearch =
+        previous != null &&
+        previous.cache == cache &&
+        previous.host == host &&
+        previous.query == query &&
+        setEquals(previous.sessions, sessions);
+    if (sameSearch && !indexChanged) return;
+    _contentSearch = (
+      cache: cache,
+      host: host,
+      query: query,
+      sessions: sessions,
+    );
+    if (!sameSearch) _contentMatches = const {};
+    final request = ++_contentQuery;
+    if (sessions.isEmpty) return;
+    unawaited(
+      cache.search(query, scope: host.cacheScope, sessions: sessions).then((
+        hits,
+      ) {
+        if (!mounted || request != _contentQuery) return;
+        final matches = {
+          for (final hit in hits)
+            (host.id, hit.session): searchExcerpt(hit.body, query),
+        };
+        if (!mapEquals(_contentMatches, matches)) {
+          _updateControls(() => _contentMatches = matches);
+        }
+      }),
+    );
   }
 
   @override
@@ -177,6 +210,15 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
 
   bool _includes(Object? project) =>
       inProject(widget.session.selectedProjectId, project);
+
+  bool _includesSession(Map<String, dynamic> session, String lane) =>
+      ordinarySession(session) &&
+      _includes(session['project']) &&
+      (session['archived'] == true) == (_filter == 'archived') &&
+      (_filter == 'all' || _filter == 'archived' || lane == _filter);
+
+  static String _laneOf(HostConnection host, Map<String, dynamic> session) =>
+      host.sessionLanes[text(session['id'])] ?? 'idle';
 
   Future<void> _refresh() async {
     await widget.session.selectedHost?.refresh();
@@ -301,9 +343,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final projectId = widget.session.selectedProjectId;
     final projects = hostRecords(widget.session.resourceHosts, 'projects');
     final sessions = hostRecords(hosts, 'sessions');
-    final lanes = selected?.sessionLanes ?? const <String, String>{};
-    String laneOf(Map<String, dynamic> session) =>
-        lanes[text(session['id'])] ?? 'idle';
     final allTerminals = hostRecords(hosts, 'terminals');
     final creationHost = selected;
     final selectedProject = projects
@@ -314,12 +353,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         ?.$2;
     final tasks = <HostRecord>[
       for (final (host, session) in sessions)
-        if (ordinarySession(session) &&
-            _includes(session['project']) &&
-            (session['archived'] == true) == (_filter == 'archived') &&
-            (_filter == 'all' ||
-                _filter == 'archived' ||
-                laneOf(session) == _filter) &&
+        if (_includesSession(session, _laneOf(host, session)) &&
             (title(
                   session,
                   translate: context.tr,
@@ -330,7 +364,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final now = DateTime.now();
     final groups = groupTasks(
       tasks,
-      (task) => sessionGroup(task.$2, now, lane: laneOf(task.$2)),
+      (task) => sessionGroup(task.$2, now, lane: _laneOf(task.$1, task.$2)),
     );
     Object? terminalProject(
       HostConnection host,
@@ -467,17 +501,16 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         if (taskFilters.contains(_filter) || _filter == 'archived')
           TaskFilters(
             selected: _filter,
-            onSelected: (filter) => _updateControls(() => _filter = filter),
-            onArchive: () => _updateControls(
-              () => _filter = _filter == 'archived' ? 'all' : 'archived',
-            ),
+            onSelected: _setFilter,
+            onArchive: () =>
+                _setFilter(_filter == 'archived' ? 'all' : 'archived'),
           )
         else
           TaskScope(
             label: context.tr(
               _filter == 'archived' ? 'archiveTab' : 'terminal',
             ),
-            onClose: () => _updateControls(() => _filter = 'all'),
+            onClose: () => _setFilter('all'),
           ),
       ],
     );
@@ -493,7 +526,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               session,
               colors: colors,
               translate: translate,
-              lane: laneOf(session),
+              lane: _laneOf(host, session),
               now: now,
               divider: index < items.length - 1,
             ),
