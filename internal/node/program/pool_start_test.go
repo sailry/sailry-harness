@@ -20,7 +20,7 @@ func TestPoolInvalidationDuringStart(t *testing.T) {
 			finished := make(chan result, 1)
 			go func() {
 				var process *Process
-				entry, err := pool.Lease("owner", func(*Entry) int { return 1 }, func() (*Process, any, error) {
+				entry, err := pool.Lease(t.Context(), "owner", 0, func(*Entry) int { return 1 }, func() (*Process, any, error) {
 					close(starting)
 					<-resume
 					var err error
@@ -58,7 +58,7 @@ func TestPoolInvalidationDuringStart(t *testing.T) {
 				t.Fatal("invalidated process was not stopped")
 			}
 			if operation == "invalidate" {
-				entry, err := pool.Lease("owner", func(*Entry) int { return 1 }, func() (*Process, any, error) {
+				entry, err := pool.Lease(t.Context(), "owner", 0, func(*Entry) int { return 1 }, func() (*Process, any, error) {
 					process, err := Start(spec)
 					return process, nil, err
 				})

@@ -107,6 +107,11 @@
         "program": {
           "type": "string"
         },
+        "concurrency": {
+          "maximum": 16,
+          "minimum": 1,
+          "type": "integer"
+        },
         "replay_bytes": {
           "maximum": 8388608,
           "minimum": 4096,

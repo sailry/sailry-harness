@@ -64,6 +64,9 @@ type PluginModelAdapterAcp struct {
 	Efforts map[string]string `json:"efforts,omitempty"`
 	// ReplayBytes bounds the text of one prompt.
 	ReplayBytes uint32 `json:"replay_bytes"`
+	// Concurrency is how many of the package's programs may serve requests
+	// at once, 1 to 16; without it the Node's default applies.
+	Concurrency uint8 `json:"concurrency,omitempty"`
 	// AuthMethod is the `authenticate` method tried once when the agent
 	// requires authentication.
 	AuthMethod *string `json:"auth_method,omitempty"`

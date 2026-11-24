@@ -516,7 +516,11 @@ history or the system text differs (an edit, rewind or compaction), is the
 whole history replayed into a new session; `replay_bytes` bounds that replay,
 and a larger one is a context overflow handled by compaction. A replaced
 session is closed when the agent offers `session/close`. Transcript summary
-requests and discovery use programs no session holds.
+requests and discovery use programs no session holds. A package runs at most
+the programs its adapter's `concurrency` declares, four by default, for each
+user across every session; a request beyond that, such as one of several
+parallel delegations, waits until a running request releases its program. A
+program is held only for one model step, never while tools or delegations run.
 
 Automatic compaction on these routes uses the ordinary threshold. While the
 agent session holds the history, Sailry asks for its handoff in place, so

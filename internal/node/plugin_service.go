@@ -49,8 +49,8 @@ type pluginControls struct {
 	invocations   map[protocol.RequestID]*pluginInvocation
 }
 
-// A package runs at most programLimit programs at once; one unused for
-// programIdle is stopped.
+// A package runs at most programLimit programs at once unless its model
+// adapter declares a concurrency; one unused for programIdle is stopped.
 const (
 	programLimit = 4
 	programIdle  = 10 * time.Minute

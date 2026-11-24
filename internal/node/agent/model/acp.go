@@ -569,13 +569,12 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 		}
 		return 0
 	}
-	entry, err := model.capture.Pool.Lease(model.capture.Owner, rank, func() (*program.Process, any, error) {
+	// Requests beyond the package's program limit, such as parallel
+	// delegations, wait for a running request to finish.
+	entry, err := model.capture.Pool.Lease(ctx, model.capture.Owner, int(model.capture.Adapter.Acp.Concurrency), rank, func() (*program.Process, any, error) {
 		process, agent, err := model.start(ctx, spec, identity)
 		return process, agent, err
 	})
-	if errors.Is(err, program.ErrBusy) {
-		return nil, nil, &Failure{Kind: Unavailable, Message: fmt.Sprintf("every %s process is busy", model.capture.Program.Command)}
-	}
 	if err != nil {
 		return nil, nil, err
 	}

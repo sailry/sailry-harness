@@ -1,13 +1,11 @@
 package program
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
 )
-
-// ErrBusy reports that an owner's programs are all in use.
-var ErrBusy = errors.New("programs are busy")
 
 // Pool bounds and reaps the running programs of every owner (a package). A
 // caller attaches its own protocol state to an entry as Value.
@@ -19,6 +17,9 @@ type Pool struct {
 	entries map[*Entry]struct{}
 	closed  bool
 	timer   *time.Timer
+	// freed is closed and replaced whenever an entry is released or removed,
+	// waking leases that wait for a slot.
+	freed chan struct{}
 }
 
 // Entry is one running program and the state its user keeps with it.
@@ -31,18 +32,42 @@ type Entry struct {
 }
 
 func NewPool(limit int, idle time.Duration) *Pool {
-	return &Pool{Limit: limit, Idle: idle, entries: map[*Entry]struct{}{}}
+	return &Pool{Limit: limit, Idle: idle, entries: map[*Entry]struct{}{}, freed: make(chan struct{})}
+}
+
+// signal wakes waiting leases. The caller holds the lock.
+func (pool *Pool) signal() {
+	close(pool.freed)
+	pool.freed = make(chan struct{})
 }
 
 // Lease returns the idle program of owner that rank values highest above
 // zero, else starts one. At the limit it replaces the owner's longest-idle
-// program; when every one is in use it fails with ErrBusy. The caller must
-// Release the entry.
-func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
+// program; when every one is in use it waits for a release until ctx ends.
+// limit replaces the pool's Limit for this owner when it is positive.
+// Callers hold an entry for one request, so a wait ends when one finishes.
+// The caller must Release the entry.
+func (pool *Pool) Lease(ctx context.Context, owner string, limit int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
+	for {
+		entry, freed, err := pool.lease(owner, limit, rank, start)
+		if freed == nil {
+			return entry, err
+		}
+		select {
+		case <-freed:
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	}
+}
+
+// lease is one attempt of Lease. A non-nil channel reports that every
+// program is in use and is closed when one is released or removed.
+func (pool *Pool) lease(owner string, limit int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, <-chan struct{}, error) {
 	pool.mu.Lock()
 	if pool.closed {
 		pool.mu.Unlock()
-		return nil, errors.New("programs are stopped")
+		return nil, nil, errors.New("programs are stopped")
 	}
 	var oldest, best *Entry
 	count, score := 0, 0
@@ -71,12 +96,16 @@ func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Proc
 	if best != nil {
 		best.leased = true
 		pool.mu.Unlock()
-		return best, nil
+		return best, nil, nil
 	}
-	if count >= pool.Limit {
+	if limit <= 0 {
+		limit = pool.Limit
+	}
+	if count >= limit {
 		if oldest == nil {
+			freed := pool.freed
 			pool.mu.Unlock()
-			return nil, ErrBusy
+			return nil, freed, nil
 		}
 		delete(pool.entries, oldest)
 	} else {
@@ -99,13 +128,14 @@ func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Proc
 	}
 	if err != nil {
 		delete(pool.entries, entry)
+		pool.signal()
 		if process != nil {
 			go process.Kill()
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	entry.Process, entry.Value = process, value
-	return entry, nil
+	return entry, nil, nil
 }
 
 // Holds reports whether an idle, running program of owner satisfies match.
@@ -133,6 +163,7 @@ func (pool *Pool) Holds(owner string, match func(*Entry) bool) bool {
 func (pool *Pool) Release(entry *Entry, keep bool) {
 	pool.mu.Lock()
 	_, known := pool.entries[entry]
+	pool.signal()
 	if !keep || !known || pool.closed {
 		delete(pool.entries, entry)
 		pool.mu.Unlock()
@@ -188,6 +219,7 @@ func (pool *Pool) stop(selected func(*Entry) bool, final bool) {
 			stopped = append(stopped, entry)
 		}
 	}
+	pool.signal()
 	if final {
 		pool.closed = true
 		if pool.timer != nil {

@@ -1,12 +1,15 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -177,9 +180,12 @@ func TestACPDiscoveryIdentityAndPackageLimit(t *testing.T) {
 	key := protocol.NewSecret("rotated-unused-fixture-token")
 	next.binding.Secret = &key
 	// The first lease still occupies the package's only slot, even though
-	// this channel has a different credential and cannot reuse it.
-	if _, _, err := next.lease(t.Context(), true); Classify(err) == nil || Classify(err).Kind != Unavailable {
-		t.Fatal("another identity bypassed the package process limit")
+	// this channel has a different credential and cannot reuse it; the lease
+	// waits for it.
+	waiting, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if _, _, err := next.lease(waiting, true); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("another identity bypassed the package process limit: %v", err)
 	}
 	fixture.model.capture.Pool.Release(entry, true)
 	replaced, other, err := next.lease(t.Context(), true)
