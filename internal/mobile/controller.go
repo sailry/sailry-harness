@@ -75,6 +75,10 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 		// Older Dart bridges initialize explicitly before opening a controller.
 		return nil, nil
 	case "open":
+		// A retired bridge can still own this profile while closing.
+		if err := runtime.waitForClosing(ctx); err != nil {
+			return nil, err
+		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
 		endpoint, err := link.OpenController(lifetime, values.Path, values.networkScope())
 		detach()

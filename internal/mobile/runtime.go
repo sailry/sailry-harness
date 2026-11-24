@@ -51,6 +51,7 @@ type Runtime struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	callback Callback
+	closing  []<-chan struct{}
 	mu       sync.Mutex
 	next     uint64
 	handles  map[uint64]*owned
@@ -61,12 +62,23 @@ type Runtime struct {
 	emitted  uint64
 }
 
-func New(callback Callback) *Runtime {
+func New(callback Callback, closing ...<-chan struct{}) *Runtime {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Runtime{
-		ctx: ctx, cancel: cancel, callback: callback,
+		ctx: ctx, cancel: cancel, callback: callback, closing: closing,
 		handles: map[uint64]*owned{}, pending: map[uint64]*operation{},
 	}
+}
+
+func (runtime *Runtime) waitForClosing(ctx context.Context) error {
+	for _, done := range runtime.closing {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 func (runtime *Runtime) Invoke(handle uint64, method string, data []byte, request uint64) bool {

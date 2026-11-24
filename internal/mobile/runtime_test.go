@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -50,6 +51,37 @@ func TestMobileInvokeOps(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenWaitsForPreviousBridge(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		previous := make(chan struct{})
+		results := make(chan envelope, 2)
+		runtime := New(func(_ uint64, data []byte) {
+			var value envelope
+			if err := json.Unmarshal(data, &value); err != nil {
+				t.Errorf("decode completion: %v", err)
+			}
+			results <- value
+		}, previous)
+		defer runtime.Close(0)
+		// An invalid path fails before any networking, so the test can see
+		// exactly when the replacement starts opening its profile.
+		if !runtime.Invoke(0, "open", []byte(`{"path":""}`), 1) {
+			t.Fatal("replacement was not accepted")
+		}
+		synctest.Wait()
+		select {
+		case <-results:
+			t.Fatal("replacement started before the previous bridge closed")
+		default:
+		}
+		close(previous)
+		if got := <-results; got.Error == nil || got.Error.Code == protocol.ErrorCodeCancelled {
+			t.Fatalf("replacement did not try to open the invalid profile: %#v", got)
+		}
+	})
 }
 
 func TestMobileNetworkScope(t *testing.T) {
