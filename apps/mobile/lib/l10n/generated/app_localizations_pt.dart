@@ -2068,6 +2068,19 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationStep => '1 etapa';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return 'Mostrar $count anteriores';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return 'Mostrar todas as $count linhas';
+  }
+
+  @override
+  String get contentShowLess => 'Mostrar menos';
+
+  @override
   String get activityProgress => 'Progresso';
 
   @override

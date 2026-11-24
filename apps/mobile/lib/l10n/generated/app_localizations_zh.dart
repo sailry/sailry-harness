@@ -2032,6 +2032,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationStep => '1 个步骤';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return '显示更早的 $count 步';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return '显示全部 $count 行';
+  }
+
+  @override
+  String get contentShowLess => '收起';
+
+  @override
   String get activityProgress => '任务进度';
 
   @override
@@ -4326,6 +4339,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationStep => '1 個步驟';
+
+  @override
+  String conversationEarlierSteps(String count) {
+    return '顯示更早的 $count 步';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return '顯示全部 $count 行';
+  }
+
+  @override
+  String get contentShowLess => '收起';
 
   @override
   String get activityProgress => '任務進度';

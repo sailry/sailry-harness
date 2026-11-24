@@ -2037,6 +2037,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationStep => '1 ステップ';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return '以前の $count 件を表示';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return '全 $count 行を表示';
+  }
+
+  @override
+  String get contentShowLess => '折りたたむ';
+
+  @override
   String get activityProgress => '進捗';
 
   @override

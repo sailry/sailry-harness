@@ -2038,6 +2038,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationStep => '1단계';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return '이전 $count개 표시';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return '전체 $count줄 표시';
+  }
+
+  @override
+  String get contentShowLess => '접기';
+
+  @override
   String get activityProgress => '진행 상황';
 
   @override

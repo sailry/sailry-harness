@@ -872,6 +872,23 @@
     }
   },
   "conversationStep": "1 step",
+  "conversationEarlierSteps": "Show {count} earlier",
+  "@conversationEarlierSteps": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "contentShowAll": "Show all {count} lines",
+  "@contentShowAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "contentShowLess": "Show less",
   "activityProgress": "Progress",
   "activityBackground": "Background tasks",
   "activityPorts": "Ports",

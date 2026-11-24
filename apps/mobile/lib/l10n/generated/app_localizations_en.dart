@@ -2058,6 +2058,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationStep => '1 step';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return 'Show $count earlier';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return 'Show all $count lines';
+  }
+
+  @override
+  String get contentShowLess => 'Show less';
+
+  @override
   String get activityProgress => 'Progress';
 
   @override

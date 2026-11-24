@@ -9,6 +9,31 @@ import '../ui/toast.dart';
 
 final _highlight = Highlight()..registerLanguages(builtinAllLanguages);
 
+/// Highlighted blocks by language and text, so reopening a transcript or
+/// rebuilding a block reuses the result instead of tokenizing again on the
+/// UI thread. The oldest entries leave first past either bound.
+final _highlighted = <(String, String), HighlightResult>{};
+var _highlightedChars = 0;
+const _highlightEntries = 128;
+const _highlightChars = 512 * 1024;
+
+HighlightResult _highlightCode(String code, String language) {
+  final key = (language, code);
+  final cached = _highlighted.remove(key);
+  if (cached != null) return _highlighted[key] = cached;
+  final result = _highlight.highlight(code: code, language: language);
+  if (code.length > _highlightChars) return result;
+  _highlighted[key] = result;
+  _highlightedChars += code.length;
+  while (_highlighted.length > _highlightEntries ||
+      _highlightedChars > _highlightChars) {
+    final oldest = _highlighted.keys.first;
+    _highlighted.remove(oldest);
+    _highlightedChars -= oldest.$2.length;
+  }
+  return result;
+}
+
 String languageFor(String path) {
   final name = path.split('/').last.toLowerCase();
   return switch (name.split('.').last) {
@@ -55,7 +80,7 @@ class _CodeTextState extends State<CodeText> {
     _result = null;
     final language = widget.language;
     if (language != null && _highlight.getLanguage(language) != null) {
-      _result = _highlight.highlight(code: widget.text, language: language);
+      _result = _highlightCode(widget.text, language);
     }
   }
 

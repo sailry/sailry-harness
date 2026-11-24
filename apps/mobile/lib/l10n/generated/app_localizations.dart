@@ -4044,6 +4044,24 @@ abstract class AppLocalizations {
   /// **'1 step'**
   String get conversationStep;
 
+  /// No description provided for @conversationEarlierSteps.
+  ///
+  /// In en, this message translates to:
+  /// **'Show {count} earlier'**
+  String conversationEarlierSteps(String count);
+
+  /// No description provided for @contentShowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all {count} lines'**
+  String contentShowAll(String count);
+
+  /// No description provided for @contentShowLess.
+  ///
+  /// In en, this message translates to:
+  /// **'Show less'**
+  String get contentShowLess;
+
   /// No description provided for @activityProgress.
   ///
   /// In en, this message translates to:

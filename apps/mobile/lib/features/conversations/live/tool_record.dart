@@ -5,6 +5,7 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'change_preview.dart';
+import 'line_preview.dart';
 import 'presentation.dart';
 import 'question.dart';
 import 'tool_display.dart';
@@ -179,19 +180,21 @@ class _ToolRecordState extends State<ToolRecord> {
         ),
       ),
     );
-    Widget code(String value) => ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 220),
-      child: SingleChildScrollView(
-        child: SelectableText(
-          value,
+    Widget code(String value) {
+      final lines = value.split('\n');
+      return LinePreview(
+        lines: lines.length,
+        builder: (context, limit) => SelectableText(
+          limit == null ? value : lines.take(limit).join('\n'),
           style: const TextStyle(
             fontFamily: 'monospace',
             fontSize: 13,
             height: 1.5,
           ),
         ),
-      ),
-    );
+      );
+    }
+
     Widget actions(List<Widget> buttons) => Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(

@@ -1,5 +1,8 @@
+import 'dart:math' show max, min;
+
 import 'package:flutter/material.dart';
 
+import '../../../l10n/strings.dart';
 import 'tool_row.dart';
 
 /// A turn's steps collapse under one summary row, as in the desktop transcript.
@@ -81,14 +84,15 @@ class _StepDisclosureState extends State<StepDisclosure> {
   );
 }
 
-/// The tallest expanded step list: about 40% of the screen, bounded so short
-/// screens keep a few rows and tall ones keep the answer in reach.
-double stepListHeight(BuildContext context) =>
-    (MediaQuery.sizeOf(context).height * .4).clamp(160.0, 420.0);
+/// Steps an expanded process shows before Show earlier, and the steps each
+/// Show earlier adds above them.
+const shownSteps = 8;
+const earlierSteps = 50;
 
-/// Expanded steps scroll inside a bounded height and build near the viewport.
-/// The list opens on the latest step and follows new ones until the user
-/// scrolls away from the end; returning to the end resumes following.
+/// Expanded steps lay out in the transcript, which stays the page's only
+/// scroll: a nested list would hold a finger's drag at its edges. The latest
+/// [shownSteps] show, so a growing process keeps its newest step in view,
+/// and Show earlier adds earlier steps above them a page at a time.
 class StepList extends StatefulWidget {
   const StepList({super.key, required this.children});
 
@@ -99,90 +103,26 @@ class StepList extends StatefulWidget {
 }
 
 class _StepListState extends State<StepList> {
-  // A restored offset would open on an arbitrary step rather than the latest.
-  final _scroll = ScrollController(keepScrollOffset: false);
-  bool _following = true;
-  bool _scheduled = false;
-
-  bool get _atEnd {
-    final position = _scroll.position;
-    return position.pixels >= position.maxScrollExtent - 1;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _follow();
-  }
-
-  @override
-  void didUpdateWidget(covariant StepList oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _follow();
-  }
-
-  // Lazy extents are estimates until the last rows lay out, so the jump
-  // repeats on metric changes until it reaches the exact end.
-  void _follow() {
-    if (!_following || _scheduled) return;
-    _scheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scheduled = false;
-      if (!mounted || !_following || !_scroll.hasClients || _atEnd) return;
-      _scroll.jumpTo(_scroll.position.maxScrollExtent);
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
-
-  // Only the user's drags and settled scrolls decide whether to follow, so a
-  // jump or a growing list never pulls a reader back to the end.
-  bool _scrolled(ScrollNotification notification) {
-    if (notification.depth != 0 || !_scroll.hasClients) return false;
-    final user = switch (notification) {
-      ScrollUpdateNotification(:final dragDetails) => dragDetails != null,
-      OverscrollNotification(:final dragDetails) => dragDetails != null,
-      ScrollEndNotification() => true,
-      _ => false,
-    };
-    if (user) _following = _atEnd;
-    return false;
-  }
-
-  bool _resized(ScrollMetricsNotification notification) {
-    if (notification.depth == 0 && _scroll.hasClients && !_atEnd) _follow();
-    return false;
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
+  int _more = 0;
 
   @override
   Widget build(BuildContext context) {
     final children = widget.children;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: stepListHeight(context)),
-      child: NotificationListener<ScrollMetricsNotification>(
-        onNotification: _resized,
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _scrolled,
-          child: ListView.builder(
-            key: const ValueKey('step-list'),
-            controller: _scroll,
-            primary: false,
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            itemCount: children.length,
-            itemBuilder: (context, index) => children[index],
-            findChildIndexCallback: (key) {
-              final index = children.indexWhere((child) => child.key == key);
-              return index < 0 ? null : index;
-            },
+    final int hidden = max(0, children.length - shownSteps - _more);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (hidden > 0)
+          ToolRow(
+            key: const ValueKey('earlier-steps'),
+            icon: 'arrow-up',
+            label: context
+                .tr('conversationEarlierSteps')
+                .replaceAll('{count}', '${min(hidden, earlierSteps)}'),
+            onTap: () => setState(() => _more += earlierSteps),
           ),
-        ),
-      ),
+        ...children.skip(hidden),
+      ],
     );
   }
 }

@@ -98,6 +98,13 @@ class LiveTimeline extends StatefulWidget {
 class _LiveTimelineState extends State<LiveTimeline> {
   final _documents = <String, FileDocument>{};
 
+  /// Each built turn's widget for the inputs in [_turnInputs]. A rebuild
+  /// that keeps the same projection, as a route transition, the keyboard or
+  /// the composer causes, returns the same widgets, so Flutter skips their
+  /// subtrees; a new projection or a changed input builds turns again.
+  final _turns = <Object?, Widget>{};
+  Object? _turnInputs;
+
   @override
   Widget build(BuildContext context) {
     final transcript = widget.transcript;
@@ -591,6 +598,20 @@ class _LiveTimelineState extends State<LiveTimeline> {
     }
 
     final older = widget.older;
+    final inputs = (
+      transcript,
+      connected,
+      session,
+      canChangeHistory,
+      widget.sending,
+      onTurnAction != null,
+      Theme.of(context),
+      Localizations.localeOf(context),
+    );
+    if (inputs != _turnInputs) {
+      _turnInputs = inputs;
+      _turns.clear();
+    }
     // Index 0 is the bottom of the reversed transcript.
     return VisualScope(
       child: CustomScrollView(
@@ -614,7 +635,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                         key:
                             turnKey?.call(run['turn'] as String) ??
                             ValueKey(run['turn']),
-                        child: turn(run),
+                        child: _turns.putIfAbsent(run['turn'], () => turn(run)),
                       ),
                     );
                   },

@@ -2069,6 +2069,19 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationStep => '1 шаг';
 
   @override
+  String conversationEarlierSteps(String count) {
+    return 'Показать ещё $count ранее';
+  }
+
+  @override
+  String contentShowAll(String count) {
+    return 'Показать все строки: $count';
+  }
+
+  @override
+  String get contentShowLess => 'Свернуть';
+
+  @override
   String get activityProgress => 'Прогресс';
 
   @override

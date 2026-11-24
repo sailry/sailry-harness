@@ -4,6 +4,7 @@ import '../../../content/diff.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/theme.dart';
+import 'line_preview.dart';
 
 String changeTitle(Translator tr, int count) => count == 1
     ? tr('fileChangesApprovalOne')
@@ -84,13 +85,17 @@ class _File extends StatelessWidget {
           ],
         ),
         if (diff.isNotEmpty)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: ColoredBox(
-              color: colors.onSurface.withValues(alpha: .03),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 240),
-                child: UnifiedDiff(diff: {'text': diff}),
+          LinePreview(
+            lines: hunkLines(diff).length,
+            builder: (context, limit) => ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ColoredBox(
+                color: colors.onSurface.withValues(alpha: .03),
+                child: UnifiedDiff(
+                  diff: {'text': diff},
+                  limit: limit,
+                  vertical: false,
+                ),
               ),
             ),
           ),

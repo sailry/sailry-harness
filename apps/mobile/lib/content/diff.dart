@@ -210,16 +210,32 @@ List<DiffLine> hunkLines(String patch, {bool added = false}) => [
 
 /// Unified diff rows with one line-number gutter and tinted changes.
 class UnifiedDiff extends StatelessWidget {
-  const UnifiedDiff({super.key, required this.diff});
+  const UnifiedDiff({
+    super.key,
+    required this.diff,
+    this.limit,
+    this.vertical = true,
+  });
   final Map<String, dynamic> diff;
+
+  /// The rows shown, from the first; null shows them all.
+  final int? limit;
+
+  /// Whether the rows scroll vertically. A preview inside another scroll
+  /// keeps only its horizontal scroll, so vertical drags reach the page.
+  final bool vertical;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final lines = hunkLines(
+    final parsed = hunkLines(
       text(diff['text']),
       added: diff['format'] == 'added',
     );
+    final limit = this.limit;
+    final lines = limit == null || parsed.length <= limit
+        ? parsed
+        : parsed.sublist(0, limit);
     final digits = lines
         .map((line) => '${line.after ?? line.before ?? ''}'.length)
         .fold(1, (width, value) => value > width ? value : width);
@@ -233,9 +249,8 @@ class UnifiedDiff extends StatelessWidget {
     final added = SailryTheme.statusColor(context, StatusTone.success);
     final removed = SailryTheme.statusColor(context, StatusTone.danger);
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: SingleChildScrollView(
+      builder: (context, constraints) {
+        final rows = SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: ConstrainedBox(
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
@@ -282,8 +297,12 @@ class UnifiedDiff extends StatelessWidget {
               ),
             ),
           ),
-        ),
-      ),
+        );
+        const padding = EdgeInsets.symmetric(vertical: 8);
+        return vertical
+            ? SingleChildScrollView(padding: padding, child: rows)
+            : Padding(padding: padding, child: rows);
+      },
     );
   }
 }
