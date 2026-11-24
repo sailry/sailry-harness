@@ -94,7 +94,15 @@ class ProjectBar extends StatelessWidget {
                     autofocus: true,
                     onChanged: onQuery,
                     style: TextStyle(fontSize: 15, color: colors.onSurface),
-                    decoration: InputDecoration.collapsed(
+                    // The bar is the field; the theme's outline and fill
+                    // would draw a second box inside it.
+                    decoration: InputDecoration(
+                      isCollapsed: true,
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
                       hintText: context.tr('searchTasks'),
                       hintStyle: TextStyle(
                         fontSize: 15,
