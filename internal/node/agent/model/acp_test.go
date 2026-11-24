@@ -415,6 +415,62 @@ func TestACPRoute(t *testing.T) {
 		}
 	})
 
+	t.Run("counts the usage of every prompt of a corrected reply", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{
+			{Chunks: []string{`<tool_call>{"name":</tool_call><tool_call>{}</tool_call>`}, Usage: map[string]any{"inputTokens": 10, "outputTokens": 4}},
+			{Chunks: []string{`<tool_call>{"name":"read","arguments":{}}</tool_call>`}, Usage: map[string]any{"inputTokens": 12, "outputTokens": 3}},
+		}, nil)
+		result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+		if result.failure != nil || len(result.calls) != 1 || result.usage.InputTokens != 22 || result.usage.OutputTokens != 7 {
+			t.Fatalf("reply = %#v", result)
+		}
+	})
+
+	t.Run("names the JSON error of a last call that closed", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{
+			{Chunks: []string{`<tool_call>{"name":</tool_call>`}},
+			{Chunks: []string{`<tool_call>{"name":"read","arguments":{}}</tool_call>`}},
+		}, nil)
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil); result.failure != nil || len(result.calls) != 1 {
+			t.Fatalf("reply = %#v", result)
+		}
+		if correction := fixture.prompt(1); strings.Contains(correction, "ended inside it") || !strings.Contains(correction, "Tool call 1 ") {
+			t.Fatalf("correction = %q", correction)
+		}
+	})
+
+	t.Run("ends the agent session of a request without a session", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,close", nil, nil)
+		binding, err := Capture(fixture.model.binding.Provider, fixture.model.binding.Config, fixture.model.binding.Secret, protocol.SessionID{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		language, err := NewACP(binding, fixture.model.capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionless := &acpFixture{t: t, model: language.(*acpModel), dir: fixture.dir}
+		for range 2 {
+			if result := sessionless.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil || result.text != "ok" {
+				t.Fatalf("reply = %#v", result)
+			}
+		}
+		if opened, closed := len(fixture.received("session/new")), len(fixture.received("session/close")); opened != 2 || closed != 2 {
+			t.Fatalf("sessions opened = %d, closed = %d", opened, closed)
+		}
+		entry, agent, err := sessionless.model.lease(t.Context(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		agent.mu.Lock()
+		slots, commands := len(agent.slots), len(agent.commands)
+		agent.mu.Unlock()
+		sessionless.model.capture.Pool.Release(entry, true)
+		if slots != 0 || commands != 0 {
+			t.Fatalf("a sessionless request left slots = %d, commands = %d", slots, commands)
+		}
+	})
+
 	t.Run("reports a call still malformed after its corrections", func(t *testing.T) {
 		cut := acpFixtureReply{Chunks: []string{`<tool_call>{"name":"read","argu`}}
 		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{cut, cut, cut}, nil)
