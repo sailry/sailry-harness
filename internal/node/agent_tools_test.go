@@ -333,6 +333,47 @@ func TestAgentManagementTools(t *testing.T) {
 			t.Fatalf("stale patch modified external content: file=%q error=%v", content, err)
 		}
 	})
+	t.Run("full permission file tools reach absolute paths outside the worktree", func(t *testing.T) {
+		// A test directory on macOS is under /var, a symbolic link the tools
+		// resolve; the results name the resolved path.
+		outside := t.TempDir()
+		resolved, err := filepath.EvalSymlinks(outside)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(outside, "outside.txt")
+		canonical := filepath.ToSlash(filepath.Join(resolved, "outside.txt"))
+		added := filepath.Join(outside, "nested", "added.txt")
+		if err := os.WriteFile(path, []byte("one\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		slash := filepath.ToSlash(path)
+		quoted := func(value string) string { raw, _ := json.Marshal(value); return string(raw) }
+		var results map[string]string
+		turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string {
+			t.Fatal("full permission must not ask")
+			return "deny"
+		}, func(step int, current map[string]string) [][3]string {
+			results = current
+			switch step {
+			case 1:
+				return [][3]string{{"read", "read_file", `{"path":` + quoted(path) + `}`}}
+			case 2:
+				return [][3]string{{"edit", "edit_file", `{"path":` + quoted(path) + `,"old_text":"one","new_text":"two"}`}}
+			case 3:
+				patch := "*** Begin Patch\n*** Update File: " + slash + "\n@@\n-two\n+three\n*** Add File: " + filepath.ToSlash(added) + "\n+added\n*** End Patch"
+				return [][3]string{{"patch", "apply_patch", `{"input":` + quoted(patch) + `}`}}
+			}
+			return nil
+		})
+		expect(t, results, map[string][]string{"read": {canonical, "one"}, "edit": {canonical}, "patch": {canonical}})
+		if content, err := os.ReadFile(path); err != nil || string(content) != "three\n" {
+			t.Fatalf("outside file: %q %v; results %v", content, err, results)
+		}
+		if content, err := os.ReadFile(added); err != nil || string(content) != "added\n" {
+			t.Fatalf("added outside file: %q %v", content, err)
+		}
+	})
 	t.Run("full permission", func(t *testing.T) {
 		var results map[string]string
 		_, approvals, history := turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string {

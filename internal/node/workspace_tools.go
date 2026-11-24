@@ -28,6 +28,9 @@ type workspaceToolCall struct {
 	prepared       *files.Prepared
 	approval       protocol.ApprovalID
 	commandControl *process.ControlTarget
+	// external is the volume root of a Full-permission call outside the
+	// session worktree (workspace_external.go), or "".
+	external string
 }
 
 const childRunCommandDescription = "Run a command on the Node. Provide a short description and use the admitted worktree by default. The foreground timeout defaults to 120000 ms. For longer work use background=true, then read_command with wait_ms to collect the result before returning to the parent. Background commands stop when the delegated task ends. Use pty=true with background=true for a command that needs a terminal. Output reports truncation. Invoke the tool directly so it can obtain consent when needed."

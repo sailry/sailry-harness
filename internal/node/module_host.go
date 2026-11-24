@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -373,9 +374,33 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return err
 			}
 		}
+		worktree := filepath.Clean(inv.Worktree.Path)
+		external := ""
+		if inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op) {
+			worktree = canonicalPath(worktree)
+			canonical := func(path string) (string, error) { return canonicalPath(path), nil }
+			var err error
+			if args, err = fileArgPaths(op, args, canonical); err != nil {
+				return err
+			}
+			external = externalRoot(worktree, collectFileArgPaths(op, args))
+			if external == "" {
+				local := func(path string) (string, error) { return localPath(worktree, path), nil }
+				if args, err = fileArgPaths(op, args, local); err != nil {
+					return err
+				}
+			}
+		}
 		args, err := observed.resolve(op, args)
 		if err != nil {
 			return err
+		}
+		root := worktree
+		if external != "" {
+			root = external
+			if args, err = fileArgPaths(op, args, func(path string) (string, error) { return rootPath(worktree, external, path) }); err != nil {
+				return err
+			}
 		}
 		sandbox := protocol.DefaultSandboxSettings()
 		if op == protocol.ToolOperationRunCommand {
@@ -395,7 +420,11 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			if err = json.Unmarshal(args, &patch); err != nil {
 				return err
 			}
-			changes, e := files.ResolvePatchWithRevisions(ctx, inv.Worktree.Path, patch.Input, observed.paths, core.RestrictedFiles)
+			revisions := observed.paths
+			if external != "" {
+				revisions = rootRevisions(worktree, external, revisions)
+			}
+			changes, e := files.ResolvePatchWithRevisions(ctx, root, patch.Input, revisions, core.RestrictedFiles)
 			if e != nil {
 				return e
 			}
@@ -425,15 +454,15 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		request := protocol.NewRequest(h.node.ID(), command)
-		current := &workspaceToolCall{request: request}
+		current := &workspaceToolCall{request: request, external: external}
 		if fileTextMutation(command.Kind) {
-			current.prepared, err = files.Prepare(ctx, inv.Worktree.Path, command, core.RestrictedFiles)
+			current.prepared, err = files.Prepare(ctx, root, command, core.RestrictedFiles)
 			if err != nil {
 				return err
 			}
 		}
 		if files.SupportsMutation(command.Kind) {
-			if err = h.node.protectWorkspaceMutation(inv.Worktree.Path, inv.Worktree.Path, command, current.prepared); err != nil {
+			if err = h.node.protectWorkspaceMutation(root, root, command, current.prepared); err != nil {
 				return err
 			}
 		}
@@ -471,6 +500,18 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		request := current.request
+		if current.external != "" {
+			output, err := h.node.externalFileIO(ctx, inv.Caller, request, current.prepared, current.external)
+			if err != nil {
+				return workspaceToolFault(err)
+			}
+			value := absoluteResult(current.external, h.node.workspaceToolValue(inv.Session, request, output, false))
+			result := engine.ToolResult{Value: value, ReturnedError: workspaceOutputFailed(output), ReturnedFailure: workspaceOutputFailure(output)}
+			if cfg.FormatResult != nil && result.Failure == nil {
+				result = cfg.FormatResult(ctx, args, result)
+			}
+			return result
+		}
 		if !readOnly {
 			body, err := json.Marshal(request)
 			if err != nil {

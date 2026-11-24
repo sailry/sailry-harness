@@ -32,8 +32,8 @@ func TestSystemPromptByteStable(t *testing.T) {
 		want := "Command sandbox: enabled"
 		if permission == protocol.PermissionFull {
 			want = "without the workspace sandbox"
-			if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), "outside the current worktree") {
-				t.Fatal("Full permission policy does not explain direct command handling for out-of-worktree targets")
+			if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), "absolute paths outside the session worktree") {
+				t.Fatal("Full permission policy does not explain file tools for out-of-worktree targets")
 			}
 		}
 		if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), want) {

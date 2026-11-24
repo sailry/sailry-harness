@@ -9,7 +9,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "cursor": {
             "type": [
@@ -122,7 +122,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "offset": {
             "type": "integer",
@@ -223,7 +223,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "text": {
             "type": "string"
@@ -348,7 +348,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "old_text": {
             "type": "string",
@@ -716,7 +716,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "expected_revision": {
             "type": "string",
@@ -789,11 +789,11 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "destination": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           },
           "expected_revision": {
             "type": "string",
@@ -871,7 +871,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Relative to the session worktree, with forward slashes"
+            "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
           }
         },
         "required": [
@@ -948,7 +948,7 @@
           "path": {
             "type": "string",
             "default": "",
-            "description": "Worktree-relative file or directory; empty or . selects the root"
+            "description": "Worktree-relative file or directory; empty or . selects the root. With Full permission, an absolute path may name one elsewhere"
           },
           "limit": {
             "type": "integer",
@@ -1061,7 +1061,7 @@
           "path": {
             "type": "string",
             "default": "",
-            "description": "Worktree-relative file or directory; empty or . selects the root"
+            "description": "Worktree-relative file or directory; empty or . selects the root. With Full permission, an absolute path may name one elsewhere"
           },
           "limit": {
             "type": "integer",
@@ -1579,5 +1579,5 @@
       }
     }
   ],
-  "instructions": "Within the session worktree, prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands, and batch independent reads in one turn. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands, and batch independent reads in one turn. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

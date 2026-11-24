@@ -863,7 +863,7 @@ approval for command input and stopping follows the live process identity.
 | Service | Implemented boundary |
 | --- | --- |
 | Commands | Workspace sandbox on macOS and Linux by default; private temporary files, read-only toolchains and no network; full permission grants the full environment |
-| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure. An omitted model revision for an edit, deletion or move resolves at Prepare to the one the conversation last observed, so the admitted command carries it; an omitted whole-file write revision creates |
+| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure. An omitted model revision for an edit, deletion or move resolves at Prepare to the one the conversation last observed, so the admitted command carries it; an omitted whole-file write revision creates. Under full permission, file tools also take absolute paths outside the session worktree, as its commands reach them: the call runs the same confined, revision-checked operation from the path's volume root with symbolic links in its ancestors resolved, without worktree locks, checkpoints or durable admission |
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
