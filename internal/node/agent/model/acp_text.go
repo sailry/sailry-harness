@@ -193,8 +193,10 @@ type acpToolCall struct {
 // acpParser splits a streamed reply into text and tool calls. Text that may
 // still become an opening tag is held back; a call is complete at the first
 // closing tag before which its body is valid JSON, so a closing tag inside a
-// JSON string does not end it.
+// JSON string does not end it. A plain parser serves a request that offers no
+// tools: its reply is text, whatever tags it quotes.
 type acpParser struct {
+	plain  bool
 	buffer string
 	inside bool
 	called bool
@@ -205,6 +207,10 @@ type acpParser struct {
 var errACPCall = &Failure{Kind: InvalidResponse, Message: "The model sent a malformed tool call"}
 
 func (parser *acpParser) feed(chunk string) (text string, calls []acpToolCall, err error) {
+	if parser.plain {
+		parser.text.WriteString(chunk)
+		return chunk, nil, nil
+	}
 	parser.buffer += chunk
 	var out strings.Builder
 	for {

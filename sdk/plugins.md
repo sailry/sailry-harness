@@ -795,7 +795,7 @@ A model adapter names a program with `acp` instead of `script`. It declares
 | `acp` member | Meaning |
 | --- | --- |
 | `program` | The `programs` entry to run |
-| `replay_bytes` | Largest prompt in bytes, 4096 to 8 MiB. A larger history is a context overflow |
+| `replay_bytes` | Largest prompt in bytes, 4096 to 8 MiB, that replays a whole history into a new agent session. A larger replay is a context overflow, which compaction recovers. Prompts that continue a session are not bounded by it, and it does not move the compaction threshold |
 | `sign_in` | The instruction shown when the agent reports that it is signed out |
 | `system_meta` | Dotted `_meta` path of `session/new` that takes the system text. Without it, or when the agent does not advertise it, the system text opens the first prompt |
 | `efforts` | Effort level (`minimal` to `max`) to model identifier suffix. Variants fold into one model |

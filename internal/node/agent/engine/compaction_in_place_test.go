@@ -70,7 +70,7 @@ func TestInPlaceCompaction(t *testing.T) {
 			efforts = append(efforts, value.Config.Effort.Kind)
 			return m, nil
 		}
-		if err := f.r.compact(x, binding, state, true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 			t.Fatal(err)
 		}
 		if m.count() != 1 || !compacted(t, f) {
@@ -98,7 +98,7 @@ func TestInPlaceCompaction(t *testing.T) {
 		f, x, binding, state := compactionFixture(t, m)
 		binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = 200000, 64000
 		state = cachedHistory(t, f, binding, state, 4096)
-		if err := f.r.compact(x, binding, state, true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 			t.Fatal(err)
 		}
 		want := 2 * model.OutputLimit(binding, true)
@@ -116,7 +116,7 @@ func TestInPlaceCompaction(t *testing.T) {
 			efforts = append(efforts, value.Config.Effort.Kind)
 			return m, nil
 		}
-		if err := f.r.compact(x, binding, state, true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 			t.Fatal(err)
 		}
 		if m.count() != 2 || !compacted(t, f) {
@@ -135,7 +135,7 @@ func TestInPlaceCompaction(t *testing.T) {
 		m := &scriptedModel{scripts: []script{response(text(inPlaceHandoff), finish())}}
 		f, x, binding, state := compactionFixture(t, m)
 		state = cachedHistory(t, f, binding, state, 0)
-		if err := f.r.compact(x, binding, state, true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 			t.Fatal(err)
 		}
 		if m.count() != 1 || !strings.Contains(messageText(m.calls[0].Prompt[0]), "Conversation History") {

@@ -58,6 +58,15 @@ func DiscoverACP(ctx context.Context, binding Binding, capture ACPCapture) (prot
 			vision, tools, reasoning := images, capture.Adapter.Capabilities.Tools, false
 			capabilities.Vision, capabilities.Tools, capabilities.Reasoning = &vision, &tools, &reasoning
 			entry := protocol.ConversationDiscoveryModel{ID: id, Capabilities: &capabilities}
+			// Agents do not report a window before a prompt. A window the
+			// bundled catalog knows replaces the generic default a new model
+			// would otherwise get; an unknown model keeps that default.
+			if window, output, known := catalogWindow(id); known {
+				entry.Context = &window
+				if output > 0 {
+					entry.Output = &output
+				}
+			}
 			if name != "" && name != id {
 				display := name
 				entry.DisplayName = &display

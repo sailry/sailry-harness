@@ -108,6 +108,27 @@ func (pool *Pool) Lease(owner string, rank func(*Entry) int, start func() (*Proc
 	return entry, nil
 }
 
+// Holds reports whether an idle, running program of owner satisfies match.
+// Its Value is read under the pool's lock, where no lease can change it.
+func (pool *Pool) Holds(owner string, match func(*Entry) bool) bool {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	for entry := range pool.entries {
+		if entry.owner != owner || entry.leased || entry.Process == nil {
+			continue
+		}
+		select {
+		case <-entry.Process.Done():
+			continue
+		default:
+		}
+		if match(entry) {
+			return true
+		}
+	}
+	return false
+}
+
 // Release returns a leased entry. A program that is not kept is killed.
 func (pool *Pool) Release(entry *Entry, keep bool) {
 	pool.mu.Lock()

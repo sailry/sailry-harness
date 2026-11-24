@@ -129,7 +129,7 @@ func TestCompactionHandoff(t *testing.T) {
 			return nil
 		}
 		before, _ := json.Marshal(state.Records)
-		if err := f.r.compact(x, binding, state, true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 			t.Fatal(err)
 		}
 		if captured.Secret == nil || captured.Secret.Expose() != renewed {
@@ -190,7 +190,7 @@ func TestCompactionHandoff(t *testing.T) {
 					}
 					want.Pricing = &canonical.UsagePricing{Estimate: &protocol.UsageCost{UsdMicros: 303, Responses: 1, Breakdown: &protocol.UsageCostBreakdown{Input: 123, Output: 180}}}
 				}
-				if err := f.r.compact(x, binding, before, true); err != nil {
+				if err := f.r.compact(x, binding, model.Route{}, before, true); err != nil {
 					t.Fatal(err)
 				}
 				summary := f.state().Records[len(before.Records)].MutableMessage()
@@ -215,7 +215,7 @@ func TestCompactionHandoff(t *testing.T) {
 			m := &scriptedModel{scripts: []script{response(text(string(document)), finish())}}
 			f, x, binding, state := compactionFixture(t, m)
 			binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, 64000
-			if err := f.r.compact(x, binding, state, true); err != nil {
+			if err := f.r.compact(x, binding, model.Route{}, state, true); err != nil {
 				t.Fatal(err)
 			}
 			request := m.calls[0]
@@ -250,7 +250,7 @@ func TestCompactionHandoff(t *testing.T) {
 				count := int64(77)
 				part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{Reported: true, Total: &count}}
 				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: []script{response(text(row.document), part)}})
-				if err := f.r.compact(x, binding, before, true); err == nil {
+				if err := f.r.compact(x, binding, model.Route{}, before, true); err == nil {
 					t.Fatal("invalid summary replaced context")
 				}
 				after := f.state()
@@ -307,7 +307,7 @@ func TestCompactionHandoff(t *testing.T) {
 						}}}, nil
 					}
 				}
-				if err := f.r.compact(x, binding, before, false); err == nil {
+				if err := f.r.compact(x, binding, model.Route{}, before, false); err == nil {
 					t.Fatal("failed compaction returned no error")
 				}
 				added := f.state().Records[len(before.Records):]
@@ -342,7 +342,7 @@ func TestCompactionHandoff(t *testing.T) {
 		fail := func(manual bool) protocol.ConversationCompactionFailure {
 			t.Helper()
 			before := f.state()
-			if err := f.r.compact(x, binding, before, manual); err == nil {
+			if err := f.r.compact(x, binding, model.Route{}, before, manual); err == nil {
 				t.Fatal("refused summary compacted")
 			}
 			added := f.state().Records[len(before.Records):]
@@ -386,7 +386,7 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatalf("summary requests = %d", m.count())
 		}
 		// A compaction that succeeds ends the pause.
-		if err := f.r.compact(x, binding, f.state(), true); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, f.state(), true); err != nil {
 			t.Fatal(err)
 		}
 		if automaticFailures(binding, f.state().Records) != 0 {
@@ -411,7 +411,7 @@ func TestCompactionHandoff(t *testing.T) {
 				state = f.state()
 			}
 			state = compactionOverflow(t, f, x)
-			if err := f.r.compact(x, binding, state, false); err != nil {
+			if err := f.r.compact(x, binding, model.Route{}, state, false); err != nil {
 				t.Fatal(err)
 			}
 			added := f.state().Records[len(state.Records):]
@@ -450,7 +450,7 @@ func TestCompactionHandoff(t *testing.T) {
 					t.Fatal(err)
 				}
 				before := compactionOverflow(t, f, x)
-				if err := f.r.compact(x, binding, before, false); err != nil {
+				if err := f.r.compact(x, binding, model.Route{}, before, false); err != nil {
 					t.Fatal(err)
 				}
 				after := f.state()
@@ -520,7 +520,7 @@ func TestCompactionRetriesContextOverflowWithSmallerTranscript(t *testing.T) {
 			}
 			before := compactionOverflow(t, f, x)
 			originalHistory, _ := json.Marshal(before.Records)
-			err := f.r.compact(x, binding, before, false)
+			err := f.r.compact(x, binding, model.Route{}, before, false)
 			if exhausted && (err == nil || model.Classify(err).Kind != model.ContextOverflow) || !exhausted && err != nil {
 				t.Fatalf("compaction error = %v", err)
 			}

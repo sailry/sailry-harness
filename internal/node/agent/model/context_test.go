@@ -12,6 +12,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestCatalogWindowOfAgentModels(t *testing.T) {
+	t.Parallel()
+	// A first-party vendor's own entry wins over smaller resold windows.
+	if window, output, ok := catalogWindow("gemini-3.5-flash"); !ok || window != 1048576 || output != 65536 {
+		t.Fatalf("gemini-3.5-flash = %d, %d, %v", window, output, ok)
+	}
+	if window, _, ok := catalogWindow("captured"); ok || window != 0 {
+		t.Fatalf("an unknown model has a window: %d", window)
+	}
+}
+
 func contextFixture(t *testing.T) {
 	secret := protocol.NewSecret("context-secret")
 	bind := func(t *testing.T, api protocol.ConversationModelApi, endpoint, name string, listed ...protocol.ConversationModel) (Binding, error) {

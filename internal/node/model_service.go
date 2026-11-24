@@ -131,10 +131,13 @@ func (node *Node) captureAgentModel(ctx context.Context, binding model.Binding) 
 				if err != nil {
 					return captured, false, err
 				}
+				data := filepath.Join(node.profile.Ownership.Path, filepath.FromSlash(directory))
 				return model.ACPCapture{
 					Adapter: declaration, Program: declared, Owner: pluginProgramOwner(user, info.Summary.Name), Version: link.ProductVersion,
-					Dir:  filepath.Join(node.profile.Ownership.Path, filepath.FromSlash(directory), "programs", declared.ID),
-					Host: node.environment.TerminalValues(), Pool: node.plugins.programs,
+					Dir: filepath.Join(data, "programs", declared.ID),
+					// The agent's working directory never holds the Node's session records.
+					Sessions: filepath.Join(data, "program-sessions", declared.ID),
+					Host:     node.environment.TerminalValues(), Pool: node.plugins.programs,
 				}, true, nil
 			}
 		}

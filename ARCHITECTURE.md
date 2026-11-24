@@ -500,6 +500,36 @@ ACP programs act as models: their file, terminal and MCP capabilities and their
 own permission requests are refused. Packages declare executables and protocol
 differences; the process service owns their lifecycle.
 
+The Node's model factory selects the transport from the binding and reports
+its route: a per-prompt byte bound, whether the transport keeps a session
+per Sailry session, and whether that session currently holds the history.
+As in T3 Code, an ACP program keeps one agent session per Sailry session and
+sends only the messages the session has not seen; requests with session
+routes therefore never shorten earlier tool results. The Node records which
+agent session holds each Sailry session, with the message digests it has
+seen, under the package's `program-sessions` data; the record holds no
+conversation text and the least recently written of 256 per program leave
+first. A program started again after an idle stop, an eviction or a Node
+restart reopens that session with `session/resume`, then `session/load`,
+where the agent advertises them. Only when neither succeeds, or when earlier
+history or the system text differs (an edit, rewind or compaction), is the
+whole history replayed into a new session; `replay_bytes` bounds that replay,
+and a larger one is a context overflow handled by compaction. A replaced
+session is closed when the agent offers `session/close`. Transcript summary
+requests and discovery use programs no session holds.
+
+Automatic compaction on these routes uses the ordinary threshold. While the
+agent session holds the history, Sailry asks for its handoff in place, so
+the session receives only the summary instructions. When the session
+advertised a `compact` command (`available_commands_update`), the saved
+handoff is followed by a bare `/compact` in the same session; the session
+then counts the retained messages as seen and receives only what follows.
+That second pass over the agent's context is billed by the agent's account
+and not recorded as Sailry usage. Without the command nothing is sent and the
+next request replays the handoff into a new session. The handoff and retained
+tail are sized for the replay bound, so that replay fits. Discovered agent
+models take their window from the bundled catalog when it knows them.
+
 Switching models retains the same canonical session and history. Outbound
 projection adapts messages and paired tool results to the selected protocol;
 private reasoning is replayed only to its producing provider and model. Reviewed
@@ -595,7 +625,8 @@ Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
 Automatic compaction starts at the earlier of 80% of the captured model's window
 and the window minus its output reserve. A saved percentage or explicit model
-threshold replaces the percentage boundary. Summaries preserve original records and raw tool output.
+threshold replaces the percentage boundary. The same threshold applies on
+every route; a prompt byte bound does not move it. Summaries preserve original records and raw tool output.
 Context-length failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.

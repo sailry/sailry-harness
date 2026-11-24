@@ -38,6 +38,7 @@ type catalogModel struct {
 	} `json:"rig"`
 	Limit struct {
 		Context uint32 `json:"context"`
+		Output  uint32 `json:"output"`
 	} `json:"limit"`
 }
 

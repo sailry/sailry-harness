@@ -36,6 +36,9 @@ type ACPCapture struct {
 	Owner, Dir, Version string
 	Host                []string
 	Pool                *program.Pool
+	// Sessions is the Node's directory for the records of which agent
+	// session holds each Sailry session (acp_session.go). Empty keeps none.
+	Sessions string
 	// stall replaces the silence limit in tests.
 	stall time.Duration
 }
@@ -125,6 +128,8 @@ type acpAgent struct {
 	conn    *acp.Connection
 	process *program.Process
 	images  bool
+	// resume, load and close are the session methods the agent offers.
+	resume, load, close bool
 	// metaSystem: the agent takes the system text in `session/new`.
 	metaSystem bool
 	// identity binds this process to its captured adapter and launch inputs.
@@ -145,6 +150,8 @@ type acpAgent struct {
 
 	mu   sync.Mutex
 	sink func(reasoning bool, text string)
+	// commands are the commands each agent session advertised.
+	commands map[string]map[string]bool
 }
 
 type acpInitialized struct {
@@ -152,6 +159,11 @@ type acpInitialized struct {
 		PromptCapabilities struct {
 			Image bool `json:"image"`
 		} `json:"promptCapabilities"`
+		LoadSession         bool `json:"loadSession"`
+		SessionCapabilities struct {
+			Resume *struct{} `json:"resume"`
+			Close  *struct{} `json:"close"`
+		} `json:"sessionCapabilities"`
 		Meta map[string]any `json:"_meta"`
 	} `json:"agentCapabilities"`
 }
@@ -220,10 +232,24 @@ func (agent *acpAgent) handle(_ context.Context, method string, params json.RawM
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"content"`
+				Commands []struct {
+					Name string `json:"name"`
+				} `json:"availableCommands"`
 			} `json:"update"`
 		}
 		if json.Unmarshal(params, &update) != nil {
 			return nil, acp.NewInvalidParams(nil)
+		}
+		if update.Update.Kind == "available_commands_update" {
+			// The list can arrive before the request that opened its session
+			// returns, so it is kept by session.
+			agent.mu.Lock()
+			delete(agent.commands, update.SessionID)
+			for _, command := range update.Update.Commands {
+				agent.advertise(update.SessionID, strings.TrimPrefix(command.Name, "/"))
+			}
+			agent.mu.Unlock()
+			return nil, nil
 		}
 		agent.mu.Lock()
 		sink, session := agent.sink, agent.session
@@ -347,7 +373,9 @@ func (model *acpModel) start(ctx context.Context, spec program.Spec, identity st
 	if err != nil {
 		return process, nil, model.failure(ctx, agent, err)
 	}
-	agent.images = initialized.AgentCapabilities.PromptCapabilities.Image && model.capture.Adapter.Capabilities.Vision
+	capabilities := initialized.AgentCapabilities
+	agent.images = capabilities.PromptCapabilities.Image && model.capture.Adapter.Capabilities.Vision
+	agent.resume, agent.load, agent.close = capabilities.SessionCapabilities.Resume != nil, capabilities.LoadSession, capabilities.SessionCapabilities.Close != nil
 	if path := model.capture.Adapter.Acp.SystemMeta; path != nil {
 		var value any = initialized.AgentCapabilities.Meta
 		for _, name := range strings.Split(*path, ".") {
@@ -421,6 +449,17 @@ func (model *acpModel) open(ctx context.Context, agent *acpAgent, system string)
 	if session.SessionID == "" {
 		return &Failure{Kind: InvalidResponse, Message: model.capture.Program.Command + " opened no session"}
 	}
+	offers, thought := acpOffers(session)
+	agent.mu.Lock()
+	agent.session = session.SessionID
+	agent.mu.Unlock()
+	agent.offers, agent.thought = offers, thought
+	agent.system, agent.seen, agent.prefixed, agent.selected, agent.level = system, nil, false, "", ""
+	return nil
+}
+
+// acpOffers reads the models and thought levels a session offers.
+func acpOffers(session acpSession) ([]acpOffer, acpThought) {
 	offers, thought := []acpOffer{}, acpThought{}
 	for _, option := range session.ConfigOptions {
 		if option.Type != "select" {
@@ -441,12 +480,7 @@ func (model *acpModel) open(ctx context.Context, agent *acpAgent, system string)
 			offers = append(offers, acpOffer{ID: offered.ModelID, Name: offered.Name})
 		}
 	}
-	agent.mu.Lock()
-	agent.session = session.SessionID
-	agent.mu.Unlock()
-	agent.offers, agent.thought = offers, thought
-	agent.system, agent.seen, agent.prefixed, agent.selected, agent.level = system, nil, false, "", ""
-	return nil
+	return offers, thought
 }
 
 // choose applies the requested model and effort to the session. A level is
@@ -506,22 +540,31 @@ func (model *acpModel) choose(ctx context.Context, agent *acpAgent, effort strin
 
 // lease takes the program that serves the session, else an unclaimed one,
 // else a new one.
-func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entry, *acpAgent, error) {
+// launch is the specification a request starts and the identity that binds
+// a running program to it.
+func (model *acpModel) launch(discovery bool) (program.Spec, string) {
 	argument := ""
 	if model.capture.Adapter.Acp.ModelArgument && !discovery {
 		argument = model.binding.Config.Model
 	}
 	spec := model.specification(argument)
-	identity := model.identity(spec, argument)
+	return spec, model.identity(spec, argument)
+}
+
+func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entry, *acpAgent, error) {
+	spec, identity := model.launch(discovery)
 	// The session's own program is preferred over one no session has used.
+	// Discovery and requests without a session take no program that holds a
+	// session's history.
+	ephemeral := discovery || model.binding.Session == (protocol.SessionID{})
 	rank := func(entry *program.Entry) int {
 		agent, ok := entry.Value.(*acpAgent)
 		switch {
 		case !ok || agent.identity != identity:
 			return 0
-		case !discovery && agent.claimed && agent.owner == model.binding.Session:
+		case !ephemeral && agent.claimed && agent.owner == model.binding.Session:
 			return 2
-		case discovery || !agent.claimed:
+		case !agent.claimed:
 			return 1
 		}
 		return 0
@@ -546,17 +589,9 @@ type acpEvent struct {
 
 func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelAdapterWireRequest, yield func(fantasy.StreamPart) bool) (result error) {
 	settings := model.capture.Adapter.Acp
-	system, err := acpSystem(request)
+	system, digests, err := acpHistory(request)
 	if err != nil {
 		return err
-	}
-	digests := make([]string, len(request.Messages))
-	for index, message := range request.Messages {
-		if reply, assistant := acpStoredReply(message); assistant {
-			digests[index] = reply
-		} else {
-			digests[index] = acpDigest(message)
-		}
 	}
 	entry, agent, err := model.lease(ctx, false)
 	if err != nil {
@@ -564,15 +599,32 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	}
 	keep := false
 	defer func() { model.capture.Pool.Release(entry, keep) }()
-	agent.owner, agent.claimed = model.binding.Session, true
+	// A session this program opened for the same Sailry session holds a
+	// history that a new session replaces. A request without a session
+	// claims nothing.
+	stale := agent.session != "" && agent.claimed && agent.owner == model.binding.Session
+	agent.owner = model.binding.Session
+	agent.claimed = agent.owner != (protocol.SessionID{})
 
-	// A session that has seen a prefix of this history receives the rest;
-	// any other history is replayed into a new session.
+	// A session that has seen a prefix of this history receives the rest,
+	// whether this program holds it or resumes it; any other history is
+	// replayed into a new session.
 	sent := 0
-	if agent.session != "" && agent.system == system && len(agent.seen) > 0 && len(agent.seen) < len(digests) && slices.Equal(agent.seen, digests[:len(agent.seen)]) {
+	switch {
+	case agent.session != "" && agent.system == system && acpExtends(agent.seen, digests):
 		sent = len(agent.seen)
-	} else if err := model.open(ctx, agent, system); err != nil {
-		return err
+	case model.resume(ctx, agent, system, digests):
+		sent = len(agent.seen)
+	default:
+		previous := agent.session
+		if err := model.open(ctx, agent, system); err != nil {
+			return err
+		}
+		if stale && agent.close {
+			// The replaced session's context is no longer used; the agent may
+			// release it. A failure leaves only an unused session behind.
+			_, _ = acpCall[json.RawMessage](ctx, agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": previous})
+		}
 	}
 	keep = true
 	if err := model.choose(ctx, agent, request.Reasoning.Effort.Kind); err != nil {
@@ -585,7 +637,9 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	if !agent.metaSystem && !agent.prefixed {
 		text = acpSystemPrefix + system + acpSystemSuffix + text
 	}
-	if len(text) > int(settings.ReplayBytes) {
+	// The bound applies to a replay. A session that continues receives only
+	// new messages, whatever its history has grown to.
+	if sent == 0 && len(text) > int(settings.ReplayBytes) {
 		return &Failure{Kind: ContextOverflow, Message: fmt.Sprintf("The conversation is larger than %s accepts in one prompt", model.capture.Program.Command)}
 	}
 	if len(images) > 0 && !agent.images {
@@ -601,6 +655,7 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 
 	// From here the session's content is uncertain until the reply is whole.
 	agent.seen, agent.prefixed = nil, true
+	model.keep(agent)
 	events, finished := make(chan acpEvent), make(chan struct{})
 	defer close(finished)
 	agent.mu.Lock()
@@ -642,7 +697,8 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		}
 	}
 
-	parser, accumulator := &acpParser{}, pluginAccumulator{secrets: model.secrets(), completeCalls: true}
+	// Without tools no reply contains a call: a summary may quote the tags.
+	parser, accumulator := &acpParser{plain: len(request.Tools) == 0}, pluginAccumulator{secrets: model.secrets(), completeCalls: true}
 	emit := func(deltas ...protocol.PluginModelAdapterWireDelta) (bool, error) {
 		parts, err := accumulator.push(deltas)
 		if err != nil {
@@ -774,6 +830,7 @@ func (model *acpModel) finish(agent *acpAgent, digests []string, parser *acpPars
 	// early leaves it unknown, and the next step replays.
 	if reason == protocol.PluginModelAdapterWireFinishStop || reason == protocol.PluginModelAdapterWireFinishToolCalls {
 		agent.seen = append(slices.Clone(digests), acpReply(parser.text.String(), parser.calls))
+		model.keep(agent)
 	}
 	return nil
 }

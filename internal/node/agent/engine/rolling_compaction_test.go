@@ -60,7 +60,7 @@ func TestRollingCompactionPreservesTailAcrossUpdatesAndFailure(t *testing.T) {
 	check := func(before store.AgentState, tail []canonical.Record, manual bool) canonical.Record {
 		t.Helper()
 		original, _ := json.Marshal(before.Records)
-		if err := f.r.compact(x, binding, before, manual); err != nil {
+		if err := f.r.compact(x, binding, model.Route{}, before, manual); err != nil {
 			t.Fatal(err)
 		}
 		after := f.state()
@@ -82,7 +82,7 @@ func TestRollingCompactionPreservesTailAcrossUpdatesAndFailure(t *testing.T) {
 	firstTail := firstState.Records[len(firstState.Records)-3:]
 	first := check(firstState, firstTail, false)
 	beforeSkip := f.state()
-	if err := f.r.compact(x, binding, beforeSkip, false); err != nil || modelScript.count() != 1 || len(f.state().Records) != len(beforeSkip.Records) {
+	if err := f.r.compact(x, binding, model.Route{}, beforeSkip, false); err != nil || modelScript.count() != 1 || len(f.state().Records) != len(beforeSkip.Records) {
 		t.Fatal("unchanged retained tail caused another summary request")
 	}
 	secondTail := []canonical.Record{message(canonical.User, canonical.Text(0, "Newest task"))}
@@ -113,7 +113,7 @@ func TestRollingCompactionPreservesTailAcrossUpdatesAndFailure(t *testing.T) {
 	}
 	beforeFailure := f.state()
 	visibleBefore := model.VisibleRecords(beforeFailure.Records)
-	if err := f.r.compact(x, binding, beforeFailure, false); err == nil {
+	if err := f.r.compact(x, binding, model.Route{}, beforeFailure, false); err == nil {
 		t.Fatal("malformed rolling summary was accepted")
 	}
 	afterFailure := f.state()
@@ -142,7 +142,7 @@ func TestRollingCompactionAdvancesWithinOneLongToolTurn(t *testing.T) {
 	}
 	before := f.state()
 	tail = before.Records[len(before.Records)-2:]
-	if err := f.r.compact(x, binding, before, false); err != nil {
+	if err := f.r.compact(x, binding, model.Route{}, before, false); err != nil {
 		t.Fatal(err)
 	}
 	after := f.state()

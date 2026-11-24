@@ -651,7 +651,9 @@ func (r *Runtime) mainRequest(x *execution, binding model.Binding, state store.A
 	if err := r.hydrateModelToolResults(x.ctx, projected); err != nil {
 		return model.Request{}, err
 	}
-	projectContextPressure(projected, state.Records, tools)
+	if !x.sessionRoute {
+		projectContextPressure(projected, state.Records, tools)
+	}
 	projected = x.output.Project(projected)
 	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
 	if err != nil {
