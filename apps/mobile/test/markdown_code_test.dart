@@ -14,10 +14,22 @@ Future<void> pumpContent(WidgetTester tester, Widget child) =>
       ),
     );
 
-String displayedCode(WidgetTester tester) => tester
-    .widget<SelectableText>(find.byType(SelectableText))
-    .textSpan!
-    .toPlainText();
+// A standalone block is a SelectableText; inside a message's selection
+// area the same code renders as plain text joining that selection.
+final codeText = find
+    .descendant(
+      of: find.byType(CodeText),
+      matching: find.byWidgetPredicate(
+        (widget) => widget is SelectableText || widget is Text,
+      ),
+    )
+    .first;
+
+String displayedCode(WidgetTester tester) => switch (tester.widget(codeText)) {
+  SelectableText(:final textSpan) => textSpan!.toPlainText(),
+  Text(:final textSpan) => textSpan!.toPlainText(),
+  _ => throw StateError('code text is missing'),
+};
 
 void main() {
   const css = 'body { color: red; }';
@@ -31,17 +43,12 @@ void main() {
       addTearDown(tester.view.reset);
 
       await pumpContent(tester, const CodeBlock(css, language: 'css'));
-      final singleLineHeight = tester
-          .getSize(find.byType(SelectableText))
-          .height;
+      final singleLineHeight = tester.getSize(codeText).height;
       final blockHeight = tester.getSize(find.byType(CodeBlock)).height;
 
       await pumpContent(tester, const MarkdownContent('```css\n$css\n```'));
       expect(displayedCode(tester), css);
-      expect(
-        tester.getSize(find.byType(SelectableText)).height,
-        singleLineHeight,
-      );
+      expect(tester.getSize(codeText).height, singleLineHeight);
       expect(tester.getSize(find.byType(CodeBlock)).height, blockHeight);
       expect(tester.takeException(), isNull);
     });

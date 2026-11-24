@@ -103,9 +103,11 @@ class _CodeTextState extends State<CodeText> {
       'built_in': TextStyle(color: colors.tertiary),
     });
     _result?.render(renderer);
-    return SelectableText.rich(
-      renderer.span ?? TextSpan(text: widget.text, style: style),
-    );
+    final span = renderer.span ?? TextSpan(text: widget.text, style: style);
+    // Inside a message's selection area, plain text joins that selection.
+    return SelectionContainer.maybeOf(context) != null
+        ? Text.rich(span)
+        : SelectableText.rich(span);
   }
 }
 

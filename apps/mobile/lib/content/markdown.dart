@@ -61,7 +61,9 @@ class MarkdownContent extends StatelessWidget {
           child: imageBuilder?.call(uri, title, alt) ?? uriImage(uri),
         ),
       ),
-      selectable: selectable,
+      // One selection area per message below, instead of an editable text
+      // field per paragraph, which made opening a long reply drop frames.
+      selectable: false,
       fitContent: false,
       styleSheet: contentStyleSheet(Theme.of(context), muted: muted),
       onTapLink: (_, href, _) async {
@@ -95,7 +97,7 @@ class MarkdownContent extends StatelessWidget {
         thickness: WidgetStatePropertyAll(0),
         thumbColor: WidgetStatePropertyAll(Colors.transparent),
       ),
-      child: content,
+      child: selectable ? SelectionArea(child: content) : content,
     );
     return VisualScope.contains(context) ? scoped : VisualScope(child: scoped);
   }
