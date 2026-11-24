@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -202,14 +203,43 @@ type acpParser struct {
 	called bool
 	text   strings.Builder
 	calls  []string
+	// failed is the call this reply could not read; nothing after it
+	// counts. attempt counts the calls read from the reply in progress, and
+	// asked is the call a correction asked the agent to write again.
+	failed  *acpMalformed
+	attempt int
+	asked   int
 }
 
 var errACPCall = &Failure{Kind: InvalidResponse, Message: "The model sent a malformed tool call"}
+
+// acpMalformed is a call the parser could not read: its position in the
+// reply, from one, and what the model is told to correct.
+type acpMalformed struct {
+	index  int
+	reason string
+}
+
+func (malformed *acpMalformed) Error() string { return errACPCall.Message + ": " + malformed.reason }
+
+// acpResends bounds the corrections one reply may take.
+const acpResends = 2
+
+// acpCorrection asks the agent, in the same session, to write again the
+// call it got wrong and every call after it.
+func acpCorrection(malformed *acpMalformed) string {
+	return fmt.Sprintf("Tool call %d of your last reply could not be read (%s); it and everything after it were discarded. "+
+		"Write tool call %d and every call after it again, each as a <tool_call> block with valid JSON: escape quotes, newlines and tabs inside strings. Write nothing else.",
+		malformed.index, malformed.reason, malformed.index)
+}
 
 func (parser *acpParser) feed(chunk string) (text string, calls []acpToolCall, err error) {
 	if parser.plain {
 		parser.text.WriteString(chunk)
 		return chunk, nil, nil
+	}
+	if parser.failed != nil {
+		return "", nil, nil
 	}
 	parser.buffer += chunk
 	var out strings.Builder
@@ -239,6 +269,14 @@ func (parser *acpParser) feed(chunk string) (text string, calls []acpToolCall, e
 			parser.buffer, parser.inside = parser.buffer[open+end+1:], true
 		}
 		call, rest, complete, err := acpCallBody(parser.buffer)
+		var malformed *acpMalformed
+		if errors.As(err, &malformed) {
+			// The reply is read no further; a correction asks for this call
+			// and those after it.
+			malformed.index = parser.attempt + 1
+			parser.failed, parser.called, parser.inside, parser.buffer = malformed, true, false, ""
+			return out.String(), calls, nil
+		}
 		if err != nil {
 			return out.String(), calls, err
 		}
@@ -247,6 +285,7 @@ func (parser *acpParser) feed(chunk string) (text string, calls []acpToolCall, e
 		}
 		parser.buffer, parser.inside, parser.called = rest, false, true
 		parser.calls = append(parser.calls, call.ID)
+		parser.attempt++
 		calls = append(calls, call)
 	}
 	return out.String(), calls, nil
@@ -264,6 +303,9 @@ func (parser *acpParser) emit(out *strings.Builder, text string) {
 
 // finish returns the text still held back. A call left open is an error.
 func (parser *acpParser) finish() (string, error) {
+	if parser.failed != nil {
+		return "", errACPCall
+	}
 	if parser.inside {
 		return "", &Failure{Kind: InvalidResponse, Message: "The model's reply ended inside a tool call"}
 	}
@@ -271,6 +313,88 @@ func (parser *acpParser) finish() (string, error) {
 	parser.emit(&out, parser.buffer)
 	parser.buffer = ""
 	return out.String(), nil
+}
+
+// pending reports the call a finished reply leaves unread: one that failed,
+// one the reply ended inside, or, after a correction, none written again.
+func (parser *acpParser) pending() *acpMalformed {
+	switch {
+	case parser.plain:
+		return nil
+	case parser.failed != nil:
+		return parser.failed
+	case parser.inside:
+		return &acpMalformed{index: parser.attempt + 1, reason: "the reply ended inside it"}
+	case parser.asked > 0 && parser.attempt == 0:
+		return &acpMalformed{index: parser.asked, reason: "the reply wrote no tool call"}
+	}
+	return nil
+}
+
+// resume reads the agent's answer to a correction: only its calls count,
+// after those already received.
+func (parser *acpParser) resume(malformed *acpMalformed) {
+	parser.asked, parser.failed, parser.inside, parser.buffer, parser.attempt = malformed.index, nil, false, "", 0
+	parser.called = true
+}
+
+type acpCallJSON struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+func acpDecodeCall(body string) (acpCallJSON, error) {
+	var parsed acpCallJSON
+	decoder := json.NewDecoder(strings.NewReader(body))
+	if err := decoder.Decode(&parsed); err != nil {
+		return parsed, err
+	}
+	if decoder.More() {
+		return parsed, errors.New("text follows the JSON object")
+	}
+	return parsed, nil
+}
+
+// acpRepair fixes the slips a model makes in otherwise whole JSON: control
+// characters written raw inside strings and a comma before a closing
+// bracket. It reports whether it changed anything; the caller uses the
+// result only if it parses.
+func acpRepair(body string) (string, bool) {
+	var out strings.Builder
+	inString, escaped, changed := false, false, false
+	for index := 0; index < len(body); index++ {
+		c := body[index]
+		switch {
+		case inString && escaped:
+			escaped = false
+		case inString && c == '\\':
+			escaped = true
+		case inString && c == '"':
+			inString = false
+		case inString && c < 0x20:
+			switch c {
+			case '\n':
+				out.WriteString(`\n`)
+			case '\r':
+				out.WriteString(`\r`)
+			case '\t':
+				out.WriteString(`\t`)
+			default:
+				fmt.Fprintf(&out, `\u%04x`, c)
+			}
+			changed = true
+			continue
+		case !inString && c == '"':
+			inString = true
+		case !inString && c == ',':
+			if rest := strings.TrimLeft(body[index+1:], " \t\r\n"); rest != "" && (rest[0] == '}' || rest[0] == ']') {
+				changed = true
+				continue
+			}
+		}
+		out.WriteByte(c)
+	}
+	return out.String(), changed
 }
 
 func acpCallBody(buffer string) (call acpToolCall, rest string, complete bool, err error) {
@@ -283,14 +407,18 @@ func acpCallBody(buffer string) (call acpToolCall, rest string, complete bool, e
 		closed = true
 		body := strings.TrimSpace(buffer[:from+at])
 		body = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(body, "```json"), "```"), "```"))
-		var parsed struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
+		parsed, failure := acpDecodeCall(body)
+		if failure != nil {
+			if repaired, changed := acpRepair(body); changed {
+				if fixed, again := acpDecodeCall(repaired); again == nil {
+					parsed, failure = fixed, nil
+				}
+			}
 		}
-		decoder := json.NewDecoder(strings.NewReader(body))
-		if decoder.Decode(&parsed) == nil && !decoder.More() {
+		after := from + at + len(acpCallClose)
+		if failure == nil {
 			if parsed.Name == "" {
-				return call, "", false, errACPCall
+				return call, "", false, &acpMalformed{reason: "it names no tool"}
 			}
 			arguments := bytes.TrimSpace(parsed.Arguments)
 			if len(arguments) == 0 {
@@ -300,14 +428,18 @@ func acpCallBody(buffer string) (call acpToolCall, rest string, complete bool, e
 			if _, err := rand.Read(identifier); err != nil {
 				return call, "", false, err
 			}
-			return acpToolCall{ID: "call_" + hex.EncodeToString(identifier), Name: parsed.Name, Arguments: string(arguments)}, buffer[from+at+len(acpCallClose):], true, nil
+			return acpToolCall{ID: "call_" + hex.EncodeToString(identifier), Name: parsed.Name, Arguments: string(arguments)}, buffer[after:], true, nil
 		}
-		from += at + len(acpCallClose)
+		// A closing tag that another call follows closed a body that is not
+		// JSON.
+		if strings.HasPrefix(strings.TrimSpace(buffer[after:]), acpCallOpen) {
+			return call, "", false, &acpMalformed{reason: failure.Error()}
+		}
+		from = after
 	}
-	// A closing tag after which another call opens, or after which the reply
-	// goes on for long, closed a body that is not JSON.
-	if closed && (strings.Contains(buffer[from:], acpCallOpen) || len(buffer)-from > 64*1024) {
-		return call, "", false, errACPCall
+	// A body the reply goes on long after did not close as JSON.
+	if closed && len(buffer)-from > 64*1024 {
+		return call, "", false, &acpMalformed{reason: "its JSON did not end at a closing tag"}
 	}
 	return call, "", false, nil
 }

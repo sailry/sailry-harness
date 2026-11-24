@@ -383,16 +383,47 @@ func TestACPRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("reports a malformed call and a reply cut inside a call as errors", func(t *testing.T) {
+	t.Run("repairs raw control characters and trailing commas in a call", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{
-			{Chunks: []string{`<tool_call>{"name":</tool_call><tool_call>{"name":"read","arguments":{}}</tool_call>`}},
-			{Chunks: []string{`<tool_call>{"name":"read","argu`}},
+			{Chunks: []string{"<tool_call>{\"name\":\"read\",\"arguments\":{\"path\":\"a\n\tb\",},}</tool_call>"}},
 		}, nil)
-		for range 2 {
-			result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
-			if result.failure == nil || result.failure.Kind != InvalidResponse || len(result.calls) != 0 {
-				t.Fatalf("reply = %#v", result)
-			}
+		result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+		if result.failure != nil || len(result.calls) != 1 || result.calls[0].ToolCallInput != `{"path":"a\n\tb"}` || result.finish != fantasy.FinishReasonToolCalls {
+			t.Fatalf("reply = %#v", result)
+		}
+		if prompts := fixture.received("session/prompt"); len(prompts) != 1 {
+			t.Fatalf("a repaired call was asked for again: %d prompts", len(prompts))
+		}
+	})
+
+	t.Run("asks again in the same session for a call it cannot read", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{
+			{Chunks: []string{`<tool_call>{"name":"read","arguments":{}}</tool_call><tool_call>{"name":</tool_call><tool_call>{"name":"read","arguments":{"path":"x"}}</tool_call>`}},
+			{Chunks: []string{`Sorry. <tool_call>{"name":"read","arguments":{"path":"y"}}</tool_call>`}},
+		}, nil)
+		result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+		if result.failure != nil || len(result.calls) != 2 || result.calls[0].ToolCallInput != `{}` || result.calls[1].ToolCallInput != `{"path":"y"}` ||
+			result.text != "" || result.finish != fantasy.FinishReasonToolCalls {
+			t.Fatalf("reply = %#v", result)
+		}
+		prompts := fixture.received("session/prompt")
+		if len(prompts) != 2 || !strings.Contains(fixture.prompt(1), "Tool call 2 ") || len(fixture.received("session/new")) != 1 {
+			t.Fatalf("prompts = %d, correction = %q", len(prompts), fixture.prompt(1))
+		}
+		if prompts[0]["params"].(map[string]any)["sessionId"] != prompts[1]["params"].(map[string]any)["sessionId"] {
+			t.Fatal("the correction went to another session")
+		}
+	})
+
+	t.Run("reports a call still malformed after its corrections", func(t *testing.T) {
+		cut := acpFixtureReply{Chunks: []string{`<tool_call>{"name":"read","argu`}}
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{cut, cut, cut}, nil)
+		result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+		if result.failure == nil || result.failure.Kind != InvalidResponse || len(result.calls) != 0 {
+			t.Fatalf("reply = %#v", result)
+		}
+		if prompts := fixture.received("session/prompt"); len(prompts) != 1+acpResends {
+			t.Fatalf("prompts = %d", len(prompts))
 		}
 	})
 

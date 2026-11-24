@@ -750,10 +750,13 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		err      error
 	}
 	done := make(chan outcome, 1)
-	go func() {
-		prompted, err := acp.SendRequest[acpPrompted](agent.conn, context.WithoutCancel(ctx), acp.AgentMethodSessionPrompt, map[string]any{"sessionId": session, "prompt": blocks})
-		done <- outcome{prompted, err}
-	}()
+	send := func(blocks []any) {
+		go func() {
+			prompted, err := acp.SendRequest[acpPrompted](agent.conn, context.WithoutCancel(ctx), acp.AgentMethodSessionPrompt, map[string]any{"sessionId": session, "prompt": blocks})
+			done <- outcome{prompted, err}
+		}()
+	}
+	send(blocks)
 	// abandon asks the agent to stop and kills it when it does not.
 	abandon := func() {
 		_ = agent.conn.SendNotification(context.Background(), acp.AgentMethodSessionCancel, map[string]any{"sessionId": session})
@@ -792,7 +795,7 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 		}
 		return true, nil
 	}
-	calls := uint64(0)
+	calls, resends := uint64(0), 0
 	answer := func(text string) (bool, error) {
 		out, found, err := parser.feed(text)
 		if err != nil {
@@ -835,6 +838,18 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 				keep = false
 				return model.failure(ctx, agent, finished.err)
 			}
+			// A call the agent wrote wrong is asked for again in the same
+			// session; the calls read before it stand.
+			if malformed := parser.pending(); malformed != nil && finished.prompted.StopReason == "end_turn" {
+				if resends == acpResends {
+					return errACPCall
+				}
+				resends++
+				parser.resume(malformed)
+				stall.Reset(model.capture.stall)
+				send([]any{map[string]any{"type": "text", "text": acpCorrection(malformed)}})
+				continue
+			}
 			return model.finish(agent, slot, digests, parser, finished.prompted, emit)
 		}
 	}
@@ -857,7 +872,7 @@ func (model *acpModel) finish(agent *acpAgent, slot *acpSlot, digests []string, 
 		reason = protocol.PluginModelAdapterWireFinishOther
 	}
 	rest, err := parser.finish()
-	if err != nil && reason != protocol.PluginModelAdapterWireFinishLength {
+	if err != nil && (reason != protocol.PluginModelAdapterWireFinishLength || parser.failed != nil) {
 		return err
 	}
 	for _, marker := range model.capture.Adapter.Acp.FailureMarkers {
