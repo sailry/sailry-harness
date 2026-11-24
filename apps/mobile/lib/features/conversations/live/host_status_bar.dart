@@ -82,6 +82,18 @@ class HostStatusBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   spacing: 10,
                   children: [
+                    // Shown while cached content waits for the live view.
+                    if (status == HostStatus.connecting)
+                      SizedBox.square(
+                        key: const ValueKey('host-status-connecting'),
+                        dimension: 12,
+                        child: CircularProgressIndicator.adaptive(
+                          strokeWidth: 1.5,
+                          valueColor: AlwaysStoppedAnimation(
+                            colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     if (status != HostStatus.online && word != null)
                       Text(word, style: muted)
                     else if (route != null)

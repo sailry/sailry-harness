@@ -1,5 +1,6 @@
 import '../../../content/image_reference.dart';
 import '../../../runtime/json.dart';
+import '../../../runtime/query_cache.dart';
 import 'message_data.dart';
 import 'turn_frame.dart';
 
@@ -154,3 +155,6 @@ class TranscriptIndex {
   String worktree(Object? turn, Map<String, dynamic> session) =>
       text(_runs[turn]?['worktree'], text(session['worktree']));
 }
+
+/// Decoder for a cached conversation view, run off the UI thread when large.
+TranscriptIndex transcriptIndex(String raw) => TranscriptIndex(jsonObject(raw));

@@ -110,8 +110,7 @@ class _ConversationTaskState extends State<ConversationTask> {
     // Run transitions and queue/wait changes still refresh the committed preview.
     final activity = object(widget.session['activity']);
     final run = object(activity['run']);
-    final stamp = jsonEncode([
-      widget.host.connected,
+    final committed = jsonEncode([
       run['turn'],
       run['sequence'],
       run['revision'],
@@ -120,15 +119,20 @@ class _ConversationTaskState extends State<ConversationTask> {
       activity['waiting'],
       activity['queued'],
     ]);
+    // The host's cached preview shows at once; a read refreshes it only when
+    // the conversation moved on since it was taken.
+    final cached = widget.host.preview(text(widget.session['id']));
+    if (_preview == null && cached != null) _preview = cached.text;
+    final stamp = '${widget.host.connected}$committed';
     if (stamp == _stamp || !widget.admitPreview()) return;
     _stamp = stamp;
     final request = ++_request;
     _failed = false;
-    if (!widget.host.connected) return;
-    _read(request);
+    if (!widget.host.connected || cached?.stamp == committed) return;
+    _read(request, committed);
   }
 
-  Future<void> _read(int request) async {
+  Future<void> _read(int request, String committed) async {
     try {
       final host = widget.host;
       final session = widget.session['id'];
@@ -175,6 +179,7 @@ class _ConversationTaskState extends State<ConversationTask> {
           before = next;
         }
       }
+      host.keepPreview(text(session), committed, preview);
       if (mounted && request == _request) {
         _preview = preview;
         if (widget.admitPreview()) setState(() {});

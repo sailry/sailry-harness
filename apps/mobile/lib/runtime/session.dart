@@ -15,6 +15,7 @@ import '../l10n/strings.dart';
 import 'json.dart';
 import 'background.dart';
 import 'ports.dart';
+import 'query_cache.dart';
 
 typedef CommandHandler =
     Future<Map<String, dynamic>> Function(
@@ -34,7 +35,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     : _initialize = initializeBridge,
       _openController = _open,
       _savedPeers = _hasSavedPeers,
-      _demoPreferences = SharedPreferencesAsync();
+      _demoPreferences = SharedPreferencesAsync(),
+      _persistCache = true;
 
   @visibleForTesting
   AppSession.test({
@@ -45,7 +47,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     Future<Controller> Function(String, bool)? openController,
     Future<bool> Function(String)? savedPeers,
     SharedPreferencesAsync? preferences,
-  }) : _initialize = initialize ?? initializeBridge,
+    this.cache,
+  }) : _persistCache = false,
+       _initialize = initialize ?? initializeBridge,
        _openController = openController ?? _open,
        _savedPeers = savedPeers ?? ((_) async => true),
        _demoPreferences = preferences {
@@ -63,6 +67,12 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   static const _demoEnabledKey = 'hosts.demo.enabled';
   static const _demoSelectedKey = 'hosts.demo.selected';
   Translator _translate = tr;
+
+  /// The data layer pages read before their live observations arrive.
+  /// Production opens it beside the controller profile at [start].
+  QueryCache? cache;
+  final bool _persistCache;
+
   bool _internet = true;
   Future<Controller>? _opening;
   Timer? _peerPoll;
@@ -171,6 +181,13 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
           path ??
           '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}controller';
       if (_closed) return;
+      if (_persistCache) {
+        cache ??= QueryCache(
+          directory: Directory(
+            '${File(profilePath).parent.path}${Platform.pathSeparator}query-cache',
+          ),
+        );
+      }
       final demo = await _demoPreferences?.getBool(_demoEnabledKey) ?? false;
       final selected =
           await _demoPreferences?.getBool(_demoSelectedKey) ?? false;
@@ -183,6 +200,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       // hide genuine peers: saved trust reconnects beside it. A fresh
       // installation can reach pairing before any native transport starts.
       if (await _savedPeers(profilePath)) {
+        await _restoreHosts();
+        if (_closed) return;
         try {
           await _ensureController();
         } catch (_) {
@@ -190,6 +209,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
           // leaves it usable; genuine peers return at the next start.
           if (!(demo && selected) || _closed) rethrow;
         }
+      } else {
+        await cache?.removeScope(hostCachePrefix);
       }
       if (_closed) return;
       _selected ??= _hosts.firstOrNull?.id;
@@ -203,6 +224,41 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       loading = false;
       _changed();
     }
+  }
+
+  /// Lists the hosts last seen with their cached views while Link starts, so
+  /// the first frame is the previous catalog rather than an empty page. Each
+  /// stays disconnected until the saved peer reconnects and replaces its view.
+  Future<void> _restoreHosts() async {
+    final store = cache;
+    if (store == null) return;
+    for (final key in await store.persistedKeys(hostCachePrefix)) {
+      if (!key.endsWith('/address')) continue;
+      final scope = key.substring(0, key.length - 'address'.length);
+      final id = hostIdFromScope(scope);
+      if (id == null || host(id) != null) continue;
+      final address = await store.read('${scope}address', rawText);
+      final view = await store.read('${scope}view', jsonObject);
+      if (_closed) return;
+      if (address == null || view == null || host(id) != null) continue;
+      final Map<String, dynamic> decoded;
+      try {
+        decoded = object(jsonDecode(address));
+      } on FormatException {
+        await store.removeScope(scope);
+        continue;
+      }
+      final restored = HostConnection._(id, address, null)
+        ..cache = store
+        .._restored = true
+        .._applyPeerMetadata(decoded)
+        .._applyView(view, live: false);
+      unawaited(restored._restorePreviews());
+      restored.addListener(_changed);
+      _hosts.add(restored);
+      _selected ??= id;
+    }
+    _changed();
   }
 
   Future<Controller> _ensureController() async {
@@ -236,6 +292,14 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (_closed || controller != opened) {
         throw StateError('controller is closed');
+      }
+      // A cached host without saved trust is no longer reachable from here.
+      for (final stale in [
+        for (final host in _hosts)
+          if (host._restored) host,
+      ]) {
+        await _remove(stale, opened, forget: false);
+        await cache?.removeScope(hostCacheScope(stale.id));
       }
       _peerPoll?.cancel();
       _peerPoll = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -399,7 +463,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       await _remove(existing, owner, forget: false);
       existing = null;
     }
-    if (existing != null) {
+    if (existing != null && !existing._restored) {
       existing._applyPeerMetadata(decoded);
       if (select) selectHost(id);
       return existing;
@@ -414,8 +478,21 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       throw StateError('controller is closed');
     }
     final registered = host(id);
+    if (registered != null && registered._restored) {
+      registered
+        .._connection = connection
+        .._restored = false
+        .._applyPeerMetadata(decoded)
+        .._rememberAddress();
+      unawaited(registered.watch());
+      if (select) {
+        selectHost(id);
+      } else {
+        _changed();
+      }
+      return registered;
+    }
     if (registered != null) {
-      registered._applyPeerMetadata(decoded);
       try {
         await connection.close();
       } finally {
@@ -425,7 +502,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       return registered;
     }
     final connected = HostConnection._(id, address, connection)
-      .._applyPeerMetadata(decoded);
+      ..cache = cache
+      .._applyPeerMetadata(decoded)
+      .._rememberAddress();
     connected.addListener(_changed);
     _hosts.add(connected);
     unawaited(connected.watch());
@@ -538,6 +617,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       await _demoPreferences?.setBool(_demoSelectedKey, false);
     } else if (forget) {
       await owner!.forget(address: target.address);
+      await cache?.removeScope(hostCacheScope(target.id));
     }
     if (_closed || controller != owner || host(target.id) != target) return;
     if (!target.routed) {
@@ -580,6 +660,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _away = true;
+      unawaited(cache?.flush());
       return;
     }
     final owner = controller;
@@ -630,6 +711,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     ready = false;
     await background.close();
     await _release();
+    await cache?.close();
   }
 
   Future<void> _release() async {
@@ -712,7 +794,14 @@ class HostConnection extends ChangeNotifier {
   String get nodeId => id.split('/').last;
   String get entryId => id.split('/').first;
   bool get routed => entryId != nodeId;
-  final Connection? _connection;
+  Connection? _connection;
+
+  /// Listed from the cache before its saved peer reconnected.
+  bool _restored = false;
+
+  /// The data layer this host's views and previews are kept in.
+  QueryCache? cache;
+  String get cacheScope => hostCacheScope(id);
   bool get isDemo => _connection is DemoConnection;
   CommandHandler? _handler;
   Connection get connection =>
@@ -861,8 +950,67 @@ class HostConnection extends ChangeNotifier {
     if (fresh != null && !fresh.isCompleted) fresh.complete();
   }
 
+  /// Applies a Client host view. A cached one shows its catalog but never
+  /// claims a connection, a route or a fault the live observation has not seen.
+  void _applyView(Map<String, dynamic> view, {required bool live}) {
+    connected = live && view['connected'] == true && !_sourceUnavailable;
+    transport = connected ? object(view['connection']) : {};
+    error = live ? view['error'] : null;
+    notifications = live ? objects(view['notifications']) : [];
+    // A Client that has not reached the Node yet reports no snapshot; the
+    // catalog last seen stays listed, as offline, until one arrives.
+    if (view['snapshot'] == null && snapshot.isNotEmpty) return;
+    snapshot = object(view['snapshot']);
+    childTargets = object(view['child_targets']);
+    sessionLanes = Map.unmodifiable(
+      object(view['session_lanes']).map((id, lane) => MapEntry(id, text(lane))),
+    );
+  }
+
+  void _rememberAddress() {
+    if (!isDemo) cache?.put('${cacheScope}address', address, raw: address);
+  }
+
+  final _previews = <String, List<String>>{};
+
+  /// The last message preview read for [session] and the activity stamp it
+  /// was read at, kept so a list renders before its rows refresh.
+  ({String stamp, String text})? preview(String session) {
+    final value = _previews[session];
+    return value == null ? null : (stamp: value[0], text: value[1]);
+  }
+
+  void keepPreview(String session, String stamp, String text) {
+    final current = _previews[session];
+    if (current != null && current[0] == stamp && current[1] == text) return;
+    _previews[session] = [stamp, text];
+    if (!isDemo) {
+      cache?.put(
+        '${cacheScope}previews',
+        _previews,
+        raw: jsonEncode(_previews),
+      );
+    }
+  }
+
+  Future<void> _restorePreviews() async {
+    final stored = await cache?.read('${cacheScope}previews', jsonObject);
+    if (stored == null || _closed) return;
+    var changed = false;
+    for (final MapEntry(:key, :value) in stored.entries) {
+      if (value is List &&
+          value.length == 2 &&
+          value.every((part) => part is String) &&
+          !_previews.containsKey(key)) {
+        _previews[key] = value.cast<String>();
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
   Future<void> watch() async {
-    if (_closed || _watching) return;
+    if (_closed || _watching || _restored) return;
     _watching = true;
     Updates? owned;
     Object? observedError;
@@ -879,21 +1027,12 @@ class HostConnection extends ChangeNotifier {
       owned = updates;
       _updates = updates;
       while (!_closed) {
-        final view = object(jsonDecode(await updates.next()));
+        final raw = await updates.next();
+        final view = object(jsonDecode(raw));
         if (_closed) break;
-        snapshot = object(view['snapshot']);
-        connected = view['connected'] == true && !_sourceUnavailable;
-        transport = connected ? object(view['connection']) : {};
+        _applyView(view, live: true);
         final fault = view['error'];
         observedError = fault is Map ? fault : null;
-        error = fault;
-        notifications = objects(view['notifications']);
-        childTargets = object(view['child_targets']);
-        sessionLanes = Map.unmodifiable(
-          object(
-            view['session_lanes'],
-          ).map((id, lane) => MapEntry(id, text(lane))),
-        );
         final code = text(object(fault)['code'], _sourceFaultCode);
         if (const {
           'permission_denied',
@@ -906,8 +1045,14 @@ class HostConnection extends ChangeNotifier {
           sessionLanes = const {};
           notifications = [];
           childTargets = {};
+          _previews.clear();
+          unawaited(cache?.removeScope(cacheScope));
         } else {
           _applyDirectorySnapshot();
+          // Only a confirmed view is worth showing at the next start.
+          if (connected && !isDemo && view['snapshot'] != null) {
+            cache?.put('${cacheScope}view', view, raw: raw);
+          }
         }
         notifyListeners();
         _settle();
@@ -1110,4 +1255,24 @@ class CommandFailure implements Exception {
       };
   @override
   String toString() => 'Command failed: $code';
+}
+
+/// Prefix of every host entry in the query cache.
+const hostCachePrefix = 'host:';
+
+/// The query cache scope holding one host's views, previews and transcripts.
+/// Host IDs contain `/` for routed hosts, so the ID is escaped to keep a
+/// routed host's scope apart from its entry Node's.
+String hostCacheScope(String id) =>
+    '$hostCachePrefix${Uri.encodeComponent(id)}/';
+
+String? hostIdFromScope(String scope) {
+  if (!scope.startsWith(hostCachePrefix) || !scope.endsWith('/')) return null;
+  final encoded = scope.substring(hostCachePrefix.length, scope.length - 1);
+  if (encoded.isEmpty || encoded.contains('/')) return null;
+  try {
+    return Uri.decodeComponent(encoded);
+  } on ArgumentError {
+    return null;
+  }
 }

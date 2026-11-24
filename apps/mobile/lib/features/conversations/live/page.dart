@@ -12,6 +12,7 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/connection_status.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/loading.dart';
 import '../../../ui/toast.dart';
 import '../../resources/resources_page.dart';
 import '../../resources/ports_page.dart';
@@ -133,9 +134,20 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   );
   Animation<double>? _entrance;
 
-  /// Whether the push transition has finished. The transcript is held until
-  /// then so the first snapshot never stalls the route animation.
+  /// Whether the push transition has finished. A fetched transcript is held
+  /// until then so its first build never stalls the route animation; one
+  /// already in memory renders with the route.
   bool _settled = false;
+
+  /// The transcript is the last one seen, shown until the live observation
+  /// replaces it. It never enables writes or reports a connection.
+  bool _cached = false;
+
+  /// The newest observed payload, persisted when the page leaves.
+  String? _payload;
+
+  String get _cacheKey =>
+      '${widget.host.cacheScope}conversation/${widget.sessionId}';
 
   Map<String, dynamic> get _session {
     final sessions = widget.host.snapshot['sessions'];
@@ -159,7 +171,53 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _submission.addListener(_rebuild);
     _history.addListener(_rebuild);
     widget.host.addListener(_hostChanged);
+    _restoreCached();
     unawaited(_watch());
+  }
+
+  void _restoreCached() {
+    final cache = widget.host.cache;
+    if (cache == null) return;
+    final kept = cache.peek<TranscriptIndex>(_cacheKey);
+    if (kept != null) {
+      _settled = true;
+      _showCached(kept);
+      return;
+    }
+    unawaited(
+      cache.read(_cacheKey, transcriptIndex).then((stored) {
+        if (stored == null || !mounted || _ownerEnded) return;
+        if (_transcript.view.isNotEmpty) return;
+        setState(() => _showCached(stored));
+      }),
+    );
+  }
+
+  void _showCached(TranscriptIndex transcript) {
+    _cached = true;
+    _transcript = transcript;
+    _view.value = {
+      ...transcript.view,
+      'connected': false,
+      'error': null,
+      'statistics_error': null,
+    };
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _cached) _restoreScroll(true);
+    });
+  }
+
+  /// Keeps the newest transcript for the next visit, on disk as well when
+  /// the page closes or the app is suspended.
+  void _keep({required bool persist}) {
+    final payload = _payload;
+    if (payload == null || _ownerEnded || _cached) return;
+    widget.host.cache?.put(
+      _cacheKey,
+      _transcript,
+      raw: persist ? payload : null,
+      size: payload.length,
+    );
   }
 
   @override
@@ -206,6 +264,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _away = true;
+      _keep(persist: true);
     } else if (state == AppLifecycleState.resumed && _away) {
       _away = false;
       _acknowledge();
@@ -250,6 +309,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void _endOwner([Object? fault]) {
     if (_closed || _ownerEnded) return;
     _ownerEnded = true;
+    _payload = null;
+    _cached = false;
+    unawaited(widget.host.cache?.removeScope(_cacheKey));
     _error = fault;
     _returnOffset = null;
     _discardView();
@@ -335,6 +397,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         if (value['connected'] != true &&
             value['snapshot'] == null &&
             _snapshot.isNotEmpty &&
+            !_cached &&
             (fault == null || code == 'unavailable' || code == 'busy')) {
           // A recovering observation can begin without a snapshot on the same owner.
           _view.value = {..._view.value, 'connected': false, 'error': fault};
@@ -342,15 +405,23 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           _artifactActions.changed();
           continue;
         }
+        // A recovering observation without a snapshot keeps the cached one.
+        if (_cached && value['snapshot'] == null) {
+          _view.value = {..._view.value, 'error': fault};
+          continue;
+        }
         final following =
             _returnOffset == null &&
             (!_scroll.hasClients ||
                 (_scroll.position.extentBefore == 0 &&
                     !_scroll.position.isScrollingNotifier.value));
+        _cached = false;
+        _payload = payload;
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         final detailErrors = newDetailErrors(_view.value, value).toList();
         _transcript = transcript;
+        _keep(persist: false);
         _view.value = mergeToolDetails(_view.value, value);
         _updateStatistics();
         _submission.observe(object(_view.value['guidance']));
@@ -521,6 +592,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
 
   @override
   void dispose() {
+    _keep(persist: true);
     _closed = true;
     _dismissStatistics(_statisticsRoute);
     WidgetsBinding.instance.removeObserver(this);
@@ -892,7 +964,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             (_page['entries'] as List? ?? const []).isNotEmpty ||
             _transcript.runs.isNotEmpty ||
             (_snapshot['drafts'] as List? ?? const []).isNotEmpty;
-        final showConnectionBanner = unavailable && hasTranscript;
+        // A cached transcript waiting for its live view is not a disconnect;
+        // the host status line shows the reconnection.
+        final showConnectionBanner =
+            unavailable && hasTranscript && !(_cached && faults.isEmpty);
         // A pending watch or refresh reads as reconnecting rather than a retry.
         final recovering = !_ownerEnded && (reconnecting || retry == null);
         final hasBanner =
@@ -1023,10 +1098,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                             bottom: bottomInset,
                           ),
                           child: loading
-                              ? LoadingOverlay(
-                                  loading: true,
+                              ? DeferredLoading(
                                   label: context.tr('conversationLoading'),
-                                  child: const SizedBox.expand(),
                                 )
                               : DisconnectedState(
                                   reconnecting: recovering,
@@ -1052,10 +1125,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                             top: ConversationFrame.contentInset(context),
                             bottom: bottomInset,
                           ),
-                          child: LoadingOverlay(
-                            loading: true,
+                          child: DeferredLoading(
                             label: context.tr('conversationLoading'),
-                            child: const SizedBox.expand(),
                           ),
                         )
                       : LiveTimeline(

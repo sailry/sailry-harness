@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/strings.dart';
@@ -74,4 +76,48 @@ class LoadingOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Blank space that shows a loading indicator only once a wait outlasts
+/// [delay], so a quick load goes straight to its content without a flash.
+class DeferredLoading extends StatefulWidget {
+  const DeferredLoading({
+    super.key,
+    this.label,
+    this.delay = const Duration(seconds: 1),
+  });
+
+  final String? label;
+  final Duration delay;
+
+  @override
+  State<DeferredLoading> createState() => _DeferredLoadingState();
+}
+
+class _DeferredLoadingState extends State<DeferredLoading> {
+  late final Timer _timer = Timer(widget.delay, () {
+    if (mounted) setState(() => _shown = true);
+  });
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer;
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _shown
+      ? LoadingOverlay(
+          loading: true,
+          label: widget.label,
+          child: const SizedBox.expand(),
+        )
+      : const SizedBox.expand();
 }

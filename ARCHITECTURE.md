@@ -1286,7 +1286,11 @@ Simulated conversations, file edits, Git actions and terminal input reset when t
 app closes. Fresh controllers defer native transport until ordinary pairing.
 Saved genuine peers reconnect at startup through the normal Client and Link path
 and stay listed beside the demo, including when the demo is the saved selection;
-the demo never changes their trust records. The demo remains selectable but
+the demo never changes their trust records. Mobile pages read a local query
+cache before their live observations: the last confirmed host view, message
+previews and recently opened transcripts render at once, then the Client's
+observation replaces them. Cached content never reports a connection or enables
+writes. Forgetting a host or losing access to it drops its cached scope. The demo remains selectable but
 never joins the live conversation or project catalog. Mobile keeps one host,
 project and worktree selection for its top-level pages. Changing hosts clears the project scope; choosing a project on
 another host changes both together. Open conversation, file and terminal routes
