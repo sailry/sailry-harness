@@ -3,6 +3,15 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.12](https://github.com/sailry/sailry-harness/releases/tag/v0.2.12) — 2026-11-25
+
+- Add Amazon Bedrock and Vertex AI model routes.
+- Compact natively on routes that offer it and fall back to the Sailry summary when a route rejects or fails it. Native compaction waits out rate limits like other requests.
+- Serve several conversations from one ACP agent process, queue requests beyond a package's declared concurrency, and keep agent sessions across process restarts. Repair or ask again for malformed ACP tool calls in the same session.
+- Retry forbidden and quota failures from pooled gateways and report exhausted balances.
+- List project terminals in the Desktop sidebar and open them as kept tabs. Drag header tabs to reorder them, and bind the details panel to the pane that opened it.
+- Keep Stop available for subagents that outlive their reply, and stop running sessions before removing them.
+
 ## [0.2.11](https://github.com/sailry/sailry-harness/releases/tag/v0.2.11) — 2026-11-24
 
 - Open Mobile with the last confirmed host and conversation views. Search indexed messages offline in the selected project, keep the last view during reconnects, and clear it when access ends.
