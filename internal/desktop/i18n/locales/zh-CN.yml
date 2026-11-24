@@ -1092,11 +1092,6 @@ role_duplicate: 标识已存在
 teams_settings_failed: 无法保存并发数
 teams_settings_conflict: 设置已变更，请重新加载后保存
 teams_settings_unknown: 保存结果未知，请重试确认
-role_preset_docs: 文档编写
-role_docs_description: 编写和更新项目文档
-role_prompt_docs: |-
-    为指定范围编写或更新文档。先阅读相关代码和现有文档，沿用它们的结构和术语，保持内容简洁准确。
-    报告修改了哪些文件，以及无法确认的内容。
 teams_concurrency: 子智能体并发数
 teams_roles: 角色
 team_deleted: 团队已删除

@@ -437,7 +437,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	// Mark every allowed call before requesting the first approval.
 	planning := x.inv.Turn.Config.Mode == protocol.WorkModePlan
 	child := x.inv.Session.Delegation != nil
-	readOnlyChild := child && (planning || x.childRole != nil && x.childRole.ReadOnly)
+	readOnlyRole := child && x.childRole != nil && x.childRole.ReadOnly
+	readOnlyChild := child && (planning || readOnlyRole)
+	readOnlyMessage := "planning mode permits read-only tools"
+	if readOnlyRole {
+		readOnlyMessage = "read-only role permits read-only tools"
+	}
 	for i, call := range calls {
 		if x.streamReads.read(call.ID) != nil {
 			executable[i] = true
@@ -462,7 +467,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		planException := !child && (tool.Delegation || call.Name == "ask_user" ||
 			tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationWriteArtifact)
 		if !tool.ReadOnly && (readOnlyChild || planning && !planException) {
-			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: readOnlyMessage}}
 			continue
 		}
 		if invalid := validateToolArguments(tool, call); invalid.Failure != nil {
@@ -483,7 +488,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		}
 		confirm := tool.Confirm != nil && !tool.Approval && tool.Confirm(call)
 		if readOnlyChild && confirm {
-			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: readOnlyMessage}}
 			continue
 		}
 		if asks[i] = tool.Approval || confirm; !asks[i] {

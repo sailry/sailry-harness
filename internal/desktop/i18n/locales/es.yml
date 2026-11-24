@@ -1092,11 +1092,6 @@ role_duplicate: El identificador ya existe
 teams_settings_failed: No se pudo guardar la concurrencia
 teams_settings_conflict: Los ajustes cambiaron; recarga y guarda de nuevo
 teams_settings_unknown: Resultado del guardado desconocido; reintenta para comprobar
-role_preset_docs: Documentación
-role_docs_description: Escribir y actualizar la documentación del proyecto
-role_prompt_docs: |-
-    Escribe o actualiza la documentación del alcance asignado. Lee primero el código y los documentos existentes relevantes, sigue su estructura y terminología, y mantén el texto conciso y preciso.
-    Informa qué archivos cambiaron y qué datos no pudiste confirmar.
 teams_concurrency: Concurrencia de subagentes
 teams_roles: Roles
 team_deleted: Equipo eliminado

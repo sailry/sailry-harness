@@ -7,36 +7,77 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const exploreInstructions = "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
-const previousExploreInstructions = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
-const researchInstructions = "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input."
+const (
+	exploreDescription         = "Inspect the codebase and return concise findings with exact paths"
+	previousExploreDescription = "Read existing code and report findings with exact paths"
+	exploreInstructions        = "Inspect only the assigned codebase scope using read-only tools. Search and read in parallel, separate confirmed facts from inferences, and return concise findings with exact file:line pointers and open gaps."
+	exploreInstructionsV1      = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
+	exploreInstructionsV2      = "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
+
+	researchDescription         = "Investigate public sources and return cited conclusions"
+	previousResearchDescription = "Investigate public sources and return supported conclusions"
+	researchInstructions        = "Investigate the assigned question using the web-search:research skill and available read-only tools. Lead with evidence-backed conclusions, inline source links, dates where relevant, and conflicting or missing evidence."
+	researchInstructionsV1      = "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input."
+
+	exploreMaxTurns  = uint32(16)
+	researchMaxTurns = uint32(8)
+)
 
 func initialExplore(id protocol.RoleID) protocol.RoleProfile {
+	limit := exploreMaxTurns
 	return protocol.RoleProfile{
 		ID: id, Revision: 1, Key: "explore", Name: "Explore",
 		Appearance:  &protocol.ProjectsAppearance{Icon: "code", Color: "teal"},
-		Description: "Read existing code and report findings with exact paths",
-		ReadOnly:    true, Skills: []string{}, Instructions: exploreInstructions,
+		Description: exploreDescription,
+		ReadOnly:    true, MaxTurns: &limit, Skills: []string{}, Instructions: exploreInstructions,
 	}
 }
 
+func initialResearch(id protocol.RoleID) protocol.RoleProfile {
+	limit := researchMaxTurns
+	return protocol.RoleProfile{
+		ID: id, Revision: 1, Key: "research", Name: "Research",
+		Appearance:  &protocol.ProjectsAppearance{Icon: "globe", Color: "violet"},
+		Description: researchDescription,
+		ReadOnly:    true, MaxTurns: &limit, Skills: []string{"web-search:research"}, Instructions: researchInstructions,
+	}
+}
+
+func upgradeDefaultRole(role protocol.RoleProfile) (protocol.RoleProfile, bool) {
+	switch role.Key {
+	case "explore":
+		if role.Name == "Explore" && role.ReadOnly && role.Tools == nil && len(role.Skills) == 0 &&
+			role.MaxTurns == nil && role.Description == previousExploreDescription &&
+			(role.Instructions == exploreInstructionsV1 || role.Instructions == exploreInstructionsV2) {
+			limit := exploreMaxTurns
+			role.Description = exploreDescription
+			role.MaxTurns = &limit
+			role.Instructions = exploreInstructions
+			return role, true
+		}
+	case "research":
+		if role.Name == "Research" && role.ReadOnly && role.Tools == nil &&
+			slices.Equal(role.Skills, []string{"web-search:research"}) &&
+			role.MaxTurns != nil && *role.MaxTurns == researchMaxTurns &&
+			role.Description == previousResearchDescription && role.Instructions == researchInstructionsV1 {
+			role.Description = researchDescription
+			role.Instructions = researchInstructions
+			return role, true
+		}
+	}
+	return role, false
+}
+
 func initializeRoles(ctx context.Context, connection *sql.Conn, owner protocol.User) error {
-	limit := uint32(8)
 	roles := []protocol.RoleProfile{
 		initialExplore(protocol.NewRoleID()),
-		{
-			ID: protocol.NewRoleID(), Revision: 1, Key: "research", Name: "Research",
-			Appearance:  &protocol.ProjectsAppearance{Icon: "globe", Color: "violet"},
-			Description: "Investigate public sources and return supported conclusions",
-			ReadOnly:    true, MaxTurns: &limit, Skills: []string{"web-search:research"},
-			Instructions: researchInstructions,
-		},
+		initialResearch(protocol.NewRoleID()),
 	}
 	for _, role := range roles {
 		body, err := json.Marshal(role)
@@ -124,13 +165,7 @@ func refreshAppearances(ctx context.Context, connection *sql.Conn) error {
 				if err := json.Unmarshal(body, &role); err != nil {
 					return err
 				}
-				previous := initialExplore(role.ID)
-				previous.Appearance = nil
-				previous.Instructions = previousExploreInstructions
-				if reflect.DeepEqual(previous, role) {
-					role.Instructions = exploreInstructions
-					changed = true
-				}
+				role, changed = upgradeDefaultRole(role)
 				if role.Appearance == nil {
 					role.Appearance = appearanceFor(role.Key)
 					changed = true

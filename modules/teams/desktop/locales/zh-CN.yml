@@ -1,30 +1,41 @@
-role_preset_review: 代码审查
-role_review_description: "审查变更并报告有证据的问题"
-role_prompt_review: |-
-  审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
-  先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
-role_preset_implement: 开发实现
-role_implement_description: "完成聚焦的改动并验证"
-role_prompt_implement: |-
-  完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
-  复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
-role_preset_test: "测试验证"
-role_test_description: "运行检查并报告验证结果"
-role_prompt_test: "验证指定的改动或行为。先找到相关的现有测试和检查，运行覆盖该范围的最小集合，只有在要求时才补充测试。\n报告实际执行的命令、结果和失败原因。不要为了让检查通过而修改实现代码。"
+role_preset_explore: "代码探索"
+role_explore_description: "阅读指定范围代码并返回带确切路径的结论"
+role_prompt_explore: "仅使用只读工具查看指定范围的代码。并行搜索与读取，区分已确认事实与推断，返回简洁结论、确切的 file:line 定位以及未解决的缺口。"
 role_preset_plan: "方案规划"
-role_plan_description: "拆分实施步骤，明确依赖和验收条件"
-role_prompt_plan: "梳理现有行为和约束，找出影响设计的关键选择。把方案拆成可验证的步骤，写清依赖和验收方法，标出需要主代理确认的假设。保留项目文件原样。"
+role_plan_description: "分析约束与设计取舍，拆解可验证的实施步骤"
+role_prompt_plan: "梳理相关代码和约束，列出关键设计取舍，把方案拆成最小可验证步骤，写清依赖与验收方式。标出需要父代理确认的假设。"
+role_preset_implement: "开发实现"
+role_implement_description: "在指定范围内完成聚焦的代码改动"
+role_prompt_implement: |-
+  在委派范围内干净地完成指定改动。只读必要代码并遵循现有约定，复用已有能力，方案明确后直接动手修改。
+  除非任务明确要求验证，否则将完整构建和测试留给父代理，仅对改动文件做格式化或轻量自检。
 role_preset_frontend: "UI 设计与实现"
-role_frontend_description: "设计布局、视觉层级和交互，并完成界面实现"
-role_prompt_frontend: "结合现有设计系统梳理使用流程，设计布局、视觉层级和交互，并完成实现。按场景处理键盘操作、加载和错误状态，在支持的窗口尺寸下核验效果；有参考图时逐项对照。"
-role_preset_troubleshoot: "难题攻坚"
-role_troubleshoot_description: "解决复杂实现，接手多次尝试仍未解决的问题"
-role_prompt_troubleshoot: "承接复杂实现，或接手已尝试两三次仍未解决的问题。先核对已有证据和尝试，验证关键假设，完成必要的实现或修复，再按原始条件验证。报告改动、验证结果和剩余限制。"
-role_model_hint_review: "跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子智能体是否停止。"
-role_model_hint_implement: "范围明确的改动可选均衡型编程模型（如 Sonnet），例如新增设置项并保存配置。"
-role_model_hint_test: "运行定向回归测试可选快速模型（如 Haiku）；排查时序相关的测试可选强推理模型。"
+role_frontend_description: "设计并实现界面布局、交互状态与视觉细节"
+role_prompt_frontend: |-
+  基于项目现有组件、主题令牌和布局规范设计并实现指定界面。按场景覆盖键盘操作、加载、空状态和错误状态；有响应式要求或参考图时逐项核对。
+  除非任务明确要求验证，否则将完整构建和无关测试留给父代理。
+role_preset_test: "测试验证"
+role_test_description: "运行定向检查、补测复现并报告验证结果"
+role_prompt_test: |-
+  验证指定的改动或行为。找到覆盖该范围的最小现有测试或检查并执行，仅在任务要求时补充聚焦测试。
+  报告实际执行的命令、通过/失败结果及失败的可能原因。不要为了让检查通过而修改实现代码。
+role_preset_review: "代码审查"
+role_review_description: "审查变更并报告有证据支持的问题"
+role_prompt_review: |-
+  审查指定代码或变更的正确性、边界条件、安全、并发与回归风险。
+  先阅读上下文实现和相关测试再下判断。仅报告有证据支持的问题，按严重程度排序并给出 file:line 位置、实际影响与最小修复建议；未发现问题时如实说明。
+role_preset_troubleshoot: "疑难排障"
+role_troubleshoot_description: "定位疑难故障根因并完成最小可靠修复"
+role_prompt_troubleshoot: |-
+  定位并修复疑难故障或多次尝试仍未解决的问题。先复盘已有证据，在修改前隔离根因，实施最小可靠修复，并按原始复现条件验证。
+  报告根因、改动内容、验证结果与剩余风险。
+role_model_hint_explore: "代码检索和调用链排查可选快速、低成本模型（如 Haiku）。"
+role_model_hint_research: "多来源网络调研与归纳可选均衡型模型（如 Sonnet）。"
 role_model_hint_plan: "涉及设计取舍可选强推理模型（如 Opus），例如规划保留既有会话的历史数据迁移。"
-role_model_hint_frontend: "界面开发可选均衡型编程模型（如 Sonnet）；需要对照截图核验设置面板时，选支持图片输入的模型。"
+role_model_hint_implement: "范围明确的改动可选均衡型编程模型（如 Sonnet），例如新增设置项并保存配置。"
+role_model_hint_frontend: "界面开发可选均衡型编程模型（如 Sonnet）；需要对照截图或设计稿核验布局时，选支持图片输入的模型。"
+role_model_hint_test: "运行定向回归测试可选快速模型（如 Haiku）；排查时序相关的测试可选强推理模型。"
+role_model_hint_review: "跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子智能体是否停止。"
 role_model_hint_troubleshoot: "难复现的问题可选强推理模型（如 Opus），例如定位滚动长会话时的内存峰值。"
 team_role_one: "1 个角色"
 team_role_count: "%{count} 个角色"

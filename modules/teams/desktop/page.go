@@ -60,15 +60,17 @@ var concurrencyMessages = settings.Messages{
 
 type rolePreset struct {
 	key, label, description, prompt, modelHint string
+	readOnly                                   bool
 }
 
 var rolePresets = []rolePreset{
-	{"review", "role_preset_review", "role_review_description", "role_prompt_review", "role_model_hint_review"},
-	{"implement", "role_preset_implement", "role_implement_description", "role_prompt_implement", "role_model_hint_implement"},
-	{"test", "role_preset_test", "role_test_description", "role_prompt_test", "role_model_hint_test"},
-	{"plan", "role_preset_plan", "role_plan_description", "role_prompt_plan", "role_model_hint_plan"},
-	{"frontend", "role_preset_frontend", "role_frontend_description", "role_prompt_frontend", "role_model_hint_frontend"},
-	{"troubleshoot", "role_preset_troubleshoot", "role_troubleshoot_description", "role_prompt_troubleshoot", "role_model_hint_troubleshoot"},
+	{"explore", "role_preset_explore", "role_explore_description", "role_prompt_explore", "role_model_hint_explore", true},
+	{"plan", "role_preset_plan", "role_plan_description", "role_prompt_plan", "role_model_hint_plan", true},
+	{"implement", "role_preset_implement", "role_implement_description", "role_prompt_implement", "role_model_hint_implement", false},
+	{"frontend", "role_preset_frontend", "role_frontend_description", "role_prompt_frontend", "role_model_hint_frontend", false},
+	{"test", "role_preset_test", "role_test_description", "role_prompt_test", "role_model_hint_test", false},
+	{"review", "role_preset_review", "role_review_description", "role_prompt_review", "role_model_hint_review", true},
+	{"troubleshoot", "role_preset_troubleshoot", "role_troubleshoot_description", "role_prompt_troubleshoot", "role_model_hint_troubleshoot", false},
 }
 
 // teamEditor edits a team: the Default team (default), a new one
@@ -99,6 +101,9 @@ func (e *roleEditor) modelHint() string {
 		if preset.key == e.role.Key {
 			return preset.modelHint
 		}
+	}
+	if e.role.Key == "research" {
+		return "role_model_hint_research"
 	}
 	return ""
 }
@@ -589,7 +594,7 @@ func roleDialog(c *ui.Context, m *page) {
 									e.role.Key = pr.key
 								}
 								if !e.readOnlyEdited {
-									e.role.ReadOnly = pr.key == "plan"
+									e.role.ReadOnly = pr.readOnly
 								}
 								e.preset = pr
 							})

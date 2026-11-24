@@ -1132,3 +1132,51 @@ func TestTeamRosterDescribesRolesAndAllowsGenericSpawn(t *testing.T) {
 		t.Fatalf("roleless team spawn: %+v", result)
 	}
 }
+
+func TestReadOnlyChildRoleRefusesMutatingToolWithRoleMessage(t *testing.T) {
+	t.Parallel()
+	f, x := delegationFixture(t)
+	delegation := &protocol.Delegation{
+		Session: protocol.NewSessionID(),
+		Turn:    protocol.NewTurnID(),
+		Entry:   "call-1",
+	}
+	x.inv.Session.Delegation = &delegation
+	x.inv.Turn.Config.Mode = protocol.WorkModePlan
+	x.childRole = &protocol.RoleProfile{Key: "review", Name: "Code review", ReadOnly: true}
+	x.tools = append(x.tools, Tool{
+		Definition: fantasy.FunctionTool{Name: "mutate_file", Description: "Mutate"},
+		ReadOnly:   false,
+		Execute: func(context.Context, canonical.ToolRequest) ToolResult {
+			t.Fatal("mutating tool must not execute in a read-only role")
+			return ToolResult{}
+		},
+	})
+	call := canonical.ToolRequest{ID: "mut-1", Name: "mutate_file", Arguments: json.RawMessage(`{}`)}
+	if err := f.r.runToolBatch(x, x.ctx, store.AgentState{}, []canonical.ToolRequest{call}); err != nil {
+		t.Fatal(err)
+	}
+	var got *canonical.ToolResponse
+	for _, rec := range f.state().Records {
+		if msg := rec.Message(); msg != nil {
+			for _, block := range msg.Content {
+				if resp, ok := block.Data.(*canonical.ToolResponse); ok && resp.ID == call.ID {
+					got = resp
+				}
+			}
+		}
+	}
+	if got == nil || got.Status != canonical.ToolErrorStatus {
+		t.Fatalf("unexpected read-only role response: %+v", got)
+	}
+	var payload struct {
+		Message string         `json:"message"`
+		Data    protocol.Fault `json:"data"`
+	}
+	if err := json.Unmarshal(got.Result.Value, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.Code != protocol.ErrorCodePermissionDenied || payload.Data.Message != "read-only role permits read-only tools" || payload.Message != "read-only role permits read-only tools" {
+		t.Fatalf("unexpected read-only role fault: %+v", payload)
+	}
+}

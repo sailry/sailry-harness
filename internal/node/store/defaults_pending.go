@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"reflect"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -66,10 +65,8 @@ func defaultsPending(ctx context.Context, connection *sql.Conn) (bool, error) {
 				if err = json.Unmarshal(body, &role); err != nil {
 					break
 				}
-				previous := initialExplore(role.ID)
-				previous.Appearance = nil
-				previous.Instructions = previousExploreInstructions
-				pending = role.Appearance == nil || reflect.DeepEqual(previous, role)
+				_, upgraded := upgradeDefaultRole(role)
+				pending = role.Appearance == nil || upgraded
 			case "teams":
 				var team protocol.TeamProfile
 				if err = json.Unmarshal(body, &team); err != nil {

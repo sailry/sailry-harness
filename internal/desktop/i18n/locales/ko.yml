@@ -1092,11 +1092,6 @@ role_duplicate: 식별자가 이미 존재함
 teams_settings_failed: 동시 실행 수를 저장하지 못했습니다
 teams_settings_conflict: 설정이 변경되었습니다. 다시 불러와 저장하세요
 teams_settings_unknown: 저장 결과를 알 수 없습니다. 다시 시도해 확인하세요
-role_preset_docs: 문서 작성
-role_docs_description: 프로젝트 문서를 작성하고 업데이트합니다
-role_prompt_docs: |-
-    할당된 범위의 문서를 작성하거나 업데이트하세요. 먼저 관련 코드와 기존 문서를 읽고 그 구조와 용어를 따르며, 간결하고 정확하게 작성하세요.
-    변경한 파일과 확인하지 못한 사실을 보고하세요.
 teams_concurrency: 하위 에이전트 동시 실행 수
 teams_roles: 역할
 team_deleted: 팀을 삭제했습니다

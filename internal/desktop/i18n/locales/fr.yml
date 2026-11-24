@@ -1092,11 +1092,6 @@ role_duplicate: L'identifiant existe déjà
 teams_settings_failed: Impossible d’enregistrer la concurrence
 teams_settings_conflict: Réglages modifiés ; rechargez puis enregistrez à nouveau
 teams_settings_unknown: Résultat inconnu ; réessayez pour vérifier
-role_preset_docs: Documentation
-role_docs_description: Rédiger et mettre à jour la documentation du projet
-role_prompt_docs: |-
-    Rédigez ou mettez à jour la documentation du périmètre attribué. Lisez d’abord le code et les documents existants concernés, suivez leur structure et leur terminologie, et restez concis et exact.
-    Indiquez les fichiers modifiés et les faits que vous n’avez pas pu confirmer.
 teams_concurrency: Sous-agents simultanés
 teams_roles: Rôles
 team_deleted: Équipe supprimée

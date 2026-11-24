@@ -80,10 +80,11 @@ func TestRolePresetSelection(t *testing.T) {
 			t.Fatalf("missing model guidance for %s", pr.key)
 		}
 	}
-	for i, key := range []string{"review", "implement", "test", "plan", "frontend", "troubleshoot"} {
+	for i, key := range []string{"explore", "plan", "implement", "frontend", "test", "review", "troubleshoot"} {
 		selectPreset(i)
-		if m.roleEdit.role.ReadOnly != (key == "plan") {
-			t.Fatalf("unexpected default permissions for %s", key)
+		wantReadOnly := key == "explore" || key == "plan" || key == "review"
+		if m.roleEdit.role.ReadOnly != wantReadOnly {
+			t.Fatalf("unexpected default permissions for %s: got %v, want %v", key, m.roleEdit.role.ReadOnly, wantReadOnly)
 		}
 		if m.roleEdit.role.Key != key {
 			t.Fatalf("preset key = %s, want %s", m.roleEdit.role.Key, key)
@@ -99,22 +100,31 @@ func TestRolePresetSelection(t *testing.T) {
 	tt.ClickAt(toggle.Bounds.X+toggle.Bounds.W/2, toggle.Bounds.Y+toggle.Bounds.H/2)
 	settle()
 	m.roleEdit.role.Key = "custom"
-	selectPreset(0)
+	selectPreset(2) // writable preset must not override manual read-only toggle
 	if m.roleEdit.role.Key != "custom" || !m.roleEdit.role.ReadOnly {
 		t.Fatal("selecting another preset replaced the custom key or permissions")
 	}
 
-	m.roleEdit = roleEditor{open: true, role: viewmodel.Role{ID: "saved-review", Key: "review", ReadOnly: true}}
-	settle()
-	if _, ok := tt.Find(testCatalog.In("en", "role_model_hint_review")); !ok || !m.roleEdit.role.ReadOnly {
-		t.Fatal("saved review role lost its model guidance or permissions")
+	for _, saved := range []struct {
+		key, hint string
+		readOnly  bool
+	}{
+		{"explore", "role_model_hint_explore", true},
+		{"research", "role_model_hint_research", true},
+		{"review", "role_model_hint_review", true},
+	} {
+		m.roleEdit = roleEditor{open: true, role: viewmodel.Role{ID: "saved-" + saved.key, Key: saved.key, ReadOnly: saved.readOnly}}
+		settle()
+		if _, ok := tt.Find(testCatalog.In("en", saved.hint)); !ok || m.roleEdit.role.ReadOnly != saved.readOnly {
+			t.Fatalf("saved %s role lost its model guidance or permissions", saved.key)
+		}
 	}
 
 	existing := viewmodel.Role{ID: "legacy-docs", Key: "docs", Name: "Documentation", Instructions: "Keep project docs current"}
 	m.Roles = append(m.Roles, existing)
 	m.roleEdit = roleEditor{open: true, role: existing}
 	settle()
-	if _, ok := tt.AccessByRole(ui.RoleButton, testCatalog.In("en", "role_preset_docs")); ok {
+	if _, ok := tt.AccessByRole(ui.RoleButton, "Documentation"); ok {
 		t.Fatal("saved role showed a documentation preset")
 	}
 	m.roleEdit.role.Name = "Project documentation"

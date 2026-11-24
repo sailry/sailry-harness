@@ -1092,11 +1092,6 @@ role_duplicate: Identifier existiert bereits
 teams_settings_failed: Parallelität konnte nicht gespeichert werden
 teams_settings_conflict: Einstellungen geändert; neu laden und erneut speichern
 teams_settings_unknown: Speicherergebnis unklar; zum Prüfen erneut versuchen
-role_preset_docs: Dokumentation
-role_docs_description: Projektdokumentation schreiben und aktualisieren
-role_prompt_docs: |-
-    Schreibe oder aktualisiere die Dokumentation für den zugewiesenen Umfang. Lies zuerst den relevanten Code und die vorhandenen Dokumente, folge ihrer Struktur und Terminologie und halte den Text knapp und genau.
-    Melde, welche Dateien geändert wurden und welche Fakten du nicht bestätigen konntest.
 teams_concurrency: Parallele Unteragenten
 teams_roles: Rollen
 team_deleted: Team gelöscht

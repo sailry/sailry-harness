@@ -1111,9 +1111,6 @@ role_duplicate
 teams_settings_failed
 teams_settings_conflict
 teams_settings_unknown
-role_preset_docs
-role_docs_description
-role_prompt_docs
 teams_concurrency
 teams_roles
 team_deleted

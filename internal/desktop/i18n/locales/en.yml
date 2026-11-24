@@ -1092,11 +1092,6 @@ role_duplicate: Identifier already exists
 teams_settings_failed: Could not save concurrency
 teams_settings_conflict: Settings changed; reload and save again
 teams_settings_unknown: Save outcome unknown; retry to check
-role_preset_docs: Documentation
-role_docs_description: Write and update project documentation
-role_prompt_docs: |-
-    Write or update documentation for the assigned scope. Read the relevant code and existing documents first, follow their structure and terminology, and keep the text concise and accurate.
-    Report which files changed and any facts you could not confirm.
 teams_concurrency: Child concurrency
 teams_roles: Roles
 team_deleted: Team deleted
