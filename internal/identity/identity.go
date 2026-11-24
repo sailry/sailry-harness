@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	OfficialVersion        = "0.2.10"
+	OfficialVersion        = "0.2.11"
 	SourceProfile          = "~/.sailry-go"
 	InstalledProfile       = "~/.sailry"
 	OfficialRepository     = "sailry/sailry-harness"

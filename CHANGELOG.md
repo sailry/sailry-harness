@@ -3,6 +3,15 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.11](https://github.com/sailry/sailry-harness/releases/tag/v0.2.11) — 2026-11-24
+
+- Open Mobile with the last confirmed host and conversation views. Search indexed messages offline in the selected project, keep the last view during reconnects, and clear it when access ends.
+- Unify Mobile host, project and workspace pickers, improve text contrast, and show reconnect status above the conversation without moving the transcript.
+- Keep expanded tool calls visible as new calls arrive on Desktop. View and copy full tool tables.
+- Open reasoning effort choices on click in the Desktop model picker and refresh stale model scores across aliases.
+- Let full-permission file tools use absolute paths outside the worktree. Mixed patches retain workspace checkpoints and return revisions for later edits.
+- Refine team role presets, add a UI design role, and keep delegated tools and task activity visible in the conversation.
+
 ## [0.2.10](https://github.com/sailry/sailry-harness/releases/tag/v0.2.10) — 2026-11-24
 
 - Improve Anthropic-compatible gateway requests and discovery, use advertised thinking capabilities, and accept OpenAI endpoint URLs with or without a trailing operation.
