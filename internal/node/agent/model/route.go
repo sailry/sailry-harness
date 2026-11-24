@@ -26,6 +26,9 @@ type Route struct {
 	// Compact reports that the resident conversation advertises the agent's
 	// own `/compact` command (CompactSession).
 	Compact bool
+	// Native identifies the route and model whose protocol compacts the
+	// history itself (CompactNative); empty when it has no such method.
+	Native string
 }
 
 // promptBytesPerToken converts a prompt byte bound into tokens. o200k text
@@ -55,5 +58,5 @@ func RouteOf(languageModel fantasy.LanguageModel, session protocol.SessionID) Ro
 	if model, ok := languageModel.(routed); ok {
 		return model.route(session)
 	}
-	return Route{}
+	return Route{Native: NativeCompactionRoute(languageModel)}
 }

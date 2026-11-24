@@ -24,6 +24,11 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 		for _, message := range call.Prompt {
 			blocks := []any{}
 			for index, part := range message.Content {
+				if items, ok := nativeItems(part); ok {
+					// A signed compaction block is sent exactly as it was returned.
+					blocks = append(blocks, items...)
+					continue
+				}
 				var block map[string]any
 				switch part.GetType() {
 				case fantasy.ContentTypeText:
@@ -122,10 +127,19 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 				body[key] = value
 			}
 		}
+		if nativeRequest(call) != nil {
+			// Sailry decides when; the provider's own summary prompt writes it.
+			body["compaction"] = map[string]any{"type": "summarize"}
+		}
 	case "responses":
 		input := []any{}
 		for _, message := range call.Prompt {
 			for _, part := range message.Content {
+				if items, ok := nativeItems(part); ok {
+					// A compacted window is the next context as returned.
+					input = append(input, items...)
+					continue
+				}
 				switch part.GetType() {
 				case fantasy.ContentTypeText:
 					value, _ := fantasy.AsMessagePart[fantasy.TextPart](part)
@@ -453,6 +467,18 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 	}
 	if len(generatedResponsesInput) > 0 && body["prompt"] == nil && responsesExplicitCache(body["prompt_cache_options"]) {
 		markResponsesCacheBreakpoints(generatedResponsesInput)
+	}
+	if config.Kind == "anthropic" && body["compaction"] != nil {
+		// A summarization request rejects context editing, stop sequences,
+		// structured output and a forced tool; the summarizer calls no tool.
+		delete(body, "context_management")
+		delete(body, "stop_sequences")
+		if output := wireObject(body["output_config"]); output != nil {
+			delete(output, "format")
+		}
+		if choice := wireString(wireObject(body["tool_choice"])["type"]); choice == "any" || choice == "tool" {
+			delete(body, "tool_choice")
+		}
 	}
 	if config.Kind == "anthropic" && len(wireArray(body["tools"])) > 0 && body["tool_choice"] == nil {
 		body["tool_choice"] = map[string]any{"type": "auto"}

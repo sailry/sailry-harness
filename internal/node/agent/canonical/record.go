@@ -5,6 +5,7 @@ package canonical
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -97,7 +98,33 @@ type Compaction struct {
 	Start    time.Time       `json:"start"`
 	End      time.Time       `json:"end"`
 	Files    []CompactedFile `json:"files,omitempty"`
+	// Native is the provider's own compacted context, replayed in place of
+	// Summary only to the provider, protocol and model that produced it. A
+	// Summary without text is a native checkpoint whose readable handoff has
+	// not been written yet.
+	Native *NativeCompaction `json:"native,omitempty"`
 }
+
+// NativeCompaction holds opaque provider items exactly as they were returned:
+// an Anthropic compaction block, or the window of a Responses compaction.
+type NativeCompaction struct {
+	Source ModelSource     `json:"source"`
+	Items  json.RawMessage `json:"items"`
+}
+
+// Readable reports whether the summary has text another route can read.
+func (c Compaction) Readable() bool {
+	for _, block := range c.Summary.Content {
+		if text, ok := block.Data.(*TextContent); ok && strings.TrimSpace(text.Text) != "" {
+			return true
+		}
+		if text, ok := block.Data.(TextContent); ok && strings.TrimSpace(text.Text) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 type CompactedFile struct {
 	Path     string  `json:"path"`
 	Modified *bool   `json:"modified,omitempty"`

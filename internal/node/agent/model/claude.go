@@ -123,6 +123,9 @@ func (transport claudeTransport) RoundTrip(request *http.Request) (*http.Respons
 	} else {
 		betas = append(betas, "structured-outputs-2025-12-15")
 	}
+	if anthropicCompacts(encoded) {
+		betas = append(betas, anthropicCompactBeta)
+	}
 	request.Header.Set("anthropic-beta", strings.Join(betas, ","))
 	return transport.base.RoundTrip(request)
 }
@@ -241,7 +244,8 @@ func encodeClaude(body map[string]any) ([]byte, error) {
 		}
 	}
 	thinking, _ := body["thinking"].(map[string]any)
-	if (thinking["type"] == "enabled" || thinking["type"] == "adaptive") && body["context_management"] == nil {
+	// A summarization request cannot carry context editing.
+	if (thinking["type"] == "enabled" || thinking["type"] == "adaptive") && body["context_management"] == nil && body["compaction"] == nil {
 		body["context_management"] = map[string]any{"edits": []any{map[string]any{"type": "clear_thinking_20251015", "keep": "all"}}}
 	}
 	claudeCache(body)

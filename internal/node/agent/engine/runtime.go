@@ -101,6 +101,10 @@ type Runtime struct {
 	statisticsChanges statisticsDependencies
 	statisticsOwners  sync.WaitGroup
 	statisticsStopped bool
+	// nativeRejected holds the routes whose provider rejected native
+	// compaction, keyed by provider and model.Route.Native, for this Node's
+	// lifetime: a gateway without the feature is not asked again.
+	nativeRejected sync.Map
 }
 
 // TurnObservation is what one execution saw that storage does not keep apart:

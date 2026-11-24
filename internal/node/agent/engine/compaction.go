@@ -5,7 +5,9 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/fantasy"
@@ -161,6 +163,25 @@ func (r *Runtime) compactionFailure(x *execution, binding model.Binding, earlier
 	return record
 }
 func (r *Runtime) compact(x *execution, binding model.Binding, route model.Route, state store.AgentState, manual bool) error {
+	return r.compactWith(x, binding, route, state, manual, true)
+}
+
+// compactionPlan is what one compaction summarizes and how its checkpoint is
+// recorded.
+type compactionPlan struct {
+	selection          handoff.Selection
+	manual, keepRecent bool
+	// native allows the route's own compaction to be tried first.
+	native      bool
+	preserved   *canonical.Record
+	retainMedia bool
+	window      uint32
+	// carry is the opaque checkpoint whose readable handoff this compaction
+	// writes; the new checkpoint keeps its items for their own route.
+	carry *canonical.NativeCompaction
+}
+
+func (r *Runtime) compactWith(x *execution, binding model.Binding, route model.Route, state store.AgentState, manual, native bool) error {
 	selected := capturedModel(binding)
 	// The compacted history reaches the model whole, so its handoff and
 	// retained tail are sized for the window a replay can fill.
@@ -188,6 +209,16 @@ func (r *Runtime) compact(x *execution, binding model.Binding, route model.Route
 			}
 		}
 	}
+	// The route's own compaction needs the history to still fit its window
+	// and a route that is not an agent session.
+	return r.summarize(x, binding, route, state, compactionPlan{selection: selection, manual: manual, keepRecent: keepRecent, native: native && keepRecent && !route.Session, preserved: preserved, retainMedia: retainMedia, window: window})
+}
+
+// summarize writes the checkpoint for plan: natively where the route can,
+// else in place from the prompt cache, else over a rendered transcript.
+func (r *Runtime) summarize(x *execution, binding model.Binding, route model.Route, state store.AgentState, plan compactionPlan) error {
+	selected := capturedModel(binding)
+	selection, manual, keepRecent, window := plan.selection, plan.manual, plan.keepRecent, plan.window
 	output := min(model.OutputLimit(binding, true), int64(handoff.Output(uint64(window))))
 	cap := handoff.Cap(uint64(window), uint64(output))
 	summaryID := protocol.NewRequestID().String()
@@ -250,7 +281,21 @@ func (r *Runtime) compact(x *execution, binding model.Binding, route model.Route
 		return nil
 	}
 	collect := func(part fantasy.StreamPart) bool { return stream.receive(part) && x.ctx.Err() == nil }
+	save := func(summaryBinding model.Binding, rendered string, files []canonical.CompactedFile, native *canonical.NativeCompaction) error {
+		return r.saveCompaction(x, state, plan, summaryID, summaryBinding, rendered, files, native, stream.usage, attempts)
+	}
 
+	if plan.native {
+		current = binding
+		compacted, ok, err := r.nativeCompaction(x, binding, route, state, selection, requestText, observe)
+		if err != nil {
+			return failed(protocol.ConversationCompactionStageRequest, compactionReason(err), err)
+		}
+		if ok {
+			return save(binding, compacted.Summary, nil, &compacted.Native)
+		}
+		current = summaryBinding
+	}
 	languageModel, err := r.model(x.ctx, summaryBinding)
 	if err != nil {
 		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
@@ -270,10 +315,33 @@ func (r *Runtime) compact(x *execution, binding model.Binding, route model.Route
 			return failed(protocol.ConversationCompactionStageRequest, compactionReason(err), err)
 		}
 		if ok {
-			return r.compactSession(x, binding, route, r.saveCompaction(x, state, selection, manual, preserved, retainMedia, summaryID, binding, summary, stream.usage, attempts))
+			return r.compactSession(x, binding, route, save(binding, summary.Render(), compactedFiles(summary), nil))
 		}
 		stream.reset()
 		current = summaryBinding
+	}
+	if len(selection.Prefix) > 0 {
+		if previous, ok := selection.Prefix[0].Data.(*canonical.Compaction); ok && selection.Prefix[0].Kind == "compaction" && !previous.Readable() {
+			// The previous checkpoint is an opaque window only its own route can
+			// read. A transcript over it needs its readable handoff first; the
+			// attempts this compaction already billed keep their observations.
+			var records []canonical.Record
+			for _, attempt := range attempts {
+				records = append(records, r.observationRecord(x, attempt.binding, canonical.PurposeCompaction, attempt.attempt))
+			}
+			if err := r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &summaryBinding.Provider, records...); err != nil {
+				return err
+			}
+			hideCompacting()
+			if _, err := r.readableCheckpoint(x, binding, route, state, true); err != nil {
+				return err
+			}
+			state, err := r.load(x.ctx, x.inv.Session.ID)
+			if err != nil {
+				return err
+			}
+			return r.compactWith(x, binding, route, state, manual, false)
+		}
 	}
 	system, err := handoff.Prepare(selection.Prefix, uint64(window), uint64(output), requestText, systemBytes)
 	if err != nil {
@@ -314,7 +382,127 @@ func (r *Runtime) compact(x *execution, binding model.Binding, route model.Route
 		}
 		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}
-	return r.compactSession(x, binding, route, r.saveCompaction(x, state, selection, manual, preserved, retainMedia, summaryID, summaryBinding, summary, stream.usage, attempts))
+	return r.compactSession(x, binding, route, save(summaryBinding, summary.Render(), compactedFiles(summary), plan.carry))
+}
+
+func compactedFiles(summary handoff.Summary) []canonical.CompactedFile {
+	var files []canonical.CompactedFile
+	for _, file := range summary.Files {
+		description := file.Summary
+		if file.KeyCode != nil {
+			description += "\n" + *file.KeyCode
+		}
+		files = append(files, canonical.CompactedFile{Path: file.Path, Summary: &description})
+	}
+	return files
+}
+
+// nativeCompaction asks the route to compact the summarized prefix itself.
+// ok is false when the route has no native compaction, rejected it or
+// returned nothing usable, and Sailry's own handoff should be written
+// instead; err ends the compaction as a failure the handoff would meet too.
+// A rejection of the feature is remembered for the route and model;
+// transient failures follow the retry rules and are not.
+func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route model.Route, state store.AgentState, selection handoff.Selection, requestText string, observe func(model.Attempt) error) (model.Compacted, bool, error) {
+	// A user's focus for a manual compaction is part of Sailry's handoff
+	// request; a provider's summary prompt would replace or drop it.
+	if route.Native == "" || requestText != handoff.Request {
+		return model.Compacted{}, false, nil
+	}
+	key := binding.Provider.ID.String() + "\x00" + route.Native
+	if _, rejected := r.nativeRejected.Load(key); rejected {
+		return model.Compacted{}, false, nil
+	}
+	languageModel, err := r.model(x.ctx, binding)
+	if err != nil {
+		return model.Compacted{}, false, err
+	}
+	// The request is the main request over the records being replaced, so a
+	// provider that cached the conversation reads that prefix from its cache.
+	included := map[string]bool{}
+	for _, record := range selection.Prefix {
+		included[record.ID] = true
+	}
+	prefix := state
+	prefix.Records = nil
+	for _, record := range state.Records {
+		if included[record.ID] {
+			prefix.Records = append(prefix.Records, record)
+		}
+	}
+	request, err := r.mainRequest(x, binding, prefix, prompt.Instruction(x.inv.Session.Delegation != nil))
+	if err != nil {
+		return model.Compacted{}, false, err
+	}
+	call, err := model.BuildVisibleProjectedCall(binding, request)
+	if err != nil {
+		return model.Compacted{}, false, err
+	}
+	compacted, err := model.CompactNative(x.ctx, languageModel, binding, call, r.clock, observe)
+	switch {
+	case err == nil:
+		return compacted, true, nil
+	case errors.Is(err, model.ErrNativeUnsupported):
+		r.nativeRejected.Store(key, true)
+		return model.Compacted{}, false, nil
+	case errors.Is(err, model.ErrNativeUnusable):
+		return model.Compacted{}, false, nil
+	}
+	failure := model.Classify(err)
+	switch kind := failure.Kind; {
+	case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+		return model.Compacted{}, false, err
+	}
+	return model.Compacted{}, false, nil
+}
+
+// readableCheckpoint writes Sailry's readable handoff for the latest
+// checkpoint when it is an opaque window and the history is next read by
+// another route, or by Sailry itself when force is set. The new checkpoint
+// has the same boundary and keeps the window for its own route. written is
+// false when nothing needed it.
+func (r *Runtime) readableCheckpoint(x *execution, binding model.Binding, route model.Route, state store.AgentState, force bool) (bool, error) {
+	latest := -1
+	for i, record := range state.Records {
+		if record.Kind == "compaction" {
+			latest = i
+		}
+	}
+	if latest < 0 {
+		return false, nil
+	}
+	checkpoint, ok := state.Records[latest].Data.(*canonical.Compaction)
+	if !ok || checkpoint.Native == nil || checkpoint.Readable() || !force && model.ReplaysNative(binding, state.Records[latest]) {
+		return false, nil
+	}
+	// Without the opaque checkpoints, the history is what those checkpoints
+	// replaced: the latest readable handoff and everything after it.
+	records := slices.DeleteFunc(slices.Clone(state.Records), func(record canonical.Record) bool {
+		value, ok := record.Data.(*canonical.Compaction)
+		return record.Kind == "compaction" && ok && !value.Readable()
+	})
+	var previous *canonical.Record
+	for i := range records {
+		if records[i].Kind == "compaction" {
+			previous = &records[i]
+		}
+	}
+	visible := handoff.Visible(records)
+	cut := slices.IndexFunc(visible, func(record canonical.Record) bool { return record.ID == checkpoint.Boundary })
+	boundary := slices.IndexFunc(records, func(record canonical.Record) bool { return record.ID == checkpoint.Boundary })
+	if cut < 0 || boundary < 0 {
+		return false, &model.Failure{Kind: model.InvalidRequest, Message: "compacted history has no readable boundary"}
+	}
+	selection := handoff.Selection{Prefix: slices.Clone(visible[:cut+1]), Tail: slices.Clone(visible[cut+1:]), Boundary: records[boundary]}
+	if previous != nil && selection.Prefix[0].ID == previous.ID {
+		if message := selection.Prefix[0].Message(); message != nil {
+			summary := *previous.Data.(*canonical.Compaction)
+			summary.Summary = *message
+			selection.Prefix[0].Kind, selection.Prefix[0].Data = "compaction", &summary
+		}
+	}
+	window := route.ReplayWindow(capturedModel(binding).Context)
+	return true, r.summarize(x, binding, route, state, compactionPlan{selection: selection, window: window, carry: checkpoint.Native})
 }
 
 // compactSession follows a saved handoff on an agent session that holds the
@@ -494,23 +682,20 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 	return summary, true, nil
 }
 
-// saveCompaction records a parsed handoff as the conversation's checkpoint.
-func (r *Runtime) saveCompaction(x *execution, state store.AgentState, selection handoff.Selection, manual bool, preserved *canonical.Record, retainMedia bool, summaryID string, summaryBinding model.Binding, summary handoff.Summary, usage canonical.Usage, attempts compactionAttempts) error {
-	rendered := summary.Render()
+// saveCompaction records a handoff as the conversation's checkpoint. rendered
+// is empty for an opaque native window, which has no readable text yet.
+func (r *Runtime) saveCompaction(x *execution, state store.AgentState, plan compactionPlan, summaryID string, summaryBinding model.Binding, rendered string, files []canonical.CompactedFile, native *canonical.NativeCompaction, usage canonical.Usage, attempts compactionAttempts) error {
+	selection, manual, preserved, retainMedia := plan.selection, plan.manual, plan.preserved, plan.retainMedia
 	boundary := selection.Boundary
-	message := canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
+	message := canonical.NewMessage(canonical.User)
+	if strings.TrimSpace(rendered) != "" {
+		message = canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
+	}
 	message.Model = &summaryBinding.Config.Model
 	message.Usage = &usage
 	// The last summary attempt is billed on the summary; earlier attempts retain
 	// their independent observations.
-	compacted := canonical.Compaction{Boundary: boundary.ID, Summary: message, Start: state.Records[0].Created, End: boundary.Created}
-	for _, file := range summary.Files {
-		description := file.Summary
-		if file.KeyCode != nil {
-			description += "\n" + *file.KeyCode
-		}
-		compacted.Files = append(compacted.Files, canonical.CompactedFile{Path: file.Path, Summary: &description})
-	}
+	compacted := canonical.Compaction{Boundary: boundary.ID, Summary: message, Start: state.Records[0].Created, End: boundary.Created, Files: files, Native: native}
 	record := canonical.NewRecord(x.inv.Run.Turn, "compaction", &compacted, r.clock.Now())
 	record.ID = summaryID
 	record.Provenance.Author = "system"

@@ -678,6 +678,43 @@ authorization failures, exhausted retries and cancellation end the compaction
 as before. The transcript request runs at the model's lowest
 effort from low upward, or its lowest offered effort when nothing reaches low.
 
+Native compaction is a method of the route the model factory constructs, not
+a separate trigger. Sailry keeps one threshold and its overflow recovery and
+picks the retained tail as above. A route whose protocol compacts on its own
+is asked first, with the main request over the records being replaced. The
+compacted checkpoint is projected in their place, followed by the tail.
+Anthropic Messages routes, both API key and Claude account, send that request
+with the on-demand `compaction: {type: "summarize"}` parameter and the
+`compact-2026-09-04` beta header, without context editing, stop sequences, a
+forced tool or structured output. They store the returned block's readable
+`content` as the handoff. OpenAI Responses routes, including the ChatGPT
+account route, post the model, input, instructions and cache key to the
+stateless `/responses/compact` instead of using the server's automatic
+threshold. They store the returned window, the retained user messages and one
+encrypted compaction item, without readable text. Other HTTP protocols,
+package translations and agent programs have no native method. Agent programs
+keep the in-place handoff and `/compact` described above. A manual compaction
+with the user's focus, or an overflow recovery, uses Sailry's handoff.
+
+The native items are replayed unchanged only to the provider, protocol and
+model that produced them, as with private reasoning. Each Messages request
+that carries the block repeats the beta header. Any other route reads the
+handoff text. A Responses window has none, so Sailry writes it with the
+transcript request when the history is next sent to another route, or when
+Sailry itself must summarize over it. That handoff becomes a new checkpoint
+with the same boundary, and the producing route keeps the window. Until then,
+the compaction entry shows no summary text. A history that stays on its model
+pays one compaction call; a switch adds the transcript request.
+
+A rejected endpoint, parameter, content type or beta flag (HTTP 400 or 422
+naming it, or 404) falls back to Sailry's handoff. It is remembered for that
+provider, protocol, endpoint and model while the Node runs. A refused or empty
+summary falls back without being remembered. Transient failures follow the
+retry rules, and rate limits, authorization failures, exhausted retries and
+cancellation end the compaction as for the in-place request. Native calls are
+observed and billed as compaction requests; Messages usage sums the reported
+`usage.iterations`.
+
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.
 Hidden history is filtered before materialization. In ordinary main requests,

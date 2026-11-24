@@ -417,6 +417,13 @@ func (r *Runtime) turn(x *execution) error {
 		if err != nil {
 			return err
 		}
+		// An opaque native window reaches only the route that produced it;
+		// another route first gets Sailry's readable handoff of it.
+		if written, err := r.readableCheckpoint(x, binding, model.RouteOf(languageModel, inv.Session.ID), state, false); err != nil {
+			return err
+		} else if written {
+			continue
+		}
 		if inv.Run.Kind == protocol.ConversationRunKindCompaction {
 			return r.compact(x, binding, model.RouteOf(languageModel, inv.Session.ID), state, true)
 		}

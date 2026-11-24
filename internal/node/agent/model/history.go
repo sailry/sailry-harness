@@ -82,6 +82,10 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	}
 	for _, record := range records {
 		record = request.audienceRecord(record)
+		if native, ok := nativeMessage(binding, record); ok {
+			call.Prompt = append(call.Prompt, native)
+			continue
+		}
 		message, background, err := record.ModelContent()
 		if err != nil {
 			return call, err

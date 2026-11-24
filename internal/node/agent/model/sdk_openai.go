@@ -300,6 +300,55 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 	emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: reason})
 }
 
+// compactResponses sends the history as `/responses/compact`, Sailry's choice
+// of when to compact instead of the server's automatic threshold. The
+// endpoint takes the window and its instructions but no tools; it is
+// stateless, so the request stays ZDR-friendly. The returned window, the
+// retained user messages followed by one encrypted compaction item, is the
+// next context as is; it carries no readable summary.
+func (model *sdkModel) compactResponses(ctx context.Context, body map[string]any, call fantasy.Call, emitter *sdkEmitter) {
+	request := map[string]any{"model": body["model"], "input": body["input"]}
+	for _, key := range []string{"instructions", "prompt_cache_key"} {
+		if value, ok := body[key]; ok {
+			request[key] = value
+		}
+	}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		emitter.fail(err)
+		return
+	}
+	service := responses.NewResponseService(model.openAIOptions(call)...)
+	response, err := service.Compact(ctx, responses.ResponseCompactParams{}, option.WithRequestBody("application/json", raw),
+		option.WithMiddleware(func(request *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			return next(withPreparedRequestObservation(request, raw))
+		}))
+	if err != nil {
+		emitter.fail(err)
+		return
+	}
+	value, err := decodeSDK(response.RawJSON())
+	if err != nil {
+		emitter.fail(err)
+		return
+	}
+	emitter.updateUsage(wireObject(value["usage"]), "responses")
+	output := wireArray(value["output"])
+	part := fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop}
+	for _, item := range output {
+		if object := wireObject(item); object["type"] == "compaction" && wireString(object["encrypted_content"]) != "" {
+			items, err := json.Marshal(output)
+			if err != nil {
+				emitter.fail(err)
+				return
+			}
+			part.ProviderMetadata = fantasy.ProviderMetadata{nativeCompactionKey: &nativeOutput{Items: items}}
+			break
+		}
+	}
+	emitter.emit(part)
+}
+
 type chatTool struct {
 	id, name, input   string
 	started, hasInput bool

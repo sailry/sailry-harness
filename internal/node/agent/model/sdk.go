@@ -292,6 +292,10 @@ func (model *sdkModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.S
 		case "google":
 			model.streamGoogle(context.WithValue(owner, sourceBodyKey{}, raw), body, call, emitter)
 		case "responses":
+			if nativeRequest(call) != nil {
+				model.compactResponses(owner, body, call, emitter)
+				return
+			}
 			model.streamResponses(owner, raw, call, emitter)
 		default:
 			model.streamChat(owner, raw, call, emitter)
@@ -508,8 +512,26 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 			emitter.usage.Reasoning = count
 		}
 	}
+	counts := value
+	if iterations := wireArray(merged["iterations"]); family == "anthropic" && len(iterations) > 0 {
+		// A request that compacts reports zero at the top level and its billed
+		// passes, the compaction among them, as iterations.
+		counts = map[string]any{}
+		for key := range keys {
+			var sum int64
+			found := false
+			for _, iteration := range iterations {
+				if count := wireInt(wireObject(iteration)[key]); count != nil {
+					sum, found = sum+*count, true
+				}
+			}
+			if found {
+				counts[key] = json.Number(fmt.Sprint(sum))
+			}
+		}
+	}
 	for key, target := range keys {
-		if count := wireInt(value[key]); count != nil {
+		if count := wireInt(counts[key]); count != nil {
 			*target = count
 		}
 	}
