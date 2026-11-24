@@ -80,9 +80,9 @@ func TestRolePresetSelection(t *testing.T) {
 			t.Fatalf("missing model guidance for %s", pr.key)
 		}
 	}
-	for i, key := range []string{"explore", "plan", "implement", "frontend", "test", "review", "troubleshoot"} {
+	for i, key := range []string{"plan", "implement", "test", "review"} {
 		selectPreset(i)
-		wantReadOnly := key == "explore" || key == "plan" || key == "review"
+		wantReadOnly := key == "plan" || key == "review"
 		if m.roleEdit.role.ReadOnly != wantReadOnly {
 			t.Fatalf("unexpected default permissions for %s: got %v, want %v", key, m.roleEdit.role.ReadOnly, wantReadOnly)
 		}
@@ -97,11 +97,13 @@ func TestRolePresetSelection(t *testing.T) {
 	if !ok {
 		t.Fatal("missing read-only switch")
 	}
+	// Last preset ("review") starts read-only; toggling makes it writable, and
+	// picking another read-only preset must not overwrite manual edits.
 	tt.ClickAt(toggle.Bounds.X+toggle.Bounds.W/2, toggle.Bounds.Y+toggle.Bounds.H/2)
 	settle()
 	m.roleEdit.role.Key = "custom"
-	selectPreset(2) // writable preset must not override manual read-only toggle
-	if m.roleEdit.role.Key != "custom" || !m.roleEdit.role.ReadOnly {
+	selectPreset(0)
+	if m.roleEdit.role.Key != "custom" || m.roleEdit.role.ReadOnly {
 		t.Fatal("selecting another preset replaced the custom key or permissions")
 	}
 

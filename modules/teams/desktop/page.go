@@ -64,13 +64,10 @@ type rolePreset struct {
 }
 
 var rolePresets = []rolePreset{
-	{"explore", "role_preset_explore", "role_explore_description", "role_prompt_explore", "role_model_hint_explore", true},
 	{"plan", "role_preset_plan", "role_plan_description", "role_prompt_plan", "role_model_hint_plan", true},
 	{"implement", "role_preset_implement", "role_implement_description", "role_prompt_implement", "role_model_hint_implement", false},
-	{"frontend", "role_preset_frontend", "role_frontend_description", "role_prompt_frontend", "role_model_hint_frontend", false},
 	{"test", "role_preset_test", "role_test_description", "role_prompt_test", "role_model_hint_test", false},
 	{"review", "role_preset_review", "role_review_description", "role_prompt_review", "role_model_hint_review", true},
-	{"troubleshoot", "role_preset_troubleshoot", "role_troubleshoot_description", "role_prompt_troubleshoot", "role_model_hint_troubleshoot", false},
 }
 
 // teamEditor edits a team: the Default team (default), a new one
@@ -102,7 +99,10 @@ func (e *roleEditor) modelHint() string {
 			return preset.modelHint
 		}
 	}
-	if e.role.Key == "research" {
+	switch e.role.Key {
+	case "explore":
+		return "role_model_hint_explore"
+	case "research":
 		return "role_model_hint_research"
 	}
 	return ""
