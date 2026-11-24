@@ -22,7 +22,11 @@ func fileNativeIdentity(file *os.File) (nativeFileIdentity, error) {
 		ReparseTag uint32
 	}
 	handle := windows.Handle(file.Fd())
-	if err := windows.GetFileInformationByHandleEx(handle, windows.FileAttributeTagInfo, (*byte)(unsafe.Pointer(&attributes)), uint32(unsafe.Sizeof(attributes))); err != nil {
+	err := windows.GetFileInformationByHandleEx(handle, windows.FileAttributeTagInfo, (*byte)(unsafe.Pointer(&attributes)), uint32(unsafe.Sizeof(attributes)))
+	if unsupportedFileInformation(err) {
+		return basicFileIdentity(handle)
+	}
+	if err != nil {
 		return nativeFileIdentity{}, fileIOFault(err)
 	}
 	if attributes.Attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -32,10 +36,45 @@ func fileNativeIdentity(file *os.File) (nativeFileIdentity, error) {
 		Volume uint64
 		File   [16]byte
 	}
-	if err := windows.GetFileInformationByHandleEx(handle, windows.FileIdInfo, (*byte)(unsafe.Pointer(&identity)), uint32(unsafe.Sizeof(identity))); err != nil {
+	err = windows.GetFileInformationByHandleEx(handle, windows.FileIdInfo, (*byte)(unsafe.Pointer(&identity)), uint32(unsafe.Sizeof(identity)))
+	if unsupportedFileInformation(err) {
+		return basicFileIdentity(handle)
+	}
+	if err != nil {
 		return nativeFileIdentity{}, fileIOFault(err)
 	}
 	return nativeFileIdentity(identity), nil
+}
+
+// unsupportedFileInformation reports an information class the file system
+// does not implement, as many SMB servers and the Windows NFS client answer
+// for FileIdInfo.
+func unsupportedFileInformation(err error) bool {
+	switch err {
+	case windows.ERROR_INVALID_PARAMETER, windows.ERROR_NOT_SUPPORTED, windows.ERROR_INVALID_FUNCTION, windows.ERROR_INVALID_LEVEL:
+		return true
+	}
+	return false
+}
+
+// basicFileIdentity is the identity every Windows file system reports: the
+// volume serial number and the 64-bit file index, with the same refusal of
+// reparse points. A file system answers one way, so its identities stay
+// comparable.
+func basicFileIdentity(handle windows.Handle) (nativeFileIdentity, error) {
+	var information windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &information); err != nil {
+		return nativeFileIdentity{}, fileIOFault(err)
+	}
+	if information.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return nativeFileIdentity{}, fileFault(protocol.ErrorCodeInvalidRequest, "filesystem reparse points are not allowed")
+	}
+	identity := nativeFileIdentity{Volume: uint64(information.VolumeSerialNumber)}
+	index := uint64(information.FileIndexHigh)<<32 | uint64(information.FileIndexLow)
+	for i := range 8 {
+		identity.File[i] = byte(index >> (8 * i))
+	}
+	return identity, nil
 }
 
 func regularFileFlags() int   { return os.O_RDONLY }
