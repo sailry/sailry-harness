@@ -15,6 +15,7 @@ import '../l10n/strings.dart';
 import 'json.dart';
 import 'background.dart';
 import 'ports.dart';
+import 'local_store.dart';
 import 'query_cache.dart';
 
 typedef CommandHandler =
@@ -183,9 +184,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (_closed) return;
       if (_persistCache) {
         cache ??= QueryCache(
-          directory: Directory(
-            '${File(profilePath).parent.path}${Platform.pathSeparator}query-cache',
-          ),
+          store: LocalStore.open(File(profilePath).parent.path),
         );
       }
       final demo = await _demoPreferences?.getBool(_demoEnabledKey) ?? false;
@@ -660,6 +659,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _away = true;
+      for (final host in _hosts) {
+        host.saveView();
+      }
       unawaited(cache?.flush());
       return;
     }
@@ -710,8 +712,12 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     ready = false;
     await background.close();
+    for (final host in _hosts) {
+      host.saveView();
+    }
     await _release();
     await cache?.close();
+    await cache?.store?.close();
   }
 
   Future<void> _release() async {
@@ -967,6 +973,35 @@ class HostConnection extends ChangeNotifier {
     );
   }
 
+  // A busy host sends views many times a second and each holds the whole
+  // catalog, so the stored copy follows at most every [_viewSaveInterval]
+  // and when the app leaves the foreground.
+  static const _viewSaveInterval = Duration(seconds: 30);
+  DateTime? _viewSaved;
+  (Map<String, dynamic>, String)? _unsavedView;
+
+  void _keepView(Map<String, dynamic> view, String raw) {
+    final now = DateTime.now();
+    final saved = _viewSaved;
+    if (saved == null || now.difference(saved) >= _viewSaveInterval) {
+      _viewSaved = now;
+      _unsavedView = null;
+      cache?.put('${cacheScope}view', view, raw: raw);
+    } else {
+      _unsavedView = (view, raw);
+      cache?.put('${cacheScope}view', view, size: raw.length);
+    }
+  }
+
+  /// Stores the newest confirmed view now, for example before suspension.
+  void saveView() {
+    final unsaved = _unsavedView;
+    if (unsaved == null || _closed) return;
+    _unsavedView = null;
+    _viewSaved = DateTime.now();
+    cache?.put('${cacheScope}view', unsaved.$1, raw: unsaved.$2);
+  }
+
   void _rememberAddress() {
     if (!isDemo) cache?.put('${cacheScope}address', address, raw: address);
   }
@@ -985,6 +1020,7 @@ class HostConnection extends ChangeNotifier {
     if (current != null && current[0] == stamp && current[1] == text) return;
     _previews[session] = [stamp, text];
     if (!isDemo) {
+      unawaited(cache?.index(cacheScope, session, 'preview', [text]));
       cache?.put(
         '${cacheScope}previews',
         _previews,
@@ -1051,7 +1087,7 @@ class HostConnection extends ChangeNotifier {
           _applyDirectorySnapshot();
           // Only a confirmed view is worth showing at the next start.
           if (connected && !isDemo && view['snapshot'] != null) {
-            cache?.put('${cacheScope}view', view, raw: raw);
+            _keepView(view, raw);
           }
         }
         notifyListeners();

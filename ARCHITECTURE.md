@@ -1289,7 +1289,10 @@ and stay listed beside the demo, including when the demo is the saved selection;
 the demo never changes their trust records. Mobile pages read a local query
 cache before their live observations: the last confirmed host view, message
 previews and recently opened transcripts render at once, then the Client's
-observation replaces them. Cached content never reports a connection or enables
+observation replaces them. The cache keeps decoded values in memory and stores
+them in a local SQLite database through drift, with an FTS5 trigram index of
+the message text it has seen, so the conversation list also searches content
+while hosts are offline. Cached content never reports a connection or enables
 writes. Forgetting a host or losing access to it drops its cached scope. The demo remains selectable but
 never joins the live conversation or project catalog. Mobile keeps one host,
 project and worktree selection for its top-level pages. Changing hosts clears the project scope; choosing a project on

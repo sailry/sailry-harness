@@ -65,6 +65,7 @@ class ConversationTask extends StatefulWidget {
     required this.project,
     required this.now,
     required this.admitPreview,
+    this.match,
     this.divider = true,
   });
   final HostConnection host;
@@ -75,6 +76,9 @@ class ConversationTask extends StatefulWidget {
   /// Shared page clock so row times and list sections agree.
   final DateTime now;
   final bool divider;
+
+  /// Message text matching an offline search, shown in place of the preview.
+  final String? match;
 
   final bool Function() admitPreview;
 
@@ -202,7 +206,9 @@ class _ConversationTaskState extends State<ConversationTask> {
     return TaskRow(
       icon: ProjectIcon(project: widget.project, size: 26),
       title: title(session, translate: context.tr),
-      preview: _preview?.isNotEmpty == true
+      preview: widget.match != null
+          ? widget.match!
+          : _preview?.isNotEmpty == true
           ? _preview!
           : _failed
           ? context.tr('conversationPreviewUnavailable')

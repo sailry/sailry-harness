@@ -163,3 +163,34 @@ String citedText(
   }
   return result.toString();
 }
+
+/// Each message's text for the offline search index, newest last, limited
+/// to [budget] characters in total so one long reply cannot crowd out a page.
+List<String> messageBodies(
+  List<Map<String, dynamic>> entries, {
+  int budget = 256 * 1024,
+}) {
+  final bodies = <String>[];
+  for (final entry in entries.reversed) {
+    final body = [
+      for (final part in objects(entry['parts']))
+        if (part['kind'] == 'text') text(part['data']),
+    ].join('\n').trim();
+    if (body.isEmpty) continue;
+    if (body.length > budget) {
+      bodies.add(body.substring(0, budget));
+      break;
+    }
+    budget -= body.length;
+    bodies.add(body);
+  }
+  return bodies.reversed.toList();
+}
+
+/// A short single-line excerpt of [body] around the first match of [query].
+String searchExcerpt(String body, String query, {int before = 16}) {
+  final flat = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+  final at = flat.toLowerCase().indexOf(query.trim().toLowerCase());
+  if (at <= before) return flat;
+  return '…${flat.substring(at - before)}';
+}

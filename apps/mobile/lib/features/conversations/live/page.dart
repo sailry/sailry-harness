@@ -211,13 +211,24 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   /// the page closes or the app is suspended.
   void _keep({required bool persist}) {
     final payload = _payload;
-    if (payload == null || _ownerEnded || _cached) return;
-    widget.host.cache?.put(
+    final cache = widget.host.cache;
+    if (payload == null || _ownerEnded || _cached || cache == null) return;
+    cache.put(
       _cacheKey,
       _transcript,
       raw: persist ? payload : null,
       size: payload.length,
     );
+    if (persist) {
+      unawaited(
+        cache.index(
+          widget.host.cacheScope,
+          widget.sessionId,
+          'transcript',
+          messageBodies(objects(_page['entries'])),
+        ),
+      );
+    }
   }
 
   @override
@@ -311,7 +322,15 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _ownerEnded = true;
     _payload = null;
     _cached = false;
-    unawaited(widget.host.cache?.removeScope(_cacheKey));
+    final cache = widget.host.cache;
+    if (cache != null) {
+      unawaited(cache.removeScope(_cacheKey));
+      for (final source in const ['preview', 'transcript']) {
+        unawaited(
+          cache.index(widget.host.cacheScope, widget.sessionId, source, []),
+        );
+      }
+    }
     _error = fault;
     _returnOffset = null;
     _discardView();

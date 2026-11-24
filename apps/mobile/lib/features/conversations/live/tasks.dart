@@ -18,6 +18,7 @@ import '../../resources/workspace.dart';
 import '../../terminal/terminal_page.dart';
 import 'create.dart';
 import 'host_status_bar.dart';
+import 'message_data.dart' show searchExcerpt;
 import 'task.dart';
 import 'presentation.dart';
 import 'project_bar.dart';
@@ -44,6 +45,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   late String _filter = widget.initialFilter;
   String _search = '';
   bool _searching = false;
+
+  /// Sessions whose locally indexed messages contain the search, with the
+  /// text that matched, so a search also finds content while offline.
+  Map<(String, String), String> _contentMatches = const {};
+  int _contentQuery = 0;
+  StreamSubscription<void>? _indexChanges;
   Timer? _clock;
   ModalRoute<dynamic>? _route;
   Animation<double>? _cover;
@@ -110,8 +117,57 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     });
   }
 
+  void _setSearching(bool searching) {
+    _updateControls(() {
+      _searching = searching;
+      if (!searching) {
+        _search = '';
+        _contentMatches = const {};
+      }
+    });
+    _contentQuery++;
+    unawaited(_indexChanges?.cancel());
+    _indexChanges = searching
+        ? widget.session.cache?.searchChanges.listen((_) => _searchContent())
+        : null;
+  }
+
+  void _searchContent() {
+    final cache = widget.session.cache;
+    final query = _search.trim();
+    final request = ++_contentQuery;
+    if (cache == null || query.isEmpty) {
+      if (_contentMatches.isNotEmpty) {
+        _updateControls(() => _contentMatches = const {});
+      }
+      return;
+    }
+    cache
+        .search(query)
+        .then(
+          (hits) {
+            if (!mounted || request != _contentQuery) return;
+            final matches = <(String, String), String>{};
+            for (final hit in hits) {
+              final host = hostIdFromScope(hit.scope);
+              if (host == null) continue;
+              matches.putIfAbsent((
+                host,
+                hit.session,
+              ), () => searchExcerpt(hit.body, query));
+            }
+            _updateControls(() => _contentMatches = matches);
+          },
+          onError: (Object error) {
+            debugPrint('Offline search unavailable: $error');
+          },
+        );
+  }
+
   @override
   void dispose() {
+    _contentQuery++;
+    unawaited(_indexChanges?.cancel());
     _clock?.cancel();
     widget.session.removeListener(_changed);
     _cover?.removeStatusListener(_uncovered);
@@ -284,10 +340,11 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             (_filter == 'all' ||
                 _filter == 'archived' ||
                 laneOf(session) == _filter) &&
-            title(
-              session,
-              translate: context.tr,
-            ).toLowerCase().contains(_search.toLowerCase()))
+            (title(
+                  session,
+                  translate: context.tr,
+                ).toLowerCase().contains(_search.toLowerCase()) ||
+                _contentMatches.containsKey((host.id, session['id']))))
           (host, session),
     ];
     final now = DateTime.now();
@@ -341,7 +398,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 child: AppIcon('search'),
               ),
             ),
-            onChanged: (value) => _updateControls(() => _search = value),
+            onChanged: (value) {
+              _updateControls(() => _search = value);
+              _searchContent();
+            },
           ),
           const SizedBox(height: 16),
         ],
@@ -519,10 +579,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           RoundButton(
             icon: _searching ? 'close' : 'search',
             tooltip: context.tr('searchTasks'),
-            onPressed: () => _updateControls(() {
-              _searching = !_searching;
-              if (!_searching) _search = '';
-            }),
+            onPressed: () => _setSearching(!_searching),
           ),
         if (creationHost?.connected == true) ...[
           RoundButton(
@@ -609,6 +666,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         lane: lane,
         now: now,
         admitPreview: _admitPreview,
+        match: _searching ? _contentMatches[(host.id, session['id'])] : null,
         divider: divider,
         project:
             objects(host.snapshot['projects'])

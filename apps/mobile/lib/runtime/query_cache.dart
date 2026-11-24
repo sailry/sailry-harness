@@ -1,8 +1,10 @@
 import 'dart:async';
-
 import 'dart:convert';
-import 'dart:io';
 import 'dart:isolate';
+
+import 'package:flutter/foundation.dart';
+
+import 'local_store.dart';
 
 /// The data layer between pages and host connections.
 ///
@@ -13,18 +15,19 @@ import 'dart:isolate';
 ///
 /// Values are host projections, not authoritative state: a cached view never
 /// enables a write until its live observation confirms the connection.
-/// Persisted entries survive restarts within [diskBudget]; removing a host or
-/// losing access to it drops its whole scope from memory and disk.
+/// Recently used values stay decoded in memory within [memoryBudget]; entries
+/// written with their encoded form persist in [store] within [diskBudget].
+/// Removing a host or losing access to it drops its whole scope.
 class QueryCache {
   QueryCache({
-    this.directory,
+    this.store,
     this.memoryBudget = 32 * 1024 * 1024,
     this.diskBudget = 64 * 1024 * 1024,
     this.writeDelay = const Duration(seconds: 2),
   });
 
-  /// Where persisted entries live; null keeps every entry in memory only.
-  final Directory? directory;
+  /// The local database; null keeps every entry in memory only.
+  final LocalStore? store;
   final int memoryBudget;
   final int diskBudget;
   final Duration writeDelay;
@@ -38,7 +41,7 @@ class QueryCache {
   Future<void> _writing = Future.value();
   bool _closed = false;
 
-  /// The value in memory, without touching disk or the network.
+  /// The value in memory, without touching the database or the network.
   T? peek<T>(String key) {
     final entry = _entries.remove(key);
     if (entry == null) return null;
@@ -48,36 +51,33 @@ class QueryCache {
     return value as T;
   }
 
-  /// The value's stamp, used by readers to decide whether it is current.
-  String? stamp(String key) => _entries[key]?.stamp;
-
-  /// The value in memory, else the persisted copy decoded off the UI thread.
+  /// The value in memory, else the stored copy decoded off the UI thread.
   Future<T?> read<T extends Object>(
     String key,
     T Function(String raw) decode,
   ) async {
     final cached = peek<T>(key);
     if (cached != null) return cached;
-    final file = _file(key);
-    if (file == null) return null;
+    final database = store;
+    if (database == null) return null;
     final loading = _loading[key];
     if (loading != null) return await loading as T?;
     final load = () async {
+      final raw = _pending[key] ?? await database.value(key);
+      if (raw == null) return null;
+      final T value;
       try {
-        final raw = await file.readAsString();
-        final value = await _decode(decode, raw);
-        // A newer live value or a removal wins over a slower disk read.
-        if (_closed || _removed.contains(key) || _entries.containsKey(key)) {
-          return peek<T>(key);
-        }
-        _store(key, _Entry(value, raw.length, null));
-        return value;
-      } on FileSystemException {
-        return null;
+        value = await _decode(decode, raw);
       } on FormatException {
-        await _delete(key);
+        await _forget(key);
         return null;
       }
+      // A newer live value or a removal wins over a slower read.
+      if (_closed || _removed.contains(key) || _entries.containsKey(key)) {
+        return peek<T>(key);
+      }
+      _store(key, _Entry(value, raw.length, null));
+      return value;
     }();
     _loading[key] = load;
     try {
@@ -96,13 +96,13 @@ class QueryCache {
     if (_closed) return;
     _removed.remove(key);
     _store(key, _Entry(value, raw?.length ?? size ?? 1024, stamp));
-    if (raw != null && directory != null) {
+    if (raw != null && store != null) {
       _pending[key] = raw;
       _writeTimer ??= Timer(writeDelay, () => unawaited(flush()));
     }
   }
 
-  /// Returns the cached value when [current] accepts it, else loads it once
+  /// Returns the cached value when its [stamp] matches, else loads it once
   /// for every concurrent caller and caches the result under [stamp].
   Future<T> fetch<T extends Object>(
     String key,
@@ -130,7 +130,7 @@ class QueryCache {
     return future;
   }
 
-  /// Every key below [prefix], from memory and disk.
+  /// Every key below [prefix], from memory and the database.
   Future<void> removeScope(String prefix) async {
     final keys = [
       ..._entries.keys.where((key) => key.startsWith(prefix)),
@@ -142,53 +142,53 @@ class QueryCache {
       final entry = _entries.remove(key);
       if (entry != null) _bytes -= entry.size;
     }
-    final root = directory;
-    if (root == null) return;
+    final database = store;
+    if (database == null) return;
     await _writing;
-    await for (final (file, key) in _files(root)) {
-      if (!key.startsWith(prefix)) continue;
-      try {
-        await file.delete();
-        final parent = file.parent;
-        if (await parent.list().isEmpty) await parent.delete();
-      } on FileSystemException {
-        // Already absent.
-      }
-    }
+    await database.removeScope(prefix);
   }
 
-  /// Keys below [prefix] that have a persisted copy.
-  Future<List<String>> persistedKeys(String prefix) async {
-    final root = directory;
-    if (root == null) return const [];
-    return [
-      await for (final (_, key) in _files(root))
-        if (key.startsWith(prefix)) key,
-    ];
+  /// Keys below [prefix] that have a stored copy.
+  Future<List<String>> persistedKeys(String prefix) async =>
+      await store?.keys(prefix) ?? const [];
+
+  /// Replaces the message text [source] contributed to the offline search
+  /// index for one session; an empty [bodies] removes it.
+  Future<void> index(
+    String scope,
+    String session,
+    String source,
+    List<String> bodies,
+  ) async {
+    if (_closed) return;
+    await store?.index(scope, session, source, bodies);
   }
+
+  /// Indexed sessions whose messages contain [query].
+  Future<List<({String scope, String session, String body})>> search(
+    String query,
+  ) async => await store?.search(query) ?? const [];
+
+  /// Emits after the search index changes.
+  Stream<void> get searchChanges =>
+      store?.changes(search: true) ?? const Stream.empty();
 
   /// Writes pending entries now, for example before the app is suspended.
   Future<void> flush() {
     _writeTimer?.cancel();
     _writeTimer = null;
-    final root = directory;
-    if (root == null || _pending.isEmpty) return _writing;
+    final database = store;
+    if (database == null || _pending.isEmpty) return _writing;
     final batch = Map.of(_pending);
     _pending.clear();
     return _writing = _writing.then((_) async {
+      batch.removeWhere((key, _) => _removed.contains(key));
       try {
-        for (final MapEntry(:key, :value) in batch.entries) {
-          if (_removed.contains(key)) continue;
-          final file = _file(key)!;
-          await file.parent.create(recursive: true);
-          final temporary = File('${file.path}.tmp');
-          await temporary.writeAsString(value, flush: true);
-          await temporary.rename(file.path);
-        }
-        await _trimDisk(root);
-      } on FileSystemException catch (error) {
+        await database.write(batch);
+        await database.trim(diskBudget);
+      } catch (error) {
         // A cache that cannot be written only costs the next cold start.
-        stderr.writeln('Query cache write failed: $error');
+        debugPrint('Local store write failed: $error');
       }
     });
   }
@@ -209,76 +209,9 @@ class QueryCache {
     }
   }
 
-  Future<void> _trimDisk(Directory root) async {
-    final files = <(File, FileStat)>[];
-    var total = 0;
-    await for (final (file, _) in _files(root)) {
-      final stat = await file.stat();
-      files.add((file, stat));
-      total += stat.size;
-    }
-    if (total <= diskBudget) return;
-    files.sort((a, b) => a.$2.modified.compareTo(b.$2.modified));
-    for (final (file, stat) in files) {
-      if (total <= diskBudget) break;
-      await file.delete();
-      total -= stat.size;
-    }
-  }
-
-  Future<void> _delete(String key) async {
-    try {
-      await _file(key)?.delete();
-    } on FileSystemException {
-      // Already absent.
-    }
-  }
-
-  // A key's scope, up to its first `/`, names a directory and the rest its
-  // file, which keeps each encoded name well under file name limits.
-  File? _file(String key) {
-    final root = directory;
-    if (root == null) return null;
-    final split = key.indexOf('/') + 1;
-    final separator = Platform.pathSeparator;
-    return File(
-      '${root.path}$separator${_name(key.substring(0, split))}'
-      '$separator${_name(key.substring(split))}',
-    );
-  }
-
-  /// Persisted entries with their keys; temporary and foreign files are skipped.
-  static Stream<(File, String)> _files(Directory root) async* {
-    try {
-      await for (final scope in root.list()) {
-        if (scope is! Directory) continue;
-        final prefix = _decodeName(
-          scope.uri.pathSegments.lastWhere((segment) => segment.isNotEmpty),
-        );
-        if (prefix == null) continue;
-        await for (final file in scope.list()) {
-          if (file is! File) continue;
-          final rest = _decodeName(file.uri.pathSegments.last);
-          if (rest != null) yield (file, '$prefix$rest');
-        }
-      }
-    } on FileSystemException {
-      return;
-    }
-  }
-
-  static String _name(String part) => part.isEmpty
-      ? '_'
-      : base64Url.encode(utf8.encode(part)).replaceAll('=', '');
-
-  static String? _decodeName(String name) {
-    if (name == '_') return '';
-    if (name.contains('.')) return null;
-    try {
-      return utf8.decode(base64Url.decode(base64Url.normalize(name)));
-    } on FormatException {
-      return null;
-    }
+  Future<void> _forget(String key) async {
+    _pending.remove(key);
+    await store?.removeScope(key);
   }
 }
 
