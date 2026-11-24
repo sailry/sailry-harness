@@ -152,10 +152,7 @@ class _ProviderRow extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final name = text(provider['name']);
     final count = models(provider).length;
-    final detail = [
-      endpointHost(text(provider['endpoint'])),
-      apiLabel(context, text(provider['api'])),
-    ].where((part) => part.isNotEmpty).join(' · ');
+    final detail = apiLabel(context, text(provider['api']));
     return Opacity(
       opacity: provider['enabled'] == false ? .45 : 1,
       child: InkWell(
@@ -185,8 +182,8 @@ class _ProviderRow extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      // No detail line when there is none (an account
-                      // login has no endpoint), so the name centers.
+                      // No protocol line when there is none, so the name
+                      // centers.
                       if (detail.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(

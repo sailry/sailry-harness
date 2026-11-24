@@ -91,39 +91,24 @@ class _ModelRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 13),
         child: Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          modelLabel(model),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 15),
-                        ),
-                      ),
-                      if (isDefault) ...[
-                        const SizedBox(width: 8),
-                        const DefaultTag(),
-                      ],
-                    ],
+                  Flexible(
+                    child: Text(
+                      modelLabel(model),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15),
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    text(model['id']),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: dimText(
-                      context,
-                      12,
-                    ).copyWith(fontFamily: 'monospace'),
-                  ),
+                  if (isDefault) ...[
+                    const SizedBox(width: 8),
+                    const DefaultTag(),
+                  ],
                 ],
               ),
             ),

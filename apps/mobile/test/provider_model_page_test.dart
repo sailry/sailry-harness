@@ -22,6 +22,9 @@ Map<String, dynamic> _provider(String authentication) => {
       'output': 16384,
       'tools': true,
       'generates': ['image_tool'],
+      'reasoning': true,
+      'efforts': ['low', 'high'],
+      'default_effort': 'low',
     },
   ],
 };
@@ -77,6 +80,43 @@ void main() {
     expect(saved['context'], 8192);
     expect(saved['output'], 8192);
     expect(find.byType(TextField), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('effort chips set the default, remove and add efforts', (
+    tester,
+  ) async {
+    final controller = await _showModel(tester);
+    Map saved() => (controller.provider['models'] as List).single as Map;
+    Future<void> tap(Finder finder) async {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.byKey(const ValueKey('effort-input')), findsNothing);
+    await tap(find.byKey(const ValueKey('effort-new')));
+    await tester.enterText(find.byKey(const ValueKey('effort-input')), '2048');
+    await tap(find.byKey(const ValueKey('effort-add')));
+    expect(saved()['efforts'], [
+      'low',
+      'high',
+      {'budget': 2048},
+    ]);
+    expect(find.byKey(const ValueKey('effort-input')), findsNothing);
+
+    await tap(find.text('2048'));
+    expect(saved()['default_effort'], {'budget': 2048});
+
+    await tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('effort-2048')),
+        matching: find.byTooltip('Delete'),
+      ),
+    );
+    expect(saved()['efforts'], ['low', 'high']);
+    expect(saved()['default_effort'], 'low');
+    expect(find.byKey(const ValueKey('effort-2048')), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
