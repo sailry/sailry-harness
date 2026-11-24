@@ -105,51 +105,18 @@ class SailryBindings {
         )
       >();
 
-  int sailry_open(
-    ffi.Pointer<
-      ffi.NativeFunction<
-        ffi.Void Function(
-          ffi.Uint64 request,
-          ffi.Pointer<ffi.Uint8> data,
-          ffi.Uint64 length,
-        )
-      >
-    >
-    callback,
-  ) {
-    return _sailry_open(callback);
+  int sailry_open(ffi.Pointer<ffi.Void> api, int port) {
+    return _sailry_open(api, port);
   }
 
   late final _sailry_openPtr =
       _lookup<
         ffi.NativeFunction<
-          ffi.Uint64 Function(
-            ffi.Pointer<
-              ffi.NativeFunction<
-                ffi.Void Function(
-                  ffi.Uint64 request,
-                  ffi.Pointer<ffi.Uint8> data,
-                  ffi.Uint64 length,
-                )
-              >
-            >,
-          )
+          ffi.Uint64 Function(ffi.Pointer<ffi.Void>, ffi.Int64)
         >
       >('sailry_open');
   late final _sailry_open = _sailry_openPtr
-      .asFunction<
-        int Function(
-          ffi.Pointer<
-            ffi.NativeFunction<
-              ffi.Void Function(
-                ffi.Uint64 request,
-                ffi.Pointer<ffi.Uint8> data,
-                ffi.Uint64 length,
-              )
-            >
-          >,
-        )
-      >();
+      .asFunction<int Function(ffi.Pointer<ffi.Void>, int)>();
 
   int sailry_subscribe(
     int bridge,

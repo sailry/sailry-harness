@@ -3,9 +3,9 @@
 
 #include <stdint.h>
 
-typedef void (*sailry_callback)(uint64_t request, uint8_t *data, uint64_t length);
-
-uint64_t sailry_open(sailry_callback callback);
+// Results arrive on the Dart port as [request, Uint8List] messages; `api` is
+// NativeApi.initializeApiDLData. A null message may probe the port's liveness.
+uint64_t sailry_open(void *api, int64_t port);
 uint64_t sailry_invoke(uint64_t bridge, uint64_t handle, const char *op,
                        const uint8_t *json, uint64_t length, uint64_t request,
                        uint8_t **immediate, uint64_t *immediate_length);

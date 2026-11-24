@@ -3,11 +3,34 @@
 package main
 
 /*
+#cgo CFLAGS: -I${SRCDIR}/dart
 #include <stdint.h>
 #include <stdlib.h>
-typedef void (*sailry_callback)(uint64_t request, uint8_t *data, uint64_t length);
-static inline void sailry_complete(sailry_callback callback, uint64_t request, uint8_t *data, uint64_t length) {
-	callback(request, data, length);
+#include "dart_api_dl.h"
+
+// Posts [request, bytes] to the bridge's port. Dart copies the bytes before
+// returning, and a port whose isolate has exited reports false instead of
+// running code that no longer exists.
+static inline int sailry_post(int64_t port, uint64_t request, uint8_t *data, uint64_t length) {
+	Dart_CObject id, bytes, message;
+	Dart_CObject *items[2] = {&id, &bytes};
+	id.type = Dart_CObject_kInt64;
+	id.value.as_int64 = (int64_t)request;
+	bytes.type = Dart_CObject_kTypedData;
+	bytes.value.as_typed_data.type = Dart_TypedData_kUint8;
+	bytes.value.as_typed_data.length = (intptr_t)length;
+	bytes.value.as_typed_data.values = data;
+	message.type = Dart_CObject_kArray;
+	message.value.as_array.length = 2;
+	message.value.as_array.values = items;
+	return Dart_PostCObject_DL(port, &message);
+}
+
+// Reports whether the port's isolate still receives messages.
+static inline int sailry_alive(int64_t port) {
+	Dart_CObject message;
+	message.type = Dart_CObject_kNull;
+	return Dart_PostCObject_DL(port, &message);
 }
 */
 import "C"
@@ -20,26 +43,55 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+type bridge struct {
+	runtime *mobile.Runtime
+	port    C.int64_t
+}
+
 var bridges = struct {
 	sync.Mutex
 	next   uint64
-	values map[uint64]*mobile.Runtime
-}{values: map[uint64]*mobile.Runtime{}}
+	values map[uint64]bridge
+}{values: map[uint64]bridge{}}
 
+// sailry_open starts a bridge whose results are posted to a Dart port.
+//
+// A Flutter engine can exit without closing its bridge, for example when
+// Android finishes the activity, while the process and this runtime live on.
+// Results for an exited isolate are dropped, and its runtime is closed when a
+// post fails or the next bridge opens, so its controller and connections do
+// not outlive their owner.
+//
 //export sailry_open
-func sailry_open(callback C.sailry_callback) C.uint64_t {
-	if callback == nil {
+func sailry_open(api unsafe.Pointer, port C.int64_t) C.uint64_t {
+	if api == nil || C.Dart_InitializeApiDL(api) != 0 {
 		return 0
 	}
-	runtime := mobile.New(func(request uint64, data []byte) {
-		buffer := C.CBytes(data)
-		C.sailry_complete(callback, C.uint64_t(request), (*C.uint8_t)(buffer), C.uint64_t(len(data)))
-	})
 	bridges.Lock()
 	bridges.next++
 	handle := bridges.next
-	bridges.values[handle] = runtime
+	var once sync.Once
+	orphaned := func() { once.Do(func() { go closeBridge(handle, 0) }) }
+	runtime := mobile.New(func(request uint64, data []byte) {
+		var bytes *C.uint8_t
+		if len(data) > 0 {
+			bytes = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+		}
+		if C.sailry_post(port, C.uint64_t(request), bytes, C.uint64_t(len(data))) == 0 {
+			orphaned()
+		}
+	})
+	var stale []uint64
+	for id, existing := range bridges.values {
+		if C.sailry_alive(existing.port) == 0 {
+			stale = append(stale, id)
+		}
+	}
+	bridges.values[handle] = bridge{runtime: runtime, port: port}
 	bridges.Unlock()
+	for _, id := range stale {
+		closeBridge(id, 0)
+	}
 	return C.uint64_t(handle)
 }
 
@@ -94,20 +146,24 @@ func sailry_free(data *C.uint8_t) {
 }
 
 //export sailry_close
-func sailry_close(bridge, request C.uint64_t) {
+func sailry_close(handle, request C.uint64_t) {
+	closeBridge(uint64(handle), uint64(request))
+}
+
+func closeBridge(handle, request uint64) {
 	bridges.Lock()
-	runtime := bridges.values[uint64(bridge)]
-	delete(bridges.values, uint64(bridge))
+	entry, found := bridges.values[handle]
+	delete(bridges.values, handle)
 	bridges.Unlock()
-	if runtime != nil {
-		go runtime.Close(uint64(request))
+	if found {
+		go entry.runtime.Close(request)
 	}
 }
 
 func getBridge(handle C.uint64_t) *mobile.Runtime {
 	bridges.Lock()
 	defer bridges.Unlock()
-	return bridges.values[uint64(handle)]
+	return bridges.values[uint64(handle)].runtime
 }
 
 func copyInput(data *C.uint8_t, length, limit C.uint64_t) ([]byte, bool) {

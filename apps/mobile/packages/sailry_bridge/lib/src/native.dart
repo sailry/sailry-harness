@@ -3,13 +3,12 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
 import 'bindings.g.dart';
 import 'envelope.dart';
-
-typedef _Completion = Void Function(Uint64, Pointer<Uint8>, Uint64);
 
 NativeBridge? _shared;
 
@@ -82,16 +81,22 @@ int nativeHandle(Object? value, String kind) {
 class NativeBridge {
   NativeBridge(DynamicLibrary? library) {
     bindings = SailryBindings(library ?? _library());
-    _callback = NativeCallable<_Completion>.listener(_complete);
-    identifier = bindings.sailry_open(_callback.nativeFunction);
+    // Results arrive as port messages rather than native callbacks: once this
+    // isolate exits, the native side's posts fail instead of calling code
+    // that no longer exists, and it closes the orphaned runtime.
+    _results.listen(_receive);
+    identifier = bindings.sailry_open(
+      NativeApi.initializeApiDLData,
+      _results.sendPort.nativePort,
+    );
     if (identifier == 0) {
-      _callback.close();
+      _results.close();
       throw StateError('native bridge could not be opened');
     }
   }
 
   late final SailryBindings bindings;
-  late final NativeCallable<_Completion> _callback;
+  final _results = ReceivePort('sailry bridge');
   late final int identifier;
   final Map<int, Completer<Object?>> _pending = {};
   final Set<int> _handles = {};
@@ -155,7 +160,10 @@ class NativeBridge {
             );
       if (immediate.value != nullptr) {
         try {
-          _resolve(request, _decode(immediate.value, immediateLength.value));
+          _resolve(
+            request,
+            _decode(immediate.value.asTypedList(immediateLength.value)),
+          );
         } finally {
           bindings.sailry_free(immediate.value);
         }
@@ -203,7 +211,9 @@ class NativeBridge {
       if (accepted != 0 || immediate.value == nullptr) {
         throw StateError('native synchronous result is unavailable');
       }
-      final result = _decode(immediate.value, immediateLength.value);
+      final result = _decode(
+        immediate.value.asTypedList(immediateLength.value),
+      );
       if (!result.ok) {
         throw result.error ??
             StateError('native operation failed without an error');
@@ -249,11 +259,18 @@ class NativeBridge {
     return _shutdown!.future;
   }
 
-  void _complete(int request, Pointer<Uint8> data, int length) async {
+  void _receive(Object? message) {
+    // A null message only probes that this port is alive.
+    if (message case [final int request, final Uint8List data]) {
+      unawaited(_complete(request, data));
+    }
+  }
+
+  Future<void> _complete(int request, Uint8List data) async {
     try {
-      final result = length < 32 * 1024
-          ? _decode(data, length)
-          : await _decodeLarge(data.address, length);
+      final result = data.length < 32 * 1024
+          ? _decode(data)
+          : await _decodeLarge(data);
       if (result.closed) {
         _finalCount = int.parse(result.count!);
       } else {
@@ -265,27 +282,26 @@ class NativeBridge {
         waiting.completeError(error, stack);
       }
     } finally {
-      bindings.sailry_free(data);
       _received++;
       _finishShutdown();
       if (_disposeRequested) _closeIfUnused();
     }
   }
 
-  // The native callback transfers ownership of its buffer until sailry_free.
-  // Only its address and length enter the worker; shutdown counts it after use.
-  static Future<CompletionEnvelope> _decodeLarge(int address, int length) =>
-      Isolate.run(() => _decode(Pointer<Uint8>.fromAddress(address), length));
+  // Static, so the worker closure captures only the bytes.
+  static Future<CompletionEnvelope> _decodeLarge(Uint8List data) =>
+      Isolate.run(() => _decode(data));
 
-  static CompletionEnvelope _decode(Pointer<Uint8> data, int length) {
-    if (length > 0 && data.value == 0) {
+  static CompletionEnvelope _decode(Uint8List data) {
+    // A leading zero byte marks a raw UTF-8 value rather than an envelope.
+    if (data.isNotEmpty && data[0] == 0) {
       return CompletionEnvelope(
         ok: true,
-        value: (data + 1).cast<Utf8>().toDartString(length: length - 1),
+        value: utf8.decode(Uint8List.sublistView(data, 1)),
       );
     }
     return CompletionEnvelope.fromJson(
-      jsonDecode(utf8.decode(data.asTypedList(length))) as Map<String, dynamic>,
+      jsonDecode(utf8.decode(data)) as Map<String, dynamic>,
     );
   }
 
@@ -316,7 +332,7 @@ class NativeBridge {
   void _finishShutdown() {
     if (_closed || _finalCount == null || _received != _finalCount) return;
     _closed = true;
-    _callback.close();
+    _results.close();
     for (final waiting in _pending.values) {
       if (!waiting.isCompleted) {
         waiting.completeError(StateError('native bridge is closed'));

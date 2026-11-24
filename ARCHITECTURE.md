@@ -99,7 +99,10 @@ plugins, providers and telemetry. Production startup belongs to the entry points
 Node uses MyGo's proxy-aware HTTP and headless terminal implementation. Terminal
 appearance also uses MyGo color values; Node creates no application, window or
 view. Desktop and Host use pure Go with purego native bindings. The Mobile C ABI
-is the cgo entry point. Flutter owns presentation, while shared Client code owns
+is the cgo entry point. It posts results to a Dart port through the Dart API DL
+rather than calling into Dart, so a Flutter engine that exits without closing its
+bridge, as when Android finishes the activity, drops later results; its runtime
+then closes when a post fails or the next bridge opens. Flutter owns presentation, while shared Client code owns
 conversation reduction, paging and transfer verification.
 
 ## Data and ownership
