@@ -216,7 +216,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       WidgetsBinding.instance.addObserver(this);
       ready = true;
       unawaited(refreshHosts(refreshConnections: false));
-    } catch (failure) {
+    } catch (failure, stack) {
+      debugPrint('Startup failed: $failure\n$stack');
       if (!_closed) error = failure;
       await _release();
     } finally {
