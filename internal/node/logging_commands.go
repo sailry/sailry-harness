@@ -328,7 +328,7 @@ func reportFault(span *logging.Span, kind string, original *protocol.Fault, plug
 	if f.Details != nil && f.Details.Kind == "model_request" {
 		if details, ok := dispatchPayload[protocol.FaultDetailsModelRequestPayload](f.Details.Data); ok {
 			switch details.Reason {
-			case protocol.ModelFailureRequest, protocol.ModelFailureUnauthorized, protocol.ModelFailureRateLimited:
+			case protocol.ModelFailureRequest, protocol.ModelFailureUnauthorized, protocol.ModelFailureRateLimited, protocol.ModelFailureQuota:
 				span.Set(slog.String("cause_category", string(details.Reason)))
 			}
 		}

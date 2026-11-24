@@ -2097,3 +2097,14 @@ func TestTurnOwners(t *testing.T) {
 		t.Fatalf("a run joined to a turn off the page is owned by %v", owners[orphan])
 	}
 }
+
+func TestBalanceFailureTitles(t *testing.T) {
+	t.Parallel()
+	request := protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "insufficient balance (HTTP 403)", Details: &protocol.FaultDetails{Kind: "model_request", Data: protocol.FaultDetailsModelRequestPayload{Reason: protocol.ModelFailureQuota}}}
+	exhausted := protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "insufficient balance (HTTP 403)", Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: protocol.ConversationRecoveryStopQuotaExceeded}}}
+	for _, fault := range []protocol.Fault{request, exhausted} {
+		if title := failureKey(fault); title != "chat_model_usage_exhausted" || i18n.In("zh-CN", title) == title {
+			t.Fatalf("balance failure title = %s", title)
+		}
+	}
+}

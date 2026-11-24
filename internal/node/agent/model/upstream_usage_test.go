@@ -51,7 +51,7 @@ func TestUpstreamUsageMissingClassification(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			failure := Classify(&fantasy.ProviderError{StatusCode: test.status, ErrorType: test.errorType, ResponseBody: []byte(test.body)})
-			if failure.Kind != test.kind || failure.Retryable() != (test.kind == Unavailable) || failure.status == nil || int(*failure.status) != test.status {
+			if failure.Kind != test.kind || failure.Retryable() != (test.kind == Unavailable || test.kind == Quota) || failure.status == nil || int(*failure.status) != test.status {
 				t.Fatalf("gateway failure classification changed its cause or HTTP facts: %+v", failure)
 			}
 		})

@@ -81,6 +81,8 @@ func failureKey(fault protocol.Fault) string {
 					return "chat_model_unauthorized"
 				case protocol.ModelFailureRateLimited:
 					return "chat_model_rate_limited"
+				case protocol.ModelFailureQuota:
+					return "chat_model_usage_exhausted"
 				case protocol.ModelFailureTimeout:
 					return "chat_response_timeout"
 				case protocol.ModelFailureInvalidResponse:

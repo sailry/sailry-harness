@@ -258,10 +258,13 @@ func (accumulator *pluginAccumulator) finish() ([]fantasy.StreamPart, error) {
 }
 
 func pluginClassified(value protocol.PluginModelAdapterWireDeltaErrorPayload, secrets []protocol.Secret) *Failure {
-	kind := Unavailable
+	kind, forbidden := Unavailable, false
 	switch value.Class {
-	case protocol.PluginModelAdapterWireClassAuthentication, protocol.PluginModelAdapterWireClassPermission:
+	case protocol.PluginModelAdapterWireClassAuthentication:
 		kind = Authentication
+	case protocol.PluginModelAdapterWireClassPermission:
+		// The adapter's 403: retried like a gateway's refusal, unlike a rejected key.
+		kind, forbidden = Authentication, true
 	case protocol.PluginModelAdapterWireClassRateLimited:
 		kind = RateLimited
 	case protocol.PluginModelAdapterWireClassQuota:
@@ -273,7 +276,7 @@ func pluginClassified(value protocol.PluginModelAdapterWireDeltaErrorPayload, se
 	case protocol.PluginModelAdapterWireClassUnsupported:
 		kind = Unsupported
 	}
-	failure := &Failure{Kind: kind, Message: safeDiagnostic(value.Message, secrets)}
+	failure := &Failure{Kind: kind, Message: safeDiagnostic(value.Message, secrets), forbidden: forbidden}
 	if value.RetryAfterMs != nil {
 		delay := *value.RetryAfterMs
 		failure.retryAfterMs = &delay
@@ -283,6 +286,6 @@ func pluginClassified(value protocol.PluginModelAdapterWireDeltaErrorPayload, se
 			failure.overloaded = true
 		}
 	}
-	failure.overloaded = failure.Retryable() && (failure.overloaded || kind == RateLimited)
+	failure.overloaded = failure.loadRetryable() && (failure.overloaded || kind == RateLimited)
 	return failure
 }

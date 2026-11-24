@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -495,5 +497,38 @@ func TestParentModelFailureDetachesOverlappingChild(t *testing.T) {
 		}
 	case <-f.ctx.Done():
 		t.Fatal("the detached child result was not delivered to a later turn")
+	}
+	// Retrying the failed turn, as the desktop does, resends its input. The
+	// retry sees the child's delivered result instead of delegating again.
+	runs := fmt.Sprintf("SELECT count(*) FROM agent_runs WHERE json_extract(body,'$.session')='%s'", turn.Session)
+	for f.readQuery(runs) < 2 || f.readQuery(runs+" AND json_extract(body,'$.status') IN ('queued','running')") != 0 {
+		select {
+		case <-f.ctx.Done():
+			t.Fatal("the delivery turn did not settle")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	var current protocol.Session
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		current, err = store.ReadSession(f.ctx, db, turn.Session)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	retry := protocol.DefaultConversationInput()
+	retry.Text = input.Message.Text
+	next := f.command("submit_turn", &protocol.CommandSubmitTurnPayload{Session: turn.Session, ExpectedRevision: current.Revision, Message: retry}).Data.(protocol.QueuedTurn).ID
+	f.waitRun(next, protocol.ConversationStatusCompleted)
+	select {
+	case request := <-integration:
+		if !strings.Contains(promptText(request), childAnswer) {
+			t.Fatal("the retried turn did not see the child result")
+		}
+	case <-f.ctx.Done():
+		t.Fatal("the retried turn made no model request")
+	}
+	if admitted := f.childTurns(); len(admitted) != 1 {
+		t.Fatalf("the retried turn delegated again: children=%d", len(admitted))
 	}
 }
