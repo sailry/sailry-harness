@@ -828,6 +828,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tool_load_skill => 'Load skill';
 
   @override
+  String get tool_set_session_title => 'Set session title';
+
+  @override
+  String get tool_list_sessions => 'Find sessions';
+
+  @override
+  String get tool_present_files => 'Deliver files';
+
+  @override
+  String get tool_read_session => 'Read session';
+
+  @override
+  String get tool_search_session => 'Search session';
+
+  @override
+  String get tool_tool_search => 'Find tools';
+
+  @override
+  String get tool_read_tool_output => 'Read tool output';
+
+  @override
+  String get tool_compact_context => 'Compact context';
+
+  @override
   String get tool_read_skill_resource => 'Read skill resource';
 
   @override

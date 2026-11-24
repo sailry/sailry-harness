@@ -841,6 +841,30 @@ class AppLocalizationsFr extends AppLocalizations {
   String get tool_load_skill => 'Capacité de chargement';
 
   @override
+  String get tool_set_session_title => 'Définir le titre de la session';
+
+  @override
+  String get tool_list_sessions => 'Rechercher des sessions';
+
+  @override
+  String get tool_present_files => 'Remettre des fichiers';
+
+  @override
+  String get tool_read_session => 'Lire la session';
+
+  @override
+  String get tool_search_session => 'Rechercher dans la session';
+
+  @override
+  String get tool_tool_search => 'Rechercher des outils';
+
+  @override
+  String get tool_read_tool_output => 'Lire la sortie de l’outil';
+
+  @override
+  String get tool_compact_context => 'Contexte compact';
+
+  @override
   String get tool_read_skill_resource => 'Lire la ressource de compétence';
 
   @override

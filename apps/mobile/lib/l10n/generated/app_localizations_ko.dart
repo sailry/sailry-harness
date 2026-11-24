@@ -812,6 +812,30 @@ class AppLocalizationsKo extends AppLocalizations {
   String get tool_load_skill => '스킬 로드';
 
   @override
+  String get tool_set_session_title => '세션 제목 설정';
+
+  @override
+  String get tool_list_sessions => '세션 찾기';
+
+  @override
+  String get tool_present_files => '파일 전달';
+
+  @override
+  String get tool_read_session => '세션 읽기';
+
+  @override
+  String get tool_search_session => '세션 검색';
+
+  @override
+  String get tool_tool_search => '도구 찾기';
+
+  @override
+  String get tool_read_tool_output => '도구 출력 읽기';
+
+  @override
+  String get tool_compact_context => '컴팩트 컨텍스트';
+
+  @override
   String get tool_read_skill_resource => '스킬 자원 읽기';
 
   @override

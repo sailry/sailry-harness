@@ -1680,6 +1680,54 @@ abstract class AppLocalizations {
   /// **'Load skill'**
   String get tool_load_skill;
 
+  /// No description provided for @tool_set_session_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Set session title'**
+  String get tool_set_session_title;
+
+  /// No description provided for @tool_list_sessions.
+  ///
+  /// In en, this message translates to:
+  /// **'Find sessions'**
+  String get tool_list_sessions;
+
+  /// No description provided for @tool_present_files.
+  ///
+  /// In en, this message translates to:
+  /// **'Deliver files'**
+  String get tool_present_files;
+
+  /// No description provided for @tool_read_session.
+  ///
+  /// In en, this message translates to:
+  /// **'Read session'**
+  String get tool_read_session;
+
+  /// No description provided for @tool_search_session.
+  ///
+  /// In en, this message translates to:
+  /// **'Search session'**
+  String get tool_search_session;
+
+  /// No description provided for @tool_tool_search.
+  ///
+  /// In en, this message translates to:
+  /// **'Find tools'**
+  String get tool_tool_search;
+
+  /// No description provided for @tool_read_tool_output.
+  ///
+  /// In en, this message translates to:
+  /// **'Read tool output'**
+  String get tool_read_tool_output;
+
+  /// No description provided for @tool_compact_context.
+  ///
+  /// In en, this message translates to:
+  /// **'Compact context'**
+  String get tool_compact_context;
+
   /// No description provided for @tool_read_skill_resource.
   ///
   /// In en, this message translates to:

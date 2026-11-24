@@ -833,6 +833,30 @@ class AppLocalizationsPt extends AppLocalizations {
   String get tool_load_skill => 'Habilidade de carga';
 
   @override
+  String get tool_set_session_title => 'Definir título da sessão';
+
+  @override
+  String get tool_list_sessions => 'Buscar conversas';
+
+  @override
+  String get tool_present_files => 'Entregar arquivos';
+
+  @override
+  String get tool_read_session => 'Ler conversa';
+
+  @override
+  String get tool_search_session => 'Pesquisar na conversa';
+
+  @override
+  String get tool_tool_search => 'Buscar ferramentas';
+
+  @override
+  String get tool_read_tool_output => 'Ler saída da ferramenta';
+
+  @override
+  String get tool_compact_context => 'Contexto compacto';
+
+  @override
   String get tool_read_skill_resource => 'Ler recurso de habilidade';
 
   @override

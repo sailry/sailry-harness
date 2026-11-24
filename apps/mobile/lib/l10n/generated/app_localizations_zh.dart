@@ -808,6 +808,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tool_load_skill => '加载技能';
 
   @override
+  String get tool_set_session_title => '设置会话标题';
+
+  @override
+  String get tool_list_sessions => '查找会话';
+
+  @override
+  String get tool_present_files => '交付文件';
+
+  @override
+  String get tool_read_session => '读取会话';
+
+  @override
+  String get tool_search_session => '搜索会话';
+
+  @override
+  String get tool_tool_search => '查找工具';
+
+  @override
+  String get tool_read_tool_output => '读取工具输出';
+
+  @override
+  String get tool_compact_context => '压缩上下文';
+
+  @override
   String get tool_read_skill_resource => '读取技能资源';
 
   @override
@@ -3115,6 +3139,30 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get tool_load_skill => '載入技能';
+
+  @override
+  String get tool_set_session_title => '設定會話標題';
+
+  @override
+  String get tool_list_sessions => '尋找會話';
+
+  @override
+  String get tool_present_files => '交付檔案';
+
+  @override
+  String get tool_read_session => '讀取會話';
+
+  @override
+  String get tool_search_session => '搜尋會話';
+
+  @override
+  String get tool_tool_search => '尋找工具';
+
+  @override
+  String get tool_read_tool_output => '讀取工具輸出';
+
+  @override
+  String get tool_compact_context => '壓縮上下文';
 
   @override
   String get tool_read_skill_resource => '讀取技能資源';

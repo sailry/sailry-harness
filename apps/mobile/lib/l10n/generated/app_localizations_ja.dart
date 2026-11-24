@@ -811,6 +811,30 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tool_load_skill => 'ロードスキル';
 
   @override
+  String get tool_set_session_title => 'セッションのタイトルを設定';
+
+  @override
+  String get tool_list_sessions => 'セッションを探す';
+
+  @override
+  String get tool_present_files => 'ファイルを渡す';
+
+  @override
+  String get tool_read_session => 'セッションを読む';
+
+  @override
+  String get tool_search_session => 'セッションを検索';
+
+  @override
+  String get tool_tool_search => 'ツールを検索';
+
+  @override
+  String get tool_read_tool_output => 'ツール出力を読む';
+
+  @override
+  String get tool_compact_context => 'コンパクト文脈';
+
+  @override
   String get tool_read_skill_resource => 'スキルリソースを読み込む';
 
   @override
