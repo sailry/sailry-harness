@@ -410,7 +410,7 @@ func TestForbiddenAndBalanceRetries(t *testing.T) {
 	providerPart := func(status int, body string) fantasy.StreamPart {
 		return fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: status, ResponseBody: []byte(body), ResponseHeaders: map[string]string{"Retry-After": "2"}}}
 	}
-	balance := providerPart(403, `{"error":{"message":"insufficient balance"}}`)
+	balance := providerPart(403, `{"error":{"code":"insufficient_balance","message":"insufficient balance"}}`)
 	t.Run("balance_recovers", func(t *testing.T) {
 		fake := &policyModel{responses: [][]fantasy.StreamPart{{balance}, {balance}, {balance}, {textPart("ok"), finishPart()}}}
 		timer := &policyClock{}
@@ -450,7 +450,8 @@ func TestForbiddenAndBalanceRetries(t *testing.T) {
 		if failure := Classify(err); fake.calls != MainRetries+1 || failure.Kind != Authentication || !failure.Exhausted {
 			t.Fatalf("forbidden exhaustion: calls=%d failure=%+v", fake.calls, failure)
 		}
-		if fault := Fault(err); fault.Details.Data.(protocol.FaultDetailsModelRecoveryPayload).Reason != protocol.ConversationRecoveryStopAttemptsExhausted {
+		// A message without a declared code is reported as the provider wrote it.
+		if fault := Fault(err); fault.Details.Data.(protocol.FaultDetailsModelRecoveryPayload).Reason != protocol.ConversationRecoveryStopAttemptsExhausted || !strings.Contains(fault.Message, "forbidden (HTTP 403)") {
 			t.Fatalf("forbidden exhaustion reason: %+v", fault)
 		}
 	})

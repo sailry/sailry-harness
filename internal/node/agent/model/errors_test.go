@@ -88,14 +88,12 @@ func TestBalanceAndPermissionClassification(t *testing.T) {
 		retryable bool
 		reason    protocol.ModelFailure
 	}{
-		{"403 insufficient balance message", 403, `{"error":{"message":"insufficient balance"}}`, Quota, true, protocol.ModelFailureQuota},
+		{"403 insufficient balance message", 403, `{"error":{"message":"insufficient balance"}}`, Authentication, true, protocol.ModelFailureRequest},
 		{"403 insufficient balance code", 403, `{"error":{"code":"insufficient_balance","message":"request denied"}}`, Quota, true, protocol.ModelFailureQuota},
-		{"403 localized balance", 403, `{"error":{"message":"账户余额不足"}}`, Quota, true, protocol.ModelFailureQuota},
-		{"403 credit balance", 403, `{"type":"error","error":{"type":"permission_error","message":"Your credit balance is too low"}}`, Quota, true, protocol.ModelFailureQuota},
+		{"403 localized message", 403, `{"error":{"message":"账户余额不足"}}`, Authentication, true, protocol.ModelFailureRequest},
 		{"402 payment required", 402, `{"error":{"message":"Payment Required"}}`, Quota, true, protocol.ModelFailureQuota},
-		{"stream insufficient balance", 200, `{"error":{"code":"api_error","message":"Insufficient Balance"}}`, Quota, true, protocol.ModelFailureQuota},
 		{"stream rate limit quota", 200, `{"error":{"code":"rate_limit_exceeded","message":"request quota per minute reached"}}`, RateLimited, true, protocol.ModelFailureRateLimited},
-		{"403 permission", 403, `{"error":{"code":"permission_denied","message":"You do not have access to this model"}}`, Authentication, true, protocol.ModelFailureUnauthorized},
+		{"403 permission", 403, `{"error":{"code":"permission_denied","message":"You do not have access to this model"}}`, Authentication, true, protocol.ModelFailureRequest},
 		{"403 invalid key with balance text", 403, `{"error":{"code":"invalid_api_key","message":"insufficient balance"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
 		{"401", 401, `{"error":{"message":"Unauthorized"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
 		{"401 quota text", 401, `{"error":{"message":"no quota for this key"}}`, Authentication, false, protocol.ModelFailureUnauthorized},

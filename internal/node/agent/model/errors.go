@@ -217,9 +217,10 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			strings.Contains(strings.ToLower(message), "input exceeds the context window"):
 			f.Kind = ContextOverflow
 		case !invalidKeyCode(code) && (status == 402 || containsCode(code, "insufficient_quota", "credits_exhausted", "billing_not_active", "quota_exceeded", "billing_hard_limit_reached", "insufficient_balance", "insufficient_credits", "payment_required") ||
-			strings.Contains(lower, "all available accounts exhausted") || (status == 403 || status < 300 && !rateLimitCode(code)) && balanceExhausted(message)):
-			// A spent balance is checked before the authentication rule, since
-			// gateways report it with 403 and it is not a credential failure.
+			strings.Contains(lower, "all available accounts exhausted")):
+			// A declared balance code is checked before the authentication
+			// rule, since gateways send it with 403. A refusal stated only in
+			// prose stays a 403 and is shown with the provider's own message.
 			f.Kind = Quota
 		case status == 401 || status == 403 || provider.AuthError || invalidKeyCode(code) || containsCode(code, "authentication_error", "unauthorized", "permission_denied"):
 			f.Kind = Authentication
@@ -266,18 +267,6 @@ func rateLimitCode(code string) bool {
 
 func invalidKeyCode(code string) bool {
 	return containsCode(code, "invalid_api_key", "invalid_authentication")
-}
-
-// balanceExhausted recognizes providers that state an empty balance or quota
-// only in the message.
-func balanceExhausted(message string) bool {
-	lower := strings.ToLower(message)
-	for _, phrase := range []string{"insufficient balance", "insufficient_balance", "insufficient account balance", "insufficient credits", "credit balance is too low", "out of credits", "quota", "余额不足", "额度不足"} {
-		if strings.Contains(lower, phrase) {
-			return true
-		}
-	}
-	return false
 }
 
 func contextOverflowCode(code string) bool {
@@ -383,7 +372,11 @@ func Fault(err error) *protocol.Fault {
 	reason := protocol.ModelFailureRequest
 	switch failure.Kind {
 	case Authentication:
-		reason = protocol.ModelFailureUnauthorized
+		// A 403 is not known to be a credential failure: its title stays
+		// generic and the provider's message says why.
+		if !failure.forbidden {
+			reason = protocol.ModelFailureUnauthorized
+		}
 	case RateLimited:
 		reason = protocol.ModelFailureRateLimited
 	case Quota:
