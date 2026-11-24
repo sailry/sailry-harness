@@ -57,3 +57,17 @@ func TestCatalogGroupsEditsApart(t *testing.T) {
 		}
 	}
 }
+
+// apply_patch asks for a fresh read only of files that changed since they
+// were read, never a reread of its own result.
+func TestApplyPatchDoesNotAskForRereads(t *testing.T) {
+	catalog, err := loadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range catalog.Tools {
+		if spec.Name == "apply_patch" && (strings.Contains(spec.Description, "Reread changed files") || !strings.Contains(spec.Description, "If a file changed since you read it")) {
+			t.Fatalf("apply_patch description: %q", spec.Description)
+		}
+	}
+}

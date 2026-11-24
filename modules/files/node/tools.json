@@ -3,7 +3,7 @@
     {
       "name": "list_directory",
       "legacy_package": "files",
-      "description": "List a directory in the session worktree. An empty path selects the root. Pass the returned cursor to read another page.",
+      "description": "List a directory. An empty path selects the worktree root. Pass the returned cursor to read another page.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -528,14 +528,14 @@
     {
       "name": "apply_patch",
       "legacy_package": "files",
-      "description": "Add, update, move or delete files under one approval. Prefer edit_file or write_file for a single-file edit.\n*** Begin Patch\n*** Add File: a\n+one\n*** Update File: b\n@@ anchor\n context\n-old\n+new\n*** Delete File: c\n*** End Patch\nPrefix added lines with +, including every line of a new file. Update context (space), removals (-) and optional @@ anchors must match the current file exactly at one location, including whitespace. An additions-only hunk inserts right after that line, or at EOF with bare @@. *** Move to: renames and creates missing directories. *** End of File anchors a hunk at EOF. Read every file you update, move or delete first. A prior write counts. Reread changed files. Up to 16 files are validated before anything is written, counting a moved and edited file twice. Validation failure rejects all with per-file reasons. Writes then proceed in order and stop on failure without rolling back earlier files. Each file reports applied, failed, unknown or not_attempted. Inspect an unknown file before retrying.",
+      "description": "Add, update, move or delete files under one approval. Prefer edit_file or write_file for a single-file edit.\n*** Begin Patch\n*** Add File: a\n+one\n*** Update File: b\n@@ anchor\n context\n-old\n+new\n*** Delete File: c\n*** End Patch\nPrefix added lines with +, including every line of a new file. Update context (space), removals (-) and optional @@ anchors must match the current file exactly at one location, including whitespace. An additions-only hunk inserts right after that line, or at EOF with bare @@. *** Move to: renames and creates missing directories. *** End of File anchors a hunk at EOF. Read every file you update, move or delete first. A prior write counts. If a file changed since you read it, read it again. Up to 16 files are validated before anything is written, counting a moved and edited file twice. Validation failure rejects all with per-file reasons. Writes then proceed in order and stop on failure without rolling back earlier files. Each file reports applied, failed, unknown or not_attempted. Inspect an unknown file before retrying.",
       "parameters": {
         "type": "object",
         "properties": {
           "input": {
             "type": "string",
             "minLength": 1,
-            "description": "The whole patch from *** Begin Patch to *** End Patch, with paths relative to the session worktree"
+            "description": "The whole patch from *** Begin Patch to *** End Patch, with paths relative to the session worktree; with Full permission, absolute paths may name files elsewhere on one volume"
           }
         },
         "required": [
@@ -787,7 +787,7 @@
     {
       "name": "move_file",
       "legacy_package": "files",
-      "description": "Move a regular file read in this conversation to another path in the same worktree, checking its revision. The destination parent must exist and the destination must be absent; never overwrite an existing entry. A conflict requires inspecting both paths before retrying.",
+      "description": "Move a regular file read in this conversation to another path in the same worktree, or with Full permission on the same volume, checking its revision. The destination parent must exist and the destination must be absent; never overwrite an existing entry. A conflict requires inspecting both paths before retrying.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -870,7 +870,7 @@
     {
       "name": "create_directory",
       "legacy_package": "files",
-      "description": "Create one directory in an existing parent within the session worktree. An existing directory is unchanged; an existing file or symbolic link is a conflict. Missing parents are not created automatically.",
+      "description": "Create one directory in an existing parent, within the session worktree unless Full permission names an absolute path. An existing directory is unchanged; an existing file or symbolic link is a conflict. Missing parents are not created automatically.",
       "parameters": {
         "type": "object",
         "properties": {
