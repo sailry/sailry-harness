@@ -829,20 +829,14 @@ func (s *State) modelRow(c *ui.Context, m, chosen Model) ui.Element {
 	return b
 }
 
-// carried is the effort a model is chosen at from its row, the one its
-// column checks: the effort chosen now where the model has one of its name,
-// which the chosen model does, else the model's default.
+// carried is the effort its column checks for a model: the chosen model's
+// current effort, else another model's first.
 func (s *State) carried(m, chosen Model) int {
-	list, now := efforts(m), efforts(chosen)
-	if len(list) == 0 {
+	list := efforts(m)
+	if len(list) == 0 || m.ID != chosen.ID {
 		return 0
 	}
-	if len(now) > 0 {
-		if i := slices.Index(list, now[min(max(int(*s.controlEffort()), 0), len(now)-1)]); i >= 0 {
-			return i
-		}
-	}
-	return defaultEffort(m)
+	return min(max(int(*s.controlEffort()), 0), len(list)-1)
 }
 
 // effortColumn is the efforts of a model under their heading, as high and as

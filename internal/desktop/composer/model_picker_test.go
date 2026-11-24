@@ -47,6 +47,10 @@ func TestModelPickerChoosesAtAClickedEffort(t *testing.T) {
 	if !tester.HasText("medium") {
 		t.Fatalf("the clicked model's efforts are missing: %q", tester.Texts())
 	}
+	// Another model's column starts at its first effort.
+	if first, ok := tester.AccessByRole(ui.RoleOption, "low"); !ok || !first.Selected {
+		t.Fatalf("the first effort is not checked: %+v", first)
+	}
 	click("medium")
 	if state.Model != "b" || state.Effort != 1 || state.layer != layerMain {
 		t.Fatalf("the effort chose model %q at %v, layer %v", state.Model, state.Effort, state.layer)
