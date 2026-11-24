@@ -965,8 +965,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             ? _retry
             : null;
         final actionStyle = IconButton.styleFrom(
-          fixedSize: const Size.square(36),
-          minimumSize: const Size.square(36),
+          fixedSize: const Size.square(40),
+          minimumSize: const Size.square(40),
           padding: EdgeInsets.zero,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         );
