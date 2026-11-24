@@ -78,7 +78,11 @@ func terminalFont(display preferences.Terminal) myterminal.Font {
 }
 
 func (r *Runtime) initTerminalActions() {
-	r.App.Sidebar.Actions.NewTerminal = func(project *viewmodel.Project) { r.newProjectTerminal(project, "") }
+	actions := r.App.Sidebar.Actions
+	actions.NewTerminal = func(project *viewmodel.Project) { r.newProjectTerminal(project, "") }
+	actions.Terminals = r.projectTerminals
+	actions.OpenTerminal = r.showWorkspaceTerminal
+	actions.CloseTerminal = r.closeLiveTerminal
 }
 
 // createLiveTerminal starts a shell in worktree on owner's Node and shows

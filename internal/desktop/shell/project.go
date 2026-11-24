@@ -34,10 +34,9 @@ type ProjectActions struct {
 	Controls func(*ui.Context)
 }
 
-// ProjectTerminal is a running terminal in one of a project's worktrees.
-type ProjectTerminal struct {
-	ID, Title, Path string
-}
+// ProjectTerminal is a running terminal in one of a project's worktrees, the
+// sidebar's row of it.
+type ProjectTerminal = sidebar.Terminal
 
 type projectOverview struct {
 	node, project string

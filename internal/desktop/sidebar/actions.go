@@ -40,6 +40,12 @@ type Actions struct {
 	OpenHost      func(string)
 	Overview      func(*viewmodel.Project)
 	NewTerminal   func(*viewmodel.Project)
+	// Terminals lists a project's running Node terminals, whichever
+	// controller started them, as rows under its sessions. OpenTerminal
+	// shows one as a main surface; CloseTerminal ends its shell.
+	Terminals     func(*viewmodel.Project) []Terminal
+	OpenTerminal  func(id string)
+	CloseTerminal func(id string)
 	// ProjectMenu fills the project menu's project_menu slot, after New
 	// session: the enabled packages' entries in their order, the bundled
 	// ones the application draws through TerminalItem and WorktreeMenu.

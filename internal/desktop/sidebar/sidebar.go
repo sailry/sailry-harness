@@ -436,6 +436,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 				s.limited(c, pr.Host+"/"+pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
 					s.conversation(c, cv, rowTree)
 				})
+				s.terminals(c, pr)
 			})
 		})
 	})
