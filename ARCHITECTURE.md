@@ -1134,8 +1134,10 @@ group. A selection the window falls back to after data changes adds no tab, and
 closing a tab leaves the session's tasks running. Main-workspace terminals keep
 passing and kept tabs; selecting a split-group tab restores its focused pane.
 An enlarged conversation retains its split slot and shares until restored.
-Terminal tabs opened in the right panel stay
-with that conversation and do not join splits. A terminal ID has one surface at a
+The right panel's tabs, shown tab and open state belong to the active pane:
+each conversation and each main terminal has its own, and a pane that never
+opened the panel shows it closed. Terminal tabs opened in the right panel stay
+with that pane and do not join splits. A terminal ID has one surface at a
 time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available through terminal activity.
 Explicitly closing a right-panel terminal stops its shell. Project overview lists

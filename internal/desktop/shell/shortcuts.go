@@ -237,7 +237,7 @@ func (a *App) run(c *ui.Context, id string) {
 	case "panel.toggle":
 		// The shortcut changes the layout choice even when the conversation's
 		// panel is not shown on this page. It never closes conversation tabs.
-		if !a.togglePageDetails() && a.Sidebar.Selected == a.panels.mounted {
+		if !a.togglePageDetails() && a.panelOwner() == a.panels.mounted {
 			a.PanelOpen = !a.PanelOpen
 		}
 	case "conversation.previous", "conversation.next":

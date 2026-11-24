@@ -730,7 +730,7 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 // togglePanel handles the header button. Closing a conversation's panel here
 // removes its tabs, unlike the keyboard layout toggle.
 func (a *App) togglePanel() {
-	if a.togglePageDetails() || a.Page != ConversationPage || a.Sidebar.Selected != a.panels.mounted {
+	if a.togglePageDetails() || a.Page != ConversationPage || a.panelOwner() != a.panels.mounted {
 		return
 	}
 	if a.PanelOpen {
@@ -786,7 +786,7 @@ func (a *App) pane(c *ui.Context, e ui.Element, ref *ui.Handle, closes bool, clo
 // panel for the next, or the panel itself with none left, the focus then
 // going back to the conversation.
 func (a *App) closeTab(c *ui.Context) {
-	if a.Page != ConversationPage || !a.PanelOpen || a.Sidebar.Selected != a.panels.mounted {
+	if a.Page != ConversationPage || !a.PanelOpen || a.panelOwner() != a.panels.mounted {
 		return
 	}
 	if a.Panel.Active != (panel.Tab{}) && a.Panel.Close(a.Panel.Active) {

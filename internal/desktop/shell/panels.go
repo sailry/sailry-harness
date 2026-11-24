@@ -5,16 +5,18 @@ import (
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 )
 
-// The right panel belongs to the conversation, as the reference's
-// session_scope/panels.rs: each conversation has its own tabs, its shown tab
-// and whether its column is open and how wide. The panel's State holds the
-// selected conversation's; the others wait here and come back with their
-// conversation. Files and diffs stay the project's (panel.State.Sync).
+// The right panel belongs to the pane it shows beside, as the reference's
+// session_scope/panels.rs: each conversation, and each main terminal pane,
+// has its own tabs, its shown tab and whether its column is open and how
+// wide. The panel's State holds the active pane's; the others wait here and
+// come back with their pane. Files and diffs stay the project's
+// (panel.State.Sync).
 
-// ConversationPanel is a conversation's panel while another conversation is
-// shown, and in the saved window state.
+// ConversationPanel is a pane's panel while another pane is shown, and in the
+// saved window state.
 type ConversationPanel struct {
 	Tabs   []panel.Tab `json:"tabs,omitempty"`
 	Active panel.Tab   `json:"active"`
@@ -25,10 +27,11 @@ type ConversationPanel struct {
 	project *panel.Project // mounted workspace, when known
 }
 
-// conversationPanels are the window's panels by conversation.
+// conversationPanels are the window's panels by owner: a conversation's ID,
+// or a main terminal pane's terminalPanel key.
 type conversationPanels struct {
-	// mounted is the conversation whose panel the State holds, "" before the
-	// first one.
+	// mounted is the owner whose panel the State holds, "" before the first
+	// one.
 	mounted   string
 	parked    map[string]*ConversationPanel
 	project   *panel.Project
@@ -37,7 +40,24 @@ type conversationPanels struct {
 	terminalCloses map[panel.Tab]string
 }
 
-// RevealConversationPanel shows the selected conversation's right panel.
+// terminalPanelPrefix marks the panel owner of a main terminal pane. A
+// session ID never starts with it.
+const terminalPanelPrefix = "terminal-pane/"
+
+// terminalPanel is the panel owner of main terminal pane id.
+func terminalPanel(id string) string { return terminalPanelPrefix + id }
+
+// panelOwner is the pane whose panel shows: the active main terminal pane's
+// own, or the selected conversation's. A terminal pane's column never borrows
+// the conversation selected before it.
+func (a *App) panelOwner() string {
+	if a.panes.Active.Kind == panes.Terminal {
+		return terminalPanel(a.panes.Active.ID)
+	}
+	return a.Sidebar.Selected
+}
+
+// RevealConversationPanel shows the active pane's right panel.
 // Explicit open actions call it before changing the mounted panel's tabs.
 func (a *App) RevealConversationPanel() {
 	a.MountPanel()
@@ -49,11 +69,10 @@ func (a *App) RevealConversationPanel() {
 	a.PanelOpen = true
 }
 
-// MountPanel gives the panel to the selected conversation: the tabs of the
-// one left are kept for its return, and the selected one's come back, or the
-// closed panel of a conversation that never opened it. The first conversation
-// takes what the window opened before it. A terminal has one tab in the
-// window: the one in the shown panel.
+// MountPanel gives the panel to the active pane: the tabs of the one left are
+// kept for its return, and the active one's come back, or the closed panel of
+// a pane that never opened it. The first pane takes what the window opened
+// before it. A terminal has one tab in the window: the one in the shown panel.
 func (a *App) MountPanel() {
 	p := &a.panels
 	if a.Panel.OnEmpty == nil {
@@ -61,7 +80,7 @@ func (a *App) MountPanel() {
 		a.Panel.SharedItem = a.sharedPanelItem
 		a.Panel.OnTerminalClose = a.noteTerminalClose
 	}
-	selected := a.Sidebar.Selected
+	selected := a.panelOwner()
 	if selected != p.mounted {
 		kept := p.parked[selected]
 		delete(p.parked, selected)
@@ -150,14 +169,17 @@ func (a *App) renamePanel(before, after string) {
 }
 
 // PanelConversations are the conversations that have a panel: the shown one
-// first, then the others in order.
+// first, then the others in order. A main terminal pane's panel is not a
+// conversation's: it leaves with its pane (DropWorkspaceTerminal).
 func (a *App) PanelConversations() []string {
 	var ids []string
 	for id := range a.panels.parked {
-		ids = append(ids, id)
+		if !strings.HasPrefix(id, terminalPanelPrefix) {
+			ids = append(ids, id)
+		}
 	}
 	slices.Sort(ids)
-	if a.panels.mounted != "" {
+	if a.panels.mounted != "" && !strings.HasPrefix(a.panels.mounted, terminalPanelPrefix) {
 		ids = append([]string{a.panels.mounted}, ids...)
 	}
 	return ids
@@ -186,14 +208,16 @@ func (a *App) ConversationActiveTab(id string) panel.Tab {
 	return panel.Tab{}
 }
 
-// AllPanelTabs are the panel tabs of every conversation, the shown one's
-// first.
+// AllPanelTabs are the panel tabs of every pane, the shown one's first.
 func (a *App) AllPanelTabs() []panel.Tab {
 	tabs := slices.Clone(a.Panel.Tabs)
-	for _, id := range a.PanelConversations() {
-		if id != a.panels.mounted {
-			tabs = append(tabs, a.panels.parked[id].Tabs...)
-		}
+	ids := make([]string, 0, len(a.panels.parked))
+	for id := range a.panels.parked {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		tabs = append(tabs, a.panels.parked[id].Tabs...)
 	}
 	return tabs
 }
@@ -281,6 +305,16 @@ func (a *App) DropPanel(id string) {
 	}
 }
 
+// dropTerminalPanel forgets main terminal pane id's panel with its surface.
+// The processes of its terminal tabs stay in their Node's inventory.
+func (a *App) dropTerminalPanel(id string) {
+	owner := terminalPanel(id)
+	a.DropPanel(owner)
+	if owner == a.panels.mounted {
+		a.PanelOpen = false
+	}
+}
+
 // savedPanels are the panels that come back after a relaunch: every
 // conversation's but the shown one's, which the window state's own fields
 // keep. A live window's unsent chats are not kept: their IDs do not outlive
@@ -305,6 +339,9 @@ func (a *App) savedPanels() map[string]ConversationPanel {
 
 // keepsPanel reports whether a conversation's panel is saved.
 func (a *App) keepsPanel(id string) bool {
+	if terminal, ok := strings.CutPrefix(id, terminalPanelPrefix); ok {
+		return a.HasWorkspaceTerminal(terminal)
+	}
 	return id != "" && (a.Preview || !strings.HasPrefix(id, "draft/"))
 }
 
