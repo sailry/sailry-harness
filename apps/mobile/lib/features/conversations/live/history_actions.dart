@@ -151,31 +151,6 @@ extension _HistoryActions on _LiveConversationPageState {
     }
   }
 
-  Future<void> _searchMessages() async {
-    final result = await pushPage<Map<String, dynamic>>(
-      context,
-      ConversationSearch(host: widget.host, session: widget.sessionId),
-    );
-    if (!mounted || result == null) return;
-    if (result['revision'] != _page['revision']) {
-      _failure(context.tr('messageSearchStale'));
-      return;
-    }
-    _reveal = (turn: text(result['turn']), revision: result['revision'] as int);
-    if (_transcript.containsTurn(_reveal!.turn)) {
-      _revealMessage();
-    } else {
-      try {
-        await _updates?.loadThrough(
-          sequence: BigInt.parse('${result['turn_sequence']}'),
-        );
-      } catch (failure) {
-        _reveal = null;
-        _failure(failure);
-      }
-    }
-  }
-
   void _revealMessage() {
     final target = _reveal;
     if (target == null) return;

@@ -15,7 +15,6 @@ import '../../resources/host/host_sheet.dart';
 import '../../resources/pair_form.dart';
 import '../../resources/project_form.dart';
 import '../../resources/workspace.dart';
-import '../../terminal/terminal_page.dart';
 import 'create.dart';
 import 'host_status_bar.dart';
 import 'message_data.dart' show searchExcerpt;
@@ -179,27 +178,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
 
   Future<void> _refresh() async {
     await widget.session.selectedHost?.refresh();
-  }
-
-  Future<void> _terminal() async {
-    final host = widget.session.selectedHost;
-    if (host == null || !host.connected) {
-      _error(context.tr('conversationNoHost'));
-      return;
-    }
-    final tree = await showLiveWorkspacePicker(
-      context,
-      host,
-      widget.session.selectedWorktreeId,
-      project: widget.session.selectedProjectId,
-    );
-    if (mounted && tree != null) {
-      widget.session.selectWorkspace(host.id, tree);
-      pushPage(
-        context,
-        TerminalPage(hostId: host.id, worktreeId: tree, createNew: true),
-      );
-    }
   }
 
   Future<void> _closeTerminal(
@@ -388,24 +366,15 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_searching) ...[
-          TextField(
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: context.tr('searchTasks'),
-              prefixIcon: const Padding(
-                padding: EdgeInsets.all(12),
-                child: AppIcon('search'),
-              ),
-            ),
-            onChanged: (value) {
-              _updateControls(() => _search = value);
-              _searchContent();
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
         ProjectBar(
+          searching: _searching,
+          onSearch: connected || hasCatalog || _searching
+              ? () => _setSearching(!_searching)
+              : null,
+          onQuery: (value) {
+            _updateControls(() => _search = value);
+            _searchContent();
+          },
           project: selectedProject,
           title: projectId == unassignedProject
               ? context.tr('unassignedChats')
@@ -474,11 +443,13 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           ),
         ),
         const SizedBox(height: 10),
-        if (taskFilters.contains(_filter))
+        if (taskFilters.contains(_filter) || _filter == 'archived')
           TaskFilters(
             selected: _filter,
             onSelected: (filter) => _updateControls(() => _filter = filter),
-            onArchive: () => _updateControls(() => _filter = 'archived'),
+            onArchive: () => _updateControls(
+              () => _filter = _filter == 'archived' ? 'all' : 'archived',
+            ),
           )
         else
           TaskScope(
@@ -575,24 +546,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               ),
             ),
           ),
-        if (connected || hasCatalog || _searching)
-          RoundButton(
-            icon: _searching ? 'close' : 'search',
-            tooltip: context.tr('searchTasks'),
-            onPressed: () => _setSearching(!_searching),
-          ),
-        if (creationHost?.connected == true) ...[
-          RoundButton(
-            icon: 'terminal',
-            tooltip: context.tr('newTerminal'),
-            onPressed: _terminal,
-          ),
+        if (creationHost?.connected == true)
           RoundButton(
             icon: 'plus',
             tooltip: context.tr('newConversation'),
             onPressed: _create,
           ),
-        ],
       ],
       empty: (connected || hasCatalog) && !hasRecords
           ? EmptyState(

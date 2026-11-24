@@ -9,6 +9,7 @@ import '../../ui/kit.dart';
 import '../../ui/project_icon.dart';
 import '../../ui/swipe_action.dart';
 import 'host/host_sheet.dart';
+import 'ports_page.dart';
 import 'project_form.dart';
 import 'resources_page.dart';
 
@@ -111,8 +112,18 @@ class ProjectsPage extends StatelessWidget {
                     enabled: source.connected,
                     endActionPane: ActionPane(
                       motion: const DrawerMotion(),
-                      extentRatio: .46,
+                      extentRatio: .66,
                       children: [
+                        SwipeAction(
+                          onPressed: source.connected
+                              ? (_) =>
+                                    pushPage(context, PortsPage(host: source))
+                              : null,
+                          color: colors.tertiaryContainer,
+                          foreground: colors.onTertiaryContainer,
+                          icon: Icons.lan_outlined,
+                          label: context.tr('ports'),
+                        ),
                         SwipeAction(
                           onPressed: (_) => _edit(context, source, project),
                           color: colors.secondaryContainer,

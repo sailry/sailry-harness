@@ -14,6 +14,9 @@ class ProjectBar extends StatelessWidget {
     this.title,
     this.leading,
     this.status,
+    this.onSearch,
+    this.searching = false,
+    this.onQuery,
   });
 
   /// Null selects every project.
@@ -34,6 +37,13 @@ class ProjectBar extends StatelessWidget {
   /// Shown before the chevron, such as a connection dot.
   final Widget? status;
 
+  /// Replaces the chevron with a search button that toggles [searching].
+  final VoidCallback? onSearch;
+
+  /// Shows a search field in the same bar instead of the project.
+  final bool searching;
+  final ValueChanged<String>? onQuery;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -45,10 +55,65 @@ class ProjectBar extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(fontSize: 15, color: colors.onSurface),
     );
+    final search = onSearch == null
+        ? null
+        : IconButton(
+            key: const ValueKey('project-bar-search'),
+            onPressed: onSearch,
+            tooltip: context.tr('searchTasks'),
+            visualDensity: VisualDensity.compact,
+            icon: AppIcon(
+              searching ? 'close' : 'search',
+              color: colors.onSurfaceVariant,
+            ),
+          );
+    if (searching) {
+      return Material(
+        color: colors.surfaceContainerHigh,
+        shape: const StadiumBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          height: 42,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
+            child: Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const AppIcon('search', size: 15),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    autofocus: true,
+                    onChanged: onQuery,
+                    style: TextStyle(fontSize: 15, color: colors.onSurface),
+                    decoration: InputDecoration.collapsed(
+                      hintText: context.tr('searchTasks'),
+                      hintStyle: TextStyle(
+                        fontSize: 15,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+                ?search,
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Semantics(
       button: onTap != null,
       label: detail == null ? name : '$name, $detail',
-      excludeSemantics: true,
+      excludeSemantics: search == null,
       child: Material(
         color: colors.surfaceContainerHigh,
         shape: const StadiumBorder(),
@@ -58,7 +123,7 @@ class ProjectBar extends StatelessWidget {
           child: SizedBox(
             height: 42,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 14, 0),
+              padding: EdgeInsets.fromLTRB(8, 0, search == null ? 14 : 4, 0),
               child: Row(
                 children: [
                   Container(
@@ -100,7 +165,9 @@ class ProjectBar extends StatelessWidget {
                     ),
                   ),
                   if (status != null) ...[const SizedBox(width: 8), status!],
-                  if (onTap != null) ...[
+                  if (search != null)
+                    search
+                  else if (onTap != null) ...[
                     const SizedBox(width: 8),
                     AppIcon('down', color: colors.onSurfaceVariant),
                   ],

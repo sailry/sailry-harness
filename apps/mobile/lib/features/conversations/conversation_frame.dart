@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../l10n/strings.dart';
+import '../../ui/kit.dart';
 import '../../ui/page_heading.dart';
 
 /// Conversation content scrolls behind the floating controls and themed fade.
@@ -6,13 +9,17 @@ class ConversationFrame extends StatelessWidget {
   const ConversationFrame({
     super.key,
     required this.title,
+    this.semanticTitle,
     this.leading,
     required this.actions,
     required this.bodyBuilder,
     required this.composer,
   });
 
-  final String title;
+  /// The heading beside the back control; null shows only a round back
+  /// button, and [semanticTitle] then names the page for accessibility.
+  final String? title;
+  final String? semanticTitle;
   final Widget? leading;
   final List<Widget> actions;
   final Widget Function(BuildContext context, double bottomInset) bodyBuilder;
@@ -106,9 +113,34 @@ class ConversationFrame extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(20, 19, 20, 8),
                         child: Row(
                           children: [
-                            if (ModalRoute.canPopOf(context) == true) ...[
+                            if (ModalRoute.canPopOf(context) == true &&
+                                title == null) ...[
+                              Semantics(
+                                label: semanticTitle,
+                                child: Surface(
+                                  key: const ValueKey('conversation-back'),
+                                  radius: 20,
+                                  padding: EdgeInsets.zero,
+                                  child: IconButton(
+                                    style: IconButton.styleFrom(
+                                      fixedSize: const Size.square(40),
+                                      minimumSize: const Size.square(40),
+                                      padding: EdgeInsets.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    icon: const AppIcon('back', size: 18),
+                                    tooltip: context.tr('back'),
+                                    onPressed: () =>
+                                        Navigator.maybePop(context),
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                            ] else if (ModalRoute.canPopOf(context) ==
+                                true) ...[
                               Expanded(
-                                child: PageHeading(title: title, size: 18),
+                                child: PageHeading(title: title!, size: 18),
                               ),
                               if (leading != null) ...[
                                 const SizedBox(width: 4),

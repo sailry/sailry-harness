@@ -1425,7 +1425,9 @@ void main() {
     current.notifyListeners();
     await tester.pump();
     expect(
-      tester.widget<ConversationFrame>(find.byType(ConversationFrame)).title,
+      tester
+          .widget<ConversationFrame>(find.byType(ConversationFrame))
+          .semanticTitle,
       'Own host update',
     );
     final beforeClose = tester.widget<ConversationFrame>(

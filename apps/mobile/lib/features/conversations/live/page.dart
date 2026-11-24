@@ -15,7 +15,6 @@ import '../../../ui/kit.dart';
 import '../../../ui/loading.dart';
 import '../../../ui/toast.dart';
 import '../../resources/resources_page.dart';
-import '../../resources/ports_page.dart';
 import '../message_composer.dart';
 import '../conversation_frame.dart';
 import 'activity_strip.dart';
@@ -23,7 +22,6 @@ import 'attention.dart';
 import 'attachments.dart';
 import 'configuration.dart';
 import 'connection_status.dart';
-import 'conversation_terminals.dart';
 import 'draft_attachments.dart';
 import 'glass_chip.dart' show ComposerChipRow;
 import 'turn_draft.dart';
@@ -38,7 +36,6 @@ import 'transcript_index.dart';
 import 'statistics.dart';
 import 'message_data.dart';
 import 'message_editor.dart';
-import 'search.dart';
 import 'session_links.dart';
 import 'turn_frame.dart';
 import '../../resources/artifact/submission.dart';
@@ -992,7 +989,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final hasBanner =
             _historyPending != null || _backup != null || _pendingSend != null;
         return ConversationFrame(
-          title: text(_session['title'], context.tr('chat')),
+          title: null,
+          semanticTitle: text(_session['title'], context.tr('chat')),
           actions: [
             Surface(
               key: const ValueKey('conversation-actions'),
@@ -1002,27 +1000,11 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
-                    key: const ValueKey('conversation-ports'),
-                    style: actionStyle,
-                    icon: const AppIcon('link', size: 18),
-                    tooltip: context.tr('ports'),
-                    onPressed: () => pushPage(
-                      context,
-                      PortsPage(host: widget.host, session: widget.sessionId),
-                    ),
-                  ),
-                  IconButton(
                     key: const ValueKey('conversation-info'),
                     style: actionStyle,
                     icon: const AppIcon('info', size: 18),
                     tooltip: context.tr('conversationStats'),
                     onPressed: _ownerEnded ? null : _showStatistics,
-                  ),
-                  IconButton(
-                    style: actionStyle,
-                    icon: const AppIcon('search', size: 18),
-                    tooltip: context.tr('messageSearch'),
-                    onPressed: connected ? _searchMessages : null,
                   ),
                   IconButton(
                     style: actionStyle,
@@ -1034,17 +1016,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                         hostId: widget.host.id,
                         worktreeId: _session['worktree'] as String,
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    key: const ValueKey('conversation-terminals'),
-                    style: actionStyle,
-                    icon: const AppIcon('terminal', size: 18),
-                    tooltip: context.tr('terminal'),
-                    onPressed: () => showConversationTerminals(
-                      context,
-                      widget.host,
-                      _session['worktree'] as String,
                     ),
                   ),
                   if (!delegated)

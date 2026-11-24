@@ -10,7 +10,6 @@ import 'package:sailry_mobile/features/conversations/live/terminal_tasks.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
-import 'package:sailry_mobile/features/terminal/terminal_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/catalog.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -326,7 +325,8 @@ void main() {
     tester.widget<TaskFilters>(find.byType(TaskFilters)).onArchive();
     await tester.pump();
     expect(find.text('second-conversation'), findsNothing);
-    await tester.tap(find.text('Back'));
+    // The archive button toggles back to the status tabs in place.
+    await tester.tap(find.byKey(const ValueKey('task-archive')));
     await tester.pump();
     session.selectHost(second.id);
     await tester.pump();
@@ -469,49 +469,6 @@ void main() {
     close.onPressed!(tester.element(find.byType(LiveTasksPage)));
     await tester.pump();
     expect(calls.last, 'close_terminal');
-    await release(tester, session);
-  });
-
-  testWidgets('terminal workspace choice follows and updates global context', (
-    tester,
-  ) async {
-    final first = source('first');
-    final second = source('second');
-    second.snapshot['worktrees'] = [
-      {
-        'id': 'second-tree',
-        'project': 'shared-id',
-        'path': '/second',
-        'main': true,
-      },
-      {'id': 'second-linked', 'project': 'shared-id', 'path': '/second-linked'},
-    ];
-    final session = AppSession.test(hosts: [first, second]);
-    session.selectWorkspace(second.id, 'second-linked');
-    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
-    await tester.pump();
-    await tester.tap(
-      find.byWidgetPredicate(
-        (widget) => widget is RoundButton && widget.icon == 'terminal',
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<ListTile>(find.widgetWithText(ListTile, 'second-linked'))
-          .selected,
-      isTrue,
-    );
-    await tester.tap(find.widgetWithText(ListTile, 'second-project'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(session.selectedHost, same(second));
-    expect(session.selectedProjectId, 'shared-id');
-    expect(session.selectedWorktreeId, 'second-tree');
-    final terminal = tester.widget<TerminalPage>(find.byType(TerminalPage));
-    expect(terminal.hostId, second.id);
-    expect(terminal.worktreeId, 'second-tree');
-    expect(terminal.createNew, isTrue);
     await release(tester, session);
   });
 
