@@ -839,30 +839,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get tool_load_skill => 'Load Skill';
 
   @override
-  String get tool_set_session_title => 'Sitzungstitel festlegen';
-
-  @override
-  String get tool_list_sessions => 'Sitzungen suchen';
-
-  @override
-  String get tool_present_files => 'Dateien übergeben';
-
-  @override
-  String get tool_read_session => 'Sitzung lesen';
-
-  @override
-  String get tool_search_session => 'Sitzung durchsuchen';
-
-  @override
-  String get tool_tool_search => 'Werkzeuge suchen';
-
-  @override
-  String get tool_read_tool_output => 'Werkzeugausgabe lesen';
-
-  @override
-  String get tool_compact_context => 'Kompakter Kontext';
-
-  @override
   String get tool_read_skill_resource => 'Skill-Ressource lesen';
 
   @override

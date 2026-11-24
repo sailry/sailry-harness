@@ -274,5 +274,77 @@
     "es": "Generar vídeo",
     "pt-BR": "Gerar vídeo",
     "ru": "Создать видео"
+  },
+  "tool_list_sessions": {
+    "en": "Find sessions",
+    "zh-CN": "查找会话",
+    "zh-TW": "尋找會話",
+    "ja": "セッションを探す",
+    "ko": "세션 찾기",
+    "fr": "Rechercher des sessions",
+    "de": "Sitzungen suchen",
+    "es": "Buscar conversaciones",
+    "pt-BR": "Buscar conversas",
+    "ru": "Найти сеансы"
+  },
+  "tool_read_session": {
+    "en": "Read session",
+    "zh-CN": "读取会话",
+    "zh-TW": "讀取會話",
+    "ja": "セッションを読む",
+    "ko": "세션 읽기",
+    "fr": "Lire la session",
+    "de": "Sitzung lesen",
+    "es": "Leer conversación",
+    "pt-BR": "Ler conversa",
+    "ru": "Прочитать сеанс"
+  },
+  "tool_read_tool_output": {
+    "en": "Read tool output",
+    "zh-CN": "读取工具输出",
+    "zh-TW": "讀取工具輸出",
+    "ja": "ツール出力を読む",
+    "ko": "도구 출력 읽기",
+    "fr": "Lire la sortie de l’outil",
+    "de": "Werkzeugausgabe lesen",
+    "es": "Leer salida de herramienta",
+    "pt-BR": "Ler saída da ferramenta",
+    "ru": "Читать вывод инструмента"
+  },
+  "tool_search_session": {
+    "en": "Search session",
+    "zh-CN": "搜索会话",
+    "zh-TW": "搜尋會話",
+    "ja": "セッションを検索",
+    "ko": "세션 검색",
+    "fr": "Rechercher dans la session",
+    "de": "Sitzung durchsuchen",
+    "es": "Buscar en conversación",
+    "pt-BR": "Pesquisar na conversa",
+    "ru": "Поиск в сеансе"
+  },
+  "tool_set_session_title": {
+    "en": "Set session title",
+    "zh-CN": "设置会话标题",
+    "zh-TW": "設定會話標題",
+    "ja": "セッションのタイトルを設定",
+    "ko": "세션 제목 설정",
+    "fr": "Définir le titre de la session",
+    "de": "Sitzungstitel festlegen",
+    "es": "Establecer título de sesión",
+    "pt-BR": "Definir título da sessão",
+    "ru": "Задать название сеанса"
+  },
+  "tool_tool_search": {
+    "en": "Find tools",
+    "zh-CN": "查找工具",
+    "zh-TW": "尋找工具",
+    "ja": "ツールを検索",
+    "ko": "도구 찾기",
+    "fr": "Rechercher des outils",
+    "de": "Werkzeuge suchen",
+    "es": "Buscar herramientas",
+    "pt-BR": "Buscar ferramentas",
+    "ru": "Поиск инструментов"
   }
 }

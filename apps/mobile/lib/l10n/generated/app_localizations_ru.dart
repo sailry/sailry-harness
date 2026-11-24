@@ -832,30 +832,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get tool_load_skill => 'Навыки нагрузки';
 
   @override
-  String get tool_set_session_title => 'Задать название сеанса';
-
-  @override
-  String get tool_list_sessions => 'Найти сеансы';
-
-  @override
-  String get tool_present_files => 'Передать файлы';
-
-  @override
-  String get tool_read_session => 'Прочитать сеанс';
-
-  @override
-  String get tool_search_session => 'Поиск в сеансе';
-
-  @override
-  String get tool_tool_search => 'Поиск инструментов';
-
-  @override
-  String get tool_read_tool_output => 'Читать вывод инструмента';
-
-  @override
-  String get tool_compact_context => 'Компактный контекст';
-
-  @override
   String get tool_read_skill_resource => 'Навыки чтения';
 
   @override

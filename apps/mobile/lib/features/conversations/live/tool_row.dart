@@ -35,10 +35,9 @@ Widget toolIcon(Map<String, dynamic> call, Color color) {
   final resolved = object(call['resolved']);
   final name = switch (call['name']) {
     'compact_context' || 'read_session' => 'file',
-    'read_tool_output' || 'present_files' => 'file',
     'load_skill' || 'read_skill_resource' => 'file',
     'list_sessions' => 'chat',
-    'search_session' || 'tool_search' => 'search',
+    'search_session' => 'search',
     _ when objects(call['children']).isNotEmpty => 'spark',
     _ when call['progress'] != null => 'check',
     _ when object(resolved['command']).isNotEmpty => 'terminal',
