@@ -377,7 +377,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		worktree := filepath.Clean(inv.Worktree.Path)
 		external := ""
 		if inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op) {
-			worktree = canonicalPath(worktree)
+			worktree = resolvedPath(worktree)
 			canonical := func(path string) (string, error) { return canonicalPath(path), nil }
 			var err error
 			if args, err = fileArgPaths(op, args, canonical); err != nil {

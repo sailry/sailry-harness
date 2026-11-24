@@ -245,11 +245,24 @@ func (node *Node) externalFileIO(ctx context.Context, caller protocol.NodeID, re
 // canonicalPath resolves the symbolic links in an absolute path's existing
 // ancestors, as the confined file service accepts only ordinary parent
 // directories (macOS /var and /tmp are links); other paths are unchanged.
+// The named entry itself stays as given, so a link it names is the entry the
+// file service checks, never the link's target.
 func canonicalPath(path string) string {
 	if !filepath.IsAbs(path) {
 		return path
 	}
-	current, rest := filepath.Clean(path), ""
+	clean := filepath.Clean(path)
+	parent := filepath.Dir(clean)
+	if parent == clean {
+		return clean
+	}
+	return filepath.Join(resolvedPath(parent), filepath.Base(clean))
+}
+
+// resolvedPath resolves every symbolic link in an absolute path, through its
+// deepest existing directory.
+func resolvedPath(path string) string {
+	current, rest := path, ""
 	for {
 		if resolved, err := filepath.EvalSymlinks(current); err == nil {
 			return filepath.Join(resolved, rest)

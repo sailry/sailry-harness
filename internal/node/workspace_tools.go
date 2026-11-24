@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	pathpkg "path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -651,7 +652,8 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 	}
 	revision, ok := r.paths[path]
 	if !ok && path != "" {
-		revision, ok = r.paths[pathpkg.Clean(path)]
+		// Results name paths with forward slashes, Windows ones included.
+		revision, ok = r.paths[pathpkg.Clean(filepath.ToSlash(path))]
 	}
 	switch {
 	case operation == protocol.ToolOperationWriteFile:
