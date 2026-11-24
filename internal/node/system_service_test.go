@@ -467,12 +467,12 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 				t.Errorf("the report carries %q: %s", private, server.bodies[1])
 			}
 		}
-		// One failure, here the loop's own call site, reports ten times an
-		// hour at most.
+		// One failure reports ten times an hour at most. Its fingerprint
+		// leaves out line numbers, so the report above counts as one of them.
 		for range 15 {
 			failure()
 		}
-		reached(12)
+		reached(11)
 
 		// Usage counters leave once, by table, when the window's timer fires.
 		if usage.count() != 0 || usage.started() != 1 {
@@ -527,7 +527,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 		stopped = true
-		if server.count() != 12 || usage.count() != sent || usage.started() != timers || usage.stopped() != 2 {
+		if server.count() != 11 || usage.count() != sent || usage.started() != timers || usage.stopped() != 2 {
 			t.Fatalf("after switching off: %d reports, %d usage requests, %d timers, %d stopped", server.count(), usage.count(), usage.started(), usage.stopped())
 		}
 	})
