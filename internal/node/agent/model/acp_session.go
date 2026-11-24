@@ -62,23 +62,23 @@ func (model *acpModel) recall(identity string, session protocol.SessionID) *acpK
 	return &kept
 }
 
-// keep stores the record of the agent's session, or forgets it when the
+// keep stores the record of the slot's agent session, or forgets it when the
 // session holds nothing that can continue. A record that cannot be written
 // costs only a replay later.
-func (model *acpModel) keep(agent *acpAgent) {
-	path := model.keptPath(agent.identity, agent.owner)
+func (model *acpModel) keep(agent *acpAgent, slot *acpSlot) {
+	path := model.keptPath(agent.identity, slot.owner)
 	if path == "" {
 		return
 	}
 	agent.mu.Lock()
-	compact := agent.commands[agent.session]["compact"]
+	compact := agent.commands[slot.session]["compact"]
 	agent.mu.Unlock()
-	if agent.session == "" || len(agent.seen) == 0 || !agent.resume && !agent.load {
+	if slot.session == "" || len(slot.seen) == 0 || !agent.resume && !agent.load {
 		_ = os.Remove(path)
 		return
 	}
-	raw, err := json.Marshal(acpKeptSession{Session: agent.session, System: acpDigest(agent.system), Seen: agent.seen,
-		Offers: agent.offers, Thought: agent.thought, Compact: compact})
+	raw, err := json.Marshal(acpKeptSession{Session: slot.session, System: acpDigest(slot.system), Seen: slot.seen,
+		Offers: slot.offers, Thought: slot.thought, Compact: compact})
 	if err != nil || os.MkdirAll(model.capture.Sessions, 0700) != nil {
 		return
 	}
@@ -120,9 +120,9 @@ func (model *acpModel) prune() {
 // it, else, or when that fails, by `session/load`. The agent's replay of a
 // loaded session is not forwarded, because no prompt is in flight. It reports
 // false when neither succeeded; the caller then replays into a new session.
-func (model *acpModel) resume(ctx context.Context, agent *acpAgent, system string, digests []string) bool {
-	kept := model.recall(agent.identity, agent.owner)
-	if kept == nil || kept.Session == agent.session || kept.System != acpDigest(system) || !acpExtends(kept.Seen, digests) {
+func (model *acpModel) resume(ctx context.Context, agent *acpAgent, slot *acpSlot, system string, digests []string) bool {
+	kept := model.recall(agent.identity, slot.owner)
+	if kept == nil || kept.Session == slot.session || kept.System != acpDigest(system) || !acpExtends(kept.Seen, digests) {
 		return false
 	}
 	params := map[string]any{"sessionId": kept.Session, "cwd": model.capture.Dir, "mcpServers": []any{}}
@@ -141,15 +141,14 @@ func (model *acpModel) resume(ctx context.Context, agent *acpAgent, system strin
 	if len(offers) == 0 {
 		offers, thought = kept.Offers, kept.Thought
 	}
-	agent.mu.Lock()
-	agent.session = kept.Session
 	if kept.Compact {
+		agent.mu.Lock()
 		agent.advertise(kept.Session, "compact")
+		agent.mu.Unlock()
 	}
-	agent.mu.Unlock()
-	agent.offers, agent.thought = offers, thought
+	slot.session, slot.offers, slot.thought = kept.Session, offers, thought
 	// The session was told its system text when it was created.
-	agent.system, agent.seen, agent.prefixed, agent.selected, agent.level = system, slices.Clone(kept.Seen), true, "", ""
+	slot.system, slot.seen, slot.prefixed, slot.selected, slot.level = system, slices.Clone(kept.Seen), true, "", ""
 	return true
 }
 
@@ -194,16 +193,19 @@ func acpHistory(request protocol.PluginModelAdapterWireRequest) (string, []strin
 func (model *acpModel) route(session protocol.SessionID) Route {
 	_, identity := model.launch(false)
 	route := Route{PromptBytes: int(model.capture.Adapter.Acp.ReplayBytes), Session: true}
-	model.capture.Pool.Holds(model.capture.Owner, func(entry *program.Entry) bool {
+	model.capture.Pool.Each(model.capture.Owner, func(entry *program.Entry) {
 		agent, ok := entry.Value.(*acpAgent)
-		if !ok || agent.identity != identity || !agent.claimed || agent.owner != session || agent.session == "" || len(agent.seen) == 0 {
-			return false
+		if !ok || agent.identity != identity || route.Resident {
+			return
 		}
 		agent.mu.Lock()
-		route.Compact = agent.commands[agent.session]["compact"]
-		agent.mu.Unlock()
+		defer agent.mu.Unlock()
+		slot := agent.slots[session]
+		if slot == nil || slot.busy || slot.session == "" || len(slot.seen) == 0 {
+			return
+		}
+		route.Compact = agent.commands[slot.session]["compact"]
 		route.Resident = true
-		return true
 	})
 	if !route.Resident {
 		if kept := model.recall(identity, session); kept != nil {
@@ -239,30 +241,32 @@ func CompactSession(ctx context.Context, languageModel fantasy.LanguageModel, ca
 	}
 	keep := true
 	defer func() { model.capture.Pool.Release(entry, keep) }()
-	if !agent.claimed || agent.owner != model.binding.Session || agent.session == "" || agent.system != system || len(agent.seen) == 0 {
+	slot := model.reserve(ctx, agent)
+	defer agent.give(slot)
+	if slot.owner == (protocol.SessionID{}) || slot.session == "" || slot.system != system || len(slot.seen) == 0 {
 		return nil
 	}
 	agent.mu.Lock()
-	advertised := agent.commands[agent.session]["compact"]
+	advertised := agent.commands[slot.session]["compact"]
 	agent.mu.Unlock()
 	seen := 0
 	for index, digest := range digests {
-		if slices.Contains(agent.seen, digest) {
+		if slices.Contains(slot.seen, digest) {
 			seen = index + 1
 		}
 	}
 	if !advertised || seen == 0 {
 		return nil
 	}
-	agent.seen = nil
-	model.keep(agent)
-	_, err = acp.SendRequest[acpPrompted](agent.conn, ctx, acp.AgentMethodSessionPrompt, map[string]any{"sessionId": agent.session,
+	slot.seen = nil
+	model.keep(agent, slot)
+	_, err = acp.SendRequest[acpPrompted](agent.conn, ctx, acp.AgentMethodSessionPrompt, map[string]any{"sessionId": slot.session,
 		"prompt": []any{map[string]any{"type": "text", "text": "/compact"}}})
 	if err != nil {
 		keep = ctx.Err() == nil
 		return model.failure(ctx, agent, err)
 	}
-	agent.seen = slices.Clone(digests[:seen])
-	model.keep(agent)
+	slot.seen = slices.Clone(digests[:seen])
+	model.keep(agent, slot)
 	return nil
 }

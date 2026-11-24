@@ -27,11 +27,11 @@ func DiscoverACP(ctx context.Context, binding Binding, capture ACPCapture) (prot
 	if err != nil {
 		return catalog, Classify(err)
 	}
-	err = model.open(owner, agent, "")
-	// The session's state is copied before the release: the next lease of the
-	// program reopens the same agent and rewrites it.
-	offers, images, thought := slices.Clone(agent.offers), agent.images, slices.Clone(agent.thought.Values)
-	// A session opened only to read its models holds no history.
+	// A session opened only to read its models holds no history and stays
+	// outside the program's slots.
+	slot := &acpSlot{}
+	err = model.open(owner, agent, slot, "")
+	offers, images, thought := slot.offers, agent.images, slot.thought.Values
 	model.capture.Pool.Release(entry, err == nil)
 	if err != nil {
 		return catalog, Classify(err)

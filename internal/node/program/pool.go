@@ -27,7 +27,10 @@ type Entry struct {
 	Process *Process
 	Value   any
 	owner   string
-	leased  bool
+	// leases counts the requests the program serves now. A retired program
+	// takes no new lease and stops when its last one is released.
+	leases  int
+	retired bool
 	used    time.Time
 }
 
@@ -41,15 +44,15 @@ func (pool *Pool) signal() {
 	pool.freed = make(chan struct{})
 }
 
-// Lease returns the idle program of owner that rank values highest above
-// zero, else starts one. At the limit it replaces the owner's longest-idle
-// program; when every one is in use it waits for a release until ctx ends.
-// limit replaces the pool's Limit for this owner when it is positive.
+// Lease returns the program of owner that rank values highest above zero
+// among those serving fewer than shares requests, else starts one. At the
+// pool's Limit it replaces the owner's longest-idle program; when none is
+// idle it waits for a release until ctx ends. shares below one means one.
 // Callers hold an entry for one request, so a wait ends when one finishes.
 // The caller must Release the entry.
-func (pool *Pool) Lease(ctx context.Context, owner string, limit int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
+func (pool *Pool) Lease(ctx context.Context, owner string, shares int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
 	for {
-		entry, freed, err := pool.lease(owner, limit, rank, start)
+		entry, freed, err := pool.lease(owner, max(shares, 1), rank, start)
 		if freed == nil {
 			return entry, err
 		}
@@ -63,7 +66,7 @@ func (pool *Pool) Lease(ctx context.Context, owner string, limit int, rank func(
 
 // lease is one attempt of Lease. A non-nil channel reports that every
 // program is in use and is closed when one is released or removed.
-func (pool *Pool) lease(owner string, limit int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, <-chan struct{}, error) {
+func (pool *Pool) lease(owner string, shares int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, <-chan struct{}, error) {
 	pool.mu.Lock()
 	if pool.closed {
 		pool.mu.Unlock()
@@ -76,32 +79,32 @@ func (pool *Pool) lease(owner string, limit int, rank func(*Entry) int, start fu
 			continue
 		}
 		count++
-		if entry.leased {
+		// A starting program is not shared before its start completes.
+		if entry.retired || entry.Process == nil || entry.leases >= shares {
 			continue
 		}
 		select {
 		case <-entry.Process.Done():
-			delete(pool.entries, entry)
-			count--
+			if entry.leases == 0 {
+				delete(pool.entries, entry)
+				count--
+			}
 			continue
 		default:
 		}
 		if value := rank(entry); value > score {
 			best, score = entry, value
 		}
-		if oldest == nil || entry.used.Before(oldest.used) {
+		if entry.leases == 0 && (oldest == nil || entry.used.Before(oldest.used)) {
 			oldest = entry
 		}
 	}
 	if best != nil {
-		best.leased = true
+		best.leases++
 		pool.mu.Unlock()
 		return best, nil, nil
 	}
-	if limit <= 0 {
-		limit = pool.Limit
-	}
-	if count >= limit {
+	if count >= pool.Limit {
 		if oldest == nil {
 			freed := pool.freed
 			pool.mu.Unlock()
@@ -112,7 +115,7 @@ func (pool *Pool) lease(owner string, limit int, rank func(*Entry) int, start fu
 		oldest = nil
 	}
 	// The slot is held while the program starts.
-	entry := &Entry{owner: owner, leased: true}
+	entry := &Entry{owner: owner, leases: 1}
 	pool.entries[entry] = struct{}{}
 	pool.mu.Unlock()
 	if oldest != nil {
@@ -135,16 +138,20 @@ func (pool *Pool) lease(owner string, limit int, rank func(*Entry) int, start fu
 		return nil, nil, err
 	}
 	entry.Process, entry.Value = process, value
+	// A program that can serve more than one request may take waiting ones.
+	if shares > 1 {
+		pool.signal()
+	}
 	return entry, nil, nil
 }
 
-// Holds reports whether an idle, running program of owner satisfies match.
-// Its Value is read under the pool's lock, where no lease can change it.
-func (pool *Pool) Holds(owner string, match func(*Entry) bool) bool {
+// Each calls visit with every running program of owner that takes leases,
+// in use or not. visit synchronizes its own access to a shared Value.
+func (pool *Pool) Each(owner string, visit func(*Entry)) {
 	pool.mu.Lock()
-	defer pool.mu.Unlock()
+	var entries []*Entry
 	for entry := range pool.entries {
-		if entry.owner != owner || entry.leased || entry.Process == nil {
+		if entry.owner != owner || entry.retired || entry.Process == nil {
 			continue
 		}
 		select {
@@ -152,25 +159,33 @@ func (pool *Pool) Holds(owner string, match func(*Entry) bool) bool {
 			continue
 		default:
 		}
-		if match(entry) {
-			return true
-		}
+		entries = append(entries, entry)
 	}
-	return false
+	pool.mu.Unlock()
+	for _, entry := range entries {
+		visit(entry)
+	}
 }
 
-// Release returns a leased entry. A program that is not kept is killed.
+// Release returns a leased entry. A program that is not kept takes no new
+// lease and is killed once no request holds it.
 func (pool *Pool) Release(entry *Entry, keep bool) {
 	pool.mu.Lock()
 	_, known := pool.entries[entry]
 	pool.signal()
-	if !keep || !known || pool.closed {
+	entry.leases--
+	entry.retired = entry.retired || !keep || pool.closed
+	if !known || entry.retired && entry.leases <= 0 {
 		delete(pool.entries, entry)
 		pool.mu.Unlock()
 		entry.Process.Kill()
 		return
 	}
-	entry.leased, entry.used = false, time.Now()
+	if entry.leases > 0 {
+		pool.mu.Unlock()
+		return
+	}
+	entry.used = time.Now()
 	if pool.timer == nil {
 		pool.timer = time.AfterFunc(pool.Idle, pool.reap)
 	}
@@ -183,7 +198,7 @@ func (pool *Pool) reap() {
 	var expired []*Entry
 	next := time.Duration(0)
 	for entry := range pool.entries {
-		if entry.leased {
+		if entry.leases > 0 {
 			continue
 		}
 		if rest := pool.Idle - time.Since(entry.used); rest <= 0 {

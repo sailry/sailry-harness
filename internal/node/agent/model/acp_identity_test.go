@@ -102,7 +102,7 @@ func TestACPLeaseIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			// A matching session must never outrank an incompatible identity.
-			agent.claimed, agent.owner = true, fixture.model.binding.Session
+			agent.give(fixture.model.reserve(t.Context(), agent))
 			fixture.model.capture.Pool.Release(first, true)
 			next := cloneACPModel(t, fixture.model)
 			probe.mutate(t, next)
@@ -156,7 +156,7 @@ func TestACPLeaseReusesCompatibleCapture(t *testing.T) {
 	if claimed != entry || reused != agent {
 		t.Fatal("compatible discovery process was not reused for inference")
 	}
-	agent.claimed, agent.owner = true, next.binding.Session
+	agent.give(next.reserve(t.Context(), agent))
 	next.capture.Pool.Release(claimed, true)
 	continued, same, err := next.lease(t.Context(), false)
 	if err != nil {

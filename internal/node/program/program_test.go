@@ -189,17 +189,17 @@ func TestPool(t *testing.T) {
 		var pids []int
 		pool := NewPool(2, time.Minute)
 		defer pool.Close()
-		first, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+		first, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 		if err != nil {
 			t.Fatal(err)
 		}
-		second, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+		second, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 		if err != nil || len(pids) != 2 {
 			t.Fatalf("second program: %v, %v", pids, err)
 		}
 		// A lease beyond the limit waits until its context ends.
 		expired, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-		_, err = pool.Lease(expired, "owner", 0, idle, launch(t, &pids))
+		_, err = pool.Lease(expired, "owner", 1, idle, launch(t, &pids))
 		cancel()
 		if !errors.Is(err, context.DeadlineExceeded) || len(pids) != 2 {
 			t.Fatalf("lease beyond the limit: %v, %v", pids, err)
@@ -207,7 +207,7 @@ func TestPool(t *testing.T) {
 		// A waiting lease takes the program released by a finished request.
 		waited := make(chan *Entry, 1)
 		go func() {
-			entry, _ := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+			entry, _ := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 			waited <- entry
 		}()
 		select {
@@ -219,37 +219,41 @@ func TestPool(t *testing.T) {
 		if second = <-waited; second == nil || len(pids) != 2 {
 			t.Fatalf("waiting lease: %v", pids)
 		}
-		// Another owner has its own bound, here a declared one above the default.
-		other, err := pool.Lease(t.Context(), "other", 3, idle, launch(t, &pids))
-		if err != nil || len(pids) != 3 {
-			t.Fatalf("other owner: %v, %v", pids, err)
-		}
-		var extra []*Entry
-		for range 2 {
-			entry, err := pool.Lease(t.Context(), "other", 3, func(*Entry) int { return 0 }, launch(t, &pids))
+		// Another owner has its own bound. A program that serves three
+		// requests at once takes them all; one retired while shared takes
+		// no new request and stops after its last one.
+		var shared []*Entry
+		for range 3 {
+			entry, err := pool.Lease(t.Context(), "other", 3, idle, launch(t, &pids))
 			if err != nil {
-				t.Fatalf("declared limit: %v", err)
+				t.Fatalf("shared lease: %v", err)
 			}
-			extra = append(extra, entry)
+			shared = append(shared, entry)
 		}
-		if len(pids) != 5 {
-			t.Fatalf("declared limit started %v", pids)
+		if len(pids) != 3 || shared[0] != shared[1] || shared[1] != shared[2] {
+			t.Fatalf("shared program: %v", pids)
 		}
-		for _, entry := range extra {
-			pool.Release(entry, false)
+		pool.Release(shared[0], false)
+		other, err := pool.Lease(t.Context(), "other", 3, idle, launch(t, &pids))
+		if err != nil || other == shared[0] || len(pids) != 4 {
+			t.Fatalf("lease beside a retired program: %v, %v", pids, err)
 		}
-		gone(t, pids[3])
-		gone(t, pids[4])
-		pids = pids[:3]
+		if !alive(pids[2]) {
+			t.Fatal("a retired program stopped while it served requests")
+		}
+		pool.Release(shared[1], true)
+		pool.Release(shared[2], true)
+		gone(t, pids[2])
+		pids = append(pids[:2], pids[3])
 		pool.Release(other, true)
 		pool.Release(first, true)
-		again, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+		again, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 		if err != nil || again != first || len(pids) != 3 {
 			t.Fatalf("reuse: %v, %v", pids, err)
 		}
 		pool.Release(again, true)
 		// No idle program is wanted: the idle one is replaced.
-		replaced, err := pool.Lease(t.Context(), "owner", 0, func(*Entry) int { return 0 }, launch(t, &pids))
+		replaced, err := pool.Lease(t.Context(), "owner", 1, func(*Entry) int { return 0 }, launch(t, &pids))
 		if err != nil || len(pids) != 4 {
 			t.Fatalf("replacement: %v, %v", pids, err)
 		}
@@ -264,7 +268,7 @@ func TestPool(t *testing.T) {
 		}
 		pool.Close()
 		gone(t, pids[2])
-		if _, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids)); err == nil {
+		if _, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids)); err == nil {
 			t.Fatal("a closed pool started a program")
 		}
 	})
@@ -273,11 +277,11 @@ func TestPool(t *testing.T) {
 		var pids []int
 		pool := NewPool(2, 50*time.Millisecond)
 		defer pool.Close()
-		unused, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+		unused, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 		if err != nil {
 			t.Fatal(err)
 		}
-		held, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids))
+		held, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -294,11 +298,11 @@ func TestPool(t *testing.T) {
 		pool := NewPool(1, time.Minute)
 		defer pool.Close()
 		failed := errors.New("no start")
-		if _, err := pool.Lease(t.Context(), "owner", 0, idle, func() (*Process, any, error) { return nil, nil, failed }); !errors.Is(err, failed) {
+		if _, err := pool.Lease(t.Context(), "owner", 1, idle, func() (*Process, any, error) { return nil, nil, failed }); !errors.Is(err, failed) {
 			t.Fatalf("failed start: %v", err)
 		}
 		var pids []int
-		if entry, err := pool.Lease(t.Context(), "owner", 0, idle, launch(t, &pids)); err != nil {
+		if entry, err := pool.Lease(t.Context(), "owner", 1, idle, launch(t, &pids)); err != nil {
 			t.Fatal(err)
 		} else {
 			pool.Release(entry, true)

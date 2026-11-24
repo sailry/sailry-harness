@@ -39,7 +39,7 @@ func leasePluginProgramFixture(t *testing.T, node *Node, user protocol.UserID, n
 	if err := os.Symlink(self, filepath.Join(bin, "version-program")); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := node.plugins.programs.Lease(t.Context(), pluginProgramOwner(user, name), 0, func(*program.Entry) int { return 1 }, func() (*program.Process, any, error) {
+	entry, err := node.plugins.programs.Lease(t.Context(), pluginProgramOwner(user, name), 1, func(*program.Entry) int { return 1 }, func() (*program.Process, any, error) {
 		value, err := program.Start(program.Spec{Command: "version-program", Args: []string{"-test.run=^TestPluginVersionProgramFixture$"},
 			Env: map[string]string{"PLUGIN_VERSION_PROGRAM_FIXTURE": "1"}, Host: []string{"PATH=" + bin}, Dir: t.TempDir(), Log: "version-fixture"})
 		return value, nil, err
