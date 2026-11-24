@@ -453,9 +453,11 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 		nativeOutcome(binding, route, "unusable", err)
 		return model.Compacted{}, false, nil
 	}
+	// Limits, balances and credentials stop the summary that would replace
+	// this request as well; a provider error or outage does not.
 	failure := model.Classify(err)
 	switch kind := failure.Kind; {
-	case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+	case x.ctx.Err() != nil, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
 		return model.Compacted{}, false, err
 	}
 	nativeOutcome(binding, route, "failed", err)

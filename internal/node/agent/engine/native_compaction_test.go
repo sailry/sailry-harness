@@ -305,6 +305,38 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 			t.Fatal("a route that rejected native compaction was asked again")
 		}
 	})
+	t.Run("a persistent gateway error falls back after one resend", func(t *testing.T) {
+		// A relay that forwards /responses/compact to an upstream without it
+		// answers 502 every time.
+		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiAnthropic, func(writer http.ResponseWriter, request wireRequest) {
+			if compacting(request) {
+				writeJSON(writer, http.StatusBadGateway, `{"error":{"message":"Upstream request failed"}}`)
+				return
+			}
+			writeSSE(writer, anthropicText(inPlaceHandoff))
+		})
+		done := make(chan error, 1)
+		go func() { done <- compactNow(t, f, x, binding) }()
+		clock := f.r.clock.(*manualClock)
+		for {
+			select {
+			case wait := <-clock.waits:
+				close(wait.advance)
+				continue
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("a native gateway error failed the compaction: %v", err)
+				}
+			}
+			break
+		}
+		if _, checkpoint := latestCheckpoint(t, f); checkpoint.Native != nil || !checkpoint.Readable() {
+			t.Fatal("a native gateway error did not fall back to Sailry's handoff")
+		}
+		if calls := len(provider.all(compacting)); calls != 2 {
+			t.Fatalf("native compaction was sent %d times, want one resend", calls)
+		}
+	})
 	t.Run("a transient failure is retried and leaves the route supported", func(t *testing.T) {
 		var mu sync.Mutex
 		failures := 1

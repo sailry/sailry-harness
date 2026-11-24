@@ -733,10 +733,13 @@ pays one compaction call; a switch adds the transcript request.
 
 A rejected endpoint, parameter, content type or beta flag (HTTP 400 or 422
 naming it, or 404) falls back to Sailry's handoff. It is remembered for that
-provider, protocol, endpoint and model while the Node runs. A refused or empty
-summary falls back without being remembered. Transient failures follow the
-retry rules, and rate limits, authorization failures, exhausted retries and
-cancellation end the compaction as for the in-place request. Native calls are
+provider, protocol, endpoint and model while the Node runs. So is a completed
+response without any compaction item, which a gateway that drops the feature or
+a model without it returns as an ordinary reply. A refused or empty summary
+falls back without being remembered. A native request resends once; a provider
+error or outage that persists falls back without being remembered. Rate limits,
+balance and authorization failures and cancellation end the compaction as for
+the in-place request, since they stop the replacement summary too. Native calls are
 observed and billed as compaction requests; Messages usage sums the reported
 `usage.iterations`.
 

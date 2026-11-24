@@ -26,6 +26,10 @@ type retryPolicy struct {
 	retryAt        time.Time
 }
 
+// nativeRetries is the quick resend a native compaction gets before Sailry's
+// own summary replaces it.
+const nativeRetries = 1
+
 func newRetryPolicy() retryPolicy {
 	// Most transient failures clear at once, so the first resend is quick.
 	// Rate limits and overload share the schedule: a provider that needs a
@@ -38,6 +42,9 @@ func newRetryPolicy() retryPolicy {
 }
 
 func (policy *retryPolicy) limit(purpose Purpose, attempt Attempt, streamed bool) uint64 {
+	if purpose == NativePurpose {
+		return nativeRetries
+	}
 	if purpose == Main && attempt.Failure.tcpDialTimeout && !streamed && attempt.RequestSentUs == nil && attempt.Status == nil {
 		policy.dialTimeouts++
 		return min(MainRetries, attempt.Index+mainTCPDialTimeoutAttempts-policy.dialTimeouts)

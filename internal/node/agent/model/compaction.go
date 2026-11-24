@@ -115,7 +115,7 @@ func CompactNative(ctx context.Context, languageModel fantasy.LanguageModel, bin
 	options[nativeCompactionKey] = &nativeCompaction{}
 	call.ProviderOptions = options
 	var output *nativeOutput
-	err := Run(ctx, languageModel, call, SummaryPurpose, timer, observe, func(part fantasy.StreamPart) bool {
+	err := Run(ctx, languageModel, call, NativePurpose, timer, observe, func(part fantasy.StreamPart) bool {
 		if part.Type == fantasy.StreamPartTypeFinish {
 			output, _ = part.ProviderMetadata[nativeCompactionKey].(*nativeOutput)
 		}
