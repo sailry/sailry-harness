@@ -43,6 +43,11 @@ func (*nativeCompaction) Options() {}
 type nativeOutput struct {
 	Summary string
 	Items   json.RawMessage
+	// Ignored reports a completed response with no compaction item at all:
+	// the provider or model answered without the feature, as a gateway that
+	// drops the beta or a model without compaction does. A blocked summary
+	// still returns its item and is not Ignored.
+	Ignored bool `json:",omitempty"`
 }
 
 func (*nativeOutput) Options() {}
@@ -121,6 +126,10 @@ func CompactNative(ctx context.Context, languageModel fantasy.LanguageModel, bin
 			return Compacted{}, fmt.Errorf("%w: %w", ErrNativeUnsupported, err)
 		}
 		return Compacted{}, err
+	}
+	if output != nil && output.Ignored {
+		// Each later attempt would pay for an ordinary reply again.
+		return Compacted{}, ErrNativeUnsupported
 	}
 	if output == nil || len(output.Items) == 0 {
 		return Compacted{}, ErrNativeUnusable

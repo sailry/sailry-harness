@@ -254,6 +254,8 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 			return
 		}
 		part.ProviderMetadata = fantasy.ProviderMetadata{nativeCompactionKey: &nativeOutput{Summary: summary, Items: items}}
+	} else if compacted == nil && nativeRequest(call) != nil {
+		part.ProviderMetadata = fantasy.ProviderMetadata{nativeCompactionKey: &nativeOutput{Ignored: true}}
 	}
 	emitter.emit(part)
 }

@@ -334,7 +334,8 @@ func (model *sdkModel) compactResponses(ctx context.Context, body map[string]any
 	}
 	emitter.updateUsage(wireObject(value["usage"]), "responses")
 	output := wireArray(value["output"])
-	part := fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop}
+	part := fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop,
+		ProviderMetadata: fantasy.ProviderMetadata{nativeCompactionKey: &nativeOutput{Ignored: true}}}
 	for _, item := range output {
 		if object := wireObject(item); object["type"] == "compaction" && wireString(object["encrypted_content"]) != "" {
 			items, err := json.Marshal(output)

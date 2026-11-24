@@ -263,6 +263,26 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 			t.Fatal("a refusal marked the route as unsupported")
 		}
 	})
+	t.Run("an ordinary reply without a block falls back and is remembered", func(t *testing.T) {
+		// A gateway that drops the beta, or a model without compaction,
+		// answers the request as a normal turn.
+		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiAnthropic, func(writer http.ResponseWriter, request wireRequest) {
+			writeSSE(writer, anthropicText(inPlaceHandoff))
+		})
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		if _, checkpoint := latestCheckpoint(t, f); checkpoint.Native != nil || !checkpoint.Readable() {
+			t.Fatal("a reply without a compaction block did not fall back to Sailry's handoff")
+		}
+		addExchange(t, f, "Second request")
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		if len(provider.all(compacting)) != 1 {
+			t.Fatal("a route that ignored native compaction was asked again")
+		}
+	})
 	t.Run("a rejected beta falls back and is remembered", func(t *testing.T) {
 		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiAnthropic, func(writer http.ResponseWriter, request wireRequest) {
 			if compacting(request) {
