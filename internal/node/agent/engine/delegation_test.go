@@ -450,8 +450,15 @@ func TestDelegationHandoff(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-				if !queue.Paused || len(queue.Items) != 2 || queue.Items[0].Turn != successor || queue.Items[1].Turn != followup.ID {
-					t.Fatalf("failed guidance was not retained: %+v", queue)
+				// Nothing resumes a child's queue, so the guidance it never
+				// joined ends with it instead of holding the conversation busy.
+				if !queue.Paused || len(queue.Items) != 0 {
+					t.Fatalf("failed child kept guidance queued: %+v", queue)
+				}
+				for _, turn := range []protocol.TurnID{successor, followup.ID} {
+					if run := f.waitRun(turn, protocol.ConversationStatusCancelled); run.StartedMs != nil {
+						t.Fatalf("unjoined guidance started: %+v", run)
+					}
 				}
 				if f.readQuery("SELECT count(*) FROM agent_pending WHERE recipient IS NOT NULL") != 0 {
 					t.Fatal("failed owner retained guidance targets")

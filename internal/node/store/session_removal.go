@@ -4,9 +4,131 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// sessionRemovalScope validates a remove_session or remove_sessions command
+// and lists every session it removes: the selected roots and their delegated
+// descendants.
+func sessionRemovalScope(ctx context.Context, db *sql.Conn, command protocol.Command) ([]protocol.SessionID, error) {
+	switch input := command.Data.(type) {
+	case *protocol.CommandRemoveSessionPayload:
+		if _, err := checkedSession(ctx, db, input.Session, input.ExpectedRevision); err != nil {
+			return nil, err
+		}
+		return sessionRemovalTree(ctx, db, []protocol.SessionID{input.Session}, nil)
+	case *protocol.CommandRemoveSessionsPayload:
+		if len(input.Expected) == 1 {
+			entry := input.Expected[0]
+			return sessionRemovalScope(ctx, db, protocol.Command{Kind: "remove_session", Data: &protocol.CommandRemoveSessionPayload{Session: entry.Session, ExpectedRevision: entry.Revision}})
+		}
+		seen := map[protocol.SessionID]bool{}
+		var roots, selectedChildren []protocol.SessionID
+		for _, entry := range input.Expected {
+			if seen[entry.Session] {
+				return nil, invalid("session batch contains duplicate sessions")
+			}
+			seen[entry.Session] = true
+			value, err := ReadSession(ctx, db, entry.Session)
+			if err == nil {
+				err = checkRevision(value.Revision, entry.Revision)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if value.Delegation == nil {
+				roots = append(roots, value.ID)
+			} else {
+				selectedChildren = append(selectedChildren, value.ID)
+			}
+		}
+		return sessionRemovalTree(ctx, db, roots, selectedChildren)
+	}
+	return nil, invalid("command is not a session removal")
+}
+
+// activeRemovalRuns lists the turns of the sessions that are still executing.
+// Queued input is not active: removal discards it.
+func activeRemovalRuns(ctx context.Context, db *sql.Conn, ids []protocol.SessionID) ([]protocol.ConversationRun, error) {
+	sessions, err := encode(ids)
+	if err != nil {
+		return nil, err
+	}
+	return readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session IN (SELECT value FROM json_each(?1)) AND json_extract(a.body,'$.status') IN ('running','stopping') ORDER BY t.rowid", string(sessions))
+}
+
+// StopSessionRemoval validates a session removal and stops its running turns
+// on the same path as stop_turn. It returns the turns it stopped, which the
+// caller hands to the runtime after the commit, and whether any turn of the
+// removal is still running or stopping. A stale or invalid removal stops
+// nothing.
+func StopSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command, now time.Time) ([]protocol.ConversationRun, bool, []protocol.Event, error) {
+	ids, err := sessionRemovalScope(ctx, db, command)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	active, err := activeRemovalRuns(ctx, db, ids)
+	if err != nil || len(active) == 0 {
+		return nil, false, nil, err
+	}
+	stopped := []protocol.ConversationRun{}
+	events := []protocol.Event{}
+	for _, run := range active {
+		if run.Status != protocol.ConversationStatusRunning {
+			continue
+		}
+		if _, err = db.ExecContext(ctx, "UPDATE agent_delegations SET stop_requested=1 WHERE turn=?1", run.Turn.String()); err != nil {
+			return nil, false, nil, err
+		}
+		if run, err = interruptAgentTurn(ctx, db, run.Turn, now); err != nil {
+			return nil, false, nil, err
+		}
+		stopped = append(stopped, run)
+		changed, err := activityEvent(ctx, db, run.Session)
+		if err != nil {
+			return nil, false, nil, err
+		}
+		events = append(events, changed...)
+	}
+	return stopped, true, events, nil
+}
+
+// ActiveSessionRemoval reports whether a turn of a validated session removal
+// is still running or stopping.
+func ActiveSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command) (bool, error) {
+	ids, err := sessionRemovalScope(ctx, db, command)
+	if err != nil {
+		return false, err
+	}
+	active, err := activeRemovalRuns(ctx, db, ids)
+	return len(active) > 0, err
+}
+
+// discardQueuedRuns ends a removed session's input that was never admitted:
+// queued turns, and queued children a stop left for the claim pass to finish.
+// They end cancelled outside any queue, so no scheduler can claim them.
+func discardQueuedRuns(ctx context.Context, db *sql.Conn, session protocol.SessionID, now time.Time) error {
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','cancelled') AND json_extract(a.body,'$.finished_ms') IS NULL", session.String())
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		ms := now.UnixMilli()
+		run.Status, run.FinishedMs = protocol.ConversationStatusCancelled, &ms
+		if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET ready=0 WHERE turn=?1", run.Turn.String()); err != nil {
+			return err
+		}
+		if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", run.Turn.String()); err != nil {
+			return err
+		}
+		if err = putAgentRun(ctx, db, run); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // unreachableTurns lists the turns that still hold checkpoints or attachment
 // bindings, whose own session is removed, and that no remaining session lists

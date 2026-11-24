@@ -113,8 +113,9 @@ type Node struct {
 }
 
 // commandLane is one ordered queue of admitted jobs and its worker. Project
-// effects, which may clone a repository, have their own lane so that they do
-// not delay turns and provider commands.
+// effects, which may clone a repository, and session removals, which wait for
+// the turns they stop, have their own lane so that they do not delay turns and
+// provider commands.
 type commandLane struct {
 	queue []commandJob
 	wake  chan struct{}
@@ -610,7 +611,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	// Admission is durable. Cancellation of its observer cannot cancel this
 	// job, and a busy worker cannot hold up the admission of the next one.
 	lane := &node.lanes[generalLane]
-	if projectEffect(request.Command.Kind) {
+	if projectEffect(request.Command.Kind) || sessionRemoval(request.Command.Kind) {
 		lane = &node.lanes[projectLane]
 	}
 	lane.queue = append(lane.queue, commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, admitted: true, completion: completion})
@@ -654,6 +655,9 @@ func externalCommand(command protocol.Command) bool {
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
 	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
+		return true
+	case "remove_session", "remove_sessions":
+		// A removal can wait for the turns it stops, so it runs in a lane.
 		return true
 	case "create_session":
 		input := command.Data.(*protocol.CommandCreateSessionPayload)
@@ -860,6 +864,9 @@ func (node *Node) run(lane *commandLane) {
 		}
 		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
 			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
+		}
+		if prepareErr == nil && sessionRemoval(job.request.Command.Kind) {
+			prepareErr = node.stopRemovedSessions(ctx, job.request.Command)
 		}
 		if prepareErr == nil {
 			prepareErr = node.renewCommandProvider(ctx, job.request)

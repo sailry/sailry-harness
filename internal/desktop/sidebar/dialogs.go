@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // Dialogs builds the sidebar's editor and confirmations when View is absent.
@@ -42,6 +43,20 @@ func (s *State) confirmDelete(c *ui.Context, targets ...*preview.Conversation) {
 		message = i18n.T(c, key, "name", Title(c, cv))
 	} else {
 		message = i18n.T(c, "session_delete_many_confirm", "count", len(targets))
+	}
+	// The Node stops running sessions before it removes them.
+	running := 0
+	for _, cv := range targets {
+		if cv.Status == viewmodel.Running || cv.Status == viewmodel.Waiting {
+			running++
+		}
+	}
+	switch {
+	case running == 0:
+	case len(targets) == 1:
+		message += " " + i18n.T(c, "session_delete_running_one")
+	default:
+		message += " " + i18n.T(c, "session_delete_running_many", "count", running)
 	}
 	var run func()
 	if s.Actions == nil {

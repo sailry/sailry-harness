@@ -657,7 +657,7 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 			return run, nil, queueErr
 		}
 		if queue.Paused {
-			err = retainChildGuidance(ctx, db, run)
+			err = settleChildGuidance(ctx, db, run, now)
 		}
 		if err != nil {
 			return run, nil, err
@@ -745,6 +745,9 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 			return nil, e
 		}
 		events = append(events, changed...)
+	}
+	if err = settleOrphanedChildGuidance(ctx, db, now); err != nil {
+		return nil, err
 	}
 	// No turn survives a restart, so no guidance has a recipient left to join.
 	if _, err = db.ExecContext(ctx, "UPDATE agent_queues SET revision=revision+1 WHERE session IN (SELECT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL)"); err != nil {

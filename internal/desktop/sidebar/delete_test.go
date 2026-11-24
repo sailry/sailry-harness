@@ -28,6 +28,38 @@ func TestConfirmDeleteKeepsShownHostAndRevision(t *testing.T) {
 	}
 }
 
+func TestConfirmDeleteNamesRunningSessionsOnce(t *testing.T) {
+	idle := &viewmodel.Conversation{ID: "idle", Node: "local", Revision: 1, Title: "Idle"}
+	running := &viewmodel.Conversation{ID: "running", Node: "local", Revision: 2, Title: "Running", Status: viewmodel.Running}
+	waiting := &viewmodel.Conversation{ID: "waiting", Node: "local", Revision: 3, Title: "Waiting", Status: viewmodel.Waiting}
+	for _, test := range []struct {
+		name    string
+		targets []*viewmodel.Conversation
+		want    string
+	}{
+		{"idle", []*viewmodel.Conversation{idle}, i18n.In("en", "session_delete_private_named", "name", idle.Title)},
+		{"one running", []*viewmodel.Conversation{running}, i18n.In("en", "session_delete_private_named", "name", running.Title) + " " + i18n.In("en", "session_delete_running_one")},
+		{"batch", []*viewmodel.Conversation{idle, running, waiting}, i18n.In("en", "session_delete_many_confirm", "count", 3) + " " + i18n.In("en", "session_delete_running_many", "count", 2)},
+		{"idle batch", []*viewmodel.Conversation{idle, idle}, i18n.In("en", "session_delete_many_confirm", "count", 2)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := New(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{idle, running, waiting}}, idle.ID)
+			var removed []*viewmodel.Conversation
+			s.Actions = &Actions{Delete: func(rows []*viewmodel.Conversation) { removed = rows }}
+			window := ui.NewTester(func(c *ui.Context) { s.confirmDelete(c, test.targets...) }, 300, 200)
+			window.SetLocale("en")
+			window.Frame()
+			if !s.confirm.open || s.confirm.message != test.want {
+				t.Fatalf("prompt = %q, want %q", s.confirm.message, test.want)
+			}
+			s.confirm.run()
+			if len(removed) != len(test.targets) {
+				t.Fatalf("removed %d of %d targets", len(removed), len(test.targets))
+			}
+		})
+	}
+}
+
 func TestSidebarBatchDeleteConfirmsCapturedTargetsOnce(t *testing.T) {
 	first := &viewmodel.Conversation{Node: "local", ID: "shared", Revision: 5}
 	second := &viewmodel.Conversation{Node: "remote", ID: "shared", Revision: 8}

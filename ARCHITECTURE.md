@@ -194,6 +194,15 @@ History boundaries follow recorded execution order and retain consumed guidance
 with its recipient turn. Queue admission order remains the public history-head
 concurrency token; it does not determine which messages a history action retains.
 
+Removing sessions covers the selected root sessions and their delegated
+descendants. The Node validates the removal first; a stale or invalid removal
+stops nothing. It then stops each running turn on the `stop_turn` path and
+waits for every turn of the removal to settle before recording it, in the
+project lane so other commands are not delayed. The removing transaction
+discards queued input that was never admitted, ending it cancelled outside any
+queue, so no scheduler can claim it later. Desktop's delete confirmation states
+once how many selected conversations are running and will be stopped first.
+
 ### Personal configuration and credentials
 
 Each Node owns its model channels, model credentials and session defaults for its
@@ -801,7 +810,11 @@ interaction waits so the guidance joins at the next boundary. Each boundary
 takes up to 16 messages or 128 KiB, at least one message; the rest joins at the
 next boundary. Guidance its turn settles without joining becomes an ordinary
 queued turn captured again with the session's current settings, keeping the
-earlier capture only when the current settings are unavailable.
+earlier capture only when the current settings are unavailable. A delegated
+child that fails or is stopped holds its own queue, which nothing resumes, so
+guidance it settles without joining ends cancelled with it; the parent sees
+the child's outcome and can guide it again. Node recovery cancels such guidance
+that earlier versions left queued.
 
 While a Desktop conversation is running, Tab queues a task that can start
 automatically after the active task settles. The Node keeps any existing pause.

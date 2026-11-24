@@ -172,6 +172,52 @@ func TestSelectedSessionRemovalBatchesByNode(t *testing.T) {
 	}
 }
 
+// The Node stops running sessions in a removal before removing them, so the
+// Desktop sends the removal alone rather than its own stops.
+func TestRunningSessionRemovalLeavesStopsToNode(t *testing.T) {
+	snapshot := selectionSnapshot("Running", "Finished")
+	w := selectionWindow(t, snapshot)
+	r := w.r
+	ids := []protocol.SessionID{snapshot.Sessions[0].ID, snapshot.Sessions[1].ID}
+	w.source.mu.Lock()
+	w.source.handle = func(req protocol.Request) (link.Response, bool) {
+		if req.Command.Kind != "remove_sessions" {
+			return link.Response{}, false
+		}
+		return link.Response{Output: protocol.Output{Kind: "sessions_removed", Data: ids}}, true
+	}
+	w.source.mu.Unlock()
+	r.App.Sidebar.Actions.Delete([]*viewmodel.Conversation{
+		{ID: ids[0].String(), Node: snapshot.Node.String(), Revision: 1, Status: viewmodel.Running},
+		{ID: ids[1].String(), Node: snapshot.Node.String(), Revision: 1},
+	})
+	r.workers.Wait()
+	w.window.Frame()
+	w.source.mu.Lock()
+	defer w.source.mu.Unlock()
+	var removals int
+	for _, req := range w.source.requests {
+		switch req.Command.Kind {
+		case "stop_turn":
+			t.Fatal("Desktop stopped a turn the Node's removal stops")
+		case "remove_sessions":
+			removals++
+			want := []protocol.SessionRevision{{Session: ids[0], Revision: 1}, {Session: ids[1], Revision: 1}}
+			if got := req.Command.Data.(protocol.CommandRemoveSessionsPayload).Expected; !slices.Equal(got, want) {
+				t.Fatalf("removal sent %v, want %v", got, want)
+			}
+		}
+	}
+	if removals != 1 || len(r.sessionRemovals) != 0 {
+		t.Fatalf("sent %d removals with %d outstanding", removals, len(r.sessionRemovals))
+	}
+	for _, id := range ids {
+		if !r.sessionHidden(id) {
+			t.Fatalf("removed session %s is still shown", id)
+		}
+	}
+}
+
 func TestSelectedSessionRemovalRecoversOnlyMatchingTargets(t *testing.T) {
 	snapshot := selectionSnapshot("First", "Second", "Third")
 	w := selectionWindow(t, snapshot)

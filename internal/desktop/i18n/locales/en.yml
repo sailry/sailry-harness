@@ -245,6 +245,8 @@ session_delete_named: Delete “%{name}” and its subagents permanently
 session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: Its private workspace files are deleted too
 session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
+session_delete_running_one: It is running and will be stopped first.
+session_delete_running_many: '%{count} of them are running and will be stopped first.'
 workspace_rename: Rename
 session_title_required: Enter a name
 session_mark_read: Mark as read

@@ -44,16 +44,47 @@ func NextChildGuidance(ctx context.Context, db *sql.Conn, recipient protocol.Tur
 	return &next, events, err
 }
 
-func retainChildGuidance(ctx context.Context, db *sql.Conn, run protocol.ConversationRun) error {
+// settleChildGuidance ends the guidance a child turn settled without joining
+// when the child's queue is paused. Child guidance shares its recipient's
+// completion record, and no one resumes a child's queue, so queued guidance is
+// cancelled with the child the way a stop ends it; the parent learns the outcome
+// from the child's result and can guide it again. Leaving it queued would hold
+// the child, and every conversation above it, busy indefinitely.
+func settleChildGuidance(ctx context.Context, db *sql.Conn, run protocol.ConversationRun, now time.Time) error {
+	queued, err := pendingTurns(ctx, db, "SELECT p.turn FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn JOIN turns t ON t.id=p.turn WHERE p.recipient=?1 AND json_extract(a.body,'$.status')='queued' ORDER BY p.position,t.rowid", run.Turn.String())
+	if err != nil {
+		return err
+	}
+	for _, turn := range queued {
+		if _, err = stopAgentTurn(ctx, db, turn, now); err != nil {
+			return err
+		}
+	}
 	result, err := db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE (recipient=?1 OR turn=?1) AND recipient IS NOT NULL", run.Turn.String())
 	if err != nil {
 		return err
 	}
 	changed, err := result.RowsAffected()
-	if err != nil || changed == 0 {
+	if err != nil || changed == 0 && len(queued) == 0 {
 		return err
 	}
 	return bumpQueue(ctx, db, run.Session)
+}
+
+// settleOrphanedChildGuidance cancels child guidance that an earlier version
+// left queued without a recipient after its child ended. Nothing can claim it.
+// Withdrawn guidance is not ready and stays for its explicit removal.
+func settleOrphanedChildGuidance(ctx context.Context, db *sql.Conn, now time.Time) error {
+	orphaned, err := pendingTurns(ctx, db, "SELECT p.turn FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn JOIN turns t ON t.id=p.turn WHERE p.recipient IS NULL AND a.ready=1 AND json_extract(a.body,'$.status')='queued' AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=p.turn) ORDER BY t.rowid")
+	if err != nil {
+		return err
+	}
+	for _, turn := range orphaned {
+		if _, err = stopAgentTurn(ctx, db, turn, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // guideDelegatedTurn admits controller guidance with the recipient's capture.

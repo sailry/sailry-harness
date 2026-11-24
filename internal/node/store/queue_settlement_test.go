@@ -1124,13 +1124,27 @@ func TestGuidanceQueue(t *testing.T) {
 					if next, _, err := ClaimNext(ctx, db, now); err != nil || next != nil {
 						return fmt.Errorf("a paused queue started input: %v", err)
 					}
-					// Held input remains unfinished work, even after its recipient completes.
+					// Held input remains unfinished work, even after its recipient
+					// completes: archiving refuses it, while removal discards it.
 					current, err := ReadSession(ctx, db, session.ID)
 					if err != nil {
 						return err
 					}
-					if _, _, err = removeSession(ctx, db, session.ID, current.Revision); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
-						return fmt.Errorf("session with queued input was deleted: %v", err)
+					if _, err = db.ExecContext(ctx, "SAVEPOINT held_removal"); err != nil {
+						return err
+					}
+					if _, _, err = removeSession(ctx, db, session.ID, current.Revision); err != nil {
+						return fmt.Errorf("held input blocked removal: %v", err)
+					}
+					var discarded bool
+					if err = db.QueryRowContext(ctx, "SELECT NOT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status')='queued') AND NOT EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1)", session.ID.String()).Scan(&discarded); err != nil || !discarded {
+						return fmt.Errorf("removal kept held input queued: %v", err)
+					}
+					if _, err = db.ExecContext(ctx, "ROLLBACK TO held_removal"); err != nil {
+						return err
+					}
+					if _, err = db.ExecContext(ctx, "RELEASE held_removal"); err != nil {
+						return err
 					}
 					if _, _, err = archiveSession(ctx, db, protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: current.Revision, Archived: true}); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
 						return fmt.Errorf("session with queued input was archived: %v", err)

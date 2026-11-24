@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -421,13 +422,16 @@ func setSessionRead(ctx context.Context, db *sql.Conn, input protocol.CommandSet
 }
 
 func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, expected uint64) (protocol.Output, []protocol.Event, error) {
-	if _, err := checkedSession(ctx, db, id, expected); err != nil {
+	ids, err := sessionRemovalScope(ctx, db, protocol.Command{Kind: "remove_session", Data: &protocol.CommandRemoveSessionPayload{Session: id, ExpectedRevision: expected}})
+	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	return removeSessionTrees(ctx, db, []protocol.SessionID{id}, nil)
+	return removeSessionTrees(ctx, db, ids, time.Now())
 }
 
-func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildren []protocol.SessionID) (protocol.Output, []protocol.Event, error) {
+// sessionRemovalTree lists the selected root sessions and all their delegated
+// descendants. A selected child must belong to one of the selected roots.
+func sessionRemovalTree(ctx context.Context, db *sql.Conn, roots, selectedChildren []protocol.SessionID) ([]protocol.SessionID, error) {
 	ids := make([]protocol.SessionID, 0, len(roots))
 	seen := make(map[protocol.SessionID]bool, len(roots))
 	for _, root := range roots {
@@ -439,12 +443,12 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildr
 		for index := len(ids) - 1; index < len(ids); index++ {
 			children, err := readTexts(ctx, db, "SELECT child.session FROM agent_delegations d JOIN turns child ON child.id=d.turn JOIN turns parent ON parent.id=d.parent_turn WHERE parent.session=?1", ids[index].String())
 			if err != nil {
-				return protocol.Output{}, nil, err
+				return nil, err
 			}
 			for _, text := range children {
 				child, err := protocol.ParseSessionID(text)
 				if err != nil {
-					return protocol.Output{}, nil, err
+					return nil, err
 				}
 				if !seen[child] {
 					seen[child] = true
@@ -455,9 +459,17 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildr
 	}
 	for _, id := range selectedChildren {
 		if !seen[id] {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
+			return nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 		}
 	}
+	return ids, nil
+}
+
+// removeSessionTrees removes the sessions listed by sessionRemovalScope. A
+// running or stopping turn makes the removal busy; the Node stops those before
+// it records the removal. Input that was never admitted is discarded here, in
+// the removing transaction, so no scheduler can claim it afterwards.
+func removeSessionTrees(ctx context.Context, db *sql.Conn, ids []protocol.SessionID, now time.Time) (protocol.Output, []protocol.Event, error) {
 	if len(ids) == 0 {
 		return protocol.Output{Kind: "sessions_removed", Data: ids}, []protocol.Event{}, nil
 	}
@@ -472,15 +484,18 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildr
 				private = append(private, provider.ID)
 			}
 		}
-		var busy bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))", id.String()).Scan(&busy); err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if busy {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "stop the session before deleting it")
-		}
+	}
+	active, err := activeRemovalRuns(ctx, db, ids)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if len(active) > 0 {
+		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "stop the session before deleting it")
 	}
 	for _, id := range ids {
+		if err := discardQueuedRuns(ctx, db, id, now); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if err := dismissSessionBackground(ctx, db, id); err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -498,9 +513,12 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, roots, selectedChildr
 }
 
 func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.SessionRevision, removing bool) (protocol.Output, []protocol.Event, error) {
-	if removing && len(expected) == 1 {
-		entry := expected[0]
-		return removeSession(ctx, db, entry.Session, entry.Revision)
+	if removing {
+		ids, err := sessionRemovalScope(ctx, db, protocol.Command{Kind: "remove_sessions", Data: &protocol.CommandRemoveSessionsPayload{Expected: expected}})
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		return removeSessionTrees(ctx, db, ids, time.Now())
 	}
 	seen := map[protocol.SessionID]bool{}
 	values := make([]protocol.Session, 0, len(expected))
@@ -509,32 +527,11 @@ func batchSessions(ctx context.Context, db *sql.Conn, expected []protocol.Sessio
 			return protocol.Output{}, nil, invalid("session batch contains duplicate sessions")
 		}
 		seen[entry.Session] = true
-		var value protocol.Session
-		var err error
-		if removing {
-			value, err = ReadSession(ctx, db, entry.Session)
-			if err == nil {
-				err = checkRevision(value.Revision, entry.Revision)
-			}
-		} else {
-			value, err = checkedSession(ctx, db, entry.Session, entry.Revision)
-		}
+		value, err := checkedSession(ctx, db, entry.Session, entry.Revision)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		values = append(values, value)
-	}
-	if removing {
-		roots := make([]protocol.SessionID, 0, len(values))
-		var selectedChildren []protocol.SessionID
-		for _, value := range values {
-			if value.Delegation == nil {
-				roots = append(roots, value.ID)
-			} else {
-				selectedChildren = append(selectedChildren, value.ID)
-			}
-		}
-		return removeSessionTrees(ctx, db, roots, selectedChildren)
 	}
 	changes := []protocol.Event{}
 	archived := []protocol.Session{}

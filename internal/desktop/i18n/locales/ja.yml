@@ -245,6 +245,8 @@ session_delete_named: セッション “%{name}” とそのサブエージェ�
 session_delete_many_confirm: Permanently delete %{count} selected sessions, their subagents and any private workspace files?
 session_delete_private_files: プライベートワークスペースのファイルも削除されます
 session_delete_private_named: 「%{name}」、そのサブエージェントとプライベートワークスペースのファイルを完全に削除
+session_delete_running_one: It is running and will be stopped first.
+session_delete_running_many: '%{count} of them are running and will be stopped first.'
 workspace_rename: 名前を変更
 session_title_required: 名前を入力
 session_mark_read: 既読としてマーク

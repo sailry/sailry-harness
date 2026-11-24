@@ -259,6 +259,8 @@ session_delete_named
 session_delete_many_confirm
 session_delete_private_files
 session_delete_private_named
+session_delete_running_one
+session_delete_running_many
 workspace_rename
 session_title_required
 session_mark_read

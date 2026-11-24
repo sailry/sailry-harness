@@ -217,6 +217,10 @@ func (r *Runtime) Wake() {
 	}
 }
 
+// ActivitySignal returns a channel closed at the next wake, which follows
+// every settled execution. Take it before reading the state it guards.
+func (r *Runtime) ActivitySignal() <-chan struct{} { return r.activitySignal() }
+
 // LockPublication orders commits, their frames and pinned controller snapshots.
 // Acquire decision ownership first; acquire storage leases only after this lock.
 func (r *Runtime) LockPublication() func() {
