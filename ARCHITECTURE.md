@@ -100,10 +100,11 @@ Node uses MyGo's proxy-aware HTTP and headless terminal implementation. Terminal
 appearance also uses MyGo color values; Node creates no application, window or
 view. Desktop and Host use pure Go with purego native bindings. The Mobile C ABI
 is the cgo entry point. It posts results to a Dart port through the Dart API DL
-rather than calling into Dart, so a Flutter engine that exits without closing its
-bridge, as when Android finishes the activity, drops later results; its runtime
-then closes when a post fails or the next bridge opens. Flutter owns presentation, while shared Client code owns
-conversation reduction, paging and transfer verification.
+rather than calling into Dart. After a Flutter engine exits, a failed post or
+the next bridge retires its runtime. A replacement controller waits in Go for
+retired runtimes to release their profile locks. Flutter owns presentation,
+while shared Client code owns conversation reduction, paging and transfer
+verification.
 
 ## Data and ownership
 
@@ -866,7 +867,7 @@ approval for command input and stopping follows the live process identity.
 | Service | Implemented boundary |
 | --- | --- |
 | Commands | Workspace sandbox on macOS and Linux by default; private temporary files, read-only toolchains and no network; full permission grants the full environment |
-| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes; change sets stop at the first failure. An omitted model revision for an edit, deletion or move resolves at Prepare to the one the conversation last observed, so the admitted command carries it; an omitted whole-file write revision creates. Under full permission, file tools also take absolute paths outside the session worktree, as its commands reach them: the call runs the same confined, revision-checked operation from the path's volume root with symbolic links in its ancestors resolved, without worktree locks, checkpoints or durable admission |
+| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes. Change sets stop at the first failure. Prepare resolves an omitted edit, delete or move revision from the conversation's last observation. An omitted whole-file write revision creates the file. Full-permission operations that name an outside path use its volume root, with symbolic links resolved in path ancestors. Mixed mutations keep the session worktree's lock and admission receipt and capture checkpoints for eligible files inside it. |
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
@@ -1294,12 +1295,16 @@ cache before their live observations: the last confirmed host view, message
 previews and recently opened transcripts render at once, then the Client's
 observation replaces them. The cache keeps decoded values in memory and stores
 them in a local SQLite database through drift, with an FTS5 trigram index of
-the message text it has seen, so the conversation list also searches content
-while hosts are offline. Cached content never reports a connection or enables
-writes. Forgetting a host or losing access to it drops its cached scope. The demo remains selectable but
-never joins the live conversation or project catalog. Mobile keeps one host,
-project and worktree selection for its top-level pages. Changing hosts clears the project scope; choosing a project on
-another host changes both together. Open conversation, file and terminal routes
+the message text it has seen. Offline message search limits its results after
+selecting the eligible conversations for the active host, project and filter.
+Cached content never reports a connection or enables writes. The last confirmed
+conversation snapshot is saved before a page releases its view. Forgetting a
+host or losing access to it retires in-flight reads and deletes the cached
+scope. An unavailable database leaves live observations and the in-memory
+cache usable. The demo remains selectable but never joins the live
+conversation or project catalog. Mobile keeps one host, project and worktree
+selection for its top-level pages. Changing hosts clears the project scope.
+Choosing a project on another host changes both together. Open conversation, file and terminal routes
 retain their captured owner. General resource pickers list registered project
 worktrees; explicit conversation routes retain access to their own scratch
 directories. A missing workspace does not hide the project selection entry.
@@ -1314,10 +1319,9 @@ page is closed. Reopening queries the original Node outcome.
 Mobile preserves the covered task catalog during navigation, resumes preview
 reads after the return transition, and bounds list previews without changing
 canonical history. Desktop and Mobile use Client's activity lanes for task
-status. Mobile projects the full host session list through the synchronous Dart
-FFI bridge and caches the lanes for that snapshot before filtering out delegated
-sessions or applying project and status filters. The local demo supplies fixture
-lanes with its simulated sessions.
+status. The Client includes session lanes in each host view so Mobile can filter
+them by project and status. The local demo supplies fixture lanes with its
+simulated sessions.
 Android system alerts reconcile posted notices against the Client inbox for
 their original entry and target, including after the app restarts. Each route's
 first confirmed inbox establishes which notices are already present.

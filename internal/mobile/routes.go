@@ -137,6 +137,22 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	for i := range catalogs {
+		catalog := &catalogs[i]
+		if catalog.failure == nil || terminalPeerFault(catalog.failure.Code) {
+			continue
+		}
+		// A cold controller has no previous routes to report during an outage.
+		// The app can retain their cached views until this entry lists its routes.
+		var direct map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(catalog.direct), &direct); err != nil {
+			return nil, err
+		}
+		direct["resource_routes_incomplete"] = json.RawMessage(`true`)
+		if catalog.direct, err = encode(direct); err != nil {
+			return nil, err
+		}
+	}
 	return owner.commitPeerCatalogs(generation, catalogs)
 }
 
