@@ -14,6 +14,7 @@ import '../../../ui/toast.dart';
 import '../../resources/host/host_sheet.dart';
 import '../../resources/pair_form.dart';
 import '../../resources/project_form.dart';
+import '../../resources/scope_picker.dart';
 import '../../resources/workspace.dart';
 import 'create.dart';
 import 'host_status_bar.dart';
@@ -387,9 +388,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             context.tr('filterProjects'),
             actions: [
               if (creationHost?.connected == true)
-                ListTile(
-                  leading: const AppIcon('plus'),
-                  title: Text(context.tr('hostRegisterProject')),
+                ScopeRow(
+                  leading: const AppIcon('plus', size: scopeIconSize),
+                  title: context.tr('hostRegisterProject'),
                   onTap: () {
                     Navigator.pop(context);
                     showAppSheet(
@@ -400,12 +401,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                   },
                 ),
             ],
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const AppIcon('folder'),
-                  title: Text(context.tr('allProjects')),
+            child: ScopePicker(
+              rows: [
+                ScopeRow(
+                  leading: const AppIcon('folder', size: scopeIconSize),
+                  title: context.tr('allProjects'),
+                  selected: selected != null && projectId == null,
                   onTap: selected == null
                       ? null
                       : () {
@@ -413,9 +414,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                           Navigator.pop(context);
                         },
                 ),
-                ListTile(
-                  leading: const AppIcon('chat'),
-                  title: Text(context.tr('unassignedChats')),
+                ScopeRow(
+                  leading: const AppIcon('chat', size: scopeIconSize),
+                  title: context.tr('unassignedChats'),
+                  selected: selected != null && projectId == unassignedProject,
                   onTap: selected == null
                       ? null
                       : () {
@@ -426,18 +428,36 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                           Navigator.pop(context);
                         },
                 ),
-                for (final (host, project) in projects)
-                  ListTile(
-                    leading: ProjectIcon(project: project),
-                    title: Text(project['name'] as String),
-                    onTap: () {
-                      widget.session.selectProject(
-                        host.id,
-                        project['id'] as String,
-                      );
-                      Navigator.pop(context);
-                    },
-                  ),
+              ],
+              sections: [
+                for (final host in widget.session.resourceHosts)
+                  if (projects.any((entry) => entry.$1.id == host.id))
+                    (
+                      host: host,
+                      expanded: host.id == selected?.id,
+                      children: [
+                        for (final (owner, project) in projects)
+                          if (owner.id == host.id)
+                            ScopeRow(
+                              nested: true,
+                              leading: ProjectIcon(
+                                project: project,
+                                size: scopeIconSize,
+                              ),
+                              title: project['name'] as String,
+                              selected:
+                                  host.id == selected?.id &&
+                                  project['id'] == projectId,
+                              onTap: () {
+                                widget.session.selectProject(
+                                  host.id,
+                                  project['id'] as String,
+                                );
+                                Navigator.pop(context);
+                              },
+                            ),
+                      ],
+                    ),
               ],
             ),
           ),
@@ -527,24 +547,14 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           RoundButton(
             icon: 'server',
             tooltip: context.tr('selectHost'),
-            onPressed: () => showAppSheet(
-              context,
-              context.tr('selectHost'),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final host in widget.session.hosts)
-                    HostRow(
-                      host: host,
-                      selected: selected?.id == host.id,
-                      onTap: () {
-                        widget.session.selectHost(host.id);
-                        Navigator.pop(context);
-                      },
-                    ),
-                ],
-              ),
-            ),
+            onPressed: () async {
+              final id = await showHostPicker(
+                context,
+                widget.session,
+                selected: selected?.id,
+              );
+              if (id != null) widget.session.selectHost(id);
+            },
           ),
         if (creationHost?.connected == true)
           RoundButton(

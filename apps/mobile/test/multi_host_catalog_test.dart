@@ -10,6 +10,7 @@ import 'package:sailry_mobile/features/conversations/live/terminal_tasks.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
+import 'package:sailry_mobile/features/resources/scope_picker.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/catalog.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -281,6 +282,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.byType(ProjectBar));
     await tester.pumpAndSettle();
+    // Only the selected host's section starts open.
+    expect(find.text('second-project'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('host-row-second')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('second-project'));
     await tester.pumpAndSettle();
     expect(find.text('first-conversation'), findsNothing);
@@ -358,7 +363,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(
       find.widgetWithText(
-        ListTile,
+        ScopeRow,
         tester.element(find.byType(LiveTasksPage)).tr('unassignedChats'),
       ),
     );
@@ -374,7 +379,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(
       find.widgetWithText(
-        ListTile,
+        ScopeRow,
         tester.element(find.byType(LiveTasksPage)).tr('allProjects'),
       ),
     );

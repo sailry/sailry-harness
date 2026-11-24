@@ -22,6 +22,7 @@ import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/features/conversations/task_row.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
+import 'package:sailry_mobile/features/resources/scope_picker.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart' show EmptyState, pushPage;
@@ -1343,7 +1344,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(ProjectBar));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ListTile, 'Target project'));
+    await tester.tap(find.widgetWithText(ScopeRow, 'Target project'));
     await tester.pumpAndSettle();
     expect(session.selectedHost, same(second));
     expect(session.selectedProjectId, 'target');

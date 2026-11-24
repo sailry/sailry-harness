@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
 import '../../ui/kit.dart';
+import '../../ui/project_icon.dart';
 import '../../runtime/session.dart';
 import '../../runtime/json.dart';
+import 'scope_picker.dart';
 
 typedef ResourceTarget = ({HostConnection host, Map<String, dynamic> worktree});
 
@@ -88,58 +90,54 @@ Future<String?> showLiveWorkspacePicker(
             worktrees.where((tree) => tree['project'] == item['id']).toList(),
           ),
       ];
+      if (projects.isEmpty) {
+        return EmptyState(message: context.tr('resourceNoWorkspace'));
+      }
       final colors = Theme.of(context).colorScheme;
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (projects.isEmpty)
-            EmptyState(message: context.tr('resourceNoWorkspace')),
-          for (final (item, trees) in groups) ...[
-            if (trees.isEmpty)
-              ListTile(
-                leading: const AppIcon('folder'),
-                title: Text(text(item['name'])),
-                subtitle: Text(
-                  text(item['path']),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                enabled: false,
-              ),
-            if (groups.length > 1 && trees.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Text(
-                  text(item['name']),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.onSurfaceVariant,
+      return ScopePicker(
+        sections: [
+          (
+            host: host,
+            expanded: true,
+            children: [
+              for (final (item, trees) in groups) ...[
+                if (trees.isEmpty)
+                  ScopeRow(
+                    nested: true,
+                    leading: ProjectIcon(project: item, size: scopeIconSize),
+                    title: text(item['name']),
+                    subtitle: text(item['path']),
+                    onTap: null,
                   ),
-                ),
-              ),
-            for (final worktree in trees)
-              ListTile(
-                leading: AppIcon(
-                  worktree['main'] == true ? 'folder' : 'branch',
-                ),
-                title: Text(
-                  worktree['main'] == true
-                      ? text(item['name'])
-                      : worktreeLabel(worktree),
-                ),
-                subtitle: Text(
-                  text(worktree['path']),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                selected: text(worktree['id']) == selected,
-                enabled: host.connected,
-                onTap: host.connected
-                    ? () => Navigator.pop(context, text(worktree['id']))
-                    : null,
-              ),
-          ],
+                if (groups.length > 1 && trees.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 10, 8, 4),
+                    child: Text(
+                      text(item['name']),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                for (final worktree in trees)
+                  ScopeRow(
+                    nested: true,
+                    leading: worktree['main'] == true
+                        ? ProjectIcon(project: item, size: scopeIconSize)
+                        : const AppIcon('branch', size: scopeIconSize),
+                    title: worktree['main'] == true
+                        ? text(item['name'])
+                        : worktreeLabel(worktree),
+                    subtitle: text(worktree['path']),
+                    selected: text(worktree['id']) == selected,
+                    onTap: host.connected
+                        ? () => Navigator.pop(context, text(worktree['id']))
+                        : null,
+                  ),
+              ],
+            ],
+          ),
         ],
       );
     },

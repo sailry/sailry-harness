@@ -8,10 +8,10 @@ import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import '../../ui/project_icon.dart';
 import '../../ui/swipe_action.dart';
-import 'host/host_sheet.dart';
 import 'ports_page.dart';
 import 'project_form.dart';
 import 'resources_page.dart';
+import 'scope_picker.dart';
 
 /// The selected host's projects: a row opens resources and a left swipe edits
 /// or removes the project. An embedded view can supply its own host.
@@ -21,23 +21,7 @@ class ProjectsPage extends StatelessWidget {
 
   Future<void> _selectHost(BuildContext context, AppSession session) async {
     final current = session.selectedHost?.id;
-    final id = await showAppSheet<String>(
-      context,
-      context.tr('selectHost'),
-      child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final host in session.hosts)
-              HostRow(
-                host: host,
-                selected: host.id == current,
-                onTap: () => Navigator.pop(context, host.id),
-              ),
-          ],
-        ),
-      ),
-    );
+    final id = await showHostPicker(context, session, selected: current);
     if (id != null && context.mounted) session.selectHost(id);
   }
 

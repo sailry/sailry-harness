@@ -3,19 +3,13 @@ import 'package:flutter/material.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
-import '../../../ui/theme.dart';
 import '../../../ui/toast.dart';
 import '../../conversations/live/project_bar.dart';
+import '../scope_picker.dart';
 import 'host_info_card.dart';
-import 'host_parts.dart';
 import 'metric_history.dart';
 
-Color _hostTone(BuildContext context, HostConnection host) {
-  if (!host.connected) return Theme.of(context).colorScheme.onSurfaceVariant;
-  return linkRoute(host.transport) == 'relay'
-      ? SailryTheme.statusColor(context, StatusTone.warning)
-      : SailryTheme.accentColor(context, AccentTone.blue);
-}
+export '../scope_picker.dart' show HostRow;
 
 /// Project-bar styled switcher for the selected host.
 class HostBar extends StatelessWidget {
@@ -30,7 +24,7 @@ class HostBar extends StatelessWidget {
       project: null,
       title: host.label,
       detail: system.isEmpty ? null : system,
-      leading: AppIcon('server', size: 15, color: _hostTone(context, host)),
+      leading: AppIcon('server', size: 15, color: hostTone(context, host)),
       status: StatusDot(
         color: statusDotColor(context, hostStatus(host.connected, host.error)),
       ),
@@ -124,34 +118,37 @@ class _HostListState extends State<_HostList> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (index, host) in widget.session.hosts.indexed) ...[
-          if (index > 0) const Divider(),
-          HostRow(
-            host: host,
-            onTap: _busy(host)
-                ? null
-                : () {
-                    Navigator.pop(context);
-                    widget.session.selectHost(host.id);
-                  },
-            trailing: host.routed
-                ? null
-                : IconButton(
-                    key: ValueKey('remove-host-${host.id}'),
-                    tooltip: context.tr('hostRemove'),
-                    onPressed: _busy(host) ? null : () => _remove(host),
-                    icon: _busy(host)
-                        ? SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator.adaptive(
-                              strokeWidth: 2,
-                              semanticsLabel: context.tr('loading'),
-                            ),
-                          )
-                        : const AppIcon('trash', size: 18),
-                  ),
-          ),
-        ],
+        ScopePicker(
+          rows: [
+            for (final host in widget.session.hosts)
+              HostRow(
+                host: host,
+                selected: widget.session.selectedHost?.id == host.id,
+                onTap: _busy(host)
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        widget.session.selectHost(host.id);
+                      },
+                trailing: host.routed
+                    ? null
+                    : IconButton(
+                        key: ValueKey('remove-host-${host.id}'),
+                        tooltip: context.tr('hostRemove'),
+                        onPressed: _busy(host) ? null : () => _remove(host),
+                        icon: _busy(host)
+                            ? SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator.adaptive(
+                                  strokeWidth: 2,
+                                  semanticsLabel: context.tr('loading'),
+                                ),
+                              )
+                            : const AppIcon('trash', size: 18),
+                      ),
+              ),
+          ],
+        ),
         const SizedBox(height: 14),
         TextButton(
           style: TextButton.styleFrom(
@@ -168,120 +165,4 @@ class _HostListState extends State<_HostList> {
       ],
     ),
   );
-}
-
-/// Host row with its route icon, status dot and link detail; the host list
-/// places a remove action in [trailing], and pickers mark the chosen host
-/// [selected], on the brand's tint.
-class HostRow extends StatelessWidget {
-  const HostRow({
-    super.key,
-    required this.host,
-    required this.onTap,
-    this.trailing,
-    this.selected = false,
-  });
-  final HostConnection host;
-  final VoidCallback? onTap;
-  final Widget? trailing;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final status = hostStatus(host.connected, host.error);
-    final route = linkRoute(host.transport);
-    final latency = linkLatency(host.transport);
-    final connection = switch (status) {
-      HostStatus.online => [
-        if (route != null)
-          context.tr(
-            route == 'p2p' ? 'connectionRouteP2p' : 'connectionRouteRelay',
-          ),
-        if (latency != null) '${latency.round()} ms',
-      ].join('  '),
-      HostStatus.connecting => context.tr('hostConnecting'),
-      HostStatus.offline => context.tr('offline'),
-    };
-    final origin = host.originDescription(
-      context.tr,
-      AppSession.maybeOf(context)?.hosts ?? [host],
-    );
-    final detail = [
-      if (origin.isNotEmpty) origin,
-      if (connection.isNotEmpty) connection,
-    ].join(' · ');
-    return Semantics(
-      selected: selected,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: selected ? SailryTheme.brand(context).selection : null,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: InkWell(
-          key: ValueKey('host-row-${host.id}'),
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerHigh,
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: AppIcon(
-                    'server',
-                    size: 17,
-                    color: _hostTone(context, host),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              host.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: host.connected
-                                    ? colors.onSurface
-                                    : colors.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                          StatusDot(color: statusDotColor(context, status)),
-                        ],
-                      ),
-                      if (detail.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          detail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: dimStyle(context),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                ?trailing,
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

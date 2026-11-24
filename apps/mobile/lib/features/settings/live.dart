@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart' show AppSession;
 export '../../runtime/json.dart' show object, objects, text, number, newId;
-import '../../ui/kit.dart';
-import '../../ui/connection_status.dart';
+import '../resources/scope_picker.dart';
 
 int integer(Object? value) => value is num ? value.toInt() : 0;
 
@@ -18,37 +17,10 @@ String failure(Object error, {bool saving = false, Translator translate = tr}) {
 }
 
 Future<void> pickSettingsHost(BuildContext context, AppSession session) async {
-  final selected = await showAppSheet<String>(
+  final selected = await showHostPicker(
     context,
-    context.tr('selectHost'),
-    child: ListenableBuilder(
-      listenable: session,
-      builder: (context, _) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final host in session.hosts)
-            ListTile(
-              title: Text(
-                host.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              selected: session.selectedHost?.id == host.id,
-              leading: const AppIcon('server'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ConnectionStatus(
-                    connected: host.connected,
-                    transport: host.transport,
-                  ),
-                ],
-              ),
-              onTap: () => Navigator.pop(context, host.id),
-            ),
-        ],
-      ),
-    ),
+    session,
+    selected: session.selectedHost?.id,
   );
   if (selected != null) session.selectHost(selected);
 }

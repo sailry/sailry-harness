@@ -7,9 +7,9 @@ import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import '../conversations/live/project_bar.dart';
 import 'contributions.dart';
-import 'host/host_sheet.dart';
 import 'overview_cards.dart';
 import 'project_form.dart';
+import 'scope_picker.dart';
 import 'workspace.dart';
 
 /// Opens a project's resources without changing the chat list's filter.
@@ -59,23 +59,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
   Future<void> _host() async {
     final session = AppSession.of(context);
     final current = session.selectedHost?.id;
-    final id = await showAppSheet<String>(
-      context,
-      context.tr('selectHost'),
-      child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final host in session.hosts)
-              HostRow(
-                host: host,
-                selected: host.id == current,
-                onTap: () => Navigator.pop(context, host.id),
-              ),
-          ],
-        ),
-      ),
-    );
+    final id = await showHostPicker(context, session, selected: current);
     if (id != null && mounted) {
       session.selectHost(id);
     }
@@ -102,9 +86,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
       actions: [
         if (host.connected)
           Builder(
-            builder: (context) => ListTile(
-              leading: const AppIcon('plus'),
-              title: Text(context.tr('hostRegisterProject')),
+            builder: (context) => ScopeRow(
+              leading: const AppIcon('plus', size: scopeIconSize),
+              title: context.tr('hostRegisterProject'),
               onTap: () {
                 Navigator.pop(context);
                 showAppSheet(
@@ -117,11 +101,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
           ),
         if (session.hosts.length > 1)
           Builder(
-            builder: (context) => ListTile(
-              leading: const AppIcon('server'),
-              title: Text(context.tr('selectHost')),
-              subtitle: Text(host.label),
-              trailing: const AppIcon('chevron', size: 14),
+            builder: (context) => ScopeRow(
+              leading: const AppIcon('server', size: scopeIconSize),
+              title: context.tr('selectHost'),
+              subtitle: host.label,
+              trailing: const AppIcon('chevron'),
               onTap: () {
                 Navigator.pop(context);
                 _host();

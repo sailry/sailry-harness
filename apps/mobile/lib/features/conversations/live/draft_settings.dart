@@ -8,6 +8,7 @@ import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
 import '../../../ui/toast.dart';
+import '../../resources/scope_picker.dart';
 import 'configuration_fields.dart';
 import 'draft_branches.dart';
 import 'presentation.dart' show failureLabel;
@@ -83,9 +84,10 @@ class _DraftSettingsState extends State<DraftSettings> {
       ? context.tr('unassignedChats')
       : text(project['name'], context.tr('project'));
 
-  Widget _projectIcon(Map<String, dynamic>? project) => project == null
-      ? const AppIcon('chat', size: 20)
-      : ProjectIcon(project: project, size: 20);
+  Widget _projectIcon(Map<String, dynamic>? project, {double size = 20}) =>
+      project == null
+      ? AppIcon('chat', size: size)
+      : ProjectIcon(project: project, size: size);
 
   Future<void> _choose({required bool chooseProject}) async {
     if (!chooseProject) unawaited(_load());
@@ -96,28 +98,24 @@ class _DraftSettingsState extends State<DraftSettings> {
       context.tr(chooseProject ? 'project' : 'gitBranches'),
       child: ListenableBuilder(
         listenable: _branches,
-        builder: (context, _) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        builder: (context, _) => ScopePicker(
+          rows: [
             if (chooseProject)
-              ListTile(
-                leading: _projectIcon(null),
-                title: Text(_projectLabel(null)),
+              ScopeRow(
+                leading: _projectIcon(null, size: scopeIconSize),
+                title: _projectLabel(null),
                 selected: selected == null,
                 onTap: () => Navigator.pop(context, <String, dynamic>{}),
               ),
             for (final item in items)
-              ListTile(
+              ScopeRow(
                 leading: chooseProject
-                    ? _projectIcon(item)
-                    : const AppIcon('branch', size: 20),
-                title: Text(
-                  chooseProject
-                      ? _projectLabel(item)
-                      : _branches.label(item, context.tr('worktree')),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                    ? _projectIcon(item, size: scopeIconSize)
+                    : const AppIcon('branch', size: scopeIconSize),
+                title: chooseProject
+                    ? _projectLabel(item)
+                    : _branches.label(item, context.tr('worktree')),
+                titleLines: 2,
                 selected: item['id'] == selected?['id'],
                 onTap: () => Navigator.pop(context, item),
               ),

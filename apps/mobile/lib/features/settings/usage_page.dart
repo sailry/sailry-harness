@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import '../../ui/project_icon.dart';
 import '../conversations/live/project_bar.dart';
+import '../resources/scope_picker.dart';
 import 'live.dart';
 import 'usage_data.dart';
 import 'usage_sections.dart';
@@ -169,27 +171,20 @@ class _UsagePageState extends State<UsagePage> {
   Future<void> _pickHost() async {
     final session = _session;
     if (session == null) return;
-    final result = await showAppSheet<String>(
+    final result = await showHostPicker(
       context,
-      context.tr('selectHost'),
-      child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(context.tr('allHosts')),
-              selected: _host == null,
-              onTap: () => Navigator.pop(context, ''),
-            ),
-            for (final host in session.hosts)
-              ListTile(
-                title: Text(host.label),
-                selected: _host == host.id,
-                onTap: () => Navigator.pop(context, host.id),
-              ),
-          ],
+      session,
+      selected: _host,
+      rows: [
+        Builder(
+          builder: (context) => ScopeRow(
+            leading: const AppIcon('server', size: scopeIconSize),
+            title: context.tr('allHosts'),
+            selected: _host == null,
+            onTap: () => Navigator.pop(context, ''),
+          ),
         ),
-      ),
+      ],
     );
     if (!mounted || result == null) return;
     setState(() {
@@ -206,23 +201,39 @@ class _UsagePageState extends State<UsagePage> {
       context,
       context.tr('filterProjects'),
       child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(context.tr('allProjects')),
+        builder: (context) => ScopePicker(
+          rows: [
+            ScopeRow(
+              leading: const AppIcon('folder', size: scopeIconSize),
+              title: context.tr('allProjects'),
+              selected: _project == null,
               onTap: () => Navigator.pop(context, (_host, null)),
             ),
+          ],
+          sections: [
             for (final host in session.hosts.where(
               (host) => _host == null || host.id == _host,
             ))
-              for (final project in objects(host.snapshot['projects']))
-                ListTile(
-                  title: Text(text(project['name'])),
-                  subtitle: Text(host.label),
-                  selected: _project == project['id'],
-                  onTap: () =>
-                      Navigator.pop(context, (host.id, text(project['id']))),
+              if (objects(host.snapshot['projects']).isNotEmpty)
+                (
+                  host: host,
+                  expanded: host.id == _host,
+                  children: [
+                    for (final project in objects(host.snapshot['projects']))
+                      ScopeRow(
+                        nested: true,
+                        leading: ProjectIcon(
+                          project: project,
+                          size: scopeIconSize,
+                        ),
+                        title: text(project['name']),
+                        selected: host.id == _host && _project == project['id'],
+                        onTap: () => Navigator.pop(context, (
+                          host.id,
+                          text(project['id']),
+                        )),
+                      ),
+                  ],
                 ),
           ],
         ),

@@ -10,6 +10,7 @@ import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/resources/workspace.dart';
+import 'package:sailry_mobile/features/resources/scope_picker.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/theme.dart';
@@ -286,10 +287,10 @@ void main() {
       );
       await tester.tap(find.text('Choose'));
       await tester.pumpAndSettle();
-      final row = tester.widget<ListTile>(
+      final row = tester.widget<ScopeRow>(
         find.ancestor(
           of: find.text('User project'),
-          matching: find.byType(ListTile),
+          matching: find.byType(ScopeRow),
         ),
       );
       expect(row.enabled, isFalse);
