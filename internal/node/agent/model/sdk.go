@@ -255,6 +255,9 @@ func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, e
 	if config.Kind == "anthropic" && config.OAuth {
 		transport = claudeTransport{base: transport}
 	}
+	if config.vertex != nil {
+		transport = vertexTransport{base: transport, account: config.vertex}
+	}
 	return &sdkModel{config: config, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 

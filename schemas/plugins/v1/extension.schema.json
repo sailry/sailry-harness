@@ -3189,6 +3189,8 @@
         "opencode-zen",
         "azure-openai",
         "azure-ai",
+        "bedrock",
+        "vertex-ai",
         "plugin"
       ],
       "type": "string"

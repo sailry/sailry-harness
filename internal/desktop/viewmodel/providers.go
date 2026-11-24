@@ -124,6 +124,9 @@ type Channel struct {
 	API, Endpoint   string
 	// APIVersion is the Azure OpenAI API version, "" for every other API.
 	APIVersion string
+	// Region is an Amazon Bedrock channel's AWS region; Project and Location
+	// are a Vertex AI channel's. Each is "" for every other API.
+	Region, Project, Location string
 	// Headers are the request headers an API-key channel adds to model calls.
 	Headers map[string]string
 	// BillingRateBps is an API-key channel's billing rate in basis points of

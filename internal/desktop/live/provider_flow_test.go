@@ -192,8 +192,8 @@ func testProviderFlow(t *testing.T) {
 			t.Errorf("brand %q (%s) has no mark", b.Name, b.ID)
 		}
 	}
-	want := []string{"Anthropic", "Baidu", "Cohere", "DeepSeek", "Doubao", "Gemini", "Kimi", "MiniMax", "Mistral", "OpenAI", "OpenCode", "Qwen", "xAI", "Zhipu"}
-	if listed := slices.Insert(slices.Clone(want), 6, "GitHub Copilot"); !slices.Equal(brands, listed) || !slices.Equal(keyed, want) {
+	want := []string{"Amazon Bedrock", "Anthropic", "Baidu", "Cohere", "DeepSeek", "Doubao", "Gemini", "Kimi", "MiniMax", "Mistral", "OpenAI", "OpenCode", "Qwen", "Vertex AI", "xAI", "Zhipu"}
+	if listed := slices.Insert(slices.Clone(want), 7, "GitHub Copilot"); !slices.Equal(brands, listed) || !slices.Equal(keyed, want) {
 		t.Errorf("brands %q, with API methods %q, want %q", brands, keyed, want)
 	}
 	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude", "Copilot"}) {
@@ -263,7 +263,7 @@ func testProviderFlow(t *testing.T) {
 			options = append(options, x.Name)
 		}
 	}
-	if expected := append(append([]string{zh("provider_all")}, slices.Insert(slices.Clone(want), 6, "GitHub Copilot")...), "OpenRouter"); !slices.Equal(options, expected) {
+	if expected := append(append([]string{zh("provider_all")}, slices.Insert(slices.Clone(want), 7, "GitHub Copilot")...), "OpenRouter"); !slices.Equal(options, expected) {
 		t.Errorf("filter options %q, want %q", options, expected)
 	}
 	if icons.BrandColor("openrouter") == nil {
@@ -435,6 +435,33 @@ func testProviderFlow(t *testing.T) {
 	}
 	if got := azureVersion(p); got != "2025-01-01-preview" {
 		t.Errorf("a saved Azure provider shows version %q", got)
+	}
+
+	// Bedrock and Vertex AI channels save their region, or project and
+	// location, as connection options the Node accepts.
+	for i, cloud := range []viewmodel.Channel{
+		{Method: "/builtin:bedrock/0", API: string(protocol.ConversationModelApiBedrock), Endpoint: "https://bedrock-runtime.eu-west-1.amazonaws.com", Region: "eu-west-1",
+			Models: []viewmodel.ChannelModel{{ID: "eu.anthropic.claude-sonnet-4-6", Context: 1000000, Output: 64000}}},
+		{Method: "/builtin:vertex-ai/0", API: string(protocol.ConversationModelApiVertexAi), Endpoint: "https://aiplatform.googleapis.com", Project: "proj-123", Location: "global",
+			Models: []viewmodel.ChannelModel{{ID: "gemini-3.5-flash", Context: 1048576, Output: 65536}}},
+	} {
+		cloud.ID, cloud.Name, cloud.Node = protocol.ProviderID{byte(10 + i)}.String(), "Cloud", snapshot.Node.String()
+		cloud.Method = snapshot.Node.String() + cloud.Method
+		before := sent()
+		m.ProviderActions.Save(settings.ProviderDraft{Channel: cloud, Key: "credential"}, func(settings.ProviderSaveResult) {})
+		await("the cloud save", func() bool { return sent() == before+1 })
+		transport.mu.Lock()
+		p = saves[before].Provider
+		transport.mu.Unlock()
+		bedrock, isBedrock := p.Options.Bedrock()
+		vertex, isVertex := p.Options.VertexAi()
+		if string(p.Api) != cloud.API || p.Preset == nil || p.Endpoint != cloud.Endpoint ||
+			isBedrock && bedrock.Region != cloud.Region || isVertex && (vertex.Project != cloud.Project || vertex.Location != cloud.Location) || isBedrock == isVertex {
+			t.Errorf("the %s save sent %+v with options %+v", cloud.API, p, p.Options)
+		}
+		if err := providers.ValidateConfiguration(p); err != nil {
+			t.Errorf("the Node refuses the %s provider: %v", cloud.API, err)
+		}
 	}
 }
 

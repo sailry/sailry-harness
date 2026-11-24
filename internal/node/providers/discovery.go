@@ -32,7 +32,11 @@ func discover(ctx context.Context, provider protocol.ConversationProvider, secre
 	if provider.Authentication != protocol.AuthenticationApiKey {
 		return discoverAccount(ctx, provider, secret, client)
 	}
-	if provider.Api == protocol.ConversationModelApiAzureAi || provider.Api == protocol.ConversationModelApiAzureOpenAi {
+	// Bedrock and Vertex AI list their models through separate control-plane
+	// APIs and credentials; their models are entered by ID and completed from
+	// the catalog.
+	switch provider.Api {
+	case protocol.ConversationModelApiAzureAi, protocol.ConversationModelApiAzureOpenAi, protocol.ConversationModelApiBedrock, protocol.ConversationModelApiVertexAi:
 		return catalog, invalid("cloud deployments require an explicit model ID")
 	}
 	root, err := Endpoint(provider.Endpoint)

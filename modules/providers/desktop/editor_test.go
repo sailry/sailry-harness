@@ -341,6 +341,84 @@ func TestProviderEditor(t *testing.T) {
 			t.Error("another API's model is not named by its ID")
 		}
 	})
+	// A Bedrock route asks for its region and a Vertex AI route for its
+	// project, location and service account; neither asks for an endpoint,
+	// which a save derives from them.
+	t.Run("cloud fields", func(t *testing.T) {
+		m := testController()
+		m.Live = true
+		var saved []settings.ProviderDraft
+		m.ProviderActions.Save = func(d settings.ProviderDraft, _ func(settings.ProviderSaveResult)) { saved = append(saved, d) }
+		e := &m.provider
+		tester := ui.NewTester(func(c *ui.Context) {
+			i18n.Bind(c, testCatalog)
+			providerEditorDialog(c, m)
+		}, 900, 900)
+		field := func(key string) (ui.AccessInfo, bool) {
+			return tester.AccessByRole(ui.RoleTextField, testCatalog.In("en", key))
+		}
+
+		bedrock := preview.Method{ID: "bedrock", Name: "Amazon Bedrock", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "bedrock/0", API: "bedrock", Custom: true}}}
+		e.add(m)
+		e.configure(bedrock)
+		if e.region != "us-east-1" {
+			t.Fatalf("a new Bedrock form starts in region %q", e.region)
+		}
+		tester.Frame()
+		if region, ok := field("provider_region"); !ok || region.Value != "us-east-1" {
+			t.Errorf("the Bedrock region field is %+v, %v", region, ok)
+		}
+		if _, ok := field("provider_endpoint"); ok {
+			t.Error("a Bedrock form asks for an endpoint")
+		}
+		if _, ok := field("provider_project"); ok {
+			t.Error("a Bedrock form asks for a Vertex AI project")
+		}
+		e.key, e.models = "bedrock-key", []modelDraft{{id: "us.anthropic.claude-sonnet-4-6", context: "1000000"}}
+		e.region = " "
+		if got := e.Check(); got != "provider_cloud_required" {
+			t.Errorf("no region: %q", got)
+		}
+		e.region = " eu-west-1 "
+		if got := e.save(m); got != "" || len(saved) != 1 {
+			t.Fatalf("save %q sent %+v", got, saved)
+		}
+		if ch := saved[0].Channel; ch.API != "bedrock" || ch.Region != "eu-west-1" || ch.Endpoint != "https://bedrock-runtime.eu-west-1.amazonaws.com" || ch.Project != "" || saved[0].Key != "bedrock-key" {
+			t.Errorf("Bedrock save sent %+v", saved[0])
+		}
+
+		vertex := preview.Method{ID: "vertex", Name: "Vertex AI", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "vertex/0", API: "vertex_ai", Custom: true}}}
+		e.add(m)
+		e.configure(vertex)
+		tester.Frame()
+		for _, key := range []string{"provider_project", "provider_location", "provider_service_account"} {
+			if _, ok := field(key); !ok {
+				t.Errorf("a Vertex AI form has no %s field", key)
+			}
+		}
+		if _, ok := field("provider_region"); ok {
+			t.Error("a Vertex AI form asks for a Bedrock region")
+		}
+		e.key, e.models = `{"type":"service_account"}`, []modelDraft{{id: "gemini-3.5-flash", context: "1048576"}}
+		if got := e.Check(); got != "provider_cloud_required" {
+			t.Errorf("no project: %q", got)
+		}
+		e.project, e.location = "proj-123", "us-central1"
+		if got := e.save(m); got != "" || len(saved) != 2 {
+			t.Fatalf("save %q sent %+v", got, saved)
+		}
+		if ch := saved[1].Channel; ch.API != "vertex_ai" || ch.Project != "proj-123" || ch.Location != "us-central1" || ch.Endpoint != "https://us-central1-aiplatform.googleapis.com" || ch.Region != "" {
+			t.Errorf("Vertex AI save sent %+v", saved[1].Channel)
+		}
+
+		// A saved channel opens on its own settings.
+		ch := preview.Channel{ID: "saved", Name: "Saved", Method: "vertex/0", API: "vertex_ai", Endpoint: "https://aiplatform.googleapis.com", Project: "other-proj", Location: "global", KeySet: true}
+		e.edit(m, &ch)
+		tester.Frame()
+		if project, ok := field("provider_project"); !ok || project.Value != "other-proj" || e.location != "global" {
+			t.Errorf("edit opened project %+v, %v at %q", project, ok, e.location)
+		}
+	})
 	t.Run("removed model row", func(t *testing.T) {
 		m := testController()
 		e := &m.provider

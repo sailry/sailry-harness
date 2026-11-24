@@ -52,8 +52,8 @@ func toolMediaNote(binding Binding, mime string, size uint64) (send bool, note s
 			return false, toolImageLarge
 		}
 		return true, ""
-	case mime == "application/pdf" && binding.Provider.Api == protocol.ConversationModelApiAnthropic,
-		mime != "" && binding.Provider.Api == protocol.ConversationModelApiGemini:
+	case mime == "application/pdf" && binding.Provider.Api.Family() == protocol.ConversationModelApiAnthropic,
+		mime != "" && binding.Provider.Api.Family() == protocol.ConversationModelApiGemini:
 		return size <= MaxToolMediaBytes, binary
 	}
 	return false, binary

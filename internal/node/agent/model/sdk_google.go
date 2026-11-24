@@ -26,7 +26,17 @@ func (model *sdkModel) streamGoogle(ctx context.Context, body map[string]any, ca
 	if call.UserAgent != "" {
 		headers.Set("User-Agent", call.UserAgent)
 	}
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{Backend: genai.BackendGeminiAPI, APIKey: model.config.Key, HTTPClient: model.client, HTTPOptions: genai.HTTPOptions{BaseURL: model.config.Endpoint, Headers: headers, RetryOptions: &genai.HTTPRetryOptions{Attempts: &attempts}}})
+	clientConfig := &genai.ClientConfig{Backend: genai.BackendGeminiAPI, APIKey: model.config.Key, HTTPClient: model.client, HTTPOptions: genai.HTTPOptions{BaseURL: model.config.Endpoint, Headers: headers, RetryOptions: &genai.HTTPRetryOptions{Attempts: &attempts}}}
+	if model.config.vertex != nil {
+		// The client's transport supplies the access token; the key field
+		// holds the service account, which never leaves the Node. An explicit
+		// project, location, endpoint and client keep the SDK from reading
+		// ambient credentials or environment settings.
+		clientConfig.Backend, clientConfig.APIKey = genai.BackendVertexAI, ""
+		clientConfig.Project, clientConfig.Location = model.config.Project, model.config.Location
+		clientConfig.HTTPOptions.BaseURL = model.config.Endpoint + "/"
+	}
+	client, err := genai.NewClient(ctx, clientConfig)
 	if err != nil {
 		emitter.fail(err)
 		return

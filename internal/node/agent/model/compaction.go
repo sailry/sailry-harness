@@ -180,7 +180,7 @@ func nativeMessage(binding Binding, record canonical.Record) (fantasy.Message, b
 	// A compaction block opens the history as an assistant message; a
 	// Responses window is a list of input items.
 	role := fantasy.MessageRoleUser
-	if source.API == protocol.ConversationModelApiAnthropic || source.API == protocol.ConversationModelApiAzureAi {
+	if family := source.API.Family(); family == protocol.ConversationModelApiAnthropic || family == protocol.ConversationModelApiAzureAi {
 		role = fantasy.MessageRoleAssistant
 	}
 	return fantasy.Message{Role: role, Content: []fantasy.MessagePart{fantasy.TextPart{ProviderOptions: fantasy.ProviderOptions{nativeCompactionKey: &nativeReplay{Items: compaction.Native.Items}}}}}, true

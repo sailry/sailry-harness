@@ -145,8 +145,24 @@ const (
 	ConversationModelApiOpenCodeZen     ConversationModelApi = "open_code_zen"
 	ConversationModelApiAzureOpenAi     ConversationModelApi = "azure_open_ai"
 	ConversationModelApiAzureAi         ConversationModelApi = "azure_ai"
+	ConversationModelApiBedrock         ConversationModelApi = "bedrock"
+	ConversationModelApiVertexAi        ConversationModelApi = "vertex_ai"
 	ConversationModelApiPlugin          ConversationModelApi = "plugin"
 )
+
+// Family is the wire protocol an API speaks: Claude Messages over Amazon
+// Bedrock is "anthropic" and Gemini on Vertex AI is "gemini". Request shapes
+// and model capabilities follow the family; transport, credentials and
+// endpoints follow the API itself.
+func (value ConversationModelApi) Family() ConversationModelApi {
+	switch value {
+	case ConversationModelApiBedrock:
+		return ConversationModelApiAnthropic
+	case ConversationModelApiVertexAi:
+		return ConversationModelApiGemini
+	}
+	return value
+}
 
 func (value ConversationModelApi) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationModelApi) UnmarshalJSON(data []byte) error {
@@ -155,7 +171,7 @@ func (value *ConversationModelApi) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch ConversationModelApi(decoded) {
-	case ConversationModelApiChatCompletions, ConversationModelApiResponses, ConversationModelApiAnthropic, ConversationModelApiGemini, ConversationModelApiDeepSeek, ConversationModelApiOpenCodeGo, ConversationModelApiOpenCodeZen, ConversationModelApiAzureOpenAi, ConversationModelApiAzureAi, ConversationModelApiPlugin:
+	case ConversationModelApiChatCompletions, ConversationModelApiResponses, ConversationModelApiAnthropic, ConversationModelApiGemini, ConversationModelApiDeepSeek, ConversationModelApiOpenCodeGo, ConversationModelApiOpenCodeZen, ConversationModelApiAzureOpenAi, ConversationModelApiAzureAi, ConversationModelApiBedrock, ConversationModelApiVertexAi, ConversationModelApiPlugin:
 		*value = ConversationModelApi(decoded)
 		return nil
 	default:

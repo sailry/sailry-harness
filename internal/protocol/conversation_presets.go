@@ -252,6 +252,8 @@ const (
 	ConversationPresetsProtocolOpenCodeZen           ConversationPresetsProtocol = "opencode-zen"
 	ConversationPresetsProtocolAzureOpenAi           ConversationPresetsProtocol = "azure-openai"
 	ConversationPresetsProtocolAzureAi               ConversationPresetsProtocol = "azure-ai"
+	ConversationPresetsProtocolBedrock               ConversationPresetsProtocol = "bedrock"
+	ConversationPresetsProtocolVertexAi              ConversationPresetsProtocol = "vertex-ai"
 	ConversationPresetsProtocolPlugin                ConversationPresetsProtocol = "plugin"
 )
 
@@ -262,7 +264,7 @@ func (value *ConversationPresetsProtocol) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch ConversationPresetsProtocol(decoded) {
-	case ConversationPresetsProtocolOpenAiResponses, ConversationPresetsProtocolOpenAiChatCompletions, ConversationPresetsProtocolAnthropic, ConversationPresetsProtocolGemini, ConversationPresetsProtocolDeepSeek, ConversationPresetsProtocolOpenCodeGo, ConversationPresetsProtocolOpenCodeZen, ConversationPresetsProtocolAzureOpenAi, ConversationPresetsProtocolAzureAi, ConversationPresetsProtocolPlugin:
+	case ConversationPresetsProtocolOpenAiResponses, ConversationPresetsProtocolOpenAiChatCompletions, ConversationPresetsProtocolAnthropic, ConversationPresetsProtocolGemini, ConversationPresetsProtocolDeepSeek, ConversationPresetsProtocolOpenCodeGo, ConversationPresetsProtocolOpenCodeZen, ConversationPresetsProtocolAzureOpenAi, ConversationPresetsProtocolAzureAi, ConversationPresetsProtocolBedrock, ConversationPresetsProtocolVertexAi, ConversationPresetsProtocolPlugin:
 		*value = ConversationPresetsProtocol(decoded)
 		return nil
 	default:

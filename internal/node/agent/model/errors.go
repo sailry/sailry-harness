@@ -227,7 +227,9 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.forbidden = status == 403 && !invalidKeyCode(code)
 		case status == 429 || rateLimitCode(code):
 			f.Kind = RateLimited
-		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error"):
+		// Bedrock reports stream exceptions by type after a 200 response.
+		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error",
+			"serviceUnavailableException", "internalServerException", "modelStreamErrorException", "modelTimeoutException"):
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
 			f.Kind = Cancelled
@@ -262,7 +264,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 }
 
 func rateLimitCode(code string) bool {
-	return containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests")
+	return containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests", "throttlingException")
 }
 
 func invalidKeyCode(code string) bool {

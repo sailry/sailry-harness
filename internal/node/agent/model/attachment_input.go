@@ -26,7 +26,7 @@ func AttachmentFileMIME(binding Binding, mime string) string {
 		}
 	}
 	keyed := provider.Authentication == protocol.AuthenticationApiKey
-	switch provider.Api {
+	switch provider.Api.Family() {
 	case protocol.ConversationModelApiGemini:
 		if keyed {
 			switch mime {

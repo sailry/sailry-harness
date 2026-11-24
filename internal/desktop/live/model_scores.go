@@ -112,7 +112,7 @@ func (r *Runtime) projectModel(p protocol.ConversationProvider, m protocol.Conve
 }
 
 func modelFamily(api protocol.ConversationModelApi) string {
-	switch api {
+	switch api.Family() {
 	case "anthropic":
 		return "anthropic"
 	case "responses", "chat_completions", "azure_open_ai":

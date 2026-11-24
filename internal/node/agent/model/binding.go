@@ -51,6 +51,18 @@ type transportConfig struct {
 	OAuth                      bool
 	AnthropicAPIKey            bool
 	Protection                 []protocol.Secret
+	// Cloud is the Bedrock or Vertex AI API of a route that carries its
+	// family's protocol (Kind) over that cloud's transport and credentials,
+	// "" for any other route. Region is Bedrock's; Project and Location are
+	// Vertex AI's, whose service account mints the route's access tokens.
+	Cloud                     protocol.ConversationModelApi
+	Region, Project, Location string
+	vertex                    *serviceAccount
+}
+
+// Bedrock reports a Claude Messages route over Amazon Bedrock.
+func (config transportConfig) Bedrock() bool {
+	return config.Cloud == protocol.ConversationModelApiBedrock
 }
 
 // Capture retains independent copies of the immutable admitted configuration.
@@ -301,6 +313,9 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	config := transportConfig{Model: binding.Config.Model, Endpoint: u.String(), Headers: headers, Query: map[string]string{}, JSON: map[string]any{}, Remove: []string{"tool_choice"}, RemoveHeaders: []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key"}}
 	if binding.Secret != nil {
 		config.Key = binding.Secret.Expose()
+	}
+	if provider.Api == protocol.ConversationModelApiBedrock || provider.Api == protocol.ConversationModelApiVertexAi {
+		return cloudBinding(binding, config, u)
 	}
 	var account *providers.AccountGrant
 	if provider.Authentication != protocol.AuthenticationApiKey {

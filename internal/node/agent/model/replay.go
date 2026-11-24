@@ -18,14 +18,14 @@ import (
 // it. Unknown older captures lose only their replay blocks, not their history.
 // origins addresses messages in the original Prompt, before empty ones are cut.
 func scopeReplay(binding Binding, call *fantasy.Call, origins map[int]string) (string, error) {
-	if binding.Provider.Api != protocol.ConversationModelApiAnthropic {
+	if binding.Provider.Api.Family() != protocol.ConversationModelApiAnthropic {
 		return "", nil
 	}
 	entry, found := catalogEntry("anthropic", binding.Config.Model)
 	if !found || !entry.Rig.BindsContext {
 		return "", nil
 	}
-	config := transportConfig{Kind: "anthropic", Model: binding.Config.Model, AnthropicAPIKey: binding.Provider.Authentication == protocol.AuthenticationApiKey}
+	config := transportConfig{Kind: "anthropic", Model: binding.Config.Model, AnthropicAPIKey: binding.Provider.Api == protocol.ConversationModelApiAnthropic && binding.Provider.Authentication == protocol.AuthenticationApiKey}
 	body, err := requestJSON(config, *call)
 	if err != nil {
 		return "", err

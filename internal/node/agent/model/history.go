@@ -161,7 +161,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 				}
 				part := fantasy.ReasoningPart{Text: value.Text, ProviderOptions: fantasy.ProviderOptions{}}
 				if value.Signature != nil {
-					switch binding.Provider.Api {
+					switch binding.Provider.Api.Family() {
 					case "anthropic":
 						part.ProviderOptions[anthropic.Name] = &anthropic.ReasoningOptionMetadata{Signature: *value.Signature}
 					case "responses":
@@ -192,7 +192,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 					return call, &Failure{Kind: InvalidRequest, Message: "stored tool call is invalid"}
 				}
 				options := fantasy.ProviderOptions{}
-				if keep && binding.Provider.Api == "gemini" && value.Provider != nil {
+				if keep && binding.Provider.Api.Family() == "gemini" && value.Provider != nil {
 					if raw := (*value.Provider)["thoughtSignature"]; len(raw) > 0 {
 						var signature string
 						if json.Unmarshal(raw, &signature) == nil {
@@ -516,7 +516,7 @@ func cacheOptions(binding Binding) fantasy.ProviderOptions {
 	// Foundry can resolve an aliased deployment to native Claude Messages
 	// after capture. Only the Messages serializer reads these options.
 	switch binding.Provider.Api {
-	case protocol.ConversationModelApiAnthropic, protocol.ConversationModelApiAzureAi:
+	case protocol.ConversationModelApiAnthropic, protocol.ConversationModelApiAzureAi, protocol.ConversationModelApiBedrock:
 		return fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderCacheControlOptions{CacheControl: anthropic.CacheControl{Type: "ephemeral"}}}
 	}
 	return nil

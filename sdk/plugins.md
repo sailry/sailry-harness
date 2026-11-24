@@ -233,7 +233,8 @@ Use `errorCode(error.message)` for model and configuration failures. It accounts
 
 `listModels()` includes an optional `api` field on each configured provider model
 (`responses`, `anthropic`, `gemini`, or another model protocol) and its
-`authentication` method. Packages can filter choices by protocol and login method
+`authentication` method. Amazon Bedrock (`bedrock`) carries Anthropic Messages
+and Vertex AI (`vertex_ai`) carries Gemini. Packages can filter choices by protocol and login method
 without receiving provider endpoints or credentials.
 
 Pure host exports may be listed in `host.read_only`, a unique subset of

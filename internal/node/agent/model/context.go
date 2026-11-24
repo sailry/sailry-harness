@@ -176,27 +176,35 @@ func allocatedContext(ctx context.Context, config transportConfig, name string) 
 // vendor first, then under any vendor, where the smallest window wins so that
 // a wrong guess compacts early instead of overflowing.
 func catalogContext(api protocol.ConversationModelApi, name string) uint32 {
-	family := ""
+	var families []string
 	switch api {
 	case protocol.ConversationModelApiResponses, protocol.ConversationModelApiChatCompletions:
-		family = "openai"
+		families = []string{"openai"}
 	case protocol.ConversationModelApiAnthropic:
-		family = "anthropic"
+		families = []string{"anthropic"}
 	case protocol.ConversationModelApiGemini:
-		family = "gemini-grpc"
+		families = []string{"gemini-grpc"}
 	case protocol.ConversationModelApiAzureOpenAi, protocol.ConversationModelApiAzureAi:
-		family = "azure.openai"
+		families = []string{"azure.openai"}
 	case protocol.ConversationModelApiDeepSeek:
-		family = "deepseek"
+		families = []string{"deepseek"}
 	case protocol.ConversationModelApiOpenCodeGo:
-		family = "opencode-go"
+		families = []string{"opencode-go"}
 	case protocol.ConversationModelApiOpenCodeZen:
-		family = "opencode"
+		families = []string{"opencode"}
+	case protocol.ConversationModelApiBedrock:
+		// Bedrock lists its model and profile IDs; the Anthropic entry of
+		// the Claude name covers a profile the snapshot lacks.
+		families = []string{"aws_bedrock", "anthropic"}
+	case protocol.ConversationModelApiVertexAi:
+		families = []string{"vertexai", "gemini-grpc"}
 	}
 	leaf := name[strings.LastIndex(name, "/")+1:]
-	for _, candidate := range []string{name, leaf} {
-		if entry, ok := catalogEntry(family, candidate); ok && entry.Limit.Context > 0 {
-			return entry.Limit.Context
+	for _, family := range families {
+		for _, candidate := range []string{name, leaf} {
+			if entry, ok := catalogEntry(family, candidate); ok && entry.Limit.Context > 0 {
+				return entry.Limit.Context
+			}
 		}
 	}
 	if limit := catalogWindows()[strings.ToLower(leaf)]; limit > 0 {

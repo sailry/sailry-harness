@@ -99,6 +99,10 @@ type providerEditor struct {
 	// returnTo reopens the welcome guide from the first step's Back, when
 	// the guide opened the editor; nil otherwise.
 	returnTo func()
+
+	// region is a Bedrock route's AWS region; project and location a Vertex
+	// AI route's. A cloud route's endpoint is the service host they name.
+	region, project, location string
 }
 
 func draftsOf(ms []preview.ChannelModel) []modelDraft {
@@ -161,6 +165,7 @@ func (e *providerEditor) edit(m *Controller, ch *preview.Channel) {
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
+	e.region, e.project, e.location = ch.Region, ch.Project, ch.Location
 	e.headers = headerRows(ch.Headers)
 	e.billingRate, e.billingRateBase = formatBillingRate(ch.BillingRateBps), cloneBillingRate(ch.BillingRateBps)
 	if m.Live && !ch.ConfigurationReadOnly && (ch.Auth == preview.AuthKey || ch.Auth == viewmodel.AuthOptionalKey && ch.KeySet) && m.ProviderActions.ReadKey != nil {
@@ -212,6 +217,40 @@ const azureDefaultVersion = "2024-10-21"
 // azure reports an Azure OpenAI route: its form asks for the API version
 // and names a model by its deployment.
 func (e *providerEditor) azure() bool { return e.current().API == "azure_open_ai" }
+
+// bedrock and vertex report a cloud route: its form asks for the region, or
+// the project and location, instead of an endpoint.
+func (e *providerEditor) bedrock() bool { return e.current().API == "bedrock" }
+func (e *providerEditor) vertex() bool  { return e.current().API == "vertex_ai" }
+
+// A new cloud form starts on these: the region and location most models serve.
+const (
+	bedrockDefaultRegion  = "us-east-1"
+	vertexDefaultLocation = "global"
+)
+
+// channelEndpoint is the endpoint a save sends: a cloud route's service
+// host for its region or location, else the endpoint as typed.
+func (e *providerEditor) channelEndpoint() string {
+	switch {
+	case e.bedrock():
+		return protocol.ConversationConnectionOptionsBedrockPayload{Region: strings.TrimSpace(e.region)}.Endpoint()
+	case e.vertex():
+		return protocol.ConversationConnectionOptionsVertexAiPayload{Location: strings.TrimSpace(e.location)}.Endpoint()
+	}
+	return e.endpoint
+}
+
+// cloudChannel fills a channel's cloud fields from the form.
+func (e *providerEditor) cloudChannel(channel *preview.Channel) {
+	channel.Region, channel.Project, channel.Location = "", "", ""
+	if e.bedrock() {
+		channel.Region = strings.TrimSpace(e.region)
+	}
+	if e.vertex() {
+		channel.Project, channel.Location = strings.TrimSpace(e.project), strings.TrimSpace(e.location)
+	}
+}
 
 // methodRoutes are a method's routes: its own, or the method as its only
 // one.
@@ -328,6 +367,7 @@ func (e *providerEditor) configure(x preview.Method) {
 	e.models, e.def = nil, 0
 	e.oauth = x.OAuth
 	e.apiVersion = ""
+	e.region, e.project, e.location = bedrockDefaultRegion, "", vertexDefaultLocation
 	// A rate typed for another method stays, as the headers do.
 	if e.billingRate == "" {
 		e.billingRate = formatBillingRate(nil)
@@ -561,13 +601,15 @@ func (e *providerEditor) Check() string {
 	if strings.TrimSpace(e.name) == "" {
 		return "provider_name_required"
 	}
-	if e.current().Custom && !strings.HasPrefix(e.endpoint, "http://") && !strings.HasPrefix(e.endpoint, "https://") {
+	if e.current().Custom && !e.bedrock() && !e.vertex() && !strings.HasPrefix(e.endpoint, "http://") && !strings.HasPrefix(e.endpoint, "https://") {
 		return "provider_endpoint_required"
 	}
 	if e.usesKey() && e.method.Auth != viewmodel.AuthOptionalKey && !e.keySet && strings.TrimSpace(e.key) == "" {
 		return "provider_key_required"
 	}
-	if e.azure() && strings.TrimSpace(e.apiVersion) == "" {
+	if e.azure() && strings.TrimSpace(e.apiVersion) == "" ||
+		e.bedrock() && strings.TrimSpace(e.region) == "" ||
+		e.vertex() && (strings.TrimSpace(e.project) == "" || strings.TrimSpace(e.location) == "") {
 		return "provider_cloud_required"
 	}
 	if !e.login() {
@@ -683,10 +725,11 @@ func (e *providerEditor) save(m *Controller) string {
 			return ""
 		}
 		e.probing, e.saving = true, true
-		channel := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def, BillingRateBps: rate}
+		channel := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.channelEndpoint(), Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def, BillingRateBps: rate}
 		if e.azure() {
 			channel.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
+		e.cloudChannel(&channel)
 		if !e.login() {
 			channel.Headers, _ = parseHeaders(e.headers)
 		}
@@ -748,11 +791,12 @@ func (e *providerEditor) save(m *Controller) string {
 		return ""
 	}
 	if ch := m.channel(channelKey(e.owner, e.editing)); ch != nil {
-		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.endpoint, models, e.def
+		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.channelEndpoint(), models, e.def
 		ch.Method, ch.API = route.ID, route.API
 		if e.azure() {
 			ch.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
+		e.cloudChannel(ch)
 		if !e.login() {
 			ch.Headers, _ = parseHeaders(e.headers)
 		}
@@ -761,8 +805,10 @@ func (e *providerEditor) save(m *Controller) string {
 		return ""
 	}
 	id := fmt.Sprintf("%s-%d", e.method.ID, len(m.Channels)+1)
-	m.Channels = append(m.Channels, preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
-		API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def, BillingRateBps: rate})
+	added := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
+		API: route.API, Endpoint: e.channelEndpoint(), Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def, BillingRateBps: rate}
+	e.cloudChannel(&added)
+	m.Channels = append(m.Channels, added)
 	if e.login() {
 		node := e.owner
 		if len(targets) > 0 {

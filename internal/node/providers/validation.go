@@ -95,6 +95,10 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 				return invalid("connection options do not match the provider")
 			}
 		}
+	} else if provider.Api == protocol.ConversationModelApiBedrock || provider.Api == protocol.ConversationModelApiVertexAi {
+		if err := ValidateCloud(provider); err != nil {
+			return err
+		}
 	} else if provider.Options != nil {
 		if provider.Options.Kind != "hosted" || (provider.Api != protocol.ConversationModelApiChatCompletions && provider.Api != protocol.ConversationModelApiAnthropic && provider.Api != protocol.ConversationModelApiDeepSeek) {
 			return invalid("connection options do not match the provider")
@@ -147,6 +151,8 @@ func validateEffort(api protocol.ConversationModelApi, effort protocol.Effort, o
 		supported = effort.Kind == "default"
 	case protocol.ConversationModelApiAzureOpenAi:
 		return validateEffort(protocol.ConversationModelApiChatCompletions, effort, output)
+	case protocol.ConversationModelApiBedrock, protocol.ConversationModelApiVertexAi:
+		return validateEffort(api.Family(), effort, output)
 	case protocol.ConversationModelApiDeepSeek:
 		supported = effort.Kind == "default" || effort.Kind == "none" || effort.Kind == "high" || effort.Kind == "max"
 	case protocol.ConversationModelApiOpenCodeGo:
@@ -302,6 +308,10 @@ func RouteAPI(protocolType protocol.ConversationPresetsProtocol) protocol.Conver
 		return protocol.ConversationModelApiAzureOpenAi
 	case "azure-ai":
 		return protocol.ConversationModelApiAzureAi
+	case "bedrock":
+		return protocol.ConversationModelApiBedrock
+	case "vertex-ai":
+		return protocol.ConversationModelApiVertexAi
 	}
 	return protocol.ConversationModelApiPlugin
 }

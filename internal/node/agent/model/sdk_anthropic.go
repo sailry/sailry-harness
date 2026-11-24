@@ -33,7 +33,11 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	endpoint := base.String() + "/"
 	// WithoutEnvironmentDefaults keeps the SDK from adding ANTHROPIC_* variables
 	// or a local profile of the machine to a request for the configured provider.
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithAPIKey(model.config.Key), option.WithMaxRetries(0)}
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(model.client), option.WithBaseURL(endpoint), option.WithMaxRetries(0)}
+	bedrock := model.config.Bedrock()
+	if !bedrock {
+		opts = append(opts, option.WithAPIKey(model.config.Key))
+	}
 	for key, value := range model.config.Headers {
 		if strings.EqualFold(key, "anthropic-beta") {
 			continue
@@ -46,9 +50,13 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 		}
 		opts = append(opts, option.WithHeader(key, value))
 	}
-	if beta := anthropicBetaHeader(endpoint, model.config.OAuth, model.config.AnthropicAPIKey, raw, model.config.Headers, call.Headers); beta != "" {
+	beta := anthropicBetaHeader(endpoint, model.config.OAuth, model.config.AnthropicAPIKey, raw, model.config.Headers, call.Headers)
+	if bedrock {
+		beta = bedrockBeta(beta, raw)
+	}
+	if beta != "" {
 		opts = append(opts, option.WithHeader("anthropic-beta", beta))
-		if !model.config.OAuth {
+		if !model.config.OAuth && !bedrock {
 			opts = append(opts, option.WithQuery("beta", "true"))
 		}
 	}
@@ -60,6 +68,9 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	}
 	for _, key := range model.config.RemoveHeaders {
 		opts = append(opts, option.WithHeaderDel(key))
+	}
+	if bedrock {
+		opts = append(opts, bedrockOptions(model.config, base.String())...)
 	}
 	client := anthropicsdk.NewClient(opts...)
 	stream := client.Messages.NewStreaming(ctx, anthropicsdk.MessageNewParams{}, option.WithRequestBody("application/json", raw))

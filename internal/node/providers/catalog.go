@@ -34,6 +34,9 @@ func ChannelCatalogNamespace(endpoint string, authentication protocol.Authentica
 	case "https://api.deepseek.com", "https://api.deepseek.com/v1":
 		return "deepseek", nil
 	}
+	if namespace := cloudNamespace(endpoint); namespace != "" {
+		return namespace, nil
+	}
 	return BundledCatalogProvider(endpoint)
 }
 

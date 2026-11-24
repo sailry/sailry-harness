@@ -660,6 +660,84 @@
       "products": []
     },
     {
+      "id": "bedrock",
+      "name": "Amazon Bedrock",
+      "locales": {
+        "en": "Amazon Bedrock",
+        "ja": "Amazon Bedrock",
+        "ru": "Amazon Bedrock",
+        "fr": "Amazon Bedrock",
+        "zh-TW": "Amazon Bedrock",
+        "pt-BR": "Amazon Bedrock",
+        "es": "Amazon Bedrock",
+        "ko": "Amazon Bedrock",
+        "de": "Amazon Bedrock"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "bedrock",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "bedrock",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "vertex-ai",
+      "name": "Vertex AI",
+      "locales": {
+        "en": "Vertex AI",
+        "ja": "Vertex AI",
+        "ru": "Vertex AI",
+        "fr": "Vertex AI",
+        "zh-TW": "Vertex AI",
+        "pt-BR": "Vertex AI",
+        "es": "Vertex AI",
+        "ko": "Vertex AI",
+        "de": "Vertex AI"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "vertexai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "vertex-ai",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "policies": [],
+      "products": []
+    },
+    {
       "id": "qwen",
       "name": "Qwen",
       "locales": {

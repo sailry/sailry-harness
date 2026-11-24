@@ -567,6 +567,31 @@ URL. A bare origin defaults to `/v1`. An explicit path supplies the API mount,
 and a full `/responses` or `/chat/completions` URL selects the mount before
 that operation. Each request uses the appropriate endpoint under that mount.
 
+Amazon Bedrock (`bedrock`) and Vertex AI (`vertex_ai`) are cloud routes that
+carry another API's protocol: `ConversationModelApi.Family` reports Bedrock as
+`anthropic` and Vertex AI as `gemini`. Request shaping, reasoning choices,
+thinking replay, cache markers and attachment support follow the family;
+transport, credentials and endpoints follow the cloud. The transport
+configuration marks the route (`transportConfig.Cloud`, `Bedrock()`), so
+features the cloud lacks can be decided per route. A cloud provider uses
+API-key authentication and stores its region, or project and location, as
+connection options; its endpoint is the service host they name, which Desktop
+derives and the Node accepts as given, without a path. Bedrock sends the
+Bedrock API key as a bearer token through the Anthropic SDK's Bedrock
+adaptation, and the configured key replaces any ambient
+`AWS_BEARER_TOKEN_BEDROCK`. It omits the Claude Code identity, session metadata
+and `?beta=true`, carrying the betas it needs in the body. Native web search
+is not offered on either route. Vertex AI stores the service-account JSON key
+as the channel credential. The Node mints cloud-platform access tokens from it
+with the JWT bearer grant and caches them per key until a minute before expiry;
+only HTTPS token endpoints, or loopback HTTP, receive the assertion. The genai
+client receives an explicit project, location, endpoint and HTTP client, so it
+reads no ambient credentials or environment endpoints. Neither route lists
+models: they are entered by ID and completed from the catalog's
+`amazon-bedrock` and `google-vertex` offerings. Context windows resolve
+Bedrock model and inference-profile IDs (`us.`, `eu.`, `global.`, ARNs)
+through the Bedrock catalog and then their Claude name.
+
 Anthropic API-key requests carry an opaque, stable session identity so compatible
 account pools do not infer a new route when cache breakpoints move. Replies with
 context-bound thinking retain a digest of the projected request that produced

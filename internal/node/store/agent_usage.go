@@ -1082,7 +1082,7 @@ type pricedChannel struct {
 
 // catalogSuppliers names the models.dev supplier of a preset or brand that
 // models.dev lists under another identifier.
-var catalogSuppliers = map[string]string{"gemini": "google", "qwen": "alibaba", "moonshot": "moonshotai", "fireworks": "fireworks-ai", "together": "togetherai", "zhipu": "zhipuai", "doubao": "volcengine"}
+var catalogSuppliers = map[string]string{"gemini": "google", "bedrock": "amazon-bedrock", "vertexai": "google-vertex", "vertex-ai": "google-vertex", "qwen": "alibaba", "moonshot": "moonshotai", "fireworks": "fireworks-ai", "together": "togetherai", "zhipu": "zhipuai", "doubao": "volcengine"}
 
 var catalogModelNamespaces = map[string]string{
 	"anthropic": "anthropic", "claude": "anthropic", "deepseek": "deepseek",
@@ -1104,7 +1104,7 @@ var presetBrands = sync.OnceValue(func() map[string]string {
 // then the vendor its wire protocol belongs to.
 func priceSuppliers(preset, api string) []string {
 	var suppliers []string
-	for _, name := range []string{preset, presetBrands()[preset], map[string]string{"responses": "openai", "chat_completions": "openai", "anthropic": "anthropic", "gemini": "google"}[api]} {
+	for _, name := range []string{preset, presetBrands()[preset], map[string]string{"responses": "openai", "chat_completions": "openai", "anthropic": "anthropic", "gemini": "google", "bedrock": "amazon-bedrock", "vertex_ai": "google-vertex"}[api]} {
 		if alias, ok := catalogSuppliers[name]; ok {
 			name = alias
 		}
@@ -1395,7 +1395,7 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, p
 		return nil, nil
 	}
 	hourlyWrite := uint64(0)
-	if api == "anthropic" && write > 0 && len(usage.Provider) > 0 {
+	if (api == "anthropic" || api == "bedrock") && write > 0 && len(usage.Provider) > 0 {
 		var reported struct {
 			Creation *struct {
 				FiveMinutes *uint64 `json:"ephemeral_5m_input_tokens"`

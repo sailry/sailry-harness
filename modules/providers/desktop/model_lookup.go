@@ -29,7 +29,7 @@ func (e *providerEditor) modelCapabilityTarget(id string) modelCapabilityTarget 
 	route := e.current()
 	return modelCapabilityTarget{
 		node: e.owner, channel: e.id, route: route.ID, api: route.API,
-		endpoint: strings.TrimSpace(e.endpoint), version: strings.TrimSpace(e.apiVersion),
+		endpoint: strings.TrimSpace(e.channelEndpoint()), version: strings.TrimSpace(e.apiVersion),
 		id: strings.TrimSpace(id), auth: e.auth(), revision: e.revision,
 	}
 }

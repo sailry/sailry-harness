@@ -27,6 +27,7 @@ var brandSlugs = map[string]string{
 	"copilot-responses":    "githubcopilot",
 	"azure-openai":         "azure",
 	"azure-ai":             "azureai",
+	"vertex-ai":            "vertexai",
 	"opencode-go":          "opencode",
 	"opencode-zen":         "opencode",
 }

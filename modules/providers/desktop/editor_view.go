@@ -272,7 +272,7 @@ func providerForm(c *ui.Context, m *Controller, e *providerEditor) {
 				ui.Text(c, protocolName(c, e.method.API)).FontSize(14).Height(32).Padding(6, 0).FillWidth().TextColor(p.MutedForeground)
 			})
 		}
-		if e.current().Custom {
+		if e.current().Custom && !e.bedrock() && !e.vertex() {
 			input("endpoint", t("provider_endpoint"), t("provider_endpoint_hint"), &e.endpoint, false)
 		}
 		routeField(c, e, "product", t("provider_product"), axisProduct)
@@ -280,12 +280,23 @@ func providerForm(c *ui.Context, m *Controller, e *providerEditor) {
 		if e.azure() {
 			input("api-version", t("provider_api_version"), t("form_api_version_hint"), &e.apiVersion, false)
 		}
+		if e.bedrock() {
+			input("cloud-region", t("provider_region"), bedrockDefaultRegion, &e.region, false)
+		}
+		if e.vertex() {
+			input("cloud-project", t("provider_project"), "", &e.project, false)
+			input("cloud-location", t("provider_location"), vertexDefaultLocation, &e.location, false)
+		}
 		if e.usesKey() {
-			hint := t("provider_key_hint")
+			label, hint := t("provider_api_key"), t("provider_key_hint")
+			if e.vertex() {
+				// The service account's JSON key is the channel's credential.
+				label, hint = t("provider_service_account"), t("provider_service_account_hint")
+			}
 			if e.keySet {
 				hint = t("backup_keep_secret")
 			}
-			input("key", t("provider_api_key"), hint, &e.key, true)
+			input("key", label, hint, &e.key, true)
 		}
 		if e.method.KeyURL != "" {
 			b := ui.ButtonBase(c.Key("key-link")).Label(t("provider_get_key")).Cursor(ui.CursorPointer).AlignSelf(ui.Start).OnClick(func() {
@@ -367,7 +378,7 @@ func providerForm(c *ui.Context, m *Controller, e *providerEditor) {
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
 					generation := e.generation
-					draft := settings.ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), OAuth: e.oauth, ExpectedRevision: e.revision, EditorGeneration: generation, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
+					draft := settings.ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.channelEndpoint(), Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion), Region: strings.TrimSpace(e.region), Project: strings.TrimSpace(e.project), Location: strings.TrimSpace(e.location)}, Key: e.keyUpdate(), OAuth: e.oauth, ExpectedRevision: e.revision, EditorGeneration: generation, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
 							return

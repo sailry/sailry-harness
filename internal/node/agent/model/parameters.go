@@ -74,7 +74,8 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 	if level == "default" || level == "budget" {
 		level = ""
 	}
-	api := provider.Api
+	// Bedrock and Vertex AI shape requests as the protocol they carry.
+	api := provider.Api.Family()
 	if api == protocol.ConversationModelApiAzureAi {
 		if strings.HasPrefix(strings.ToLower(binding.Config.Model), "claude") {
 			api = protocol.ConversationModelApiAnthropic
