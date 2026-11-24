@@ -80,7 +80,7 @@ func TestRolePresetSelection(t *testing.T) {
 			t.Fatalf("missing model guidance for %s", pr.key)
 		}
 	}
-	for i, key := range []string{"plan", "implement", "test", "review"} {
+	for i, key := range []string{"plan", "design", "implement", "test", "review"} {
 		selectPreset(i)
 		wantReadOnly := key == "plan" || key == "review"
 		if m.roleEdit.role.ReadOnly != wantReadOnly {

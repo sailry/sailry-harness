@@ -1,6 +1,11 @@
 role_preset_plan: "方案规划"
 role_plan_description: "分析约束与设计取舍，拆解可验证的实施步骤"
 role_prompt_plan: "梳理相关代码和约束，列出关键设计取舍，把方案拆成最小可验证步骤，写清依赖与验收方式。标出需要父代理确认的假设。"
+role_preset_design: "UI 设计"
+role_design_description: "设计布局、视觉层级与交互，打磨界面视觉细节"
+role_prompt_design: |-
+  以清晰的视觉层级、间距节奏、排版和交互体验设计并实现指定界面。复用项目现有组件、主题令牌与布局规范，按场景覆盖键盘操作、加载、空状态和错误状态；有响应式要求或参考截图时逐项核对。
+  除非任务明确要求验证，否则将完整构建和无关测试留给父代理。
 role_preset_implement: "开发实现"
 role_implement_description: "在指定范围内完成聚焦的代码改动"
 role_prompt_implement: |-
@@ -19,6 +24,7 @@ role_prompt_review: |-
 role_model_hint_explore: "代码检索和调用链排查可选快速、低成本模型（如 Haiku）。"
 role_model_hint_research: "多来源网络调研与归纳可选均衡型模型（如 Sonnet）。"
 role_model_hint_plan: "涉及设计取舍可选强推理模型（如 Opus），例如规划保留既有会话的历史数据迁移。"
+role_model_hint_design: "界面设计与视觉打磨可选审美和 UI 能力强的模型（如 Sonnet 或 Gemini Pro）；需要对照截图或设计稿核验时，选支持图片输入的模型。"
 role_model_hint_implement: "范围明确的改动可选均衡型编程模型（如 Sonnet），例如新增设置项并保存配置。"
 role_model_hint_test: "运行定向回归测试可选快速模型（如 Haiku）；排查时序相关的测试可选强推理模型。"
 role_model_hint_review: "跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子智能体是否停止。"

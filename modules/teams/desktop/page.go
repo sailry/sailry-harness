@@ -65,6 +65,7 @@ type rolePreset struct {
 
 var rolePresets = []rolePreset{
 	{"plan", "role_preset_plan", "role_plan_description", "role_prompt_plan", "role_model_hint_plan", true},
+	{"design", "role_preset_design", "role_design_description", "role_prompt_design", "role_model_hint_design", false},
 	{"implement", "role_preset_implement", "role_implement_description", "role_prompt_implement", "role_model_hint_implement", false},
 	{"test", "role_preset_test", "role_test_description", "role_prompt_test", "role_model_hint_test", false},
 	{"review", "role_preset_review", "role_review_description", "role_prompt_review", "role_model_hint_review", true},
