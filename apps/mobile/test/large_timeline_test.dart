@@ -64,6 +64,7 @@ Future<void> _show(
   EdgeInsets padding = EdgeInsets.zero,
   List<Widget> older = const [],
   Key Function(String turn)? turnKey,
+  Map<String, dynamic> session = const {'id': 'session'},
 }) => tester.pumpWidget(
   MaterialApp(
     home: Scaffold(
@@ -73,7 +74,7 @@ Future<void> _show(
         controller: scroll,
         padding: padding,
         older: older,
-        session: const {'id': 'session'},
+        session: session,
         host: host,
         command: (kind, _) async => fail('Unexpected command: $kind'),
         turnKey: turnKey,
@@ -177,5 +178,41 @@ void main() {
     await Scrollable.ensureVisible(keys['t12']!.currentContext!, alignment: .2);
     await tester.pumpAndSettle();
     expect(find.text('Reply 12').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('a page rebuild with a copied session reuses built turns', (
+    tester,
+  ) async {
+    final runs = List.generate(4, _CountedRun.new);
+    final index = _index(runs);
+    final host = HostConnection.test(
+      id: 'node',
+      label: 'Test host',
+      snapshot: const {},
+      command: (kind, _) async => fail('Unexpected command: $kind'),
+    );
+    final scroll = ScrollController();
+    addTearDown(host.dispose);
+    addTearDown(scroll.dispose);
+    Widget latest() => tester
+        .widget<KeyedSubtree>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is KeyedSubtree &&
+                widget.key == const ValueKey<dynamic>('t3'),
+          ),
+        )
+        .child;
+
+    // The page copies its session map on every build.
+    await _show(tester, index, host, scroll, session: {'id': 'session'});
+    final built = latest();
+    await _show(tester, index, host, scroll, session: {'id': 'session'});
+    expect(latest(), same(built));
+
+    // A child session mapping that arrives later builds the turns again.
+    host.childTargets = {'child': 'session-2'};
+    await _show(tester, index, host, scroll, session: {'id': 'session'});
+    expect(latest(), isNot(same(built)));
   });
 }

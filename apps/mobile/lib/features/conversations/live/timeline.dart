@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderSliverList;
 
@@ -102,8 +102,12 @@ class _LiveTimelineState extends State<LiveTimeline> {
   /// that keeps the same projection, as a route transition, the keyboard or
   /// the composer causes, returns the same widgets, so Flutter skips their
   /// subtrees; a new projection or a changed input builds turns again.
+  /// The host's snapshot and child targets are replaced when they change, so
+  /// their identity covers child links and file roots. The session is copied
+  /// on each page build, so it is compared by its entries.
   final _turns = <Object?, Widget>{};
   Object? _turnInputs;
+  Map<String, dynamic>? _turnSession;
 
   @override
   Widget build(BuildContext context) {
@@ -231,8 +235,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             );
           }
           // The Node numbers its quiet first resend 0, which shows no row.
-          if (resource['type'] != 'model_retry' ||
-              resource['fallback'] != true && (resource['attempt'] ?? 0) == 0) {
+          if (!_shownRetry(resource)) {
             return const SizedBox.shrink();
           }
           return Padding(
@@ -601,15 +604,17 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final inputs = (
       transcript,
       connected,
-      session,
+      host.snapshot,
+      host.childTargets,
       canChangeHistory,
       widget.sending,
       onTurnAction != null,
       Theme.of(context),
       Localizations.localeOf(context),
     );
-    if (inputs != _turnInputs) {
+    if (inputs != _turnInputs || !mapEquals(session, _turnSession)) {
       _turnInputs = inputs;
+      _turnSession = session;
       _turns.clear();
     }
     // Index 0 is the bottom of the reversed transcript.
@@ -692,7 +697,11 @@ class _TurnItemKey extends ValueKey<String> {
   const _TurnItemKey(super.value);
 }
 
-bool _modelRetry(Map<String, dynamic> part) {
-  final data = object(part['data']);
-  return part['kind'] == 'resource' && data['type'] == 'model_retry';
-}
+/// A retry the transcript shows. The quiet first resend has no row and
+/// leaves the turn's thinking or writing phase in place.
+bool _shownRetry(Map<String, dynamic> data) =>
+    data['type'] == 'model_retry' &&
+    (data['fallback'] == true || (data['attempt'] ?? 0) != 0);
+
+bool _modelRetry(Map<String, dynamic> part) =>
+    part['kind'] == 'resource' && _shownRetry(object(part['data']));
