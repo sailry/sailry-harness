@@ -383,6 +383,18 @@ func (s *State) hasOpenRuns(runs [][]Call) bool {
 	return false
 }
 
+// fitRows lays out a group of at most five rows directly. Closed, it shows
+// them all; with a call or branch open it grows to its content, whose
+// outputs carry their own caps, so an opened body ends on the rail rather
+// than being cut at a fixed viewport.
+func fitRows(c *ui.Context, key string, height float32, expanded bool, rows func()) {
+	box := ui.Scroll(c.Key(key)).Gap(railGap)
+	if !expanded {
+		box.MaxHeight(height)
+	}
+	box.Children(rows)
+}
+
 // groupHeight caps a closed-rows tool group to five rows, and expands the
 // viewport when an inner call or nested branch is open so expanded command
 // outputs or subtrees remain comfortably visible instead of clipping.
@@ -426,7 +438,8 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(rail ui.Element) {
 		const visibleRows = 5
-		height := s.groupHeight(c, s.hasOpenRuns(runs))
+		expanded := s.hasOpenRuns(runs)
+		height := s.groupHeight(c, expanded)
 		renderRun := func(run []Call, list ...*ui.ListState) {
 			if len(run) == 1 {
 				s.row(c, run[0], list...)
@@ -440,7 +453,7 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 			// than its rows and snaps shorter on the next hover rebuild. Lay
 			// small groups out directly in ui.Scroll so the exact height is
 			// measured on the first frame, including inner row toggles.
-			ui.Scroll(c.Key("tool-rows-fit")).MaxHeight(height).Gap(railGap).Children(func() {
+			fitRows(c, "tool-rows-fit", height, expanded, func() {
 				for _, run := range runs {
 					ui.Column(c.Key("enter-" + run[0].ID)).Shrink(0).Transition(toolRowEnter).Children(func() { renderRun(run) })
 				}
@@ -481,7 +494,7 @@ func (s *State) callRows(c *ui.Context, rail ui.Element, keyPrefix string, calls
 	const visibleRows = 5
 	height := s.groupHeight(c, expanded)
 	if len(calls) <= visibleRows {
-		ui.Scroll(c.Key(keyPrefix + "-fit")).MaxHeight(height).Gap(railGap).Children(func() {
+		fitRows(c, keyPrefix+"-fit", height, expanded, func() {
 			for _, call := range calls {
 				ui.Column(c.Key("enter-" + call.ID)).Shrink(0).Transition(toolRowEnter).Children(func() { s.row(c, call) })
 			}
