@@ -1294,8 +1294,8 @@ the demo never changes their trust records. Mobile pages read a local query
 cache before their live observations: the last confirmed host view, message
 previews and recently opened transcripts render at once, then the Client's
 observation replaces them. The cache keeps decoded values in memory and stores
-them in a local SQLite database through drift, with an FTS5 trigram index of
-the message text it has seen. Offline message search limits its results after
+them in a local SQLite database through drift. The FTS5 trigram index keeps a
+bounded amount of recently indexed message text. Offline search limits results after
 selecting the eligible conversations for the active host, project and filter.
 Cached content never reports a connection or enables writes. The last confirmed
 conversation snapshot is saved before a page releases its view. Forgetting a

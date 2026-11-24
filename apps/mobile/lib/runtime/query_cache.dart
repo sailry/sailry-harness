@@ -136,7 +136,9 @@ class QueryCache {
   ) async {
     final database = _database;
     if (database == null || _closed) return;
-    await _write(() => database.index(scope, session, source, bodies));
+    await _write(
+      () => database.index(scope, session, source, bodies, budget: diskBudget),
+    );
   }
 
   /// Indexed sessions whose messages contain [query].

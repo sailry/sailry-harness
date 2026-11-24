@@ -31,6 +31,7 @@ class LocalStore extends GeneratedDatabase {
 
   static const _entries = 'entries';
   static const _search = 'message_search';
+  int? _indexTextSinceTrim;
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables => const [];
@@ -145,8 +146,12 @@ class LocalStore extends GeneratedDatabase {
     String scope,
     String session,
     String source,
-    List<String> bodies,
-  ) async {
+    List<String> bodies, {
+    required int budget,
+  }) async {
+    // Compact an existing index on its first write, then amortize the scan.
+    final interval = budget ~/ 8;
+    var pending = _indexTextSinceTrim ?? interval;
     await transaction(() async {
       await customStatement(
         'DELETE FROM $_search WHERE scope = ? AND session = ? AND source = ?',
@@ -159,8 +164,23 @@ class LocalStore extends GeneratedDatabase {
           'VALUES (?, ?, ?, ?)',
           [scope, session, source, body],
         );
+        pending += body.length;
+      }
+      if (pending >= interval) {
+        await customStatement(
+          '''
+          DELETE FROM $_search WHERE rowid <= (
+            SELECT MAX(rowid) FROM (
+              SELECT rowid, SUM(LENGTH(body)) OVER (ORDER BY rowid DESC) AS size
+              FROM $_search
+            ) WHERE size > ?
+          )''',
+          [budget],
+        );
+        pending = 0;
       }
     });
+    _indexTextSinceTrim = pending;
     notifyUpdates({const TableUpdate(_search)});
   }
 

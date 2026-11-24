@@ -155,6 +155,29 @@ void main() {
   );
 
   test(
+    'the search index drops its oldest text beyond the disk budget',
+    () async {
+      final cache = QueryCache(store: reopen(), diskBudget: 20);
+      addTearDown(cache.close);
+      final scope = hostCacheScope('node');
+      await cache.index(scope, 'old', 'transcript', [
+        'needle from the old turn',
+      ]);
+      await cache.index(scope, 'first', 'transcript', ['first needle']);
+      await cache.index(scope, 'latest', 'transcript', ['latest needle']);
+
+      expect(
+        await cache.search(
+          'needle',
+          scope: scope,
+          sessions: const {'old', 'first', 'latest'},
+        ),
+        [(session: 'latest', body: 'latest needle')],
+      );
+    },
+  );
+
+  test(
     'removing a scope retires in-flight reads before it can be reused',
     () async {
       final store = _PendingReadStore();
