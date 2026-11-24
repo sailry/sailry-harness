@@ -223,7 +223,11 @@ class _LiveTimelineState extends State<LiveTimeline> {
               ),
             );
           }
-          if (resource['type'] != 'model_retry') return const SizedBox.shrink();
+          // The Node numbers its quiet first resend 0, which shows no row.
+          if (resource['type'] != 'model_retry' ||
+              resource['fallback'] != true && (resource['attempt'] ?? 0) == 0) {
+            return const SizedBox.shrink();
+          }
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: ActivityText(

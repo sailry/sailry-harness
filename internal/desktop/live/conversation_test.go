@@ -253,6 +253,7 @@ func TestConversationProjection(t *testing.T) {
 		{"failed_call", []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: "runtime"}}}}}, conversation.ToolsBlock, 1, true, false},
 		{"returned_tool_error", []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: "tool"}}}}}, conversation.ToolsBlock, 1, false, true},
 		{"retry", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":2,"limit":5}`)}}, conversation.RetryBlock, 1, false, false},
+		{"quiet_resend", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":0,"limit":9}`)}}, conversation.RetryBlock, 0, false, false},
 		{"compacting", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"compacting","started_ms":1}`)}}, conversation.TextBlock, 0, false, false},
 		{"output_limit", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"output_limit"}`)}}, conversation.LimitBlock, 1, false, false},
 		{"compaction_failure", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"compaction_failure","failure":{"source":"automatic","stage":"request","reason":"request_failed","continued":true,"cause":"Unavailable"}}`)}}, conversation.ErrorBlock, 1, false, false},
