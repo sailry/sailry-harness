@@ -281,7 +281,13 @@ func resourcePart(v any) protocol.ConversationPart {
 	b, _ := encode(v)
 	return protocol.ConversationPart{Kind: "resource", Data: json.RawMessage(b)}
 }
+
+// projectStoredEntry resolves a record's tool responses together when no page
+// supplies requests, so its turn is read once rather than once per response.
 func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Record, sequence uint64, requests toolRequests) (protocol.ConversationEntry, error) {
+	if requests == nil {
+		requests = recordToolRequests(record)
+	}
 	entry, err := canonicalEntry(record, sequence, func(block canonical.Block) (*rawAgentTool, error) {
 		return storedAgentTool(ctx, db, record, sequence, block, requests)
 	})

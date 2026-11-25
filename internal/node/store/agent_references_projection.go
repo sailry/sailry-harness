@@ -85,6 +85,7 @@ func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.S
 	size := 0
 	trimmed := false
 	var record *canonical.Record
+	var requests toolRequests
 	var sequence uint64
 	if includeTools {
 		for _, part := range entry.Parts {
@@ -97,7 +98,7 @@ func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.S
 				if err := json.Unmarshal(body, &value); err != nil {
 					return nil, err
 				}
-				record = &value
+				record, requests = &value, recordToolRequests(value)
 				break
 			}
 		}
@@ -117,7 +118,7 @@ func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.S
 				if m := record.Message(); m != nil {
 					for _, block := range m.Content {
 						if block.Index == uint64(index) {
-							raw, err = storedAgentTool(ctx, db, *record, sequence, block, nil)
+							raw, err = storedAgentTool(ctx, db, *record, sequence, block, requests)
 							break
 						}
 					}

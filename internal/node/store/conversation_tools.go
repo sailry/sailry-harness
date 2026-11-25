@@ -39,6 +39,19 @@ func (requests toolRequests) include(record canonical.Record) {
 	}
 }
 
+// recordToolRequests narrows the lookup to one record's responses. A record
+// can carry hundreds of them; a narrow query per response would match the
+// record itself each time and parse its whole body again. A single response
+// keeps the narrow query, which skips bodies that cannot name its call.
+func recordToolRequests(record canonical.Record) toolRequests {
+	requests := toolRequests{}
+	requests.include(record)
+	if page := requests[record.Turn]; page == nil || len(page.ids) < 2 {
+		return nil
+	}
+	return requests
+}
+
 func (requests toolRequests) find(ctx context.Context, db *sql.Conn, record canonical.Record, sequence uint64, response *canonical.ToolResponse) (*rawAgentTool, error) {
 	key := toolCallKey{record.Provenance.Branch, response.ID, response.Name}
 	page := requests[record.Turn]
