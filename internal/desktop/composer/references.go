@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -46,36 +47,68 @@ type trigger struct {
 
 // parseTrigger is the marker before the caret starts the draft or follows a
 // space; the query after it holds no space or @, and the caret ends a word.
+// The caret and start count runes; the draft is scanned in place, as this
+// runs every frame however long the draft is.
 func parseTrigger(text string, caret int) trigger {
-	rs := []rune(text)
-	if caret < 0 || caret > len(rs) {
+	if caret < 0 {
 		return trigger{}
 	}
-	for i := caret - 1; i >= 0; i-- {
-		r := rs[i]
+	end, count := 0, 0
+	for ; count < caret && end < len(text); count++ {
+		_, size := utf8.DecodeRuneInString(text[end:])
+		end += size
+	}
+	if count < caret {
+		return trigger{}
+	}
+	for at, index := end, caret; at > 0; {
+		r, size := utf8.DecodeLastRuneInString(text[:at])
+		at -= size
+		index--
 		if r != '@' && r != '/' {
 			if unicode.IsSpace(r) {
 				return trigger{}
 			}
 			continue
 		}
-		if i > 0 && !unicode.IsSpace(rs[i-1]) {
+		if before, _ := utf8.DecodeLastRuneInString(text[:at]); at > 0 && !unicode.IsSpace(before) {
 			return trigger{}
 		}
-		if caret < len(rs) && !unicode.IsSpace(rs[caret]) {
+		if after, _ := utf8.DecodeRuneInString(text[end:]); end < len(text) && !unicode.IsSpace(after) {
 			return trigger{}
 		}
-		query := string(rs[i+1 : caret])
+		query := text[at+size : end]
 		if r == '/' && strings.Contains(query, "/") {
 			return trigger{}
 		}
-		return trigger{start: i, marker: r, query: query, ok: true}
+		return trigger{start: index, marker: r, query: query, ok: true}
 	}
 	return trigger{}
 }
 
 // token is a reference's text in the draft.
 func token(r Reference) string { return "@" + strings.TrimPrefix(r.Label, "@") }
+
+// tokenAt is the byte offset in text, from from on, of the next whole
+// "@label" token, or -1; it matches as token does without building it.
+func tokenAt(text string, r Reference, from int) int {
+	label := strings.TrimPrefix(r.Label, "@")
+	for from < len(text) {
+		at := strings.IndexByte(text[from:], '@')
+		if at < 0 {
+			return -1
+		}
+		from += at
+		if strings.HasPrefix(text[from+1:], label) {
+			return from
+		}
+		from++
+	}
+	return -1
+}
+
+// chipped reports whether the reference's chip is still in the draft.
+func (s *State) chipped(r Reference) bool { return tokenAt(s.Draft, r, 0) >= 0 }
 
 // rowKey keys a picker row by its owning page's Source, its Kind and its ID
 // together, so rows from independent owners that share a bare ID (a files
@@ -101,27 +134,35 @@ func (s *State) active() []Reference {
 
 // syncReferences forgets the references whose chip was deleted.
 func (s *State) syncReferences() {
-	if len(s.References) > 0 {
+	if slices.ContainsFunc(s.References, func(r Reference) bool { return !s.chipped(r) }) {
 		s.References = s.active()
 	}
 }
 
 // chips styles every reference's token in the draft as a chip: Kit's
 // inline token, as MyGo TextRanges (the text area draws no inline
-// elements).
+// elements). Ranges count runes; the draft is scanned in place each frame.
 func (s *State) chips(c *ui.Context, area ui.Element) {
 	if len(s.References) == 0 {
 		return
 	}
 	p := theme.Of(c)
-	rs := []rune(s.Draft)
+	s.chipRanges(func(start, end int) {
+		area.TextRanges(ui.TextRange{Start: start, End: end, Color: p.Primary, Weight: 500})
+	})
+}
+
+// chipRanges yields the rune range of every reference's token in the draft.
+func (s *State) chipRanges(yield func(start, end int)) {
 	for _, r := range s.References {
-		t := []rune(token(r))
-		for i := 0; i+len(t) <= len(rs); i++ {
-			if slices.Equal(rs[i:i+len(t)], t) {
-				area.TextRanges(ui.TextRange{Start: i, End: i + len(t), Color: p.Primary, Weight: 500})
-				i += len(t) - 1
-			}
+		label := strings.TrimPrefix(r.Label, "@")
+		size, runes := 1+len(label), 1+utf8.RuneCountInString(label)
+		index, from := 0, 0
+		for at := tokenAt(s.Draft, r, 0); at >= 0; at = tokenAt(s.Draft, r, from) {
+			index += utf8.RuneCountInString(s.Draft[from:at])
+			yield(index, index+runes)
+			index += runes
+			from = at + size
 		}
 	}
 }

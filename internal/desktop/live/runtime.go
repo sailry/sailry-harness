@@ -218,9 +218,11 @@ type conversationCopy struct {
 	ok         bool
 	generation uint64
 	composer   *composerHistory
-	prepared   *preparedConversation
-	controls   *conversationControlFacts
-	request    uint64
+	// usage outlives view changes so an unchanged usage keeps its identity.
+	usage    *composerHistory
+	prepared *preparedConversation
+	controls *conversationControlFacts
+	request  uint64
 }
 
 // snapshot returns the Client's Node snapshot, copied once per Client

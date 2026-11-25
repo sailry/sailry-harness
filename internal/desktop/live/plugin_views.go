@@ -253,7 +253,7 @@ func (r *Runtime) pluginViewsAfterFrame() {
 
 func pluginViewScopeExists(owner *Runtime, scope protocol.PluginContext) bool {
 	if scope.Session != nil {
-		session, exists := owner.session(scope.Session.String())
+		session, exists := owner.sessionWithID(*scope.Session)
 		if !exists || scope.Worktree != nil && session.Worktree != *scope.Worktree {
 			return false
 		}
@@ -270,6 +270,20 @@ func pluginViewScopeExists(owner *Runtime, scope protocol.PluginContext) bool {
 		return false
 	}
 	return true
+}
+
+// sessionWithID is session for an identifier the caller already holds; each
+// frame checks every mounted scope this way.
+func (r *Runtime) sessionWithID(id protocol.SessionID) (protocol.Session, bool) {
+	if len(r.admittedSessions) != 0 {
+		return r.session(id.String())
+	}
+	for _, session := range r.snapshot().Sessions {
+		if session.ID == id {
+			return session, true
+		}
+	}
+	return protocol.Session{}, false
 }
 
 func (r *Runtime) pluginViewCurrent(mounted *pluginMountedView) bool {

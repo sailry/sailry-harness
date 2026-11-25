@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"time"
 
@@ -37,6 +38,9 @@ type composerHistory struct {
 	compacting  bool
 	hasMessages bool
 	err         error
+	// source is the read-only statistics the wire representation was made
+	// from, compared by value when a later view carries a new copy.
+	source *protocol.ConversationStatistics
 }
 
 func (r *Runtime) composerHistory(id protocol.SessionID) *composerHistory {
@@ -52,20 +56,93 @@ func (r *Runtime) composerHistory(id protocol.SessionID) *composerHistory {
 	if copied.composer != nil {
 		return copied.composer
 	}
-	history := &composerHistory{statistics: json.RawMessage("null")}
-	if state.Snapshot.Statistics != nil {
-		history.statistics, history.err = plugins.ComposerStatistics(state.Snapshot.Statistics)
-	}
-	history.hasMessages = len(state.Snapshot.Page.Runs) != 0
-	history.compacting = slices.ContainsFunc(state.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
+	hasMessages := len(state.Snapshot.Page.Runs) != 0
+	compacting := slices.ContainsFunc(state.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
 		return run.Kind == protocol.ConversationRunKindCompaction &&
 			(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
 	})
+	// A streamed view copies unchanged statistics. Keeping the previous
+	// projection keeps composer bindings from encoding the usage again.
+	history := copied.usage
+	if history == nil || history.err != nil || history.hasMessages != hasMessages || history.compacting != compacting ||
+		!sameComposerStatistics(history.source, state.Snapshot.Statistics) {
+		history = &composerHistory{statistics: json.RawMessage("null"), hasMessages: hasMessages, compacting: compacting,
+			source: state.Snapshot.Statistics}
+		if state.Snapshot.Statistics != nil {
+			history.statistics, history.err = plugins.ComposerStatistics(state.Snapshot.Statistics)
+		}
+	}
 	if cached {
-		copied.composer = history
+		copied.composer, copied.usage = history, history
 		copies[id] = copied
 	}
 	return history
+}
+
+func sameComposerStatistics(previous, current *protocol.ConversationStatistics) bool {
+	if previous == nil || current == nil {
+		return previous == current
+	}
+	return previous == current || equalProtocolValue(reflect.ValueOf(previous).Elem(), reflect.ValueOf(current).Elem())
+}
+
+// equalProtocolValue compares decoded protocol values by every field.
+// reflect.DeepEqual records each pointer and slice it visits against cycles,
+// which allocates on every streamed view; decoded values have no cycles.
+// Values it cannot compare report a difference.
+func equalProtocolValue(a, b reflect.Value) bool {
+	switch a.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() == b.IsNil()
+		}
+		if a.Kind() == reflect.Interface && a.Elem().Type() != b.Elem().Type() {
+			return false
+		}
+		return equalProtocolValue(a.Elem(), b.Elem())
+	case reflect.Slice:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		fallthrough
+	case reflect.Array:
+		for index := range a.Len() {
+			if !equalProtocolValue(a.Index(index), b.Index(index)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		for index := range a.NumField() {
+			if !equalProtocolValue(a.Field(index), b.Field(index)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Map:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		for entries := a.MapRange(); entries.Next(); {
+			other := b.MapIndex(entries.Key())
+			if !other.IsValid() || !equalProtocolValue(entries.Value(), other) {
+				return false
+			}
+		}
+		return true
+	case reflect.Bool:
+		return a.Bool() == b.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return a.Int() == b.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return a.Uint() == b.Uint()
+	case reflect.Float32, reflect.Float64:
+		return a.Float() == b.Float()
+	case reflect.String:
+		return a.String() == b.String()
+	default:
+		return false
+	}
 }
 
 func (r *Runtime) beginConversationFrame() {

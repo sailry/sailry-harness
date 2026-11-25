@@ -63,11 +63,15 @@ func nativeProjectControl(name, id string) bool {
 func pluginViewDeclarations(name string, declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
 	result := make([]protocol.PluginUiContribution, 0, len(declarations))
 	for _, declaration := range declarations {
-		if pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(name, declaration.ID)) {
+		if pluginViewShows(name, declaration, surface) {
 			result = append(result, declaration)
 		}
 	}
 	return result
+}
+
+func pluginViewShows(name string, declaration protocol.PluginUiContribution, surface string) bool {
+	return pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(name, declaration.ID))
 }
 
 func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...string) *desktopplugins.Registry {
@@ -172,7 +176,7 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 	}
 	var assistant *protocol.PluginConversationBinding
 	if owner.scope.Session != nil && owner.scope.Surface.Kind != "project" {
-		if session, exists := owner.owner.session(owner.scope.Session.String()); exists {
+		if session, exists := owner.owner.sessionWithID(*owner.scope.Session); exists {
 			assistant = session.Config.Assistant
 		}
 	} else if owner.draft != "" {
@@ -184,41 +188,43 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 		}
 	}
 	demo := strings.HasPrefix(owner.draft, pluginDemoPresentation)
-	desired := map[string]protocol.PluginInfo{}
-	for _, info := range root.pluginViewCatalog(owner.owner) {
+	// The catalog is shared and unchanged between frames; the packages this
+	// surface mounts are filtered from it in place.
+	catalog := root.pluginViewCatalog(owner.owner)
+	desired := func(info protocol.PluginInfo) bool {
 		extension := info.Extension
 		// Over a demo conversation the statistics package alone is shown: it
 		// reads the composer state and nothing of the Node.
 		if demo && info.Summary.Name != pluginStatisticsPackage {
-			continue
+			return false
 		}
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
 			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
-			len(pluginViewDeclarations(info.Summary.Name, extension.Ui, owner.scope.Surface.Kind)) == 0 {
-			continue
+			!slices.ContainsFunc(extension.Ui, func(declaration protocol.PluginUiContribution) bool {
+				return pluginViewShows(info.Summary.Name, declaration, owner.scope.Surface.Kind)
+			}) {
+			return false
 		}
 		if assistant == nil {
-			if extension.Scope != protocol.PluginScopeHost {
-				continue
-			}
-		} else if assistant.Package.Name != info.Summary.Name &&
-			!(extension.Scope == protocol.PluginScopeHost && extension.Desktop.UiShared) {
-			continue
+			return extension.Scope == protocol.PluginScopeHost
 		}
-		desired[info.Summary.Name] = info
+		return assistant.Package.Name == info.Summary.Name || extension.Scope == protocol.PluginScopeHost && extension.Desktop.UiShared
 	}
 	for key, mounted := range root.pluginViews.mounts {
 		if key.role != "contribution" || key.scope != owner.key {
 			continue
 		}
-		info, available := desired[key.name]
-		if !available || packageReference(info.Summary) != mounted.scope.Package || mounted.locale != root.packageLocale() {
+		index := slices.IndexFunc(catalog, func(info protocol.PluginInfo) bool { return info.Summary.Name == key.name })
+		if index < 0 || !desired(catalog[index]) || packageReference(catalog[index].Summary) != mounted.scope.Package ||
+			mounted.locale != root.packageLocale() {
 			root.dropPluginView(mounted, true)
 			delete(root.pluginViews.mounts, key)
 		}
 	}
-	for _, info := range desired {
-		root.ensurePluginView(view, owner.owner, info, owner.scope, "contribution", owner.registry)
+	for _, info := range catalog {
+		if desired(info) {
+			root.ensurePluginView(view, owner.owner, info, owner.scope, "contribution", owner.registry)
+		}
 	}
 }
 

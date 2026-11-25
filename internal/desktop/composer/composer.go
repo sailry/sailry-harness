@@ -220,7 +220,7 @@ func (s *State) clear() {
 // hasInput reports whether the draft has anything to send: text, a file or a
 // reference.
 func (s *State) hasInput() bool {
-	return strings.TrimSpace(s.Draft) != "" || len(s.Attachments) > 0 || len(s.active()) > 0
+	return strings.TrimSpace(s.Draft) != "" || len(s.Attachments) > 0 || slices.ContainsFunc(s.References, s.chipped)
 }
 
 // sendable reports whether the files are all on the host.

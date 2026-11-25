@@ -28,6 +28,14 @@ type nativeComposerFrameFixture struct {
 
 func newNativeComposerFrameFixture(t testing.TB) nativeComposerFrameFixture {
 	t.Helper()
+	return newSizedNativeComposerFrameFixture(t, 0)
+}
+
+// newSizedNativeComposerFrameFixture adds extra sessions, worktrees and
+// projects around the mounted composer, and a worktree read so the location
+// projection is refreshed each frame as well.
+func newSizedNativeComposerFrameFixture(t testing.TB, extra int) nativeComposerFrameFixture {
+	t.Helper()
 	const entry = "dev.sailry.platform/desktop/composer.js"
 	node, id, worktree := protocol.NodeID{1}, protocol.SessionID{2}, protocol.WorktreeID{3}
 	info := protocol.DefaultPluginInfo()
@@ -36,6 +44,9 @@ func newNativeComposerFrameFixture(t testing.TB) nativeComposerFrameFixture {
 	extension := protocol.DefaultPluginExtension()
 	extension.Scope = protocol.PluginScopeHost
 	extension.Actions = []protocol.PluginAction{protocol.PluginActionReadConversation, protocol.PluginActionProvideModels}
+	if extra > 0 {
+		extension.Actions = append(extension.Actions, protocol.PluginActionReadWorktrees)
+	}
 	extension.ModelResources = []protocol.PluginModelAuthResource{{Authentication: protocol.AuthenticationChatGpt}}
 	extension.ConversationOptions = new(json.RawMessage(`{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"budget":{"type":"string","default":"balanced"}},"additionalProperties":false}`))
 	desktop := protocol.DefaultPluginDesktopManifest()
@@ -56,9 +67,23 @@ func newNativeComposerFrameFixture(t testing.TB) nativeComposerFrameFixture {
 	snapshot.Node, snapshot.Plugins = node, []protocol.PluginSummary{info.Summary}
 	snapshot.Sessions, snapshot.Worktrees = []protocol.Session{session}, []protocol.Worktree{{ID: worktree, Main: true}}
 	snapshot.Providers = []protocol.ConversationProvider{provider}
+	for i := range extra {
+		project := protocol.ProjectID{byte(i), 5}
+		extraWorktree := protocol.WorktreeID{byte(i), 6}
+		snapshot.Projects = append(snapshot.Projects, protocol.Project{ID: project, Name: fmt.Sprintf("project-%d", i)})
+		snapshot.Worktrees = append(snapshot.Worktrees, protocol.Worktree{ID: extraWorktree, Project: &project, Main: true})
+		for j := range 4 {
+			extraSession := protocol.DefaultSession()
+			extraSession.ID, extraSession.Worktree, extraSession.Revision = protocol.SessionID{byte(i), byte(j), 7}, extraWorktree, 1
+			snapshot.Sessions = append(snapshot.Sessions, extraSession)
+		}
+	}
 	source := &pluginViewTestNode{snapshot: snapshot, bundle: make(chan link.Response, 1), updates: make(chan protocol.Update, 1)}
 	root := pluginViewFixture(t, source)
 	root.packages.infos[info.Summary.Name] = info
+	for _, extraSession := range snapshot.Sessions[1:] {
+		root.App.Data.Unassigned = append(root.App.Data.Unassigned, &viewmodel.Conversation{ID: extraSession.ID.String(), Node: node.String()})
+	}
 	root.App.Data.Unassigned = append(root.App.Data.Unassigned, &viewmodel.Conversation{ID: id.String(), Node: node.String()})
 	root.App.Composer(id.String()).Draft = "/sample fixture arguments"
 	root.App.Page = shell.ConversationPage
@@ -113,6 +138,12 @@ export default class extends View { render(){return div().child("Composer frame 
 }
 
 func publishNativeComposerFixtureHistory(feed *conversationFeed, node protocol.NodeID, id protocol.SessionID, tokens uint64) {
+	feed.latest.Store(nativeComposerFixtureHistory(node, id, tokens))
+}
+
+// nativeComposerFixtureHistory is one streamed publication: each call is a
+// new detached view with its own statistics copy, as the Client delivers.
+func nativeComposerFixtureHistory(node protocol.NodeID, id protocol.SessionID, tokens uint64) *preparedConversation {
 	statistics := protocol.DefaultConversationStatistics()
 	statistics.Turns, statistics.Responses = 1, 1
 	statistics.ContextTokens, statistics.ContextLimit = &tokens, new(uint32(128_000))
@@ -129,7 +160,7 @@ func publishNativeComposerFixtureHistory(feed *conversationFeed, node protocol.N
 	snapshot := protocol.DefaultConversationSnapshot()
 	snapshot.Node, snapshot.Sequence, snapshot.Statistics = node, 1, &statistics
 	snapshot.Page = cacheTestPage(id, 1, "Fixed composer fixture")
-	feed.latest.Store(&preparedConversation{state: client.ConversationState{Connected: true, Snapshot: snapshot}})
+	return &preparedConversation{state: client.ConversationState{Connected: true, Snapshot: snapshot}}
 }
 
 func (fixture nativeComposerFrameFixture) owners() int {
@@ -137,7 +168,83 @@ func (fixture nativeComposerFrameFixture) owners() int {
 }
 
 func BenchmarkPluginNativeComposerUnchangedFrame(b *testing.B) {
-	fixture := newNativeComposerFrameFixture(b)
+	benchmarkNativeComposerFrames(b, newNativeComposerFrameFixture(b), nil)
+}
+
+func BenchmarkPluginNativeComposerLargeUnchangedFrame(b *testing.B) {
+	benchmarkNativeComposerFrames(b, newSizedNativeComposerFrameFixture(b, 64), nil)
+}
+
+// Streaming publishes a new transcript view each frame while the usage the
+// composer projects stays the same; a changed usage must still publish.
+func BenchmarkPluginNativeComposerStreamingFrame(b *testing.B) {
+	fixture := newSizedNativeComposerFrameFixture(b, 64)
+	node, id := fixture.source.snapshot.Node, *fixture.scope.Session
+	feed := fixture.root.conversationFeeds[id]
+	publications := []*preparedConversation{nativeComposerFixtureHistory(node, id, 7), nativeComposerFixtureHistory(node, id, 7)}
+	frame := 0
+	benchmarkNativeComposerFrames(b, fixture, func() {
+		frame++
+		feed.latest.Store(publications[frame%len(publications)])
+	})
+}
+
+// Open/close cycles drop and remount the composer contribution on the same
+// window and check that each close releases the mount and its registry.
+func BenchmarkPluginNativeComposerOpenCloseCycle(b *testing.B) {
+	fixture := newSizedNativeComposerFrameFixture(b, 64)
+	bundle := *fixture.mounted.bundle
+	views := fixture.root.pluginViews
+	cycle := func() {
+		var released []*pluginMountedView
+		for _, owner := range views.registries {
+			for _, mounted := range views.mounts {
+				released = append(released, mounted)
+			}
+			fixture.root.closePluginRegistry(owner)
+		}
+		if len(views.mounts) != 0 || len(views.registries) != 0 {
+			b.Fatalf("closing the composer retained %d mounts and %d registries", len(views.mounts), len(views.registries))
+		}
+		for _, mounted := range released {
+			if mounted.host != nil || mounted.runtime != nil || mounted.ctx.Err() == nil {
+				b.Fatal("closing the composer retained its host, runtime or context")
+			}
+		}
+		fixture.source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_view", Data: bundle}}
+		// The first frame makes the registry, the second mounts its view and
+		// reads the bundle, and the third mounts the bundle read.
+		fixture.window.Frame()
+		fixture.window.Frame()
+		fixture.root.workers.Wait()
+		fixture.window.Frame()
+		if len(views.mounts) != 1 || len(views.registries) != 1 {
+			b.Fatalf("reopening the composer kept %d mounts and %d registries", len(views.mounts), len(views.registries))
+		}
+		for _, mounted := range views.mounts {
+			if mounted.mounted == nil {
+				b.Fatal("reopening the composer did not mount it")
+			}
+		}
+	}
+	var baseline, sample runtime.MemStats
+	cycle()
+	runtime.GC()
+	runtime.ReadMemStats(&baseline)
+	b.ReportAllocs()
+	for b.Loop() {
+		cycle()
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&sample)
+	b.ReportMetric(float64(int64(sample.HeapAlloc)-int64(baseline.HeapAlloc)), "live-after-cycles-delta_B")
+	if err := fixture.root.Close(); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportMetric(float64(fixture.owners()), "closed-owners")
+}
+
+func benchmarkNativeComposerFrames(b *testing.B, fixture nativeComposerFrameFixture, update func()) {
 	const openOwners = 3
 	if fixture.owners() != openOwners {
 		b.Fatalf("expected a mount, a registry and a feed, got %d owners", fixture.owners())
@@ -149,15 +256,21 @@ func BenchmarkPluginNativeComposerUnchangedFrame(b *testing.B) {
 	runtime.GC()
 	runtime.ReadMemStats(&baseline)
 	b.ReportAllocs()
-	for b.Loop() {
+	frame := func() {
+		if update != nil {
+			update()
+		}
 		fixture.window.Frame()
+	}
+	for b.Loop() {
+		frame()
 	}
 	for round := 1; round <= 3; round++ {
 		const frames = 128
 		var before runtime.MemStats
 		runtime.ReadMemStats(&before)
 		for range frames {
-			fixture.window.Frame()
+			frame()
 		}
 		runtime.ReadMemStats(&sample)
 		b.ReportMetric(float64(sample.TotalAlloc-before.TotalAlloc)/frames, fmt.Sprintf("round-%d-B/frame", round))
