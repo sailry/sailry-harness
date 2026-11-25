@@ -2,6 +2,7 @@ package live
 
 import (
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -27,7 +28,7 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 	native := p.runtime.workspace.native
 	switch a.Kind {
 	case "files_copy", "files_cut":
-		p.runtime.workspace.clipboard = workspaceClipboard{worktree: p.owner.ID, paths: append([]string(nil), a.Paths...), cut: a.Kind == "files_cut"}
+		p.runtime.workspace.clipboard = workspaceClipboard{worktree: p.owner.ID, paths: slices.Clone(a.Paths), cut: a.Kind == "files_cut", capture: new(struct{ marker byte })}
 	case "files_paste":
 		copied := p.runtime.workspace.clipboard
 		commands := make([]protocol.Command, 0, len(copied.paths))
@@ -39,11 +40,12 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 				commands = append(commands, protocol.Command{Kind: "copy_entry_to", Data: protocol.CommandCopyEntryToPayload{Source: copied.worktree, Worktree: p.owner.ID, From: relative, To: destination}})
 			}
 		}
-		p.startWorkspaceTransfer(c, commands, func() {
+		p.startWorkspaceTransfer(c, commands, func(command protocol.Command) {
 			if copied.cut {
-				current := p.runtime.workspace.clipboard
-				if current.worktree == copied.worktree && strings.Join(current.paths, "\x00") == strings.Join(copied.paths, "\x00") {
-					p.runtime.workspace.clipboard = workspaceClipboard{}
+				current := &p.runtime.workspace.clipboard
+				if current.capture == copied.capture {
+					_, source, _, _ := workspaceTransferEntry(command)
+					current.paths = slices.DeleteFunc(current.paths, func(path string) bool { return path == source })
 				}
 			}
 		})

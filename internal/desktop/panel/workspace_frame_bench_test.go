@@ -12,7 +12,7 @@ import (
 )
 
 func BenchmarkWorkspacePanelFrame(b *testing.B) {
-	for _, kind := range []string{"directory", "status", "diff", "diff-close"} {
+	for _, kind := range []string{"status", "diff", "diff-close"} {
 		b.Run(kind, func(b *testing.B) {
 			pr := NewProjects(&preview.Workspace{}).Of("fixture")
 			pr.Actions = &Actions{}
@@ -33,10 +33,8 @@ func BenchmarkWorkspacePanelFrame(b *testing.B) {
 			tt := ui.NewTesterWith(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				switch kind {
-				case "directory":
-					pr.FileTree(c, true, pr.Files.Show)
 				case "status":
-					pr.changeList(c, true, pr.Git.Show, func(string) {})
+					pr.GitRepository(c, true, false, pr.Git.Show, nil)
 				default:
 					if pr.Git.Change() != "" {
 						pr.GitDiff(c, pr.Git.Change(), 900)

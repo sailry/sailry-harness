@@ -4,6 +4,7 @@ package icons
 import "github.com/sailry/sailry-harness/internal/desktop/icons"
 
 var (
+	Database  = icons.ByName("reicon:ui/database")
 	Network   = icons.Network
 	Terminal  = icons.Terminal
 	Command   = icons.Command
@@ -11,4 +12,5 @@ var (
 	Settings2 = icons.Settings2
 	CircleX   = icons.CircleX
 	Plus      = icons.Plus
+	Trash     = icons.Trash
 )

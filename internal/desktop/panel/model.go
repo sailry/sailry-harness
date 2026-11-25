@@ -5,7 +5,6 @@
 package panel
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -29,22 +28,32 @@ const (
 
 // Resource is a kind's tab: its icon and label, and the shortcut that opens it, if any.
 type Resource struct {
-	Kind      Kind
-	Icon      *ui.SVG
-	Label     string // i18n key
-	Order     int
-	Mods      ui.Modifiers
-	Key       ui.Key
+	Kind  Kind
+	Icon  *ui.SVG
+	Label string // i18n key
+	Order int
+	Mods  ui.Modifiers
+	Key   ui.Key
+	// Keystroke accepts a single manifest-style chord when Key is not set.
+	Keystroke string
 	Available func(*State) bool
-	// Open overrides the panel's standard open-or-focus action.
-	Open   func(*State)
-	Render func(*ui.Context, *State, Tab)
+	// Open overrides the standard open-or-focus action; New opens a fresh instance.
+	Open         func(*State)
+	New          func(*State)
+	Render       func(*ui.Context, *State, Tab)
+	Title        func(*State, Tab) string
+	Busy         func(*State, Tab) bool
+	TabMenu      func(*ui.Context, *ui.Menu, *State, Tab)
+	Find         func(*State, Tab) bool
+	ConfirmClose func(*State, Tab) CloseConfirmation
+	Release      func(*State, Tab, TabRelease)
+	// Numbered reserves restored numeric tab IDs for AddNumberedTab.
+	Numbered      bool
+	BindWorkspace GitWorkspaceMount
 }
 
-// Resources are the kinds with a tab of their own. The launcher and the "+"
-// menu list the first four, in the reference's order: Browser, Terminal,
-// Files and Review. The turns' checkpoints and a session's documents open
-// from where they belong (lists) and keep their tabs.
+// Resources is the standalone sample catalog and metadata for built-in tabs.
+// Product panels only offer their installed resource declarations.
 var Resources = []Resource{
 	{Kind: Browser, Icon: icons.Web, Label: "resource_browser", Order: 10, Mods: ui.Cmd, Key: ui.KeyT},
 	{Kind: Terminal, Icon: icons.Terminal, Label: "terminal", Order: 20, Mods: ui.Ctrl, Key: ui.KeyBackquote},
@@ -103,8 +112,9 @@ func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
 // row of tabs, each an open item, and the resources no project keeps.
 // Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
-	resources       []Resource // nil in standalone preview and demo panels
+	resources       []Resource
 	createResource  func(Kind) bool
+	ShortcutBinding func(Resource) (ui.Modifiers, ui.Key)
 	Actions         *Actions
 	TerminalActions *TerminalActions
 	BrowserActions  *BrowserActions
@@ -123,7 +133,7 @@ type State struct {
 	// connected Node, where a terminal can start: an unsent chat without a
 	// project has none, so Terminal is not offered there (lists).
 	Worktree      bool
-	closing       Tab // terminal waiting for confirmation
+	closing       Tab // tab waiting for confirmation
 	closingEditor *editorCloseRequest
 	Data          *preview.Workspace
 	Tabs          []Tab
@@ -148,7 +158,7 @@ type State struct {
 	view              fileview.View     // the previewed file's own state
 	children          map[string]string // the subagent sessions open, their titles by ID
 	pagesOf           map[string]*page  // the browser tabs' addresses and history, by ID
-	focusAddress      bool              // the browser tab opened last has yet to focus its address
+	focusAddress      string            // browser tab waiting to focus its address
 	terms             map[string]*term  // the terminal tabs' state, by ID
 	// Child builds a subagent's session in its tab, the transcript the shell
 	// owns.
@@ -158,23 +168,45 @@ type State struct {
 	Focus func(c *ui.Context)
 	// OnEmpty is called when an explicit tab close removes the last tab.
 	OnEmpty func()
-	// OnTerminalClose is called when the user confirms ending a terminal.
+	// OnCloseConfirmed records the origin of an explicit asynchronous close.
+	OnCloseConfirmed func(Tab)
+	// Deprecated: use OnCloseConfirmed. Retained for RegisterTerminal callers.
 	OnTerminalClose func(Tab)
 	// SharedItem reports whether another panel still uses a project item.
 	SharedItem func(*Project, Tab) bool
 }
 
 func New(w *preview.Workspace) *State {
-	return &State{Data: w}
+	return &State{Data: w, resources: []Resource{}}
 }
 
-// Open shows a resource of the launcher, the "+" menu or a shortcut: its
-// tab when one is open, else a new one. Documents opens the first; Files
-// and Changes the project's file or diff shown last. Terminal starts another
-// terminal every time, as the reference's request_terminal does, and nothing
-// where the conversation cannot have one.
+// NewSample explicitly installs isolated resources for a standalone sample.
+func NewSample(w *preview.Workspace) *State {
+	state := New(w)
+	resources := slices.Clone(Resources)
+	for i := range resources {
+		r := &resources[i]
+		switch r.Kind {
+		case Browser:
+			r.Numbered, r.New, r.Render = true, (*State).OpenBrowserTab, RenderBrowserSample
+			r.Title, r.Busy, r.Release = BrowserTitle, BrowserBusy, ReleaseBrowserTab
+		case Terminal:
+			r.Available = func(s *State) bool { return !s.Live || s.Worktree }
+			r.Numbered, r.Open, r.Render = true, OpenTerminalTab, RenderTerminalTab
+			r.ConfirmClose, r.Release, r.Find = fixtureTerminalClose, ReleaseTerminalTab, FindTerminalTab
+		case Files, Changes:
+			r.Render = RenderProjectResource
+		}
+	}
+	state.SetResources(resources)
+	return state
+}
+
+// Open shows a resource from the launcher, the "+" menu or a shortcut.
+// By default it focuses an existing tab or opens the first one.
 func (s *State) Open(k Kind) {
-	if resource, exists := s.resource(k); exists {
+	resource, exists := s.resource(k)
+	if exists {
 		if resource.Available != nil && !resource.Available(s) {
 			return
 		}
@@ -184,12 +216,6 @@ func (s *State) Open(k Kind) {
 		}
 	}
 	if !s.ValidTab(Tab{Kind: k}) {
-		return
-	}
-	if k == Terminal {
-		if s.lists(k) {
-			s.New(k)
-		}
 		return
 	}
 	if item(k) {
@@ -213,38 +239,25 @@ func (s *State) Open(k Kind) {
 			t.ID = s.Data.Documents[0].ID
 		}
 		s.Show(t)
-	case Browser:
-		s.New(k)
 	default:
+		if resource.New != nil {
+			resource.New(s)
+			return
+		}
 		s.Show(Tab{Kind: k})
 	}
 }
 
-// SetCreateResource lets the live window intercept creation of a browser page.
-func (s *State) SetCreateResource(create func(Kind) bool) { s.createResource = create }
-
-// New opens another browser page or terminal.
+// New explicitly requests another tab, even if the resource's launcher entry
+// is unavailable. An installed resource can report why it cannot open.
 func (s *State) New(k Kind) {
-	// A new browser tab takes the keyboard in its address field.
-	s.focusAddress = k == Browser
-	if resource, exists := s.resource(k); exists && resource.Open != nil {
-		resource.Open(s)
-		return
-	}
-	if !s.ValidTab(Tab{Kind: k}) {
-		return
-	}
-	if s.Live && k == Terminal {
-		if actions := s.TerminalActions; actions != nil && actions.Create != nil {
-			actions.Create()
+	if resource, exists := s.resource(k); exists {
+		if resource.New != nil {
+			resource.New(s)
+		} else if resource.Open != nil {
+			resource.Open(s)
 		}
-		return
 	}
-	if s.createResource != nil && s.createResource(k) {
-		return
-	}
-	s.pages++
-	s.Show(Tab{k, fmt.Sprint(s.pages)})
 }
 
 // Show shows t, opening its tab if needed.
@@ -285,20 +298,6 @@ func (s *State) keeper(t Tab) (keep, release func()) {
 	return func() { pr.keep(t.Kind, t.ID) }, func() { pr.release(t.Kind, t.ID) }
 }
 
-// Reserve keeps the numbers of browser pages and preview terminals unique in
-// the window: a tab that is not in the strip, as another conversation's,
-// still owns its number.
-func (s *State) Reserve(tabs ...Tab) {
-	for _, t := range tabs {
-		if t.Kind == Browser || t.Kind == Terminal {
-			var n int
-			if _, err := fmt.Sscan(t.ID, &n); err == nil {
-				s.pages = max(s.pages, n)
-			}
-		}
-	}
-}
-
 // Mount replaces the strip without closing the outgoing conversation's resources.
 func (s *State) Mount(tabs []Tab, active Tab) {
 	s.cancelClose()
@@ -326,9 +325,7 @@ func (s *State) Clear() {
 	s.cancelClose()
 	s.keepProjectTabs()
 	for _, t := range s.Tabs {
-		if t.Kind != Terminal || s.TerminalActions == nil || s.TerminalActions.Close == nil {
-			s.DiscardTabChrome(t)
-		}
+		s.DetachTab(t)
 	}
 	s.isolated, s.ignored = true, projectTabs(s.bound)
 	s.Tabs, s.Active = nil, Tab{}
@@ -380,14 +377,13 @@ func (t Tab) Valid() bool {
 	return false
 }
 
-// Close closes t's tab. It reports whether a tab is left. Closing a live
-// terminal's tab ends its shell, so it asks first (confirmClose): the tab
-// leaves once the Node has closed the terminal.
+// Close closes t's tab, or lets its resource confirm an asynchronous close.
+// It reports whether a tab is left.
 func (s *State) Close(t Tab) bool {
 	if !slices.Contains(s.Tabs, t) {
 		return len(s.Tabs) > 0
 	}
-	if t.Kind == Terminal && s.TerminalActions != nil && s.TerminalActions.Close != nil {
+	if s.closeConfirmation(t).Close != nil {
 		s.closing = t
 		return true
 	}
@@ -428,24 +424,14 @@ func (s *State) remove(t Tab) {
 	}
 }
 
-// lists reports whether the launcher and the "+" menu offer k: the
-// reference's four, Browser, Terminal, Files and Review. A terminal needs a
-// worktree, which an unsent chat of the live window without a project does
-// not have (the reference's Scope.offers). The turns' checkpoints open from
-// a turn's Undo and a session's documents from their cards, as the reference
-// reaches them; neither is a launcher entry.
+// lists reports whether the launcher and the "+" menu offer k. Checkpoints
+// and session documents have their own entry points, not launcher entries.
 func (s *State) lists(k Kind) bool {
-	if s.resources != nil {
-		resource, exists := s.resource(k)
-		return exists && (resource.Available == nil || resource.Available(s))
-	}
-	switch k {
-	case History, Documents:
+	if k == History || k == Documents {
 		return false
-	case Terminal:
-		return !s.Live || s.Worktree
 	}
-	return true
+	resource, exists := s.resource(k)
+	return exists && (resource.Available == nil || resource.Available(s))
 }
 
 // Offers reports whether the conversation shown can open k: a shortcut opens

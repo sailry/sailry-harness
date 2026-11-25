@@ -8,18 +8,22 @@ import (
 )
 
 func (location *pluginNativeLocation) releasePresentation(tree protocol.WorktreeID) {
-	owner := location.state.runtime
+	location.state.runtime.releaseWorkspacePresentation(tree)
+}
+
+func (owner *Runtime) releaseWorkspacePresentation(tree protocol.WorktreeID) {
 	root := owner.localRuntime()
 	if workspace := owner.workspace; workspace != nil {
 		if project := workspace.projects[tree]; project != nil {
-			retained := location.worktreeDrafts(tree) || len(project.pendingWorkspaceOperations()) > 0
+			retained := project.hasFileDrafts() || len(project.pendingWorkspaceOperations()) > 0 ||
+				project.git.HasPending != nil && project.git.HasPending()
 			for key := range owner.busy {
-				if strings.HasPrefix(key, "workspace-action/"+tree.String()+"\x00") {
+				if strings.HasPrefix(key, "workspace-action/"+tree.String()+"\x00") || strings.HasPrefix(key, "workspace-workflow/"+tree.String()+"/") {
 					retained = true
 					break
 				}
 			}
-			project.panel.ResetFileSearch()
+			project.closeFileDirectory()
 			project.releaseResourceWatch()
 			if !retained {
 				project.closeDocumentImages()

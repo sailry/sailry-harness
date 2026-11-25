@@ -13,11 +13,6 @@ func IsLegacyDesktopPackage(name, digest string) bool {
 		slices.Contains(legacyDesktopDigests[name], digest)
 }
 
-// LegacyDesktopViewRetired applies to views, not inventory, settings or history.
-func LegacyDesktopViewRetired(ref protocol.PluginReference) bool {
-	return (ref.Name == "files" || ref.Name == "git") && IsLegacyDesktopPackage(ref.Name, ref.Digest)
-}
-
 // LegacyDesktopControlRetired covers the project selector built into every
 // composer, including windows without the optional worktree workflow.
 func LegacyDesktopControlRetired(ref protocol.PluginReference, slot protocol.PluginUiSlot, id string) bool {
@@ -26,6 +21,7 @@ func LegacyDesktopControlRetired(ref protocol.PluginReference, slot protocol.Plu
 
 // Verified package trees from f842a50 and bd42d9c in sailry/sailry-plugins.
 var legacyDesktopDigests = map[string][]string{
+	"databases": legacyDatabaseDigests,
 	"files": {
 		"4a98357aa49f95702ca6d3641172eec9f0f5a86e7d400d3306e006e78ae2a509",
 		"ddb4a529e4e64e2447295e20770b7e8cd0c55058bfcbd5a3b3fe7ca6d590c0fb",
@@ -42,4 +38,9 @@ var legacyDesktopDigests = map[string][]string{
 		"c33eadf2329c796fb2adc35e64f5ecfb548f5eb78a68498f361acbb66bba1ff5",
 		"ae42d37635d7990e29b1654a311ac5ace70e47b9a7f1226721a63482406fbb9e",
 	},
+}
+
+var legacyDatabaseDigests = []string{
+	"5500ea5eced9f0ad75e4d619461faff110ac6f8ec4e251b29321e560848a335b", // Databases 0.1.25
+	"dcfb60fc83ceba85917853f890f27eb191df81379c8984774857a3ea1527d530", // Databases 0.1.26
 }

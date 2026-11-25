@@ -12,12 +12,10 @@ import (
 // Actions connects existing workspace controls to the live controller. Preview
 // leaves it nil and retains its isolated notice behavior.
 type Actions struct {
-	ReadDirectory    func(string)
-	NextDirectory    func(string)
-	RefreshDirectory func(string)
 	PasteReady       func() bool
 	ReadFile         func(string)
 	OpenFile         func(string) bool
+	OpenManagedFile  func(string, int)
 	ReadNotebook     func(string, uint64)
 	SaveFile         func(*ui.Context, string, string)
 	File             func(*ui.Context, FileAction)
@@ -57,32 +55,6 @@ type PendingOperation struct {
 	Label string
 	Run   func(*ui.Context)
 }
-type DirectoryState struct{ Loaded, Loading, Failed, Denied, Partial, Next bool }
-
-func (pr *Project) SetDirectoryState(path string, state DirectoryState) {
-	if state == (DirectoryState{}) {
-		delete(pr.Files.directories, path)
-		return
-	}
-	if pr.Files.directories == nil {
-		pr.Files.directories = map[string]DirectoryState{}
-	}
-	pr.Files.directories[path] = state
-}
-func (pr *Project) PruneFileSelection() {
-	for path := range pr.Files.sel.selected {
-		if findFile(pr.Data.Files, path) == nil {
-			delete(pr.Files.sel.selected, path)
-		}
-	}
-	if findFile(pr.Data.Files, pr.Files.sel.current) == nil {
-		pr.Files.sel.current = ""
-	}
-	if findFile(pr.Data.Files, pr.Files.sel.anchor) == nil {
-		pr.Files.sel.anchor = ""
-	}
-}
-
 type FileAction struct {
 	Kind                               string
 	Paths                              []string
@@ -99,45 +71,14 @@ type Choice struct {
 	Run           func(*ui.Context)
 }
 
-func (pr *Project) Choose(title string, choices []Choice) {
-	items := make([]action, 0, len(choices))
-	for _, choice := range choices {
-		items = append(items, action{label: choice.Label, detail: choice.Detail, run: choice.Run})
-	}
-	pr.Git.picker = picker{open: true, title: title, items: items}
-}
-func (pr *Project) SetGitTargets(stashes []string, tags map[string]string) {
-	pr.Git.stashIDs = append([]string(nil), stashes...)
-	pr.Git.tagIDs = tags
-}
-func (pr *Project) SetGitOperation(active bool) { pr.Git.operation = active }
-
 func NewLiveProject(id string, data *viewmodel.Workspace, actions *Actions) *Project {
-	return &Project{ID: id, Data: data, Actions: actions, Files: FileView{items: map[string]*fileItem{}, folders: map[string]*bool{}, sel: selection{selected: map[string]bool{}}, side: sideWidth}, Git: GitView{side: sideWidth, scope: "all", nav: defaultNav, expanded: map[string]*bool{}, folded: map[string]bool{}, after: "none"}}
+	return &Project{ID: id, Data: data, Actions: actions, Files: FileView{items: map[string]*fileItem{}, side: sideWidth}, Git: GitView{side: sideWidth, scope: "all"}}
 }
-func (pr *Project) fileAction(c *ui.Context, action FileAction) {
+func (pr *Project) ApplyFileAction(c *ui.Context, action FileAction) {
 	if pr.Actions != nil && pr.Actions.File != nil {
 		action.Paths = append([]string(nil), action.Paths...)
 		pr.Actions.File(c, action)
-		return
 	}
-	sampled(c, func() bool { return pr.Actions == nil && pr.sampleFile(c, action) })
-}
-func (pr *Project) gitAction(c *ui.Context, action GitAction) {
-	if pr.Actions != nil && pr.Actions.Git != nil {
-		action.Paths = append([]string(nil), action.Paths...)
-		pr.Actions.Git(c, action)
-		return
-	}
-	sampled(c, func() bool { return pr.Actions == nil && pr.sampleGit(c, action) })
-}
-func (pr *Project) refresh(c *ui.Context) {
-	if pr.Actions != nil && pr.Actions.Refresh != nil {
-		pr.Actions.Refresh()
-		return
-	}
-	// The demo's repository is already as its memory has it.
-	sampled(c, func() bool { return pr.Actions == nil })
 }
 func (pr *Project) readFile(path string) {
 	if pr.Actions != nil && pr.Actions.ReadFile != nil {
@@ -179,13 +120,6 @@ func (pr *Project) SavedFile(path, text string) {
 		item.editor.Buffer.MarkSaved()
 	}
 }
-func (pr *Project) CommitSaved(message string) {
-	if pr.Git.commit == message {
-		pr.Git.commit = ""
-	}
-	pr.Git.amend, pr.Git.signoff, pr.Git.skip, pr.Git.tall = false, false, false, false
-	pr.Git.after, pr.Git.draft = "none", ""
-}
 func (pr *Project) SetFileWritable(path string, writable bool) {
 	pr.Files.item(path).writable = writable
 }
@@ -194,7 +128,11 @@ func (pr *Project) SetFileWritable(path string, writable bool) {
 // after its tab closed does not yet.
 func (pr *Project) FileLoaded(path string) bool { return pr.Files.item(path).loaded }
 func (pr *Project) FileDraft(path string) (string, bool) {
-	item := pr.Files.item(path)
+	item := pr.Files.items[path]
+	if item == nil {
+		return "", false
+	}
+	pr.syncDocument(path, item)
 	return item.draft + item.suffix, item.dirty
 }
 func (pr *Project) FileOpen(path string) { pr.Files.Show(path); pr.readFile(path) }

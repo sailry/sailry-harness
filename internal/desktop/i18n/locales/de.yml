@@ -292,6 +292,7 @@ worktree_open_busy: Diese Sitzung kann den Worktree gerade nicht wechseln
 worktree_created: Worktree erstellt
 worktree_removed: Worktree entfernt
 worktree_remove_confirm: Dieses Worktree-Verzeichnis löschen; den Git-Branch behalten
+worktree_remove_unsaved: Speichern Sie Änderungen, bevor Sie diesen Worktree entfernen
 worktree_prune: Veralteten Worktree bereinigen
 worktree_prune_confirm: Diesen veralteten Eintrag entfernen; es werden keine Dateien gelöscht
 worktree_pruned: Veraltete Worktree-Registrierung entfernt
@@ -572,6 +573,8 @@ artifact_preview: Vorschau
 artifact_preview_changed: Datei hat sich geändert
 artifact_preview_failed: Vorschau konnte nicht geladen werden
 artifact_preview_large: Datei zu groß für die Vorschau
+artifact_preview_page: Page {page}
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_loading: Vorschau wird geladen
 files_open_failed: Die Datei konnte nicht geöffnet werden
 artifact_request_edit: Bearbeiten anfordern

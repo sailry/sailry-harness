@@ -335,7 +335,12 @@ func (r *Runtime) RevealWorkspaceFile(worktree protocol.WorktreeID, path string)
 					r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeInvalidRequest, "invalid workspace file path"))
 					return
 				}
-				r.attachments.native.RevealLocal(filepath.Join(value.Path, filepath.FromSlash(path)))
+				name, _, err := localFileLinkPath(value.Path, path)
+				if err != nil {
+					r.downloadOutcome(c, err)
+					return
+				}
+				r.attachments.native.RevealLocal(name)
 				return
 			}
 		}

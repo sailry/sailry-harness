@@ -20,10 +20,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	knowledgedesktop "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 )
 
 // knowledgeUITransport counts the citation reads the Desktop sends.
@@ -166,7 +168,7 @@ func TestKnowledgeUIIntegration(t *testing.T) {
 		t.Fatal("created session was not returned")
 	}
 
-	runtime, err := NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")))
+	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), shell.Assemble(knowledgedesktop.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}

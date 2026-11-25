@@ -19,7 +19,7 @@ func (k *Keys) Overrides() map[string]string {
 func (k *Keys) SetOverrides(values map[string]string) {
 	k.set = map[string]Chord{}
 	for id, value := range values {
-		if _, ok := find(id); !ok {
+		if _, ok := find(id); !ok && !panelShortcut(id) {
 			continue
 		}
 		if value == "" {

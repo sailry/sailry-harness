@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"image/png"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,13 +27,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	browserdesktop "github.com/sailry/sailry-harness/modules/browser/desktop"
 	connectordesktop "github.com/sailry/sailry-harness/modules/connectors/desktop"
-	filesdesktop "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func TestConversationProjection(t *testing.T) {
@@ -966,7 +967,17 @@ func TestComposerSendRouting(t *testing.T) {
 				transport.conversation.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: protocol.TurnID{6}, Sequence: 1, Revision: 1, Kind: "task", Status: "running"}}
 			}
 			var externalDownloads []protocol.CommandDownloadFilePayload
+			var outside string
 			if row.name == "replace_references" {
+				fixture, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				outside = filepath.Join(fixture, "outside.txt")
+				if err := os.WriteFile(outside, []byte("fixture"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				outsideLink := (&url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(outside), "/")}).String()
 				turn := protocol.TurnID{6}
 				transport.conversation.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Worktree: worktree, Sequence: 1, Revision: 1, Kind: "task", Status: "completed"}}
 				sent := protocol.DefaultAttachment()
@@ -977,7 +988,7 @@ func TestComposerSendRouting(t *testing.T) {
 				later := protocol.TurnID{7}
 				transport.conversation.Page.Runs = append(transport.conversation.Page.Runs, protocol.ConversationRun{Session: session, Turn: later, Worktree: worktree, Sequence: 2, Revision: 1, Kind: "task", Status: "completed"})
 				transport.conversation.Page.Entries = append(transport.conversation.Page.Entries,
-					protocol.ConversationEntry{ID: "reply", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Open [website](https://example.com/page), [backup](sailry://session/" + backup.String() + "), [source](src/main.go#L12), [mail](mailto:a@example.com), [secret](https://user:pw@example.com/x) or [hosts](/etc/hosts)."}}},
+					protocol.ConversationEntry{ID: "reply", Sequence: 2, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Open [website](https://example.com/page), [backup](sailry://session/" + backup.String() + "), [source](src/main.go#L12), [mail](mailto:a@example.com), [secret](https://user:pw@example.com/x) or [outside](" + outsideLink + ")."}}},
 					protocol.ConversationEntry{ID: "later", Sequence: 3, Turn: later, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Later answer"}}})
 				transport.snapshot.Sessions = append(transport.snapshot.Sessions, protocol.Session{ID: backup, Revision: 1, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()})
 				transport.handle = func(request protocol.Request) (link.Response, bool) {
@@ -986,6 +997,12 @@ func TestComposerSendRouting(t *testing.T) {
 						input, _ := detail[protocol.CommandReadFilePayload](request.Command.Data)
 						if input.Worktree == worktree && input.Path == "src/main.go" {
 							return link.Response{Output: protocol.Output{Kind: "file_content", Data: protocol.FileContent{Path: input.Path, Text: "package main\n"}}}, true
+						}
+						return link.Response{}, false
+					case "list_directory":
+						input, _ := detail[protocol.CommandListDirectoryPayload](request.Command.Data)
+						if input.Worktree == worktree && input.Path == "src" {
+							return link.Response{Output: protocol.Output{Kind: "directory", Data: protocol.Directory{Path: input.Path, Entries: []protocol.FileEntry{{Name: "main.go", Kind: protocol.EntryKindFile}}}}}, true
 						}
 						return link.Response{}, false
 					case "download_file":
@@ -1008,7 +1025,8 @@ func TestComposerSendRouting(t *testing.T) {
 			defer controller.Close()
 			assembly := shell.Assemble(browserdesktop.Register)
 			if row.name == "replace_references" {
-				filesdesktop.Register(&assembly)
+				testassembly.RegisterFilesFixture(&assembly)
+				registerConversationFiles(&assembly)
 			}
 			r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 			if err != nil {
@@ -1484,8 +1502,8 @@ func TestComposerSendRouting(t *testing.T) {
 				if opened := tester.OpenedURLs(); len(r.App.Panel.Tabs) != tabs+1 || len(opened) != 2 || opened[1] != "mailto:a@example.com" {
 					t.Fatal("mail did not go to the system alone", opened, len(r.App.Panel.Tabs))
 				}
-				// A file outside the worktree opens with the system on this device only.
-				clickLink("hosts", 0)
+				// A file outside the worktree is revealed on this device only.
+				clickLink("outside", 0)
 				tester.Frame()
 				if !tester.HasText(i18n.In("en", "files_remote_path")) {
 					t.Fatal("a path outside the worktree on another device reported nothing", tester.Texts())
@@ -1494,10 +1512,11 @@ func TestComposerSendRouting(t *testing.T) {
 				tester.Advance(toastDuration + time.Second)
 				own := r.attachments.native
 				var system []string
-				r.SetNativeFileActions(NativeFileActions{LocalNode: r.controller.Target(), OpenLocal: func(path string) { system = append(system, path) }})
-				clickLink("hosts", 0)
-				if len(system) != 1 || filepath.ToSlash(system[0]) != "/etc/hosts" {
-					t.Fatal("a local path outside the worktree did not open with the system", system)
+				r.SetNativeFileActions(NativeFileActions{LocalNode: r.controller.Target(), RevealLocal: func(path string) { system = append(system, path) }, OpenLocal: func(string) {}})
+				clickLink("outside", 0)
+				settle()
+				if !slices.Equal(system, []string{outside}) {
+					t.Fatal("a local path outside the worktree was not revealed", system)
 				}
 				// With the modifier a workspace file on this device goes to its own app, not to the panel.
 				active := r.App.Panel.Active
@@ -1517,7 +1536,7 @@ func TestComposerSendRouting(t *testing.T) {
 					"src/main.go:7:3":                   {workspace: true, path: "src/main.go", line: 7},
 					"file:///fixture/worktree/a%20b.md": {workspace: true, path: "a b.md"},
 					"/etc/hosts":                        {path: "/etc/hosts"},
-					"./":                                {workspace: true},
+					"./":                                {workspace: true, directory: true},
 				} {
 					if got, ok := resolveFileLink(normalizeLink(link), "/fixture/worktree"); !ok || got != want {
 						t.Fatalf("file link %q = %+v, %v", link, got, ok)

@@ -634,8 +634,7 @@ func testPluginLocationReleases(t *testing.T) {
 						Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: fixture.main.ID, Path: "source.go", Text: "pending"},
 					}}
 				}
-				cancelled, released := 0, 0
-				project.cancel, project.release = func() { cancelled++ }, func() { released++ }
+				directory := project.panel.FileDirectory.Context
 				root.workspace.selected, root.workspace.session = fixture.main.ID, protocol.SessionID{3}
 				root.workspace.admitted[fixture.main.ID] = fixture.main
 				root.App.Panel.Actions, root.App.Panel.Data = project.panel.Actions, project.data
@@ -653,7 +652,7 @@ func testPluginLocationReleases(t *testing.T) {
 				request := fixture.prepare(t, protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: fixture.main.ID}})
 				fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "worktree_removed", Data: protocol.OutputWorktreeRemovedPayload{ID: fixture.main.ID}})
 				body, err := fixture.call(t, "sailry/ui.releaseWorktree", pluginLocationTestArguments(t, fixture.main.ID, request.ID))
-				if err != nil || string(body) != "null" || cancelled != 1 || released != 1 ||
+				if err != nil || string(body) != "null" || directory.Err() == nil ||
 					len(fixture.source.commandKinds()) != 1 || fixture.source.commandKinds()[0] != "inspect_request" {
 					t.Fatalf("confirmed removal did not release its existing native owners exactly once: %s, %v, %v", body, err, fixture.source.commandKinds())
 				}

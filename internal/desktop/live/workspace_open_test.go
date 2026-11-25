@@ -6,7 +6,6 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -22,7 +21,7 @@ func TestWorkspaceFileClickOpensOnlyPreviewableContent(t *testing.T) {
 		root.initAttachments()
 		t.Cleanup(root.closeAttachments)
 		project := root.workspaceFor(fixture.main)
-		project.initialized, project.release = true, func() {}
+		project.initialized = true
 		root.workspace.selected = fixture.main.ID
 		directory, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {
@@ -68,20 +67,13 @@ func TestWorkspaceFileClickOpensOnlyPreviewableContent(t *testing.T) {
 		}
 		click := func(name string) {
 			t.Helper()
-			if err := window.Click(name); err != nil {
-				t.Fatal(err)
-			}
+			project.openWorkspaceFile(name, 0)
 			settle()
 		}
-		project.readDirectory("", false)
-		settle()
 		before := project.panel.Files.File()
 		click("sailry-desktop")
 		if project.panel.Files.File() != before || len(root.attachments.previews) != 0 {
 			t.Fatal("binary created a preview or changed the active editor")
-		}
-		if row, ok := window.AccessByRole(ui.RoleTreeItem, "sailry-desktop"); !ok || !row.Selected {
-			t.Fatal("the binary file row was not selected")
 		}
 		click(licence)
 		if project.panel.Files.File() != licence || project.files[licence].Text != licenceText || !project.panel.FileLoaded(licence) {

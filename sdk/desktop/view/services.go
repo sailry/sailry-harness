@@ -49,6 +49,8 @@ type ConversationSpec struct {
 	// Config supplies a draft configuration. Its resource, if any, is
 	// captured at mount time by calling Config with a default configuration.
 	Config func(SessionConfig) SessionConfig
+	// Tools is optional. Its callback runs on the UI thread while mounted.
+	Tools *ConversationToolObserver
 }
 
 type Conversation struct {

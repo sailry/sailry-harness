@@ -64,9 +64,9 @@ func shortcuts(c *ui.Context, k *Keys) {
 	page.Children(func() {
 		kit.Group(c, "commands", i18n.T(c, "settings_global_commands"), "", nil, func() {
 			kit.Card(c, func() {
-				for _, s := range Registry {
+				for s := range k.commands {
 					description := ""
-					if k.Reserved(s) && k.Active != s.ID {
+					if k.Active != s.ID && (k.Reserved(s) || panelShortcut(s.ID) && k.Chord(s).Key != 0 && k.Effective(s).Key == 0) {
 						description = i18n.T(c, "shortcut_reserved")
 					}
 					kit.WideRow(c, s.ID, i18n.T(c, s.Label), description, func() { shortcutControl(c, k, s) })
@@ -103,7 +103,12 @@ func listedControl(c *ui.Context, l ListedKeys) {
 func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
 	p := theme.Of(c)
 	recording := k.Active == s.ID
-	ch := k.Chord(s)
+	configured := k.Chord(s)
+	ch := configured
+	panel := panelShortcut(s.ID)
+	if panel {
+		ch = k.Effective(s)
+	}
 	label := i18n.T(c, "shortcut_disabled")
 	switch {
 	case recording:
@@ -122,7 +127,13 @@ func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
 	case k.Reserved(s):
 		b.TextColor(p.Warning)
 	}
-	b.Children(func() { typography.Kbd(c, label, recording || k.landed == s.ID).Shrink(0) })
+	b.Children(func() {
+		if panel && ch.Key == 0 && !recording {
+			ui.Text(c, label).FontSize(12).Shrink(0)
+			return
+		}
+		typography.Kbd(c, label, recording || k.landed == s.ID).Shrink(0)
+	})
 	if !recording {
 		kit.Tooltip(c, b, i18n.T(c, "shortcut_edit"))
 	}
@@ -142,7 +153,7 @@ func shortcutControl(c *ui.Context, k *Keys, s Shortcut) {
 		k.Reset()
 		k.refocus = s.ID
 	})
-	kit.Action(c.Key("clear"), icons.Close, i18n.T(c, "shortcut_clear"), ch.Key == 0).OnClick(func() {
+	kit.Action(c.Key("clear"), icons.Close, i18n.T(c, "shortcut_clear"), configured.Key == 0).OnClick(func() {
 		k.Clear()
 		k.refocus = s.ID
 	})

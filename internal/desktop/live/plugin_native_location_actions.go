@@ -223,7 +223,7 @@ func (location *pluginNativeLocation) selectComposer(view *ui.Context, selection
 		})
 		return pluginNativeJSON(true)
 	}
-	state.runtime.selectConversationWorktree(source.ID, comp, tree.Path)
+	state.runtime.selectConversationLocation(source.ID, comp, tree.Path)
 	return pluginNativeJSON(true)
 }
 
@@ -271,11 +271,7 @@ func (location *pluginNativeLocation) hasDrafts(ctx context.Context, arguments [
 func (location *pluginNativeLocation) worktreeDrafts(tree protocol.WorktreeID) bool {
 	if workspace := location.state.runtime.workspace; workspace != nil {
 		if project := workspace.projects[tree]; project != nil {
-			for _, name := range project.panel.Files.Open() {
-				if _, dirty := project.panel.FileDraft(name); dirty {
-					return true
-				}
-			}
+			return project.hasFileDrafts()
 		}
 	}
 	return false

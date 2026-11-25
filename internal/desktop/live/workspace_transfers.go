@@ -20,9 +20,10 @@ type workspaceTransfer struct {
 	commands []protocol.Command
 	index    int
 	active   protocol.Command
+	request  protocol.Request
 	view     transfers.EntryTransfer
 	stop     bool
-	finish   func()
+	applied  func(protocol.Command)
 }
 
 func (r *Runtime) workspaceTransferOpen() bool {
@@ -33,9 +34,9 @@ func (r *Runtime) workspaceTransferDialog(c *ui.Context) {
 		return
 	}
 	transfer := r.workspace.transfer
-	transfers.EntryTransferDialog(c, &transfer.view, transfers.EntryTransferActions{Start: func(destination string) { transfer.start(destination, false) }, Check: func() { transfer.start(transfer.view.Destination, true) }, Cancel: func() { transfer.cancel(c) }, Close: func() { transfer.stop = true; transfer.view.Open = false }})
+	transfers.EntryTransferDialog(c, &transfer.view, transfers.EntryTransferActions{Start: func(destination string) { transfer.start(c, destination) }, Check: transfer.check, Cancel: func() { transfer.cancel(c) }, Close: transfer.dismiss})
 }
-func (p *workspaceProject) startWorkspaceTransfer(c *ui.Context, commands []protocol.Command, finish func()) {
+func (p *workspaceProject) startWorkspaceTransfer(c *ui.Context, commands []protocol.Command, applied func(protocol.Command)) {
 	if len(commands) == 0 {
 		return
 	}
@@ -50,23 +51,30 @@ func (p *workspaceProject) startWorkspaceTransfer(c *ui.Context, commands []prot
 	}
 	key := string(encoded)
 	state := p.runtime.workspace
-	if existing := state.transfers[key]; existing != nil {
-		existing.view.Open = true
-		state.transfer = existing
+	existing := state.transfers[key]
+	if state.busyTransfer(existing) {
+		p.workspaceError(c, protocol.ErrorCodeBusy, "another file transfer is active")
 		return
 	}
-	if state.transfer != nil && state.transfer.view.Status == transfers.EntryRunning {
-		p.workspaceError(c, protocol.ErrorCodeBusy, "another file transfer is active")
+	if existing != nil {
+		existing.view.Open = true
+		state.transfer = existing
 		return
 	}
 	if state.transfers == nil {
 		state.transfers = map[string]*workspaceTransfer{}
 	}
-	transfer := &workspaceTransfer{project: p, key: key, commands: append([]protocol.Command(nil), commands...), finish: finish}
+	transfer := &workspaceTransfer{project: p, key: key, commands: append([]protocol.Command(nil), commands...), applied: applied}
 	state.transfers[key] = transfer
 	state.transfer = transfer
 	transfer.prepare()
 }
+
+func (state *workspaceState) busyTransfer(next *workspaceTransfer) bool {
+	active := state.transfer
+	return active != nil && active != next && (active.view.Open || active.view.Status == transfers.EntryRunning)
+}
+
 func workspaceTransferEntry(command protocol.Command) (source protocol.WorktreeID, from, to string, move bool) {
 	switch command.Kind {
 	case "copy_entry_to":
@@ -108,64 +116,146 @@ func (t *workspaceTransfer) prepare() {
 	t.view = transfers.EntryTransfer{Open: true, Move: move, SourceLabel: label, SourcePath: from, Destination: to, Remaining: remaining, Status: transfers.EntryReady}
 	t.stop = false
 }
-func (t *workspaceTransfer) start(destination string, check bool) {
-	if t.view.Status == transfers.EntryRunning || t.index >= len(t.commands) {
+func (t *workspaceTransfer) start(c *ui.Context, destination string) {
+	if t.view.Status != transfers.EntryReady && t.view.Status != transfers.EntryFailed || t.index >= len(t.commands) {
 		return
 	}
-	if t.view.Status == transfers.EntryUncertain && !check {
+	p, command := t.project, t.commands[t.index]
+	t.view.Destination = destination
+	if !validWorkspaceRelative(destination) {
+		p.workspaceError(c, protocol.ErrorCodeInvalidRequest, "invalid workspace transfer destination")
 		return
 	}
-	if !check {
-		t.active = workspaceTransferDestination(t.commands[t.index], destination)
-		t.view.Destination = destination
+	source, from, _, move := workspaceTransferEntry(command)
+	if transferOverlapsDraft(p, destination) || move && transferOverlapsDraft(p.runtime.workspace.projects[source], from) {
+		p.workspaceError(c, protocol.ErrorCodeConflict, "the transfer overlaps an unsaved file")
+		return
 	}
-	t.view.Status = transfers.EntryRunning
+	t.active = workspaceTransferDestination(command, destination)
+	t.request = p.runtime.controller.Prepare(t.active)
+	t.stop = false
+	t.run(false)
+}
+
+func transferOverlapsDraft(project *workspaceProject, path string) bool {
+	if project == nil {
+		return false
+	}
+	for _, draft := range project.panel.Unsaved() {
+		if workspaceUploadPathsOverlap(path, draft) {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *workspaceTransfer) check() {
+	if t.view.Status == transfers.EntryUncertain {
+		t.run(true)
+	}
+}
+
+func (t *workspaceTransfer) run(check bool) {
+	r := t.project.runtime
+	t.view.Status, t.view.Canceling = transfers.EntryRunning, false
+	request := t.request
+	if !r.async(func() {
+		var out protocol.Output
+		var err error
+		inspectionFailed := false
+		if check {
+			var state client.Resolution
+			state, err = r.controller.Resolve(r.ctx, request)
+			if err == nil {
+				out, err = state.Result()
+			} else {
+				inspectionFailed = true
+			}
+		} else {
+			out, err = r.controller.Settle(r.ctx, request)
+		}
+		r.enqueue(func(c *ui.Context) { t.complete(c, out, err, inspectionFailed) })
+	}) {
+		t.view.Status = transfers.EntryFailed
+	}
+}
+
+func (t *workspaceTransfer) complete(c *ui.Context, out protocol.Output, err error, inspectionFailed bool) {
+	source, from, to, move := workspaceTransferEntry(t.active)
+	if err == nil {
+		var valid bool
+		if move {
+			output, decoded := detail[protocol.OutputEntryMovedPayload](out.Data)
+			valid = out.Kind == "entry_moved" && decoded && output.From == from && output.To == to
+		} else {
+			output, decoded := detail[protocol.OutputEntryCopiedPayload](out.Data)
+			valid = out.Kind == "entry_copied" && decoded && output.From == from && output.To == to
+		}
+		if !valid {
+			err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "the transfer result could not be confirmed")
+		}
+	}
 	t.view.Canceling = false
-	if !check {
-		t.stop = false
+	if err != nil {
+		t.view.Status = transfers.EntryFailed
+		if inspectionFailed || faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			t.view.Status = transfers.EntryUncertain
+		} else if t.stop {
+			t.retire()
+		}
+		t.project.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+		return
 	}
-	t.project.runtime.executeScoped("workspace-action/"+t.project.owner.ID.String(), t.active, func(c *ui.Context, out protocol.Output, err error) {
-		if err != nil {
-			t.view.Status = transfers.EntryFailed
-			if client.Retained(err) {
-				t.view.Status = transfers.EntryUncertain
-			}
-			t.project.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-			return
+	t.project.pendingFiles, t.project.pendingGit = true, true
+	if move {
+		if project := t.project.runtime.workspace.projects[source]; project != nil {
+			project.pendingFiles, project.pendingGit = true, true
 		}
-		t.project.pendingFiles, t.project.pendingGit = true, true
-		t.index++
-		if t.index == len(t.commands) {
-			t.view.Status = transfers.EntryDone
-			t.view.Remaining = nil
-			if t.finish != nil {
-				t.finish()
-			}
-			delete(t.project.runtime.workspace.transfers, t.key)
-			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-			return
-		}
-		if t.stop {
-			open := t.view.Open
-			t.prepare()
-			t.view.Open = open
-			t.view.Status = transfers.EntryCancelled
-			t.view.Canceling = false
-			kit.Toast(c, kit.Done, i18n.T(c, "files_paste_cancelled"))
-			return
-		}
-		t.prepare()
-	})
+	}
+	if t.applied != nil {
+		t.applied(t.active)
+	}
+	t.index++
+	if t.index == len(t.commands) {
+		t.view.Status = transfers.EntryDone
+		t.view.Remaining = nil
+		delete(t.project.runtime.workspace.transfers, t.key)
+		kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
+		return
+	}
+	if t.stop {
+		t.view.Status = transfers.EntryCancelled
+		t.retire()
+		kit.Toast(c, kit.Done, i18n.T(c, "files_paste_cancelled"))
+		return
+	}
+	t.prepare()
 }
 func (t *workspaceTransfer) cancel(c *ui.Context) {
-	t.stop = true
-	t.view.Open = false
-	if t.view.Status == transfers.EntryRunning {
-		t.view.Canceling = true
-		return
+	t.dismiss()
+	if t.view.Status != transfers.EntryRunning {
+		t.view.Status = transfers.EntryCancelled
+		kit.Toast(c, kit.Done, i18n.T(c, "files_paste_cancelled"))
 	}
-	t.view.Status = transfers.EntryCancelled
-	kit.Toast(c, kit.Done, i18n.T(c, "files_paste_cancelled"))
+}
+
+func (t *workspaceTransfer) dismiss() {
+	t.view.Open = false
+	switch t.view.Status {
+	case transfers.EntryRunning:
+		t.stop = true
+		t.view.Canceling = true
+	case transfers.EntryReady, transfers.EntryCancelled, transfers.EntryDone, transfers.EntryFailed:
+		t.retire()
+	}
+}
+
+func (t *workspaceTransfer) retire() {
+	state := t.project.runtime.workspace
+	delete(state.transfers, t.key)
+	if state.transfer == t {
+		state.transfer = nil
+	}
 }
 
 func workspaceOperationPath(command protocol.Command) string {
@@ -193,11 +283,12 @@ func (p *workspaceProject) pendingWorkspaceOperations() []panel.PendingOperation
 			continue
 		}
 		result = append(result, panel.PendingOperation{Label: transfer.view.Destination, Run: func(c *ui.Context) {
-			if p.runtime.transferModalBusy(true) {
+			state := p.runtime.workspace
+			if p.runtime.transferModalBusy(true) || state.busyTransfer(transfer) {
 				p.workspaceError(c, protocol.ErrorCodeBusy, "another file transfer dialog is open")
 				return
 			}
-			p.runtime.workspace.transfer = transfer
+			state.transfer = transfer
 			transfer.view.Open = true
 		}})
 	}

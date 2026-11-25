@@ -8,7 +8,6 @@ import (
 	connections "github.com/sailry/sailry-harness/modules/connections/desktop"
 	connectors "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
-	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	hooks "github.com/sailry/sailry-harness/modules/hooks/desktop"
 	knowledge "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
@@ -25,7 +24,7 @@ import (
 // Harness returns the module contributions for an official Desktop window.
 func Harness() shell.Assembly {
 	return shell.Assemble(
-		files.Register, market.Register,
+		market.Register,
 		providers.Register, connectors.Register, teams.Register, skills.Register,
 		knowledge.Module(), memory.Register, media.Register, decision.Register,
 		websearch.Register, browser.Register, computer.Register,

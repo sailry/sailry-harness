@@ -73,6 +73,8 @@ type pluginMountedView struct {
 	cancel         context.CancelFunc
 	registry       *desktopplugins.Registry
 	hooks          desktopplugins.ContributionHooks
+	link           *mountedPluginLink
+	appNavigation  *shell.AppActionSource
 	host           *desktopplugins.Host
 	demoFrame      func()
 	runtime        *desktopplugins.Runtime
@@ -248,6 +250,8 @@ func (r *Runtime) pluginViewsAfterFrame() {
 		if mounted.host != nil {
 			mounted.host.SetVisible(visible)
 		}
+		r.syncMountedPluginLink(mounted, visible)
+		r.syncMountedPluginAppNavigation(mounted, visible)
 		if mounted.activityVisible != nil {
 			mounted.activityVisible(visible && mounted.key.role == "navigation")
 		}
@@ -460,6 +464,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		return
 	}
 	bindPluginPanes(native)
+	native.InvokeAppAction = mounted.invokeAppAction
 	mounted.activityVisible = root.bindPluginActivity(mounted, native)
 	mounted.activityVisible(mounted.key.role == "navigation" && mounted.seen)
 	native.Invalidate = root.wake
@@ -550,10 +555,14 @@ func (r *Runtime) startPluginView(view *ui.Context, mounted *pluginMountedView, 
 	if mounted.registry != nil {
 		_ = mounted.registry.SetActivity(mounted.scope.Package, true, false)
 	}
+	r.bindMountedPluginLink(mounted)
 	delete(r.pluginViews.failures, mounted.key)
 }
 
 func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
+	mounted.releasePluginLink()
+	mounted.link = nil
+	mounted.releaseAppNavigation()
 	if mounted.activityVisible != nil {
 		mounted.activityVisible(false)
 		mounted.activityVisible = nil
@@ -590,6 +599,8 @@ func (r *Runtime) disconnectPluginView(mounted *pluginMountedView) {
 	if mounted.disconnected || mounted.failure != nil {
 		return
 	}
+	mounted.releasePluginLink()
+	mounted.releaseAppNavigation()
 	if views := r.localRuntime().pluginViews; views != nil && mounted.owner != nil {
 		views.sshDirectories.InvalidateNode(mounted.owner.controller.Target())
 	}

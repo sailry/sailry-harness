@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
-	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/sdk/desktop/view"
 	"lukechampine.com/blake3"
 )
 
@@ -38,23 +35,8 @@ type assistantToolSource struct {
 	generation uint64
 }
 
-type pluginAssistantCall struct {
-	Key         string          `json:"key"`
-	Name        string          `json:"name"`
-	Arguments   json.RawMessage `json:"arguments"`
-	State       string          `json:"state"`
-	TimestampMs int64           `json:"timestamp_ms"`
-	Result      json.RawMessage `json:"result"`
-	Sequence    *string         `json:"sequence"`
-}
-
-type pluginAssistantHistory struct {
-	Connected bool                  `json:"connected"`
-	Session   *protocol.SessionID   `json:"session,omitempty"`
-	Revision  string                `json:"revision,omitempty"`
-	Latest    *string               `json:"latest,omitempty"`
-	Calls     []pluginAssistantCall `json:"calls"`
-}
+type pluginAssistantCall = view.ConversationToolCall
+type pluginAssistantHistory = view.ConversationToolHistory
 
 func (state *pluginNativeState) assistantToolOperations() {
 	state.assistantTools = &pluginNativeAssistantTools{changed: make(chan struct{}), failed: map[string]bool{}}
@@ -164,83 +146,18 @@ func (state *pluginNativeState) assistantToolSource(mounted *pluginNativeConvers
 // demand: a call whose detail is not loaded yet is left out until it is, as
 // a call without arguments is.
 func (state *pluginNativeState) assistantHistory(current client.ConversationState, prefix string) (pluginAssistantHistory, bool) {
-	page := current.Snapshot.Page
-	history := pluginAssistantHistory{Connected: current.Connected, Calls: []pluginAssistantCall{}}
-	if page.Session == (protocol.SessionID{}) {
-		return history, false
-	}
-	session := page.Session
-	history.Session, history.Revision = &session, strconv.FormatUint(page.Revision, 10)
-	entries := map[string]protocol.ConversationEntry{}
-	var latest *uint64
-	for _, entry := range page.Entries {
-		entries[entry.ID] = entry
-		if latest == nil || entry.Sequence > *latest {
-			sequence := entry.Sequence
-			latest = &sequence
-		}
-	}
-	if latest != nil {
-		text := strconv.FormatUint(*latest, 10)
-		history.Latest = &text
-	}
-	waiting := false
-	for _, call := range client.ToolCalls(page) {
-		name, owned := strings.CutPrefix(call.Name, prefix)
-		source, sourced := entries[call.Source.Entry]
-		if !owned || !sourced || call.Reference == nil || call.Summary == nil || !call.Summary.HasDetails {
-			continue
-		}
-		detail, loaded := state.runtime.controller.ConversationDetail(*call.Reference)
-		if !loaded {
-			state.loadAssistantDetail(*call.Reference)
-			waiting = waiting || !state.assistantTools.failed[assistantDetailKey(*call.Reference)]
-			continue
-		}
-		if len(detail.Arguments) == 0 || string(detail.Arguments) == "null" {
-			continue
-		}
-		projected := pluginAssistantCall{
-			Key:  fmt.Sprintf("%s:%s-%d", call.Turn, call.Source.Entry, call.Source.Index),
-			Name: name, Arguments: detail.Arguments, State: call.State,
-			TimestampMs: source.TimestampMs, Result: json.RawMessage("null"),
-		}
-		if detail.Result != nil {
-			projected.Result = plugins.PublicToolResult(*detail.Result)
-		}
-		if call.Response != nil {
-			if response, exists := entries[call.Response.Entry]; exists {
-				sequence := strconv.FormatUint(response.Sequence, 10)
-				projected.Sequence = &sequence
-			}
-		}
-		history.Calls = append(history.Calls, projected)
-	}
-	return history, waiting
-}
-
-// assistantDetailKey names a call's detail as the conversation's own rows do,
-// so both share one load and one pending entry.
-func assistantDetailKey(ref protocol.ToolDetailReference) string {
-	return fmt.Sprintf("detail/%s/%s/%d/%s", ref.Session, ref.Entry, ref.Index, ref.Revision)
-}
-
-// loadAssistantDetail reads a call's detail once, under the key the
-// conversation's own rows load it by, and redraws when it arrives.
-func (state *pluginNativeState) loadAssistantDetail(ref protocol.ToolDetailReference) {
 	r := state.runtime
-	key := assistantDetailKey(ref)
-	if r.busy[key] || state.assistantTools.failed[key] {
-		return
-	}
-	r.busy[key] = true
-	r.async(func() {
-		_, err := r.controller.ReadConversationDetail(r.ctx, ref)
-		r.enqueue(func(*ui.Context) {
-			delete(r.busy, key)
-			if err != nil {
-				state.assistantTools.failed[key] = true
-			}
-		})
+	return r.projectConversationTools(current, func(name string) (string, bool) {
+		return strings.CutPrefix(name, prefix)
+	}, 0, func(ref protocol.ToolDetailReference, loaded bool) bool {
+		if loaded {
+			return false
+		}
+		key := assistantDetailKey(ref)
+		if state.assistantTools.failed[key] {
+			return false
+		}
+		r.loadConversationToolDetail(r.ctx, ref, func() { state.assistantTools.failed[key] = true })
+		return true
 	})
 }

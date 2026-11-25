@@ -1,14 +1,10 @@
 package panel
 
 import (
-	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/icons"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
 // BrowserPage is what a live browser tab's chrome shows of its page.
@@ -45,30 +41,67 @@ type BrowserActions struct {
 	Inspect func(string)
 	// Settings opens the browser's settings.
 	Settings func()
+	Release  func(string)
 }
 
 // AddBrowser opens another browser tab, shown or behind the active one, and
 // returns it.
-func (s *State) AddBrowser(show bool) Tab {
-	if !s.ValidTab(Tab{Kind: Browser}) {
-		return Tab{}
-	}
-	s.pages++
-	t := Tab{Browser, fmt.Sprint(s.pages)}
-	if show {
-		s.Show(t)
-	} else {
-		s.Tabs = Opened(s.Tabs, t)
-	}
-	return t
-}
+func (s *State) AddBrowser(show bool) Tab { return s.AddNumberedTab(Browser, show) }
 
-func RenderBrowserResource(c *ui.Context, s *State, tab Tab) {
-	if s.Live && s.BrowserActions == nil {
-		empty(c, icons.Web, "unavailable")
+// SetCreateResource lets the live window handle a Browser launch that cannot
+// mount its platform service.
+func (s *State) SetCreateResource(create func(Kind) bool) { s.createResource = create }
+
+// OpenBrowserTab opens a fresh tab and gives focus to its address field.
+func (s *State) OpenBrowserTab() {
+	if _, ok := s.resource(Browser); !ok {
 		return
 	}
-	s.browser(c, tab)
+	if s.createResource != nil && s.createResource(Browser) {
+		return
+	}
+	s.focusAddress = s.AddBrowser(true).ID
+}
+
+// BrowserAddress is the editable address of one tab, including unsubmitted text.
+type BrowserAddress struct {
+	Text, Shown string
+	Field       ui.Handle
+}
+
+func (s *State) BrowserAddress(c *ui.Context, tab Tab) *BrowserAddress {
+	address := &s.pageOf(tab.ID).live
+	if tab == s.Active && tab.ID == s.focusAddress {
+		s.focusAddress = ""
+		address.Field.Focus(c)
+	}
+	return address
+}
+
+func BrowserTitle(s *State, tab Tab) string {
+	if actions := s.BrowserActions; s.Live && actions != nil && actions.Page != nil {
+		return actions.Page(tab.ID).Title
+	}
+	if state := s.pagesOf[tab.ID]; state != nil {
+		if page := s.sample(state); page != nil {
+			return page.Title
+		}
+	}
+	return ""
+}
+
+func BrowserBusy(s *State, tab Tab) bool {
+	return s.Live && s.BrowserActions != nil && s.BrowserActions.Page != nil && s.BrowserActions.Page(tab.ID).Loading
+}
+
+func ReleaseBrowserTab(s *State, tab Tab, _ TabRelease) {
+	delete(s.pagesOf, tab.ID)
+	if s.focusAddress == tab.ID {
+		s.focusAddress = ""
+	}
+	if actions := s.BrowserActions; actions != nil && actions.Release != nil {
+		actions.Release(tab.ID)
+	}
 }
 
 // BrowserDestination is where text typed in the address field goes: an
@@ -92,112 +125,4 @@ func BrowserDestination(text string) (string, bool) {
 		return "https://" + text, true
 	}
 	return "https://www.google.com/search?q=" + url.QueryEscape(text), true
-}
-
-// liveBrowser is the browser tab's chrome over its page. Back and Forward
-// follow the page's history; Reload is Stop while the page loads, under an
-// indeterminate bar; the address goes on Enter to BrowserDestination; Select
-// element starts or cancels the element selection; the menu holds the web
-// inspector and the browser's settings. ⌘T opens another tab, ⌘R reloads,
-// ⌘⇧C selects an element and ⌘⇧I opens the web inspector while the focus is
-// in the tab. Another tab opens from the panel's "+" alone.
-func (s *State) liveBrowser(c *ui.Context, t Tab) {
-	a := s.BrowserActions
-	b := s.pageOf(t.ID)
-	page := a.Page(t.ID)
-	if s.focusAddress && t == s.Active {
-		s.focusAddress = false
-		b.field.Focus(c)
-	}
-	loaded := page.Address != "" && !page.Loading && page.Error == ""
-	pickable := a.Pick != nil && (loaded || page.Picking)
-	reload := func() {
-		if page.Loading {
-			a.Stop(t.ID)
-		} else if page.Address != "" {
-			a.Reload(t.ID)
-		}
-	}
-	col := ui.Column(c.Key("browser")).Grow(1).MinHeight(0)
-	if col.Shortcut(ui.Cmd, ui.KeyT) && !c.ShortcutRepeated() {
-		s.New(Browser)
-	}
-	if col.Shortcut(ui.Cmd, ui.KeyR) && !c.ShortcutRepeated() && page.Address != "" {
-		a.Reload(t.ID)
-	}
-	if col.Shortcut(ui.Cmd|ui.Shift, ui.KeyC) && !c.ShortcutRepeated() && pickable {
-		a.Pick(t.ID)
-	}
-	if col.Shortcut(ui.Cmd|ui.Shift, ui.KeyI) && !c.ShortcutRepeated() && page.Address != "" && a.Inspect != nil {
-		a.Inspect(t.ID)
-	}
-	col.Children(func() {
-		toolbar(c, "toolbar", func() {
-			kit.Action(c.Key("back"), icons.ArrowLeft, i18n.T(c, "browser_back"), !page.Back).OnClick(func() { a.Back(t.ID) })
-			kit.Action(c.Key("forward"), icons.ArrowRight, i18n.T(c, "browser_forward"), !page.Forward).OnClick(func() { a.Forward(t.ID) })
-			if page.Loading {
-				kit.Action(c.Key("reload"), icons.Close, i18n.T(c, "browser_stop"), false).OnClick(reload)
-			} else {
-				kit.Action(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), page.Address == "").OnClick(reload)
-			}
-			label := i18n.T(c, "browser_address")
-			field := ui.TextInput(c.Key("address"), &b.address).Placeholder(label).Label(label).Grow(1).Height(28).Bind(&b.field)
-			if b.shown != page.Address && !field.Changed() && b.address == b.shown && !field.Composing() {
-				b.shown, b.address = page.Address, page.Address
-				c.Invalidate()
-			}
-			if b.address != b.shown {
-				field.OnShortcut(0, ui.KeyEscape, func() { b.shown, b.address = page.Address, page.Address })
-			}
-			field.OnSubmit(func() {
-				address, ok := BrowserDestination(b.address)
-				if !ok {
-					if strings.TrimSpace(b.address) != "" {
-						kit.Toast(c, kit.Failed, i18n.T(c, "browser_invalid_address"))
-					}
-					return
-				}
-				if a.Navigate(t.ID, address) {
-					b.shown, b.address = address, address
-				}
-			})
-			if a.Pick != nil {
-				pick := "browser_annotate"
-				if page.Picking {
-					pick = "browser_cancel_selection"
-				}
-				hint := kit.KeyText(ui.Cmd|ui.Shift, ui.KeyC)
-				x := kit.IconButtonHint(c.Key("pick"), icons.Target, i18n.T(c, pick), hint, 28, page.Picking).Disabled(!pickable)
-				if !pickable {
-					x.Opacity(0.5)
-				}
-				x.OnClick(func() { a.Pick(t.ID) })
-			}
-			kit.MenuButton(c.Key("more"), "browser-more", func(x ui.Element) {
-				kit.IconLook(c, x, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
-			}, func(m *kit.Menu) {
-				if a.Inspect != nil && m.Item(i18n.T(c, "browser_inspect")).Icon(icons.Code).
-					Shortcut(kit.KeyText(ui.Cmd|ui.Shift, ui.KeyI)).Disabled(page.Address == "").Chosen() {
-					a.Inspect(t.ID)
-				}
-				if a.Settings != nil && m.Item(i18n.T(c, "settings")).Icon(icons.Settings).Chosen() {
-					a.Settings()
-				}
-			})
-		})
-		if page.Loading {
-			ui.Progress(c.Key("loading"), -1).FillWidth().Height(2).Shrink(0)
-		}
-		if page.Error != "" {
-			// A page that failed never stays a blank area: the body says so
-			// and offers the reload.
-			kit.Result(c, kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, page.Error), SubTitle: page.Address, Extra: func() {
-				kit.Secondary(c.Key("retry"), i18n.T(c, "browser_reload")).OnClick(func() { a.Reload(t.ID) })
-			}}).Grow(1).Justify(ui.Center)
-			return
-		}
-		if !a.View(c, t.ID) {
-			kit.Result(c, kit.ResultProps{Icon: icons.Web, Title: i18n.T(c, "browser_unavailable")}).Grow(1).Justify(ui.Center)
-		}
-	})
 }

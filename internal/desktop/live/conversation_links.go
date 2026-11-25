@@ -3,34 +3,26 @@ package live
 import (
 	"net/url"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"unicode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Links and file paths of a conversation's content: one normalization and
-// routing decision. A session link opens that session, a web link opens in a
-// browser tab of the right panel (in the system browser with the platform
-// modifier), mail and telephone links go to the system, and the rest are
-// knowledge sources or files resolved against the session's worktree: in the
-// right panel, or with the modifier in the file's own app on this device.
-
-// normalizeLink recovers the forms Markdown leaves without a usable scheme:
-// a bare www host, and file:relative, which as a URL would read as absolute.
 func normalizeLink(link string) string {
 	link = strings.TrimSpace(link)
 	if len(link) >= 4 && strings.EqualFold(link[:4], "www.") {
 		return "https://" + link
-	}
-	if len(link) > 5 && strings.EqualFold(link[:5], "file:") && link[5] != '/' && link[5] != '\\' {
-		return link[5:]
 	}
 	return link
 }
@@ -41,6 +33,7 @@ type fileTarget struct {
 	workspace bool
 	path      string
 	line      int
+	directory bool
 }
 
 func decimal(value string) bool {
@@ -101,157 +94,212 @@ func linkParts(link string) (string, int, bool) {
 // resolveFileLink resolves a Markdown path or file URL against root, the
 // worktree's directory on its Node.
 func resolveFileLink(link, root string) (fileTarget, bool) {
-	target, line, ok := linkParts(link)
+	name, line, ok := linkParts(link)
 	if !ok {
 		return fileTarget{}, false
 	}
-	root = path.Clean("/" + strings.Trim(strings.ReplaceAll(root, "\\", "/"), "/"))
-	target = strings.ReplaceAll(target, "\\", "/")
-	drive := func(value string) bool {
-		return len(value) >= 2 && value[1] == ':' && (value[0]|0x20 >= 'a' && value[0]|0x20 <= 'z')
-	}
-	if !drive(target) {
-		if parsed, err := url.Parse(target); err == nil && parsed.Scheme != "" {
-			if !strings.EqualFold(parsed.Scheme, "file") || parsed.Host != "" {
-				return fileTarget{}, false
-			}
-			target = parsed.Path
-		} else if decoded, err := url.PathUnescape(target); err == nil {
-			target = decoded
+	name = strings.ReplaceAll(name, "\\", "/")
+	if len(name) >= 5 && strings.EqualFold(name[:5], "file:") {
+		name = name[5:]
+		if strings.HasPrefix(name, "///") {
+			name = name[2:]
 		}
-	}
-	if strings.ContainsRune(target, 0) {
+	} else if parsed, err := url.Parse(name); err == nil && parsed.Scheme != "" && !fileLinkDrive(name) {
 		return fileTarget{}, false
 	}
-	absolute := target
+	decoded, err := url.PathUnescape(name)
+	if err != nil || decoded == "" || strings.ContainsFunc(decoded, unicode.IsControl) {
+		return fileTarget{}, false
+	}
+	name = strings.ReplaceAll(decoded, "\\", "/")
+	if strings.HasPrefix(name, "//") || fileLinkDrive(name) && (len(name) < 3 || name[2] != '/') {
+		return fileTarget{}, false
+	}
+	root = path.Clean("/" + strings.Trim(strings.ReplaceAll(root, "\\", "/"), "/"))
+	target := fileTarget{line: line, directory: strings.HasSuffix(name, "/")}
+	absolute := name
 	switch {
-	case drive(target):
-		absolute = "/" + target
-	case !strings.HasPrefix(target, "/"):
-		absolute = root + "/" + target
+	case fileLinkDrive(name):
+		absolute = "/" + name
+	case !strings.HasPrefix(name, "/"):
+		relative := path.Clean(name)
+		if relative != "." && !validWorkspaceRelative(relative) {
+			return fileTarget{}, false
+		}
+		target.workspace = true
+		if relative != "." {
+			target.path = relative
+		}
+		return target, true
+	}
+	// An explicit absolute path can name a local item. A traversal must not
+	// turn a scoped link into one of those system paths.
+	for part := range strings.SplitSeq(absolute, "/") {
+		if part == ".." {
+			return fileTarget{}, false
+		}
 	}
 	absolute = path.Clean(absolute)
 	if absolute == root {
-		return fileTarget{workspace: true, line: line}, true
+		target.workspace = true
+	} else if relative, inside := strings.CutPrefix(absolute, strings.TrimSuffix(root, "/")+"/"); inside {
+		if !validWorkspaceRelative(relative) {
+			return fileTarget{}, false
+		}
+		target.workspace, target.path = true, relative
+	} else {
+		target.path = absolute
 	}
-	if relative, inside := strings.CutPrefix(absolute, strings.TrimSuffix(root, "/")+"/"); inside {
-		return fileTarget{workspace: true, path: relative, line: line}, true
-	}
-	return fileTarget{path: absolute, line: line}, true
+	return target, true
+}
+
+func fileLinkDrive(name string) bool {
+	return len(name) >= 2 && name[1] == ':' && name[0]|0x20 >= 'a' && name[0]|0x20 <= 'z'
+}
+
+func absoluteFileLinkDrive(name string) bool {
+	return fileLinkDrive(name) && len(name) > 2 && (name[2] == '/' || name[2] == '\\') &&
+		(len(name) == 3 || name[3] != '/' && name[3] != '\\')
 }
 
 // openChatLink opens a link of a reply: every link the application routes
 // itself; false leaves a heading anchor to the transcript.
 func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
+	r = r.localRuntime()
 	if strings.HasPrefix(strings.TrimSpace(link), "#") {
 		return false
 	}
 	link = normalizeLink(link)
-	external := conversation.External(c)
-	owner := r
-	cv := r.App.Data.Find(session)
-	if cv != nil {
-		if bound := r.conversationRuntime(cv, nil); bound != nil {
-			owner = bound
+	owner, cv := r.conversationLinkOwner(session)
+	target := shell.LinkTarget{Session: session, URL: link, External: conversation.External(c)}
+	if owner != nil && owner.controller != nil {
+		target.Node = owner.controller.Target()
+		if current, found := owner.session(session); found {
+			target.Worktree = current.Worktree
 		}
 	}
-	if target := client.SessionLink(link); target != nil {
-		id := target.String()
-		switch {
-		case r.App.Data.Find(id) != nil:
-			r.OpenSession(id)
-		case cv != nil:
-			owner.openLiveChild(cv, id)
-		default:
-			kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+	if parsed, err := url.Parse(link); err == nil && parsed.Scheme != "" && parsed.Scheme != "file" && !absoluteFileLinkDrive(link) {
+		if !validLinkURL(parsed) {
+			return true
 		}
-		return true
-	}
-	if parsed, err := url.Parse(link); err == nil {
-		switch strings.ToLower(parsed.Scheme) {
-		case "http", "https":
-			// An address without a host or with credentials opens nowhere.
-			if !browserAddress(link) {
-				return true
+		target.Route = shell.LinkRoute{Kind: shell.LinkScheme, Name: parsed.Scheme}
+		var active atomic.Bool
+		active.Store(true)
+		actions := shell.LinkActions{OpenSession: func() error {
+			if !active.Load() {
+				return unavailableLink()
 			}
-			if external || !r.browserPanel || r.browser == nil || !r.browser.available {
-				c.OpenURL(link)
-			} else {
-				r.App.RevealConversationPanel()
-				r.browserNavigate(r.App.Panel.AddBrowser(true).ID, link)
+			if id := client.SessionLink(link); id != nil {
+				switch {
+				case r.App.Data.Find(id.String()) != nil:
+					r.OpenSession(id.String())
+					return nil
+				case cv != nil && owner != nil:
+					owner.openLiveChild(cv, id.String())
+					return nil
+				}
 			}
-			return true
-		case "mailto", "tel":
-			c.OpenURL(link)
-			return true
-		case "sailry-knowledge":
-			r.App.OpenKnowledge(c, session, link)
+			return unavailableLink()
+		}}
+		handled, err := r.dispatchConversationLink(c, owner, target, actions)
+		active.Store(false)
+		if handled {
+			r.reportLink(c, err, "unavailable")
 			return true
 		}
+		// An unclaimed opaque numeric suffix can be Markdown's path:line.
+		// An unclaimed general URI never reaches a file or system opener.
+		line, column, hasColumn := strings.Cut(parsed.Opaque, ":")
+		if !decimal(line) || hasColumn && !decimal(column) {
+			r.reportLink(c, unavailableLink(), "unavailable")
+			return true
+		}
+		target.Route = shell.LinkRoute{}
 	}
-	owner.openFileLink(c, session, link, external, cv != nil)
+	r.openMarkdownFileLink(c, owner, target)
 	return true
 }
 
-// openFileLink opens a path of a reply resolved against its session's
-// worktree: a folder in the file manager, a file in the right panel at its
-// line, or, with the platform modifier on this device, in its own app.
-func (r *Runtime) openFileLink(c *ui.Context, session, link string, external, listed bool) {
-	failed := func(key string) { kit.Toast(c, kit.Failed, i18n.T(c, key)) }
-	current, ok := r.session(session)
-	if !ok {
-		failed("files_open_failed")
+func validLinkURL(target *url.URL) bool {
+	if target.User != nil {
+		return false
+	}
+	switch target.Scheme {
+	case "javascript", "vbscript", "data", "blob", "filesystem", "about":
+		return false
+	case "http", "https":
+		return target.Hostname() != "" && target.Opaque == ""
+	case "mailto", "tel":
+		return target.Host == "" && target.Opaque != ""
+	}
+	return true
+}
+
+func (r *Runtime) conversationLinkOwner(session string) (*Runtime, *viewmodel.Conversation) {
+	d := r.App.Data
+	if session != "" && r.App.Sidebar.Selected == session {
+		if node := r.App.Sidebar.SelectedNode(); node != "" {
+			cv := d.FindOn(node, session)
+			if cv == nil {
+				return nil, nil
+			}
+			return r.conversationRuntime(cv, nil), cv
+		}
+	}
+	if cv := d.Find(session); cv != nil {
+		ambiguous := func(list []*viewmodel.Conversation) bool {
+			for _, other := range list {
+				if other.ID == session && other.Node != cv.Node {
+					return true
+				}
+			}
+			return false
+		}
+		for _, project := range d.Projects {
+			if ambiguous(project.Conversations) {
+				return nil, nil
+			}
+		}
+		if ambiguous(d.Unassigned) {
+			return nil, nil
+		}
+		return r.conversationRuntime(cv, nil), cv
+	}
+	if r.teams != nil && r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: session}) {
+		if scope, ok := r.teams.childScopes.tabs[r.childTabKey(session)]; ok {
+			owner := r.runtimeFor(scope.node.String())
+			if owner != nil {
+				current, exists := owner.session(session)
+				if _, valid := scope.target.CheckScope(owner.snapshot(), scope.node); exists && valid && scope.target.MatchesSession(current) {
+					return owner, nil
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (r *Runtime) ownsLinkConversation(session string) bool {
+	root := r.localRuntime()
+	node := r.controller.Target().String()
+	if root.runtimeFor(node) != r {
+		return false
+	}
+	if root.App.Data.FindOn(node, session) != nil {
+		return true
+	}
+	owner, _ := root.conversationLinkOwner(session)
+	return owner == r
+}
+
+func unavailableLink() error {
+	return fileActionFault(protocol.ErrorCodeUnavailable, "link target is unavailable")
+}
+
+func (r *Runtime) reportLink(c *ui.Context, err error, key string) {
+	if faultCode(err) == protocol.ErrorCodeUnavailable {
+		kit.Toast(c, kit.Failed, i18n.T(c, key))
 		return
 	}
-	var worktree protocol.Worktree
-	for _, candidate := range r.snapshot().Worktrees {
-		if candidate.ID == current.Worktree {
-			worktree = candidate
-		}
-	}
-	target, ok := resolveFileLink(link, worktree.Path)
-	if !ok || worktree.Path == "" {
-		failed("files_open_failed")
-		return
-	}
-	local := r.attachments != nil && r.attachments.native.LocalNode == r.controller.Target()
-	switch {
-	case target.workspace && (target.path == "" || strings.HasSuffix(link, "/")):
-		if !local || r.attachments.native.RevealLocal == nil {
-			failed("files_remote_path")
-			return
-		}
-		r.attachments.native.RevealLocal(filepath.Join(worktree.Path, filepath.FromSlash(target.path)))
-	case target.workspace && local && external:
-		r.OpenWorkspaceExternal(worktree.ID, target.path, nil)
-	case target.workspace:
-		if !validWorkspaceRelative(target.path) {
-			failed("files_open_failed")
-			return
-		}
-		// A listed session shows its own workspace; a child panel's link
-		// opens in the workspace already shown.
-		if listed {
-			r.App.Sidebar.Selected = session
-			r.workspaceFrame(nil)
-		}
-		var project *workspaceProject
-		if r.workspace != nil {
-			project = r.workspace.projects[worktree.ID]
-		}
-		if project == nil {
-			failed("files_open_failed")
-			return
-		}
-		project.openWorkspaceFile(target.path, target.line)
-	case local && r.attachments.native.OpenLocal != nil:
-		// resolveFileLink keeps a Windows drive path as "/C:/…".
-		localPath := target.path
-		if filepath.VolumeName(localPath[1:]) != "" {
-			localPath = localPath[1:]
-		}
-		r.attachments.native.OpenLocal(filepath.FromSlash(localPath))
-	default:
-		failed("files_remote_path")
-	}
+	r.reportKeys(c, err, key, "workspace_changed", key)
 }

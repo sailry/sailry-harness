@@ -25,6 +25,8 @@ type Assembly struct {
 	ProviderUI                func(*settings.State) ProviderUI
 	Locales                   []fs.FS
 	panelResources            []panelRegistration
+	linkHandlers              linkHandlers
+	appActions                appActionRegistry
 }
 
 // PluginControlReplacement identifies an old official control provided by a
@@ -52,6 +54,11 @@ type NativePage struct {
 	Feature Feature
 	Render  func(*ui.Context, *App)
 	Usage   protocol.FeatureUse
+	// ReplacesLegacyViews also replaces the official LegacyPackage's non-navigation
+	// workspace views and contributions. Package settings and history remain available.
+	ReplacesLegacyViews bool
+	// LegacyWorkspace is the replaced package's layout ID for a project resource page.
+	LegacyWorkspace string
 	// Bind returns a window-local frame callback. visible reports whether this
 	// route is active in the live window, including between frames.
 	Bind func(app *App, visible func() bool) func()
@@ -65,6 +72,7 @@ type NativePage struct {
 	Resource panel.Kind
 	// CheckpointHistory requests older checkpoints for the shown workspace.
 	CheckpointHistory bool
+	BindWorkspace     panel.GitWorkspaceMount
 	// RenderDetails and BindKeys are optional resource callbacks. The shell
 	// calls them with the current workspace project when it is available.
 	RenderDetails func(*ui.Context, *App, *panel.Project)
@@ -142,6 +150,8 @@ func (a *App) syncNativeWorkspace() {
 }
 
 func (a *App) installPages(assembly Assembly) {
+	a.installAppActions(assembly)
+	a.installLinkHandlers(assembly)
 	a.translations = i18n.New(assembly.Locales...)
 	a.Settings.SetNativePages(assembly.SettingsPages)
 	a.Settings.ExecutionSettings = settings.BindExecutionSettings(assembly.ExecutionSettings, settings.ExecutionSettingHost{Preview: a.Preview})
@@ -201,6 +211,15 @@ func (a *App) pageForFeature(id string) *NativePage {
 // NativePageEnabled reports whether the assembly contributed this page.
 func (a *App) NativePageEnabled(p Page) bool { return a.nativePage(p) != nil }
 
+func (a *App) ReplacesLegacyViews(packageName string) bool {
+	for _, page := range a.nativePages {
+		if packageName != "" && page.Feature.LegacyPackage == packageName {
+			return page.ReplacesLegacyViews
+		}
+	}
+	return false
+}
+
 func (a *App) activeWindowBinding() WindowBinding {
 	if a.DemoOn() {
 		return WindowBinding{}
@@ -232,8 +251,11 @@ func (a *App) BindWindow(ctx context.Context) {
 
 // CloseWindowBindings releases the per-window callbacks registered by BindWindow.
 func (a *App) CloseWindowBindings() {
+	a.closeAppActions()
+	a.closeWorkspaceOverlay()
 	bindings := a.nativeWindowBindings
 	a.nativeWindowBindings = nil
+	a.linkHandlers = nil
 	a.nativeWorkspacePage, a.nativeWorkspace = "", WorkspaceSlots{}
 	for _, page := range a.nativePages {
 		if close := bindings[page.Page].Close; close != nil {

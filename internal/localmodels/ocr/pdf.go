@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/draw"
 	"math"
 	"sync"
 
@@ -76,26 +78,44 @@ func (p *PDF) Pages() int { return p.pages }
 // Render rasterizes the page at a zero-based index on a white background,
 // at twice its point size but with no side above 2000 pixels.
 func (p *PDF) Render(index int) (*RGB, error) {
+	var result *RGB
+	err := p.render(index, 2000, func(source image.Image) { result = FromImage(source) })
+	return result, err
+}
+
+// RenderImage returns independent pixels for a display preview.
+func (p *PDF) RenderImage(index, edge int) (image.Image, error) {
+	var result *image.RGBA
+	err := p.render(index, edge, func(source image.Image) {
+		bounds := source.Bounds()
+		result = image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+		draw.Draw(result, result.Bounds(), source, bounds.Min, draw.Src)
+	})
+	return result, err
+}
+
+func (p *PDF) render(index, edge int, consume func(image.Image)) error {
 	page := requests.Page{ByIndex: &requests.PageByIndex{Document: p.document, Index: index}}
 	size, err := p.instance.GetPageSize(&requests.GetPageSize{Page: page})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if math.IsNaN(size.Width+size.Height) || math.IsInf(size.Width+size.Height, 0) || size.Width <= 0 || size.Height <= 0 {
-		return nil, ErrPageSize
+		return ErrPageSize
 	}
-	scale := min(2000/max(size.Width, size.Height), 2)
+	scale := min(float64(edge)/max(size.Width, size.Height), 2)
 	width, height := int(size.Width*scale), int(size.Height*scale)
 	if width == 0 || height == 0 {
-		return nil, ErrPageSize
+		return ErrPageSize
 	}
 	rendered, err := p.instance.RenderPageInPixels(&requests.RenderPageInPixels{Page: page, Width: width, Height: height})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// The pixel buffer belongs to the renderer until Cleanup.
 	defer rendered.Cleanup()
-	return FromImage(rendered.Result.Image), nil
+	consume(rendered.Result.Image)
+	return nil
 }
 
 // Close releases the document and the renderer.

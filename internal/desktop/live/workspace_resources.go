@@ -2,9 +2,7 @@ package live
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,101 +17,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-var workspaceHunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
-
-func workspaceHunks(patch string) []viewmodel.Hunk {
-	result := []viewmodel.Hunk{}
-	old, new := 0, 0
-	for _, line := range strings.Split(patch, "\n") {
-		if match := workspaceHunkHeader.FindStringSubmatch(line); match != nil {
-			old, _ = strconv.Atoi(match[1])
-			new, _ = strconv.Atoi(match[2])
-			result = append(result, viewmodel.Hunk{Header: line})
-			continue
-		}
-		if len(result) == 0 || line == "" {
-			continue
-		}
-		kind := viewmodel.Context
-		entry := viewmodel.DiffLine{Text: line[1:]}
-		switch line[0] {
-		case '+':
-			kind = viewmodel.Added
-			entry.New = new
-			new++
-		case '-':
-			kind = viewmodel.Removed
-			entry.Old = old
-			old++
-		case ' ':
-			entry.Old, entry.New = old, new
-			old++
-			new++
-		default:
-			continue
-		}
-		entry.Kind = kind
-		index := len(result) - 1
-		result[index].Lines = append(result[index].Lines, entry)
-	}
-	return result
-}
 func (p *workspaceProject) readDiff(relative, scope string) {
-	if relative == "" || relative == ":changes" {
-		return
-	}
 	if p.turnView != nil {
-		if p.panel.Git.UsesFileDiff(relative) {
+		if relative != "" && relative != ":changes" && p.panel.Git.UsesFileDiff(relative) {
 			p.readFile(relative)
 			p.readTurnHunks(relative)
 		}
 		return
 	}
-	key := scope + "/" + relative
-	if p.diffs[key] {
-		p.projectDiff(relative, scope, p.diffContents[key], p.manualDiffs[key].diff)
-		if _, loaded := p.files[relative]; !loaded && p.panel.Git.UsesFileDiff(relative) && !p.manualDiffs[key].diff.Binary {
-			p.readFile(relative)
-		}
-		return
-	}
-	value := protocol.GitDiffScope(scope)
-	if value == "" {
-		value = protocol.GitDiffScopeAll
-	}
-	captured := workspaceGitDiff{index: p.status.IndexRevision, head: p.status.Head, branch: p.status.Branch}
-	p.read("diff/"+key, protocol.Command{Kind: "read_git_diff", Data: protocol.CommandReadGitDiffPayload{Worktree: p.owner.ID, Path: relative, Scope: value}}, func(c *ui.Context, out protocol.Output) {
-		diff, ok := detail[protocol.GitDiff](out.Data)
-		if !ok {
-			return
-		}
-		p.diffs[key] = true
-		if p.manualDiffs == nil {
-			p.manualDiffs = map[string]workspaceGitDiff{}
-		}
-		captured.diff = diff
-		p.manualDiffs[key] = captured
-		if p.diffContents == nil {
-			p.diffContents = map[string][]viewmodel.Hunk{}
-		}
-		p.diffContents[key] = workspaceHunks(diff.Text)
-		p.projectDiff(relative, scope, p.diffContents[key], diff)
-		// An individual text diff compares the captured file revision when
-		// applying a hunk. The combined view and binary files need no body.
-		if !diff.Binary && p.panel.Git.UsesFileDiff(relative) {
-			p.readFile(relative)
-		}
-		p.readTurnHunks(relative)
-	})
-}
-func (p *workspaceProject) projectDiff(relative, scope string, hunks []viewmodel.Hunk, source protocol.GitDiff) {
-	for i := range p.data.Changes {
-		if p.data.Changes[i].Path == relative {
-			p.data.Changes[i].Hunks = hunks
-			p.data.Changes[i].Diff = viewmodel.DiffState{Scope: scope, Binary: source.Binary, Partial: source.Truncated, Size: source.Size}
-			return
-		}
-	}
+	if p.git.ReadDiff != nil { p.git.ReadDiff(relative, scope) }
 }
 
 // readSessionResources reloads every session resource after a session change
@@ -389,32 +301,18 @@ func (p *workspaceProject) readTurnHunks(relative string) {
 		}
 	})
 }
-func (p *workspaceProject) hunk(c *ui.Context, relative string, index int, action string) {
-	if action == "keep" {
-		return
-	}
+func (p *workspaceProject) applyCheckpointHunk(c *ui.Context, relative string, displayed viewmodel.Hunk, action string) bool {
 	review, exists := p.hunks[relative]
+	matched := workspaceHunkMatch(displayed, review.Hunks)
+	invalidReview := !exists || review.Session != p.session || review.Worktree != p.owner.ID || matched < 0
+	if invalidReview && p.turnView == nil {
+		return false
+	}
 	source, loaded := p.files[relative]
-	if !loaded {
-		p.readFile(relative)
-	}
-	var displayed *viewmodel.Hunk
-	for _, change := range p.data.Changes {
-		if change.Path == relative && index >= 0 && index < len(change.Hunks) {
-			displayed = &change.Hunks[index]
-		}
-	}
-	matched := -1
-	if displayed != nil {
-		matched = workspaceHunkMatch(*displayed, review.Hunks)
-	}
-	if !exists || review.Session != p.session || review.Worktree != p.owner.ID || matched < 0 || !loaded || source.Revision == nil || source.Truncated {
-		if p.turnView == nil && displayed != nil && (!exists || review.Session != p.session || review.Worktree != p.owner.ID || matched < 0) {
-			p.manualGitHunk(c, relative, *displayed, action)
-			return
-		}
+	if !loaded { p.readFile(relative) }
+	if invalidReview || !loaded || source.Revision == nil || source.Truncated {
 		p.runtime.reportKeys(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "hunk source is not loaded"}, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-		return
+		return true
 	}
 	operation := protocol.ConversationCheckpointHunkOperationReject
 	if action == "stage" {
@@ -433,26 +331,18 @@ func (p *workspaceProject) hunk(c *ui.Context, relative string, index int, actio
 		p.refresh()
 		kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 	})
+	return true
 }
 
-func workspaceHunkFingerprint(hunk viewmodel.Hunk) string {
-	var result strings.Builder
-	for _, line := range hunk.Lines {
-		if line.Kind == viewmodel.Added || line.Kind == viewmodel.Removed {
-			fmt.Fprintf(&result, "%d/%d/%d:%s\n", line.Kind, line.Old, line.New, line.Text)
-		}
-	}
-	return result.String()
-}
 func workspaceHunkMatch(displayed viewmodel.Hunk, reviews []protocol.ConversationCheckpointHunk) int {
-	wanted := workspaceHunkFingerprint(displayed)
+	wanted := viewmodel.DiffHunkFingerprint(displayed)
 	if wanted == "" {
 		return -1
 	}
 	matched := -1
 	for index, review := range reviews {
-		hunks := workspaceHunks(review.Text)
-		if len(hunks) == 1 && workspaceHunkFingerprint(hunks[0]) == wanted {
+		hunks := viewmodel.ParseDiff(review.Text)
+		if len(hunks) == 1 && viewmodel.DiffHunkFingerprint(hunks[0]) == wanted {
 			if matched >= 0 {
 				return -1
 			}

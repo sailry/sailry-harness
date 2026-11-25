@@ -292,6 +292,7 @@ worktree_open_busy: Этот сеанс сейчас не может смени�
 worktree_created: Рабочее дерево создано
 worktree_removed: Рабочее дерево удалено
 worktree_remove_confirm: Удалить этот каталог рабочего дерева; ветка Git сохранится
+worktree_remove_unsaved: Сохранить изменения перед удалением этого рабочего дерева
 worktree_prune: Очистить устаревшее рабочее дерево
 worktree_prune_confirm: Удалить эту устаревшую запись; файлы не удаляются
 worktree_pruned: Удалена устаревшая регистрация рабочего дерева
@@ -572,6 +573,8 @@ artifact_preview: Предварительный просмотр
 artifact_preview_changed: Файл изменился
 artifact_preview_failed: Не удалось загрузить предварительный просмотр
 artifact_preview_large: Файл слишком большой для просмотра
+artifact_preview_page: Page {page}
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_loading: Загрузить предварительный просмотр
 files_open_failed: Не удалось открыть файл
 artifact_request_edit: Запрос на редактирование

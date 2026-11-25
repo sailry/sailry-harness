@@ -1113,6 +1113,21 @@
     },
     "Contribution2": {
       "additionalProperties": false,
+      "if": {
+        "properties": { "link_scheme": { "type": "string" } },
+        "required": ["link_scheme"]
+      },
+      "then": {
+        "properties": {
+          "handler": { "type": "string" },
+          "kind": { "const": "button" },
+          "slot": { "const": "composer" }
+        },
+        "required": ["handler"]
+      },
+      "else": {
+        "not": { "required": ["priority"] }
+      },
       "properties": {
         "align": {
           "$ref": "#/$defs/Align",
@@ -1174,6 +1189,16 @@
         "label": {
           "$ref": "#/$defs/Navigation"
         },
+        "link_scheme": {
+          "description": "Receives Desktop conversation links for sailry-plugin-<this package's name> while this composer button is visible and enabled.",
+          "maxLength": 78,
+          "pattern": "^sailry-plugin-[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
+          "not": { "type": "string", "pattern": "--|\\.\\." },
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "order": {
           "default": 0,
           "format": "int16",
@@ -1184,6 +1209,14 @@
         "overflow": {
           "$ref": "#/$defs/Overflow",
           "default": "auto"
+        },
+        "priority": {
+          "description": "Conversation link routing priority. Only allowed with link_scheme. Use a signed 32-bit JSON integer literal; decimal and exponent notation are rejected by the manifest loader.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": -2147483648,
+          "maximum": 2147483647,
+          "default": 0
         },
         "slot": {
           "$ref": "#/$defs/Slot"
@@ -4290,6 +4323,12 @@
     "ui": {
       "default": [],
       "description": "Controller-rendered entries with state and named action handlers.",
+      "contains": {
+        "properties": { "link_scheme": { "type": "string" } },
+        "required": ["link_scheme"]
+      },
+      "minContains": 0,
+      "maxContains": 1,
       "items": {
         "$ref": "#/$defs/Contribution2"
       },

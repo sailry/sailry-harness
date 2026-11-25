@@ -7,6 +7,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
+	"os"
 
 	"github.com/egoist/mygo"
 	"github.com/sailry/sailry-harness/internal/desktop/exporter"
@@ -18,6 +19,11 @@ import (
 
 func bindFiles(entry *desktopWindow, local protocol.NodeID, pause func() func()) {
 	runtime := entry.live
+	openLocal := func(path string) {
+		if err := mygo.Shell.OpenPath(path); err != nil {
+			runtime.Report(err)
+		}
+	}
 	runtime.SetNativeFileActions(live.NativeFileActions{LocalNode: local, RenderDocument: func(ctx context.Context, artifact protocol.ArtifactSummary, html string, done func([]byte, error)) {
 		go func() { data, err := exporter.PreviewImage(ctx, entry.window, html); done(data, err) }()
 	}, PickFiles: func(selected func([]string)) {
@@ -38,11 +44,15 @@ func bindFiles(entry *desktopWindow, local protocol.NodeID, pause func() func())
 			return
 		}
 		selected(path)
-	}, OpenLocal: func(path string) {
-		if err := mygo.Shell.OpenPath(path); err != nil {
+	}, OpenLocal: openLocal, RevealLocal: func(path string) {
+		if info, err := os.Stat(path); err != nil {
 			runtime.Report(err)
+		} else if info.IsDir() {
+			openLocal(path)
+		} else {
+			mygo.Shell.ShowItemInFolder(path)
 		}
-	}, RevealLocal: mygo.Shell.ShowItemInFolder, CopyImage: func(data []byte, mime string) {
+	}, CopyImage: func(data []byte, mime string) {
 		if mime != "image/png" {
 			decoded, _, err := image.Decode(bytes.NewReader(data))
 			if err != nil {

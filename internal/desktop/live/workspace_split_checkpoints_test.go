@@ -10,10 +10,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	git "github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
@@ -126,7 +125,7 @@ func TestVisibleSplitShowsFinishedTurnDiffWithoutFocus(t *testing.T) {
 			prefs.Data.WelcomeSeen = new(true)
 			assembly := shell.Assemble(market.Register)
 			if !test.omitResources {
-				assembly = shell.Assemble(files.Register, git.Register, market.Register)
+				assembly = shell.Assemble(testassembly.RegisterFilesFixture, registerGitFixture, market.Register)
 			}
 			root, err := NewWithAssembly(ctx, start(local), prefs, assembly)
 			if err != nil {

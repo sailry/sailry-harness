@@ -17,4 +17,6 @@ type ProjectLocationReader = shell.ProjectLocationReader
 type ConversationWorktreeActions = shell.ConversationWorktreeActions
 type WorkflowConversation = shell.WorkflowConversation
 type WorkflowWorkspace = shell.WorkflowWorkspace
+type WorkspaceAction = shell.WorkspaceAction
 type WorkspacePromptToggle = panel.PromptToggle
+type WorkspacePickerRow = panel.PickerRow

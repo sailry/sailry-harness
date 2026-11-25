@@ -28,6 +28,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -108,7 +109,9 @@ func TestDemoMode(t *testing.T) {
 		t.Fatalf("the demo recognizes %q, not the installed fixture %q", pluginStatisticsPackage, statistics.Summary.Name)
 	}
 	reference := packageReference(statistics.Summary)
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
+	assembly := desktop.Harness()
+	testassembly.RegisterTerminalFixture(&assembly)
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +124,7 @@ func TestDemoMode(t *testing.T) {
 	window := liveWindow{tester: tester, asked: &asked, flying: &flying}
 	tester.SetLocale("en")
 	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
-	catalog := i18n.New(desktop.Harness().Locales...)
+	catalog := i18n.New(assembly.Locales...)
 	text := func(key string, args ...any) string { return catalog.In("en", key, args...) }
 	sent := func() []string {
 		mu.Lock()
@@ -1175,9 +1178,20 @@ func TestDemoMode(t *testing.T) {
 			if len(project.Worktrees) != max(trees, 1)+1 || len(project.Conversations) != sessions+1 || demo.ProjectOf(r.App.Sidebar.Selected) != project {
 				t.Fatalf("Create worktree: %d worktrees, %d sessions", len(project.Worktrees), len(project.Conversations))
 			}
+			beforeTerminal := len(sent())
 			choose(project.Name, text("workspace_new_terminal"))
-			if len(r.App.WorkspaceTerminalIDs()) != 1 || len(r.App.Panel.Tabs) != 0 {
-				t.Fatalf("New terminal: workspace terminals %v, panel tabs %v", r.App.WorkspaceTerminalIDs(), r.App.Panel.Tabs)
+			terminals := r.App.WorkspaceTerminalIDs()
+			if len(terminals) != 1 || r.App.ActiveTerminal() != terminals[0] || len(r.App.Panel.Tabs) != 0 {
+				t.Fatalf("New terminal: workspace terminals %v, active %q, panel tabs %v", terminals, r.App.ActiveTerminal(), r.App.Panel.Tabs)
+			}
+			if !slices.ContainsFunc(tester.Texts(), func(line string) bool { return strings.Contains(line, "go test ./internal/...") }) {
+				t.Fatal("New terminal did not render the demo's terminal screen")
+			}
+			if acted, live := sent()[beforeTerminal:], controller.Snapshot().Terminals; len(acted) != 0 || len(live) != 0 {
+				t.Fatalf("demo terminal reached the Node: commands %q, terminals %v", acted, live)
+			}
+			if saved := r.App.Prefs().WorkspaceTerminals; len(saved) != 0 {
+				t.Fatalf("demo terminal leaked into the live workspace preferences: %v", saved)
 			}
 			choose(project.Name, text("workspace_copy_path"))
 			if got := tester.Clipboard(); got != project.Path {

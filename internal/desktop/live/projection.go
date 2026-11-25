@@ -249,16 +249,7 @@ func headingKey(n client.Notice) string {
 	}
 }
 
-func detail[T any](data any) (T, bool) {
-	if v, ok := data.(T); ok {
-		return v, true
-	}
-	if v, ok := data.(*T); ok && v != nil {
-		return *v, true
-	}
-	var zero T
-	return zero, false
-}
+func detail[T any](data any) (T, bool) { return protocol.DataAs[T](data) }
 
 func localHost(snapshot protocol.Snapshot, d *viewmodel.Data) *host.Host {
 	id := hex.EncodeToString(snapshot.Node[:])

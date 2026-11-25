@@ -1,8 +1,10 @@
 package shell
 
 import (
+	"encoding/hex"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -88,6 +90,32 @@ func (a *App) OpenKnowledge(c *ui.Context, session, link string) {
 // openKnowledge opens a knowledge link in the viewer, or tells it is not
 // one.
 func (a *App) openKnowledge(c *ui.Context, node, link string) {
+	if !a.Preview && !a.Demo() {
+		u, err := url.Parse(link)
+		if err != nil || u.Scheme != "sailry-knowledge" || u.User != nil {
+			kit.Toast(c, kit.Failed, i18n.T(c, "knowledge_citation_invalid"))
+			return
+		}
+		target := LinkTarget{Route: LinkRoute{Kind: LinkScheme, Name: u.Scheme}, URL: link}
+		if id, err := hex.DecodeString(node); err == nil && len(id) == len(target.Node) {
+			copy(target.Node[:], id)
+		}
+		var active atomic.Bool
+		active.Store(true)
+		defer active.Store(false)
+		var actions LinkActions
+		if open := a.Hooks.OpenKnowledge; open != nil {
+			actions.OpenKnowledge = func(c *ui.Context, source Source) {
+				if active.Load() {
+					open(c, node, source)
+				}
+			}
+		}
+		if handled, err := a.DispatchLink(c, target, actions); !handled || err != nil {
+			kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+		}
+		return
+	}
 	source, ok := ParseSource(link)
 	if !ok {
 		kit.Toast(c, kit.Failed, i18n.T(c, "knowledge_citation_invalid"))

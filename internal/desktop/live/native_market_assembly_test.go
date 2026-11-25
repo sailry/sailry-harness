@@ -10,14 +10,14 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	git "github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	marketModule "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
@@ -118,7 +118,38 @@ func TestNativeMarketAssembly(t *testing.T) {
 			defer controller.Close()
 			prefs := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
 			prefs.Data.WelcomeSeen = new(true)
-			modules := []shell.Module{files.Register, git.Register}
+			var files *panel.Project
+			var entries []protocol.FileEntry
+			fileSlot := func(assembly *shell.Assembly) {
+				page := testassembly.FileResourcePage()
+				page.Render = func(c *ui.Context, app *shell.App) {
+					app.RenderResource(c, func(workspace *panel.Project) {
+						ui.Text(c, "Selected file: "+workspace.Files.File())
+					})
+				}
+				page.RenderDetails = func(c *ui.Context, _ *shell.App, workspace *panel.Project) {
+					if files != workspace {
+						files, entries = workspace, nil
+						directory := workspace.FileDirectory
+						if directory.Read == nil || directory.Context == nil {
+							t.Fatal("Files slot did not receive the live directory service")
+						}
+						directory.Read(directory.Context, "", nil, func(_ *ui.Context, page protocol.Directory, err error) {
+							if files == workspace {
+								if err != nil {
+									t.Fatalf("Files slot could not read its workspace: %v", err)
+								}
+								entries = page.Entries
+							}
+						})
+					}
+					for _, entry := range entries {
+						ui.Button(c.Key(entry.Name), entry.Name).OnClick(func() { workspace.Files.Show(entry.Name) })
+					}
+				}
+				assembly.WorkspacePages = append(assembly.WorkspacePages, page)
+			}
+			modules := []shell.Module{fileSlot, registerGitFixture}
 			if includeMarket {
 				modules = append(modules, marketModule.Register)
 			}
@@ -209,13 +240,21 @@ func TestNativeMarketAssembly(t *testing.T) {
 			if _, found := tester.AccessByRole(ui.RoleButton, market); found || app.Page != shell.ConversationPage {
 				t.Fatalf("omitted marketplace remains available: page=%q", app.Page)
 			}
-			app.SetResourceTarget(shell.ResourceTarget{Node: snapshot.Node.String(), Project: project.ID.String()})
+			target := shell.ResourceTarget{Node: snapshot.Node.String(), Project: project.ID.String()}
+			app.SetResourceTarget(target)
 			app.Navigate(shell.FilesPage)
-			until("Files tree", func() bool { _, shown := tester.AccessByRole(ui.RoleTreeItem, fileName); return shown })
+			click(ui.RoleButton, fileName, true)
+			if files == nil || files.ID != tree.ID.String() || !tester.HasText("Selected file: "+fileName) {
+				t.Fatal("Files page did not receive the native details slot's selection on the requested worktree")
+			}
 			app.Navigate(shell.GitPage)
 			until("Git changes", func() bool { _, shown := tester.AccessByRole(ui.RoleTreeItem, changedName); return shown })
-			if len(requests("list_directory")) == 0 || len(requests("inspect_git")) == 0 {
-				t.Fatal("Files and Git did not load their workspace")
+			listing, inspection := requests("list_directory"), requests("inspect_git")
+			if len(listing) != 1 || listing[0].Target != snapshot.Node || listing[0].Command.Data != (protocol.CommandListDirectoryPayload{Worktree: tree.ID}) {
+				t.Fatalf("Files did not read the selected workspace root: %+v", listing)
+			}
+			if len(inspection) != 1 || inspection[0].Target != snapshot.Node || inspection[0].Command.Data != (protocol.CommandInspectGitPayload{Worktree: tree.ID}) || app.ResourceTarget() != target {
+				t.Fatalf("Git did not keep the selected workspace: %+v, target %+v", inspection, app.ResourceTarget())
 			}
 			if len(requests("search_plugin_catalog")) != 0 || len(requests("search_skill_catalog")) != 0 {
 				t.Fatal("opening Files and Git in the omitted assembly browsed the marketplace")

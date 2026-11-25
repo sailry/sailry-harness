@@ -15,13 +15,15 @@ import (
 )
 
 func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
-	file := findFile(pr.Data.Files, path)
-	if file == nil || path == "" {
-		// No file is open: "" is the tree's root, not a file.
+	pr.renderFileEditor(c, path, own, nil, nil)
+}
+
+func (pr *Project) renderFileEditor(c *ui.Context, path string, own bool, allowWrite func() bool, save func()) {
+	item := pr.Files.items[path]
+	if path == "" || item == nil || !item.loaded && !item.dirty {
 		empty(c, icons.File, "file_empty")
 		return
 	}
-	item := pr.Files.item(path)
 	if own {
 		// A page can take over a closing panel's editor before its next
 		// Changed callback. Retain that native input before rebinding it.
@@ -31,10 +33,20 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 		empty(c, icons.File, "file_empty")
 		return
 	}
-	if !item.loaded {
-		pr.SetFile(path, file.Text)
-	}
 	state := item.documentState()
+	writable := func() bool { return own && pr.fileWritable(item) && (allowWrite == nil || allowWrite()) }
+	key := func(key ui.Key, mods ui.Modifiers) bool {
+		if allowWrite == nil {
+			return pr.editorKey(c, path, key, mods)
+		}
+		if save != nil && key == ui.KeyS && mods == editorPrimaryModifier() {
+			if writable() {
+				save()
+			}
+			return true
+		}
+		return writable() && pr.editorKey(c, path, key, mods)
+	}
 	markdown, notebook := markdownFile(path), strings.HasSuffix(strings.ToLower(path), ".ipynb")
 	if item.pendingLine > 0 {
 		item.source = 1
@@ -46,14 +58,20 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 		state.richOriginal, state.richCanonical = item.draft, state.rich.Text().Markdown()
 		state.richVersion = state.rich.Version()
 	}
-	pr.editorToolbar(c, path, markdown, notebook)
+	if allowWrite == nil {
+		pr.editorToolbar(c, path, markdown, notebook)
+	}
 	switch {
 	case notebook && item.source == 0:
 		pr.notebookEditorPreview(c, path, own)
 	case markdown && item.source == 0 && state.richSafe:
 		ui.Column(c.Key("document")).Bind(state.focusFor(own)).Disabled(!own || pr.documentsLocked()).Grow(1).MinHeight(0).Padding(12, 16).Children(func() {
-			options := richtext.EditorOptions{ReadOnly: !own || !pr.fileWritable(item), OnLinkCommand: func() { pr.runEditorAction(c, path, "link") }, OnKey: func(key ui.Key, mods ui.Modifiers) bool { return pr.editorKey(c, path, key, mods) }}
-			if richtext.EditorBase(c.Key(path), state.rich, options).Grow(1).MinHeight(0).Changed() {
+			options := richtext.EditorOptions{ReadOnly: !writable(), OnLinkCommand: func() {
+				if writable() {
+					pr.runEditorAction(c, path, "link")
+				}
+			}, OnKey: key}
+			if richtext.EditorBase(c.Key(path), state.rich, options).Grow(1).MinHeight(0).Changed() && writable() {
 				pr.syncRichDraft(path)
 			}
 		})
@@ -65,8 +83,10 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 		ui.Scroll(c.Key("document")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 16).Children(func() { kit.Markdown(c, item.draft+item.suffix, props) })
 	default:
 		ui.Scroll(c.Key("text")).Bind(state.focusFor(own)).Disabled(!own || pr.documentsLocked()).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 0).Children(func() {
-			kit.Code(c, ui.Column(c.Key(path)), item.draft, kit.CodeOptions{Language: editor.LanguageFor(path), Numbers: true, Editable: own && pr.fileWritable(item), Changed: func(text string) {
-				pr.FileChanged(path, text)
+			kit.Code(c, ui.Column(c.Key(path)), item.draft, kit.CodeOptions{Language: editor.LanguageFor(path), Numbers: true, Editable: writable(), Changed: func(text string) {
+				if writable() {
+					pr.FileChanged(path, text)
+				}
 			}, Bind: func(native *editor.State) {
 				if !own || item.editor != native {
 					native.SoftWrap = state.wrap
@@ -76,11 +96,11 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 				if own {
 					pr.bindEditor(path, native)
 				}
-				native.ReadOnly = !own || !pr.fileWritable(item)
+				native.ReadOnly = !writable()
 				native.OnInput = func(event ui.InputEvent) bool {
-					return event.Kind == ui.InputKeyDown && pr.editorKey(c, path, event.Key, event.Mods)
+					return event.Kind == ui.InputKeyDown && key(event.Key, event.Mods)
 				}
-				if pending := state.pending; own && pending != nil && (!state.pendingEdit || pr.fileWritable(item)) {
+				if pending := state.pending; own && pending != nil && (!state.pendingEdit || writable()) {
 					state.pending = nil
 					state.pendingEdit = false
 					pending(native)
@@ -91,7 +111,9 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 			}
 		})
 	}
-	pr.editorFooter(c, path, markdown)
+	if allowWrite == nil {
+		pr.editorFooter(c, path, markdown)
+	}
 }
 func editorPrimaryModifier() ui.Modifiers {
 	if runtime.GOOS == "darwin" {
@@ -169,7 +191,7 @@ func (pr *Project) editorFooter(c *ui.Context, path string, markdown bool) {
 				c.WriteClipboard(path)
 			}
 			if menu.Item(i18n.T(c, "files_open_system")).Chosen() {
-				pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{path}})
+				pr.ApplyFileAction(c, FileAction{Kind: "files_open_system", Paths: []string{path}})
 			}
 		})
 		if state.saving {

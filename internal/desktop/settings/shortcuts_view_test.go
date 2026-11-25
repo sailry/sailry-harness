@@ -25,6 +25,36 @@ func shortcutsPage(k *Keys, mode theme.Mode, width int) *ui.Tester {
 	return tt
 }
 
+func TestPanelShortcutSettingsFollowRegistration(t *testing.T) {
+	resource := Shortcut{ID: PanelShortcutID("fixture"), Label: "Fixture resource", Mods: ui.Ctrl, Key: ui.KeyJ}
+	registered := true
+	k := NewKeys()
+	k.SetPanelShortcuts(func(yield func(Shortcut) bool) {
+		if registered {
+			yield(resource)
+		}
+	})
+	k.SetOverrides(map[string]string{resource.ID: "ctrl-u"})
+	tester := shortcutsPage(&k, theme.Light, 760)
+	if button, found := tester.AccessByRole(ui.RoleButton, resource.Label); !found || button.Value != kit.KeyText(ui.Ctrl, ui.KeyU) {
+		t.Fatalf("settings did not show the rebound shortcut: %+v", button)
+	}
+	k.Record(resource.ID)
+	k.Clear()
+	tester.Frame()
+	if button, found := tester.AccessByRole(ui.RoleButton, resource.Label); !found || button.Value != i18n.In("en", "shortcut_disabled") {
+		t.Fatalf("settings did not show the available binding editor without a key: %+v", button)
+	}
+	registered = false
+	tester.Frame()
+	if _, found := tester.AccessByRole(ui.RoleButton, resource.Label); found {
+		t.Fatal("settings still show the unregistered shortcut")
+	}
+	if override, saved := k.Overrides()[resource.ID]; !saved || override != "" {
+		t.Fatal("retiring the resource erased its preferences")
+	}
+}
+
 // focusedButton is the button with the keyboard focus, as assistive
 // technology reads it; the zero AccessInfo when none has it.
 func focusedButton(tt *ui.Tester) ui.AccessInfo {

@@ -58,7 +58,9 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			return
 		}
 		switch t.Kind {
-		case Files, Changes:
+		case Files:
+			pr.fileView(c, t.ID, s.owns(t), nil, nil)
+		case Changes:
 			RenderProjectResource(c, s, t)
 		case History:
 			s.history(c)
@@ -72,41 +74,8 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 				return
 			}
 			s.Child(c, t.ID)
-		case Browser:
-			RenderBrowserResource(c, s, t)
-		case Terminal:
-			s.TerminalView(c, t.ID)
 		}
 	})
-}
-
-// confirmClose asks before a live terminal's tab closes, naming the terminal
-// and what closing does once, as the split workspace does for a pane: the
-// Node then ends the shell.
-func (s *State) confirmClose(c *ui.Context) {
-	t := s.closing
-	if t == (Tab{}) {
-		return
-	}
-	if !slices.Contains(s.Tabs, t) || s.TerminalActions == nil || s.TerminalActions.Close == nil {
-		// Its shell exited, or its conversation was left, meanwhile.
-		s.closing = Tab{}
-		return
-	}
-	open := true
-	if kit.Confirm(c.Key("close-terminal/"+t.ID), &open, kit.Confirmation{
-		Title: i18n.T(c, "workspace_close_terminal"), Message: s.Title(c, t),
-		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Default: 1, Destructive: []int{1},
-	}) == 1 {
-		s.closing = Tab{}
-		if s.OnTerminalClose != nil {
-			s.OnTerminalClose(t)
-		}
-		s.TerminalActions.Close(t.ID)
-	}
-	if !open {
-		s.closing = Tab{}
-	}
 }
 
 // look is a tab's icon and title.
@@ -139,30 +108,35 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 				return icons.FileText, d.Title
 			}
 		}
-	case Browser:
-		// A live page names its tab once it has a title.
-		if s.Live && s.BrowserActions != nil {
-			if title := s.BrowserActions.Page(t.ID).Title; title != "" {
-				return icons.Web, title
-			}
-		}
-		// The dataset's own page names its tab too.
-		if b := s.pagesOf[t.ID]; b != nil {
-			if page := s.sample(b); page != nil {
-				return icons.Web, page.Title
-			}
-		}
 	}
 	r, found := s.resource(t.Kind)
 	if !found {
 		r = ResourceOf(t.Kind)
+		return r.Icon, i18n.T(c, r.Label)
+	}
+	if r.Title != nil {
+		if title := r.Title(s, t); title != "" {
+			return r.Icon, title
+		}
 	}
 	return r.Icon, i18n.T(c, r.Label)
 }
 
-// busy reports whether a tab's content is loading: a live browser page.
 func (s *State) busy(t Tab) bool {
-	return t.Kind == Browser && s.Live && s.BrowserActions != nil && s.BrowserActions.Page(t.ID).Loading
+	resource, ok := s.resource(t.Kind)
+	return ok && resource.Busy != nil && resource.Busy(s, t)
+}
+
+func (s *State) tabMenu(c *ui.Context, t Tab) func(*ui.Menu) {
+	resource, ok := s.resource(t.Kind)
+	if !ok || resource.TabMenu == nil {
+		return nil
+	}
+	return func(m *ui.Menu) {
+		if current, ok := s.resource(t.Kind); ok && current.TabMenu != nil && slices.Contains(s.Tabs, t) {
+			current.TabMenu(c, m, s, t)
+		}
+	}
 }
 
 // Title is a tab's title, as its tab shows it.
@@ -213,6 +187,7 @@ type tabLook struct {
 	icon                  *ui.SVG
 	label, tip            string
 	active, busy, passing bool
+	menu                  func(*ui.Menu)
 }
 
 // tab is a strip's tab: 28 DIPs up to 180 wide, the icon and the title, the
@@ -245,6 +220,9 @@ func tab(c *ui.Context, key any, l tabLook, show, close, keep, release func()) {
 			}
 			m.Separator()
 		}
+		if l.menu != nil {
+			l.menu(m)
+		}
 		if m.Item(i18n.T(c, "close")).Chosen() {
 			close()
 		}
@@ -258,13 +236,12 @@ func tab(c *ui.Context, key any, l tabLook, show, close, keep, release func()) {
 // while a page and closing panel both show a resource, the page owns it,
 // as MyGo binds a ScrollState to one container per build.
 func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open, reveal func(path string)) {
-	if pr == nil {
-		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
+	if k == Files {
+		pr.fileView(c, path, own, nil, nil)
 		return
 	}
-	if k == Files {
-		pair(c, "files", &pr.Files.side, filesLeast,
-			func(bool) { pr.FileEditor(c, path, own) }, func(bool) { pr.FileTree(c, own, open) })
+	if pr == nil {
+		resourceProjectPrompt(c, k)
 		return
 	}
 	box := ui.Column(c.Key("git")).Grow(1).MinHeight(0)
@@ -277,8 +254,30 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open, reve
 	pr.GitDialogs(c)
 }
 
+func resourceProjectPrompt(c *ui.Context, kind Kind) {
+	kit.Result(c, kit.ResultProps{Icon: ResourceOf(kind).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
+}
+
+func (pr *Project) fileView(c *ui.Context, path string, own bool, open func(string), tree func(*Project, *ui.Context, bool, func(string))) {
+	switch {
+	case pr == nil:
+		resourceProjectPrompt(c, Files)
+	case tree == nil:
+		ui.Column(c.Key("file-document")).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch).Clip().Children(func() {
+			pr.FileEditor(c, path, own)
+		})
+	default:
+		pair(c, "files", &pr.Files.side, filesLeast,
+			func(bool) { pr.FileEditor(c, path, own) }, func(bool) { tree(pr, c, own, open) })
+	}
+}
+
 // FileEditor shows a file using the project's shared editor state.
 func (pr *Project) FileEditor(c *ui.Context, path string, own bool) {
+	if item := pr.Files.items[path]; item != nil && item.preview != nil {
+		item.preview.draw(c, &item.preview.view)
+		return
+	}
 	if path != "" {
 		pr.readFile(path)
 	}
@@ -291,10 +290,6 @@ func (pr *Project) GitDiff(c *ui.Context, path string, width float32) {
 }
 
 func (pr *Project) gitDiff(c *ui.Context, path string, narrow bool) {
-	if path == allChanges {
-		pr.combined(c, narrow)
-		return
-	}
 	if path != "" && !pr.gitDocumentKnown(path) {
 		pr.readDiff(path, pr.Git.scope)
 	}
@@ -335,7 +330,7 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 					tip = f.Path
 				}
 				keep, release := s.keeper(t)
-				tab(c, t, tabLook{icon: icon, label: label, tip: tip, active: t == s.Active, busy: s.busy(t), passing: s.passes(t)},
+				tab(c, t, tabLook{icon: icon, label: label, tip: tip, active: t == s.Active, busy: s.busy(t), passing: s.passes(t), menu: s.tabMenu(c, t)},
 					func() { s.Show(t) }, func() {
 						// The button that closed is in the header: the focus
 						// goes to the panel, where ⌘W closes the next tab.
@@ -361,6 +356,9 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			}
 		})
 	}
+	if !slices.ContainsFunc(s.ResourceList(), func(r Resource) bool { return s.Offers(r.Kind) }) {
+		return
+	}
 	kit.MenuButton(c.Key("add"), "panel-add", func(b ui.Element) {
 		kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
 	}, func(m *kit.Menu) {
@@ -369,8 +367,8 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 				continue
 			}
 			it := m.Item(i18n.T(c, r.Label)).Icon(r.Icon).Checked(r.Kind == s.Active.Kind)
-			if r.Key != 0 && keys != nil {
-				it.Shortcut(keys(r.Mods, r.Key))
+			if mods, key := s.Shortcut(r); key != 0 && keys != nil {
+				it.Shortcut(keys(mods, key))
 			}
 			if it.Chosen() {
 				s.Open(r.Kind)
@@ -398,8 +396,8 @@ func launcher(c *ui.Context, s *State, keys Shortcut) {
 				b.Children(func() {
 					ui.Icon(c, r.Icon).FontSize(16)
 					ui.Text(c, label).FontSize(14).SingleLine().Grow(1)
-					if r.Key != 0 && keys != nil {
-						kbd(c, keys(r.Mods, r.Key))
+					if mods, key := s.Shortcut(r); key != 0 && keys != nil {
+						kbd(c, keys(mods, key))
 					}
 				}).OnClick(func() { s.Open(r.Kind) })
 			}
@@ -584,17 +582,12 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 }
 
-// diff is a changed file in MyGo's diff viewer over its footer, unified as
-// content diff view or side by side by the footer's choice, with the change under the
-// pointer's Revert and Keep (editor.DefaultHunkActions) and Stage: in the
-// preview each toasts, as they would write the file and the index.
 func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
-	if pr.gitDocument(c, path, narrow) {
-		return
-	}
-	if pr.gitEmpty(c, false) {
-		return
-	}
+ if pr.RenderCapturedDiff(c, path, narrow) { return }
+ pr.RenderChangeDiff(c, path, narrow, nil)
+}
+
+func (pr *Project) RenderChangeDiff(c *ui.Context, path string, narrow bool, action func(*ui.Context, *preview.FileChange, int, string)) {
 	p := theme.Of(c)
 	var ch *preview.FileChange
 	for i := range pr.Data.Changes {
@@ -611,7 +604,7 @@ func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
 		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
 		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
 	}
-	system := func() { pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) }
+	system := func() { pr.ApplyFileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) }
 	if metadata.Scope == pr.Git.scope && metadata.Binary {
 		// No diff shows, so the footer has no layout to choose.
 		ui.Column(c.Key("binary")).Grow(1).MinHeight(0).Children(func() {
@@ -633,34 +626,21 @@ func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
 				kit.Ghost(c.Key("stage"), stage, false).Height(20).PaddingX(8).Children(func() {
 					ui.Text(c, stage).FontSize(12)
 				}).OnClick(func() {
-					if pr.Actions != nil && pr.Actions.Hunk != nil {
-						pr.Actions.Hunk(c, ch.Path, selected, "stage")
+					if action != nil {
+						action(c, ch, selected, "stage")
 					} else {
-						// The demo's index takes the hunk: the file is staged, and
-						// still changed in the work tree while it has other hunks.
-						sampled(c, func() bool {
-							if pr.Actions != nil {
-								return false
-							}
-							rest := ch.Unstaged
-							if len(ch.Hunks) < 2 {
-								rest = ""
-							}
-							stageChange(ch)
-							ch.Unstaged = rest
-							return true
-						})
+						notice(c)
 					}
 				})
 			})
 		}}
-	if pr.Actions != nil && pr.Actions.Hunk != nil {
+	if action != nil {
 		options.HunkChanged = func(_ int, keep bool) {
-			action := "reject"
+			operation := "reject"
 			if keep {
-				action = "keep"
+				operation = "keep"
 			}
-			pr.Actions.Hunk(c, ch.Path, selected, action)
+			action(c, ch, selected, operation)
 		}
 	} else {
 		options.Changed = func() { notice(c) }

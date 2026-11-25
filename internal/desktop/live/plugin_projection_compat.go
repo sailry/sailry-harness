@@ -8,12 +8,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func pluginViewsRetired(ref protocol.PluginReference) bool {
-	return nodeplugins.LegacyDesktopViewRetired(ref)
+func (r *Runtime) pluginViewsRetired(ref protocol.PluginReference) bool {
+	return nodeplugins.IsLegacyDesktopPackage(ref.Name, ref.Digest) && r.localRuntime().App.ReplacesLegacyViews(ref.Name)
 }
 
 func (r *Runtime) pluginNavigationReplaced(ref protocol.PluginReference) bool {
-	return pluginViewsRetired(ref) || nodeplugins.IsLegacyDesktopPackage(ref.Name, ref.Digest) && r.App.ReplacementFeature(ref.Name) != ""
+	return nodeplugins.IsLegacyDesktopPackage(ref.Name, ref.Digest) && r.localRuntime().App.ReplacementFeature(ref.Name) != ""
 }
 
 func (r *Runtime) legacyPluginControlReplaced(ref protocol.PluginReference, declaration protocol.PluginUiContribution) bool {

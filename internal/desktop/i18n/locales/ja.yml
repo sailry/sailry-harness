@@ -292,6 +292,7 @@ worktree_open_busy: このセッションは現在ワークツリーを切り替
 worktree_created: ワークツリーを作成しました
 worktree_removed: ワークツリーを削除しました
 worktree_remove_confirm: このワークツリーディレクトリを削除します。Git のブランチを保持します
+worktree_remove_unsaved: このワークツリーを削除する前に変更を保存
 worktree_prune: 無効なワークツリーをクリーンアップ
 worktree_prune_confirm: この無効な登録を削除します。ファイルは削除されません
 worktree_pruned: 古いワークツリー登録を削除
@@ -572,6 +573,8 @@ artifact_preview: プレビュー
 artifact_preview_changed: ファイルが変更されました
 artifact_preview_failed: プレビューを読み込めませんでした
 artifact_preview_large: ファイルが大きすぎてプレビューできません
+artifact_preview_page: Page {page}
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_loading: プレビューを読み込み中
 files_open_failed: ファイルを開けません
 artifact_request_edit: 編集依頼

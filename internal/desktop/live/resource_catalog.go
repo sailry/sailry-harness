@@ -83,7 +83,7 @@ func (r *Runtime) pruneResourceViews() {
 			}
 			project.releaseResourceWatch()
 			project.closeDocumentImages()
-			project.panel.ResetFileSearch()
+			project.closeFileDirectory()
 			owner.invalidateFilePreview(&worktree)
 			owner.invalidateDocumentPreviews(&worktree)
 			delete(owner.workspace.projects, worktree)

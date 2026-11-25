@@ -5,15 +5,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/sdk/desktop/native"
 )
 
 func TestProjectPluginControls(t *testing.T) {
-	r := &Runtime{pluginControlReplacements: testassembly.Full().PluginControlReplacements}
+	assembly := testassembly.Full()
+	assembly.WorkspacePages = append(assembly.WorkspacePages, shell.NativePage{
+		Page: "fixture:legacy-git", Feature: shell.Feature{ID: "fixture:legacy-git", LegacyPackage: "git"},
+		ReplacesLegacyViews: true, Render: func(*ui.Context, *shell.App) {},
+	})
+	r := &Runtime{
+		App:                       shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly),
+		pluginControlReplacements: assembly.PluginControlReplacements,
+	}
 	shownOn := func(info protocol.PluginInfo, surface string) []protocol.PluginUiContribution {
 		var shown []protocol.PluginUiContribution
 		for _, declaration := range info.Extension.Ui {

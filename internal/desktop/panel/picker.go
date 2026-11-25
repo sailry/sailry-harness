@@ -1,9 +1,13 @@
 package panel
 
-import "github.com/egoist/mygo/ui"
+import (
+	"strings"
 
-// PickerRow is a row of a controller's picker: a Choice with a heading, an
-// icon, the current one's check and a row that is shown but cannot be chosen.
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+)
+
 type PickerRow struct {
 	Label, Detail, Group string
 	Icon                 *ui.SVG
@@ -11,12 +15,36 @@ type PickerRow struct {
 	Run                  func(*ui.Context)
 }
 
-// Pick opens the Git picker with rows, as Choose does with plain choices.
-func (pr *Project) Pick(title string, rows []PickerRow) {
-	items := make([]action, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, action{label: row.Label, detail: row.Detail, group: row.Group, icon: row.Icon,
-			checked: row.Checked, disabled: row.Disabled || row.Run == nil, run: row.Run})
+func WorkspacePicker(title string, rows []PickerRow) func(*ui.Context) bool {
+	open, selected, query := true, 0, ""
+	items := make([]kit.CommandItem, 0, len(rows))
+	actions := make([]func(*ui.Context), 0, len(rows))
+	var previous string
+	initialized := false
+	return func(c *ui.Context) bool {
+		if !open {
+			return false
+		}
+		filter := strings.ToLower(strings.TrimSpace(query))
+		if !initialized || previous != filter {
+			items, actions = items[:0], actions[:0]
+			for _, row := range rows {
+				if strings.Contains(strings.ToLower(row.Label), filter) {
+					items = append(items, kit.CommandItem{Label: row.Label, Detail: row.Detail, Group: row.Group, Icon: row.Icon,
+						Checked: row.Checked, Disabled: row.Disabled || row.Run == nil})
+					actions = append(actions, row.Run)
+				}
+			}
+			previous, initialized = filter, true
+		}
+		chosen := false
+		kit.Command(c, "workspace-picker", &open, &query, &selected, items, kit.CommandProps{
+			Placeholder: title, Empty: i18n.T(c, "git_no_matches"),
+		}, func(index int) {
+			open, chosen = false, true
+			actions[index](c)
+		})
+		// A row can replace this overlay with the next picker.
+		return open || chosen
 	}
-	pr.Git.picker = picker{open: true, title: title, items: items}
 }

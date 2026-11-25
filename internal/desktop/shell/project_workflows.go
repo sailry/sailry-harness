@@ -2,6 +2,7 @@ package shell
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -15,9 +16,12 @@ type ProjectWorkflowHost struct {
 	RegisterMenu            func(sidebar.ProjectMenuAction)
 	RegisterLocations       func(func(ProjectLocationReader))
 	RegisterWorktreeActions func(ConversationWorktreeActions)
+	RegisterWorkspaceAction func(string, WorkspaceAction)
 	NewDraft                func(*viewmodel.Project) (WorkflowConversation, bool)
-	OpenLocation            sidebar.ProjectOpen
+	ProjectWorkspace        func(*viewmodel.Project) (WorkflowWorkspace, bool)
 }
+
+type WorkspaceAction func(*ui.Context, WorkflowWorkspace, string, string)
 
 // ProjectLocationReader reads and publishes the visible checkouts of one project.
 // The host owns the cache and invalidates it when that workspace changes.
@@ -29,6 +33,8 @@ type ProjectLocationReader struct {
 
 type ConversationWorktreeActions struct {
 	Create, ForkTurn, ForkSession func(WorkflowConversation)
+	Select                        func(WorkflowWorkspace, *ui.Context, string)
+	BranchOptions                 func(*ui.Context, *kit.Menu, []viewmodel.Branch, func(*ui.Context, string, string))
 }
 
 // WorkflowConversation captures the Node and source of an explicitly invoked action.
@@ -39,17 +45,31 @@ type WorkflowConversation struct {
 	OpenWorkspace func() (WorkflowWorkspace, bool)
 }
 
-// WorkflowWorkspace exposes the shared workspace prompt, request lane and
-// location projection without choosing the workflow's commands or policy.
+// WorkflowWorkspace captures a workspace and the window surface that opened it.
+// Current reports whether its controls and location selection are still active.
 type WorkflowWorkspace struct {
-	Worktree        protocol.Worktree
-	Read            func(string, protocol.Command, func(*ui.Context, protocol.Output))
-	Prompt          func(string, []string, []string, func([]string, func(bool)), ...panel.PromptToggle)
-	LockPrompt      func(bool)
-	ReportMutation  func(*ui.Context, string, string, error) bool
-	Admit           func(protocol.Worktree)
-	UseLocation     func(protocol.Worktree)
-	OpenSession     func(protocol.SessionID)
-	Refresh         func()
-	ManageLocations func()
+	Worktree           protocol.Worktree
+	Session            *protocol.Session
+	Presentation       *panel.Project
+	Current            func() bool
+	Read               func(string, protocol.Command, func(*ui.Context, protocol.Output))
+	Execute            func(string, protocol.Command, func(*ui.Context, protocol.Output, error))
+	Report             func(*ui.Context, error, string, string, string)
+	Pick               func(string, []panel.PickerRow)
+	Prompt             func(string, []string, []string, func([]string, func(bool)), ...panel.PromptToggle)
+	Confirm            func(string, string, func(func(bool)), ...string)
+	LockPrompt         func(bool)
+	SetPromptAction    func(string)
+	SetPromptDetail    func(string, string)
+	SetPromptUncertain func(bool)
+	Locations          func() ([]protocol.Worktree, []protocol.Session)
+	HasDrafts          func(protocol.WorktreeID) bool
+	Admit              func(protocol.Worktree)
+	Release            func(protocol.WorktreeID)
+	UseLocation        func(protocol.Worktree)
+	CanSelectLocation  func() bool
+	SelectLocation     func(*ui.Context, protocol.Worktree)
+	OpenSession        func(protocol.SessionID)
+	Refresh            func()
+	RefreshLocations   func()
 }

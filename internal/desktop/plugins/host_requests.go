@@ -83,6 +83,7 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 		encoded, _ := json.Marshal(failure)
 		return nil, errors.New(string(encoded))
 	}
+	owner.publishRepositoryLocation(scope, output)
 	value, err := publicHostOutput(output)
 	if err != nil {
 		return nil, err

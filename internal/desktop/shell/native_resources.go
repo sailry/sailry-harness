@@ -3,9 +3,11 @@ package shell
 import (
 	"cmp"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 )
 
@@ -14,7 +16,9 @@ type panelRegistration struct {
 	bind     []func(PanelResourceHost)
 }
 
-// RegisterPanelResource contributes one resource to the conversation panel.
+// RegisterPanelResource contributes a conversation panel resource, including
+// optional tab actions. The strip owns ordering, default tab chrome and close
+// confirmation; the resource supplies its body, commands and release policy.
 // Binding runs once in a live window after its controllers are available.
 func (a *Assembly) RegisterPanelResource(resource panel.Resource, bind ...func(PanelResourceHost)) {
 	if resource.Kind == "" || resource.Label == "" || resource.Icon == nil || resource.Render == nil {
@@ -22,6 +26,9 @@ func (a *Assembly) RegisterPanelResource(resource panel.Resource, bind ...func(P
 	}
 	if a.HasPanelResource(resource.Kind) {
 		panic(fmt.Sprintf("shell: duplicate panel resource %q", resource.Kind))
+	}
+	if resource.Key == 0 && resource.Keystroke != "" {
+		resource.Mods, resource.Key = plugins.RendererShortcut(resource.Keystroke)
 	}
 	a.panelResources = append(a.panelResources, panelRegistration{resource, slices.Clone(bind)})
 }
@@ -31,10 +38,17 @@ func (a Assembly) HasPanelResource(kind panel.Kind) bool {
 }
 
 type PanelResourceHost struct {
-	App         *App
-	BindBrowser func()
+	App               *App
+	Report            func(error)
+	BindBrowser       func()
+	BrowserNavigation BrowserNavigation
 	// BindTerminal connects the shared live terminal service to this window.
 	BindTerminal func() sidebar.ProjectOpen
+}
+
+type BrowserNavigation struct {
+	Available func() bool
+	Navigate  func(tab, address string) bool
 }
 
 func (a *App) installPanelResources(assembly Assembly) {
@@ -47,6 +61,9 @@ func (a *App) installPanelResources(assembly Assembly) {
 
 func (a *App) BindPanelResources(assembly Assembly, host PanelResourceHost) {
 	host.App = a
+	if host.Report == nil {
+		host.Report = func(err error) { slog.Error("bind panel resource", "error", err) }
+	}
 	for _, registration := range assembly.panelResources {
 		for _, bind := range registration.bind {
 			bind(host)

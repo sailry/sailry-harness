@@ -23,7 +23,6 @@ import (
 	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	filesdesktop "github.com/sailry/sailry-harness/modules/files/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
@@ -181,7 +180,13 @@ func TestCloseConversationDraftWithoutResourcePages(t *testing.T) {
 			})
 			prefs := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
 			prefs.Data.WelcomeSeen = new(true)
-			root, err := live.NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(market.Register, filesdesktop.RegisterPanel))
+			var listings atomic.Int32
+			controller.OnDispatch(func(kind string) {
+				if kind == "list_directory" {
+					listings.Add(1)
+				}
+			})
+			root, err := live.NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(market.Register))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -217,33 +222,35 @@ func TestCloseConversationDraftWithoutResourcePages(t *testing.T) {
 				})
 				entry.app.View(c)
 			})
-			tester.Frame()
-			tester.Key(ui.Cmd, ui.KeyP)
-			awaitAssemblyFrame(t, tester, wakes, "the conversation file panel", func() bool {
-				_, shown := tester.AccessByRole(ui.RoleTreeItem, assemblyFile)
-				return shown
+			var project *panel.Project
+			awaitAssemblyFrame(t, tester, wakes, "the conversation worktree", func() bool {
+				project = entry.app.Hooks.WorkspaceProject()
+				return project != nil
 			})
-			row, _ := tester.AccessByRole(ui.RoleTreeItem, assemblyFile)
-			if entry.app.Page != shell.ConversationPage || !entry.app.PanelOpen || entry.app.Panel.Active.Kind != panel.Files {
-				t.Fatalf("the conversation file panel did not open: %q", tester.Texts())
-			}
-			tester.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+			project.Actions.OpenFileAt(assemblyFile, 1)
 			awaitAssemblyFrame(t, tester, wakes, "the file editor", func() bool {
 				_, shown := tester.Access("Code editor")
 				return shown
 			})
+			tester.Advance(300 * time.Millisecond)
+			tester.Frame()
 			editor, _ := tester.Access("Code editor")
-			if entry.app.Panel.Active != (panel.Tab{Kind: panel.Files, ID: assemblyFile}) {
+			if entry.app.Page != shell.ConversationPage || !entry.app.PanelOpen || entry.app.Panel.Active != (panel.Tab{Kind: panel.Files, ID: assemblyFile}) {
 				t.Fatalf("the panel did not open the file editor: %q", tester.Texts())
 			}
-			tester.ClickAt(editor.Bounds.X+120, editor.Bounds.Y+8)
+			if _, shown := tester.AccessByRole(ui.RoleTreeItem, assemblyFile); shown || tester.HasText(i18n.In("en", "file_tree")) || listings.Load() != 0 {
+				t.Fatalf("opening an explicit file also mounted the directory browser: %q", tester.Texts())
+			}
+			if err := tester.Click("Code editor"); err != nil {
+				t.Fatal(err)
+			}
 			tester.Frame()
+			tester.Frame()
+			if !tester.Focused("Code editor") {
+				t.Fatalf("the explicit editor did not accept focus: %+v; %q", editor, tester.Texts())
+			}
 			tester.Type("X")
 			tester.Frame()
-			project := entry.app.Hooks.WorkspaceProject()
-			if project == nil {
-				t.Fatal("the conversation panel has no workspace")
-			}
 			draft, dirty := project.FileDraft(assemblyFile)
 			docs := root.UnsavedDocuments()
 			if !dirty || strings.Replace(draft, "X", "", 1) != source || len(docs) != 1 || docs[0].Name != "fixture/"+assemblyFile {

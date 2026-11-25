@@ -151,6 +151,10 @@ func (registry *Registry) dispatch(key ContributionKey, kind protocol.PluginUiEv
 			query, ok := value.(string)
 			valid = ok && len(query) <= 4096
 		}
+		if kind == protocol.PluginUiEventKindLink && !intent && declaration.LinkScheme != nil {
+			path, ok := value.(string)
+			valid = ok && protocol.ValidPluginLinkPath(path)
+		}
 	}
 	if !valid {
 		registry.mu.Unlock()

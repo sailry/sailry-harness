@@ -88,6 +88,7 @@ var legacyNativeToolDigests = map[string][]string{
 		"f7884c5949c03ded763ec2af957030ae0cbf07a5a797eaf2243f51cda6ea8cd0",
 		"caae5aefa8d68011dda7e3d7f4cdaf6d6d9ab586c960408cbc3caca9ff31416a",
 	},
+	"databases": legacyDatabaseDigests,
 	"external-browser": {
 		"6497ac89905032fcf6d52ef20a5117249dec20134bfd0e489f4dfd97673873a2",
 		"7f9371ef726948dee503dec763207905fb51f8e8debfe74dab16ae651a8c34bf",

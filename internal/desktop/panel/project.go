@@ -14,21 +14,24 @@ import (
 // in the page's strip and the panel's, each with its own state, and the
 // item shown last is the one either host shows first.
 type Project struct {
-	ID       string
-	Actions  *Actions
-	prompt   prompt
-	closing  *editorCloseRequest
-	conflict *editorConflict
-	Data     *preview.Workspace
-	Files    FileView
-	Git      GitView
+	ID                  string
+	Actions             *Actions
+	prompt              prompt
+	closing             *editorCloseRequest
+	conflict            *editorConflict
+	Data                *preview.Workspace
+	Files               FileView
+	FileDirectory       FileDirectoryHost
+	fileBrowser         any
+	fileDirectoryTarget *string
+	Git                 GitView
+	gitWorkspace        GitWorkspaceBinding
 	// DocumentsLocked temporarily prevents new edits while the application
 	// installs an update and the local Node can no longer save drafts.
 	DocumentsLocked func() bool
 }
 
-// FileView is the Files component's state: the files open, each with its
-// own view, and the tree's: its open folders and its selection.
+// FileView holds open documents and their editor state independently of Files.
 type FileView struct {
 	file string   // the file shown last, by path
 	open []string // the files open, in order
@@ -36,23 +39,12 @@ type FileView struct {
 	// double click keeps it: the next file shown takes its place.
 	passing string
 	items   map[string]*fileItem
-	folders map[string]*bool
-	sel     selection
-	// focus is the row to take the keyboard focus while focusing is set.
-	focus       string
-	focusing    bool
-	tree        ui.ScrollState
-	side        float32 // the tree's width
-	search      fileSearch
-	searchOpen  bool
-	directories map[string]DirectoryState
-	// sampleClip is what the demo's tree copied or cut, in memory.
-	sampleClip []string
-	sampleCut  bool
+	side    float32
 }
 
 // fileItem is an open file's own view.
 type fileItem struct {
+	preview             *fileDocumentPreview
 	base, draft, suffix string
 	loaded, dirty       bool
 	writable            bool
@@ -64,46 +56,15 @@ type fileItem struct {
 	text                ui.ScrollState
 }
 
-// GitView is the Git component's state: the diffs open (each viewer
-// keeps its own scroll), the details' view (repository.js: the list's
-// layout, its rows open and its cursor, Changes or History, the commit
-// draft and options) and the picker or confirmation showing.
+// GitView keeps the shared diff tab selection and mounted documents.
 type GitView struct {
-	// sampleStashes are the changes the demo's stashes put away, beside the
-	// repository's messages, and sampleCommits counts the commits it made.
-	sampleStashes [][]preview.FileChange
-	sampleCommits int
-	change        string   // the changed file shown last, by path, or allChanges
-	open          []string // the diffs open, in order
-	passing       string   // the diff whose tab only passes (FileView.passing)
-	scope         string   // the scope the diff shown opened in: all, staged, unstaged
-	nav           changeNav
-	expanded      map[string]*bool // the list's groups and folders, by row
-	current       string           // the row of the list's cursor
-	view          int              // 0 Changes, 1 History
-	commitID      string           // the commit chosen in the history
-	folded        map[string]bool  // All changes' files closed
-	commit        string           // the commit message
-	draft         string           // the message before amending
-	tall          bool             // the message box expanded
-	amend         bool
-	signoff       bool
-	skip          bool   // skip hooks
-	after         string // what the commit does after: none, push, sync
-	chord         bool   // Ctrl+G pressed, its second key to come
-	second        bool   // the key after Ctrl+G came, for this frame to take
-	picker        picker
-	confirm       confirm
-	stashIDs      []string
-	tagIDs        map[string]string
-	operation     bool
-	live          GitState
-	log           GitHistoryState
-	switchPending []PendingOperation
-	documents     map[string]*gitDocument
-	list          ui.ScrollState
-	history       ui.ScrollState
-	side          float32 // the list's width
+	change    string
+	open      []string
+	passing   string
+	scope     string
+	live      GitState
+	documents map[string]*gitDocument
+	side      float32
 }
 
 // File is the path of the file shown.
@@ -129,7 +90,7 @@ func (v *FileView) Show(path string) {
 	}
 	v.open, v.passing = openPassing(v.open, old, path)
 	if old != "" {
-		delete(v.items, old)
+		v.releaseItem(old)
 	}
 }
 
@@ -140,7 +101,7 @@ func (v *FileView) Close(path string) {
 	if v.passing == path {
 		v.passing = ""
 	}
-	delete(v.items, path)
+	v.releaseItem(path)
 }
 
 // openPassing opens path in the passing tab: in old's place while old
@@ -350,8 +311,8 @@ func (ps *Projects) Of(id string) *Project {
 		readme = root.Path + "/README.md"
 	}
 	p := &Project{ID: id, Data: ps.data, Files: FileView{file: readme, items: map[string]*fileItem{},
-		folders: map[string]*bool{}, sel: selection{selected: map[string]bool{}}, side: sideWidth},
-		Git: GitView{side: sideWidth, scope: "all", nav: defaultNav, expanded: map[string]*bool{}, folded: map[string]bool{}, after: "none"}}
+		side: sideWidth},
+		Git: GitView{side: sideWidth, scope: "all"}}
 	if len(ps.data.Changes) > 0 {
 		p.Git.change = ps.data.Changes[0].Path
 	}

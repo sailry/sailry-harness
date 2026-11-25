@@ -213,9 +213,13 @@ func (a *App) SetPrefs(p Prefs) {
 		a.pluginWorkspaces[key] = &value
 	}
 	for id, old := range a.legacyFeatures {
+		page := a.pageForFeature(id)
 		for key, value := range p.PluginWorkspaces {
 			if layout, ok := strings.CutPrefix(key, old+"/"); ok && layout != "" {
 				next := id + "/" + layout
+				if page != nil && page.Resource != "" && page.LegacyWorkspace == layout {
+					next = id
+				}
 				if _, explicit := a.pluginWorkspaces[next]; !explicit {
 					copy := value
 					copy.Width = min(max(copy.Width, 0), 480)

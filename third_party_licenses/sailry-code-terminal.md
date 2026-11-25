@@ -9,7 +9,8 @@ revision `67ae9fa0` and Sailry Platform (`harbor-file-service`) revision
 - `internal/core/files*.go` and `internal/core/trash.go`: confined file saving,
   walking, copying, directory paging and trash relocation
 - `internal/databases/databases.go`: external database execution
-- `internal/node/git/service.go`: Git behavior
+- Code product `modules/code/git/service/service.go` (formerly
+  `internal/node/git/service.go`): Git behavior
 
 These Sailry-owned adaptations are released under [Apache-2.0](../LICENSE) by
 their copyright owner. The adapted sections carry no additional file-level

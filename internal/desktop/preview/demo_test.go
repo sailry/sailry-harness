@@ -44,6 +44,7 @@ var unshown = map[string]string{
 	"conversation.Turn.InputOnly":              "optimistic input while awaiting admission on a live host",
 	"composer.Attachment.Chip":                 "set by a pick in the live browser, which binds the file to its chip",
 	"composer.Attachment.ImageRevision":        "the revision of a draft thumbnail's original on a live Node",
+	"composer.StatusBadge.Activate":            "a mounted action override; demo badges use the composer's Badge action",
 	"composer.Queued.Load":                     "a live queue's request",
 	"composer.Queued.Save":                     "a live queue's request",
 	"composer.Queued.Revision":                 "a live queue's revision",

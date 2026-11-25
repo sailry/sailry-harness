@@ -1,9 +1,6 @@
 package live
 
 import (
-	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -28,6 +25,8 @@ func (r *Runtime) resourceWorkspaceFrame(chat *Runtime) {
 	if shown != nil && shown != chatWorkspace {
 		shown.pruneClosedContent()
 		shown.resourceFrame()
+	} else if shown != nil && r.App.ResourceKind() == panel.Changes {
+		shown.gitFrame()
 	}
 }
 
@@ -81,35 +80,6 @@ func (r *Runtime) shownResourceWorkspace() *workspaceProject {
 		return nil
 	}
 	return r.selectedRuntime().selectedWorkspace()
-}
-
-func (p *workspaceProject) openResourceWorktree(c *ui.Context, path string) {
-	owner := p.runtime
-	root := owner.localRuntime()
-	if root.shownResourceWorkspace() != p || p.owner.Project == nil {
-		kit.Toast(c, kit.Conflict, i18n.T(c, "worktree_context_changed"))
-		return
-	}
-	project := *p.owner.Project
-	selectTree := func(tree protocol.Worktree) {
-		root.App.SetResourceTarget(shell.ResourceTarget{Node: owner.controller.Target().String(), Project: project.String(), Worktree: tree.ID.String()})
-	}
-	if tree, ok := p.registeredWorktree(path); ok {
-		selectTree(tree)
-		return
-	}
-	page, target := root.App.Page, root.App.ResourceTarget()
-	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project, Path: path}}, func(_ *ui.Context, output protocol.Output) {
-		tree, ok := detail[protocol.Worktree](output.Data)
-		if !ok || tree.Project == nil || *tree.Project != project {
-			return
-		}
-		owner.workspace.admitted[tree.ID] = tree
-		p.locationsLoaded = false
-		if root.App.Page == page && root.App.ResourceTarget() == target && root.shownResourceWorkspace() == p {
-			selectTree(tree)
-		}
-	})
 }
 
 // showItem selects a file or diff in its workspace. Only the current

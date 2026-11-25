@@ -68,35 +68,38 @@ func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *vi
 				continue
 			}
 			native(int(entry.Declaration.Order))
-			label := pluginLabel(entry.Declaration.Label, view.Locale())
+			identity := pluginControlIdentity(entry.Key)
+			label := pluginEntryLabel(entry, view.Locale())
 			switch entry.Declaration.Kind {
 			case "button":
-				if menu.Item(label).Disabled(!entry.State.Enabled).Chosen() {
+				if menu.Item(label).ID(identity).Disabled(!entry.State.Enabled).Chosen() {
 					owner.invokePluginControl(registry, entry.Key, "invoke", nil)
 				}
 			case "menu":
 				menu.Submenu(label, func(child *ui.Menu) {
-					owner.projectPluginChoices(view, child, registry, entry, pluginEntryChoices(entry), entry.State.Enabled)
-				})
+					owner.projectPluginChoices(view, child, registry, entry, identity, pluginEntryChoices(entry), entry.State.Enabled)
+				}).ID(identity).Disabled(!entry.State.Enabled)
 			}
 		}
 	}
 	native(math.MaxInt)
 }
 
-func (r *Runtime) projectPluginChoices(view *ui.Context, menu *ui.Menu, registry *desktopplugins.Registry, entry desktopplugins.ContributionEntry, choices []protocol.PluginUiChoice, enabled bool) {
+func (r *Runtime) projectPluginChoices(view *ui.Context, menu *ui.Menu, registry *desktopplugins.Registry, entry desktopplugins.ContributionEntry, identity string, choices []protocol.PluginUiChoice, enabled bool) {
 	for index, choice := range choices {
 		if index > 0 && !sameChoiceGroup(choices[index-1], choice, view.Locale()) {
 			menu.Separator()
 		}
 		label := pluginLabel(choice.Label, view.Locale())
+		id := identity + "/" + choice.ID
+		on := enabled && choice.Enabled
 		if len(choice.Children) > 0 {
 			menu.Submenu(label, func(child *ui.Menu) {
-				r.projectPluginChoices(view, child, registry, entry, choice.Children, enabled && choice.Enabled)
-			}).Disabled(!enabled || !choice.Enabled)
+				r.projectPluginChoices(view, child, registry, entry, identity, choice.Children, on)
+			}).ID(id).Disabled(!on)
 			continue
 		}
-		if menu.Item(label).Disabled(!enabled || !choice.Enabled).Chosen() {
+		if menu.Item(label).ID(id).Disabled(!on).Chosen() {
 			r.invokePluginControl(registry, entry.Key, "change", choice.ID)
 		}
 	}
@@ -137,7 +140,7 @@ func (r *Runtime) projectMenuDeclared(catalog []protocol.PluginInfo) bool {
 	for _, info := range catalog {
 		extension := info.Extension
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil || extension.Scope != protocol.PluginScopeHost ||
-			pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+			r.pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
 		for _, declaration := range extension.Ui {

@@ -15,7 +15,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	filesPage "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func TestUpdateDocumentLock(t *testing.T) {
@@ -38,7 +37,7 @@ func updateEditorWindow(fixture pluginLocationTestFixture, path string) (*ui.Tes
 	tester := ui.NewTester(func(c *ui.Context) {
 		root.beforeUpdateFrame()
 		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Children(func() { filesPage.Render(c, project.panel) })
+		ui.Column(c).Fill().Children(func() { project.panel.FileEditor(c, path, true) })
 		root.afterUpdateFrame()
 	}, 1000, 650)
 	tester.SetLocale("en")

@@ -292,6 +292,7 @@ worktree_open_busy: 此会话当前无法切换 worktree
 worktree_created: 已创建 worktree
 worktree_removed: 已删除 worktree
 worktree_remove_confirm: 删除此 worktree 目录，保留 Git 分支
+worktree_remove_unsaved: 请先保存或关闭此 worktree 的未保存文件
 worktree_prune: 清理失效 worktree
 worktree_prune_confirm: 移除此失效记录，不删除任何文件
 worktree_pruned: 已清理失效工作树记录
@@ -572,6 +573,8 @@ artifact_preview: 预览
 artifact_preview_changed: 文件已修改
 artifact_preview_failed: 预览加载失败
 artifact_preview_large: 文件过大，无法预览
+artifact_preview_page: 第 {page} 页
+artifact_preview_partial: 预览仅显示文件的一部分
 artifact_preview_loading: 正在加载预览
 files_open_failed: 无法打开文件
 artifact_request_edit: 请求修改

@@ -30,6 +30,7 @@ type pluginNativeToast struct {
 
 func (state *pluginNativeState) navigationOperations() {
 	operations := state.native.Operations
+	operations["sailry/ui.invokeAppAction"] = state.invokeAppAction
 	operations["sailry/ui.pageInsets"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
 		return pluginNativeJSON(map[string]float32{"rail_width": shell.RailWidth})
 	}
@@ -111,7 +112,11 @@ func (state *pluginNativeState) navigationOperations() {
 			if root.openPluginSettings(state.runtime, info) {
 				return
 			}
-			state.runtime.openPackageDetails(view, state.scope.Package.Name)
+			session := ""
+			if state.scope.Session != nil {
+				session = state.scope.Session.String()
+			}
+			state.runtime.reportLink(view, state.runtime.openLinkedPackage(view, session, state.scope.Package.Name), "unavailable")
 		})
 	}
 	operations["sailry/ui.selectSettingsHost"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {

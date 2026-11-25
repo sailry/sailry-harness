@@ -3,7 +3,6 @@ package live
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	harness "github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -11,16 +10,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	filesPage "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func TestWorkspaceGitReadsFollowAssembly(t *testing.T) {
-	filesPanel := shell.Assemble(filesPage.Register)
-	filesPanel.WorkspacePages = nil
-	git := shell.Assemble(testassembly.Register)
-	gitPanel := git
-	gitPanel.WorkspacePages = nil
-	filesPageOnly, gitPageOnly := filesPage.Page(), git.WorkspacePages[0]
+	filesPanel := shell.Assemble(testassembly.RegisterFilePanelFixture)
+	git := shell.Assemble(registerGitFixture)
+	gitPanel := shell.Assemble(registerGitPanelFixture)
+	filesPageOnly, gitPageOnly := testassembly.FileResourcePage(), git.WorkspacePages[0]
 	filesNamed, gitNamed := filesPageOnly, gitPageOnly
 	filesPageOnly.Page, gitPageOnly.Page = "fixture-file-resource", "fixture-repository-resource"
 	filesNamed.Resource, gitNamed.Resource = "", ""
@@ -33,13 +29,13 @@ func TestWorkspaceGitReadsFollowAssembly(t *testing.T) {
 	}{
 		{name: "empty"},
 		{name: "page names without resources", assembly: shell.Assembly{WorkspacePages: []shell.NativePage{filesNamed, gitNamed}}},
-		{name: "Harness", assembly: harness.Harness(), files: true},
+		{name: "Harness", assembly: harness.Harness()},
 		{name: "Files page only", assembly: shell.Assembly{WorkspacePages: []shell.NativePage{filesPageOnly}}, files: true},
 		{name: "Files panel only", assembly: filesPanel, files: true},
 		{name: "Git only", assembly: git, git: true},
 		{name: "Git page only", assembly: shell.Assembly{WorkspacePages: []shell.NativePage{gitPageOnly}}, git: true},
 		{name: "Git panel only", assembly: gitPanel, git: true},
-		{name: "Code contributions", assembly: testassembly.Full(), files: true, git: true, worktrees: true},
+		{name: "all fixtures", assembly: gitFixtureAssembly(testassembly.Full()), files: true, git: true, worktrees: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			project := protocol.DefaultProject()
@@ -77,7 +73,7 @@ func TestWorkspaceGitReadsFollowAssembly(t *testing.T) {
 			previous := map[string]int{}
 			checkReads := func(phase string) {
 				t.Helper()
-				for kind, expected := range map[string]bool{"list_directory": test.files, "inspect_git": test.git} {
+				for kind, expected := range map[string]bool{"list_directory": false, "inspect_git": test.git} {
 					count := len(source.sent(kind))
 					if sent := count - previous[kind]; (sent > 0) != expected {
 						t.Errorf("%s: %s sent %d times, registered = %v", phase, kind, sent, expected)
@@ -92,21 +88,17 @@ func TestWorkspaceGitReadsFollowAssembly(t *testing.T) {
 			if got := len(source.sent("list_worktrees")); (got > 0) != test.worktrees {
 				t.Errorf("list_worktrees sent %d times, enabled = %v", got, test.worktrees)
 			}
-			if loaded := workspace.directories[""]; loaded != test.files {
-				t.Errorf("root directory loaded = %v, Files registered = %v", loaded, test.files)
-			}
 			workspace.refresh()
 			settle()
 			checkReads("explicit refresh")
 			workspace.pendingFiles, workspace.pendingGit = true, true
-			workspace.gitLastRead = time.Now().Add(-time.Second)
 			workspace.resourceFrame()
 			settle()
 			checkReads("pending invalidation")
 			for range 3 {
 				workspace.resourceFrame()
-				if _, found := controller.Workspace(tree.ID, false); found != test.files {
-					t.Fatalf("directory observation = %v, Files registered = %v", found, test.files)
+				if _, found := controller.Workspace(tree.ID, false); found {
+					t.Fatalf("directory observation started without a mounted tree: %v", found)
 				}
 				if _, found := controller.Workspace(tree.ID, true); found != test.git {
 					t.Fatalf("repository observation = %v, Git registered = %v", found, test.git)
@@ -114,7 +106,7 @@ func TestWorkspaceGitReadsFollowAssembly(t *testing.T) {
 				workspace.pendingFiles, workspace.pendingGit = true, true
 				workspace.releaseView()
 				settle()
-				if workspace.pendingFiles || workspace.pendingGit || workspace.gitRefreshTimer != nil {
+				if workspace.pendingFiles || workspace.pendingGit {
 					t.Fatal("pending resource refresh survived close")
 				}
 				for _, repository := range []bool{false, true} {

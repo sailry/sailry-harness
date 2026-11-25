@@ -292,6 +292,7 @@ worktree_open_busy: This session cannot switch worktrees now
 worktree_created: Worktree created
 worktree_removed: Worktree removed
 worktree_remove_confirm: Delete this worktree directory; keep the Git branch
+worktree_remove_unsaved: Save changes before removing this worktree
 worktree_prune: Clean up stale worktree
 worktree_prune_confirm: Remove this stale registration; no files are deleted
 worktree_pruned: Stale worktree registration removed
@@ -572,6 +573,8 @@ artifact_preview: Preview
 artifact_preview_changed: File has changed
 artifact_preview_failed: Could not load preview
 artifact_preview_large: File too large to preview
+artifact_preview_page: Page {page}
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_loading: Loading preview
 files_open_failed: Could not open the file
 artifact_request_edit: Request edit

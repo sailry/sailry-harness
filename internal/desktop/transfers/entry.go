@@ -94,7 +94,7 @@ func EntryTransferDialog(c *ui.Context, d *EntryTransfer, actions EntryTransferA
 				})
 			}
 			if !d.Upload {
-				ui.TextInput(c.Key("path"), &d.Destination).Label(i18n.T(c, "files_paste_directory")).FillWidth().Disabled(d.Status != EntryReady)
+				ui.TextInput(c.Key("path"), &d.Destination).Label(i18n.T(c, "files_paste_directory")).FillWidth().Disabled(d.Status != EntryReady && d.Status != EntryFailed)
 			}
 			if d.Move && d.Status == EntryReady {
 				ui.Text(c, i18n.T(c, "files_move_recycle")).FontSize(14).TextColor(p.MutedForeground)

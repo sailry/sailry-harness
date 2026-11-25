@@ -363,7 +363,7 @@ func TestRejectedTerminalClosePreservesPanelOnLaterExit(t *testing.T) {
 		tab := panel.Tab{Kind: panel.Terminal, ID: id}
 		root.App.RevealConversationPanel()
 		root.App.Panel.Show(tab)
-		root.App.Panel.OnTerminalClose(tab)
+		root.App.Panel.OnCloseConfirmed(tab)
 		root.closeLiveTerminal(id)
 		synctest.Wait()
 		root.mu.Lock()

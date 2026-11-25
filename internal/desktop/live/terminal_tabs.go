@@ -319,7 +319,6 @@ func (r *Runtime) dropTerminalTab(id string) {
 	tab := panel.Tab{Kind: panel.Terminal, ID: id}
 	root.App.DropPanelTab(tab)
 	root.App.DropWorkspaceTerminal(id)
-	root.App.Panel.DiscardTabChrome(tab)
 }
 
 // terminalsFrame follows both main workspace surfaces and conversation panel

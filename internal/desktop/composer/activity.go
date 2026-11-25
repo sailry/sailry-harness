@@ -25,10 +25,10 @@ import (
 // Activity is what runs around the conversation, from the backend.
 type Activity struct {
 	// Changes is the worktree's Git changes, nil outside a repository.
-	// Git is a core feature here, so its badge is native, not a plugin's.
 	Changes *Changes
 	// Badges are the plugins' Status-slot contributions, in their order.
 	Badges []StatusBadge
+	ResourceBadge *StatusBadge
 	// Progress is the running turn's task progress, nil for none.
 	Progress []conversation.Step
 	// Commands are the session's background commands.
@@ -64,7 +64,7 @@ type ActivityCallbacks struct {
 	ServiceLabel    func(int) string
 	ServiceBusy     func(int) bool
 	WorktreeLabel   func(string) string
-	Worktree        func(string)
+	Worktree        func(*ui.Context, string)
 	WorktreeEnabled func() bool
 }
 
@@ -114,6 +114,7 @@ type StatusBadge struct {
 	Segment []Segment
 	Details []Detail
 	Panel   *Panel // nil for a button
+	Activate func()
 }
 
 // Panel is a plugin's status popover in the StatusList form: its body, or
@@ -161,6 +162,7 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 		if a.Changes != nil {
 			s.gitChanges(c, *a.Changes, actions)
 		}
+		if a.ResourceBadge != nil { s.badge(c, *a.ResourceBadge, actions) }
 		for _, b := range a.Badges {
 			s.badge(c, b, actions)
 		}
@@ -247,7 +249,7 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 		open = new(bool)
 		s.act.badges[b.ID] = open
 	}
-	if s.statusCallbacks != nil && s.statusCallbacks.Open != nil {
+	if b.Activate == nil && s.statusCallbacks != nil && s.statusCallbacks.Open != nil {
 		*open = s.statusCallbacks.Open(b.ID)
 	}
 	icon := b.Icon
@@ -266,7 +268,7 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 			}
 		})
 	})
-	if s.statusCallbacks != nil && s.statusCallbacks.Enabled != nil {
+	if b.Activate == nil && s.statusCallbacks != nil && s.statusCallbacks.Enabled != nil {
 		trigger.Disabled(!*open && !s.statusCallbacks.Enabled(b.ID))
 	}
 	var tip []string
@@ -279,6 +281,7 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 	}
 	kit.Tooltip(c, trigger, strings.Join(tip, "\n"))
 	if b.Panel == nil {
+		if b.Activate != nil { trigger.OnClick(b.Activate); return }
 		trigger.OnClick(func() { actions.Badge(b.ID, "") })
 		return
 	}

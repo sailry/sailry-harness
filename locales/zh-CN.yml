@@ -2510,6 +2510,8 @@ artifact_preview_failed: 预览加载失败
 artifact_preview_changed: 文件已修改
 artifact_preview_loading: 正在加载预览
 artifact_preview_large: 文件过大，无法预览
+artifact_preview_page: "第 {page} 页"
+artifact_preview_partial: 预览仅显示文件的一部分
 artifact_preview_password: 请用其他应用打开加密文件
 artifact_previous_page: 上一页
 artifact_next_page: 下一页

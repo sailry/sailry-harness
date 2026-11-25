@@ -16,17 +16,18 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 		page  Page
 		key   string
 		row   string
+		role  ui.Role
 		width float32
 	}{
-		{FilesPage, "page:files", "go.mod", 380},
-		{GitPage, "page:git", "README.md", 420},
+		{FilesPage, "page:files", "Open fixture go.mod", ui.RoleButton, 380},
+		{GitPage, "page:git", "README.md", ui.RoleTreeItem, 420},
 	}
-	row := func(name string) ui.AccessInfo {
+	row := func(role ui.Role, name string) ui.AccessInfo {
 		t.Helper()
 		var result ui.AccessInfo
 		count := 0
 		for _, entry := range tester.AccessAll() {
-			if entry.Role == ui.RoleTreeItem && entry.Name == name {
+			if entry.Role == role && entry.Name == name {
 				result = entry
 				count++
 			}
@@ -46,10 +47,11 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 		if toggle, ok := headerButton(tester, details); !ok || toggle.Disabled {
 			t.Fatalf("page %v has no active Shell details toggle: %+v", page.page, toggle)
 		}
-		if bounds := row(page.row).Bounds; bounds.X < 1280-state.Width {
+		if bounds := row(page.role, page.row).Bounds; bounds.X < 1280-state.Width {
 			t.Fatalf("page %v list is outside the Shell column: %+v", page.page, bounds)
 		}
-		clickTree(t, tester, page.row)
+		entry := row(page.role, page.row).Bounds
+		tester.ClickAt(entry.X+entry.W/2, entry.Y+entry.H/2)
 		still(tester)
 		project := a.project()
 		if page.page == FilesPage && project.Files.File() != "sailry-go/go.mod" || page.page == GitPage && project.Git.Change() != page.row {
@@ -60,7 +62,7 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 		if !state.Folded {
 			t.Fatalf("page %v details did not fold", page.page)
 		}
-		if _, exists := tester.AccessByRole(ui.RoleTreeItem, page.row); exists {
+		if _, exists := tester.AccessByRole(page.role, page.row); exists {
 			t.Fatalf("page %v kept a resource list inside its main content", page.page)
 		}
 		tester.Key(ui.Cmd|ui.Alt, ui.KeyB)
@@ -68,7 +70,7 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 		if state.Folded {
 			t.Fatalf("page %v shortcut did not reveal its details", page.page)
 		}
-		row(page.row)
+		row(page.role, page.row)
 		edge := float32(1280) - state.Width
 		delta := state.Width - page.width
 		tester.Press(edge, 200)
@@ -78,10 +80,11 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 		if state.Width != page.width {
 			t.Fatalf("page %v Shell resize saved %v, want %v", page.page, state.Width, page.width)
 		}
-		if bounds := row(page.row).Bounds; bounds.X < 1280-page.width {
+		if bounds := row(page.role, page.row).Bounds; bounds.X < 1280-page.width {
 			t.Fatalf("page %v list did not follow the resized column: %+v", page.page, bounds)
 		}
-		clickTree(t, tester, page.row)
+		entry = row(page.role, page.row).Bounds
+		tester.ClickAt(entry.X+entry.W/2, entry.Y+entry.H/2)
 		tester.Frame()
 		a.Do("close")
 		still(tester)
@@ -104,26 +107,26 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 	settle(tester)
 	a.Navigate(GitPage)
 	tester.Frame()
-	row("README.md")
+	row(ui.RoleTreeItem, "README.md")
 	a.Navigate(FilesPage)
 	tester.Frame()
 	if !a.pluginWorkspacePrefs().Folded {
 		t.Fatal("switching pages lost the Files fold choice")
 	}
-	if _, exists := tester.AccessByRole(ui.RoleTreeItem, "go.mod"); exists {
+	if _, exists := tester.AccessByRole(ui.RoleButton, "Open fixture go.mod"); exists {
 		t.Fatal("the first frame of the folded Files page retained another page's details")
 	}
 	a.RevealDetails()
 	still(tester)
-	row("go.mod")
+	row(ui.RoleButton, "Open fixture go.mod")
 	tester.SetSize(620, 820)
 	still(tester)
-	if _, exists := tester.AccessByRole(ui.RoleTreeItem, "go.mod"); exists || a.pluginWorkspacePrefs().Folded {
+	if _, exists := tester.AccessByRole(ui.RoleButton, "Open fixture go.mod"); exists || a.pluginWorkspacePrefs().Folded {
 		t.Fatal("a narrow window retained a nested list or changed its saved fold choice")
 	}
 	tester.SetSize(1280, 820)
 	still(tester)
-	row("go.mod")
+	row(ui.RoleButton, "Open fixture go.mod")
 	a.Navigate(ConversationPage)
 	still(tester)
 	if a.PanelWidth != 520 || a.PanelOpen {

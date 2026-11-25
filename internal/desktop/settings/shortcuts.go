@@ -1,6 +1,12 @@
 package settings
 
-import "github.com/egoist/mygo/ui"
+import (
+	"iter"
+	"slices"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // Chord is a key with its modifiers; the zero Chord is no key.
 type Chord struct {
@@ -39,8 +45,10 @@ var Registry = []Shortcut{
 // Conversation, Close Tab, Close Window and Quit, then the conversation's
 // Stop, Focus the composer and model controls, then the panes' and the view's
 // keys (Listed).
-var Fixed = append([]Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ},
-	{ui.Cmd, ui.KeyPeriod}, {ui.Cmd, ui.KeyL}, {ui.Cmd | ui.Shift, ui.KeyM}}, listedChords()...)
+var Fixed = append(slices.Clone(windowFixed), listedChords(paneKeys)...)
+
+var windowFixed = append([]Chord{{ui.Cmd, ui.KeyComma}, {ui.Cmd, ui.KeyF}, {ui.Cmd, ui.KeyW}, {ui.Cmd | ui.Shift, ui.KeyW}, {ui.Cmd, ui.KeyQ},
+	{ui.Cmd, ui.KeyPeriod}, {ui.Cmd, ui.KeyL}, {ui.Cmd | ui.Shift, ui.KeyM}}, listedChords(zoomKeys)...)
 
 // ListedKeys is a fixed command the Shortcuts page shows without recording:
 // its label's i18n key and its keys.
@@ -52,18 +60,23 @@ type ListedKeys struct {
 // Listed are the conversation panes' keys, which act in the focused
 // conversation (a split's pane or the conversation standing alone), and the
 // view zoom's, which act in the whole window.
-var Listed = []ListedKeys{
+var Listed = append(slices.Clone(paneKeys), zoomKeys...)
+
+var paneKeys = []ListedKeys{
 	{"shortcut_pane_split", []Chord{{ui.Cmd | ui.Shift, ui.KeyRight}, {ui.Cmd | ui.Shift, ui.KeyLeft}, {ui.Cmd | ui.Shift, ui.KeyUp}, {ui.Cmd | ui.Shift, ui.KeyDown}}},
 	{"shortcut_pane_tab", []Chord{{ui.Cmd, ui.KeyT}}},
 	{"shortcut_pane_enlarge", []Chord{{ui.Cmd, ui.KeyM}}},
+}
+
+var zoomKeys = []ListedKeys{
 	{"shortcut_zoom_in", []Chord{{ui.Cmd, ui.KeyEqual}, {ui.Cmd | ui.Shift, ui.KeyEqual}}},
 	{"shortcut_zoom_out", []Chord{{ui.Cmd, ui.KeyMinus}}},
 	{"shortcut_zoom_reset", []Chord{{ui.Cmd, ui.Key0}}},
 }
 
-func listedChords() []Chord {
+func listedChords(group []ListedKeys) []Chord {
 	var out []Chord
-	for _, l := range Listed {
+	for _, l := range group {
 		out = append(out, l.Chords...)
 	}
 	return out
@@ -83,8 +96,9 @@ func fixed(ch Chord) bool {
 // the shortcut being recorded.
 type Keys struct {
 	set     map[string]Chord // a zero Chord turns the shortcut off
-	Active  string           // the shortcut being recorded, "" for none
-	problem string           // a refused key's i18n key, toasted next frame
+	panel   iter.Seq[Shortcut]
+	Active  string // the shortcut being recorded, "" for none
+	problem string // a refused key's i18n key, toasted next frame
 	focus   ui.Handle
 	// buttons are the shortcuts' key buttons; refocus is the one that takes
 	// the focus back when the page ends its recording, and landed the one
@@ -95,6 +109,29 @@ type Keys struct {
 
 // NewKeys has every shortcut on its default key.
 func NewKeys() Keys { return Keys{set: map[string]Chord{}} }
+
+const panelShortcutPrefix = "panel.open:"
+
+func PanelShortcutID(resource string) string { return panelShortcutPrefix + resource }
+
+func panelShortcut(id string) bool {
+	return len(id) > len(panelShortcutPrefix) && strings.HasPrefix(id, panelShortcutPrefix)
+}
+
+// SetPanelShortcuts supplies the current registered declarations, not a
+// snapshot of their bindings. Retired declarations do not erase preferences.
+func (k *Keys) SetPanelShortcuts(commands iter.Seq[Shortcut]) { k.panel = commands }
+
+func (k *Keys) commands(yield func(Shortcut) bool) {
+	for _, s := range Registry {
+		if !yield(s) {
+			return
+		}
+	}
+	if k.panel != nil {
+		k.panel(yield)
+	}
+}
 
 // Chord is a shortcut's key now.
 func (k *Keys) Chord(s Shortcut) Chord {
@@ -109,7 +146,13 @@ func (k *Keys) Chord(s Shortcut) Chord {
 // the page shows it as reserved until the user chooses another.
 func (k *Keys) Reserved(s Shortcut) bool {
 	_, set := k.set[s.ID]
-	return set && fixed(k.Chord(s))
+	ch := k.Chord(s)
+	if set {
+		return fixed(ch)
+	}
+	// A resource default may overlap a command scoped to the conversation
+	// pane. It may not take a window-reserved key.
+	return panelShortcut(s.ID) && slices.Contains(windowFixed, ch)
 }
 
 // Effective is the key s runs on: its key now, none when turned off or
@@ -118,7 +161,24 @@ func (k *Keys) Effective(s Shortcut) Chord {
 	if k.Reserved(s) {
 		return Chord{}
 	}
-	return k.Chord(s)
+	ch := k.Chord(s)
+	if !panelShortcut(s.ID) {
+		return ch
+	}
+	if !bindable(ch) {
+		return Chord{}
+	}
+	// Built-in commands have priority; contributed entries use their stable
+	// resource order. A losing binding is neither dispatched nor displayed.
+	for other := range k.commands {
+		if other.ID == s.ID {
+			return ch
+		}
+		if !k.Reserved(other) && k.Chord(other) == ch {
+			return Chord{}
+		}
+	}
+	return Chord{}
 }
 
 // Bound is s on the key it runs on; false when the user turned it off or its
@@ -131,7 +191,14 @@ func (k *Keys) Bound(s Shortcut) (Shortcut, bool) {
 
 // Recording reports whether a shortcut is being recorded, which holds the
 // window's shortcuts so the keys reach the recorder.
-func (k *Keys) Recording() bool { return k.Active != "" }
+func (k *Keys) Recording() bool {
+	if panelShortcut(k.Active) {
+		if _, registered := k.find(k.Active); !registered {
+			k.Cancel()
+		}
+	}
+	return k.Active != ""
+}
 
 // Record starts recording the shortcut id.
 func (k *Keys) Record(id string) { k.Active, k.problem = id, "" }
@@ -156,7 +223,7 @@ func (k *Keys) Clear() {
 // a modifier, shortcut_conflict for a key another shortcut or the app has. A
 // refused key keeps recording.
 func (k *Keys) Capture(ch Chord) string {
-	s, ok := find(k.Active)
+	s, ok := k.find(k.Active)
 	if !ok {
 		return "shortcut_unavailable"
 	}
@@ -186,23 +253,38 @@ func (k *Keys) Take(ch Chord) {
 	}
 }
 
-func (k *Keys) check(s Shortcut, ch Chord) string {
-	function := false
-	for _, f := range []ui.Key{ui.KeyF1, ui.KeyF2, ui.KeyF3, ui.KeyF4, ui.KeyF5, ui.KeyF6, ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12} {
-		function = function || ch.Key == f
+func bindable(ch Chord) bool {
+	if ch.Key == 0 || ch.Key == ui.KeyUnknown {
+		return false
 	}
-	if ch.Key == 0 || ch.Key == ui.KeyUnknown || ch.Mods&(ui.Cmd|ui.Ctrl|ui.Alt|ui.Super) == 0 && !function {
+	if ch.Mods&(ui.Cmd|ui.Ctrl|ui.Alt|ui.Super) != 0 {
+		return true
+	}
+	return slices.Contains([]ui.Key{ui.KeyF1, ui.KeyF2, ui.KeyF3, ui.KeyF4, ui.KeyF5, ui.KeyF6, ui.KeyF7, ui.KeyF8, ui.KeyF9, ui.KeyF10, ui.KeyF11, ui.KeyF12}, ch.Key)
+}
+
+func (k *Keys) check(s Shortcut, ch Chord) string {
+	if !bindable(ch) {
 		return "shortcut_invalid"
 	}
 	if fixed(ch) {
 		return "shortcut_conflict"
 	}
-	for _, o := range Registry {
-		if o.ID != s.ID && k.Chord(o) == ch {
+	for o := range k.commands {
+		if o.ID != s.ID && k.Effective(o) == ch {
 			return "shortcut_conflict"
 		}
 	}
 	return ""
+}
+
+func (k *Keys) find(id string) (Shortcut, bool) {
+	for s := range k.commands {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Shortcut{}, false
 }
 
 func find(id string) (Shortcut, bool) {

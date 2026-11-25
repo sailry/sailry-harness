@@ -35,6 +35,7 @@ type Runtime struct {
 	executionSettings         []settings.ExecutionSetting
 	worktreeActions           shell.ConversationWorktreeActions
 	projectLocations          func(shell.ProjectLocationReader)
+	workspaceActions          map[string]shell.WorkspaceAction
 
 	pluginViews               *pluginViewState
 	pluginControlReplacements []shell.PluginControlReplacement
@@ -124,7 +125,8 @@ type Runtime struct {
 	controller *client.Client
 	ctx        context.Context
 	// filePreview is the window's preview dialog (file_preview.go).
-	filePreview *filePreview
+	filePreview     *filePreview
+	pendingFileLink *conversationFileLink
 	// memoryNext is when Settings › Experimental samples memory again.
 	memoryNext time.Time
 	// memoryBase is the last sample of the Go classes, beside which the
@@ -326,11 +328,20 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{controller: controller, ctx: ctx, cancel: cancel, Preferences: prefs, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}, readsConnected: controller.Connected()}
-	controller.OnDispatch(countSaved(controller))
 	snapshot := controller.Snapshot()
 	d := Sidebar(snapshot, prefs.Data)
 	d.Notices = Notices(controller.Notices())
 	r.App = shell.NewLiveWithAssembly(d, assembly)
+	bindErr := r.bindWorkspaceAppActions()
+	if bindErr == nil {
+		bindErr = r.bindConversationLinks()
+	}
+	if bindErr != nil {
+		r.App.CloseWindowBindings()
+		cancel()
+		return nil, bindErr
+	}
+	controller.OnDispatch(countSaved(controller))
 	r.pluginControlReplacements = slices.Clone(assembly.PluginControlReplacements)
 	r.permissions.contributions = permissionContributions(assembly.Permissions)
 	r.App.SetLocalHost(localHost(snapshot, d))
@@ -343,7 +354,6 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, NewConversationDraft: r.newConversationDraft,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
 		CaptureSelection: func() { r.CaptureSelection(nil) }}
-	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Messages.SessionLink = func(link string) bool { return client.SessionLink(normalizeLink(link)) != nil }
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Unarchive: r.unarchive, Read: r.read, Delete: r.removeSessions,
 		Pin: r.pin, MovePin: r.movePin, MoveSession: r.moveSession, NewDraft: r.newDraft, RemoveProject: r.removeProject, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, Export: r.exportSession, OpenHost: r.App.OpenHost, OpenWindow: func(id string) {
@@ -405,6 +415,11 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.initB8Packages()
 	r.App.BindPanelResources(assembly, shell.PanelResourceHost{
 		BindBrowser: r.bindPanelBrowser,
+		Report:      r.Report,
+		BrowserNavigation: shell.BrowserNavigation{
+			Available: r.panelBrowserAvailable,
+			Navigate:  r.browserNavigate,
+		},
 		BindTerminal: func() sidebar.ProjectOpen {
 			r.initLiveTerminals()
 			return r.newProjectTerminal

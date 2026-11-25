@@ -20,11 +20,14 @@ func TestHarnessOmitsCodePages(t *testing.T) {
 	if assembly.HasPanelResource(panel.Terminal) {
 		t.Fatal("Harness assembled the Code terminal surfaces")
 	}
+	if assembly.HasPanelResource(panel.Files) {
+		t.Fatal("Harness assembled the Code file browser")
+	}
 	pages := map[shell.Page]bool{}
 	for _, page := range assembly.WorkspacePages {
 		pages[page.Page] = true
 	}
-	if pages[shell.GitPage] || !pages[shell.FilesPage] || !pages[shell.MarketPage] {
+	if pages[shell.GitPage] || pages[shell.FilesPage] || !pages[shell.MarketPage] {
 		t.Fatalf("Harness workspace pages = %v", pages)
 	}
 	for _, page := range assembly.SettingsPages {

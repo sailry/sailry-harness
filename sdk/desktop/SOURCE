@@ -13,6 +13,7 @@ These are source declarations; application runtime imports no external checkout.
 
 Additions made in this repository, absent from that revision: in layout.d.ts
 the SettingsRow `description`, `icon` and `wide` props and the SettingsGroup
-`sortable`, `sort_label` and `sort_disabled` props; in menu.d.ts the Menu
-`show_label` prop and its icon-button rule; in controls.d.ts the reorder value
-of nextControlEvent.
+`sortable`, `sort_label` and `sort_disabled` props, and `invokeAppAction`;
+in menu.d.ts the Menu `show_label` prop and its icon-button rule; in
+controls.d.ts the reorder value of nextControlEvent; in api.d.ts the `link`
+variant of ContributionEvent.

@@ -9,6 +9,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+type confirm struct {
+	open                   bool
+	title, message, target string
+	run                    func(*ui.Context)
+}
+
 type prompt struct {
 	open, pending  bool
 	confirm        bool
@@ -17,6 +23,8 @@ type prompt struct {
 	target, action string
 	baseAction     string
 	message        string
+	detailLabel    string
+	detail         string
 	labels, values []string
 	submit         func([]string, func(bool))
 	toggles        []PromptToggle
@@ -29,6 +37,9 @@ type PromptToggle struct {
 
 func (pr *Project) LockPrompt(locked bool)     { pr.prompt.locked = locked }
 func (pr *Project) SetPromptAction(key string) { pr.prompt.action, pr.prompt.baseAction = key, key }
+func (pr *Project) SetPromptDetail(label, value string) {
+	pr.prompt.detailLabel, pr.prompt.detail = label, value
+}
 func (pr *Project) SetPromptUncertain(uncertain bool) {
 	pr.prompt.locked = uncertain
 	pr.prompt.action = pr.prompt.baseAction
@@ -116,8 +127,11 @@ func (pr *Project) ActionDialog(c *ui.Context) {
 			}
 			for index, toggle := range form.toggles {
 				if toggle.Value != nil {
-					ui.Checkbox(c.Key("toggle").Key(index), toggle.Value, i18n.T(c, toggle.Label)).Disabled(form.pending || form.locked)
+					ui.Checkbox(c.Key(len(form.labels)+index), toggle.Value, i18n.T(c, toggle.Label)).Disabled(form.pending || form.locked)
 				}
+			}
+			if form.detail != "" {
+				kit.Field(c, "detail", i18n.T(c, form.detailLabel), "", func() { ui.Text(c, form.detail) })
 			}
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {

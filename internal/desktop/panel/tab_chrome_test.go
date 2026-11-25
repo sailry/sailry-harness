@@ -3,11 +3,11 @@ package panel
 import "testing"
 
 func TestBrowserTabChromeLifetime(t *testing.T) {
-	s := New(nil)
+	s := NewSample(nil)
 	parked := s.Browse("https://parked.example/first")
 	page := s.pagesOf[parked.ID]
 	page.Go("https://parked.example/second")
-	page.shown, page.address = page.address, "unfinished address"
+	page.live.Shown, page.live.Text = page.address, "unfinished address"
 	s.Mount(nil, Tab{})
 
 	for range 8 {
@@ -25,7 +25,7 @@ func TestBrowserTabChromeLifetime(t *testing.T) {
 
 	s.PruneBrowserChrome(func(tab Tab) bool { return tab == parked })
 	s.Mount([]Tab{parked}, parked)
-	if got := s.pagesOf[parked.ID]; got != page || got.address != "unfinished address" || got.shown != "https://parked.example/second" || len(got.history) != 2 {
+	if got := s.pagesOf[parked.ID]; got != page || got.live.Text != "unfinished address" || got.live.Shown != "https://parked.example/second" || len(got.history) != 2 {
 		t.Fatalf("switching away and back lost the parked browser's chrome: %+v", got)
 	}
 	s.Mount(nil, Tab{})
@@ -36,7 +36,7 @@ func TestBrowserTabChromeLifetime(t *testing.T) {
 }
 
 func TestTerminalTabChromeLifetime(t *testing.T) {
-	s := New(nil)
+	s := NewSample(nil)
 	tab := Tab{Kind: Terminal, ID: "1"}
 	s.Show(tab)
 	s.Find()

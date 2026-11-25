@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -81,10 +82,13 @@ func testConnectionReferences(t *testing.T) {
 		if len(input.References) != 2 || input.References[0].Target.Kind != "database" || input.References[1].Target.Kind != "ssh" {
 			t.Fatalf("ordinary draft submission: %+v", input.References)
 		}
-		for _, ref := range input.References {
-			if _, _, ok := connectionReferenceDetails(local, ordinary, ref.Target); !ok {
-				t.Fatalf("ordinary sent reference unavailable: %+v", ref)
-			}
+		database, parsed := detail[protocol.ConversationReferenceTargetDatabasePayload](input.References[0].Target.Data)
+		if name, ok := referenceDatabaseName(local, ordinary, database.Connection); !parsed || !ok || name != billing.Name {
+			t.Fatalf("ordinary database reference unavailable: %+v", input.References[0])
+		}
+		ssh, parsed := detail[protocol.SshID](input.References[1].Target.Data)
+		if _, ok := referenceSSHEndpoint(local, ordinary, ssh); !parsed || !ok {
+			t.Fatalf("ordinary SSH reference unavailable: %+v", input.References[1])
 		}
 	})
 	t.Run("rows insert protocol targets", func(t *testing.T) {
@@ -146,13 +150,13 @@ func testConnectionReferences(t *testing.T) {
 				t.Fatalf("sent reference %d did not restore its composer identity: %+v", index, restored)
 			}
 		}
-		if key, body, ok := connectionReferenceDetails(snapshot, inProject, input.References[1].Target); !ok || key != "reference_databases" || body != "billing / main / public.invoices" {
-			t.Fatal("database details", key, body)
+		if name, ok := referenceDatabaseName(snapshot, inProject, table.Connection); !ok || name != "billing" {
+			t.Fatal("database reference name", name)
 		}
-		if key, body, ok := connectionReferenceDetails(snapshot, inProject, input.References[2].Target); !ok || key != "reference_ssh" || body != "ci@build.example:2222" {
-			t.Fatal("SSH details", key, body)
+		if endpoint, ok := referenceSSHEndpoint(snapshot, inProject, ssh); !ok || endpoint != (shell.SSHReferenceEndpoint{Username: "ci", Host: "build.example", Port: 2222}) {
+			t.Fatal("SSH reference endpoint", endpoint)
 		}
-		if _, _, ok := connectionReferenceDetails(snapshot, connectionScope{project: &other}, input.References[2].Target); ok {
+		if _, ok := referenceSSHEndpoint(snapshot, connectionScope{project: &other}, ssh); ok {
 			t.Fatal("an unshared profile was described")
 		}
 	})

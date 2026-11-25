@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -28,10 +29,17 @@ func TestRailOpensPages(t *testing.T) {
 	if a.Page != FilesPage || len(a.Panel.Tabs) != 0 || a.PanelOpen {
 		t.Fatalf("Files opened page %q, tabs %v, panel %v", a.Page, a.Panel.Tabs, a.PanelOpen)
 	}
-	if !tt.HasText("A native desktop Agent workspace.") || !tt.HasText("example.md") {
-		t.Fatalf("no files page: %q", tt.Texts())
+	const selectFile = "Open fixture go.mod"
+	selection, found := tt.AccessByRole(ui.RoleButton, selectFile)
+	if !tt.HasText("A native desktop Agent workspace.") || !found || selection.Bounds.X < 1280-320 || selection.Bounds.W <= 0 {
+		t.Fatalf("the Files page did not host the document and right-hand selection: %+v, %q", selection, tt.Texts())
 	}
 	snapshot(t, tt, "page-files")
+	clickButton(t, tt, selectFile)
+	pr := a.project()
+	if a.Page != FilesPage || pr == nil || pr.Files.File() != "sailry-go/go.mod" || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") || len(a.Panel.Tabs) != 0 || a.PanelOpen {
+		t.Fatalf("the fixture's selection did not open in its own page: page %q, panel %v, %q", a.Page, a.Panel.Tabs, tt.Texts())
+	}
 	clickButton(t, tt, i18n.In("en", "git"))
 	tt.Frame()
 	if a.Page != GitPage || len(a.Panel.Tabs) != 0 || !codeHas(tt, "New text", "workspace: three flat panels") {
@@ -203,27 +211,49 @@ func TestRailOpensPages(t *testing.T) {
 // project, through the same adapter the panel's tabs use; without a project
 // they offer New project.
 func testLiveProjectPages(t *testing.T) {
+	const file, selectFile = "main.go", "Open fixture main.go"
 	project := &viewmodel.Project{ID: "project", Host: "node", Name: "Live project", Path: "/live/project",
 		Conversations: []*viewmodel.Conversation{{Node: "node", ID: "session", Title: "Live session"}}}
+	other := &viewmodel.Project{ID: "other-project", Host: "other-node", Name: "Other project", Path: "/other/project"}
+	assembly := TestHarnessAssembly()
+	filesPage := slices.IndexFunc(assembly.WorkspacePages, func(p NativePage) bool { return p.Page == FilesPage })
+	if filesPage < 0 {
+		t.Fatal("the test assembly did not register the Files page")
+	}
+	assembly.WorkspacePages[filesPage].RenderDetails = func(c *ui.Context, _ *App, owner *panel.Project) {
+		ui.Button(c.Key("open-fixture"), selectFile).OnClick(func() { owner.Files.Show(file) })
+	}
 	app := NewLiveWithAssembly(&viewmodel.Data{
-		Projects:   []*viewmodel.Project{project},
+		Projects:   []*viewmodel.Project{project, other},
 		Unassigned: []*viewmodel.Conversation{{Node: "node", ID: "loose", Title: "Loose session"}},
 		Workspace:  &viewmodel.Workspace{},
-	}, TestHarnessAssembly())
+	}, assembly)
 	app.Sidebar.Selected = "session"
-	workspace := &viewmodel.Workspace{
-		Files:   &viewmodel.FileNode{Name: "project", Children: []*viewmodel.FileNode{{Name: "main.go", Path: "main.go"}}},
-		Changes: []viewmodel.FileChange{{Path: "main.go", Status: "M", Unstaged: "M", Added: 1}},
-	}
 	var read []string
-	var live *panel.Project
-	live = panel.NewLiveProject("worktree", workspace, &panel.Actions{ReadFile: func(path string) {
-		read = append(read, path)
-		live.SetFile(path, "package live")
-	}})
+	workspace := func(id, text string, data *viewmodel.Workspace) *panel.Project {
+		var owner *panel.Project
+		owner = panel.NewLiveProject(id, data, &panel.Actions{ReadFile: func(path string) {
+			if !owner.FileLoaded(path) {
+				read = append(read, id+"/"+path)
+				owner.SetFile(path, text)
+			}
+		}})
+		return owner
+	}
+	live := workspace("worktree", "package live", &viewmodel.Workspace{
+		Changes: []viewmodel.FileChange{{Path: file, Status: "M", Unstaged: "M", Added: 1}},
+	})
 	live.SetGitState(panel.GitState{Known: true, Kind: "repository", Head: true})
+	switched := workspace("other-worktree", "package other", &viewmodel.Workspace{})
 	var shown *panel.Project
 	app.Hooks.WorkspaceProject = func() *panel.Project { return shown }
+	otherTarget := ResourceTarget{Node: other.Host, Project: other.ID}
+	app.Hooks.ResourceWorkspace = func(target ResourceTarget) *panel.Project {
+		if target == otherTarget {
+			return switched
+		}
+		return nil
+	}
 	tester := ui.NewTesterWith(app.View, 1280, 820, opaque)
 	tester.SetLocale("en")
 	tester.Frame()
@@ -232,8 +262,8 @@ func testLiveProjectPages(t *testing.T) {
 	// The project is known and its worktree is not yet.
 	clickButton(t, tester, i18n.In("en", "files"))
 	tester.Frame()
-	if app.Page != FilesPage || !tester.HasText(unavailable) || tester.HasText(prompt) {
-		t.Fatalf("a project without a worktree is not unavailable: %q", tester.Texts())
+	if _, hasSelection := tester.AccessByRole(ui.RoleButton, selectFile); app.Page != FilesPage || !tester.HasText(unavailable) || tester.HasText(prompt) || hasSelection || len(read) != 0 {
+		t.Fatalf("a project without a worktree showed a fixture or read a file: read %v, %q", read, tester.Texts())
 	}
 
 	shown = live
@@ -241,11 +271,27 @@ func testLiveProjectPages(t *testing.T) {
 	if tester.HasText(unavailable) {
 		t.Fatalf("the live Files page is unavailable: %q", tester.Texts())
 	}
-	clickTree(t, tester, "main.go")
+	clickButton(t, tester, selectFile)
 	tester.Frame()
+	if live.Files.File() != file || !slices.Equal(read, []string{"worktree/" + file}) || !codeHas(tester, "Code editor", "package live") {
+		t.Fatalf("the page did not route the fixture's selection to its project: shown %q, read %v, %q", live.Files.File(), read, tester.Texts())
+	}
+
+	app.SetResourceTarget(otherTarget)
 	tester.Frame()
-	if live.Files.File() != "main.go" || !slices.Contains(read, "main.go") || !codeHas(tester, "Code editor", "package live") {
-		t.Fatalf("the live Files page did not open the file: shown %q, read %v, %q", live.Files.File(), read, tester.Texts())
+	if app.ResourceProject() != other || switched.Files.File() != "" || codeHas(tester, "Code editor", "package live") || len(read) != 1 {
+		t.Fatalf("selecting a project retained the previous document or read an unopened one: project %v, read %v", app.ResourceProject(), read)
+	}
+	clickButton(t, tester, selectFile)
+	tester.Frame()
+	wantReads := []string{"worktree/" + file, "other-worktree/" + file}
+	if switched.Files.File() != file || live.Files.File() != file || !slices.Equal(read, wantReads) || !codeHas(tester, "Code editor", "package other") {
+		t.Fatalf("identical file paths did not use distinct project owners: read %v, %q", read, tester.Texts())
+	}
+	app.SetResourceTarget(ResourceTarget{})
+	tester.Frame()
+	if app.ResourceProject() != project || !codeHas(tester, "Code editor", "package live") || !slices.Equal(read, wantReads) {
+		t.Fatalf("returning to the first project did not restore its document: read %v, %q", read, tester.Texts())
 	}
 	if len(app.Panel.Tabs) != 0 || app.PanelOpen {
 		t.Fatalf("the page opened panel tabs %v, panel %v", app.Panel.Tabs, app.PanelOpen)
@@ -438,20 +484,19 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 		t.Fatalf("no shown document tab %q: %q", label, tt.Texts())
 	}
 	keepShown("README.md")
-	clickTree(t, tt, "go.mod")
+	clickButton(t, tt, "Open fixture go.mod")
 	tt.Frame()
 	if first.Files.File() != "sailry-go/go.mod" {
 		t.Fatalf("the page showed %q", first.Files.File())
 	}
-	// The panel's file tabs are the page's open files, the one the page
-	// chose shown beside the tree.
+	// The panel's file tabs reuse the page's open files and active document.
 	a.Navigate(ConversationPage)
 	a.openPanel(panel.Files)
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	if row, ok := tt.AccessByRole(ui.RoleTreeItem, "go.mod"); !ok || !row.Selected {
-		t.Fatalf("the tree does not select the page's file: %q", tt.Texts())
+	if a.Panel.Active != (panel.Tab{Kind: panel.Files, ID: "sailry-go/go.mod"}) {
+		t.Fatalf("the panel did not show the page's active file: %v", a.Panel.Active)
 	}
 	if !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the Files tab does not show the page's file: %q", tt.Texts())
@@ -501,26 +546,71 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 }
 
-// The first frame of a page already lays the side list out at its width
-// (320), with no frame at the split's minimum or a hidden column.
+// On the first frame the shell gives the resource its full details column,
+// without flashing at the minimum width or omitting the column.
 func TestSplitFirstFrame(t *testing.T) {
-	a, tt := newTester(t)
+	const (
+		width, height, detailsWidth = 1280, 820, 320
+		documentLabel               = "Fixture document region"
+		detailsLabel                = "Fixture details region"
+	)
+	type region struct {
+		frame int
+		box   ui.Rect
+	}
+	var document, details region
+	frame := 0
+	probe := func(c *ui.Context, label string, first *region) {
+		ui.Column(c.Key(label)).Grow(1).MinHeight(0).FillWidth().Role(ui.RoleRegion).Label(label).
+			Draw(func(_ *ui.Painter, r ui.Rect) {
+				if first.frame == 0 {
+					*first = region{frame, r}
+				}
+			}).Children(func() { ui.Text(c, label) })
+	}
+	assembly := Assemble(func(a *Assembly) {
+		a.WorkspacePages = append(a.WorkspacePages, NativePage{
+			Page: FilesPage, Resource: panel.Files,
+			Feature: Feature{ID: string(FilesPage), Icon: icons.Folder, Label: "Files layout fixture"},
+			Render: func(c *ui.Context, app *App) {
+				app.RenderResource(c, func(*panel.Project) { probe(c, documentLabel, &document) })
+			},
+			RenderDetails: func(c *ui.Context, _ *App, _ *panel.Project) { probe(c, detailsLabel, &details) },
+		})
+	})
+	a := NewWithAssembly(preview.Load(), assembly)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		if a.Page == FilesPage {
+			frame++
+		}
+		a.View(c)
+	}, width, height, opaque)
 	a.Navigate(FilesPage)
 	tt.Frame()
-	row, ok := tt.AccessByRole(ui.RoleTreeItem, "sailry-go")
-	if !ok {
-		t.Fatalf("no tree: %q", tt.Texts())
+	// The tester can run more than one frame to settle invalidations.
+	if document.frame != 1 || details.frame != 1 {
+		t.Fatalf("region first paints: document frame %d, details frame %d, want both at 1", document.frame, details.frame)
 	}
-	// The row fills the list inside its 8 DIP padding, at the window's
-	// right edge.
-	if got := 1280 - row.Bounds.X + 8; got < 319 || got > 321 || row.Bounds.W < 303 || row.Bounds.W > 305 || row.Bounds.H <= 0 {
-		t.Errorf("the first frame's side list is %v wide, row %v", got, row.Bounds)
+	main, side := document.box, details.box
+	if side.X < width-detailsWidth-1 || side.X > width-detailsWidth+1 || side.W < detailsWidth-1 || side.W > detailsWidth+1 || side.X+side.W < width-1 || side.X+side.W > width+1 {
+		t.Errorf("the first frame's details did not fill the right-hand %d DIP column: %v", detailsWidth, side)
 	}
-	// Both shell columns fill the page's height: the list's first row and
-	// the editor's toolbar sit at the top of their content.
-	save, found := tt.AccessByRole(ui.RoleButton, i18n.In("en", "files_save"))
-	if !found || row.Bounds.Y > 140 || save.Bounds.Y > 140 || save.Bounds.H <= 0 {
-		t.Errorf("the split's columns do not start at the top: tree row %v, Save %v", row.Bounds, save.Bounds)
+	if main.X < RailWidth || main.X > RailWidth+1 || main.W <= 0 || main.X+main.W < side.X-2 || main.X+main.W > side.X+1 {
+		t.Errorf("the document did not fill its column to the left of details: document %v, details %v", main, side)
+	}
+	if main.Y > 140 || side.Y > 140 || main.H <= 0 || side.H <= 0 || main.Y+main.H < height-1 || side.Y+side.H < height-1 {
+		t.Errorf("the split's columns do not fill the page's height: document %v, details %v", main, side)
+	}
+	for _, label := range []string{documentLabel, detailsLabel} {
+		count := 0
+		for _, entry := range tt.AccessAll() {
+			if entry.Role == ui.RoleRegion && entry.Name == label {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("the shell mounted %d copies of %q, want one", count, label)
+		}
 	}
 }
 

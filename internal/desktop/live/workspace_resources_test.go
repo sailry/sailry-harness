@@ -118,7 +118,7 @@ func TestWorkspaceTurnReview(t *testing.T) {
 				cv := &viewmodel.Conversation{ID: session.ID.String(), Node: root.controller.Target().String()}
 				root.App.Data.Unassigned = append(root.App.Data.Unassigned, cv)
 				project := root.workspaceFor(fixture.main)
-				project.session, project.initialized, project.release = session.ID, true, func() {}
+				project.session, project.initialized = session.ID, true
 				// Opening a tab is real; its file bytes are irrelevant to which
 				// captured turn the outstanding navigation may publish.
 				project.panel = panel.NewLiveProject(fixture.main.ID.String(), project.data, &panel.Actions{})

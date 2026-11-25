@@ -36,8 +36,8 @@ type conversationPanels struct {
 	parked    map[string]*ConversationPanel
 	project   *panel.Project
 	focusMain bool
-	// terminalCloses holds the origin of each confirmed close waiting on the Node.
-	terminalCloses map[panel.Tab]string
+	// pendingCloses holds the origin of a confirmed asynchronous tab close.
+	pendingCloses map[panel.Tab]string
 }
 
 // terminalPanelPrefix marks the panel owner of a main terminal pane. A
@@ -78,7 +78,7 @@ func (a *App) MountPanel() {
 	if a.Panel.OnEmpty == nil {
 		a.Panel.OnEmpty = a.foldConversationPanel
 		a.Panel.SharedItem = a.sharedPanelItem
-		a.Panel.OnTerminalClose = a.noteTerminalClose
+		a.Panel.OnCloseConfirmed = a.notePanelClose
 	}
 	selected := a.panelOwner()
 	if selected != p.mounted {
@@ -155,9 +155,9 @@ func (a *App) renamePanel(before, after string) {
 	if p.mounted == before {
 		p.mounted = after
 	}
-	for tab, owner := range p.terminalCloses {
+	for tab, owner := range p.pendingCloses {
 		if owner == before {
-			p.terminalCloses[tab] = after
+			p.pendingCloses[tab] = after
 		}
 	}
 	if kept := p.parked[before]; kept != nil {
@@ -235,27 +235,30 @@ func (a *App) HasPanelTab(t panel.Tab) bool {
 	return false
 }
 
-func (a *App) noteTerminalClose(t panel.Tab) {
-	if a.panels.terminalCloses == nil {
-		a.panels.terminalCloses = map[panel.Tab]string{}
+func (a *App) notePanelClose(t panel.Tab) {
+	if a.panels.pendingCloses == nil {
+		a.panels.pendingCloses = map[panel.Tab]string{}
 	}
-	a.panels.terminalCloses[t] = a.panels.mounted
+	a.panels.pendingCloses[t] = a.panels.mounted
 }
+
+// CancelPanelClose clears a failed close so a later removal stays passive.
+func (a *App) CancelPanelClose(t panel.Tab) { delete(a.panels.pendingCloses, t) }
 
 // CancelTerminalClose clears a failed close so a later shell exit stays passive.
 func (a *App) CancelTerminalClose(id string) {
-	delete(a.panels.terminalCloses, panel.Tab{Kind: panel.Terminal, ID: id})
+	a.CancelPanelClose(panel.Tab{Kind: panel.Terminal, ID: id})
 }
 
-// DropPanelTab takes t out of the panel that has it, shown or not. A Node
-// acknowledgment of an explicit terminal close can also fold its panel.
+// DropPanelTab removes a tab from the window, shown or not, then releases it.
+// Acknowledging an explicit asynchronous close can also fold its panel.
 func (a *App) DropPanelTab(t panel.Tab) {
-	owner, confirmed := a.panels.terminalCloses[t]
-	delete(a.panels.terminalCloses, t)
-	if confirmed {
+	if owner, confirmed := a.panels.pendingCloses[t]; confirmed {
+		a.CancelPanelClose(t)
 		a.foldPanelOf(owner, t)
 	}
 	a.dropPanelTab(t)
+	a.Panel.DiscardTabChrome(t)
 }
 
 // TakePanelTab takes t out of the panel that has it, shown or not, to show
@@ -270,7 +273,8 @@ func (a *App) TakePanelTab(t panel.Tab) {
 			a.foldPanelOf(id, t)
 		}
 	}
-	a.DropPanelTab(t)
+	a.CancelPanelClose(t)
+	a.dropPanelTab(t)
 }
 
 // foldPanelOf closes owner's panel when t is its only tab.
@@ -322,9 +326,15 @@ func (a *App) MovePanelTab(t panel.Tab, id string) {
 // DropPanel forgets a conversation's panel, as when the conversation is
 // deleted or archived. The owner of what its tabs show closes that first.
 func (a *App) DropPanel(id string) {
+	tabs := a.ConversationTabs(id)
 	delete(a.panels.parked, id)
 	if id == a.panels.mounted {
 		a.Panel.Mount(nil, panel.Tab{})
+	}
+	for _, tab := range tabs {
+		if !a.HasPanelTab(tab) {
+			a.Panel.DetachTab(tab)
+		}
 	}
 }
 

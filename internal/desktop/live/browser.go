@@ -131,7 +131,13 @@ func (r *Runtime) watchBrowserNavigation() {
 
 func (r *Runtime) bindPanelBrowser() {
 	r.browserPanel = true
-	r.App.Panel.SetCreateResource(r.createPanelBrowser)
+	r.App.Panel.SetCreateResource(func(panel.Kind) bool {
+		if r.browser != nil {
+			return false
+		}
+		r.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "browser page is unavailable"))
+		return true
+	})
 	r.nativeWindowResources = append(r.nativeWindowResources, nativeWindowResource{
 		beforeFrame: r.browserFrame,
 		close:       r.closePanelBrowser,
@@ -152,7 +158,7 @@ func (r *Runtime) SetWebViewWindow(window *mygo.Window) {
 		r.browser.persistent = r.browserPersistent()
 		r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
 			Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) },
-			Stop: r.browserStop, Pick: r.browserPickToggle, Inspect: r.browserInspect, Settings: r.browserSettings}
+			Stop: r.browserStop, Pick: r.browserPickToggle, Inspect: r.browserInspect, Settings: r.browserSettings, Release: r.releaseBrowserTab}
 	}
 	r.App.Panel.SetDocumentView(r.sessionDocumentView)
 	if r.attachments != nil && r.attachments.native.DocumentView == nil {
@@ -175,6 +181,10 @@ func browserAddress(address string) bool {
 func (r *Runtime) browserFrame() {
 	state := r.browser
 	if state == nil {
+		return
+	}
+	if !r.App.Panel.RegisteredResource(panel.Browser) {
+		r.closePanelBrowser()
 		return
 	}
 	r.App.Panel.PruneBrowserChrome(r.App.HasPanelTab)
@@ -208,11 +218,7 @@ func (r *Runtime) browserFrame() {
 		switch {
 		case !r.App.HasPanelTab(open):
 			// A page stays with its tab in any conversation's panel.
-			tab.endPick()
-			if tab.view != nil {
-				tab.view.Destroy()
-			}
-			delete(state.tabs, id)
+			r.releaseBrowserTab(id)
 		case !slices.Contains(r.App.Panel.Tabs, open):
 			// Its conversation left the screen and keeps the page: the
 			// selection ends, as the reference's does with its browser's view.
@@ -235,6 +241,20 @@ func (r *Runtime) browserFrame() {
 	}
 }
 
+func (r *Runtime) releaseBrowserTab(id string) {
+	if state := r.browser; state != nil {
+		if tab := state.tabs[id]; tab != nil {
+			delete(state.tabs, id)
+			view := tab.view
+			tab.view = nil
+			tab.endPick()
+			if view != nil && !view.IsDestroyed() {
+				view.Destroy()
+			}
+		}
+	}
+}
+
 func (r *Runtime) closePanelBrowser() {
 	if state := r.browser; state != nil {
 		if state.watchTimer != nil {
@@ -245,6 +265,9 @@ func (r *Runtime) closePanelBrowser() {
 			cancel()
 		}
 		clear(state.serving)
+		for id := range state.tabs {
+			r.releaseBrowserTab(id)
+		}
 	}
 }
 
@@ -323,6 +346,9 @@ func (r *Runtime) browserPopup(source *browserTab, address string, gesture bool)
 		}
 	}
 	open := r.App.Panel.AddBrowser(shown && !source.background)
+	if open.ID == "" {
+		return nil
+	}
 	tab := r.browserTabFor(open.ID)
 	tab.node, tab.conversation, tab.background = source.node, source.conversation, source.background
 	if !shown {
@@ -463,8 +489,12 @@ func (r *Runtime) browserPage(id string) panel.BrowserPage {
 		Loading: tab.loading, Error: tab.failure, Picking: tab.pick != nil}
 }
 
+func (r *Runtime) panelBrowserAvailable() bool {
+	return r.browser != nil && r.browser.available && r.App.Panel.RegisteredResource(panel.Browser)
+}
+
 func (r *Runtime) browserNavigate(id, address string) bool {
-	if r.browser == nil || !r.browser.available {
+	if !r.panelBrowserAvailable() {
 		r.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "browser page is unavailable"))
 		return false
 	}
@@ -475,6 +505,9 @@ func (r *Runtime) browserNavigate(id, address string) bool {
 	}
 	// The WebView is made before the next frame builds, not inside this one.
 	r.enqueue(func(*ui.Context) {
+		if !r.App.Panel.RegisteredResource(panel.Browser) || !r.App.HasPanelTab(panel.Tab{Kind: panel.Browser, ID: id}) {
+			return
+		}
 		if tab := r.browserTabFor(id); tab != nil {
 			// A page that cannot be made is the tab's failed state, which
 			// its body shows: no toast repeats it.
@@ -509,24 +542,14 @@ func (r *Runtime) browserInspect(id string) {
 	}
 }
 
-// browserSettings opens the native Browser settings page, falling back to a
-// legacy browser plugin page if the native module is not assembled.
 func (r *Runtime) browserSettings() {
 	root := r.localRuntime()
-	if root.App.Settings.HasSection(settings.Browser) {
-		root.App.Settings.Open(settings.Browser)
-		root.App.Navigate(shell.SettingsPage)
+	if !root.App.Settings.HasSection(settings.Browser) {
+		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "browser settings are unavailable"))
 		return
 	}
-	section := settings.Section("plugin:" + root.controller.Target().String() + "/browser")
-	if root.pluginViews != nil {
-		if _, exists := root.pluginViews.settings[section]; exists {
-			root.App.Settings.Open(section)
-			root.App.Navigate(shell.SettingsPage)
-			return
-		}
-	}
-	root.configurePackage("browser")
+	root.App.Settings.Open(settings.Browser)
+	root.App.Navigate(shell.SettingsPage)
 }
 
 // browserStep goes back (-1) or forward (1) in a tab's history, or reloads

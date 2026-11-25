@@ -292,6 +292,7 @@ worktree_open_busy: Esta sesión no puede cambiar de árbol de trabajo ahora
 worktree_created: Árbol de trabajo creado
 worktree_removed: Árbol de trabajo eliminado
 worktree_remove_confirm: Eliminar este directorio del árbol de trabajo; mantener la rama Git
+worktree_remove_unsaved: Guarde los cambios antes de eliminar este árbol de trabajo
 worktree_prune: Limpiar árbol de trabajo obsoleto
 worktree_prune_confirm: Quitar este registro obsoleto; no se eliminan archivos
 worktree_pruned: Registro obsoleto del árbol de trabajo eliminado
@@ -572,6 +573,8 @@ artifact_preview: Vista previa
 artifact_preview_changed: El archivo ha cambiado
 artifact_preview_failed: No se pudo cargar la vista previa
 artifact_preview_large: Archivo demasiado grande para previsualizar
+artifact_preview_page: Page {page}
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_loading: Cargando la vista previa
 files_open_failed: No se pudo abrir el archivo
 artifact_request_edit: Solicitud de edición

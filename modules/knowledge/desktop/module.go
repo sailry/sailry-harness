@@ -18,5 +18,6 @@ func Module(options ...Option) shell.Module {
 	return func(assembly *shell.Assembly) {
 		assembly.SettingsPages = append(assembly.SettingsPages, page())
 		assembly.Locales = append(assembly.Locales, Locales)
+		registerLinks(assembly)
 	}
 }

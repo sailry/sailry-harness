@@ -16,10 +16,8 @@ import (
 type page struct {
 	address string
 	history []string
-	at      int    // the index in history shown, -1 for none
-	shown   string // address last copied from the live page or submitted
-	// field is the live tab's address field, for its focus.
-	field ui.Handle
+	at      int // the index in history shown, -1 for none
+	live    BrowserAddress
 }
 
 // Go visits an address: the history after the one shown is dropped, as a
@@ -76,17 +74,6 @@ func (s *State) pageOf(id string) *page {
 	return b
 }
 
-// DiscardTabChrome forgets the chrome of a permanently closed tab, not one
-// parked in another conversation or moved between surfaces.
-func (s *State) DiscardTabChrome(t Tab) {
-	switch t.Kind {
-	case Browser:
-		delete(s.pagesOf, t.ID)
-	case Terminal:
-		delete(s.terms, t.ID)
-	}
-}
-
 // PruneBrowserChrome releases chrome of tabs removed outside the mounted
 // strip. hasTab must include parked conversations.
 func (s *State) PruneBrowserChrome(hasTab func(Tab) bool) {
@@ -119,24 +106,19 @@ func (s *State) sample(b *page) *viewmodel.WebPage {
 // its browser then behaves as one, without the preview's toasts.
 func (s *State) samples() bool { return !s.Live && s.Data != nil && s.Data.Page.Address != "" }
 
-// browser is a browser tab: its toolbar, Back and Forward through the tab's
-// history, Reload and the address, which goes on Enter, over the page's
-// placeholder. ⌘T opens another tab and ⌘R reloads while the focus is in it;
-// the panel's "+" is the one button that opens a tab. The preview loads
+// RenderBrowserSample shows isolated address and history controls over the
+// sample page. ⌘R reloads while the focus is in it. The preview loads
 // nothing: going and reloading toast so. The demo opens on its dataset's
 // page, drawn here from the dataset, and any other address fails to load, as
 // it reaches no network.
-func (s *State) browser(c *ui.Context, t Tab) {
-	if s.Live && s.BrowserActions != nil {
-		s.liveBrowser(c, t)
+func RenderBrowserSample(c *ui.Context, s *State, t Tab) {
+	if s.Live {
+		empty(c, icons.Web, "unavailable")
 		return
 	}
 	p := theme.Of(c)
 	b := s.pageOf(t.ID)
 	col := ui.Column(c.Key("browser")).Grow(1).MinHeight(0)
-	if col.Shortcut(ui.Cmd, ui.KeyT) && !c.ShortcutRepeated() {
-		s.New(Browser)
-	}
 	sampled := s.samples()
 	if col.Shortcut(ui.Cmd, ui.KeyR) && !c.ShortcutRepeated() && !sampled {
 		notice(c)
@@ -202,17 +184,6 @@ func (s *State) termOf(id string) *term {
 // that should follow it if its running shell is reopened.
 func (s *State) HasTerminalChrome(id string) bool { return s.terms[id] != nil }
 
-// Find opens the active terminal's find bar, reporting whether the active tab
-// is a terminal. The window calls it for ⌘F with the focus in the panel, as
-// the native menu takes the key first.
-func (s *State) Find() bool {
-	if s.Active.Kind != Terminal {
-		return false
-	}
-	s.termOf(s.Active.ID).find = true
-	return true
-}
-
 // TerminalView builds the shared terminal screen, with MyGo's find bar at its
 // top right, ⌘F opening it while the focus is inside. The panel's tab
 // strip closes the terminal and opens another. The preview starts no shell and shows the
@@ -234,6 +205,8 @@ func (s *State) TerminalView(c *ui.Context, id string) {
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
 			if s.TerminalActions != nil && s.TerminalActions.View != nil {
 				s.TerminalActions.View(c, id)
+			} else if s.Live {
+				empty(c, icons.Terminal, "unavailable")
 			} else if s.Data != nil && len(s.Data.Screen) > 0 {
 				screen(c, s.Data.Screen)
 			} else {

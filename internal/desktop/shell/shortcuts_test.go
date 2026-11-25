@@ -40,7 +40,7 @@ func testCloseTabInFocusedPanel(t *testing.T) {
 	if len(a.Panel.Tabs) != 2 || a.Panel.Active.Kind != panel.Changes {
 		t.Fatalf("tabs %v, active %q", a.Panel.Tabs, a.Panel.Active)
 	}
-	click(t, tt, "Tracked · 3") // inside the panel
+	clickTree(t, tt, "README.md") // inside the panel
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	if len(a.Panel.Tabs) != 1 || a.Panel.Active.Kind != panel.Files || !a.PanelOpen {

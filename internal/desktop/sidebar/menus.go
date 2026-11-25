@@ -280,16 +280,12 @@ func (s *State) OpenOverview(c *ui.Context, pr *preview.Project) {
 
 // TerminalItem draws the native New terminal entry in the project menu.
 func (s *State) TerminalItem(c *ui.Context, m *ui.Menu, pr *preview.Project) {
-	if !m.Item(i18n.T(c, "workspace_new_terminal")).Disabled(pr.Offline).Chosen() {
-		return
+	open := s.Sample.NewTerminal
+	if s.Actions != nil {
+		open = s.Actions.NewTerminal
 	}
-	switch {
-	case s.Actions != nil && s.Actions.NewTerminal != nil:
-		s.Actions.NewTerminal(pr)
-	case s.Actions == nil && s.Sample.NewTerminal != nil:
-		s.Sample.NewTerminal(pr)
-	default:
-		s.notice(c)
+	if open != nil && m.Item(i18n.T(c, "workspace_new_terminal")).Disabled(pr.Offline).Chosen() {
+		open(pr)
 	}
 }
 

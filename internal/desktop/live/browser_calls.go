@@ -177,7 +177,7 @@ func (r *Runtime) executeBrowserCall(ctx context.Context, owner *Runtime, call p
 func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request browserRequest) browserPlan {
 	settled := func(result protocol.BrowserResult) browserPlan { return browserPlan{result: &result} }
 	state := r.browser
-	if state == nil || !state.available {
+	if !r.panelBrowserAvailable() {
 		return settled(browserUnavailable())
 	}
 	selected := r.App.Sidebar.Selected == session
@@ -259,15 +259,12 @@ func (r *Runtime) planBrowserCall(node protocol.NodeID, session string, request 
 	loaded := target.view != nil && !target.view.IsDestroyed()
 	switch {
 	case request.Action == "close":
-		if loaded {
-			target.view.Destroy()
+		tab := panel.Tab{Kind: panel.Browser, ID: strconv.FormatUint(target.id, 10)}
+		if slices.Contains(r.App.Panel.Tabs, tab) {
+			r.App.Panel.Close(tab)
+		} else {
+			r.App.DropPanelTab(tab)
 		}
-		id := strconv.FormatUint(target.id, 10)
-		delete(state.tabs, id)
-		if !selected {
-			r.App.DropPanelTab(panel.Tab{Kind: panel.Browser, ID: id})
-		}
-		r.App.Panel.Close(panel.Tab{Kind: panel.Browser, ID: id})
 		return settled(browserValue(map[string]any{"closed": target.id}))
 	case request.Action == "focus" && target.url == "":
 		r.browserReveal(target)

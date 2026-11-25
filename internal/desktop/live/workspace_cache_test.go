@@ -4,7 +4,6 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -23,11 +22,6 @@ func TestWorkspaceReleasesClosedContent(t *testing.T) {
 		project.panel.Files.Show(clean)
 		project.panel.Git.Show(diff)
 		project.draftSource(draft, changedFile{content: protocol.FileContent{Text: "changed on disk", Revision: new("r2")}})
-		hunks := []viewmodel.Hunk{{Header: "@@ -1 +1 @@"}}
-		project.diffContents = map[string][]viewmodel.Hunk{"all/" + diff: hunks, "all/" + closed: hunks}
-		project.manualDiffs = map[string]workspaceGitDiff{"all/" + diff: {}, "all/" + closed: {}}
-		project.diffs = map[string]bool{"all/" + diff: true, "all/" + closed: true}
-		project.data.Changes = []viewmodel.FileChange{{Path: diff, Hunks: hunks}, {Path: closed, Hunks: hunks}}
 		project.documentMarkdown(closed)
 		images := project.documentImages[closed]
 		if images == nil {
@@ -38,25 +32,22 @@ func TestWorkspaceReleasesClosedContent(t *testing.T) {
 		if project.documentImages[closed] != nil || images.ctx.Err() == nil {
 			t.Fatal("switching away kept a closed document's image cache")
 		}
-		if _, exists := project.files[closed]; exists || project.diffs["all/"+closed] || len(project.diffContents["all/"+closed]) > 0 || len(project.data.Changes[1].Hunks) > 0 {
-			t.Fatal("the closed path retained its file body or patch")
+		if _, exists := project.files[closed]; exists {
+			t.Fatal("the closed path retained its file body")
 		}
-		if _, exists := project.manualDiffs["all/"+closed]; exists {
-			t.Fatal("the closed diff retained its hunk source")
-		}
-		if file := workspaceFileNode(project.data.Files, closed); file == nil || file.Text != "" {
-			t.Fatal("the file tree lost the path or retained the file body")
+		if project.data.Files != nil {
+			t.Fatal("opening an explicit document constructed a management tree")
 		}
 		if text, dirty := project.panel.FileDraft(draft); !dirty || text != "my draft" || project.files[draft].Revision == nil || project.changedFiles[draft].content.Text != "changed on disk" {
 			t.Fatal("the open draft or its expected revision was lost")
 		}
-		if project.files[clean].Text != "old content" || project.files[diff].Text != "old content" || !project.diffs["all/"+diff] || len(project.data.Changes[0].Hunks) != 1 {
+		if project.files[clean].Text != "old content" || project.files[diff].Text != "old content" {
 			t.Fatal("the open clean editor or diff lost its content")
 		}
 		project.panel.Git.Show(":changes")
 		project.pruneClosedContent()
-		if _, exists := project.files[diff]; exists || !project.diffs["all/"+diff] || len(project.data.Changes[0].Hunks) != 1 {
-			t.Fatal("the combined view should keep its patch without the working file body")
+		if _, exists := project.files[diff]; exists {
+			t.Fatal("the combined view should not keep the working file body")
 		}
 		reads := make(chan string, 3)
 		fixture.source.dispatch = func(request protocol.Request) (link.Admission, error) {

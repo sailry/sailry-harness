@@ -19,6 +19,7 @@ type windowDockedConversation struct {
 	draft           *viewmodel.Conversation
 	draftID         string
 	history         dockedSessionHistory
+	tools           *dockedToolObserver
 	closed          bool
 }
 
@@ -32,12 +33,19 @@ func (h *windowViewHost) mountConversation(spec view.ConversationSpec) view.Conv
 		return view.Conversation{}
 	}
 	mounted := &windowDockedConversation{runtime: r, spec: spec, resource: resource}
+	if spec.Tools != nil && spec.Tools.Publish != nil {
+		mounted.tools = newDockedToolObserver(r.ctx, *spec.Tools)
+	}
 	return view.Conversation{
 		Render: mounted.render, Header: mounted.header,
 		Close: h.trackMount(nativeWindowResource{
 			afterFrame: func() {
-				if r.controller.Connected() && !mounted.resourceAvailable() {
+				available := mounted.resourceAvailable()
+				if r.controller.Connected() && !available {
 					mounted.releaseDraft()
+				}
+				if mounted.tools != nil {
+					mounted.observeTools(available)
 				}
 			},
 			close: mounted.close,
@@ -206,5 +214,8 @@ func (mounted *windowDockedConversation) releaseDraft() {
 
 func (mounted *windowDockedConversation) close() {
 	mounted.closed = true
+	if mounted.tools != nil {
+		mounted.tools.close()
+	}
 	mounted.releaseDraft()
 }

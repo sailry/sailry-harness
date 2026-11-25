@@ -120,6 +120,7 @@ func NewHost(binding HostBinding) *Host {
 	owner.settings.surface = binding.Scope.Surface.Kind == "settings"
 	owner.changes = newHostChanges(owner)
 	owner.changes.start()
+	owner.primeRepositoryLocation()
 	if binding.UsageChanges != nil {
 		go owner.observeUsageSources()
 	}

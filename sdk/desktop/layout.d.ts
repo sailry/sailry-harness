@@ -27,6 +27,8 @@ export const Collapse: { new(id: string, props: { label: string; default_open?: 
 export const CollapseSlot: { new(id: string, props: { variant: "header" | "content" | "actions" }): import("gpui-kit").Element };
 /** Current host choice, or null before this group is materialized. */
 export function collapseOpen(id: string): boolean | null;
+/** Invoke a registered public navigation action in this view's captured scope. Input is specific to the action and cannot select a Node. */
+export function invokeAppAction(id: string, input?: Record<string, import("./api").Json>): Promise<void>;
 export const ScrollRegion: { new(id: string, props: { max_height: number }): import('gpui-kit').Element };
 /** One native text line with shaped baselines. reference_size aligns separate lines sharing a parent row. */
 export const TextLine: { new(id: string, props: { runs: { text: string; size: number; weight: number; color: string; gap?: number }[]; line_height: number; reference_size?: number | null }): import("gpui-kit").Element };

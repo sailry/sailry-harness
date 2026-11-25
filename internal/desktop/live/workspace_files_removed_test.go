@@ -16,11 +16,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	nodefiles "github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	filesPage "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func workspaceFilesWindow(root *Runtime, project *workspaceProject, before func(*ui.Context)) *ui.Tester {
@@ -40,10 +40,8 @@ func workspaceFilesWindow(root *Runtime, project *workspaceProject, before func(
 		root.App.Panel.Sync(project.panel)
 		ui.Row(c).FillWidth().FillHeight().Children(func() {
 			ui.Column(c.Key("document")).Grow(1).MinWidth(0).Children(func() {
-				filesPage.Render(c, project.panel)
-			})
-			ui.Column(c.Key("details")).Width(300).Children(func() {
-				filesPage.Details(c, project.panel)
+				project.panel.ActionDialog(c)
+				testassembly.FileDocument(c, project.panel)
 			})
 		})
 		kit.ToastHost(c)
@@ -70,11 +68,11 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(testassembly.RegisterFilePanelFixture))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
-				project.initialized, project.release = true, func() {}
+				project.initialized = true
 				root.workspace.selected = fixture.main.ID
 				directory, err := filepath.EvalSymlinks(t.TempDir())
 				if err != nil {
@@ -116,7 +114,7 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 						window.Frame()
 					}
 				}
-				project.readDirectory("", false)
+				readTestDirectory(project, "")
 				settle()
 				project.panel.FileOpen(relative)
 				settle()
@@ -142,7 +140,7 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 				}
 				if dirty {
 					text, changed := project.panel.FileDraft(relative)
-					if !changed || text != "my draft\n" || project.files[relative].Revision != original.Revision || !project.changedFiles[relative].missing || workspaceFileNode(project.data.Files, relative) == nil {
+					if !changed || text != "my draft\n" || project.files[relative].Revision != original.Revision || !project.changedFiles[relative].missing {
 						t.Fatal("a missing file lost its visible draft or the draft's source")
 					}
 				} else if count := countText(window.Texts(), i18n.In("en", "workspace_action_failed")); count != 1 {
@@ -152,6 +150,7 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 					t.Fatal(err)
 				}
 				project.pendingFiles = true
+				readTestDirectory(project, "plans")
 				settle()
 				settle()
 				if project.entryIsMissing(relative) {
@@ -173,11 +172,11 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(testassembly.RegisterFilePanelFixture))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
-				project.initialized, project.release = true, func() {}
+				project.initialized = true
 				root.workspace.selected = fixture.main.ID
 				const relative = "plans/host-owned-accounts.md"
 				project.fileLoaded(relative, protocol.FileContent{Path: relative, Text: "original\n", Revision: new("r1")})
@@ -229,13 +228,15 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 				} else {
 					project.loadFile(relative)
 				}
-				project.readDirectory("plans", true)
+				readTestDirectory(project, "plans")
 				settle()
 				oldRead <- link.Response{Output: protocol.Output{Kind: "file_content", Data: protocol.FileContent{Path: relative, Text: "obsolete\n", Revision: new("old")}}}
 				settle()
 				for range 4 {
 					project.pendingFiles = true
-					project.actions().ReadDirectory("plans")
+					if !project.entryIsMissing("plans") {
+						readTestDirectory(project, "plans")
+					}
 					settle()
 				}
 				mu.Lock()
@@ -245,7 +246,7 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 					t.Fatalf("a missing directory retried or accepted its obsolete child read: files=%d directories=%d", gotReads, gotPlanReads)
 				}
 				if dirty {
-					if text, changed := project.panel.FileDraft(relative); !changed || text != "my draft\n" || !project.changedFiles[relative].missing || workspaceString(project.files[relative].Revision) != "r1" || workspaceFileNode(project.data.Files, relative) == nil {
+					if text, changed := project.panel.FileDraft(relative); !changed || text != "my draft\n" || !project.changedFiles[relative].missing || workspaceString(project.files[relative].Revision) != "r1" {
 						t.Fatal("a missing directory lost its draft or failed to mark the missing source")
 					}
 				} else if _, loaded := project.files[relative]; loaded {
@@ -254,6 +255,7 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 				mu.Lock()
 				restored = true
 				mu.Unlock()
+				readTestDirectory(project, "")
 				project.pendingFiles = true
 				settle()
 				settle()
@@ -274,11 +276,11 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 
 func TestWorkspaceMissingDraftSaveRestoresFile(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
+		fixture := newPluginLocationTestFixture(t, shell.Assemble(testassembly.RegisterFilePanelFixture))
 		root := fixture.root
 		root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 		project := root.workspaceFor(fixture.main)
-		project.initialized, project.release = true, func() {}
+		project.initialized = true
 		const relative = "plans/host-owned-accounts.md"
 		project.fileLoaded(relative, protocol.FileContent{Path: relative, Text: "original\n", Revision: new("r1")})
 		project.panel.Files.Show(relative)
@@ -319,7 +321,8 @@ func TestWorkspaceMissingDraftSaveRestoresFile(t *testing.T) {
 				action = false
 				project.saveFile(c, relative, "my draft\n")
 			}
-			filesPage.Render(c, project.panel)
+			project.panel.ActionDialog(c)
+			testassembly.FileDocument(c, project.panel)
 			kit.ToastHost(c)
 		}, 1000, 700)
 		window.SetLocale("en")
@@ -354,11 +357,11 @@ func TestWorkspaceTrashRetiresReads(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(testassembly.RegisterFilePanelFixture))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
-				project.initialized, project.release = true, func() {}
+				project.initialized = true
 				root.workspace.selected = fixture.main.ID
 				const relative = "plans/host-owned-accounts.md"
 				project.fileLoaded(relative, protocol.FileContent{Path: relative, Text: "original\n", Revision: new("r1")})
@@ -418,7 +421,7 @@ func TestWorkspaceTrashRetiresReads(t *testing.T) {
 				} else {
 					project.loadFile(relative)
 				}
-				project.readDirectory("plans", true)
+				readTestDirectory(project, "plans")
 				settle()
 				if len(requests) != 1 || !strings.Contains(requests[0].Message, "plans") || slices.Contains(fixture.source.commandKinds(), "trash_entry") {
 					t.Fatal("trash bypassed its native destructive confirmation")
@@ -443,15 +446,17 @@ func TestWorkspaceTrashRetiresReads(t *testing.T) {
 					t.Fatalf("trash was misreported by its obsolete read: %q", window.Texts())
 				}
 				if dirty {
-					if text, changed := project.panel.FileDraft(relative); !changed || text != "my draft\n" || !project.changedFiles[relative].missing || project.files[relative].Revision == nil || workspaceFileNode(project.data.Files, relative) == nil {
+					if text, changed := project.panel.FileDraft(relative); !changed || text != "my draft\n" || !project.changedFiles[relative].missing || project.files[relative].Revision == nil {
 						t.Fatal("confirmed trash discarded its unsaved draft")
 					}
-				} else if _, loaded := project.files[relative]; loaded || slices.Contains(project.panel.Files.Open(), relative) || slices.Contains(root.App.Panel.Tabs, panel.Tab{Kind: panel.Files, ID: relative}) || workspaceFileNode(project.data.Files, relative) != nil {
+				} else if _, loaded := project.files[relative]; loaded || slices.Contains(project.panel.Files.Open(), relative) || slices.Contains(root.App.Panel.Tabs, panel.Tab{Kind: panel.Files, ID: relative}) {
 					t.Fatal("confirmed trash kept a clean editor or stale tree entry")
 				}
 				for range 4 {
 					project.pendingFiles = true
-					project.actions().ReadDirectory("plans")
+					if !project.entryIsMissing("plans") {
+						readTestDirectory(project, "plans")
+					}
 					settle()
 				}
 				mu.Lock()
@@ -479,11 +484,11 @@ func TestWorkspaceTrashFailureAndRecovery(t *testing.T) {
 	for _, unknown := range []bool{false, true} {
 		t.Run(map[bool]string{false: "failed", true: "uncertain"}[unknown], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(testassembly.RegisterFilePanelFixture))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
-				project.initialized, project.release = true, func() {}
+				project.initialized = true
 				const relative = "plans/host-owned-accounts.md"
 				project.fileLoaded(relative, protocol.FileContent{Path: relative, Text: "original\n", Revision: new("r1")})
 				project.panel.Files.Show(relative)
@@ -575,4 +580,8 @@ func TestWorkspaceTrashFailureAndRecovery(t *testing.T) {
 			})
 		})
 	}
+}
+
+func readTestDirectory(p *workspaceProject, directory string) {
+	p.readFileDirectory(p.runtime.ctx, directory, nil, func(*ui.Context, protocol.Directory, error) {})
 }

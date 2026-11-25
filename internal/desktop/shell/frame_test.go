@@ -34,11 +34,10 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	tt.Advance(time.Second)
 	tt.Frame()
 	if a.Panel.Active.Kind != panel.Files || !tt.HasText("README.md") {
-		t.Fatalf("⌘P did not show the file tree: %q", tt.Texts())
+		t.Fatalf("⌘P did not show the Files fixture: %q", tt.Texts())
 	}
-	// The tab shows the project's file beside the tree, passing until its
-	// menu keeps it; choosing another then opens it in its own tab, the
-	// tree staying beside it.
+	// The tab shows a passing document until its menu keeps it. The fixture's
+	// open action then opens another document in its own tab.
 	if !tt.HasText("A native desktop Agent workspace.") {
 		t.Fatalf("the Files tab does not show the file: %q", tt.Texts())
 	}
@@ -59,7 +58,7 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Fatalf("no shown tab in the panel's strip: %q", tt.Texts())
 	}
 	keepShown()
-	clickTree(t, tt, "go.mod")
+	clickButton(t, tt, "Open fixture go.mod")
 	tt.Frame()
 	if len(a.Panel.Tabs) != 2 || a.Panel.Active != (panel.Tab{Kind: panel.Files, ID: "sailry-go/go.mod"}) || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the file did not show in the Files tab: %v %q", a.Panel.Tabs, tt.Texts())
@@ -83,14 +82,16 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	tt.Frame()
 	click(t, tt, "README.md")
 	tt.Frame()
-	if _, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !tt.HasText("A native desktop Agent workspace.") {
-		t.Fatalf("the README tab does not show beside the tree: %q", tt.Texts())
+	if !tt.HasText("A native desktop Agent workspace.") {
+		t.Fatalf("the README tab did not restore its document: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-changes")
-	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser, panel.Terminal} {
+	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser} {
 		a.Panel.Open(k)
 	}
-	// Two files, two diffs and those four: one flat strip.
+	// Use the registered terminal contribution, not an unspecified terminal ID.
+	a.openPanel(panel.Terminal)
+	// Two files, two diffs and four other tabs use one strip.
 	if len(a.Panel.Tabs) != 8 {
 		t.Fatalf("tabs %v", a.Panel.Tabs)
 	}
@@ -428,11 +429,38 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	// columns' widths are: it is saved, restored, and absent from an
 	// earlier file, which loads the default.
 	t.Run("stacked list", func(t *testing.T) {
+		const (
+			kind      panel.Kind = "stacked-fixture"
+			listLabel            = "Fixture selection list"
+			docLabel             = "Fixture document"
+		)
+		newApp := func() *App {
+			side := float32(panel.WorkspaceSideWidth)
+			assembly := Assemble(func(a *Assembly) {
+				a.RegisterPanelResource(panel.Resource{
+					Kind: kind, Label: "Stacked fixture", Icon: panel.ResourceOf(panel.Files).Icon,
+					Render: func(c *ui.Context, _ *panel.State, _ panel.Tab) {
+						panel.WorkspacePair(c, "fixture", &side, panel.WorkspaceBarHeight+3*panel.WorkspaceRowHeight,
+							func(bool) { ui.Text(c.Key("document"), docLabel) },
+							func(bool) {
+								ui.Column(c.Key("list")).FillWidth().Height(480).Children(func() { ui.Text(c, listLabel) })
+							})
+					},
+				})
+			})
+			return NewWithAssembly(preview.Load(), assembly)
+		}
 		grip := func(tt *ui.Tester) ui.Rect {
 			t.Helper()
 			for _, e := range tt.AccessAll() {
-				if e.Role == ui.RoleSplitter && e.Bounds.H == 6 && e.Bounds.W > 6 {
-					return e.Bounds
+				b := e.Bounds
+				if e.Role == ui.RoleSplitter && b.H == 6 && b.W > 6 {
+					list, hasList := tt.Find(listLabel)
+					doc, hasDoc := tt.Find(docLabel)
+					if !hasList || !hasDoc || list.Y+list.H > b.Y || doc.Y < b.Y+b.H/2 {
+						t.Fatalf("the splitter %v did not separate the list %v from the document %v", b, list, doc)
+					}
+					return b
 				}
 			}
 			t.Fatalf("no handle under the list: %q", tt.Texts())
@@ -443,12 +471,12 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 			tt.SetLocale("en")
 			a.NavOpen = false
 			a.PanelOpen = true
-			a.Panel.Open(panel.Files)
+			a.Panel.Open(kind)
 			still(tt)
 			tt.Frame()
 			return tt
 		}
-		a := New(preview.Load())
+		a := newApp()
 		tt := open(a)
 		before := grip(tt)
 		if a.ListShare != panel.ListShare || a.Prefs().ListShare != panel.ListShare {
@@ -472,7 +500,7 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 		if err := SavePrefs(dir, a.Prefs()); err != nil {
 			t.Fatal(err)
 		}
-		b := New(preview.Load())
+		b := newApp()
 		b.SetPrefs(LoadPrefs(dir))
 		if got := grip(open(b)); b.ListShare != a.ListShare || got.Y != after.Y {
 			t.Errorf("the list came back with share %v at %v, want %v at %v", b.ListShare, got.Y, a.ListShare, after.Y)
@@ -480,7 +508,7 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, PrefsFile), []byte(`{"navWidth":280,"navOpen":true}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		d := New(preview.Load())
+		d := newApp()
 		d.SetPrefs(LoadPrefs(dir))
 		if got := grip(open(d)); d.ListShare != panel.ListShare || got.Y != before.Y {
 			t.Errorf("an earlier file gave the list share %v at %v, want %v at %v", d.ListShare, got.Y, panel.ListShare, before.Y)

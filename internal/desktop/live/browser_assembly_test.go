@@ -37,9 +37,11 @@ func TestBrowserPanelFollowsAssembly(t *testing.T) {
 		name     string
 		assembly shell.Assembly
 		watches  int
+		retire   bool
 	}{
 		{name: "without Browser"},
 		{name: "with Browser", assembly: shell.Assemble(browserdesktop.Register), watches: 1},
+		{name: "after retiring Browser", assembly: shell.Assemble(browserdesktop.Register), watches: 1, retire: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -86,6 +88,26 @@ func TestBrowserPanelFollowsAssembly(t *testing.T) {
 				}
 				if count := len(source.subscribed); count != test.watches {
 					t.Fatalf("the native window opened %d browser subscriptions, want %d", count, test.watches)
+				}
+				if test.retire {
+					s.New(panel.Browser)
+					id := s.Active.ID
+					if id == "" || r.browserTabFor(id) == nil {
+						t.Fatal("registered Browser did not allocate its page")
+					}
+					s.SetResources(nil)
+					for range 3 {
+						r.frameNativeWindowResources()
+						synctest.Wait()
+					}
+					if len(s.Tabs) != 0 || len(r.browser.tabs) != 0 || len(source.subscribed) != test.watches {
+						t.Fatal("retired Browser retained a tab or restarted its subscription")
+					}
+					select {
+					case <-source.subscribed[0].closed:
+					default:
+						t.Fatal("retired Browser still serves its subscription")
+					}
 				}
 				if err := r.Close(); err != nil {
 					t.Fatal(err)

@@ -1242,6 +1242,65 @@ model selector and send control. The application's own context meter, a
 session's context occupancy and usage, sits directly before the model selector,
 after package indicators. Placement does not change contribution values.
 
+For conversation links, one `composer` button may declare `link_scheme` in
+`ui`. It must be exactly `sailry-plugin-<package-name>`, where `<package-name>`
+is the manifest's `name`. Only that button may specify `priority`, an optional
+signed 32-bit JSON integer literal. Omit it to use `0`; decimal and exponent
+notation, quoted numbers and `null` are not accepted. For example, a package
+named `task-notes` can declare:
+
+```json
+{
+  "id": "open-note",
+  "slot": "composer",
+  "kind": "button",
+  "label": { "label": "Open note" },
+  "handler": "openNote",
+  "link_scheme": "sailry-plugin-task-notes",
+  "priority": 10
+}
+```
+
+Clicking `sailry-plugin-task-notes:/notes/today` in the Desktop conversation
+delivers `kind: "link"` with `value: "notes/today"` to `nextContributionEvent()`
+in the ordinary `desktop.ui_entry`. As with button clicks, acknowledge the
+event sequence in `reply_to`. The value is a package route, not a workspace
+path. It is at most 4096 bytes, with nonempty slash-separated segments using
+ASCII letters, digits, `.`, `_`, `~` or `-`. `.` and `..` segments, URL escapes,
+authorities, queries, fragments and explicit external opens are not accepted.
+
+The router checks the target and the visible mount's exact Node, worktree and
+session before comparing eligible registrations. The highest priority wins.
+Host defaults use `-1`, and native handlers without an explicit priority use
+`0`. Overlapping claims at the same priority conflict instead of choosing by
+load order. Other controls can still load when a link claim conflicts. The
+selected button must be published, visible and enabled; if its handler refuses
+the link, the router does not try a lower-priority handler. Hiding, disabling
+or unloading the mount releases its claim, so an eligible remaining
+registration can win the next click. Priority grants neither access to other
+schemes or sources nor SDK permissions. Without `link_scheme`, the package
+receives no link events. The event includes neither priority nor native callbacks.
+
+In the native Go SDK, use `Assembly.RegisterLinkHandler` (priority `0`) or
+`Assembly.RegisterLinkHandlerWithPriority` for static declarations. Conflicting
+static declarations are configuration errors. In a live window, the
+corresponding `App` methods return `(release, error)`;
+`App.RegisterDefaultLinkHandler` returns `error` and registers at `-1`. An
+equal-priority live conflict returns `revision_conflict` without replacing the
+registered handler or invoking any handler. A failed registration returns no
+release function.
+
+To request navigation from a mounted Desktop view, import `invokeAppAction`
+from `sailry/ui`. Pass the installed assembly's public action ID and its JSON
+input object, or omit the object when the action has no input. For example,
+`invokeAppAction("workspace.open-file", {path: "docs/README.md", line: 12})`
+opens a file in the captured worktree and requires `files.read`. This is not
+a Node command or a contribution intent. The same action registry handles
+native and plugin callers. It supplies the view's Node, worktree and session,
+checks the action's required manifest permission, and validates its input.
+Missing, private or denied actions do not try another handler. A link receiver
+declaration neither grants navigation permission nor is required to navigate.
+
 A `menu` contribution renders its `choices` as a Kit popup menu. The string
 `value` names the checked choice. Consecutive choices with the same `group` share
 a section and groups are separated. A choice `description` appears as muted text

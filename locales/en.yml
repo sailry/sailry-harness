@@ -249,6 +249,8 @@ artifact_preview_failed: Could not load preview
 artifact_preview_changed: File has changed
 artifact_preview_loading: Loading preview
 artifact_preview_large: File too large to preview
+artifact_preview_page: "Page {page}"
+artifact_preview_partial: Only part of this file is shown in the preview
 artifact_preview_password: Open this password-protected file in another app
 artifact_previous_page: Previous page
 artifact_next_page: Next page

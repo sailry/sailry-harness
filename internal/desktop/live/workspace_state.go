@@ -3,15 +3,13 @@ package live
 import (
 	"cmp"
 	"context"
-	"path"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -45,58 +43,52 @@ type workspaceClipboard struct {
 	worktree protocol.WorktreeID
 	paths    []string
 	cut      bool
+	capture  *struct{ marker byte }
 }
 type workspaceProject struct {
-	runtime                  *Runtime
-	owner                    protocol.Worktree
-	session                  protocol.SessionID
-	panel                    *panel.Project
-	data                     *viewmodel.Workspace
-	status                   protocol.GitStatus
-	statusKnown              bool
-	worktrees                protocol.GitWorktrees
-	locationsLoaded          bool
-	checkpointSessions       map[protocol.SessionID]*workspaceCheckpoints
-	reviewTurns              map[string]protocol.TurnID
-	turnView                 *protocol.TurnID
-	reviewTarget             *workspaceTurnReview
-	branches                 protocol.GitBranches
-	gitLogPages              []protocol.GitLog
-	gitLastRead              time.Time
-	gitRefreshTimer          *time.Timer
-	gitRefreshGeneration     uint64
-	files                    map[string]protocol.FileContent
-	changedFiles             map[string]changedFile
-	directories              map[string]bool
-	loading                  map[string]bool
-	failedReads              map[string]bool
-	missingEntries           map[string]bool
-	staleReads               map[string]bool
-	trashing                 map[string]bool
-	readReported             map[string]string // read key -> toast key of its reported failure
-	diffs                    map[string]bool
-	diffContents             map[string][]viewmodel.Hunk
-	manualDiffs              map[string]workspaceGitDiff
-	resourceSignature        string
-	resourceOlder            bool
-	restoreBatches           map[string]*fileBatch
-	uncertainOperations      map[string]protocol.Command
-	uncertainCallbacks       map[string]func(*ui.Context, protocol.Output)
-	searchCancel             context.CancelFunc
-	searchGeneration         uint64
-	openingFile              *workspaceFileOpen
-	directoryPages           map[string]protocol.Directory
-	directoryEntries         map[string][]protocol.FileEntry
-	directoryStates          map[string]panel.DirectoryState
-	documents                map[string]uint32
-	documentImages           map[string]*documentImages
-	artifacts                map[string]protocol.ArtifactSummary
-	hunks                    map[string]protocol.ConversationCheckpointHunkReview
-	cancel                   context.CancelFunc
-	release                  func()
-	initialized              bool
-	pendingFiles, pendingGit bool
-	gitRunning               int // Git actions sent and not yet answered
+	runtime                                   *Runtime
+	owner                                     protocol.Worktree
+	session                                   protocol.SessionID
+	panel                                     *panel.Project
+	data                                      *viewmodel.Workspace
+	status                                    protocol.GitStatus
+	statusKnown                               bool
+	repositoryUnavailable                     bool
+	repositoryNotice                          string
+	gitVisible                                bool
+	git                                       panel.GitWorkspaceBinding
+	worktrees                                 protocol.GitWorktrees
+	locationsLoaded                           bool
+	checkpointSessions                        map[protocol.SessionID]*workspaceCheckpoints
+	reviewTurns                               map[string]protocol.TurnID
+	turnView                                  *protocol.TurnID
+	reviewTarget                              *workspaceTurnReview
+	files                                     map[string]protocol.FileContent
+	legacyFiles                               map[legacyFileScope]*legacyFileWorkspace
+	changedFiles                              map[string]changedFile
+	loading                                   map[string]bool
+	failedReads                               map[string]bool
+	missingEntries                            map[string]bool
+	staleReads                                map[string]bool
+	trashing                                  map[string]bool
+	readReported                              map[string]string // read key -> toast key of its reported failure
+	resourceSignature                         string
+	resourceOlder                             bool
+	restoreBatches                            map[string]*fileBatch
+	uncertainOperations                       map[string]protocol.Command
+	uncertainCallbacks                        map[string]func(*ui.Context, protocol.Output)
+	searchCancel                              context.CancelFunc
+	searchGeneration                          uint64
+	openingFile                               *workspaceFileOpen
+	fileDirectoryRevision, fileDirectoryFence uint64
+	fileDirectoryCancel                       context.CancelFunc
+	filePicker                                filePicker
+	documents                                 map[string]uint32
+	documentImages                            map[string]*documentImages
+	artifacts                                 map[string]protocol.ArtifactSummary
+	hunks                                     map[string]protocol.ConversationCheckpointHunkReview
+	initialized                               bool
+	pendingFiles, pendingGit                  bool
 }
 
 func (r *Runtime) initWorkspace() {
@@ -223,6 +215,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	r.App.Panel.Actions = project.panel.Actions
 	r.App.Panel.HasProject = session.Project != nil
 	if !r.controller.Connected() {
+		project.releaseGitView()
 		return
 	}
 	project.resourceFrame()
@@ -230,45 +223,36 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 }
 
 func (p *workspaceProject) resourceFrame() {
-	files := p.runtime.App.HasWorkspaceResource(panel.Files)
-	repository := p.runtime.App.HasWorkspaceResource(panel.Changes)
-	if p.release == nil && (files || repository) {
-		p.watch(files, repository)
-	}
-	if !files && len(p.files) == 0 {
-		p.pendingFiles = false
-	} else if p.pendingFiles {
-		busy := false
+	if p.pendingFiles || !p.initialized {
+		busy := len(p.trashing) != 0
 		for key := range p.loading {
-			if strings.HasPrefix(key, "file/") || strings.HasPrefix(key, "file-check/") || strings.HasPrefix(key, "directory") {
+			if strings.HasPrefix(key, "file/") || strings.HasPrefix(key, "file-check/") {
 				busy = true
+				break
 			}
 		}
 		if !busy {
 			p.pendingFiles = false
+			p.initialized = true
 			p.refreshFiles()
 		}
 	}
-	if !repository {
-		p.pendingGit = false
-	} else if p.pendingGit && !p.loading["git-status"] && !p.loading["git-branches"] && !p.loading["git-log"] {
-		p.refreshWatchedGit()
-	}
-	if !p.initialized {
-		p.initialized = true
-		p.refreshFiles()
-		if repository {
-			p.readGit()
-		}
+	root := p.runtime.localRuntime()
+	if root.App.Page == shell.ConversationPage && !root.App.DemoOn() || root.App.ResourceKind() == panel.Changes && root.shownResourceWorkspace() == p {
+		p.gitFrame()
+	} else if p.gitVisible {
+		p.releaseGitView()
 	}
 }
 func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
 		return project
 	}
-	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, reviewTurns: map[string]protocol.TurnID{}}
+	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{}, files: map[string]protocol.FileContent{}, loading: map[string]bool{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, reviewTurns: map[string]protocol.TurnID{}}
 	project.panel = panel.NewLiveProject(worktree.ID.String(), project.data, project.actions())
 	project.panel.DocumentsLocked = r.documentsLocked
+	project.panel.FileDirectory = project.fileDirectoryHost()
+	project.bindGitWorkspace()
 	r.workspace.projects[worktree.ID] = project
 	return project
 }
@@ -291,22 +275,16 @@ func (p *workspaceProject) selectedSession(session protocol.SessionID) bool {
 
 func (p *workspaceProject) releaseView() {
 	p.releaseResourceWatch()
-	p.panel.ResetFileSearch()
+	p.filePicker.close()
+	p.cancelFileSearch()
+	p.panel.SuspendFilePreviews()
 	p.cancelFileOpen()
 	p.pruneClosedContent()
 }
 
 func (p *workspaceProject) releaseResourceWatch() {
-	if p.cancel != nil {
-		p.cancel()
-		p.cancel = nil
-	}
-	if p.release != nil {
-		p.release()
-		p.release = nil
-	}
 	p.pendingFiles, p.pendingGit = false, false
-	p.stopGitRefreshTimer()
+	p.releaseGitView()
 }
 
 // pruneClosedContent keeps the workspace's navigation state while dropping
@@ -321,37 +299,16 @@ func (p *workspaceProject) pruneClosedContent() {
 		delete(p.files, path)
 		delete(p.changedFiles, path)
 		delete(p.failedReads, "file/"+path)
-		if file := workspaceFileNode(p.data.Files, path); file != nil {
-			file.Text = ""
-		}
 	}
-	var released map[string]bool
-	for key := range p.diffContents {
-		_, path, _ := strings.Cut(key, "/")
-		if !p.panel.Git.UsesDiff(path) {
-			delete(p.diffContents, key)
-			delete(p.manualDiffs, key)
-			delete(p.diffs, key)
-			delete(p.failedReads, "diff/"+key)
-			if released == nil {
-				released = map[string]bool{}
-			}
-			released[path] = true
-		}
+	if p.git.Prune != nil {
+		p.git.Prune()
 	}
 	for path := range p.hunks {
 		if !p.panel.Git.UsesDiff(path) {
 			delete(p.hunks, path)
 		}
 	}
-	if len(released) > 0 && p.turnView == nil {
-		for index := range p.data.Changes {
-			change := &p.data.Changes[index]
-			if released[change.Path] {
-				change.Hunks = nil
-			}
-		}
-	}
+
 }
 func (r *Runtime) closeWorkspace() {
 	if r.workspace == nil {
@@ -361,20 +318,17 @@ func (r *Runtime) closeWorkspace() {
 	for _, project := range r.workspace.projects {
 		project.closeDocumentImages()
 		project.releaseResourceWatch()
-		project.panel.ResetFileSearch()
+		project.closeFileDirectory()
+		project.panel.SuspendFilePreviews()
 		project.cancelFileOpen()
 	}
 }
 func (p *workspaceProject) actions() *panel.Actions {
 	return &panel.Actions{
-		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
-		ReadFile: p.readFile, OpenFile: func(path string) bool { p.openWorkspaceFile(path, 0); return true }, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
+		ReadFile: p.readFile, OpenFile: func(path string) bool { p.openWorkspaceFile(path, 0); return true }, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, ReadDiff: p.readDiff, ReadDocument: p.readDocument, Restore: p.restore, Refresh: p.refresh,
 		DocumentMarkdown: p.documentMarkdown,
-		Search:           p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openWorkspaceFile, Pending: p.pendingWorkspaceOperations,
-		GitHistory: p.gitHistoryMore,
-		PendingGit: p.pendingGitOperations,
+		Search:           p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openWorkspaceFile, OpenManagedFile: p.openManagedFile, Pending: p.pendingWorkspaceOperations,
 		Loading:    p.resourcesLoading,
-		GitBusy:    func() bool { return p.gitRunning > 0 },
 		Upload:     func(directory string) { p.runtime.UploadWorkspaceFiles(p.owner.ID, directory) },
 		PasteReady: func() bool { return len(p.runtime.workspace.clipboard.paths) > 0 },
 	}
@@ -391,9 +345,6 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 			return
 		}
 		if err != nil {
-			if key == "git-log" {
-				p.projectGitHistory(false)
-			}
 			if strings.HasPrefix(key, "file/") {
 				relative := strings.TrimPrefix(key, "file/")
 				if faultCode(err) == protocol.ErrorCodeNotFound {
@@ -401,29 +352,10 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 				}
 				p.fileUnavailable(relative)
 			}
-			if key == "git-status" {
-				p.statusKnown = false
-				p.panel.SetGitState(panel.GitState{})
-			}
 			if p.failedReads == nil {
 				p.failedReads = map[string]bool{}
 			}
 			p.failedReads[key] = true
-			if strings.HasPrefix(key, "directory/") {
-				directory := strings.TrimPrefix(key, "directory/")
-				state := p.directoryStates[directory]
-				switch faultCode(err) {
-				case protocol.ErrorCodeNotFound:
-					p.entryMissing(directory)
-				case protocol.ErrorCodePermissionDenied:
-					p.discardDirectoryListing(directory)
-					state = panel.DirectoryState{Denied: true}
-				}
-				state.Loading = false
-				state.Failed = true
-				state.Next = false
-				p.directoryState(directory, state)
-			}
 			// The read's command names the failure; keys can hold paths.
 			if outcome, name, own := workspaceReadFailure(key, err); own {
 				kit.RecordFailure("desktop", command.Kind, outcome, err)
@@ -460,10 +392,10 @@ func (p *workspaceProject) reportRead(c *ui.Context, key string, outcome kit.Out
 		// Location reads use the main checkout, even when a linked checkout
 		// owns the repository status shown in the conversation.
 		reports, locationReport = shown.readReported, p.readReported[key]
-	} else if group == "git" && shown == p {
+	} else if group == "locations" && shown == p {
 		locationReport = p.locationWorkspace().readReported["git-worktrees"]
 	}
-	told := locationReport == name
+	told := locationReport == name || key == "git-worktrees" && shown != nil && shown.repositoryNotice == name
 	for other, reported := range reports {
 		if reported == name && workspaceReadGroup(other) == group {
 			told = true
@@ -499,13 +431,13 @@ func (p *workspaceProject) refresh() {
 		delete(location.failedReads, "git-worktrees")
 	}
 	p.readReported = nil
+	p.repositoryNotice = ""
 	p.turnView = nil
 	p.reviewTarget = nil
 	p.reviewTurns = map[string]protocol.TurnID{}
 	p.failedReads = map[string]bool{}
 	p.missingEntries = nil
 	p.documents = map[string]uint32{}
-	p.diffs = map[string]bool{}
 	p.refreshFiles()
 	p.readGit()
 
@@ -514,138 +446,6 @@ func (p *workspaceProject) refresh() {
 	}
 	p.resourceOlder = false
 	p.readSessionResources()
-}
-func (p *workspaceProject) readDirectory(directory string, refresh bool) {
-	if !refresh && (p.directories[directory] || p.entryIsMissing(directory)) {
-		return
-	}
-	if refresh {
-		delete(p.failedReads, "directory/"+directory)
-	}
-	p.requestDirectory(directory, nil, nil, len(p.directoryEntries[directory]), false)
-}
-func (p *workspaceProject) nextDirectory(directory string) {
-	page := p.directoryPages[directory]
-	if page.Next == nil {
-		return
-	}
-	delete(p.failedReads, "directory/"+directory)
-	p.requestDirectory(directory, page.Next, append([]protocol.FileEntry(nil), p.directoryEntries[directory]...), 0, p.directoryStates[directory].Partial)
-}
-func (p *workspaceProject) directoryState(directory string, state panel.DirectoryState) {
-	if state == (panel.DirectoryState{}) {
-		delete(p.directoryStates, directory)
-	} else {
-		if p.directoryStates == nil {
-			p.directoryStates = map[string]panel.DirectoryState{}
-		}
-		p.directoryStates[directory] = state
-	}
-	p.panel.SetDirectoryState(directory, state)
-}
-func (p *workspaceProject) requestDirectory(directory string, after *protocol.DirectoryCursor, accumulated []protocol.FileEntry, extent int, partial bool) {
-	key := "directory/" + directory
-	if p.loading[key] || p.failedReads[key] || p.trashBlocksRead(key) {
-		return
-	}
-	for current := directory; current != ""; {
-		parent := path.Dir(current)
-		if parent == "." || parent == current {
-			parent = ""
-		}
-		if p.directoryStates[parent].Denied {
-			return
-		}
-		current = parent
-	}
-	state := p.directoryStates[directory]
-	state.Loading = true
-	state.Failed = false
-	p.directoryState(directory, state)
-	p.read(key, protocol.Command{Kind: "list_directory", Data: protocol.CommandListDirectoryPayload{Worktree: p.owner.ID, Path: directory, After: after}}, func(c *ui.Context, out protocol.Output) {
-		page, ok := detail[protocol.Directory](out.Data)
-		if !ok {
-			state := p.directoryStates[directory]
-			state.Loading = false
-			state.Failed = true
-			p.directoryState(directory, state)
-			return
-		}
-		accumulated = append(accumulated, page.Entries...)
-		partial = partial || page.UnsupportedNames > 0 || page.Truncated && page.Next == nil
-		if page.Next != nil && len(accumulated) < extent {
-			p.requestDirectory(directory, page.Next, accumulated, extent, partial)
-			return
-		}
-		if p.directoryPages == nil {
-			p.directoryPages = map[string]protocol.Directory{}
-			p.directoryEntries = map[string][]protocol.FileEntry{}
-		}
-		p.directoryPages[directory] = page
-		p.directoryPage(c, directory, page, accumulated)
-		p.directoryState(directory, panel.DirectoryState{Loaded: true, Partial: partial, Next: page.Next != nil})
-	}, func(c *ui.Context, err error) {
-		if after != nil && faultCode(err) == protocol.ErrorCodeRevisionConflict {
-			p.readDirectory(directory, true)
-		}
-	})
-}
-func (p *workspaceProject) directoryPage(c *ui.Context, directory string, page protocol.Directory, accumulated []protocol.FileEntry) {
-	if p.directoryEntries == nil {
-		p.directoryEntries = map[string][]protocol.FileEntry{}
-	}
-	node := workspaceFileNode(p.data.Files, directory)
-	if node == nil {
-		return
-	}
-	p.entryFound(directory)
-	old := map[string]*viewmodel.FileNode{}
-	for _, child := range node.Children {
-		old[child.Path] = child
-	}
-	names := map[string]bool{}
-	entries := []protocol.FileEntry{}
-	children := []*viewmodel.FileNode{}
-	for _, entry := range accumulated {
-		if names[entry.Name] {
-			continue
-		}
-		names[entry.Name] = true
-		entries = append(entries, entry)
-		relative := path.Join(directory, entry.Name)
-		p.entryFound(relative)
-		child := old[relative]
-		if child == nil {
-			child = &viewmodel.FileNode{Name: entry.Name, Path: relative}
-		}
-		if entry.Kind == protocol.EntryKindDirectory {
-			if child.Children == nil {
-				child.Children = []*viewmodel.FileNode{}
-			}
-		} else {
-			child.Children = nil
-		}
-		children = append(children, child)
-	}
-	node.Children = children
-	p.keepMissingDrafts()
-	p.panel.PruneFileSelection()
-	p.directories[directory] = true
-	p.directoryEntries[directory] = entries
-}
-func workspaceFileNode(root *viewmodel.FileNode, relative string) *viewmodel.FileNode {
-	if root == nil {
-		return nil
-	}
-	if root.Path == relative {
-		return root
-	}
-	for _, child := range root.Children {
-		if found := workspaceFileNode(child, relative); found != nil {
-			return found
-		}
-	}
-	return nil
 }
 func (p *workspaceProject) readFile(relative string) {
 	if relative == "" || p.trashBlocksRead("file/"+relative) {
@@ -696,7 +496,6 @@ func (p *workspaceProject) fileLoaded(relative string, value protocol.FileConten
 	p.checkDocumentImagesRevision(relative, value.Revision)
 	p.files[relative] = value
 	p.clearChanged(relative)
-	p.ensureFile(relative)
 	p.panel.SetFile(relative, value.Text)
 	p.panel.SetFileUnavailable(relative, false)
 	p.panel.SetFileWritable(relative, value.Revision != nil && !value.Truncated)
@@ -714,202 +513,18 @@ func (p *workspaceProject) fileUnavailable(relative string) {
 	}
 	p.panel.SetFileUnavailable(relative, true)
 	p.panel.SetFileStatus(relative, false, false)
-	if !dirty {
-		if node := workspaceFileNode(p.data.Files, relative); node != nil {
-			node.Text = ""
-		}
-	}
 }
-func (p *workspaceProject) ensureFile(relative string) {
-	node := p.data.Files
-	parts := strings.Split(relative, "/")
-	for index, name := range parts {
-		childPath := strings.Join(parts[:index+1], "/")
-		var child *viewmodel.FileNode
-		for _, candidate := range node.Children {
-			if candidate.Path == childPath {
-				child = candidate
-				break
-			}
-		}
-		if child == nil {
-			child = &viewmodel.FileNode{Name: name, Path: childPath}
-			if index < len(parts)-1 {
-				child.Children = []*viewmodel.FileNode{}
-			}
-			node.Children = append(node.Children, child)
-		}
-		node = child
-	}
-}
-func (p *workspaceProject) readGit() {
-	for _, project := range p.runtime.workspace.projects {
-		if project.owner.Project != nil && p.owner.Project != nil && *project.owner.Project == *p.owner.Project {
-			project.locationsLoaded = false
-		}
-	}
-	if !p.runtime.App.HasWorkspaceResource(panel.Changes) {
-		return
-	}
-	p.gitLastRead = time.Now()
-	for key := range p.failedReads {
-		if strings.HasPrefix(key, "git-") || strings.HasPrefix(key, "diff/") || strings.HasPrefix(key, "hunks/") {
-			delete(p.failedReads, key)
-		}
-	}
-	p.diffs = map[string]bool{}
-	p.inspectGit()
-}
-func (p *workspaceProject) inspectGit() {
-	if !p.runtime.App.HasWorkspaceResource(panel.Changes) {
-		return
-	}
-	p.read("git-status", protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
-		if value, ok := detail[protocol.GitStatus](out.Data); ok {
-			p.status = value
-			p.statusKnown = true
-			p.projectStatus(value)
-			if value.Kind != protocol.RepositoryKindDirectory {
-				p.readGitHistory()
-			} else {
-				p.data.Repo = viewmodel.Repository{}
-			}
-		}
-	})
-}
-func (p *workspaceProject) readGitHistory() {
-	p.read("git-branches", protocol.Command{Kind: "list_git_branches", Data: protocol.CommandListGitBranchesPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
-		if value, ok := detail[protocol.GitBranches](out.Data); ok {
-			p.branches = value
-			p.projectBranches(value)
-		}
-	})
-	p.readGitLog(nil, true)
-}
-func (p *workspaceProject) projectStatus(value protocol.GitStatus) {
-	conflicts := map[string]bool{}
-	for _, entry := range value.Entries {
-		if entry.Conflicted {
-			conflicts[entry.Path] = true
-		}
-	}
-	p.panel.SetGitState(panel.GitState{Known: true, Kind: string(value.Kind), Repositories: append([]string(nil), value.Repositories...), Conflicts: conflicts, Head: value.Head != nil, HeadMessage: workspaceString(p.branches.Sync.HeadMessage)})
-	if p.turnView != nil {
-		return
-	}
-	old := map[string][]viewmodel.Hunk{}
-	for _, change := range p.data.Changes {
-		old[change.Path] = change.Hunks
-	}
-	p.data.Changes = []viewmodel.FileChange{}
-	for _, entry := range value.Entries {
-		change := viewmodel.FileChange{Path: entry.Path, Staged: workspaceChange(entry.Staged), Unstaged: workspaceChange(entry.Unstaged), Untracked: entry.Untracked, Added: int(entry.Diff.Additions), Removed: int(entry.Diff.Deletions), Hunks: old[entry.Path]}
-		if entry.Conflicted {
-			// An unmerged path is a change still to be staged.
-			change.Unstaged = "U"
-		}
-		change.Status = change.Unstaged
-		if change.Status == "" {
-			change.Status = change.Staged
-		}
-		if entry.Untracked {
-			change.Status = "A"
-		}
-		p.data.Changes = append(p.data.Changes, change)
-	}
-	if value.Branch != nil {
-		p.data.Repo.Branch = *value.Branch
-	} else {
-		p.data.Repo.Branch = ""
-	}
-	if p.panel.Git.Change() == "" && len(p.data.Changes) > 0 {
-		// The change a host shows first. Its diff opens with the host: a
-		// status read opens no tab, and a closed diff stays closed.
-		p.panel.Git.First(p.data.Changes[0].Path)
-	}
-}
-func workspaceChange(kind *protocol.GitChangeKind) string {
-	if kind == nil {
-		return ""
-	}
-	switch *kind {
-	case protocol.GitChangeKindAdded:
-		return "A"
-	case protocol.GitChangeKindDeleted:
-		return "D"
-	case protocol.GitChangeKindRenamed:
-		return "R"
-	case protocol.GitChangeKindTypeChanged:
-		return "T"
-	}
-	return "M"
-}
-func (p *workspaceProject) projectBranches(value protocol.GitBranches) {
-	p.panel.SetGitHeadMessage(workspaceString(value.Sync.HeadMessage))
-	repo := &p.data.Repo
-	repo.Branches = nil
-	repo.Remotes = nil
-	repo.Tags = nil
-	repo.Stashes = nil
-	if value.Current != nil {
-		repo.Branch = *value.Current
-	} else {
-		repo.Branch = ""
-	}
-	if value.Sync.Upstream != nil {
-		repo.Upstream = *value.Sync.Upstream
-	} else {
-		repo.Upstream = ""
-	}
-	for _, branch := range value.Entries {
-		repo.Branches = append(repo.Branches, viewmodel.Branch{Name: branch.Name, Commit: branch.Commit, Remote: branch.Remote, Current: branch.Current, Tracking: value.Sync.Tracking[branch.Name]})
-	}
-	names := []string{}
-	for name := range value.Sync.RemoteUrls {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		repo.Remotes = append(repo.Remotes, viewmodel.Remote{Name: name, URL: value.Sync.RemoteUrls[name]})
-	}
-	for _, tag := range value.Sync.Tags {
-		repo.Tags = append(repo.Tags, tag.Name)
-	}
-	for _, stash := range value.Sync.Stashes {
-		repo.Stashes = append(repo.Stashes, stash.Message)
-	}
-	stashes := []string{}
-	for _, stash := range value.Sync.Stashes {
-		stashes = append(stashes, stash.Commit)
-	}
-	tags := map[string]string{}
-	for _, tag := range value.Sync.Tags {
-		tags[tag.Name] = tag.Commit
-	}
-	p.panel.SetGitTargets(stashes, tags)
-	p.panel.SetGitOperation(value.Sync.Operation != nil)
-}
-
 func (p *workspaceProject) refreshFiles() {
-	files := p.runtime.App.HasWorkspaceResource(panel.Files)
-	if !files && len(p.files) == 0 {
-		return
-	}
-	if len(p.trashing) > 0 {
+	if len(p.trashing) != 0 {
 		p.pendingFiles = true
 		return
 	}
+	p.fileDirectoryRevision++
 	for key := range p.failedReads {
 		if relative, file := strings.CutPrefix(key, "file/"); file && !p.entryIsMissing(relative) {
 			delete(p.failedReads, key)
-		} else if directory, listing := strings.CutPrefix(key, "directory/"); files && listing && !p.entryIsMissing(directory) {
-			delete(p.failedReads, key)
 		}
 	}
-	if files {
-		p.refreshDirectories()
-	}
-	// An explicitly opened file can outlive the directory browser feature.
 	for filename := range p.files {
 		if p.entryIsMissing(filename) {
 			continue
@@ -920,80 +535,4 @@ func (p *workspaceProject) refreshFiles() {
 			p.loadFile(filename)
 		}
 	}
-}
-
-func (p *workspaceProject) refreshDirectories() {
-	directories := []string{""}
-	for directory := range p.directories {
-		if directory != "" {
-			if workspaceFileNode(p.data.Files, directory) == nil {
-				delete(p.directories, directory)
-				continue
-			}
-			directories = append(directories, directory)
-		}
-	}
-	for relative := range p.missingEntries {
-		directory := path.Dir(relative)
-		if directory == "." {
-			directory = ""
-		}
-		if directory != "" && !p.directories[directory] && workspaceFileNode(p.data.Files, directory) != nil {
-			directories = append(directories, directory)
-		}
-	}
-	for _, directory := range directories {
-		if !p.entryIsMissing(directory) {
-			p.readDirectory(directory, true)
-		}
-	}
-}
-
-func (p *workspaceProject) watch(files, repository bool) {
-	ctx, cancel := context.WithCancel(p.runtime.ctx)
-	var releases []func()
-	observe := func(git bool, pending *bool) {
-		release, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, git, func(protocol.Update) {
-			p.runtime.enqueue(func(*ui.Context) {
-				if ctx.Err() == nil {
-					*pending = true
-				}
-			})
-		})
-		if err == nil {
-			releases = append(releases, release)
-		}
-	}
-	if files {
-		observe(false, &p.pendingFiles)
-	}
-	if repository {
-		observe(true, &p.pendingGit)
-	}
-	if len(releases) == 0 {
-		cancel()
-		return
-	}
-	p.cancel = cancel
-	p.release = func() {
-		for _, close := range releases {
-			close()
-		}
-	}
-}
-func (r *Runtime) openWorkspaceFile(sessionID protocol.SessionID, worktreeID protocol.WorktreeID, relative string) {
-	session, ok := r.session(sessionID.String())
-	if !ok || session.Worktree != worktreeID {
-		r.enqueue(func(c *ui.Context) {
-			r.reportKeys(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "workspace association changed"}, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-		})
-		return
-	}
-	r.App.Sidebar.Selected = sessionID.String()
-	r.workspaceFrame(nil)
-	project := r.workspace.projects[worktreeID]
-	if project == nil {
-		return
-	}
-	project.openWorkspaceFile(relative, 0)
 }

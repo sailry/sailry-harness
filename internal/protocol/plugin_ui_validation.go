@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"math"
 	"slices"
 	"strconv"
@@ -14,7 +15,23 @@ const (
 	PluginUiMaxEntries    = 32
 	PluginUiMaxChoices    = 256
 	PluginUiMaxStateBytes = 64 * 1024
+	PluginUiMaxLinkPath   = 4096
 )
+
+const pluginLinkSchemePrefix = "sailry-plugin-"
+
+func PluginLinkScheme(name string) string { return pluginLinkSchemePrefix + name }
+
+func ValidPluginLinkScheme(scheme string) bool {
+	name, found := strings.CutPrefix(scheme, pluginLinkSchemePrefix)
+	return found && desktopPackageName(name) && name == strings.ToLower(name)
+}
+
+func ValidPluginLinkPath(path string) bool {
+	return len(path) <= PluginUiMaxLinkPath && path != "." && fs.ValidPath(path) && !strings.ContainsFunc(path, func(c rune) bool {
+		return !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._~-", c))
+	})
+}
 
 func pluginUiIdentifier(value string) bool {
 	return value != "" && len(value) <= 128 && !strings.ContainsFunc(value, func(character rune) bool {
@@ -44,11 +61,18 @@ func ValidPluginUiContributions(declarations []PluginUiContribution) bool {
 	}
 	ids, commands := map[string]bool{}, map[string]bool{}
 	panels := 0
+	link := false
 	for _, declaration := range declarations {
 		if ids[declaration.ID] || !declaration.Valid() {
 			return false
 		}
 		ids[declaration.ID] = true
+		if declaration.LinkScheme != nil {
+			if link {
+				return false
+			}
+			link = true
+		}
 		if command := declaration.Command; command != nil {
 			if commands[command.Name] {
 				return false
@@ -64,6 +88,12 @@ func ValidPluginUiContributions(declarations []PluginUiContribution) bool {
 
 func (declaration PluginUiContribution) Valid() bool {
 	if !pluginUiIdentifier(declaration.ID) || !declaration.Label.Valid() || !pluginUiIcon(declaration.Icon) {
+		return false
+	}
+	if declaration.LinkScheme != nil && (declaration.Slot != PluginUiSlotComposer || declaration.Kind != PluginUiKindButton || !ValidPluginLinkScheme(*declaration.LinkScheme)) {
+		return false
+	}
+	if declaration.Priority.present && declaration.LinkScheme == nil {
 		return false
 	}
 	if declaration.Intent != nil && (!pluginUiIdentifier(*declaration.Intent) || declaration.Kind != "button" && declaration.Kind != "popover") {

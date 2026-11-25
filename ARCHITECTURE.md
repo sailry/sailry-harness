@@ -91,7 +91,19 @@ separate loading and trust rules but should describe the same kinds of host slot
 A module owns its feature UI, commands and event handlers. The shell owns shared
 controls, layout and the lifetime of each mounted contribution; removing a module
 must not leave entry points, subscriptions or background reads for its feature.
-The execution Node enforces permissions independently of UI availability.
+Registration declares a contribution once; binding attaches its implementation to
+an execution Node or a live window. A public action has one owner and a stable
+ID. Menus and shortcuts can reference that action without importing its module;
+keycaps show the effective binding, not a second copy of its default. For an
+overridable link route, select the highest-priority eligible handler in the
+originating scope. System defaults use priority -1; a contribution with no
+explicit priority uses 0. Equal priorities for the same route in the same scope
+conflict; registration order does not break ties. Priority grants no permission
+and is independent of menu order and action identity. Dispatch once: a rejected
+or failed invocation is never retried through a lower-priority handler. Disable, unmount and shutdown release the corresponding
+registrations and reads without undoing committed work or deleting user data.
+Private widget interactions need no public action ID. The execution Node enforces
+permissions independently of UI availability.
 
 Behavior tests and their dedicated fixtures live with the implementation they
 exercise: in the owning Go module or in the Flutter `test/` directory mirroring
@@ -1126,9 +1138,11 @@ state.
 Packages use the Agent Plugins manifest and Sailry extension declarations in
 `schemas/`. Node owns validation, immutable resources, permissions, private KV,
 callbacks, tools, dispatch and credentials. Official Harness Desktop and Host
-start new profiles with no installed plugins. The native Files page and file
-tools do not require the optional `files` panel package. Code also starts with
-no installed plugins. Downstream products set `Assembly.BundledDefaults`
+start new profiles with no installed plugins. Harness supplies scoped file reads,
+search, edits and revision checks without a file-management page. The Files
+workbench and repository-management UI belong to Code modules. Opening an
+explicit file in the shared editor does not require either workbench. Code also
+starts with no installed plugins. Downstream products set `Assembly.BundledDefaults`
 with a `[]node.DefaultPlugin` from `sdk/native/node`, separately from `Modules`.
 Each entry selects a package by name and its initial enabled state from the
 product's own `Assembly.BundledPackages` filesystem. Empty and nil lists both
@@ -1183,8 +1197,9 @@ actions to the same Client. Desktop-only settings use the local installation
 and settings for a missing or unreachable remote installation show that state.
 Workspace content,
 navigation and details project into the shell's common columns; shell layout owns
-resizing, dividers and visibility. SSH and database workflows use package
-surfaces and reusable native components. The official assembly supplies fresh native
+resizing, dividers and visibility. Code selects SSH and database workbenches
+that bind their views to the window's services. The shell owns the reusable
+editors, credential controls and window lifetime, not the connection workflows. The official assembly supplies fresh native
 workspace and settings contributions to each window. Settings navigation and
 search combine these pages with the selected Node's plugin pages. Each source
 updates its own entries. The composer reads model and team choices from the
@@ -1194,8 +1209,8 @@ full-page resource lists use the shell's details column, width and fold toggle,
 while conversation tabs retain their compact adaptive layout. Files and Git
 share their own project and worktree selection per window. Their breadcrumb
 opens a project's main worktree. Follow current conversation uses the
-conversation's worktree. Their package
-navigation and panel surfaces are not mounted. Local terminal tabs also
+conversation's worktree. Replacement of a historical package contribution is
+scoped to the registered native feature and the verified package identity. Local terminal tabs also
 use the shared native terminal, which packages can embed. A package name does not
 grant a privileged renderer.
 

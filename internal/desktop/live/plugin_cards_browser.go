@@ -98,7 +98,9 @@ func (r *Runtime) openPluginCardBrowser(view *ui.Context, card *pluginCardInstan
 				return
 			}
 			if mode == protocol.PluginCardModeExternal {
-				current.OpenURL(address)
+				if err := card.owner.openExternalConversationURL(current, "", address); err != nil {
+					r.pluginCardToast(current, i18n.T(current, "plugins_failed"), true)
+				}
 				return
 			}
 			if err := r.createPluginCardBrowser(card, target, address); err != nil {
@@ -174,7 +176,9 @@ func (r *Runtime) openPluginCardSettings(card *pluginCardInstance) {
 				r.pluginCardToast(view, i18n.T(view, "plugins_failed"), true)
 				return
 			}
-			card.owner.openPackageDetails(view, info.Summary.Name)
+			if err := card.owner.openLinkedPackage(view, "", info.Summary.Name); err != nil {
+				r.pluginCardToast(view, i18n.T(view, "plugins_failed"), true)
+			}
 		})
 	}) {
 		card.settings = false

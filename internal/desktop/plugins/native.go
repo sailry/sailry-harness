@@ -23,6 +23,7 @@ type NativeBinding struct {
 	TerminalAppearance func() (protocol.TerminalAppearance, error)
 	Operations         map[string]HostOperation
 	Components         []NativeComponent
+	InvokeAppAction    func(*ui.Context, string, json.RawMessage) error
 	ChooseSecretFile   func(context.Context, string) ([]byte, string, error)
 	Header             func(json.RawMessage) error
 	// Details receives what a Workspace supplies to the Shell's right
@@ -35,7 +36,8 @@ type NativeBinding struct {
 	// Models are the Node's models as the application names them: a
 	// ModelPopup shows the names, marks and scores of the ones its catalog
 	// lists. Without it a model shows under its catalog's own identifiers.
-	Models func() []kit.ModelOption
+	Models             func() []kit.ModelOption
+	RepositoryLocation func(protocol.WorktreeID, protocol.RepositoryKind, string)
 	// OnEmit observes native UI events before they are queued for scripts.
 	OnEmit func(name string, value any)
 	state  *nativeState

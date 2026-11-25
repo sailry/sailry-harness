@@ -172,10 +172,11 @@ export type ContributionState = {
   segments?: {label:LocalizedLabel;tone:"muted"|"success"|"danger"|"warning"|"accent"}[];
   reply_to?: number;
 };
-export type ContributionEvent = {
-  sequence: number; id: string; handler: string; kind: "invoke" | "change" | "search";
-  value: string | number | boolean | null;
-};
+export type ContributionEvent = { sequence: number; id: string; handler: string } & (
+  | { kind: "invoke" | "change" | "search"; value: string | number | boolean | null }
+  /** A relative route within this package's declared conversation link scheme, not a filesystem path. The manifest's routing priority is not part of the event. */
+  | { kind: "link"; value: string }
+);
 /** Status state belongs to the execution Node; publishing a Status id is rejected. */
 export function publishContributions(states: ContributionState[]): void;
 /** Close this controller's declared Status popover without changing its Node state. */

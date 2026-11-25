@@ -30,6 +30,9 @@ type pluginNativeLocation struct {
 	read      bool
 	write     bool
 	control   bool
+	repositoryWorktree protocol.WorktreeID
+	repositoryKind protocol.RepositoryKind
+	repositoryBranch string
 }
 
 func (state *pluginNativeState) locationOperations() {
@@ -42,6 +45,15 @@ func (state *pluginNativeState) locationOperations() {
 		location.read = slices.Contains(info.Extension.Actions, protocol.PluginActionReadWorktrees)
 		location.write = slices.Contains(info.Extension.Actions, protocol.PluginActionWriteWorktrees)
 		location.control = slices.Contains(info.Extension.Actions, protocol.PluginActionControlConversation)
+		if location.read && slices.Contains(info.Extension.Actions, protocol.PluginActionReadGit) {
+			state.native.RepositoryLocation = func(id protocol.WorktreeID, kind protocol.RepositoryKind, branch string) {
+				state.post(func(*ui.Context) {
+					if state.native.Context.Err() != nil { return }
+					location.repositoryWorktree, location.repositoryKind, location.repositoryBranch = id, kind, branch
+					location.refresh()
+				})
+			}
+		}
 	}
 	if state.resource == nil && state.composer != nil {
 		location.composer = state.composer.source
@@ -167,21 +179,21 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 			location.known[tree.ID] = tree
 		}
 	}
-	if worktree != nil && state.runtime.workspace != nil {
-		if project := state.runtime.workspace.projects[*worktree]; project != nil && project.statusKnown {
-			branch := workspaceString(project.status.Branch)
-			if branch == "" {
-				head := workspaceString(project.status.Head)
-				branch = head[:min(7, len(head))]
-			}
-			value["branch"] = branch
-			if source != nil {
-				value["git"] = project.status.Kind != protocol.RepositoryKindDirectory
-				value["git_status"] = "repository"
-				if project.status.Kind == protocol.RepositoryKindDirectory {
-					value["git_status"] = "plain_directory"
+	if worktree != nil {
+		kind, branch := protocol.RepositoryKind(""), ""
+		if *worktree == location.repositoryWorktree { kind, branch = location.repositoryKind, location.repositoryBranch }
+		if state.runtime.workspace != nil {
+			if project := state.runtime.workspace.projects[*worktree]; kind == "" && project != nil && project.statusKnown {
+				kind, branch = project.status.Kind, workspaceString(project.status.Branch)
+				if branch == "" {
+					head := workspaceString(project.status.Head)
+					branch = head[:min(7, len(head))]
 				}
 			}
+		}
+		if kind != "" {
+			value["branch"], value["git"], value["git_status"] = branch, kind != protocol.RepositoryKindDirectory, "repository"
+			if kind == protocol.RepositoryKindDirectory { value["git_status"] = "plain_directory" }
 		}
 	}
 	return value, nil

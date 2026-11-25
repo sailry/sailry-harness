@@ -56,7 +56,7 @@ func panelTabs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), testassembly.Full())
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), gitFixtureAssembly(testassembly.Full()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,9 +423,9 @@ func panelTabs(t *testing.T) {
 		r.OpenSession(session.ID.String())
 		return app.Sidebar.Selected == session.ID.String() && r.workspace != nil && r.workspace.selected == session.Worktree && app.Panel.Session
 	})
-	wait("the worktree's files and changes", func() bool {
+	wait("the worktree's changes", func() bool {
 		pr := r.workspaceProject()
-		return pr != nil && len(pr.Data.Changes) == 1 && pr.Data.Files != nil && len(pr.Data.Files.Children) > 0
+		return pr != nil && len(pr.Data.Changes) == 1
 	})
 	// Reading the worktree opened no tab by itself.
 	if len(app.Panel.Tabs) != 0 {
@@ -476,7 +476,7 @@ func panelTabs(t *testing.T) {
 	}
 	workspace.refresh()
 	wait("the refreshed Git status", func() bool {
-		return !workspace.loading["git-status"] && workspace.panel.Git.Change() == diff.ID
+		return workspace.statusKnown && workspace.panel.Git.Change() == diff.ID
 	})
 	if len(app.Panel.Tabs) != 0 {
 		t.Fatalf("a Git refresh reopened a closed tab: %v", app.Panel.Tabs)
@@ -522,7 +522,7 @@ func panelTabs(t *testing.T) {
 	if err := shell.SavePrefs(dir, app.Prefs()); err != nil {
 		t.Fatal(err)
 	}
-	again, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), testassembly.Full())
+	again, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), gitFixtureAssembly(testassembly.Full()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -143,7 +143,7 @@ func TestWorkspaceStatusRefreshKeepsLiveTranscripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = controller.Close() })
-	r, err := NewWithAssembly(t.Context(), controller, preferences.ForStartup(t.TempDir()), testassembly.Full())
+	r, err := NewWithAssembly(t.Context(), controller, preferences.ForStartup(t.TempDir()), gitFixtureAssembly(testassembly.Full()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,6 @@ func TestWorkspaceStatusRefreshKeepsLiveTranscripts(t *testing.T) {
 		additions = 1157
 		transport.mu.Unlock()
 		// Bypass only the quiet-refresh floor; the Client receives the real update.
-		r.workspace.projects[tree].gitLastRead = time.Time{}
 		transport.repository.updates <- protocol.Update{Kind: "files_changed", Data: protocol.UpdateFilesChangedPayload{Node: snapshot.Node, Worktree: tree, References: additions}}
 	}, func() bool { return has("Git +1157 -2") }, -1)
 	replay("plugin status", func() { pushBadge("Plugin 2048") }, func() bool { return has("Plugin 2048") }, -1)

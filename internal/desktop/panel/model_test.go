@@ -41,7 +41,7 @@ func testSessionResources(t *testing.T) {
 		return out
 	}
 	four := []Kind{Browser, Terminal, Files, Changes}
-	s := New(&viewmodel.Workspace{})
+	s := NewSample(&viewmodel.Workspace{})
 	if got := kinds(s); !slices.Equal(got, four) {
 		t.Fatalf("the preview lists %v", got)
 	}
@@ -146,7 +146,7 @@ func testSessionResources(t *testing.T) {
 	if pr.Git.Change() != "a.go" || len(pr.Git.Open()) != 0 {
 		t.Fatalf("the first change: shown %q, open %v", pr.Git.Change(), pr.Git.Open())
 	}
-	s = New(pr.Data)
+	s = NewSample(pr.Data)
 	s.Sync(pr)
 	if len(s.Tabs) != 0 {
 		t.Fatalf("a change to show first opened a tab: %v", s.Tabs)
@@ -168,7 +168,7 @@ func testSessionResources(t *testing.T) {
 // A live tab without content shows the standard empty state, or a spinner
 // while its content is read: never a blank body.
 func testEmptyStates(t *testing.T) {
-	s := New(&viewmodel.Workspace{})
+	s := NewSample(&viewmodel.Workspace{})
 	s.Live, s.Session = true, true
 	loading := false
 	s.Actions = &Actions{Loading: func(Kind) bool { return loading }}
@@ -239,7 +239,7 @@ func testClosedChoosesNext(t *testing.T) {
 // browser pages and terminals each new; a kind the panel no longer opens
 // is not shown.
 func testFlatTabs(t *testing.T) {
-	s := New(preview.Load().Workspace)
+	s := NewSample(preview.Load().Workspace)
 	s.Open(Files)
 	s.Open(Changes)
 	s.Show(Tab{"file", "a.go"})
@@ -274,7 +274,7 @@ func testItemTabs(t *testing.T) {
 	w := preview.Load().Workspace
 	ps := NewProjects(w)
 	one := ps.Of("one")
-	s := New(w)
+	s := NewSample(w)
 	s.Sync(one)
 	s.Open(Files)
 	s.Show(Tab{Files, "a.go"})

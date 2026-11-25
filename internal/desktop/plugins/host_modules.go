@@ -32,7 +32,7 @@ var nativeModuleNames = []hostModuleNames{
 		"listBrowserProfiles", "importBrowserProfile", "nextModelContext", "nextComposerChange", "setComposerOption",
 		"nextControlEvent", "nextNavigationTabEvent", "nextTableEvent", "nextTreeEvent", "nextMenuEvent", "nextContextMenuEvent",
 		"modal_closed", "nextToastEvent", "nextPaneEvent", "nextPickerEvent", "nextProviderContexts",
-		"invokeContribution", "canInvokeContribution", "nextLocationChange", "selectLocation", "worktreeHasDrafts",
+		"invokeContribution", "canInvokeContribution", "invokeAppAction", "nextLocationChange", "selectLocation", "worktreeHasDrafts",
 		"releaseWorktree", "openResource", "openFile", "openProjectCreation", "canInsertFileReferences",
 		"insertFileReferences", "confirmAction", "nextResourceTarget", "nextWindowActivation",
 	}},

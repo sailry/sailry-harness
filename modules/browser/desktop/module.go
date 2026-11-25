@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -11,10 +10,12 @@ import (
 func Register(assembly *shell.Assembly) {
 	assembly.RegisterPanelResource(panel.Resource{
 		Kind: panel.Browser, Label: "resource_browser", Icon: icons.Web, Order: 10,
-		Mods: ui.Cmd, Key: ui.KeyT, Render: panel.RenderBrowserResource,
+		Keystroke: "secondary-t", Numbered: true, New: (*panel.State).OpenBrowserTab,
+		Render: renderTab, Title: panel.BrowserTitle, Busy: panel.BrowserBusy, Release: panel.ReleaseBrowserTab,
 	}, func(host shell.PanelResourceHost) {
 		if host.BindBrowser != nil {
 			host.BindBrowser()
+			registerLinks(host)
 		}
 	})
 	page := Page()

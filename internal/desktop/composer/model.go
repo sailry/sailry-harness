@@ -2,6 +2,7 @@ package composer
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
 // The composer's view model: what the backend offers it (Context) and what
@@ -47,10 +48,12 @@ type Context struct {
 	// PackageBranch says a package's context control chooses the branch and
 	// worktree of the conversation's Git project: the bar shows that one
 	// and not the native worktree menu, so there is one such control.
-	PackageBranch bool
+	PackageBranch   bool
+	CheckoutControl func(*ui.Context, bool)
 	// NoWorktreeCreate leaves New worktree out of the worktree menu: the
 	// window assembles no worktree actions.
 	NoWorktreeCreate bool
+	WorktreeOptions  func(*ui.Context, *kit.Menu)
 	// Indicators are the toolbar's progress rings in their order: a
 	// session's context usage. A draft without a session has none.
 	Indicators []Indicator

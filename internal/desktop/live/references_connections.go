@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -288,31 +289,20 @@ func sshReferenceTarget(id string) (protocol.ConversationReferenceTarget, bool) 
 	return protocol.ConversationReferenceTarget{Kind: "ssh", Data: parsed}, true
 }
 
-// connectionReferenceDetails returns the dialog subtitle key and body of a sent
-// database or SSH reference while its profile is still referable.
-func connectionReferenceDetails(snapshot protocol.Snapshot, scope connectionScope, target protocol.ConversationReferenceTarget) (string, string, bool) {
-	switch target.Kind {
-	case "ssh":
-		id, ok := detail[protocol.SshID](target.Data)
-		for _, profile := range referenceSsh(snapshot, scope) {
-			if ok && profile.ID == id {
-				return "reference_ssh", profile.Username + "@" + profile.Host + ":" + strconv.FormatUint(uint64(profile.Port), 10), true
-			}
-		}
-	case "database":
-		payload, ok := detail[protocol.ConversationReferenceTargetDatabasePayload](target.Data)
-		for _, profile := range referenceDatabases(snapshot, scope) {
-			if ok && profile.ID == payload.Connection {
-				parts := []string{profile.Name}
-				if payload.Database != nil {
-					parts = append(parts, *payload.Database)
-				}
-				if payload.Table != nil {
-					parts = append(parts, payload.Table.Schema+"."+payload.Table.Name)
-				}
-				return "reference_databases", strings.Join(parts, " / "), true
-			}
+func referenceSSHEndpoint(snapshot protocol.Snapshot, scope connectionScope, id protocol.SshID) (shell.SSHReferenceEndpoint, bool) {
+	for _, profile := range snapshot.Ssh {
+		if profile.ID == id && scope.allows("ssh", id, profile.Sharing) {
+			return shell.SSHReferenceEndpoint{Username: profile.Username, Host: profile.Host, Port: profile.Port}, true
 		}
 	}
-	return "", "", false
+	return shell.SSHReferenceEndpoint{}, false
+}
+
+func referenceDatabaseName(snapshot protocol.Snapshot, scope connectionScope, id protocol.DatabaseID) (string, bool) {
+	for _, profile := range snapshot.Databases {
+		if profile.ID == id && scope.allows("database", id, profile.Sharing) {
+			return profile.Name, true
+		}
+	}
+	return "", false
 }

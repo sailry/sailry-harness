@@ -20,16 +20,17 @@ func TestLegacyPluginNavigationProjection(t *testing.T) {
 	const oldFiles = "ac133d0ee39e44e1dfc86fdd42656b57258220180c19c55e193ed0e2d1f7649e"
 	thirdParty := strings.Repeat("f", 64)
 	for _, row := range []struct {
-		label, name, digest string
-		registered, visible bool
+		label, name, digest           string
+		registered, allViews, visible bool
 	}{
-		{"legacy navigation without a replacement", "ssh", oldSSH, false, true},
-		{"legacy navigation with a replacement", "ssh", oldSSH, true, false},
-		{"last bundled navigation with a replacement", "ssh", lastBundledSSH, true, false},
-		{"unrelated ssh navigation", "ssh", thirdParty, true, true},
-		{"retired files navigation", "files", oldFiles, false, false},
-		{"unrelated files navigation", "files", thirdParty, false, true},
-		{"another name with the historical digest", "git", oldFiles, false, true},
+		{"legacy navigation without a replacement", "ssh", oldSSH, false, false, true},
+		{"legacy navigation with a replacement", "ssh", oldSSH, true, false, false},
+		{"last bundled navigation with a replacement", "ssh", lastBundledSSH, true, false, false},
+		{"unrelated ssh navigation", "ssh", thirdParty, true, false, true},
+		{"legacy files navigation without a replacement", "files", oldFiles, false, false, true},
+		{"legacy files navigation with a replacement", "files", oldFiles, true, true, false},
+		{"unrelated files navigation beside a replacement", "files", thirdParty, true, true, true},
+		{"another name with the historical digest", "git", oldFiles, true, true, true},
 	} {
 		t.Run(row.label, func(t *testing.T) {
 			info := protocol.DefaultPluginInfo()
@@ -50,19 +51,27 @@ func TestLegacyPluginNavigationProjection(t *testing.T) {
 			root := pluginViewFixture(t, &pluginViewTestNode{snapshot: snapshot})
 			root.packages.infos[row.name] = info
 			if row.registered {
-				root.App = shell.NewLiveWithAssembly(root.App.Data, shell.Assembly{WorkspacePages: []shell.NativePage{{
-					Page: "fixture:ssh", Feature: shell.Feature{ID: "fixture-ssh", LegacyPackage: "ssh"}, Render: func(*ui.Context, *shell.App) {},
-				}}})
+				root.App = shell.NewLive(root.App.Data, legacyViewFixture(row.name, row.allViews))
 			}
 			root.projectPluginViews(nil)
 			entry, visible := root.pluginViews.navigation["plugin:"+snapshot.Node.String()+"/"+row.name]
 			if visible != row.visible || visible && entry.scope.Package != packageReference(info.Summary) {
 				t.Fatalf("navigation projection = %+v (%v), want visible %v", entry.scope, visible, row.visible)
 			}
+			if got := root.pluginViewsRetired(packageReference(info.Summary)); got != (row.allViews && !row.visible) {
+				t.Errorf("non-navigation views replaced = %t", got)
+			}
 			if entry := root.pluginViews.settings[pluginSettingsSection(root, info)]; entry.scope.Package != packageReference(info.Summary) {
 				t.Fatal("navigation suppression changed package settings")
 			}
 		})
+	}
+}
+
+func legacyViewFixture(name string, allViews bool) shell.NativePage {
+	return shell.NativePage{
+		Page: shell.Page("fixture:" + name), Feature: shell.Feature{ID: "fixture-" + name, LegacyPackage: name},
+		Render: func(*ui.Context, *shell.App) {}, ReplacesLegacyViews: allViews,
 	}
 }
 
@@ -92,6 +101,12 @@ func TestLegacyPluginStatusProjection(t *testing.T) {
 	t.Cleanup(func() { _ = registry.Close() })
 	var comp composer.State
 	var projected composer.Context
+	root.App = shell.NewLive(root.App.Data, legacyViewFixture("git", false))
+	root.projectPluginStatus(&comp, &projected, scope, registry)
+	if badges := projected.Activity.Badges; len(badges) != 2 {
+		t.Fatalf("replacing navigation also replaced status contributions: %+v", badges)
+	}
+	root.App = shell.NewLive(root.App.Data, legacyViewFixture("git", true))
 	root.projectPluginStatus(&comp, &projected, scope, registry)
 	if badges := projected.Activity.Badges; len(badges) != 1 || badges[0].ID != pluginStatusIdentity(unrelated) {
 		t.Fatalf("status projection = %+v", badges)

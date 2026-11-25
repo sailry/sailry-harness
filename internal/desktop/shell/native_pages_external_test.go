@@ -4,7 +4,6 @@ import (
 	"maps"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -13,7 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
@@ -31,7 +29,7 @@ func TestNativePageAssembly(t *testing.T) {
 		}, []string{string(shell.ConversationPage)}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			assembly := shell.Assemble(files.Register, testassembly.Register, market.Register)
+			assembly := shell.Assemble(testassembly.RegisterFilesFixture, testassembly.Register, market.Register)
 			pages := assembly.WorkspacePages
 			full := mode.open(assembly)
 			without := mode.open(shell.Assembly{})
@@ -100,45 +98,6 @@ func TestNativePageAssembly(t *testing.T) {
 			restore(without, restored)
 			if got, gotPins := restored.FeaturePreferences(); !slices.Equal(got, order) || !maps.Equal(gotPins, pins) {
 				t.Fatalf("restored rail order = %v and pins = %v", got, gotPins)
-			}
-		})
-	}
-}
-
-func TestGitOpenSource(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		assembly  shell.Assembly
-		canReveal bool
-	}{
-		{"standalone", shell.Assemble(testassembly.Register), false},
-		{"with Files", shell.Assemble(testassembly.Register, files.Register), true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			a := shell.NewWithAssembly(preview.Load(), test.assembly)
-			a.Navigate(shell.GitPage)
-			tester := nativePageTester(a)
-			tester.Advance(time.Second)
-			tester.Frame()
-			row, ok := tester.AccessByRole(ui.RoleTreeItem, "example.md")
-			if a.Page != shell.GitPage || !ok {
-				t.Fatalf("the Git page did not render the change: %q", tester.Texts())
-			}
-			tester.RightClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
-			open := i18n.In("en", "git_open_source")
-			if menu := tester.Menu(); slices.Contains(menu, open) != test.canReveal || !slices.Contains(menu, i18n.In("en", "git_discard_changes")) {
-				t.Fatalf("unexpected change menu: %v", menu)
-			}
-			if !test.canReveal {
-				return
-			}
-			if err := tester.ChooseMenuItem(open); err != nil {
-				t.Fatal(err)
-			}
-			tester.Frame()
-			project := a.ResourceProject()
-			if a.Page != shell.FilesPage || project == nil || a.Projects.Of(project.ID).Files.File() != "sailry-go/docs/example.md" {
-				t.Fatalf("the source file did not open in Files: %q", tester.Texts())
 			}
 		})
 	}

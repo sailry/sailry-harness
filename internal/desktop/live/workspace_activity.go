@@ -1,14 +1,13 @@
 package live
 
 import (
-	"cmp"
 	"encoding/json"
-	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -59,43 +58,12 @@ func (r *Runtime) draftWorkspaceSession(id string) (protocol.Session, bool) {
 	comp.Worktree = selected.Path
 	return protocol.Session{Worktree: selected.ID, Project: selected.Project}, true
 }
-func workspaceChanges(status protocol.GitStatus) *composer.Changes {
-	if status.Kind == protocol.RepositoryKindDirectory {
-		return nil
-	}
-	value := &composer.Changes{Files: len(status.Entries)}
-	entries := append([]protocol.GitEntry(nil), status.Entries...)
-	slices.SortStableFunc(entries, func(a, b protocol.GitEntry) int {
-		var am, bm uint64
-		if a.ModifiedMs != nil {
-			am = *a.ModifiedMs
-		}
-		if b.ModifiedMs != nil {
-			bm = *b.ModifiedMs
-		}
-		return cmp.Or(cmp.Compare(bm, am), cmp.Compare(a.Path, b.Path))
-	})
-	for _, entry := range entries {
-		value.Added += int(entry.Diff.Additions)
-		value.Removed += int(entry.Diff.Deletions)
-	}
-	for _, entry := range entries[:min(len(entries), composer.RecentChanges)] {
-		status := workspaceChange(entry.Unstaged)
-		if status == "" {
-			status = workspaceChange(entry.Staged)
-		}
-		if entry.Untracked {
-			status = "A"
-		}
-		value.Recent = append(value.Recent, composer.ChangedFile{Path: entry.Path, Status: status, Added: int(entry.Diff.Additions), Removed: int(entry.Diff.Deletions)})
-	}
-	return value
-}
 func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context) {
 	if r.workspace == nil {
 		r.initWorkspace()
 	}
-	ctx.NoWorktreeCreate = r.localRuntime().worktreeActions.Create == nil
+	worktreeActions := r.localRuntime().worktreeActions
+	ctx.NoWorktreeCreate = worktreeActions.Create == nil
 	r.projectWorkspaceLocations()
 	session, ok := r.session(cv.ID)
 	if !ok {
@@ -133,7 +101,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		}
 	}
 	ctx.Repository = composer.Repository{Kind: composer.Inspecting}
-	if p.failedReads["git-status"] || !r.App.HasWorkspaceResource(panel.Changes) {
+	if p.repositoryUnavailable || p.git.Inspect == nil {
 		ctx.Repository.Kind = composer.Unavailable
 	}
 	if p.statusKnown {
@@ -142,14 +110,34 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 			kind = composer.Directory
 		}
 		ctx.Repository = composer.Repository{Kind: kind, Branch: branchLabel(p.status.Branch, p.status.Head)}
-		ctx.Activity.Changes = workspaceChanges(p.status)
+		if p.git.Badge != nil {
+			ctx.Activity.ResourceBadge = p.git.Badge()
+		} else if p.git.Changes != nil {
+			ctx.Activity.Changes = p.git.Changes()
+		}
+		if kind == composer.Git && p.git.Checkout != nil && session.Project != nil {
+			if ctx.NoWorktreeCreate {
+				ctx.PackageBranch = true
+				ctx.CheckoutControl = func(c *ui.Context, inMenu bool) {
+					p.git.Checkout(c, inMenu, r.gitComposerContext(cv.ID, comp, session, p, !ctx.Readonly))
+				}
+			} else if worktreeActions.BranchOptions != nil && session.ID != (protocol.SessionID{}) {
+				ctx.WorktreeOptions = func(c *ui.Context, menu *kit.Menu) {
+					git := r.gitComposerContext(cv.ID, comp, session, p, !ctx.Readonly)
+					if git.ForkBase != nil && git.Enabled {
+						worktreeActions.BranchOptions(c, menu, p.data.Repo.Branches, git.ForkBase)
+					}
+				}
+			}
+		}
 	}
 	id := cv.ID
-	comp.ActivityCallbacks = &composer.ActivityCallbacks{WorktreeEnabled: func() bool { return r.canMoveWorkspace(id, comp) }, Worktree: func(relative string) {
-		if _, exists := r.session(id); exists {
-			r.selectConversationWorktree(id, comp, relative)
-		} else {
-			p.selectDraftWorktree(comp, relative)
+	comp.ActivityCallbacks = &composer.ActivityCallbacks{WorktreeEnabled: func() bool { return r.canMoveWorkspace(id, comp) }, Worktree: func(c *ui.Context, path string) {
+		workspace := p.workflowConversationWorkspace(id, comp)
+		if selectLocation := r.localRuntime().worktreeActions.Select; selectLocation != nil {
+			selectLocation(workspace, c, path)
+		} else if tree, ok := p.registeredLocation(path); ok && workspace.CanSelectLocation() {
+			workspace.SelectLocation(c, tree)
 		}
 	}, WorktreeLabel: func(relative string) string {
 		for _, project := range r.App.Data.Projects {
@@ -278,7 +266,7 @@ func (r *Runtime) openWorkspaceChange(x *conversationActions, relative string) {
 	p.turnView = nil
 	p.reviewTarget = nil
 	p.reviewTurns = map[string]protocol.TurnID{}
-	p.projectStatus(p.status)
+	p.resetWorkingChanges()
 	p.panel.DiffOpen(relative, "all")
 	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: relative})
@@ -337,7 +325,7 @@ func workspaceTurnFiles(value protocol.ConversationCheckpointTurnDiff) []viewmod
 	changes := make([]viewmodel.FileChange, 0, len(value.Files))
 	for _, file := range value.Files {
 		change := viewmodel.FileChange{
-			Path: file.Path, Status: "M", Unstaged: "M", Hunks: workspaceHunks(file.Text),
+			Path: file.Path, Status: "M", Unstaged: "M", Hunks: viewmodel.ParseDiff(file.Text),
 			Diff:  viewmodel.DiffState{Scope: "all", Binary: file.Binary, Partial: file.Truncated},
 			Added: int(file.Additions), Removed: int(file.Deletions),
 		}
@@ -445,54 +433,6 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 		p.refresh()
 	})
 }
-func (p *workspaceProject) selectDraftWorktree(comp *composer.State, relative string) {
-	r := p.runtime
-	if p.owner.Project == nil || p.owner.Project.String() != comp.Project {
-		return
-	}
-	for _, tree := range r.snapshot().Worktrees {
-		if tree.Path == relative && tree.Project != nil && tree.Project.String() == comp.Project {
-			comp.Worktree = relative
-			return
-		}
-	}
-	comp.Worktree = p.owner.Path
-	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *p.owner.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
-		if tree, ok := detail[protocol.Worktree](out.Data); ok {
-			r.workspace.admitted[tree.ID] = tree
-			r.workspaceFor(tree)
-			comp.Worktree = tree.Path
-			p.locationsLoaded = false
-		}
-	})
-}
-func (r *Runtime) openProjectWorktree(project *viewmodel.Project, relative string) {
-	if worktree, ok := r.projectWorktree(project, relative); ok {
-		r.openProjectOverviewAt(project, worktree.Path)
-		return
-	}
-	if worktree, ok := r.projectWorktree(project, ""); ok {
-		workspace := r.workspaceFor(worktree)
-		page, selected := r.App.Page, r.App.Sidebar.Selected
-		node, projectID, overview := r.App.ProjectOwner()
-		workspace.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{
-			Project: *worktree.Project, Path: relative,
-		}}, func(c *ui.Context, out protocol.Output) {
-			if registered, ok := detail[protocol.Worktree](out.Data); ok {
-				r.workspace.admitted[registered.ID] = registered
-				workspace.locationsLoaded = false
-				currentNode, currentProject, currentOverview := r.App.ProjectOwner()
-				if r.projectOverviewRuntime(project) == r && r.App.Page == page && r.App.Sidebar.Selected == selected &&
-					currentNode == node && currentProject == projectID && currentOverview == overview {
-					r.openProjectOverviewAt(project, registered.Path)
-				}
-			}
-		})
-		return
-	}
-	r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the project worktree is unavailable"))
-}
-
 func (r *Runtime) projectWorktree(project *viewmodel.Project, relative string) (protocol.Worktree, bool) {
 	matches := func(worktree protocol.Worktree) bool {
 		return worktree.Project != nil && worktree.Project.String() == project.ID &&

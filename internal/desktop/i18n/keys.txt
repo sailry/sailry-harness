@@ -306,6 +306,7 @@ worktree_open_busy
 worktree_created
 worktree_removed
 worktree_remove_confirm
+worktree_remove_unsaved
 worktree_prune
 worktree_prune_confirm
 worktree_pruned
@@ -589,6 +590,8 @@ artifact_preview
 artifact_preview_changed
 artifact_preview_failed
 artifact_preview_large
+artifact_preview_page
+artifact_preview_partial
 artifact_preview_loading
 files_open_failed
 artifact_request_edit

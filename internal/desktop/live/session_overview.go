@@ -174,11 +174,7 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 	}
 	view.Load = func(more bool) { r.loadOverview(session.ID, read, more) }
 	view.OpenChild = func(id string) { r.openLiveChild(cv, id) }
-	view.OpenSource = func(uri string) {
-		if !r.localRuntime().openChatLink(c, cv.ID, uri) && ui.SafeToOpen(uri) {
-			c.OpenURL(uri)
-		}
-	}
+	view.OpenSource = func(uri string) { r.openChatLink(c, cv.ID, uri) }
 	view.OpenAsset = func(id string) {
 		if r.overviews[session.ID] != read {
 			return

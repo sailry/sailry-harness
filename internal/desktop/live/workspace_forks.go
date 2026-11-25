@@ -65,43 +65,32 @@ func workspacePageIdle(page protocol.ConversationPage) bool {
 	}
 	return true
 }
-func (r *Runtime) selectConversationWorktree(id string, comp *composer.State, relative string) {
+func (r *Runtime) selectConversationLocation(id string, comp *composer.State, path string) {
 	session, ok := r.session(id)
 	if !ok {
 		return
 	}
-	if !r.canMoveWorkspace(id, comp) {
-		return
+	if p := r.workspace.projects[session.Worktree]; p != nil {
+		if tree, found := p.registeredLocation(path); found {
+			r.moveConversationLocation(session, comp, tree)
+		}
 	}
+}
+
+func (r *Runtime) moveConversationLocation(session protocol.Session, comp *composer.State, tree protocol.Worktree) {
+	id := session.ID.String()
 	p := r.workspace.projects[session.Worktree]
-	if p == nil || session.Project == nil {
+	if p == nil || tree.ID == session.Worktree || !sameLocationProject(p.owner, tree) || !r.canMoveWorkspace(id, comp) {
 		return
 	}
-	comp.Worktree = p.owner.Path
-	move := func(tree protocol.Worktree) {
-		if tree.ID == session.Worktree {
-			return
-		}
-		p.mutateNamed(workspaceAction, protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{Session: session.ID, Worktree: tree.ID, ExpectedRevision: session.Revision}}, func(c *ui.Context, out protocol.Output) {
-			if _, ok := detail[protocol.Session](out.Data); ok {
-				comp.References = nil
-				r.project()
+	p.mutateNamed(workspaceAction, protocol.Command{Kind: "move_conversation", Data: protocol.CommandMoveConversationPayload{Session: session.ID, Worktree: tree.ID, ExpectedRevision: session.Revision}}, func(c *ui.Context, out protocol.Output) {
+		if _, ok := detail[protocol.Session](out.Data); ok {
+			comp.References = nil
+			r.project()
+			if r.App.Sidebar.Selected == id && !r.localRuntime().showingResourcePage() {
 				r.OpenSession(id)
-				kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 			}
-		})
-	}
-	for _, tree := range r.snapshot().Worktrees {
-		if tree.Path == relative && tree.Project != nil && *tree.Project == *session.Project {
-			move(tree)
-			return
-		}
-	}
-	p.mutateNamed(worktreeOpen, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: *session.Project, Path: relative}}, func(c *ui.Context, out protocol.Output) {
-		if tree, ok := detail[protocol.Worktree](out.Data); ok {
-			r.workspace.admitted[tree.ID] = tree
-			r.workspaceFor(tree)
-			move(tree)
+			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 		}
 	})
 }

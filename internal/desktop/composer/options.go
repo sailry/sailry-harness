@@ -267,6 +267,14 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
+func WorkspaceContextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, inMenu bool) ui.Element {
+	form := toolbarForm
+	if inMenu {
+		form = menuForm
+	}
+	return contextButton(c, b, icon, label, form)
+}
+
 // chooseLocation changes only an unadmitted draft. Its attachments are
 // staged on the selected Node.
 func (s *State) chooseLocation(ctx *Context, host, project, worktree string) {
@@ -395,18 +403,23 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, form 
 				name = pr.Name
 			}
 			if m.Item(name).Checked(w.Branch == s.Worktree).Chosen() {
-				s.Worktree = w.Branch
 				if s.ActivityCallbacks != nil && s.ActivityCallbacks.Worktree != nil {
-					s.ActivityCallbacks.Worktree(w.Branch)
+					s.ActivityCallbacks.Worktree(c, w.Branch)
+				} else {
+					s.Worktree = w.Branch
 				}
 			}
 		}
-		if ctx.NoWorktreeCreate {
-			return
+		if !ctx.NoWorktreeCreate || ctx.WorktreeOptions != nil {
+			m.Separator()
 		}
-		m.Separator()
-		if m.Item(i18n.T(c, "location_create")).Icon(icons.Plus).Chosen() {
-			actions.CreateWorktree()
+		if !ctx.NoWorktreeCreate {
+			if m.Item(i18n.T(c, "location_create")).Icon(icons.Plus).Chosen() {
+				actions.CreateWorktree()
+			}
+		}
+		if ctx.WorktreeOptions != nil {
+			ctx.WorktreeOptions(c, m)
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
 }
@@ -517,6 +530,9 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 				s.projectButton(c, ctx, actions, menuForm)
 				s.hostButton(c, ctx, menuForm)
 				s.worktreeMenu(c, ctx, actions, menuForm)
+				if ctx.CheckoutControl != nil {
+					ctx.CheckoutControl(c, true)
+				}
 			}
 		}
 	})

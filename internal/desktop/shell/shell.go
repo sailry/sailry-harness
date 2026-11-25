@@ -188,6 +188,9 @@ type App struct {
 	nativePages          []NativePage
 	nativePageSync       []func()
 	nativeWindowBindings map[Page]WindowBinding
+	linkHandlers         linkHandlers
+	appActions           *appActionWindow
+	workspaceOverlay     workspaceOverlay
 	translations         *i18n.Catalog
 
 	features       []string // saved rail order, including unavailable features
@@ -256,13 +259,24 @@ type App struct {
 	demo *demoMode
 }
 
-// New makes a preview window with the supplied workspace pages.
+// New makes a standalone sample window with the supplied workspace pages.
 func New(d *preview.Data, pages ...NativePage) *App {
-	return NewWithAssembly(d, Assembly{WorkspacePages: pages})
+	a := newPreview(d, Assembly{WorkspacePages: pages})
+	a.Panel = panel.NewSample(d.Workspace)
+	a.Panel.ShortcutBinding = a.panelShortcutBinding
+	a.Sidebar.Sample.NewTerminal = a.sampleTerminalAction(a.Panel)
+	return a
 }
 
 // NewWithAssembly makes a preview window with the supplied page contributions.
 func NewWithAssembly(d *preview.Data, assembly Assembly) *App {
+	a := newPreview(d, assembly)
+	a.installPanelResources(assembly)
+	a.Sidebar.Sample.NewTerminal = a.sampleTerminalAction(a.Panel)
+	return a
+}
+
+func newPreview(d *preview.Data, assembly Assembly) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
 	a.installPages(assembly)
@@ -316,6 +330,8 @@ func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
 		Welcome: onboarding.Guide{Seen: true},
 	}
+	st.Keys.SetPanelShortcuts(a.panelShortcuts)
+	a.Panel.ShortcutBinding = a.panelShortcutBinding
 	st.ConnectionActions = &settings.ConnectionActions{Inspect: func(device viewmodel.Device) { a.OpenHost(device.ID) }}
 	// The sidebar's sort menu and the settings' session order are one choice.
 	a.Sidebar.Sort = &st.Model.SessionOrder
@@ -472,6 +488,7 @@ func (a *App) View(c *ui.Context) {
 		})
 	})
 	a.overlays(c)
+	a.renderWorkspaceOverlay(c)
 	if a.Hooks.PluginOverlays != nil {
 		a.Hooks.PluginOverlays(c)
 	}

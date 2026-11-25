@@ -171,9 +171,12 @@ func (a *App) enterDemo(locale string) {
 	side := sidebar.New(d, preview.DemoStart)
 	side.Sort = own.sidebar.Sort
 	side.Preview = true
-	side.Sample = sidebar.Sample{Overview: a.demoProject, OpenHost: a.OpenHost, NewTerminal: a.demoTerminal}
+	side.Sample = sidebar.Sample{Overview: a.demoProject, OpenHost: a.OpenHost}
 	shown := panel.New(d.Workspace)
 	shown.Demo = true
+	shown.ShortcutBinding = a.panelShortcutBinding
+	shown.SetResources(own.panel.ResourceList())
+	side.Sample.NewTerminal = a.sampleTerminalAction(shown)
 	a.demo.data = d
 	// A reply's links to the demo's files and pictures show as their cards.
 	messages := conversation.New()
@@ -190,26 +193,25 @@ func (a *App) enterDemo(locale string) {
 	}
 }
 
-// demoProject shows a demo project's page, as the live window's Project
-// overview does: its active and archived sessions open, and New session and
-// New terminal act on the demo.
-// Nothing reaches a Node.
+// demoProject shows a demo project's page with its own in-memory actions.
 func (a *App) demoProject(pr *viewmodel.Project) {
-	a.OpenProject(pr, ProjectActions{
+	actions := ProjectActions{
 		NewSession: func(pr *viewmodel.Project) { a.Sidebar.NewSession(pr) },
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
 			cv.Archived = false
 			a.OpenConversation(cv.ID)
 			done(true)
 		},
-		NewTerminal: a.demoTerminal,
-	})
+	}
+	actions.NewTerminal = a.Sidebar.Sample.NewTerminal
+	a.OpenProject(pr, actions)
 }
 
-// demoTerminal opens an independent main terminal in a demo project.
-// The shared component shows the demo's screen; no shell starts.
-func (a *App) demoTerminal(pr *viewmodel.Project) {
-	a.sampleWorkspaceTerminal(pr.ID)
+func (a *App) sampleTerminalAction(state *panel.State) sidebar.ProjectOpen {
+	if !state.Offers(panel.Terminal) {
+		return nil
+	}
+	return func(pr *viewmodel.Project) { a.sampleWorkspaceTerminal(pr.ID) }
 }
 
 // underneath runs f over the window's own stage, the demo waiting meanwhile:
@@ -294,7 +296,7 @@ func (a *App) sampleLink(c *ui.Context, session, link string) bool {
 		case target.Scheme == "sailry-knowledge":
 			a.OpenKnowledge(c, session, link)
 		case target.Scheme != "http" && target.Scheme != "https", target.Host == "", target.User != nil:
-		case conversation.External(c):
+		case conversation.External(c), !a.Panel.Offers(panel.Browser):
 			c.OpenURL(link)
 		default:
 			a.RevealConversationPanel()

@@ -15,13 +15,14 @@ import (
 
 func Full() shell.Assembly {
 	assembly := harness.Harness()
+	basePages := assembly.WorkspacePages
+	assembly.WorkspacePages = nil
+	RegisterFilesFixture(&assembly)
 	RegisterExecutionFixture(&assembly)
 	RegisterWorktreeFixture(&assembly)
 	RegisterTerminalFixture(&assembly)
 	Register(&assembly)
-	if len(assembly.WorkspacePages) == 3 {
-		assembly.WorkspacePages[1], assembly.WorkspacePages[2] = assembly.WorkspacePages[2], assembly.WorkspacePages[1]
-	}
+	assembly.WorkspacePages = append(assembly.WorkspacePages, basePages...)
 	assembly.SettingsPages = append(assembly.SettingsPages, settings.NativePage{
 		Section: settings.Terminal, Group: "settings_group_tools", Icon: icons.Terminal, Order: 100, Render: terminal,
 	})
@@ -30,7 +31,27 @@ func Full() shell.Assembly {
 }
 
 func RegisterTerminalFixture(assembly *shell.Assembly) {
-	native.RegisterTerminal(assembly)
+	assembly.RegisterPanelResource(panel.Resource{
+		Kind: panel.Terminal, Label: "terminal", Icon: icons.Terminal, Order: 20,
+		Mods: ui.Ctrl, Key: ui.KeyBackquote, Numbered: true,
+		Available: func(state *panel.State) bool {
+			return !state.Live || state.Worktree && state.TerminalActions != nil && state.TerminalActions.Create != nil
+		},
+		Open: panel.OpenTerminalTab, Render: panel.RenderTerminalTab, Find: panel.FindTerminalTab,
+		Release: panel.ReleaseTerminalTab,
+		ConfirmClose: func(state *panel.State, tab panel.Tab) panel.CloseConfirmation {
+			if actions := state.TerminalActions; actions != nil && actions.Close != nil {
+				return panel.CloseConfirmation{Title: "workspace_close_terminal", Close: func() { actions.Close(tab.ID) }}
+			}
+			return panel.CloseConfirmation{}
+		},
+	}, func(host native.PanelResourceHost) {
+		if host.BindTerminal != nil {
+			host.App.RegisterProjectResourceAction(native.ProjectResourceAction{
+				Label: "workspace_new_terminal", Icon: icons.Terminal, Order: 10, Open: host.BindTerminal(),
+			})
+		}
+	})
 	assembly.PluginControlReplacements = append(assembly.PluginControlReplacements,
 		shell.PluginControlReplacement{Package: "commands", Slot: protocol.PluginUiSlotProject, ID: "terminal-cli"},
 		shell.PluginControlReplacement{Package: "commands", Slot: protocol.PluginUiSlotProjectMenu, ID: "terminal-menu-new"},

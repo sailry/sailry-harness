@@ -35,6 +35,20 @@ func nativeKeystrokes(value string) ([]nativeShortcutStroke, error) {
 	return strokes, nil
 }
 
+// RendererShortcut projects a manifest's single-stroke shortcut onto a window
+// command. View-local sequences continue to use nativeKeystrokes.
+func RendererShortcut(value string) (ui.Modifiers, ui.Key) {
+	parts := strings.Fields(value)
+	if len(parts) != 1 {
+		return 0, 0
+	}
+	mods, key, err := nativeKeystroke(parts[0])
+	if err != nil {
+		return 0, 0
+	}
+	return mods, key
+}
+
 func nativeKeystroke(value string) (ui.Modifiers, ui.Key, error) {
 	if value == "-" {
 		value = "minus"

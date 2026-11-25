@@ -4,6 +4,8 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
+	"strconv"
 )
 
 type PluginUiSlot string
@@ -199,20 +201,44 @@ func (value *PluginUiIntent) UnmarshalText(data []byte) error {
 }
 
 type PluginUiContribution struct {
-	Intent   *string                 `json:"intent"`
-	ID       string                  `json:"id"`
-	Slot     PluginUiSlot            `json:"slot"`
-	Kind     PluginUiKind            `json:"kind"`
-	Label    PluginDesktopNavigation `json:"label"`
-	Icon     *string                 `json:"icon"`
-	Handler  *string                 `json:"handler"`
-	Order    int16                   `json:"order"`
-	Overflow PluginUiOverflow        `json:"overflow"`
-	Align    PluginUiAlign           `json:"align"`
-	Choices  []PluginUiChoice        `json:"choices"`
-	Command  *PluginUiCommand        `json:"command,omitempty"`
-	Width    *uint16                 `json:"width,omitempty"`
-	Hover    *PluginUiHover          `json:"hover,omitempty"`
+	Intent     *string                 `json:"intent"`
+	ID         string                  `json:"id"`
+	Slot       PluginUiSlot            `json:"slot"`
+	Kind       PluginUiKind            `json:"kind"`
+	Label      PluginDesktopNavigation `json:"label"`
+	Icon       *string                 `json:"icon"`
+	Handler    *string                 `json:"handler"`
+	Order      int16                   `json:"order"`
+	Overflow   PluginUiOverflow        `json:"overflow"`
+	Align      PluginUiAlign           `json:"align"`
+	Choices    []PluginUiChoice        `json:"choices"`
+	Command    *PluginUiCommand        `json:"command,omitempty"`
+	Width      *uint16                 `json:"width,omitempty"`
+	Hover      *PluginUiHover          `json:"hover,omitempty"`
+	LinkScheme *string                 `json:"link_scheme,omitempty"`
+	Priority   PluginLinkPriority      `json:"priority,omitzero"`
+}
+
+// PluginLinkPriority distinguishes an absent priority from an explicitly
+// declared zero, which is only valid on a conversation link contribution.
+type PluginLinkPriority struct {
+	value   int32
+	present bool
+}
+
+func (priority PluginLinkPriority) Int() int { return int(priority.value) }
+
+func (priority *PluginLinkPriority) UnmarshalJSON(data []byte) error {
+	value, err := strconv.ParseInt(string(data), 10, 32)
+	if err != nil {
+		return errors.New("plugin link priority must be a signed 32-bit integer")
+	}
+	*priority = PluginLinkPriority{value: int32(value), present: true}
+	return nil
+}
+
+func (priority PluginLinkPriority) MarshalJSON() ([]byte, error) {
+	return strconv.AppendInt(nil, int64(priority.value), 10), nil
 }
 
 func DefaultPluginUiContribution() PluginUiContribution {
@@ -505,6 +531,7 @@ const (
 	PluginUiEventKindInvoke PluginUiEventKind = "invoke"
 	PluginUiEventKindChange PluginUiEventKind = "change"
 	PluginUiEventKindSearch PluginUiEventKind = "search"
+	PluginUiEventKindLink   PluginUiEventKind = "link"
 )
 
 func (value PluginUiEventKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
@@ -514,7 +541,7 @@ func (value *PluginUiEventKind) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch PluginUiEventKind(decoded) {
-	case PluginUiEventKindInvoke, PluginUiEventKindChange, PluginUiEventKindSearch:
+	case PluginUiEventKindInvoke, PluginUiEventKindChange, PluginUiEventKindSearch, PluginUiEventKindLink:
 		*value = PluginUiEventKind(decoded)
 		return nil
 	default:

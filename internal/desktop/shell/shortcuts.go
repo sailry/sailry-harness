@@ -3,6 +3,7 @@ package shell
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -46,6 +47,23 @@ var CloseFocused = Shortcut{ID: "close", Label: "menu_close_tab", Mods: ui.Cmd, 
 // binding is a shortcut on the key the user gave it; false when turned
 // off.
 func (a *App) binding(s Shortcut) (Shortcut, bool) { return a.Settings.Keys.Bound(s) }
+
+func panelOpenShortcut(resource panel.Resource) Shortcut {
+	return Shortcut{ID: settings.PanelShortcutID(string(resource.Kind)), Label: resource.Label, Mods: resource.Mods, Key: resource.Key}
+}
+
+func (a *App) panelShortcuts(yield func(Shortcut) bool) {
+	for _, resource := range a.Panel.ResourceList() {
+		if resource.Key != 0 && !yield(panelOpenShortcut(resource)) {
+			return
+		}
+	}
+}
+
+func (a *App) panelShortcutBinding(resource panel.Resource) (ui.Modifiers, ui.Key) {
+	key := a.Settings.Keys.Effective(panelOpenShortcut(resource))
+	return key.Mods, key.Key
+}
 
 // hint is the text of a shortcut by its id, on its key now.
 func (a *App) hint(id string) string {
@@ -123,9 +141,18 @@ func (a *App) shortcuts(c *ui.Context) {
 	if a.Page != ConversationPage {
 		return
 	}
-	for _, r := range a.Panel.ResourceList() {
-		if r.Key != 0 && a.Panel.Offers(r.Kind) && c.Shortcut(r.Mods, r.Key) && !c.ShortcutRepeated() {
-			a.openPanel(r.Kind)
+	for _, resource := range a.Panel.ResourceList() {
+		if !a.Panel.Offers(resource.Kind) {
+			continue
+		}
+		mods, key := a.Panel.Shortcut(resource)
+		if key == 0 || !c.Shortcut(mods, key) || c.ShortcutRepeated() {
+			continue
+		}
+		if a.PanelOpen && a.Panel.Active.Kind == resource.Kind && resource.New != nil && c.FocusWithin(a.panelPane) {
+			a.Panel.New(resource.Kind)
+		} else {
+			a.openPanel(resource.Kind)
 		}
 	}
 }
@@ -188,8 +215,7 @@ func (a *App) run(c *ui.Context, id string) {
 			a.Hooks.OpenLogs()
 		}
 	case "conversation.find":
-		// The native menu takes ⌘F first: in a terminal tab it finds in the
-		// terminal.
+		// The native menu takes ⌘F first; the focused panel resource can handle it.
 		if a.PanelOpen && c.FocusWithin(a.panelPane) && a.Panel.Find() {
 			return
 		}

@@ -152,19 +152,11 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 			root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Conflict, i18n.T(c, "workspace_changed")); done(false) })
 			return
 		}
-		status := workspace.status
-		command := protocol.Command{Kind: "run_git_action", Data: protocol.CommandRunGitActionPayload{
-			Worktree: workspace.owner.ID, Action: protocol.GitAction{Kind: "initialize"},
-			ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch,
-		}}
-		workspace.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
-			ok := out.Kind != ""
-			if ok {
-				workspace.readGit()
-				kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-			}
-			done(ok)
-		})
+		if workspace.git.Initialize == nil {
+			done(false)
+			return
+		}
+		workspace.git.Initialize(done)
 	}
 	currentWorkspace()
 	actions.WorktreePath = selectedPath

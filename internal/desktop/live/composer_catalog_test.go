@@ -1,6 +1,7 @@
 package live
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -36,12 +37,6 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 		case "read_resource_catalog":
 			source := protocol.ResourceSource{Node: node, Route: protocol.RouteKey{Entry: node, Target: node}, Projects: snapshot.Projects, Worktrees: snapshot.Worktrees}
 			return link.Response{Output: protocol.Output{Kind: "resource_catalog", Data: protocol.ResourceCatalog{Entry: node, Sources: []protocol.ResourceSource{source}}}}, true
-		case "inspect_git":
-			return link.Response{Output: protocol.Output{Kind: "git_status", Data: protocol.GitStatus{Kind: protocol.RepositoryKindDirectory}}}, true
-		case "list_worktrees":
-			return link.Response{Output: protocol.Output{Kind: "git_worktrees", Data: protocol.GitWorktrees{Kind: protocol.RepositoryKindDirectory}}}, true
-		case "list_directory":
-			return link.Response{Output: protocol.Output{Kind: "directory", Data: protocol.Directory{Revision: "root"}}}, true
 		default:
 			return link.Response{}, false
 		}
@@ -54,7 +49,7 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), testassembly.Full())
+	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), shell.Assembly{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,19 +78,22 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 		pending := len(r.queue) > 0 || r.dirty
 		r.mu.Unlock()
 		workspace := r.workspace.projects[worktree]
-		directoryReady := r.resourceCatalog != nil && workspace != nil && workspace.directories[""]
+		workspaceReady := r.resourceCatalog != nil && workspace != nil && workspace.owner.ID == worktree
 		connected := r.conversationCache[shown].state.Connected
-		if directoryReady && ctx.Repository.Kind == composer.Directory && connected && !pending {
+		if workspaceReady && connected && !pending {
 			break
 		}
 		select {
 		case <-wake:
 		case <-deadline:
-			t.Fatalf("composer did not settle: directory ready=%t, repository=%v, connected=%t, callbacks pending=%t", directoryReady, ctx.Repository.Kind, connected, pending)
+			t.Fatalf("composer did not settle: workspace ready=%t, repository=%v, connected=%t, callbacks pending=%t", workspaceReady, ctx.Repository.Kind, connected, pending)
 		}
 	}
 	catalog := r.composerCatalogs[cv.ID]
-	if catalog == nil || len(ctx.Models) == 0 {
+	if ctx.Repository.Kind != composer.Unavailable || !ctx.Activity.Connected || comp.Project != project.String() || comp.Worktree != snapshot.Worktrees[0].Path {
+		t.Fatalf("a connected catalog did not use the captured project/worktree without Git: repository=%v project=%q worktree=%q", ctx.Repository.Kind, comp.Project, comp.Worktree)
+	}
+	if catalog == nil || len(catalog.references) == 0 || len(ctx.Models) == 0 {
 		t.Fatalf("no catalog or models: %+v", catalog)
 	}
 	references, models := &catalog.references[0], &ctx.Models[0]
@@ -112,9 +110,27 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	if !sibling() {
 		t.Fatalf("sibling session not offered: %+v", ctx.References)
 	}
-	tester.Frame()
-	if &catalog.references[0] != references || &ctx.Models[0] != models {
-		t.Fatal("an idle frame rebuilt the composer catalog")
+	requestCount := func() int {
+		transport.mu.Lock()
+		defer transport.mu.Unlock()
+		for _, request := range transport.requests {
+			switch request.Command.Kind {
+			case "list_directory", "inspect_git", "list_worktrees":
+				t.Fatalf("idle composer opened unassembled workspace resources: %s", request.Command.Kind)
+			}
+		}
+		return len(transport.requests)
+	}
+	before := requestCount()
+	for range 4 {
+		tester.Frame()
+		r.workers.Wait()
+		if r.composerCatalogs[cv.ID] != catalog || &catalog.references[0] != references || &ctx.Models[0] != models || !sibling() {
+			t.Fatal("an idle frame rebuilt the composer catalog")
+		}
+	}
+	if after := requestCount(); after != before {
+		t.Fatalf("idle frames dispatched %d additional requests", after-before)
 	}
 	// The session's project is the composer's; a model choice rebuilds.
 	comp.Effort++

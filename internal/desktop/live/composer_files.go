@@ -1,8 +1,10 @@
 package live
 
 import (
+	"context"
 	"path"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -26,11 +28,7 @@ func (r *Runtime) projectComposerFiles(cv *viewmodel.Conversation, comp *compose
 				if page.Kind == composer.Page {
 					directory = ""
 				}
-				project.readDirectory(directory, false)
-				if project.directoryPages[directory].Next != nil {
-					project.nextDirectory(directory)
-				}
-				return composerFileReferences(directory, project.directoryEntries[directory]), true
+				return project.pickFiles(directory), true
 			})
 		}
 	}
@@ -51,4 +49,50 @@ func composerFileReferences(directory string, entries []protocol.FileEntry) []co
 		}
 	}
 	return rows
+}
+
+// The composer picker reads only directories the user enters.
+type filePicker struct {
+	cancel  context.CancelFunc
+	ctx     context.Context
+	dir     string
+	current *filePickerPage
+}
+
+type filePickerPage struct {
+	rows                    []composer.Reference
+	next                    *protocol.DirectoryCursor
+	loading, loaded, failed bool
+	revision                uint64
+}
+
+func (picker *filePicker) close() {
+	if picker.cancel != nil {
+		picker.cancel()
+	}
+	*picker = filePicker{}
+}
+
+func (p *workspaceProject) pickFiles(directory string) []composer.Reference {
+	picker := &p.filePicker
+	if picker.current == nil || picker.dir != directory || picker.current.revision != p.fileDirectoryRevision {
+		picker.close()
+		picker.ctx, picker.cancel = context.WithCancel(p.runtime.ctx)
+		picker.dir = directory
+		picker.current = &filePickerPage{revision: p.fileDirectoryRevision}
+	}
+	state := picker.current
+	if !state.failed && !state.loading && (!state.loaded || state.next != nil) {
+		state.loading = true
+		p.readFileDirectory(picker.ctx, directory, state.next, func(_ *ui.Context, page protocol.Directory, err error) {
+			state.loading = false
+			if err != nil {
+				state.failed = true
+				return
+			}
+			state.rows = append(state.rows, composerFileReferences(directory, page.Entries)...)
+			state.next, state.loaded = page.Next, true
+		})
+	}
+	return state.rows
 }

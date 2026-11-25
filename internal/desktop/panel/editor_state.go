@@ -81,7 +81,7 @@ func (pr *Project) ReleaseClosedFile(path string) bool {
 		if item.dirty || item.document != nil && (item.document.saving || item.document.pendingEdit) {
 			return false
 		}
-		delete(pr.Files.items, path)
+		pr.Files.releaseItem(path)
 	}
 	return true
 }

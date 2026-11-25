@@ -140,7 +140,9 @@ func ValidateManifest(data []byte) (Manifest, error) {
 			} else if json.Unmarshal(raw, &extension) != nil {
 				result.Requirements.Invalid = true
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
-			} else if validateExtension(extension) != nil {
+			} else if validateExtension(extension) != nil || slices.ContainsFunc(extension.Ui, func(entry protocol.PluginUiContribution) bool {
+				return entry.LinkScheme != nil && *entry.LinkScheme != protocol.PluginLinkScheme(result.Name)
+			}) {
 				result.Requirements.Invalid = true
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
 			} else {

@@ -40,8 +40,31 @@ func pluginStatusIdentity(entry protocol.PluginUiStatusEntry) string {
 	return entry.Package.Name + "/" + entry.Package.Digest + "/" + strconv.FormatUint(entry.Package.SettingsRevision, 10) + "/" + entry.Declaration.ID
 }
 
+func (r *Runtime) pluginStatusReplaced() bool {
+	if len(r.localRuntime().pluginControlReplacements) == 0 || !r.pluginCatalogSettled() {
+		return false
+	}
+	replaced := false
+	for _, info := range r.pluginViewList() {
+		if info.Extension == nil || !pluginNativePackageAvailable(info) {
+			continue
+		}
+		ref := packageReference(info.Summary)
+		for _, declaration := range info.Extension.Ui {
+			if declaration.Slot != protocol.PluginUiSlotStatus {
+				continue
+			}
+			if !r.legacyPluginControlReplaced(ref, declaration) && !r.pluginViewsRetired(ref) {
+				return false
+			}
+			replaced = true
+		}
+	}
+	return replaced
+}
+
 func (r *Runtime) statusFeed(scope protocol.PluginUiStatusScope) *pluginStatusFeed {
-	if !scope.Valid() {
+	if !scope.Valid() || r.pluginStatusReplaced() {
 		return nil
 	}
 	body, _ := json.Marshal(scope)
@@ -153,7 +176,7 @@ func (r *Runtime) projectPluginStatus(comp *composer.State, context *composer.Co
 	keys := map[string]plugins.ContributionKey{}
 	closedPackages := map[protocol.PluginReference]bool{}
 	for _, entry := range feed.view.Entries {
-		if pluginViewsRetired(entry.Package) {
+		if r.legacyPluginControlReplaced(entry.Package, entry.Declaration) || r.pluginViewsRetired(entry.Package) {
 			continue
 		}
 		id := pluginStatusIdentity(entry)
@@ -269,7 +292,7 @@ func (r *Runtime) invokePluginStatus(scope protocol.PluginContext, id string) bo
 		return false
 	}
 	for _, entry := range feed.view.Entries {
-		if pluginStatusIdentity(entry) != id || pluginViewsRetired(entry.Package) {
+		if pluginStatusIdentity(entry) != id || r.legacyPluginControlReplaced(entry.Package, entry.Declaration) || r.pluginViewsRetired(entry.Package) {
 			continue
 		}
 		if entry.Declaration.Kind != "button" || entry.Invoke == nil {

@@ -179,7 +179,7 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 			return false
 		}
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
-			pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
+			root.pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
 			!slices.ContainsFunc(extension.Ui, func(declaration protocol.PluginUiContribution) bool {
 				return root.pluginViewShows(info, declaration, owner.scope.Surface.Kind)
 			}) {

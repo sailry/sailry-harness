@@ -45,6 +45,11 @@ func (r *Runtime) initLiveTerminals() {
 		Folder: r.terminalFolder, Split: r.splitLiveTerminal,
 	}
 	r.initTerminalActions()
+	r.nativeWindowResources = append(r.nativeWindowResources, nativeWindowResource{close: func() {
+		for id := range r.packages.terminals {
+			r.releaseLiveTerminal(id)
+		}
+	}})
 }
 
 func (r *Runtime) terminalAssembled() bool {

@@ -119,6 +119,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		{Module: "sailry", Export: "Conversation", Render: state.renderConversation},
 		{Module: "sailry/artifacts", Export: "ArtifactSurface", Render: state.renderArtifact},
 	}
+	state.legacyFileOperations()
 	context.AfterFunc(binding.Context, func() {
 		state.mu.Lock()
 		toasts := make([]string, 0, len(state.toasts))

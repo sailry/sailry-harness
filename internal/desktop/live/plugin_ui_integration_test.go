@@ -328,7 +328,7 @@ func TestPluginUIIntegration(t *testing.T) {
 	t.Log("the native terminal rendered and sent input while the package renderer stayed unmounted")
 	assertTerminalRendererUnmounted(t, runtime)
 	for _, mounted := range runtime.pluginViews.mounts {
-		if mounted.key.role != "settings" && pluginViewsRetired(mounted.scope.Package) {
+		if mounted.key.role != "settings" && runtime.pluginViewsRetired(mounted.scope.Package) {
 			t.Fatal("a native resource was also mounted through the plugin runtime")
 		}
 	}

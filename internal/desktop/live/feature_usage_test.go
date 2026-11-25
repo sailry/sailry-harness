@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -26,7 +27,9 @@ func testFeatureUsage(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		const planted = "planted secret /Users/someone/private theme-package-name"
 		root, source := terminalTabsFixture(t)
-		root.App = shell.NewLiveWithAssembly(root.App.Data, desktop.Harness())
+		assembly := desktop.Harness()
+		testassembly.RegisterFilesFixture(&assembly)
+		root.App = shell.NewLiveWithAssembly(root.App.Data, assembly)
 		source.respond = func(request protocol.Request) link.Response {
 			if request.Command.Kind == "count_feature" {
 				return link.Response{Output: protocol.Output{Kind: "feature_counted"}}

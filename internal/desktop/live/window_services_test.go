@@ -60,10 +60,24 @@ func bindWindowServicesFixture(t *testing.T, node protocol.NodeID, handler link.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close() })
-	if !services.Connected() || len(r.nativeWindowResources) != 0 {
-		t.Fatal("binding selected a different window or eagerly mounted a resource")
+	if !services.Connected() {
+		t.Fatal("the native binding is not connected to its window")
+	}
+	if count := windowServiceMountTrackers(r); count != 0 {
+		t.Fatalf("binding eagerly installed %d resource mount trackers", count)
 	}
 	return r, services, window
+}
+
+func windowServiceMountTrackers(r *Runtime) int {
+	// Mounted views track visibility after rendering; the file link hook runs before it.
+	count := 0
+	for _, resource := range r.nativeWindowResources {
+		if resource.afterFrame != nil {
+			count++
+		}
+	}
+	return count
 }
 
 func TestWindowServicesRequestsAndClose(t *testing.T) {
@@ -348,7 +362,7 @@ func TestWindowServicesConversationMountLifecycle(t *testing.T) {
 		mount.Close()
 		mount.Close()
 		tester.Frame()
-		if len(r.pluginViews.drafts) != 0 || len(r.nativeWindowResources) != 1 || r.App.DropComposer(draftID) != nil {
+		if len(r.pluginViews.drafts) != 0 || windowServiceMountTrackers(r) != 1 || r.App.DropComposer(draftID) != nil {
 			t.Fatal("closing or redrawing a retired mount retained window resources")
 		}
 	}

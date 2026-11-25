@@ -21,3 +21,37 @@ type TerminalActions struct {
 	// returns the new workspace terminal's ID.
 	Split func(string) (string, bool)
 }
+
+// OpenTerminalTab starts a live terminal or opens the isolated preview view.
+// The product decides when and where to offer this action.
+func OpenTerminalTab(state *State) {
+	if !state.Live {
+		state.AddNumberedTab(Terminal, true)
+		return
+	}
+	if actions := state.TerminalActions; actions != nil && actions.Create != nil {
+		actions.Create()
+	}
+}
+
+func RenderTerminalTab(c *ui.Context, state *State, tab Tab) { state.TerminalView(c, tab.ID) }
+
+func FindTerminalTab(state *State, tab Tab) bool {
+	state.termOf(tab.ID).find = true
+	return true
+}
+
+// ReleaseTerminalTab keeps find state when a shell is detached, but forgets
+// it when the shell exits or a preview tab is removed.
+func ReleaseTerminalTab(state *State, tab Tab, reason TabRelease) {
+	if reason != TabDetached || state.TerminalActions == nil || state.TerminalActions.Close == nil {
+		delete(state.terms, tab.ID)
+	}
+}
+
+func fixtureTerminalClose(state *State, tab Tab) CloseConfirmation {
+	if actions := state.TerminalActions; actions != nil && actions.Close != nil {
+		return CloseConfirmation{Title: "workspace_close_terminal", Close: func() { actions.Close(tab.ID) }}
+	}
+	return CloseConfirmation{}
+}

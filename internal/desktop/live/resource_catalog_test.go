@@ -146,10 +146,7 @@ func TestConfirmedDirectoryRemovalInvalidatesOpenResourceViews(t *testing.T) {
 	worktree := protocol.Worktree{ID: worktreeID, Project: &projectID, Path: "/remote/private"}
 	project := owner.workspaceFor(worktree)
 	owner.workspace.selected = worktreeID
-	readCtx, readCancel := context.WithCancel(ctx)
-	project.cancel = readCancel
-	released := 0
-	project.release = func() { released++ }
+	readCtx := project.panel.FileDirectory.Context
 	project.panel.SetFile("private.txt", "private contents\n")
 	project.panel.FileChanged("private.txt", "local draft")
 	preview, previewCtx := owner.beginFilePreview(conversation.File{Path: "private.txt", Text: "private contents"}, fileview.Callbacks{})
@@ -169,7 +166,7 @@ func TestConfirmedDirectoryRemovalInvalidatesOpenResourceViews(t *testing.T) {
 	root.pruneResourceViews()
 	root.pruneResourceViews()
 	if owner.workspace.projects[worktreeID] != nil || owner.workspace.selected != (protocol.WorktreeID{}) ||
-		readCtx.Err() == nil || previewCtx.Err() == nil || released != 1 || root.filePreview != nil || preview.file.Text != "" || root.App.Panel.Actions != nil {
+		readCtx.Err() == nil || previewCtx.Err() == nil || root.filePreview != nil || preview.file.Text != "" || root.App.Panel.Actions != nil {
 		t.Fatal("confirmed directory removal retained an open restricted projection")
 	}
 }
@@ -211,7 +208,7 @@ func TestProjectOverviewReentryRefreshesUnobservedRepository(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = controller.Close() })
 	prefs := preferences.Default()
-	r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(Sidebar(snapshot, prefs), testassembly.Full()),
+	r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(Sidebar(snapshot, prefs), gitFixtureAssembly(testassembly.Full())),
 		busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
 	r.initWorkspace()
 	settle := func() {
@@ -229,7 +226,7 @@ func TestProjectOverviewReentryRefreshesUnobservedRepository(t *testing.T) {
 	r.openProjectOverview(r.App.Data.Projects[0])
 	settle()
 	workspace := r.workspace.projects[worktreeID]
-	if workspace == nil || workspace.release != nil || workspaceString(workspace.status.Branch) != "main" || inspections != 1 {
+	if workspace == nil || workspaceString(workspace.status.Branch) != "main" || inspections != 1 {
 		t.Fatal("overview did not capture the initial unobserved repository")
 	}
 	r.App.Navigate(shell.ConversationPage)

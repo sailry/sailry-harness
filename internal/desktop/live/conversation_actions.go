@@ -257,11 +257,10 @@ func (x *conversationActions) Answer(id string, a composer.Answer) {
 	case "url":
 		if f := x.r.interactionFlow(x.cv.ID); f.questions[id] == nil && !f.settled[id] && x.r.controller.Connected() {
 			link, ok := questionLink(spec.Input)
-			if !ok {
+			if !ok || x.r.openExternalConversationURL(x.c, x.cv.ID, link) != nil {
 				// One this Desktop would not open is not answered as opened.
 				return
 			}
-			x.c.OpenURL(link)
 		}
 		answer = protocol.ConversationQuestionAnswer{Kind: "opened"}
 	case "choice":

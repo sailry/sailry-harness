@@ -15,7 +15,6 @@ import (
 	connections "github.com/sailry/sailry-harness/modules/connections/desktop"
 	connectors "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
-	files "github.com/sailry/sailry-harness/modules/files/desktop"
 	hooks "github.com/sailry/sailry-harness/modules/hooks/desktop"
 	knowledge "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
@@ -49,7 +48,7 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 	} {
 		t.Run(window.name, func(t *testing.T) {
 			full := desktop.Harness()
-			workspaceOnly := shell.Assemble(files.Register, market.Register)
+			workspaceOnly := shell.Assemble(market.Register)
 			settingsOnly := shell.Assemble(providers.Register, connectors.Register, teams.Register, skills.Register,
 				knowledge.Module(), memory.Register, media.Register, decision.Register, websearch.Register,
 				browser.Register, computer.Register, connections.Register,
