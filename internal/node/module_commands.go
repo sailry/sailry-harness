@@ -30,24 +30,8 @@ func sshCommand(kind string) bool {
 	return sshResourceCommand(kind)
 }
 
-func worktreeCommand(kind string) bool {
-	switch kind {
-	case "create_worktree", "create_managed_worktree", "register_worktree", "remove_worktree", "list_worktrees":
-		return true
-	}
-	return false
-}
-
-func (node *Node) hasGitService() bool {
-	return node.workspaceServices.Git && node.git != nil
-}
-
-func (node *Node) hasWorktreeService() bool {
-	return node.workspaceServices.Worktrees && node.git != nil
-}
-
 func (node *Node) runningModuleServices() moduleapi.ServiceCapabilities {
-	var running moduleapi.ServiceCapabilities
+	running := node.workspaceCapabilities
 	if node.executeDatabase != nil {
 		running |= moduleapi.ServiceDatabase
 	}
@@ -56,12 +40,6 @@ func (node *Node) runningModuleServices() moduleapi.ServiceCapabilities {
 	}
 	if node.terminals != nil {
 		running |= moduleapi.ServiceTerminal
-	}
-	if node.hasGitService() {
-		running |= moduleapi.ServiceGit
-	}
-	if node.hasWorktreeService() {
-		running |= moduleapi.ServiceWorktrees
 	}
 	if node.codeIndex != nil {
 		running |= moduleapi.ServiceCodeIndex
@@ -80,22 +58,11 @@ func (node *Node) checkCommandModule(command protocol.Command) error {
 	if terminalCommand(kind) && node.terminals == nil {
 		return moduleUnavailable("terminal")
 	}
-	if worktreeCommand(kind) {
-		if !node.hasWorktreeService() {
-			return moduleUnavailable("worktrees")
-		}
-		return nil
+	if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && kind == "create_project" && draft.Source.Kind != "local" && node.workspace.ProjectSources[draft.Source.Kind] == nil {
+		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "project source is unavailable"}
 	}
-	if !node.hasGitService() {
-		if workspaceGitRead(kind) || workspaceGitWrite(kind) {
-			return moduleUnavailable("git")
-		}
-		if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && kind == "create_project" && draft.Source.Kind == "clone" {
-			return moduleUnavailable("git")
-		}
-		if input, ok := command.Data.(*protocol.ConversationCheckpointHunkSelection); ok && input.Operation != protocol.ConversationCheckpointHunkOperationReject {
-			return moduleUnavailable("git")
-		}
+	if input, ok := command.Data.(*protocol.ConversationCheckpointHunkSelection); ok && input.Operation != protocol.ConversationCheckpointHunkOperationReject && node.workspace.StageTurnHunk == nil {
+		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "hunk staging is unavailable"}
 	}
 	return nil
 }

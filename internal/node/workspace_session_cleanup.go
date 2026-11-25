@@ -96,38 +96,29 @@ func (node *Node) removePrivateWorkspace(session protocol.SessionID, path string
 }
 
 func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
-	if !node.hasWorktreeService() {
+	remove := node.workspace.RemoveUnusedWorktree
+	if remove == nil {
 		return
 	}
 	ctx := node.ctx
-	// Removing a worktree changes which roots exist, as remove_worktree does,
-	// and like it holds the root from Git's local work to the row: the root
-	// goes on disk before its row, and no effect may run in it in between.
-	// A project command waits too, so the path read below stays the root.
+	// Keep the checkout and its registration ordered against workspace effects.
 	release := node.locks.change(tree.Path)
 	defer release()
 	if node.keptWorktrees.contains(tree.ID, time.Now()) {
 		return
 	}
-	var capture store.WorkspaceGitCapture
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		capture, err = store.PrepareWorkspaceWorktreeRemoval(ctx, db, tree.ID)
-		return err
-	})
-	if err != nil || capture.Worktree.Path != tree.Path || capture.Worktree.Path != filepath.Join(core.Worktrees(capture.Project.Path), tree.ID.String()) || node.activeWorkspaceCommands(ctx, tree.ID) {
+	capture, err := node.captureWorktreeRemoval(ctx, tree.ID)
+	if err != nil || capture.Worktree.Path != tree.Path {
 		return
 	}
 	path := capture.Worktree.Path
-	status, err := node.git.Status(ctx, path)
-	if err != nil || status.Head == nil || status.Branch == nil {
-		node.keptWorktrees.remember(tree.ID, time.Now())
-		return
-	}
-	node.transfers.Remove(path)
-	if err := node.git.RemoveWorktree(ctx, path, *status.Head, *status.Branch); err != nil {
+	removed, err := remove(ctx, capture, func() { node.transfers.Remove(path) })
+	if err != nil {
 		until := node.keptWorktrees.remember(tree.ID, time.Now())
 		slog.Info("managed worktree kept", "worktree", tree.ID.String(), "path", path, "reason", err, "auto_cleanup_not_before", until)
+		return
+	}
+	if !removed {
 		return
 	}
 	node.watches.remove(path)

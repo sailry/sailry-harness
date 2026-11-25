@@ -72,6 +72,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		if node.codeIndex == nil && codeIndexOperation(declaration.Operation) {
 			continue
 		}
+		if kind := operations.WorkspaceModuleCommand(declaration.Operation); kind != "" && node.workspace.Commands[kind].Run == nil {
+			continue
+		}
 		if coreCommands && declaration.Owner.Name == "commands" && operations.LegacyCommandTool(declaration.Name) != "" &&
 			legacyNativeToolPackage(declaration.Owner.Name, declaration.Owner.Digest) {
 			continue
@@ -163,7 +166,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 				allowed := false
 				if inv.Worktree.Project != nil {
 					err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-						capture, e := store.ReadWorkspaceGitCapture(ctx, db, target)
+						capture, e := store.ReadProjectWorktree(ctx, db, target)
 						if e != nil {
 							return e
 						}

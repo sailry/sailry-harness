@@ -11,13 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestNativeCommandLifecycle(t *testing.T) {
 	ctx := context.Background()
-	service, err := New(Options{Profile: t.TempDir(), Environment: NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}), CaptureManaged: git.New(git.Options{}).CaptureManaged})
+	service, err := New(Options{Profile: t.TempDir(), Environment: NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}), CaptureManaged: CaptureWorkspaceBoundary})
 	if err != nil {
 		t.Fatal(err)
 	}

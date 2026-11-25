@@ -285,8 +285,8 @@ type Assembly struct {
 	SSH SSHFactory
 	// Terminal overrides the selected terminal provider's factory when non-nil.
 	Terminal TerminalFactory
-	// LegacyWorkspaceModules adapts old ID-only git and worktrees modules.
-	// New modules should implement WorkspaceServiceProvider instead.
+	// Deprecated: retained for source compatibility. Workspace modules must
+	// register their own handlers through WorkspaceServiceProvider.
 	LegacyWorkspaceModules bool
 	Modules                []Module
 }

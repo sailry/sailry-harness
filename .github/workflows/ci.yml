@@ -423,7 +423,6 @@ jobs:
         ./internal/link
         ./internal/node/backup
         ./internal/node/computer
-        ./internal/node/git
         ./internal/node/store
         ./internal/node/terminal
         ./internal/node/wsl

@@ -1,15 +1,15 @@
 package sdktest
 
 import (
-	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 )
 
-type GitOptions = workspacegit.Options
+type GitOptions = moduleapi.GitOptions
 
-type GitCommandResult = workspacegit.CommandResult
+type GitCommandResult = moduleapi.GitCommandResult
 
 type TelemetryOptions = telemetry.Options
 

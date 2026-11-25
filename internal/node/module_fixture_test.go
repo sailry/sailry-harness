@@ -59,10 +59,7 @@ func serviceTestNode(t *testing.T, assembly moduleapi.Assembly) *Node {
 func fixtureModuleAssembly(modules ...string) moduleapi.Assembly {
 	var assembly moduleapi.Assembly
 	for _, id := range modules {
-		assembly.Modules = append(assembly.Modules, serviceTestModule(id))
 		switch id {
-		case "git", "worktrees":
-			assembly.LegacyWorkspaceModules = true
 		case "databases":
 			assembly.Databases = func(context.Context, store.DatabaseOperation) (protocol.DatabaseOutcome, error) {
 				return protocol.DatabaseOutcome{}, errors.New("external database execution is not configured for this fixture")
@@ -72,6 +69,7 @@ func fixtureModuleAssembly(modules ...string) moduleapi.Assembly {
 		case "terminal":
 			assembly.Terminal = terminal.New
 		}
+		assembly.Modules = append(assembly.Modules, serviceTestModule(id))
 	}
 	return assembly
 }

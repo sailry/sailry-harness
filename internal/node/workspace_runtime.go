@@ -7,35 +7,30 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/files"
-	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) initWorkspace(ctx context.Context, options Options, codeIndex codeindexapi.Factory) error {
+func (node *Node) initWorkspace(ctx context.Context, options Options, services moduleapi.ResolvedServices) error {
 	if options.Environment == nil {
 		node.environment = process.CaptureEnvironment(ctx)
 	} else {
 		node.environment = *options.Environment
 	}
-	// Worktrees share the Git engine without exposing Git commands or watches.
-	if node.workspaceServices.Git || node.workspaceServices.Worktrees {
-		gitOptions := options.Git
-		if gitOptions.Environment == nil {
-			gitOptions.Environment = node.environment.TerminalValues()
+	if len(services.Workspace) != 0 {
+		node.workspaceRuntime = moduleapi.NewWorkspaceRuntime(moduleapi.WorkspaceOptions{
+			Context: node.ctx, Environment: node.environment.TerminalValues(), Profile: node.profile.Ownership.Path,
+			Lock: func(root string) func() { return node.locks.roots(root) }, Git: options.Git,
+		})
+		if err := node.bindWorkspace(services.Workspace); err != nil {
+			return errors.Join(err, node.workspaceRuntime.Close())
 		}
-		gitOptions.Profile = node.profile.Ownership.Path
-		gitOptions.Lock = func(root string) func() { return node.locks.roots(root) }
-		node.git = workspacegit.New(gitOptions)
+		node.workspaceCapabilities = services.WorkspaceCapabilities
 	}
-	var watchGit *workspacegit.Service
-	if node.hasGitService() {
-		watchGit = node.git
-	}
-	node.watches = newWorkspaceWatches(watchGit)
+	node.watches = newWorkspaceWatches(node.workspace.RepositoryWatch)
 	node.transfers = files.NewTransfers(node.profile.Ownership.Path)
 	processOptions := options.Process
 	node.processAfter = processOptions.After
@@ -43,9 +38,8 @@ func (node *Node) initWorkspace(ctx context.Context, options Options, codeIndex 
 		node.processAfter = time.After
 	}
 	processOptions.Context, processOptions.Profile, processOptions.Environment = node.ctx, node.profile.Ownership.Path, node.environment
-	if node.git != nil {
-		processOptions.CaptureManaged = node.git.CaptureManaged
-	} else {
+	processOptions.CaptureManaged = node.workspace.CaptureBoundary
+	if processOptions.CaptureManaged == nil {
 		processOptions.CaptureManaged = process.CaptureWorkspaceBoundary
 	}
 	processOptions.Finished = node.commandFinished
@@ -55,9 +49,7 @@ func (node *Node) initWorkspace(ctx context.Context, options Options, codeIndex 
 	var err error
 	node.processes, err = process.New(processOptions)
 	if err != nil {
-		_ = node.transfers.Close()
-		_ = node.watches.close()
-		return err
+		return errors.Join(err, node.transfers.Close(), node.watches.close(), node.workspaceRuntime.Close())
 	}
 	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		changes, e := store.RecoverCommands(ctx, db, time.Now())
@@ -71,19 +63,55 @@ func (node *Node) initWorkspace(ctx context.Context, options Options, codeIndex 
 		err = node.initWeb(ctx, options)
 	}
 	if err == nil {
-		err = node.initCodeIndex(ctx, codeIndex)
+		err = node.initCodeIndex(ctx, services.CodeIndex)
 	}
 	if err != nil {
 		_ = node.closeWorkspace()
 	}
 	return err
 }
+func (node *Node) bindWorkspace(providers []moduleapi.WorkspaceBinder) error {
+	var workspace moduleapi.WorkspaceBindings
+	workspace.Commands = make(map[string]moduleapi.WorkspaceCommand)
+	workspace.ProjectSources = make(map[string]moduleapi.ProjectSourcePreparer)
+	for _, bind := range providers {
+		bindings, err := bind(node.workspaceRuntime)
+		if err != nil {
+			return err
+		}
+		for kind, handler := range bindings.Commands {
+			if workspace.Commands[kind].Run == nil {
+				workspace.Commands[kind] = handler
+			}
+		}
+		for source, prepare := range bindings.ProjectSources {
+			if workspace.ProjectSources[source] == nil {
+				workspace.ProjectSources[source] = prepare
+			}
+		}
+		if workspace.RepositoryWatch == nil {
+			workspace.RepositoryWatch = bindings.RepositoryWatch
+		}
+		if workspace.CaptureBoundary == nil {
+			workspace.CaptureBoundary = bindings.CaptureBoundary
+		}
+		if workspace.StageTurnHunk == nil {
+			workspace.StageTurnHunk = bindings.StageTurnHunk
+		}
+		if workspace.RemoveUnusedWorktree == nil {
+			workspace.RemoveUnusedWorktree = bindings.RemoveUnusedWorktree
+		}
+	}
+	node.workspace = workspace
+	return nil
+}
+
 func (node *Node) closeWorkspace() error {
 	if node.web != nil {
 		node.web.fetch.Close()
 	}
 	node.closeCodeIndex()
-	return errors.Join(node.processes.Close(), node.transfers.Close(), node.watches.close())
+	return errors.Join(node.processes.Close(), node.transfers.Close(), node.watches.close(), node.workspaceRuntime.Close())
 }
 func (node *Node) open(ctx context.Context, caller protocol.NodeID, id protocol.StreamID) (link.Stream, error) {
 	if err := node.begin(); err != nil {

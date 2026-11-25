@@ -2,12 +2,14 @@ package node
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -76,25 +78,6 @@ func TestRemovedSessionWorkspace(t *testing.T) {
 			t.Fatalf("a remaining session lost its workspace: %v", err)
 		}
 	}
-	// Removing a worktree holds its own root until the command ends, not
-	// every effect on the Node: Git may take long.
-	change := &workspaceCompletion{}
-	removal := protocol.NewRequest(node.ID(), protocol.Command{Kind: "remove_worktree", Data: &protocol.CommandRemoveWorktreePayload{Worktree: kept.Worktree}})
-	if _, err := node.workspaceIO(context.Background(), node.ID(), removal, nil, change); err == nil {
-		change.close()
-		t.Fatal("a private workspace was removed as a project worktree")
-	}
-	other := make(chan func(), 1)
-	go func() { other <- node.locks.effect(archivedRoot) }()
-	select {
-	case release := <-other:
-		release()
-		change.close()
-	case <-time.After(10 * time.Second):
-		change.close()
-		(<-other)()
-		t.Fatal("removing a worktree stalled an effect in another root")
-	}
 	// A directory an earlier process could not remove goes at the next start.
 	if err := os.MkdirAll(removedRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -116,5 +99,36 @@ func TestRemovedSessionWorkspace(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "output.txt")); err != nil {
 			t.Fatalf("the start sweep removed a remaining session's workspace: %v", err)
 		}
+	}
+}
+
+func TestModuleCannotRemovePrivateWorkspaceAsWorktree(t *testing.T) {
+	handled := make(chan struct{}, 1)
+	module := serviceTestWorkspaceModule{serviceTestModule: "removal-fixture", services: moduleapi.WorkspaceServices{
+		Worktrees: true,
+		Bind: func(*moduleapi.WorkspaceRuntime) (moduleapi.WorkspaceBindings, error) {
+			return moduleapi.WorkspaceBindings{Commands: map[string]moduleapi.WorkspaceCommand{
+				"remove_worktree": {Lock: moduleapi.WorkspaceLockChange, Run: func(_ context.Context, scope moduleapi.WorkspaceCommandScope, command protocol.Command) (protocol.Output, error) {
+					handled <- struct{}{}
+					input := command.Data.(*protocol.CommandRemoveWorktreePayload)
+					return scope.RemoveWorktree(input.Worktree, func(string) error {
+						return errors.New("private workspace reached the removal callback")
+					})
+				}},
+			}}, nil
+		},
+	}}
+	node := serviceTestNode(t, moduleapi.Assembly{Modules: []moduleapi.Module{module}})
+	session := sessionFixture(t, node)
+	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{
+		Worktree: session.Worktree, ExpectedHead: "0000000000000000000000000000000000000000", ExpectedBranch: "main",
+	}})
+	result := dispatchFixture(t, node, node.ID(), request)
+	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeNotFound || len(handled) != 1 {
+		t.Fatalf("private workspace did not reach the registered removal handler and fail the project capture: %+v", result)
+	}
+	root := core.SessionWorkspace(node.profile.Ownership.Path, session.ID)
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("the private workspace was not retained: %v", err)
 	}
 }

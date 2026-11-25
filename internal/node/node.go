@@ -28,7 +28,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
 	"github.com/sailry/sailry-harness/internal/node/files"
-	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
 	knowledgeservice "github.com/sailry/sailry-harness/internal/node/knowledge/service"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
@@ -80,7 +79,6 @@ type Node struct {
 	cancel           context.CancelFunc
 	web              *workspaceWeb
 	transfers        *files.Transfers
-	git              *workspacegit.Service
 	processes        *process.Service
 	watches          *workspaceWatches
 	codeIndex        *codeIndexControls
@@ -120,8 +118,10 @@ type Node struct {
 	subscribersMu     sync.Mutex
 	subscribers       map[*events]struct{}
 
-	workspaceServices moduleapi.WorkspaceServices
-	registeredModules []moduleapi.RegisteredModule
+	workspace             moduleapi.WorkspaceBindings
+	workspaceRuntime      *moduleapi.WorkspaceRuntime
+	workspaceCapabilities moduleapi.ServiceCapabilities
+	registeredModules     []moduleapi.RegisteredModule
 }
 
 // commandLane is one ordered queue of admitted jobs and its worker. Project
@@ -140,7 +140,7 @@ const (
 )
 
 func projectEffect(kind string) bool {
-	return kind == "create_project" || kind == "register_project" || kind == "update_project" || kind == "register_worktree" || kind == "remove_project"
+	return kind == "create_project" || kind == "register_project" || kind == "update_project" || kind == "remove_project"
 }
 
 type commandJob struct {
@@ -171,7 +171,7 @@ type Options struct {
 	Fetch           web.FetchOptions
 	Search          web.SearchOptions
 	Environment     *process.Environment
-	Git             workspacegit.Options
+	Git             moduleapi.GitOptions
 	Process         process.Options
 	LocalModels     localmodels.Options
 	Power           power.Backend
@@ -219,7 +219,6 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, modules: options.Assembly, productID: options.ProductID, knowledgeAdjust: options.knowledge, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
-	value.workspaceServices = services.Workspace
 	value.registeredModules = services.Modules
 	for index := range value.lanes {
 		value.lanes[index] = commandLane{wake: make(chan struct{}, 1), done: make(chan struct{})}
@@ -231,7 +230,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.tasks = tasks.New(nodeContext)
-	if err := value.initWorkspace(ctx, options, services.CodeIndex); err != nil {
+	if err := value.initWorkspace(ctx, options, services); err != nil {
 		cancel()
 		_ = profile.Close()
 		return nil, err
@@ -546,7 +545,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if pluginCommand(request.Command.Kind) {
 		return node.dispatchPlugins(ctx, caller, request, encoded)
 	}
-	if workspaceCommand(request.Command.Kind) {
+	if node.handlesWorkspaceCommand(request.Command.Kind) {
 		return node.dispatchWorkspace(ctx, caller, request, encoded)
 	}
 	if request.Command.Kind == "decide" {
@@ -702,7 +701,7 @@ func externalCommand(command protocol.Command) bool {
 	switch command.Kind {
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
-	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
+	case "create_project", "register_project", "update_project", "remove_project":
 		return true
 	case "remove_session", "remove_sessions":
 		// A removal can wait for the turns it stops, so it runs in a lane.
@@ -730,7 +729,7 @@ func supportedCommand(kind string) bool {
 		return true
 	case "deliver_background", "continue_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree", "create_session", "import_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
+	case "create_project", "update_project", "remove_project", "create_session", "import_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
 		return true
 	default:
 		return false
@@ -922,13 +921,15 @@ func (node *Node) run(lane *commandLane) {
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(ctx, job.caller, job.request)
 		}
-		// A clone and the checks above run unlocked; recording which roots
-		// exist excludes workspace effects. Creating or removing a worktree
-		// runs Git as an effect that this exclusion waits for (workspaceIO):
-		// the root appears on disk apart from its row.
+		// Slow project preparation runs unlocked. Recording the roots excludes
+		// workspace effects, so a worktree cannot be registered or removed
+		// between the project membership check and the metadata commit.
 		registered := func() {}
 		if projectEffect {
 			registered = node.locks.registration()
+			if prepareErr == nil {
+				prepareErr = node.checkProjectWorktreeRoots(ctx, job.request.Command, prepared)
+			}
 		}
 		var result link.Response
 		var err error

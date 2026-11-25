@@ -128,15 +128,9 @@ func (node *Node) applyWorkspaceHunk(ctx context.Context, request protocol.Reque
 		value, err := files.RejectHunk(ctx, root, input, capture)
 		return protocol.Output{Kind: "hunk_applied", Data: value}, err
 	}
-	if !node.hasGitService() {
-		return protocol.Output{}, moduleUnavailable("git")
-	}
-	if input.ExpectedIndex == nil {
-		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "staging a hunk requires the index revision"}
-	}
-	index, err := node.git.EditIndex(ctx, root, input.Path, *input.ExpectedIndex, input.ExpectedHead, input.ExpectedRevision, func(text string) (string, error) { return files.ApplyHunkText(text, capture.Before, capture.After) })
-	value := protocol.ConversationCheckpointHunkApplied{Session: input.Session, Turn: input.Turn, Path: input.Path, Hunk: input.Hunk, Revision: input.ExpectedRevision, Index: &index}
-	return protocol.Output{Kind: "hunk_applied", Data: value}, err
+	return node.workspace.StageTurnHunk(ctx, root, input, func(text string) (string, error) {
+		return files.ApplyHunkText(text, capture.Before, capture.After)
+	})
 }
 
 func (node *Node) writeWorkspaceArtifact(ctx context.Context, request protocol.Request, effect *workspaceCompletion) (protocol.Output, error) {

@@ -54,7 +54,7 @@ func TestUnassembledConnectionCommandsHaveNoEffects(t *testing.T) {
 			return nil
 		},
 	})
-	if node.git != nil || node.terminals != nil || node.ssh != nil || node.executeDatabase != nil || calls.Load() != 0 {
+	if node.workspaceRuntime != nil || node.terminals != nil || node.ssh != nil || node.executeDatabase != nil || calls.Load() != 0 {
 		t.Fatal("unassembled service was initialized")
 	}
 	path := filepath.Join(t.TempDir(), "legacy.sqlite")
@@ -193,6 +193,7 @@ func TestUnassembledDevelopmentCommandsAreRejected(t *testing.T) {
 		{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project.ID, Path: worktreePath}},
 		{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: worktree, ExpectedHead: head, ExpectedBranch: "main"}},
 		{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: worktree}},
+		{Kind: "create_project", Data: protocol.ProjectsDraft{Name: "Unavailable clone", Path: worktreePath, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "clone", Data: &protocol.ProjectsSourceClonePayload{Url: directory}}}},
 		{Kind: "read_terminal_settings"},
 		{Kind: "save_terminal_settings", Data: protocol.DefaultTerminalSettings()},
 		{Kind: "list_shells"},
@@ -269,7 +270,7 @@ func TestUnassembledRuntimeKeepsGenericCommands(t *testing.T) {
 	launch := protocol.DefaultCommandRunCommandPayload()
 	launch.Turn, launch.Command, launch.TimeoutMs = turn.ID, "fixture", 1000
 	commandFixture(t, node, protocol.Command{Kind: "run_command", Data: launch})
-	if executed.Load() != 1 || node.git != nil || node.terminals != nil {
+	if executed.Load() != 1 || node.workspaceRuntime != nil || node.terminals != nil {
 		t.Fatal("generic command requires a development service")
 	}
 	if node.processes == nil {
@@ -455,7 +456,7 @@ func TestLegacyFactoriesDoNotAddServicesToTypedModule(t *testing.T) {
 	assembly := moduleapi.Assembly{
 		Modules: []moduleapi.Module{
 			serviceTestWorkspaceModule{serviceTestModule: "git"},
-			serviceTestWorkspaceModule{serviceTestModule: "terminal", services: moduleapi.WorkspaceServices{Worktrees: true}},
+			serviceTestWorkspaceModule{serviceTestModule: "terminal", services: moduleapi.WorkspaceServices{Worktrees: true, Bind: fixtureWorktreeBindings}},
 		},
 		LegacyWorkspaceModules: true,
 		Terminal: func(context.Context, protocol.NodeID, func(context.Context, protocol.TerminalInfo)) *terminal.Service {
@@ -466,6 +467,16 @@ func TestLegacyFactoriesDoNotAddServicesToTypedModule(t *testing.T) {
 	node := serviceTestNode(t, assembly)
 	if node.runningModuleServices() != moduleapi.ServiceWorktrees || len(node.pluginRuntime().Modules) != 0 {
 		t.Fatal("a typed module inherited a service or a requirement from its ID")
+	}
+	for _, command := range []protocol.Command{
+		{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: protocol.NewWorktreeID()}},
+		{Kind: "read_terminal_settings"},
+	} {
+		accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), command))
+		requireModuleUnavailable(t, err)
+		if accepted.Completion != nil {
+			t.Fatalf("%s inherited a handler", command.Kind)
+		}
 	}
 }
 
@@ -495,8 +506,8 @@ func TestWorkspaceCapabilitiesAreIndependentOfModuleIDs(t *testing.T) {
 		id       string
 		services moduleapi.WorkspaceServices
 	}{
-		{"repo-provider", moduleapi.WorkspaceServices{Git: true}},
-		{"checkout-provider", moduleapi.WorkspaceServices{Worktrees: true}},
+		{"repo-provider", moduleapi.WorkspaceServices{Git: true, Bind: fixtureGitBindings}},
+		{"checkout-provider", moduleapi.WorkspaceServices{Worktrees: true, Bind: fixtureWorktreeBindings}},
 	} {
 		t.Run(workspace.id, func(t *testing.T) {
 			node := serviceTestNode(t, moduleapi.Assembly{Modules: []moduleapi.Module{
@@ -520,12 +531,15 @@ func TestWorkspaceCapabilitiesAreIndependentOfModuleIDs(t *testing.T) {
 			for _, test := range []struct {
 				command protocol.Command
 				allowed bool
+				output  string
 			}{
-				{protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: worktree}}, workspace.services.Git},
-				{protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: worktree}}, workspace.services.Worktrees},
+				{protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: worktree}}, workspace.services.Git, "git_status"},
+				{protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: worktree}}, workspace.services.Worktrees, "git_worktrees"},
 			} {
 				if test.allowed {
-					commandFixture(t, node, test.command)
+					if out := commandFixture(t, node, test.command); out.Kind != test.output {
+						t.Fatalf("%s produced %q, want %q", test.command.Kind, out.Kind, test.output)
+					}
 					continue
 				}
 				accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), test.command))

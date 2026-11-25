@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	git "github.com/go-git/go-git/v5"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
@@ -265,28 +264,18 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			t.Fatalf("the ledger holds a secret: %s", text)
 		}
 	})
-	t.Run("project lifecycle and worktree ownership", func(t *testing.T) {
-		node := moduleFixtureNode(t, "git", "worktrees")
+	t.Run("local project lifecycle", func(t *testing.T) {
+		node := nodeFixture(t)
 		directory := t.TempDir()
-		other := t.TempDir()
-		if _, err := git.PlainInit(directory, false); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := git.PlainInit(other, false); err != nil {
-			t.Fatal(err)
-		}
 		draft := protocol.ProjectsDraft{Name: "Project", Path: directory, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}
 		project := commandFixture(t, node, protocol.Command{Kind: "create_project", Data: draft}).Data.(protocol.Project)
 		value := snapshotFixture(t, node)
 		if len(value.Projects) != 1 || len(value.Worktrees) != 1 || !value.Worktrees[0].Main || value.Worktrees[0].Project == nil || *value.Worktrees[0].Project != project.ID {
 			t.Fatalf("main worktree snapshot = %#v", value)
 		}
-		commandFixture(t, node, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project.ID, Path: project.Path}})
-		for _, command := range []protocol.Command{{Kind: "create_project", Data: draft}, {Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project.ID, Path: other}}} {
-			response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command))
-			if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeConflict {
-				t.Fatalf("registration conflict = %#v", response)
-			}
+		response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_project", Data: draft}))
+		if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeConflict {
+			t.Fatalf("registration conflict = %#v", response)
 		}
 		updated := commandFixture(t, node, protocol.Command{Kind: "update_project", Data: protocol.CommandUpdateProjectPayload{Expected: project, Name: "Updated", Path: project.Path, Appearance: project.Appearance}}).Data.(protocol.Project)
 		stale := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: project}}))
@@ -308,7 +297,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		reopened, err := startFixtureNode(context.Background(), path, "git", "worktrees")
+		reopened, err := startFixtureNode(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +308,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		}
 	})
 	t.Run("registered projects, conversation location, media roles and diagnostics", func(t *testing.T) {
-		node := moduleFixtureNode(t, "git", "worktrees")
+		node := nodeFixture(t)
 		refused := func(command protocol.Command, want protocol.ErrorCode) {
 			t.Helper()
 			response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command))
@@ -327,25 +316,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 				t.Fatalf("%s = %#v, want %s", command.Kind, response, want)
 			}
 		}
-		root, linked := t.TempDir(), t.TempDir()
-		if _, err := git.PlainInit(root, false); err != nil {
-			t.Fatal(err)
-		}
-		// The layout `git worktree add` leaves for a linked worktree.
-		private := filepath.Join(root, ".git", "worktrees", "linked")
-		if err := os.MkdirAll(private, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for path, body := range map[string]string{
-			filepath.Join(private, "commondir"): "../..\n",
-			filepath.Join(private, "HEAD"):      "ref: refs/heads/linked\n",
-			filepath.Join(private, "gitdir"):    filepath.Join(linked, ".git") + "\n",
-			filepath.Join(linked, ".git"):       "gitdir: " + private + "\n",
-		} {
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		root := t.TempDir()
 		registration := protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Registered", Path: root}}
 		project := commandFixture(t, node, registration).Data.(protocol.Project)
 		if project.Name != "Registered" || project.Appearance != protocol.DefaultProjectsAppearance() {
@@ -354,7 +325,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		refused(registration, protocol.ErrorCodeConflict)
 		refused(protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Relative", Path: "relative"}}, protocol.ErrorCodeInvalidRequest)
 		foreign := commandFixture(t, node, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Foreign", Path: t.TempDir()}}).Data.(protocol.Project)
-		tree := commandFixture(t, node, protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{Project: project.ID, Path: linked}}).Data.(protocol.Worktree)
+		tree := recordWorkspaceFixture(t, node, project.ID, t.TempDir())
 		var outside protocol.WorktreeID
 		for _, worktree := range snapshotFixture(t, node).Worktrees {
 			if worktree.Project != nil && *worktree.Project == foreign.ID {

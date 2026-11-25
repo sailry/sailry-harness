@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/files"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -40,20 +41,10 @@ func (effect *workspaceCompletion) close() {
 	}
 }
 
-func workspaceGitRead(kind string) bool {
-	switch kind {
-	case "inspect_git", "read_git_head", "read_git_diff", "read_git_log", "read_git_commit", "read_git_show", "read_git_blame", "list_git_branches", "resolve_git_revision", "read_git_stash", "read_git_output", "list_git_remote_tags", "list_git_changes", "read_git_change", "read_git_context", "list_worktrees":
-		return true
-	}
-	return false
+func (node *Node) handlesWorkspaceCommand(kind string) bool {
+	return workspaceCommand(kind) || node.workspace.Commands[kind].Run != nil
 }
-func workspaceGitWrite(kind string) bool {
-	switch kind {
-	case "apply_git_hunk", "update_git_index", "create_git_commit", "create_git_branch", "rename_git_branch", "delete_git_branch", "switch_git_branch", "merge_git_branch", "run_git_action", "create_worktree", "create_managed_worktree", "remove_worktree":
-		return true
-	}
-	return false
-}
+
 func workspaceCommand(kind string) bool {
 	if terminalCommand(kind) {
 		return true
@@ -61,7 +52,7 @@ func workspaceCommand(kind string) bool {
 	if networkCommand(kind) || codeIndexCommand(kind) {
 		return true
 	}
-	if files.SupportsRead(kind) || files.SupportsMutation(kind) || store.SupportsFilesCommand(kind) || workspaceGitRead(kind) || workspaceGitWrite(kind) {
+	if files.SupportsRead(kind) || files.SupportsMutation(kind) || store.SupportsFilesCommand(kind) {
 		return true
 	}
 	switch kind {
@@ -218,6 +209,10 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return protocol.Output{}, accessErr
 	}
 	command := request.Command
+	workspaceHandler := node.workspace.Commands[command.Kind]
+	if workspaceHandler.Run == nil && !workspaceCommand(command.Kind) {
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "workspace command is unavailable"}
+	}
 	draft := command.UsesDraftAttachment()
 	var transferUser protocol.UserID
 	if request.Plugin == nil {
@@ -237,23 +232,25 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 	}
 	access := core.FileAccessForRequest(request, request.Plugin != nil)
 	registrations := node.locks.registrations.Load()
-	source, root, err := node.workspaceRoots(ctx, command, request.Plugin != nil)
+	resolveRoots := func() (string, string, error) {
+		if workspaceHandler.ProjectRoot != nil {
+			root, err := node.projectWorkspaceRoot(ctx, workspaceHandler.ProjectRoot(command))
+			return root, root, err
+		}
+		return node.workspaceRoots(ctx, command, request.Plugin != nil)
+	}
+	source, root, err := resolveRoots()
 	if err != nil {
 		return protocol.Output{}, err
 	}
 	if request.Command.Durable() {
-		switch command.Kind {
-		case "run_git_action", "create_git_commit":
-			// The Git service locks the root itself, around its local work
-			// only, so that a transfer with a remote does not hold it.
-		case "run_command", "stop_command", "stop_commands", "write_command":
-		case "create_worktree", "create_managed_worktree", "remove_worktree":
-			// Held from Git's local work to the row. A project command
-			// takes only the registration, so the root locks alone would
-			// let it move or remove the project between the two; joining
-			// the effects keeps it out without stalling the other roots.
+		switch {
+		case workspaceHandler.Lock == moduleapi.WorkspaceLockLocal:
+			// The service locks only the local part of the effect.
+		case workspaceHandler.Lock == moduleapi.WorkspaceLockChange:
 			effect.release = node.locks.change(source, root)
-		case "save_search_settings", "save_code_index_settings":
+		case command.Kind == "run_command", command.Kind == "stop_command", command.Kind == "stop_commands", command.Kind == "write_command":
+		case command.Kind == "save_search_settings", command.Kind == "save_code_index_settings":
 			// One save at a time, to the end of its refresh (workspaceLocks).
 			node.locks.settings.Lock()
 			release := node.locks.effect()
@@ -264,7 +261,7 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		if effect.release != nil && node.locks.registrations.Load() != registrations {
 			// A project or worktree was registered, moved or removed while
 			// this effect waited; it must not run in a root that changed.
-			current, target, err := node.workspaceRoots(ctx, command, request.Plugin != nil)
+			current, target, err := resolveRoots()
 			if err != nil {
 				return protocol.Output{}, err
 			}
@@ -273,18 +270,12 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 			}
 		}
 	}
+	if workspaceHandler.Run != nil {
+		scope := moduleWorkspaceScope{node: node, ctx: ctx, caller: caller, request: request, root: root, effect: effect}
+		return workspaceHandler.Run(ctx, scope, command)
+	}
 	if files.SupportsRead(command.Kind) {
 		return node.inspectWorkspaceFiles(ctx, request, root, access)
-	}
-	if workspaceGitRead(command.Kind) {
-		if command.Kind == "list_worktrees" {
-			value, err := node.git.ListWorktrees(ctx, root)
-			return protocol.Output{Kind: "git_worktrees", Data: value}, err
-		}
-		return node.git.Read(ctx, root, command)
-	}
-	if workspaceGitWrite(command.Kind) {
-		return node.workspaceGitEffect(ctx, request, root, effect)
 	}
 	if files.SupportsMutation(command.Kind) {
 		scope := effect.fileScope

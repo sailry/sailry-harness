@@ -27,8 +27,6 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return updateProject(ctx, db, *request.Command.Data.(*protocol.CommandUpdateProjectPayload), prepared)
 	case "remove_project":
 		return removeProject(ctx, db, request.Command.Data.(*protocol.CommandRemoveProjectPayload).Expected, prepared.TerminalsClosed)
-	case "register_worktree":
-		return registerWorktree(ctx, db, *request.Command.Data.(*protocol.CommandRegisterWorktreePayload), prepared)
 	case "create_session":
 		return createSession(ctx, db, node, profile, *request.Command.Data.(*protocol.CommandCreateSessionPayload))
 	case "import_session":

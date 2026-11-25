@@ -9,18 +9,18 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/fswatch"
-	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // workspaceWatches owns one recursive watch per worktree root, shared by the
 // subscriptions of that root and closed with the last of them.
 type workspaceWatches struct {
-	mu     sync.Mutex
-	roots  map[string]*workspaceWatch
-	closed bool
-	git    *workspacegit.Service
-	after  func(time.Duration) <-chan time.Time
+	mu         sync.Mutex
+	roots      map[string]*workspaceWatch
+	closed     bool
+	repository *moduleapi.RepositoryWatch
+	after      func(time.Duration) <-chan time.Time
 }
 type workspaceWatch struct {
 	owner  *workspaceWatches
@@ -32,7 +32,7 @@ type workspaceWatch struct {
 	started    bool
 	done       chan struct{}
 	mu         sync.Mutex
-	filter     *workspacegit.WatchFilter
+	filter     moduleapi.RepositoryWatchFilter
 	references uint64
 	failure    error
 	observers  map[*workspaceEvents]struct{}
@@ -52,8 +52,8 @@ type workspaceEvents struct {
 	initial bool
 }
 
-func newWorkspaceWatches(git *workspacegit.Service) *workspaceWatches {
-	return &workspaceWatches{roots: map[string]*workspaceWatch{}, git: git, after: time.After}
+func newWorkspaceWatches(repository *moduleapi.RepositoryWatch) *workspaceWatches {
+	return &workspaceWatches{roots: map[string]*workspaceWatch{}, repository: repository, after: time.After}
 }
 func watchUnavailable() error {
 	return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "file watch is unavailable"}
@@ -101,8 +101,8 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 			}
 			active.started = true
 			close(active.ready)
-			if w.git != nil {
-				w.git.Invalidate(root)
+			if w.repository != nil {
+				w.repository.Invalidate(root)
 			}
 			go active.run()
 		} else if !active.started {
@@ -123,14 +123,13 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 	}
 }
 
-// open watches the worktree and the Git directories outside it. Git's own
-// directory inside the worktree is part of the tree.
+// open watches the worktree and any supplemental repository metadata roots.
 func (w *workspaceWatch) open(ctx context.Context) error {
-	var filter *workspacegit.WatchFilter
+	var filter moduleapi.RepositoryWatchFilter
 	var watched []string
 	var err error
-	if w.owner.git != nil {
-		filter, watched, err = w.owner.git.NewWatchFilter(ctx, w.root)
+	if w.owner.repository != nil {
+		filter, watched, err = w.owner.repository.Open(ctx, w.root)
 		if err != nil {
 			return err
 		}
@@ -200,8 +199,8 @@ func (w *workspaceWatch) notify(paths []string, failure error) {
 	if references {
 		w.references++
 	}
-	if relevant && w.owner.git != nil {
-		w.owner.git.Invalidate(w.root)
+	if relevant && w.owner.repository != nil {
+		w.owner.repository.Invalidate(w.root)
 	}
 	for observer := range w.observers {
 		if observer.paths != nil {
@@ -231,8 +230,8 @@ func (w *workspaceWatches) changed(root string, paths []string) {
 	}
 	if active != nil {
 		active.notify(paths, nil)
-	} else if w.git != nil {
-		w.git.Invalidate(root)
+	} else if w.repository != nil {
+		w.repository.Invalidate(root)
 	}
 }
 func (w *workspaceWatches) remove(root string) {

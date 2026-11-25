@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
-	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -22,7 +21,7 @@ func TestWorkspaceWatch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		watches := newWorkspaceWatches(workspacegit.New(workspacegit.Options{}))
+		watches := newWorkspaceWatches(fixtureRepositoryWatch())
 		watches.after = func(time.Duration) <-chan time.Time { return time.After(time.Millisecond) }
 		t.Cleanup(func() { _ = watches.close() })
 		return watches, root
@@ -123,13 +122,9 @@ func TestWorkspaceWatch(t *testing.T) {
 
 	t.Run("path observers receive broad and precise batches before coalesced wakes", func(t *testing.T) {
 		watches, root := setup(t)
-		filter, err := workspacegit.NewWatchFilter(root)
-		if err != nil {
-			t.Fatal(err)
-		}
 		// Inject only the managed batches here; a native stream can also
 		// report the watched root independently of these requests.
-		watches.roots[root] = &workspaceWatch{owner: watches, root: root, started: true, filter: filter, observers: map[*workspaceEvents]struct{}{}}
+		watches.roots[root] = &workspaceWatch{owner: watches, root: root, started: true, filter: fixtureWatchFilter{}, observers: map[*workspaceEvents]struct{}{}}
 		var events link.Subscription
 		defer func() {
 			delete(watches.roots, root)
@@ -138,6 +133,7 @@ func TestWorkspaceWatch(t *testing.T) {
 			}
 		}()
 		var batches [][]string
+		var err error
 		events, err = watches.observe(t.Context(), root, protocol.NodeID{}, protocol.WorktreeID{1}, false, func(paths []string) {
 			batches = append(batches, slices.Clone(paths))
 		})

@@ -34,8 +34,8 @@ func (s *commandEvents) Next(ctx context.Context) (protocol.Update, error) {
 	}
 }
 func (node *Node) subscribeWorkspace(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
-	if topic.Kind == "repository" && !node.hasGitService() {
-		return nil, moduleUnavailable("git")
+	if topic.Kind == "repository" && node.workspace.RepositoryWatch == nil {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "repository watch is unavailable"}
 	}
 	if err := node.begin(); err != nil {
 		return nil, err

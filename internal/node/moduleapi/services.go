@@ -50,10 +50,12 @@ type SSHServiceProvider interface {
 	NewSSHService(SSHServiceOptions) SSHService
 }
 
-// WorkspaceServices selects independently exposed uses of the Node's Git engine.
+// WorkspaceServices declares a module's capabilities and binds its handlers.
+// A capability by itself does not register commands or start a service.
 type WorkspaceServices struct {
 	Git       bool
 	Worktrees bool
+	Bind      WorkspaceBinder
 }
 
 type WorkspaceServiceProvider interface {
@@ -88,12 +90,13 @@ func (m RegisteredModule) RuntimeAvailable(running ServiceCapabilities) bool {
 }
 
 type ResolvedServices struct {
-	Databases DatabaseExecutor
-	SSH       SSHFactory
-	Terminal  TerminalFactory
-	CodeIndex codeindexapi.Factory
-	Workspace WorkspaceServices
-	Modules   []RegisteredModule
+	Databases             DatabaseExecutor
+	SSH                   SSHFactory
+	Terminal              TerminalFactory
+	CodeIndex             codeindexapi.Factory
+	Workspace             []WorkspaceBinder
+	WorkspaceCapabilities ServiceCapabilities
+	Modules               []RegisteredModule
 }
 
 // HasModule reports presence by identity, independently of service availability.
@@ -140,11 +143,14 @@ func (a Assembly) ResolveServices() ResolvedServices {
 		}
 		if provider, ok := module.(WorkspaceServiceProvider); ok {
 			workspace := provider.WorkspaceServices()
-			if workspace.Git {
-				declared |= ServiceGit
-			}
-			if workspace.Worktrees {
-				declared |= ServiceWorktrees
+			if workspace.Bind != nil {
+				services.Workspace = append(services.Workspace, workspace.Bind)
+				if workspace.Git {
+					declared |= ServiceGit
+				}
+				if workspace.Worktrees {
+					declared |= ServiceWorktrees
+				}
 			}
 		}
 		services.Modules[i] = RegisteredModule{Module: module, Services: declared}
@@ -168,7 +174,7 @@ func (a Assembly) ResolveServices() ResolvedServices {
 	if selected&ServiceTerminal != 0 && a.Terminal != nil {
 		services.Terminal = a.Terminal
 	}
-	services.Workspace = WorkspaceServices{Git: selected&ServiceGit != 0, Worktrees: selected&ServiceWorktrees != 0}
+	services.WorkspaceCapabilities = selected & (ServiceGit | ServiceWorktrees)
 	return services
 }
 
@@ -191,9 +197,6 @@ func (a Assembly) legacyServices() ServiceCapabilities {
 	}
 	if a.CodeIndex != nil {
 		enabled |= ServiceCodeIndex
-	}
-	if a.LegacyWorkspaceModules {
-		enabled |= ServiceGit | ServiceWorktrees
 	}
 	return enabled
 }

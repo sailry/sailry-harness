@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -37,7 +36,7 @@ func BenchmarkNativeCommandOutput(b *testing.B) {
 		})
 		for _, access := range []protocol.ProcessAccess{protocol.ProcessAccessUnrestricted, protocol.ProcessAccessWorkspace} {
 			b.Run(fixture.name+"/"+string(access), func(b *testing.B) {
-				s, err := New(Options{Profile: b.TempDir(), Environment: NewEnvironment(variables), CaptureManaged: git.New(git.Options{}).CaptureManaged})
+				s, err := New(Options{Profile: b.TempDir(), Environment: NewEnvironment(variables), CaptureManaged: CaptureWorkspaceBoundary})
 				if err != nil {
 					b.Fatal(err)
 				}

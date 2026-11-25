@@ -47,29 +47,32 @@ func PreparePaths(command protocol.Command) (PreparedPaths, error) {
 			return PreparedPaths{Path: value.Path}, nil
 		}
 		path = value.Path
-	case *protocol.CommandRegisterWorktreePayload:
-		if !filepath.IsAbs(value.Path) {
-			return PreparedPaths{}, invalid("worktree path must be absolute")
-		}
-		path = value.Path
 	default:
 		return PreparedPaths{}, nil
 	}
+	canonical, err := WorkspaceDirectory(path)
+	return PreparedPaths{Path: canonical}, err
+}
+
+func WorkspaceDirectory(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", invalid("worktree path must be absolute")
+	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return PreparedPaths{}, invalid("project directory is not accessible on this Node")
+		return "", invalid("project directory is not accessible on this Node")
 	}
 	info, err := os.Stat(canonical)
 	if err != nil {
-		return PreparedPaths{}, invalid("project directory is not accessible on this Node")
+		return "", invalid("project directory is not accessible on this Node")
 	}
 	if !info.IsDir() {
-		return PreparedPaths{}, invalid("project path is not a directory")
+		return "", invalid("project path is not a directory")
 	}
 	if !utf8.ValidString(canonical) {
-		return PreparedPaths{}, invalid("project path is not UTF-8")
+		return "", invalid("project path is not UTF-8")
 	}
-	return PreparedPaths{Path: canonical}, nil
+	return canonical, nil
 }
 
 func validateProject(name, path string, appearance protocol.ProjectsAppearance) error {
@@ -419,45 +422,6 @@ func ReadWorktrees(ctx context.Context, db *sql.Conn) ([]protocol.Worktree, erro
 		values = append(values, value)
 	}
 	return values, rows.Err()
-}
-
-func registerWorktree(ctx context.Context, db *sql.Conn, input protocol.CommandRegisterWorktreePayload, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
-	var exists bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND id NOT IN (SELECT project FROM removed_projects))", input.Project.String()).Scan(&exists); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	if !exists {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotFound, "project does not exist on this Node")
-	}
-	value := protocol.Worktree{ID: protocol.NewWorktreeID(), Project: &input.Project, Path: prepared.Path}
-	var project sql.NullString
-	var id string
-	var removed bool
-	err := db.QueryRowContext(ctx, "SELECT id,project,main,EXISTS(SELECT 1 FROM removed_worktrees WHERE worktree=w.id) FROM worktrees w WHERE path=?1", value.Path).Scan(&id, &project, &value.Main, &removed)
-	if err == nil {
-		value.ID, err = protocol.ParseWorktreeID(id)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if !project.Valid || project.String != input.Project.String() {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "worktree is registered to another project")
-		}
-		if !removed {
-			return protocol.Output{Kind: "worktree", Data: value}, nil, nil
-		}
-		if _, err := db.ExecContext(ctx, "DELETE FROM removed_worktrees WHERE worktree=?1", value.ID.String()); err != nil {
-			return protocol.Output{}, nil, err
-		}
-		value.Main = false
-	} else {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return protocol.Output{}, nil, err
-		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,?2,?3,0)", value.ID.String(), input.Project.String(), value.Path); err != nil {
-			return protocol.Output{}, nil, err
-		}
-	}
-	return protocol.Output{Kind: "worktree", Data: value}, []protocol.Event{{Kind: "worktree_registered", Data: value}}, nil
 }
 
 // ValidateProjectDraft checks the request before native clone effects begin.

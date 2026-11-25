@@ -453,7 +453,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			allowed := false
 			if inv.Worktree.Project != nil {
 				err = h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-					capture, e := store.ReadWorkspaceGitCapture(ctx, db, target)
+					capture, e := store.ReadProjectWorktree(ctx, db, target)
 					if e != nil {
 						return e
 					}

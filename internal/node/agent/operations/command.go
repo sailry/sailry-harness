@@ -27,7 +27,7 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 		}
 	}
 	kind := ""
-	switch string(operation) {
+	switch operation {
 	case "files.list":
 		kind = "list_directory"
 		set("worktree", worktree)
@@ -98,41 +98,32 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 	case "notebook.edit":
 		kind = "edit_notebook"
 		values = map[string]any{"worktree": worktree, "edit": values}
-	case "git.status":
-		kind = "inspect_git"
-	case "git.diff":
-		kind = "read_git_diff"
-	case "git.log":
-		kind = "read_git_log"
+	case protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff, protocol.ToolOperationReadGitShow, protocol.ToolOperationReadGitBlame,
+		protocol.ToolOperationListGitChanges, protocol.ToolOperationReadGitChange:
+		kind = WorkspaceModuleCommand(operation)
+	case protocol.ToolOperationReadGitLog:
+		kind = WorkspaceModuleCommand(operation)
 		defaultValue("cursor", nil)
 		defaultValue("revision", nil)
 		defaultValue("path", nil)
-	case "git.show":
-		kind = "read_git_show"
-	case "git.blame":
-		kind = "read_git_blame"
-	case "git.changes":
-		kind = "list_git_changes"
-	case "git.change":
-		kind = "read_git_change"
-	case "worktrees.list":
-		kind = "list_worktrees"
+	case protocol.ToolOperationListWorktrees:
+		kind = WorkspaceModuleCommand(operation)
 		set("worktree", worktree)
-	case "worktrees.create":
+	case protocol.ToolOperationCreateManagedWorktree:
 		if project == nil {
 			return protocol.Command{}, invalidCommand("worktree creation requires a project")
 		}
-		kind = "create_managed_worktree"
+		kind = WorkspaceModuleCommand(operation)
 		set("source", worktree)
 		set("project", *project)
-	case "worktrees.register":
+	case protocol.ToolOperationRegisterWorktree:
 		if project == nil {
 			return protocol.Command{}, invalidCommand("worktree registration requires a project")
 		}
-		kind = "register_worktree"
+		kind = WorkspaceModuleCommand(operation)
 		set("project", *project)
-	case "worktrees.remove":
-		kind = "remove_worktree"
+	case protocol.ToolOperationRemoveWorktree:
+		kind = WorkspaceModuleCommand(operation)
 	case "process.run":
 		kind = "run_command"
 		set("turn", turn)
