@@ -463,7 +463,13 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		// A captured deferred tool called by name runs under its own approval:
 		// the saved request already loaded it, as in the Rust catalog.
 		if tool == nil {
-			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
+			// A name the turn does not bind is answered with how to find a
+			// real one, so the model does not retry an invented name.
+			text := fmt.Sprintf("This tool call was not handled: no tool named %q is available.", call.Name)
+			if findTool(x.tools, "tool_search") != nil {
+				text += " Use tool_search to find a tool by name or capability."
+			}
+			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}, "isError": true}}
 			continue
 		}
 		// A main planning turn can ask the user and write its own artifacts.

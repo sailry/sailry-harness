@@ -91,7 +91,7 @@ func TestTitleTool(t *testing.T) {
 			}
 			for _, block := range message.Content {
 				if value, ok := block.Data.(*canonical.ToolResponse); ok && value.ID == "absent" {
-					if value.Status != canonical.ToolErrorStatus || !strings.Contains(string(value.Result.Value), "This tool call was not handled.") {
+					if value.Status != canonical.ToolErrorStatus || !strings.Contains(string(value.Result.Value), "This tool call was not handled: no tool named \\\"") || !strings.Contains(string(value.Result.Value), "Use tool_search") {
 						t.Fatalf("unregistered call answered %s: %s", value.Status, value.Result.Value)
 					}
 					return
