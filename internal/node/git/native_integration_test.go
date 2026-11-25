@@ -775,7 +775,7 @@ func TestNativeGitIntegration(t *testing.T) {
 		}
 	})
 	t.Run("worktree_manager_faults", func(t *testing.T) {
-		root, _, commit := fixture(t)
+		root, repo, commit := fixture(t)
 		s := service(t)
 		parent := t.TempDir()
 		named := func(err error, code protocol.ErrorCode, message string) {
@@ -785,6 +785,23 @@ func TestNativeGitIntegration(t *testing.T) {
 			if !errors.As(err, &value) || value.Message != message {
 				t.Fatalf("fault message = %v, want %q", err, message)
 			}
+		}
+		if head, err := repo.Head(); err != nil {
+			t.Fatal(err)
+		} else {
+			for _, name := range []string{head.Name().Short(), commit[:12]} {
+				got, err := resolve(repo, name)
+				if err != nil || got.String() != commit {
+					t.Fatalf("starting point %q = %s, %v; want %s", name, got, err, commit)
+				}
+			}
+		}
+		if _, err := resolve(repo, "no-such-branch"); err == nil {
+			t.Fatal("an unknown starting point resolved")
+		}
+		initial, err := s.ListWorktrees(ctx, root)
+		if err != nil || initial.Truncated || initial.OmittedPaths != 0 || len(initial.Entries) != 1 || !initial.Entries[0].Main || initial.Entries[0].Path != root {
+			t.Fatalf("initial worktree listing = %+v, %v", initial, err)
 		}
 		path, err := s.CreateWorktree(ctx, root, filepath.Join(parent, "linked"), "linked-fixture", commit)
 		if err != nil {
@@ -817,6 +834,24 @@ func TestNativeGitIntegration(t *testing.T) {
 		if _, err := s.command(ctx, root, []string{"worktree", "unlock", "--", path}, nil, false); err != nil {
 			t.Fatal(err)
 		}
+		last := filepath.Join(parent, "zz-last")
+		if _, err := s.command(ctx, root, []string{"worktree", "add", "--detach", "--", last, commit}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".git", "worktrees", "zz-last", "locked"), []byte(strings.Repeat("x", 64*1024)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		partial, err := s.ListWorktrees(ctx, root)
+		if err != nil || partial.Kind != protocol.RepositoryKindReady || !partial.Truncated || partial.OmittedPaths != 1 || len(partial.Entries) != 2 || partial.Entries[0].Path != root || partial.Entries[1].Path != path {
+			t.Fatalf("bounded worktree listing = %+v, %v", partial, err)
+		}
+		named(s.RemoveWorktree(ctx, path, commit, "linked-fixture"), protocol.ErrorCodeConflict, "an incomplete Git worktree listing cannot rule out a nested worktree")
+		if _, err := s.command(ctx, root, []string{"worktree", "unlock", "--", last}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.command(ctx, root, []string{"worktree", "remove", "--", last}, nil, false); err != nil {
+			t.Fatal(err)
+		}
 		named(s.PruneWorktree(ctx, root, path), protocol.ErrorCodeConflict, WorktreePathExists)
 		if err := os.RemoveAll(path); err != nil {
 			t.Fatal(err)
@@ -824,6 +859,12 @@ func TestNativeGitIntegration(t *testing.T) {
 		listed, err = s.ListWorktrees(ctx, root)
 		if err != nil || len(listed.Entries) != 2 || listed.Entries[1].Path != path || listed.Entries[1].Available || listed.Entries[1].Locked {
 			t.Fatalf("stale worktree listing: %+v %v", listed, err)
+		}
+		if err := s.PruneWorktree(ctx, root, path); err != nil {
+			t.Fatal(err)
+		}
+		if after, err := s.ListWorktrees(ctx, root); err != nil || len(after.Entries) != 1 || !after.Entries[0].Main {
+			t.Fatalf("listing after pruning = %+v, %v", after, err)
 		}
 	})
 }

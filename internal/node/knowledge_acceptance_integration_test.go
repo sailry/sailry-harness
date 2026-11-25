@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -25,66 +25,46 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// knowledgeEvents collects the events a Node publishes.
-type knowledgeEvents struct {
-	mu       sync.Mutex
-	received []protocol.EventEnvelope
-}
-
-func knowledgeFollow(t *testing.T, node *Node) *knowledgeEvents {
+// knowledgeChange checks both the recorded mutation event and its public reset.
+func knowledgeChange[T any](t *testing.T, node *Node, command protocol.Command) T {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(t.Context(), acceptanceWait)
+	defer cancel()
 	subscription, err := node.Subscribe(ctx, node.ID(), protocol.Topic{Kind: "node"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := &knowledgeEvents{}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			update, err := subscription.Next(ctx)
-			if err != nil {
-				return
-			}
-			if envelope, delivered := update.Data.(protocol.EventEnvelope); delivered && update.Kind == "event" {
-				events.mu.Lock()
-				events.received = append(events.received, envelope)
-				events.mu.Unlock()
-			}
-		}
-	}()
-	t.Cleanup(func() {
-		cancel()
-		subscription.Close()
-		<-done
-	})
-	return events
-}
-
-// knowledgeCursor is the cursor of the last event the Node recorded.
-func knowledgeCursor(t *testing.T, node *Node) uint64 {
-	t.Helper()
-	var cursor int64
-	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
-		return db.QueryRowContext(t.Context(), "SELECT COALESCE(MAX(cursor),0) FROM events").Scan(&cursor)
+	defer subscription.Close()
+	initial, err := subscription.Next(ctx)
+	snapshot, ok := initial.Data.(protocol.Snapshot)
+	if err != nil || initial.Kind != "snapshot" || !ok {
+		t.Fatalf("%s: initial subscription update %s (%T): %v", command.Kind, initial.Kind, initial.Data, err)
+	}
+	result := acceptanceDo[T](t, node, command)
+	var recorded bool
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		return db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE cursor > ?1 AND json_extract(body, '$.kind') = 'knowledge_collections_changed')`, snapshot.Cursor).Scan(&recorded)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return uint64(cursor)
-}
-
-// published waits until a subscriber received knowledge_collections_changed
-// recorded after the cursor.
-func (events *knowledgeEvents) published(t *testing.T, label string, after uint64) {
-	t.Helper()
-	acceptanceEventually(t, label+" publishes knowledge_collections_changed", func() bool {
-		events.mu.Lock()
-		defer events.mu.Unlock()
-		return slices.ContainsFunc(events.received, func(envelope protocol.EventEnvelope) bool {
-			return envelope.Cursor > after && envelope.Event.Kind == "knowledge_collections_changed"
-		})
-	})
+	if !recorded {
+		t.Fatalf("%s: no knowledge_collections_changed event after cursor %d", command.Kind, snapshot.Cursor)
+	}
+	for {
+		update, err := subscription.Next(ctx)
+		if err != nil {
+			t.Fatalf("%s: waiting for reset_required: %v", command.Kind, err)
+		}
+		if event, ok := update.Data.(protocol.EventEnvelope); ok && event.Event.Kind == "knowledge_collections_changed" {
+			t.Fatalf("%s: subscription exposed the internal knowledge event", command.Kind)
+		}
+		if update.Kind == "reset_required" {
+			if update.Data != nil {
+				t.Fatalf("%s: reset_required exposed data: %+v", command.Kind, update.Data)
+			}
+			return result
+		}
+	}
 }
 
 func knowledgeList(t *testing.T, node *Node) []protocol.KnowledgeCollection {
@@ -180,7 +160,6 @@ func TestKnowledgeAcceptance(t *testing.T) {
 	}
 	knowledgeInstall(t, model, embeddingFiles, filepath.Join(profile, "models", "embedding", localmodels.DefaultEmbedding, model.Source.Revision))
 	knowledgeSelectEmbedding(t, node)
-	events := knowledgeFollow(t, node)
 
 	path := func(name string) string { return filepath.Join(folder, filepath.FromSlash(name)) }
 	top := func(page protocol.KnowledgePage, name string) protocol.KnowledgeHit {
@@ -198,9 +177,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 		Source: protocol.KnowledgeSource{Kind: "directory", Data: &protocol.KnowledgeSourceDirectoryPayload{Path: folder}}}
 
 	// Create and index.
-	cursor := knowledgeCursor(t, node)
-	created := acceptanceDo[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}})
-	events.published(t, "create", cursor)
+	created := knowledgeChange[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}})
 	if created.Revision != 1 || created.Owner.Kind != "controller" || created.Paused {
 		t.Fatalf("created %+v", created)
 	}
@@ -257,9 +234,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 
 	// Pause: indexing stops, so a changed or deleted source is reported by
 	// the read itself.
-	cursor = knowledgeCursor(t, node)
-	paused := acceptanceDo[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: indexed.Revision, Paused: true}})
-	events.published(t, "pause", cursor)
+	paused := knowledgeChange[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: indexed.Revision, Paused: true}})
 	if !paused.Paused || paused.Progress.Status != protocol.KnowledgeStatusPaused || paused.Revision != indexed.Revision+1 {
 		t.Fatalf("paused %+v", paused)
 	}
@@ -286,9 +261,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 	}
 
 	// Resume: the next pass drops what the sources no longer contain.
-	cursor = knowledgeCursor(t, node)
-	resumed := acceptanceDo[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: paused.Revision, Paused: false}})
-	events.published(t, "resume", cursor)
+	resumed := knowledgeChange[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: paused.Revision, Paused: false}})
 	if resumed.Paused || resumed.Revision != paused.Revision+1 {
 		t.Fatalf("resumed %+v", resumed)
 	}
@@ -313,9 +286,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 	}
 
 	// Rebuild.
-	cursor = knowledgeCursor(t, node)
-	rebuilt := acceptanceDo[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "rebuild_knowledge_collection", Data: &protocol.CommandRebuildKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: current.Revision}})
-	events.published(t, "rebuild", cursor)
+	rebuilt := knowledgeChange[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "rebuild_knowledge_collection", Data: &protocol.CommandRebuildKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: current.Revision}})
 	if rebuilt.Rebuild != current.Rebuild+1 || rebuilt.Revision != current.Revision+1 || rebuilt.Progress.Generation != current.Progress.Generation+1 || rebuilt.Progress.Status != protocol.KnowledgeStatusPending {
 		t.Fatalf("rebuilt %+v from %+v", rebuilt, current)
 	}
@@ -329,9 +300,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 
 	// Update: a renamed collection limited to Markdown drops the scans.
 	definition.Name, definition.Globs = "Markdown notes", []string{"*.md"}
-	cursor = knowledgeCursor(t, node)
-	updated := acceptanceDo[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "update_knowledge_collection", Data: &protocol.CommandUpdateKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: current.Revision, Definition: definition}})
-	events.published(t, "update", cursor)
+	updated := knowledgeChange[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "update_knowledge_collection", Data: &protocol.CommandUpdateKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: current.Revision, Definition: definition}})
 	if updated.Definition.Name != "Markdown notes" || !slices.Equal(updated.Definition.Globs, []string{"*.md"}) || updated.Revision != current.Revision+1 {
 		t.Fatalf("updated %+v", updated)
 	}
@@ -353,7 +322,6 @@ func TestKnowledgeAcceptance(t *testing.T) {
 	stopped = true
 	node = start()
 	stopped = false
-	events = knowledgeFollow(t, node)
 	restarted := knowledgeReady(t, node, created.ID, func(protocol.KnowledgeCollection) bool { return true })
 	if restarted.Definition.Name != "Markdown notes" || restarted.Revision != current.Revision || restarted.Rebuild != current.Rebuild || restarted.Progress.Sources != 2 || restarted.Progress.Chunks != current.Progress.Chunks {
 		t.Fatalf("after the restart %+v, before it %+v", restarted, current)
@@ -377,9 +345,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 	acceptanceFault(t, "citation of a collection awaiting its rebuild", failure, protocol.ErrorCodeRevisionConflict, "knowledge collection changed; refresh its results")
 
 	// Delete.
-	cursor = knowledgeCursor(t, node)
-	acceptanceDo[json.RawMessage](t, node, protocol.Command{Kind: "delete_knowledge_collection", Data: &protocol.CommandDeleteKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: held.Revision}})
-	events.published(t, "delete", cursor)
+	knowledgeChange[json.RawMessage](t, node, protocol.Command{Kind: "delete_knowledge_collection", Data: &protocol.CommandDeleteKnowledgeCollectionPayload{ID: created.ID, ExpectedRevision: held.Revision}})
 	if listed := knowledgeList(t, node); len(listed) != 0 {
 		t.Fatalf("the deleted collection is listed: %+v", listed)
 	}
@@ -430,8 +396,33 @@ func TestKnowledgeAgentTools(t *testing.T) {
 	query, read, collections := alias("knowledge_query"), alias("knowledge_read"), alias("knowledge_collections")
 	create, rebuild, remove := alias("knowledge_create"), alias("knowledge_rebuild"), alias("knowledge_remove")
 	tools := []string{query, read, collections, create, rebuild, remove}
+	exposed := make([]string, len(tools))
+	for index, tool := range tools {
+		exposed[index] = declaredToolName(tool)
+	}
 	script := &acceptanceScript{}
 	var node *Node
+	invoke := func(id, tool string, arguments func() string) acceptanceStep {
+		return acceptanceStep{id, "call_tool", func() string {
+			return acceptanceArguments(map[string]any{"name": declaredToolName(tool), "arguments": json.RawMessage(arguments())})()
+		}}
+	}
+	promptText := func() string {
+		var text strings.Builder
+		for _, message := range script.prompt {
+			if message.Role == fantasy.MessageRoleSystem {
+				continue
+			}
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					text.WriteString(value.Text)
+					text.WriteByte('\n')
+				}
+			}
+		}
+		return text.String()
+	}
+	var beforeDiscovery, afterDiscovery string
 	// field reads a value out of a tool result the model was given.
 	field := func(call string, keys ...any) any {
 		var value any
@@ -474,29 +465,34 @@ func TestKnowledgeAgentTools(t *testing.T) {
 		t.Errorf("the collection was not indexed within %s", acceptanceWait)
 	}
 	script.steps = []acceptanceStep{
-		// Discovery loads five tools unless it is asked for more.
-		{"discover", "tool_search", acceptanceArguments(map[string]any{"query": "select:" + strings.Join(tools, ","), "limit": len(tools)})},
-		{"create", create, acceptanceArguments(map[string]any{"name": "Docs", "source": map[string]any{"kind": "worktree", "path": "docs"}})},
-		{"collections", collections, func() string { ready(); return "{}" }},
-		{"query", query, acceptanceArguments(map[string]any{"query": "descaling", "mode": "keyword"})},
-		{"read", read, func() string {
+		{"discover", "tool_search", func() string {
+			beforeDiscovery = promptText()
+			return acceptanceArguments(map[string]any{"query": "select:" + strings.Join(exposed, ","), "limit": len(exposed)})()
+		}},
+		invoke("create", create, func() string {
+			afterDiscovery = promptText()
+			return acceptanceArguments(map[string]any{"name": "Docs", "source": map[string]any{"kind": "worktree", "path": "docs"}})()
+		}),
+		invoke("collections", collections, func() string { ready(); return "{}" }),
+		invoke("query", query, acceptanceArguments(map[string]any{"query": "descaling", "mode": "keyword"})),
+		invoke("read", read, func() string {
 			return acceptanceArguments(map[string]any{
 				"collection": field("query", "data", "hits", 0, "citation", "collection"),
 				"chunk":      field("query", "data", "hits", 0, "citation", "chunk"),
 				"revision":   field("query", "data", "hits", 0, "citation", "revision"),
 			})()
-		}},
-		{"rebuild", rebuild, func() string {
+		}),
+		invoke("rebuild", rebuild, func() string {
 			return acceptanceArguments(map[string]any{"id": field("collections", "data", 0, "id"), "expected_revision": field("collections", "data", 0, "revision")})()
-		}},
-		{"remove", remove, func() string {
+		}),
+		invoke("remove", remove, func() string {
 			return acceptanceArguments(map[string]any{"id": field("rebuild", "data", "id"), "expected_revision": field("rebuild", "data", "revision")})()
-		}},
+		}),
 		{id: "answer"},
 	}
 	node = acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{})
 	defer node.Stop(context.Background())
-	root, _ := codeProject(t, map[string]string{
+	root, _ := gitProjectFixture(t, map[string]string{
 		"docs/coffee.md":  "# Espresso machine\n\nRun a descaling cycle every three months.\n",
 		"docs/bicycle.md": "# Bicycle\n\nInflate the tyres to 6 bar.\n",
 		"main.go":         "package main\n\nfunc main() {}\n",
@@ -504,13 +500,24 @@ func TestKnowledgeAgentTools(t *testing.T) {
 	project := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
 		Name: "Knowledge fixture", Path: root, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance(),
 	}})
-	knowledgeFixture(t, node)
+	packageRef := plugins.PackageReference(knowledgeFixture(t, node))
 	session := acceptanceSession(t, node, project.ID, protocol.PermissionAsk)
 
-	// answeredBefore lists the calls that had settled when each approval
-	// was requested.
-	var approvals [][]string
+	// Each approval must belong to the actual mutation, before it settles.
+	wantApprovals := []struct {
+		id, tool string
+		settled  []string
+	}{
+		{"create", create, []string{"discover"}},
+		{"rebuild", rebuild, []string{"discover", "create", "collections", "query", "read"}},
+		{"remove", remove, []string{"discover", "create", "collections", "query", "read", "rebuild"}},
+	}
+	approvals := 0
 	frozen, results := acceptanceTurn(t, node, session, "Index the documentation and look up descaling", acceptanceWait, func(approval protocol.ConversationApproval) {
+		if approvals >= len(wantApprovals) {
+			t.Fatalf("unexpected approval: %+v", approval)
+		}
+		want := wantApprovals[approvals]
 		var state store.AgentState
 		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
 			var err error
@@ -519,9 +526,13 @@ func TestKnowledgeAgentTools(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		var request *canonical.ToolRequest
 		settled := []string{}
 		for _, record := range state.Records {
 			if message := record.Message(); message != nil {
+				if record.ID == approval.Entry && approval.Index < uint64(len(message.Content)) {
+					request, _ = message.Content[approval.Index].Data.(*canonical.ToolRequest)
+				}
 				for _, block := range message.Content {
 					if response, ok := block.Data.(*canonical.ToolResponse); ok {
 						settled = append(settled, response.ID)
@@ -529,42 +540,54 @@ func TestKnowledgeAgentTools(t *testing.T) {
 				}
 			}
 		}
-		body, _ := json.Marshal(approval)
-		t.Logf("approval requested: %s", body)
-		approvals = append(approvals, settled)
+		if request == nil || request.ID != want.id || request.Name != want.tool {
+			t.Fatalf("approval %d references %+v, want call %s (%s)", approvals, request, want.id, want.tool)
+		}
+		if !slices.Equal(settled, want.settled) {
+			t.Fatalf("approval for %s was requested after %v, want after %v", want.id, settled, want.settled)
+		}
+		approvals++
 	})
-	if !slices.ContainsFunc(frozen, func(reference protocol.PluginReference) bool { return reference.Name == "knowledge-fixture" }) {
-		t.Fatalf("the turn did not freeze the fixture package: %+v", frozen)
+	if approvals != len(wantApprovals) {
+		t.Fatalf("the turn asked for %d approvals, want %d", approvals, len(wantApprovals))
+	}
+	if !slices.Contains(frozen, packageRef) {
+		t.Fatalf("the turn did not freeze %v: %+v", packageRef, frozen)
 	}
 	requests := script.requests()
 	if len(requests) != len(script.steps) {
 		t.Fatalf("the turn made %d model requests, want %d", len(requests), len(script.steps))
 	}
-	for _, tool := range tools {
-		// The model reads a package tool under its declared name.
-		if !slices.Contains(requests[1], declaredToolName(tool)) {
-			t.Errorf("%s was not offered after discovery; offered %v", tool, requests[1])
+	if !slices.Contains(requests[0], "tool_search") || !slices.Contains(requests[0], "call_tool") {
+		t.Fatalf("first request omitted discovery or dispatch: %v", requests[0])
+	}
+	for index, names := range requests[1:] {
+		if !slices.Equal(names, requests[0]) {
+			t.Fatalf("request %d changed the declared tools: got %v, want %v", index+1, names, requests[0])
 		}
 	}
-	for _, call := range []string{"discover", "create", "collections", "query", "read", "rebuild", "remove"} {
-		if response := results[call]; response != nil {
-			t.Logf("%s: status %v: %s", call, response.Status, response.Result.Value)
+	discovery := acceptanceResult(t, results, "discover", "tool_search")
+	matches, _ := discovery["tools"].([]any)
+	if len(matches) != len(tools) {
+		t.Fatalf("tool_search returned %v, want %v", matches, tools)
+	}
+	for index, name := range exposed {
+		match, _ := matches[index].(map[string]any)
+		if description, _ := match["description"].(string); match["name"] != tools[index] || description == "" {
+			t.Errorf("tool_search match %d = %v, want %s with a description", index, match, tools[index])
 		}
-	}
-	// Exactly the three mutations asked for approval: each approval was
-	// requested when only the calls before its mutation had settled, and the
-	// reads between them settled without one.
-	want := [][]string{
-		{"discover"},
-		{"discover", "create", "collections", "query", "read"},
-		{"discover", "create", "collections", "query", "read", "rebuild"},
-	}
-	if len(approvals) != len(want) {
-		t.Fatalf("the turn asked for %d approvals, want %d: %v", len(approvals), len(want), approvals)
-	}
-	for index := range want {
-		if !slices.Equal(approvals[index], want[index]) {
-			t.Fatalf("approval %d was requested after %v, want after %v", index+1, approvals[index], want[index])
+		marker := `<loaded-tool name="` + name + `">`
+		if slices.Contains(requests[0], name) || strings.Contains(beforeDiscovery, marker) || strings.Count(afterDiscovery, marker) != 1 {
+			t.Errorf("%s was not deferred then loaded exactly once", name)
+			continue
+		}
+		_, loaded, _ := strings.Cut(afterDiscovery, marker)
+		declaration, _, closed := strings.Cut(loaded, "</loaded-tool>")
+		_, schema, _ := strings.Cut(declaration, "\nInput schema: ")
+		schema, _, _ = strings.Cut(schema, "\nInstructions:\n")
+		var parameters map[string]json.RawMessage
+		if !closed || json.Unmarshal([]byte(schema), &parameters) != nil || parameters == nil {
+			t.Errorf("%s did not receive a loaded input schema: %q", name, declaration)
 		}
 	}
 

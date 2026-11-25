@@ -25,11 +25,11 @@ func TestRemovedSessionManagedWorktree(t *testing.T) {
 	}
 	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), nil, Options{Assembly: fixtureModuleAssembly("worktrees")})
 	defer node.Stop(context.Background())
-	root, commit := codeProject(t, codeFixture)
+	root, commit := gitProjectFixture(t, map[string]string{"file.txt": "one\n"})
 	project := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
 		Name: "Session worktrees", Path: root, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance(),
 	}})
-	main := codeMain(t, node, project.ID)
+	main := mainWorktreeFixture(t, node, project.ID)
 	managed := func(branch string) protocol.Worktree {
 		t.Helper()
 		index, err := os.ReadFile(filepath.Join(root, ".git", "index"))
@@ -94,7 +94,7 @@ func TestRemovedSessionManagedWorktree(t *testing.T) {
 
 	t.Run("one attempt per protected worktree", func(t *testing.T) {
 		protected, other := managed("submodules"), managed("batch-clean")
-		module, _ := codeProject(t, map[string]string{"file": "module contents"})
+		module, _ := gitProjectFixture(t, map[string]string{"file": "module contents"})
 		git := func(args ...string) {
 			t.Helper()
 			cmd := exec.Command("git", args...)

@@ -302,65 +302,9 @@ func acceptanceResult(t *testing.T, results map[string]*canonical.ToolResponse, 
 	return value
 }
 
-var codeFixture = map[string]string{
-	"cmd/server.go": `package main
-
-// Config holds the listen address.
-type Config struct {
-	Address string
-}
-
-func main() {
-	Serve(Config{Address: ":8080"})
-}
-
-// Serve starts the listener.
-func Serve(config Config) {
-	helper(config.Address)
-}
-
-func helper(address string) {
-	_ = address
-}
-`,
-	"app/service.py": `class Service:
-    def run(self):
-        return compute(2)
-
-
-def compute(value):
-    return value * 2
-`,
-	"src/page.ts": `export function format(value: string): string {
-  return value.trim();
-}
-
-export class Page {
-  render(): string {
-    return format(" page ");
-  }
-}
-`,
-	"lib/index.rs": `pub struct Index {
-    pub entries: usize,
-}
-
-pub fn build() -> Index {
-    open()
-}
-
-fn open() -> Index {
-    Index { entries: 0 }
-}
-`,
-	"settings.json": `{"name": "fixture", "port": 8080}
-`,
-	"README.md": "# Fixture\n\nA small project in several languages.\n",
-}
-
-// codeProject writes the fixture into a new Git repository with one commit
+// gitProjectFixture writes the fixture into a new Git repository with one commit
 // and returns its root and commit.
-func codeProject(t *testing.T, files map[string]string) (string, string) {
+func gitProjectFixture(t *testing.T, files map[string]string) (string, string) {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -393,8 +337,8 @@ func codeProject(t *testing.T, files map[string]string) (string, string) {
 	return root, commit.String()
 }
 
-// codeMain returns the main worktree of a project.
-func codeMain(t *testing.T, node *Node, project protocol.ProjectID) protocol.WorktreeID {
+// mainWorktreeFixture returns the main worktree of a project.
+func mainWorktreeFixture(t *testing.T, node *Node, project protocol.ProjectID) protocol.WorktreeID {
 	t.Helper()
 	for _, tree := range snapshotFixture(t, node).Worktrees {
 		if tree.Project != nil && *tree.Project == project && tree.Main {
