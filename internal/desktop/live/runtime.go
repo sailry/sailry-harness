@@ -370,7 +370,11 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.unsubscribe = controller.OnChange(r.changed)
 	r.unsubscribePrefs = prefs.OnChange(r.wake)
 	if err := prefs.FinishStartup(); err != nil {
-		r.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, "preferences_read_failed", err) })
+		key := "preferences_save_failed"
+		if !prefs.Readable {
+			key = "preferences_read_failed"
+		}
+		r.enqueue(func(c *ui.Context) { kit.Fail(c, kit.Failed, key, err) })
 	}
 	r.prefsRevision = prefs.Revision()
 	r.readTelemetry()

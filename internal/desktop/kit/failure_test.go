@@ -1,12 +1,16 @@
 package kit
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -85,5 +89,45 @@ func TestRecordFailureReportRef(t *testing.T) {
 		if safe := logging.Remote(fields); safe["report_ref"] != test.want || safe["detail"] != nil {
 			t.Errorf("%s remote fields = %v", test.name, safe)
 		}
+	}
+}
+
+func TestRecordPreferencesWriteFailure(t *testing.T) {
+	profile := t.TempDir()
+	closeLog, err := logging.Install(filepath.Join(profile, "logs-profile"), "desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeLog()
+	var fields logging.Fields
+	logging.SetReport(func(_ slog.Level, values logging.Fields) { fields = values })
+	defer logging.SetReport(nil)
+	prefs := preferences.ForStartup(profile)
+	if err := os.WriteFile(filepath.Join(profile, "desktop"), []byte("private contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = prefs.FinishStartup()
+	stage, reason := preferences.WriteFailure(err)
+	if err == nil || stage != "create_directory" {
+		t.Fatalf("fixture did not fail to write: %v", err)
+	}
+	RecordFailure("desktop", "preferences_save_failed", Failed, fmt.Errorf("save: %w", err))
+	if fields["stage"] != stage || fields["reason"] != reason || fields["code"] != "internal" || strings.Contains(fields["detail"].(string), profile) {
+		t.Fatalf("preference write record = %v", fields)
+	}
+	path, err := logging.CurrentFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tail, err := logging.Tail(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diagnostic logging.Fields
+	if err := json.Unmarshal(tail, &diagnostic); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic["stage"] != stage || diagnostic["reason"] != reason || diagnostic["detail"] != nil || strings.Contains(string(tail), profile) || strings.Contains(string(tail), "private") {
+		t.Fatalf("preference write diagnostic = %s", tail)
 	}
 }

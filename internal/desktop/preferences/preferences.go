@@ -365,8 +365,11 @@ func ForStartup(profile string) *Store {
 }
 
 func (s *Store) FinishStartup() error {
-	if !s.startupSave {
+	if !s.Readable {
 		return s.Err
+	}
+	if !s.startupSave {
+		return nil
 	}
 	s.startupSave = false
 	return s.Save()
@@ -402,24 +405,28 @@ func (s *Store) WriteSnapshot(version uint64, b []byte) error {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
+		return &writeFailure{stage: "create_directory", err: err}
 	}
 	f, err := os.CreateTemp(filepath.Dir(s.Path), ".preferences-")
 	if err != nil {
-		return err
+		return &writeFailure{stage: "create_temp", err: err}
 	}
 	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return &writeFailure{stage: "write", err: err}
 	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return &writeFailure{stage: "sync", err: err}
 	}
-	if err == nil {
-		err = os.Rename(f.Name(), s.Path)
+	if err := f.Close(); err != nil {
+		return &writeFailure{stage: "close", err: err}
 	}
-	return err
+	if err := os.Rename(f.Name(), s.Path); err != nil {
+		return &writeFailure{stage: "replace", err: err}
+	}
+	return nil
 }
 
 // Revision and Changed coordinate one profile authority across windows. Data

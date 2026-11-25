@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -33,6 +34,11 @@ func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...
 			reason := fault.GitInspectionReason
 			if stage := reason.Stage(); stage != "" {
 				attrs = append(attrs, slog.String("stage", stage), slog.String("reason", string(reason)))
+			}
+		}
+		if area == "desktop" && operation == "preferences_save_failed" {
+			if stage, reason := preferences.WriteFailure(err); stage != "" {
+				attrs = append(attrs, slog.String("stage", stage), slog.String("reason", reason))
 			}
 		}
 	}

@@ -214,6 +214,11 @@ func Remote(values Fields) Fields {
 				if stage != "" && protocol.GitInspectionReason(reason).Stage() == stage && safe["code"] != string(protocol.ErrorCodeCancelled) {
 					safe["stage"], safe["reason"] = stage, reason
 				}
+			} else if safe["operation"] == "preferences_save_failed" {
+				reason, _ := values["reason"].(string)
+				if preferencesWriteDiagnostic(stage, reason) && safe["code"] != string(protocol.ErrorCodeCancelled) {
+					safe["stage"], safe["reason"] = stage, reason
+				}
 			} else {
 				switch stage {
 				case "preflight", "map_selection", "workspace_mutation", "file_search":
@@ -239,6 +244,17 @@ func Remote(values Fields) Fields {
 		safe["command_stage"] = stage
 	}
 	return safe
+}
+
+func preferencesWriteDiagnostic(stage, reason string) bool {
+	switch stage {
+	case "create_directory", "create_temp", "write", "sync", "close", "replace":
+		switch reason {
+		case "permission_denied", "not_found", "already_exists", "no_space", "file_locked", "other":
+			return true
+		}
+	}
+	return false
 }
 
 const (
