@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -43,7 +44,8 @@ func panelTabs(t *testing.T) {
 	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.StartWithOptions(ctx, profile, node.Options{
-		Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return panelReplyModel{}, nil },
+		Assembly: panelProjectionHost(),
+		Model:    func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return panelReplyModel{}, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +56,7 @@ func panelTabs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), testassembly.Full())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +510,7 @@ func panelTabs(t *testing.T) {
 	if err := shell.SavePrefs(dir, app.Prefs()); err != nil {
 		t.Fatal(err)
 	}
-	again, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	again, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), testassembly.Full())
 	if err != nil {
 		t.Fatal(err)
 	}

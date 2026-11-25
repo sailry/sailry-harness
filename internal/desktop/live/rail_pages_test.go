@@ -10,22 +10,19 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	desktop "github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// railPages drives the rail's Files and Git pages of the whole desktop
-// against a real Node: without a project either page asks for one and New
-// project opens the project editor; with one the pages list the worktree's
-// files and changes, open them from the Node and keep the right panel
-// closed. It runs as a step of TestPanelProjection.
+// railPages drives Harness's Files page against its real Node. The combined
+// Files/Git walkthrough runs with Code's actual assemblies in codedesktop tests.
 func railPages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
@@ -40,7 +37,7 @@ func railPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Full())
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,14 +103,14 @@ func railPages(t *testing.T) {
 		settle()
 	}
 
-	// An unsent draft has no project: either page asks for one.
+	// An unsent draft has no project: the page asks for one.
 	if !strings.HasPrefix(app.Sidebar.Selected, "draft/") {
 		t.Fatalf("a new profile did not open on a draft: %q", app.Sidebar.Selected)
 	}
 	for _, page := range []struct {
 		feature string
 		page    shell.Page
-	}{{"files", shell.FilesPage}, {"git", shell.GitPage}} {
+	}{{"files", shell.FilesPage}} {
 		rail(page.feature)
 		if app.Page != page.page || !tester.HasText(text("resource_project_empty")) || tester.HasText(text("unavailable")) {
 			t.Fatalf("the %s page without a project: page %q, %q", page.feature, app.Page, tester.Texts())
@@ -221,27 +218,12 @@ func railPages(t *testing.T) {
 		t.Fatalf("the search result: file %q, page %q, panel %v", pr.Files.File(), app.Page, app.PanelOpen)
 	}
 
-	// Git: the worktree's changes, a diff read from the Node.
-	rail("git")
-	wait("the worktree's changes on the Git page", func() bool {
-		_, listed := tree("notes.txt")
-		return app.Page == shell.GitPage && listed
-	})
-	if tester.HasText(text("unavailable")) || tester.HasText(text("resource_project_empty")) {
-		t.Fatalf("the Git page of a project shows no content: %q", tester.Texts())
-	}
-	choose("notes.txt")
-	wait("the diff on the Git page", func() bool { return pr.Git.Change() == "notes.txt" && code("rail changed line") })
-	if app.PanelOpen {
-		t.Fatal("the pages opened the right panel")
-	}
-
 	// The conversation's panel lists what the pages opened: notes.txt took
 	// the passing tab of main.go.
 	rail("shell_sessions")
 	app.PanelOpen = true
 	settle()
-	for _, tab := range []panel.Tab{{Kind: panel.Files, ID: "notes.txt"}, {Kind: panel.Changes, ID: "notes.txt"}} {
+	for _, tab := range []panel.Tab{{Kind: panel.Files, ID: "notes.txt"}} {
 		found := false
 		for _, open := range app.Panel.Tabs {
 			found = found || open == tab

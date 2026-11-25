@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -818,7 +819,7 @@ func TestGlobalSettingsFramesIgnoreMonitoredHost(t *testing.T) {
 	transport.snapshot.Node = protocol.NodeID{1}
 	controller := client.New(transport)
 	defer controller.Close()
-	root := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
+	root := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, testassembly.Full())}
 	remote := &Runtime{parent: root, App: root.App}
 	root.terminalSettings.known = true
 	root.terminalSettings.model = settings.Stored[settings.TerminalHost]{Revision: 3}
