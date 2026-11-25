@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
+	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -111,6 +112,28 @@ func TestProviderModelInputsDraft(t *testing.T) {
 	}
 	if got := draft.Models[2]; got.CustomCapabilities || got.ID != custom.ID || draft.DefaultModel != custom.ID {
 		t.Fatalf("a model following the catalog kept the user's mark: %+v", got)
+	}
+}
+
+// A draft on another route keeps none of the previous route's options.
+func TestProviderDraftRouteOptions(t *testing.T) {
+	provider := providerRouteFixture()
+	provider.Api, provider.Endpoint = protocol.ConversationModelApiBedrock, "https://bedrock-runtime.us-east-1.amazonaws.com"
+	provider.Options = &protocol.ConversationConnectionOptions{Kind: "bedrock", Data: protocol.ConversationConnectionOptionsBedrockPayload{Region: "us-east-1"}}
+	key := provider.ID.String()
+	r := &Runtime{providerDraftBases: map[string]protocol.ConversationProvider{key + "/8": provider}}
+	channel := viewmodel.Channel{ID: key, API: string(protocol.ConversationModelApiAnthropic), Name: provider.Name, Endpoint: "https://api.example.test", Region: "us-east-1"}
+	draft := r.providerDraft(settings.ProviderDraft{Channel: channel, ExpectedRevision: 8})
+	if draft.Options != nil {
+		t.Errorf("an Anthropic draft kept options %+v", draft.Options)
+	}
+	if err := nodeproviders.ValidateConfiguration(draft); err != nil {
+		t.Errorf("the Node refuses the switched provider: %v", err)
+	}
+	channel.API, channel.Endpoint, channel.Project, channel.Location = string(protocol.ConversationModelApiVertexAi), "", "proj-123", "global"
+	draft = r.providerDraft(settings.ProviderDraft{Channel: channel, ExpectedRevision: 8})
+	if options, ok := draft.Options.VertexAi(); !ok || options.Project != "proj-123" || draft.Endpoint != "https://aiplatform.googleapis.com" {
+		t.Errorf("a Vertex AI draft has options %+v at %q", draft.Options, draft.Endpoint)
 	}
 }
 

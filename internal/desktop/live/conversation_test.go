@@ -1798,7 +1798,7 @@ func TestComposerSendRouting(t *testing.T) {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = protocol.NodeID{1}
 		source := protocol.ConversationPresetsSource{Kind: "builtin"}
-		snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Preset: &protocol.ConversationPresetsPresetRef{Source: source, ID: "fixture"}, Models: []protocol.ConversationModel{{ID: "reasoning", Reasoning: true, Efforts: []protocol.Effort{{Kind: "low"}, {Kind: "high"}}, DefaultEffort: protocol.Effort{Kind: "medium"}}}}}
+		snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Api: protocol.ConversationModelApiAnthropic, Preset: &protocol.ConversationPresetsPresetRef{Source: source, ID: "fixture"}, Models: []protocol.ConversationModel{{ID: "reasoning", Reasoning: true, Efforts: []protocol.Effort{{Kind: "low"}, {Kind: "high"}}, DefaultEffort: protocol.Effort{Kind: "medium"}}}}}
 		snapshot.Plugins = []protocol.PluginSummary{{Name: "first"}, {Name: "second"}}
 		transport := &conversationTestTransport{snapshot: snapshot}
 		controller := client.New(transport)
@@ -1849,7 +1849,11 @@ func TestComposerSendRouting(t *testing.T) {
 			t.Fatal("connector package reads were not coalesced", passes)
 		}
 		// A provider saved without a route shows the first route of its preset in every projection.
-		entry := protocol.ConversationPresetsEntry{Source: source, Preset: protocol.ConversationPresetsPreset{ID: "fixture", Routes: make([]protocol.ConversationPresetsRoute, 4)}}
+		routes := make([]protocol.ConversationPresetsRoute, 4)
+		for i := range routes {
+			routes[i].Protocol = protocol.ConversationPresetsProtocolAnthropic
+		}
+		entry := protocol.ConversationPresetsEntry{Source: source, Preset: protocol.ConversationPresetsPreset{ID: "fixture", Routes: routes}}
 		node := snapshot.Node.String()
 		r.providerPresets = map[string]protocol.ConversationPresetsEntry{node + "/builtin:fixture/3": entry, node + "/builtin:fixture/0": entry, node + "/builtin:fixture/2": entry, node + "/builtin:fixture/1": entry}
 		for range 20 {

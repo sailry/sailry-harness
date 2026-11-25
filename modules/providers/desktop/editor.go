@@ -229,9 +229,13 @@ const (
 	vertexDefaultLocation = "global"
 )
 
-// channelEndpoint is the endpoint a save sends: a cloud route's service
-// host for its region or location, else the endpoint as typed.
+// channelEndpoint is the endpoint a save sends: a cloud route's public
+// service host for its region or location, else the endpoint as typed. A
+// private cloud endpoint the channel was saved with stays.
 func (e *providerEditor) channelEndpoint() string {
+	if (e.bedrock() || e.vertex()) && strings.TrimSpace(e.endpoint) != "" && !e.publicCloudEndpoint() {
+		return e.endpoint
+	}
 	switch {
 	case e.bedrock():
 		return protocol.ConversationConnectionOptionsBedrockPayload{Region: strings.TrimSpace(e.region)}.Endpoint()
@@ -239,6 +243,17 @@ func (e *providerEditor) channelEndpoint() string {
 		return protocol.ConversationConnectionOptionsVertexAiPayload{Location: strings.TrimSpace(e.location)}.Endpoint()
 	}
 	return e.endpoint
+}
+
+// publicCloudEndpoint reports an endpoint that is the current route's cloud
+// public host for some region or location, which the form derives again.
+func (e *providerEditor) publicCloudEndpoint() bool {
+	return string(protocol.CloudEndpointApi(e.endpoint)) == e.current().API
+}
+
+// cloudAPI reports a cloud route's API, whose endpoint the form derives.
+func cloudAPI(api string) bool {
+	return api == string(protocol.ConversationModelApiBedrock) || api == string(protocol.ConversationModelApiVertexAi)
 }
 
 // cloudChannel fills a channel's cloud fields from the form.
@@ -318,10 +333,19 @@ func (e *providerEditor) switchRoute(i int) {
 			i = j
 		}
 	}
-	if e.endpoint == cur.Endpoint {
+	// A cloud route's endpoint is not typed in its form, so it neither enters
+	// nor leaves a cloud route with another route's endpoint.
+	crossesCloud := routes[i].API != cur.API && (cloudAPI(cur.API) || cloudAPI(routes[i].API))
+	if e.endpoint == cur.Endpoint || crossesCloud {
 		e.endpoint = routes[i].Endpoint
 	}
 	e.route = i
+	if e.region == "" {
+		e.region = bedrockDefaultRegion
+	}
+	if e.location == "" {
+		e.location = vertexDefaultLocation
+	}
 	e.refreshImageGeneration()
 	if !slices.ContainsFunc(e.models, func(d modelDraft) bool { return !d.seeded || d.id != d.model.ID }) {
 		e.models, e.def = nil, 0

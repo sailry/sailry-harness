@@ -419,6 +419,45 @@ func TestProviderEditor(t *testing.T) {
 			t.Errorf("edit opened project %+v, %v at %q", project, ok, e.location)
 		}
 	})
+	// A saved private cloud endpoint survives unrelated edits; a public one
+	// follows the region. Switching between a cloud route and another keeps
+	// neither's endpoint in the other and starts the cloud's defaults.
+	t.Run("cloud endpoints", func(t *testing.T) {
+		m := testController()
+		e := &m.provider
+		bedrock := preview.Method{ID: "bedrock", Name: "Amazon Bedrock", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "bedrock/0", API: "bedrock", Custom: true}}}
+		m.Brands = []preview.Brand{{ID: "bedrock", Name: "Amazon Bedrock", Methods: []preview.Method{bedrock}}}
+		private := "https://vpce-1.bedrock-runtime.us-east-1.vpce.amazonaws.com"
+		e.edit(m, &preview.Channel{ID: "saved", Name: "Saved", Method: "bedrock/0", API: "bedrock", Endpoint: private, Region: "us-east-1", KeySet: true})
+		e.name = "Renamed"
+		if got := e.channelEndpoint(); got != private {
+			t.Errorf("an edit replaced the private endpoint with %q", got)
+		}
+		e.edit(m, &preview.Channel{ID: "saved", Name: "Saved", Method: "bedrock/0", API: "bedrock", Endpoint: "https://bedrock-runtime.us-east-1.amazonaws.com", Region: "us-east-1", KeySet: true})
+		e.region = "eu-west-1"
+		if got := e.channelEndpoint(); got != "https://bedrock-runtime.eu-west-1.amazonaws.com" {
+			t.Errorf("a public endpoint did not follow the region: %q", got)
+		}
+
+		mixed := preview.Method{ID: "mixed", Name: "Mixed", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{
+			{ID: "mixed/0", API: "anthropic", Endpoint: "https://api.example"}, {ID: "mixed/1", API: "bedrock", Custom: true}, {ID: "mixed/2", API: "vertex_ai", Custom: true},
+		}}
+		m.Brands = []preview.Brand{{ID: "mixed", Name: "Mixed", Methods: []preview.Method{mixed}}}
+		e.edit(m, &preview.Channel{ID: "saved", Name: "Saved", Method: "mixed/0", API: "anthropic", Endpoint: "https://api.example", KeySet: true})
+		e.switchRoute(1)
+		if got := e.channelEndpoint(); got != "https://bedrock-runtime.us-east-1.amazonaws.com" || e.region != bedrockDefaultRegion {
+			t.Errorf("entering Bedrock sent %q in region %q", got, e.region)
+		}
+		e.switchRoute(2)
+		if got := e.channelEndpoint(); got != "https://aiplatform.googleapis.com" || e.location != vertexDefaultLocation {
+			t.Errorf("entering Vertex AI sent %q at %q", got, e.location)
+		}
+		e.edit(m, &preview.Channel{ID: "saved", Name: "Saved", Method: "mixed/1", API: "bedrock", Endpoint: "https://bedrock-runtime.us-east-1.amazonaws.com", Region: "us-east-1", KeySet: true})
+		e.switchRoute(0)
+		if e.endpoint != "https://api.example" {
+			t.Errorf("leaving Bedrock kept endpoint %q", e.endpoint)
+		}
+	})
 	t.Run("removed model row", func(t *testing.T) {
 		m := testController()
 		e := &m.provider
