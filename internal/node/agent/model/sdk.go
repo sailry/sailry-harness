@@ -274,9 +274,14 @@ func (model *sdkModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.S
 	if err != nil {
 		return nil, err
 	}
-	raw, err := sourceRequestBytes(model.config, call, body)
-	if err != nil {
-		return nil, err
+	// `/responses/compact` takes a few members of the body as they are; the
+	// ordered main-request encoding would be discarded.
+	compactWindow := model.config.Kind == "responses" && nativeRequest(call) != nil
+	var raw []byte
+	if !compactWindow {
+		if raw, err = sourceRequestBytes(model.config, call, body); err != nil {
+			return nil, err
+		}
 	}
 	return func(yield func(fantasy.StreamPart) bool) {
 		owner, cancel := context.WithCancel(ctx)
@@ -295,7 +300,7 @@ func (model *sdkModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.S
 		case "google":
 			model.streamGoogle(context.WithValue(owner, sourceBodyKey{}, raw), body, call, emitter)
 		case "responses":
-			if nativeRequest(call) != nil {
+			if compactWindow {
 				model.compactResponses(owner, body, call, emitter)
 				return
 			}

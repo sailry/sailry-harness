@@ -148,10 +148,14 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 			delta := wireObject(value["delta"])
 			switch wireString(delta["type"]) {
 			case "compaction_delta":
-				// Threshold compaction sends its summary in one delta; an
-				// on-demand block arrives whole in its start event.
+				// Threshold compaction sends its summary and encrypted state in
+				// one delta; an on-demand block arrives whole in its start event.
 				if block.raw != nil {
-					block.raw["content"] = delta["content"]
+					for _, key := range []string{"content", "encrypted_content"} {
+						if value, ok := delta[key]; ok {
+							block.raw[key] = value
+						}
+					}
 				}
 			case "citations_delta":
 				citation := wireObject(delta["citation"])

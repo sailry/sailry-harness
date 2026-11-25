@@ -24,19 +24,23 @@ type sourceAsset struct {
 	Data      string `json:"data"`
 }
 type sourceAnthropicBlock struct {
-	Type         string          `json:"type"`
-	Text         *string         `json:"text,omitempty"`
-	Thinking     *string         `json:"thinking,omitempty"`
-	Signature    *string         `json:"signature,omitempty"`
-	Data         *string         `json:"data,omitempty"`
-	ID           string          `json:"id,omitempty"`
-	Name         string          `json:"name,omitempty"`
-	Input        json.RawMessage `json:"input,omitempty"`
-	ToolUseID    string          `json:"tool_use_id,omitempty"`
-	Content      any             `json:"content,omitempty"`
-	Source       *sourceAsset    `json:"source,omitempty"`
-	IsError      *bool           `json:"is_error,omitempty"`
-	CacheControl *sourceCache    `json:"cache_control,omitempty"`
+	Type      string          `json:"type"`
+	Text      *string         `json:"text,omitempty"`
+	Thinking  *string         `json:"thinking,omitempty"`
+	Signature *string         `json:"signature,omitempty"`
+	Data      *string         `json:"data,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   any             `json:"content,omitempty"`
+	// A compaction block returns its encrypted state and tool changes, which
+	// the API requires back unchanged.
+	EncryptedContent *string      `json:"encrypted_content,omitempty"`
+	ToolChanges      any          `json:"tool_changes,omitempty"`
+	Source           *sourceAsset `json:"source,omitempty"`
+	IsError          *bool        `json:"is_error,omitempty"`
+	CacheControl     *sourceCache `json:"cache_control,omitempty"`
 }
 type sourceAnthropicMessage struct {
 	Role    string                 `json:"role"`
@@ -81,19 +85,56 @@ type sourceResponsePart struct {
 	ImageURL              string          `json:"image_url,omitempty"`
 	Filename              string          `json:"filename,omitempty"`
 	FileData              string          `json:"file_data,omitempty"`
+	Annotations           json.RawMessage `json:"annotations,omitempty"`
 	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
 }
+
+// sourceResponseContent is a message's content: the part list Sailry writes,
+// or the plain string a replayed native window can carry.
+type sourceResponseContent struct {
+	Text  *string
+	Parts []sourceResponsePart
+}
+
+func (content sourceResponseContent) IsZero() bool {
+	return content.Text == nil && len(content.Parts) == 0
+}
+func (content sourceResponseContent) MarshalJSON() ([]byte, error) {
+	var value any = content.Parts
+	if content.Text != nil {
+		value = *content.Text
+	}
+	// The enclosing encoder decides HTML escaping; escaping here would
+	// change the bytes of every message it writes.
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'}), nil
+}
+func (content *sourceResponseContent) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		content.Text = new(string)
+		return json.Unmarshal(data, content.Text)
+	}
+	return json.Unmarshal(data, &content.Parts)
+}
+
 type sourceResponseItem struct {
-	Type             string               `json:"type"`
-	ID               string               `json:"id,omitempty"`
-	Role             string               `json:"role,omitempty"`
-	Content          []sourceResponsePart `json:"content,omitempty"`
-	CallID           string               `json:"call_id,omitempty"`
-	Name             string               `json:"name,omitempty"`
-	Arguments        string               `json:"arguments,omitempty"`
-	Output           any                  `json:"output,omitempty"`
-	EncryptedContent *string              `json:"encrypted_content,omitempty"`
-	Summary          json.RawMessage      `json:"summary,omitempty"`
+	Type             string                `json:"type"`
+	ID               string                `json:"id,omitempty"`
+	Role             string                `json:"role,omitempty"`
+	Status           string                `json:"status,omitempty"`
+	Phase            string                `json:"phase,omitempty"`
+	Content          sourceResponseContent `json:"content,omitzero"`
+	CallID           string                `json:"call_id,omitempty"`
+	Name             string                `json:"name,omitempty"`
+	Arguments        string                `json:"arguments,omitempty"`
+	Output           any                   `json:"output,omitempty"`
+	EncryptedContent *string               `json:"encrypted_content,omitempty"`
+	Summary          json.RawMessage       `json:"summary,omitempty"`
 }
 type sourceInlineData struct {
 	MimeType string `json:"mimeType"`

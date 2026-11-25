@@ -109,7 +109,7 @@ func anthropicText(text string) string {
 // billed in usage.iterations. A null content is a blocked summary.
 func anthropicCompaction(content, stop string) string {
 	return sse(`{"type":"message_start","message":{"id":"msg","type":"message","role":"assistant","model":"fixture","content":[],"usage":{"input_tokens":0,"output_tokens":0}}}`,
-		`{"type":"content_block_start","index":0,"content_block":{"type":"compaction","content":`+content+`,"signature":"sig-1"}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"compaction","content":`+content+`,"encrypted_content":"enc-1","signature":"sig-1","tool_changes":[{"type":"tool_addition","tool":{"name":"read_file"}}]}}`,
 		`{"type":"content_block_stop","index":0}`,
 		`{"type":"message_delta","delta":{"stop_reason":"`+stop+`"},"usage":{"input_tokens":0,"output_tokens":0,"iterations":[{"type":"compaction","input_tokens":144,"output_tokens":276}]}}`,
 		`{"type":"message_stop"}`)
@@ -121,7 +121,7 @@ func responsesText(text string) string {
 		`{"type":"response.completed","sequence_number":1,"response":{"id":"r","object":"response","created_at":1,"model":"fixture","status":"completed","output":[{"id":"m","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","annotations":[],"text":`+string(encoded)+`}]}],"usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}}}`)
 }
 
-const compactedWindow = `{"id":"cmp","object":"response.compaction","created_at":1,"output":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Original task"}]},{"type":"compaction","id":"cmp_item","encrypted_content":"opaque-window"}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}`
+const compactedWindow = `{"id":"cmp","object":"response.compaction","created_at":1,"output":[{"type":"message","role":"user","status":"completed","content":[{"type":"input_text","text":"Original task"}]},{"type":"message","role":"user","content":"Plain <note>"},{"type":"compaction","id":"cmp_item","encrypted_content":"opaque-window"}],"usage":{"input_tokens":100,"output_tokens":20,"total_tokens":120}}`
 
 func latestCheckpoint(t *testing.T, f *engineFixture) (canonical.Record, *canonical.Compaction) {
 	t.Helper()
@@ -229,7 +229,7 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 		messages := same.body["messages"].([]any)
 		first := messages[0].(map[string]any)
 		block := first["content"].([]any)[0].(map[string]any)
-		if first["role"] != "assistant" || block["type"] != "compaction" || block["signature"] != "sig-1" || block["content"] != "Readable summary of the task" || len(block) != 3 {
+		if first["role"] != "assistant" || block["type"] != "compaction" || block["signature"] != "sig-1" || block["content"] != "Readable summary of the task" || block["encrypted_content"] != "enc-1" || fmt.Sprint(block["tool_changes"]) != "[map[tool:map[name:read_file] type:tool_addition]]" || len(block) != 5 {
 			t.Fatalf("same model history opens with %v", first)
 		}
 		if strings.Contains(same.raw, "Original task") || !strings.Contains(same.header.Get("anthropic-beta"), "compact-2026-09-04") {
@@ -447,13 +447,60 @@ func TestResponsesNativeCompaction(t *testing.T) {
 		}
 		next := sendMain(t, f, x, binding, provider)
 		input := next.body["input"].([]any)
-		found := false
+		found, status, plain := false, false, false
 		for _, item := range input {
 			object := item.(map[string]any)
 			found = found || object["type"] == "compaction" && object["encrypted_content"] == "opaque-window" && object["id"] == "cmp_item"
+			status = status || object["status"] == "completed"
+			plain = plain || object["content"] == "Plain <note>"
 		}
-		if !found || strings.Count(next.raw, "Original task") != 1 {
+		if !found || !status || !plain || strings.Count(next.raw, "Original task") != 1 || !strings.Contains(next.raw, `"Plain <note>"`) {
 			t.Fatalf("next request did not send the compacted window as returned: %s", next.raw)
+		}
+	})
+	t.Run("the next native compaction carries the previous window", func(t *testing.T) {
+		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiResponses, func(writer http.ResponseWriter, request wireRequest) {
+			if compacting(request) {
+				writeJSON(writer, http.StatusOK, compactedWindow)
+				return
+			}
+			writeSSE(writer, responsesText("Done"))
+		})
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		addExchange(t, f, "Second request")
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		sent := provider.all(compacting)
+		if len(sent) != 2 || !strings.Contains(sent[1].raw, "opaque-window") || !strings.Contains(sent[1].raw, "Second request") {
+			t.Fatalf("the second compaction dropped the previous window: %v", sent)
+		}
+		if summaries := provider.all(func(request wireRequest) bool { return !compacting(request) }); len(summaries) != 0 {
+			t.Fatalf("the second compaction fell back to a transcript: %d requests", len(summaries))
+		}
+	})
+	t.Run("a transcript over an opaque window writes its handoff first", func(t *testing.T) {
+		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiResponses, func(writer http.ResponseWriter, request wireRequest) {
+			if compacting(request) {
+				writeJSON(writer, http.StatusOK, compactedWindow)
+				return
+			}
+			writeSSE(writer, responsesText(inPlaceHandoff))
+		})
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		addExchange(t, f, "Second request")
+		// A focus keeps the request on Sailry's handoff.
+		x.inv.Message.Text = "Keep the second request"
+		if err := compactNow(t, f, x, binding); err != nil {
+			t.Fatal(err)
+		}
+		summaries := provider.all(func(request wireRequest) bool { return !compacting(request) })
+		if len(summaries) != 2 || !strings.Contains(summaries[0].raw, "Original task") || !strings.Contains(summaries[1].raw, "Continue the task") || !strings.Contains(summaries[1].raw, "Second request") {
+			t.Fatalf("the focused compaction did not summarize over the previous handoff: %d requests", len(summaries))
 		}
 	})
 	t.Run("a missing endpoint falls back and is remembered", func(t *testing.T) {
