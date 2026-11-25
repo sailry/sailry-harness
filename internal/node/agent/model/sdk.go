@@ -485,6 +485,26 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 		decoder.Decode(&merged)
 	}
 	mergeUsageFields(merged, value)
+	if iterations := wireArray(merged["iterations"]); family == "anthropic" && len(iterations) > 0 {
+		// The cache write breakdown follows the iteration totals below, so
+		// that pricing can tell five-minute from one-hour writes.
+		creation := map[string]any{}
+		for _, key := range []string{"ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"} {
+			var sum int64
+			found := false
+			for _, iteration := range iterations {
+				if count := wireInt(wireObject(wireObject(iteration)["cache_creation"])[key]); count != nil {
+					sum, found = sum+*count, true
+				}
+			}
+			if found {
+				creation[key] = json.Number(fmt.Sprint(sum))
+			}
+		}
+		if len(creation) > 0 {
+			merged["cache_creation"] = creation
+		}
+	}
 	raw, _ := json.Marshal(merged)
 	emitter.usage.Raw = raw
 	keys := map[string]**int64{}

@@ -47,6 +47,31 @@ func TestAnthropicUsageBreakdownSurvivesStreaming(t *testing.T) {
 	}
 }
 
+func TestAnthropicIterationCacheBreakdown(t *testing.T) {
+	t.Parallel()
+	// A request that compacts reports zero at the top level; its cache writes
+	// and their breakdown are in the iterations.
+	emitter := &sdkEmitter{}
+	emitter.updateUsage(map[string]any{"input_tokens": json.Number("0"), "output_tokens": json.Number("0"), "cache_creation_input_tokens": json.Number("0"),
+		"cache_creation": map[string]any{"ephemeral_5m_input_tokens": json.Number("0"), "ephemeral_1h_input_tokens": json.Number("0")},
+		"iterations": []any{
+			map[string]any{"type": "compaction", "input_tokens": json.Number("10"), "output_tokens": json.Number("5"), "cache_creation_input_tokens": json.Number("30"), "cache_creation": map[string]any{"ephemeral_5m_input_tokens": json.Number("10"), "ephemeral_1h_input_tokens": json.Number("20")}},
+			map[string]any{"type": "message", "input_tokens": json.Number("4"), "output_tokens": json.Number("2"), "cache_creation_input_tokens": json.Number("6"), "cache_creation": map[string]any{"ephemeral_5m_input_tokens": json.Number("6"), "ephemeral_1h_input_tokens": json.Number("0")}},
+		}}, "anthropic")
+	if emitter.usage.CacheWrite == nil || *emitter.usage.CacheWrite != 36 {
+		t.Fatalf("cache writes = %v, want 36", emitter.usage.CacheWrite)
+	}
+	var raw struct {
+		CacheCreation struct {
+			Five uint64 `json:"ephemeral_5m_input_tokens"`
+			Hour uint64 `json:"ephemeral_1h_input_tokens"`
+		} `json:"cache_creation"`
+	}
+	if err := json.Unmarshal(emitter.usage.Raw, &raw); err != nil || raw.CacheCreation.Five != 16 || raw.CacheCreation.Hour != 20 {
+		t.Fatalf("cache breakdown does not match the iterations: %s", emitter.usage.Raw)
+	}
+}
+
 func TestChatCacheUsageFields(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct {
