@@ -865,7 +865,7 @@ func TestCompactionAtThreshold(t *testing.T) {
 }
 func manualNow() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
 
-// A transient failure records its chosen backoff. The quick first retry is
+// A transient failure records its chosen backoff. The first retry is
 // numbered 0, which shows no row, and the shown retries count to nine.
 func TestTransientRetryRecord(t *testing.T) {
 	t.Parallel()

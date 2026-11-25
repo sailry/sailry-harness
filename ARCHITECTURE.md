@@ -816,10 +816,11 @@ agent, which runs its own tools within a turn, may stay silent for 600 seconds.
 Direct model requests share one connection pool that sends HTTP/2 health pings
 after 15 seconds without data and retires idle connections after 30 seconds,
 so a connection a gateway dropped silently fails fast instead of stalling.
-The first retry is a quick resend that most transient failures clear on, so
-its record is numbered 0 and the transcript shows no row for it; rows count
-the nine retries after it. A first retry that must wait five seconds or more
-still shows.
+The first retry of every model request is silent: its record is numbered 0
+and the transcript shows no row for it, even when a provider wait hint requires
+five seconds or more. From the second retry, rows count up to nine retries after
+the silent resend. Waiting and attempt budgets do not depend on visibility.
+Persisted retry records retain their saved numbering and visibility.
 Interrupted main requests clear the failed attempt's provisional draft before retrying the same
 model step; tool calls execute only after that step completes. Consumers without
 a draft-reset boundary stop automatic retry after emitting content. Summary

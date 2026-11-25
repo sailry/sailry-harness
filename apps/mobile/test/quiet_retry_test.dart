@@ -41,10 +41,29 @@ TranscriptIndex _running(Map<String, dynamic> retry) => TranscriptIndex({
 
 void main() {
   for (final (retry, thinking) in [
-    ({'type': 'model_retry', 'attempt': 0}, true),
-    ({'type': 'model_retry', 'attempt': 1}, false),
+    ({'type': 'model_retry', 'attempt': 0, 'limit': 9}, true),
+    ({'type': 'model_retry', 'attempt': 0, 'limit': 9, 'delay_ms': 5000}, true),
+    ({'type': 'model_retry', 'attempt': 0, 'limit': 9, 'delay_ms': 6000}, true),
+    (
+      {'type': 'model_retry', 'attempt': 1, 'limit': 9, 'delay_ms': 6000},
+      false,
+    ),
+    (
+      {'type': 'model_retry', 'attempt': 2, 'limit': 9, 'delay_ms': 6000},
+      false,
+    ),
+    (
+      {'type': 'model_retry', 'attempt': 9, 'limit': 9, 'delay_ms': 30000},
+      false,
+    ),
+    (
+      {'type': 'model_retry', 'attempt': 1, 'limit': 9, 'delay_ms': 5000},
+      false,
+    ),
+    ({'type': 'model_retry', 'attempt': 10, 'limit': 10}, false),
   ]) {
     testWidgets('a retry with attempt ${retry['attempt']} '
+        'and delay ${retry['delay_ms'] ?? 0} '
         '${thinking ? 'keeps' : 'replaces'} the thinking phase', (
       tester,
     ) async {
@@ -76,6 +95,14 @@ void main() {
       expect(
         find.textContaining(tr('thinkingNow')),
         thinking ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text(
+          tr('conversationModelRetrying')
+              .replaceAll('{attempt}', '${retry['attempt']}')
+              .replaceAll('{limit}', '${retry['limit']}'),
+        ),
+        thinking ? findsNothing : findsOneWidget,
       );
     });
   }

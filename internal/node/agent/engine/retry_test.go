@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -65,6 +67,34 @@ func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
 				t.Fatalf("exhaustion sent %d requests, want %d", m.count(), wantCalls)
 			}
 			state := f.state()
+			purpose := canonical.PurposeMain
+			if summary {
+				purpose = canonical.PurposeCompaction
+			}
+			var retries, observed uint64
+			for _, record := range state.Records {
+				execution := record.Metadata.Execution
+				if execution == nil || execution.Purpose == nil || *execution.Purpose != purpose {
+					continue
+				}
+				if retry := execution.Retry; retry != nil {
+					if retry.Attempt != retries || retry.Limit == nil || *retry.Limit != model.MainRetries-1 {
+						t.Fatalf("retry %d changed its displayed count or limit: %+v", retries, retry)
+					}
+					retries++
+				}
+				if execution.Observation != nil {
+					for _, attempt := range execution.Observation.Attempts {
+						observed++
+						if attempt.Index != observed || attempt.Outcome != protocol.ConversationObservationOutcomeFailed {
+							t.Fatalf("attempt %d changed its audit: %+v", observed, attempt)
+						}
+					}
+				}
+			}
+			if retries != model.MainRetries || observed != model.MainRetries+1 {
+				t.Fatalf("exhaustion stored %d retries and %d observations", retries, observed)
+			}
 			if !summary {
 				last := lastMessage(state.Records)
 				if last == nil || last.Error == nil || last.Error.Code == nil || *last.Error.Code != string(model.RateLimited) || last.Error.Message != "provider rate limited" || !last.Error.RetryExhausted {
@@ -83,6 +113,99 @@ func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
 			}
 			t.Fatal("summary exhaustion has no compaction failure record")
 		})
+	}
+}
+
+func TestRetryWaitHintsKeepFirstRetryQuiet(t *testing.T) {
+	t.Parallel()
+	for _, summary := range []bool{false, true} {
+		for _, row := range []struct {
+			seconds int
+			stop    bool
+		}{{4, false}, {5, false}, {6, false}, {5, true}} {
+			t.Run(fmt.Sprintf("summary_%t/wait_%ds/stop_%t", summary, row.seconds, row.stop), func(t *testing.T) {
+				t.Parallel()
+				busy := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{
+					StatusCode: 503, Message: "provider is temporarily busy", ResponseHeaders: map[string]string{"Retry-After": fmt.Sprint(row.seconds)},
+				}}
+				m := &scriptedModel{}
+				purpose := canonical.PurposeMain
+				if summary {
+					purpose = canonical.PurposeCompaction
+					m.scripts = append(m.scripts, response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}))
+				}
+				m.scripts = append(m.scripts, response(busy), response(busy))
+				if summary {
+					m.scripts = append(m.scripts, response(text(`{"user_intent":["Continue task"]}`), finish()))
+				}
+				m.scripts = append(m.scripts, response(text("Done"), finish()))
+				f := newFixture(t, m)
+				f.start()
+				turn := f.submit("Task")
+				records := func() (retries []protocol.ConversationRecoveryRetry, observations []protocol.ConversationObservationAttempt) {
+					for _, record := range f.state().Records {
+						execution := record.Metadata.Execution
+						if execution == nil || execution.Purpose == nil || *execution.Purpose != purpose {
+							continue
+						}
+						if execution.Retry != nil {
+							if record.Metadata.Runtime == nil || !record.Metadata.Runtime.UserVisible || record.Metadata.Runtime.AgentVisible {
+								t.Fatal("retry record has the wrong audience")
+							}
+							retries = append(retries, *execution.Retry)
+						}
+						if execution.Observation != nil {
+							observations = append(observations, execution.Observation.Attempts...)
+						}
+					}
+					return retries, observations
+				}
+				waits := 2
+				if row.stop {
+					waits = 1
+				}
+				for index := range waits {
+					select {
+					case wait := <-f.r.clock.(*manualClock).waits:
+						if wait.duration != time.Duration(row.seconds)*time.Second {
+							t.Fatalf("retry wait = %s, want %ds", wait.duration, row.seconds)
+						}
+						retries, observations := records()
+						if len(retries) != index+1 || len(observations) != index+1 {
+							t.Fatalf("retry wait %d has %d retries and %d observations", index, len(retries), len(observations))
+						}
+						retry := retries[index]
+						if retry.Attempt != uint64(index) || retry.Limit == nil || *retry.Limit != model.MainRetries-1 || retry.DelayMs == nil || *retry.DelayMs != uint64(row.seconds*1000) || retry.Status == nil || *retry.Status != 503 || retry.Code == nil || *retry.Code != string(model.Unavailable) {
+							t.Fatalf("retry wait %d changed its visibility, budget or cause: %+v", index, retry)
+						}
+						if observations[index].Index != uint64(index+1) || observations[index].Outcome != protocol.ConversationObservationOutcomeFailed {
+							t.Fatalf("retry wait %d changed its audit: %+v", index, observations[index])
+						}
+						if !row.stop {
+							close(wait.advance)
+						}
+					case <-f.ctx.Done():
+						t.Fatal("the request did not reach its hinted retry wait")
+					}
+				}
+				status, wantCalls, wantObservations := protocol.ConversationStatusCompleted, 3, 3
+				if row.stop {
+					f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: turn})
+					status, wantCalls, wantObservations = protocol.ConversationStatusCancelled, 1, 1
+				}
+				if summary {
+					wantCalls++
+					if !row.stop {
+						wantCalls++
+					}
+				}
+				f.waitRun(turn, status)
+				retries, observations := records()
+				if m.count() != wantCalls || len(retries) != waits || len(observations) != wantObservations {
+					t.Fatalf("calls=%d retries=%d observations=%d; want %d, %d, %d", m.count(), len(retries), len(observations), wantCalls, waits, wantObservations)
+				}
+			})
+		}
 	}
 }
 

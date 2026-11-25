@@ -64,6 +64,8 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 			clock := &projectionRetryClock{now: time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)}
 			err := model.Run(t.Context(), language, fantasy.Call{}, model.Main, clock, func(attempt model.Attempt) error {
 				if attempt.RetryDelay != nil {
+					// Legacy records counted every retry, including the first.
+					// Reload preserves their stored numbers and limits.
 					limit, delay := uint64(model.MainRetries), uint64(attempt.RetryDelay.Milliseconds())
 					record := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant), attempt.Finished)
 					record.Provenance.Author = "assistant"
@@ -158,20 +160,30 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 
 func TestRetryProjectionUsesModelRequestIdentity(t *testing.T) {
 	for _, row := range []struct {
-		name string
-		ids  []string
-		want int
+		name     string
+		ids      []string
+		attempts []uint64
+		want     int
 	}{
-		{"one request", []string{"request-a", "request-a", "request-a"}, 1},
-		{"different requests with increasing attempts", []string{"request-a", "request-b"}, 2},
-		{"unknown request identity", []string{"", ""}, 2},
+		{"one request", []string{"request-a", "request-a", "request-a"}, nil, 1},
+		{"different requests with increasing attempts", []string{"request-a", "request-b"}, nil, 2},
+		{"unknown request identity", []string{"", ""}, nil, 2},
+		{"quiet first retry with a long wait", []string{"request-a"}, []uint64{0}, 0},
+		{"later retries count after the quiet resend", []string{"request-a", "request-a", "request-a"}, []uint64{0, 1, 2}, 1},
+		{"legacy long first retry remains visible", []string{"request-a"}, []uint64{1}, 1},
+		{"legacy duplicate displayed numbers", []string{"request-a", "request-a", "request-a"}, []uint64{1, 1, 2}, 1},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			turn := protocol.TurnID{1}
 			snapshot := protocol.DefaultConversationSnapshot()
 			snapshot.Page.Runs = []protocol.ConversationRun{{Turn: turn, Kind: "task", Status: "running"}}
+			var last uint64
 			for index, id := range row.ids {
-				raw, err := json.Marshal(map[string]any{"type": "model_retry", "id": id, "attempt": index + 2, "limit": 9})
+				last = uint64(index + 2)
+				if row.attempts != nil {
+					last = row.attempts[index]
+				}
+				raw, err := json.Marshal(map[string]any{"type": "model_retry", "id": id, "attempt": last, "limit": 9, "delay_ms": 6000})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -181,8 +193,11 @@ func TestRetryProjectionUsesModelRequestIdentity(t *testing.T) {
 			}
 			turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: snapshot})
 			blocks := turns[0].Reply.Blocks
-			if len(blocks) != row.want || blocks[len(blocks)-1].Retry.Attempt != len(row.ids)+1 {
+			if len(blocks) != row.want {
 				t.Fatalf("retry request identity changed its rows: %+v", blocks)
+			}
+			if row.want > 0 && (blocks[len(blocks)-1].Retry.Attempt != int(last) || blocks[len(blocks)-1].Retry.Limit != 9) {
+				t.Fatalf("retry projection changed stored counts: %+v", blocks[len(blocks)-1].Retry)
 			}
 			if len(snapshot.Page.Entries) != len(row.ids) {
 				t.Fatal("retry presentation changed stored attempts")
