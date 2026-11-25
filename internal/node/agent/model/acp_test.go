@@ -756,7 +756,7 @@ func TestACPSessionContinuation(t *testing.T) {
 		}
 	})
 
-	t.Run("retires a program whose /compact never answers", func(t *testing.T) {
+	t.Run("cancels a /compact that goes silent and keeps its program", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta,resume,compact,compact-hang", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}}, func(capture *ACPCapture) {
 			capture.stall = 300 * time.Millisecond
 		})
@@ -768,8 +768,9 @@ func TestACPSessionContinuation(t *testing.T) {
 		if failure := Classify(CompactSession(ctx, fixture.model, compacted(t))); failure == nil || failure.Kind != Network || ctx.Err() != nil {
 			t.Fatalf("failure = %#v, waited until %v", failure, ctx.Err())
 		}
-		if result := fixture.run(t.Context(), acpRequest(t, "", second), nil); result.failure != nil || result.text != "two" || len(fixture.received("initialize")) != 2 {
-			t.Fatalf("reply = %#v, programs = %d", result, len(fixture.received("initialize")))
+		// The agent answered the cancel, so its program serves the next request.
+		if result := fixture.run(t.Context(), acpRequest(t, "", second), nil); result.failure != nil || result.text != "two" || len(fixture.received("initialize")) != 1 || len(fixture.received("session/cancel")) != 1 {
+			t.Fatalf("reply = %#v, programs = %d, cancels = %d", result, len(fixture.received("initialize")), len(fixture.received("session/cancel")))
 		}
 	})
 
@@ -810,9 +811,10 @@ func TestACPSessionContinuation(t *testing.T) {
 		if result := fixture.run(t.Context(), acpRequest(t, "", third), nil); result.failure != nil {
 			t.Fatalf("reply = %#v", result)
 		}
-		prompts := fixture.received("session/prompt")
-		if len(fixture.received("session/new")) != 1 || len(fixture.received("session/close")) != 0 || fixture.prompt(2) != "again" || sessionOf(prompts[2]) != sessionOf(prompts[0]) {
-			t.Fatalf("sessions = %d, closed = %d, prompt = %q", len(fixture.received("session/new")), len(fixture.received("session/close")), fixture.prompt(2))
+		// This program closes its outdated copy, then resumes the recorded one.
+		prompts, closed := fixture.received("session/prompt"), fixture.received("session/close")
+		if len(fixture.received("session/new")) != 1 || len(closed) != 1 || sessionOf(closed[0]) != sessionOf(prompts[0]) || fixture.prompt(2) != "again" || sessionOf(prompts[2]) != sessionOf(prompts[0]) {
+			t.Fatalf("sessions = %d, closed = %d, prompt = %q", len(fixture.received("session/new")), len(closed), fixture.prompt(2))
 		}
 	})
 

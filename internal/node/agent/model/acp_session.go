@@ -284,22 +284,46 @@ func CompactSession(ctx context.Context, languageModel fantasy.LanguageModel, ca
 	// The command is a prompt of this session alone: a cancelled one stops
 	// only that prompt, and one the agent never answers fails as a reply's
 	// silence does. The program keeps serving its other sessions.
+	// Its output is not kept, but it shows the command is still at work.
+	wake := make(chan struct{}, 1)
+	session := slot.session
+	agent.mu.Lock()
+	agent.sinks[session] = func(bool, string) {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+	agent.mu.Unlock()
+	defer func() {
+		agent.mu.Lock()
+		delete(agent.sinks, session)
+		agent.mu.Unlock()
+	}()
 	done := make(chan error, 1)
 	go func() {
-		_, err := acp.SendRequest[acpPrompted](agent.conn, context.WithoutCancel(ctx), acp.AgentMethodSessionPrompt, map[string]any{"sessionId": slot.session,
+		_, err := acp.SendRequest[acpPrompted](agent.conn, context.WithoutCancel(ctx), acp.AgentMethodSessionPrompt, map[string]any{"sessionId": session,
 			"prompt": []any{map[string]any{"type": "text", "text": "/compact"}}})
 		done <- err
 	}()
 	stall := time.NewTimer(model.capture.stall)
 	defer stall.Stop()
-	select {
-	case err = <-done:
-	case <-ctx.Done():
-		keep = acpCancel(agent, slot.session, done, nil, nil)
-		return ctx.Err()
-	case <-stall.C:
-		keep = false
-		return &Failure{Kind: Network, Message: fmt.Sprintf("%s did not finish /compact in %d seconds", model.capture.Program.Command, int(model.capture.stall.Seconds()))}
+	drain := func() {}
+	for waiting := true; waiting; {
+		select {
+		case err = <-done:
+			waiting = false
+		case <-wake:
+			stall.Reset(model.capture.stall)
+		case <-ctx.Done():
+			keep = acpCancel(agent, session, done, wake, drain)
+			return ctx.Err()
+		case <-stall.C:
+			// Only this prompt is ended; a program that ignores the cancel is
+			// retired.
+			keep = acpCancel(agent, session, done, wake, drain)
+			return &Failure{Kind: Network, Message: fmt.Sprintf("%s did not finish /compact in %d seconds", model.capture.Program.Command, int(model.capture.stall.Seconds()))}
+		}
 	}
 	if err != nil {
 		return model.failure(ctx, agent, err)

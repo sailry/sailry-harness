@@ -360,10 +360,8 @@ func (agent *acpAgent) handle(_ context.Context, method string, params json.RawM
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}
-		if json.Unmarshal(update.Update.Content, &content) != nil {
-			return nil, acp.NewInvalidParams(nil)
-		}
-		if content.Type == "text" && content.Text != "" {
+		// A chunk without one text block carries nothing to show.
+		if json.Unmarshal(update.Update.Content, &content) == nil && content.Type == "text" && content.Text != "" {
 			sink(thought, content.Text)
 		}
 		return nil, nil
@@ -691,10 +689,12 @@ func (model *acpModel) reserve(ctx context.Context, agent *acpAgent) *acpSlot {
 	}
 	// A request that found this slot busy may have continued its session in
 	// another program, whose record then shows what this program's copy has
-	// not seen. The slot forgets that copy, so the request resumes the session
-	// as recorded instead of continuing or closing the outdated one.
+	// not seen. This program closes its outdated copy, so the request resumes
+	// the session as recorded: an agent asked to resume a session it still
+	// holds could answer with the copy in its memory.
 	if slot.owner != (protocol.SessionID{}) && slot.session != "" {
 		if kept := model.recall(agent.identity, slot.owner); kept != nil && kept.Session == slot.session && !slices.Equal(kept.Seen, slot.seen) {
+			model.discard(ctx, agent, slot.session, true)
 			slot.session, slot.seen = "", nil
 		}
 	}

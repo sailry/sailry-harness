@@ -20,6 +20,8 @@ func TestACPUpdatesOfEveryContentShape(t *testing.T) {
 		`{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t","title":"ls","status":"pending","content":[{"type":"content","content":{"type":"text","text":"x"}}]}}`,
 		`{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t","status":"failed","content":[{"type":"content","content":{"type":"text","text":"Built-in tools are disabled."}}]}}`,
 		`{"sessionId":"s","update":{"sessionUpdate":"plan","entries":[{"content":"step","priority":"high","status":"pending"}]}}`,
+		`{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk"}}`,
+		`{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":[{"type":"text","text":"list"}]}}`,
 		`{"sessionId":"s","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"why"}}}`,
 		`{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ok"}}}`,
 	} {
