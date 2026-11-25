@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -32,6 +33,16 @@ class RepairTest(unittest.TestCase):
                            (0, events("skip")), (0, events("pass")[-1:]),
                            (1, [{"Action": "build-fail"}]), (1, events("fail", repair.ASSERTION)[:-1])]:
             self.assertEqual(repair.classify(code, rows), "inconclusive")
+
+    def test_checkout_creates_only_the_requested_worktree(self):
+        with patch.object(repair, "git") as git:
+            repair.checkout(Path("affected"), "a" * 40)
+        git.assert_called_once_with("worktree", "add", "--detach", "affected", "a" * 40)
+
+    def test_checkout_failure_is_not_ignored(self):
+        failure = subprocess.CalledProcessError(1, ["git", "worktree", "add"])
+        with patch.object(repair, "git", side_effect=failure), self.assertRaises(subprocess.CalledProcessError):
+            repair.checkout(Path("affected"), "a" * 40)
 
     def test_only_target_red_base_red_candidate_green_is_eligible(self):
         for states, candidate, expected in [(["red", "red", "green"], True, True),

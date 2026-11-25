@@ -84,7 +84,7 @@ tools:
     @echo "Go: go1.27.3 pinned"; go version
     @echo "Rust: 1.98.0 pinned in native/turso/rust-toolchain.toml"; cd native/turso && (rustc --version || echo "rustc is not installed")
     @echo "Flutter: $(cat apps/mobile/.flutter-version) pinned in apps/mobile/.flutter-version"; flutter --version || echo "flutter is not installed"
-    @echo "Node.js: 22.13.0 or newer for pairing relay and plugin tests"; node --version || echo "node is not installed"
+    @echo "Node.js: 22.13.0 or newer for pairing relay and optional plugin checks"; node --version || echo "node is not installed"
     @just --version
 
 # Generate the desktop catalogs from the source catalogs in locales/.
@@ -122,11 +122,10 @@ test-race +packages:
 bench:
     go test ./internal/desktop/conversation -run '^$' -bench .
 
-# Run every plugin package's deterministic tests from the plugins submodule.
-[working-directory('plugins')]
-test-plugins:
-    node --experimental-vm-modules scripts/check-packages.mjs
-    python3 scripts/test.py
+# Optionally run deterministic plugin checks from an explicitly supplied package checkout.
+test-plugins source:
+    cd {{ quote(source) }} && node --experimental-vm-modules scripts/check-packages.mjs
+    cd {{ quote(source) }} && python3 scripts/test.py
 
 # Typecheck and test the pairing service in a standalone sailry-relay checkout.
 test-pairing-relay source=relay:

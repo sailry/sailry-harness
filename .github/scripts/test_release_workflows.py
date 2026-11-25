@@ -7,6 +7,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_workflows_do_not_fetch_package_submodules(self):
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            with self.subTest(workflow=path.name):
+                self.assertNotRegex(path.read_text(), r"(?m)^\s+submodules:\s*(?:recursive|true)\s*$")
+
     def test_integration_release_packages_still_belong_to_harness(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         packages = workflow.split("      RELEASE_PACKAGES: >-\n", 1)[1].split("    steps:\n", 1)[0]

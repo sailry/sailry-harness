@@ -2,7 +2,7 @@
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
 [CONTRIBUTING.md](CONTRIBUTING.md) for development and release commands.
-`plugins/AGENTS.md` and `themes/AGENTS.md` govern those separate repositories.
+Official plugin and theme repositories have their own development guides.
 
 ## Scope and source of truth
 
@@ -12,7 +12,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
   implementations and internal plans explain provenance; they do not constrain a
   new implementation or authorize restoring removed UI.
 - The module is `github.com/sailry/sailry-harness`. This checkout contains its
-  locale sources, SDK declarations and pinned official package submodules.
+  locale sources and SDK declarations. It does not include official package catalogs.
 - Keep architecture documentation consistent with code. Explain a non-obvious
   ownership decision where it applies, without copying plans into source comments.
 
@@ -42,9 +42,8 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
 - Reuse fixed-purpose `.runtime` directories. Before cleanup, inspect ownership
   and active processes. Remove task worktrees after their work is integrated;
   preserve unrelated edits, profiles and repositories.
-- Plugins and themes are separate submodules. Keep reviewed Gitlink pins during
-  application-only changes. A package change is committed in its repository before
-  updating the parent pin; never substitute an unreviewed remote tip.
+- Plugins and themes are independent repositories. Keep package changes there;
+  do not add Gitlinks or copy their release catalogs into the application.
 - Never commit profiles, credentials, `.runtime`, `.preview`, `.npmrc`, private
   endpoints, local toolchain overrides, native libraries or build output.
 

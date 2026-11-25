@@ -31,9 +31,10 @@ that same directory and reaches B and C through A. Each route retains both the
 entry and the actual resource owner; executing on C does not replace A as the
 controller for that task. A controller disconnect does not stop admitted work.
 
-Official plugins and themes are separate repositories, pinned by the `plugins/`
-and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
-installation. Installed packages and their mutable data live in the Node profile. Immutable
+Official plugins and themes are independent repositories, not Git submodules
+or release assets of the product. The application supplies its base appearance;
+users install external packages from the market or a local source. Installed
+plugins and their mutable data live in the Node profile. Immutable
 package content is shared by digest; installation choices, settings revisions,
 connections, writable package directories and reusable runtimes belong to the
 Node's authenticated user. Personal plugin KV belongs to that user on the Node
@@ -1033,7 +1034,7 @@ approval for command input and stopping follows the live process identity.
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
-Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (installable and removable packages in `plugins/`). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH and interactive terminals) live in Code. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) are retired from `plugins/` (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and `office` provides bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (separately distributed packages installed at runtime). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH and interactive terminals) live in Code. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) no longer require their historical packages (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and the optional `office` plugin provides Office skills (`excel`, `pdf`, `powerpoint`, `word`).
 
 The official plugin feed keeps its original version records readable by installed clients. A package-level `version_requirements` map carries product and module requirements for individual releases. The executing Node checks those requirements against its own product, available services and Harness capability version, including when it opens a captured package from an older turn.
 
@@ -1101,8 +1102,8 @@ Packages use the Agent Plugins manifest and Sailry extension declarations in
 `schemas/`. Node owns validation, immutable resources, permissions, private KV,
 callbacks, tools, dispatch and credentials. Official Harness Desktop and Host
 start new profiles with no installed plugins. The native Files page and file
-tools do not require the optional `files` panel package. Embedded packages remain
-available for installation. Downstream products set `Assembly.BundledDefaults`
+tools do not require the optional `files` panel package. Code also starts with
+no installed plugins. Downstream products set `Assembly.BundledDefaults`
 with a `[]node.DefaultPlugin` from `sdk/native/node`, separately from `Modules`.
 Each entry selects a package by name and its initial enabled state. An explicit
 empty list selects none; a nil list retains the legacy platform defaults.
@@ -1122,8 +1123,8 @@ platform extension decoding; an ordinary package without that extension remains
 distinct. Desktop inspects the exact recommended release before presenting its
 permissions or offering an update, and checks local requirements for packages
 with Desktop contributions. The loader checks those requirements again for
-remote UI code. Bundled installation also honors withdrawals in the embedded
-catalog, including offline fallback and default initialization.
+remote UI code. Stock builds do not include a fallback copy of the official
+catalog or its packages.
 
 The selected Node searches the community catalog from the [Agent Plugins
 Directory verified index](https://agentpluginsdirectory.com/for-agents) (CC BY

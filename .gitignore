@@ -1,5 +1,7 @@
 .preview/
 .runtime/
+/plugins/
+/themes/
 /sailry
 /sailry-desktop
 *.test

@@ -127,8 +127,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          submodules: recursive
       - name: Test lane routing
         run: bash .github/scripts/test_test.sh
       - name: Test release CI reuse
@@ -200,8 +198,6 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          submodules: recursive
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: Linux command sandbox and UI fonts
@@ -229,8 +225,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          submodules: recursive
       - uses: ./.github/actions/go-cache
         id: go-cache
       - uses: ./.github/actions/turso
@@ -440,8 +434,6 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          submodules: recursive
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: Linux command sandbox

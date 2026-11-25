@@ -107,7 +107,6 @@ def test(tree, probe):
 
 def checkout(path, commit):
     git("worktree", "add", "--detach", str(path), commit)
-    git("-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "submodule", "update", "--init", "--recursive", cwd=path)
 
 
 def matches_index(path, tree):

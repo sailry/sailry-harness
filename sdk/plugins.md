@@ -1230,7 +1230,7 @@ A `builtin` tool selector names a registered native tool. A `plugin` selector na
 
 Mounting does not create a session. The first send uses normal Node admission; restore matches the exact package reference, assistant, resource and workspace. Use a stable component ID for each resource. Changing props under an existing ID cannot retarget a mounted chat. Model changes use ordinary revision-checked session configuration; the assistant binding stays immutable. The native new/history controls keep sessions within that binding.
 
-Conversation components are available in workspace and resource panels, including standalone navigation. Settings and composer workers show an unavailable state. Closing or disabling a panel releases subscriptions without stopping admitted Node work. The [task-notes example](../plugins/examples/task-notes) demonstrates captured sessions and a standalone assistant.
+Conversation components are available in workspace and resource panels, including standalone navigation. Settings and composer workers show an unavailable state. Closing or disabling a panel releases subscriptions without stopping admitted Node work. The [task-notes example](https://github.com/sailry/sailry-plugins/tree/main/examples/task-notes) demonstrates captured sessions and a standalone assistant.
 
 ## Contributions and operations
 
@@ -1687,7 +1687,7 @@ Questions and plan confirmation use `ask_user` and the existing question state.
 External MCP servers can use form or URL elicitation. Content blocks cannot
 create approvals or questions or submit answers.
 
-The runnable [tool-content MCP example](../plugins/examples/tool-content) returns a table, diff and image without a desktop entry.
+The runnable [tool-content MCP example](https://github.com/sailry/sailry-plugins/tree/main/examples/tool-content) returns a table, diff and image without a desktop entry.
 
 ## Boundaries
 
@@ -1874,7 +1874,7 @@ These checks do not start a Node or substitute for local/remote integration.
 The application test host is the test binary of `internal/node/plugins`; its
 `TestMain` dispatches fixture requests when `SAILRY_PLUGIN_TEST_HOST` is set.
 Build it explicitly with the environment and command in
-[the plugin test instructions](../plugins/README.md#checks-and-catalog). The runner
+[the plugin test instructions](https://github.com/sailry/sailry-plugins#checks-and-catalog). The runner
 sets that variable when given `--runtime-host`; it never builds the host implicitly.
 Without an explicitly selected host, runtime cases are reported as skipped while
 package JavaScript tests still run.

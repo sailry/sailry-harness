@@ -7,7 +7,7 @@ code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
 The checkout is self-contained: shared locale sources live in `locales/`, module
 locale sources in `modules/<name>/desktop/locales/`, plugin SDK declarations in
-`sdk/`, and official packages in the pinned submodules. Setup, generation, builds
+`sdk/`. Official plugins and themes are maintained separately. Setup, generation, builds
 and tests do not read another project directory.
 
 Keep changes within the requested scope. For fixes, include a reproduction and
@@ -38,19 +38,9 @@ unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 ```
 
-Initialize the reviewed submodule snapshots:
-
-```sh
-git submodule update --init --recursive --checkout
-```
-
-Run the same command after switching to a revision with different submodule
-pins. `git submodule status` prefixes a mismatched checkout with `+`.
-
-Official plugins (`plugins/`) and themes (`themes/`) are separate repositories.
-Their README and AGENTS files cover package maintenance. Commit package changes
-there first, then the reviewed Gitlink here; publishing is a separate, explicitly
-authorized action. Never replace a pin with an unreviewed remote tip.
+A normal checkout is sufficient. Do not fetch plugin or theme repositories to
+build Harness. Maintain official plugins and themes in their own repositories;
+users install them from the market or from local packages.
 
 Generate the shared Desktop catalogs from `locales/` using the key list in
 `internal/desktop/i18n/keys.txt`:
@@ -145,7 +135,6 @@ do not use them for routine automated checks. Tests use `t.TempDir()`.
 | `internal/desktop/{shell,sidebar,conversation,composer,panel,panes,settings,host,transfers,onboarding}` | Accepted UI, state machines, view models and actions |
 | `internal/desktop/{kit,theme,i18n,icons,viewmodel}` | Shared UI components, themes, copy, icons and neutral presentation contracts |
 | `internal/desktop/{live,preferences,preview}` | Live action adapters, profile controller settings and isolated simulation |
-| `bundled.go` | Root embedded themes and plugin snapshot from pinned submodules |
 | `locales/` | Source catalogs for local i18n generation |
 | `docs/` | Public user guides linked from the README and published on the website |
 | `schemas/` | Published v1 plugin contract schemas and the Agent Plugins manifest schema |
@@ -407,7 +396,7 @@ per-test matrices or retry-on-flake wrappers.
 
 ## Release packages
 
-The packaging tools below describe the base artifacts and legacy release identity. A downstream product supplies its own entry points, build metadata, signing key and release source. Code pins the Harness dependency; its build checks out that exact revision with the pinned plugins/themes submodules (the Go module zip alone does not contain Git submodule contents). Development against unpublished changes uses a local Go workspace, not a committed machine-specific `replace`.
+The packaging tools below describe the base artifacts and legacy release identity. A downstream product supplies its own entry points, build metadata, signing key and release source. Code pins the Harness dependency. Neither product requires a checkout of the official plugin or theme repositories. Development against unpublished changes uses a local Go workspace, not a committed machine-specific `replace`.
 
 Packaging entry points are `mygo build`, `flutter build`,
 `native/*/build.sh` and the Host installer scripts under

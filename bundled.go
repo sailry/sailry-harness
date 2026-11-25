@@ -2,8 +2,8 @@ package sailry
 
 import "embed"
 
-//go:embed themes
+// Themes is retained for source compatibility. Stock builds do not bundle theme packages.
 var Themes embed.FS
 
-//go:embed plugins
+// Plugins is retained for source compatibility. Stock builds do not bundle plugin packages.
 var Plugins embed.FS
