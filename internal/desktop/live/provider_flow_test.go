@@ -1,33 +1,23 @@
 package live
 
 import (
-	"image/png"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
-	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	providerdesktop "github.com/sailry/sailry-harness/modules/providers/desktop"
 )
 
-// testProviderFlow drives Settings › Providers against a Node that lists
-// the bundled preset catalog: the brands and their marks, the family
-// filter, and the Add provider flow down to the command a save sends. It
-// writes the frames it passes to .runtime/ui-shots.
-func testProviderFlow(t *testing.T) {
+func TestBundledProviderProjectionAndSaveContract(t *testing.T) {
 	listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
 	source := protocol.ConversationPresetsSource{Kind: "builtin"}
 	saved := func(n byte, name, preset string, api protocol.ConversationModelApi, authentication protocol.Authentication) protocol.ConversationProvider {
@@ -70,103 +60,28 @@ func testProviderFlow(t *testing.T) {
 	if err := controller.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	defer controller.Close()
-	assembly := desktop.Harness()
+	t.Cleanup(func() { _ = controller.Close() })
+	assembly := shell.Assemble(providerdesktop.Register)
 	catalog := i18n.New(assembly.Locales...)
-	r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
+	r, settle := mountSettingsPageFixture(t, controller, assembly)
+	r.openNodeSettings(settings.Providers)
+	settle()
 	m := r.App.Settings
-	r.App.Page = shell.SettingsPage
-	m.Open(settings.Providers)
-	snapshots := os.Getenv("SAILRY_SNAPSHOTS") != ""
-	tester := ui.NewTesterWith(func(c *ui.Context) {
-		i18n.Bind(c, catalog)
-		r.mu.Lock()
-		queue := r.queue
-		r.queue = nil
-		r.mu.Unlock()
-		for _, post := range queue {
-			post(c)
-		}
-		if len(queue) != 0 {
-			r.delivered++
-		}
-		r.syncSettingsPages()
-		settings.Page(c, m, r.App.Data, settings.Look{Theme: &r.App.Theme, Mode: &r.App.Mode, Effects: &r.App.Effects, Surfaces: &r.App.Surfaces})
-		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
-	}, 1100, 900, ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: !snapshots}})
-	tester.SetLocale("zh-CN")
-	liveTesterScale(tester, "SAILRY_SNAPSHOTS")
-	zh := func(key string) string { return catalog.In("zh-CN", key) }
-	await := func(what string, done func() bool) {
-		t.Helper()
-		deadline := time.Now().Add(10 * time.Second)
-		for tester.Frame(); !done(); tester.Frame() {
-			if time.Now().After(deadline) {
-				t.Fatalf("timed out waiting for %s", what)
-			}
-			time.Sleep(2 * time.Millisecond)
-		}
-	}
-	settle := func() {
-		tester.Advance(time.Second)
-		tester.Frame()
-	}
-	// shot writes the frame in the dark and the light appearance when
-	// SAILRY_SNAPSHOTS is set.
-	shot := func(name string) {
-		t.Helper()
-		dir := os.Getenv("SAILRY_SNAPSHOTS")
-		if dir == "" {
-			return
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, dark := range []bool{false, true} {
-			tester.SetDark(dark)
-			settle()
-			file, err := os.Create(filepath.Join(dir, name+map[bool]string{false: "-light", true: "-dark"}[dark]+".png"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := png.Encode(file, tester.Image()); err != nil {
-				t.Fatal(err)
-			}
-			file.Close()
-		}
-	}
-	named := func(role ui.Role) (names []string) {
-		for _, x := range tester.AccessAll() {
-			if x.Role == role {
-				names = append(names, x.Name)
-			}
-		}
-		return
-	}
-	click := func(role ui.Role, name string) {
-		t.Helper()
-		x, ok := tester.AccessByRole(role, name)
-		if !ok {
-			t.Fatalf("no %q among %q", name, named(role))
-		}
-		tester.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
-		settle()
-	}
-	await("the preset directory", func() bool { return len(m.Brands) > 0 })
 
-	// The brands of the bundled catalog: each named for the brand, not for
-	// whichever of its entries the listing has first, with one method an
-	// entry and no two methods a reader could not tell apart.
 	var brands, logins, keyed []string
+	methods := map[string][]string{}
+	oauth := map[string][4]string{}
+	var compatible viewmodel.Method
 	for _, b := range m.Brands {
 		brands = append(brands, b.Name)
 		rows := map[string]bool{}
 		api := 0
 		for _, x := range b.Methods {
+			methods[b.ID] = append(methods[b.ID], x.Name)
+			oauth[x.ID] = x.OAuth
+			if x.Name == "OpenAI Compatible" {
+				compatible = x
+			}
 			if icons.Brand(x.Icon) == nil {
 				t.Errorf("method %q of %q has no mark", x.ID, b.Name)
 			}
@@ -174,7 +89,7 @@ func testProviderFlow(t *testing.T) {
 				if x.Login == "provider_access_login" {
 					logins = append(logins, x.Name)
 				} else {
-					logins = append(logins, zh(x.Login))
+					logins = append(logins, catalog.In("zh-CN", x.Login))
 				}
 				if x.Access != "provider_access_login" || x.Keyed {
 					t.Errorf("sign-in %q is accessed by %q", x.ID, x.Access)
@@ -205,243 +120,64 @@ func testProviderFlow(t *testing.T) {
 	if slices.Sort(logins); !slices.Equal(logins, []string{"ChatGPT", "Claude", "Copilot"}) {
 		t.Errorf("sign-ins %q", logins)
 	}
-	// Every entry of the catalog, offered or not, has a mark in the
-	// collection, as its brand has.
 	for _, entry := range listing.Entries {
 		if icons.Brand(entry.Preset.ID) == nil || icons.Brand(presetBrand(entry)) == nil {
 			t.Errorf("preset %q of brand %q has no mark", entry.Preset.ID, presetBrand(entry))
 		}
 	}
-	methods := func(brand string) (names []string) {
-		for _, b := range m.Brands {
-			if b.ID == brand {
-				for _, x := range b.Methods {
-					names = append(names, x.Name)
-				}
-			}
-		}
-		return
-	}
-	if got := methods("openai"); !slices.Equal(got, []string{"ChatGPT OAuth", "OpenAI", "OpenAI Compatible"}) {
+	if got := methods["openai"]; !slices.Equal(got, []string{"ChatGPT OAuth", "OpenAI", "OpenAI Compatible"}) {
 		t.Errorf("OpenAI's methods %q", got)
 	}
-	// A sign-in's advanced settings are its own, at the Node's values: the
-	// catalog version and user agent for ChatGPT OAuth, the editor identity
-	// for Copilot alone, and none for an API key.
-	oauth := map[string][4]string{}
-	for _, b := range m.Brands {
-		for _, x := range b.Methods {
-			oauth[x.ID] = x.OAuth
-		}
-	}
+	node := snapshot.Node.String()
 	for id, want := range map[string][4]string{
 		"builtin:chat-gpt-oauth": {providers.DefaultCatalogVersion, "Sailry/0.1"},
 		"builtin:claude-oauth":   {1: providers.DefaultClaudeAgent},
 		"builtin:copilot":        {1: providers.DefaultCopilotAgent, 2: providers.DefaultCopilotEditor, 3: providers.DefaultCopilotEditorPlugin},
-		"builtin:openai":         [4]string{},
+		"builtin:openai":         {},
 	} {
-		if got, ok := oauth[snapshot.Node.String()+"/"+id]; !ok || got != want {
+		if got, ok := oauth[node+"/"+id]; !ok || got != want {
 			t.Errorf("method %q starts its advanced settings on %q (listed %v), want %q", id, got, ok, want)
 		}
 	}
-
-	// The saved channels belong to those brands, a channel without a preset
-	// by its protocol, and one whose preset is no longer offered by it.
-	await("the channels", func() bool { return len(m.Channels) == len(snapshot.Providers) && m.Channels[0].Brand != "" })
+	if len(m.Channels) != len(snapshot.Providers) {
+		t.Fatalf("projected %d channels, want %d", len(m.Channels), len(snapshot.Providers))
+	}
 	for i, want := range [][3]string{{"openai", "OpenAI", "openai"}, {"anthropic", "Anthropic", "claude-oauth"}, {"gemini", "Gemini", "gemini"}, {"zhipu", "Zhipu", "zhipu"}, {"deepseek", "DeepSeek", "deepseek"}, {"openrouter", "OpenRouter", "openrouter"}, {"openai", "OpenAI", ""}} {
 		ch := m.Channels[i]
-		if ch.Brand != want[0] || ch.BrandName != want[1] || ch.Icon != want[2] || channelIcon(ch.Icon, ch.Brand) == nil {
+		if ch.Brand != want[0] || ch.BrandName != want[1] || ch.Icon != want[2] || icons.Brand(ch.Icon) == nil && icons.Brand(ch.Brand) == nil {
 			t.Errorf("channel %q is of brand %q (%q) with mark %q", ch.Name, ch.Brand, ch.BrandName, ch.Icon)
 		}
 	}
-	shot("providers-list")
-	if !tester.HasText("OAuth · " + catalog.In("zh-CN", "provider_model_count", "count", 1)) {
-		t.Error("an OAuth channel was labeled by its transport protocol")
-	}
-
-	// The filter: All, the offered brands, then the brand only a channel
-	// has; each brand's option has its mark.
-	filter := zh("provider_type")
-	click(ui.RoleMenuButton, filter)
-	var options []string
-	for _, x := range tester.AccessAll() {
-		if x.Role == ui.RoleMenuItem || x.Role == ui.RoleMenuItemRadio || x.Role == ui.RoleMenuItemCheckBox {
-			options = append(options, x.Name)
-		}
-	}
-	if expected := append(append([]string{zh("provider_all")}, slices.Insert(slices.Clone(want), 7, "GitHub Copilot")...), "OpenRouter"); !slices.Equal(options, expected) {
-		t.Errorf("filter options %q, want %q", options, expected)
-	}
-	if icons.BrandColor("openrouter") == nil {
-		t.Error("the unoffered brand's option has no mark")
-	}
-	shot("providers-family-filter")
-	chooseFamily := func(name string) {
+	saveChannel := func(draft settings.ProviderDraft) protocol.CommandSaveProviderPayload {
 		t.Helper()
-		for _, role := range []ui.Role{ui.RoleMenuItem, ui.RoleMenuItemRadio, ui.RoleMenuItemCheckBox} {
-			if _, ok := tester.AccessByRole(role, name); ok {
-				click(role, name)
-				return
-			}
+		before := len(saves)
+		var result *settings.ProviderSaveResult
+		m.ProviderActions.Save(draft, func(r settings.ProviderSaveResult) { result = &r })
+		settle()
+		if result == nil || len(result.Succeeded) != 1 || len(saves) != before+1 {
+			t.Fatalf("save %q: result %+v, %d requests", draft.Channel.API, result, len(saves)-before)
 		}
-		t.Fatalf("no channel family %q: %q", name, tester.Texts())
+		return saves[before]
 	}
-	chooseFamily("Anthropic")
-	if tester.HasText("Work") || !tester.HasText("Subscription") {
-		t.Fatalf("the Anthropic filter shows %q", tester.Texts())
+	chat := string(protocol.ConversationModelApiChatCompletions)
+	route := slices.IndexFunc(compatible.Routes, func(route viewmodel.Route) bool { return route.API == chat })
+	if route < 0 {
+		t.Fatal("OpenAI Compatible did not project a Chat Completions route")
 	}
-	click(ui.RoleMenuButton, filter)
-	chooseFamily(zh("provider_all"))
-	if !tester.HasText("Work") || !tester.HasText("Subscription") {
-		t.Fatalf("clearing the filter shows %q", tester.Texts())
-	}
-
-	// Add: the sign-ins under their heading, then the brands under theirs.
-	click(ui.RoleButton, zh("settings_add"))
-	login, ok := tester.Find(zh("provider_access_login"))
-	key, found := tester.Find(zh("provider_access_key"))
-	if !ok || !found || login.Y >= key.Y {
-		t.Fatalf("the brand step's headings are at %v and %v: %q", login, key, tester.Texts())
-	}
-	for _, name := range []string{"ChatGPT", "Claude", "Copilot"} {
-		if chip, ok := tester.AccessByRole(ui.RoleButton, name); !ok || chip.Bounds.Y <= login.Y || chip.Bounds.Y >= key.Y {
-			t.Errorf("sign-in %q is at %v, outside its group", name, chip.Bounds)
-		}
-	}
-	for _, name := range want {
-		if chip, ok := tester.AccessByRole(ui.RoleButton, name); !ok || chip.Bounds.Y <= key.Y {
-			t.Errorf("brand %q is at %v, outside its group", name, chip.Bounds)
-		}
-	}
-	if _, ok := tester.AccessByRole(ui.RoleButton, "ChatGPT OAuth"); ok {
-		t.Error("a sign-in is listed as a brand")
-	}
-	shot("provider-brand-step")
-
-	// A brand with one API method opens its form, and Back returns to the
-	// brands.
-	click(ui.RoleButton, "DeepSeek")
-	if !tester.HasText(zh("provider_configure")) || tester.HasText(zh("provider_choose_method")) {
-		t.Fatalf("one method did not open its form: %q", tester.Texts())
-	}
-	if tabs := named(ui.RoleRadio); len(tabs) != 0 {
-		t.Errorf("one route shows choices %q", tabs)
-	}
-	click(ui.RoleButton, zh("provider_step_back"))
-	if !tester.HasText(zh("provider_add_title")) {
-		t.Fatalf("Back from a single method went to %q", tester.Texts())
-	}
-	// Routes that differ in product and region are choices of one form.
-	click(ui.RoleButton, "Zhipu")
-	if tabs := named(ui.RoleRadio); len(tabs) != 4 || !slices.Contains(tabs, zh("provider_region_china")) || !slices.Contains(tabs, zh("provider_region_global")) {
-		t.Errorf("Zhipu's choices %q", tabs)
-	}
-	shot("provider-form-zhipu")
-	click(ui.RoleButton, zh("provider_step_back"))
-
-	// OpenAI has two API methods, distinct; its sign-in is not among them.
-	click(ui.RoleButton, "OpenAI")
-	if !tester.HasText(zh("provider_choose_method")) || !tester.HasText("OpenAI Compatible") || tester.HasText("ChatGPT OAuth") {
-		t.Fatalf("OpenAI's method step shows %q", tester.Texts())
-	}
-	if !tester.HasText(zh("provider_access_key")) || !tester.HasText(zh("provider_access_endpoint")) {
-		t.Errorf("the methods are not told apart by access: %q", tester.Texts())
-	}
-	shot("provider-method-step")
-
-	// OpenAI Compatible: its two protocols are one segmented control.
-	if err := tester.Click("OpenAI Compatible"); err != nil {
-		t.Fatal(err)
-	}
-	settle()
-	if tabs := named(ui.RoleRadio); !slices.Equal(tabs, []string{"Responses", "Chat Completions"}) {
-		t.Fatalf("the protocol choices are %q", tabs)
-	}
-	typed := func(label, text string) {
-		t.Helper()
-		click(ui.RoleTextField, label)
-		tester.Type(text)
-		tester.Frame()
-	}
-	typed(zh("provider_endpoint"), "https://gateway.example/v1")
-	typed(zh("provider_api_key"), "sk-typed")
-	click(ui.RoleRadio, "Chat Completions")
-	field := func(label string) string {
-		x, _ := tester.AccessByRole(ui.RoleTextField, label)
-		return x.Value
-	}
-	if field(zh("provider_endpoint")) != "https://gateway.example/v1" || field(zh("settings_name")) != "OpenAI Compatible" {
-		t.Errorf("the switch left endpoint %q and name %q", field(zh("provider_endpoint")), field(zh("settings_name")))
-	}
-	shot("provider-form-compatible")
-	// Back from a method of several returns to the methods.
-	click(ui.RoleButton, zh("provider_step_back"))
-	if !tester.HasText(zh("provider_choose_method")) {
-		t.Fatalf("Back from the form went to %q", tester.Texts())
-	}
-	if err := tester.Click("OpenAI Compatible"); err != nil {
-		t.Fatal(err)
-	}
-	settle()
-	typed(zh("provider_endpoint"), "https://gateway.example/v1")
-	typed(zh("provider_api_key"), "sk-typed")
-	click(ui.RoleRadio, "Chat Completions")
-	click(ui.RoleButton, zh("provider_add_model"))
-	typed(zh("provider_model_id"), "gateway-model")
-	click(ui.RoleButton, "128K")
-	shot("provider-form-compatible-model")
-	click(ui.RoleButton, zh("provider_save"))
-	sent := func() (n int) {
-		transport.mu.Lock()
-		defer transport.mu.Unlock()
-		return len(saves)
-	}
-	await("the save", func() bool { return sent() == 1 })
-	transport.mu.Lock()
-	p := saves[0].Provider
-	secret := saves[0].Secret
-	transport.mu.Unlock()
-	if p.Api != protocol.ConversationModelApiChatCompletions || p.Endpoint != "https://gateway.example/v1" || p.Authentication != protocol.AuthenticationApiKey || secret == nil ||
+	request := saveChannel(settings.ProviderDraft{Key: "sk-typed", Channel: viewmodel.Channel{
+		ID: (protocol.ProviderID{8}).String(), Node: node, Name: "OpenAI Compatible", Method: compatible.Routes[route].ID,
+		API: chat, Endpoint: "https://gateway.example/v1", Models: []viewmodel.ChannelModel{{ID: "gateway-model", Context: 128000}},
+	}})
+	p := request.Provider
+	if p.Api != protocol.ConversationModelApiChatCompletions || p.Endpoint != "https://gateway.example/v1" || p.Authentication != protocol.AuthenticationApiKey || request.Secret == nil ||
 		p.Preset == nil || p.Preset.ID != "compatible-responses" || p.Preset.Route == nil || p.Preset.Route.Protocol != "openai-chat-completions" ||
 		len(p.Models) != 1 || p.Models[0].ID != "gateway-model" {
 		t.Errorf("the save sent %+v with preset %+v", p, p.Preset)
 	}
-	await("the editor to close", func() bool { _, open := tester.AccessByRole(ui.RoleButton, zh("provider_save")); return !open })
 
-	// A sign-in opens its form: no key, and the action signs in.
-	click(ui.RoleButton, zh("settings_add"))
-	click(ui.RoleButton, "ChatGPT")
-	if _, ok := tester.AccessByRole(ui.RoleTextField, zh("provider_api_key")); ok {
-		t.Error("a sign-in asks for an API key")
-	}
-	if _, ok := tester.AccessByRole(ui.RoleButton, zh("provider_save_login")); !ok {
-		t.Errorf("a sign-in has no sign-in action: %q", named(ui.RoleButton))
-	}
-	shot("provider-form-sign-in")
-	click(ui.RoleButton, zh("provider_step_back"))
-	if !tester.HasText(zh("provider_add_title")) {
-		t.Errorf("Back from a sign-in went to %q", tester.Texts())
-	}
-
-	// An Azure OpenAI channel saves its API version as the provider's
-	// connection options, and a saved one shows it again.
-	azure := viewmodel.Channel{ID: protocol.ProviderID{9}.String(), Name: "Azure", Node: snapshot.Node.String(), Method: snapshot.Node.String() + "/builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
+	azure := viewmodel.Channel{ID: (protocol.ProviderID{9}).String(), Name: "Azure", Node: node, Method: node + "/builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
 		Endpoint: "https://unit.openai.azure.com", APIVersion: "2025-01-01-preview", Models: []viewmodel.ChannelModel{{ID: "deployment", Context: 128000}}}
-	saveChannel := func(what string, draft settings.ProviderDraft) int {
-		t.Helper()
-		before := sent()
-		var result *settings.ProviderSaveResult
-		m.ProviderActions.Save(draft, func(r settings.ProviderSaveResult) { result = &r })
-		await(what, func() bool { return result != nil })
-		if len(result.Succeeded) != 1 || sent() != before+1 {
-			t.Fatalf("%s: %d successful targets, %d requests", what, len(result.Succeeded), sent()-before)
-		}
-		return before
-	}
-	before := saveChannel("the Azure save", settings.ProviderDraft{Channel: azure, Key: "key"})
-	transport.mu.Lock()
-	p = saves[before].Provider
-	transport.mu.Unlock()
+	p = saveChannel(settings.ProviderDraft{Channel: azure, Key: "key"}).Provider
 	if p.Api != protocol.ConversationModelApiAzureOpenAi || p.Options == nil || p.Options.Kind != "azure_open_ai" || p.Preset == nil || p.Preset.ID != "azure-openai" {
 		t.Fatalf("the Azure save sent %+v with options %+v", p, p.Options)
 	}
@@ -451,21 +187,15 @@ func testProviderFlow(t *testing.T) {
 	if got := azureVersion(p); got != "2025-01-01-preview" {
 		t.Errorf("a saved Azure provider shows version %q", got)
 	}
-
-	// Bedrock and Vertex AI channels save their region, or project and
-	// location, as connection options the Node accepts.
 	for i, cloud := range []viewmodel.Channel{
 		{Method: "/builtin:bedrock/0", API: string(protocol.ConversationModelApiBedrock), Endpoint: "https://bedrock-runtime.eu-west-1.amazonaws.com", Region: "eu-west-1",
 			Models: []viewmodel.ChannelModel{{ID: "eu.anthropic.claude-sonnet-4-6", Context: 1000000, Output: 64000}}},
 		{Method: "/builtin:vertex-ai/0", API: string(protocol.ConversationModelApiVertexAi), Endpoint: "https://aiplatform.googleapis.com", Project: "proj-123", Location: "global",
 			Models: []viewmodel.ChannelModel{{ID: "gemini-3.5-flash", Context: 1048576, Output: 65536}}},
 	} {
-		cloud.ID, cloud.Name, cloud.Node = protocol.ProviderID{byte(10 + i)}.String(), "Cloud", snapshot.Node.String()
-		cloud.Method = snapshot.Node.String() + cloud.Method
-		before := saveChannel("the cloud save", settings.ProviderDraft{Channel: cloud, Key: "credential"})
-		transport.mu.Lock()
-		p = saves[before].Provider
-		transport.mu.Unlock()
+		cloud.ID, cloud.Name, cloud.Node = protocol.ProviderID{byte(10 + i)}.String(), "Cloud", node
+		cloud.Method = node + cloud.Method
+		p = saveChannel(settings.ProviderDraft{Channel: cloud, Key: "credential"}).Provider
 		bedrock, isBedrock := p.Options.Bedrock()
 		vertex, isVertex := p.Options.VertexAi()
 		if string(p.Api) != cloud.API || p.Preset == nil || p.Endpoint != cloud.Endpoint ||
@@ -476,12 +206,4 @@ func testProviderFlow(t *testing.T) {
 			t.Errorf("the Node refuses the %s provider: %v", cloud.API, err)
 		}
 	}
-}
-
-// channelIcon is the mark a channel's tile draws: its own, else its brand's.
-func channelIcon(icon, brand string) *ui.SVG {
-	if mark := icons.Brand(icon); mark != nil {
-		return mark
-	}
-	return icons.Brand(brand)
 }

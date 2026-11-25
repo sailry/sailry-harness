@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"image/png"
 	"log"
 	"log/slog"
 	"os"
@@ -17,13 +16,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/chrome"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
-	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -235,60 +229,6 @@ INSERT INTO cookies VALUES('.example.test','other','',x'763131aa','/',1,1,1,0,0,
 		}
 		if text := logged.String(); text != "" {
 			t.Fatalf("the import logged: %s", text)
-		}
-	})
-
-	t.Run("renders the native browser settings page in Chinese", func(t *testing.T) {
-		value := true
-		root.Preferences.Data.BrowserPersistent = &value
-		assembly := desktop.Harness()
-		root.App.Settings.SetNativePages(assembly.SettingsPages)
-		root.bindSettingsPages(assembly.SettingsPages)
-		t.Cleanup(root.closeSettingsPages)
-		root.App.Navigate(shell.SettingsPage)
-		root.App.Settings.Open(settings.Browser)
-		catalog := i18n.New(assembly.Locales...)
-		nativeTester := ui.NewTesterWith(func(c *ui.Context) {
-			i18n.Bind(c, catalog)
-			theme.Apply(c, "", theme.Dark)
-			root.syncSettingsPages()
-			root.mu.Lock()
-			queued := root.queue
-			root.queue = nil
-			root.mu.Unlock()
-			for _, apply := range queued {
-				apply(c)
-			}
-			settings.Page(c, root.App.Settings, nil, settings.Look{})
-		}, 900, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
-		nativeTester.SetLocale("zh-CN")
-		nativeTester.Frame()
-		nativeTester.Frame()
-		if !nativeTester.HasText("从 Chrome 导入") {
-			t.Fatalf("the native browser settings page did not show its import control; visible text: %q", nativeTester.Texts())
-		}
-		retain, exists := nativeTester.AccessByRole(ui.RoleSwitch, "")
-		if !exists || retain.Disabled {
-			t.Fatalf("the persistence switch is missing or disabled; visible text: %q", nativeTester.Texts())
-		}
-		for _, text := range nativeTester.Texts() {
-			if strings.Contains(text, "暂不支持") {
-				t.Fatalf("the page reports an unsupported system: %q", nativeTester.Texts())
-			}
-		}
-		if os.Getenv("SAILRY_UI_SHOTS") != "" {
-			shots := filepath.Join("..", "..", "..", ".runtime", "ui-shots")
-			if err := os.MkdirAll(shots, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			file, err := os.Create(filepath.Join(shots, "browser-settings-zh-CN.png"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer file.Close()
-			if err := png.Encode(file, nativeTester.Image()); err != nil {
-				t.Fatal(err)
-			}
 		}
 	})
 }

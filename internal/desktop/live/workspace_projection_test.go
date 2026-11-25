@@ -13,7 +13,6 @@ import (
 func TestPanelProjection(t *testing.T) {
 	t.Run("panel tabs close, stay closed and never show a blank body", panelTabs)
 	t.Run("browser tab shows its page's state and fills its body", browserChrome)
-	t.Run("rail Files page shows the selected project", railPages)
 	t.Run("rail Files page of a session without a project reads once", railPagesSession)
 	t.Run("worktree manager lists every worktree with its markers and actions", worktreeManagerEntries)
 	t.Run("Git and worktree failures name their cause", workspaceFailures)

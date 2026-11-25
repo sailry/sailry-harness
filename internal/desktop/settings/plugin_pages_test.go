@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"os"
 	"slices"
 	"testing"
 	"time"
@@ -140,22 +139,21 @@ func TestMissingSettingsSectionFallsBack(t *testing.T) {
 }
 
 func TestNativeSettingsPageLibraryUsesPageScroll(t *testing.T) {
+	const section Section = "fixture:model-library"
 	s := NewLive()
-	s.Knowledge = LocalModels{Kind: ModelsEmbedding, Tab: 1, Model: -1}
-	s.SetNativePages([]NativePage{{Section: Knowledge, Group: "settings_group_ai", Render: func(c *ui.Context, state *State) {
+	models := LocalModels{Kind: ModelsEmbedding, Tab: 1, Model: -1}
+	s.SetNativePages([]NativePage{{Section: section, Group: "settings_group_ai", Render: func(c *ui.Context, state *State) {
 		ui.Box(c).Height(1400).Shrink(0)
-		LocalModelLibrary(c, state.Model, &state.Knowledge, "knowledge_settings", "knowledge_default_model", "", "knowledge_keyword_only")
+		LocalModelLibrary(c, state.Model, &models, "settings_models", "model_library_select", "", "local_models_none")
 	}}})
-	s.Open(Knowledge)
+	s.Open(section)
 	loads := 0
 	var detail string
 	s.ModelActions = &ModelActions{
 		LibraryMore:    func() { loads++; s.LibraryMore = false },
 		LibraryDetails: func(id string) { detail = id },
 	}
-	catalog := i18n.New(os.DirFS("../../../modules/knowledge/desktop"))
 	tester := ui.NewTester(func(c *ui.Context) {
-		i18n.Bind(c, catalog)
 		theme.Apply(c, "", theme.Dark)
 		Page(c, s, nil, Look{})
 	}, 900, 650)

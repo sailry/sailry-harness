@@ -93,6 +93,12 @@ controls, layout and the lifetime of each mounted contribution; removing a modul
 must not leave entry points, subscriptions or background reads for its feature.
 The execution Node enforces permissions independently of UI availability.
 
+Behavior tests and their dedicated fixtures live with the implementation they
+exercise: in the owning Go module or in the Flutter `test/` directory mirroring
+its `lib/` feature. A module test registers the contributions it needs without
+importing a product assembly. Host tests exercise shared contracts; product
+assembly tests cover the selected modules and how they work together.
+
 Desktop and Host startup bind process-wide diagnostics to the configured product version; Mobile supplies the installed package version when opening its controller. Host checks resolve the same product release feed used by installation, without treating a lower version as an upgrade. Code Android distribution is independent of Desktop tags: `mobile-v<SemVer>+<store build>` releases must contain a completed, nonempty `Sailry-android-arm64.apk` asset. Updates preserve SemVer precedence and require an increasing Android build number. Harness retains its existing `v<SemVer>` mobile feed.
 
 The principal dependency direction is:

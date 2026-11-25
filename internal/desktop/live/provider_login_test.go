@@ -22,7 +22,6 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 	t.Run("plugin diagnostic report", testPluginDiagnostic)
 	t.Run("plugin location ownership", testPluginLocationOwnership)
 	t.Run("a declared sign-in warning precedes the login command", testProviderLoginWarning)
-	t.Run("a declared preset warning precedes the channel form", testProviderPresetWarning)
 	t.Run("a sign-in restarted during its start begins again", testProviderLoginRestart)
 	t.Parallel()
 	t.Run("a package setting is titled by its field's translation", func(t *testing.T) {

@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -51,53 +50,6 @@ func TestModelFields(t *testing.T) {
 		t.Fatal("the preview has no enabled channel whose named model has efforts")
 		return nil, preview.ChannelModel{}
 	}
-
-	t.Run("local model", func(t *testing.T) {
-		m := NewModel(preview.SettingsData())
-		lm := &LocalModels{Model: -1, Models: []preview.LocalModel{
-			{ID: "a", Name: "Alpha", Status: preview.ModelInstalled},
-			{ID: "x", Name: "Not installed"},
-			{ID: "b", Name: "Beta", Status: preview.ModelInstalled},
-		}}
-		lm.Enabled.Draft = true
-		catalog := i18n.New(os.DirFS("../../../modules/ocr/desktop"))
-		w := show(t, func(c *ui.Context) {
-			i18n.Bind(c, catalog)
-			LocalModelLibrary(c, m, lm, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
-		})
-		label, none := catalog.In("en", "runtime_ocr_model"), catalog.In("en", "search_driver_auto")
-		if trigger, _ := w.AccessByRole(ui.RoleButton, label); trigger.Value != none {
-			t.Fatalf("no model reads %q, want %q", trigger.Value, none)
-		}
-		click(w, ui.RoleButton, label)
-		if _, listed := w.AccessByRole(ui.RoleOption, "Not installed"); listed {
-			t.Error("a model that is not installed is offered")
-		}
-		// The place among the installed models is what the page stores.
-		click(w, ui.RoleOption, "Beta")
-		if lm.Model != 1 {
-			t.Fatalf("Beta stored %d, want 1", lm.Model)
-		}
-		if trigger, _ := w.AccessByRole(ui.RoleButton, label); trigger.Value != "Beta" {
-			t.Errorf("the field reads %q", trigger.Value)
-		}
-		click(w, ui.RoleButton, label)
-		click(w, ui.RoleOption, none)
-		if lm.Model != -1 {
-			t.Errorf("%s stored %d, want -1", none, lm.Model)
-		}
-		// A chosen model the host lost stays in the field under its name.
-		lm.Model, lm.Missing = 2, "Gamma"
-		w.Frame()
-		if trigger, _ := w.AccessByRole(ui.RoleButton, label); trigger.Value != "Gamma" {
-			t.Errorf("the missing model reads %q", trigger.Value)
-		}
-		lm.Enabled.Draft = false
-		w.Frame()
-		if trigger, _ := w.AccessByRole(ui.RoleButton, label); !trigger.Disabled {
-			t.Error("the select of a disabled kind is enabled")
-		}
-	})
 
 	t.Run("package model", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())

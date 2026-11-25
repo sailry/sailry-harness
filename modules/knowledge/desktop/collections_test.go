@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -102,6 +103,8 @@ func TestKnowledgeCollections(t *testing.T) {
 }
 
 func TestKnowledgeEmbeddingContribution(t *testing.T) {
+	collections := shell.Assemble(Module(CollectionsOnly))
+	embedding := shell.Assemble(Module())
 	en := func(key string) string { return testCatalog.In("en", key) }
 	s := settings.New()
 	s.Collections = []viewmodel.KnowledgeCollection{{ID: "notes", Name: "Notes", State: viewmodel.KnowledgeReady}}
@@ -110,7 +113,7 @@ func TestKnowledgeEmbeddingContribution(t *testing.T) {
 		settings.Page(c, s, nil, settings.Look{})
 	}, 900, 1000)
 	tt.SetLocale("en")
-	s.SetNativePages([]settings.NativePage{Page()})
+	s.SetNativePages(collections.SettingsPages)
 	s.Open(settings.Knowledge)
 	s.Knowledge.Tab = 1
 	tt.Frame()
@@ -118,7 +121,7 @@ func TestKnowledgeEmbeddingContribution(t *testing.T) {
 		t.Fatalf("collection-only page: %q, library: %+v", tt.Texts(), s.LibraryRequest())
 	}
 
-	s.SetNativePages([]settings.NativePage{PageWithEmbedding()})
+	s.SetNativePages(embedding.SettingsPages)
 	s.Knowledge.Tab = 0
 	tt.Frame()
 	model, hasModel := tt.AccessByRole(ui.RoleButton, en("knowledge_default_model"))
@@ -142,7 +145,7 @@ func TestKnowledgeEmbeddingContribution(t *testing.T) {
 		t.Fatalf("embedding details did not open: %q", tt.Texts())
 	}
 
-	s.SetNativePages([]settings.NativePage{Page()})
+	s.SetNativePages(collections.SettingsPages)
 	tt.Frame()
 	tt.Advance(time.Second)
 	if _, open := tt.AccessByRole(ui.RoleTextField, en("model_library_query_prefix")); open || s.LibraryRequest().Open {

@@ -12,25 +12,17 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
-	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/speech/models"
 
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
 )
 
-func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
-	const lang = "zh-CN"
-	assembly := shell.Assemble(decision.Register)
-	catalog := i18n.New(assembly.Locales...)
+func TestLocalModelProjectionRetainsMissingDecisionChoiceUntilCleared(t *testing.T) {
 	missing := "Previously selected model"
 	for _, availability := range []string{"available", "unavailable"} {
 		t.Run(availability, func(t *testing.T) {
@@ -38,47 +30,18 @@ func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
 			state := localModelState{known: true, settings: protocol.ModelsLocalSettings{
 				Revision: 4, Choices: map[protocol.ModelsKind]protocol.ModelsLocalChoice{kind: {Model: &missing}},
 			}, availability: map[protocol.ModelsKind]protocol.ModelsCatalogAvailability{kind: {Kind: availability}}}
-			page := settings.NewLive()
-			page.SetNativePages(assembly.SettingsPages)
-			page.Open(settings.Decision)
-			projectLocalModels(page.Model, &state, nil)
-			var saves []protocol.ModelsLocalChoice
-			page.ModelActions = &settings.ModelActions{Save: func(key string) {
-				if key != settings.ModelsDecision {
-					t.Fatalf("saved %q from the Decision page", key)
-				}
-				saves = append(saves, pageLocalChoice(kind, page.Decision, state.settings.Choices[kind]))
-			}}
-			view := ui.NewTester(func(c *ui.Context) {
-				i18n.Bind(c, catalog)
-				theme.Apply(c, "", theme.Light)
-				settings.Page(c, page, &viewmodel.Data{}, settings.Look{})
-			}, 900, 700)
-			view.SetLocale(lang)
-			view.Frame()
-			model, none := catalog.In(lang, "runtime_decision_model"), catalog.In(lang, "local_models_none")
-			trigger, ok := view.AccessByRole(ui.RoleButton, model)
-			if !ok || trigger.Disabled || trigger.Value != missing || view.HasText(i18n.In(lang, "local_models_status")) {
-				t.Fatalf("Decision configuration with no installed model = %+v, labels %q", trigger, view.Texts())
+			m := &settings.Model{Live: true}
+			projectLocalModels(m, &state, nil)
+			if stored := m.Decision; stored.Model != 0 || stored.Missing != missing || stored.Unavailable != (availability == "unavailable") {
+				t.Fatalf("missing Decision model projected as %+v", stored)
 			}
-			view.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
-			view.Frame()
-			view.Advance(time.Second)
-			option, ok := view.AccessByRole(ui.RoleOption, none)
-			if !ok {
-				t.Fatalf("the model dropdown did not offer %q: %q", none, view.Texts())
+			saved := state.settings.Choices[kind]
+			if untouched := pageLocalChoice(kind, m.Decision, saved); untouched.Model == nil || *untouched.Model != missing {
+				t.Fatalf("an untouched missing model changed the choice: %+v", untouched)
 			}
-			view.ClickAt(option.Bounds.X+option.Bounds.W/2, option.Bounds.Y+option.Bounds.H/2)
-			view.Frame()
-			if got, _ := view.AccessByRole(ui.RoleButton, model); got.Value != none || len(saves) != 1 || saves[0].Model != nil || saves[0].Enabled {
-				t.Fatalf("selecting None showed %q and saved %+v", got.Value, saves)
-			}
-			for _, status := range []string{"connections_offline", "permission_denied"} {
-				page.LocalModelsStatus = status
-				view.Frame()
-				if _, ok := view.AccessByRole(ui.RoleButton, model); ok || !view.HasText(i18n.In(lang, status)) {
-					t.Fatalf("Decision page with %q: %q", status, view.Texts())
-				}
+			m.Decision.Model = -1
+			if cleared := pageLocalChoice(kind, m.Decision, saved); cleared.Model != nil || cleared.Enabled {
+				t.Fatalf("selecting None produced %+v", cleared)
 			}
 		})
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
@@ -19,11 +20,12 @@ var testCatalog = i18n.New(Locales)
 
 func TestMediaModelRows(t *testing.T) {
 	s := settings.New()
-	s.SetNativePages([]settings.NativePage{Page()})
+	s.SetNativePages(shell.Assemble(Register).SettingsPages)
 	s.Open(settings.Media)
 	s.MediaOptions = []viewmodel.MediaOption{
 		{Key: "a/see", Label: "A · see", Kinds: []string{"vision"}},
 		{Key: "a/draw", Label: "A · draw", Kinds: []string{"image"}},
+		{Key: "a/hosted", Label: "A · hosted", Kinds: []string{"vision"}},
 		{Key: "a/all", Label: "A · all", Kinds: []string{"vision", "image", "video", "speech"}},
 		{Key: "b/gone", Label: "B · gone"},
 	}
@@ -53,9 +55,14 @@ func TestMediaModelRows(t *testing.T) {
 		}
 		return
 	}
+	closeOptions := func() {
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		tt.Advance(time.Second)
+	}
 	follow := testCatalog.In("en", "media_follow")
 	for row, want := range map[string][]string{
-		"Vision": {follow, "see", "all"},
+		"Vision": {follow, "see", "hosted", "all"},
 		"Image":  {follow, "draw", "all"},
 		"Video":  {follow, "all"},
 		"Speech": {follow, "all"},
@@ -63,9 +70,15 @@ func TestMediaModelRows(t *testing.T) {
 		if got := offered(row); !slices.Equal(got, want) {
 			t.Errorf("%s offers %q, want %q", row, got, want)
 		}
-		tt.Key(0, ui.KeyEscape)
-		tt.Frame()
-		tt.Advance(time.Second)
+		closeOptions()
+	}
+	s.MediaOptions = slices.DeleteFunc(s.MediaOptions, func(option viewmodel.MediaOption) bool { return option.Key == "a/all" })
+	tt.Frame()
+	for _, row := range []string{"Video", "Speech"} {
+		if got := offered(row); !slices.Equal(got, []string{follow}) {
+			t.Errorf("%s without an available model offers %q, want only %q", row, got, follow)
+		}
+		closeOptions()
 	}
 	unavailable := testCatalog.In("en", "media_model_unavailable")
 	marked := func() (count int) {

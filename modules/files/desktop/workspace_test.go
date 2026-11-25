@@ -1,59 +1,50 @@
-package live
+package desktop_test
 
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	desktop "github.com/sailry/sailry-harness/internal/assembly/desktop"
-	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
-	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	files "github.com/sailry/sailry-harness/modules/files/desktop"
+	filesnode "github.com/sailry/sailry-harness/modules/files/node"
+	fixtures "github.com/sailry/sailry-harness/sdk/desktop/testing"
+	"github.com/sailry/sailry-harness/sdk/native/node"
 )
 
-// railPages drives Harness's Files page against its real Node. The combined
-// Files/Git walkthrough runs with Code's actual assemblies in codedesktop tests.
-func railPages(t *testing.T) {
+func TestFilesWorkspaceReadsAndOpensSearchResult(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: hostassembly.Harness()})
+	host := node.Assembly{Modules: []node.Module{filesnode.Module()}}
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: host})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer owner.Stop(context.Background())
-	controller := client.New(link.NewLocal(owner.ID(), owner.ID(), owner))
-	if err := controller.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer controller.Close()
-	if installed := controller.Snapshot().Plugins; len(installed) != 0 {
-		t.Fatalf("native Files page fixture unexpectedly installed plugins: %+v", installed)
-	}
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
+	window, err := fixtures.Connect(ctx, owner, profile, shell.Assemble(files.Register))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
-	tester := ui.NewTesterWith(r.App.View, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	defer window.Close()
+	if installed := window.Controller.Snapshot().Plugins; len(installed) != 0 {
+		t.Fatalf("native Files page fixture unexpectedly installed plugins: %+v", installed)
+	}
+	app := window.App
+	tester := ui.NewTesterWith(app.View, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("en")
+	tester.SetScale(0.125)
 	text := func(key string) string { return i18n.In("en", key) }
-	app := r.App
 	settle := func() {
 		t.Helper()
 		for range 6 {
-			r.workers.Wait()
 			tester.Advance(200 * time.Millisecond)
 			tester.Frame()
 		}
@@ -111,14 +102,9 @@ func railPages(t *testing.T) {
 	if !strings.HasPrefix(app.Sidebar.Selected, "draft/") {
 		t.Fatalf("a new profile did not open on a draft: %q", app.Sidebar.Selected)
 	}
-	for _, page := range []struct {
-		feature string
-		page    shell.Page
-	}{{"files", shell.FilesPage}} {
-		rail(page.feature)
-		if app.Page != page.page || !tester.HasText(text("resource_project_empty")) || tester.HasText(text("unavailable")) {
-			t.Fatalf("the %s page without a project: page %q, %q", page.feature, app.Page, tester.Texts())
-		}
+	rail("files")
+	if app.Page != shell.FilesPage || !tester.HasText(text("resource_project_empty")) || tester.HasText(text("unavailable")) {
+		t.Fatalf("the Files page without a project: page %q, %q", app.Page, tester.Texts())
 	}
 	if err := tester.Click(text("project_new")); err != nil {
 		t.Fatalf("no New project on the empty page: %v; %q", err, tester.Texts())
@@ -133,42 +119,26 @@ func railPages(t *testing.T) {
 		t.Fatal("Escape left the project editor open")
 	}
 
-	// A session in a project with a changed and an untracked file.
-	folder, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	git := func(arguments ...string) {
-		t.Helper()
-		command := exec.Command("git", append([]string{"-C", folder, "-c", "user.name=Rail", "-c", "user.email=rail@example.invalid", "-c", "commit.gpgsign=false"}, arguments...)...)
-		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", arguments, err, output)
-		}
-	}
+	folder := t.TempDir()
 	write := func(name, content string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(folder, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write("notes.txt", "first line\n")
-	git("init", "-q")
-	git("add", "notes.txt")
-	git("commit", "-q", "-m", "Add the notes")
-	write("notes.txt", "first line\nrail changed line\n")
+	write("notes.txt", "first line\nsearch result line\n")
 	write("main.go", "package railpages\n")
 	do := func(command protocol.Command) protocol.Output {
 		t.Helper()
-		output, err := controller.Do(ctx, command)
+		output, err := window.Controller.Do(ctx, command)
 		if err != nil {
 			t.Fatalf("%s: %v", command.Kind, err)
 		}
 		return output
 	}
-	project, valid := detail[protocol.Project](do(protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
+	project, valid := do(protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
 		Name: "Rail workspace", Path: folder, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"},
-	}}).Data)
+	}}).Data.(protocol.Project)
 	if !valid {
 		t.Fatal("the registered project was not returned")
 	}
@@ -188,13 +158,14 @@ func railPages(t *testing.T) {
 	config := protocol.DefaultSessionConfig()
 	config.Provider, config.Model, config.Effort = provider.ID, model.ID, model.DefaultEffort
 	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionFull
-	session, valid := detail[protocol.Session](do(protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data)
+	session, valid := do(protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 	if !valid {
 		t.Fatal("the created session was not returned")
 	}
 	wait("the session in the sidebar", func() bool {
-		r.OpenSession(session.ID.String())
-		return app.Sidebar.Selected == session.ID.String() && r.workspace != nil && r.workspace.selected == session.Worktree
+		window.OpenSession(session.ID.String())
+		workspace := app.Hooks.WorkspaceProject()
+		return app.Sidebar.Selected == session.ID.String() && workspace != nil && workspace.ID == session.Worktree.String()
 	})
 	if app.PanelOpen || len(app.Panel.Tabs) != 0 {
 		t.Fatalf("the panel before the pages: open %v, tabs %v", app.PanelOpen, app.Panel.Tabs)
@@ -211,13 +182,13 @@ func railPages(t *testing.T) {
 	}
 	choose("main.go")
 	wait("the file's text on the Files page", func() bool { return code("package railpages") })
-	pr := r.workspaceProject()
+	pr := app.Hooks.WorkspaceProject()
 	if pr == nil || pr.Files.File() != "main.go" {
 		t.Fatalf("the Files page did not show the chosen file: %v", pr)
 	}
 	// A search result opens on the page, not in the panel behind it.
 	pr.Actions.OpenFileAt("notes.txt", 2)
-	wait("the search result on the Files page", func() bool { return code("rail changed line") })
+	wait("the search result on the Files page", func() bool { return code("search result line") })
 	if pr.Files.File() != "notes.txt" || app.Page != shell.FilesPage || app.PanelOpen {
 		t.Fatalf("the search result: file %q, page %q, panel %v", pr.Files.File(), app.Page, app.PanelOpen)
 	}
@@ -227,13 +198,10 @@ func railPages(t *testing.T) {
 	rail("shell_sessions")
 	app.PanelOpen = true
 	settle()
-	for _, tab := range []panel.Tab{{Kind: panel.Files, ID: "notes.txt"}} {
-		found := false
-		for _, open := range app.Panel.Tabs {
-			found = found || open == tab
-		}
-		if !found {
-			t.Fatalf("the panel does not list the page's %v: %v", tab, app.Panel.Tabs)
+	for _, open := range app.Panel.Tabs {
+		if open == (panel.Tab{Kind: panel.Files, ID: "notes.txt"}) {
+			return
 		}
 	}
+	t.Fatalf("the panel does not list the file opened on the page: %v", app.Panel.Tabs)
 }

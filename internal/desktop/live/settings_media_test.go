@@ -144,22 +144,17 @@ func TestMediaSettings(t *testing.T) {
 		}
 		return
 	}
-	// open opens a row's select and returns the options it offers.
-	open := func(row string) (labels []string) {
+	open := func(row string) {
 		t.Helper()
 		for _, x := range tester.AccessAll() {
 			if x.Role == ui.RoleButton && x.Name == row {
 				tester.ClickAt(x.Bounds.X+x.Bounds.W/2, x.Bounds.Y+x.Bounds.H/2)
 				tester.Frame()
 				tester.Advance(time.Second)
-				for _, item := range items() {
-					labels = append(labels, item.Name)
-				}
 				return
 			}
 		}
 		t.Fatalf("no select named %q", row)
-		return
 	}
 	choose := func(row, label string) {
 		t.Helper()
@@ -174,45 +169,27 @@ func TestMediaSettings(t *testing.T) {
 		}
 		t.Fatalf("%s has no option %q", row, label)
 	}
-	shown := func(text string) (count int) {
-		for _, x := range tester.AccessAll() {
-			if x.Role == ui.RoleButton && x.Description == text {
-				count++
-			}
-		}
-		return
-	}
 	key := func(id string) string { return modelKey(provider, id) }
 	follow := catalog.In("en", "media_follow")
 	await("the media rows", func() bool { return m.Media.Revision == 3 && len(m.MediaOptions) == 4 })
 
-	t.Run("rows list the models tagged for their purpose", func(t *testing.T) {
-		for row, want := range map[string][]string{
-			"Vision": {follow, "see", "hosted"},
-			"Image":  {follow, "draw"},
-			"Video":  {follow},
-			// The saved model the Node no longer offers stays in the row's
-			// field, not among the choices.
-			"Speech": {follow},
-		} {
-			if got := open(row); !slices.Equal(got, want) {
-				t.Errorf("%s offers %q, want %q", row, got, want)
-			}
-			tester.Key(0, ui.KeyEscape)
-			tester.Frame()
-			tester.Advance(time.Second)
+	t.Run("Node candidates and unavailable bindings are projected without losing kinds", func(t *testing.T) {
+		want := []viewmodel.MediaOption{
+			{Key: key("see"), Label: "Fixture · see", Kinds: []string{"vision"}},
+			{Key: key("draw"), Label: "Fixture · draw", Kinds: []string{"image"}},
+			{Key: key("hosted"), Label: "Fixture · hosted", Kinds: []string{"vision"}},
+			{Key: key("gone"), Label: "Fixture · gone"},
+		}
+		if !slices.EqualFunc(m.MediaOptions, want, func(a, b viewmodel.MediaOption) bool {
+			return a.Key == b.Key && a.Label == b.Label && slices.Equal(a.Kinds, b.Kinds)
+		}) {
+			t.Errorf("projected candidates = %+v, want %+v", m.MediaOptions, want)
 		}
 		if m.Media.Saved != [4]string{"", "", "", key("gone")} || m.Media.Draft != m.Media.Saved {
 			t.Errorf("projected bindings %q, draft %q", m.Media.Saved, m.Media.Draft)
 		}
-		for _, x := range tester.AccessAll() {
-			if x.Role == ui.RoleButton && x.Name == "Speech" && x.Value != "gone" {
-				t.Errorf("the Speech row reads %q, want the saved model", x.Value)
-			}
-		}
-		unavailable := catalog.In("en", "media_model_unavailable")
-		if m.MediaUnavailable != [4]bool{false, false, false, true} || shown(unavailable) != 1 {
-			t.Errorf("unavailable %v, marked on %d rows", m.MediaUnavailable, shown(unavailable))
+		if m.MediaUnavailable != [4]bool{false, false, false, true} {
+			t.Errorf("unavailable rows = %v", m.MediaUnavailable)
 		}
 	})
 
@@ -324,8 +301,6 @@ func TestMediaSettings(t *testing.T) {
 			}
 		})
 	})
-
-	t.Run("the bundled presets' brands, filter and Add provider flow", testProviderFlow)
 
 	t.Run("a change during a read is read for, and an older answer is dropped", func(t *testing.T) {
 		m.Open(settings.Media)
