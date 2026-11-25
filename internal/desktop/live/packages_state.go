@@ -50,12 +50,10 @@ type packageState struct {
 	connected          bool
 	observing          bool
 	installFailed      bool
-	pythonObserving    bool
 	pythonFailed       bool
 	pythonReadFailed   bool
 	preparations       []settings.PythonPreparation
 	queue              transfers.Queue
-	pythonRead         bool
 	pythonReady        bool
 	pythonDraft        settings.Stored[settings.Python]
 	pythonVersion      string
@@ -180,11 +178,6 @@ func (r *Runtime) initB8Packages() {
 				owner.reimportSkill(id)
 			}
 		},
-		SavePython: func() {
-			if owner := r.packageOwner(); owner != nil {
-				owner.savePython()
-			}
-		},
 		About: func() { r.App.Settings.Open(settings.About); r.App.Navigate(shell.SettingsPage) },
 	}
 	m.AppearanceActions = &settings.AppearanceActions{
@@ -230,19 +223,11 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	}
 	changed := root.packages.selectedNode != node
 	if changed {
-		if previousNode := root.packages.selectedNode; previousNode != "" {
-			if previous := root.runtimeFor(previousNode); previous != nil && previous.packages != nil {
-				if m.PythonStatus == "" {
-					previous.packages.pythonDraft = m.Python
-				}
-			}
-		}
 		root.packages.selectedNode = node
 		root.packages.configuration++
 		m.CloseDetails()
 		m.CloseManagedPackageDialogs()
 	}
-	root.projectPythonSettings(owner, changed)
 	if owner == nil {
 		m.Packages, m.SkillList = nil, nil
 	} else {
@@ -264,35 +249,6 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 type packageProjection struct {
 	revision uint64
 	locale   string
-}
-
-func (r *Runtime) projectPythonSettings(owner *Runtime, changed bool) {
-	m := r.App.Settings
-	status := owner.machineSettingsStatus()
-	if status == "" {
-		state := owner.packages
-		if !state.pythonObserving {
-			owner.observePython()
-		}
-		if !state.pythonRead {
-			owner.readPython()
-		}
-		switch {
-		case state.pythonReadFailed:
-			status = "unavailable"
-		case !state.pythonReady:
-			status = "plugins_loading"
-		default:
-			if changed || m.PythonStatus != "" {
-				m.Python = state.pythonDraft
-			}
-			m.PythonVersion, m.PythonPreparing = state.pythonVersion, state.preparations
-		}
-	}
-	if status != "" {
-		m.Python, m.PythonVersion, m.PythonPreparing = settings.Stored[settings.Python]{}, "", nil
-	}
-	m.PythonStatus = status
 }
 
 func packageReference(summary protocol.PluginSummary) protocol.PluginReference {

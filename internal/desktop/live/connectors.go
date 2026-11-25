@@ -34,24 +34,29 @@ func connectorMethod(method protocol.PluginConnectorKind) string {
 	}
 }
 
-// initConnectorUI follows this Runtime's Node's connector types and
-// connections from the first time Settings turns to it. The page's actions
-// are the local Runtime's (settings_target.go) and run on the Node shown.
-func (r *Runtime) initConnectorUI() {
+// observeSettingsConnections only follows connections while their page owns the Node.
+func (r *Runtime) observeSettingsConnections(target settings.PageTarget) {
+	r.authorizations.connectionsFailed = false
 	r.observe(func() {
-		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "connections"})
+		stream, err := r.controller.Subscribe(target.Context, protocol.Topic{Kind: "connections"})
 		if err != nil {
 			r.enqueue(func(c *ui.Context) {
-				r.authorizations.connectionsFailed = true
-				r.connectorError(c, err)
+				if target.Current() {
+					r.authorizations.connectionsFailed = true
+					r.connectorError(c, err)
+				}
 			})
 			return
 		}
 		defer stream.Close()
 		for {
-			update, err := stream.Next(r.ctx)
+			update, err := stream.Next(target.Context)
 			if err != nil {
-				r.enqueue(func(*ui.Context) { r.authorizations.connectionsFailed = true })
+				r.enqueue(func(*ui.Context) {
+					if target.Current() {
+						r.authorizations.connectionsFailed = true
+					}
+				})
 				return
 			}
 			value, ok := detail[protocol.PluginConnectorChanges](update.Data)
@@ -59,6 +64,9 @@ func (r *Runtime) initConnectorUI() {
 				continue
 			}
 			r.enqueue(func(*ui.Context) {
+				if !target.Current() {
+					return
+				}
 				r.authorizations.types = map[string]protocol.PluginConnectorType{}
 				for _, value := range value.Types {
 					r.authorizations.types[connectorTypeID(value.Package, value.Declaration.ID)] = value
@@ -67,12 +75,8 @@ func (r *Runtime) initConnectorUI() {
 				for _, value := range value.Connections {
 					r.authorizations.connections[connectorTypeID(value.Package, value.Connector)] = value
 				}
-				// A Node the page does not show reads its packages when the
-				// page turns to it.
-				if r.showsSettings() {
-					r.projectConnectors()
-					r.readConnectorPackages()
-				}
+				r.projectConnectors()
+				r.followConnectorPackages()
 			})
 		}
 	})
@@ -108,6 +112,10 @@ func (r *Runtime) followConnectorPackages() {
 // readConnectorPackages reads every installed package once per pass. A call
 // during a pass asks for one more pass instead of a concurrent one.
 func (r *Runtime) readConnectorPackages() {
+	page := r.currentSettingsPage(settings.Connectors)
+	if page == nil {
+		return
+	}
 	state := r.authorizations
 	if state.packagesReading {
 		state.packagesStale = true
@@ -123,7 +131,10 @@ func (r *Runtime) readConnectorPackages() {
 		infos := map[string]protocol.PluginInfo{}
 		var failed error
 		for _, summary := range summaries {
-			output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: summary.Name}})
+			if page.target.Context.Err() != nil {
+				break
+			}
+			output, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: summary.Name}})
 			if info, ok := detail[protocol.PluginInfo](output.Data); err == nil && ok {
 				infos[summary.Name] = info
 			} else if err != nil {
@@ -138,6 +149,13 @@ func (r *Runtime) readConnectorPackages() {
 		}
 		r.enqueue(func(c *ui.Context) {
 			state.packagesReading = false
+			if !page.target.Current() {
+				if state.packagesStale {
+					state.packagesStale = false
+					r.readConnectorPackages()
+				}
+				return
+			}
 			state.packages = infos
 			r.projectConnectors()
 			if failed != nil {
@@ -154,7 +172,7 @@ func (r *Runtime) readConnectorPackages() {
 // projectConnectors shows the Node's services and connector types on the
 // page that holds this Node.
 func (r *Runtime) projectConnectors() {
-	if !r.showsSettings() {
+	if r.currentSettingsPage(settings.Connectors) == nil {
 		return
 	}
 	var types []viewmodel.ConnectorType
@@ -444,6 +462,10 @@ func (r *Runtime) confirmConnector(id string) {
 // form; any other plugin's server opens the editor on its MCP configuration.
 // A failed read is a toast and leaves the waiting editor to reload.
 func (r *Runtime) configureConnectorMCP(id string) {
+	page := r.currentSettingsPage(settings.Connectors)
+	if page == nil {
+		return
+	}
 	view := r.App.Settings
 	fail := func(c *ui.Context, err error) {
 		r.connectorError(c, err)
@@ -452,13 +474,15 @@ func (r *Runtime) configureConnectorMCP(id string) {
 	info, exists := r.connectorPackage(id)
 	if !exists {
 		r.enqueue(func(c *ui.Context) {
-			fail(c, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "MCP package is not installed"})
+			if page.target.Current() {
+				fail(c, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "MCP package is not installed"})
+			}
 		})
 		return
 	}
 	reference := protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
 	if info.McpSource != nil {
-		r.execute(protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
+		r.readPageCommand(page.target, protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
 			state, ok := detail[protocol.PluginSettingsState](output.Data)
 			if err == nil && (!ok || state.Package != reference) {
 				err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while reading"}
@@ -491,7 +515,7 @@ func (r *Runtime) configureConnectorMCP(id string) {
 		r.configurePackage(info.Summary.Name)
 		return
 	}
-	r.execute(protocol.Command{Kind: "read_plugin_mcp", Data: protocol.CommandReadPluginMcpPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
+	r.readPageCommand(page.target, protocol.Command{Kind: "read_plugin_mcp", Data: protocol.CommandReadPluginMcpPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
 		state, ok := detail[protocol.PluginMcpState](output.Data)
 		if err == nil && (!ok || state.Package != reference) {
 			err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while reading"}

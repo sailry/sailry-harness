@@ -99,7 +99,7 @@ func (r *Runtime) initConnectionActions() {
 }
 
 func (r *Runtime) connectionsOpen() bool {
-	return r.App.Page == shell.SettingsPage && r.App.Settings.Section == settings.Connections
+	return r.settingsSectionVisible(settings.Connections) && r.App.Settings.HasNativePage(settings.Connections)
 }
 
 func (r *Runtime) connectionsFrame(c *ui.Context) {
@@ -108,6 +108,9 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 		return
 	}
 	model := r.App.Settings.Model
+	if !r.App.Settings.HasNativePage(settings.Connections) {
+		return
+	}
 	model.ConnectionStage = r.sshProgress()
 	if !r.connectionsOpen() {
 		model.CloseConnectionDialogs()

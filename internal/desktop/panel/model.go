@@ -29,11 +29,16 @@ const (
 
 // Resource is a kind's tab: its icon and label, and the shortcut that opens it, if any.
 type Resource struct {
-	Kind  Kind
-	Icon  *ui.SVG
-	Label string // i18n key
-	Mods  ui.Modifiers
-	Key   ui.Key
+	Kind      Kind
+	Icon      *ui.SVG
+	Label     string // i18n key
+	Order     int
+	Mods      ui.Modifiers
+	Key       ui.Key
+	Available func(*State) bool
+	// Open overrides the panel's standard open-or-focus action.
+	Open   func(*State)
+	Render func(*ui.Context, *State, Tab)
 }
 
 // Resources are the kinds with a tab of their own. The launcher and the "+"
@@ -41,12 +46,12 @@ type Resource struct {
 // Files and Review. The turns' checkpoints and a session's documents open
 // from where they belong (lists) and keep their tabs.
 var Resources = []Resource{
-	{Browser, icons.Web, "resource_browser", ui.Cmd, ui.KeyT},
-	{Terminal, icons.Terminal, "terminal", ui.Ctrl, ui.KeyBackquote},
-	{Files, icons.Folder, "files", ui.Cmd, ui.KeyP},
-	{Changes, icons.Network, "git", ui.Ctrl | ui.Shift, ui.KeyG},
-	{History, icons.Restore, "git_view_history", 0, 0},
-	{Documents, icons.FileText, "market_category_documents", 0, 0},
+	{Kind: Browser, Icon: icons.Web, Label: "resource_browser", Order: 10, Mods: ui.Cmd, Key: ui.KeyT},
+	{Kind: Terminal, Icon: icons.Terminal, Label: "terminal", Order: 20, Mods: ui.Ctrl, Key: ui.KeyBackquote},
+	{Kind: Files, Icon: icons.Folder, Label: "files", Order: 30, Mods: ui.Cmd, Key: ui.KeyP},
+	{Kind: Changes, Icon: icons.Network, Label: "git", Order: 40, Mods: ui.Ctrl | ui.Shift, Key: ui.KeyG},
+	{Kind: History, Icon: icons.Restore, Label: "git_view_history"},
+	{Kind: Documents, Icon: icons.FileText, Label: "market_category_documents"},
 }
 
 // ResourceOf returns a kind's resource.
@@ -98,6 +103,7 @@ func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
 // row of tabs, each an open item, and the resources no project keeps.
 // Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
+	resources       []Resource // nil in standalone preview and demo panels
 	createResource  func(Kind) bool
 	Actions         *Actions
 	TerminalActions *TerminalActions
@@ -168,6 +174,18 @@ func New(w *preview.Workspace) *State {
 // terminal every time, as the reference's request_terminal does, and nothing
 // where the conversation cannot have one.
 func (s *State) Open(k Kind) {
+	if resource, exists := s.resource(k); exists {
+		if resource.Available != nil && !resource.Available(s) {
+			return
+		}
+		if resource.Open != nil {
+			resource.Open(s)
+			return
+		}
+	}
+	if !s.ValidTab(Tab{Kind: k}) {
+		return
+	}
 	if k == Terminal {
 		if s.lists(k) {
 			s.New(k)
@@ -209,6 +227,13 @@ func (s *State) SetCreateResource(create func(Kind) bool) { s.createResource = c
 func (s *State) New(k Kind) {
 	// A new browser tab takes the keyboard in its address field.
 	s.focusAddress = k == Browser
+	if resource, exists := s.resource(k); exists && resource.Open != nil {
+		resource.Open(s)
+		return
+	}
+	if !s.ValidTab(Tab{Kind: k}) {
+		return
+	}
 	if s.Live && k == Terminal {
 		if actions := s.TerminalActions; actions != nil && actions.Create != nil {
 			actions.Create()
@@ -224,7 +249,7 @@ func (s *State) New(k Kind) {
 
 // Show shows t, opening its tab if needed.
 func (s *State) Show(t Tab) {
-	if !t.Valid() {
+	if !s.ValidTab(t) {
 		return
 	}
 	// A file or diff opens in the passing tab, in the place of the one
@@ -282,7 +307,7 @@ func (s *State) Mount(tabs []Tab, active Tab) {
 	s.isolated = true
 	s.Tabs = nil
 	for _, t := range tabs {
-		if t.Valid() {
+		if s.ValidTab(t) {
 			s.Tabs = Opened(s.Tabs, t)
 		}
 	}
@@ -410,6 +435,10 @@ func (s *State) remove(t Tab) {
 // a turn's Undo and a session's documents from their cards, as the reference
 // reaches them; neither is a launcher entry.
 func (s *State) lists(k Kind) bool {
+	if s.resources != nil {
+		resource, exists := s.resource(k)
+		return exists && (resource.Available == nil || resource.Available(s))
+	}
 	switch k {
 	case History, Documents:
 		return false
@@ -501,6 +530,9 @@ func (s *State) Sync(pr *Project) {
 	}
 	var tabs []Tab
 	for _, t := range s.Tabs {
+		if !s.ValidTab(t) {
+			continue
+		}
 		if item(t.Kind) {
 			if t.ID == "" && pr.shown(t.Kind) != "" {
 				id := pr.shown(t.Kind)
@@ -517,6 +549,9 @@ func (s *State) Sync(pr *Project) {
 		tabs = Opened(tabs, t)
 	}
 	for _, k := range []Kind{Files, Changes} {
+		if !s.ValidTab(Tab{Kind: k}) {
+			continue
+		}
 		for _, id := range pr.items(k) {
 			if t := (Tab{k, id}); !slices.Contains(s.ignored, t) {
 				tabs = Opened(tabs, t)

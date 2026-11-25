@@ -19,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/sdk/desktop/native"
 )
 
 // terminalPreferencesNode serves captured terminal identities without a local
@@ -70,7 +71,7 @@ func TestTerminalPreferencesReachLocalAndPluginSSHViewsIntegration(t *testing.T)
 	}
 	root := &Runtime{
 		ctx: ctx, cancel: cancel, controller: controller, packages: newPackageState(),
-		App:         shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}),
+		App:         shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, shell.Assemble(native.RegisterTerminal)),
 		Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
 	}
 	root.packages.terminals = map[string]*liveTerminal{}

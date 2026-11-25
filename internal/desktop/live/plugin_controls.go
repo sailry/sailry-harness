@@ -62,19 +62,6 @@ func composerPluginScope(r *Runtime, cv *viewmodel.Conversation, comp *composer.
 	return scope
 }
 
-// The bundled worktrees package publishes the conversation's project as a
-// context control and the bundled Git package its branch. The composer has
-// both natively (projectButton, worktreeMenu), so the bar would show each
-// twice. The project stays the native control and the package's is not
-// drawn; the branch is the package's while it shows one, which lists
-// branches and other checkouts, and the native worktree menu otherwise.
-const (
-	pluginWorktreesPackage = "worktrees"
-	pluginLocationControl  = "location"
-	pluginGitPackage       = "git"
-	pluginBranchControl    = "branch"
-)
-
 // A header popover's panel is the declared width or 480, at most the
 // window's less 32, and scrolls past the window's height less 110; neither
 // bound goes under 100 (plugins/contributions/header.rs).
@@ -85,12 +72,6 @@ const (
 	pluginHeaderPanelLeast  = 100
 )
 
-// pluginContextControl reports whether a context-slot entry is the named
-// bundled package's control.
-func pluginContextControl(entry plugins.ContributionEntry, name, id string) bool {
-	return entry.Declaration.Slot == protocol.PluginUiSlotContext && entry.Key.Package.Name == name && entry.Key.ID == id
-}
-
 func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversation, comp *composer.State, context *composer.Context) {
 	scope := composerPluginScope(r, cv, comp)
 	registry := r.pluginRegistry(scope, cv.ID)
@@ -99,11 +80,6 @@ func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversa
 			r.renderPluginControls(view, registry, protocol.PluginUiSlot(slot), place)
 		}
 	})
-	if registry != nil {
-		for _, entry := range registry.Entries(protocol.PluginUiSlotContext) {
-			context.PackageBranch = context.PackageBranch || pluginContextControl(entry, pluginGitPackage, pluginBranchControl)
-		}
-	}
 	// Indicators and figures report a running conversation: a draft has no
 	// usage yet.
 	comp.Metrics = nil
@@ -246,16 +222,14 @@ func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indica
 // (projectPluginMetrics).
 func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot, place composer.ControlPlace) {
 	for _, entry := range registry.Entries(slot) {
+		if r.legacyPluginControlReplaced(entry.Key.Package, entry.Declaration) {
+			continue
+		}
 		kind := entry.Declaration.Kind
 		switch slot {
 		case protocol.PluginUiSlotComposer:
-			intent := ""
-			if entry.Declaration.Intent != nil {
-				intent = *entry.Declaration.Intent
-			}
 			end := entry.Declaration.Align == protocol.PluginUiAlignEnd
-			if kind == "indicator" || intent == string(protocol.PluginUiIntentCreateWorktree) || intent == string(protocol.PluginUiIntentForkWorktree) ||
-				place != composer.ControlMenu && end != (place == composer.ControlEnd) {
+			if kind == "indicator" || place != composer.ControlMenu && end != (place == composer.ControlEnd) {
 				continue
 			}
 		case protocol.PluginUiSlotHeader:
@@ -264,11 +238,6 @@ func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Regis
 			}
 		case protocol.PluginUiSlotStatistics, protocol.PluginUiSlotFooter:
 			continue
-		case protocol.PluginUiSlotContext:
-			// The native project control is the bar's one location.
-			if pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) {
-				continue
-			}
 		}
 		r.renderPluginControl(view.Key(pluginControlIdentity(entry.Key)), registry, entry, place == composer.ControlMenu)
 	}

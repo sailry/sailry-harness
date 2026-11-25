@@ -5,6 +5,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -38,6 +39,7 @@ func TestProviderPresetCache(t *testing.T) {
 	defer controller.Close()
 	app := shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
 	r := &Runtime{ctx: t.Context(), controller: controller, App: app, Preferences: &preferences.Store{Data: preferences.Default()}}
+	target := settings.PageTarget{Context: r.ctx, Current: func() bool { return true }}
 	settle := func() {
 		t.Helper()
 		for range 4 {
@@ -52,7 +54,8 @@ func TestProviderPresetCache(t *testing.T) {
 		}
 	}
 	for expected := 1; expected <= 3; expected++ {
-		r.readProviderPresets()
+		r.providerPresetsFailed = false
+		r.readProviderPresets(target)
 		settle()
 		if reads != expected {
 			t.Fatalf("preset read %d was not attempted, requests=%d", expected, reads)
@@ -77,7 +80,7 @@ func TestProviderPresetCache(t *testing.T) {
 	installed := protocol.DefaultPluginSummary()
 	installed.Name, installed.Enabled, installed.Digest = "agy", true, "version-a"
 	install([]protocol.PluginSummary{installed})
-	r.readProviderPresets()
+	r.readProviderPresets(target)
 	r.workers.Wait()
 	installed.Digest = "version-b"
 	install([]protocol.PluginSummary{installed})
@@ -85,13 +88,13 @@ func TestProviderPresetCache(t *testing.T) {
 	if reads != 5 || !r.providerPresetsLoaded || r.providerPresetPackages[0].Digest != "version-b" {
 		t.Fatalf("stale preset directory after update: reads=%d packages=%v", reads, r.providerPresetPackages)
 	}
-	r.readProviderPresets()
+	r.readProviderPresets(target)
 	settle()
 	if reads != 5 {
 		t.Fatalf("unchanged package directory triggered another read: %d", reads)
 	}
 	install(nil)
-	r.readProviderPresets()
+	r.readProviderPresets(target)
 	settle()
 	if reads != 6 || len(r.providerPresetPackages) != 0 {
 		t.Fatalf("stale preset directory after removal: reads=%d packages=%v", reads, r.providerPresetPackages)

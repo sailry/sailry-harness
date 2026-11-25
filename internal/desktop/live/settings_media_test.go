@@ -103,6 +103,7 @@ func TestMediaSettings(t *testing.T) {
 	}
 	defer r.Close()
 	m := r.App.Settings
+	r.App.Page = shell.SettingsPage
 	m.Open(settings.Media)
 	var toasts []string
 	tester := ui.NewTesterWith(func(c *ui.Context) {
@@ -114,6 +115,8 @@ func TestMediaSettings(t *testing.T) {
 		for _, post := range queue {
 			post(c)
 		}
+		r.delivered++
+		r.syncSettingsPages()
 		settings.Page(c, m, r.App.Data, settings.Look{Theme: &r.App.Theme, Mode: &r.App.Mode, Effects: &r.App.Effects, Surfaces: &r.App.Surfaces})
 		ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
 			toasts = toasts[:0]
@@ -263,6 +266,8 @@ func TestMediaSettings(t *testing.T) {
 	}
 
 	t.Run("a provider save carries the edited capability tags", func(t *testing.T) {
+		m.Open(settings.Providers)
+		await("the provider rows", func() bool { return len(m.Channels) == 1 })
 		channel := m.Channels[0]
 		channel.Models = slices.Clone(channel.Models)
 		edited := &channel.Models[1]
@@ -323,7 +328,8 @@ func TestMediaSettings(t *testing.T) {
 	t.Run("the bundled presets' brands, filter and Add provider flow", testProviderFlow)
 
 	t.Run("a change during a read is read for, and an older answer is dropped", func(t *testing.T) {
-		await("the reads to rest", func() bool { return !r.media.reading })
+		m.Open(settings.Media)
+		await("the reads to rest", func() bool { return m.Media.Revision != 0 && !r.media.reading })
 		var before int
 		locked(func() { before = reads })
 		current := r.snapshot()
@@ -385,8 +391,17 @@ func TestMediaSaveCompletionFollowsSettingsBinding(t *testing.T) {
 		defer controller.Close()
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		app := &shell.App{Data: &viewmodel.Data{}, Settings: settings.NewLive()}
+		if err := controller.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		assembly := desktop.Harness()
+		app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly)
 		r := &Runtime{ctx: ctx, controller: controller, App: app, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		r.bindSettingsPages(assembly.SettingsPages)
+		defer r.closeSettingsPages()
+		app.Page = shell.SettingsPage
+		app.Settings.Open(settings.Media)
+		r.syncSettingsPages()
 		tester := ui.NewTester(func(c *ui.Context) {
 			r.mu.Lock()
 			queue := r.queue
@@ -423,11 +438,10 @@ func TestMediaSaveCompletionFollowsSettingsBinding(t *testing.T) {
 			tester.Frame()
 		}
 		returnToHost := func(value protocol.MediaSettings) {
-			r.settingsShown = &Runtime{}
-			r.settingsGeneration++
-			*field = settings.Stored[[4]string]{}
-			r.settingsShown = r
-			r.settingsGeneration++
+			app.Settings.ManagedNode = "offline"
+			r.syncSettingsPages()
+			app.Settings.ManagedNode = ""
+			r.syncSettingsPages()
 			r.projectMedia(value, candidates, true)
 		}
 		r.projectMedia(protocol.MediaSettings{Revision: 1}, candidates, true)

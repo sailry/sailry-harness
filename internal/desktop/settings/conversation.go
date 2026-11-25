@@ -9,10 +9,6 @@ import (
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
 
-// CodeIndexMessages are the code index switch's outcomes, shared with the
-// live action adapter.
-var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settings_failed", "code_index_settings_conflict", "code_index_settings_unknown"}
-
 var PersonalInstructionsMessages = Messages{Failed: "settings_custom_prompt_failed", Conflict: "settings_custom_prompt_conflict", Uncertain: "settings_custom_prompt_unknown"}
 
 // PersonalInstructions holds the editor draft for one settings host.
@@ -38,15 +34,8 @@ func conversation(c *ui.Context, m *Model) {
 					report(c, m.Sandbox.Commit(), sandboxMessages)
 				}
 			}
-			if m.CodeIndexAvailable {
-				if settingSwitch(c, "code-index", i18n.T(c, "settings_code_index"), i18n.T(c, "settings_code_index_description"), &m.CodeIndex.Draft, m.Live && m.SaveCodeIndex == nil || m.CodeIndex.Pending) {
-					if m.Live {
-						m.SaveCodeIndex()
-					} else {
-						report(c, m.CodeIndex.Commit(), CodeIndexMessages)
-					}
-				}
-				persistentCodeIndex(c, m)
+			for _, row := range m.ExecutionSettings {
+				row.Render(c)
 			}
 		})
 	})
@@ -57,17 +46,6 @@ func conversation(c *ui.Context, m *Model) {
 				&m.MessageDisplay, i18n.T(c, "message_display_detailed"), i18n.T(c, "message_display_compact"))
 		})
 	})
-}
-
-func persistentCodeIndex(c *ui.Context, m *Model) {
-	if m.PersistentCodeIndex == nil {
-		return
-	}
-	enabled := *m.PersistentCodeIndex
-	disabled := m.CodeIndex.Pending || !m.CodeIndex.Saved || m.SavePersistentCodeIndex == nil
-	if settingSwitch(c, "persistent-code-index", i18n.T(c, "settings_code_index_persistent"), i18n.T(c, "settings_code_index_persistent_description"), &enabled, disabled) {
-		m.SavePersistentCodeIndex(enabled)
-	}
 }
 
 func personalInstructions(c *ui.Context, m *Model) {

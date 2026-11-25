@@ -6,7 +6,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -20,7 +19,6 @@ type computerSettingsState struct {
 	checking    bool
 	permsLoaded bool
 	permissions []preview.Permission
-	actions     settings.ComputerActions
 }
 
 var computerSettingsMessages = settings.Messages{
@@ -30,76 +28,90 @@ var computerSettingsMessages = settings.Messages{
 	Uncertain: "computer_settings_unknown",
 }
 
-func (r *Runtime) computerSettingsFrame() {
-	root := r.localRuntime()
-	m := root.App.Settings
-	if root.App.Page != shell.SettingsPage || m.Section != settings.Computer {
-		return
+func (r *Runtime) BindComputerSettings() settings.WindowBinding {
+	m := r.App.Settings
+	return settings.WindowBinding{
+		Administrator: true,
+		Blocked:       func(status string) { m.Computer = settings.ComputerSettingsState{Status: status} },
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			st := &owner.computerSettings
+			st.loaded, st.loadFailed, st.permsLoaded = false, false, false
+			st.permissions = nil
+			m.ComputerActions = &settings.ComputerActions{
+				Save: func() {
+					if target.Current() {
+						st.enabled.Draft = m.Computer.Enabled.Draft
+						owner.saveComputerSettings()
+					}
+				},
+				CheckPermissions: func() {
+					if target.Current() {
+						owner.readComputerPermissions()
+					}
+				},
+				RequestPermission: pageAction(target, owner.requestComputerPermission),
+				OpenSettings:      pageAction(target, owner.openComputerPermissionSettings),
+				ShowApp: func() {
+					if target.Current() {
+						r.showPermissionApp()
+					}
+				},
+			}
+			return settings.PageBinding{
+				Follow: func() {
+					if ((!st.loaded && !st.loadFailed) || owner.snapshot().ComputerSettingsRevision > st.observedRev) && !st.loading && !st.enabled.Pending {
+						owner.readComputerSettings()
+					}
+					if st.loaded && st.enabled.Saved && !st.permsLoaded && !st.checking {
+						owner.readComputerPermissions()
+					}
+					m.Computer = settings.ComputerSettingsState{
+						Enabled: st.enabled, Loaded: st.loaded, Available: st.available, Checking: st.checking,
+						HostReadOnly: owner != r, Permissions: st.permissions,
+					}
+				},
+				Recover: func() { st.loadFailed = false },
+				Close:   func() { m.ComputerActions, m.Computer = nil, settings.ComputerSettingsState{} },
+			}
+		},
 	}
-	owner := root.managedSettingsNode()
-	status := owner.machineSettingsStatus()
-	if status != "" {
-		m.Computer = settings.ComputerSettingsState{Status: status}
-		m.ComputerActions = nil
-		return
-	}
-	st := &owner.computerSettings
-	if st.actions.Save == nil {
-		st.actions = settings.ComputerActions{
-			Save: func() {
-				st.enabled.Draft = m.Computer.Enabled.Draft
-				owner.saveComputerSettings()
-			},
-			CheckPermissions:  owner.readComputerPermissions,
-			RequestPermission: owner.requestComputerPermission,
-			OpenSettings:      owner.openComputerPermissionSettings,
-			ShowApp:           root.showPermissionApp,
-		}
-	}
-	if ((!st.loaded && !st.loadFailed) || owner.snapshot().ComputerSettingsRevision > st.observedRev) && !st.loading && !st.enabled.Pending {
-		owner.readComputerSettings()
-	}
-	if st.loaded && st.enabled.Saved && !st.permsLoaded && !st.checking {
-		owner.readComputerPermissions()
-	}
-	m.Computer = settings.ComputerSettingsState{
-		Enabled:      st.enabled,
-		Loaded:       st.loaded,
-		Available:    st.available,
-		Checking:     st.checking,
-		HostReadOnly: owner != root,
-		Permissions:  st.permissions,
-	}
-	m.ComputerActions = &st.actions
 }
 
 func (r *Runtime) readComputerSettings() {
 	st := &r.computerSettings
-	if st.loading {
+	page := r.currentSettingsPage(settings.Computer)
+	if page == nil || st.loading {
 		return
 	}
 	st.loading = true
 	st.loadFailed = false
 	st.observedRev = r.snapshot().ComputerSettingsRevision
-	r.execute(protocol.Command{Kind: "read_computer_settings"}, func(_ *ui.Context, out protocol.Output, err error) {
-		st.loading = false
-		if err != nil {
-			st.loadFailed = true
-			return
-		}
-		value, ok := detail[protocol.ComputerSettings](out.Data)
-		if !ok || out.Kind != "computer_settings" {
-			st.loadFailed = true
-			return
-		}
-		st.loaded = true
-		st.available = value.Available
-		if st.enabled.Draft == st.enabled.Saved {
-			st.enabled.Draft = value.Enabled
-		}
-		st.enabled.Saved = value.Enabled
-		st.enabled.Revision = value.Revision
-		st.observedRev = value.Revision
+	r.async(func() {
+		out, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_computer_settings"})
+		r.enqueue(func(_ *ui.Context) {
+			st.loading = false
+			if !page.target.Current() {
+				return
+			}
+			if err != nil {
+				st.loadFailed = true
+				return
+			}
+			value, ok := detail[protocol.ComputerSettings](out.Data)
+			if !ok || out.Kind != "computer_settings" {
+				st.loadFailed = true
+				return
+			}
+			st.loaded = true
+			st.available = value.Available
+			if st.enabled.Draft == st.enabled.Saved {
+				st.enabled.Draft = value.Enabled
+			}
+			st.enabled.Saved = value.Enabled
+			st.enabled.Revision = value.Revision
+			st.observedRev = value.Revision
+		})
 	})
 }
 
@@ -165,14 +177,18 @@ func computerPermissionRows(perms protocol.ComputerPermissions) []preview.Permis
 
 func (r *Runtime) readComputerPermissions() {
 	st := &r.computerSettings
-	if st.checking {
+	page := r.currentSettingsPage(settings.Computer)
+	if page == nil || st.checking {
 		return
 	}
 	st.checking = true
 	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_computer_permissions"})
+		out, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_computer_permissions"})
 		r.enqueue(func(c *ui.Context) {
 			st.checking = false
+			if !page.target.Current() {
+				return
+			}
 			st.permsLoaded = true
 			if err != nil {
 				st.permissions = []preview.Permission{

@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	nodefiles "github.com/sailry/sailry-harness/internal/node/files"
@@ -69,7 +70,7 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t)
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
@@ -172,7 +173,7 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t)
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
@@ -273,7 +274,7 @@ func TestWorkspaceMissingDirectoryRetiresOpenFiles(t *testing.T) {
 
 func TestWorkspaceMissingDraftSaveRestoresFile(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		fixture := newPluginLocationTestFixture(t)
+		fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
 		root := fixture.root
 		root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 		project := root.workspaceFor(fixture.main)
@@ -353,7 +354,7 @@ func TestWorkspaceTrashRetiresReads(t *testing.T) {
 	for _, dirty := range []bool{false, true} {
 		t.Run(map[bool]string{false: "clean", true: "draft"}[dirty], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t)
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)
@@ -478,7 +479,7 @@ func TestWorkspaceTrashFailureAndRecovery(t *testing.T) {
 	for _, unknown := range []bool{false, true} {
 		t.Run(map[bool]string{false: "failed", true: "uncertain"}[unknown], func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				fixture := newPluginLocationTestFixture(t)
+				fixture := newPluginLocationTestFixture(t, shell.Assemble(filesPage.Register))
 				root := fixture.root
 				root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 				project := root.workspaceFor(fixture.main)

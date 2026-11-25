@@ -24,7 +24,7 @@ func panelLifecycleApp() (*App, *panel.Project) {
 		}}},
 		Workspace: &viewmodel.Workspace{},
 	}
-	a := NewLive(d)
+	a := NewLiveWithAssembly(d, TestHarnessAssembly())
 	a.Sidebar.Selected = firstPanelChat
 	pr := panel.NewLiveProject("shared", d.Workspace, &panel.Actions{})
 	a.Hooks.WorkspaceProject = func() *panel.Project { return pr }

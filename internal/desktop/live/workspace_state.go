@@ -12,7 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -231,10 +230,14 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 }
 
 func (p *workspaceProject) resourceFrame() {
-	if p.release == nil {
-		p.watch()
+	files := p.runtime.App.HasWorkspaceResource(panel.Files)
+	repository := p.runtime.App.HasWorkspaceResource(panel.Changes)
+	if p.release == nil && (files || repository) {
+		p.watch(files, repository)
 	}
-	if p.pendingFiles {
+	if !files && len(p.files) == 0 {
+		p.pendingFiles = false
+	} else if p.pendingFiles {
 		busy := false
 		for key := range p.loading {
 			if strings.HasPrefix(key, "file/") || strings.HasPrefix(key, "file-check/") || strings.HasPrefix(key, "directory") {
@@ -246,13 +249,17 @@ func (p *workspaceProject) resourceFrame() {
 			p.refreshFiles()
 		}
 	}
-	if p.pendingGit && !p.loading["git-status"] && !p.loading["git-branches"] && !p.loading["git-log"] {
+	if !repository {
+		p.pendingGit = false
+	} else if p.pendingGit && !p.loading["git-status"] && !p.loading["git-branches"] && !p.loading["git-log"] {
 		p.refreshWatchedGit()
 	}
 	if !p.initialized {
 		p.initialized = true
 		p.refreshFiles()
-		p.readGit()
+		if repository {
+			p.readGit()
+		}
 	}
 }
 func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
@@ -283,18 +290,23 @@ func (p *workspaceProject) selectedSession(session protocol.SessionID) bool {
 }
 
 func (p *workspaceProject) releaseView() {
-	if p.release != nil {
-		p.release()
-		p.release = nil
-	}
+	p.releaseResourceWatch()
+	p.panel.ResetFileSearch()
+	p.cancelFileOpen()
+	p.pruneClosedContent()
+}
+
+func (p *workspaceProject) releaseResourceWatch() {
 	if p.cancel != nil {
 		p.cancel()
 		p.cancel = nil
 	}
-	p.panel.ResetFileSearch()
-	p.cancelFileOpen()
+	if p.release != nil {
+		p.release()
+		p.release = nil
+	}
+	p.pendingFiles, p.pendingGit = false, false
 	p.stopGitRefreshTimer()
-	p.pruneClosedContent()
 }
 
 // pruneClosedContent keeps the workspace's navigation state while dropping
@@ -348,15 +360,9 @@ func (r *Runtime) closeWorkspace() {
 	r.closeWorkspaceUploads()
 	for _, project := range r.workspace.projects {
 		project.closeDocumentImages()
-		project.stopGitRefreshTimer()
+		project.releaseResourceWatch()
 		project.panel.ResetFileSearch()
 		project.cancelFileOpen()
-		if project.cancel != nil {
-			project.cancel()
-		}
-		if project.release != nil {
-			project.release()
-		}
 	}
 }
 func (p *workspaceProject) actions() *panel.Actions {
@@ -737,12 +743,15 @@ func (p *workspaceProject) ensureFile(relative string) {
 	}
 }
 func (p *workspaceProject) readGit() {
-	p.gitLastRead = time.Now()
 	for _, project := range p.runtime.workspace.projects {
 		if project.owner.Project != nil && p.owner.Project != nil && *project.owner.Project == *p.owner.Project {
 			project.locationsLoaded = false
 		}
 	}
+	if !p.runtime.App.HasWorkspaceResource(panel.Changes) {
+		return
+	}
+	p.gitLastRead = time.Now()
 	for key := range p.failedReads {
 		if strings.HasPrefix(key, "git-") || strings.HasPrefix(key, "diff/") || strings.HasPrefix(key, "hunks/") {
 			delete(p.failedReads, key)
@@ -752,7 +761,7 @@ func (p *workspaceProject) readGit() {
 	p.inspectGit()
 }
 func (p *workspaceProject) inspectGit() {
-	if p.runtime.App == nil || !p.runtime.App.NativePageEnabled(shell.GitPage) {
+	if !p.runtime.App.HasWorkspaceResource(panel.Changes) {
 		return
 	}
 	p.read("git-status", protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
@@ -882,6 +891,10 @@ func (p *workspaceProject) projectBranches(value protocol.GitBranches) {
 }
 
 func (p *workspaceProject) refreshFiles() {
+	files := p.runtime.App.HasWorkspaceResource(panel.Files)
+	if !files && len(p.files) == 0 {
+		return
+	}
 	if len(p.trashing) > 0 {
 		p.pendingFiles = true
 		return
@@ -889,10 +902,27 @@ func (p *workspaceProject) refreshFiles() {
 	for key := range p.failedReads {
 		if relative, file := strings.CutPrefix(key, "file/"); file && !p.entryIsMissing(relative) {
 			delete(p.failedReads, key)
-		} else if directory, listing := strings.CutPrefix(key, "directory/"); listing && !p.entryIsMissing(directory) {
+		} else if directory, listing := strings.CutPrefix(key, "directory/"); files && listing && !p.entryIsMissing(directory) {
 			delete(p.failedReads, key)
 		}
 	}
+	if files {
+		p.refreshDirectories()
+	}
+	// An explicitly opened file can outlive the directory browser feature.
+	for filename := range p.files {
+		if p.entryIsMissing(filename) {
+			continue
+		}
+		if _, dirty := p.panel.FileDraft(filename); dirty {
+			p.checkDraft("draft", filename, nil)
+		} else {
+			p.loadFile(filename)
+		}
+	}
+}
+
+func (p *workspaceProject) refreshDirectories() {
 	directories := []string{""}
 	for directory := range p.directories {
 		if directory != "" {
@@ -917,36 +947,39 @@ func (p *workspaceProject) refreshFiles() {
 			p.readDirectory(directory, true)
 		}
 	}
-	for filename := range p.files {
-		if p.entryIsMissing(filename) {
-			continue
-		}
-		if _, dirty := p.panel.FileDraft(filename); dirty {
-			p.checkDraft("draft", filename, nil)
-		} else {
-			p.loadFile(filename)
-		}
-	}
 }
-func (p *workspaceProject) watch() {
+
+func (p *workspaceProject) watch(files, repository bool) {
 	ctx, cancel := context.WithCancel(p.runtime.ctx)
+	var releases []func()
+	observe := func(git bool, pending *bool) {
+		release, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, git, func(protocol.Update) {
+			p.runtime.enqueue(func(*ui.Context) {
+				if ctx.Err() == nil {
+					*pending = true
+				}
+			})
+		})
+		if err == nil {
+			releases = append(releases, release)
+		}
+	}
+	if files {
+		observe(false, &p.pendingFiles)
+	}
+	if repository {
+		observe(true, &p.pendingGit)
+	}
+	if len(releases) == 0 {
+		cancel()
+		return
+	}
 	p.cancel = cancel
-	files, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, false, func(protocol.Update) { p.runtime.enqueue(func(*ui.Context) { p.pendingFiles = true }) })
-	if err != nil {
-		cancel()
-		return
+	p.release = func() {
+		for _, close := range releases {
+			close()
+		}
 	}
-	if p.runtime.App == nil || !p.runtime.App.NativePageEnabled(shell.GitPage) {
-		p.release = files
-		return
-	}
-	repository, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, true, func(protocol.Update) { p.runtime.enqueue(func(*ui.Context) { p.pendingGit = true }) })
-	if err != nil {
-		files()
-		cancel()
-		return
-	}
-	p.release = func() { files(); repository() }
 }
 func (r *Runtime) openWorkspaceFile(sessionID protocol.SessionID, worktreeID protocol.WorktreeID, relative string) {
 	session, ok := r.session(sessionID.String())

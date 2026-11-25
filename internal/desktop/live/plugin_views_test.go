@@ -306,16 +306,6 @@ func testPluginViewOwnership(t *testing.T) {
 			if len(registry.Entries("context")) != 1 || len(registry.Entries("project_menu")) != 0 {
 				t.Fatal("published contributions escaped their presentation surface")
 			}
-			// Only the bundled worktrees package's location and the bundled
-			// Git package's branch are the composer's own controls again.
-			entry := registry.Entries("context")[0]
-			if pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) || pluginContextControl(entry, pluginGitPackage, pluginBranchControl) {
-				t.Fatal("another package's context control was taken for a bundled one")
-			}
-			entry.Key.Package.Name = pluginWorktreesPackage
-			if !pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) || pluginContextControl(entry, pluginGitPackage, pluginBranchControl) {
-				t.Fatal("the worktrees package's location was not recognized")
-			}
 			// An indicator without a measure has no tooltip, whatever
 			// placeholder its package sends; a measured or loading one keeps it.
 			percent := 12.0

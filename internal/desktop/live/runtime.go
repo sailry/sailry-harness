@@ -19,15 +19,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
+	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type Runtime struct {
-	pluginViews *pluginViewState
+	nativeWindowResources []nativeWindowResource
+
+	executionSettingFactories []settings.ExecutionSettingFactory
+	executionSettings         []settings.ExecutionSetting
+	worktreeActions           shell.ConversationWorktreeActions
+	projectLocations          func(shell.ProjectLocationReader)
+
+	pluginViews               *pluginViewState
+	pluginControlReplacements []shell.PluginControlReplacement
 	// demoModels is the model each demo conversation's composer is set to,
 	// by conversation: what the statistics package reads as its model.
 	demoModels           sync.Map
@@ -36,6 +46,7 @@ type Runtime struct {
 	pluginCards          *pluginCardState
 	terminals            *terminalState
 	browser              *browserState
+	browserPanel         bool
 	browserSources       *browserSources // a test's Chrome profile, key and cookie store
 	browserConfig        browserSettingsState
 	searchSettings       searchSettingsState
@@ -53,7 +64,6 @@ type Runtime struct {
 	connections          *connectionState
 	connectionReferences map[string]*referenceCatalog
 	sshTransfers         *sshTransferStore
-	sshDesktopViews     sshDesktopViews
 	ports                *livePorts
 	pickKeyFile          func(func(string))
 	teams                *teamState
@@ -64,13 +74,13 @@ type Runtime struct {
 	resourcePage         resourcePageState
 	workspaceSettings    workspaceSettingsState
 	hookSettings         hookSettingsState
-	codeIndexSettings    codeIndexSettingsState
 	personalInstructions personalInstructionsState
 	// instructionsOwner is the Runtime whose custom prompt the settings page
 	// edits, on the local Runtime.
 	instructionsOwner   *Runtime
 	settingsShown       *Runtime
 	settingsGeneration  uint64
+	settingsPages       []liveSettingsPage
 	providerMoves       map[string]providerMove
 	terminalSettings    terminalSettingsState
 	backupSettings      backupSettingsState
@@ -174,6 +184,7 @@ type Runtime struct {
 	providerBrands            map[string]string // brand names by presetBrand, offered or not
 	providerCatalogBrands     []viewmodel.Brand
 	providerPresetsLoaded     bool
+	providerPresetsFailed     bool
 	providerPresetsLoading    bool
 	providerPresetPackages    []protocol.PluginSummary
 	providerModels            map[string]providerDiscovery
@@ -320,7 +331,14 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	d := Sidebar(snapshot, prefs.Data)
 	d.Notices = Notices(controller.Notices())
 	r.App = shell.NewLiveWithAssembly(d, assembly)
+	r.pluginControlReplacements = slices.Clone(assembly.PluginControlReplacements)
+	r.permissions.contributions = permissionContributions(assembly.Permissions)
 	r.App.SetLocalHost(localHost(snapshot, d))
+	for _, pkg := range snapshot.Plugins {
+		if nodeplugins.IsLegacyDesktopPackage(pkg.Name, pkg.Digest) {
+			r.App.InheritPackagePreferences(controller.Target().String(), pkg.Name)
+		}
+	}
 	r.applyPreferences()
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, NewConversationDraft: r.newConversationDraft,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
@@ -333,19 +351,15 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 				r.openWindow(id)
 			}
 		}}
-	if assembly.Worktrees {
-		r.App.Sidebar.Actions.Worktrees = r.sidebarWorkspaceAction
-		r.App.Sidebar.Actions.ForkWorktree = r.forkWorkspaceConversation
-	}
 	r.bindPicker()
 	r.initCommands()
 	r.initAttachments()
 	r.App.Hooks.DownloadDialog = r.transferDialogs
 	r.App.Hooks.FilePreview = r.renderFilePreview
 	r.initWorkspace()
+	r.bindProjectWorkflows(assembly.ProjectWorkflows)
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
 	r.App.Hooks.ResourceWorkspace = r.resourceWorkspace
-	r.App.Hooks.SSHWorkspace = r.sshWorkspaceForPage
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
@@ -383,17 +397,24 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.readSandbox()
 	r.projectModels()
 	r.initTeams()
+	r.executionSettingFactories = slices.Clone(assembly.ExecutionSettings)
+	r.bindExecutionSettings()
 	r.initNodeSettings()
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
-	if assembly.Terminal {
-		r.initLiveTerminals()
-	}
+	r.App.BindPanelResources(assembly, shell.PanelResourceHost{
+		BindBrowser: r.bindPanelBrowser,
+		BindTerminal: func() sidebar.ProjectOpen {
+			r.initLiveTerminals()
+			return r.newProjectTerminal
+		},
+	})
 	r.initPluginViews()
-	r.App.Panel.SetCreateResource(r.createPanelBrowser)
 	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
 	r.App.Hooks.PluginTitle = r.renderPluginTitle
+	r.bindNativeWindow()
+	r.bindSettingsPages(assembly.SettingsPages)
 	// A Client event may arrive between the first snapshot and subscription.
 	// Project its latest state on the first frame even if no later event arrives.
 	r.changed()
@@ -446,6 +467,7 @@ func (r *Runtime) Close() error {
 	if r.unsubscribeNetwork != nil {
 		r.unsubscribeNetwork()
 	}
+	r.closeSettingsPages()
 	for _, bound := range r.bindings {
 		_ = bound.Close()
 	}
@@ -453,7 +475,7 @@ func (r *Runtime) Close() error {
 	for _, release := range r.conversationWatches {
 		release()
 	}
-	r.closeSSHDesktopViews()
+	r.closeNativeWindow()
 	r.closePluginViews()
 	r.closePluginStatus()
 	r.closePluginCards()
@@ -464,10 +486,6 @@ func (r *Runtime) Close() error {
 	if r.backupSettings.scheduleTimer != nil {
 		r.backupSettings.scheduleTimer.Stop()
 		r.backupSettings.scheduleTimer = nil
-	}
-	if r.browser != nil && r.browser.watchTimer != nil {
-		r.browser.watchTimer.Stop()
-		r.browser.watchTimer = nil
 	}
 	r.closeWorkspace()
 	r.cancel()
@@ -590,7 +608,7 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.App.Panel.Session = false
 	}
 	r.resourceWorkspaceFrame(owner)
-	r.App.Panel.Worktree = r.terminalAssembled() && panelTerminalWorktree(owner) != (protocol.WorktreeID{})
+	r.App.Panel.Worktree = panelTerminalWorktree(owner) != (protocol.WorktreeID{})
 	r.nodeSettingsFrame()
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
@@ -604,11 +622,8 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.terminalsFrame(c)
 	r.pluginCardsFrame(c)
 	r.networkFrame(c)
-	r.browserFrame()
-	r.browserSettingsFrame()
-	r.searchSettingsFrame()
-	r.memorySettingsFrame()
-	r.computerSettingsFrame()
+	r.frameNativeWindowResources()
+	r.documentFrame()
 	r.aboutFrame(c)
 	r.ensureConversationSelection()
 	r.attentionFrame()
@@ -658,7 +673,7 @@ func (r *Runtime) afterFrame() {
 	r.releaseComposerCatalogs()
 	r.countFrame()
 	r.pluginViewsAfterFrame()
-	r.finishSSHDesktopViews()
+	r.finishNativeWindowResources()
 	r.pruneDrafts()
 	// Each conversation has its own search bar: one whose conversation is no
 	// longer shown closes alone.
@@ -732,7 +747,6 @@ func (r *Runtime) project() {
 		bound.carryConversationPresentations(previous)
 	}
 	r.projectModels()
-	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
 	r.pruneSessions(snapshot)
 }

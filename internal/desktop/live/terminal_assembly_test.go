@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/sdk/desktop/native"
 )
 
 func TestNativeTerminalEntriesUseBoundNode(t *testing.T) {
@@ -50,7 +51,7 @@ func TestNativeTerminalEntriesUseBoundNode(t *testing.T) {
 		}
 
 		assembly := harness.Harness()
-		assembly.Terminal = true
+		native.RegisterTerminal(&assembly)
 		root, err := NewWithAssembly(t.Context(), localFixture.controller, localFixture.Preferences, assembly)
 		if err != nil {
 			t.Fatal(err)

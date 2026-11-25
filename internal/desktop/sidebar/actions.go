@@ -31,7 +31,6 @@ type Actions struct {
 	// Files returns the file system of a host for the directory picker, false
 	// while the host cannot be reached.
 	Files         func(host string) (picker.Source, bool)
-	Worktrees     func(*viewmodel.Project, string, string)
 	ForkWorktree  func(*viewmodel.Conversation)
 	OpenWindow    func(session string)
 	ForkHere      func(*viewmodel.Conversation)
@@ -43,12 +42,12 @@ type Actions struct {
 	// Terminals lists a project's running Node terminals, whichever
 	// controller started them, as rows under its sessions. OpenTerminal
 	// shows one as a main surface; CloseTerminal ends its shell.
-	Terminals     func(*viewmodel.Project) []Terminal
-	OpenTerminal  func(id string)
-	CloseTerminal func(id string)
-	// ProjectMenu fills the project menu's project_menu slot, after New
-	// session: the enabled packages' entries in their order, the bundled
-	// ones the application draws through TerminalItem and WorktreeMenu.
+	Terminals        func(*viewmodel.Project) []Terminal
+	OpenTerminal     func(id string)
+	CloseTerminal    func(id string)
+	ProjectResources []ProjectResourceAction
+	ProjectMenus     []ProjectMenuAction
+	// ProjectMenu fills the project_menu slot with ordered package and native entries.
 	ProjectMenu func(*ui.Context, *ui.Menu, *viewmodel.Project)
 }
 

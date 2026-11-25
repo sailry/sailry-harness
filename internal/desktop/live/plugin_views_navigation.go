@@ -62,10 +62,6 @@ func pluginSettingsSection(owner *Runtime, info protocol.PluginInfo) settings.Se
 	return settings.Section("plugin:" + info.Summary.Name)
 }
 
-func unmountedPlugin(name string) bool {
-	return name == "files" || name == "git"
-}
-
 func (r *Runtime) projectPluginViews(view *ui.Context) {
 	root := r.localRuntime()
 	state := root.pluginViews
@@ -83,12 +79,13 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	for _, source := range sources {
 		for _, info := range root.pluginViewCatalog(source.owner) {
 			extension := info.Extension
-			if extension == nil || extension.Scope != source.scope || extension.Desktop == nil || unmountedPlugin(info.Summary.Name) ||
+			if extension == nil || extension.Scope != source.scope || extension.Desktop == nil ||
 				!info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 				continue
 			}
 			desktop := extension.Desktop
-			if desktop.Navigation == nil {
+			reference := packageReference(info.Summary)
+			if desktop.Navigation == nil || root.pluginNavigationReplaced(reference) {
 				continue
 			}
 			if source.scope == protocol.PluginScopeHost {
@@ -101,7 +98,7 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 				}
 			}
 			scope := protocol.DefaultPluginContext()
-			scope.Package = packageReference(info.Summary)
+			scope.Package = reference
 			scope.Surface = desktop.NavigationOptions.Surface
 			if desktop.NavigationOptions.Target == protocol.PluginDesktopNavigationTargetWorktree &&
 				source.owner.workspace != nil && source.owner.workspace.selected != (protocol.WorktreeID{}) {

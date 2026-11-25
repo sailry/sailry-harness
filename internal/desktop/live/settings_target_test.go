@@ -44,6 +44,8 @@ func TestSettingsTarget(t *testing.T) {
 	for index, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
+		fresh := uint64(time.Now().UnixMilli())
+		snapshot.ModelCatalog.UpdatedAtMs, snapshot.ModelCatalog.Scores.UpdatedAtMs = &fresh, &fresh
 		snapshot.User = &protocol.User{ID: protocol.UserID{byte(index + 1)}, Name: "Fixture", Local: index == 0, Administrator: index != 2, State: "active"}
 		project := protocol.DefaultProject()
 		project.ID, project.Name, project.Path, project.Owner = projects[index], "Fixture project", t.TempDir(), &snapshot.User.ID
@@ -180,7 +182,7 @@ func TestSettingsTarget(t *testing.T) {
 		defer controllers[index].Close()
 	}
 	assembly := desktop.Harness()
-	assembly.CodeIndex = true
+	testassembly.RegisterExecutionFixture(&assembly)
 	root, err := NewWithAssembly(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)
@@ -191,6 +193,17 @@ func TestSettingsTarget(t *testing.T) {
 	t.Cleanup(func() { _ = readOnly.Close() })
 	root.bindings = map[string]*Runtime{nodes[1].String(): remote, nodes[2].String(): readOnly}
 	m := root.App.Settings
+	codeSetting := func(t *testing.T) *testassembly.ExecutionFixture {
+		t.Helper()
+		if len(m.ExecutionSettings) != 1 {
+			t.Fatalf("execution settings = %d, want the selected Node's code index", len(m.ExecutionSettings))
+		}
+		setting, ok := m.ExecutionSettings[0].(*testassembly.ExecutionFixture)
+		if !ok {
+			t.Fatalf("execution setting = %T, want code index", m.ExecutionSettings[0])
+		}
+		return setting
+	}
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		root.mu.Lock()
@@ -212,6 +225,13 @@ func TestSettingsTarget(t *testing.T) {
 			readOnly.workers.Wait()
 			tester.Frame()
 		}
+	}
+	openSection := func(section settings.Section) {
+		root.App.Page = shell.SettingsPage
+		m.Open(section)
+		root.nodeSettingsFrame()
+		root.workspaceSettingsFrame()
+		settle()
 	}
 	// show changes only the monitored device and runs the settings frame steps.
 	show := func(host string) {
@@ -244,20 +264,11 @@ func TestSettingsTarget(t *testing.T) {
 		if m.Power.Revision != revision || m.Power.Saved != (index == 1) || m.Power.Draft != (index == 1) || m.Power.Pending {
 			t.Errorf("prevent sleep shows %+v, want Node %d's", m.Power, index)
 		}
-		if m.Compaction.Revision != revision || m.Compaction.Saved != float64(60+10*index) || m.Compaction.Draft != m.Compaction.Saved {
-			t.Errorf("compaction shows %+v, want Node %d's", m.Compaction, index)
-		}
-		if m.Concurrency.Revision != revision || m.Concurrency.Saved != float64(4+index) || m.Concurrency.Draft != m.Concurrency.Saved {
-			t.Errorf("child concurrency shows %+v, want Node %d's", m.Concurrency, index)
-		}
-		if m.Media.Revision != revision || m.Media.Pending {
-			t.Errorf("media models show revision %d, want Node %d's", m.Media.Revision, index)
-		}
 		if m.Sandbox.Revision != revision || m.Sandbox.Saved != (index == 0) || m.Sandbox.Draft != (index == 0) {
 			t.Errorf("sandbox shows %+v, want Node %d's", m.Sandbox, index)
 		}
-		if m.CodeIndex.Revision != revision || m.CodeIndex.Saved != (index == 0) || m.CodeIndex.Draft != (index == 0) || m.CodeIndex.Pending {
-			t.Errorf("code index shows %+v, want Node %d's", m.CodeIndex, index)
+		if value := codeSetting(t).Stored; value.Revision != revision || value.Saved != (index == 0) || value.Draft != (index == 0) || value.Pending {
+			t.Errorf("code index shows %+v, want Node %d's", value, index)
 		}
 	}
 	reads := []string{"read_power_settings", "list_channel_presets", "read_compaction_settings", "read_team_settings", "read_media_settings", "read_sandbox_settings", "read_code_index_settings"}
@@ -266,14 +277,27 @@ func TestSettingsTarget(t *testing.T) {
 	settle()
 	t.Run("the pages open on the local Node", func(t *testing.T) {
 		held(t, 0)
+		openSection(settings.Providers)
+		if m.Compaction.Revision != 1 || m.Compaction.Saved != 60 || m.Compaction.Draft != 60 {
+			t.Errorf("local compaction = %+v", m.Compaction)
+		}
+		openSection(settings.Teams)
+		if m.Concurrency.Revision != 1 || m.Concurrency.Saved != 4 || m.Concurrency.Draft != 4 {
+			t.Errorf("local child concurrency = %+v", m.Concurrency)
+		}
+		openSection(settings.Media)
+		if m.Media.Revision != 1 || m.Media.Pending {
+			t.Errorf("local media models = %+v", m.Media)
+		}
 		for _, kind := range reads {
-			if count(0, kind) == 0 || count(1, kind) != 0 {
+			if count(0, kind) == 0 || kind != "list_channel_presets" && count(1, kind) != 0 {
 				t.Errorf("%s was read %d times locally and %d times on the other host", kind, count(0, kind), count(1, kind))
 			}
 		}
 	})
 
 	t.Run("monitoring another host retains the local drafts", func(t *testing.T) {
+		openSection(settings.Providers)
 		m.Compaction.Draft = 95
 		before := sent(1)
 		show(nodes[1].String())
@@ -293,19 +317,36 @@ func TestSettingsTarget(t *testing.T) {
 
 	t.Run("every global save goes to the local Node", func(t *testing.T) {
 		before := sent(1)
+		openSection(settings.General)
 		m.Power.Draft = true
 		m.SavePower()
+		settle()
+		openSection(settings.Providers)
 		m.Compaction.Draft = 75
 		m.ProviderActions.SaveCompaction()
+		settle()
+		if m.Compaction.Revision != 2 || m.Compaction.Saved != 75 {
+			t.Errorf("compaction save = %+v", m.Compaction)
+		}
+		m.ProviderActions.RefreshCatalog()
+		settle()
+		openSection(settings.Teams)
 		m.Concurrency.Draft = 2
 		m.TeamActions.SaveConcurrency()
+		m.TeamActions.SaveRole(viewmodel.Role{Key: "review", Name: "Review"}, func(kit.Outcome) {})
+		settle()
+		if m.Concurrency.Revision != 2 || m.Concurrency.Saved != 2 {
+			t.Errorf("concurrency save = %+v", m.Concurrency)
+		}
+		openSection(settings.Media)
 		m.SaveMedia()
+		settle()
+		openSection(settings.Conversation)
 		m.Sandbox.Draft = false
 		m.SaveSandbox()
-		m.CodeIndex.Draft = false
-		m.SaveCodeIndex()
-		m.TeamActions.SaveRole(viewmodel.Role{Key: "review", Name: "Review"}, func(kit.Outcome) {})
-		m.ProviderActions.RefreshCatalog()
+		codeSetting(t).SaveEnabled(false)
+		settle()
+		openSection(settings.Connectors)
 		m.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Command: "run"}}, func(bool) {})
 		settle()
 		for _, kind := range []string{"save_power_settings", "save_compaction_settings", "save_team_settings", "save_media_settings", "save_sandbox_settings", "save_code_index_settings", "put_role", "refresh_model_catalog", "install_mcp"} {
@@ -316,18 +357,18 @@ func TestSettingsTarget(t *testing.T) {
 				t.Errorf("%s was sent to monitored remote", kind)
 			}
 		}
-		if m.Power.Revision != 2 || !m.Power.Saved || m.Compaction.Revision != 2 || m.Compaction.Saved != 75 || m.Concurrency.Revision != 2 || m.Concurrency.Saved != 2 || m.Sandbox.Revision != 2 || m.Sandbox.Saved || m.CodeIndex.Revision != 2 || m.CodeIndex.Saved || m.CodeIndex.Pending {
-			t.Errorf("the saved values were not taken: power %+v, compaction %+v, concurrency %+v, sandbox %+v, code index %+v", m.Power, m.Compaction, m.Concurrency, m.Sandbox, m.CodeIndex)
+		value := codeSetting(t).Stored
+		if m.Power.Revision != 2 || !m.Power.Saved || m.Sandbox.Revision != 2 || m.Sandbox.Saved || value.Revision != 2 || value.Saved || value.Pending {
+			t.Errorf("the saved values were not taken: power %+v, sandbox %+v, code index %+v", m.Power, m.Sandbox, value)
 		}
 	})
 
 	t.Run("a code index save that conflicts puts the switch back", func(t *testing.T) {
-		m.CodeIndex.Draft = true
-		m.SaveCodeIndex()
+		codeSetting(t).SaveEnabled(true)
 		settle()
 		// The switch shows what the local Node answers the read that follows.
-		if !m.CodeIndex.Draft || !m.CodeIndex.Saved || m.CodeIndex.Revision != 1 || m.CodeIndex.Pending || count(0, "read_code_index_settings") != 2 {
-			t.Errorf("code index shows %+v after a conflict, read %d times", m.CodeIndex, count(0, "read_code_index_settings"))
+		if value := codeSetting(t).Stored; !value.Draft || !value.Saved || value.Revision != 1 || value.Pending || count(0, "read_code_index_settings") != 2 {
+			t.Errorf("code index shows %+v after a conflict, read %d times", value, count(0, "read_code_index_settings"))
 		}
 		if !tester.HasText(i18n.In("en", "code_index_settings_conflict")) {
 			t.Errorf("the conflict was not reported: %q", tester.Texts())
@@ -386,6 +427,8 @@ func TestSettingsTarget(t *testing.T) {
 	})
 
 	t.Run("another controller's compaction save is followed", func(t *testing.T) {
+		openSection(settings.Providers)
+		previousRevision := m.Compaction.Revision
 		transports[0].mu.Lock()
 		external[0] = 4
 		later := transports[0].snapshot
@@ -403,7 +446,7 @@ func TestSettingsTarget(t *testing.T) {
 		m.Compaction.Draft = 90
 		root.nodeSettingsFrame()
 		settle()
-		if count(0, "read_compaction_settings") != reads || m.Compaction.Revision != 2 {
+		if count(0, "read_compaction_settings") != reads || m.Compaction.Revision != previousRevision {
 			t.Errorf("the threshold was read over a draft: %+v", m.Compaction)
 		}
 		m.Compaction.Draft = m.Compaction.Saved
@@ -424,7 +467,7 @@ func TestSettingsTarget(t *testing.T) {
 		m.ManagedNode = nodes[1].String()
 		root.nodeSettingsFrame()
 		settle()
-		if root.shownSettings() != remote || m.Concurrency.Revision != 2 || m.Concurrency.Saved != 5 {
+		if remote.currentSettingsPage(settings.Teams) == nil || m.Concurrency.Revision != 2 || m.Concurrency.Saved != 5 {
 			t.Fatalf("remote concurrency settings = %+v", m.Concurrency)
 		}
 		beforeLocal, beforeRemote := count(0, "save_team_settings"), count(1, "save_team_settings")
@@ -435,12 +478,13 @@ func TestSettingsTarget(t *testing.T) {
 			t.Fatal("explicit host save went to another Node")
 		}
 
+		save := m.TeamActions.SaveConcurrency
 		m.ManagedNode = "offline-host"
 		root.nodeSettingsFrame()
 		settle()
-		m.TeamActions.SaveConcurrency()
+		save()
 		settle()
-		if root.shownSettings() != nil || count(0, "save_team_settings") != beforeLocal || count(1, "save_team_settings") != beforeRemote+1 {
+		if root.settingsPage(settings.Teams) != nil || m.TeamActions != nil || count(0, "save_team_settings") != beforeLocal || count(1, "save_team_settings") != beforeRemote+1 {
 			t.Fatal("unavailable host save used another Node")
 		}
 	})
@@ -487,26 +531,28 @@ func TestSettingsTarget(t *testing.T) {
 		m.Open(settings.Conversation)
 		root.nodeSettingsFrame()
 		root.workspaceSettingsFrame()
-		heldMachine := m.ExecutionSettingsStatus == "" && m.Sandbox.Revision == 2 && m.CodeIndex.Revision == 2
+		settle()
+		code := codeSetting(t)
+		heldMachine := m.ExecutionSettingsStatus == "" && m.Sandbox.Revision == 2 && code.Revision == 2
 		if !heldMachine {
-			t.Fatalf("remote execution settings = %+v / %+v", m.Sandbox, m.CodeIndex)
+			t.Fatalf("remote execution settings = %+v / %+v", m.Sandbox, code.Stored)
 		}
-		m.Sandbox.Draft, m.CodeIndex.Draft = true, true
+		m.Sandbox.Draft = true
 		m.SaveSandbox()
-		m.SaveCodeIndex()
+		code.SaveEnabled(true)
 		settle()
 		if count(1, "save_sandbox_settings") != 1 || count(1, "save_code_index_settings") != 1 {
 			t.Fatal("conversation settings save did not reach the selected host")
 		}
-		if m.PersistentCodeIndex == nil || *m.PersistentCodeIndex {
-			t.Fatalf("persistence was unavailable or enabled by default: %+v", m.PersistentCodeIndex)
+		if code.Persistent == nil || *code.Persistent {
+			t.Fatalf("persistence was unavailable or enabled by default: %+v", code.Persistent)
 		}
 		beforeCodeIndex := count(0, "save_code_index_settings")
-		m.SavePersistentCodeIndex(true)
+		code.SavePersistent(true)
 		settle()
 		if count(1, "save_code_index_settings") != 2 || count(0, "save_code_index_settings") != beforeCodeIndex ||
-			m.PersistentCodeIndex == nil || !*m.PersistentCodeIndex || m.CodeIndex.Revision != 4 {
-			t.Fatalf("remote persistence did not save: %+v, %v", m.CodeIndex, m.PersistentCodeIndex)
+			code.Persistent == nil || !*code.Persistent || code.Revision != 4 {
+			t.Fatalf("remote persistence did not save: %+v, %v", code.Stored, code.Persistent)
 		}
 		m.Open(settings.Decision)
 		root.localModelsFrame()
@@ -568,7 +614,7 @@ func TestSettingsTarget(t *testing.T) {
 			link.open()
 			root.nodeSettingsFrame()
 			settle()
-			if root.App.Page != shell.SettingsPage || m.Section != link.section || m.ManagedNode != nodes[1].String() || root.shownSettings() != remote {
+			if root.App.Page != shell.SettingsPage || m.Section != link.section || m.ManagedNode != nodes[1].String() || remote.currentSettingsPage(link.section) == nil {
 				t.Fatalf("%s opened with settings host %q", link.section, m.ManagedNode)
 			}
 			if root.App.Host != nodes[2].String() {
@@ -632,7 +678,13 @@ func TestSettingsTarget(t *testing.T) {
 		m.ManagedNode = nodes[1].String()
 		root.nodeSettingsFrame()
 		settle()
-		generation := root.settingsGeneration
+		binding := root.settingsPage(settings.Providers)
+		m.Compaction.Draft = 82
+		m.ProviderActions.SaveCompaction()
+		remote.workers.Wait()
+		if !m.Compaction.Pending {
+			t.Fatal("the fixture did not leave the save completion queued")
+		}
 		refresh := func(code protocol.ErrorCode) error {
 			reporting[1].mu.Lock()
 			reporting[1].nodeFault = code
@@ -643,14 +695,18 @@ func TestSettingsTarget(t *testing.T) {
 			t.Fatalf("could not simulate a provider host outage: %v", err)
 		}
 		root.nodeSettingsFrame()
-		if root.shownSettings() != remote || root.settingsGeneration != generation || m.ProviderActions.Available() {
+		if root.settingsPage(settings.Providers) != binding || m.ProviderActions.Available() {
 			t.Fatal("the outage reset the editor binding or left its actions available")
+		}
+		settle()
+		if m.Compaction.Pending || m.Compaction.Saved != 82 {
+			t.Fatalf("an acknowledged save did not settle in the retained editor: %+v", m.Compaction)
 		}
 		if err := refresh(""); err != nil {
 			t.Fatal(err)
 		}
 		root.nodeSettingsFrame()
-		if root.shownSettings() != remote || root.settingsGeneration != generation || !m.ProviderActions.Available() {
+		if root.settingsPage(settings.Providers) != binding || !m.ProviderActions.Available() {
 			t.Fatal("the same returning host did not retain its editor binding")
 		}
 		settle()
@@ -658,7 +714,7 @@ func TestSettingsTarget(t *testing.T) {
 			t.Fatalf("could not simulate permission loss: %v", err)
 		}
 		root.nodeSettingsFrame()
-		if root.shownSettings() != nil || root.settingsGeneration == generation || m.ProviderActions.Available() {
+		if root.settingsPage(settings.Providers) != nil || binding.target.Context.Err() == nil || m.ProviderActions.Available() {
 			t.Fatal("permission loss retained the editor binding")
 		}
 	})
@@ -694,8 +750,14 @@ func TestPowerAndTeamSettingsFollowSaveBinding(t *testing.T) {
 		defer controller.Close()
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		app := &shell.App{Data: &viewmodel.Data{}, Settings: settings.NewLive()}
+		if err := controller.Start(ctx); err != nil {
+			t.Fatal(err)
+		}
+		assembly := desktop.Harness()
+		app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly)
 		r := &Runtime{ctx: ctx, controller: controller, App: app, teams: newTeamState(), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		r.bindSettingsPages(assembly.SettingsPages)
+		defer r.closeSettingsPages()
 		tester := ui.NewTester(func(c *ui.Context) {
 			r.mu.Lock()
 			queue := r.queue
@@ -748,9 +810,15 @@ func TestPowerAndTeamSettingsFollowSaveBinding(t *testing.T) {
 			t.Fatalf("the original reply did not settle Power settings: %+v", m.Power)
 		}
 
+		app.Page = shell.SettingsPage
+		m.Open(settings.Teams)
+		r.syncSettingsPages()
 		m.Concurrency = settings.Stored[float64]{Revision: 3, Saved: 4, Draft: 5}
 		old := write("save_team_settings", r.saveConcurrency)
-		returnToHost()
+		m.ManagedNode = "offline"
+		r.syncSettingsPages()
+		m.ManagedNode = ""
+		r.syncSettingsPages()
 		m.Concurrency = settings.Stored[float64]{Revision: 4, Saved: 5, Draft: 7}
 		newer := write("save_team_settings", r.saveConcurrency)
 		complete(newer, "team_settings", protocol.TeamSettings{Revision: 5, ChildConcurrency: 7})
@@ -759,8 +827,8 @@ func TestPowerAndTeamSettingsFollowSaveBinding(t *testing.T) {
 			t.Fatalf("an earlier binding rolled back Teams settings: %+v", m.Concurrency)
 		}
 
-		r.settingsShown = &Runtime{}
-		r.settingsGeneration++
+		m.ManagedNode = "offline"
+		r.syncSettingsPages()
 		r.acceptTeamRead(protocol.TeamSettings{Revision: 6, ChildConcurrency: 5, Source: &protocol.ConfigurationOrigin{}})
 		if m.ConcurrencyReadOnly {
 			t.Fatal("a previous host made the current Teams slider read-only")

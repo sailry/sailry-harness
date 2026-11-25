@@ -116,8 +116,9 @@ func newPluginLocationTestFixture(t *testing.T, assemblies ...shell.Assembly) pl
 		ctx: ctx, cancel: cancel, controller: controller, packages: newPackageState(),
 		App: shell.NewLiveWithAssembly(data, assembly), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
 	}
-	if assembly.Worktrees {
-		root.App.Sidebar.Actions = &sidebar.Actions{Worktrees: root.sidebarWorkspaceAction}
+	if len(assembly.ProjectWorkflows) != 0 {
+		root.App.Sidebar.Actions = &sidebar.Actions{}
+		root.bindProjectWorkflows(assembly.ProjectWorkflows)
 	}
 	root.initPluginViews()
 	root.initWorkspace()

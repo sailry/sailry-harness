@@ -11,23 +11,32 @@ import (
 // ManagesNode reports whether the page exposes settings for the selected Node.
 func (section Section) ManagesNode() bool {
 	switch section {
-	case General, Conversation, Providers, Teams, Connectors, Media, Plugins, Skills,
-		Knowledge, Memory, Terminal, Search, Browser, Computer, Hooks, Runtime, OCR, Decision, Permissions, Backup:
+	case General, Conversation, Plugins, Skills, Knowledge, Terminal, Browser, Hooks, Runtime, OCR, Decision, Permissions, Backup:
 		return true
 	}
 	return false
 }
 
+func (m *Model) managedHosts() []ProviderHost {
+	if m.ManagedHosts != nil {
+		return m.ManagedHosts()
+	}
+	if m.ProviderActions.Hosts != nil {
+		return m.ProviderActions.Hosts()
+	}
+	return nil
+}
+
 // managedNodeID is the chosen host's Node ID, the local Node's for the
 // initial empty choice. An unavailable choice stays selected.
 func (m *Model) managedNodeID() string {
-	if !m.Live || m.ProviderActions.Hosts == nil {
+	if !m.Live {
 		return ""
 	}
 	if m.ManagedNode != "" {
 		return m.ManagedNode
 	}
-	hosts := m.ProviderActions.Hosts()
+	hosts := m.managedHosts()
 	if len(hosts) == 0 {
 		return ""
 	}
@@ -42,10 +51,10 @@ func settingsTargetStatus(c *ui.Context, key string) {
 // naming the chosen Node, with this computer shown as the local device. It
 // reports whether the choice changed in this frame.
 func managedNodeSelect(c *ui.Context, m *Model, target *string) bool {
-	if !m.Live || m.ProviderActions.Hosts == nil {
+	if !m.Live {
 		return false
 	}
-	hosts := m.ProviderActions.Hosts()
+	hosts := m.managedHosts()
 	if len(hosts) == 0 || len(hosts) == 1 && *target == "" {
 		return false
 	}
@@ -117,10 +126,10 @@ func ProviderHostName(c *ui.Context, host ProviderHost) string {
 // ProviderHostLabel is label with its host's name when several hosts are
 // connected.
 func ProviderHostLabel(c *ui.Context, m *Model, node, label string) string {
-	if node == "" || m.ProviderActions.Hosts == nil {
+	if node == "" {
 		return label
 	}
-	hosts := m.ProviderActions.Hosts()
+	hosts := m.managedHosts()
 	if len(hosts) < 2 {
 		return label
 	}

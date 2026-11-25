@@ -9,7 +9,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -20,8 +19,7 @@ type memorySettingsState struct {
 	refreshQueued    bool
 	generation       uint64
 	observedRev      uint64
-	observedProjects string
-	shown            *Runtime
+	observedProjects []protocol.Project
 	view             string
 	scope            string
 	query            string
@@ -36,7 +34,6 @@ type memorySettingsState struct {
 	pendingRequest   *protocol.Request
 	pendingOp        string
 	pendingBusy      bool
-	actions          settings.MemoryActions
 }
 
 func memoryErrorKey(code protocol.ErrorCode) string {
@@ -60,90 +57,92 @@ func memoryUncertain(code protocol.ErrorCode) bool {
 	return code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable
 }
 
-func (r *Runtime) memorySettingsFrame() {
-	root := r.localRuntime()
-	m := root.App.Settings
-	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Memory
-	var owner *Runtime
-	if visible {
-		owner = root.managedSettingsNode()
-	}
-	if root.memorySettings.shown != owner {
-		if prev := root.memorySettings.shown; prev != nil {
-			if m.MemoryPageState != nil {
-				m.MemoryPageState.CloseDialogs()
+func (r *Runtime) BindMemorySettings() settings.WindowBinding {
+	m := r.App.Settings
+	return settings.WindowBinding{
+		Blocked: func(status string) { m.MemorySettings = settings.MemorySettingsState{Status: status} },
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			st := &owner.memorySettings
+			st.loadFailed = false
+			if st.view == "" {
+				st.view = "active"
 			}
-			if !prev.memorySettings.pendingBusy {
-				prev.memorySettings.pendingRequest = nil
-				prev.memorySettings.pendingOp = ""
+			if st.scope == "" {
+				st.scope = "all"
 			}
-		}
-		root.memorySettings.shown = owner
+			m.MemoryActions = &settings.MemoryActions{
+				Refresh: func() {
+					if target.Current() {
+						st.view, st.scope, st.query = m.MemorySettings.View, m.MemorySettings.Scope, m.MemorySettings.Query
+						owner.refreshMemoryCatalog()
+					}
+				},
+				SaveConfig: func() {
+					if target.Current() {
+						st.config.Draft = m.MemorySettings.Config.Draft
+						owner.saveMemoryConfig()
+					}
+				},
+				ReloadConfig: func() {
+					if target.Current() {
+						st.config.Draft = st.config.Saved
+						st.configError, st.configRetry, st.configRequest = "", false, nil
+						owner.refreshMemoryCatalog()
+					}
+				},
+				LoadEntry: func(id string, done func(settings.MemoryEntryItem, string, string)) {
+					if target.Current() {
+						owner.loadMemoryEntry(target, id, done)
+					}
+				},
+				SaveEntry: func(draft settings.MemorySaveDraft, done func(bool, bool, string)) {
+					if target.Current() {
+						owner.saveMemoryEntry(draft, done)
+					}
+				},
+				DeleteEntry: func(id string, revision uint64, done func(bool, bool, string)) {
+					if target.Current() {
+						owner.deleteMemoryEntry(id, revision, done)
+					}
+				},
+				ForgetPending: func() {
+					if target.Current() {
+						st.pendingRequest, st.pendingOp = nil, ""
+					}
+				},
+			}
+			return settings.PageBinding{
+				Follow:  owner.followMemorySettings,
+				Recover: func() { st.loadFailed = false },
+				Close: func() {
+					if m.MemoryPageState != nil {
+						m.MemoryPageState.CloseDialogs()
+					}
+					m.MemoryActions, m.MemorySettings = nil, settings.MemorySettingsState{}
+					st.refreshQueued = false
+					if !st.pendingBusy {
+						st.pendingRequest, st.pendingOp = nil, ""
+					}
+				},
+			}
+		},
 	}
-	if !visible {
-		return
-	}
-	if owner == nil {
-		m.MemorySettings = settings.MemorySettingsState{Status: "connections_offline"}
-		m.MemoryActions = nil
-		return
-	}
-	st := &owner.memorySettings
-	if st.view == "" {
-		st.view = "active"
-	}
-	if st.scope == "" {
-		st.scope = "all"
-	}
-	if st.actions.Refresh == nil {
-		st.actions = settings.MemoryActions{
-			Refresh: func() {
-				st.view = m.MemorySettings.View
-				st.scope = m.MemorySettings.Scope
-				st.query = m.MemorySettings.Query
-				owner.refreshMemoryCatalog()
-			},
-			SaveConfig: func() {
-				st.config.Draft = m.MemorySettings.Config.Draft
-				owner.saveMemoryConfig()
-			},
-			ReloadConfig: func() {
-				st.config.Draft = st.config.Saved
-				st.configError = ""
-				st.configRetry = false
-				st.configRequest = nil
-				if owner.controller.Connected() {
-					owner.refreshMemoryCatalog()
-				} else {
-					root.wake()
-				}
-			},
-			LoadEntry:   owner.loadMemoryEntry,
-			SaveEntry:   owner.saveMemoryEntry,
-			DeleteEntry: owner.deleteMemoryEntry,
-			ForgetPending: func() {
-				st.pendingRequest = nil
-				st.pendingOp = ""
-			},
-		}
-	}
+}
 
-	snap := owner.snapshot()
-	projects := make([]settings.MemoryProjectOption, 0, len(snap.Projects))
-	var projKey strings.Builder
-	for _, p := range snap.Projects {
-		id := p.ID.String()
-		projects = append(projects, settings.MemoryProjectOption{ID: id, Name: p.Name})
-		projKey.WriteString(id)
-		projKey.WriteByte(':')
-		projKey.WriteString(p.Name)
-		projKey.WriteByte('\x00')
+func (r *Runtime) followMemorySettings() {
+	m, st := r.App.Settings, &r.memorySettings
+	snap := r.snapshot()
+	projectsChanged := !slices.EqualFunc(st.observedProjects, snap.Projects, func(a, b protocol.Project) bool { return a.ID == b.ID && a.Name == b.Name })
+	if projectsChanged {
+		st.observedProjects = snap.Projects
+		st.projects = make([]settings.MemoryProjectOption, 0, len(snap.Projects))
+		for _, p := range snap.Projects {
+			st.projects = append(st.projects, settings.MemoryProjectOption{ID: p.ID.String(), Name: p.Name})
+		}
 	}
-	st.projects = projects
-
-	if ((!st.loaded && !st.loadFailed) || snap.MemoryRevision != st.observedRev || projKey.String() != st.observedProjects) && !st.loading {
-		st.observedProjects = projKey.String()
-		owner.refreshMemoryCatalog()
+	if ((!st.loaded && !st.loadFailed) || snap.MemoryRevision != st.observedRev || projectsChanged) && !st.loading {
+		r.refreshMemoryCatalog()
 	}
 
 	m.MemorySettings = settings.MemorySettingsState{
@@ -152,7 +151,7 @@ func (r *Runtime) memorySettingsFrame() {
 		ConfigRetry: st.configRetry,
 		Loaded:      st.loaded,
 		Loading:     st.loading,
-		Connected:   owner.controller.Connected(),
+		Connected:   true,
 		Error:       st.loadError,
 		View:        st.view,
 		Scope:       st.scope,
@@ -161,12 +160,12 @@ func (r *Runtime) memorySettingsFrame() {
 		Entries:     st.entries,
 		AllActive:   st.allActive,
 	}
-	m.MemoryActions = &st.actions
 }
 
 func (r *Runtime) refreshMemoryCatalog() {
 	st := &r.memorySettings
-	if !r.controller.Connected() {
+	page := r.currentSettingsPage(settings.Memory)
+	if page == nil {
 		return
 	}
 	if st.loading {
@@ -199,17 +198,21 @@ func (r *Runtime) refreshMemoryCatalog() {
 	}
 	needAllActive := view != "active" || scope != "all" || strings.TrimSpace(query) != ""
 	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_memory_catalog", Data: payload})
+		out, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_memory_catalog", Data: payload})
 		var activeOut protocol.Output
 		var activeErr error
 		if err == nil && needAllActive {
-			activeOut, activeErr = r.controller.Do(r.ctx, protocol.Command{Kind: "read_memory_catalog", Data: protocol.CommandReadMemoryCatalogPayload{View: "active"}})
+			activeOut, activeErr = r.controller.Do(page.target.Context, protocol.Command{Kind: "read_memory_catalog", Data: protocol.CommandReadMemoryCatalogPayload{View: "active"}})
 		}
 		r.enqueue(func(c *ui.Context) {
 			if st.generation != gen {
 				return
 			}
 			st.loading = false
+			if !page.target.Current() {
+				st.loaded = false
+				return
+			}
 			defer func() {
 				if st.refreshQueued {
 					st.refreshQueued = false
@@ -353,27 +356,21 @@ func (r *Runtime) saveMemoryConfig() {
 	})
 }
 
-func (r *Runtime) loadMemoryEntry(id string, done func(entry settings.MemoryEntryItem, body string, errKey string)) {
-	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{
-			Kind: "read_memory_entry",
-			Data: protocol.CommandReadMemoryEntryPayload{ID: id},
-		})
-		r.enqueue(func(c *ui.Context) {
-			if err != nil {
-				key := memoryErrorKey(faultCode(err))
-				kit.Toast(c, kit.Failed, i18n.T(c, key))
-				done(settings.MemoryEntryItem{}, "", key)
-				return
-			}
-			entry, ok := detail[protocol.MemoryEntry](out.Data)
-			if !ok || out.Kind != "memory_entry" {
-				kit.Toast(c, kit.Failed, i18n.T(c, "memory_failed"))
-				done(settings.MemoryEntryItem{}, "", "memory_failed")
-				return
-			}
-			done(convertMemorySummary(entry.Summary), entry.Body, "")
-		})
+func (r *Runtime) loadMemoryEntry(target settings.PageTarget, id string, done func(entry settings.MemoryEntryItem, body string, errKey string)) {
+	r.readPageCommand(target, protocol.Command{Kind: "read_memory_entry", Data: protocol.CommandReadMemoryEntryPayload{ID: id}}, func(c *ui.Context, out protocol.Output, err error) {
+		if err != nil {
+			key := memoryErrorKey(faultCode(err))
+			kit.Toast(c, kit.Failed, i18n.T(c, key))
+			done(settings.MemoryEntryItem{}, "", key)
+			return
+		}
+		entry, ok := detail[protocol.MemoryEntry](out.Data)
+		if !ok || out.Kind != "memory_entry" {
+			kit.Toast(c, kit.Failed, i18n.T(c, "memory_failed"))
+			done(settings.MemoryEntryItem{}, "", "memory_failed")
+			return
+		}
+		done(convertMemorySummary(entry.Summary), entry.Body, "")
 	})
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -67,6 +68,7 @@ func terminalTabsFixture(t *testing.T, terminals ...protocol.TerminalInfo) (*Run
 	snapshot.Worktrees = []protocol.Worktree{{ID: protocol.WorktreeID{1}, Project: &project.ID, Path: project.Path, Main: true}}
 	snapshot.Terminals = terminals
 	root, source := snapshotFixture(t, snapshot)
+	root.App = shell.NewLiveWithAssembly(root.App.Data, testassembly.Full())
 	root.App.Sidebar.Actions = &sidebar.Actions{}
 	root.initTerminalActions()
 	return root, source
@@ -235,7 +237,7 @@ func testTerminalTabsCreate(t *testing.T) {
 			info.ID = protocol.TerminalID(request.ID)
 			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
 		}
-		id, created := root.createLiveTerminal(root, worktree, terminalPanel)
+		id, created := root.createLiveTerminal(root, worktree, protocol.ProcessAccessUnrestricted, terminalPanel)
 		if !created || root.App.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: id}) {
 			t.Fatalf("New terminal did not show its tab: %q %v", id, root.App.Panel.Active)
 		}
@@ -255,7 +257,7 @@ func testTerminalTabsCreate(t *testing.T) {
 		if !valid || launch.Worktree != worktree || launch.Access != protocol.ProcessAccessUnrestricted {
 			t.Fatalf("unexpected terminal launch: %+v", launch)
 		}
-		if _, created := root.createLiveTerminal(root, protocol.WorktreeID{}, terminalPanel); created {
+		if _, created := root.createLiveTerminal(root, protocol.WorktreeID{}, protocol.ProcessAccessUnrestricted, terminalPanel); created {
 			t.Fatal("a terminal was created without a worktree")
 		}
 	})
@@ -324,7 +326,7 @@ func testTerminalTabsClosePending(t *testing.T) {
 			}
 			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
 		}
-		id, created := root.createLiveTerminal(root, worktree, terminalPanel)
+		id, created := root.createLiveTerminal(root, worktree, protocol.ProcessAccessUnrestricted, terminalPanel)
 		if !created {
 			t.Fatal("New terminal did not start")
 		}
@@ -388,6 +390,7 @@ func TestProjectTerminalPlacement(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		worktree := protocol.WorktreeID{1}
 		running := terminalTabsTestInfo(1, worktree, "running")
+		running.Access = new(protocol.ProcessAccessWorkspace)
 		root, source := terminalTabsFixture(t, running)
 		source.respond = func(request protocol.Request) link.Response {
 			launch, _ := detail[protocol.TerminalLaunch](request.Command.Data)
@@ -409,6 +412,7 @@ func TestProjectTerminalPlacement(t *testing.T) {
 		if !root.App.HasWorkspaceTerminal(created) || root.packages.terminals[created] == nil || !root.terminalInventory().pending[created] {
 			t.Fatal("the workspace terminal detached before its creation snapshot arrived")
 		}
+		synctest.Wait()
 		split, ok := root.splitLiveTerminal(running.ID.String())
 		if !ok || !root.App.HasWorkspaceTerminal(split) || root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: split}) {
 			t.Fatal("splitting a workspace terminal opened a detail tab")
@@ -418,10 +422,10 @@ func TestProjectTerminalPlacement(t *testing.T) {
 		if len(commands) != 2 {
 			t.Fatalf("create_terminal commands = %d, want 2", len(commands))
 		}
-		for _, command := range commands {
-			launch, valid := detail[protocol.TerminalLaunch](command.Data)
-			if !valid || launch.Worktree != worktree {
-				t.Fatalf("project terminal changed its execution scope: %+v", launch)
+		for i, want := range []protocol.ProcessAccess{protocol.ProcessAccessUnrestricted, protocol.ProcessAccessWorkspace} {
+			launch, valid := detail[protocol.TerminalLaunch](commands[i].Data)
+			if !valid || launch.Worktree != worktree || launch.Access != want {
+				t.Fatalf("terminal launch %d = %+v, want worktree %s and access %s", i, launch, worktree, want)
 			}
 		}
 	})

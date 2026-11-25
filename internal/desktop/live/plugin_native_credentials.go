@@ -3,8 +3,8 @@ package live
 import (
 	"context"
 	"io"
-	"os"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -48,12 +48,33 @@ func (state *pluginNativeState) chooseSecretFile(ctx context.Context, _ string) 
 	if value.err != nil || value.path == "" {
 		return nil, "", value.err
 	}
-	file, err := os.Open(value.path)
+	readCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(state.native.Context, cancel)
+	defer stop()
+	if state.native.Context.Err() != nil {
+		return nil, "", state.native.Context.Err()
+	}
+	return readPickedSecretFile(readCtx, value.path)
+}
+
+func readPickedSecretFile(ctx context.Context, path string) ([]byte, string, error) {
+	const limit = 64 << 10
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	if !filepath.IsAbs(path) {
+		return nil, "", pluginNativeFault(protocol.ErrorCodeInvalidRequest, "an absolute credential file is required")
+	}
+	file, err := openLocalAttachment(path)
 	if err != nil {
 		return nil, "", pluginNativeFault(protocol.ErrorCodeUnavailable, "credential file could not be opened")
 	}
 	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, 65537))
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, "", pluginNativeFault(protocol.ErrorCodeInvalidRequest, "credential source is not an ordinary file")
+	}
+	content, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		clear(content)
 		return nil, "", pluginNativeFault(protocol.ErrorCodeUnavailable, "credential file could not be read")
@@ -62,5 +83,9 @@ func (state *pluginNativeState) chooseSecretFile(ctx context.Context, _ string) 
 		clear(content)
 		return nil, "", err
 	}
-	return content, filepath.Base(value.path), nil
+	if len(content) == 0 || len(content) > limit || !utf8.Valid(content) {
+		clear(content)
+		return nil, "", pluginNativeFault(protocol.ErrorCodeInvalidRequest, "credential file must contain between 1 and 65536 UTF-8 bytes")
+	}
+	return content, filepath.Base(path), nil
 }

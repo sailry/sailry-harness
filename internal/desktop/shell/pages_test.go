@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -133,7 +134,11 @@ func TestRailOpensPages(t *testing.T) {
 		// An archived record's menu restores it; a session's own menu is
 		// the sidebar row's.
 		var restored *viewmodel.Conversation
-		app.Sidebar.Actions = &sidebar.Actions{Unarchive: func(session *viewmodel.Conversation) { restored = session }, Worktrees: func(*viewmodel.Project, string, string) {}}
+		app.Sidebar.Actions = &sidebar.Actions{Unarchive: func(session *viewmodel.Conversation) { restored = session }}
+		app.Sidebar.Actions.RegisterProjectMenu(sidebar.ProjectMenuAction{
+			BeforeCopy: func(c *ui.Context, m *kit.Menu, _ *viewmodel.Project) { m.Item(i18n.T(c, "worktree_create")) },
+			AfterCopy:  func(c *ui.Context, m *kit.Menu, _ *viewmodel.Project) { m.Item(i18n.T(c, "worktree_remove")) },
+		})
 		if err := tester.RightClick("Archived remote session"); err != nil {
 			t.Fatal(err)
 		}

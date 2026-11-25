@@ -28,8 +28,10 @@ type ProjectActions struct {
 	NewTerminal func(*viewmodel.Project)
 	// Terminals lists the project's running Node terminals, whichever
 	// controller started them; OpenTerminal shows one as a main surface.
-	Terminals    func() []ProjectTerminal
-	OpenTerminal func(id string)
+	Terminals       func() []ProjectTerminal
+	OpenTerminal    func(id string)
+	ResourceActions []sidebar.ProjectResourceAction
+	WorktreePath    string
 	// Controls draws the controls packages add to the page, after its own.
 	Controls func(*ui.Context)
 }
@@ -126,11 +128,13 @@ func (a *App) projectView(c *ui.Context) {
 					ui.Text(c, label).FontSize(14)
 				}).OnClick(func() { state.actions.NewSession(project) })
 				if state.actions.NewTerminal != nil {
-					terminal := i18n.T(c, "workspace_new_terminal")
-					kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(project.Offline).Children(func() {
-						ui.Icon(c, icons.Terminal).FontSize(16)
-						ui.Text(c, terminal).FontSize(14)
-					}).OnClick(func() { state.actions.NewTerminal(project) })
+					projectResourceButton(c, project, "", sidebar.ProjectResourceAction{
+						Label: "workspace_new_terminal", Icon: icons.Terminal,
+						Open: func(project *viewmodel.Project, _ string) { state.actions.NewTerminal(project) },
+					})
+				}
+				for _, action := range state.actions.ResourceActions {
+					projectResourceButton(c, project, state.actions.WorktreePath, action)
 				}
 				// A plain directory offers Git beside the project's other
 				// actions; a repository shows its branch above them instead.
@@ -161,6 +165,16 @@ func (a *App) projectView(c *ui.Context) {
 		})
 	})
 	state.initializeDialog(c)
+}
+
+func projectResourceButton(c *ui.Context, project *viewmodel.Project, path string, action sidebar.ProjectResourceAction) {
+	label := i18n.T(c, action.Label)
+	kit.SecondaryLook(c, ui.ButtonBase(c.Key(action.Label)).Label(label)).Disabled(project.Offline || action.Open == nil).Children(func() {
+		if action.Icon != nil {
+			ui.Icon(c, action.Icon).FontSize(16)
+		}
+		ui.Text(c, label).FontSize(14)
+	}).OnClick(func() { action.Open(project, path) })
 }
 
 // projectRecordsView is the project's active or archived sessions, searched

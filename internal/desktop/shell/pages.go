@@ -112,10 +112,13 @@ func (a *App) ClosePage() bool {
 	return true
 }
 
-// closePageTab closes the tab a Files or Git page shows, as ⌘W does before
-// it closes the page, and reports whether there was one. Focus stays in the
-// page after its document leaves so the next close can close the page.
+// closePageTab dispatches Close Tab to the workspace page. Focus stays in a
+// project resource after the document leaves, so the next close can close it.
 func (a *App) closePageTab(c *ui.Context) bool {
+	if close := a.workspaceSlots().Close; close != nil {
+		close(c)
+		return true
+	}
 	k, pr := a.paged(), a.project()
 	if k == "" || pr == nil || !pr.CloseShown(k) {
 		return false
@@ -166,12 +169,6 @@ func (a *App) extensionDetails() bool {
 	return a.Settings.Details != nil && (a.Page == SettingsPage || page != nil && page.ExtensionDetails)
 }
 
-// pluginDetails reports whether the right column shows what a package page's
-// Workspace gave it.
-func (a *App) pluginDetails() bool {
-	return a.Page == PluginPage && a.PluginDetails != nil
-}
-
 // resourceDetails is the project list beside a full-page Files or Git
 // document. Panel tabs keep their own compact list-and-document layout.
 func (a *App) resourceDetails() bool {
@@ -179,12 +176,19 @@ func (a *App) resourceDetails() bool {
 	return page != nil && page.Resource != "" && page.RenderDetails != nil && a.project() != nil
 }
 
-func (a *App) workspaceDetails() bool { return a.pluginDetails() || a.resourceDetails() }
+func (a *App) workspaceDetails() bool {
+	return a.workspaceSlots().Details != nil || a.resourceDetails()
+}
 
 // RevealDetails shows the right column again after its toggle folded it.
 func (a *App) RevealDetails() {
 	switch {
 	case a.Page == PluginPage || a.paged() != "":
+		a.pluginWorkspacePrefs().Folded = false
+	case a.nativeWorkspacePageDefinition() != nil:
+		if a.nativeWorkspacePage != a.Page {
+			a.syncNativeWorkspace()
+		}
 		a.pluginWorkspacePrefs().Folded = false
 	case a.Page == HostPage:
 		a.Metrics = true

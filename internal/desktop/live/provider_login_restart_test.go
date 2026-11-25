@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -73,6 +74,7 @@ func testProviderLoginRestart(t *testing.T) {
 	}
 	defer r.Close()
 	m := r.App.Settings
+	r.App.Page = shell.SettingsPage
 	m.Open(settings.Providers)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		i18n.Bind(c, catalog)
@@ -83,6 +85,10 @@ func testProviderLoginRestart(t *testing.T) {
 		for _, post := range queue {
 			post(c)
 		}
+		if len(queue) != 0 {
+			r.delivered++
+		}
+		r.syncSettingsPages()
 		settings.Page(c, m, r.App.Data, settings.Look{Theme: &r.App.Theme, Mode: &r.App.Mode, Effects: &r.App.Effects, Surfaces: &r.App.Surfaces})
 		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
 	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
@@ -146,11 +152,10 @@ func testProviderLoginRestart(t *testing.T) {
 	defer remoteController.Close()
 	remote := r.newBinding(remoteController)
 	defer remote.Close()
-	remote.initProviders()
 	r.bindings = map[string]*Runtime{remoteSnapshot.Node.String(): remote}
 	m.ProviderActions.SignIn(remoteSnapshot.Node.String(), id)
 	await("the remote attempt", func() bool {
-		return remote.authorizations.provider != nil && remote.authorizations.provider.id != (protocol.RequestID{})
+		return remote.authorizations != nil && remote.authorizations.provider != nil && remote.authorizations.provider.id != (protocol.RequestID{})
 	})
 	remoteAttempt := remote.authorizations.provider
 	localAttempt := r.authorizations.provider

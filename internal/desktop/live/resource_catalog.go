@@ -81,15 +81,9 @@ func (r *Runtime) pruneResourceViews() {
 			if worktrees[worktree] && (project.owner.Project == nil || projects[*project.owner.Project]) {
 				continue
 			}
-			project.stopGitRefreshTimer()
+			project.releaseResourceWatch()
 			project.closeDocumentImages()
 			project.panel.ResetFileSearch()
-			if project.cancel != nil {
-				project.cancel()
-			}
-			if project.release != nil {
-				project.release()
-			}
 			owner.invalidateFilePreview(&worktree)
 			owner.invalidateDocumentPreviews(&worktree)
 			delete(owner.workspace.projects, worktree)

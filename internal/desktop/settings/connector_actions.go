@@ -91,19 +91,3 @@ func (m *Model) FailMCPConfiguration(id, detail string) {
 		page.FailMCPConfiguration(id, detail)
 	}
 }
-
-// CloseManagedNodeDialogs drops editors bound to the previous settings owner.
-func (m *Model) CloseManagedNodeDialogs() {
-	if page := m.ConnectorPageState; page != nil {
-		page.CloseDialogs()
-	}
-	if m.TeamPageState != nil {
-		m.TeamPageState.CloseDialogs()
-	}
-	if m.SearchPageState != nil {
-		m.SearchPageState.CloseDialogs()
-	}
-	if m.MemoryPageState != nil {
-		m.MemoryPageState.CloseDialogs()
-	}
-}

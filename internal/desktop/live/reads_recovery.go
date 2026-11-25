@@ -47,26 +47,9 @@ func (r *Runtime) recoverFailedReads(refresh bool) {
 			state.installFailed = false
 			r.observeInstallations()
 		}
-		if state.pythonFailed {
-			state.pythonFailed = false
-			r.observePython()
-		}
-		if state.pythonReadFailed {
-			state.pythonReadFailed = false
-			r.readPython()
-		}
 	}
-	if state := r.authorizations; state != nil && state.connectionsFailed {
-		state.connectionsFailed = false
-		r.initConnectorUI()
-	}
-	r.browserConfig.extLoadFailed = false
-	r.computerSettings.loadFailed = false
-	r.searchSettings.loadFailed = false
-	r.memorySettings.loadFailed = false
-	if root := r.localRuntime(); root.permissions.computerFailed && root.permissions.computerOwner == r {
-		root.permissions.computerFailed = false
-	}
+	r.recoverSettingsPages(refresh)
+	r.localRuntime().retryPermissionContributions(r)
 	if refresh {
 		// The open settings page can belong to a different Node than Refresh.
 		root := r.localRuntime()

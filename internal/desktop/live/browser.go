@@ -129,19 +129,31 @@ func (r *Runtime) watchBrowserNavigation() {
 	})
 }
 
-// SetWebViewWindow gives the window whose native UI shows the browser tabs
-// and the session documents. Without it both keep their fallbacks.
+func (r *Runtime) bindPanelBrowser() {
+	r.browserPanel = true
+	r.App.Panel.SetCreateResource(r.createPanelBrowser)
+	r.nativeWindowResources = append(r.nativeWindowResources, nativeWindowResource{
+		beforeFrame: r.browserFrame,
+		close:       r.closePanelBrowser,
+	})
+}
+
+// SetWebViewWindow supplies the shared native window for documents and any
+// registered browser tabs. Without it both keep their fallbacks.
 func (r *Runtime) SetWebViewWindow(window *mygo.Window) {
 	if r.parent != nil || window == nil {
 		return
 	}
-	r.browser = &browserState{window: window, available: mygo.WebViewAvailable(), tabs: map[string]*browserTab{},
-		serving: map[*Runtime]context.CancelFunc{}, documents: map[string]*documentView{}, sources: map[string]documentSource{},
+	r.browser = &browserState{window: window, available: mygo.WebViewAvailable(), documents: map[string]*documentView{}, sources: map[string]documentSource{},
 		drafts: map[documentDraftKey]map[string]json.RawMessage{}, sent: map[documentDraftKey]map[string]bool{}}
-	r.browser.persistent = r.browserPersistent()
-	r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
-		Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) },
-		Stop: r.browserStop, Pick: r.browserPickToggle, Inspect: r.browserInspect, Settings: r.browserSettings}
+	if r.browserPanel {
+		r.browser.tabs = make(map[string]*browserTab)
+		r.browser.serving = make(map[*Runtime]context.CancelFunc)
+		r.browser.persistent = r.browserPersistent()
+		r.App.Panel.BrowserActions = &panel.BrowserActions{View: r.browserView, Page: r.browserPage, Navigate: r.browserNavigate,
+			Back: func(id string) { r.browserStep(id, -1) }, Forward: func(id string) { r.browserStep(id, 1) }, Reload: func(id string) { r.browserStep(id, 0) },
+			Stop: r.browserStop, Pick: r.browserPickToggle, Inspect: r.browserInspect, Settings: r.browserSettings}
+	}
 	r.App.Panel.SetDocumentView(r.sessionDocumentView)
 	if r.attachments != nil && r.attachments.native.DocumentView == nil {
 		actions := r.attachments.native
@@ -158,10 +170,8 @@ func browserAddress(address string) bool {
 	return err == nil && (target.Scheme == "http" || target.Scheme == "https") && target.Host != "" && target.User == nil
 }
 
-// browserFrame runs before every frame: it serves the browser calls of the
-// local Node and of every bound one, closes the pages of closed tabs and of
-// documents no longer shown, and reopens the pages in the other website data
-// store when the browser's persistence preference changed.
+// browserFrame serves the browser calls of the local and bound Nodes,
+// releases closed tabs, and moves open pages when persistence changes.
 func (r *Runtime) browserFrame() {
 	state := r.browser
 	if state == nil {
@@ -223,13 +233,18 @@ func (r *Runtime) browserFrame() {
 			}
 		}
 	}
-	for id, document := range state.documents {
-		if !document.shown {
-			document.close()
-			delete(state.documents, id)
-			continue
+}
+
+func (r *Runtime) closePanelBrowser() {
+	if state := r.browser; state != nil {
+		if state.watchTimer != nil {
+			state.watchTimer.Stop()
+			state.watchTimer = nil
 		}
-		document.shown = false
+		for _, cancel := range state.serving {
+			cancel()
+		}
+		clear(state.serving)
 	}
 }
 

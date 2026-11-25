@@ -110,6 +110,19 @@ func (r *Runtime) documentMount(c *ui.Context, source documentSource) documentMo
 	return mount
 }
 
+func (r *Runtime) documentFrame() {
+	if state := r.browser; state != nil {
+		for id, document := range state.documents {
+			if !document.shown {
+				document.close()
+				delete(state.documents, id)
+				continue
+			}
+			document.shown = false
+		}
+	}
+}
+
 // documentView renders a session document, or a worktree page, in its sandbox. It reports false
 // where no WebView can show it, and the caller keeps its fallback.
 func (r *Runtime) documentView(c *ui.Context, source documentSource) bool {

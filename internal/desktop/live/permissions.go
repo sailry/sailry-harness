@@ -70,10 +70,21 @@ func permissionStatus(goos string, kind protocol.PermissionsKind, status permiss
 
 // permissionEntry is one grant a package or native module declares.
 type permissionEntry struct {
-	owner          *Runtime
-	pack           protocol.PluginReference
-	declaration    protocol.PermissionsContribution
-	nativeComputer bool
+	owner       *Runtime
+	pack        protocol.PluginReference
+	declaration protocol.PermissionsContribution
+	native      *shell.PermissionContribution
+}
+
+func (entry permissionEntry) checks() bool {
+	return entry.native != nil || entry.declaration.Check != nil
+}
+
+func (entry permissionEntry) requests() bool {
+	if entry.native != nil {
+		return entry.native.Request != nil
+	}
+	return entry.declaration.Request != nil
 }
 
 type permissionCard struct {
@@ -156,11 +167,11 @@ func permissionCards(goos string, local protocol.NodeID, entries []permissionEnt
 			continue
 		}
 		switch {
-		case entry.declaration.Check != nil:
+		case entry.checks():
 			card.status, card.entry = "permission_unknown", entry
 			card.settings = goos == "darwin" && target == local
 			card.check = connected
-			card.request = connected && target == local && entry.declaration.Request != nil
+			card.request = connected && target == local && entry.requests()
 		case target != local:
 			card.status = "permission_remote"
 		default:
@@ -251,23 +262,16 @@ type permissionChange struct {
 }
 
 type permissionState struct {
-	probe           permissionProbe
-	visible         bool
-	cards           []permissionCard
-	host            *Runtime
-	binding         string
-	checking        bool
-	pending         bool
-	failed          bool // a step of the running work failed; reported once when it ends
-	generation      int
-	actions         settings.PermissionActions
-	computerOwner   *Runtime
-	computerGen     uint64
-	computerRev     uint64
-	computerLoaded  bool
-	computerFailed  bool
-	computerReading bool
-	computerEnabled bool
+	probe         permissionProbe
+	contributions []shell.PermissionContribution
+	scope         *permissionScope
+	cards         []permissionCard
+	binding       string
+	checking      bool
+	pending       bool
+	failed        bool // a step of the running work failed; reported once when it ends
+	workCancel    context.CancelFunc
+	actions       settings.PermissionActions
 }
 
 // permissionsFrame projects the page while it shows, and checks every grant
@@ -276,15 +280,13 @@ func (r *Runtime) permissionsFrame() {
 	root := r.localRuntime()
 	state := &root.permissions
 	m := root.App.Settings
-	if root.App.Page != shell.SettingsPage || m.Section != settings.Permissions {
-		if state.visible {
-			state.visible, state.checking, state.pending = false, false, false
+	if !root.permissionsVisible() {
+		if state.scope != nil {
+			state.endScope()
+			state.cards, state.binding, state.actions.HostPermissions = nil, "", nil
+			m.PermissionActions = nil
+			m.Permissions = nil
 			m.SetBusy(settings.BusyPermissions, false)
-			state.generation++
-			state.computerGen++
-			state.computerReading = false
-			state.computerFailed = false
-			state.failed = false
 		}
 		return
 	}
@@ -293,102 +295,39 @@ func (r *Runtime) permissionsFrame() {
 	}
 	if state.actions.Check == nil {
 		state.actions = settings.PermissionActions{
-			Check: root.checkPermissions, ShowApp: root.showPermissionApp,
-			Request:  func(resource string) { root.requestPermission(resource, false) },
-			Settings: func(resource string) { root.openPermissionSettings(resource, false) },
-			HostRequest: func(resource string) {
-				if state.host == root && root.managedSettingsNode() == root {
-					root.requestPermission(resource, true)
+			Check: func() {
+				if scope := state.scope; scope != nil {
+					root.retryPermissionContributions(scope.owner)
+					root.checkPermissions()
 				}
 			},
-			HostSettings: func(resource string) {
-				if state.host == root && root.managedSettingsNode() == root {
-					root.openPermissionSettings(resource, true)
-				}
-			},
+			ShowApp:      root.showPermissionApp,
+			Request:      func(resource string) { root.requestPermission(resource, false) },
+			Settings:     func(resource string) { root.openPermissionSettings(resource, false) },
+			HostRequest:  func(resource string) { root.requestPermission(resource, true) },
+			HostSettings: func(resource string) { root.openPermissionSettings(resource, true) },
 		}
 	}
-	refresh := !state.visible
-	state.visible = true
 	local := root.controller.Target()
 	owner := root.managedSettingsNode()
+	scope, refresh := root.syncPermissionScope(owner)
 	var entries []permissionEntry
 	var binding []string
 	if owner != nil {
-		entries = permissionDirectory(owner, root.pluginViewCatalog(owner))
-		hasComputerPlugin := slices.ContainsFunc(entries, func(entry permissionEntry) bool {
-			return entry.declaration.Subject == "dev.sailry.computer"
-		})
-		if !hasComputerPlugin && owner.machineSettingsStatus() == "" && owner.controller.Connected() {
-			rev := owner.snapshot().ComputerSettingsRevision
-			if state.computerOwner != owner {
-				state.computerOwner = owner
-				state.computerGen++
-				state.computerLoaded = false
-				state.computerFailed = false
-				state.computerEnabled = false
-				state.computerReading = false
-			}
-			if ((!state.computerLoaded && !state.computerFailed) || state.computerRev != rev) && !state.computerReading {
-				state.computerReading = true
-				state.computerFailed = false
-				state.computerRev = rev
-				targetOwner := owner
-				targetGen := state.computerGen
-				targetRev := rev
-				root.async(func() {
-					out, err := targetOwner.controller.Do(root.ctx, protocol.Command{Kind: "read_computer_settings"})
-					root.enqueue(func(*ui.Context) {
-						if state.computerOwner != targetOwner || state.computerGen != targetGen {
-							return
-						}
-						state.computerReading = false
-						if err != nil || out.Kind != "computer_settings" {
-							state.computerFailed = true
-							return
-						}
-						cfg, ok := detail[protocol.ComputerSettings](out.Data)
-						if !ok {
-							state.computerFailed = true
-							return
-						}
-						state.computerLoaded = true
-						state.computerFailed = false
-						state.computerRev = max(targetRev, cfg.Revision)
-						state.computerEnabled = cfg.Enabled
-					})
-				})
-			}
-			if state.computerLoaded && state.computerEnabled {
-				checkName, reqName := "check", "request"
-				for _, kind := range []protocol.PermissionsKind{protocol.PermissionsKindAccessibility, protocol.PermissionsKindScreenRecording} {
-					entries = append(entries, permissionEntry{
-						owner:          owner,
-						nativeComputer: true,
-						declaration: protocol.PermissionsContribution{
-							Kind:    kind,
-							Subject: "dev.sailry.computer",
-							Check:   &checkName,
-							Request: &reqName,
-						},
-					})
-				}
-			}
-		}
+		entries = root.nativePermissionEntries(scope, permissionDirectory(owner, root.pluginViewCatalog(owner)))
 		for _, entry := range entries {
-			if entry.nativeComputer {
-				binding = append(binding, "native-computer", entry.declaration.Subject, string(entry.declaration.Kind))
+			if entry.native != nil {
+				binding = append(binding, "native", entry.declaration.Subject, string(entry.declaration.Kind))
 			} else {
 				binding = append(binding, entry.pack.Name, entry.pack.Digest, strconv.FormatUint(entry.pack.SettingsRevision, 10), entry.declaration.Subject, string(entry.declaration.Kind))
 			}
 		}
 	}
-	if key := strings.Join(binding, "\x00"); state.cards == nil || owner != state.host || key != state.binding {
-		state.binding, state.host = key, owner
-		state.generation++
-		state.checking, state.pending, state.failed = false, false, false
+	if key := strings.Join(binding, "\x00"); refresh || key != state.binding {
+		state.binding = key
+		state.endWork()
 		state.cards = permissionCards(state.probe.goos, local, entries, func(entry permissionEntry) (protocol.NodeID, bool) {
-			return entry.owner.controller.Target(), entry.owner.controller.Connected()
+			return entry.owner.controller.Target(), scope.connected
 		}, state.cards)
 		refresh = true
 	}
@@ -422,27 +361,38 @@ func (state *permissionState) apply(owner permissionCard, changes []permissionCh
 	}
 }
 
+type permissionTask func(context.Context) func(*ui.Context)
+
 // permissionWork runs steps off the UI thread in order and applies each
-// result on it. Leaving the page or rebinding its packages drops the rest.
-func (r *Runtime) permissionWork(steps []func() func(*ui.Context), done func(*ui.Context)) {
+// result on it. Rebinding cancels the remaining steps and discards old results.
+func (r *Runtime) permissionWork(steps []permissionTask, done func(*ui.Context)) {
 	state := &r.permissions
-	generation := state.generation
-	r.async(func() {
+	scope := state.scope
+	ctx, cancel := context.WithCancel(scope.ctx)
+	state.workCancel = cancel
+	if !r.async(func() {
 		for _, step := range steps {
-			apply := step()
+			if ctx.Err() != nil {
+				return
+			}
+			apply := step(ctx)
 			r.enqueue(func(c *ui.Context) {
-				if state.generation == generation && apply != nil {
+				if ctx.Err() == nil && r.permissionScopeCurrent(scope) && apply != nil {
 					apply(c)
 				}
 			})
 		}
 		r.enqueue(func(c *ui.Context) {
-			if state.generation == generation {
+			if ctx.Err() == nil && r.permissionScopeCurrent(scope) {
+				state.workCancel = nil
+				cancel()
 				done(c)
 				state.report(c)
 			}
 		})
-	})
+	}) {
+		state.endWork()
+	}
 }
 
 // report toasts the failures of one action once, when its work and the
@@ -456,21 +406,20 @@ func (state *permissionState) report(c *ui.Context) {
 
 func (r *Runtime) checkPermissions() {
 	state := &r.permissions
-	state.computerFailed = false
-	if state.checking || state.pending {
+	if !r.permissionScopeCurrent(state.scope) || state.checking || state.pending {
 		return
 	}
-	var steps []func() func(*ui.Context)
-	checkedNativeComputer := false
+	var steps []permissionTask
+	checked := map[*shell.PermissionContribution]bool{}
 	for _, card := range state.cards {
 		if !card.check {
 			continue
 		}
-		if card.entry != nil && card.entry.nativeComputer {
-			if checkedNativeComputer {
+		if card.entry != nil && card.entry.native != nil {
+			if checked[card.entry.native] {
 				continue
 			}
-			checkedNativeComputer = true
+			checked[card.entry.native] = true
 		}
 		steps = append(steps, r.permissionStep(card, false))
 	}
@@ -484,29 +433,36 @@ func (r *Runtime) checkPermissions() {
 // permissionStep reads one card's grants, asking for them first when
 // request is set, and marks a failure for the work's one toast. A grant the
 // system does not keep is the row's unavailable status, not a failure.
-func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(*ui.Context) {
+func (r *Runtime) permissionStep(card permissionCard, request bool) permissionTask {
 	state := &r.permissions
 	probe := state.probe
-	return func() func(*ui.Context) {
+	return func(ctx context.Context) func(*ui.Context) {
 		var changes []permissionChange
 		var err error
-		if card.entry != nil {
-			changes, err = r.packagePermission(*card.entry, request)
-		} else {
+		switch {
+		case card.entry == nil:
 			flow := permissionKinds[card.kind].flow
 			var status permissionflow.Status
 			if request {
-				_, err = probe.request(r.ctx, flow)
+				_, err = probe.request(ctx, flow)
 			}
 			status, checkErr := probe.check(flow)
 			if err == nil && !errors.Is(checkErr, errors.ErrUnsupported) {
 				err = checkErr
 			}
 			changes = []permissionChange{{card.kind, permissionStatus(probe.goos, card.kind, status, checkErr)}}
+		case card.entry.native != nil:
+			changes, err = r.nativePermission(ctx, *card.entry, request)
+		default:
+			changes, err = r.packagePermission(ctx, *card.entry, request)
 		}
 		return func(c *ui.Context) {
 			if err != nil {
-				if card.entry != nil {
+				if card.entry != nil && card.entry.native != nil {
+					for _, kind := range card.entry.native.Kinds {
+						changes = append(changes, permissionChange{kind, "permission_unknown"})
+					}
+				} else if card.entry != nil {
 					changes = []permissionChange{{card.kind, "permission_unknown"}}
 				}
 				state.failed = true
@@ -519,10 +475,7 @@ func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(
 // packagePermission calls a package's check or request handler. A request
 // first reads the grants, so a granted or unrequestable permission never
 // prompts.
-func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]permissionChange, error) {
-	if entry.nativeComputer {
-		return r.nativeComputerPermission(entry, request)
-	}
+func (r *Runtime) packagePermission(ctx context.Context, entry permissionEntry, request bool) ([]permissionChange, error) {
 	call := func(request bool) (protocol.PermissionsStatus, error) {
 		var status protocol.PermissionsStatus
 		handler, kind := entry.declaration.Check, "read_plugin_callback"
@@ -542,7 +495,7 @@ func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]perm
 		}
 		prepared := entry.owner.controller.Prepare(command)
 		prepared.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "permissions"}, Package: entry.pack}
-		output, err := entry.owner.controller.Execute(r.ctx, prepared)
+		output, err := entry.owner.controller.Execute(ctx, prepared)
 		if err != nil {
 			return status, err
 		}
@@ -557,7 +510,7 @@ func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]perm
 		return status, nil
 	}
 	status, err := call(false)
-	if err == nil && request && status.CanRequest && !slices.ContainsFunc(status.Grants, func(grant protocol.PermissionsGrant) bool {
+	if err == nil && request && ctx.Err() == nil && status.CanRequest && !slices.ContainsFunc(status.Grants, func(grant protocol.PermissionsGrant) bool {
 		return grant.Kind == entry.declaration.Kind && grant.Authorized != nil && *grant.Authorized
 	}) {
 		status, err = call(true)
@@ -576,64 +529,6 @@ func (r *Runtime) packagePermission(entry permissionEntry, request bool) ([]perm
 	return changes, nil
 }
 
-func (r *Runtime) nativeComputerPermission(entry permissionEntry, request bool) ([]permissionChange, error) {
-	read := func() (protocol.ComputerPermissions, error) {
-		out, err := entry.owner.controller.Do(r.ctx, protocol.Command{Kind: "read_computer_permissions"})
-		if err != nil {
-			return protocol.ComputerPermissions{}, err
-		}
-		perms, ok := detail[protocol.ComputerPermissions](out.Data)
-		if !ok || out.Kind != "computer_permissions" {
-			return protocol.ComputerPermissions{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid computer permission status"}
-		}
-		return perms, nil
-	}
-	perms, err := read()
-	if err != nil {
-		return nil, err
-	}
-	if request && perms.Local && perms.Platform == "macos" {
-		var wanted protocol.ComputerPermission
-		var already bool
-		switch entry.declaration.Kind {
-		case protocol.PermissionsKindAccessibility:
-			wanted = protocol.ComputerPermissionAccessibility
-			already = perms.Accessibility != nil && *perms.Accessibility
-		case protocol.PermissionsKindScreenRecording:
-			wanted = protocol.ComputerPermissionScreenCapture
-			already = perms.ScreenCapture != nil && *perms.ScreenCapture
-		}
-		if wanted != "" && !already {
-			out, reqErr := entry.owner.controller.Do(r.ctx, protocol.Command{
-				Kind: "request_computer_permission",
-				Data: protocol.CommandRequestComputerPermissionPayload{Permission: wanted},
-			})
-			if reqErr != nil {
-				return nil, reqErr
-			}
-			if updated, ok := detail[protocol.ComputerPermissions](out.Data); ok && out.Kind == "computer_permissions" {
-				perms = updated
-			}
-		}
-	}
-	grantStatus := func(granted *bool) string {
-		if perms.Platform != "macos" {
-			return "permission_not_needed"
-		}
-		if granted == nil {
-			return "permission_unknown"
-		}
-		if *granted {
-			return "permission_granted"
-		}
-		return "permission_required"
-	}
-	return []permissionChange{
-		{kind: protocol.PermissionsKindAccessibility, status: grantStatus(perms.Accessibility)},
-		{kind: protocol.PermissionsKindScreenRecording, status: grantStatus(perms.ScreenCapture)},
-	}, nil
-}
-
 func (r *Runtime) permissionKind(resource string) (protocol.PermissionsKind, bool) {
 	for kind, names := range permissionKinds {
 		if names.key == resource {
@@ -649,7 +544,7 @@ func (r *Runtime) permissionKind(resource string) (protocol.PermissionsKind, boo
 func (r *Runtime) requestPermission(resource string, host bool) {
 	state := &r.permissions
 	kind, known := r.permissionKind(resource)
-	if !known || state.checking || state.pending {
+	if !known || !r.permissionScopeCurrent(state.scope) || host && state.scope.owner != r || state.checking || state.pending {
 		return
 	}
 	requests := permissionRequests(state.cardsFor(host), kind)
@@ -661,7 +556,7 @@ func (r *Runtime) requestPermission(resource string, host bool) {
 		return
 	}
 	probe := state.probe
-	var steps []func() func(*ui.Context)
+	var steps []permissionTask
 	for _, card := range requests {
 		if !card.opensSettings() {
 			if card.request {
@@ -672,7 +567,7 @@ func (r *Runtime) requestPermission(resource string, host bool) {
 		if card.kind == protocol.PermissionsKindFullDisk && card.check {
 			steps = append(steps, r.permissionStep(card, false))
 		}
-		steps = append(steps, func() func(*ui.Context) {
+		steps = append(steps, func(context.Context) func(*ui.Context) {
 			err := probe.settings(permissionKinds[card.kind].flow)
 			return func(*ui.Context) {
 				if err != nil {
@@ -697,7 +592,7 @@ func (r *Runtime) requestPermission(resource string, host bool) {
 func (r *Runtime) openPermissionSettings(resource string, host bool) {
 	state := &r.permissions
 	kind, known := r.permissionKind(resource)
-	if !known || state.checking || state.pending {
+	if !known || !r.permissionScopeCurrent(state.scope) || host && state.scope.owner != r || state.checking || state.pending {
 		return
 	}
 	cards := state.cardsFor(host)
@@ -706,11 +601,11 @@ func (r *Runtime) openPermissionSettings(resource string, host bool) {
 		return
 	}
 	probe := state.probe
-	var steps []func() func(*ui.Context)
+	var steps []permissionTask
 	if card := cards[index]; kind == protocol.PermissionsKindFullDisk && card.check {
 		steps = append(steps, r.permissionStep(card, false))
 	}
-	steps = append(steps, func() func(*ui.Context) {
+	steps = append(steps, func(context.Context) func(*ui.Context) {
 		err := probe.settings(permissionKinds[kind].flow)
 		return func(*ui.Context) {
 			if err != nil {

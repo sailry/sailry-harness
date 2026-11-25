@@ -61,10 +61,7 @@ func TestConversationCustomPrompt(t *testing.T) {
 	state.PersonalInstructions = editor
 	var submitted string
 	state.EditPersonalInstructions = func() { submitted = editor.Draft }
-	state.CodeIndexAvailable = true
-	state.CodeIndex = stored(true)
-	state.SavePersistentCodeIndex = func(enabled bool) { state.PersistentCodeIndex = new(enabled) }
-	state.PersistentCodeIndex = new(false)
+	state.SaveSandbox = func() {}
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		SettleEdits(c, state.Model)
@@ -72,17 +69,9 @@ func TestConversationCustomPrompt(t *testing.T) {
 	}, 920, 800)
 	tester.SetLocale("en")
 	tester.Frame()
-	toggle, ok := tester.AccessByRole(ui.RoleSwitch, i18n.In("en", "settings_code_index_persistent"))
+	toggle, ok := tester.AccessByRole(ui.RoleSwitch, i18n.In("en", "settings_command_sandbox"))
 	if !ok || toggle.Disabled {
-		t.Fatal("full code index switch unavailable")
-	}
-	if _, ok := tester.AccessByRole(ui.RoleMenuButton, "Project"); ok {
-		t.Fatal("full code index still uses a project selector")
-	}
-	tester.ClickAt(toggle.Bounds.X+10, toggle.Bounds.Y+10)
-	tester.Frame()
-	if !*state.PersistentCodeIndex {
-		t.Fatal("full code index switch did not save")
+		t.Fatal("sandbox switch unavailable")
 	}
 	if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save")); ok {
 		t.Fatal("custom prompt still has a Save button")

@@ -22,9 +22,9 @@ func (registry *Registry) publish(mount *contributionMount, body json.RawMessage
 	keys := map[string]bool{}
 	for _, state := range states {
 		var declaration *protocol.PluginUiContribution
-		for index := range mount.declarations {
-			if mount.declarations[index].ID == state.ID {
-				declaration = &mount.declarations[index]
+		for index := range mount.publishable {
+			if mount.publishable[index].ID == state.ID {
+				declaration = &mount.publishable[index]
 				break
 			}
 		}
@@ -39,6 +39,9 @@ func (registry *Registry) publish(mount *contributionMount, body json.RawMessage
 			return contributionFault(protocol.ErrorCodeInvalidRequest, "invalid contribution state")
 		}
 		keys[key] = true
+	}
+	if len(mount.hidden) != 0 {
+		states = slices.DeleteFunc(states, func(state protocol.PluginUiState) bool { return slices.Contains(mount.hidden, state.ID) })
 	}
 	registry.mu.Lock()
 	if !registry.owns(mount) {

@@ -153,7 +153,7 @@ func (r *Runtime) projectPluginStatus(comp *composer.State, context *composer.Co
 	keys := map[string]plugins.ContributionKey{}
 	closedPackages := map[protocol.PluginReference]bool{}
 	for _, entry := range feed.view.Entries {
-		if unmountedPlugin(entry.Package.Name) {
+		if pluginViewsRetired(entry.Package) {
 			continue
 		}
 		id := pluginStatusIdentity(entry)
@@ -269,7 +269,7 @@ func (r *Runtime) invokePluginStatus(scope protocol.PluginContext, id string) bo
 		return false
 	}
 	for _, entry := range feed.view.Entries {
-		if pluginStatusIdentity(entry) != id {
+		if pluginStatusIdentity(entry) != id || pluginViewsRetired(entry.Package) {
 			continue
 		}
 		if entry.Declaration.Kind != "button" || entry.Invoke == nil {

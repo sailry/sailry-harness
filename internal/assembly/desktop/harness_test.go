@@ -4,19 +4,20 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 )
 
 func TestHarnessOmitsCodePages(t *testing.T) {
 	assembly := desktop.Harness()
-	if assembly.CodeIndex {
+	if len(assembly.ExecutionSettings) != 0 {
 		t.Fatal("Harness assembled the Code index settings")
 	}
-	if assembly.Worktrees {
+	if len(assembly.ProjectWorkflows) != 0 {
 		t.Fatal("Harness assembled the Code worktree actions")
 	}
-	if assembly.Terminal {
+	if assembly.HasPanelResource(panel.Terminal) {
 		t.Fatal("Harness assembled the Code terminal surfaces")
 	}
 	pages := map[shell.Page]bool{}

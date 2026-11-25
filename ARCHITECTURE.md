@@ -83,6 +83,16 @@ The Go module is `github.com/sailry/sailry-harness`.
 
 Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream module, not a fork. Its own entry points select the common components, add its developer pages and Node modules, and supply its version, package identity and release sources. The framework does not import the product. Product code cannot import its dependency's Go `internal` packages.
 
+The contribution boundary applies to every module, including those selected in
+Harness by default. Only product assembly code selects concrete implementations.
+Modules depend on host contracts; the host invokes their registered contributions,
+not module-specific branches. Native registration and plugin manifests have
+separate loading and trust rules but should describe the same kinds of host slots.
+A module owns its feature UI, commands and event handlers. The shell owns shared
+controls, layout and the lifetime of each mounted contribution; removing a module
+must not leave entry points, subscriptions or background reads for its feature.
+The execution Node enforces permissions independently of UI availability.
+
 Desktop and Host startup bind process-wide diagnostics to the configured product version; Mobile supplies the installed package version when opening its controller. Host checks resolve the same product release feed used by installation, without treating a lower version as an upgrade. Code Android distribution is independent of Desktop tags: `mobile-v<SemVer>+<store build>` releases must contain a completed, nonempty `Sailry-android-arm64.apk` asset. Updates preserve SemVer precedence and require an increasing Android build number. Harness retains its existing `v<SemVer>` mobile feed.
 
 The principal dependency direction is:

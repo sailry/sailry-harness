@@ -316,6 +316,11 @@ func Run(args []string, config Options) error {
 		windows = append(windows, entry)
 		active = entry
 		backend.reports.watch(entry.window, app)
+		app.OnFeatureMenuChanged = func() {
+			if active == entry {
+				refreshCommands()
+			}
+		}
 		entry.window.OnFocus(func() {
 			active = entry
 			refreshCommands()

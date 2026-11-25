@@ -57,6 +57,8 @@ type contributionMount struct {
 	reference    protocol.PluginReference
 	generation   uint64
 	declarations []protocol.PluginUiContribution
+	publishable  []protocol.PluginUiContribution
+	hidden       []string
 	states       map[string]protocol.PluginUiState
 	published    map[string]bool
 	retained     map[string]bool
@@ -84,7 +86,9 @@ func NewRegistry(options RegistryOptions) *Registry {
 // before projecting so concurrent changes invalidate the next frame.
 func (registry *Registry) Revision() uint64 { return registry.revision.Load() }
 
-func (registry *Registry) Hooks(reference protocol.PluginReference, declarations []protocol.PluginUiContribution) (ContributionHooks, error) {
+// Hooks retains the captured publication contract even for controls this
+// surface does not present or dispatch.
+func (registry *Registry) Hooks(reference protocol.PluginReference, declarations []protocol.PluginUiContribution, hidden ...string) (ContributionHooks, error) {
 	body, err := json.Marshal(declarations)
 	if err != nil {
 		return ContributionHooks{}, contributionFault(protocol.ErrorCodeInvalidRequest, "invalid contribution declarations")
@@ -92,6 +96,12 @@ func (registry *Registry) Hooks(reference protocol.PluginReference, declarations
 	var captured []protocol.PluginUiContribution
 	if err := json.Unmarshal(body, &captured); err != nil || !protocol.ValidPluginUiContributions(captured) {
 		return ContributionHooks{}, contributionFault(protocol.ErrorCodeInvalidRequest, "invalid contribution declarations")
+	}
+	visible := captured
+	if len(hidden) != 0 {
+		visible = slices.DeleteFunc(slices.Clone(captured), func(declaration protocol.PluginUiContribution) bool {
+			return slices.Contains(hidden, declaration.ID)
+		})
 	}
 	registry.mu.Lock()
 	if registry.closed {
@@ -108,12 +118,12 @@ func (registry *Registry) Hooks(reference protocol.PluginReference, declarations
 	registry.generation = contributionGenerations.value
 	contributionGenerations.Unlock()
 	mount := &contributionMount{
-		reference: reference, generation: registry.generation, declarations: captured,
+		reference: reference, generation: registry.generation, declarations: visible, publishable: captured, hidden: slices.Clone(hidden),
 		states: map[string]protocol.PluginUiState{}, published: map[string]bool{}, retained: map[string]bool{},
 		interactions: map[string]contributionInteraction{}, closed: map[string]bool{},
 		actions: make(chan protocol.PluginUiEvent, contributionQueue), receiver: make(chan struct{}, 1), done: make(chan struct{}),
 	}
-	for _, declaration := range captured {
+	for _, declaration := range visible {
 		if declaration.Slot != "status" {
 			state := protocol.DefaultPluginUiState()
 			state.ID = declaration.ID

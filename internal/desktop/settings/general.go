@@ -105,12 +105,16 @@ func small(c *ui.Context, key any, label string) ui.Element {
 	return kit.Secondary(c.Key(key), label).Height(28).PaddingX(10)
 }
 
-// Kit's switch row has no disabled parameter. Keep its composition while a
-// revisioned save owns the draft, so another toggle cannot race that save.
-func settingSwitch(c *ui.Context, key any, title, description string, on *bool, pending bool) bool {
+// Switch uses the standard row composition while a revisioned save owns the
+// draft, so another toggle cannot race that save.
+func Switch(c *ui.Context, key any, title, description string, on *bool, pending bool) bool {
 	changed := false
 	kit.Row(c, key, title, description, func() { changed = ui.Switch(c.Key("switch"), on).Label(title).Disabled(pending).Changed() })
 	return changed
+}
+
+func settingSwitch(c *ui.Context, key any, title, description string, on *bool, pending bool) bool {
+	return Switch(c, key, title, description, on, pending)
 }
 
 // labels translates i18n keys.

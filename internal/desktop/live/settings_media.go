@@ -30,11 +30,49 @@ type mediaSaveKey struct {
 	bindings [4]string
 }
 
+func (r *Runtime) BindMediaSettings() settings.WindowBinding {
+	m := r.App.Settings
+	return settings.WindowBinding{
+		Blocked: func(string) { m.Media = settings.Stored[[4]string]{Pending: true} },
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			owner.media.seen = ""
+			m.Media = settings.Stored[[4]string]{}
+			m.SaveMedia = func() {
+				if target.Current() {
+					owner.saveMedia()
+				}
+			}
+			var seen bool
+			var providers, assignments uint64
+			follow := func() {
+				source, revision := owner.controller.ProviderRevision(), owner.snapshot().MediaSettings.Revision
+				if !seen || providers != source || assignments != revision {
+					seen, providers, assignments = true, source, revision
+					owner.followMedia(owner.snapshot())
+				}
+			}
+			return settings.PageBinding{
+				Follow: follow,
+				Recover: func() {
+					owner.media.seen = ""
+					seen = false
+					follow()
+				},
+				Close: func() {
+					m.Media, m.MediaOptions, m.MediaUnavailable = settings.Stored[[4]string]{}, nil, [4]bool{}
+					m.SaveMedia = nil
+				},
+			}
+		},
+	}
+}
+
 // followMedia reads the media assignments and the models offered when the
 // snapshot's providers or assignments are not the ones last read for. A
 // change that arrives during a read is read for once that read ends.
 func (r *Runtime) followMedia(snapshot protocol.Snapshot) {
-	if !r.showsSettings() {
+	if r.currentSettingsPage(settings.Media) == nil {
 		return
 	}
 	var seen strings.Builder
@@ -53,23 +91,24 @@ func (r *Runtime) followMedia(snapshot protocol.Snapshot) {
 // than the assignments shown, as one overtaken by a save, is dropped: the
 // snapshot that carries the newer revision is read for in its turn.
 func (r *Runtime) readMedia() {
+	page := r.currentSettingsPage(settings.Media)
+	if page == nil {
+		return
+	}
 	state := &r.media
-	current := r.settingsCurrent()
 	state.seen = state.wanted
 	state.reading = r.async(func() {
-		saved, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_media_settings"})
+		saved, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_media_settings"})
 		var listed protocol.Output
 		if err == nil {
-			listed, err = r.controller.Do(r.ctx, protocol.Command{Kind: "list_media_models"})
+			listed, err = r.controller.Do(page.target.Context, protocol.Command{Kind: "list_media_models"})
 		}
 		r.enqueue(func(c *ui.Context) {
 			state.reading = false
-			if !current() {
+			if !page.target.Current() {
 				// A return to this Node may have waited for the earlier read.
-				if r.showsSettings() {
-					state.seen = ""
-					r.followMedia(r.snapshot())
-				}
+				state.seen = ""
+				r.followMedia(r.snapshot())
 				return
 			}
 			if err != nil {
@@ -164,7 +203,8 @@ func mediaKey(binding protocol.MediaBinding) string {
 // Node's revision.
 func (r *Runtime) saveMedia() {
 	field := &r.App.Settings.Media
-	if field.Pending {
+	page := r.currentSettingsPage(settings.Media)
+	if page == nil || field.Pending {
 		return
 	}
 	key := mediaSaveKey{revision: field.Revision}
@@ -182,7 +222,7 @@ func (r *Runtime) saveMedia() {
 	// A returning page can make the same choice at the same revision before
 	// it sees the result. Attach its binding to the original write.
 	_, pending := r.media.saving[key]
-	r.media.saving[key] = r.settingsCurrent()
+	r.media.saving[key] = page.target.Current
 	if pending {
 		return
 	}

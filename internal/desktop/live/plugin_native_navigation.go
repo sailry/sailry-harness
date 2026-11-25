@@ -76,13 +76,16 @@ func (state *pluginNativeState) navigationOperations() {
 			if err != nil {
 				return nil, err
 			}
+			root := state.runtime.localRuntime()
+			if !root.terminalAssembled() {
+				return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "terminal surface is unavailable")
+			}
 			return state.effect(func(*ui.Context) {
 				if _, available := state.packageInfo(); !available {
 					return
 				}
 				for _, info := range state.runtime.snapshot().Terminals {
 					if info.ID == id && info.Status.Kind != "closed" {
-						root := state.runtime.localRuntime()
 						if existing := root.packages.terminals[id.String()]; existing != nil && existing.owner != state.runtime {
 							return
 						}

@@ -11,11 +11,12 @@ import (
 
 // NativePage contributes a body to the standard settings page frame.
 type NativePage struct {
-	Section Section
-	Group   string
-	Icon    *ui.SVG
-	Order   uint16
-	Render  func(*ui.Context, *State)
+	Section    Section
+	Group      string
+	Icon       *ui.SVG
+	Order      uint16
+	Render     func(*ui.Context, *State)
+	BindWindow func(host any) WindowBinding
 }
 
 type PluginPage struct {
@@ -36,7 +37,7 @@ func ManagedNodeSelect(c *ui.Context, m *Model) bool {
 
 func (m *Model) packageTargetOffline() bool {
 	if node := m.managedNodeID(); node != "" {
-		return !slices.ContainsFunc(m.ProviderActions.Hosts(), func(host ProviderHost) bool {
+		return !slices.ContainsFunc(m.managedHosts(), func(host ProviderHost) bool {
 			return host.Node == node && host.Connected
 		})
 	}
@@ -124,6 +125,11 @@ func (state *State) PluginPages() []PluginPage {
 func (state *State) HasSection(section Section) bool {
 	_, _, ok := state.lookupSection(section)
 	return ok
+}
+
+func (state *State) HasNativePage(section Section) bool {
+	page, _, _ := state.lookupSection(section)
+	return page != nil
 }
 
 func (state *State) lookupSection(section Section) (*NativePage, *PluginPage, bool) {

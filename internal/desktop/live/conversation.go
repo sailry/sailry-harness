@@ -808,13 +808,13 @@ func (x *conversationActions) Review(turn, path string) {
 	}
 }
 func (x *conversationActions) Worktree(turn string) {
-	if !x.readonly() && x.r.worktreesAssembled() {
+	if x.r.localRuntime().worktreeActions.ForkTurn != nil && !x.readonly() {
 		x.r.forkWorkspaceTurn(x, turn)
 	}
 }
 func (x *conversationActions) CreateWorktree() {
-	if !x.readonly() && x.r.worktreesAssembled() {
-		x.r.createComposerWorktree(x)
+	if create := x.r.localRuntime().worktreeActions.Create; create != nil && !x.readonly() {
+		create(x.r.workflowConversation(x.cv, x.comp))
 	}
 }
 func (x *conversationActions) AddProject() {

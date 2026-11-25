@@ -10,13 +10,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/sdk/desktop/native"
 )
 
 func Full() shell.Assembly {
 	assembly := harness.Harness()
-	assembly.CodeIndex = true
-	assembly.Worktrees = true
-	assembly.Terminal = true
+	RegisterExecutionFixture(&assembly)
+	RegisterWorktreeFixture(&assembly)
+	RegisterTerminalFixture(&assembly)
 	Register(&assembly)
 	if len(assembly.WorkspacePages) == 3 {
 		assembly.WorkspacePages[1], assembly.WorkspacePages[2] = assembly.WorkspacePages[2], assembly.WorkspacePages[1]
@@ -28,8 +29,21 @@ func Full() shell.Assembly {
 	return assembly
 }
 
+func RegisterTerminalFixture(assembly *shell.Assembly) {
+	native.RegisterTerminal(assembly)
+	assembly.PluginControlReplacements = append(assembly.PluginControlReplacements,
+		shell.PluginControlReplacement{Package: "commands", Slot: protocol.PluginUiSlotProject, ID: "terminal-cli"},
+		shell.PluginControlReplacement{Package: "commands", Slot: protocol.PluginUiSlotProjectMenu, ID: "terminal-menu-new"},
+		shell.PluginControlReplacement{Package: "commands", Slot: protocol.PluginUiSlotProjectMenu, ID: "terminal-menu-cli"},
+	)
+}
+
 // Register contributes a change-resource probe with both central and details surfaces.
 func Register(assembly *shell.Assembly) {
+	assembly.RegisterPanelResource(panel.Resource{
+		Kind: panel.Changes, Label: "git", Icon: icons.Network, Order: 40,
+		Mods: ui.Ctrl | ui.Shift, Key: ui.KeyG, Render: panel.RenderProjectResource,
+	})
 	assembly.WorkspacePages = append(assembly.WorkspacePages, shell.NativePage{
 		Page: shell.GitPage, Feature: shell.Feature{ID: "page:git", Icon: icons.Network, Label: "git", DefaultPinned: true},
 		Usage: protocol.FeatureUsePageGit, Resource: panel.Changes, CheckpointHistory: true,

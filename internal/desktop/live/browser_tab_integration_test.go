@@ -17,9 +17,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	browserdesktop "github.com/sailry/sailry-harness/modules/browser/desktop"
+	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 )
 
 // TestLiveBrowserTabIntegration drives the panel's browser tab of the real
@@ -34,7 +38,7 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.Start(ctx, profile)
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: moduleapi.Assembly{Modules: []moduleapi.Module{browsernode.Builtin()}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +77,7 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 	}
 	shown, other := create(), create()
 
-	runtime, err := NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")))
+	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), shell.Assemble(browserdesktop.Register))
 	if err != nil {
 		t.Fatal(err)
 	}

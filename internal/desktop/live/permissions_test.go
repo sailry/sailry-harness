@@ -10,8 +10,12 @@ import (
 
 	"github.com/egoist/mygo/plugins/permissionflow"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -193,7 +197,7 @@ func TestPermissionsMapping(t *testing.T) {
 		r.permissions.cards = permissionCards("darwin", local, nil, on(local, true), nil)
 		var pending []func(*ui.Context)
 		for _, card := range r.permissions.cards {
-			pending = append(pending, r.permissionStep(card, false)())
+			pending = append(pending, r.permissionStep(card, false)(t.Context()))
 		}
 		var toasts []string
 		tester := ui.NewTester(func(view *ui.Context) {
@@ -224,7 +228,7 @@ func TestPermissionsMapping(t *testing.T) {
 		}
 		// A grant the system does not keep is an ordinary state.
 		failure = fmt.Errorf("too old: %w", errors.ErrUnsupported)
-		apply := r.permissionStep(r.permissions.cards[1], false)()
+		apply := r.permissionStep(r.permissions.cards[1], false)(t.Context())
 		tester.Advance(time.Minute)
 		tester.Frame()
 		pending = []func(*ui.Context){apply}
@@ -235,7 +239,11 @@ func TestPermissionsMapping(t *testing.T) {
 		}
 	})
 	t.Run("a failed settings open among several grants toasts", func(t *testing.T) {
-		r := &Runtime{ctx: t.Context()}
+		r := &Runtime{ctx: t.Context(), App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}), controller: client.New(link.NewLocal(local, local, nil))}
+		r.App.Navigate(shell.SettingsPage)
+		r.App.Settings.Open(settings.Permissions)
+		r.syncPermissionScope(r)
+		t.Cleanup(r.permissions.endScope)
 		r.permissions.probe = permissionProbe{goos: "darwin", settings: func(permissionflow.Permission) error { return errors.New("no settings") }}
 		r.permissions.cards = []permissionCard{
 			{device: local, subject: "dev.sailry.capture", kind: microphone, status: "permission_denied", settings: true},

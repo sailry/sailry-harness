@@ -14,15 +14,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// initProviders prepares what this Runtime keeps of its Node's providers and
-// connectors, once: Settings reads them when it turns to the Node
-// (settings_target.go).
+// initProviders prepares the per-Node provider editing and sign-in state.
 func (r *Runtime) initProviders() {
 	if r.authorizations == nil {
 		r.initAuthorization()
@@ -40,20 +37,20 @@ func (r *Runtime) initProviders() {
 
 // refreshModelCatalog asks the Node shown to fetch its model catalog again.
 func (r *Runtime) refreshModelCatalog() {
-	if r.modelCatalogLoading {
+	page := r.currentSettingsPage(settings.Providers)
+	if page == nil || r.modelCatalogLoading {
 		return
 	}
-	current := r.settingsCurrent()
 	r.modelCatalogLoading = true
 	r.App.Settings.SetBusy(settings.BusyCatalog, true)
 	r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
 		r.modelCatalogLoading = false
-		if !current() {
+		if !page.target.Current() {
 			return
 		}
 		r.App.Settings.SetBusy(settings.BusyCatalog, false)
 		if ok {
-			r.readProviders()
+			r.fetchCompaction()
 		}
 	})
 }
@@ -78,12 +75,7 @@ func modelCatalogStale(status protocol.ConversationCatalogStatus, now time.Time)
 // followModelCatalog refreshes missing or stale network datasets once on
 // entering the page. A failed fetch waits for another visit or Update.
 func (r *Runtime) followModelCatalog() {
-	root := r.localRuntime()
-	if root.App.Page != shell.SettingsPage || root.App.Settings.Section != settings.Providers {
-		r.modelCatalogEntered = false
-		return
-	}
-	root.App.Settings.SetBusy(settings.BusyCatalog, r.modelCatalogLoading)
+	r.App.Settings.SetBusy(settings.BusyCatalog, r.modelCatalogLoading)
 	if r.modelCatalogEntered || !r.controller.Connected() {
 		return
 	}
@@ -94,51 +86,42 @@ func (r *Runtime) followModelCatalog() {
 	}
 }
 
-// readProviders reads the Node's preset directory and compaction threshold
-// for the pages; an answer for a Node they left is dropped.
-func (r *Runtime) readProviders() {
-	r.compactionObserved = r.snapshot().CompactionSettingsRevision
-	r.readProviderPresets()
-	if r.showsSettings() {
-		r.fetchCompaction()
-	}
-	r.projectProviderSnapshot()
-}
-
-func (r *Runtime) readProviderPresets() {
+func (r *Runtime) readProviderPresets(target settings.PageTarget) {
 	root := r.localRuntime()
 	if r.providerPresetsLoading || !r.controller.Connected() {
 		return
 	}
 	packages := r.snapshot().Plugins
-	if r.providerPresetsLoaded && samePresetPackages(r.providerPresetPackages, packages) {
+	if (r.providerPresetsLoaded || r.providerPresetsFailed) && samePresetPackages(r.providerPresetPackages, packages) {
 		return
 	}
-	r.providerPresetsLoaded = false
+	r.providerPresetsLoaded, r.providerPresetsFailed = false, false
+	r.providerPresetPackages = packages
 	r.providerPresetsLoading = true
+	user := settingsTargetUser(r)
 	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
+		out, err := r.controller.Do(target.Context, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
 		r.enqueue(func(c *ui.Context) {
 			r.providerPresetsLoading = false
+			if !target.Current() || !r.controller.Connected() || settingsTargetUser(r) != user {
+				return
+			}
 			if !samePresetPackages(packages, r.snapshot().Plugins) {
-				r.readProviderPresets()
+				r.readProviderPresets(target)
 				return
 			}
-			if err != nil {
-				if root.shownSettings() == r && root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
-					r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
-				}
-				return
-			}
-			if listing, ok := detail[protocol.ConversationPresetsListing](out.Data); ok {
+			if listing, ok := detail[protocol.ConversationPresetsListing](out.Data); err == nil && ok {
 				r.applyPresets(listing)
 				r.providerPresetsLoaded = true
-				r.providerPresetPackages = packages
-				root.projectProviderSnapshot()
+				root.publishProviderSettings()
 				return
 			}
-			if root.shownSettings() == r && root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
-				r.reportKeys(c, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model preset catalog response is invalid"), "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
+			r.providerPresetsFailed = true
+			if target.Node == r.controller.Target().String() && root.settingsSectionVisible(settings.Providers) {
+				if err == nil {
+					err = protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model preset catalog response is invalid")
+				}
+				r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
 			}
 		})
 	})
@@ -157,11 +140,14 @@ func samePresetPackages(a, b []protocol.PluginSummary) bool {
 // A draft the user holds stays; only the saved value and revision move, and
 // never back to an older revision.
 func (r *Runtime) fetchCompaction() {
-	current := r.settingsCurrent()
+	page := r.currentSettingsPage(settings.Providers)
+	if page == nil || !r.localRuntime().settingsSectionVisible(settings.Providers) {
+		return
+	}
 	r.async(func() {
-		result, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
+		result, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_compaction_settings"})
 		r.enqueue(func(c *ui.Context) {
-			if !current() {
+			if !page.target.Current() || !r.localRuntime().settingsSectionVisible(settings.Providers) {
 				return
 			}
 			if err != nil {
@@ -456,7 +442,6 @@ var apiBrands = map[protocol.ConversationModelApi]string{
 // model metadata and general settings remain those of the selected Node.
 func (r *Runtime) projectProviderSnapshot() {
 	root := r.localRuntime()
-	loadAccountDetails := root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers
 	owners := []*Runtime{root}
 	for _, id := range slices.Sorted(maps.Keys(root.bindings)) {
 		if owner := root.bindings[id]; owner != nil && owner.controller.Connected() {
@@ -467,11 +452,6 @@ func (r *Runtime) projectProviderSnapshot() {
 	channelsByNode := make(map[string][]viewmodel.Channel, len(owners)+1)
 	revisions := map[preferences.ProviderMember]uint64{}
 	for _, owner := range owners {
-		owner.initProviders()
-		if loadAccountDetails {
-			owner.readProviderCredentials()
-			owner.readProviderPresets()
-		}
 		rows := owner.projectNodeProviders()
 		channelsByNode[owner.controller.Target().String()] = rows
 		if owner == root {
@@ -524,12 +504,9 @@ func (r *Runtime) projectProviderSnapshot() {
 	}
 	root.App.Settings.Channels, root.App.Settings.ChannelsByNode = channels, channelsByNode
 	root.App.Settings.Brands = brands
-	if owner := root.shownSettings(); owner != nil {
-		owner.followMedia(owner.snapshot())
-	}
 	catalogOwner := root
-	if loadAccountDetails {
-		catalogOwner = root.shownSettings()
+	if page := root.settingsPage(settings.Providers); page != nil {
+		catalogOwner = page.owner
 	}
 	root.App.Settings.Catalog = viewmodel.Catalog{}
 	if catalogOwner != nil {
@@ -724,6 +701,9 @@ func (r *Runtime) provider(id string) (protocol.ConversationProvider, bool) {
 }
 
 func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationProvider {
+	if r.providerDraftBases == nil {
+		r.providerDraftBases = make(map[string]protocol.ConversationProvider)
+	}
 	key := fmt.Sprintf("%s/%d", d.Channel.ID, d.ExpectedRevision)
 	p, captured := r.providerDraftBases[key]
 	if !captured {

@@ -14,6 +14,7 @@ import (
 // a product's agent tools. Select those services without changing Harness defaults.
 func panelProjectionHost() moduleapi.Assembly {
 	assembly := hostassembly.Harness()
+	assembly.LegacyWorkspaceModules = true
 	assembly.Terminal = terminal.New
 	assembly.Modules = append(assembly.Modules, projectionServiceModule("git"), projectionServiceModule("terminal"))
 	return assembly

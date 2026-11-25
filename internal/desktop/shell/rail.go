@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -19,6 +20,27 @@ type Feature struct {
 	Fixed         bool   // always on the rail, never moved (Conversation)
 	Last          bool   // always last (Market)
 	DefaultPinned bool
+	// LegacyPackage identifies the official package whose rail preferences this page inherits.
+	LegacyPackage string
+}
+
+func (a *App) ReplacementFeature(packageName string) string {
+	for _, page := range a.nativePages {
+		if packageName != "" && page.Feature.LegacyPackage == packageName {
+			return page.Feature.ID
+		}
+	}
+	return ""
+}
+
+// InheritPackagePreferences binds only a verified installation on the profile's own Node.
+func (a *App) InheritPackagePreferences(node, packageName string) {
+	if id := a.ReplacementFeature(packageName); node != "" && id != "" {
+		if a.legacyFeatures == nil {
+			a.legacyFeatures = make(map[string]string)
+		}
+		a.legacyFeatures[id] = "plugin:" + node + "/" + packageName
+	}
 }
 
 func (a *App) lookupFeature(id string) (Feature, bool) {
@@ -33,6 +55,7 @@ func (a *App) SetPluginFeatures(features []Feature) {
 	if a.Preview {
 		return
 	}
+	previous := a.pluginFeatures
 	a.pluginFeatures = make(map[string]Feature, len(features))
 	for _, feature := range features {
 		if feature.ID == "" || a.pageForFeature(feature.ID) != nil {
@@ -53,6 +76,9 @@ func (a *App) SetPluginFeatures(features []Feature) {
 		position++
 	}
 	a.features = a.mergeFeatureOrder(a.features)
+	if a.OnFeatureMenuChanged != nil && !maps.EqualFunc(previous, a.pluginFeatures, func(x, y Feature) bool { return x.Label == y.Label }) {
+		a.OnFeatureMenuChanged()
+	}
 	if a.Page == PluginPage {
 		if _, available := a.pluginFeatures[a.pluginPage]; !available {
 			a.Navigate(ConversationPage)
@@ -79,6 +105,9 @@ func (a *App) moveFeature(source, target string, after bool) {
 		at++
 	}
 	a.features = a.mergeFeatureOrder(slices.Insert(out, at, source))
+	if a.OnFeatureMenuChanged != nil {
+		a.OnFeatureMenuChanged()
+	}
 }
 
 func (a *App) unpinnedList() []string {

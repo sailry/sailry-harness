@@ -265,55 +265,96 @@ func pythonView(index *string) settings.Python {
 	return settings.Python{Index: len(pythonIndexURLs), Custom: *index}
 }
 
-func (r *Runtime) readPython() {
-	if r.machineSettingsStatus() != "" {
-		return
+func (r *Runtime) BindRuntimeSettings() settings.WindowBinding {
+	m := r.App.Settings
+	clear := func(status string) {
+		m.Python, m.PythonVersion, m.PythonPreparing = settings.Stored[settings.Python]{}, "", nil
+		m.PythonStatus = status
+		if m.PackageActions != nil {
+			m.PackageActions.SavePython = nil
+		}
 	}
-	state := r.packages
-	state.pythonRead = true
-	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_python_settings"})
-		r.enqueue(func(c *ui.Context) {
-			info, valid := detail[protocol.PythonInfo](out.Data)
-			if err == nil && (!valid || out.Kind != "python_settings") {
-				err = errors.New("unexpected Python settings response")
+	return settings.WindowBinding{
+		Administrator: true,
+		Blocked:       clear,
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			if owner.packages == nil {
+				owner.packages = newPackageState()
 			}
-			if err != nil {
-				state.pythonReadFailed = true
-				r.packageReport(c, err)
-				return
-			}
-			state.pythonVersion, state.pythonReady = info.Version, true
-			state.pythonReadFailed = false
-			shown := r.showsPythonSettings()
-			m := r.App.Settings
-			if shown && m.PythonStatus == "" {
-				state.pythonDraft = m.Python
-			}
-			draft := &state.pythonDraft
-			saved := pythonView(info.Settings.Index)
-			if !draft.Pending {
-				if draft.Draft == draft.Saved {
-					draft.Draft = saved
+			state := owner.packages
+			clear("plugins_loading")
+			state.pythonReady = false
+			if m.PackageActions != nil {
+				m.PackageActions.SavePython = func() {
+					if target.Current() {
+						owner.savePython()
+					}
 				}
-				draft.Saved, draft.Revision = saved, info.Settings.Revision
 			}
-			if shown {
-				m.Python, m.PythonStatus = *draft, ""
+			owner.observePython(target)
+			owner.readPython(target)
+			return settings.PageBinding{
+				Follow: func() {
+					switch {
+					case state.pythonReadFailed:
+						m.PythonStatus = "unavailable"
+					case state.pythonReady:
+						m.PythonStatus = ""
+						m.PythonVersion, m.PythonPreparing = state.pythonVersion, state.preparations
+					default:
+						m.PythonStatus = "plugins_loading"
+					}
+				},
+				Recover: func() {
+					if state.pythonFailed {
+						owner.observePython(target)
+					}
+					if state.pythonReadFailed {
+						owner.readPython(target)
+					}
+				},
+				Close: func() {
+					if m.PythonStatus == "" {
+						state.pythonDraft = m.Python
+					}
+					state.preparations = nil
+					clear("")
+				},
 			}
-		})
-	})
+		},
+	}
 }
 
-func (r *Runtime) showsPythonSettings() bool {
-	root := r.localRuntime()
-	return root.packages.selectedNode == r.controller.Target().String() &&
-		root.packageOwner() == r && r.machineSettingsStatus() == ""
+func (r *Runtime) readPython(target settings.PageTarget) {
+	state := r.packages
+	state.pythonReadFailed = false
+	r.readPageCommand(target, protocol.Command{Kind: "read_python_settings"}, func(c *ui.Context, out protocol.Output, err error) {
+		info, valid := detail[protocol.PythonInfo](out.Data)
+		if err == nil && (!valid || out.Kind != "python_settings") {
+			err = errors.New("unexpected Python settings response")
+		}
+		if err != nil {
+			state.pythonReadFailed = true
+			r.packageReport(c, err)
+			return
+		}
+		state.pythonVersion, state.pythonReady = info.Version, true
+		draft := &state.pythonDraft
+		saved := pythonView(info.Settings.Index)
+		if !draft.Pending && info.Settings.Revision >= draft.Revision {
+			if draft.Draft == draft.Saved {
+				draft.Draft = saved
+			}
+			draft.Saved, draft.Revision = saved, info.Settings.Revision
+		}
+		r.App.Settings.Python = *draft
+	})
 }
 
 func (r *Runtime) savePython() {
 	m := r.App.Settings
-	if !r.showsPythonSettings() || m.PythonStatus != "" || m.Python.Pending {
+	if r.currentSettingsPage(settings.Runtime) == nil || m.PythonStatus != "" || m.Python.Pending {
 		return
 	}
 	field := &m.Python
@@ -335,7 +376,7 @@ func (r *Runtime) savePython() {
 				r.packages.pythonVersion = info.Version
 			}
 		}
-		if r.showsPythonSettings() {
+		if r.currentSettingsPage(settings.Runtime) != nil {
 			m.Python = *saved
 		}
 	})

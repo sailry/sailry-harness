@@ -74,6 +74,7 @@ type pluginMountedView struct {
 	registry       *desktopplugins.Registry
 	hooks          desktopplugins.ContributionHooks
 	host           *desktopplugins.Host
+	demoFrame      func()
 	runtime        *desktopplugins.Runtime
 	mounted        *desktopplugins.Mounted
 	components     []desktopplugins.NativeComponent
@@ -210,7 +211,9 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 			continue
 		}
 		if mounted.mounted != nil {
-			if mounted.host != nil && !mounted.disconnected {
+			if mounted.demoFrame != nil && !mounted.disconnected {
+				mounted.demoFrame()
+			} else if mounted.host != nil && !mounted.disconnected {
 				native := mounted.host.Native()
 				if native.Frame != nil {
 					native.Frame(view)
@@ -364,10 +367,18 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 	root.pluginViews.mounts[key] = mounted
 	if registry != nil && info.Extension != nil {
 		declarations := info.Extension.Ui
+		var hidden []string
 		if scope.Surface.Kind == "provider" || scope.Surface.Kind == "project" {
-			declarations = pluginViewDeclarations(info, declarations, scope.Surface.Kind)
+			declarations = pluginViewDeclarations(declarations, scope.Surface.Kind)
 		}
-		hooks, err := registry.Hooks(scope.Package, declarations)
+		if scope.Surface.Kind == "project" {
+			for _, declaration := range declarations {
+				if !root.pluginViewShows(info, declaration, scope.Surface.Kind) {
+					hidden = append(hidden, declaration.ID)
+				}
+			}
+		}
+		hooks, err := registry.Hooks(scope.Package, declarations, hidden...)
 		if err != nil {
 			root.failPluginView(view, mounted, err, "plugin_initialization_failed")
 			return mounted
@@ -435,6 +446,14 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, bundle protocol.PluginDesktopBundle) {
 	root := r.localRuntime()
 	mounted.bundle = &bundle
+	if id, demo := strings.CutPrefix(mounted.key.scope.presentation, pluginDemoPresentation); demo {
+		if mounted.hooks.Publish == nil || !demoStatisticsContribution(mounted.info) {
+			root.failPluginView(view, mounted, errors.New("demo statistics requires read-only metric declarations"), "plugin_initialization_failed")
+			return
+		}
+		root.startPluginView(view, mounted, bundle, root.demoStatisticsBindings(mounted, id))
+		return
+	}
 	native := mounted.owner.pluginNativeBinding(mounted.ctx, mounted.scope, mounted.key.scope.presentation)
 	if native == nil {
 		r.failPluginView(view, mounted, errors.New("plugin native services are unavailable"), "plugin_initialization_failed")
@@ -499,18 +518,19 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 	if native.Frame != nil {
 		native.Frame(view)
 	}
-	runtime, err := desktopplugins.NewRuntime(desktopplugins.RuntimeBindings{
-		Modules: modules, Components: components, Contributions: mounted.hooks, Invalidate: root.wake,
-		BindActions: host.Native().BindActions,
-		Post: func(operation func()) {
-			root.enqueue(func(*ui.Context) {
-				if mounted.ctx.Err() != nil || !root.pluginViewCurrent(mounted) {
-					return
-				}
+	root.startPluginView(view, mounted, bundle, desktopplugins.RuntimeBindings{Modules: modules, Components: components, BindActions: host.Native().BindActions})
+}
+
+func (r *Runtime) startPluginView(view *ui.Context, mounted *pluginMountedView, bundle protocol.PluginDesktopBundle, bindings desktopplugins.RuntimeBindings) {
+	bindings.Contributions, bindings.Invalidate = mounted.hooks, r.wake
+	bindings.Post = func(operation func()) {
+		r.enqueue(func(*ui.Context) {
+			if mounted.ctx.Err() == nil && r.pluginViewCurrent(mounted) {
 				operation()
-			})
-		},
-	})
+			}
+		})
+	}
+	runtime, err := desktopplugins.NewRuntime(bindings)
 	if err != nil {
 		r.failPluginView(view, mounted, err, "plugin_initialization_failed")
 		return
@@ -519,7 +539,9 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 	// The entry is noted before the view exists, as the reference does: the
 	// view's first change already carries it. Noted after the mount it is a
 	// second change, and the view loads everything twice.
-	host.Enter()
+	if mounted.host != nil {
+		mounted.host.Enter()
+	}
 	mounted.mounted, err = runtime.Mount(bundle, mounted.scope)
 	if err != nil {
 		r.failPluginView(view, mounted, err, "plugin_initialization_failed")
@@ -528,7 +550,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 	if mounted.registry != nil {
 		_ = mounted.registry.SetActivity(mounted.scope.Package, true, false)
 	}
-	delete(root.pluginViews.failures, mounted.key)
+	delete(r.pluginViews.failures, mounted.key)
 }
 
 func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
@@ -546,6 +568,7 @@ func (r *Runtime) dropPluginView(mounted *pluginMountedView, forget bool) {
 		mounted.host = nil
 	}
 	mounted.bundle = nil
+	mounted.demoFrame = nil
 	mounted.components = nil
 	mounted.headerFilters, mounted.headerBody, mounted.headerOverflow = nil, "", false
 	mounted.details, mounted.navigation, mounted.detailsHeading, mounted.workspaceLayout = nil, nil, nil, nil
@@ -606,7 +629,7 @@ func (r *Runtime) failPluginView(view *ui.Context, mounted *pluginMountedView, f
 	root.pluginViews.failures[mounted.key] = signature
 	// A view that could not start is the Node's notice too; a callback's
 	// failure is reported by the Node that ran it.
-	if title == "plugin_initialization_failed" && mounted.owner != nil {
+	if title == "plugin_initialization_failed" && mounted.owner != nil && !strings.HasPrefix(mounted.key.scope.presentation, pluginDemoPresentation) {
 		mounted.owner.reportDiagnostic(pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginInitialization,
 			signature.code, mounted.scope.Package.Name, mounted.info.Summary.Version, "view_initialize", mounted.scope))
 	}

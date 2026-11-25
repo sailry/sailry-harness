@@ -28,6 +28,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	browserdesktop "github.com/sailry/sailry-harness/modules/browser/desktop"
 )
 
 // browserChrome drives the browser tab's chrome of the whole desktop against
@@ -52,7 +53,7 @@ func browserChrome(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithPreferences(ctx, controller, preferences.ForStartup(profile))
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), shell.Assemble(browserdesktop.Register))
 	if err != nil {
 		t.Fatal(err)
 	}

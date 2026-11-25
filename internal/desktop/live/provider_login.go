@@ -24,6 +24,7 @@ type authorizationState struct {
 	connector                      *liveAuthorization
 	credentials                    map[protocol.CredentialID]protocol.Credential
 	credentialKey                  string
+	credentialFailed               string
 	credentialLoad                 bool
 	savedProviders                 map[string]protocol.ConversationProvider
 	types                          map[string]protocol.PluginConnectorType
@@ -171,7 +172,6 @@ func (r *Runtime) initAuthorization() {
 		types: map[string]protocol.PluginConnectorType{}, connections: map[string]protocol.PluginConnectorConnection{}, packages: map[string]protocol.PluginInfo{},
 		mcpDrafts: map[string]protocol.PluginMcpState{}, mcpChecking: map[string]bool{}, mcpFailed: map[string]mcpFailure{}, connectorBusy: map[string]bool{},
 	}
-	r.initConnectorUI()
 }
 
 // loginEntry is the preset entry a provider was made from, which carries how
@@ -208,6 +208,26 @@ func (r *Runtime) beginProviderLoginFor(id string, recovery *controllerLoginReco
 	provider, ok := r.loginProvider(id)
 	if !ok {
 		r.providerLoginFinished(providerIDFromString(id), false)
+		return
+	}
+	packages := r.snapshot().Plugins
+	if provider.Preset != nil && (!r.providerPresetsLoaded || !samePresetPackages(r.providerPresetPackages, packages)) {
+		// A waiting conversation can sign in without opening settings. Resolve
+		// its declared warning and callback before starting the authorization.
+		r.execute(protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}}, func(c *ui.Context, out protocol.Output, err error) {
+			listing, valid := detail[protocol.ConversationPresetsListing](out.Data)
+			if err == nil && (!valid || !samePresetPackages(packages, r.snapshot().Plugins)) {
+				err = fileActionFault(protocol.ErrorCodeRevisionConflict, "the provider preset directory changed during sign-in")
+			}
+			if err != nil {
+				r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
+				r.providerLoginFinished(provider.ID, false)
+				return
+			}
+			r.applyPresets(listing)
+			r.providerPresetsLoaded, r.providerPresetsFailed, r.providerPresetPackages = true, false, packages
+			r.beginProviderLoginFor(id, recovery)
+		})
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
@@ -418,7 +438,7 @@ func (r *Runtime) applyProviderCredential(c *ui.Context, attempt *liveAuthorizat
 	}
 	attempt.connected = true
 	r.authorizations.credentialKey = ""
-	r.readProviders()
+	r.authorizations.credentialFailed = ""
 	if attempt.recovery != nil {
 		r.completeControllerLogin(c, attempt, credential)
 	}
@@ -534,21 +554,26 @@ func (r *Runtime) providerCredentialKey(providers []protocol.ConversationProvide
 	return key.String()
 }
 
-func (r *Runtime) readProviderCredentials() {
+func (r *Runtime) readProviderCredentials(target settings.PageTarget) {
 	if r.authorizations == nil || r.authorizations.credentialLoad || !r.controller.Connected() {
 		return
 	}
 	expected := r.providerCredentialKey(r.snapshot().Providers)
-	if expected == "" || expected == r.authorizations.credentialKey {
+	if expected == "" || expected == r.authorizations.credentialKey || expected == r.authorizations.credentialFailed {
 		return
 	}
 	r.authorizations.credentialLoad = true
+	user := settingsTargetUser(r)
 	r.async(func() {
-		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_credentials"})
+		output, err := r.controller.Do(target.Context, protocol.Command{Kind: "list_credentials"})
 		r.enqueue(func(*ui.Context) {
 			r.authorizations.credentialLoad = false
+			if !target.Current() || !r.controller.Connected() || settingsTargetUser(r) != user {
+				return
+			}
 			values, ok := detail[[]protocol.Credential](output.Data)
 			if err != nil || !ok {
+				r.authorizations.credentialFailed = expected
 				return
 			}
 			if expected == r.providerCredentialKey(r.snapshot().Providers) {
@@ -558,7 +583,7 @@ func (r *Runtime) readProviderCredentials() {
 				}
 				r.authorizations.credentialKey = expected
 			}
-			r.projectProviderSnapshot()
+			r.publishProviderSettings()
 		})
 	})
 }
@@ -606,11 +631,18 @@ func (r *Runtime) refreshQuotaReset(now uint64, quotas []protocol.ConversationQu
 			r.enqueue(func(*ui.Context) {
 				if r.authorizations == state && state.quotaReset == reset {
 					state.quotaReset, state.quotaCancel = 0, nil
-					r.projectProviderSnapshot()
+					r.publishProviderSettings()
 				}
 			})
 		}
 	})
+}
+
+func (r *Runtime) releaseProviderQuotaTimer() {
+	if state := r.authorizations; state != nil && state.quotaCancel != nil {
+		state.quotaCancel()
+		state.quotaReset, state.quotaCancel = 0, nil
+	}
 }
 
 func callbackPresentation() *protocol.PluginModelAuthPresentation {

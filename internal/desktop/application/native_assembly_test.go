@@ -23,6 +23,7 @@ import (
 	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	filesdesktop "github.com/sailry/sailry-harness/modules/files/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
@@ -180,7 +181,7 @@ func TestCloseConversationDraftWithoutResourcePages(t *testing.T) {
 			})
 			prefs := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
 			prefs.Data.WelcomeSeen = new(true)
-			root, err := live.NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(market.Register))
+			root, err := live.NewWithAssembly(t.Context(), controller, prefs, shell.Assemble(market.Register, filesdesktop.RegisterPanel))
 			if err != nil {
 				t.Fatal(err)
 			}

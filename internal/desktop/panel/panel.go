@@ -52,18 +52,14 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		return
 	}
 	t := s.Active
-	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
-		if s.Live && t.Kind == Browser && s.BrowserActions == nil {
-			empty(c, icons.Web, "unavailable")
+		if resource, exists := s.resource(t.Kind); exists && resource.Render != nil {
+			resource.Render(c, s, t)
 			return
 		}
 		switch t.Kind {
 		case Files, Changes:
-			// The whole component for this tab's item: the side list
-			// opens or focuses another item's tab.
-			pr.view(c, t.Kind, t.ID, own, func(path string) { s.Show(Tab{t.Kind, path}) },
-				func(path string) { s.Show(Tab{Files, path}) })
+			RenderProjectResource(c, s, t)
 		case History:
 			s.history(c)
 		case Documents:
@@ -77,7 +73,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			}
 			s.Child(c, t.ID)
 		case Browser:
-			s.browser(c, t)
+			RenderBrowserResource(c, s, t)
 		case Terminal:
 			s.TerminalView(c, t.ID)
 		}
@@ -157,7 +153,10 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 			}
 		}
 	}
-	r := ResourceOf(t.Kind)
+	r, found := s.resource(t.Kind)
+	if !found {
+		r = ResourceOf(t.Kind)
+	}
 	return r.Icon, i18n.T(c, r.Label)
 }
 
@@ -365,7 +364,7 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	kit.MenuButton(c.Key("add"), "panel-add", func(b ui.Element) {
 		kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
 	}, func(m *kit.Menu) {
-		for _, r := range Resources {
+		for _, r := range s.ResourceList() {
 			if !s.lists(r.Kind) {
 				continue
 			}
@@ -386,7 +385,7 @@ func launcher(c *ui.Context, s *State, keys Shortcut) {
 	p := theme.Of(c)
 	ui.Column(c.Key("launcher")).Grow(1).MinHeight(0).Justify(ui.Center).Children(func() {
 		ui.Column(c.Key("launcher-rows")).FillWidth().MaxWidth(440 + 2*24).Padding(24).Gap(8).AlignSelf(ui.Center).Children(func() {
-			for _, r := range Resources {
+			for _, r := range s.ResourceList() {
 				label := i18n.T(c, r.Label)
 				if !s.lists(r.Kind) {
 					continue
@@ -399,7 +398,7 @@ func launcher(c *ui.Context, s *State, keys Shortcut) {
 				b.Children(func() {
 					ui.Icon(c, r.Icon).FontSize(16)
 					ui.Text(c, label).FontSize(14).SingleLine().Grow(1)
-					if r.Key != 0 {
+					if r.Key != 0 && keys != nil {
 						kbd(c, keys(r.Mods, r.Key))
 					}
 				}).OnClick(func() { s.Open(r.Kind) })

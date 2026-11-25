@@ -160,7 +160,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	s.library.open = false
 	targetChanged := false
 	var headerActions func()
-	if section.ManagesNode() {
+	if section.ManagesNode() || native != nil && native.BindWindow != nil {
 		headerActions = func() {
 			targetChanged = managedNodeSelect(c, s.Model, &s.ManagedNode)
 		}

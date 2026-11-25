@@ -3,7 +3,6 @@ package shell
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -18,7 +17,7 @@ type Shortcut = settings.Shortcut
 // are fixed: Stop, Focus the composer and the model controls act on the
 // conversation page only, and the reference lists them in neither the
 // Shortcuts settings nor the menu. The system's shortcuts are not the
-// window's. The panel's resource keys follow (panel.Resources).
+// window's. The registered panel resource keys follow.
 var Shortcuts = append(window(settings.Registry),
 	Shortcut{ID: "app.settings", Label: "settings", Mods: ui.Cmd, Key: ui.KeyComma},
 	Shortcut{ID: "conversation.find", Label: "chat_search", Mods: ui.Cmd, Key: ui.KeyF},
@@ -124,8 +123,8 @@ func (a *App) shortcuts(c *ui.Context) {
 	if a.Page != ConversationPage {
 		return
 	}
-	for _, r := range panel.Resources {
-		if r.Key != 0 && c.Shortcut(r.Mods, r.Key) && !c.ShortcutRepeated() {
+	for _, r := range a.Panel.ResourceList() {
+		if r.Key != 0 && a.Panel.Offers(r.Kind) && c.Shortcut(r.Mods, r.Key) && !c.ShortcutRepeated() {
 			a.openPanel(r.Kind)
 		}
 	}
@@ -155,6 +154,8 @@ func (a *App) closeFocused(c *ui.Context) {
 		a.mainPane.Focus(c)
 	case a.PanelOpen && c.FocusWithin(a.panelPane):
 		a.closeTab(c)
+	case a.workspaceSlots().Close != nil && c.FocusWithin(a.workspaceHeaderPane):
+		a.closePageTab(c)
 	case c.FocusWithin(a.mainPane):
 		switch {
 		case a.Page == ConversationPage && (a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal):

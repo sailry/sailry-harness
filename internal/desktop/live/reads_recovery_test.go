@@ -14,11 +14,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	connectordesktop "github.com/sailry/sailry-harness/modules/connectors/desktop"
+	runtimedesktop "github.com/sailry/sailry-harness/modules/runtime/desktop"
 	"lukechampine.com/blake3"
 )
 
@@ -136,6 +139,7 @@ func readRecoveryFixture(t *testing.T) (*Runtime, *readRecoveryTransport, func()
 			apply(c)
 		}
 		r.resumeReadsOnReconnect()
+		r.syncSettingsPages()
 	}, 1, 1, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	settle := func() {
 		for range 3 {
@@ -145,6 +149,7 @@ func readRecoveryFixture(t *testing.T) (*Runtime, *readRecoveryTransport, func()
 		synctest.Wait()
 	}
 	t.Cleanup(func() {
+		r.closeSettingsPages()
 		cancel()
 		r.closeAttachments()
 		r.workers.Wait()
@@ -155,63 +160,83 @@ func readRecoveryFixture(t *testing.T) (*Runtime, *readRecoveryTransport, func()
 }
 
 func TestReadRecovery(t *testing.T) {
-	t.Run("failed subscriptions and Python settings wait for refresh or reconnect", func(t *testing.T) {
-		synctest.Test(t, func(t *testing.T) {
-			r, source, settle := readRecoveryFixture(t)
-			r.observeInstallations()
-			r.observePython()
-			r.initConnectorUI()
-			r.readPython()
-			settle()
-			assertCounts := func(want int) {
-				t.Helper()
-				source.mu.Lock()
-				defer source.mu.Unlock()
-				for _, kind := range []string{"installations", "python", "connections", "python_settings"} {
-					if got := source.counts[kind]; got != want {
-						t.Fatalf("%s reads = %d, want %d", kind, got, want)
+	for _, page := range []struct {
+		name    string
+		section settings.Section
+		module  func(*shell.Assembly)
+		topic   string
+	}{
+		{"connector subscription", settings.Connectors, connectordesktop.Register, "connections"},
+		{"Python subscription and settings", settings.Runtime, runtimedesktop.Register, "python"},
+	} {
+		t.Run(page.name+" wait for refresh or reconnect", func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r, source, settle := readRecoveryFixture(t)
+				r.observeInstallations()
+				assembly := shell.Assemble(page.module)
+				r.App.Settings.SetNativePages(assembly.SettingsPages)
+				r.bindSettingsPages(assembly.SettingsPages)
+				r.App.Page = shell.SettingsPage
+				r.App.Settings.Open(page.section)
+				r.syncSettingsPages()
+				settle()
+				topics := []string{"installations", page.topic}
+				reads := topics
+				if page.section == settings.Runtime {
+					reads = append(reads, "python_settings")
+				}
+				assertCounts := func(want int) {
+					t.Helper()
+					source.mu.Lock()
+					defer source.mu.Unlock()
+					for _, kind := range reads {
+						if got := source.counts[kind]; got != want {
+							t.Fatalf("%s reads = %d, want %d", kind, got, want)
+						}
 					}
 				}
-			}
-			if !r.packages.installFailed || !r.packages.pythonFailed || !r.packages.pythonReadFailed || !r.authorizations.connectionsFailed {
-				t.Fatal("failed observations did not retain a recovery opportunity")
-			}
-			settle()
-			assertCounts(1)
-			source.mu.Lock()
-			source.reject = false
-			source.mu.Unlock()
-			r.Refresh()
-			settle()
-			assertCounts(2)
-			if !r.packages.connected || len(r.packages.preparations) != 1 || r.packages.pythonVersion != "3.12.13" || len(r.authorizations.connections) != 1 {
-				t.Fatal("refresh did not restore the observations and Python settings")
-			}
-			for _, kind := range []string{"installations", "python", "connections"} {
-				close(source.streams[kind].failed)
-			}
-			settle()
-			assertCounts(2)
-			// The frame that saw the disconnected Node records false. The
-			// next connected frame reopens only the streams that ended.
-			r.readsConnected = false
-			settle()
-			for _, kind := range []string{"installations", "python", "connections"} {
-				if source.counts[kind] != 3 {
-					t.Fatalf("%s did not resume after reconnect", kind)
+				if !r.packages.installFailed || page.section == settings.Runtime && (!r.packages.pythonFailed || !r.packages.pythonReadFailed) ||
+					page.section == settings.Connectors && !r.authorizations.connectionsFailed {
+					t.Fatal("failed observations did not retain a recovery opportunity")
 				}
-			}
-			if source.counts["python_settings"] != 2 {
-				t.Fatal("a successful read was repeated on reconnect")
-			}
-			settle()
-			for _, kind := range []string{"installations", "python", "connections"} {
-				if source.counts[kind] != 3 {
-					t.Fatalf("%s reopened a healthy stream on another frame", kind)
+				settle()
+				assertCounts(1)
+				source.mu.Lock()
+				source.reject = false
+				source.mu.Unlock()
+				r.Refresh()
+				settle()
+				assertCounts(2)
+				if !r.packages.connected || page.section == settings.Runtime && (len(r.packages.preparations) != 1 || r.packages.pythonVersion != "3.12.13") ||
+					page.section == settings.Connectors && len(r.authorizations.connections) != 1 {
+					t.Fatal("refresh did not restore the observations and Python settings")
 				}
-			}
+				for _, kind := range topics {
+					close(source.streams[kind].failed)
+				}
+				settle()
+				assertCounts(2)
+				// The frame that saw the disconnected Node records false. The
+				// next connected frame reopens only the streams that ended.
+				r.readsConnected = false
+				settle()
+				for _, kind := range topics {
+					if source.counts[kind] != 3 {
+						t.Fatalf("%s did not resume after reconnect", kind)
+					}
+				}
+				if page.section == settings.Runtime && source.counts["python_settings"] != 2 {
+					t.Fatal("a successful read was repeated on reconnect")
+				}
+				settle()
+				for _, kind := range topics {
+					if source.counts[kind] != 3 {
+						t.Fatalf("%s reopened a healthy stream on another frame", kind)
+					}
+				}
+			})
 		})
-	})
+	}
 	t.Run("picture refresh retries a transient read and keeps a permanent failure", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			r, source, settle := readRecoveryFixture(t)

@@ -195,57 +195,28 @@ func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, prop
 		}
 		return track
 	}
-	return ui.ScrollHorizontal(view).FillWidth().Children(func() {
-		ui.Row(view).Gap(kit.StripGap).AlignItems(ui.Center).Children(func() {
-			for at, item := range items {
-				itemID := nativeProp(item, "id", "")
-				label := nativeProp(item, "label", "")
-				if navigation {
-					// A page's tabs are the right panel's strip tabs.
-					active := selected != nil && itemID == *selected
-					if at > 0 {
-						kit.StripDivider(view, "divider-"+itemID)
-					}
-					button, hovered := kit.StripTab(view, itemID, label, active, nativeProp(props, "max_width", float32(240)))
-					var close func()
-					if nativeProp(item, "closable", false) && !nativeProp(item, "close_disabled", false) {
-						close = func() {
-							binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "close"})
-						}
-					}
-					kit.StripTabBody(view, button.Disabled(nativeProp(props, "disabled", false)), nativeIcon(nativeProp(item, "icon", "")), label, active, hovered,
-						nativeProp(item, "loading", false), nativeProp(item, "close_label", nativeProp(props, "close_label", "")), close).OnClick(func() {
-						binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "select"})
-					})
-					continue
-				}
-				row := ui.Row(view.Key(itemID)).Gap(2).MaxWidth(nativeProp(props, "max_width", float32(240)))
-				row.Children(func() {
-					button := kit.Ghost(view, label, selected != nil && itemID == *selected).Padding(6, 10).Gap(6).MinWidth(0).Disabled(nativeProp(props, "disabled", false))
-					button.Children(func() {
-						if nativeProp(item, "loading", false) {
-							kit.Busy(view)
-						} else if icon := nativeIcon(nativeProp(item, "icon", "")); icon != nil {
-							ui.Icon(view, icon).Size(14, 14)
-						}
-						nativeText(view, label).SingleLine()
-					}).OnClick(func() {
-						if navigation {
-							binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "select"})
-						} else {
-							binding.emit("control", map[string]any{"id": identity, "value": itemID})
-						}
-					})
-					if navigation && nativeProp(item, "closable", false) {
-						kit.IconButton(view, icons.Close, nativeProp(item, "close_label", nativeProp(props, "close_label", "")), 20, false).
-							Disabled(nativeProp(item, "close_disabled", false)).OnClick(func() {
-							binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": itemID, "kind": "close"})
-						})
-					}
-				})
-			}
+	closeLabel := nativeProp(props, "close_label", "")
+	tabs := make([]kit.NavigationTab, 0, len(items))
+	for _, item := range items {
+		tabs = append(tabs, kit.NavigationTab{
+			ID: nativeProp(item, "id", ""), Label: nativeProp(item, "label", ""), Icon: nativeIcon(nativeProp(item, "icon", "")),
+			Closable: nativeProp(item, "closable", false), CloseDisabled: nativeProp(item, "close_disabled", false),
+			Loading: nativeProp(item, "loading", false), CloseLabel: nativeProp(item, "close_label", closeLabel),
 		})
-	})
+	}
+	propsForTabs := kit.NavigationTabsProps{
+		MaxWidth: nativeProp(props, "max_width", float32(240)), Disabled: nativeProp(props, "disabled", false),
+		Select: func(id string) {
+			binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": id, "kind": "select"})
+		},
+		Close: func(id string) {
+			binding.emit("navigation-tabs", map[string]any{"bar": identity, "id": id, "kind": "close"})
+		},
+	}
+	if selected != nil {
+		propsForTabs.Selected = *selected
+	}
+	return kit.NavigationTabs(view, tabs, propsForTabs)
 }
 
 func (binding *NativeBinding) renderAppearance(view *ui.Context, identity string, props map[string]json.RawMessage) (ui.Element, error) {

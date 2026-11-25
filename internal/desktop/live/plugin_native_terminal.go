@@ -23,9 +23,9 @@ type pluginNativeTerminal struct {
 	closed  bool
 }
 
-type pluginNativeTerminalConn struct {
+type embeddedTerminalConn struct {
 	*terminalConn
-	native *pluginNativeState
+	execute func(context.Context, protocol.Command) (protocol.Output, error)
 }
 
 func (mounted *pluginNativeTerminal) retain(view *myterminal.Terminal) bool {
@@ -53,6 +53,22 @@ func (mounted *pluginNativeTerminal) release() {
 	if view != nil {
 		_ = view.Close()
 	}
+}
+
+func (mounted *pluginNativeTerminal) draw(view *ui.Context, display preferences.Terminal, suspended bool, focus *string) ui.Element {
+	if mounted.state.reading || mounted.state.terminal == nil {
+		return ui.Row(view).Fill().Center().Children(func() { kit.Loader(view, 20) })
+	}
+	if display != mounted.display {
+		mounted.state.terminal.SetFont(terminalFont(display))
+		mounted.display = display
+	}
+	terminal := myterminal.View(view, mounted.state.terminal).Grow(1).MinHeight(0).FillWidth().Disabled(suspended)
+	if !suspended && *focus == mounted.id.String() {
+		terminal.Focus()
+		*focus = ""
+	}
+	return terminal
 }
 
 func (state *pluginNativeState) terminalOperations() {
@@ -111,24 +127,15 @@ func (state *pluginNativeState) renderTerminal(view *ui.Context, element plugins
 		mounted = nil
 	}
 	if mounted == nil {
-		mounted = state.mountTerminal(identity, id, local, remote)
+		mounted = state.runtime.mountEmbeddedTerminal(state.native.Context, id, state.execute, func(info protocol.TerminalInfo) bool {
+			return pluginTerminalInScope(state.scope, info, local, remote)
+		})
+		state.terminals[identity] = mounted
 	}
 	if mounted.state.failed {
 		return ui.Element{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin terminal is unavailable")
 	}
-	if mounted.state.reading || mounted.state.terminal == nil {
-		return ui.Row(view).Fill().Center().Children(func() { kit.Loader(view, 20) }), nil
-	}
-	if display := state.runtime.localRuntime().terminalDisplay(); display != mounted.display {
-		mounted.state.terminal.SetFont(terminalFont(display))
-		mounted.display = display
-	}
-	terminal := myterminal.View(view, mounted.state.terminal).Grow(1).MinHeight(0).FillWidth().Disabled(suspended)
-	if !suspended && state.terminalFocus == id.String() {
-		terminal.Focus()
-		state.terminalFocus = ""
-	}
-	return terminal, nil
+	return mounted.draw(view, state.runtime.localRuntime().terminalDisplay(), suspended, &state.terminalFocus), nil
 }
 
 // terminalAuthority reports the terminals a workspace view's package may
@@ -155,29 +162,28 @@ func pluginTerminalInScope(scope protocol.PluginContext, info protocol.TerminalI
 	return local && scope.Worktree != nil && info.Worktree != nil && *info.Worktree == *scope.Worktree
 }
 
-func (state *pluginNativeState) mountTerminal(identity string, id protocol.TerminalID, local, remote bool) *pluginNativeTerminal {
-	ctx, cancel := context.WithCancel(state.native.Context)
-	display := state.runtime.localRuntime().terminalDisplay()
-	mounted := &pluginNativeTerminal{id: id, cancel: cancel, display: display, state: &liveTerminal{owner: state.runtime, reading: true}}
-	state.terminals[identity] = mounted
-	if !state.runtime.async(func() {
-		output, err := state.execute(ctx, protocol.Command{Kind: "inspect_terminal", Data: protocol.CommandInspectTerminalPayload{Terminal: id}})
+func (r *Runtime) mountEmbeddedTerminal(parent context.Context, id protocol.TerminalID, execute func(context.Context, protocol.Command) (protocol.Output, error), allows func(protocol.TerminalInfo) bool) *pluginNativeTerminal {
+	ctx, cancel := context.WithCancel(parent)
+	display := r.localRuntime().terminalDisplay()
+	mounted := &pluginNativeTerminal{id: id, cancel: cancel, display: display, state: &liveTerminal{owner: r, reading: true}}
+	if !r.async(func() {
+		output, err := execute(ctx, protocol.Command{Kind: "inspect_terminal", Data: protocol.CommandInspectTerminalPayload{Terminal: id}})
 		snapshot, valid := detail[protocol.TerminalSnapshot](output.Data)
-		if err == nil && (!valid || output.Kind != "terminal_snapshot" || snapshot.Node != state.runtime.controller.Target() || snapshot.Info.ID != id ||
-			snapshot.Info.Status.Kind == "closed" || !pluginTerminalInScope(state.scope, snapshot.Info, local, remote)) {
+		if err == nil && (!valid || output.Kind != "terminal_snapshot" || snapshot.Node != r.controller.Target() || snapshot.Info.ID != id ||
+			snapshot.Info.Status.Kind == "closed" || !allows(snapshot.Info)) {
 			err = pluginNativeFault(protocol.ErrorCodePermissionDenied, "terminal does not match its captured scope")
 		}
 		var connection *terminalConn
 		var terminal *myterminal.Terminal
 		if err == nil {
-			stream, streamErr := state.runtime.controller.Subscribe(ctx, protocol.Topic{Kind: "terminal", Data: id})
+			stream, streamErr := r.controller.Subscribe(ctx, protocol.Topic{Kind: "terminal", Data: id})
 			err = streamErr
 			if err == nil {
 				connection = &terminalConn{
-					owner: state.runtime, ctx: ctx, cancel: cancel, stream: stream,
-					ready: make(chan struct{}), info: snapshot.Info, self: state.runtime.localRuntime().controller.Target(),
+					owner: r, ctx: ctx, cancel: cancel, stream: stream,
+					ready: make(chan struct{}), info: snapshot.Info, self: r.localRuntime().controller.Target(),
 				}
-				scoped := &pluginNativeTerminalConn{terminalConn: connection, native: state}
+				scoped := &embeddedTerminalConn{terminalConn: connection, execute: execute}
 				terminal, err = myterminal.New(myterminal.Options{
 					Conn: scoped, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Transparent: true,
 					Font:    terminalFont(display),
@@ -196,21 +202,21 @@ func (state *pluginNativeState) mountTerminal(identity string, id protocol.Termi
 		if err != nil {
 			cancel()
 		}
-		state.runtime.enqueue(func(view *ui.Context) {
-			if state.native.Context.Err() != nil || state.terminals[identity] != mounted {
-				if !state.native.Suspended() {
-					mounted.release()
-				}
+		r.enqueue(func(view *ui.Context) {
+			mounted.mu.Lock()
+			closed := mounted.closed
+			mounted.mu.Unlock()
+			if parent.Err() != nil || closed {
 				return
 			}
 			mounted.state.reading = false
 			if err != nil {
 				mounted.state.failed = true
-				state.runtime.packageReport(view, err)
+				r.packageReport(view, err)
 				return
 			}
 			mounted.state.conn, mounted.state.terminal = connection, terminal
-			if current := state.runtime.localRuntime().terminalDisplay(); current != display {
+			if current := r.localRuntime().terminalDisplay(); current != display {
 				terminal.SetFont(terminalFont(current))
 				mounted.display = current
 			}
@@ -222,22 +228,22 @@ func (state *pluginNativeState) mountTerminal(identity string, id protocol.Termi
 	return mounted
 }
 
-func (connection *pluginNativeTerminalConn) Resize(columns, rows int) error {
+func (connection *embeddedTerminalConn) Resize(columns, rows int) error {
 	return connection.ResizePixels(columns, rows, 0, 0)
 }
 
-func (connection *pluginNativeTerminalConn) ResizePixels(columns, rows, cellWidth, cellHeight int) error {
+func (connection *embeddedTerminalConn) ResizePixels(columns, rows, cellWidth, cellHeight int) error {
 	info := connection.current()
 	columns, rows = min(max(columns, 1), 500), min(max(rows, 1), 200)
 	viewport := protocol.TerminalViewport{
 		Columns: uint16(columns), Rows: uint16(rows),
 		PixelWidth: uint32(columns * max(cellWidth, 0)), PixelHeight: uint32(rows * max(cellHeight, 0)),
 	}
-	_, err := connection.native.execute(connection.ctx, protocol.Command{Kind: "resize_terminal", Data: protocol.CommandResizeTerminalPayload{Terminal: info.ID, Revision: info.Revision, Viewport: viewport}})
+	_, err := connection.execute(connection.ctx, protocol.Command{Kind: "resize_terminal", Data: protocol.CommandResizeTerminalPayload{Terminal: info.ID, Revision: info.Revision, Viewport: viewport}})
 	return err
 }
 
-func (connection *pluginNativeTerminalConn) UseTheme(palette *myterminal.Theme) error {
+func (connection *embeddedTerminalConn) UseTheme(palette *myterminal.Theme) error {
 	color := func(value ui.Color) protocol.TerminalRgb {
 		return protocol.TerminalRgb{Red: value.R, Green: value.G, Blue: value.B}
 	}
@@ -249,6 +255,6 @@ func (connection *pluginNativeTerminalConn) UseTheme(palette *myterminal.Theme) 
 		appearance.Palette[index] = color(entry)
 	}
 	info := connection.current()
-	_, err := connection.native.execute(connection.ctx, protocol.Command{Kind: "set_terminal_appearance", Data: protocol.CommandSetTerminalAppearancePayload{Terminal: info.ID, Revision: info.Revision, Appearance: appearance}})
+	_, err := connection.execute(connection.ctx, protocol.Command{Kind: "set_terminal_appearance", Data: protocol.CommandSetTerminalAppearancePayload{Terminal: info.ID, Revision: info.Revision, Appearance: appearance}})
 	return err
 }

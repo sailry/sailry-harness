@@ -104,10 +104,12 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		},
 		Controls: func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
 	}
-	if side := root.App.Sidebar.Actions; side != nil && side.NewTerminal != nil {
-		actions.NewTerminal = func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) }
-		actions.Terminals = func() []shell.ProjectTerminal { return root.projectTerminals(project) }
-		actions.OpenTerminal = root.showWorkspaceTerminal
+	if side := root.App.Sidebar.Actions; side != nil {
+		actions.ResourceActions = side.ProjectResources
+		if side.Terminals != nil {
+			actions.Terminals = func() []shell.ProjectTerminal { return side.Terminals(project) }
+			actions.OpenTerminal = root.showWorkspaceTerminal
+		}
 	}
 	var enteredWorkspace *workspaceProject
 	currentWorkspace := func() (*Runtime, *workspaceProject, bool) {
@@ -165,6 +167,7 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		})
 	}
 	currentWorkspace()
+	actions.WorktreePath = selectedPath
 	root.App.OpenProject(project, actions)
 }
 

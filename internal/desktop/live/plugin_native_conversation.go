@@ -28,12 +28,7 @@ type pluginNativeConversation struct {
 	composer *composer.State
 	context  *composer.Context
 	actions  shell.ConversationActions
-	// history is the assistant's session picker: its query and row.
-	history struct {
-		open  bool
-		query string
-		row   int
-	}
+	history  dockedSessionHistory
 }
 
 type pluginNativeConversationRequest struct {
@@ -157,19 +152,7 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 		}
 		context := *mounted.context
 		context.Readonly = context.Readonly || suspended
-		if request.Assistant != nil && len(target.Turns) == 0 && !target.Session.Loading {
-			// An assistant's session without a message yet says what the
-			// panel is for.
-			ui.Column(view.Key("session-empty")).Grow(1).MinHeight(0).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-				kit.Result(view, kit.ResultProps{Title: i18n.T(view, "chat_sidebar_empty"), Icon: icons.Bot})
-			})
-			composer.View(view, comp, &context, mounted.actions)
-		} else {
-			conversation.Docked(view, state.runtime.App.Messages, target.ID, target.Turns, &target.Session, mounted.actions, func() {
-				composer.View(view, comp, &context, mounted.actions)
-			})
-		}
-		conversation.Navigation(view, state.runtime.App.Messages)
+		state.runtime.drawDockedConversation(view, target, comp, &context, mounted.actions, request.Assistant != nil)
 	})
 	return region, nil
 }
@@ -196,11 +179,11 @@ func (state *pluginNativeState) assistantSessions(like protocol.Session) []proto
 // sessionControls are New and the session history of an assistant's panel.
 // They act while the Host is connected and no turn runs.
 func (state *pluginNativeState) sessionControls(view *ui.Context, identity string, mounted *pluginNativeConversation, target *viewmodel.Conversation, suspended bool) {
-	like, current := protocol.Session{}, false
+	var like protocol.Session
 	if mounted.draft != nil {
 		like = *mounted.draft
 	} else {
-		like, current = state.runtime.session(mounted.session.String())
+		like, _ = state.runtime.session(mounted.session.String())
 	}
 	blocked := suspended || like.Config.Assistant == nil || !state.runtime.controller.Connected() || target.Running()
 	// The mount moves to another session of the assistant, or to a draft
@@ -235,9 +218,20 @@ func (state *pluginNativeState) sessionControls(view *ui.Context, identity strin
 		state.releaseConversation(mounted)
 		state.conversations[identity] = next
 	}
+	dockedSessionControls(view, &mounted.history, blocked, mounted.draft != nil, like.ID, func() []protocol.Session {
+		return state.assistantSessions(like)
+	}, move)
+}
+
+type dockedSessionHistory struct {
+	open  bool
+	query string
+	row   int
+}
+
+func dockedSessionControls(view *ui.Context, history *dockedSessionHistory, blocked, draft bool, current protocol.SessionID, list func() []protocol.Session, move func(*protocol.Session)) {
 	kit.IconButton(view.Key("session-new"), icons.Plus, i18n.T(view, "chat_new"), 28, false).
-		Disabled(blocked || mounted.draft != nil).OnClick(func() { move(nil) })
-	history := &mounted.history
+		Disabled(blocked || draft).OnClick(func() { move(nil) })
 	kit.IconButton(view.Key("session-history"), icons.BookOpen, i18n.T(view, "chat_connection_history"), 28, history.open).
 		Disabled(blocked).OnClick(func() { history.open, history.query, history.row = true, "", 0 })
 	if !history.open {
@@ -247,7 +241,7 @@ func (state *pluginNativeState) sessionControls(view *ui.Context, identity strin
 		history.open = false
 		return
 	}
-	sessions := state.assistantSessions(like)
+	sessions := list()
 	var shown []protocol.Session
 	var items []kit.CommandItem
 	query := strings.ToLower(history.query)
@@ -258,7 +252,7 @@ func (state *pluginNativeState) sessionControls(view *ui.Context, identity strin
 		}
 		if strings.Contains(strings.ToLower(title), query) {
 			shown = append(shown, session)
-			items = append(items, kit.CommandItem{ID: session.ID.String(), Label: title, Checked: current && session.ID == like.ID})
+			items = append(items, kit.CommandItem{ID: session.ID.String(), Label: title, Checked: session.ID == current})
 		}
 	}
 	empty := "connection_search_empty"
@@ -268,10 +262,24 @@ func (state *pluginNativeState) sessionControls(view *ui.Context, identity strin
 	kit.Command(view, "session-history-picker", &history.open, &history.query, &history.row, items,
 		kit.CommandProps{Placeholder: i18n.T(view, "connection_search"), Empty: i18n.T(view, empty)}, func(index int) {
 			history.open = false
-			if chosen := shown[index]; !current || chosen.ID != like.ID {
+			if chosen := shown[index]; chosen.ID != current {
 				move(&chosen)
 			}
 		})
+}
+
+func (r *Runtime) drawDockedConversation(view *ui.Context, target *viewmodel.Conversation, comp *composer.State, context *composer.Context, actions shell.ConversationActions, nudgeEmpty bool) {
+	if nudgeEmpty && len(target.Turns) == 0 && !target.Session.Loading {
+		ui.Column(view.Key("session-empty")).Grow(1).MinHeight(0).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			kit.Result(view, kit.ResultProps{Title: i18n.T(view, "chat_sidebar_empty"), Icon: icons.Bot})
+		})
+		composer.View(view, comp, context, actions)
+	} else {
+		conversation.Docked(view, r.App.Messages, target.ID, target.Turns, &target.Session, actions, func() {
+			composer.View(view, comp, context, actions)
+		})
+	}
+	conversation.Navigation(view, r.App.Messages)
 }
 
 func (state *pluginNativeState) newAssistantDraft(identity string, session protocol.Session) (*viewmodel.Conversation, *composer.State) {
@@ -401,16 +409,14 @@ func (state *pluginNativeState) conversationSession(request pluginNativeConversa
 		if request.Resource == nil || request.Resource.Kind != "database" {
 			return protocol.Session{}, pluginNativeFault(protocol.ErrorCodeInvalidRequest, "assistant requires a captured database")
 		}
-		id, valid := detail[protocol.DatabaseID](request.Resource.Data)
-		if !valid || !slices.ContainsFunc(snapshot.Databases, func(profile protocol.DatabaseProfile) bool { return profile.ID == id }) {
+		if !connectionResourceExists(snapshot, request.Resource) {
 			return protocol.Session{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "assistant database is unavailable")
 		}
 	case protocol.PluginConversationResourceSsh:
 		if request.Resource == nil || request.Resource.Kind != "ssh" {
 			return protocol.Session{}, pluginNativeFault(protocol.ErrorCodeInvalidRequest, "assistant requires a captured SSH profile")
 		}
-		id, valid := detail[protocol.SshID](request.Resource.Data)
-		if !valid || !slices.ContainsFunc(snapshot.Ssh, func(profile protocol.SshProfile) bool { return profile.ID == id }) {
+		if !connectionResourceExists(snapshot, request.Resource) {
 			return protocol.Session{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "assistant SSH profile is unavailable")
 		}
 	default:
@@ -437,6 +443,19 @@ func (state *pluginNativeState) conversationSession(request pluginNativeConversa
 
 func pluginNativeAssistantEqual(first, second *protocol.PluginConversationBinding) bool {
 	return first != nil && second != nil && first.ID == second.ID && first.Package.Name == second.Package.Name
+}
+
+func connectionResourceExists(snapshot protocol.Snapshot, resource *protocol.ConnectionResource) bool {
+	switch resource.Kind {
+	case "database":
+		id, valid := detail[protocol.DatabaseID](resource.Data)
+		return valid && slices.ContainsFunc(snapshot.Databases, func(profile protocol.DatabaseProfile) bool { return profile.ID == id })
+	case "ssh":
+		id, valid := detail[protocol.SshID](resource.Data)
+		return valid && slices.ContainsFunc(snapshot.Ssh, func(profile protocol.SshProfile) bool { return profile.ID == id })
+	default:
+		return false
+	}
 }
 
 func pluginNativeResourceEqual(first, second *protocol.ConnectionResource) bool {

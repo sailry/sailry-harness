@@ -421,7 +421,7 @@ func TestConnectors(t *testing.T) {
 			t.Error("a late configuration reopened the closed editor")
 		}
 		m.serviceAction(nil, &m.Services[0], "connector_configure")
-		m.CloseManagedNodeDialogs()
+		m.CloseDialogs()
 		m.Model.OpenMCPConfiguration(saved(m))
 		if m.mcp.open || m.mcp.loading || m.mcp.original != "" {
 			t.Error("the previous Node's editor survived the Node change")

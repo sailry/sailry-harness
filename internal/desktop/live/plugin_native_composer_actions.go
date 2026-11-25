@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -184,9 +183,6 @@ func (state *pluginNativeState) revealComposerEntry(_ context.Context, arguments
 	info, available := state.packageInfo()
 	if !available || info.Extension == nil || !slices.Contains(info.Extension.Actions, protocol.PluginActionReadConversation) {
 		return nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer entry reveal is unavailable")
-	}
-	if id, demo := strings.CutPrefix(state.presentation, pluginDemoPresentation); demo && state.scope.Session == nil {
-		return state.effect(func(*ui.Context) { state.runtime.revealDemoTurn(id, target.Turn) })
 	}
 	if state.scope.Session == nil {
 		return nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "composer entry reveal is unavailable")

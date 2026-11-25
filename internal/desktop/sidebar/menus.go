@@ -203,19 +203,27 @@ func (s *State) archivedMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation
 // actions, as the reference's header menu.
 func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
-	worktrees := func(action string) { s.worktrees(c, pr, action, "") }
+	var menus []ProjectMenuAction
+	if s.Actions != nil {
+		menus = s.Actions.ProjectMenus
+	} else {
+		menus = []ProjectMenuAction{sampleWorktreeProjectMenu(s.sampleWorktrees)}
+	}
 	if m.Item(t("project_edit")).Icon(icons.Settings2).Disabled(pr.Offline).Chosen() {
 		s.OpenEditor(pr)
 	}
-	trees := s.Actions == nil || s.Actions.Worktrees != nil
-	if trees && m.Item(t("worktree_create")).Icon(icons.Plus).Disabled(pr.Offline).Chosen() {
-		worktrees("create")
+	for _, menu := range menus {
+		if menu.BeforeCopy != nil {
+			menu.BeforeCopy(c, m, pr)
+		}
 	}
 	if m.Item(t("workspace_copy_path")).Icon(icons.Copy).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
-	if trees && m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(pr.Offline || len(pr.Worktrees) < 2).Chosen() {
-		worktrees("remove")
+	for _, menu := range menus {
+		if menu.AfterCopy != nil {
+			menu.AfterCopy(c, m, pr)
+		}
 	}
 	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Disabled(pr.Offline).Chosen() {
 		s.AskRemove(c, pr)
@@ -243,7 +251,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	if s.Actions == nil {
 		s.TerminalItem(c, m, pr)
-		s.WorktreeMenu(c, m, pr)
+		sampleWorktreeProjectMenu(s.sampleWorktrees).Context(c, m, pr)
 	} else if s.Actions.ProjectMenu != nil {
 		s.Actions.ProjectMenu(c, m, pr)
 	}
@@ -285,54 +293,8 @@ func (s *State) TerminalItem(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 }
 
-// WorktreeMenu is the project menu's worktrees submenu, the worktrees
-// package's entry in the project_menu slot, which the application draws
-// itself: create one, open one's page, remove one.
-func (s *State) WorktreeMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
-	t := func(key string) string { return i18n.T(c, key) }
-	m.Submenu(t("worktree_manage"), func(m *ui.Menu) {
-		if m.Item(t("worktree_create")).Chosen() {
-			s.worktrees(c, pr, "create", "")
-		}
-		m.Separator()
-		for _, w := range pr.Worktrees {
-			if m.Item(w.Branch).Checked(w.Main).Chosen() {
-				s.worktrees(c, pr, "select", w.Path)
-			}
-		}
-		if len(pr.Worktrees) < 2 {
-			return
-		}
-		m.Separator()
-		if s.Actions != nil || !kit.Demo(c) {
-			if m.Item(t("worktree_remove")).Chosen() {
-				s.worktrees(c, pr, "remove", "")
-			}
-			return
-		}
-		// The live window picks the worktree in the Git panel; the demo
-		// names them here.
-		m.Submenu(t("worktree_remove"), func(m *ui.Menu) {
-			for _, w := range pr.Worktrees {
-				if !w.Main && m.Item(w.Branch).Chosen() {
-					s.worktrees(c, pr, "remove", w.Path)
-				}
-			}
-		})
-	})
-}
-
-// worktrees runs a worktree operation of a project's menus: the live
-// adapter's, or the demo's in memory. Creating adds a worktree and opens a
-// new session in the project, as the live window does; selecting opens the
-// project's page; removing asks first, naming the worktree. The preview
-// tells its notice.
-func (s *State) worktrees(c *ui.Context, pr *preview.Project, op, path string) {
-	if s.Actions != nil && s.Actions.Worktrees != nil {
-		s.Actions.Worktrees(pr, op, path)
-		return
-	}
-	if s.Actions != nil || !kit.Demo(c) {
+func (s *State) sampleWorktrees(c *ui.Context, pr *preview.Project, op, path string) {
+	if !kit.Demo(c) {
 		s.notice(c)
 		return
 	}

@@ -17,22 +17,28 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/sdk/desktop/native"
 )
 
 func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 	for _, assembly := range []struct {
-		name             string
-		open             func() shell.Assembly
-		code, terminalUI bool
+		name                         string
+		open                         func() shell.Assembly
+		codeIndex, worktrees         bool
+		terminalUI, terminalSettings bool
 	}{
-		{"empty", func() shell.Assembly { return shell.Assembly{} }, false, false},
-		{"Harness", harness.Harness, false, false},
-		{"Code contributions", testassembly.Full, true, true},
-		{"Code without terminal surfaces", func() shell.Assembly {
-			assembly := testassembly.Full()
-			assembly.Terminal = false
+		{name: "empty", open: func() shell.Assembly { return shell.Assembly{} }},
+		{name: "Harness", open: harness.Harness},
+		{name: "execution settings fixture only", open: func() shell.Assembly { return native.Assemble(testassembly.RegisterExecutionFixture) }, codeIndex: true},
+		{name: "worktree fixture only", open: func() shell.Assembly { return native.Assemble(testassembly.RegisterWorktreeFixture) }, worktrees: true},
+		{name: "Code contributions", open: testassembly.Full, codeIndex: true, worktrees: true, terminalUI: true, terminalSettings: true},
+		{name: "Code without terminal surfaces", open: func() shell.Assembly {
+			assembly := harness.Harness()
+			testassembly.RegisterExecutionFixture(&assembly)
+			testassembly.RegisterWorktreeFixture(&assembly)
+			assembly.SettingsPages = testassembly.Full().SettingsPages
 			return assembly
-		}, true, false},
+		}, codeIndex: true, worktrees: true, terminalSettings: true},
 	} {
 		for _, section := range []settings.Section{settings.Conversation, "plugin:fixture"} {
 			t.Run(assembly.name+"/"+string(section), func(t *testing.T) {
@@ -60,20 +66,27 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				root.enterNodeSettings()
 				root.nodeSettingsFrame()
 				root.terminalSettingsFrame()
+				root.projectWorkspaceLocations()
+				root.projectWorkspaceLocations()
 				root.workers.Wait()
 				if len(source.sent("read_sandbox_settings")) == 0 {
 					t.Fatal("settings entry did not read ordinary Node settings")
 				}
-				if got := len(source.sent("read_code_index_settings")) > 0; got != assembly.code {
-					t.Fatalf("code-index settings read = %v, want %v", got, assembly.code)
+				checkRead := func(kind string, enabled bool) {
+					t.Helper()
+					if got := len(source.sent(kind)); got > 1 || (got != 0) != enabled {
+						t.Fatalf("%s sent %d times; want enabled %v", kind, got, enabled)
+					}
 				}
-				if model.CodeIndexAvailable != assembly.code || (model.SaveCodeIndex != nil) != assembly.code || (model.SavePersistentCodeIndex != nil) != assembly.code {
-					t.Fatalf("code-index settings callbacks disagree with the assembly: available %v, save %v, persistent %v", model.CodeIndexAvailable, model.SaveCodeIndex != nil, model.SavePersistentCodeIndex != nil)
+				checkRead("read_code_index_settings", assembly.codeIndex)
+				checkRead("list_worktrees", assembly.worktrees)
+				if (len(model.ExecutionSettings) != 0) != assembly.codeIndex {
+					t.Fatal("code-index settings binding disagrees with the assembly")
 				}
 				if root.terminalAssembled() != assembly.terminalUI || (root.App.Panel.TerminalActions != nil) != assembly.terminalUI {
 					t.Fatal("terminal panel adapters disagree with the assembly")
 				}
-				if root.App.Sidebar.Actions == nil || (root.App.Sidebar.Actions.NewTerminal != nil) != assembly.terminalUI {
+				if root.App.Sidebar.Actions == nil || (len(root.App.Sidebar.Actions.ProjectResources) != 0) != assembly.terminalUI {
 					t.Fatal("terminal sidebar action disagrees with the assembly")
 				}
 				if !assembly.terminalUI {
@@ -82,17 +95,17 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 						t.Fatal("opening a live terminal without the module created a tab or sent a command")
 					}
 				}
-				if (root.App.Sidebar.Actions.Worktrees != nil) != assembly.code {
+				if (len(root.App.Sidebar.Actions.ProjectMenus) != 0) != assembly.worktrees || (root.App.Sidebar.Actions.ForkWorktree != nil) != assembly.worktrees {
 					t.Fatal("worktree sidebar action disagrees with the assembly")
 				}
 				if len(source.sent("read_terminal_settings")) != 0 {
 					t.Fatal("an unrelated settings page read terminal settings")
 				}
-				if !assembly.code && (root.terminalSettings.shown != nil || model.SaveTerminal != nil) {
+				if !assembly.terminalSettings && (root.terminalSettings.shown != nil || model.SaveTerminal != nil) {
 					t.Fatal("an absent terminal page bound a Node's terminal draft")
 				}
 
-				if assembly.code {
+				if assembly.terminalSettings {
 					model.Open(settings.Terminal)
 					root.terminalSettingsFrame()
 					root.workers.Wait()
@@ -115,6 +128,9 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				}
 				if got := slices.Contains(menu.Menu(), terminal); got != assembly.terminalUI {
 					t.Fatalf("project menu terminal = %v, want %v: %v", got, assembly.terminalUI, menu.Menu())
+				}
+				if got := slices.Contains(menu.Menu(), i18n.In("en", "worktree_manage")); got != assembly.worktrees {
+					t.Fatalf("project menu worktrees = %v, want %v: %v", got, assembly.worktrees, menu.Menu())
 				}
 			})
 		}

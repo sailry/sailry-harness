@@ -138,7 +138,7 @@ func TestTeams(t *testing.T) {
 			t.Error("the deleted team's editor stayed open")
 		}
 		m.tab = 1
-		m.CloseManagedNodeDialogs()
+		m.CloseDialogs()
 		if m.tab != 1 || m.teamRemoving != "" {
 			t.Errorf("switching Nodes changed the tab to %d or left %q open", m.tab, m.teamRemoving)
 		}

@@ -62,7 +62,15 @@ func (a *App) header(c *ui.Context, f frame) {
 		// The main region ends one gap before the fold toggle, and 12 before
 		// the split while the panel shows.
 		padEnd := ButtonGap + 4*f.details
-		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(padEnd).Gap(ButtonGap).Children(func() {
+		module := ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(padEnd).Gap(ButtonGap)
+		slots := a.workspaceSlots()
+		if slots.Close != nil {
+			module.Bind(&a.workspaceHeaderPane)
+			if module.Shortcut(CloseFocused.Mods, CloseFocused.Key) && !c.ShortcutRepeated() {
+				slots.Close(c)
+			}
+		}
+		module.Children(func() {
 			// What the region's controls of a known width take, each with
 			// the gap beside it.
 			known := float32(0)
@@ -132,7 +140,9 @@ func (a *App) header(c *ui.Context, f frame) {
 			// Over a demo conversation the controller shows the statistics
 			// package's context panel alone, read from the conversation's
 			// own usage (live renderPluginHeader).
-			if a.Hooks.PluginHeader != nil {
+			if slots.Header != nil {
+				slots.Header(c)
+			} else if a.Hooks.PluginHeader != nil {
 				a.Hooks.PluginHeader(c)
 			}
 			// Preview data is identified wherever it shows.
@@ -347,8 +357,11 @@ func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 		// the window has no room for the column: the choice stays and shows
 		// when there is room.
 		label := i18n.T(c, "details")
-		if a.pluginDetails() && a.PluginDetailsLabel != "" {
-			label = a.PluginDetailsLabel
+		if slots := a.workspaceSlots(); slots.Details != nil && slots.DetailsLabel != "" {
+			label = slots.DetailsLabel
+			if a.Page != PluginPage {
+				label = i18n.T(c, label)
+			}
 		}
 		kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), HeaderButton, f.showsPanel).
 			Disabled(!f.fitted || !a.hasDetails()).OnClick(a.togglePanel)
@@ -374,10 +387,10 @@ func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
 		title(settings.DetailsTitle(c, a.Settings))
 		return
 	}
-	if a.pluginDetails() {
-		if a.PluginDetailsHeader != nil {
+	if slots := a.workspaceSlots(); slots.Details != nil {
+		if slots.DetailsHeader != nil {
 			seg.PaddingStart(12)
-			a.PluginDetailsHeader(c)
+			slots.DetailsHeader(c)
 		}
 		return
 	}
@@ -408,6 +421,10 @@ func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
 // the sidebar.
 func (a *App) trail(c *ui.Context) {
 	p := theme.Of(c)
+	if title := a.workspaceSlots().Title; title != nil {
+		title(c)
+		return
+	}
 	if a.Hooks.PluginTitle != nil && a.Hooks.PluginTitle(c) {
 		return
 	}

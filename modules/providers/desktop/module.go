@@ -6,7 +6,11 @@ import (
 )
 
 func Register(assembly *shell.Assembly) {
-	assembly.SettingsPages = append(assembly.SettingsPages, Page())
+	page := Page()
+	page.BindWindow = settings.BindWindow(providerSettingsHost.BindProviderSettings)
+	assembly.SettingsPages = append(assembly.SettingsPages, page)
 	assembly.Locales = append(assembly.Locales, Locales)
 	assembly.ProviderUI = func(s *settings.State) shell.ProviderUI { return For(s) }
 }
+
+type providerSettingsHost interface{ BindProviderSettings() settings.WindowBinding }

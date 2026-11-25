@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -120,6 +121,16 @@ func (a *App) FeaturePreferences() ([]string, map[string]bool) {
 }
 
 func (a *App) SetFeaturePreferences(order []string, pins map[string]bool) {
+	for id, old := range a.legacyFeatures {
+		if i := slices.Index(order, old); i >= 0 && !slices.Contains(order, id) {
+			order = slices.Insert(slices.Clone(order), i+1, id)
+		}
+		if pinned, found := pins[old]; found {
+			if _, explicit := pins[id]; !explicit {
+				a.unpinned[id] = !pinned
+			}
+		}
+	}
 	if len(order) > 0 {
 		a.features = a.mergeFeatureOrder(order)
 	}
@@ -170,7 +181,7 @@ func (a *App) mergeFeatureOrder(order []string) []string {
 func (a *App) prefs() Prefs {
 	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, OverviewHidden: a.OverviewHidden, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
-		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
+		PanelTabs: a.keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
 		Panels:           a.savedPanels(),
 		PluginWorkspaces: a.savedPluginWorkspaces(),
 		Features:         a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
@@ -201,6 +212,18 @@ func (a *App) SetPrefs(p Prefs) {
 		value.Width = min(max(value.Width, 0), 480)
 		a.pluginWorkspaces[key] = &value
 	}
+	for id, old := range a.legacyFeatures {
+		for key, value := range p.PluginWorkspaces {
+			if layout, ok := strings.CutPrefix(key, old+"/"); ok && layout != "" {
+				next := id + "/" + layout
+				if _, explicit := a.pluginWorkspaces[next]; !explicit {
+					copy := value
+					copy.Width = min(max(copy.Width, 0), 480)
+					a.pluginWorkspaces[next] = &copy
+				}
+			}
+		}
+	}
 	a.DiffSplit, a.ListShare = p.DiffSplit, p.ListShare
 	a.restorePanels(p)
 	a.Sidebar.SetCollapsed(p.Collapsed)
@@ -222,7 +245,7 @@ func (a *App) SetPrefs(p Prefs) {
 	}
 	a.panes.terminals = nil
 	for _, terminal := range p.WorkspaceTerminals {
-		if terminal.ID != "" && !a.HasWorkspaceTerminal(terminal.ID) {
+		if terminal.ID != "" && a.Panel.ValidTab(panel.Tab{Kind: panel.Terminal, ID: terminal.ID}) && !a.HasWorkspaceTerminal(terminal.ID) {
 			a.panes.terminals = append(a.panes.terminals, terminal)
 		}
 	}
@@ -242,8 +265,8 @@ func (a *App) SetPrefs(p Prefs) {
 // keeps reports whether a panel tab comes back after a relaunch. A file's
 // preview and a subagent's session show what their conversation loaded, which
 // a new window does not have: their tabs would come back empty.
-func keeps(t panel.Tab) bool {
-	return t.Valid() && t.Kind != panel.Artifact && t.Kind != panel.Subagent
+func (a *App) keeps(t panel.Tab) bool {
+	return a.Panel.ValidTab(t) && t.Kind != panel.Artifact && t.Kind != panel.Subagent
 }
 
 func savedPanelTab(tabs []panel.Tab, active panel.Tab) panel.Tab {
@@ -256,10 +279,10 @@ func savedPanelTab(tabs []panel.Tab, active panel.Tab) panel.Tab {
 	return panel.Tab{}
 }
 
-func keptTabs(tabs []panel.Tab) []panel.Tab {
+func (a *App) keptTabs(tabs []panel.Tab) []panel.Tab {
 	var out []panel.Tab
 	for _, t := range tabs {
-		if keeps(t) {
+		if a.keeps(t) {
 			out = append(out, t)
 		}
 	}

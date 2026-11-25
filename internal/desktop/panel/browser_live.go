@@ -50,6 +50,9 @@ type BrowserActions struct {
 // AddBrowser opens another browser tab, shown or behind the active one, and
 // returns it.
 func (s *State) AddBrowser(show bool) Tab {
+	if !s.ValidTab(Tab{Kind: Browser}) {
+		return Tab{}
+	}
 	s.pages++
 	t := Tab{Browser, fmt.Sprint(s.pages)}
 	if show {
@@ -58,6 +61,14 @@ func (s *State) AddBrowser(show bool) Tab {
 		s.Tabs = Opened(s.Tabs, t)
 	}
 	return t
+}
+
+func RenderBrowserResource(c *ui.Context, s *State, tab Tab) {
+	if s.Live && s.BrowserActions == nil {
+		empty(c, icons.Web, "unavailable")
+		return
+	}
+	s.browser(c, tab)
 }
 
 // BrowserDestination is where text typed in the address field goes: an

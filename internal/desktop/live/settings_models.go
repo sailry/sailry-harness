@@ -81,7 +81,8 @@ func (r *Runtime) localModelsFrame() {
 		state.shown = owner
 		root.libraryFrame(owner)
 	}
-	visible := settingsPage && (m.Section == settings.OCR || m.Section == settings.Knowledge || m.Section == settings.Decision)
+	visible := settingsPage && m.HasNativePage(m.Section) &&
+		(m.Section == settings.OCR || m.Section == settings.Knowledge || m.Section == settings.Decision)
 	if !visible {
 		state.visible, state.knowledge = false, false
 		return

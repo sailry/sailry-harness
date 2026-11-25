@@ -43,6 +43,9 @@ func (b *page) Go(address string) bool {
 // loads the page of the tab it is given.
 func (s *State) Browse(address string) Tab {
 	t := s.AddBrowser(true)
+	if t == (Tab{}) {
+		return t
+	}
 	// The tab's history begins at address, not at the dataset's own page.
 	b := s.pageOf(t.ID)
 	b.history, b.at = nil, -1

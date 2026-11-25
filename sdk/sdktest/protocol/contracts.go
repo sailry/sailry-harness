@@ -31,6 +31,7 @@ type (
 	CommandReadSkillDocumentPayload            = protocol.CommandReadSkillDocumentPayload
 	CommandRemoveProjectPayload                = protocol.CommandRemoveProjectPayload
 	CommandRemoveWorktreePayload               = protocol.CommandRemoveWorktreePayload
+	CommandRenameSessionPayload                = protocol.CommandRenameSessionPayload
 	CommandResolveApprovalPayload              = protocol.CommandResolveApprovalPayload
 	CommandRunSshPayload                       = protocol.CommandRunSshPayload
 	CommandSaveCodeIndexSettingsPayload        = protocol.CommandSaveCodeIndexSettingsPayload

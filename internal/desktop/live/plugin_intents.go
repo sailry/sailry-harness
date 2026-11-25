@@ -125,7 +125,7 @@ func (r *Runtime) tryPluginIntent(scope protocol.PluginContext, registry *plugin
 		feed := r.statusFeed(protocol.PluginUiStatusScope{Worktree: scope.Worktree, Session: scope.Session})
 		if feed != nil {
 			for _, entry := range feed.view.Entries {
-				if entry.Declaration.Intent == nil || *entry.Declaration.Intent != intent || unmountedPlugin(entry.Package.Name) {
+				if entry.Declaration.Intent == nil || *entry.Declaration.Intent != intent || pluginViewsRetired(entry.Package) {
 					continue
 				}
 				key, exists := registry.Key(entry.Package, entry.Declaration.ID)
@@ -165,7 +165,7 @@ func (r *Runtime) tryPluginIntent(scope protocol.PluginContext, registry *plugin
 				return pluginIntentResult{ready: true, value: true}
 			}
 			for _, info := range r.localRuntime().pluginViewCatalog(r) {
-				if info.Extension == nil || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" || unmountedPlugin(info.Summary.Name) {
+				if info.Extension == nil || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" || pluginViewsRetired(packageReference(info.Summary)) {
 					continue
 				}
 				for _, declaration := range info.Extension.Ui {

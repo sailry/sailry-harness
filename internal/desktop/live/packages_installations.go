@@ -45,35 +45,34 @@ func (r *Runtime) observeInstallations() {
 // observePython follows the Node's Python topic: the packages whose
 // dependencies it prepares now, shown on the Runtime page of the Node the
 // settings show (settings/runtime/view.rs). A stream that ends leaves none.
-func (r *Runtime) observePython() {
-	if r.machineSettingsStatus() != "" {
-		return
-	}
+func (r *Runtime) observePython(target settings.PageTarget) {
 	state := r.packages
-	state.pythonObserving = true
+	state.pythonFailed = false
 	failed := func() {
 		r.enqueue(func(*ui.Context) {
-			state.pythonFailed = true
-			state.preparations = nil
+			if target.Current() {
+				state.pythonFailed = true
+				state.preparations = nil
+			}
 		})
 	}
 	show := func(preparations []settings.PythonPreparation) {
 		r.enqueue(func(*ui.Context) {
-			if r.packages != state {
+			if !target.Current() {
 				return
 			}
 			state.preparations = preparations
 		})
 	}
 	r.observe(func() {
-		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "python"})
+		stream, err := r.controller.Subscribe(target.Context, protocol.Topic{Kind: "python"})
 		if err != nil {
 			failed()
 			return
 		}
 		defer stream.Close()
 		for {
-			update, err := stream.Next(r.ctx)
+			update, err := stream.Next(target.Context)
 			if err != nil {
 				failed()
 				return

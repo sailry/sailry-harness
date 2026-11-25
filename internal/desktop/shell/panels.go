@@ -348,7 +348,7 @@ func (a *App) savedPanels() map[string]ConversationPanel {
 		if !a.keepsPanel(id) {
 			continue
 		}
-		tabs := keptTabs(kept.Tabs)
+		tabs := a.keptTabs(kept.Tabs)
 		if len(tabs) == 0 && !kept.Open {
 			continue
 		}
@@ -386,8 +386,8 @@ func (a *App) restorePanels(p Prefs) {
 		return
 	}
 	a.PanelWidth, a.PanelOpen = width, p.PanelOpen
-	tabs := keptTabs(p.PanelTabs)
-	if len(p.PanelTabs) == 0 && keeps(p.PanelTab) {
+	tabs := a.keptTabs(p.PanelTabs)
+	if len(p.PanelTabs) == 0 && a.keeps(p.PanelTab) {
 		tabs = []panel.Tab{p.PanelTab}
 	}
 	active := savedPanelTab(tabs, p.PanelTab)
@@ -402,7 +402,7 @@ func (a *App) restorePanels(p Prefs) {
 	}
 	for id, saved := range p.Panels {
 		kept := saved
-		kept.Tabs = keptTabs(saved.Tabs)
+		kept.Tabs = a.keptTabs(saved.Tabs)
 		kept.Active = savedPanelTab(kept.Tabs, kept.Active)
 		if id == p.PanelOf || len(kept.Tabs) == 0 && !kept.Open {
 			continue

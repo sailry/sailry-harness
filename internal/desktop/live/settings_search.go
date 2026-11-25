@@ -12,7 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,11 +23,9 @@ type searchSettingsState struct {
 	refreshQueued     bool
 	observedRev       uint64
 	observedProviders uint64
-	shown             *Runtime
 	saved             *protocol.SearchSettings
 	models            []kit.ModelOption
 	pendingRequest    *pendingSearchRequest
-	actions           settings.SearchActions
 }
 
 type pendingSearchRequest struct {
@@ -217,76 +214,85 @@ func filterSearchModels(catalog protocol.PluginModelsCatalog) []kit.ModelOption 
 	return out
 }
 
-func (r *Runtime) searchSettingsFrame() {
-	root := r.localRuntime()
-	m := root.App.Settings
-	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Search
-	var owner *Runtime
-	if visible {
-		owner = root.managedSettingsNode()
-	}
-	if root.searchSettings.shown != owner {
-		if prev := root.searchSettings.shown; prev != nil {
-			if m.SearchPageState != nil {
-				m.SearchPageState.CloseDialogs()
+func (r *Runtime) BindSearchSettings() settings.WindowBinding {
+	m := r.App.Settings
+	return settings.WindowBinding{
+		Blocked: func(status string) { m.Search = settings.SearchSettingsState{Status: status} },
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			st := &owner.searchSettings
+			st.loadFailed = false
+			m.SearchActions = &settings.SearchActions{
+				Reload: func() {
+					if target.Current() {
+						owner.loadSearchSettings()
+					}
+				},
+				Retry:       func() bool { return target.Current() && owner.retrySearchRequest() },
+				SetDefault:  pageAction(target, owner.setSearchDefaultDriver),
+				SetFallback: pageAction(target, owner.setSearchFallback),
+				SetEnabled: func(driver string, enabled bool) {
+					if target.Current() {
+						owner.setSearchDriverEnabled(driver, enabled)
+					}
+				},
+				Reorder: pageAction(target, owner.reorderSearchDrivers),
+				Test:    pageAction(target, owner.testSearchDriver),
+				SaveDriver: func(draft settings.SearchDriverDraft, done func(bool, bool)) {
+					if target.Current() {
+						owner.saveSearchDriver(draft, done)
+					} else {
+						done(false, false)
+					}
+				},
+				ForgetPending: func() {
+					if target.Current() {
+						st.pendingRequest = nil
+					}
+				},
 			}
-			if !prev.searchSettings.pending {
-				prev.searchSettings.pendingRequest = nil
+			var projected *protocol.SearchSettings
+			var drivers []settings.SearchDriver
+			return settings.PageBinding{
+				Follow: func() {
+					providers := owner.controller.ProviderRevision()
+					if ((!st.loaded && !st.loadFailed) || owner.snapshot().SearchSettingsRevision > st.observedRev || st.loaded && providers != st.observedProviders) && !st.loading && !st.pending && st.pendingRequest == nil {
+						owner.loadSearchSettings()
+					}
+					if projected != st.saved {
+						projected = st.saved
+						drivers = buildSearchDriverViews(projected)
+					}
+					m.Search = settings.SearchSettingsState{
+						Loaded: st.loaded, Loading: st.loading, Pending: st.pending, Connected: true,
+						Retryable: st.pendingRequest != nil && st.pendingRequest.writing, ModelOptions: st.models, Drivers: drivers,
+					}
+					if st.saved != nil {
+						m.Search.Revision = st.saved.Revision
+						m.Search.DefaultDriver = searchSelectionName(st.saved.Driver)
+						m.Search.Fallback = st.saved.Fallback
+					}
+				},
+				Recover: func() { st.loadFailed = false },
+				Close: func() {
+					if m.SearchPageState != nil {
+						m.SearchPageState.CloseDialogs()
+					}
+					m.SearchActions, m.Search = nil, settings.SearchSettingsState{}
+					st.refreshQueued = false
+					if !st.pending {
+						st.pendingRequest = nil
+					}
+				},
 			}
-		}
-		root.searchSettings.shown = owner
+		},
 	}
-	if !visible {
-		return
-	}
-	if owner == nil {
-		m.Search = settings.SearchSettingsState{Status: "connections_offline"}
-		m.SearchActions = nil
-		return
-	}
-	st := &owner.searchSettings
-	if st.actions.Reload == nil {
-		st.actions = settings.SearchActions{
-			Reload:      owner.loadSearchSettings,
-			Retry:       owner.retrySearchRequest,
-			SetDefault:  owner.setSearchDefaultDriver,
-			SetFallback: owner.setSearchFallback,
-			SetEnabled:  owner.setSearchDriverEnabled,
-			Reorder:     owner.reorderSearchDrivers,
-			Test:        owner.testSearchDriver,
-			SaveDriver:  owner.saveSearchDriver,
-			ForgetPending: func() {
-				st.pendingRequest = nil
-			},
-		}
-	}
-	snap := owner.snapshot()
-	providersRev := owner.controller.ProviderRevision()
-	if ((!st.loaded && !st.loadFailed) || snap.SearchSettingsRevision > st.observedRev || (st.loaded && providersRev != st.observedProviders)) && !st.loading && !st.pending && st.pendingRequest == nil {
-		owner.loadSearchSettings()
-	}
-
-	view := settings.SearchSettingsState{
-		Loaded:       st.loaded,
-		Loading:      st.loading,
-		Pending:      st.pending,
-		Connected:    owner.controller.Connected(),
-		Retryable:    st.pendingRequest != nil && st.pendingRequest.writing,
-		ModelOptions: st.models,
-	}
-	if st.saved != nil {
-		view.Revision = st.saved.Revision
-		view.DefaultDriver = searchSelectionName(st.saved.Driver)
-		view.Fallback = st.saved.Fallback
-		view.Drivers = buildSearchDriverViews(st.saved)
-	}
-	m.Search = view
-	m.SearchActions = &st.actions
 }
 
 func (r *Runtime) loadSearchSettings() {
 	st := &r.searchSettings
-	if !r.controller.Connected() {
+	page := r.currentSettingsPage(settings.Search)
+	if page == nil {
 		return
 	}
 	if st.loading || st.pending || st.pendingRequest != nil {
@@ -297,11 +303,20 @@ func (r *Runtime) loadSearchSettings() {
 	st.loadFailed = false
 	st.observedRev = r.snapshot().SearchSettingsRevision
 	providersRev := r.controller.ProviderRevision()
+	st.observedProviders = providersRev
 	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_search_settings"})
-		modelsOut, modelsErr := r.controller.Do(r.ctx, protocol.Command{Kind: "list_plugin_models"})
+		out, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_search_settings"})
+		var modelsOut protocol.Output
+		var modelsErr error
+		if err == nil {
+			modelsOut, modelsErr = r.controller.Do(page.target.Context, protocol.Command{Kind: "list_plugin_models"})
+		}
 		r.enqueue(func(c *ui.Context) {
 			st.loading = false
+			if !page.target.Current() {
+				st.loaded = false
+				return
+			}
 			defer func() {
 				if st.refreshQueued {
 					st.refreshQueued = false

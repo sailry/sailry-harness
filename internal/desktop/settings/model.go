@@ -148,12 +148,12 @@ type Model struct {
 	ReadPersonalInstructions  func()
 
 	// ManagedNode is the shared target for Node-owned settings in this window.
-	ManagedNode string
+	ManagedNode  string
+	ManagedHosts func() []ProviderHost
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
 	Live                bool
 	SavePower           func()
 	SaveSandbox         func()
-	SaveCodeIndex       func()
 	SaveHooks           func(HookSettings) bool
 	HooksContext        func() (HookTarget, bool)
 	HooksSandboxed      func() bool
@@ -186,19 +186,14 @@ type Model struct {
 	Telemetry               Stored[Telemetry]
 
 	// Conversation.
-	Sandbox            Stored[bool]
-	CodeIndexAvailable bool
-	// CodeIndex is the enabled choice for the Node's code tools.
-	CodeIndex      Stored[bool]
-	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
-	MessageDisplay int     // 0 detailed, 1 compact
-	TextSize       float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
+	Sandbox           Stored[bool]
+	ExecutionSettings []ExecutionSetting
+	SessionOrder      int     // 0 created, 1 updated, 2 name: a sidebar.Sort
+	MessageDisplay    int     // 0 detailed, 1 compact
+	TextSize          float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
 	// ViewZoom is the interface size, an index of preferences.ViewZoomLevels:
 	// 0 for 100%.
 	ViewZoom int
-
-	PersistentCodeIndex     *bool
-	SavePersistentCodeIndex func(bool)
 
 	// Shortcuts.
 	Keys Keys
@@ -385,7 +380,7 @@ func NewModel(d *preview.Settings) *Model {
 		Power:                stored(d.PreventSleep),
 		Telemetry:            stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
 		PersonalInstructions: &PersonalInstructions{Known: true},
-		Sandbox:              stored(d.Sandbox), CodeIndexAvailable: true, CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
+		Sandbox:              stored(d.Sandbox), TextSize: DefaultTextSize, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),

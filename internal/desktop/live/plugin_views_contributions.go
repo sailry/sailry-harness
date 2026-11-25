@@ -43,47 +43,15 @@ func pluginViewAccepts(surface string, slot protocol.PluginUiSlot) bool {
 	}
 }
 
-// nativeProjectControl keeps package declarations from duplicating native
-// project actions. A package's terminal renderer never owns a native surface.
-func nativeProjectControl(info protocol.PluginInfo, id string) bool {
-	if info.Summary.Name == pluginWorktreesPackage && id == "manage" {
-		return true
-	}
-	if info.Extension == nil || info.Extension.Desktop == nil {
-		return false
-	}
-	for _, renderer := range info.Extension.Desktop.Renderers {
-		if renderer.Resource != protocol.PluginDesktopResourceKindTerminal {
-			continue
-		}
-		if renderer.Create != nil && *renderer.Create == id {
-			return true
-		}
-		// Historical commands manifests also declared project menu and CLI
-		// entries alongside their renderer. The name alone reserves no IDs.
-		if info.Summary.Name == "commands" {
-			switch id {
-			case "terminal-new", "terminal-cli", "terminal-menu-new", "terminal-menu-cli":
-				return true
-			}
-		}
-	}
-	return false
+func pluginViewDeclarations(declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
+	return slices.DeleteFunc(slices.Clone(declarations), func(declaration protocol.PluginUiContribution) bool {
+		return !pluginViewAccepts(surface, declaration.Slot)
+	})
 }
 
-// pluginViewDeclarations are the controls a package shows on a surface.
-func pluginViewDeclarations(info protocol.PluginInfo, declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
-	result := make([]protocol.PluginUiContribution, 0, len(declarations))
-	for _, declaration := range declarations {
-		if pluginViewShows(info, declaration, surface) {
-			result = append(result, declaration)
-		}
-	}
-	return result
-}
-
-func pluginViewShows(info protocol.PluginInfo, declaration protocol.PluginUiContribution, surface string) bool {
-	return pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(info, declaration.ID))
+func (r *Runtime) pluginViewShows(info protocol.PluginInfo, declaration protocol.PluginUiContribution, surface string) bool {
+	ref := packageReference(info.Summary)
+	return pluginViewAccepts(surface, declaration.Slot) && !r.legacyPluginControlReplaced(ref, declaration) && !pluginTerminalLauncher(info, declaration)
 }
 
 func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...string) *desktopplugins.Registry {
@@ -145,18 +113,18 @@ func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...s
 }
 
 func rootPluginRegistryCurrent(root *Runtime, owner *pluginContributionOwner) bool {
+	if id, demo := strings.CutPrefix(owner.draft, pluginDemoPresentation); demo {
+		return owner.owner == root && owner.scope.Surface.Kind == "composer" && owner.scope.Session == nil && owner.scope.Worktree == nil &&
+			root.App.DemoConversation(id) != nil
+	}
 	if !pluginViewScopeExists(owner.owner, owner.scope) {
 		return false
 	}
 	if owner.scope.Surface.Kind == "provider" {
-		return providerSlotShown(root.shownSettings(), owner.owner, root.App.Settings.DemoMode)
+		return providerSlotShown(root.providerSettingsScope(), owner.owner, root.App.Settings.DemoMode)
 	}
 	if owner.draft == "" {
 		return true
-	}
-	// A demo conversation's contributions last as long as the demo has it.
-	if id, demo := strings.CutPrefix(owner.draft, pluginDemoPresentation); demo {
-		return root.App.DemoConversation(id) != nil
 	}
 	conversation := root.pluginComposerView(owner.draft)
 	if conversation == nil {
@@ -186,34 +154,34 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 		}
 		return
 	}
+	demo := strings.HasPrefix(owner.draft, pluginDemoPresentation)
 	var assistant *protocol.PluginConversationBinding
-	if owner.scope.Session != nil && owner.scope.Surface.Kind != "project" {
-		if session, exists := owner.owner.sessionWithID(*owner.scope.Session); exists {
-			assistant = session.Config.Assistant
-		}
-	} else if owner.draft != "" {
-		if conversation := root.pluginComposerView(owner.draft); conversation != nil {
-			composer := root.App.Composer(conversation.ID)
-			if config, exists := owner.owner.composerBases[composer]; exists {
-				assistant = config.Assistant
+	if !demo {
+		if owner.scope.Session != nil && owner.scope.Surface.Kind != "project" {
+			if session, exists := owner.owner.sessionWithID(*owner.scope.Session); exists {
+				assistant = session.Config.Assistant
+			}
+		} else if owner.draft != "" {
+			if conversation := root.pluginComposerView(owner.draft); conversation != nil {
+				composer := root.App.Composer(conversation.ID)
+				if config, exists := owner.owner.composerBases[composer]; exists {
+					assistant = config.Assistant
+				}
 			}
 		}
 	}
-	demo := strings.HasPrefix(owner.draft, pluginDemoPresentation)
 	// The catalog is shared and unchanged between frames; the packages this
 	// surface mounts are filtered from it in place.
 	catalog := root.pluginViewCatalog(owner.owner)
 	desired := func(info protocol.PluginInfo) bool {
 		extension := info.Extension
-		// Over a demo conversation the statistics package alone is shown: it
-		// reads the composer state and nothing of the Node.
-		if demo && info.Summary.Name != pluginStatisticsPackage {
+		if demo && !demoStatisticsContribution(info) {
 			return false
 		}
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
-			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
+			pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
 			!slices.ContainsFunc(extension.Ui, func(declaration protocol.PluginUiContribution) bool {
-				return pluginViewShows(info, declaration, owner.scope.Surface.Kind)
+				return root.pluginViewShows(info, declaration, owner.scope.Surface.Kind)
 			}) {
 			return false
 		}

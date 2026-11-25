@@ -243,13 +243,15 @@ INSERT INTO cookies VALUES('.example.test','other','',x'763131aa','/',1,1,1,0,0,
 		root.Preferences.Data.BrowserPersistent = &value
 		assembly := desktop.Harness()
 		root.App.Settings.SetNativePages(assembly.SettingsPages)
+		root.bindSettingsPages(assembly.SettingsPages)
+		t.Cleanup(root.closeSettingsPages)
 		root.App.Navigate(shell.SettingsPage)
 		root.App.Settings.Open(settings.Browser)
 		catalog := i18n.New(assembly.Locales...)
 		nativeTester := ui.NewTesterWith(func(c *ui.Context) {
 			i18n.Bind(c, catalog)
 			theme.Apply(c, "", theme.Dark)
-			root.browserSettingsFrame()
+			root.syncSettingsPages()
 			root.mu.Lock()
 			queued := root.queue
 			root.queue = nil

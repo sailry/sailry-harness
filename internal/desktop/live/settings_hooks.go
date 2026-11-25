@@ -6,7 +6,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -14,105 +13,76 @@ import (
 type hookSettingsState struct {
 	model     settings.Stored[settings.HookSettings]
 	loaded    bool
+	reading   bool
 	reload    bool
 	sandboxed bool
 	status    string
-	// The selected binding survives temporary loss of the connection. The
-	// shown binding reopens with a fresh read when the connection returns.
-	selected   *Runtime
-	shown      *Runtime
-	generation uint64
 }
 
-func (r *Runtime) hooksSettingsOpen() bool {
-	return r.App.Page == shell.SettingsPage && r.App.Settings.Section == settings.Hooks
-}
-
-func (r *Runtime) hooksSettingsFrame() {
-	root := r.localRuntime()
-	m := root.App.Settings
-	var selected, owner *Runtime
-	status := ""
-	visible := root.hooksSettingsOpen()
-	if visible {
-		selected = root.runtimeFor(m.ManagedNode)
-		status = selected.machineSettingsStatus()
-		if status == "" {
-			if selected.controller.Connected() {
-				owner = selected
-			} else {
-				status = "connections_offline"
-			}
-		}
-	}
-	binding := &root.hookSettings
-	if binding.selected != selected {
-		binding.selected = selected
-		binding.generation++
-	}
-	if binding.shown != owner {
-		binding.shown = owner
-		if owner != nil {
-			owner.hookSettings.reload = true
-		}
-	}
-	if owner == nil {
+func (r *Runtime) BindHookSettings() settings.WindowBinding {
+	m := r.App.Settings
+	clear := func(status string) {
 		m.HooksStatus = status
 		m.HooksContext, m.SaveHooks, m.HooksSandboxed = nil, nil, nil
-		if visible {
-			m.Hooks = settings.Stored[settings.HookSettings]{}
-			target := settings.HookTarget{Node: m.ManagedNode}
-			if selected != nil {
-				target = selected.hooksTarget()
+		m.Hooks = settings.Stored[settings.HookSettings]{}
+		if status != "" {
+			m.HooksContext = func() (settings.HookTarget, bool) {
+				if selected := r.runtimeFor(m.ManagedNode); selected != nil {
+					return selected.hooksTarget(), false
+				}
+				return settings.HookTarget{Node: m.ManagedNode}, false
 			}
-			m.HooksContext = func() (settings.HookTarget, bool) { return target, false }
 		}
-		return
 	}
-	if state := &owner.hookSettings; state.reload && !state.model.Pending {
-		state.reload = false
-		owner.readHooks()
+	return settings.WindowBinding{
+		Administrator: true,
+		KeepOnOutage:  true,
+		Blocked:       clear,
+		Mount: func(target settings.PageTarget) settings.PageBinding {
+			owner := r.runtimeFor(target.Node)
+			state := &owner.hookSettings
+			state.loaded, state.reload, state.status = false, true, ""
+			return settings.PageBinding{
+				Follow: func() {
+					if state.reload && !state.reading && !state.model.Pending {
+						state.reload = false
+						owner.readHooks(target)
+					}
+					owner.publishHookSettings()
+				},
+				Suspend: func(status string) {
+					state.loaded, state.reload = false, true
+					clear(status)
+				},
+				Close: func() { clear("") },
+			}
+		},
 	}
-	owner.publishHookSettings()
 }
 
 func (r *Runtime) hooksTarget() settings.HookTarget {
 	return settings.HookTarget{Node: r.controller.Target().String(), Host: r.packageHostLabel()}
 }
 
-func (r *Runtime) hooksSettingsCurrent() bool {
-	root := r.localRuntime()
-	return root.hookSettings.shown == r && root.hooksSettingsOpen() && root.managedSettingsNode() == r &&
-		r.controller.Connected() && r.machineSettingsStatus() == ""
-}
-
-func (r *Runtime) hooksUser() protocol.UserID {
-	if user := r.snapshot().User; user != nil {
-		return user.ID
-	}
-	return protocol.UserID{}
-}
-
 func (r *Runtime) publishHookSettings() {
-	if !r.hooksSettingsCurrent() {
+	page := r.currentSettingsPage(settings.Hooks)
+	if page == nil {
 		return
 	}
-	root := r.localRuntime()
-	m, state := root.App.Settings, &r.hookSettings
-	m.Hooks, m.HooksStatus = state.model, state.status
-	target := r.hooksTarget()
-	user := r.hooksUser()
-	generation, revision := root.hookSettings.generation, state.model.Revision
-	current := func() bool {
-		return root.hookSettings.generation == generation && r.hooksSettingsCurrent() && r.hooksUser() == user
+	m, state := r.App.Settings, &r.hookSettings
+	m.Hooks, m.HooksStatus = settings.Stored[settings.HookSettings]{}, state.status
+	if state.loaded {
+		m.Hooks = state.model
 	}
-	m.HooksContext = func() (settings.HookTarget, bool) { return target, current() }
+	m.Hooks.Pending = state.model.Pending || state.reading || state.reload
+	target := r.hooksTarget()
+	revision := state.model.Revision
+	m.HooksContext = func() (settings.HookTarget, bool) { return target, page.target.Current() }
 	m.HooksSandboxed = func() bool { return state.sandboxed }
 	m.SaveHooks = nil
 	if state.loaded {
-		canSave := func() bool { return current() && state.loaded && !state.reload && state.model.Revision == revision }
 		m.SaveHooks = func(draft settings.HookSettings) bool {
-			if !canSave() || state.model.Pending {
+			if !page.target.Current() || !state.loaded || state.reload || state.reading || state.model.Pending || state.model.Revision != revision {
 				return false
 			}
 			r.saveHooks(draft)
@@ -144,34 +114,37 @@ func hookDraft(value protocol.HooksSettings) settings.HookSettings {
 	return draft
 }
 
-func (r *Runtime) readHooks() {
+func (r *Runtime) readHooks(target settings.PageTarget) {
 	state := &r.hookSettings
 	model := &state.model
-	model.Pending = true
-	state.status = ""
-	r.execute(protocol.Command{Kind: "read_hooks"}, func(c *ui.Context, output protocol.Output, err error) {
-		model.Pending = false
-		defer r.publishHookSettings()
-		value, valid := detail[protocol.HooksState](output.Data)
-		if err == nil && (output.Kind != "hook_settings" || !valid) {
-			err = fileActionFault(protocol.ErrorCodeInvalidRequest, "unexpected host hooks response")
-		}
-		if err != nil {
-			state.loaded, state.status = false, "unavailable"
-			if faultCode(err) == protocol.ErrorCodePermissionDenied {
-				state.status = "permission_denied"
+	state.reading, state.status = true, ""
+	r.async(func() {
+		output, err := r.controller.Do(target.Context, protocol.Command{Kind: "read_hooks"})
+		r.enqueue(func(c *ui.Context) {
+			state.reading = false
+			if !target.Current() || state.reload {
+				return
 			}
-			if r.hooksSettingsCurrent() {
+			defer r.publishHookSettings()
+			value, valid := detail[protocol.HooksState](output.Data)
+			if err == nil && (output.Kind != "hook_settings" || !valid) {
+				err = fileActionFault(protocol.ErrorCodeInvalidRequest, "unexpected host hooks response")
+			}
+			if err != nil {
+				state.loaded, state.status = false, "unavailable"
+				if faultCode(err) == protocol.ErrorCodePermissionDenied {
+					state.status = "permission_denied"
+				}
 				r.reportKeys(c, err, state.status, "hooks_conflict", "hooks_unknown")
+				return
 			}
-			return
-		}
-		draft := hookDraft(value.Settings)
-		if reflect.DeepEqual(model.Draft, model.Saved) {
-			model.Draft = draft
-		}
-		model.Saved, model.Revision = draft, value.Settings.Revision
-		state.loaded, state.sandboxed = true, value.Sandboxed
+			draft := hookDraft(value.Settings)
+			if reflect.DeepEqual(model.Draft, model.Saved) {
+				model.Draft = draft
+			}
+			model.Saved, model.Revision = draft, value.Settings.Revision
+			state.loaded, state.sandboxed = true, value.Sandboxed
+		})
 	})
 }
 

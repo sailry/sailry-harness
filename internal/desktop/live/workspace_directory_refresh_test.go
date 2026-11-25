@@ -85,7 +85,13 @@ func testDirectoryWatchPreservesFileTree(t *testing.T, surface string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = controller.Close() })
-	r, err := New(t.Context(), controller, t.TempDir(), filesPage.Page())
+	var assembly shell.Assembly
+	if surface == "files-module" {
+		assembly.WorkspacePages = []shell.NativePage{filesPage.Page()}
+	} else {
+		filesPage.RegisterPanel(&assembly)
+	}
+	r, err := NewWithProfile(t.Context(), controller, t.TempDir(), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}

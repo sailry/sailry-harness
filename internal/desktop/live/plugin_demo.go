@@ -1,11 +1,11 @@
 package live
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"math"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -17,25 +17,35 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Demo mode shows the statistics package over a demo conversation as over a
-// session: its figures in the composer's context bar, beside the core's
-// context meter, which reads the same statistics. The package's view is mounted for each demo conversation
-// shown, without a session, under the presentation "demo/<id>", and reads
-// the composer state the host gives it (readComposer), which is built from
-// the conversation's own usage and transcript. No other package is mounted there: theirs
-// would ask the Node. Nothing of the demo is sent to a Node; the package's
-// bundle is the one another of its mounts read, and is read from the Node
-// only where none has it yet.
 const (
 	pluginStatisticsPackage = "statistics"
 	pluginDemoPresentation  = "demo/"
 )
 
+func demoStatisticsContribution(info protocol.PluginInfo) bool {
+	extension := info.Extension
+	if info.Summary.Name != pluginStatisticsPackage || extension == nil || extension.Scope != protocol.PluginScopeHost ||
+		extension.Desktop == nil || extension.Desktop.UiEntry == nil || extension.Desktop.UiOverlay || len(extension.Ui) == 0 ||
+		!slices.Contains(extension.Actions, protocol.PluginActionReadConversation) {
+		return false
+	}
+	return !slices.ContainsFunc(extension.Actions, func(action protocol.PluginAction) bool {
+		return action != protocol.PluginActionReadConversation && action != protocol.PluginActionReadUsage
+	}) && !slices.ContainsFunc(extension.Ui, func(declaration protocol.PluginUiContribution) bool {
+		return declaration.Slot != protocol.PluginUiSlotStatistics || declaration.Kind != protocol.PluginUiKindMetric ||
+			declaration.Handler != nil || declaration.Intent != nil || declaration.Command != nil
+	})
+}
+
 // demoPluginRegistry is the contributions shown over a demo conversation.
 func (r *Runtime) demoPluginRegistry(cv *viewmodel.Conversation) *plugins.Registry {
+	root := r.localRuntime()
+	if cv == nil || root.App.DemoConversation(cv.ID) != cv {
+		return nil
+	}
 	scope := protocol.DefaultPluginContext()
 	scope.Surface.Kind = "composer"
-	return r.localRuntime().pluginRegistry(scope, pluginDemoPresentation+cv.ID)
+	return root.pluginRegistry(scope, pluginDemoPresentation+cv.ID)
 }
 
 // demoConversation makes a demo conversation's figures the statistics
@@ -43,8 +53,8 @@ func (r *Runtime) demoPluginRegistry(cv *viewmodel.Conversation) *plugins.Regist
 // is set to for the composer state its mount reads.
 func (r *Runtime) demoConversation(_ *ui.Context, cv *viewmodel.Conversation, comp *composer.State) {
 	root := r.localRuntime()
-	root.demoModels.Store(cv.ID, comp.Model)
 	if registry := root.demoPluginRegistry(cv); registry != nil {
+		root.demoModels.Store(cv.ID, comp.Model)
 		root.projectPluginMetrics(comp, registry)
 	}
 	// The context meter reads the statistics a session of the conversation
@@ -61,47 +71,67 @@ func (r *Runtime) demoConversation(_ *ui.Context, cv *viewmodel.Conversation, co
 	}
 }
 
-type pluginDemoComposerKey struct {
-	valid    bool
+type demoComposerKey struct {
 	view     *viewmodel.Conversation
 	revision uint64
 	model    string
 	sidebar  bool
 }
 
-// refreshDemoComposer publishes the composer state a demo conversation's
-// mount reads, and reports whether the mount is one. The demo has no model
-// context: its provider is no provider of the Node.
-func (state *pluginNativeState) refreshDemoComposer() bool {
-	id, demo := strings.CutPrefix(state.presentation, pluginDemoPresentation)
-	if !demo || state.scope.Session != nil {
-		return false
+// The installed name selects which formatter keeps the existing visual.
+// These modules, not package identity, limit it to fixture data and metrics.
+func (r *Runtime) demoStatisticsBindings(mounted *pluginMountedView, id string) plugins.RuntimeBindings {
+	state := pluginNativeState{
+		native: &plugins.NativeBinding{Context: mounted.ctx},
+		composer: &pluginNativeComposer{
+			read: true,
+			view: pluginNativeProjection{changed: make(chan struct{})},
+		},
 	}
-	root := state.runtime.localRuntime()
-	key := pluginDemoComposerKey{valid: true, sidebar: root.App.NavShown()}
-	if state.native.Context.Err() == nil {
-		key.view = root.App.DemoConversation(id)
-		if key.view != nil {
-			key.revision = preview.StatisticsRevision(key.view)
-		}
-		model, _ := root.demoModels.Load(id)
+	var previous demoComposerKey
+	mounted.demoFrame = func() {
+		view := r.App.DemoConversation(id)
+		model, _ := r.demoModels.Load(id)
+		key := demoComposerKey{view: view, sidebar: r.App.NavShown()}
 		key.model, _ = model.(string)
+		if view != nil {
+			key.revision = preview.StatisticsRevision(view)
+		}
+		if previous == key {
+			return
+		}
+		previous = key
+		var projection map[string]any
+		failure := errPluginComposerSourceUnavailable
+		if view != nil {
+			projection, failure = demoComposer(view, key.model, key.sidebar)
+		}
+		state.composer.mu.Lock()
+		defer state.composer.mu.Unlock()
+		publishNativeProjection(&state.composer.view, projection, failure)
 	}
-	owner := state.composer
-	if owner.demo == key {
-		return true
-	}
-	owner.demo = key
-	var projection map[string]any
-	var failure error
-	if key.view == nil {
-		failure = errPluginComposerSourceUnavailable
-	} else {
-		projection, failure = demoComposer(key.view, key.model, key.sidebar)
-	}
-	publishNativeProjection(&owner.view, projection, failure)
-	publishNativeProjection(&owner.model, nil, errPluginModelReadDenied)
-	return true
+	mounted.demoFrame()
+	locale, _ := json.Marshal(map[string]string{"locale": mounted.locale})
+	metadata, _ := json.Marshal(string(locale))
+	return plugins.RuntimeBindings{Modules: []plugins.HostModule{
+		{Name: "sailry", Exports: []plugins.HostExport{{Name: "context", Sync: func(context.Context, []json.RawMessage) (json.RawMessage, error) {
+			return metadata, nil
+		}}}},
+		{Name: "sailry/sdk", Exports: []plugins.HostExport{{Name: "publishContributions", Sync: func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+			if err := mounted.ctx.Err(); err != nil {
+				return nil, err
+			}
+			body, err := pluginNativeArgument[json.RawMessage](arguments, 0)
+			if err != nil {
+				return nil, err
+			}
+			return json.RawMessage("null"), mounted.hooks.Publish(body)
+		}}}},
+		{Name: "sailry/ui", Exports: []plugins.HostExport{
+			{Name: "readComposer", Sync: func(context.Context, []json.RawMessage) (json.RawMessage, error) { return state.composerValue(false) }},
+			{Name: "nextComposerChange", Async: state.nextComposer(false)},
+		}},
+	}}
 }
 
 // revealDemoTurn scrolls a demo conversation's transcript to the turn its
@@ -141,7 +171,7 @@ func demoComposer(view *viewmodel.Conversation, model string, sidebar bool) (map
 	return map[string]any{
 		"command": nil, "mode": protocol.WorkModeCode, "mode_selection": nil, "modes": []any{},
 		"session": nil, "connected": true, "connection": map[string]any{"route": "local", "rtt_ms": nil},
-		"busy": false, "configuring": false, "readonly": false,
+		"busy": false, "configuring": false, "readonly": true,
 		"model_tools": true, "model": selected, "context_limit": limit, "statistics": statistics,
 		"compacting": false, "has_messages": len(view.Turns) > 0, "sidebar": sidebar,
 		"options": map[string]json.RawMessage{}, "operations": []any{},

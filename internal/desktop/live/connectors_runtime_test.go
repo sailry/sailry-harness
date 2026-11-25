@@ -7,11 +7,13 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	connectordesktop "github.com/sailry/sailry-harness/modules/connectors/desktop"
 )
 
 type connectorRuntimeTransport struct {
@@ -80,8 +82,12 @@ func connectorRuntimeFixture(t *testing.T) (*Runtime, *connectorRuntimeTransport
 		cancel()
 		t.Fatal(err)
 	}
-	r := &Runtime{ctx: ctx, cancel: cancel, controller: controller, authorizations: &authorizationState{},
-		App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	assembly := shell.Assemble(connectordesktop.Register)
+	r := &Runtime{ctx: ctx, cancel: cancel, controller: controller,
+		App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly)}
+	r.bindSettingsPages(assembly.SettingsPages)
+	r.App.Page = shell.SettingsPage
+	r.App.Settings.Open(settings.Connectors)
 	r.App.Host = source.Target().String()
 	// Only the queued projection and settings frame are exercised; avoid the
 	// shared raster workers, which cannot join a synctest bubble.
@@ -104,8 +110,10 @@ func connectorRuntimeFixture(t *testing.T) (*Runtime, *connectorRuntimeTransport
 		synctest.Wait()
 	}
 	t.Cleanup(func() {
+		r.closeSettingsPages()
 		cancel()
 		r.workers.Wait()
+		r.observers.Wait()
 		_ = controller.Close()
 	})
 	return r, source, settle

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +14,10 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -33,8 +32,8 @@ type BrowserTabProbe struct {
 
 // StartBrowserTabProbe starts a Node on profile with one session of a project
 // at project, and the Runtime whose App.View the probe's window shows.
-func StartBrowserTabProbe(ctx context.Context, profile, project string) (*BrowserTabProbe, error) {
-	owner, err := node.Start(ctx, profile)
+func StartBrowserTabProbe(ctx context.Context, profile, project string, host moduleapi.Assembly, desktop shell.Assembly) (*BrowserTabProbe, error) {
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: host})
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +80,7 @@ func StartBrowserTabProbe(ctx context.Context, profile, project string) (*Browse
 	if probe.session, valid = detail[protocol.Session](output.Data); !valid {
 		return fail(fmt.Errorf("created session was not returned"))
 	}
-	if probe.Runtime, err = NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json"))); err != nil {
+	if probe.Runtime, err = NewWithProfile(ctx, controller, profile, desktop); err != nil {
 		return fail(err)
 	}
 	return probe, nil

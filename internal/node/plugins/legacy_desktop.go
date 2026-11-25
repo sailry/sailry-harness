@@ -1,12 +1,27 @@
 package plugins
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
 
 // IsLegacyDesktopPackage matches the official content used by legacy Desktop
 // views. The extra digests do not add loader requirements or native tool aliases.
 func IsLegacyDesktopPackage(name, digest string) bool {
 	return IsLegacyOfficialPackage(name, digest) || name == "commands" && IsLegacyNativeToolPackage(name, digest) ||
 		slices.Contains(legacyDesktopDigests[name], digest)
+}
+
+// LegacyDesktopViewRetired applies to views, not inventory, settings or history.
+func LegacyDesktopViewRetired(ref protocol.PluginReference) bool {
+	return (ref.Name == "files" || ref.Name == "git") && IsLegacyDesktopPackage(ref.Name, ref.Digest)
+}
+
+// LegacyDesktopControlRetired covers the project selector built into every
+// composer, including windows without the optional worktree workflow.
+func LegacyDesktopControlRetired(ref protocol.PluginReference, slot protocol.PluginUiSlot, id string) bool {
+	return ref.Name == "worktrees" && slot == protocol.PluginUiSlotContext && id == "location" && IsLegacyDesktopPackage(ref.Name, ref.Digest)
 }
 
 // Verified package trees from f842a50 and bd42d9c in sailry/sailry-plugins.

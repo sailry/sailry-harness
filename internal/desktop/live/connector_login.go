@@ -102,6 +102,10 @@ func (r *Runtime) saveConnector(draft settings.ConnectorDraft, done func(bool)) 
 }
 
 func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kind protocol.PluginConnectorType, method protocol.PluginConnectorKind, input protocol.PluginConnectorInput, done func(bool)) {
+	page := r.currentSettingsPage(settings.Connectors)
+	if page == nil {
+		return
+	}
 	if previous := r.authorizations.connector; previous != nil {
 		r.cancelConnectorLogin()
 		previous.cancel()
@@ -133,7 +137,7 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 	}
 	var started protocol.RequestID
 	started = r.loginRequest(protocol.Command{Kind: "start_connector_login", Data: payload}, func(c *ui.Context, output protocol.Output, err error) {
-		if r.authorizations.connector != attempt {
+		if r.authorizations.connector != attempt || !page.target.Current() {
 			r.abandonLogin("cancel_connector_login", protocol.CommandCancelConnectorLoginPayload{Attempt: started}, err)
 			return
 		}

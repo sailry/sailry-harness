@@ -22,7 +22,7 @@ import (
 // Harness neither shows them nor sends their requests; Code keeps them.
 func TestWorktreeEntriesFollowAssembly(t *testing.T) {
 	en := func(key string) string { return i18n.In("en", key) }
-	worktreeCommands := []string{"read_conversation", "inspect_git", "list_worktrees", "create_managed_worktree", "fork_conversation_at", "move_conversation"}
+	worktreeCommands := []string{"read_conversation", "inspect_git", "list_worktrees", "register_worktree", "create_managed_worktree", "fork_conversation_at", "move_conversation"}
 	for _, test := range []struct {
 		name     string
 		assembly func() shell.Assembly
@@ -53,8 +53,8 @@ func TestWorktreeEntriesFollowAssembly(t *testing.T) {
 				return n
 			}
 			before := sent()
-			if root.worktreesAssembled() != test.code || (root.App.Sidebar.Actions.ForkWorktree != nil) != test.code {
-				t.Fatalf("worktree actions bound = %v, fork %v; want %v", root.worktreesAssembled(), root.App.Sidebar.Actions.ForkWorktree != nil, test.code)
+			if (root.worktreeActions.Create != nil) != test.code || (root.App.Sidebar.Actions.ForkWorktree != nil) != test.code {
+				t.Fatalf("worktree actions bound = %v, fork %v; want %v", root.worktreeActions.Create != nil, root.App.Sidebar.Actions.ForkWorktree != nil, test.code)
 			}
 			cv := root.App.Data.Find(session.ID.String())
 			listed := root.App.Data.Projects[0]

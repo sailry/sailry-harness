@@ -31,8 +31,7 @@ type teamState struct {
 	locale          string
 }
 
-// initTeams starts the local Runtime's team state. The Teams page's actions
-// and its reads belong to the Node Settings shows (settings_target.go).
+// initTeams starts the per-Node conversation and profile state.
 func (r *Runtime) initTeams() {
 	r.teams = newTeamState()
 }
@@ -46,7 +45,7 @@ func profileKey(id string, revision uint64) string { return fmt.Sprintf("%s/%d",
 // teamsFrame shows the Node's roles and teams on the page that holds this
 // Node, and reads its team settings when the Node reports newer ones.
 func (r *Runtime) teamsFrame() {
-	if r.teams == nil || !r.showsSettings() {
+	if r.teams == nil || r.currentSettingsPage(settings.Teams) == nil {
 		return
 	}
 	snapshot := r.snapshot()
@@ -60,7 +59,7 @@ func (r *Runtime) teamsFrame() {
 		r.teams.teams[profileKey(team.ID.String(), team.Revision)] = team
 		r.App.Settings.Teams = append(r.App.Settings.Teams, teamView(team))
 	}
-	if snapshot.TeamSettingsRevision != r.teams.observed && !r.teams.reading && !r.App.Settings.Concurrency.Pending && r.teams.settingsUnknown == nil {
+	if snapshot.TeamSettingsRevision > r.teams.observed && !r.teams.reading && !r.App.Settings.Concurrency.Pending && r.teams.settingsUnknown == nil {
 		r.readTeamSettings()
 	}
 }
@@ -137,20 +136,18 @@ func roleModelView(model *protocol.RoleModel) (string, string) {
 }
 
 func (r *Runtime) readTeamSettings() {
-	if r.teams.reading {
+	page := r.currentSettingsPage(settings.Teams)
+	if page == nil || r.teams.reading {
 		return
 	}
 	r.teams.reading = true
 	r.teams.observed = r.snapshot().TeamSettingsRevision
-	current := r.settingsCurrent()
 	r.async(func() {
-		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_team_settings"})
+		out, err := r.controller.Do(page.target.Context, protocol.Command{Kind: "read_team_settings"})
 		r.enqueue(func(c *ui.Context) {
 			r.teams.reading = false
-			if !current() {
-				if r.showsSettings() {
-					r.readTeamSettings()
-				}
+			if !page.target.Current() {
+				r.readTeamSettings()
 				return
 			}
 			value, valid := detail[protocol.TeamSettings](out.Data)
@@ -171,7 +168,7 @@ func (r *Runtime) readTeamSettings() {
 // answered before a save whose result was accepted since.
 func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
 	field := &r.App.Settings.Concurrency
-	if !r.showsSettings() || field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
+	if r.currentSettingsPage(settings.Teams) == nil || field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
 		return
 	}
 	r.App.Settings.ConcurrencyReadOnly = value.Source != nil
@@ -184,7 +181,8 @@ func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
 
 func (r *Runtime) saveConcurrency() {
 	m := &r.App.Settings.Concurrency
-	if m.Pending {
+	page := r.currentSettingsPage(settings.Teams)
+	if page == nil || m.Pending {
 		return
 	}
 	value := protocol.TeamSettings{Revision: m.Revision, ChildConcurrency: uint64(m.Draft)}
@@ -198,7 +196,7 @@ func (r *Runtime) saveConcurrency() {
 		state.settingsSaving = map[protocol.TeamSettings]func() bool{}
 	}
 	_, pending := state.settingsSaving[value]
-	state.settingsSaving[value] = r.settingsCurrent()
+	state.settingsSaving[value] = page.target.Current
 	if pending {
 		return
 	}

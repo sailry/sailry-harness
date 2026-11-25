@@ -1,5 +1,7 @@
 package shell
 
+import "github.com/egoist/mygo/ui"
+
 // PluginWorkspacePrefs belong to one workspace, including the core Files
 // and Git pages. Conversation panels and other workspaces keep their own
 // widths and fold choices.
@@ -47,7 +49,7 @@ func (a *App) savedPluginWorkspaces() map[string]PluginWorkspacePrefs {
 }
 
 func (a *App) clampNavigation(width float32) float32 {
-	if a.Page == PluginPage {
+	if a.Page == PluginPage || a.Page == a.nativeWorkspacePage {
 		width = max(width, a.pluginNavigationMin)
 	}
 	return ClampNav(width)
@@ -55,4 +57,19 @@ func (a *App) clampNavigation(width float32) float32 {
 
 func (a *App) clampPluginDetails(width, window, navigation float32) float32 {
 	return max(min(width, 480, window-RailWidth-navigation-MainMin), a.pluginDetailsMin)
+}
+
+func (a *App) workspaceSlots() WorkspaceSlots {
+	if a.Page == PluginPage {
+		return WorkspaceSlots{Navigation: a.PluginNavigation, Details: a.PluginDetails, DetailsHeader: a.PluginDetailsHeader, DetailsLabel: a.PluginDetailsLabel}
+	}
+	if a.nativeWorkspacePage == a.Page {
+		return a.nativeWorkspace
+	}
+	return WorkspaceSlots{}
+}
+
+func workspaceSlot(c *ui.Context, draw func(*ui.Context)) {
+	target := c.Key("workspace-slot")
+	ui.Column(target).Fill().MinWidth(0).MinHeight(0).Children(func() { draw(target) })
 }

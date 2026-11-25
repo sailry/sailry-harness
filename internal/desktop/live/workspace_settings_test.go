@@ -35,7 +35,8 @@ func TestWorkspaceHookSettings(t *testing.T) {
 }
 
 func testHostHooksSettings(t *testing.T) {
-	app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())
+	assembly := desktop.Harness()
+	app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, assembly)
 	fixture := func(index byte, administrator bool) (*Runtime, *settingsTestTransport) {
 		t.Helper()
 		snapshot := protocol.DefaultSnapshot()
@@ -70,6 +71,8 @@ func testHostHooksSettings(t *testing.T) {
 		}, transport
 	}
 	local, localSource := fixture(1, true)
+	local.bindSettingsPages(assembly.SettingsPages)
+	t.Cleanup(local.closeSettingsPages)
 	remote, remoteSource := fixture(2, true)
 	viewer, viewerSource := fixture(3, false)
 	localNode, remoteNode, viewerNode := local.controller.Target().String(), remote.controller.Target().String(), viewer.controller.Target().String()
@@ -99,7 +102,7 @@ func testHostHooksSettings(t *testing.T) {
 	}
 	show := func(node string) {
 		m.ManagedNode = node
-		local.hooksSettingsFrame()
+		local.syncSettingsPages()
 		settle()
 	}
 	assertHost := func(node string, revision uint64) {
@@ -140,7 +143,7 @@ func testHostHooksSettings(t *testing.T) {
 		t.Fatalf("disconnected host fell back to another target: %+v", target)
 	}
 	local.bindings[remoteNode] = remote
-	local.hooksSettingsFrame()
+	local.syncSettingsPages()
 	if !m.Hooks.Pending {
 		t.Fatal("reconnected host did not start a fresh read")
 	}
@@ -160,14 +163,14 @@ func testHostHooksSettings(t *testing.T) {
 	if err := refresh(protocol.ErrorCodeUnavailable); faultCode(err) != protocol.ErrorCodeUnavailable {
 		t.Fatalf("could not simulate a hook host outage: %v", err)
 	}
-	local.hooksSettingsFrame()
+	local.syncSettingsPages()
 	if m.HooksStatus != "connections_offline" || draftSave(settingsDraft) {
 		t.Fatal("the hook editor was writable while its host was offline")
 	}
 	if err := refresh(""); err != nil {
 		t.Fatal(err)
 	}
-	local.hooksSettingsFrame()
+	local.syncSettingsPages()
 	if !m.Hooks.Pending || draftSave(settingsDraft) {
 		t.Fatal("the editor did not wait for its host's current hook revision")
 	}

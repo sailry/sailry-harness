@@ -20,15 +20,7 @@ func (location *pluginNativeLocation) releasePresentation(tree protocol.Worktree
 				}
 			}
 			project.panel.ResetFileSearch()
-			project.stopGitRefreshTimer()
-			if project.cancel != nil {
-				project.cancel()
-				project.cancel = nil
-			}
-			if project.release != nil {
-				project.release()
-				project.release = nil
-			}
+			project.releaseResourceWatch()
 			if !retained {
 				project.closeDocumentImages()
 				delete(workspace.projects, tree)

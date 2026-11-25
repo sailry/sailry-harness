@@ -10,8 +10,12 @@ import (
 
 type Assembly = shell.Assembly
 type Module = shell.Module
+type PluginControlReplacement = shell.PluginControlReplacement
 type Page = shell.Page
 type NativePage = shell.NativePage
+type WorkspaceSlots = shell.WorkspaceSlots
+type WindowContext = shell.WindowContext
+type WindowBinding = shell.WindowBinding
 type Feature = shell.Feature
 type App = shell.App
 type Project = panel.Project

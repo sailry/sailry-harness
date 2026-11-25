@@ -68,7 +68,7 @@ func (r *Runtime) projectProviderDirectory(c *ui.Context, err error) {
 		return
 	}
 	r.projectModels()
-	r.localRuntime().projectProviderSnapshot()
+	r.publishProviderSettings()
 }
 
 func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
@@ -116,18 +116,18 @@ func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done
 }
 func (r *Runtime) saveCompaction() {
 	s := &r.App.Settings.Compaction
-	if s.Pending {
+	page := r.currentSettingsPage(settings.Providers)
+	if page == nil || s.Pending {
 		return
 	}
 	draft := s.Draft
 	revision := s.Revision
-	current := r.settingsCurrent()
 	s.Pending = true
 	command := protocol.Command{Kind: "save_compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: revision, Percent: uint8(draft)}}
 	request := r.executeScoped("", command, func(c *ui.Context, out protocol.Output, err error) {
 		// The outcome is a toast wherever the pages are; the slider is this
 		// Node's only while they show it.
-		shown := current()
+		shown := page.retained()
 		if shown {
 			s.Pending = false
 		}
@@ -142,7 +142,7 @@ func (r *Runtime) saveCompaction() {
 			s.Saved = float64(value.Percent)
 			s.Revision = value.Revision
 		} else {
-			r.readProviders()
+			r.fetchCompaction()
 		}
 	})
 	if request == (protocol.RequestID{}) {

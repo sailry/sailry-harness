@@ -14,7 +14,6 @@ type workspaceSettingsState struct {
 
 func (r *Runtime) workspaceSettingsFrame() {
 	r.sandboxFrame()
-	r.hooksSettingsFrame()
 }
 
 func (r *Runtime) sandboxFrame() {

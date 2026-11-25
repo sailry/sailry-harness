@@ -10,11 +10,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	teamsdesktop "github.com/sailry/sailry-harness/modules/teams/desktop"
 )
 
 func TestTeamsProjection(t *testing.T) {
@@ -76,7 +78,10 @@ func TestTeamsProjection(t *testing.T) {
 		}
 	})
 	t.Run("an older settings read does not lower the revision held", func(t *testing.T) {
-		r := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}), teams: &teamState{}}
+		controller, _, _ := settingsPageFixture(t, protocol.NodeID{1}, true)
+		r, settle := mountSettingsPageFixture(t, controller, shell.Assemble(teamsdesktop.Register))
+		r.openNodeSettings(settings.Teams)
+		settle()
 		field := &r.App.Settings.Concurrency
 		r.acceptTeamRead(protocol.TeamSettings{Revision: 5, ChildConcurrency: 4})
 		r.acceptTeamRead(protocol.TeamSettings{Revision: 4, ChildConcurrency: 2})

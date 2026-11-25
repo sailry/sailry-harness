@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 
@@ -15,16 +16,23 @@ import (
 
 // Assembly selects the optional pages, services, and translations for each window.
 type Assembly struct {
-	WorkspacePages []NativePage
-	SettingsPages  []settings.NativePage
-	ProviderUI     func(*settings.State) ProviderUI
-	Locales        []fs.FS
-	// CodeIndex offers the optional Node code-index settings in Conversation.
-	CodeIndex bool
-	// Terminal offers the native terminal surfaces and actions.
-	Terminal bool
-	// Worktrees offers the native project worktree actions.
-	Worktrees bool
+	WorkspacePages            []NativePage
+	SettingsPages             []settings.NativePage
+	ExecutionSettings         []settings.ExecutionSettingFactory
+	Permissions               []PermissionContribution
+	ProjectWorkflows          []ProjectWorkflow
+	PluginControlReplacements []PluginControlReplacement
+	ProviderUI                func(*settings.State) ProviderUI
+	Locales                   []fs.FS
+	panelResources            []panelRegistration
+}
+
+// PluginControlReplacement identifies an old official control provided by a
+// native module in this assembly. It never reserves an ID in another package.
+type PluginControlReplacement struct {
+	Package string
+	Slot    protocol.PluginUiSlot
+	ID      string
 }
 
 // Module registers the contributions it supplies to a desktop assembly.
@@ -47,6 +55,12 @@ type NativePage struct {
 	// Bind returns a window-local frame callback. visible reports whether this
 	// route is active in the live window, including between frames.
 	Bind func(app *App, visible func() bool) func()
+	// BindWindow supplies the live window's instance of this page. Render and
+	// Workspace are the fallbacks when there is no live binding.
+	BindWindow func(WindowContext) WindowBinding
+	// Workspace supplies the slots around Render before layout, for pages
+	// without a project Resource.
+	Workspace func(*App) WorkspaceSlots
 	// Resource shares a workspace panel tab's project and the shell's layout.
 	Resource panel.Kind
 	// CheckpointHistory requests older checkpoints for the shown workspace.
@@ -59,10 +73,78 @@ type NativePage struct {
 	ExtensionDetails bool
 }
 
+// WindowContext is passed only to pages registered in this live window.
+type WindowContext struct {
+	Context context.Context
+	Visible func() bool
+}
+
+// WindowBinding belongs to one registered page in one window. Sync runs
+// before layout; Close releases whatever the page still owns at window close.
+type WindowBinding struct {
+	Render func(*ui.Context)
+	Slots  func() WorkspaceSlots
+	Sync   func()
+	Close  func()
+}
+
+// WorkspaceSlots are a native page's current frame: the Shell places the
+// navigation, details and header slots and owns their sizing and folding.
+type WorkspaceSlots struct {
+	PreferenceKey       string
+	MinNavigationWidth  float32
+	MinDetailsWidth     float32
+	DefaultDetailsWidth float32
+	DetailsLabel        string // i18n key or a localized label
+	Navigation          func(*ui.Context)
+	Details             func(*ui.Context)
+	DetailsHeader       func(*ui.Context)
+	Title               func(*ui.Context)
+	Header              func(*ui.Context)
+	// Close handles the scoped Close Tab action, including when it is a no-op.
+	Close func(*ui.Context)
+}
+
+func (a *App) nativeWorkspacePageDefinition() *NativePage {
+	page := a.nativePage(a.Page)
+	if page == nil || page.Resource != "" {
+		return nil
+	}
+	if page.Workspace == nil && a.activeWindowBinding().Slots == nil {
+		return nil
+	}
+	return page
+}
+
+func (a *App) syncNativeWorkspace() {
+	page := a.nativeWorkspacePageDefinition()
+	if page == nil {
+		a.nativeWorkspacePage, a.nativeWorkspace = "", WorkspaceSlots{}
+		return
+	}
+	a.nativeWorkspacePage = page.Page
+	var slots WorkspaceSlots
+	if bound := a.activeWindowBinding(); bound.Slots != nil {
+		slots = bound.Slots()
+	} else {
+		slots = page.Workspace(a)
+	}
+	a.nativeWorkspace = slots
+	key := slots.PreferenceKey
+	if key == "" {
+		key = page.Feature.ID
+	}
+	width := slots.DefaultDetailsWidth
+	if width == 0 {
+		width = 400
+	}
+	a.SetPluginWorkspace(key, slots.MinNavigationWidth, slots.MinDetailsWidth, width)
+}
+
 func (a *App) installPages(assembly Assembly) {
 	a.translations = i18n.New(assembly.Locales...)
 	a.Settings.SetNativePages(assembly.SettingsPages)
-	a.Settings.CodeIndexAvailable = assembly.CodeIndex
+	a.Settings.ExecutionSettings = settings.BindExecutionSettings(assembly.ExecutionSettings, settings.ExecutionSettingHost{Preview: a.Preview})
 	if assembly.ProviderUI != nil && a.Settings.HasSection(settings.Providers) {
 		a.ProviderUI = assembly.ProviderUI(a.Settings)
 	}
@@ -76,7 +158,7 @@ func (a *App) installPages(assembly Assembly) {
 		}})
 	}
 	for _, p := range assembly.WorkspacePages {
-		if p.Page == "" || p.Feature.ID == "" || p.Render == nil {
+		if p.Page == "" || p.Feature.ID == "" || p.Render == nil && p.BindWindow == nil {
 			panic(fmt.Sprintf("shell: native page %q requires a page ID, rail ID, and renderer", p.Page))
 		}
 		if a.hasPage(p.Page) {
@@ -119,10 +201,59 @@ func (a *App) pageForFeature(id string) *NativePage {
 // NativePageEnabled reports whether the assembly contributed this page.
 func (a *App) NativePageEnabled(p Page) bool { return a.nativePage(p) != nil }
 
+func (a *App) activeWindowBinding() WindowBinding {
+	if a.DemoOn() {
+		return WindowBinding{}
+	}
+	return a.nativeWindowBindings[a.Page]
+}
+
+// BindWindow supplies the live context after the window's services are ready.
+// Fixture windows never acquire live resources.
+func (a *App) BindWindow(ctx context.Context) {
+	if a.Preview || a.nativeWindowBindings != nil {
+		return
+	}
+	for _, page := range a.nativePages {
+		if page.BindWindow == nil {
+			continue
+		}
+		if a.nativeWindowBindings == nil {
+			a.nativeWindowBindings = make(map[Page]WindowBinding)
+		}
+		a.nativeWindowBindings[page.Page] = page.BindWindow(WindowContext{
+			Context: ctx,
+			Visible: func() bool {
+				return ctx.Err() == nil && a.nativeWindowBindings != nil && a.Page == page.Page && !a.DemoOn()
+			},
+		})
+	}
+}
+
+// CloseWindowBindings releases the per-window callbacks registered by BindWindow.
+func (a *App) CloseWindowBindings() {
+	bindings := a.nativeWindowBindings
+	a.nativeWindowBindings = nil
+	a.nativeWorkspacePage, a.nativeWorkspace = "", WorkspaceSlots{}
+	for _, page := range a.nativePages {
+		if close := bindings[page.Page].Close; close != nil {
+			close()
+		}
+	}
+}
+
 // SyncNativePages delivers shared live state to the installed page controllers.
 func (a *App) SyncNativePages() {
 	for _, sync := range a.nativePageSync {
 		sync()
+	}
+	if len(a.nativeWindowBindings) == 0 {
+		return
+	}
+	for _, page := range a.nativePages {
+		if sync := a.nativeWindowBindings[page.Page].Sync; sync != nil {
+			sync()
+		}
 	}
 }
 

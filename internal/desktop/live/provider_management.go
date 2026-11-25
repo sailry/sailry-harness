@@ -611,7 +611,7 @@ func (r *Runtime) finishManagedProviderGroup(groupID protocol.RequestID, batch p
 		result.TargetIDs[member.Node.String()] = member.Provider.String()
 	}
 	done(result)
-	root.projectProviderSnapshot()
+	root.publishProviderSettings()
 }
 
 // recordProviderCopies merges confirmed saves into the current association,
@@ -688,7 +688,7 @@ func (r *Runtime) finishProviderMove(move providerMove) {
 			return
 		}
 		delete(root.providerMoves, key)
-		root.projectProviderSnapshot()
+		root.publishProviderSettings()
 	})
 }
 
@@ -715,7 +715,7 @@ func (r *Runtime) providerLoginFinished(id protocol.ProviderID, success bool) {
 			if move.target.authorizations != nil {
 				delete(move.target.authorizations.savedProviders, id.String())
 			}
-			root.projectProviderSnapshot()
+			root.publishProviderSettings()
 		}
 	})
 }
@@ -733,13 +733,13 @@ func (r *Runtime) enableManagedProvider(node, id string, revision uint64, enable
 	owner := root.providerOwner(node)
 	if owner == nil {
 		root.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the settings host is unavailable"))
-		root.projectProviderSnapshot()
+		root.publishProviderSettings()
 		return
 	}
 	provider, exists := owner.provider(id)
 	if !exists {
 		root.Report(fileActionFault(protocol.ErrorCodeNotFound, "provider is unavailable"))
-		root.projectProviderSnapshot()
+		root.publishProviderSettings()
 		return
 	}
 	provider.Enabled = enabled
@@ -747,7 +747,7 @@ func (r *Runtime) enableManagedProvider(node, id string, revision uint64, enable
 		if ok {
 			owner.refreshProviderSnapshot()
 		} else {
-			root.projectProviderSnapshot()
+			root.publishProviderSettings()
 		}
 	})
 }

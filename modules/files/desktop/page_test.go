@@ -29,7 +29,11 @@ func TestFilesPageUsesScopedWorkspaceAndRetainsDraft(t *testing.T) {
 			project.SetFileWritable(path, true)
 		}
 	}}
-	app := shell.NewLiveWithAssembly(data, shell.Assemble(files.Register))
+	assembly := shell.Assemble(files.Register)
+	if pages := assembly.WorkspacePages; len(pages) != 1 || pages[0].Page != shell.FilesPage || pages[0].Resource != panel.Files || pages[0].RenderDetails == nil {
+		t.Fatalf("the Files module did not declare its own workspace resource: %+v", pages)
+	}
+	app := shell.NewLiveWithAssembly(data, assembly)
 	app.Hooks.ResourceWorkspace = func(got shell.ResourceTarget) *panel.Project {
 		if got == target {
 			return project

@@ -30,7 +30,6 @@ type pluginNativeComposer struct {
 	source   string
 	read     bool
 	key      pluginComposerKey
-	demo     pluginDemoComposerKey
 	mu       sync.Mutex
 	released bool
 	view     pluginNativeProjection
@@ -156,7 +155,7 @@ func (state *pluginNativeState) refreshComposer() {
 	}
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
-	if owner.released || state.refreshDemoComposer() {
+	if owner.released {
 		return
 	}
 	runtime := state.runtime
@@ -236,7 +235,7 @@ func (state *pluginNativeState) releaseComposer() {
 		return
 	}
 	owner.released = true
-	owner.key, owner.demo = pluginComposerKey{}, pluginDemoComposerKey{}
+	owner.key = pluginComposerKey{}
 	state.operations, state.operationsKey = nil, pluginOperationsKey{}
 	for _, projection := range []*pluginNativeProjection{&owner.view, &owner.model} {
 		close(projection.changed)

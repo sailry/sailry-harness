@@ -1,8 +1,15 @@
 package desktop
 
-import "github.com/sailry/sailry-harness/internal/desktop/shell"
+import (
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+)
 
 func Register(assembly *shell.Assembly) {
-	assembly.SettingsPages = append(assembly.SettingsPages, Page())
+	page := Page()
+	page.BindWindow = settings.BindWindow(searchSettingsHost.BindSearchSettings)
+	assembly.SettingsPages = append(assembly.SettingsPages, page)
 	assembly.Locales = append(assembly.Locales, Locales)
 }
+
+type searchSettingsHost interface{ BindSearchSettings() settings.WindowBinding }

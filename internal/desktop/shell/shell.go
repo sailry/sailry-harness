@@ -129,6 +129,9 @@ type App struct {
 	pluginNavigationMin  float32
 	pluginDetailsMin     float32
 	pluginDetailsDefault float32
+	nativeWorkspacePage  Page
+	nativeWorkspace      WorkspaceSlots
+	workspaceHeaderPane  ui.Handle
 	// DiffSplit is the window's diff layout, side by side when set: the
 	// button at the end of a diff's footer writes it (kit.DiffSplit), and
 	// it is saved with the window's other choices (prefs.go).
@@ -146,6 +149,8 @@ type App struct {
 	// native material follows the app's appearance.
 	OnMode  func(theme.Mode)
 	applied theme.Mode
+
+	OnFeatureMenuChanged func()
 
 	Sidebar  *sidebar.State
 	Settings *settings.State
@@ -180,11 +185,14 @@ type App struct {
 	// has no time to give.
 	clock time.Time
 
-	nativePages    []NativePage
-	nativePageSync []func()
-	translations   *i18n.Catalog
+	nativePages          []NativePage
+	nativePageSync       []func()
+	nativeWindowBindings map[Page]WindowBinding
+	translations         *i18n.Catalog
+
 	features       []string // saved rail order, including unavailable features
 	pluginFeatures map[string]Feature
+	legacyFeatures map[string]string // native feature ID to verified profile-local predecessor
 	pluginPage     string
 	unpinned       map[string]bool // features off the rail
 	// previewRail is the preview's rail in the shared UI state file, which a
@@ -287,9 +295,10 @@ func NewLive(d *viewmodel.Data, pages ...NativePage) *App {
 	return NewLiveWithAssembly(d, Assembly{WorkspacePages: pages})
 }
 
-// NewLiveWithAssembly creates an unseeded live window with the supplied page contributions.
+// NewLiveWithAssembly creates an unseeded live window with the supplied contributions.
 func NewLiveWithAssembly(d *viewmodel.Data, assembly Assembly) *App {
 	a := newApp(d, "", settings.NewLive())
+	a.installPanelResources(assembly)
 	a.installPages(assembly)
 	a.Panel.Live = true
 	if len(d.Hosts) > 0 {
@@ -391,6 +400,7 @@ func (a *App) View(c *ui.Context) {
 	a.followSelection()
 	a.followPanes()
 	a.SyncNativePages()
+	a.syncNativeWorkspace()
 	a.handOverFocus(c)
 	a.panes.enlargedFrame = a.panes.enlarged
 	if target := a.panes.enlargedFocus; target != (panes.Target{}) {
@@ -495,10 +505,8 @@ func (a *App) HasNavigation() bool {
 	switch a.Page {
 	case ConversationPage, HostPage, ProjectPage, SettingsPage:
 		return true
-	case PluginPage:
-		return a.PluginNavigation != nil
 	}
-	return false
+	return a.workspaceSlots().Navigation != nil
 }
 
 // NavShown reports whether the side column shows: the page has one and the
@@ -600,8 +608,12 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 		kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
 			if a.Page == SettingsPage {
 				settings.Nav(c, a.Settings)
-			} else if a.Page == PluginPage && a.PluginNavigation != nil {
-				a.PluginNavigation(c)
+			} else if navigation := a.workspaceSlots().Navigation; navigation != nil {
+				if a.Page == PluginPage {
+					navigation(c)
+				} else {
+					workspaceSlot(c, navigation)
+				}
 			} else {
 				a.Sidebar.Terminal = a.ActiveTerminal()
 				sidebar.View(c, a.Sidebar)
@@ -640,7 +652,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.Settings.CloseDetails()
 				return
 			}
-			if a.paged() != "" || a.pluginDetails() {
+			if a.paged() != "" || a.workspaceSlots().Details != nil {
 				a.pluginWorkspacePrefs().Folded = true
 				a.mainPane.Focus(c)
 				return
@@ -657,8 +669,12 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				settings.DetailsPanel(c, a.Settings)
 				return
 			}
-			if a.pluginDetails() {
-				a.PluginDetails(c)
+			if draw := a.workspaceSlots().Details; draw != nil {
+				if a.Page == PluginPage {
+					draw(c)
+				} else {
+					workspaceSlot(c, draw)
+				}
 				return
 			}
 			if page := a.nativePage(a.Page); page != nil && page.Resource != "" && page.RenderDetails != nil {
@@ -818,9 +834,19 @@ func adjacent(a *App, forward bool) string {
 // feature's page.
 func (a *App) page(c *ui.Context) {
 	settings.SettleEdits(c, a.Settings.Model)
-	if page := a.nativePage(a.Page); page != nil && page.Render != nil {
-		page.Render(c, a)
+	if bound := a.activeWindowBinding(); bound.Render != nil {
+		bound.Render(c)
 		return
+	}
+	if page := a.nativePage(a.Page); page != nil {
+		if page.Render != nil {
+			page.Render(c, a)
+			return
+		}
+		if page.BindWindow != nil {
+			a.unavailable(c)
+			return
+		}
 	}
 	switch a.Page {
 	case NotificationsPage:

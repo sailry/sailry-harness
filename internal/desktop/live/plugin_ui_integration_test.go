@@ -130,7 +130,7 @@ func TestPluginUIIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assembly := testassembly.Full()
-	assembly.CodeIndex, assembly.Worktrees = false, false
+	assembly.ExecutionSettings, assembly.ProjectWorkflows = nil, nil
 	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), assembly)
 	if err != nil {
 		t.Fatal(err)
@@ -328,7 +328,7 @@ func TestPluginUIIntegration(t *testing.T) {
 	t.Log("the native terminal rendered and sent input while the package renderer stayed unmounted")
 	assertTerminalRendererUnmounted(t, runtime)
 	for _, mounted := range runtime.pluginViews.mounts {
-		if unmountedPlugin(mounted.scope.Package.Name) {
+		if mounted.key.role != "settings" && pluginViewsRetired(mounted.scope.Package) {
 			t.Fatal("a native resource was also mounted through the plugin runtime")
 		}
 	}

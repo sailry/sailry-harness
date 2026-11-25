@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -96,7 +95,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 	if r.workspace == nil {
 		r.initWorkspace()
 	}
-	ctx.NoWorktreeCreate = !r.worktreesAssembled()
+	ctx.NoWorktreeCreate = r.localRuntime().worktreeActions.Create == nil
 	r.projectWorkspaceLocations()
 	session, ok := r.session(cv.ID)
 	if !ok {
@@ -134,7 +133,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		}
 	}
 	ctx.Repository = composer.Repository{Kind: composer.Inspecting}
-	if p.failedReads["git-status"] || !r.App.NativePageEnabled(shell.GitPage) {
+	if p.failedReads["git-status"] || !r.App.HasWorkspaceResource(panel.Changes) {
 		ctx.Repository.Kind = composer.Unavailable
 	}
 	if p.statusKnown {
@@ -190,6 +189,7 @@ func branchLabel(branch, head *string) string {
 }
 func (r *Runtime) projectWorkspaceLocations() {
 	snapshot := r.snapshot()
+	readLocations := r.localRuntime().projectLocations
 	for _, tree := range snapshot.Worktrees {
 		delete(r.workspace.admitted, tree.ID)
 	}
@@ -212,14 +212,9 @@ func (r *Runtime) projectWorkspaceLocations() {
 				project.Worktrees[i].Branch = project.Worktrees[i].Path
 			}
 		}
-		if !main.locationsLoaded && r.App.Sidebar.Actions != nil && r.App.Sidebar.Actions.Worktrees != nil {
+		if readLocations != nil && !main.locationsLoaded {
 			main.locationsLoaded = true
-			main.read("git-worktrees", protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: main.owner.ID}}, func(c *ui.Context, out protocol.Output) {
-				if value, ok := detail[protocol.GitWorktrees](out.Data); ok {
-					main.worktrees = value
-					r.projectWorkspaceLocations()
-				}
-			})
+			readLocations(main.projectLocationReader())
 		}
 		if len(main.worktrees.Entries) > 0 {
 			project.Worktrees = nil
@@ -450,13 +445,6 @@ func (p *workspaceProject) restoreTurn(session protocol.SessionID, turn, relativ
 		p.refresh()
 	})
 }
-func (r *Runtime) createComposerWorktree(x *conversationActions) {
-	var captured *protocol.Session
-	if session, ok := r.session(x.cv.ID); ok {
-		captured = &session
-	}
-	r.openManagedConversation(x.cv, captured, false, func(tree protocol.Worktree) { x.comp.Worktree = tree.Path })
-}
 func (p *workspaceProject) selectDraftWorktree(comp *composer.State, relative string) {
 	r := p.runtime
 	if p.owner.Project == nil || p.owner.Project.String() != comp.Project {
@@ -478,45 +466,6 @@ func (p *workspaceProject) selectDraftWorktree(comp *composer.State, relative st
 		}
 	})
 }
-func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, relative string) {
-	if project == nil {
-		return
-	}
-	owner := r.projectOverviewRuntime(project)
-	if owner == nil {
-		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
-		return
-	}
-	if owner != r {
-		owner.sidebarWorkspaceAction(project, operation, relative)
-		return
-	}
-	if operation == "select" {
-		r.openProjectWorktree(project, relative)
-		return
-	}
-	r.localRuntime().newDraft(project)
-	comp := r.App.Composer(r.App.Sidebar.Selected)
-	comp.Project = project.ID
-	if relative != "" {
-		comp.Worktree = relative
-	}
-	r.workspaceFrame(nil)
-	p := r.workspace.projects[r.workspace.selected]
-	if p == nil {
-		return
-	}
-	r.App.RevealConversationPanel()
-	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: ":changes"})
-	if operation == "create" {
-		if cv := r.App.SelectedConversation(); cv != nil {
-			r.openManagedConversation(cv, nil, false, func(tree protocol.Worktree) { comp.Worktree = tree.Path; p.locationsLoaded = false })
-		}
-	} else {
-		p.manageWorktrees()
-	}
-}
-
 func (r *Runtime) openProjectWorktree(project *viewmodel.Project, relative string) {
 	if worktree, ok := r.projectWorktree(project, relative); ok {
 		r.openProjectOverviewAt(project, worktree.Path)

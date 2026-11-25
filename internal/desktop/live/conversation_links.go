@@ -174,7 +174,7 @@ func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
 			if !browserAddress(link) {
 				return true
 			}
-			if external || r.browser == nil || !r.browser.available {
+			if external || !r.browserPanel || r.browser == nil || !r.browser.available {
 				c.OpenURL(link)
 			} else {
 				r.App.RevealConversationPanel()

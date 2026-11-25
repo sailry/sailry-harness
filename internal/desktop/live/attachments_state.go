@@ -25,6 +25,7 @@ type NativeFileActions struct {
 	RevealLocal    func(string)
 	RenderDocument func(context.Context, protocol.ArtifactSummary, string, func([]byte, error))
 	DocumentView   func(*ui.Context, documentSource) bool
+	saveFilePicker func(string, func(string))
 }
 type attachmentRecord struct {
 	cancel            context.CancelFunc
@@ -130,7 +131,8 @@ func (r *Runtime) SetNativeFileActions(actions NativeFileActions) {
 	// the frame it is inside and the window stops responding. It opens off
 	// the frame instead, and the choice returns to the next one. Bound
 	// runtimes receive the parent's wrapped action.
-	if save := actions.SaveFile; save != nil && r.parent == nil {
+	if save := actions.SaveFile; save != nil && r.parent == nil && actions.saveFilePicker == nil {
+		actions.saveFilePicker = save
 		actions.SaveFile = func(name string, selected func(string)) {
 			go save(name, func(path string) { r.enqueue(func(*ui.Context) { selected(path) }) })
 		}

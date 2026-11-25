@@ -18,6 +18,10 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
+	browserdesktop "github.com/sailry/sailry-harness/modules/browser/desktop"
+	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 )
 
 func main() {
@@ -77,7 +81,8 @@ func main() {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	tab, err := live.StartBrowserTabProbe(ctx, profile, project)
+	host := moduleapi.Assembly{Modules: []moduleapi.Module{browsernode.Builtin()}}
+	tab, err := live.StartBrowserTabProbe(ctx, profile, project, host, shell.Assemble(browserdesktop.Register))
 	if err != nil {
 		panic(err)
 	}

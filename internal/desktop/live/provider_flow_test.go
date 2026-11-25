@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/providers"
@@ -78,6 +79,7 @@ func testProviderFlow(t *testing.T) {
 	}
 	defer r.Close()
 	m := r.App.Settings
+	r.App.Page = shell.SettingsPage
 	m.Open(settings.Providers)
 	snapshots := os.Getenv("SAILRY_SNAPSHOTS") != ""
 	tester := ui.NewTesterWith(func(c *ui.Context) {
@@ -89,6 +91,10 @@ func testProviderFlow(t *testing.T) {
 		for _, post := range queue {
 			post(c)
 		}
+		if len(queue) != 0 {
+			r.delivered++
+		}
+		r.syncSettingsPages()
 		settings.Page(c, m, r.App.Data, settings.Look{Theme: &r.App.Theme, Mode: &r.App.Mode, Effects: &r.App.Effects, Surfaces: &r.App.Surfaces})
 		ui.ToastViewportBase(c, func(ui.Element, []ui.Toast) {})
 	}, 1100, 900, ui.TesterOptions{Dark: true, Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: !snapshots}})

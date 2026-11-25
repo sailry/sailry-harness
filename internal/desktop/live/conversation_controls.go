@@ -17,7 +17,7 @@ func (r *Runtime) projectControls(c *ui.Context, cv *viewmodel.Conversation, com
 	cv.Session.ReadOnly = !ok || delegated(session)
 	edit, editing := r.conversationEdits[cv.ID]
 	controls := x.pageControls()
-	unassembled := !r.worktreesAssembled()
+	unassembled := r.localRuntime().worktreeActions.ForkTurn == nil
 	shown := false
 	for i := range cv.Turns {
 		turn := &cv.Turns[i]

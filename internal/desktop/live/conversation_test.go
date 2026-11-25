@@ -30,6 +30,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	browserdesktop "github.com/sailry/sailry-harness/modules/browser/desktop"
+	connectordesktop "github.com/sailry/sailry-harness/modules/connectors/desktop"
+	filesdesktop "github.com/sailry/sailry-harness/modules/files/desktop"
 )
 
 func TestConversationProjection(t *testing.T) {
@@ -1003,7 +1006,11 @@ func TestComposerSendRouting(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer controller.Close()
-			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			assembly := shell.Assemble(browserdesktop.Register)
+			if row.name == "replace_references" {
+				filesdesktop.Register(&assembly)
+			}
+			r, err := NewWithAssembly(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1818,6 +1825,12 @@ func TestComposerSendRouting(t *testing.T) {
 			t.Fatalf("projected model default = %#v", comp)
 		}
 		// Connector packages are read one pass at a time: calls during a pass ask for one more.
+		assembly := shell.Assemble(connectordesktop.Register)
+		r.App.Settings.SetNativePages(assembly.SettingsPages)
+		r.bindSettingsPages(assembly.SettingsPages)
+		r.App.Page = shell.SettingsPage
+		r.App.Settings.Open(settings.Connectors)
+		r.syncSettingsPages()
 		settle := ui.NewTester(func(c *ui.Context) {
 			r.mu.Lock()
 			queue := r.queue

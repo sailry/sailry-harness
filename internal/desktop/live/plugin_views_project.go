@@ -32,12 +32,6 @@ func (r *Runtime) renderProjectControls(view *ui.Context, project *viewmodel.Pro
 	}
 }
 
-// The native project menu orders retain New terminal before Manage worktrees.
-const (
-	projectMenuTerminalOrder  = 10
-	projectMenuWorktreesOrder = 30
-)
-
 // projectPluginMenu merges the project's enabled package entries with native
 // Desktop actions in their declared order. Actions supplied by the product
 // do not depend on the project's installed packages.
@@ -47,16 +41,25 @@ func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *vi
 		return
 	}
 	side := r.localRuntime().App.Sidebar
-	terminal := side.Actions != nil && side.Actions.NewTerminal != nil
-	worktrees := side.Actions != nil && side.Actions.Worktrees != nil
+	actions := side.Actions
+	if actions == nil {
+		return
+	}
+	resources, workflows := actions.ProjectResources, actions.ProjectMenus
 	native := func(before int) {
-		if terminal && projectMenuTerminalOrder <= before {
-			side.TerminalItem(view, menu, project)
-			terminal = false
-		}
-		if worktrees && projectMenuWorktreesOrder <= before {
-			side.WorktreeMenu(view, menu, project)
-			worktrees = false
+		for {
+			switch {
+			case len(workflows) > 0 && workflows[0].Order <= before && (len(resources) == 0 || workflows[0].Order < resources[0].Order):
+				if render := workflows[0].Context; render != nil {
+					render(view, menu, project)
+				}
+				workflows = workflows[1:]
+			case len(resources) > 0 && resources[0].Order <= before:
+				resources[0].Menu(view, menu, project)
+				resources = resources[1:]
+			default:
+				return
+			}
 		}
 	}
 	if _, registry := r.projectPluginRegistry(project, ""); registry != nil {
@@ -119,7 +122,7 @@ func (r *Runtime) projectMenuRegistries() {
 		}
 		wanted, known := declared[owner]
 		if !known {
-			wanted = projectMenuDeclared(r.pluginViewCatalog(owner))
+			wanted = r.projectMenuDeclared(r.pluginViewCatalog(owner))
 			declared[owner] = wanted
 		}
 		if wanted {
@@ -130,15 +133,15 @@ func (r *Runtime) projectMenuRegistries() {
 
 // projectMenuDeclared reports whether a mountable package declares a project
 // menu item the application does not draw itself.
-func projectMenuDeclared(catalog []protocol.PluginInfo) bool {
+func (r *Runtime) projectMenuDeclared(catalog []protocol.PluginInfo) bool {
 	for _, info := range catalog {
 		extension := info.Extension
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil || extension.Scope != protocol.PluginScopeHost ||
-			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+			pluginViewsRetired(packageReference(info.Summary)) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
 		for _, declaration := range extension.Ui {
-			if declaration.Slot == protocol.PluginUiSlotProjectMenu && pluginViewShows(info, declaration, "project") {
+			if declaration.Slot == protocol.PluginUiSlotProjectMenu && r.pluginViewShows(info, declaration, "project") {
 				return true
 			}
 		}

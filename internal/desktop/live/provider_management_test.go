@@ -192,7 +192,7 @@ func TestManagedProviderRowWritesOnlyItsNode(t *testing.T) {
 	root.App.Page = shell.SettingsPage
 	root.App.Settings.Open(settings.Providers)
 	root.App.Settings.ManagedNode = nodes[1].String()
-	root.showNodeSettings(remote)
+	root.nodeSettingsFrame()
 	window := ui.NewTester(func(c *ui.Context) { root.drain(c) }, 320, 240)
 	settle := func() {
 		for range 5 {
