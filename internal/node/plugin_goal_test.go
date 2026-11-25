@@ -762,7 +762,7 @@ func TestGoalLoop(t *testing.T) {
 	t.Run("a failed goal turn is notified once, by the Node, and End closes the goal", func(t *testing.T) {
 		t.Parallel()
 		f := newGoalFixture(t, protocol.WorkModeCode)
-		f.script.push(goalStep{text: "Started"}, goalStep{fail: true})
+		f.script.push(goalStep{text: "Started"}, goalStep{fail: true}, goalStep{fail: true})
 		f.send("/goal Make the fixture pass and prove it")
 		runs, goal := f.settled("paused", "error")
 		f.finished()

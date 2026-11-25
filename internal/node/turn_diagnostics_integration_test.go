@@ -47,10 +47,16 @@ func TestNodeTurnDiagnostics(t *testing.T) {
 				"retry_outcome": "failed", "reason_code": "model_unavailable", "attempts": uint64(model.MainRetries + 1), "http_status": uint64(http.StatusBadGateway)}}},
 		},
 		{
-			name: "first attempt permanent failure", responses: []int{http.StatusUnauthorized},
+			name: "first attempt permanent failure without an HTTP response", responses: []int{turnDiagnosticAuthError},
 			status: protocol.ConversationStatusFailed, faultKind: "model_request",
 			want: []diagnostic{{slog.LevelError, logging.Fields{"area": "agent", "operation": "model_request", "phase": logging.Failed, "code": "unavailable",
-				"retry_outcome": "failed", "reason_code": "model_authentication", "attempts": uint64(1), "http_status": uint64(http.StatusUnauthorized)}}},
+				"retry_outcome": "failed", "reason_code": "model_authentication", "attempts": uint64(1)}}},
+		},
+		{
+			name: "HTTP unauthorized persists after one resend", responses: []int{http.StatusUnauthorized, http.StatusUnauthorized},
+			status: protocol.ConversationStatusFailed, faultKind: "model_request",
+			want: []diagnostic{{slog.LevelError, logging.Fields{"area": "agent", "operation": "model_request", "phase": logging.Failed, "code": "unavailable",
+				"retry_outcome": "failed", "reason_code": "model_authentication", "attempts": uint64(2), "http_status": uint64(http.StatusUnauthorized)}}},
 		},
 		{
 			name: "retry recovers", responses: []int{http.StatusBadGateway, http.StatusOK}, status: protocol.ConversationStatusCompleted,
@@ -195,7 +201,10 @@ func diagnosticCommand(t *testing.T, node *Node, command protocol.Command) proto
 	return result.Output
 }
 
-const turnDiagnosticEmpty = -1
+const (
+	turnDiagnosticEmpty     = -1
+	turnDiagnosticAuthError = -2
+)
 
 type turnDiagnosticModel struct {
 	fantasy.LanguageModel
@@ -210,6 +219,8 @@ func (m *turnDiagnosticModel) Stream(ctx context.Context, _ fantasy.Call) (fanta
 		return nil, errors.New("unexpected extra model request")
 	}
 	switch status := m.statuses[index]; status {
+	case turnDiagnosticAuthError:
+		return nil, &fantasy.ProviderError{AuthError: true, Message: "scripted credential failure"}
 	case 0:
 		return func(func(fantasy.StreamPart) bool) {
 			close(m.waiting)
