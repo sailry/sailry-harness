@@ -39,8 +39,8 @@ typedef ProjectResourceLink = ({
 typedef OpenProjectResourceLink =
     Future<void> Function(BuildContext context, ProjectResourceLink link);
 
-/// A target match takes priority over a scheme match. The first match owns
-/// the open, including any failure. File/directory data is Node-relative.
+/// A target match takes priority over a scheme match and owns the open,
+/// including any failure. File/directory data is Node-relative.
 class ProjectLinkContribution {
   const ProjectLinkContribution.target(String this.kind, this.open)
     : scheme = null;
@@ -146,14 +146,62 @@ class ProjectResourceFeature {
   final TaskListSection? taskSection;
 }
 
+class ProjectResources {
+  ProjectResources(Iterable<ProjectResourceFeature> features)
+    : features = List.unmodifiable(features) {
+    for (final feature in this.features) {
+      for (final link in feature.links) {
+        _register(link);
+      }
+      if (feature.openDirectory case final open?) {
+        _register(
+          ProjectLinkContribution.target(
+            'directory',
+            (context, link) =>
+                open(context, link.host, link.worktree, link.data as String),
+          ),
+        );
+      }
+    }
+  }
+
+  final List<ProjectResourceFeature> features;
+  final _handlers =
+      <({String? kind, String? scheme}), OpenProjectResourceLink>{};
+
+  void _register(ProjectLinkContribution contribution) {
+    final kind = contribution.kind;
+    final scheme = contribution.scheme?.toLowerCase();
+    final route = (kind: kind, scheme: scheme);
+    if (_handlers.containsKey(route)) {
+      final label = kind == null ? 'scheme/$scheme' : 'target/$kind';
+      throw ArgumentError('Duplicate project link route $label');
+    }
+    _handlers[route] = contribution.open;
+  }
+
+  OpenProjectResourceLink? _handler(String? kind, String? scheme) =>
+      (kind == null ? null : _handlers[(kind: kind, scheme: null)]) ??
+      (scheme == null || scheme.isEmpty
+          ? null
+          : _handlers[(kind: null, scheme: scheme)]);
+}
+
 class ProjectResourcesScope extends InheritedWidget {
-  const ProjectResourcesScope({
+  ProjectResourcesScope({
     super.key,
-    required this.features,
+    required List<ProjectResourceFeature> features,
+    required super.child,
+  }) : resources = ProjectResources(features);
+
+  const ProjectResourcesScope.registered({
+    super.key,
+    required this.resources,
     required super.child,
   });
 
-  final List<ProjectResourceFeature> features;
+  final ProjectResources resources;
+  List<ProjectResourceFeature> get features => resources.features;
 
   static List<ProjectResourceFeature> of(BuildContext context) =>
       context
@@ -161,7 +209,16 @@ class ProjectResourcesScope extends InheritedWidget {
           ?.features ??
       const [];
 
+  static OpenProjectResourceLink? linkHandler(
+    BuildContext context, {
+    String? kind,
+    Uri? uri,
+  }) => context
+      .getInheritedWidgetOfExactType<ProjectResourcesScope>()
+      ?.resources
+      ._handler(kind, uri?.scheme);
+
   @override
   bool updateShouldNotify(ProjectResourcesScope oldWidget) =>
-      features != oldWidget.features;
+      resources != oldWidget.resources;
 }

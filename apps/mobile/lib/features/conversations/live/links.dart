@@ -151,49 +151,29 @@ class ConversationLinks {
     required Future<void> Function() fallback,
   }) async {
     if (!context.mounted) return;
-    final features =
-        context
-            .getInheritedWidgetOfExactType<ProjectResourcesScope>()
-            ?.features ??
-        const <ProjectResourceFeature>[];
     try {
-      final entries = features.expand((feature) => feature.links);
-      final contribution =
-          (kind == null
-              ? null
-              : entries.where((entry) => kind == entry.kind).firstOrNull) ??
-          (uri?.hasScheme == true
-              ? entries
-                    .where((entry) => uri!.scheme == entry.scheme)
-                    .firstOrNull
-              : null);
-      if (contribution != null) {
-        if (!host.connected && (uri == null || !isExternalContentLink(uri))) {
-          _unavailable(context);
-          return;
-        }
-        await contribution.open(context, (
-          host: host,
-          worktree: worktree,
-          session: session,
-          kind: kind,
-          data: data,
-          uri: uri,
-          documents: documents,
-        ));
+      final handler = ProjectResourcesScope.linkHandler(
+        context,
+        kind: kind,
+        uri: uri,
+      );
+      if (handler == null) {
+        await fallback();
         return;
       }
-      if (kind == 'directory') {
-        final legacy = features
-            .map((feature) => feature.openDirectory)
-            .whereType<OpenDirectory>()
-            .firstOrNull;
-        if (legacy != null) {
-          await legacy(context, host, worktree, data as String);
-          return;
-        }
+      if (!host.connected && (uri == null || !isExternalContentLink(uri))) {
+        _unavailable(context);
+        return;
       }
-      await fallback();
+      await handler(context, (
+        host: host,
+        worktree: worktree,
+        session: session,
+        kind: kind,
+        data: data,
+        uri: uri,
+        documents: documents,
+      ));
     } on CommandFailure catch (error) {
       if (context.mounted) showFailure(context, error);
     } catch (_) {

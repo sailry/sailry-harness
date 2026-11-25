@@ -63,6 +63,52 @@ List<String> _countCells(WidgetTester tester) => [
 ];
 
 void main() {
+  test('resource link registration rejects duplicate routes', () {
+    Future<void> open(BuildContext _, ProjectResourceLink _) async {}
+    Future<void> legacyOpen(
+      BuildContext _,
+      HostConnection _,
+      String _,
+      String _,
+    ) async {}
+
+    final directory = ProjectLinkContribution.target('directory', open);
+    final explicit = ProjectResourceFeature(links: [directory]);
+    final legacy = ProjectResourceFeature(openDirectory: legacyOpen);
+    final both = ProjectResourceFeature(
+      openDirectory: legacyOpen,
+      links: [directory],
+    );
+    final duplicateSchemes = ProjectResourceFeature(
+      links: [
+        ProjectLinkContribution.scheme('https', open),
+        ProjectLinkContribution.scheme('HTTPS', open),
+      ],
+    );
+    for (final (features, route) in [
+      ([explicit, explicit], 'target/directory'),
+      ([legacy, legacy], 'target/directory'),
+      ([legacy, explicit], 'target/directory'),
+      ([both], 'target/directory'),
+      ([duplicateSchemes], 'scheme/https'),
+    ]) {
+      expect(
+        () => MobileAssembly(
+          pages: [projectsPage],
+          defaultRoute: projectsRoute,
+          resources: features,
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            'Duplicate project link route $route',
+          ),
+        ),
+      );
+    }
+  });
+
   test('default pages are exported for independent selection', () {
     expect(harnessPages, [tasksPage, hostsPage, projectsPage, settingsPage]);
     expect(terminalResource.hostCount?.id, 'terminals');

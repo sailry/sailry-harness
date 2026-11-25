@@ -14,7 +14,7 @@ class MobileAssembly {
     this.conversationConfiguration,
     this.createUpdates,
   }) : pages = List.unmodifiable(pages),
-       resources = List.unmodifiable(resources) {
+       projectResources = ProjectResources(resources) {
     final ids = this.pages.map((page) => page.id).toSet();
     if (ids.length != this.pages.length || ids.contains('')) {
       throw ArgumentError('Mobile page IDs must be nonempty and unique');
@@ -26,7 +26,8 @@ class MobileAssembly {
 
   final List<MobilePage> pages;
   final String defaultRoute;
-  final List<ProjectResourceFeature> resources;
+  final ProjectResources projectResources;
+  List<ProjectResourceFeature> get resources => projectResources.features;
   final Widget Function(DraftWorkspaceContext)? draftWorkspace;
   final Widget Function(ConversationConfigurationContext)?
   conversationConfiguration;

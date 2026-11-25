@@ -131,8 +131,8 @@ class _SailryAppState extends State<SailryApp> {
       bundle: widget.assets ?? rootBundle,
       child: MobileAssemblyScope(
         assembly: widget.assembly,
-        child: ProjectResourcesScope(
-          features: widget.assembly.resources,
+        child: ProjectResourcesScope.registered(
+          resources: widget.assembly.projectResources,
           child: SessionScope(session: _session, child: app),
         ),
       ),

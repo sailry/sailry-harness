@@ -328,35 +328,47 @@ void main() {
     expect(find.byType(ResourceFilePage), findsNothing);
   });
 
-  testWidgets('a rejected handler is terminal for published files and web', (
+  testWidgets('a rejected handler is terminal for files, directories and web', (
     tester,
   ) async {
     final launcher = _fakeLauncher();
     final host = _host();
     final rejected = <ProjectResourceLink>[];
+    final legacyAttempts = <(HostConnection, String, String)>[];
+    var schemeAttempts = 0;
     Future<void> deny(BuildContext _, ProjectResourceLink link) async {
       rejected.add(link);
       throw const CommandFailure('permission_denied');
     }
 
-    Future<void> next(BuildContext _, ProjectResourceLink _) async =>
-        fail('A rejected handler must not try the next contribution');
     final resources = [
       ProjectResourceFeature(
+        openDirectory: (_, host, worktree, directory) async {
+          legacyAttempts.add((host, worktree, directory));
+          throw const CommandFailure('permission_denied');
+        },
         links: [
           ProjectLinkContribution.target('file', deny),
-          ProjectLinkContribution.target('file', next),
           ProjectLinkContribution.scheme('https', deny),
-          ProjectLinkContribution.scheme('https', next),
+          ProjectLinkContribution.scheme('file', (_, _) async {
+            schemeAttempts++;
+          }),
         ],
       ),
     ];
     await _showReply(
       tester,
       host,
-      '[Rejected web]($_web)',
+      '[Rejected web]($_web) | [Rejected directory](file:///source/src/)',
       resources: resources,
     );
+    await _tapLink(tester, 'Rejected directory');
+    expect(legacyAttempts, [(host, _worktree, 'src')]);
+    expect(schemeAttempts, 0);
+    expect(find.text(tr('failureDenied')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
     await _tapLink(tester, 'Rejected web');
     expect(find.text(tr('failureDenied')), findsOneWidget);
     expect(launcher.calls, isEmpty);
