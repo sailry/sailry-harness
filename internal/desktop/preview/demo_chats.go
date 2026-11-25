@@ -134,7 +134,8 @@ func (b *demo) releaseNotes() *Conversation {
 	return b.conv(id, "release.title", Running, 16*time.Minute, cv.Usage{Tokens: 5400, Speed: 80.6, Cost: 0.0033, Cached: 2800, Context: 0.02}, draft, shorter)
 }
 
-// translate is a finished chat whose host went offline.
+// translate is a finished chat whose host went offline. Its fork menu leaves
+// out New worktree, as a window without the worktree actions does.
 func (b *demo) translate() *Conversation {
 	const id = "chat/translate"
 	ask := b.user(id+"/0", "translate.0.user")
@@ -142,7 +143,7 @@ func (b *demo) translate() *Conversation {
 	ask.Reply.Blocks = []cv.Block{text(b.t("translate.0.answer"))}
 	c := b.conv(id, "translate.title", Idle, 26*time.Hour, cv.Usage{Tokens: 2100, Speed: 82.4, Cost: 0.0012, Cached: 900, Context: 0.01}, ask)
 	c.Session.Connection = cv.Offline
-	c.Turns[0].Controls = cv.Controls{NoExport: true, NoWorktree: true}
+	c.Turns[0].Controls = cv.Controls{NoExport: true, NoWorktree: true, HideWorktree: true}
 	return c
 }
 
