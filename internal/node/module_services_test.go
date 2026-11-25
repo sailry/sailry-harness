@@ -157,6 +157,13 @@ func TestUnassembledConnectionCommandsHaveNoEffects(t *testing.T) {
 	}
 }
 
+func TestPluginRuntimeRequiresCodeIndexService(t *testing.T) {
+	node := serviceTestNode(t, moduleapi.Assembly{Modules: []moduleapi.Module{serviceTestModule("code-index"), serviceTestModule("storage")}})
+	if modules := node.pluginRuntime().Modules; len(modules) != 1 || modules[0] != "storage" {
+		t.Fatalf("modules advertised without a code index service: %v", modules)
+	}
+}
+
 func TestUnassembledDevelopmentCommandsAreRejected(t *testing.T) {
 	node := serviceTestNode(t, moduleapi.Assembly{})
 	directory := t.TempDir()

@@ -39,6 +39,8 @@ func worktreeCommand(kind string) bool {
 
 func (node *Node) moduleServiceAvailable(id string) bool {
 	switch id {
+	case "code-index":
+		return node.codeIndex != nil
 	case "databases":
 		return node.modules.Databases != nil
 	case "ssh":
