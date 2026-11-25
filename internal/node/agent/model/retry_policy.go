@@ -22,6 +22,7 @@ type retryPolicy struct {
 	schedule       backoff.ExponentialBackOff
 	waited         time.Duration
 	dialTimeouts   uint64
+	httpRetried    bool
 	originDeadline time.Time
 	retryAt        time.Time
 	// nativeResends counts the provider errors of a native compaction, which
@@ -44,6 +45,18 @@ func newRetryPolicy() retryPolicy {
 	}
 	policy.schedule.Reset()
 	return policy
+}
+
+// A received HTTP rejection gets one resend even when its diagnosis is not
+// transient. It shares the request's budgets, not its exponential schedule.
+func (policy *retryPolicy) takeHTTPRetry(attempt Attempt) bool {
+	if policy.httpRetried || attempt.Index >= MainRetries || attempt.Failure.Kind == Cancelled ||
+		attempt.Status == nil || *attempt.Status < 400 || *attempt.Status >= 600 {
+		return false
+	}
+	policy.httpRetried = true
+	policy.dialTimeouts = 0
+	return true
 }
 
 func (policy *retryPolicy) limit(purpose Purpose, attempt Attempt, streamed bool) uint64 {
@@ -90,9 +103,12 @@ func (policy *retryPolicy) firstOutputTimer(start time.Time, cancel context.Canc
 }
 
 func (policy *retryPolicy) next(ctx context.Context, attempt Attempt, now time.Time) (time.Duration, bool) {
-	// The library caps the nominal interval, before jitter. Keep our actual
-	// local wait within its cap; a provider's minimum may still exceed it.
-	delay := min(policy.schedule.NextBackOff(), policy.schedule.MaxInterval)
+	delay := policy.schedule.InitialInterval
+	if attempt.Failure.Retryable() {
+		// The library caps the nominal interval, before jitter. Keep our actual
+		// local wait within its cap; a provider's minimum may still exceed it.
+		delay = min(policy.schedule.NextBackOff(), policy.schedule.MaxInterval)
+	}
 	delay = max(delay, retryHint(attempt.Failure, now))
 	if !policy.originDeadline.IsZero() {
 		policy.retryAt = now.Add(delay)

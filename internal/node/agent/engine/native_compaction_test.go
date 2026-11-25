@@ -291,6 +291,7 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 			}
 			writeSSE(writer, anthropicText(inPlaceHandoff))
 		})
+		advanceRetryWaits(t, f)
 		if err := compactNow(t, f, x, binding); err != nil {
 			t.Fatal(err)
 		}
@@ -301,8 +302,8 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 		if err := compactNow(t, f, x, binding); err != nil {
 			t.Fatal(err)
 		}
-		if len(provider.all(compacting)) != 1 {
-			t.Fatal("a route that rejected native compaction was asked again")
+		if calls := provider.all(compacting); len(calls) != 2 || calls[0].raw != calls[1].raw {
+			t.Fatal("a rejected native compaction must resend once and then be remembered")
 		}
 	})
 	t.Run("a persistent gateway error falls back after one resend", func(t *testing.T) {
@@ -543,6 +544,7 @@ func TestResponsesNativeCompaction(t *testing.T) {
 			}
 			writeSSE(writer, responsesText(inPlaceHandoff))
 		})
+		advanceRetryWaits(t, f)
 		if err := compactNow(t, f, x, binding); err != nil {
 			t.Fatal(err)
 		}
@@ -553,8 +555,8 @@ func TestResponsesNativeCompaction(t *testing.T) {
 		if err := compactNow(t, f, x, binding); err != nil {
 			t.Fatal(err)
 		}
-		if len(provider.all(compacting)) != 1 {
-			t.Fatal("a route without the compact endpoint was asked again")
+		if calls := provider.all(compacting); len(calls) != 2 || calls[0].raw != calls[1].raw {
+			t.Fatal("a missing native endpoint must resend once and then be remembered")
 		}
 	})
 	t.Run("another model gets a readable handoff written lazily", func(t *testing.T) {

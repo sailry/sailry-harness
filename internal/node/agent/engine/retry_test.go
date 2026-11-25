@@ -1,12 +1,16 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +19,72 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestHTTPRejectionRetriesCurrentStepWithoutReplayingTool(t *testing.T) {
+	t.Parallel()
+	rejected := response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{
+		StatusCode: http.StatusForbidden, ResponseBody: []byte(`{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}`),
+	}})
+	m := &scriptedModel{scripts: []script{response(call("committed", "probe", `{}`), finish()), rejected, rejected}}
+	var effects atomic.Int32
+	probe := objectTool("probe", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		effects.Add(1)
+		return ToolResult{Value: "Tool completed"}
+	})
+	f := newFixture(t, m, probe)
+	f.start()
+	turn := f.submit("Perform the operation once")
+	select {
+	case wait := <-f.r.clock.(*manualClock).waits:
+		if wait.duration != 300*time.Millisecond || m.count() != 2 || effects.Load() != 1 {
+			t.Fatalf("wrong retry boundary: wait=%s calls=%d tool executions=%d", wait.duration, m.count(), effects.Load())
+		}
+		close(wait.advance)
+	case <-f.ctx.Done():
+		t.Fatal("HTTP rejection did not reach its retry wait")
+	}
+	run := f.waitRun(turn, protocol.ConversationStatusFailed)
+	const diagnostic = "Incorrect API key (HTTP 403)"
+	if m.count() != 3 || effects.Load() != 1 || run.Error == nil || run.Error.Message != diagnostic || run.Error.Details == nil || run.Error.Details.Kind != "model_request" {
+		t.Fatalf("retry lost its boundary or failure: calls=%d tool executions=%d fault=%+v", m.count(), effects.Load(), run.Error)
+	}
+	raw, err := json.Marshal(run.Error.Details.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload protocol.FaultDetailsModelRequestPayload
+	if err := json.Unmarshal(raw, &payload); err != nil || payload.Reason != protocol.ModelFailureUnauthorized {
+		t.Fatalf("retry lost the actionable authorization reason: %+v, %v", payload, err)
+	}
+	m.mu.Lock()
+	sameCall := reflect.DeepEqual(m.calls[1], m.calls[2])
+	m.mu.Unlock()
+	if !sameCall {
+		t.Fatal("HTTP resend changed the request containing the completed tool result")
+	}
+	var requests []string
+	var retries int
+	for _, record := range f.state().Records {
+		execution := record.Metadata.Execution
+		if execution == nil || execution.Observation == nil {
+			continue
+		}
+		if retry := execution.Retry; retry != nil {
+			retries++
+			if retry.Attempt != 0 || retry.Limit == nil || *retry.Limit != 0 || retry.Error == nil || *retry.Error != diagnostic {
+				t.Fatalf("wrong persisted first retry: %+v", retry)
+			}
+		}
+		for _, attempt := range execution.Observation.Attempts {
+			if attempt.Status != nil && *attempt.Status == http.StatusForbidden {
+				requests = append(requests, execution.Observation.ID)
+			}
+		}
+	}
+	if retries != 1 || len(requests) != 2 || requests[0] == "" || requests[0] != requests[1] {
+		t.Fatalf("persisted retries=%d request IDs=%v", retries, requests)
+	}
+}
 
 func TestRetryExhaustionKeepsProviderCause(t *testing.T) {
 	t.Parallel()

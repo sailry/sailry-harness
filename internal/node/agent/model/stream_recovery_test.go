@@ -130,11 +130,16 @@ func TestTruncatedResponseIsDistinctFromMalformedOrRejectedResponse(t *testing.T
 			if failure := Classify(cause); failure.Retryable() {
 				t.Fatalf("malformed or rejected response became retryable: %+v", failure)
 			}
-			fake := &policyModel{responses: [][]fantasy.StreamPart{{textPart("retain"), {Type: fantasy.StreamPartTypeError, Error: cause}}}}
+			parts := []fantasy.StreamPart{textPart("retain"), {Type: fantasy.StreamPartTypeError, Error: cause}}
+			fake := &policyModel{responses: [][]fantasy.StreamPart{parts}}
+			if _, rejected := cause.(*fantasy.ProviderError); rejected {
+				fake.responses = append(fake.responses, parts)
+			}
 			resets := 0
 			err := Run(t.Context(), fake, fantasy.Call{}, Main, &policyClock{}, nil, func(fantasy.StreamPart) bool { return true }, func() { resets++ })
-			if err == nil || fake.calls != 1 || resets != 0 {
-				t.Fatalf("permanent failure restarted the request: calls=%d resets=%d error=%v", fake.calls, resets, err)
+			want := len(fake.responses)
+			if failure := Classify(err); failure == nil || failure.Kind != Classify(cause).Kind || failure.Exhausted || fake.calls != want || resets != want-1 {
+				t.Fatalf("malformed or rejected response: calls=%d want=%d resets=%d error=%v", fake.calls, want, resets, err)
 			}
 		})
 	}

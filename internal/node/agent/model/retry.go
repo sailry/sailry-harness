@@ -195,8 +195,12 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 			committed := finished && !buffered && yield != nil
 			canReplay := !released && !committed && (!escaped || reset != nil)
-			if !waitExhausted && canReplay && attempt.Failure.Retryable() && ctx.Err() == nil {
-				attempt.RetryLimit = schedule.limit(purpose, attempt, streamed)
+			sharedRetry := attempt.Failure.Retryable()
+			if !waitExhausted && canReplay && ctx.Err() == nil && (sharedRetry || schedule.takeHTTPRetry(attempt)) {
+				attempt.RetryLimit = index + 1
+				if sharedRetry {
+					attempt.RetryLimit = schedule.limit(purpose, attempt, streamed)
+				}
 				if index >= attempt.RetryLimit {
 					exhausted = true
 				} else if delay, allowed := schedule.next(ctx, attempt, timer.Now()); allowed {
@@ -242,7 +246,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			// Observations retain the provider failure. Only the terminal
 			// result names the exhausted recovery for the turn's final fault.
 			failure := *attempt.Failure
-			if exhausted || waitExhausted {
+			if attempt.Failure.Retryable() && (exhausted || waitExhausted) {
 				failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
 			}
 			failure.requestObserved = observation.finish(ctx, true)

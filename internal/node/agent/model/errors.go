@@ -54,8 +54,8 @@ type Failure struct {
 	truncated bool
 	// forbidden marks an Authentication failure the provider refused with
 	// HTTP 403 rather than a rejected key. Relay gateways that pool upstream
-	// accounts answer 403 while they rotate to another account, so it is
-	// retried; a 401 or an invalid key never recovers by resending.
+	// accounts answer 403 while they rotate to another account, so it uses
+	// the shared retry policy; a rejected key only gets the HTTP resend.
 	forbidden bool
 }
 
@@ -238,8 +238,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Quota
 		case status == 401 || status == 403 || provider.AuthError || invalidKey || anyCode(codes, "authentication_error", "unauthorized", "permission_denied"):
 			f.Kind = Authentication
-			// A 403 that names a credential failure is not an account
-			// rotation and does not recover by resending.
+			// A 403 that names a credential failure is not an account rotation.
 			f.forbidden = status == 403 && !invalidKey && !anyCode(codes, "authentication_error", "unauthorized", "AccessDeniedException")
 		case status == 429 || anyCode(codes, rateLimitCodes...):
 			f.Kind = RateLimited

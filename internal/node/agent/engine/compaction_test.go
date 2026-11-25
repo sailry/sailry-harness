@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -286,12 +287,13 @@ func TestCompactionHandoff(t *testing.T) {
 			cause   string
 		}{
 			{"budget", nil, 100, false, 1, protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, 0, "summary prompt and output exceed the context limit"},
-			{"unauthorized", []script{status(401)}, 0, false, 2, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonAuthorizationFailed, 401, "Summary refused (HTTP 401)"},
-			{"rejected", []script{status(400)}, 0, false, 2, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonServiceRejected, 400, "Summary refused (HTTP 400)"},
+			{"unauthorized", []script{status(401), status(401)}, 0, false, 3, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonAuthorizationFailed, 401, "Summary refused (HTTP 401)"},
+			{"rejected", []script{status(400), status(400)}, 0, false, 3, protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonServiceRejected, 400, "Summary refused (HTTP 400)"},
 			{"stopped", []script{status(400)}, 0, true, 1, "", "", 0, ""},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: row.scripts})
+				advanceRetryWaits(t, f)
 				before = compactionOverflow(t, f, x)
 				if row.context > 0 {
 					binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, row.context
@@ -332,8 +334,9 @@ func TestCompactionHandoff(t *testing.T) {
 		refused := func(_ context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: 400, ResponseBody: []byte(`{"error":{"message":"Summary refused"}}`)}})
 		}
-		m := &scriptedModel{scripts: []script{refused, refused, refused, refused, refused, response(text(`{"user_intent":["Continue task"]}`), finish())}}
+		m := &scriptedModel{scripts: append(slices.Repeat([]script{refused}, 10), response(text(`{"user_intent":["Continue task"]}`), finish()))}
 		f, x, binding, state := compactionFixture(t, m)
+		advanceRetryWaits(t, f)
 		state = compactionPrefix(t, f, x)
 		trigger := uint32(1)
 		binding.Provider.Models[0].CompactionTokens = &trigger
@@ -382,7 +385,7 @@ func TestCompactionHandoff(t *testing.T) {
 		if failure := fail(false); failure.Paused {
 			t.Fatal("the pause was told twice")
 		}
-		if m.count() != 5 {
+		if m.count() != 10 {
 			t.Fatalf("summary requests = %d", m.count())
 		}
 		// A compaction that succeeds ends the pause.
@@ -504,13 +507,15 @@ func TestCompactionRetriesContextOverflowWithSmallerTranscript(t *testing.T) {
 	}}
 	for _, exhausted := range []bool{false, true} {
 		name := "recovers"
-		second := response(text(`{"user_intent":["Continue the current task"]}`), finish())
+		refused := response(overflow)
+		smaller := []script{response(text(`{"user_intent":["Continue the current task"]}`), finish())}
 		if exhausted {
-			name, second = "reports a second refusal", response(overflow)
+			name, smaller = "reports a second refusal", []script{refused, refused}
 		}
 		t.Run(name, func(t *testing.T) {
-			m := &scriptedModel{scripts: []script{response(overflow), second}}
+			m := &scriptedModel{scripts: append([]script{refused, refused}, smaller...)}
 			f, x, binding, state := compactionFixture(t, m)
+			advanceRetryWaits(t, f)
 			original := state.Records[0]
 			summary := canonical.NewRecord(x.inv.Run.Turn, "compaction", &canonical.Compaction{Boundary: original.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, "Keep the earlier handoff")), Start: original.Created, End: original.Created}, f.r.clock.Now())
 			input := inputRecord(x.inv.Run.Turn, protocol.ConversationInput{Text: "Keep the newest user request"}, f.r)
@@ -524,11 +529,14 @@ func TestCompactionRetriesContextOverflowWithSmallerTranscript(t *testing.T) {
 			if exhausted && (err == nil || model.Classify(err).Kind != model.ContextOverflow) || !exhausted && err != nil {
 				t.Fatalf("compaction error = %v", err)
 			}
-			if m.count() != 2 {
-				t.Fatalf("made %d summary calls, want two", m.count())
+			if m.count() != len(m.scripts) {
+				t.Fatalf("made %d summary calls, want %d", m.count(), len(m.scripts))
+			}
+			if !reflect.DeepEqual(m.calls[0], m.calls[1]) || exhausted && !reflect.DeepEqual(m.calls[2], m.calls[3]) {
+				t.Fatal("HTTP resend changed the original summary request")
 			}
 			first := m.calls[0].Prompt[0].Content[0].(fantasy.TextPart).Text
-			narrowed := m.calls[1].Prompt[0].Content[0].(fantasy.TextPart).Text
+			narrowed := m.calls[2].Prompt[0].Content[0].(fantasy.TextPart).Text
 			if !strings.Contains(first, "Older long response evidence") || len(narrowed) >= len(first)/2 || !strings.Contains(narrowed, "Keep the earlier handoff") || !strings.Contains(narrowed, "Keep the newest user request") {
 				t.Fatalf("retry did not preserve essentials within a smaller transcript (%d to %d bytes)", len(first), len(narrowed))
 			}
@@ -539,14 +547,14 @@ func TestCompactionRetriesContextOverflowWithSmallerTranscript(t *testing.T) {
 			}
 			added := after[len(before.Records):]
 			if exhausted {
-				if len(added) != 3 {
-					t.Fatal("summary refusal did not preserve both attempts and one final failure")
+				if len(added) != 5 {
+					t.Fatal("summary refusal did not preserve four attempts and one final failure")
 				}
-				failure := compactionFailed(t, f, added[2])
+				failure := compactionFailed(t, f, added[4])
 				if failure.Reason != protocol.ConversationCompactionReasonContextOverflow || failure.Status == nil || *failure.Status != 400 {
 					t.Fatalf("summary refusal = %+v", failure)
 				}
-			} else if len(added) != 4 || added[1].Kind != "compaction" || added[3].Message().Content[0].Data.(*canonical.TextContent).Text != "Keep the newest user request" {
+			} else if len(added) != 5 || added[2].Kind != "compaction" || added[4].Message().Content[0].Data.(*canonical.TextContent).Text != "Keep the newest user request" {
 				t.Fatal("successful retry did not record the checkpoint and carry the newest user request")
 			}
 		})
@@ -621,4 +629,22 @@ func compactionFixture(t *testing.T, m *scriptedModel) (*engineFixture, *executi
 		t.Fatal(err)
 	}
 	return f, x, binding, f.state()
+}
+
+func advanceRetryWaits(t *testing.T, f *engineFixture) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(f.ctx)
+	waits, done := f.r.clock.(*manualClock).waits, make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done })
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case wait := <-waits:
+				close(wait.advance)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }

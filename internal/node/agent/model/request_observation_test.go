@@ -41,10 +41,18 @@ func TestRunRequestObservation(t *testing.T) {
 	}{
 		{name: "first attempt success", script: []reply{ok}},
 		{
-			name: "first attempt permanent failure", script: []reply{unauthorized},
+			name: "permanent HTTP failure after one resend", script: []reply{unauthorized, unauthorized}, waits: 1,
+			want: RequestObservation{Outcome: RequestFailed, Attempts: 2, Failure: Authentication, Status: http.StatusUnauthorized},
+		},
+		{name: "permanent failure without observer", script: []reply{unauthorized, unauthorized}, waits: 1, noObserver: true},
+		{
+			name: "HTTP rejection recovers", script: []reply{unauthorized, ok}, waits: 1,
+			want: RequestObservation{Outcome: RequestRecovered, Attempts: 2, Failure: Authentication, Status: http.StatusUnauthorized},
+		},
+		{
+			name: "HTTP rejection with wait beyond budget", script: []reply{{status: http.StatusUnauthorized, failure: Authentication, retryAfter: "3600"}},
 			want: RequestObservation{Outcome: RequestFailed, Attempts: 1, Failure: Authentication, Status: http.StatusUnauthorized},
 		},
-		{name: "permanent failure without observer", script: []reply{unauthorized}, noObserver: true},
 		{
 			name: "attempts exhausted", script: slices.Repeat([]reply{busy}, MainRetries+1), waits: MainRetries, exhausted: true,
 			want: RequestObservation{Outcome: RequestFailed, Attempts: MainRetries + 1, Failure: Unavailable, Status: http.StatusServiceUnavailable},
@@ -62,10 +70,11 @@ func TestRunRequestObservation(t *testing.T) {
 			want: RequestObservation{Outcome: RequestRecovered, Attempts: 3, Failure: Network},
 		},
 		{
-			name: "retry ends with a different permanent failure", script: []reply{busy, unauthorized}, waits: 1,
-			want: RequestObservation{Outcome: RequestFailed, Attempts: 2, Failure: Authentication, Status: http.StatusUnauthorized},
+			name: "retry ends with a different permanent failure", script: []reply{busy, unauthorized, unauthorized}, waits: 2,
+			want: RequestObservation{Outcome: RequestFailed, Attempts: 3, Failure: Authentication, Status: http.StatusUnauthorized},
 		},
 		{name: "cancel during retry wait", script: []reply{busy}, waits: 1, cancelInWait: true},
+		{name: "cancel during HTTP rejection wait", script: []reply{unauthorized}, waits: 1, cancelInWait: true},
 		{name: "cancel during replay", script: []reply{busy, {failure: Cancelled}}, waits: 1},
 		{name: "consumer stops output", script: []reply{busy, {status: http.StatusOK, failure: Cancelled}}, waits: 1, stopOnOutput: true},
 		{name: "cannot store failed attempt", script: []reply{busy}, failStoreAt: 1},

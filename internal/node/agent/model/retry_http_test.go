@@ -7,12 +7,103 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestSDKHTTPRejectionsResendOriginalRequestOnce(t *testing.T) {
+	t.Parallel()
+	for _, row := range []struct {
+		name, body, diagnostic string
+		status                 int
+		kind                   FailureKind
+	}{
+		{"bad request", `{"error":{"message":"Invalid options"}}`, "Invalid options", 400, InvalidRequest},
+		{"unauthorized", `{"error":{"message":"Key fixture-key was rejected"}}`, "Key [redacted] was rejected", 401, Authentication},
+		{"forbidden invalid key", `{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}`, "Incorrect API key", 403, Authentication},
+		{"non-JSON not found", `<html>Proxy route not found</html>`, "Model request failed", 404, InvalidRequest},
+		{"non-JSON payload too large", `Payload too large`, "Model request failed", 413, InvalidRequest},
+		{"context overflow", `{"error":{"code":"context_length_exceeded","message":"Context window full"}}`, "Context window full", 413, ContextOverflow},
+		{"unprocessable", `{"error":{"message":"Invalid input"}}`, "Invalid input", 422, InvalidRequest},
+		{"unknown client error", `Rejected`, "Model request failed", 499, InvalidRequest},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			var raw []byte
+			var method, endpoint string
+			requests := 0
+			transport := pluginRoundTripper(func(request *http.Request) (*http.Response, error) {
+				defer request.Body.Close()
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					return nil, err
+				}
+				if requests == 0 {
+					method, endpoint, raw = request.Method, request.URL.String(), body
+				} else if request.Method != method || request.URL.String() != endpoint || !bytes.Equal(raw, body) {
+					t.Fatal("automatic resend changed the original request")
+				}
+				requests++
+				mediaType := "text/plain"
+				if strings.HasPrefix(row.body, "{") {
+					mediaType = "application/json"
+				}
+				return &http.Response{StatusCode: row.status, Header: http.Header{"Content-Type": {mediaType}}, Body: io.NopCloser(strings.NewReader(row.body))}, nil
+			})
+			language, call := requestObservationModel(t, "responses", transport)
+			timer := &policyClock{}
+			var attempts []Attempt
+			err := Run(t.Context(), language, call, Main, timer, func(attempt Attempt) error {
+				attempts = append(attempts, attempt)
+				return nil
+			}, nil, nil)
+			if requests != 2 || len(attempts) != 2 || len(timer.delays) != 1 || timer.delays[0] != 300*time.Millisecond {
+				t.Fatalf("HTTP %d: requests=%d attempts=%d waits=%v error=%v", row.status, requests, len(attempts), timer.delays, err)
+			}
+			message := row.diagnostic + " (HTTP " + strconv.Itoa(row.status) + ")"
+			for index, attempt := range attempts {
+				if attempt.Index != uint64(index) || attempt.RequestID != attempts[0].RequestID || attempt.Status == nil || *attempt.Status != uint16(row.status) ||
+					attempt.Failure == nil || attempt.Failure.Kind != row.kind || attempt.Failure.Message != message || (attempt.RetryDelay != nil) != (index == 0) {
+					t.Fatalf("HTTP %d lost its request or diagnosis: %+v", row.status, attempt)
+				}
+			}
+			fault := Fault(err)
+			if fault == nil || fault.Message != message || fault.Details == nil || fault.Details.Kind != "model_request" {
+				t.Fatalf("HTTP %d lost its terminal diagnostic: %+v", row.status, fault)
+			}
+			wantReason := protocol.ModelFailureRequest
+			if row.kind == Authentication {
+				wantReason = protocol.ModelFailureUnauthorized
+			}
+			if payload := fault.Details.Data.(protocol.FaultDetailsModelRequestPayload); payload.Reason != wantReason || payload.ContextOverflow != (row.kind == ContextOverflow) {
+				t.Fatalf("HTTP %d changed the actionable reason: %+v", row.status, payload)
+			}
+		})
+	}
+}
+
+func TestSDKHTTPRedirectRemainsUnfollowed(t *testing.T) {
+	t.Parallel()
+	requests := 0
+	transport := pluginRoundTripper(func(request *http.Request) (*http.Response, error) {
+		defer request.Body.Close()
+		requests++
+		if request.URL.Host != "fixture.invalid" {
+			t.Fatal("model request followed a redirect to another host")
+		}
+		return &http.Response{StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://redirect.invalid/collect"}}, Body: http.NoBody}, nil
+	})
+	language, call := requestObservationModel(t, "responses", transport)
+	timer := &policyClock{}
+	err := Run(t.Context(), language, call, Main, timer, nil, nil, nil)
+	if failure := Classify(err); requests != 1 || len(timer.delays) != 0 || failure == nil || failure.Kind != InvalidRequest || failure.status == nil || *failure.status != http.StatusTemporaryRedirect {
+		t.Fatalf("redirect changed request handling: requests=%d waits=%v failure=%+v", requests, timer.delays, failure)
+	}
+}
 
 func TestHTTP408RetriesOnlyThroughSailryPolicy(t *testing.T) {
 	t.Parallel()

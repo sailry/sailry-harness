@@ -1021,18 +1021,29 @@ func TestSummaryRetryRecord(t *testing.T) {
 }
 func TestReactiveCompactionAtMostTwo(t *testing.T) {
 	t.Parallel()
-	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
+	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{
+		StatusCode: 413, ResponseBody: []byte(`{"error":{"code":"context_length_exceeded","message":"Context is full"}}`),
+	}}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
-	m := &scriptedModel{scripts: []script{response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, response(text("Third partial evidence"), overflow)}}
+	provisional := response(text("Discarded attempt output"), overflow)
+	m := &scriptedModel{scripts: []script{
+		provisional, response(text("First partial evidence"), overflow), summary,
+		provisional, response(text("Second partial evidence"), overflow), summary,
+		provisional, response(text("Third partial evidence"), overflow),
+	}}
 	f := newFixture(t, m)
+	advanceRetryWaits(t, f)
 	f.start()
 	turn := f.submit("Task")
 	f.waitRun(turn, protocol.ConversationStatusFailed)
-	if m.count() != 5 {
+	if m.count() != 8 {
 		t.Fatalf("reactive request count=%d", m.count())
 	}
 	if n := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); n != 2 {
 		t.Fatalf("compactions=%d", n)
+	}
+	if records, _ := json.Marshal(f.state().Records); strings.Contains(string(records), "Discarded attempt output") {
+		t.Fatal("HTTP resend committed provisional output")
 	}
 }
 

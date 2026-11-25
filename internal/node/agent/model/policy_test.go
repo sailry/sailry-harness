@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -275,7 +276,7 @@ func TestExpiredParentDoesNotAnnounceRetry(t *testing.T) {
 
 func TestRetryExhaustionRequiresRecoverableRetryableFailure(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"transient", "partial", "keepalive", "permanent", "canceled", "consumer_release", "observer_canceled", "summary_partial"} {
+	for _, scenario := range []string{"transient", "partial", "keepalive", "permanent", "http_permanent", "canceled", "consumer_release", "observer_canceled", "summary_partial"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -294,6 +295,8 @@ func TestRetryExhaustionRequiresRecoverableRetryableFailure(t *testing.T) {
 				last = []fantasy.StreamPart{{Type: fantasy.StreamPartTypeKeepalive}, errorPart(Network)}
 			case "permanent":
 				last = []fantasy.StreamPart{errorPart(Authentication)}
+			case "http_permanent":
+				last = []fantasy.StreamPart{{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: http.StatusUnauthorized}}}
 			case "canceled":
 				fake.onCall = func(index int) {
 					if index == MainRetries {
@@ -367,6 +370,23 @@ func TestNoRetryAfterOutputWithoutReset(t *testing.T) {
 			}
 		})
 	}
+	t.Run("HTTP rejection after escaped or committed output", func(t *testing.T) {
+		rejection := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: http.StatusBadRequest, Message: "Request rejected"}}
+		for _, committed := range []bool{false, true} {
+			parts := []fantasy.StreamPart{textPart("draft"), rejection}
+			var reset func()
+			if committed {
+				parts = []fantasy.StreamPart{textPart("answer"), finishPart(), rejection}
+				reset = func() { t.Fatal("retry attempted to replace committed output") }
+			}
+			fake := &policyModel{responses: [][]fantasy.StreamPart{parts}}
+			timer := &policyClock{}
+			err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, func(fantasy.StreamPart) bool { return true }, reset)
+			if err == nil || fake.calls != 1 || len(timer.delays) != 0 {
+				t.Fatalf("escaped output replayed (committed=%t): calls=%d waits=%v error=%v", committed, fake.calls, timer.delays, err)
+			}
+		}
+	})
 	t.Run("consumer_release", func(t *testing.T) {
 		fake := &policyModel{responses: [][]fantasy.StreamPart{{textPart("partial"), finishPart()}}}
 		var attempt Attempt
@@ -457,14 +477,77 @@ func TestForbiddenAndBalanceRetries(t *testing.T) {
 	})
 	for _, body := range []string{`{"error":{"message":"Unauthorized"}}`, `{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}`} {
 		t.Run("rejected_key", func(t *testing.T) {
-			fake := &policyModel{responses: [][]fantasy.StreamPart{{providerPart(401, body)}}}
+			part := providerPart(401, body)
+			fake := &policyModel{responses: [][]fantasy.StreamPart{{part}, {part}}}
 			timer := &policyClock{}
 			err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil, nil)
 			fault := Fault(err)
-			if fake.calls != 1 || len(timer.delays) != 0 || fault.Details.Kind != "model_request" || fault.Details.Data.(protocol.FaultDetailsModelRequestPayload).Reason != protocol.ModelFailureUnauthorized {
-				t.Fatalf("rejected key retried: calls=%d fault=%+v", fake.calls, fault)
+			if fake.calls != 2 || !reflect.DeepEqual(timer.delays, []time.Duration{2 * time.Second}) || fault.Details.Kind != "model_request" || fault.Details.Data.(protocol.FaultDetailsModelRequestPayload).Reason != protocol.ModelFailureUnauthorized {
+				t.Fatalf("rejected key changed its retry limit, wait hint or fault: calls=%d waits=%v fault=%+v", fake.calls, timer.delays, fault)
 			}
 		})
+	}
+}
+
+func TestHTTPResponseRetryRequiresReceivedStatus(t *testing.T) {
+	t.Parallel()
+	invalidKey := []byte(`{"error":{"code":"invalid_api_key","status":401,"message":"Incorrect API key (HTTP 401)"}}`)
+	hints := http.Header{"Retry-After": {"4", "7"}}
+	for _, row := range []struct {
+		name   string
+		err    error
+		status uint16
+		resend bool
+	}{
+		{"4xx only in transport hints", withResponseHints(&Failure{Kind: InvalidResponse, Message: "Cannot decode the response"}, 422, hints), 422, true},
+		{"5xx only in transport hints", withResponseHints(&Failure{Kind: InvalidRequest, Message: "Cannot classify the response"}, 503, hints), 503, true},
+		{"HTTP 200 with reported 401", &fantasy.ProviderError{StatusCode: 200, ResponseBody: invalidKey}, 200, false},
+		{"error envelope without HTTP", &fantasy.ProviderError{ResponseBody: invalidKey}, 0, false},
+		{"status in local error text", errors.New("model preparation failed (HTTP 401)"), 0, false},
+		{"cancelled after headers", withResponseHints(context.Canceled, 403, hints), 403, false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			part := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: row.err}
+			fake := &policyModel{responses: [][]fantasy.StreamPart{{part}, {part}}}
+			timer := &policyClock{}
+			var first Attempt
+			err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, func(attempt Attempt) error {
+				if attempt.Index == 0 {
+					first = attempt
+				}
+				return nil
+			}, nil, nil)
+			wantCalls := 1
+			var wantsWait []time.Duration
+			if row.resend {
+				wantCalls++
+				wantsWait = []time.Duration{7 * time.Second}
+			}
+			if fake.calls != wantCalls || !reflect.DeepEqual(timer.delays, wantsWait) || err == nil || err.Error() != Classify(row.err).Message {
+				t.Fatalf("calls=%d waits=%v error=%v, want %d calls and waits %v", fake.calls, timer.delays, err, wantCalls, wantsWait)
+			}
+			if status := first.Status; row.status == 0 && status != nil || row.status != 0 && (status == nil || *status != row.status) {
+				t.Fatalf("observed status = %v, want %d (0 means absent)", status, row.status)
+			}
+		})
+	}
+}
+
+func TestHTTPResendDoesNotConsumeSharedBackoff(t *testing.T) {
+	t.Parallel()
+	status := func(code int) fantasy.StreamPart {
+		return fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: code}}
+	}
+	busy, rejected, unauthorized := status(503), status(422), status(401)
+	fake := &policyModel{responses: [][]fantasy.StreamPart{{busy}, {rejected}, {busy}, {unauthorized}}}
+	timer := &policyClock{}
+	err := Run(t.Context(), fake, fantasy.Call{}, Main, timer, nil, nil, nil)
+	if failure := Classify(err); fake.calls != 4 || failure == nil || failure.Kind != Authentication || failure.Exhausted || failure.WaitExhausted {
+		t.Fatalf("mixed failure sequence: calls=%d failure=%+v", fake.calls, failure)
+	}
+	if d := timer.delays; len(d) != 3 || d[0] < 240*time.Millisecond || d[0] > 360*time.Millisecond ||
+		d[1] != 300*time.Millisecond || d[2] < 480*time.Millisecond || d[2] > 720*time.Millisecond {
+		t.Fatalf("the single HTTP resend changed shared backoff: waits=%v", d)
 	}
 }
 
