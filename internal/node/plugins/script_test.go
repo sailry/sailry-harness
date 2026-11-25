@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	bundled "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -410,9 +409,10 @@ func TestScriptTranslations(t *testing.T) {
 	})
 }
 
-func TestBundledScriptEntrypoints(t *testing.T) {
+func TestPackageScriptEntrypoints(t *testing.T) {
 	t.Parallel()
-	directories, err := fs.ReadDir(bundled.Plugins, "plugins")
+	files := bundledFixture(t)
+	directories, err := fs.ReadDir(files, "plugins")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestBundledScriptEntrypoints(t *testing.T) {
 			continue
 		}
 		root := "plugins/" + directory.Name() + "/"
-		manifest, err := fs.ReadFile(bundled.Plugins, root+"plugin.json")
+		manifest, err := fs.ReadFile(files, root+"plugin.json")
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -449,7 +449,7 @@ func TestBundledScriptEntrypoints(t *testing.T) {
 					}
 				}
 				for _, name := range names {
-					source, err := fs.ReadFile(bundled.Plugins, root+name)
+					source, err := fs.ReadFile(files, root+name)
 					if err != nil {
 						t.Fatal(err)
 					}

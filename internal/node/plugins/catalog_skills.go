@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"slices"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -35,13 +37,20 @@ func officialSkillEntry(packageName string, skill protocol.PluginSkill, bundled 
 }
 
 func BundledSkillEntries(ctx context.Context) ([]protocol.PluginSkillcatalogEntry, error) {
-	packages, err := BundledEntries(ctx)
+	return bundledSkillEntries(ctx, nil)
+}
+
+func bundledSkillEntries(ctx context.Context, files fs.FS) ([]protocol.PluginSkillcatalogEntry, error) {
+	packages, err := bundledEntries(ctx, files)
 	if err != nil {
 		return nil, err
 	}
+	if files == nil {
+		files = sailry.Plugins
+	}
 	entries := []protocol.PluginSkillcatalogEntry{}
 	for _, item := range packages {
-		captured, issues, err := bundledCapture(ctx, item.ID)
+		captured, issues, err := captureBundled(ctx, files, item.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +141,7 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 			if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable && fault.Code != protocol.ErrorCodeNotFound {
 				return result, err
 			}
-			result.Entries, err = BundledSkillEntries(ctx)
+			result.Entries, err = bundledSkillEntries(ctx, manager.bundled)
 			if err != nil {
 				return result, err
 			}

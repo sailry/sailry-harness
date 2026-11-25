@@ -5,11 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"testing"
-
-	sailry "github.com/sailry/sailry-harness"
 )
 
-func TestBundledCatalogMatchesPublishedSchema(t *testing.T) {
+func TestCatalogFixtureMatchesPublishedSchema(t *testing.T) {
 	data, err := os.ReadFile("../../../schemas/plugins/v1/catalog.schema.json")
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +20,7 @@ func TestBundledCatalogMatchesPublishedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err = fs.ReadFile(sailry.Plugins, "plugins/catalog.json")
+	data, err = fs.ReadFile(bundledFixture(t), "plugins/catalog.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +29,7 @@ func TestBundledCatalogMatchesPublishedSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validator.Validate(catalog); err != nil {
-		t.Fatalf("official release history violates its published contract: %v", err)
+		t.Fatalf("catalog fixture violates its published contract: %v", err)
 	}
 }
 

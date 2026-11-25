@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -389,7 +388,7 @@ func (manager *Manager) ReadSkillDocument(ctx context.Context, source protocol.P
 		if !ValidateName(input.Package) || !skillName(input.Skill) {
 			return protocol.PluginSkillsDocument{}, packageFault("invalid bundled skill identity")
 		}
-		data, err = fs.ReadFile(sailry.Plugins, "plugins/"+input.Package+"/skills/"+input.Skill+"/SKILL.md")
+		data, err = fs.ReadFile(manager.bundledFiles(), "plugins/"+input.Package+"/skills/"+input.Skill+"/SKILL.md")
 	case "installed":
 		var input protocol.PluginSkillsDocumentSourceInstalledPayload
 		if err := decodePackageData(source.Data, &input); err != nil {

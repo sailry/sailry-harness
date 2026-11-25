@@ -27,7 +27,6 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -307,10 +306,11 @@ func TestReadBundle(t *testing.T) {
 
 func TestBundledPackageContracts(t *testing.T) {
 	t.Parallel()
-	manager := NewManager(t.TempDir())
-	names, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
-	if err != nil {
-		t.Fatal(err)
+	files := bundledFixture(t)
+	manager := NewManager(t.TempDir(), files)
+	names, err := fs.Glob(files, "plugins/*/plugin.json")
+	if err != nil || len(names) != 1 {
+		t.Fatalf("fixture manifests: %v %v", names, err)
 	}
 	for _, filename := range names {
 		name := strings.Split(filename, "/")[1]
@@ -319,87 +319,35 @@ func TestBundledPackageContracts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if info.Summary.Name != name || info.Extension == nil || len(info.Summary.Digest) != 64 {
+			if info.Summary.Name != name || info.Extension == nil || len(info.Summary.Digest) != 64 || len(info.Skills) != 1 {
 				t.Fatalf("bundled declaration was lost: %#v", info)
 			}
-			for _, issue := range info.Issues {
-				if issue.Kind != protocol.PluginIssueKindIgnoredManifestField {
-					t.Errorf("bundled resource issue: %#v", issue)
-				}
+			if info.Summary.Compatibility.Kind != "compatible" || len(info.Issues) != 0 {
+				t.Fatalf("fixture is incompatible: %#v", info)
+			}
+			installed, err := manager.InstallBundled(t.Context(), name)
+			if err != nil || installed.Summary.Digest != info.Summary.Digest {
+				t.Fatalf("installation changed inspected content: %+v %v", installed, err)
+			}
+			if err := manager.VerifyPackage(t.Context(), PackageReference(installed)); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
-	// The account-based channels ask the user to accept their risk: a
-	// sign-in on its flow, a channel without one on its preset.
-	t.Run("account warnings", func(t *testing.T) {
-		for name, placement := range map[string]string{"copilot-auth": "flow", "claude-auth": "flow", "workbuddy": "flow", "agy": "preset"} {
-			info, err := manager.InspectBundled(t.Context(), name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var warnings []*protocol.PluginModelAuthWarning
-			if placement == "flow" {
-				for _, flow := range info.Extension.ModelAuth {
-					warnings = append(warnings, flow.Warning)
-				}
-			} else {
-				for _, preset := range info.Extension.ModelProviders {
-					warnings = append(warnings, preset.Warning)
-				}
-			}
-			if len(warnings) == 0 {
-				t.Errorf("%s declares no %s", name, placement)
-			}
-			for _, warning := range warnings {
-				if warning == nil || warning.Text == "" || len(warning.Locales) != 9 || warning.Locales["zh-CN"] == "" {
-					t.Errorf("%s %s warning: %+v", name, placement, warning)
-				}
-			}
-		}
-	})
-	wantDefaults := []DefaultPackage{
-		{"reminders", true}, {"scheduled-tasks", true}, {"goals", true}, {"commands", true},
-		{"brief", true}, {"files", true}, {"statistics", true}, {"provider-status", true},
-		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true},
-		{"context7", true}, {"github", true}, {"office", true},
-	}
-	if !slices.Equal(BundledDefaults(), wantDefaults) {
-		t.Fatalf("Harness defaults = %+v, want %+v", BundledDefaults(), wantDefaults)
-	}
-	for _, selection := range BundledDefaults() {
-		info, err := manager.InstallBundled(t.Context(), selection.Name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := manager.VerifyPackage(t.Context(), PackageReference(info)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Run("cached embedded inspection returns isolated clones", func(t *testing.T) {
-		first, err := manager.InspectBundled(t.Context(), "reminders")
+	t.Run("inspection returns isolated values", func(t *testing.T) {
+		first, err := manager.InspectBundled(t.Context(), bundledFixtureName)
 		if err != nil {
 			t.Fatal(err)
 		}
 		first.Summary.Name = "mutated"
-		if len(first.Versions) > 0 {
-			first.Versions[0].Withdrawn = true
-		}
-		second, err := manager.InspectBundled(t.Context(), "reminders")
+		first.Versions[0].Withdrawn = true
+		first.Extension.Host.Resources[0] = "mutated.js"
+		second, err := manager.InspectBundled(t.Context(), bundledFixtureName)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if second.Summary.Name != "reminders" || (len(second.Versions) > 0 && second.Versions[0].Withdrawn) {
-			t.Fatalf("cached bundled inspection leaked mutation: %+v", second)
-		}
-		uncached := NewManager(t.TempDir())
-		uncached.bundled = sailry.Plugins
-		direct, err := uncached.InspectBundled(t.Context(), "reminders")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if second.Summary.Digest != direct.Summary.Digest || !sameOptionalString(second.Summary.Version, direct.Summary.Version) ||
-			len(second.Skills) != len(direct.Skills) || len(second.Mcp) != len(direct.Mcp) || len(second.Versions) != len(direct.Versions) {
-			t.Fatalf("cached bundled inspection differs from direct read: cached=%+v direct=%+v", second.Summary, direct.Summary)
+		if second.Summary.Name != bundledFixtureName || second.Versions[0].Withdrawn || second.Extension.Host.Resources[0] == "mutated.js" {
+			t.Fatalf("bundled inspection leaked mutation: %+v", second)
 		}
 	})
 }
@@ -836,8 +784,9 @@ func TestPackageCatalogAndSources(t *testing.T) {
 		t.Fatalf("skill catalog pages: %d %v %v %v", len(manager.skillPages), reused, evicted, newest)
 	}
 	manager.OfficialURL = server.URL + "/unavailable"
-	if entries, err := manager.OfficialEntries(t.Context(), false); err != nil || len(entries) == 0 {
-		t.Fatalf("shipped catalog fallback missing: %v", err)
+	manager.bundled = bundledFixture(t)
+	if entries, err := manager.OfficialEntries(t.Context(), false); err != nil || len(entries) != 1 || entries[0].ID != bundledFixtureName {
+		t.Fatalf("injected catalog fallback missing: %+v %v", entries, err)
 	}
 	if _, err := manager.OfficialEntries(t.Context(), true); err == nil {
 		t.Fatal("forced catalog refresh hid its failure")

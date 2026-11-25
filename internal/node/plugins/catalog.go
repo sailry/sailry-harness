@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -24,13 +25,7 @@ type DefaultPackage struct {
 }
 
 func BundledDefaults() []DefaultPackage {
-	return []DefaultPackage{
-		{"reminders", true}, {"scheduled-tasks", true}, {"goals", true},
-		{"commands", true},
-		{"brief", true}, {"files", true}, {"statistics", true}, {"provider-status", true},
-		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true},
-		{"context7", true}, {"github", true}, {"office", true},
-	}
+	return []DefaultPackage{}
 }
 
 // RetiredBundled names packages the application once bundled and now provides
@@ -76,6 +71,16 @@ func bundledWithdrawals(files fs.FS) (map[string][]string, error) {
 func readBundledWithdrawals(files fs.FS) (map[string][]string, error) {
 	data, err := fs.ReadFile(files, "plugins/catalog.json")
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			entries, directoryErr := fs.ReadDir(files, "plugins")
+			if errors.Is(directoryErr, fs.ErrNotExist) || directoryErr == nil && len(entries) == 0 {
+				return map[string][]string{}, nil
+			}
+			if directoryErr != nil {
+				return nil, directoryErr
+			}
+			return nil, packageFault("bundled plugin catalog is missing")
+		}
 		return nil, err
 	}
 	var catalog struct {
@@ -103,6 +108,9 @@ func readBundledWithdrawals(files fs.FS) (map[string][]string, error) {
 }
 
 func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	withdrawals, err := bundledWithdrawals(files)
 	if err != nil {
 		return nil, err
@@ -218,7 +226,7 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		err = packageFault("unsupported official plugin catalog")
 	}
 	if err != nil {
-		if !force && ctx.Err() == nil {
+		if !force && ctx.Err() == nil && len(bundled) != 0 {
 			return bundled, nil
 		}
 		return nil, err

@@ -52,11 +52,15 @@ type packageEntry struct {
 	data       []byte
 }
 
-func NewManager(profile string) *Manager {
+func NewManager(profile string, bundled ...fs.FS) *Manager {
 	if resolved, err := filepath.EvalSymlinks(profile); err == nil {
 		profile = resolved
 	}
-	return &Manager{profile: profile, repositories: map[string][]packageEntry{}, skillPages: map[string]cachedSkillCatalog{}}
+	manager := &Manager{profile: profile, repositories: map[string][]packageEntry{}, skillPages: map[string]cachedSkillCatalog{}}
+	if len(bundled) != 0 {
+		manager.bundled = bundled[0]
+	}
+	return manager
 }
 
 func (manager *Manager) source(directory, workingDirectory string) (string, error) {
@@ -333,10 +337,6 @@ func (manager *Manager) Install(ctx context.Context, directory, workingDirectory
 		return protocol.PluginInfo{}, err
 	}
 	return manager.publish(ctx, entries, issues, name, protocol.PluginOrigin{Kind: "directory"})
-}
-
-func bundledCapture(ctx context.Context, name string) ([]packageEntry, []protocol.PluginIssue, error) {
-	return captureBundled(ctx, sailry.Plugins, name)
 }
 
 func (manager *Manager) bundledFiles() fs.FS {

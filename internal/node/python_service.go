@@ -150,7 +150,7 @@ func (node *Node) retainPackagePython(ctx context.Context, startup bool) error {
 		if err != nil && startup && info.Origin != nil && info.Origin.Kind == "bundled" && ctx.Err() == nil {
 			if _, restoreErr := node.plugins.manager.RestoreBundled(ctx, reference); restoreErr == nil {
 				requirements, err = node.checkInstalledPackage(ctx, info)
-			} else {
+			} else if !errors.Is(restoreErr, fs.ErrNotExist) {
 				logUnavailablePackage(reference, "bundled plugin restoration failed", restoreErr)
 			}
 		}

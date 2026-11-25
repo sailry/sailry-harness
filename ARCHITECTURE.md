@@ -1105,8 +1105,9 @@ start new profiles with no installed plugins. The native Files page and file
 tools do not require the optional `files` panel package. Code also starts with
 no installed plugins. Downstream products set `Assembly.BundledDefaults`
 with a `[]node.DefaultPlugin` from `sdk/native/node`, separately from `Modules`.
-Each entry selects a package by name and its initial enabled state. An explicit
-empty list selects none; a nil list retains the legacy platform defaults.
+Each entry selects a package by name and its initial enabled state from the
+product's own `Assembly.BundledPackages` filesystem. Empty and nil lists both
+select none; startup does not fetch a missing default from the market.
 Startup installs missing selections without resurrecting removed packages or
 uninstalling packages just because they are no longer defaults. Bundled updates
 require strictly newer SemVer precedence; same-version changes and build metadata

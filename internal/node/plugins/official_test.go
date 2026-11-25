@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -109,7 +110,7 @@ func TestOfficialSelectionAndInstallation(t *testing.T) {
 		_, _ = writer.Write(body.Load().([]byte))
 	}))
 	defer server.Close()
-	manager := NewManager(t.TempDir())
+	manager := NewManager(t.TempDir(), fstest.MapFS{})
 	manager.OfficialURL = server.URL
 	source, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: directory})
 	if err != nil {
@@ -218,15 +219,59 @@ func TestOfficialSelectionAndInstallation(t *testing.T) {
 	}
 }
 
+func TestOfficialCatalogUnavailableWithoutOfflinePackages(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	manager := NewManager(t.TempDir(), fstest.MapFS{})
+	manager.OfficialURL = server.URL
+	for _, force := range []bool{false, true} {
+		var fault *protocol.Fault
+		if _, err := manager.OfficialEntries(t.Context(), force); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
+			t.Fatalf("missing offline packages hid the catalog failure (force=%v): %v", force, err)
+		}
+	}
+	page, err := manager.SkillCatalog(t.Context(), protocol.PluginSkillcatalogSourceOfficial, "", 1, false)
+	if err != nil || !page.Unavailable || len(page.Entries) != 0 {
+		t.Fatalf("unavailable skill catalog without offline packages: %+v %v", page, err)
+	}
+}
+
+func TestInjectedBundledSkillResources(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	files := bundledFixture(t)
+	manager := NewManager(t.TempDir(), files)
+	manager.OfficialURL = server.URL
+	page, err := manager.SkillCatalog(t.Context(), protocol.PluginSkillcatalogSourceOfficial, "", 1, false)
+	if err != nil || !page.Unavailable || len(page.Entries) != 1 || page.Entries[0].ID != bundledFixtureName+"/inspect" {
+		t.Fatalf("injected skill catalog: %+v %v", page, err)
+	}
+	source := protocol.PluginSkillsDocumentSource{Kind: "bundled", Data: protocol.PluginSkillsDocumentSourceBundledPayload{Package: bundledFixtureName, Skill: "inspect"}}
+	document, err := manager.ReadSkillDocument(t.Context(), source)
+	if err != nil || document.Content != string(files["plugins/"+bundledFixtureName+"/skills/inspect/SKILL.md"].Data) {
+		t.Fatalf("injected skill document: %+v %v", document, err)
+	}
+	other := NewManager(t.TempDir(), fstest.MapFS{})
+	if _, err := other.ReadSkillDocument(t.Context(), source); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a Manager inherited another Manager's package source: %v", err)
+	}
+}
+
 func TestBundledOfficialSelection(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
-	manager := NewManager(t.TempDir())
+	manager := NewManager(t.TempDir(), bundledFixture(t))
 	manager.OfficialURL = server.URL
-	selection, err := manager.InspectOfficial(t.Context(), "reminders", nil, false)
+	selection, err := manager.InspectOfficial(t.Context(), bundledFixtureName, nil, false)
 	if err != nil || selection.Info.Origin == nil || selection.Info.Origin.Kind != "bundled" || selection.Source != (protocol.PluginSkillsResolved{}) || selection.Path != "" {
 		t.Fatalf("bundled fallback selection: %+v %v", selection, err)
 	}
@@ -263,9 +308,9 @@ func TestBundledOfficialSelectionRevalidatesCatalog(t *testing.T) {
 				_, _ = writer.Write(data)
 			}))
 			defer server.Close()
-			manager := NewManager(t.TempDir())
+			manager := NewManager(t.TempDir(), bundledFixture(t))
 			manager.OfficialURL = server.URL
-			selection, err := manager.InspectOfficial(t.Context(), "reminders", nil, false)
+			selection, err := manager.InspectOfficial(t.Context(), bundledFixtureName, nil, false)
 			if err != nil || selection.Info.Origin == nil || selection.Info.Origin.Kind != "bundled" {
 				t.Fatalf("offline inspection: %+v %v", selection, err)
 			}
@@ -274,8 +319,8 @@ func TestBundledOfficialSelectionRevalidatesCatalog(t *testing.T) {
 			encoded, err := json.Marshal(map[string]any{
 				"version": 1, "source_commit": commit,
 				"packages": []any{map[string]any{
-					"id":       "reminders",
-					"manifest": map[string]any{"$schema": ManifestSchema, "name": "reminders", "version": version},
+					"id":       bundledFixtureName,
+					"manifest": map[string]any{"$schema": ManifestSchema, "name": bundledFixtureName, "version": version},
 					"versions": []any{map[string]any{"version": version, "commit": commit, "withdrawn": current.withdrawn}},
 				}},
 			})
@@ -298,16 +343,16 @@ func TestOnlineCatalogKeepsFullHistoryWithNewerBundle(t *testing.T) {
 	t.Parallel()
 	commit := strings.Repeat("a", 40)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`{"version":1,"source_commit":"` + commit + `","packages":[{"id":"reminders","manifest":{"$schema":"` + ManifestSchema + `","name":"reminders","version":"0.0.1"},"versions":[{"version":"0.0.1","commit":"` + commit + `"},{"version":"0.0.0","commit":"` + strings.Repeat("b", 40) + `"}]}]}`))
+		_, _ = writer.Write([]byte(`{"version":1,"source_commit":"` + commit + `","packages":[{"id":"` + bundledFixtureName + `","manifest":{"$schema":"` + ManifestSchema + `","name":"` + bundledFixtureName + `","version":"0.0.1"},"versions":[{"version":"0.0.1","commit":"` + commit + `"},{"version":"0.0.0","commit":"` + strings.Repeat("b", 40) + `"}]}]}`))
 	}))
 	defer server.Close()
-	manager := NewManager(t.TempDir())
+	manager := NewManager(t.TempDir(), bundledFixture(t))
 	manager.OfficialURL = server.URL
 	entries, err := manager.OfficialEntries(t.Context(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == "reminders" })
+	index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == bundledFixtureName })
 	if index < 0 || entries[index].Bundled || len(entries[index].Versions) != 2 || *entries[index].Version != "0.0.1" {
 		t.Fatalf("bundled fallback replaced online history: %+v", entries)
 	}

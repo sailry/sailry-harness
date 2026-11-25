@@ -274,8 +274,10 @@ type Module interface {
 
 // Assembly selects the compile-time Node modules and optional services.
 type Assembly struct {
-	// A nil list uses platform defaults; an explicit empty list selects none.
+	// Nil and empty lists select no packages.
 	BundledDefaults []plugins.DefaultPackage
+	// BundledPackages is immutable and rooted at plugins/<name>, with plugins/catalog.json.
+	BundledPackages fs.FS
 	CodeIndex       codeindexapi.Factory
 	Databases       DatabaseExecutor
 	SSH             SSHFactory

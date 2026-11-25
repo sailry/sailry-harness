@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -63,7 +64,7 @@ func (node *Node) initPlugins(configured *mcp.Options) {
 		options = *configured
 	}
 	controls := &pluginControls{
-		manager:       plugins.NewManager(node.profile.Ownership.Path),
+		manager:       plugins.NewManager(node.profile.Ownership.Path, node.modules.BundledPackages),
 		memory:        plugins.NewMemoryTracker(),
 		mcp:           mcp.New(context.WithoutCancel(node.ctx), options),
 		programs:      program.NewPool(programLimit, programIdle),
@@ -220,6 +221,9 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 		}
 		inspected, err := node.plugins.manager.InspectBundled(userCtx, entry.Name)
 		if err != nil {
+			if userCtx.Err() == nil && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
 			if !startup || userCtx.Err() != nil {
 				return plan, err
 			}
