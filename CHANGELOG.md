@@ -3,6 +3,16 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.13](https://github.com/sailry/sailry-harness/releases/tag/v0.2.13) — 2026-11-25
+
+- Keep the Desktop responsive when a store write is slow, and save large tool results quickly.
+- Show MCP tool calls by server and tool name on Desktop and Mobile.
+- Keep native compaction history and replayed compaction items intact, end compaction when its retries run out, and classify provider failures by every error code they name.
+- Keep ACP sessions consistent across processes, model switches and `/compact`, measure a corrected reply's context by its last prompt, and stop logging tool-call updates as invalid.
+- Keep private Bedrock and Vertex AI endpoints, validate cloud endpoints when saved, and cache Vertex AI tokens without blocking or leaking them.
+- Answer repeated concurrent reads in one reply by reference and point unknown tool names to `tool_search`.
+- Fix the details panel and sidebar of main terminal panes, stop subagents from the keyboard, and fix session removal, child guidance and pricing edge cases.
+
 ## [0.2.12](https://github.com/sailry/sailry-harness/releases/tag/v0.2.12) — 2026-11-25
 
 - Add Amazon Bedrock and Vertex AI model routes.
