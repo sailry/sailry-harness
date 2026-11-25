@@ -1,6 +1,8 @@
 package program
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -68,5 +70,37 @@ func TestPoolInvalidationDuringStart(t *testing.T) {
 				pool.Release(entry, false)
 			}
 		})
+	}
+}
+
+func TestPoolLeaseAfterCancellation(t *testing.T) {
+	pool := NewPool(1, time.Minute)
+	defer pool.Close()
+	spec := fixtureSpec(t, "serve")
+	start := func() (*Process, any, error) {
+		process, err := Start(spec)
+		return process, nil, err
+	}
+	idle, err := pool.Lease(t.Context(), "owner", 1, func(*Entry) int { return 0 }, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Release(idle, true)
+	// The idle program is not compatible, so a lease at the limit would
+	// replace it.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	started := false
+	entry, err := pool.Lease(ctx, "owner", 1, func(*Entry) int { return 0 }, func() (*Process, any, error) {
+		started = true
+		return start()
+	})
+	if !errors.Is(err, context.Canceled) || entry != nil || started {
+		t.Fatalf("cancelled lease = %v, %v, started %v", entry, err, started)
+	}
+	select {
+	case <-idle.Process.Done():
+		t.Fatal("a cancelled lease stopped the idle program")
+	default:
 	}
 }

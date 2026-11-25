@@ -52,6 +52,10 @@ func (pool *Pool) signal() {
 // The caller must Release the entry.
 func (pool *Pool) Lease(ctx context.Context, owner string, shares int, rank func(*Entry) int, start func() (*Process, any, error)) (*Entry, error) {
 	for {
+		// An ended request must not replace an idle program or start one.
+		if ctx.Err() != nil {
+			return nil, context.Cause(ctx)
+		}
 		entry, freed, err := pool.lease(owner, max(shares, 1), rank, start)
 		if freed == nil {
 			return entry, err
