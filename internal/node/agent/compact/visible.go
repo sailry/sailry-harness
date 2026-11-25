@@ -42,14 +42,7 @@ func visible(records []canonical.Record, keepEmpty bool) []canonical.Record {
 		if record.Kind != "compaction" {
 			continue
 		}
-		var compacted *canonical.Compaction
-		switch value := record.Data.(type) {
-		case canonical.Compaction:
-			compacted = &value
-		case *canonical.Compaction:
-			compacted = value
-		}
-		if compacted != nil {
+		if compacted := record.Checkpoint(); compacted != nil {
 			summary, boundaryID = i, compacted.Boundary
 		}
 	}

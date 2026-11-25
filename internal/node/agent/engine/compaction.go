@@ -323,7 +323,7 @@ func (r *Runtime) summarize(x *execution, binding model.Binding, route model.Rou
 		current = summaryBinding
 	}
 	if len(selection.Prefix) > 0 {
-		if previous, ok := selection.Prefix[0].Data.(*canonical.Compaction); ok && selection.Prefix[0].Kind == "compaction" && !previous.Readable() {
+		if previous := selection.Prefix[0].Checkpoint(); previous != nil && !previous.Readable() {
 			// The previous checkpoint is an opaque window only its own route can
 			// read. A transcript over it needs its readable handoff first; the
 			// attempts this compaction already billed keep their observations.
@@ -500,15 +500,15 @@ func (r *Runtime) readableCheckpoint(x *execution, binding model.Binding, route 
 	if latest < 0 {
 		return false, nil
 	}
-	checkpoint, ok := state.Records[latest].Data.(*canonical.Compaction)
-	if !ok || checkpoint.Native == nil || checkpoint.Readable() || !force && model.ReplaysNative(binding, state.Records[latest]) {
+	checkpoint := state.Records[latest].Checkpoint()
+	if checkpoint == nil || checkpoint.Native == nil || checkpoint.Readable() || !force && model.ReplaysNative(binding, state.Records[latest]) {
 		return false, nil
 	}
 	// Without the opaque checkpoints, the history is what those checkpoints
 	// replaced: the latest readable handoff and everything after it.
 	records := slices.DeleteFunc(slices.Clone(state.Records), func(record canonical.Record) bool {
-		value, ok := record.Data.(*canonical.Compaction)
-		return record.Kind == "compaction" && ok && !value.Readable()
+		value := record.Checkpoint()
+		return value != nil && !value.Readable()
 	})
 	var previous *canonical.Record
 	for i := range records {
@@ -525,7 +525,7 @@ func (r *Runtime) readableCheckpoint(x *execution, binding model.Binding, route 
 	selection := handoff.Selection{Prefix: slices.Clone(visible[:cut+1]), Tail: slices.Clone(visible[cut+1:]), Boundary: records[boundary]}
 	if previous != nil && selection.Prefix[0].ID == previous.ID {
 		if message := selection.Prefix[0].Message(); message != nil {
-			summary := *previous.Data.(*canonical.Compaction)
+			summary := *previous.Checkpoint()
 			summary.Summary = *message
 			selection.Prefix[0].Kind, selection.Prefix[0].Data = "compaction", &summary
 		}

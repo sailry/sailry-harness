@@ -208,6 +208,22 @@ func (r *Record) Message() *Message {
 	}
 	return nil
 }
+
+// Checkpoint returns a compaction record's data, stored by value or pointer,
+// or nil for any other record. A value is returned as a copy.
+func (r Record) Checkpoint() *Compaction {
+	if r.Kind != "compaction" {
+		return nil
+	}
+	switch v := r.Data.(type) {
+	case *Compaction:
+		return v
+	case Compaction:
+		return &v
+	}
+	return nil
+}
+
 func (r *Record) MutableMessage() *Message {
 	if r.Kind == "compaction" {
 		switch v := r.Data.(type) {

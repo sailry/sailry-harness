@@ -223,14 +223,8 @@ func nativeRejected(err error) bool {
 // nativeMessage projects a stored native checkpoint for the provider,
 // protocol and model that produced it. Any other route reads the summary.
 func nativeMessage(binding Binding, record canonical.Record) (fantasy.Message, bool) {
-	var compaction *canonical.Compaction
-	switch value := record.Data.(type) {
-	case *canonical.Compaction:
-		compaction = value
-	case canonical.Compaction:
-		compaction = &value
-	}
-	if record.Kind != "compaction" || compaction == nil || compaction.Native == nil || PluginBound(binding.Provider) {
+	compaction := record.Checkpoint()
+	if compaction == nil || compaction.Native == nil || PluginBound(binding.Provider) {
 		return fantasy.Message{}, false
 	}
 	source := compaction.Native.Source

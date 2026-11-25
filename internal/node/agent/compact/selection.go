@@ -125,11 +125,8 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 	selected := Selection{Prefix: slices.Clone(visible[:cut]), Tail: slices.Clone(visible[cut:])}
 	if start == 1 {
 		var summary canonical.Compaction
-		switch value := previous.Data.(type) {
-		case *canonical.Compaction:
+		if value := previous.Checkpoint(); value != nil {
 			summary = *value
-		case canonical.Compaction:
-			summary = value
 		}
 		summary.Summary = *selected.Prefix[0].Message()
 		selected.Prefix[0].Kind, selected.Prefix[0].Data = "compaction", &summary
