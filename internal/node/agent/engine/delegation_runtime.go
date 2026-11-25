@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"maps"
 	"os"
 	"slices"
 
@@ -158,7 +159,7 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode child
 // the same execute/turn pipeline after Store grants its FIFO concurrency slot.
 // Ended owners are released by the caller only after the writer commits.
 func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, []*delegatedChild, error) {
-	inv, events, err := store.ClaimNext(ctx, db, r.clock.Now())
+	inv, events, err := store.ClaimNext(ctx, db, r.clock.Now(), slices.Collect(maps.Keys(r.afterTurnSessions))...)
 	if err != nil || inv != nil {
 		return inv, events, nil, err
 	}

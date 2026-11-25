@@ -27,10 +27,11 @@ func (pluginProductModule) ToolsForTurn(context.Context, moduleapi.Host, *store.
 
 func TestPluginProductUsesAvailableModuleServices(t *testing.T) {
 	t.Parallel()
-	owner := &Node{productID: "code", ctx: context.Background(), modules: moduleapi.Assembly{Modules: []moduleapi.Module{
+	assembly := moduleapi.Assembly{Modules: []moduleapi.Module{
 		pluginProductModule("files"), pluginProductModule("ssh"), pluginProductModule("databases"),
 		pluginProductModule("git"), pluginProductModule("worktrees"), pluginProductModule("terminal"),
-	}}}
+	}}
+	owner := &Node{productID: "code", ctx: context.Background(), registeredModules: assembly.ResolveServices().Modules}
 	runtime := owner.pluginRuntime()
 	if runtime.ProductID != "code" || !slices.Equal(runtime.Modules, []string{"files"}) {
 		t.Fatalf("uninitialized services were declared available: %+v", runtime)

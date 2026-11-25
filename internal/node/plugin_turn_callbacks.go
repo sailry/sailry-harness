@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"maps"
+	"slices"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/logging"
@@ -14,7 +15,49 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// afterTurn calls each captured package's after_turn handler for an ended
+func (node *Node) turnCompletion(ctx context.Context, inv *store.AgentInvocation) engine.TurnCompletion {
+	if len(inv.Turn.Plugins) == 0 {
+		return engine.TurnCompletion{}
+	}
+	bind := func(packages []protocol.PluginInfo) func(context.Context, protocol.ConversationRun, engine.TurnObservation) {
+		if len(packages) == 0 {
+			return nil
+		}
+		return func(ctx context.Context, run protocol.ConversationRun, observed engine.TurnObservation) {
+			node.afterTurn(ctx, inv, run, observed, packages)
+		}
+	}
+	var settle, observe []protocol.PluginInfo
+	ctx = store.WithCapturedUser(store.WithUser(ctx, inv.User), inv.StorageUser)
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		for _, reference := range inv.Turn.Plugins {
+			info, err := store.ReadPluginVersion(ctx, db, reference)
+			if err != nil || info.Extension == nil || info.Extension.Host == nil || info.Extension.Host.Turn == nil || info.Extension.Host.Turn.AfterTurn == nil {
+				continue
+			}
+			if declaresContinuationSettlement(info) {
+				settle = append(settle, info)
+			} else {
+				observe = append(observe, info)
+			}
+		}
+		return nil
+	}); err != nil {
+		logging.Emit(slog.LevelWarn, slog.String("area", "plugins"), slog.String("phase", logging.Failed), slog.String("operation", "after_turn"), slog.String("exception", err.Error()))
+		return engine.TurnCompletion{}
+	}
+	return engine.TurnCompletion{Settle: bind(settle), Observe: bind(observe)}
+}
+
+// A callback that can enqueue a declared continuation settles before the
+// successor starts. This orders callbacks; it grants no Node authority.
+func declaresContinuationSettlement(info protocol.PluginInfo) bool {
+	ext := info.Extension
+	return ext != nil && ext.Host != nil && ext.Host.Turn != nil && ext.Host.Turn.AfterTurn != nil &&
+		len(ext.ContinuationMarkers) != 0 && slices.Contains(ext.Actions, protocol.PluginActionControlConversation)
+}
+
+// afterTurn calls each selected captured package's after_turn handler for an ended
 // main task turn. It is an ordinary plugin callback dispatched for the turn's
 // caller, so the callback runtime's budget, deadline and cancellation apply
 // and the handler holds exactly the package's declared authority.
@@ -24,7 +67,7 @@ import (
 // the tools the model called,
 // the interactions that expired, its usage and the session's, the background
 // work still running or waiting, and the automatic chain.
-func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run protocol.ConversationRun, observed engine.TurnObservation) {
+func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run protocol.ConversationRun, observed engine.TurnObservation, packages []protocol.PluginInfo) {
 	ctx = store.WithCapturedUser(store.WithUser(ctx, inv.User), inv.StorageUser)
 	var facts store.TurnFacts
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -52,16 +95,8 @@ func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run
 	if run.Error != nil {
 		base["error"] = run.Error.Code
 	}
-	for _, reference := range inv.Turn.Plugins {
-		var info protocol.PluginInfo
-		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			var err error
-			info, err = store.ReadPluginVersion(ctx, db, reference)
-			return err
-		})
-		if err != nil || info.Extension == nil || info.Extension.Host == nil || info.Extension.Host.Turn == nil || info.Extension.Host.Turn.AfterTurn == nil {
-			continue
-		}
+	for _, info := range packages {
+		reference := plugins.PackageReference(info)
 		names := []string{}
 		for _, tool := range info.Extension.Tools {
 			names = append(names, plugins.ToolAlias(info.Summary.Name, tool.Name))
@@ -78,7 +113,7 @@ func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run
 			continue
 		}
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: *info.Extension.Host.Turn.AfterTurn, Input: input}})
-		request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "workspace"}, Package: plugins.PackageReference(info), Worktree: new(inv.Run.Worktree), Session: new(inv.Session.ID)}
+		request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "workspace"}, Package: reference, Worktree: new(inv.Run.Worktree), Session: new(inv.Session.ID)}
 		var failure *protocol.Fault
 		accepted, err := node.dispatchCaptured(ctx, inv.Caller, request)
 		if err != nil {

@@ -108,10 +108,18 @@ func (r *Runtime) execute(x *execution) {
 	// the model, tools, hooks or cleanup again.
 	reported := false
 	finishUnknown := false
-	var unlock func()
+	mainTask := child == nil && x.inv.Session.Delegation == nil && x.inv.Run.Kind == protocol.ConversationRunKindTask
+	var completion TurnCompletion
+	if mainTask && r.turnCompletion != nil && r.ctx.Err() == nil {
+		completion = r.turnCompletion(r.ctx, x.inv)
+	}
+	var unlock, releaseSession func()
 	defer func() {
 		if unlock != nil {
 			unlock()
+		}
+		if releaseSession != nil {
+			releaseSession()
 		}
 	}()
 	finish := func(db *sql.Conn) error {
@@ -153,6 +161,9 @@ func (r *Runtime) execute(x *execution) {
 	}
 	for {
 		unlock = r.LockPublication()
+		if completion.Settle != nil && releaseSession == nil {
+			releaseSession = r.holdTurnSettlement(x.inv.Session.ID)
+		}
 		if finishUnknown {
 			// An uncertain commit may already have ended this turn, including
 			// its guidance and review changes. Inspect it before another write.
@@ -241,11 +252,39 @@ func (r *Runtime) execute(x *execution) {
 	// its end is stored and published. A stopping Node calls none.
 	unlock()
 	unlock = nil
-	if r.afterTurn != nil && r.ctx.Err() == nil && child == nil && x.inv.Session.Delegation == nil && x.inv.Run.Kind == protocol.ConversationRunKindTask {
+	if mainTask && r.ctx.Err() == nil && (completion.Settle != nil || completion.Observe != nil || r.afterTurn != nil) {
 		x.observedMu.Lock()
 		observed := x.observed
 		x.observedMu.Unlock()
-		r.afterTurn(r.ctx, x.inv, run, observed)
+		if completion.Settle != nil {
+			completion.Settle(r.ctx, run, observed)
+			releaseSession()
+			releaseSession = nil
+			if r.ctx.Err() != nil {
+				return
+			}
+		}
+		if completion.Observe != nil {
+			completion.Observe(r.ctx, run, observed)
+		}
+		if r.afterTurn != nil {
+			r.afterTurn(r.ctx, x.inv, run, observed)
+		}
+	}
+}
+
+// holdTurnSettlement is registered under publication before finishing the
+// turn. Release must run outside publication so the callback can use Node APIs.
+func (r *Runtime) holdTurnSettlement(session protocol.SessionID) func() {
+	if r.afterTurnSessions == nil {
+		r.afterTurnSessions = make(map[protocol.SessionID]struct{})
+	}
+	r.afterTurnSessions[session] = struct{}{}
+	return func() {
+		unlock := r.LockPublication()
+		delete(r.afterTurnSessions, session)
+		unlock()
+		r.Wake()
 	}
 }
 

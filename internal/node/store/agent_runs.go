@@ -351,18 +351,29 @@ func insertAgentTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeID, 
 	}
 	return value, err
 }
-func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocation, []protocol.Event, error) {
+func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time, held ...protocol.SessionID) (*AgentInvocation, []protocol.Event, error) {
+	query := "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping'))"
+	var bindings []any
+	if len(held) != 0 {
+		sessions, err := json.Marshal(held)
+		if err != nil {
+			return nil, nil, err
+		}
+		query += " AND t.session NOT IN (SELECT value FROM json_each(?1))"
+		bindings = append(bindings, string(sessions))
+	}
+	query += " ORDER BY p.position,t.rowid LIMIT 1"
 	events := []protocol.Event{}
 	delivered := false
 	for {
 		var id string
-		err := db.QueryRowContext(ctx, "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").Scan(&id)
+		err := db.QueryRowContext(ctx, query, bindings...).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			if delivered {
 				return nil, events, nil
 			}
 			delivered = true
-			admitted, changed, err := scheduleDeliveries(ctx, db, now)
+			admitted, changed, err := scheduleDeliveries(ctx, db, now, held)
 			events = append(events, changed...)
 			if err != nil || !admitted {
 				return nil, events, err

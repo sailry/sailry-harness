@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -131,7 +132,7 @@ func nodeIdentity(ctx context.Context, db *sql.Conn) (protocol.NodeID, error) {
 // deliverable results and is free to run one. The claim pass calls it when
 // nothing is ready, so a result waits only for its blocker, whichever
 // transaction removed it.
-func scheduleDeliveries(ctx context.Context, db *sql.Conn, now time.Time) (bool, []protocol.Event, error) {
+func scheduleDeliveries(ctx context.Context, db *sql.Conn, now time.Time, held []protocol.SessionID) (bool, []protocol.Event, error) {
 	rows, err := db.QueryContext(ctx, "SELECT DISTINCT session FROM agent_background WHERE "+backgroundDeliverable)
 	if err != nil {
 		return false, nil, err
@@ -148,7 +149,9 @@ func scheduleDeliveries(ctx context.Context, db *sql.Conn, now time.Time) (bool,
 			rows.Close()
 			return false, nil, e
 		}
-		sessions = append(sessions, id)
+		if !slices.Contains(held, id) {
+			sessions = append(sessions, id)
+		}
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil || len(sessions) == 0 {
 		return false, nil, err

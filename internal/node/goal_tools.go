@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,13 +91,25 @@ type goalToolScope struct {
 	name       string
 }
 
+// These official releases share the native tools' arguments, storage schema
+// and verification hook. Earlier releases keep their own script contracts.
+var coreGoalDigests = []string{
+	"3ef454565dc3ccdd5349064a01c73380ec6ed6f81d443a688745a80e3585910c", // 0.2.0 at b393ea0
+	"a0fb80de6a1cc7acecc62ce8d1380d110c4859421b98d7db819b80b01fc43644", // 0.2.1 at ce6e698
+	"e595c1bc35ac489924915f19488ce77b9ef110c105b7640a688ae826b9950d58", // 0.2.2 at 750071a
+	"de14da31992e0ad5c86d8f508dac1be0c489fa5136cbb5bb89df432a493cc026", // 0.2.3 at 5b96732
+	"7807993be341e46bdb93e416b6a43afbc300370ec6e946ea2d7a8c09f2ad4925", // 0.2.4 at 3c1e487
+}
+
+var coreGoalTools = map[string]func(goalToolScope, context.Context, canonical.ToolRequest) (map[string]any, error){
+	"get_goal":    goalToolScope.read,
+	"create_goal": goalToolScope.create,
+	"update_goal": goalToolScope.update,
+}
+
 func (node *Node) coreGoalExecutor(invocation *store.AgentInvocation, info protocol.PluginInfo, name string) func(context.Context, canonical.ToolRequest) engine.ToolResult {
-	official := info.Origin != nil && (info.Origin.Kind == "bundled" || info.Origin.Kind == "official") ||
-		info.UpdateSource != nil && info.UpdateSource.Kind == "official"
-	if info.Summary.Name != "goals" || !official {
-		return nil
-	}
-	if name != "get_goal" && name != "create_goal" && name != "update_goal" {
+	execute := coreGoalTools[name]
+	if execute == nil || info.Summary.Name != "goals" || !slices.Contains(coreGoalDigests, info.Summary.Digest) {
 		return nil
 	}
 	scope := goalToolScope{node: node, invocation: invocation, name: name, plugin: protocol.PluginContext{
@@ -106,16 +119,7 @@ func (node *Node) coreGoalExecutor(invocation *store.AgentInvocation, info proto
 	}}
 	return func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
 		ctx = store.WithCapturedUser(store.WithUser(ctx, invocation.User), invocation.StorageUser)
-		var result map[string]any
-		var err error
-		switch name {
-		case "get_goal":
-			result, err = scope.read(ctx)
-		case "create_goal":
-			result, err = scope.create(ctx, call)
-		case "update_goal":
-			result, err = scope.update(ctx, call)
-		}
+		result, err := execute(scope, ctx, call)
 		if err != nil {
 			return workspaceToolFault(err)
 		}
@@ -229,7 +233,7 @@ func (goal *goalState) accountTime(now int64) {
 	}
 }
 
-func (scope goalToolScope) read(ctx context.Context) (map[string]any, error) {
+func (scope goalToolScope) read(ctx context.Context, _ canonical.ToolRequest) (map[string]any, error) {
 	entry, err := scope.value(ctx, "goal")
 	if err != nil {
 		return nil, err
@@ -378,7 +382,7 @@ func (scope goalToolScope) change(goal *goalState, status, note string, now int6
 			return goalToolFault(protocol.ErrorCodeInvalidRequest, "State the evidence in note")
 		}
 		continuation := scope.invocation.Run.Continuation
-		if continuation != nil && continuation.Package.Name == scope.plugin.Package.Name && continuation.Kind != nil && *continuation.Kind == "verify" && goal.Claim != nil {
+		if continuation != nil && continuation.Package == scope.plugin.Package && continuation.Kind != nil && *continuation.Kind == "verify" && goal.Claim != nil {
 			goal.Status, goal.Reason, goal.Detail = "completed", nil, nil
 			goal.resetActivity()
 			goal.Evidence, goal.FinishedMs, goal.Notice = &note, &now, new("completed")
