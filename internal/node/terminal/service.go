@@ -10,7 +10,6 @@ import (
 
 	myterminal "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -191,7 +190,12 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		access = protocol.ProcessAccessUnrestricted
 	}
 	release := func() {}
-	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && process.SandboxSupported() {
+	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace {
+		if launch.Sandbox == nil {
+			err := fault(protocol.ErrorCodeNotConfigured, "workspace terminal sandbox is unavailable")
+			finish(protocol.TerminalInfo{}, err)
+			return protocol.TerminalInfo{}, err
+		}
 		confined, variables, free, err := launch.Sandbox(launch.Root, command, environment)
 		if err != nil {
 			finish(protocol.TerminalInfo{}, err)
