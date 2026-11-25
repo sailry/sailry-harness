@@ -207,7 +207,7 @@ func (a *App) demoProject(pr *viewmodel.Project) {
 	a.OpenProject(pr, actions)
 }
 
-func (a *App) sampleTerminalAction(state *panel.State) sidebar.ProjectOpen {
+func (a *App) sampleTerminalAction(state *panel.State) func(*viewmodel.Project) {
 	if !state.Offers(panel.Terminal) {
 		return nil
 	}
