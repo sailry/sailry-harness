@@ -54,3 +54,27 @@ func TestRepeatedReadsInOneReplyRunOnce(t *testing.T) {
 		t.Fatal("the repeated read was not answered by reference")
 	}
 }
+
+// A read repeated after a write of the same reply runs again: the write ran
+// between them, so the first result may be stale.
+func TestReadRepeatedAfterAWriteRunsAgain(t *testing.T) {
+	t.Parallel()
+	var reads atomic.Int32
+	read := objectTool("files_read", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		reads.Add(1)
+		return ToolResult{Value: map[string]any{}}
+	})
+	write := objectTool("files_write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: map[string]any{}}
+	})
+	model := &scriptedModel{scripts: []script{
+		response(call("a", "files_read", `{"path":"x"}`), call("w", "files_write", `{"path":"x"}`), call("b", "files_read", `{"path":"x"}`), finish()),
+		response(text("Final answer"), finish()),
+	}}
+	fixture := newFixture(t, model, read, write)
+	fixture.start()
+	fixture.waitRun(fixture.submit("Read, write, read"), protocol.ConversationStatusCompleted)
+	if reads.Load() != 2 {
+		t.Fatalf("reads ran %d times; want 2", reads.Load())
+	}
+}

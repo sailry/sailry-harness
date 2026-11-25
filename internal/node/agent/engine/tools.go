@@ -447,9 +447,13 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		readOnlyMessage = "read-only role permits read-only tools"
 	}
 	// A concurrent read the reply already asked for, with the same
-	// arguments, would run at the same moment and read the same state, so it
-	// is answered by reference instead. Effects may be meant twice and run.
+	// arguments, in the same run of concurrent reads, would run at the same
+	// moment and read the same state, so it is answered by reference instead.
+	// Any other call ends the run; effects may be meant twice and run.
 	firsts := map[string]string{}
+	concurrentRead := func(tool *Tool, call canonical.ToolRequest) bool {
+		return tool != nil && tool.ReadOnly && tool.Concurrent && !x.hooks.WrapsTool(call.Name)
+	}
 	for i, call := range calls {
 		if x.streamReads.read(call.ID) != nil {
 			if key := repeatKey(call); key != "" && firsts[key] == "" {
@@ -463,6 +467,9 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			break
 		}
 		tool := findTool(x.tools, call.Name)
+		if !concurrentRead(tool, call) {
+			clear(firsts)
+		}
 		if call.Error != nil {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: call.Error.Message}}
 			continue
@@ -490,12 +497,10 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = invalid
 			continue
 		}
-		if key := repeatKey(call); tool.ReadOnly && tool.Concurrent && key != "" {
-			if first := firsts[key]; first != "" {
-				results[i] = repeatedCall(first)
-				continue
-			}
-			firsts[key] = call.ID
+		key := repeatKey(call)
+		if first := firsts[key]; key != "" && first != "" && concurrentRead(tool, call) {
+			results[i] = repeatedCall(first)
+			continue
 		}
 		if tool.ObserveHistory != nil {
 			tool.ObserveHistory(state.Records)
@@ -517,6 +522,12 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		if asks[i] = tool.Approval || confirm; !asks[i] {
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
+			// Only a read that will run answers its repeats.
+			if key != "" && concurrentRead(tool, call) && firsts[key] == "" {
+				firsts[key] = call.ID
+			}
+		} else {
+			clear(firsts)
 		}
 	}
 	if err := r.save(x.ctx, x.inv.Session.ID, marks...); err != nil {
