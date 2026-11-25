@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,58 +29,67 @@ func resolveRelease(ctx context.Context, release identity.HostRelease, client *h
 	}
 	source := release.Releases() + "/latest"
 	code := release == identity.CodeHost()
+	pageLimit, maxPage := 1, 1024*1024
 	if code {
-		source = release.Releases() + "?per_page=100"
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	response, err := client.Do(request)
-	if err != nil {
-		return "", unavailable("Host release discovery failed")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return "", unavailable("Host release discovery failed")
-	}
-	const maxRelease = 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxRelease+1))
-	if err != nil || len(body) > maxRelease {
-		return "", unavailable("Host release metadata could not be read")
+		pageLimit, maxPage = 10, 8*1024*1024
 	}
 	type published struct {
 		Tag        string `json:"tag_name"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
 	}
-	var releases []published
-	if code {
-		if err := json.Unmarshal(body, &releases); err != nil {
-			return "", unavailable("Host release metadata is invalid")
-		}
-	} else {
-		var latest published
-		if err := json.Unmarshal(body, &latest); err != nil {
-			return "", unavailable("Host release metadata is invalid")
-		}
-		releases = append(releases, latest)
-	}
 	var selected string
-	for _, candidate := range releases {
-		version, tagged := strings.CutPrefix(candidate.Tag, "v")
-		if !tagged || candidate.Draft || candidate.Prerelease || !validReleaseVersion(version) || semver.Prerelease(candidate.Tag) != "" {
-			continue
+	for page := 1; page <= pageLimit; page++ {
+		if code {
+			source = release.Releases() + "?page=" + strconv.Itoa(page) + "&per_page=100"
 		}
-		if selected == "" || semver.Compare(candidate.Tag, "v"+selected) > 0 {
-			selected = version
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+		if err != nil {
+			return "", err
+		}
+		request.Header.Set("Accept", "application/vnd.github+json")
+		response, err := client.Do(request)
+		if err != nil {
+			return "", unavailable("Host release discovery failed")
+		}
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			return "", unavailable("Host release discovery failed")
+		}
+		body, err := io.ReadAll(io.LimitReader(response.Body, int64(maxPage)+1))
+		_ = response.Body.Close()
+		if err != nil || len(body) > maxPage {
+			return "", unavailable("Host release metadata could not be read")
+		}
+		var releases []published
+		if code {
+			if err := json.Unmarshal(body, &releases); err != nil {
+				return "", unavailable("Host release metadata is invalid")
+			}
+		} else {
+			var latest published
+			if err := json.Unmarshal(body, &latest); err != nil {
+				return "", unavailable("Host release metadata is invalid")
+			}
+			releases = append(releases, latest)
+		}
+		for _, candidate := range releases {
+			version, tagged := strings.CutPrefix(candidate.Tag, "v")
+			if !tagged || candidate.Draft || candidate.Prerelease || !validReleaseVersion(version) || semver.Prerelease(candidate.Tag) != "" {
+				continue
+			}
+			if selected == "" || semver.Compare(candidate.Tag, "v"+selected) > 0 {
+				selected = version
+			}
+		}
+		if !code || len(releases) < 100 {
+			if selected == "" {
+				return "", unavailable("Host release has no stable version")
+			}
+			return selected, nil
 		}
 	}
-	if selected == "" {
-		return "", unavailable("Host release has no stable version")
-	}
-	return selected, nil
+	return "", unavailable("Host release discovery exceeds its page limit")
 }
 
 func validReleaseVersion(version string) bool {

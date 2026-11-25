@@ -127,6 +127,37 @@ void main() {
   });
 
   group('update checks', () {
+    test('Harness keeps its one MiB single-page release feed', () async {
+      final oversized = fixture.release('0.2.14')
+        ..['body'] = List.filled(1024 * 1024, 'a').join();
+      final limited = fixture.updates(releases: [oversized]);
+      addTearDown(limited.dispose);
+      await expectLater(limited.check(), throwsFormatException);
+      expect(limited.available, isNull);
+
+      var requests = 0;
+      final firstOnly = fixture.updates(
+        request: (request) async {
+          requests++;
+          expect(request.url.host, 'api.github.com');
+          expect(request.url.path, '/repos/sailry/sailry-harness/releases');
+          expect(request.url.queryParameters['page'], isNull);
+          return http.Response(
+            jsonEncode(
+              List.generate(100, (_) => fixture.release('0.1.0-alpha.1')),
+            ),
+            200,
+            headers: {
+              'link': '<https://other.example/releases?page=2>; rel="next"',
+            },
+          );
+        },
+      );
+      addTearDown(firstOnly.dispose);
+      expect(await firstOnly.check(), UpdateResult.current);
+      expect(requests, 1);
+    });
+
     test('a Code desktop version reset cannot downgrade mobile', () async {
       final row = fixture.release('0.1.0');
       (row['assets'] as List).first['browser_download_url'] =

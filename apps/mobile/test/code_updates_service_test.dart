@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,16 @@ import 'support/updates.dart' as fixture;
 
 const repository = 'sailry/sailry-code';
 const prefix = 'mobile-v';
+
+class _StreamingClient extends http.BaseClient {
+  _StreamingClient(this._send);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest) _send;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _send(request);
+}
 
 Map<String, dynamic> mobileRelease(String version) =>
     fixture.release(version, repository: repository, tagPrefix: prefix);
@@ -181,5 +192,189 @@ void main() {
     rows = [];
     expect(await service.check(), UpdateResult.unpublished);
     expect(service.available, isNull);
+  });
+
+  group('Code release pagination', () {
+    test('finds a mobile update behind a desktop-only first page', () async {
+      final requests = <Uri>[];
+      final first = List.generate(
+        100,
+        (_) => fixture.release('0.1.0', repository: repository),
+      );
+      final service = updates(
+        [],
+        request: (request) async {
+          requests.add(request.url);
+          expect(request.url.scheme, 'https');
+          expect(request.url.host, 'api.github.com');
+          expect(request.url.path, '/repos/$repository/releases');
+          expect(request.followRedirects, isFalse);
+          final rows = requests.length == 1
+              ? first
+              : [mobileRelease('0.2.14+32')];
+          return http.Response(
+            jsonEncode(rows),
+            200,
+            headers: {
+              'link': '<https://other.example/releases?page=2>; rel="next"',
+            },
+          );
+        },
+      );
+      addTearDown(service.dispose);
+      expect(await service.check(), UpdateResult.available);
+      expect(service.available!.buildNumber, 32);
+      expect(requests.map((uri) => uri.queryParameters['page']), ['1', '2']);
+      expect(
+        requests.every((uri) => uri.queryParameters['per_page'] == '100'),
+        isTrue,
+      );
+    });
+
+    test('accepts a realistic multi-asset list larger than one MiB', () async {
+      final rows = List.generate(100, (_) {
+        final row = fixture.release('0.1.0', repository: repository);
+        final asset = apk(row);
+        row['assets'] = List.generate(
+          20,
+          (_) => {...asset, 'label': List.filled(600, 'a').join()},
+        );
+        return row;
+      });
+      final body = jsonEncode(rows);
+      expect(utf8.encode(body).length, greaterThan(1024 * 1024));
+      expect(utf8.encode(body).length, lessThan(8 * 1024 * 1024));
+      var requests = 0;
+      final service = updates(
+        [],
+        request: (_) async {
+          requests++;
+          return http.Response(
+            requests == 1 ? body : jsonEncode([mobileRelease('0.2.14+32')]),
+            200,
+          );
+        },
+      );
+      addTearDown(service.dispose);
+      expect(await service.check(), UpdateResult.available);
+      expect(service.available!.buildNumber, 32);
+      expect(requests, 2);
+    });
+
+    test(
+      'ranks compatible updates across pages, not just within one page',
+      () async {
+        final first = List.generate(100, (_) => mobileRelease('1.0.0+30'));
+        var requests = 0;
+        final service = updates(
+          [],
+          request: (_) async {
+            requests++;
+            return http.Response(
+              jsonEncode(requests == 1 ? first : [mobileRelease('0.2.14+32')]),
+              200,
+            );
+          },
+        );
+        addTearDown(service.dispose);
+        expect(await service.check(), UpdateResult.available);
+        expect(service.available!.version, precedence('0.2.14'));
+        expect(service.available!.buildNumber, 32);
+        expect(requests, 2);
+      },
+    );
+
+    test('rejects oversized Code pages without announcing an update', () async {
+      final row = mobileRelease('0.2.14+32')
+        ..['body'] = List.filled(8 * 1024 * 1024, 'a').join();
+      final service = updates([row]);
+      addTearDown(service.dispose);
+      await expectLater(service.check(), throwsFormatException);
+      expect(service.available, isNull);
+      expect(service.checking, isFalse);
+    });
+
+    test(
+      'bounds and cancels oversized Code streams without content length',
+      () async {
+        var chunks = 0;
+        var canceled = false;
+        Stream<List<int>> body() async* {
+          final chunk = List<int>.filled(4096, 97);
+          try {
+            for (var index = 0; index < 4096; index++) {
+              chunks++;
+              yield chunk;
+            }
+          } finally {
+            canceled = true;
+          }
+        }
+
+        final service = AppUpdates(
+          repository: repository,
+          tagPrefix: prefix,
+          requireBuildNumber: true,
+          target: 'android-arm64',
+          readInfo: () async => fixture.info('0.2.13', buildNumber: '31'),
+          client: _StreamingClient(
+            (_) async => http.StreamedResponse(body(), 200),
+          ),
+        );
+        addTearDown(service.dispose);
+        await expectLater(service.check(), throwsFormatException);
+        expect(chunks, 8 * 1024 * 1024 ~/ 4096 + 1);
+        expect(canceled, isTrue);
+        expect(service.available, isNull);
+      },
+    );
+
+    test(
+      'does not follow redirects away from the configured Code source',
+      () async {
+        var requests = 0;
+        final service = updates(
+          [],
+          request: (request) async {
+            requests++;
+            expect(request.followRedirects, isFalse);
+            return http.Response(
+              '',
+              302,
+              headers: {'location': 'https://other.example/releases'},
+            );
+          },
+        );
+        addTearDown(service.dispose);
+        await expectLater(service.check(), throwsA(isA<HttpException>()));
+        expect(requests, 1);
+        expect(service.available, isNull);
+      },
+    );
+
+    test(
+      'page exhaustion fails rather than reporting a partial result',
+      () async {
+        final body = jsonEncode(
+          List.generate(100, (_) => mobileRelease('0.2.14+32')),
+        );
+        var requests = 0;
+        final service = updates(
+          [],
+          request: (request) async {
+            requests++;
+            if (requests > 1) {
+              expect(request.url.queryParameters['page'], '$requests');
+            }
+            return http.Response(body, 200);
+          },
+        );
+        addTearDown(service.dispose);
+        await expectLater(service.check(), throwsFormatException);
+        expect(requests, 10);
+        expect(service.available, isNull);
+        expect(service.checking, isFalse);
+      },
+    );
   });
 }

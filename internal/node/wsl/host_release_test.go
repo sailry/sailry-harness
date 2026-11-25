@@ -3,6 +3,7 @@ package wsl
 import (
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -90,7 +91,7 @@ func TestCodeHostSelectsItsFeedWithTheExistingNamespace(t *testing.T) {
 		Release: identity.DesktopRelease{Source: "https://desktop.example/feed", Downloads: "https://desktop.example/download"},
 	}
 	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
-		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases?per_page=100" {
+		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases?page=1&per_page=100" {
 			t.Fatalf("wrong Code Host release request: %s %s", request.Method, request.URL)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`[
@@ -134,5 +135,124 @@ func TestCodeHostDoesNotUseMobileOrUnpublishedReleases(t *testing.T) {
 		if version, err := resolveRelease(t.Context(), identity.CodeHost(), client); err == nil || version != "" {
 			t.Errorf("unpublished Code Host selected %q from %s: %v", version, body, err)
 		}
+	}
+}
+
+func TestCodeHostReleaseListFollowsPages(t *testing.T) {
+	first := "[" + strings.TrimSuffix(strings.Repeat(`{"tag_name":"mobile-v0.2.14+32"},`, 100), ",") + "]"
+	requests := 0
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.URL.Scheme != "https" || request.URL.Host != "api.github.com" || request.URL.Path != "/repos/sailry/sailry-code/releases" || request.URL.Query().Get("per_page") != "100" {
+			t.Fatalf("Code pagination left its release source: %s", request.URL)
+		}
+		body := first
+		if requests == 2 {
+			if request.URL.Query().Get("page") != "2" {
+				t.Fatalf("Code pagination did not advance: %s", request.URL)
+			}
+			body = `[{"tag_name":"v0.1.1"}]`
+		} else if requests > 2 {
+			t.Fatalf("Code pagination did not stop at the short page: %s", request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)),
+			Header: http.Header{"Link": {`<https://other.example/releases?page=2>; rel="next"`}},
+		}, nil
+	})}
+	version, err := resolveRelease(t.Context(), identity.CodeHost(), client)
+	if err != nil || version != "0.1.1" || requests != 2 {
+		t.Fatalf("Code Host behind a mobile-only page = %q, %d requests: %v", version, requests, err)
+	}
+}
+
+func TestCodeHostReleaseListAcceptsMultiAssetPages(t *testing.T) {
+	asset := `{"name":"sailry-host.zip","browser_download_url":"https://github.com/sailry/sailry-code/releases/download/v0.1.1/sailry-host.zip","label":"` + strings.Repeat("a", 600) + `"}`
+	release := `{"tag_name":"v0.1.1","assets":[` + strings.TrimSuffix(strings.Repeat(asset+",", 20), ",") + `]}`
+	body := "[" + strings.TrimSuffix(strings.Repeat(release+",", 100), ",") + "]"
+	if len(body) <= 1024*1024 || len(body) > 8*1024*1024 {
+		t.Fatalf("multi-asset fixture has the wrong size: %d", len(body))
+	}
+	requests := 0
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		page := body
+		if requests == 2 {
+			page = "[]"
+		} else if requests > 2 {
+			t.Fatal("Code pagination did not stop at the empty page")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(page))}, nil
+	})}
+	version, err := resolveRelease(t.Context(), identity.CodeHost(), client)
+	if err != nil || version != "0.1.1" || requests != 2 {
+		t.Fatalf("Code multi-asset release page = %q, %d requests: %v", version, requests, err)
+	}
+}
+
+func TestHostReleaseMetadataLimits(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		release identity.HostRelease
+		limit   int
+	}{
+		{"Code release page", identity.CodeHost(), 8 * 1024 * 1024},
+		{"Harness single latest", identity.OfficialHost(), 1024 * 1024},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			body := `{"tag_name":"v0.1.1","body":"` + strings.Repeat("a", row.limit) + `"}`
+			if row.release == identity.CodeHost() {
+				body = "[" + body + "]"
+			}
+			reader := &io.LimitedReader{R: strings.NewReader(body), N: int64(len(body))}
+			requests := 0
+			client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+				requests++
+				if row.release == identity.OfficialHost() && request.URL.String() != "https://api.github.com/repos/sailry/sailry-harness/releases/latest" {
+					t.Fatalf("Harness latest source changed: %s", request.URL)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(reader)}, nil
+			})}
+			version, err := resolveRelease(t.Context(), row.release, client)
+			if err == nil || version != "" || requests != 1 {
+				t.Fatalf("oversized metadata selected %q, %d requests: %v", version, requests, err)
+			}
+			if read := int64(len(body)) - reader.N; read > int64(row.limit+1) {
+				t.Fatalf("metadata budget read %d bytes, limit %d", read, row.limit)
+			}
+		})
+	}
+}
+
+func TestCodeHostReleaseListPageLimit(t *testing.T) {
+	body := "[" + strings.TrimSuffix(strings.Repeat(`{"tag_name":"v0.1.1"},`, 100), ",") + "]"
+	requests := 0
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if page := request.URL.Query().Get("page"); requests > 1 && page != strconv.Itoa(requests) {
+			t.Fatalf("Code pagination did not advance: %s", request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	version, err := resolveRelease(t.Context(), identity.CodeHost(), client)
+	if err == nil || version != "" || requests != 10 || !strings.Contains(err.Error(), "page limit") {
+		t.Fatalf("unbounded or partial discovery = %q, %d requests: %v", version, requests, err)
+	}
+}
+
+func TestHarnessHostKeepsSingleLatestDiscovery(t *testing.T) {
+	requests := 0
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		requests++
+		if request.URL.String() != "https://api.github.com/repos/sailry/sailry-harness/releases/latest" {
+			t.Fatalf("Harness latest source changed: %s", request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v0.2.13"}`)),
+			Header: http.Header{"Link": {`<https://other.example/releases?page=2>; rel="next"`}},
+		}, nil
+	})}
+	if version, err := resolveRelease(t.Context(), identity.OfficialHost(), client); err != nil || version != "0.2.13" || requests != 1 {
+		t.Fatalf("Harness single latest = %q, %d requests: %v", version, requests, err)
 	}
 }
