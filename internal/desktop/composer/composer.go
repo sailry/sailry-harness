@@ -495,7 +495,7 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 // the draft is not deliverable.
 func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop func()) {
 	v := theme.Of(c).Variant
-	if s.Running || s.Stoppable && !s.hasInput() {
+	if s.Stops() {
 		label := "chat_stop"
 		if !s.Running {
 			label = "subagent_stop"
@@ -565,16 +565,23 @@ func (s *State) Escape(actions Actions) bool {
 	case s.queue.editing != "":
 		s.queue.editing = ""
 		return true
-	case s.Running:
+	case s.Stops():
 		actions.Stop()
 		return true
 	}
 	return false
 }
 
+// Stops reports whether the conversation's stop control shows: the reply
+// runs, or it ended with subagents still running and no draft to send. The
+// button, Escape and the stop shortcut act alike.
+func (s *State) Stops() bool {
+	return s.Running || s.Stoppable && !s.hasInput()
+}
+
 // Escapes reports whether Escape would do something now.
 func (s *State) Escapes() bool {
 	// The picker takes Escape in the draft; a window shortcut claiming it
 	// would come first.
-	return !s.Searching && !s.ref.shown && (s.queue.editing != "" || s.Running)
+	return !s.Searching && !s.ref.shown && (s.queue.editing != "" || s.Stops())
 }

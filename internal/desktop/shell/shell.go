@@ -919,7 +919,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	if a.keyed != "" && cv.ID == a.Sidebar.Selected {
 		switch a.keyed {
 		case "conversation.stop":
-			if comp.Running {
+			if comp.Stops() {
 				act.Stop()
 			}
 		case "composer.focus":
