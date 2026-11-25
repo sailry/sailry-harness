@@ -75,3 +75,40 @@ func TestRetryHintMinimum(t *testing.T) {
 }
 
 func retryMilliseconds(value uint64) *uint64 { return &value }
+
+func TestNativeCompactionRetryBudget(t *testing.T) {
+	t.Parallel()
+	failure := func(status int, body string) []fantasy.StreamPart {
+		return []fantasy.StreamPart{{Type: fantasy.StreamPartTypeError, Error: &fantasy.ProviderError{StatusCode: status, Message: "failed", ResponseBody: []byte(body)}}}
+	}
+	overloaded := failure(529, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	gateway := failure(502, `{"error":{"message":"Upstream request failed"}}`)
+	balance := failure(402, `{"error":{"code":"insufficient_balance","message":"Insufficient balance"}}`)
+	forbidden := failure(403, `{"error":{"message":"Forbidden"}}`)
+	repeat := func(parts []fantasy.StreamPart, count int) [][]fantasy.StreamPart {
+		var out [][]fantasy.StreamPart
+		for range count {
+			out = append(out, parts)
+		}
+		return out
+	}
+	for _, row := range []struct {
+		name      string
+		responses [][]fantasy.StreamPart
+		calls     int
+		kind      FailureKind
+	}{
+		{"a provider error is resent once", [][]fantasy.StreamPart{gateway, gateway, gateway}, 2, Unavailable},
+		{"a provider error after overload is still resent once", [][]fantasy.StreamPart{overloaded, gateway, gateway, gateway}, 3, Unavailable},
+		{"a spent balance waits as other requests do", repeat(balance, MainRetries+1), MainRetries + 1, Quota},
+		{"a refused account waits as other requests do", repeat(forbidden, MainRetries+1), MainRetries + 1, Authentication},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			fake := &policyModel{responses: row.responses}
+			err := Run(t.Context(), fake, fantasy.Call{}, NativePurpose, &policyClock{}, nil, nil, nil)
+			if failure := Classify(err); fake.calls != row.calls || failure.Kind != row.kind || !failure.Exhausted {
+				t.Fatalf("calls=%d failure=%+v", fake.calls, failure)
+			}
+		})
+	}
+}

@@ -756,9 +756,10 @@ provider, protocol, endpoint and model while the Node runs. So is a completed
 response without any compaction item, which a gateway that drops the feature or
 a model without it returns as an ordinary reply. A refused or empty summary
 falls back without being remembered. A native request resends a provider error
-once; one that persists, or an outage, falls back without being remembered. A
-rate limit or overload waits within the ordinary retry budget. Rate limits that
-outlast it, balance and authorization failures and cancellation end the
+once, even after waits for other causes; one that persists, or an outage, falls
+back without being remembered. A rate limit, overload, spent balance or
+refused account (HTTP 403) waits within the ordinary retry budget. Failures
+that outlast it, balance and authorization failures and cancellation end the
 compaction as for the in-place request, since they stop the replacement summary
 too. Native calls are
 observed and billed as compaction requests; Messages usage sums the reported

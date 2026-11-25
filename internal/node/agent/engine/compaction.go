@@ -455,13 +455,23 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 	}
 	// Limits, balances and credentials stop the summary that would replace
 	// this request as well; a provider error or outage does not.
-	failure := model.Classify(err)
-	switch kind := failure.Kind; {
-	case x.ctx.Err() != nil, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+	if compactionStops(x, err) {
 		return model.Compacted{}, false, err
 	}
 	nativeOutcome(binding, route, "failed", err)
 	return model.Compacted{}, false, nil
+}
+
+// compactionStops reports a failed summary request whose cause would stop
+// the summary that replaces it too: cancellation, rate limits, balances,
+// credentials, or retries that were already spent.
+func compactionStops(x *execution, err error) bool {
+	failure := model.Classify(err)
+	switch kind := failure.Kind; {
+	case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+		return true
+	}
+	return false
 }
 
 // nativeOutcome records whether a route compacted natively or fell back to
@@ -686,9 +696,7 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
 	if err != nil {
 		// A request that spent its retries would spend them again on the transcript.
-		failure := model.Classify(err)
-		switch kind := failure.Kind; {
-		case x.ctx.Err() != nil, failure.Exhausted, failure.WaitExhausted, kind == model.Cancelled, kind == model.RateLimited, kind == model.Quota, kind == model.Authentication, kind == model.NotConfigured:
+		if compactionStops(x, err) {
 			return handoff.Summary{}, false, err
 		}
 		return handoff.Summary{}, false, nil

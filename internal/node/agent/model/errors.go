@@ -69,6 +69,12 @@ func (f *Failure) loadRetryable() bool {
 	return f.Retryable() && f.Kind != Quota && f.Kind != Authentication
 }
 
+// nativeFallback is a retryable failure that Sailry's own summary may not
+// meet: a provider error or outage rather than load, a balance or an account.
+func (f *Failure) nativeFallback() bool {
+	return f.loadRetryable() && !f.overloaded
+}
+
 // httpResponseFailure carries only retry advice across a transport's decoding
 // failures. Keeping the cause preserves SDK error inspection without retaining
 // unrelated response headers in a Failure.

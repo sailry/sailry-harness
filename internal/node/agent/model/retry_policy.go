@@ -24,11 +24,15 @@ type retryPolicy struct {
 	dialTimeouts   uint64
 	originDeadline time.Time
 	retryAt        time.Time
+	// nativeResends counts the provider errors of a native compaction, which
+	// share its quick resend whatever waits came between them.
+	nativeResends uint64
 }
 
 // nativeRetries is the quick resend a native compaction gets for a provider
-// error before Sailry's own summary replaces it. A rate limit or overload
-// waits as other requests do, since the summary would meet it too.
+// error before Sailry's own summary replaces it. A rate limit, overload, spent
+// balance or refused account waits as other requests do, since the summary
+// would meet it too.
 const nativeRetries = 1
 
 func newRetryPolicy() retryPolicy {
@@ -43,8 +47,9 @@ func newRetryPolicy() retryPolicy {
 }
 
 func (policy *retryPolicy) limit(purpose Purpose, attempt Attempt, streamed bool) uint64 {
-	if purpose == NativePurpose && (attempt.Failure == nil || !attempt.Failure.overloaded) {
-		return nativeRetries
+	if purpose == NativePurpose && attempt.Failure.nativeFallback() {
+		policy.nativeResends++
+		return min(MainRetries, attempt.Index+nativeRetries+1-policy.nativeResends)
 	}
 	if purpose == Main && attempt.Failure.tcpDialTimeout && !streamed && attempt.RequestSentUs == nil && attempt.Status == nil {
 		policy.dialTimeouts++

@@ -379,6 +379,36 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 			t.Fatalf("native compaction was sent %d times, want three resends", calls)
 		}
 	})
+	t.Run("an overload that outlasts the retries ends the compaction", func(t *testing.T) {
+		f, x, binding, provider := nativeFixture(t, protocol.ConversationModelApiAnthropic, func(writer http.ResponseWriter, request wireRequest) {
+			if compacting(request) {
+				writeJSON(writer, 529, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+				return
+			}
+			writeSSE(writer, anthropicText(inPlaceHandoff))
+		})
+		done := make(chan error, 1)
+		go func() { done <- compactNow(t, f, x, binding) }()
+		clock := f.r.clock.(*manualClock)
+		var err error
+		for waiting := true; waiting; {
+			select {
+			case wait := <-clock.waits:
+				close(wait.advance)
+			case err = <-done:
+				waiting = false
+			}
+		}
+		if failure := model.Classify(err); err == nil || !failure.Exhausted {
+			t.Fatalf("an exhausted overload did not end the compaction: %v", err)
+		}
+		if calls := len(provider.all(compacting)); calls != model.MainRetries+1 {
+			t.Fatalf("native compaction was sent %d times, want the ordinary budget", calls)
+		}
+		if summaries := provider.all(func(request wireRequest) bool { return !compacting(request) }); len(summaries) != 0 {
+			t.Fatalf("an exhausted overload fell back to %d summary requests", len(summaries))
+		}
+	})
 	t.Run("a transient failure is retried and leaves the route supported", func(t *testing.T) {
 		var mu sync.Mutex
 		failures := 1
