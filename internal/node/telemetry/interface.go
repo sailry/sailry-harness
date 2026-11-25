@@ -208,7 +208,10 @@ func (c *Control) report(kind string, reduced []byte) {
 	if c == nil {
 		return
 	}
-	wanted := "goroutine 1"
+	wanted := ""
+	if kind == "hang" {
+		wanted = "goroutine 1"
+	}
 	class, frames := trace(reduced, wanted)
 	if kind == "hang" {
 		class = "unresponsive"
@@ -220,7 +223,11 @@ func (c *Control) report(kind string, reduced []byte) {
 		c.mu.Unlock()
 		return
 	}
-	event := c.eventLocked(kind, logging.Fields{"area": "interface", "operation": kind, "code": class}, frames)
+	area := "interface"
+	if c.application == "host" && kind == "crash" {
+		area = "host"
+	}
+	event := c.eventLocked(kind, logging.Fields{"area": area, "operation": kind, "code": class}, frames)
 	if !c.admitLocked(event.Fingerprint[0], time.Now()) || c.inFlight >= reportsInFlight {
 		c.mu.Unlock()
 		return
@@ -228,12 +235,12 @@ func (c *Control) report(kind string, reduced []byte) {
 	event.Attachments = []*sentry.Attachment{{Filename: "goroutines.txt", ContentType: "text/plain", Payload: reduced}}
 	c.inFlight++
 	c.reports.Add(1)
-	scope, epoch := c.scope, c.epoch
+	scope := c.errorScope
 	c.mu.Unlock()
 	go func() {
 		defer c.reports.Done()
 		c.mu.Lock()
-		allowed := c.errorsLocked() && c.epoch == epoch
+		allowed := c.errorsLocked() && scope.Err() == nil
 		c.mu.Unlock()
 		if allowed {
 			c.send(scope, event)

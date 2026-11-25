@@ -31,6 +31,17 @@ type operationEndpoint struct {
 	timers chan func()
 }
 
+func newOperationEndpoint(status int) *operationEndpoint {
+	e := &operationEndpoint{calls: make(chan []byte, 100), timers: make(chan func(), 100)}
+	e.status.Store(int32(status))
+	return e
+}
+
+func (e *operationEndpoint) timer(_ time.Duration, fn func()) func() {
+	e.timers <- fn
+	return func() {}
+}
+
 func (e *operationEndpoint) RoundTrip(r *http.Request) (*http.Response, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -43,9 +54,8 @@ func (e *operationEndpoint) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func operationControl(t *testing.T, dir, dsn string, optOut bool, settings protocol.TelemetrySettings, status int) (*Control, *operationEndpoint) {
 	t.Helper()
-	e := &operationEndpoint{calls: make(chan []byte, 100), timers: make(chan func(), 100)}
-	e.status.Store(int32(status))
-	c := New(Options{RetryDirectory: dir, Transport: e, Timer: func(_ time.Duration, fn func()) func() { e.timers <- fn; return func() {} }, Lookup: func(key string) string {
+	e := newOperationEndpoint(status)
+	c := New(Options{RetryDirectory: dir, Transport: e, Timer: e.timer, Lookup: func(key string) string {
 		if key == "SAILRY_SENTRY_DSN" {
 			return dsn
 		}
@@ -65,7 +75,7 @@ func receiveOperation[T any](t *testing.T, ch <-chan T) T {
 	case value := <-ch:
 		return value
 	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for operation queue")
+		t.Fatal("timeout waiting for telemetry test event")
 		var zero T
 		return zero
 	}
@@ -283,6 +293,66 @@ func TestOperationQueueSize(t *testing.T) {
 		if err != nil || info.Size() > operationBytes {
 			t.Fatalf("oversized queue file: %v, %v", info, err)
 		}
+	}
+}
+
+func TestOperationReportConsentInFlight(t *testing.T) {
+	for _, changed := range []string{"metrics", "errors", "identity"} {
+		t.Run(changed, func(t *testing.T) {
+			dir := t.TempDir()
+			c, remote := newHeldTelemetryControl(t, dir, http.StatusServiceUnavailable)
+			settings := protocol.TelemetrySettings{InstallationID: uuid.New(), Errors: true, Metrics: changed == "metrics"}
+			c.Configure(settings)
+			if settings.Metrics {
+				receiveOperation(t, remote.timers) // Launch's usage window, not an operation retry.
+			}
+			fields := modelRequestFields("recovered", "model_network", 2, 0)
+			c.Record(slog.LevelWarn, fields)
+			request := receiveOperation(t, remote.started)
+
+			switch changed {
+			case "metrics":
+				settings.Metrics = false
+			case "errors":
+				settings.Errors = false
+			case "identity":
+				settings.InstallationID = uuid.New()
+			}
+			c.Configure(settings)
+			if changed != "metrics" {
+				if !errors.Is(request.Err(), context.Canceled) {
+					t.Fatalf("changing %s did not cancel the admitted error report", changed)
+				}
+				c.reports.Wait()
+				if files, err := os.ReadDir(dir); err != nil || len(files) != 0 || len(remote.calls) != 0 || len(remote.timers) != 0 {
+					t.Fatalf("changing %s retained or delivered the old report: files=%v, err=%v", changed, files, err)
+				}
+				return
+			}
+			if err := request.Err(); err != nil {
+				t.Fatalf("disabling usage metrics canceled the admitted error report: %v", err)
+			}
+			remote.release()
+			initial := productReportEvent(t, receiveOperation(t, remote.calls))
+			fire := receiveOperation(t, remote.timers)
+			name := filepath.Join(dir, operationName(0))
+			queued, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			settings.Metrics = true
+			c.Configure(settings)
+			if body, err := os.ReadFile(name); err != nil || !bytes.Equal(body, queued) {
+				t.Fatalf("enabling usage metrics changed the queued error report: %v", err)
+			}
+			remote.status.Store(http.StatusOK)
+			fire()
+			replayed := productReportEvent(t, receiveOperation(t, remote.calls))
+			if replayed.EventID == "" || replayed.EventID != initial.EventID {
+				t.Fatalf("replayed event ID = %q, want %q", replayed.EventID, initial.EventID)
+			}
+		})
 	}
 }
 

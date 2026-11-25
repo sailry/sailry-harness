@@ -209,7 +209,11 @@ func TestProductSentryReports(t *testing.T) {
 				if len(usage) != 0 || len(reports) != 4 {
 					t.Fatalf("sent %d metric batches and %d reports", len(usage), len(reports))
 				}
-				messages := map[string]bool{"command.submit_turn:unavailable": true, "interface.hang:unresponsive": true, "interface.crash:panic.nil_dereference": true, "runtime.diagnostics:requested": true}
+				crashArea := "interface"
+				if application == "host" {
+					crashArea = "host"
+				}
+				messages := map[string]bool{"command.submit_turn:unavailable": true, "interface.hang:unresponsive": true, crashArea + ".crash:panic.nil_dereference": true, "runtime.diagnostics:requested": true}
 				for _, body := range reports {
 					assertClean(t, "product report", body)
 					event := productReportEvent(t, body)

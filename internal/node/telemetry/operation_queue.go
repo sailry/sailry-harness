@@ -158,7 +158,7 @@ func (item pendingOperation) valid(scope string, now time.Time) bool {
 	}
 	age := now.Sub(item.At)
 	return item.Scope == scope && age >= 0 && age < operationTTL && !item.Next.Before(item.At) && item.Next.Before(item.At.Add(operationTTL)) && item.Retries >= 0 && item.Retries < operationRetries &&
-		hexID(string(item.Event), 32) && hexID(item.Fingerprint, 64) && item.Fields["phase"] == logging.Failed
+		hexID(string(item.Event), 32) && hexID(item.Fingerprint, 64) && (item.Fields["phase"] == logging.Failed || modelRecovery(item.Fields))
 }
 
 func readOperation(root *os.Root, name, scope string) *pendingOperation {
@@ -302,7 +302,7 @@ func (c *Control) retryOperation(q *operationQueue, item *pendingOperation) time
 		c.mu.Unlock()
 		return 0
 	}
-	event := c.eventLocked("operation", item.Fields, nil)
+	event := c.eventLocked(operationKind(item.Fields), item.Fields, nil)
 	event.EventID, event.Timestamp, event.Fingerprint[0], event.Breadcrumbs = item.Event, item.At, item.Fingerprint, nil
 	c.mu.Unlock()
 	_, delay := c.deliverReport(q.ctx, event)

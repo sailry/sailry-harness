@@ -15,11 +15,15 @@ func TestRemoteGitInspectionDiagnostic(t *testing.T) {
 		remote["detail"] != nil || remote["stderr"] != nil || remote["path"] != nil {
 		t.Fatalf("remote Git inspection fields = %v", remote)
 	}
+	fields["area"] = "command"
+	if got := Remote(fields); got["stage"] != "parse_status" || got["reason"] != "unsupported_path_encoding" || got["detail"] != nil {
+		t.Fatalf("command Git inspection fields = %v", got)
+	}
 	for _, invalid := range []struct {
 		key   string
 		value any
 	}{
-		{"area", "command"}, {"operation", "list_worktrees"}, {"phase", Completed}, {"code", "cancelled"},
+		{"area", "agent"}, {"operation", "list_worktrees"}, {"phase", Completed}, {"code", "cancelled"},
 		{"stage", "preflight"}, {"stage", "run_status"}, {"stage", "/private/path"}, {"stage", nil},
 		{"reason", "private_repository_name"}, {"reason", "/private/path"}, {"reason", uint64(1)}, {"reason", nil},
 	} {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -34,8 +36,9 @@ func runHostService(ctx context.Context, args []string, config Options, restoreS
 			return 1, err
 		}
 	}
-	if closeLogs, err := logging.Install(options.Profile, "host"); err != nil {
-		_, _ = fmt.Fprintln(config.Stderr, config.Identity.HostRelease.Package().Binary()+": continuing without a diagnostic log:", err)
+	closeLogs, logErr := logging.Install(options.Profile, "host")
+	if logErr != nil {
+		_, _ = fmt.Fprintln(config.Stderr, config.Identity.HostRelease.Package().Binary()+": continuing without a diagnostic log:", logErr)
 	} else {
 		defer closeLogs()
 	}
@@ -52,6 +55,16 @@ func runHostService(ctx context.Context, args []string, config Options, restoreS
 	})
 	if err != nil {
 		return 1, err
+	}
+	// Only the owner of the profile may consume or truncate its crash trace.
+	if logErr == nil {
+		crash, catchErr := telemetry.CatchCrashes(filepath.Join(logging.Directory(), "host"))
+		if catchErr != nil {
+			_, _ = fmt.Fprintln(config.Stderr, "Host crash traces:", catchErr)
+		} else {
+			defer debug.SetCrashOutput(nil, debug.CrashOptions{})
+		}
+		execution.Telemetry().ReportCrash(crash)
 	}
 	result := serve(ctx, execution, options, config)
 	// Restore default signals so another interrupt ends a stuck shutdown.

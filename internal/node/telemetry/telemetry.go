@@ -57,13 +57,18 @@ type Control struct {
 	metrics      bool
 	configured   bool
 	closing      bool
-	epoch        uint64
-	scope        context.Context // ends when the epoch advances
-	advance      context.CancelFunc
 	installation string
 	policy       sync.Mutex // serializes queue replacement and profile cleanup
 	retryDir     string
 	retry        *operationQueue
+
+	identityScope  context.Context
+	cancelIdentity context.CancelFunc
+	errorScope     context.Context
+	cancelErrors   context.CancelFunc
+	metricsScope   context.Context
+	cancelMetrics  context.CancelFunc
+	metricsEpoch   uint64
 
 	queueRaces  map[string]limit // one counter per allowlisted cause
 	breadcrumbs []breadcrumb
@@ -130,7 +135,9 @@ func New(options Options) *Control {
 		version = link.ProductVersion
 	}
 	c.release = "sailry@" + version + "+" + revision
-	c.scope, c.advance = context.WithCancel(context.Background())
+	c.identityScope, c.cancelIdentity = context.WithCancel(context.Background())
+	c.errorScope, c.cancelErrors = context.WithCancel(c.identityScope)
+	c.metricsScope, c.cancelMetrics = context.WithCancel(c.identityScope)
 	c.retryDir = options.RetryDirectory
 	return c
 }
@@ -142,16 +149,22 @@ func productID(value string) string {
 	return value
 }
 
-// advanceLocked abandons everything prepared under the previous consent or
-// identity: reports in flight, warnings kept for the next report and the
-// usage window.
-func (c *Control) advanceLocked() {
-	c.epoch++
-	c.advance()
-	c.scope, c.advance = context.WithCancel(context.Background())
+func (c *Control) advanceMetricsLocked() {
+	c.metricsEpoch++
+	c.cancelMetrics()
+	if c.ready {
+		c.metricsScope, c.cancelMetrics = context.WithCancel(c.identityScope)
+	}
+	c.clearWindowLocked()
+}
+
+func (c *Control) advanceErrorsLocked() {
+	c.cancelErrors()
+	if c.ready {
+		c.errorScope, c.cancelErrors = context.WithCancel(c.identityScope)
+	}
 	c.breadcrumbs = nil
 	clear(c.queueRaces)
-	c.clearWindowLocked()
 }
 
 // Configure takes the saved settings. The first one counts the launch when
@@ -161,11 +174,23 @@ func (c *Control) Configure(settings protocol.TelemetrySettings) {
 	defer c.policy.Unlock()
 	c.mu.Lock()
 	id := settings.InstallationID.String()
-	rotate := !c.closing && c.retryDir != "" && (!c.ready || c.errors != settings.Errors || c.installation != id)
+	identityChanged := !c.ready || c.installation != id
+	errorsChanged := identityChanged || c.errors != settings.Errors
+	metricsChanged := identityChanged || c.metrics != settings.Metrics
+	rotate := !c.closing && c.retryDir != "" && errorsChanged
 	previous := c.retry
-	if !c.closing && !(c.ready && c.errors == settings.Errors && c.metrics == settings.Metrics && c.installation == id) {
+	if !c.closing {
 		c.ready, c.errors, c.metrics, c.installation = true, settings.Errors, settings.Metrics, id
-		c.advanceLocked()
+		if identityChanged {
+			c.cancelIdentity()
+			c.identityScope, c.cancelIdentity = context.WithCancel(context.Background())
+		}
+		if errorsChanged {
+			c.advanceErrorsLocked()
+		}
+		if metricsChanged {
+			c.advanceMetricsLocked()
+		}
 	}
 	first := !c.configured && !c.closing
 	c.configured = true
@@ -227,7 +252,9 @@ func (c *Control) Close() {
 	}
 	c.mu.Lock()
 	c.ready = false
-	c.advanceLocked()
+	c.cancelIdentity()
+	c.advanceErrorsLocked()
+	c.advanceMetricsLocked()
 	c.mu.Unlock()
 	<-done
 }

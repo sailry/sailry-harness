@@ -45,6 +45,7 @@ var fields = []struct {
 	{"parse_event", local}, {"parse_line", local}, {"parse_column", local}, {"code", public}, {"status", local},
 	{"duration_us", public}, {"first_token_us", local}, {"bytes", local}, {"count", public}, {"durable", local},
 	{"elapsed_us", public}, {"last_content_us", local},
+	{"retry_outcome", local}, {"attempts", local}, {"http_status", local},
 }
 
 var known = func() map[string]bool {
@@ -207,14 +208,14 @@ func Remote(values Fields) Fields {
 		case "draft_not_saveable", "selection_unmapped", "queue_revision_changed", "queue_item_not_pending", "queue_input_consumed", "queue_input_not_editable", "guidance_not_pending", "recipient_stopping", "recipient_not_running", "recipient_not_task", "recipient_is_source", "guidance_scope_mismatch":
 			safe["reason_code"] = reason
 		}
-		if safe["area"] == "desktop" {
-			stage, _ := values["stage"].(string)
-			if safe["operation"] == "inspect_git" {
-				reason, _ := values["reason"].(string)
-				if stage != "" && protocol.GitInspectionReason(reason).Stage() == stage && safe["code"] != string(protocol.ErrorCodeCancelled) {
-					safe["stage"], safe["reason"] = stage, reason
-				}
-			} else if safe["operation"] == "preferences_save_failed" {
+		stage, _ := values["stage"].(string)
+		if (safe["area"] == "desktop" || safe["area"] == "command") && safe["operation"] == "inspect_git" {
+			reason, _ := values["reason"].(string)
+			if stage != "" && protocol.GitInspectionReason(reason).Stage() == stage && safe["code"] != string(protocol.ErrorCodeCancelled) {
+				safe["stage"], safe["reason"] = stage, reason
+			}
+		} else if safe["area"] == "desktop" {
+			if safe["operation"] == "preferences_save_failed" {
 				reason, _ := values["reason"].(string)
 				if preferencesWriteDiagnostic(stage, reason) && safe["code"] != string(protocol.ErrorCodeCancelled) {
 					safe["stage"], safe["reason"] = stage, reason
@@ -243,7 +244,37 @@ func Remote(values Fields) Fields {
 	if stage, _ := values["command_stage"].(string); stage == "admission" || stage == "completion" {
 		safe["command_stage"] = stage
 	}
+	if safe["area"] == "agent" && safe["operation"] == "model_request" {
+		outcome, _ := values["retry_outcome"].(string)
+		if outcome == "failed" && safe["phase"] == Failed || outcome == "recovered" && safe["phase"] == Completed {
+			switch reason, _ := values["reason_code"].(string); reason {
+			case "model_not_configured", "model_authentication", "model_context_overflow", "model_rate_limited", "model_quota", "model_network", "model_unavailable", "model_invalid_request", "model_invalid_response", "model_unsupported", "model_other":
+				if attempts, ok := boundedInteger(values["attempts"], 1, 1_000_000); ok && (outcome != "recovered" || attempts > 1) {
+					safe["retry_outcome"], safe["reason_code"], safe["attempts"] = outcome, reason, attempts
+					if status, ok := boundedInteger(values["http_status"], 100, 599); ok {
+						safe["http_status"] = status
+					}
+				}
+			}
+		}
+	}
 	return safe
+}
+
+func boundedInteger(value any, minimum, maximum uint64) (uint64, bool) {
+	var number uint64
+	switch value := value.(type) {
+	case int64:
+		if value < 0 {
+			return 0, false
+		}
+		number = uint64(value)
+	case uint64:
+		number = value
+	default:
+		return 0, false
+	}
+	return number, number >= minimum && number <= maximum
 }
 
 func preferencesWriteDiagnostic(stage, reason string) bool {

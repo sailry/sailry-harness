@@ -159,6 +159,9 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 	if kind == "crash" {
 		level = sentry.LevelFatal
 	}
+	if kind == "model_recovery" {
+		level = sentry.LevelWarning
+	}
 	hash := blake3.New(32, nil)
 	hash.Write([]byte(kind))
 	for _, key := range []string{"area", "code", "operation", "stage", "reason", "command_stage", "configuration_reason", "reason_code", "cause_code", "package", "plugin_version"} {
@@ -198,7 +201,7 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 		event.Contexts = map[string]sentry.Context{"sailry": sentry.Context(fields)}
 	}
 	if kind != "diagnostic" {
-		handled, mechanism := kind == "operation", "tracing"
+		handled, mechanism := kind == "operation" || kind == "model_recovery", "tracing"
 		if !handled {
 			mechanism = kind
 		}
@@ -248,7 +251,8 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 		return
 	}
 	safe := logging.Remote(fields)
-	if level < slog.LevelError && !(level == slog.LevelWarn && c.queueBurstLocked(safe, time.Now())) {
+	recovered := modelRecovery(safe)
+	if level < slog.LevelError && !(level == slog.LevelWarn && (recovered || c.queueBurstLocked(safe, time.Now()))) {
 		if len(safe) > 0 {
 			c.breadcrumbs = append(c.breadcrumbs, breadcrumb{at: time.Now().UTC(), fields: safe})
 			if len(c.breadcrumbs) > keptBreadcrumbs {
@@ -258,26 +262,26 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 		c.mu.Unlock()
 		return
 	}
-	if phase, _ := fields["phase"].(string); phase != logging.Failed {
+	if phase, _ := fields["phase"].(string); phase != logging.Failed && !recovered {
 		c.mu.Unlock()
 		return
 	}
-	if level < slog.LevelError {
+	if level < slog.LevelError && !recovered {
 		safe["count"] = uint64(queueBurstCount)
 	}
-	event := c.eventLocked("operation", safe, stack(sentry.NewStacktrace()))
+	event := c.eventLocked(operationKind(safe), safe, stack(sentry.NewStacktrace()))
 	if !c.admitLocked(event.Fingerprint[0], time.Now()) || c.inFlight >= reportsInFlight {
 		c.mu.Unlock()
 		return
 	}
 	c.inFlight++
 	c.reports.Add(1)
-	scope, epoch, queue := c.scope, c.epoch, c.retry
+	scope, queue := c.errorScope, c.retry
 	c.mu.Unlock()
 	go func() {
 		defer c.reports.Done()
 		c.mu.Lock()
-		allowed := c.errorsLocked() && c.epoch == epoch
+		allowed := c.errorsLocked() && scope.Err() == nil
 		c.mu.Unlock()
 		if allowed {
 			if _, delay := c.deliverReport(scope, event); delay > 0 && queue != nil && scope.Err() == nil {
@@ -290,6 +294,17 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 	}()
 }
 
+func modelRecovery(fields logging.Fields) bool {
+	return fields["area"] == "agent" && fields["operation"] == "model_request" && fields["phase"] == logging.Completed && fields["retry_outcome"] == "recovered"
+}
+
+func operationKind(fields logging.Fields) string {
+	if modelRecovery(fields) {
+		return "model_recovery"
+	}
+	return "operation"
+}
+
 // Diagnostics sends the one report a controller asked for: the anonymous
 // identity, release, channel, application, product, system and architecture,
 // with the active log's recent records reduced to their public fields. It never
@@ -297,7 +312,7 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 // not gate it: only the environment's opt-outs and a missing endpoint do.
 func (c *Control) Diagnostics(ctx context.Context) error {
 	c.mu.Lock()
-	permitted, epoch, scope := c.permittedLocked() && c.dsn != "" && !c.closing, c.epoch, c.scope
+	permitted, scope := c.permittedLocked() && c.dsn != "" && !c.closing, c.identityScope
 	c.mu.Unlock()
 	if !permitted {
 		return unavailable()
@@ -311,12 +326,12 @@ func (c *Control) Diagnostics(ctx context.Context) error {
 		return unavailable()
 	}
 	c.mu.Lock()
-	event := c.eventLocked("diagnostic", nil, nil)
-	changed := c.epoch != epoch
-	c.mu.Unlock()
-	if changed {
+	if scope.Err() != nil {
+		c.mu.Unlock()
 		return unavailable()
 	}
+	event := c.eventLocked("diagnostic", nil, nil)
+	c.mu.Unlock()
 	event.Attachments = []*sentry.Attachment{{Filename: "diagnostics.jsonl", ContentType: "application/x-ndjson", Payload: tail}}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

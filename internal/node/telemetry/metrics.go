@@ -214,7 +214,7 @@ func (c *Control) takeWindowLocked() ([]batch, uint64) {
 	w := c.window
 	c.clearWindowLocked()
 	if w == nil {
-		return nil, c.epoch
+		return nil, c.metricsEpoch
 	}
 	ended := time.Now().UTC()
 	if ended.Before(w.started) {
@@ -259,7 +259,7 @@ func (c *Control) takeWindowLocked() ([]batch, uint64) {
 			batches = append(batches, batch{Table: table, Data: rows})
 		}
 	}
-	return batches, c.epoch
+	return batches, c.metricsEpoch
 }
 
 func saturating(a, b uint64) uint64 {
@@ -294,7 +294,7 @@ func (c *Control) observeLocked(observation Observation) {
 			c.window.common[name] = value
 		}
 		c.window.common["release"] = c.release
-		epoch := c.epoch
+		epoch := c.metricsEpoch
 		c.stop = c.timer(metricsPeriod, func() { c.flush(epoch) })
 	}
 	key := observation.table + "\x00" + string(dimensions)
@@ -353,7 +353,7 @@ func (c *Control) Capture() *Capture {
 	if !c.metricsLocked() {
 		return nil
 	}
-	return &Capture{control: c, epoch: c.epoch}
+	return &Capture{control: c, epoch: c.metricsEpoch}
 }
 
 // Record counts the operation's one observation.
@@ -364,7 +364,7 @@ func (capture *Capture) Record(observation Observation) {
 	c := capture.control
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.epoch == capture.epoch {
+	if c.metricsEpoch == capture.epoch {
 		c.observeLocked(observation)
 	}
 }
@@ -372,13 +372,13 @@ func (capture *Capture) Record(observation Observation) {
 // flush sends the window its timer was started for.
 func (c *Control) flush(epoch uint64) {
 	c.mu.Lock()
-	if c.epoch != epoch || !c.metricsLocked() {
+	if c.metricsEpoch != epoch || !c.metricsLocked() {
 		c.mu.Unlock()
 		return
 	}
 	c.stop = nil
 	pending, _ := c.takeWindowLocked()
-	scope := c.scope
+	scope := c.metricsScope
 	c.mu.Unlock()
 	c.deliver(scope, pending, epoch)
 }
@@ -394,7 +394,7 @@ func (c *Control) deliver(ctx context.Context, pending []batch, epoch uint64) {
 		}
 		for attempt := range metricsAttempts {
 			c.mu.Lock()
-			allowed := c.permittedLocked() && c.key != "" && c.metrics && c.epoch == epoch
+			allowed := c.permittedLocked() && c.key != "" && c.metrics && c.metricsEpoch == epoch
 			c.mu.Unlock()
 			if !allowed || ctx.Err() != nil {
 				return
