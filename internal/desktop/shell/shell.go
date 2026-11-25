@@ -603,10 +603,7 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 			} else if a.Page == PluginPage && a.PluginNavigation != nil {
 				a.PluginNavigation(c)
 			} else {
-				a.Sidebar.Terminal = ""
-				if t := a.panes.Active; t.Kind == panes.Terminal && a.HasWorkspaceTerminal(t.ID) {
-					a.Sidebar.Terminal = t.ID
-				}
+				a.Sidebar.Terminal = a.ActiveTerminal()
 				sidebar.View(c, a.Sidebar)
 			}
 		})
@@ -687,14 +684,24 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 // in the header and its content in the column are built.
 func (a *App) syncPanel() {
 	a.Panel.Paged = a.paged()
-	a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
-	a.Panel.Cwd = ""
-	selected := a.SelectedConversation()
-	if pr := a.Data.ProjectHolding(selected); pr != nil {
-		a.Panel.Cwd = pr.Path
-	}
-	if cv := selected; cv != nil && cv.WorktreePath != "" {
-		a.Panel.Cwd = cv.WorktreePath
+	if a.ActiveTerminal() == "" {
+		a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
+		a.Panel.Cwd = ""
+		selected := a.SelectedConversation()
+		if pr := a.Data.ProjectHolding(selected); pr != nil {
+			a.Panel.Cwd = pr.Path
+		}
+		if cv := selected; cv != nil && cv.WorktreePath != "" {
+			a.Panel.Cwd = cv.WorktreePath
+		}
+	} else if a.sampled() {
+		// A live terminal pane's project and folder come from its Node with
+		// its workspace; a sample terminal names its own project.
+		pr := a.panelProject()
+		a.Panel.HasProject, a.Panel.Cwd = pr != nil, ""
+		if pr != nil {
+			a.Panel.Cwd = pr.Path
+		}
 	}
 	if a.Page == ConversationPage {
 		a.panels.project = a.project()

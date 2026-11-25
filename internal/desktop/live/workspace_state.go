@@ -1,6 +1,7 @@
 package live
 
 import (
+	"cmp"
 	"context"
 	"path"
 	"sort"
@@ -152,11 +153,27 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project.pruneClosedContent()
 	}
 	r.projectWorkspaceLocations()
-	session, ok := r.session(r.App.Sidebar.Selected)
-	// An unsent draft has a worktree to show and no session.
-	r.App.Panel.Session = ok
-	if !ok {
-		session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
+	var session protocol.Session
+	ok := false
+	terminal := r.App.ActiveTerminal()
+	var info protocol.TerminalInfo
+	if terminal != "" {
+		// A main terminal pane's panel shows the worktree its shell runs in,
+		// with no session's checkpoints or documents.
+		r.App.Panel.Session, r.App.Panel.HasProject, r.App.Panel.Cwd = false, false, ""
+		var owner *Runtime
+		if owner, info, ok = r.liveTerminalInfo(terminal); ok && owner == r && info.Worktree != nil {
+			session.Worktree = *info.Worktree
+		} else {
+			ok = false
+		}
+	} else {
+		session, ok = r.session(r.App.Sidebar.Selected)
+		// An unsent draft has a worktree to show and no session.
+		r.App.Panel.Session = ok
+		if !ok {
+			session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
+		}
 	}
 	if !ok {
 		r.clearWorkspaceSelection()
@@ -165,6 +182,10 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		return
 	}
 	worktree, found := r.workspaceWorktree(session.Worktree)
+	if found && terminal != "" {
+		session.Project = worktree.Project
+		r.App.Panel.Cwd = cmp.Or(workspaceString(info.Directory), worktree.Path)
+	}
 	if !found {
 		r.clearWorkspaceSelection()
 		r.App.Panel.Actions = nil

@@ -49,6 +49,7 @@ func (a *App) ResourceProject() *viewmodel.Project {
 
 // project resolves the explicit Files or Git selection, or the current
 // conversation's workspace for conversation panels and resource following mode.
+// A main terminal pane's panel shows its terminal's workspace.
 func (a *App) project() *panel.Project {
 	if target := a.ResourceTarget(); target.Project != "" {
 		project := a.ResourceProject()
@@ -69,7 +70,7 @@ func (a *App) project() *panel.Project {
 		}
 		return nil
 	}
-	pr := a.Data.ProjectOf(a.Sidebar.Selected)
+	pr := a.panelProject()
 	if pr == nil {
 		return nil
 	}

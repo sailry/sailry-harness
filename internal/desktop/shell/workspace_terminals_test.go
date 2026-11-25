@@ -61,6 +61,22 @@ func TestWorkspaceTerminalSameConversationSelection(t *testing.T) {
 	}
 }
 
+// The sidebar selects a main terminal's row only while the conversation page
+// shows it; another page with the sidebar leaves the selection to it.
+func TestWorkspaceTerminalSidebarSelection(t *testing.T) {
+	a, tt := newTester(t)
+	a.OpenWorkspaceTerminal("terminal", "Project shell")
+	tt.Frame()
+	if a.Sidebar.Terminal != "terminal" {
+		t.Fatalf("the shown terminal's row is not selected: %q", a.Sidebar.Terminal)
+	}
+	a.OpenProject(a.Data.Projects[0], ProjectActions{})
+	tt.Frame()
+	if a.Page != ProjectPage || a.Sidebar.Terminal != "" {
+		t.Fatalf("the terminal's row stayed selected on page %v: %q", a.Page, a.Sidebar.Terminal)
+	}
+}
+
 func TestWorkspaceTerminalStandaloneSplitKeys(t *testing.T) {
 	a, tt := newTester(t)
 	a.Panel.TerminalActions = &panel.TerminalActions{

@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // WorkspaceTerminal is an independent terminal surface in the main workspace.
@@ -77,6 +78,31 @@ func (a *App) workspaceTerminal(id string) *WorkspaceTerminal {
 		}
 	}
 	return nil
+}
+
+// ActiveTerminal is the main terminal pane the conversation page shows
+// active, "" while a conversation's is or another page shows. Its sidebar row
+// is the selected one, and its right panel works in the terminal's worktree,
+// not the selected conversation's.
+func (a *App) ActiveTerminal() string {
+	if t := a.panes.Active; a.Page == ConversationPage && t.Kind == panes.Terminal && a.HasWorkspaceTerminal(t.ID) {
+		return t.ID
+	}
+	return ""
+}
+
+// panelProject is the project of the shown panel's pane in the preview: the
+// sample terminal's own, or the selected conversation's.
+func (a *App) panelProject() *viewmodel.Project {
+	if t := a.workspaceTerminal(a.ActiveTerminal()); t != nil {
+		for _, pr := range a.Data.Projects {
+			if pr.ID == t.project {
+				return pr
+			}
+		}
+		return nil
+	}
+	return a.Data.ProjectOf(a.Sidebar.Selected)
 }
 
 func (a *App) sampleWorkspaceTerminal(project string) string {

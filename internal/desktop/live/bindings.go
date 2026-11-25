@@ -96,6 +96,13 @@ func (r *Runtime) selectedRuntime() *Runtime {
 	if node, _, shown := root.App.ProjectOwner(); shown {
 		return root.runtimeFor(node)
 	}
+	if id := root.App.ActiveTerminal(); id != "" {
+		// A main terminal pane's panel works on its terminal's Node.
+		if owner, _, _ := root.liveTerminalInfo(id); owner != nil {
+			return owner
+		}
+		return root
+	}
 	cv := root.App.SelectedConversation()
 	if cv == nil {
 		return root

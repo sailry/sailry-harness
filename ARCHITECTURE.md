@@ -1251,7 +1251,11 @@ passing and kept tabs; selecting a split-group tab restores its focused pane.
 An enlarged conversation retains its split slot and shares until restored.
 The right panel's tabs, shown tab and open state belong to the active pane:
 each conversation and each main terminal has its own, and a pane that never
-opened the panel shows it closed. Terminal tabs opened in the right panel stay
+opened the panel shows it closed. A main terminal's panel shows the project and
+worktree its shell runs in, not the selected conversation's, and moving a
+panel's only terminal to the main workspace closes that panel. The sidebar
+selects a main terminal's row only while the conversation page shows it.
+Terminal tabs opened in the right panel stay
 with that pane and do not join splits. A terminal ID has one surface at a
 time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available through terminal activity.

@@ -252,14 +252,37 @@ func (a *App) CancelTerminalClose(id string) {
 func (a *App) DropPanelTab(t panel.Tab) {
 	owner, confirmed := a.panels.terminalCloses[t]
 	delete(a.panels.terminalCloses, t)
-	if confirmed && slices.Contains(a.ConversationTabs(owner), t) && len(a.ConversationTabs(owner)) == 1 {
-		if owner == a.panels.mounted {
-			a.foldConversationPanel()
-		} else {
-			a.panels.parked[owner].Open = false
-		}
+	if confirmed {
+		a.foldPanelOf(owner, t)
 	}
 	a.dropPanelTab(t)
+}
+
+// TakePanelTab takes t out of the panel that has it, shown or not, to show
+// it in the main workspace. A panel it was the only tab of closes, as on an
+// explicit close, rather than staying open with nothing in it.
+func (a *App) TakePanelTab(t panel.Tab) {
+	if slices.Contains(a.Panel.Tabs, t) {
+		a.foldPanelOf(a.panels.mounted, t)
+	}
+	for id, kept := range a.panels.parked {
+		if slices.Contains(kept.Tabs, t) {
+			a.foldPanelOf(id, t)
+		}
+	}
+	a.DropPanelTab(t)
+}
+
+// foldPanelOf closes owner's panel when t is its only tab.
+func (a *App) foldPanelOf(owner string, t panel.Tab) {
+	if tabs := a.ConversationTabs(owner); len(tabs) != 1 || tabs[0] != t {
+		return
+	}
+	if owner == a.panels.mounted {
+		a.foldConversationPanel()
+	} else {
+		a.panels.parked[owner].Open = false
+	}
 }
 
 func (a *App) dropPanelTab(t panel.Tab) {
