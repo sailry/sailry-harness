@@ -249,6 +249,8 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Cancelled
 		case status >= 400 && status <= 499:
 			f.Kind = InvalidRequest
+		case anyCode(codes, "unavailable", "upstream_stream_interrupted") || strings.EqualFold(strings.TrimSpace(message), "Upstream response stream was interrupted"):
+			f.Kind = Unavailable
 		case errors.Is(provider.Cause, io.ErrUnexpectedEOF) || errors.As(provider.Cause, &malformed):
 			f.Kind = InvalidResponse
 		case http2ProtocolFailure(err) || errors.As(provider.Cause, &network) || errors.Is(provider.Cause, context.DeadlineExceeded):
