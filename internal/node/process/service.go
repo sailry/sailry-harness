@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -30,6 +31,8 @@ type commandEntry struct {
 	completion    protocol.ProcessCompletion
 	unrecorded    *Finished
 	recording     bool
+	retriesEnded  bool
+	reported      bool
 	failure       error
 	background    bool
 	promoted      bool
@@ -257,9 +260,11 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 	if run == nil {
 		run = s.executeNative
 	}
+	panicked := false
 	completion, failure := func() (completion protocol.ProcessCompletion, failure error) {
 		defer func() {
 			if recover() != nil {
+				panicked = true
 				failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "command execution failed; side effects were not replayed"}
 			}
 		}()
@@ -307,6 +312,10 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		case <-s.ctx.Done():
 		}
 	}
+	// Foreground execution returns the panic fault to its caller.
+	if background && panicked {
+		reportBackgroundFailure(info, "run_background", "panic")
+	}
 	var unrecorded *Finished
 	if background && s.options.Finished != nil {
 		elapsed := completion.ElapsedMs
@@ -316,23 +325,24 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		}
 		finished := Finished{Snapshot: protocol.ProcessSnapshot{Info: info, Stdout: completion.Stdout, Stderr: completion.Stderr},
 			ElapsedMs: timing, Explicit: explicit, StdoutBytes: stdoutBytes, StderrBytes: stderrBytes}
-		if err := s.persistFinished(finished); err != nil {
-			slog.Error("command completion could not be recorded", "command_id", info.ID.String(), "session", info.Session.String(), "error", err)
-			reason := err.Error()
-			var fault *protocol.Fault
-			if errors.As(err, &fault) {
-				reason = fault.Message
-			}
-			if refusedCompletion(err) {
+		if cause := s.persistFinished(finished); cause != "" {
+			if refusedCompletion(cause) {
 				unrecorded = &finished
+			} else if !panicked && reportableCompletion(cause) {
+				reportBackgroundFailure(info, "record_completion", cause)
 			}
-			failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "command completion could not be recorded; side effects were not replayed: " + reason}
+			message := "command completion could not be recorded; side effects were not replayed"
+			if cause == completionStorageFull {
+				message += "; free disk space to record command completions"
+			}
+			failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: message}
 			info.Status = protocol.ProcessStatus{Kind: "failed", Data: failure.Error()}
 		}
 	}
 	s.mu.Lock()
 	entry.info, entry.completion, entry.failure = info, completion, failure
 	entry.unrecorded = unrecorded
+	entry.reported = background && panicked
 	entry.accessed, entry.pending = s.options.Now(), false
 	s.changeLocked(entry)
 	close(entry.done)
@@ -352,39 +362,78 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 var reconcileDelays = [...]time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 
 func (s *Service) reconcileLater(entry *commandEntry) {
-	for _, delay := range reconcileDelays {
+	for attempt, delay := range reconcileDelays {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-s.options.After(delay):
 		}
-		if !s.reconcile(s.ctx, entry) {
+		if !s.reconcile(s.ctx, entry, attempt == len(reconcileDelays)-1) {
 			return
 		}
 	}
 }
 
-func (s *Service) persistFinished(finished Finished) error {
+func (s *Service) persistFinished(finished Finished) string {
 	ctx := context.WithoutCancel(s.ctx)
 	const attempts = 3
 	for attempt := 1; ; attempt++ {
-		err := s.options.Finished(ctx, finished)
-		if attempt == attempts || !refusedCompletion(err) || errors.Is(err, ErrCompletionStorageFull) {
-			return err
+		cause := completionCause(s.options.Finished(ctx, finished))
+		if attempt == attempts || !refusedCompletion(cause) || cause == completionStorageFull {
+			return cause
 		}
 		// A refused write can repeat for the same completed command. An
 		// uncertain commit is handled by the caller without replaying it.
 		select {
 		case <-s.ctx.Done():
-			return err
+			return cause
 		case <-s.options.After(time.Second):
 		}
 	}
 }
 
-func refusedCompletion(err error) bool {
-	var fault *protocol.Fault
-	return errors.As(err, &fault) && (fault.Code == protocol.ErrorCodeBusy || fault.Code == protocol.ErrorCodeUnavailable)
+const (
+	completionStorageFull   = "storage_full"
+	completionNotRegistered = "not_registered"
+)
+
+func completionCause(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, ErrCompletionNotRegistered) {
+		return completionNotRegistered
+	}
+	if errors.Is(err, ErrCompletionStorageFull) {
+		return completionStorageFull
+	}
+	if fault, ok := errors.AsType[*protocol.Fault](err); ok && fault != nil {
+		switch fault.Code {
+		case protocol.ErrorCodeBusy, protocol.ErrorCodeUnavailable, protocol.ErrorCodeOutcomeUnknown, protocol.ErrorCodeCancelled:
+			return string(fault.Code)
+		}
+		return string(protocol.ErrorCodeInternal)
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return string(protocol.ErrorCodeCancelled)
+	}
+	return string(protocol.ErrorCodeInternal)
+}
+
+func refusedCompletion(cause string) bool {
+	return cause == string(protocol.ErrorCodeBusy) || cause == string(protocol.ErrorCodeUnavailable) || cause == completionStorageFull
+}
+
+// The gate also opens when the launch receipt fails; an unregistered result
+// belongs to that launch failure, not to a separate persistence report.
+func reportableCompletion(cause string) bool {
+	return cause != completionNotRegistered && cause != string(protocol.ErrorCodeCancelled)
+}
+
+func reportBackgroundFailure(info protocol.ProcessInfo, operation, cause string) {
+	logging.Emit(slog.LevelError, slog.String("area", "process"), slog.String("operation", operation),
+		slog.String("phase", logging.Failed), slog.String("code", string(protocol.ErrorCodeOutcomeUnknown)), slog.String("cause_code", cause),
+		slog.String("request", info.ID.String()), slog.String("session", info.Session.String()), slog.String("turn", info.Turn.String()))
 }
 
 // ReconcileFinished retries a known-uncommitted completion when the command is
@@ -395,18 +444,24 @@ func (s *Service) ReconcileFinished(ctx context.Context, session protocol.Sessio
 	entry, err := s.entryLocked(session, id)
 	s.mu.Unlock()
 	if err == nil {
-		s.reconcile(ctx, entry)
+		s.reconcile(ctx, entry, false)
 	}
 }
 
 // reconcile reports whether the completion still awaits a write that storage
 // may accept later.
-func (s *Service) reconcile(ctx context.Context, entry *commandEntry) bool {
+func (s *Service) reconcile(ctx context.Context, entry *commandEntry, last bool) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	s.mu.Lock()
 	if entry.unrecorded == nil || s.entries[entry.info.ID] != entry {
 		s.mu.Unlock()
 		return false
 	}
+	// If inspection already owns the final attempt, it decides whether to
+	// report its result. Cancellation must not count as a failed write.
+	entry.retriesEnded = entry.retriesEnded || last
 	if entry.recording {
 		s.mu.Unlock()
 		return true
@@ -415,22 +470,34 @@ func (s *Service) reconcile(ctx context.Context, entry *commandEntry) bool {
 	entry.recording = true
 	s.mu.Unlock()
 
-	err := s.options.Finished(ctx, finished)
+	cause := completionCause(s.options.Finished(ctx, finished))
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	entry.recording = false
-	if err != nil {
-		if !refusedCompletion(err) && !errors.Is(err, ctx.Err()) {
+	report := false
+	switch cause {
+	case "":
+		entry.unrecorded = nil
+		entry.info.Status = finished.Snapshot.Info.Status
+		s.changeLocked(entry)
+		s.publishLocked(entry.info.Session)
+	case string(protocol.ErrorCodeCancelled):
+	default:
+		refused := refusedCompletion(cause)
+		if !refused {
 			entry.unrecorded = nil
 		}
-		return entry.unrecorded != nil
+		if (!refused || entry.retriesEnded) && !entry.reported && reportableCompletion(cause) {
+			entry.reported = true
+			report = true
+		}
 	}
-	entry.unrecorded = nil
-	entry.info.Status = finished.Snapshot.Info.Status
-	s.changeLocked(entry)
-	s.publishLocked(entry.info.Session)
-	return false
+	pending := entry.unrecorded != nil
+	s.mu.Unlock()
+	if report {
+		reportBackgroundFailure(finished.Snapshot.Info, "record_completion", cause)
+	}
+	return pending
 }
 
 func (s *Service) append(entry *commandEntry, kind protocol.ProcessOutputOutputStream, value []byte) {

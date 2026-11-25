@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -98,6 +99,7 @@ func TestCompletedRunnerReleasesInputWhileReceiptIsPending(t *testing.T) {
 }
 
 func TestStopTransientKeepsServices(t *testing.T) {
+	reports := processFailureReports(t)
 	stopped := make(chan string, 2)
 	service, err := New(Options{Profile: t.TempDir(), Run: func(ctx context.Context, launch Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		<-ctx.Done()
@@ -134,6 +136,10 @@ func TestStopTransientKeepsServices(t *testing.T) {
 	if running != 1 {
 		t.Fatalf("the service is not the only running command: %+v", service.List(session))
 	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	checkProcessFailureReport(t, reports(), Launch{}, "", "")
 }
 
 func TestSandboxedControlFollowsTheLiveProcess(t *testing.T) {
@@ -565,8 +571,11 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 		{"refused write", protocol.ErrorCodeBusy, 3, false},
 		{"storage full", protocol.ErrorCodeBusy, 1, true},
 		{"unconfirmed write", protocol.ErrorCodeOutcomeUnknown, 1, false},
+		{"cancelled write", protocol.ErrorCodeCancelled, 1, false},
+		{"failed launch receipt", "", 1, false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
+			reports := processFailureReports(t)
 			attempts := 0
 			var recovered Finished
 			retry := make(chan time.Time)
@@ -584,6 +593,9 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 				if attempts > row.attempts {
 					recovered = finished
 					return nil
+				}
+				if row.code == "" {
+					return ErrCompletionNotRegistered
 				}
 				fault := &protocol.Fault{Code: row.code, Message: "fixture completion write failed"}
 				if row.full {
@@ -606,15 +618,21 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 			}
 			snapshot, err := service.Read(launch.Session, launch.ID)
 			message, _ := snapshot.Info.Status.Data.(string)
-			if err != nil || snapshot.Info.Status.Kind != "failed" || !strings.Contains(message, "fixture completion write failed") ||
+			if err != nil || snapshot.Info.Status.Kind != "failed" || !strings.Contains(message, "command completion could not be recorded") ||
+				strings.Contains(message, "fixture completion write failed") || strings.Contains(message, "free disk space") != row.full ||
 				snapshot.Stdout.Text != "retained result" || attempts != row.attempts {
 				t.Fatal("completion failure was not visible with command output", snapshot, err, attempts)
 			}
 			service.ReconcileFinished(ctx, launch.Session, launch.ID)
 			service.ReconcileFinished(ctx, launch.Session, launch.ID)
+			operation, cause := "", ""
 			if row.code == protocol.ErrorCodeOutcomeUnknown {
+				operation, cause = "record_completion", "outcome_unknown"
+			}
+			checkProcessFailureReport(t, reports(), launch, operation, cause)
+			if row.code != protocol.ErrorCodeBusy {
 				if attempts != row.attempts {
-					t.Fatal("inspection retried an unconfirmed completion write")
+					t.Fatal("inspection retried a non-retryable completion write")
 				}
 				return
 			}
@@ -629,70 +647,83 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 }
 
 func TestRefusedCompletionSettlesWithoutInspection(t *testing.T) {
-	for _, refusals := range []int{4, 3 + len(reconcileDelays)} {
-		var mu sync.Mutex
-		attempts := 0
-		recorded := make(chan struct{})
-		tick := make(chan time.Time)
-		retry := make(chan time.Time)
-		close(retry)
-		service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
-			if delay == time.Second {
-				return retry
-			}
-			return tick
-		}, Run: func(context.Context, Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
-			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
-		}, Finished: func(context.Context, Finished) error {
-			mu.Lock()
-			defer mu.Unlock()
-			attempts++
-			if attempts > refusals {
-				close(recorded)
+	for _, tc := range []struct {
+		name, cause  string
+		wantAttempts int
+	}{
+		{name: "recovers", wantAttempts: 5},
+		{name: "exhausted", cause: "busy", wantAttempts: 3 + len(reconcileDelays)},
+		{name: "later commit is uncertain", cause: "outcome_unknown", wantAttempts: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reports := processFailureReports(t)
+			attempts := 0
+			ticks := make(chan time.Time, len(reconcileDelays))
+			retry := make(chan time.Time)
+			close(retry)
+			service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
+				if delay == time.Second {
+					return retry
+				}
+				if slices.Contains(reconcileDelays[:], delay) {
+					return ticks
+				}
 				return nil
+			}, Run: func(context.Context, Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
+				return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+			}, Finished: func(context.Context, Finished) error {
+				attempts++
+				switch {
+				case tc.cause == "" && attempts == tc.wantAttempts:
+					return nil
+				case tc.cause == "outcome_unknown" && attempts == tc.wantAttempts:
+					return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture commit is uncertain"}
+				default:
+					return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "fixture storage is busy"}
+				}
+			}})
+			if err != nil {
+				t.Fatal(err)
 			}
-			return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "fixture storage is busy"}
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000}
-		if _, err := service.Start(launch); err != nil {
-			t.Fatal(err)
-		}
-		settled := false
-		for range reconcileDelays {
+			t.Cleanup(func() { _ = service.Close() })
+			launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000}
+			if _, err := service.Start(launch); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			if wait, err := service.Wait(ctx, launch.Session, launch.ID, 5000, "missing"); err != nil || wait != protocol.ProcessWaitExited {
+				t.Fatalf("completion did not reach reconciliation: %v, %v", wait, err)
+			}
+			checkProcessFailureReport(t, reports(), launch, "", "")
+			for range reconcileDelays {
+				ticks <- time.Time{}
+			}
+			done := make(chan struct{})
+			go func() { service.workers.Wait(); close(done) }()
 			select {
-			case tick <- time.Time{}:
-			case <-recorded:
-				settled = true
-			case <-time.After(3 * time.Second):
-				t.Fatal("refused completion was not scheduled for another write")
+			case <-done:
+			case <-ctx.Done():
+				t.Fatal("automatic reconciliation did not stop")
 			}
-			if settled {
-				break
+			kind := "failed"
+			if tc.cause == "" {
+				kind = "finished"
 			}
-		}
-		if !settled {
-			select {
-			case <-recorded:
-				settled = true
-			case tick <- time.Time{}:
-				t.Fatal("refused completion kept retrying after its bounded attempts")
-			case <-time.After(100 * time.Millisecond):
+			if snapshot, err := service.Read(launch.Session, launch.ID); err != nil || snapshot.Info.Status.Kind != kind || attempts != tc.wantAttempts {
+				t.Fatalf("completion after %d attempts: %+v, %v", attempts, snapshot, err)
 			}
-		}
-		_ = service.Close()
-		items := service.List(launch.Session)
-		mu.Lock()
-		got := attempts
-		mu.Unlock()
-		if want := refusals <= 3+len(reconcileDelays)-1; settled != want || len(items) != 1 {
-			t.Fatalf("refusals %d settled %v, attempts %d, items %+v", refusals, settled, got, items)
-		}
-		if settled && items[0].Status.Kind != "finished" || !settled && (items[0].Status.Kind != "failed" || got != 3+len(reconcileDelays)) {
-			t.Fatalf("refusals %d left status %+v after %d attempts", refusals, items[0].Status, got)
-		}
+			if tc.cause == "" {
+				checkProcessFailureReport(t, reports(), launch, "", "")
+			} else {
+				checkProcessFailureReport(t, reports(), launch, "record_completion", tc.cause)
+				service.ReconcileFinished(ctx, launch.Session, launch.ID)
+				checkProcessFailureReport(t, reports(), launch, "record_completion", tc.cause)
+				if tc.cause == "outcome_unknown" && attempts != tc.wantAttempts {
+					t.Fatal("inspection replayed an uncertain completion write")
+				}
+			}
+		})
 	}
 }
 

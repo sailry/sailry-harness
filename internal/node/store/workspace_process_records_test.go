@@ -21,11 +21,17 @@ func TestCommandEvidenceRecovery(t *testing.T) {
 	input := protocol.DefaultCommandRunCommandPayload()
 	input.Turn, input.Command, input.Background, input.FollowUp = turn, "fixture command", true, true
 	request := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+	output := strings.Repeat("x", 2048) + "中"
+	completion := process.Finished{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: request.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}}, Stdout: protocol.ProcessCapture{Text: output}}}
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := FinishCommand(ctx, db, completion, now)
+		return err
+	}); !errors.Is(err, process.ErrCompletionNotRegistered) {
+		t.Fatalf("completion without a registered launch: %v", err)
+	}
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error { _, err := RegisterCommand(ctx, db, request, now); return err }); err != nil {
 		t.Fatal(err)
 	}
-	output := strings.Repeat("x", 2048) + "中"
-	completion := process.Finished{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: request.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}}, Stdout: protocol.ProcessCapture{Text: output}}}
 	elapsed := uint64(12)
 	completion.ElapsedMs = &elapsed
 	completion.StdoutBytes = new(uint64(len(output)))

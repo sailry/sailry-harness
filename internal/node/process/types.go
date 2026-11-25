@@ -13,6 +13,9 @@ import (
 // before it can be attempted again.
 var ErrCompletionStorageFull = errors.New("command completion storage is full")
 
+// ErrCompletionNotRegistered means the completion has no admitted record.
+var ErrCompletionNotRegistered = errors.New("background command was not registered before execution")
+
 type Launch struct {
 	ID         protocol.RequestID
 	Session    protocol.SessionID

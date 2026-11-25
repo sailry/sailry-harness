@@ -5,12 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	turso "turso.tech/database/tursogo"
 )
@@ -26,8 +25,7 @@ type writeJob struct {
 // rolls its savepoint back and the writer, and with it the Node, continues.
 func (job *writeJob) run(connection *sql.Conn) (err error) {
 	defer func() {
-		if value := recover(); value != nil {
-			slog.Error("storage write panicked", "panic", fmt.Sprint(value), "stack", string(debug.Stack()))
+		if recover() != nil {
 			err = &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "storage write failed unexpectedly"}
 		}
 	}()
@@ -87,8 +85,16 @@ const maxWriteBatch = 64
 func (writer *writer) batch(first *writeJob) {
 	ctx := context.WithoutCancel(first.context)
 	if writer.failed != nil {
+		if err := first.context.Err(); err != nil {
+			first.done <- err
+			return
+		}
 		if writer.failed = writer.reopen(ctx); writer.failed != nil {
-			first.done <- errors.Join(&protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "storage connection could not be reopened; restart Sailry if this persists"}, writer.failed)
+			if err := first.context.Err(); err != nil {
+				first.done <- err
+			} else {
+				first.done <- writerUnavailable()
+			}
 			return
 		}
 	}
@@ -159,8 +165,7 @@ func (writer *writer) batch(first *writeJob) {
 			failure = uncommitted(errors.Join(failure, state))
 		}
 		if state != nil {
-			slog.Error("storage connection state is unknown; reopening it", "error", state.Error())
-			writer.failed = writer.reopen(ctx)
+			writer.recoverConnection(ctx)
 		}
 	}
 	for _, job := range completed {
@@ -182,7 +187,7 @@ func (writer *writer) begin(ctx context.Context) error {
 			return nil
 		}
 		if state := writer.settle(cleanup); state != nil {
-			writer.failed = writer.reopen(cleanup)
+			writer.recoverConnection(cleanup)
 			return errors.Join(err, state)
 		}
 		if !transactionConflict(err) || attempt >= conflictRetries {
@@ -211,6 +216,21 @@ func (writer *writer) settle(ctx context.Context) error {
 	}
 	_, err := writer.connection.ExecContext(ctx, "ROLLBACK")
 	return err
+}
+
+func writerUnavailable() *protocol.Fault {
+	return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "storage connection could not be reopened; restart Sailry if this persists"}
+}
+
+// The caller gets the transaction's outcome, not the failure to restore the
+// writer. Report that separate failure once, before later batches retry it.
+func (writer *writer) recoverConnection(ctx context.Context) {
+	writer.failed = writer.reopen(ctx)
+	if writer.failed == nil || errors.Is(writer.failed, context.Canceled) || errors.Is(writer.failed, context.DeadlineExceeded) {
+		return
+	}
+	logging.Emit(slog.LevelError, slog.String("area", "storage"), slog.String("operation", "reopen_writer"),
+		slog.String("phase", logging.Failed), slog.String("code", string(protocol.ErrorCodeUnavailable)))
 }
 
 // reopen replaces the connection. Closing the old one discards a transaction

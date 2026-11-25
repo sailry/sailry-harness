@@ -152,6 +152,10 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 		handle.leases.Release(allLeases)
 		return nil, core.ErrStopped
 	}
+	if state.writer.connection == nil {
+		handle.leases.Release(allLeases)
+		return nil, writerUnavailable()
+	}
 	return &Exclusive{handle: handle, writer: state.writer}, nil
 }
 

@@ -213,5 +213,9 @@ func checkDatabaseFiles(path string) error {
 func (state *connections) close() error {
 	close(state.writer.stop)
 	<-state.writer.done
-	return errors.Join(state.writer.connection.Close(), state.writeDB.Close(), state.readDB.Close())
+	var err error
+	if connection := state.writer.connection; connection != nil {
+		err = connection.Close()
+	}
+	return errors.Join(err, state.writeDB.Close(), state.readDB.Close())
 }

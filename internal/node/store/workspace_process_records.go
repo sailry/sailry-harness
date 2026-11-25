@@ -129,7 +129,7 @@ func FinishCommand(ctx context.Context, db *sql.Conn, finished process.Finished,
 		return nil, err
 	}
 	if record == nil {
-		return nil, errors.New("background command was not registered before execution")
+		return nil, process.ErrCompletionNotRegistered
 	}
 	if record.Task.Session != snapshot.Info.Session || record.Task.Turn != snapshot.Info.Turn {
 		return nil, errors.New("background command ownership changed")
