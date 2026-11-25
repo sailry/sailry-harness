@@ -198,7 +198,9 @@ Removing sessions covers the selected root sessions and their delegated
 descendants. The Node validates the removal first; a stale or invalid removal
 stops nothing. It then stops each running turn on the `stop_turn` path and
 waits for every turn of the removal to settle before recording it, in the
-project lane so other commands are not delayed. The removing transaction
+project lane so other commands are not delayed. A turn the scheduler starts
+meanwhile leaves that attempt unrecorded and is stopped and awaited the same
+way. The removing transaction
 discards queued input that was never admitted, ending it cancelled outside any
 queue, so no scheduler can claim it later. Desktop's delete confirmation states
 once how many selected conversations are running and will be stopped first.

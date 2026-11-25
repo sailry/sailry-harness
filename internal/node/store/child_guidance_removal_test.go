@@ -3,12 +3,40 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// guidedChild delegates a child of the running parent turn, claims it and
+// admits guidance addressed to it.
+func guidedChild(ctx context.Context, db *sql.Conn, storage *Store, node protocol.NodeID, parentTurn protocol.TurnID, now time.Time) (AgentInvocation, protocol.TurnID, error) {
+	call, err := delegationFixtureCall(ctx, db, parentTurn, "spawn_agent", map[string]any{"task": "Child task"}, now)
+	if err != nil {
+		return AgentInvocation{}, protocol.TurnID{}, err
+	}
+	child, _, err := DelegateAgent(ctx, db, node, parentTurn, call, nil, true, now)
+	if err != nil {
+		return child, protocol.TurnID{}, err
+	}
+	inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now)
+	if err != nil || inv == nil {
+		return child, protocol.TurnID{}, fmt.Errorf("child was not claimed: %v", err)
+	}
+	if err = queueFixtureInput(ctx, db, child.Session.ID, child.Run.Turn, now); err != nil {
+		return child, protocol.TurnID{}, err
+	}
+	input := protocol.DefaultConversationInput()
+	input.Text = "Direction the child never took"
+	output, err := queueFixtureCommand(ctx, db, storage, node, "guide_turn", &protocol.CommandGuideTurnPayload{Recipient: child.Run.Turn, ExpectedRevision: inv.Run.Revision, Message: input}, now)
+	if err != nil {
+		return child, protocol.TurnID{}, err
+	}
+	return child, output.Data.(protocol.QueuedTurn).ID, nil
+}
 
 // childGuidanceFixture admits guidance for a running child, then ends the child
 // failed or stopped, which pauses its queue, and completes the parent.
@@ -19,27 +47,10 @@ func childGuidanceFixture(t *testing.T, outcome string) (*Store, protocol.NodeID
 	var child AgentInvocation
 	var guidance protocol.TurnID
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		call, err := delegationFixtureCall(ctx, db, parentTurn, "spawn_agent", map[string]any{"task": "Child task"}, now)
-		if err != nil {
+		var err error
+		if child, guidance, err = guidedChild(ctx, db, storage, node, parentTurn, now); err != nil {
 			return err
 		}
-		if child, _, err = DelegateAgent(ctx, db, node, parentTurn, call, nil, true, now); err != nil {
-			return err
-		}
-		inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now)
-		if err != nil || inv == nil {
-			return fmt.Errorf("child was not claimed: %v", err)
-		}
-		if err = queueFixtureInput(ctx, db, child.Session.ID, child.Run.Turn, now); err != nil {
-			return err
-		}
-		input := protocol.DefaultConversationInput()
-		input.Text = "Direction the child never took"
-		output, err := queueFixtureCommand(ctx, db, storage, node, "guide_turn", &protocol.CommandGuideTurnPayload{Recipient: child.Run.Turn, ExpectedRevision: inv.Run.Revision, Message: input}, now)
-		if err != nil {
-			return err
-		}
-		guidance = output.Data.(protocol.QueuedTurn).ID
 		switch outcome {
 		case "failed":
 			_, _, err = FinishTurn(ctx, db, child.Run.Turn, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "model failed"}, now)
@@ -122,6 +133,64 @@ func TestEndedChildSettlesGuidanceItNeverJoined(t *testing.T) {
 	}
 }
 
+// The child's last activity reports the queue its end leaves, without the
+// guidance that ending cancelled.
+func TestEndedChildReportsItsSettledQueue(t *testing.T) {
+	t.Parallel()
+	storage, node, _, parentTurn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		child, _, err := guidedChild(ctx, db, storage, node, parentTurn, now)
+		if err != nil {
+			return err
+		}
+		_, events, err := FinishTurn(ctx, db, child.Run.Turn, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "model failed"}, now)
+		if err != nil {
+			return err
+		}
+		var reported *protocol.ActivitySummary
+		for _, event := range events {
+			if value, ok := event.Data.(protocol.EventConversationChangedPayload); ok && value.Session == child.Session.ID {
+				reported = value.Activity
+			}
+		}
+		if reported == nil || reported.Queued != 0 {
+			return fmt.Errorf("the ended child reported activity %+v", reported)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A completed child hands its next guidance to that guidance's own turn,
+// which only the in-memory owner claims. A restart before the claim leaves
+// no owner, so recovery settles it.
+func TestRecoverySettlesGuidanceHandedOnByACompletedChild(t *testing.T) {
+	t.Parallel()
+	storage, node, _, parentTurn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		child, guidance, err := guidedChild(ctx, db, storage, node, parentTurn, now)
+		if err != nil {
+			return err
+		}
+		if _, _, err = FinishTurn(ctx, db, child.Run.Turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		next, _, err := NextChildGuidance(ctx, db, child.Run.Turn)
+		if err != nil || next == nil || next.Turn != guidance {
+			return fmt.Errorf("the completed child handed on %+v: %v", next, err)
+		}
+		if _, err = RecoverRuns(ctx, db, now); err != nil {
+			return err
+		}
+		return assertGuidanceSettled(ctx, db, child, guidance, now)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemovalDiscardsRetainedChildGuidance(t *testing.T) {
 	t.Parallel()
 	for _, outcome := range []string{"failed", "stopped"} {
@@ -195,31 +264,31 @@ func TestSessionRemovalStopsRunningTurns(t *testing.T) {
 			{Session: running.ID, Revision: current.Revision}, {Session: finished.ID, Revision: finished.Revision},
 		}}}
 		request := protocol.NewRequest(node, command)
-		if _, _, err = ExecuteCommand(ctx, db, node, node, storage.Profile, request, PreparedPaths{}); !providerFixtureFault(err, protocol.ErrorCodeBusy) {
+		if _, _, err = ExecuteCommand(ctx, db, node, node, storage.Profile, request, PreparedPaths{}); !providerFixtureFault(err, protocol.ErrorCodeBusy) || !errors.Is(err, ErrSessionRemovalActive) {
 			return fmt.Errorf("removal of a running session = %v, want busy", err)
 		}
 		stale := protocol.Command{Kind: "remove_sessions", Data: &protocol.CommandRemoveSessionsPayload{Expected: []protocol.SessionRevision{
 			{Session: running.ID, Revision: current.Revision + 1}, {Session: finished.ID, Revision: finished.Revision},
 		}}}
-		if stopped, _, _, err := StopSessionRemoval(ctx, db, stale, now); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) || len(stopped) != 0 {
+		if stopped, _, err := StopSessionRemoval(ctx, db, stale, now); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) || len(stopped) != 0 {
 			return fmt.Errorf("a stale removal stopped %v: %v", stopped, err)
 		}
 		if run, err := ReadAgentRun(ctx, db, turn); err != nil || run.Status != protocol.ConversationStatusRunning {
 			return fmt.Errorf("a stale removal changed the turn: %+v: %v", run, err)
 		}
-		stopped, active, events, err := StopSessionRemoval(ctx, db, command, now)
+		stopped, events, err := StopSessionRemoval(ctx, db, command, now)
 		if err != nil {
 			return err
 		}
-		if len(stopped) != 1 || stopped[0].Turn != turn || stopped[0].Status != protocol.ConversationStatusStopping || !active || len(events) == 0 {
-			return fmt.Errorf("stop for removal = %+v active=%v events=%d", stopped, active, len(events))
+		if len(stopped) != 1 || stopped[0].Turn != turn || stopped[0].Status != protocol.ConversationStatusStopping || len(events) == 0 {
+			return fmt.Errorf("stop for removal = %+v events=%d", stopped, len(events))
 		}
 		// A stopping turn is not stopped again, and still holds the removal.
-		if again, active, _, err := StopSessionRemoval(ctx, db, command, now); err != nil || len(again) != 0 || !active {
-			return fmt.Errorf("second stop = %+v active=%v: %v", again, active, err)
+		if again, _, err := StopSessionRemoval(ctx, db, command, now); err != nil || len(again) != 0 {
+			return fmt.Errorf("second stop = %+v: %v", again, err)
 		}
-		if active, err := ActiveSessionRemoval(ctx, db, command); err != nil || !active {
-			return fmt.Errorf("a stopping turn did not hold the removal: %v", err)
+		if active, err := ActiveSessionRemoval(ctx, db, command); err != nil || len(active) != 1 || active[0].Status != protocol.ConversationStatusStopping {
+			return fmt.Errorf("a stopping turn did not hold the removal: %+v: %v", active, err)
 		}
 		if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 			return err
@@ -227,7 +296,7 @@ func TestSessionRemovalStopsRunningTurns(t *testing.T) {
 		if run, err := ReadAgentRun(ctx, db, turn); err != nil || run.Status != protocol.ConversationStatusCancelled {
 			return fmt.Errorf("the stopped turn ended %+v: %v", run, err)
 		}
-		if active, err := ActiveSessionRemoval(ctx, db, command); err != nil || active {
+		if active, err := ActiveSessionRemoval(ctx, db, command); err != nil || len(active) != 0 {
 			return fmt.Errorf("a settled turn still held the removal: %v", err)
 		}
 		output, _, err := ExecuteCommand(ctx, db, node, node, storage.Profile, protocol.NewRequest(node, command), PreparedPaths{})

@@ -642,6 +642,18 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 			return run, nil, err
 		}
 	}
+	// The child's activity below follows the guidance its paused queue settles.
+	if origin != nil {
+		queue, err := ReadQueue(ctx, db, run.Session)
+		if err != nil {
+			return run, nil, err
+		}
+		if queue.Paused {
+			if err = settleChildGuidance(ctx, db, run, now); err != nil {
+				return run, nil, err
+			}
+		}
+	}
 	events, err := activityEvent(ctx, db, run.Session)
 	if err != nil {
 		return run, nil, err
@@ -651,18 +663,6 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events = append(events, notice...)
-	if origin != nil {
-		queue, queueErr := ReadQueue(ctx, db, run.Session)
-		if queueErr != nil {
-			return run, nil, queueErr
-		}
-		if queue.Paused {
-			err = settleChildGuidance(ctx, db, run, now)
-		}
-		if err != nil {
-			return run, nil, err
-		}
-	}
 	changed, err := FinishChildBackground(ctx, db, run, now)
 	if err != nil {
 		return run, nil, err
@@ -746,14 +746,17 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 		}
 		events = append(events, changed...)
 	}
-	if err = settleOrphanedChildGuidance(ctx, db, now); err != nil {
-		return nil, err
-	}
 	// No turn survives a restart, so no guidance has a recipient left to join.
 	if _, err = db.ExecContext(ctx, "UPDATE agent_queues SET revision=revision+1 WHERE session IN (SELECT t.session FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient IS NOT NULL)"); err != nil {
 		return nil, err
 	}
 	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient IS NOT NULL"); err != nil {
+		return nil, err
+	}
+	// Child guidance is claimed only through its in-memory owner. Settling it
+	// after the recipients are cleared includes guidance a completed child had
+	// handed to its next turn before the restart.
+	if err = settleOrphanedChildGuidance(ctx, db, now); err != nil {
 		return nil, err
 	}
 	_, err = db.ExecContext(ctx, "UPDATE agent_queues SET paused=1,pause_reason='interrupted',revision=revision+1 WHERE paused=0 AND EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=agent_queues.session)")

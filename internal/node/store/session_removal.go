@@ -59,19 +59,24 @@ func activeRemovalRuns(ctx context.Context, db *sql.Conn, ids []protocol.Session
 	return readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session IN (SELECT value FROM json_each(?1)) AND json_extract(a.body,'$.status') IN ('running','stopping') ORDER BY t.rowid", string(sessions))
 }
 
+// ErrSessionRemovalActive marks the removing transaction's busy fault when a
+// turn of the removal runs. The Node stops and awaits such turns first, but
+// the scheduler can still claim queued input after that; the Node then rolls
+// the attempt back and stops that turn as well.
+var ErrSessionRemovalActive = errors.New("a turn of the session removal is active")
+
 // StopSessionRemoval validates a session removal and stops its running turns
 // on the same path as stop_turn. It returns the turns it stopped, which the
-// caller hands to the runtime after the commit, and whether any turn of the
-// removal is still running or stopping. A stale or invalid removal stops
-// nothing.
-func StopSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command, now time.Time) ([]protocol.ConversationRun, bool, []protocol.Event, error) {
+// caller hands to the runtime after the commit. A stale or invalid removal
+// stops nothing.
+func StopSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command, now time.Time) ([]protocol.ConversationRun, []protocol.Event, error) {
 	ids, err := sessionRemovalScope(ctx, db, command)
 	if err != nil {
-		return nil, false, nil, err
+		return nil, nil, err
 	}
 	active, err := activeRemovalRuns(ctx, db, ids)
-	if err != nil || len(active) == 0 {
-		return nil, false, nil, err
+	if err != nil {
+		return nil, nil, err
 	}
 	stopped := []protocol.ConversationRun{}
 	events := []protocol.Event{}
@@ -80,30 +85,29 @@ func StopSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Comm
 			continue
 		}
 		if _, err = db.ExecContext(ctx, "UPDATE agent_delegations SET stop_requested=1 WHERE turn=?1", run.Turn.String()); err != nil {
-			return nil, false, nil, err
+			return nil, nil, err
 		}
 		if run, err = interruptAgentTurn(ctx, db, run.Turn, now); err != nil {
-			return nil, false, nil, err
+			return nil, nil, err
 		}
 		stopped = append(stopped, run)
 		changed, err := activityEvent(ctx, db, run.Session)
 		if err != nil {
-			return nil, false, nil, err
+			return nil, nil, err
 		}
 		events = append(events, changed...)
 	}
-	return stopped, true, events, nil
+	return stopped, events, nil
 }
 
-// ActiveSessionRemoval reports whether a turn of a validated session removal
-// is still running or stopping.
-func ActiveSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command) (bool, error) {
+// ActiveSessionRemoval validates a session removal and lists its turns that
+// are still running or stopping.
+func ActiveSessionRemoval(ctx context.Context, db *sql.Conn, command protocol.Command) ([]protocol.ConversationRun, error) {
 	ids, err := sessionRemovalScope(ctx, db, command)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	active, err := activeRemovalRuns(ctx, db, ids)
-	return len(active) > 0, err
+	return activeRemovalRuns(ctx, db, ids)
 }
 
 // discardQueuedRuns ends a removed session's input that was never admitted:

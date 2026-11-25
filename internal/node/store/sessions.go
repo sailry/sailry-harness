@@ -466,9 +466,10 @@ func sessionRemovalTree(ctx context.Context, db *sql.Conn, roots, selectedChildr
 }
 
 // removeSessionTrees removes the sessions listed by sessionRemovalScope. A
-// running or stopping turn makes the removal busy; the Node stops those before
-// it records the removal. Input that was never admitted is discarded here, in
-// the removing transaction, so no scheduler can claim it afterwards.
+// running or stopping turn makes the removal fail with ErrSessionRemovalActive;
+// the Node stops those before it records the removal. Input that was never
+// admitted is discarded here, in the removing transaction, so no scheduler can
+// claim it afterwards.
 func removeSessionTrees(ctx context.Context, db *sql.Conn, ids []protocol.SessionID, now time.Time) (protocol.Output, []protocol.Event, error) {
 	if len(ids) == 0 {
 		return protocol.Output{Kind: "sessions_removed", Data: ids}, []protocol.Event{}, nil
@@ -490,7 +491,7 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, ids []protocol.Sessio
 		return protocol.Output{}, nil, err
 	}
 	if len(active) > 0 {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeBusy, "stop the session before deleting it")
+		return protocol.Output{}, nil, errors.Join(fault(protocol.ErrorCodeBusy, "stop the session before deleting it"), ErrSessionRemovalActive)
 	}
 	for _, id := range ids {
 		if err := discardQueuedRuns(ctx, db, id, now); err != nil {

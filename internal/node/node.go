@@ -882,7 +882,13 @@ func (node *Node) run(lane *commandLane) {
 		if projectEffect {
 			registered = node.locks.registration()
 		}
-		result, err := node.execute(job, prepared, prepareErr)
+		var result link.Response
+		var err error
+		if sessionRemoval(job.request.Command.Kind) {
+			result, err = node.executeSessionRemoval(ctx, job, prepared, prepareErr)
+		} else {
+			result, err = node.execute(job, prepared, prepareErr)
+		}
 		registered()
 		if err != nil {
 			result = node.unapplied(job.caller, job.request.ID, err)
@@ -960,6 +966,10 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			default:
 				output, changes, operationErr = store.ExecuteCommand(ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
+		}
+		if errors.Is(operationErr, store.ErrSessionRemovalActive) {
+			// The attempt stores nothing; executeSessionRemoval stops the turn.
+			return operationErr
 		}
 		if operationErr == nil && job.request.Command.Kind == "continue_turn" {
 			changes, operationErr = node.followKnowledgeStorage(ctx, db, job.request, changes)
