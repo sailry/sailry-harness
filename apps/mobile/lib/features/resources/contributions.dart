@@ -39,17 +39,33 @@ typedef ProjectResourceLink = ({
 typedef OpenProjectResourceLink =
     Future<void> Function(BuildContext context, ProjectResourceLink link);
 
-/// A target match takes priority over a scheme match and owns the open,
-/// including any failure. File/directory data is Node-relative.
+/// The exact originating route, using the full Host connection ID.
+typedef ProjectLinkScope = ({String host, String worktree, String session});
+
+/// A target match takes precedence over a scheme match. Within a route the
+/// highest applicable priority owns the open, including any failure.
+/// File and directory targets carry a Node-relative path in `data`.
 class ProjectLinkContribution {
-  const ProjectLinkContribution.target(String this.kind, this.open)
-    : scheme = null;
-  const ProjectLinkContribution.scheme(String this.scheme, this.open)
-    : kind = null;
+  const ProjectLinkContribution.target(
+    String this.kind,
+    this.open, {
+    this.priority = 0,
+    this.scope,
+  }) : scheme = null;
+  const ProjectLinkContribution.scheme(
+    String this.scheme,
+    this.open, {
+    this.priority = 0,
+    this.scope,
+  }) : kind = null;
 
   final String? kind;
   final String? scheme;
   final OpenProjectResourceLink open;
+  final int priority;
+
+  /// Null is the assembly's global scope and overlaps every origin.
+  final ProjectLinkScope? scope;
 }
 
 /// A task list view another page opens on the task tab.
@@ -146,15 +162,55 @@ class ProjectResourceFeature {
   final TaskListSection? taskSection;
 }
 
+typedef _ProjectLinkRoute = ({String? kind, String? scheme});
+
 class ProjectResources {
+  static const _systemLinkPriority = -1;
+  static const _systemSchemes = {'http', 'https', 'mailto', 'sailry'};
+
+  static bool _hasSystemLink({String? kind, String? scheme}) => kind == null
+      ? _systemSchemes.contains(scheme)
+      : kind == 'file' || kind == 'attachment';
+
   ProjectResources(Iterable<ProjectResourceFeature> features)
     : features = List.unmodifiable(features) {
+    final scopesByPriority =
+        <(_ProjectLinkRoute, int), Set<ProjectLinkScope?>>{};
+    void register(ProjectLinkContribution contribution) {
+      final kind = contribution.kind;
+      final scheme = contribution.scheme?.toLowerCase();
+      final route = (kind: kind, scheme: scheme);
+      final scope = contribution.scope;
+      final priority = contribution.priority;
+      final scopes = scopesByPriority.putIfAbsent(
+        (route, priority),
+        () => {
+          if (priority == _systemLinkPriority &&
+              _hasSystemLink(kind: kind, scheme: scheme))
+            null,
+        },
+      );
+      if ((scope == null && scopes.isNotEmpty) ||
+          scopes.contains(null) ||
+          !scopes.add(scope)) {
+        final label = kind == null ? 'scheme/$scheme' : 'target/$kind';
+        throw ArgumentError(
+          'Duplicate project link route $label at priority $priority',
+        );
+      }
+      final key = (route, scope);
+      final current = _handlers[key];
+      if (current == null || priority > current.priority) {
+        _handlers[key] = contribution;
+      }
+    }
+
     for (final feature in this.features) {
       for (final link in feature.links) {
-        _register(link);
+        register(link);
       }
       if (feature.openDirectory case final open?) {
-        _register(
+        register(
           ProjectLinkContribution.target(
             'directory',
             (context, link) =>
@@ -167,24 +223,38 @@ class ProjectResources {
 
   final List<ProjectResourceFeature> features;
   final _handlers =
-      <({String? kind, String? scheme}), OpenProjectResourceLink>{};
+      <(_ProjectLinkRoute, ProjectLinkScope?), ProjectLinkContribution>{};
 
-  void _register(ProjectLinkContribution contribution) {
-    final kind = contribution.kind;
-    final scheme = contribution.scheme?.toLowerCase();
-    final route = (kind: kind, scheme: scheme);
-    if (_handlers.containsKey(route)) {
-      final label = kind == null ? 'scheme/$scheme' : 'target/$kind';
-      throw ArgumentError('Duplicate project link route $label');
+  ProjectLinkContribution? _candidate(
+    _ProjectLinkRoute route,
+    ProjectLinkScope? scope,
+  ) {
+    final global = _handlers[(route, null)];
+    final scoped = scope == null ? null : _handlers[(route, scope)];
+    if (scoped != null &&
+        (global == null || scoped.priority > global.priority)) {
+      return scoped;
     }
-    _handlers[route] = contribution.open;
+    return global;
   }
 
-  OpenProjectResourceLink? _handler(String? kind, String? scheme) =>
-      (kind == null ? null : _handlers[(kind: kind, scheme: null)]) ??
-      (scheme == null || scheme.isEmpty
-          ? null
-          : _handlers[(kind: null, scheme: scheme)]);
+  ProjectLinkContribution? _handler(
+    String? kind,
+    String? scheme,
+    ProjectLinkScope? scope,
+  ) {
+    final candidate =
+        (kind == null ? null : _candidate((kind: kind, scheme: null), scope)) ??
+        (scheme == null || scheme.isEmpty
+            ? null
+            : _candidate((kind: null, scheme: scheme), scope));
+    if (candidate != null &&
+        (!_hasSystemLink(kind: kind, scheme: scheme) ||
+            candidate.priority > _systemLinkPriority)) {
+      return candidate;
+    }
+    return null;
+  }
 }
 
 class ProjectResourcesScope extends InheritedWidget {
@@ -213,10 +283,18 @@ class ProjectResourcesScope extends InheritedWidget {
     BuildContext context, {
     String? kind,
     Uri? uri,
+    ProjectLinkScope? scope,
+  }) => resolveLink(context, kind: kind, uri: uri, scope: scope)?.open;
+
+  static ProjectLinkContribution? resolveLink(
+    BuildContext context, {
+    String? kind,
+    Uri? uri,
+    ProjectLinkScope? scope,
   }) => context
       .getInheritedWidgetOfExactType<ProjectResourcesScope>()
       ?.resources
-      ._handler(kind, uri?.scheme);
+      ._handler(kind, uri?.scheme, scope);
 
   @override
   bool updateShouldNotify(ProjectResourcesScope oldWidget) =>

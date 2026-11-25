@@ -152,20 +152,34 @@ class ConversationLinks {
   }) async {
     if (!context.mounted) return;
     try {
-      final handler = ProjectResourcesScope.linkHandler(
+      final sessionId = session;
+      final scope = sessionId == null || sessionId.isEmpty || worktree.isEmpty
+          ? null
+          : (host: host.id, worktree: worktree, session: sessionId);
+      final handler = ProjectResourcesScope.resolveLink(
         context,
         kind: kind,
         uri: uri,
+        scope: scope,
       );
       if (handler == null) {
         await fallback();
         return;
       }
-      if (!host.connected && (uri == null || !isExternalContentLink(uri))) {
+      final owner = context
+          .getInheritedWidgetOfExactType<SessionScope>()
+          ?.notifier;
+      if ((owner != null &&
+              (!identical(owner.host(host.id), host) ||
+                  owner.isRemovingHost(host))) ||
+          (!host.connected &&
+              (handler.scope != null ||
+                  uri == null ||
+                  !isExternalContentLink(uri)))) {
         _unavailable(context);
         return;
       }
-      await handler(context, (
+      await handler.open(context, (
         host: host,
         worktree: worktree,
         session: session,

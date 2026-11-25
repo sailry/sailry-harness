@@ -79,18 +79,59 @@ void main() {
       openDirectory: legacyOpen,
       links: [directory],
     );
+    const scope = (host: 'entry/target', worktree: 'tree', session: 'session');
     final duplicateSchemes = ProjectResourceFeature(
       links: [
-        ProjectLinkContribution.scheme('https', open),
-        ProjectLinkContribution.scheme('HTTPS', open),
+        ProjectLinkContribution.scheme(
+          'https',
+          open,
+          scope: scope,
+          priority: 3,
+        ),
+        ProjectLinkContribution.scheme(
+          'HTTPS',
+          open,
+          scope: scope,
+          priority: 3,
+        ),
       ],
     );
-    for (final (features, route) in [
-      ([explicit, explicit], 'target/directory'),
-      ([legacy, legacy], 'target/directory'),
-      ([legacy, explicit], 'target/directory'),
-      ([both], 'target/directory'),
-      ([duplicateSchemes], 'scheme/https'),
+    final systemTie = ProjectResourceFeature(
+      links: [ProjectLinkContribution.scheme('https', open, priority: -1)],
+    );
+    final scopedSystemTie = ProjectResourceFeature(
+      links: [
+        ProjectLinkContribution.scheme(
+          'https',
+          open,
+          scope: scope,
+          priority: -1,
+        ),
+      ],
+    );
+    final global = ProjectResourceFeature(
+      links: [ProjectLinkContribution.scheme('sample', open, priority: 2)],
+    );
+    final scoped = ProjectResourceFeature(
+      links: [
+        ProjectLinkContribution.scheme(
+          'sample',
+          open,
+          scope: scope,
+          priority: 2,
+        ),
+      ],
+    );
+    for (final (features, route, priority) in [
+      ([global, scoped], 'scheme/sample', 2),
+      ([scoped, global], 'scheme/sample', 2),
+      ([explicit, explicit], 'target/directory', 0),
+      ([legacy, legacy], 'target/directory', 0),
+      ([legacy, explicit], 'target/directory', 0),
+      ([both], 'target/directory', 0),
+      ([duplicateSchemes], 'scheme/https', 3),
+      ([systemTie], 'scheme/https', -1),
+      ([scopedSystemTie], 'scheme/https', -1),
     ]) {
       expect(
         () => MobileAssembly(
@@ -102,7 +143,7 @@ void main() {
           isA<ArgumentError>().having(
             (error) => error.message,
             'message',
-            'Duplicate project link route $route',
+            'Duplicate project link route $route at priority $priority',
           ),
         ),
       );

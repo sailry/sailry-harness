@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/files.dart';
@@ -39,9 +41,9 @@ _Launcher _fakeLauncher() {
   return launcher;
 }
 
-HostConnection _host({CommandHandler? command}) {
+HostConnection _host({String id = 'entry/source', CommandHandler? command}) {
   final host = HostConnection.test(
-    id: 'entry/source',
+    id: id,
     label: 'Source Host',
     command: command ?? (kind, _) async => fail('Unexpected command: $kind'),
     snapshot: const {
@@ -96,6 +98,22 @@ TranscriptIndex _reply(String body, List<Map<String, dynamic>> citations) =>
       },
     });
 
+Widget _liveReply(
+  HostConnection host,
+  ScrollController scroll,
+  TranscriptIndex transcript, {
+  bool Function(String)? onOpenSession,
+}) => LiveTimeline(
+  transcript: transcript,
+  connected: true,
+  controller: scroll,
+  padding: EdgeInsets.zero,
+  session: const {'id': _session, 'worktree': 'newer-tree'},
+  host: host,
+  command: (kind, _) async => fail('Unexpected command: $kind'),
+  onOpenSession: onOpenSession,
+);
+
 Future<void> _showReply(
   WidgetTester tester,
   HostConnection host,
@@ -111,14 +129,10 @@ Future<void> _showReply(
       features: resources,
       child: MaterialApp(
         home: Scaffold(
-          body: LiveTimeline(
-            transcript: _reply(body, citations),
-            connected: true,
-            controller: scroll,
-            padding: EdgeInsets.zero,
-            session: const {'id': _session, 'worktree': 'newer-tree'},
-            host: host,
-            command: (kind, _) async => fail('Unexpected command: $kind'),
+          body: _liveReply(
+            host,
+            scroll,
+            _reply(body, citations),
             onOpenSession: onOpenSession,
           ),
         ),
@@ -134,6 +148,245 @@ Future<void> _tapLink(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets(
+    'link priority survives reordering and restores on recomposition',
+    (tester) async {
+      final launcher = _fakeLauncher();
+      final host = _host();
+      final calls = <String>[];
+      ProjectResourceFeature feature(String label, {int priority = 0}) =>
+          ProjectResourceFeature(
+            links: [
+              ProjectLinkContribution.scheme('https', (_, _) async {
+                calls.add(label);
+              }, priority: priority),
+            ],
+          );
+      final high = feature('high', priority: 7);
+      final normal = feature('normal');
+      final low = feature('low', priority: -2);
+      final features = ValueNotifier([low, normal, high]);
+      final scroll = ScrollController();
+      addTearDown(features.dispose);
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        ValueListenableBuilder(
+          valueListenable: features,
+          child: MaterialApp(
+            home: Scaffold(
+              body: _liveReply(host, scroll, _reply('[Open web]($_web)', [])),
+            ),
+          ),
+          builder: (_, current, child) =>
+              ProjectResourcesScope(features: current, child: child!),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapLink(tester, 'Open web');
+      final timeline = tester.state(find.byType(LiveTimeline));
+
+      for (final next in [
+        [high, normal, low],
+        [low, normal],
+        [low],
+        <ProjectResourceFeature>[],
+      ]) {
+        features.value = next;
+        await tester.pump();
+        expect(tester.state(find.byType(LiveTimeline)), same(timeline));
+        await _tapLink(tester, 'Open web');
+      }
+      expect(calls, ['high', 'high', 'normal']);
+      expect(
+        launcher.calls,
+        List.filled(2, (_web, PreferredLaunchMode.externalApplication)),
+      );
+    },
+  );
+
+  testWidgets(
+    'same priority in disjoint Host scopes uses the captured origin',
+    (tester) async {
+      final launcher = _fakeLauncher();
+      final host = _host(id: 'entry-one/source');
+      final other = _host(id: 'entry-two/source');
+      final calls = <(String, HostConnection, String, String?)>[];
+      const unknownScheme = 'sample://resource';
+      ProjectLinkContribution claim(
+        String label, {
+        required ProjectLinkScope scope,
+      }) => ProjectLinkContribution.scheme('sample', (_, link) async {
+        calls.add((label, link.host, link.worktree, link.session));
+      }, scope: scope);
+      final features = [
+        ProjectResourceFeature(
+          links: [
+            claim(
+              'different worktree',
+              scope: (host: host.id, worktree: 'newer-tree', session: _session),
+            ),
+            claim(
+              'first',
+              scope: (host: host.id, worktree: _worktree, session: _session),
+            ),
+            claim(
+              'other',
+              scope: (host: other.id, worktree: _worktree, session: _session),
+            ),
+          ],
+        ),
+      ];
+      const reply = '[Open scoped link]($unknownScheme)';
+      await _showReply(tester, host, reply, resources: features);
+      await _tapLink(tester, 'Open scoped link');
+      await _showReply(tester, other, reply, resources: features);
+      await _tapLink(tester, 'Open scoped link');
+      expect(calls, [
+        ('first', host, _worktree, _session),
+        ('other', other, _worktree, _session),
+      ]);
+      expect(launcher.calls, isEmpty);
+    },
+  );
+
+  testWidgets('an offline scoped web handler does not launch externally', (
+    tester,
+  ) async {
+    final launcher = _fakeLauncher();
+    final host = _host();
+    final attempts = <String>[];
+    final resources = [
+      ProjectResourceFeature(
+        links: [
+          ProjectLinkContribution.scheme('https', (_, _) async {
+            attempts.add('scoped');
+          }, scope: (host: host.id, worktree: _worktree, session: _session)),
+          ProjectLinkContribution.scheme('https', (_, _) async {
+            attempts.add('global');
+          }, priority: -2),
+        ],
+      ),
+    ];
+    await _showReply(
+      tester,
+      host,
+      '[Open scoped web]($_web)',
+      resources: resources,
+    );
+    await host.close();
+    await _tapLink(tester, 'Open scoped web');
+    expect(attempts, isEmpty);
+    expect(launcher.calls, isEmpty);
+    expect(find.text(tr('fileLinkUnavailable')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('same-priority link claims cannot mount in one scope', (
+    tester,
+  ) async {
+    final launcher = _fakeLauncher();
+    final host = _host();
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    final scope = (host: host.id, worktree: _worktree, session: _session);
+    Future<void> open(BuildContext _, ProjectResourceLink _) async =>
+        fail('A conflicting claim must not open');
+    await tester.pumpWidget(
+      Builder(
+        builder: (_) => ProjectResourcesScope(
+          features: [
+            ProjectResourceFeature(
+              links: [
+                ProjectLinkContribution.scheme(
+                  'https',
+                  open,
+                  scope: scope,
+                  priority: 5,
+                ),
+                ProjectLinkContribution.scheme(
+                  'https',
+                  open,
+                  scope: scope,
+                  priority: 1,
+                ),
+                ProjectLinkContribution.scheme(
+                  'https',
+                  open,
+                  scope: scope,
+                  priority: 1,
+                ),
+              ],
+            ),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: _liveReply(
+                host,
+                scroll,
+                _reply('[Conflicting link]($_web)', []),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(
+      tester.takeException(),
+      isA<ArgumentError>().having(
+        (error) => error.message,
+        'message',
+        'Duplicate project link route scheme/https at priority 1',
+      ),
+    );
+    expect(find.byType(LiveTimeline), findsNothing);
+    expect(launcher.calls, isEmpty);
+  });
+
+  testWidgets('a retired handler does not retry an in-flight click', (
+    tester,
+  ) async {
+    final launcher = _fakeLauncher();
+    final host = _host();
+    final pending = Completer<void>();
+    final attempts = <String>[];
+    final high = ProjectResourceFeature(
+      links: [
+        ProjectLinkContribution.scheme('https', (_, _) {
+          attempts.add('retired');
+          return pending.future;
+        }, priority: 1),
+      ],
+    );
+    final lower = ProjectResourceFeature(
+      links: [
+        ProjectLinkContribution.scheme('https', (_, _) async {
+          attempts.add('lower');
+        }),
+      ],
+    );
+    await _showReply(
+      tester,
+      host,
+      '[Open pending]($_web)',
+      resources: [high, lower],
+    );
+    await _tapLink(tester, 'Open pending');
+    expect(attempts, ['retired']);
+
+    await _showReply(tester, host, '[Open pending]($_web)', resources: [lower]);
+    pending.completeError(const CommandFailure('unavailable'));
+    await tester.pumpAndSettle();
+    expect(attempts, ['retired']);
+    expect(find.text(tr('failureUnavailable')), findsOneWidget);
+    expect(launcher.calls, isEmpty);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    await _tapLink(tester, 'Open pending');
+    expect(attempts, ['retired', 'lower']);
+  });
+
   testWidgets('reply and source links use assembly targets and URI schemes', (
     tester,
   ) async {
@@ -156,7 +409,7 @@ void main() {
           links: [
             ProjectLinkContribution.scheme('file', (_, _) async {
               fail('A scoped file target takes precedence over its scheme');
-            }),
+            }, priority: 10),
             ProjectLinkContribution.target('file', record),
             ProjectLinkContribution.target('directory', record),
             ProjectLinkContribution.scheme('https', record),
@@ -204,9 +457,7 @@ void main() {
     expect(find.byType(ResourceFilePage), findsNothing);
   });
 
-  testWidgets('lean reply links keep safe defaults without a handler', (
-    tester,
-  ) async {
+  testWidgets('safe defaults win over lower priority handlers', (tester) async {
     final launcher = _fakeLauncher();
     final reads = <Map<String, dynamic>?>[];
     final host = _host(
@@ -225,6 +476,19 @@ void main() {
       '[Open file](src/lib.txt#L4) | [Open web]($_web) | [Open mail]($_mail) | '
       '[Open session]($_sessionLink) | [Local anchor](#heading) | '
       '[Unknown scheme](unregistered://resource/x)',
+      resources: [
+        ProjectResourceFeature(
+          links: [
+            for (final scheme in ['mailto', 'sailry'])
+              ProjectLinkContribution.scheme(scheme, (_, _) async {
+                fail('Lower priority handler opened $scheme');
+              }, priority: -2),
+            ProjectLinkContribution.target('file', (_, _) async {
+              fail('Lower priority handler opened the file');
+            }, priority: -2),
+          ],
+        ),
+      ],
       citations: const [
         {'uri': _knowledge, 'title': 'Knowledge citation'},
       ],
@@ -295,8 +559,8 @@ void main() {
               'sailry-knowledge',
               'sailry',
             ])
-              ProjectLinkContribution.scheme(scheme, record),
-            ProjectLinkContribution.target('file', record),
+              ProjectLinkContribution.scheme(scheme, record, priority: 10),
+            ProjectLinkContribution.target('file', record, priority: 10),
           ],
         ),
       ],
@@ -336,9 +600,14 @@ void main() {
     final rejected = <ProjectResourceLink>[];
     final legacyAttempts = <(HostConnection, String, String)>[];
     var schemeAttempts = 0;
+    var lowerAttempts = 0;
     Future<void> deny(BuildContext _, ProjectResourceLink link) async {
       rejected.add(link);
       throw const CommandFailure('permission_denied');
+    }
+
+    Future<void> lower(BuildContext _, ProjectResourceLink _) async {
+      lowerAttempts++;
     }
 
     final resources = [
@@ -348,8 +617,11 @@ void main() {
           throw const CommandFailure('permission_denied');
         },
         links: [
-          ProjectLinkContribution.target('file', deny),
+          ProjectLinkContribution.target('file', deny, priority: 4),
+          ProjectLinkContribution.target('file', lower),
+          ProjectLinkContribution.target('directory', lower, priority: -2),
           ProjectLinkContribution.scheme('https', deny),
+          ProjectLinkContribution.scheme('https', lower, priority: -2),
           ProjectLinkContribution.scheme('file', (_, _) async {
             schemeAttempts++;
           }),
@@ -402,6 +674,7 @@ void main() {
       rejected.map((link) => (link.kind, link.data, link.uri?.toString())),
       [(null, null, _web), ('file', 'build/report.txt', null)],
     );
+    expect(lowerAttempts, 0);
     expect(launcher.calls, isEmpty);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
