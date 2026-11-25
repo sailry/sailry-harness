@@ -22,7 +22,7 @@ func (s *State) terminals(c *ui.Context, pr *preview.Project) {
 	if s.Archived || s.Actions == nil || s.Actions.Terminals == nil {
 		return
 	}
-	list := SortedFunc(s.Actions.Terminals(pr), s.sort(), func(t Terminal) Entry { return Entry{ID: t.ID, Name: t.Title} })
+	list := SortedFunc(s.Actions.Terminals(pr), s.sort(), func(t Terminal) Entry { return Entry{ID: t.ID, Name: terminalLabel(c, t)} })
 	for _, t := range list {
 		s.terminal(c, t)
 	}
@@ -34,10 +34,7 @@ func (s *State) terminals(c *ui.Context, pr *preview.Project) {
 // opens the terminal's kept tab; its right-click menu is the system's.
 func (s *State) terminal(c *ui.Context, t Terminal) {
 	p := theme.Of(c)
-	title := TerminalTitle(t.Title)
-	if title == "" {
-		title = i18n.T(c, "terminal")
-	}
+	title := terminalLabel(c, t)
 	b := ui.ButtonBase(c.Key("terminal/" + t.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered, selected := b.Hovered(), s.Terminal == t.ID
 	b.Background(p.SidebarItem(selected, hovered))
@@ -62,6 +59,14 @@ var shellPrompt = regexp.MustCompile(`^[^\s@:]+@[^\s:]+:\s*`)
 // TerminalTitle is a terminal's title without its shell's user@host prefix.
 func TerminalTitle(title string) string {
 	return shellPrompt.ReplaceAllString(title, "")
+}
+
+// terminalLabel is a terminal row's title, by which its rows sort by name.
+func terminalLabel(c *ui.Context, t Terminal) string {
+	if title := TerminalTitle(t.Title); title != "" {
+		return title
+	}
+	return i18n.T(c, "terminal")
 }
 
 func (s *State) openTerminal(id string) {
