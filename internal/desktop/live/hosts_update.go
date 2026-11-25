@@ -10,7 +10,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/mod/semver"
 )
@@ -20,10 +22,28 @@ type hostUpdate struct {
 	draft settings.ConnectionDraft
 }
 
-func hostUpdateAvailable(current string) bool {
+func hostUpdateAvailable(current, target string) bool {
 	current = "v" + strings.TrimPrefix(current, "v")
-	target := "v" + strings.TrimPrefix(link.ProductVersion, "v")
+	target = "v" + strings.TrimPrefix(target, "v")
 	return semver.IsValid(current) && semver.IsValid(target) && semver.Compare(target, current) > 0
+}
+
+func (r *Runtime) hostRelease() identity.HostRelease {
+	if updates := r.localRuntime().updates; updates != nil {
+		return updates.hostRelease
+	}
+	return identity.HostRelease{}
+}
+
+func (r *Runtime) hostUpdateAvailable(state *liveHost) bool {
+	if state.view.Update == nil {
+		return false
+	}
+	target := state.view.Update.Target
+	if target == "" && !r.hostRelease().Published() {
+		target = link.ProductVersion
+	}
+	return hostUpdateAvailable(state.view.Runtime.Version, target)
 }
 
 func (r *Runtime) advanceHostUpdate(id string, expected host.Update) {
@@ -47,7 +67,6 @@ func (r *Runtime) advanceHostUpdate(id string, expected host.Update) {
 		r.checkHostUpdate(state)
 	case host.Download:
 		state.view.Update.Phase = host.Staged
-		state.view.Update.Note = "host_update_local_artifacts"
 		state.view.Update.Progress = -1
 	case host.Apply:
 		if state.install != nil && state.install.profile != nil && state.install.retry.Kind != "" {
@@ -88,8 +107,13 @@ func (r *Runtime) checkHostUpdate(state *liveHost) {
 		})
 		return
 	}
+	release := r.hostRelease()
 	r.async(func() {
 		info, err := network.endpoint.Inspect(r.ctx, peer.address)
+		var target string
+		if err == nil {
+			target, err = wsl.ResolveRelease(r.ctx, release)
+		}
 		r.enqueue(func(c *ui.Context) {
 			if r.hostState(state.view.ID) != state || state.view.Update.Phase != host.Checking {
 				return
@@ -98,7 +122,7 @@ func (r *Runtime) checkHostUpdate(state *liveHost) {
 				r.failHostCheck(c, state, err)
 				return
 			}
-			current, target := "", strings.TrimPrefix(link.ProductVersion, "v")
+			current := ""
 			if info.SoftwareVersion != nil {
 				current = strings.TrimPrefix(*info.SoftwareVersion, "v")
 			}
@@ -107,8 +131,10 @@ func (r *Runtime) checkHostUpdate(state *liveHost) {
 				return
 			}
 			view.Current, view.Target, view.Phase = current, target, host.Current
-			view.Note = "host_update_local_artifacts"
-			if hostUpdateAvailable(current) {
+			if !release.Published() {
+				view.Note = "host_update_local_artifacts"
+			}
+			if hostUpdateAvailable(current, target) {
 				view.Phase = host.Available
 			}
 			state.view.Runtime.Version = current

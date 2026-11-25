@@ -23,11 +23,12 @@ import (
 
 // Updates is the process's update service as its windows share it.
 type Updates struct {
-	Service *updater.Service
-	version string
-	channel atomic.Int32 // settings' channel index the service checks for
-	mu      sync.Mutex
-	windows []*Runtime
+	Service     *updater.Service
+	version     string
+	hostRelease identity.HostRelease
+	channel     atomic.Int32 // settings' channel index the service checks for
+	mu          sync.Mutex
+	windows     []*Runtime
 	// install is owned by the UI thread. Each window must build its read-only
 	// editors before installation may stop the Node.
 	install *updateInstall
@@ -45,7 +46,7 @@ type updateInstall struct {
 // data directory an installation must not replace, stop ends the Node before
 // the bundle is swapped and quit ends the process for the relaunch.
 func NewUpdates(product identity.Desktop, prefs *preferences.Store, profile string, stop func() error, quit func()) *Updates {
-	updates := &Updates{version: product.Version}
+	updates := &Updates{version: product.Version, hostRelease: product.HostRelease}
 	updates.channel.Store(int32(updateChannel(prefs.Data.UpdateChannel, product.Version)))
 	updates.Service = updater.New(updater.Options{
 		Version: product.Version, Release: product.Release, Directory: filepath.Join(filepath.Dir(prefs.Path), "updater"), Profile: profile,

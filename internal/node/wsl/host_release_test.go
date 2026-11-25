@@ -90,10 +90,16 @@ func TestCodeHostSelectsItsFeedWithTheExistingNamespace(t *testing.T) {
 		Release: identity.DesktopRelease{Source: "https://desktop.example/feed", Downloads: "https://desktop.example/download"},
 	}
 	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
-		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases/latest" {
+		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases?per_page=100" {
 			t.Fatalf("wrong Code Host release request: %s %s", request.Method, request.URL)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v4.5.6"}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`[
+			{"tag_name":"mobile-v8.0.0+40"},
+			{"tag_name":"v4.5.5"},
+			{"tag_name":"v4.5.6"},
+			{"tag_name":"v9.0.0","draft":true},
+			{"tag_name":"v10.0.0","prerelease":true}
+		]`))}, nil
 	})}
 	version, err := resolveRelease(t.Context(), product.HostRelease, client)
 	if err != nil || version != "4.5.6" {
@@ -109,5 +115,24 @@ func TestCodeHostSelectsItsFeedWithTheExistingNamespace(t *testing.T) {
 	preflight := PreflightScript(product.HostRelease)
 	if !strings.HasPrefix(preflight, "wsl_name='sailry'\n") {
 		t.Fatalf("Code Host preflight changed the installed namespace: %q", preflight)
+	}
+}
+
+func TestCodeHostDoesNotUseMobileOrUnpublishedReleases(t *testing.T) {
+	for _, body := range []string{
+		`[]`,
+		`[{"tag_name":"mobile-v0.2.14+32"}]`,
+		`[{"tag_name":"v0.1.1","draft":true}]`,
+		`[{"tag_name":"v0.1.1-beta.1","prerelease":true}]`,
+	} {
+		client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+			if request.Header.Get("Authorization") != "" {
+				t.Fatal("public Host discovery sent credentials")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})}
+		if version, err := resolveRelease(t.Context(), identity.CodeHost(), client); err == nil || version != "" {
+			t.Errorf("unpublished Code Host selected %q from %s: %v", version, body, err)
+		}
 	}
 }

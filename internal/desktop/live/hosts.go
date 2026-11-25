@@ -185,7 +185,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		if state.view.Local {
 			name = "local_host_name"
 		}
-		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: name, Platform: state.view.OS, Local: state.view.Local, Update: state.view.Update != nil && hostUpdateAvailable(state.view.Runtime.Version)})
+		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: name, Platform: state.view.OS, Local: state.view.Local, Update: r.hostUpdateAvailable(state)})
 	}
 	for id, state := range r.hosts {
 		if present[id] == nil && (state.install == nil || !state.install.active) {

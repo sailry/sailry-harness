@@ -11,8 +11,10 @@ Map<String, dynamic> release(
   bool draft = false,
   String target = 'android-arm64',
   bool versioned = false,
+  String repository = releaseRepository,
+  String tagPrefix = 'v',
 }) {
-  final tag = 'v$version';
+  final tag = '$tagPrefix$version';
   final name = versioned ? 'Sailry-$version-$target.apk' : 'Sailry-$target.apk';
   return {
     'tag_name': tag,
@@ -24,17 +26,17 @@ Map<String, dynamic> release(
         'state': 'uploaded',
         'size': 1024,
         'browser_download_url':
-            'https://github.com/$releaseRepository/releases/download/$tag/$name',
+            'https://github.com/$repository/releases/download/$tag/$name',
       },
     ],
   };
 }
 
-PackageInfo info(String version) => PackageInfo(
+PackageInfo info(String version, {String buildNumber = '1'}) => PackageInfo(
   appName: 'Sailry',
   packageName: 'com.sailry.sailry_mobile',
   version: version,
-  buildNumber: '1',
+  buildNumber: buildNumber,
 );
 
 AppUpdates updates({

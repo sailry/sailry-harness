@@ -17,11 +17,15 @@ class AppUpdates extends ChangeNotifier {
     String? target,
     Uri? source,
     String repository = releaseRepository,
+    String tagPrefix = 'v',
+    bool requireBuildNumber = false,
     this.timeout = const Duration(seconds: 20),
   }) : _client = client ?? http.Client(),
        _readInfo = readInfo ?? PackageInfo.fromPlatform,
        _target = target ?? (Platform.isAndroid ? 'android-arm64' : 'ios'),
        _repository = repository,
+       _tagPrefix = tagPrefix,
+       _requireBuildNumber = requireBuildNumber,
        _source =
            source ??
            Uri.https('api.github.com', '/repos/$repository/releases', {
@@ -32,6 +36,8 @@ class AppUpdates extends ChangeNotifier {
   final Future<PackageInfo> Function() _readInfo;
   final String _target;
   final String _repository;
+  final String _tagPrefix;
+  final bool _requireBuildNumber;
   final Uri _source;
   final Duration timeout;
   PackageInfo? _info;
@@ -44,10 +50,18 @@ class AppUpdates extends ChangeNotifier {
   Future<UpdateResult?> check() async {
     if (_closed || checking) return null;
     checking = true;
+    available = null;
     notifyListeners();
     try {
       final info = _info ?? await _readInfo().timeout(timeout);
       final current = precedence(info.version);
+      final currentBuildNumber = _requireBuildNumber
+          ? int.tryParse(info.buildNumber)
+          : null;
+      if (_requireBuildNumber &&
+          (currentBuildNumber == null || currentBuildNumber <= 0)) {
+        throw const FormatException('Installed mobile build number is invalid');
+      }
       if (_closed) return null;
       _info = info;
       if (_target != 'android-arm64') return UpdateResult.unpublished;
@@ -56,7 +70,7 @@ class AppUpdates extends ChangeNotifier {
             _source,
             headers: {
               'accept': 'application/vnd.github+json',
-              'user-agent': 'Sailry-Harness/${info.version}',
+              'user-agent': '${info.appName}/${info.version}',
             },
           )
           .timeout(timeout);
@@ -72,8 +86,13 @@ class AppUpdates extends ChangeNotifier {
         current: current,
         target: _target,
         repository: _repository,
+        tagPrefix: _tagPrefix,
+        currentBuildNumber: currentBuildNumber,
       );
-      available = latest != null && latest.version > current ? latest : null;
+      available =
+          latest != null && latest.newerThan(current, currentBuildNumber)
+          ? latest
+          : null;
       return latest == null
           ? UpdateResult.unpublished
           : available == null

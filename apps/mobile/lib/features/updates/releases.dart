@@ -3,13 +3,28 @@ import 'package:pub_semver/pub_semver.dart';
 const releaseRepository = 'sailry/sailry-harness';
 
 class Release {
-  const Release({required this.version, required this.download});
+  const Release({
+    required this.version,
+    required this.download,
+    this.buildNumber,
+  });
 
   final Version version;
   final Uri download;
+  final int? buildNumber;
+
+  bool newerThan(Version current, int? currentBuildNumber) {
+    if (currentBuildNumber == null) return version > current;
+    final build = buildNumber;
+    return version >= current && build != null && build > currentBuildNumber;
+  }
+
+  bool _laterThan(Release other) =>
+      version > other.version ||
+      version == other.version && (buildNumber ?? 0) > (other.buildNumber ?? 0);
 }
 
-/// App updates follow SemVer precedence, not pub's build-number ordering.
+/// SemVer precedence excludes Android's independently checked install code.
 Version precedence(String value) {
   final version = Version.parse(value);
   return Version(
@@ -25,11 +40,14 @@ Release? latestRelease(
   required Version current,
   required String target,
   String repository = releaseRepository,
+  String tagPrefix = 'v',
+  int? currentBuildNumber,
 }) {
   if (metadata is! List) {
     throw const FormatException('Release metadata must be a list');
   }
   Release? latest;
+  Release? update;
   for (final item in metadata) {
     if (item is! Map<String, dynamic> ||
         item['draft'] is! bool ||
@@ -39,11 +57,20 @@ Release? latestRelease(
     }
     if (item['draft'] == true) continue;
     final tag = item['tag_name'] as String;
-    if (!tag.startsWith('v')) continue;
+    if (!tag.startsWith(tagPrefix)) continue;
     Version version;
+    int? buildNumber;
     try {
-      version = precedence(tag.substring(1));
+      final parsed = Version.parse(tag.substring(tagPrefix.length));
+      version = precedence(parsed.toString());
+      if (parsed.build.length == 1) {
+        buildNumber = int.tryParse(parsed.build.single.toString());
+      }
     } on FormatException {
+      continue;
+    }
+    if (currentBuildNumber != null &&
+        (buildNumber == null || buildNumber <= 0)) {
       continue;
     }
     // A stable installation never switches to previews automatically.
@@ -56,7 +83,7 @@ Release? latestRelease(
     // Current releases publish a fixed name; 0.1.0 published a versioned one.
     final names = {
       'Sailry-$target.apk',
-      'Sailry-${tag.substring(1)}-$target.apk',
+      'Sailry-${tag.substring(tagPrefix.length)}-$target.apk',
     };
     for (final asset in item['assets'] as List) {
       if (asset is! Map<String, dynamic>) {
@@ -64,19 +91,44 @@ Release? latestRelease(
       }
       final name = asset['name'];
       if (!names.contains(name) || asset['state'] != 'uploaded') continue;
-      final expected = Uri.https(
-        'github.com',
-        '/$repository/releases/download/$tag/$name',
-      );
-      if (asset['browser_download_url'] != expected.toString() ||
+      final expected = [
+        ...repository.split('/'),
+        'releases',
+        'download',
+        tag,
+        name,
+      ];
+      final source = asset['browser_download_url'];
+      final download = source is String ? Uri.tryParse(source) : null;
+      if (download == null ||
+          !source.startsWith('https://github.com/') ||
+          download.scheme != 'https' ||
+          download.host != 'github.com' ||
+          download.userInfo.isNotEmpty ||
+          download.hasPort ||
+          download.hasQuery ||
+          download.hasFragment ||
+          download.pathSegments.length != expected.length ||
+          !expected.indexed.every(
+            (segment) => download.pathSegments[segment.$1] == segment.$2,
+          ) ||
           asset['size'] is! num ||
           (asset['size'] as num) <= 0) {
         throw const FormatException('Invalid mobile release asset');
       }
-      if (latest == null || version > latest.version) {
-        latest = Release(version: version, download: expected);
+      final candidate = Release(
+        version: version,
+        download: download,
+        buildNumber: buildNumber,
+      );
+      if (latest == null || candidate._laterThan(latest)) {
+        latest = candidate;
+      }
+      if (candidate.newerThan(current, currentBuildNumber) &&
+          (update == null || candidate._laterThan(update))) {
+        update = candidate;
       }
     }
   }
-  return latest;
+  return update ?? latest;
 }

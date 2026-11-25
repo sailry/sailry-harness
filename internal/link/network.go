@@ -186,11 +186,15 @@ func Bind(ctx context.Context, options EndpointOptions) (*Link, error) {
 }
 
 func OpenController(ctx context.Context, path string, scope NetworkScope) (*Link, error) {
+	return OpenControllerWithVersion(ctx, path, scope, "")
+}
+
+func OpenControllerWithVersion(ctx context.Context, path string, scope NetworkScope, version string) (*Link, error) {
 	identity, store, err := openControllerStore(path)
 	if err != nil {
 		return nil, err
 	}
-	link, err := Bind(ctx, EndpointOptions{Identity: identity, Scope: scope, Peers: store})
+	link, err := Bind(ctx, EndpointOptions{Identity: identity, Scope: scope, Peers: store, SoftwareVersion: version})
 	if err != nil {
 		_ = store.Close()
 		return nil, err

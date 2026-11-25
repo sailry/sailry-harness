@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/identity"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
@@ -52,6 +53,9 @@ type desktopWindow struct {
 // Run starts the Desktop from the main goroutine and returns after shutdown.
 func Run(args []string, config Options) error {
 	computer.Trampoline()
+	if config.Identity.Version != "" {
+		link.ProductVersion = config.Identity.Version
+	}
 	options, err := parseOptions(args)
 	if err != nil {
 		return err

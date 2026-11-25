@@ -10,6 +10,7 @@ class Controller extends NativeHandle {
     required bool internet,
     required List<String> relays,
     String? bind,
+    String? softwareVersion,
   }) async {
     final bridge = nativeBridge;
     final value = await bridge.invoke(0, 'open', {
@@ -17,6 +18,7 @@ class Controller extends NativeHandle {
       'internet': internet,
       'relays': relays,
       'bind': ?bind,
+      'software_version': ?softwareVersion,
     });
     return Controller.internal(bridge, nativeHandle(value, 'controller'));
   }

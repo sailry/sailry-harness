@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/bridge.dart';
@@ -103,8 +104,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
 
   final background = BackgroundConnection();
   static Future<Controller> _open(String path, bool internet) async {
+    final package = await PackageInfo.fromPlatform();
     final owner = await Controller.open(
       path: path,
+      softwareVersion: package.version,
       internet: internet,
       relays: const [],
     );

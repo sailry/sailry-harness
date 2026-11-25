@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/sailry/sailry-harness/internal/identity"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 )
@@ -36,6 +37,9 @@ func RunContext(ctx context.Context, args []string, config Options) (int, error)
 }
 
 func run(ctx context.Context, args []string, config Options, restoreSignals func()) (int, error) {
+	if config.Identity.Version != "" {
+		link.ProductVersion = config.Identity.Version
+	}
 	if config.Stdin == nil {
 		config.Stdin = os.Stdin
 	}

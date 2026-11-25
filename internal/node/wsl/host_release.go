@@ -26,7 +26,12 @@ func resolveRelease(ctx context.Context, release identity.HostRelease, client *h
 	if !release.Published() {
 		return link.ProductVersion, nil
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, release.Releases()+"/latest", nil)
+	source := release.Releases() + "/latest"
+	code := release == identity.CodeHost()
+	if code {
+		source = release.Releases() + "?per_page=100"
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 	if err != nil {
 		return "", err
 	}
@@ -44,19 +49,37 @@ func resolveRelease(ctx context.Context, release identity.HostRelease, client *h
 	if err != nil || len(body) > maxRelease {
 		return "", unavailable("Host release metadata could not be read")
 	}
-	var latest struct {
+	type published struct {
 		Tag        string `json:"tag_name"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
 	}
-	if err := json.Unmarshal(body, &latest); err != nil {
-		return "", unavailable("Host release metadata is invalid")
+	var releases []published
+	if code {
+		if err := json.Unmarshal(body, &releases); err != nil {
+			return "", unavailable("Host release metadata is invalid")
+		}
+	} else {
+		var latest published
+		if err := json.Unmarshal(body, &latest); err != nil {
+			return "", unavailable("Host release metadata is invalid")
+		}
+		releases = append(releases, latest)
 	}
-	version, tagged := strings.CutPrefix(latest.Tag, "v")
-	if !tagged || latest.Draft || latest.Prerelease || !validReleaseVersion(version) || semver.Prerelease(latest.Tag) != "" {
+	var selected string
+	for _, candidate := range releases {
+		version, tagged := strings.CutPrefix(candidate.Tag, "v")
+		if !tagged || candidate.Draft || candidate.Prerelease || !validReleaseVersion(version) || semver.Prerelease(candidate.Tag) != "" {
+			continue
+		}
+		if selected == "" || semver.Compare(candidate.Tag, "v"+selected) > 0 {
+			selected = version
+		}
+	}
+	if selected == "" {
 		return "", unavailable("Host release has no stable version")
 	}
-	return version, nil
+	return selected, nil
 }
 
 func validReleaseVersion(version string) bool {

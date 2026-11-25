@@ -25,29 +25,30 @@ type controller struct {
 }
 
 type input struct {
-	Kind       string   `json:"kind"`
-	Path       string   `json:"path"`
-	Internet   bool     `json:"internet"`
-	Bind       string   `json:"bind"`
-	Relays     []string `json:"relays"`
-	Name       string   `json:"name"`
-	Ticket     string   `json:"ticket"`
-	Origin     string   `json:"origin"`
-	PIN        string   `json:"pin"`
-	Address    string   `json:"address"`
-	Addresses  []string `json:"addresses"`
-	Query      string   `json:"query"`
-	Command    string   `json:"command"`
-	Request    string   `json:"request"`
-	Scope      string   `json:"scope"`
-	Entry      string   `json:"entry"`
-	Session    string   `json:"session"`
-	Terminal   string   `json:"terminal"`
-	Source     string   `json:"source"`
-	LocalPort  uint16   `json:"local_port"`
-	RemotePort uint16   `json:"remote_port"`
-	Upload     string   `json:"upload"`
-	Download   string   `json:"download"`
+	Kind            string   `json:"kind"`
+	Path            string   `json:"path"`
+	SoftwareVersion string   `json:"software_version"`
+	Internet        bool     `json:"internet"`
+	Bind            string   `json:"bind"`
+	Relays          []string `json:"relays"`
+	Name            string   `json:"name"`
+	Ticket          string   `json:"ticket"`
+	Origin          string   `json:"origin"`
+	PIN             string   `json:"pin"`
+	Address         string   `json:"address"`
+	Addresses       []string `json:"addresses"`
+	Query           string   `json:"query"`
+	Command         string   `json:"command"`
+	Request         string   `json:"request"`
+	Scope           string   `json:"scope"`
+	Entry           string   `json:"entry"`
+	Session         string   `json:"session"`
+	Terminal        string   `json:"terminal"`
+	Source          string   `json:"source"`
+	LocalPort       uint16   `json:"local_port"`
+	RemotePort      uint16   `json:"remote_port"`
+	Upload          string   `json:"upload"`
+	Download        string   `json:"download"`
 }
 
 func (values input) networkScope() link.NetworkScope {
@@ -80,7 +81,7 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 			return nil, err
 		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
-		endpoint, err := link.OpenController(lifetime, values.Path, values.networkScope())
+		endpoint, err := link.OpenControllerWithVersion(lifetime, values.Path, values.networkScope(), values.SoftwareVersion)
 		detach()
 		if err != nil {
 			cancel()
