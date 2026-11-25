@@ -3,8 +3,6 @@
 package testassembly
 
 import (
-	"testing/fstest"
-
 	"github.com/egoist/mygo/ui"
 	harness "github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -25,7 +23,7 @@ func Full() shell.Assembly {
 	assembly.SettingsPages = append(assembly.SettingsPages, settings.NativePage{
 		Section: settings.Terminal, Group: "settings_group_tools", Icon: icons.Terminal, Order: 100, Render: terminal,
 	})
-	assembly.Locales = append(assembly.Locales, fstest.MapFS{"locales/en.yml": &fstest.MapFile{Data: []byte(terminalLabels)}})
+	assembly.Locales = append(assembly.Locales, Locales)
 	return assembly
 }
 

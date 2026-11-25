@@ -1,0 +1,17 @@
+form_value_hint: 输入值
+form_variable_hint: 如 LANG
+settings_font_default: 默认
+settings_font_family: 字体
+settings_font_size: 字号
+settings_paste_description: 粘贴多行内容前确认
+settings_paste_protection: 多行粘贴保护
+settings_terminal_display: 显示与输入
+terminal_environment: 全局环境变量
+terminal_environment_add: 添加环境变量
+terminal_shell: 默认 Shell
+terminal_shell_default: 跟随主机默认
+terminal_shell_group: Shell
+terminal_value: 变量值
+terminal_variable: 变量名
+terminal_variable_duplicate: 变量名已存在
+terminal_variable_invalid: 变量名无效，或属于应用保留项、代码加载变量

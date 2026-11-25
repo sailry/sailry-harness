@@ -23,13 +23,26 @@ func TestCatalogKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	moduleCatalogs := make(map[string]*Catalog, len(paths))
+	localPaths, err := filepath.Glob("../*/locales/en.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range localPaths {
+		if filepath.Base(filepath.Dir(filepath.Dir(path))) != "i18n" {
+			paths = append(paths, path)
+		}
+	}
+	ownerCatalogs := make(map[string]*Catalog, len(paths))
 	var sources []fs.FS
 	for _, path := range paths {
 		desktop := filepath.Dir(filepath.Dir(path))
 		source := os.DirFS(desktop)
 		sources = append(sources, source)
-		moduleCatalogs[filepath.Base(filepath.Dir(desktop))] = New(source)
+		owner, err := filepath.Abs(desktop)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ownerCatalogs[owner] = New(source)
 	}
 	all := New(sources...)
 
@@ -115,14 +128,17 @@ func TestCatalogKeys(t *testing.T) {
 					return err
 				}
 				catalog := shared
-				if dir == modulesDir {
-					rel, err := filepath.Rel(dir, path)
-					if err != nil {
-						return err
-					}
-					module, _, _ := strings.Cut(rel, string(filepath.Separator))
-					if local := moduleCatalogs[module]; local != nil {
+				absolute, err := filepath.Abs(path)
+				if err != nil {
+					return err
+				}
+				for owner := filepath.Dir(absolute); ; owner = filepath.Dir(owner) {
+					if local := ownerCatalogs[owner]; local != nil {
 						catalog = local
+						break
+					}
+					if filepath.Dir(owner) == owner {
+						break
 					}
 				}
 				ast.Inspect(f, func(n ast.Node) bool {

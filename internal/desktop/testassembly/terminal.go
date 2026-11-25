@@ -68,7 +68,7 @@ func terminal(c *ui.Context, state *settings.State) {
 			})
 		})
 	})
-	settings.DraftDialog(c, "environment", &editor.Open, "terminal_environment_add", []settings.DraftField{
+	settings.DraftDialog(c, "environment-editor", &editor.Open, "terminal_environment_add", []settings.DraftField{
 		{Label: "terminal_variable", Hint: "form_variable_hint", Value: &editor.Key},
 		{Label: "terminal_value", Hint: "form_value_hint", Value: &editor.Value},
 	}, func() string {
@@ -117,22 +117,3 @@ func terminal(c *ui.Context, state *settings.State) {
 		})
 	})
 }
-
-const terminalLabels = `form_value_hint: "Enter value"
-form_variable_hint: "e.g. LANG"
-settings_font_default: "Default"
-settings_font_family: "Font"
-settings_font_size: "Font size"
-settings_paste_description: "Confirm before pasting multiple lines"
-settings_paste_protection: "Multiline paste protection"
-settings_terminal_display: "Display and input"
-terminal_environment: "Global environment variables"
-terminal_environment_add: "Add environment variable"
-terminal_shell: "Default shell"
-terminal_shell_default: "Host default"
-terminal_shell_group: "Shell"
-terminal_value: "Value"
-terminal_variable: "Variable name"
-terminal_variable_duplicate: "Variable already exists"
-terminal_variable_invalid: "Invalid variable name, reserved setting or code-loading variable"
-`
