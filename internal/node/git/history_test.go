@@ -14,6 +14,51 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestLogStopsAtDeclaredShallowBoundary(t *testing.T) {
+	root, repo, first := fixture(t)
+	w, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := w.Commit("Shallow tip", &gogit.CommitOptions{AllowEmptyCommits: true, Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(200, 0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Storer.SetShallow([]plumbing.Hash{hash}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, ".git", "objects", first[:2], first[2:])); err != nil {
+		t.Fatal(err)
+	}
+	path := "file.txt"
+	for _, filter := range []*string{nil, &path} {
+		out, err := fixtureService().Read(t.Context(), root, protocol.Command{Kind: "read_git_log", Data: protocol.CommandReadGitLogPayload{Limit: 100, Path: filter}})
+		page, ok := out.Data.(protocol.GitLog)
+		if err != nil || !ok || len(page.Entries) != 1 || page.Entries[0].ID != hash.String() || len(page.Entries[0].Parents) != 0 || page.Next != nil {
+			t.Fatalf("shallow history: %+v, %v", out, err)
+		}
+	}
+	tip, err := w.Commit("Local commit", &gogit.CommitOptions{AllowEmptyCommits: true, Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(300, 0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := fixtureService()
+	page, err := service.Log(t.Context(), root, protocol.CommandReadGitLogPayload{Limit: 1})
+	if err != nil || page.Next == nil || len(page.Entries) != 1 || page.Entries[0].ID != tip.String() || !slices.Equal(page.Entries[0].Parents, []string{hash.String()}) {
+		t.Fatalf("first shallow page: %+v, %v", page, err)
+	}
+	page, err = service.Log(t.Context(), root, protocol.CommandReadGitLogPayload{Limit: 1, Cursor: page.Next})
+	if err != nil || page.Next != nil || len(page.Entries) != 1 || page.Entries[0].ID != hash.String() || len(page.Entries[0].Parents) != 0 {
+		t.Fatalf("last shallow page: %+v, %v", page, err)
+	}
+	if err := repo.Storer.SetShallow(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixtureService().Log(t.Context(), root, protocol.CommandReadGitLogPayload{Limit: 100}); err == nil {
+		t.Fatal("missing parent outside a shallow boundary was accepted")
+	}
+}
+
 func TestLogFiltersLiteralPaths(t *testing.T) {
 	root, repository, initial := fixture(t)
 	worktree, err := repository.Worktree()

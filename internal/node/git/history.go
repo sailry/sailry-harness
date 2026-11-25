@@ -1,6 +1,7 @@
 package git
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"io"
@@ -126,17 +127,28 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 		return result, err
 	}
 	result.ReferencesTruncated = truncated
-	iter, err := r.Log(&gogit.LogOptions{From: hash, Order: gogit.LogOrderCommitterTime})
+	shallow, err := r.Storer.Shallow()
 	if err != nil {
 		return result, mapError(err)
 	}
-	defer iter.Close()
+	start, err := r.CommitObject(hash)
+	if err != nil {
+		return result, mapError(err)
+	}
+	var next func() (*object.Commit, error)
+	if len(shallow) == 0 {
+		iter := object.NewCommitIterCTime(start, nil, nil)
+		defer iter.Close()
+		next = iter.Next
+	} else {
+		next = shallowHistory(r, start, shallow)
+	}
 	resumed := input.Cursor == nil
 	for {
 		if err := checkContext(ctx); err != nil {
 			return result, err
 		}
-		commit, err := iter.Next()
+		commit, err := next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -169,6 +181,54 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 		result.Next = &protocol.GitLogCursor{Head: hash.String(), After: result.Entries[len(result.Entries)-1].ID, Offset: result.Offset + uint64(len(result.Entries)), Path: input.Path}
 	}
 	return result, nil
+}
+
+type historyHeap []*object.Commit
+
+func (h historyHeap) Len() int           { return len(h) }
+func (h historyHeap) Less(i, j int) bool { return h[i].Committer.When.After(h[j].Committer.When) }
+func (h historyHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *historyHeap) Push(v any)        { *h = append(*h, v.(*object.Commit)) }
+func (h *historyHeap) Pop() any {
+	a := *h
+	v := a[len(a)-1]
+	a[len(a)-1] = nil
+	*h = a[:len(a)-1]
+	return v
+}
+
+// go-git's committer-time walker opens parents before yielding a commit. At
+// an explicit shallow boundary Git treats that commit as a root instead.
+func shallowHistory(r *gogit.Repository, start *object.Commit, roots []plumbing.Hash) func() (*object.Commit, error) {
+	boundary := make(map[plumbing.Hash]bool, len(roots))
+	for _, h := range roots {
+		boundary[h] = true
+	}
+	queue := historyHeap{start}
+	seen := map[plumbing.Hash]bool{start.Hash: true}
+	return func() (*object.Commit, error) {
+		if len(queue) == 0 {
+			return nil, io.EOF
+		}
+		c := heap.Pop(&queue).(*object.Commit)
+		if boundary[c.Hash] {
+			root := *c
+			root.ParentHashes = nil
+			return &root, nil
+		}
+		for _, h := range c.ParentHashes {
+			if seen[h] {
+				continue
+			}
+			parent, err := r.CommitObject(h)
+			if err != nil {
+				return nil, err
+			}
+			seen[h] = true
+			heap.Push(&queue, parent)
+		}
+		return c, nil
+	}
 }
 
 // A subtree's hash changes whenever its contents change. Compare the literal
