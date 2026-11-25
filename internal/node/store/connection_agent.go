@@ -49,7 +49,7 @@ func ReadConnectionCatalog(ctx context.Context, db *sql.Conn, id protocol.Sessio
 		return catalog, err
 	}
 	for _, profile := range databases {
-		if ConnectionPermits(session.Config.Resource, session.Project, databaseResource(profile.ID), profile.Sharing) {
+		if ConnectionPermits(session.Config, session.Project, databaseResource(profile.ID), profile.Sharing) {
 			catalog.Databases = append(catalog.Databases, profile)
 		}
 	}
@@ -58,7 +58,7 @@ func ReadConnectionCatalog(ctx context.Context, db *sql.Conn, id protocol.Sessio
 		return catalog, err
 	}
 	for _, profile := range profiles {
-		if ConnectionPermits(session.Config.Resource, session.Project, sshResource(profile.ID), profile.Sharing) {
+		if ConnectionPermits(session.Config, session.Project, sshResource(profile.ID), profile.Sharing) {
 			catalog.Ssh = append(catalog.Ssh, profile)
 		}
 	}
@@ -175,7 +175,7 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if err != nil {
 		return false, err
 	}
-	if capture.Config.Resource != nil && (capture.Config.Resource.Kind != "ssh" || target.Kind != "ssh") {
+	if !connectionCreationAllowed(capture.Config, target.Kind) {
 		return false, nil
 	}
 	kind, identity, valid := connectionIdentity(target)
@@ -263,7 +263,7 @@ func checkConnection(ctx context.Context, db *sql.Conn, turn protocol.TurnID, ow
 		if err != nil {
 			return err
 		}
-		if exists && ConnectionPermits(session.Config.Resource, session.Project, target, sharing) {
+		if exists && ConnectionPermits(session.Config, session.Project, target, sharing) {
 			return nil
 		}
 	}

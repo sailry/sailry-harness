@@ -511,7 +511,9 @@ func testConnectionWorkspaces(t *testing.T) {
 			{"database bound to a private target", &privateTarget, nil, privateTarget, nil, true},
 			{"database bound to another database", &privateTarget, nil, databaseTarget, global, false},
 			{"database bound with global SSH", &privateTarget, nil, sharedSshTarget, global, false},
-			{"SSH primary with another private SSH", &sharedSshTarget, nil, sshTarget, nil, true},
+			{"SSH bound to a private target", &sshTarget, nil, sshTarget, nil, true},
+			{"SSH bound to another private SSH", &sharedSshTarget, nil, sshTarget, nil, false},
+			{"SSH bound to another shared SSH", &sshTarget, nil, sharedSshTarget, sharedSsh.Sharing, false},
 			{"SSH primary with a global database", &sshTarget, nil, databaseTarget, global, false},
 			{"project with global sharing", nil, &project, databaseTarget, global, true},
 			{"project in the list", nil, &project, listedTarget, listed.Sharing, true},
@@ -527,7 +529,7 @@ func testConnectionWorkspaces(t *testing.T) {
 		}
 		for _, row := range rows {
 			t.Run(row.name, func(t *testing.T) {
-				if got := ConnectionPermits(row.bound, row.project, row.target, row.sharing); got != row.allowed {
+				if got := ConnectionPermits(protocol.SessionConfig{Resource: row.bound}, row.project, row.target, row.sharing); got != row.allowed {
 					t.Fatalf("connection permitted = %v, want %v", got, row.allowed)
 				}
 			})
@@ -607,7 +609,7 @@ func testConnectionWorkspaces(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			return checkCatalog(output.Data.(protocol.Session).ID, &sshTarget, sshTarget, sharedSshTarget)
+			return checkCatalog(output.Data.(protocol.Session).ID, &sshTarget, sshTarget)
 		})
 	})
 

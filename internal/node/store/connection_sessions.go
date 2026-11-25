@@ -87,17 +87,30 @@ func sameConnectionSharing(left, right *protocol.ConnectionSharing) bool {
 	}
 }
 
-// ConnectionPermits is the execution Node's sharing decision. An SSH
-// conversation's primary connection is its default, not an access boundary:
-// it can manage this Node's saved SSH profiles. Database conversations keep
-// their resource boundary. Unbound conversations use explicit sharing.
-func ConnectionPermits(bound *protocol.ConnectionResource, project *protocol.ProjectID, target protocol.ConnectionResource, sharing *protocol.ConnectionSharing) bool {
-	if bound != nil {
+func sshResourceOnly(config protocol.SessionConfig) bool {
+	return config.Assistant == nil && config.Resource != nil && config.Resource.Kind == "ssh"
+}
+
+// ConnectionToolAllowed limits the connection catalog of a native SSH session
+// to operations on its bound profile. Other sessions keep their existing tools.
+func ConnectionToolAllowed(config protocol.SessionConfig, operation protocol.ToolOperation) bool {
+	return !sshResourceOnly(config) || operation == protocol.ToolOperationRunSsh || operation == protocol.ToolOperationTransferSsh
+}
+
+// ConnectionPermits is the execution Node's sharing decision. Native resource
+// sessions stay on their bound connection. Only a legacy SSH assistant treats
+// its binding as a default. Unbound conversations use explicit sharing.
+func ConnectionPermits(config protocol.SessionConfig, project *protocol.ProjectID, target protocol.ConnectionResource, sharing *protocol.ConnectionSharing) bool {
+	if bound := config.Resource; bound != nil {
 		kind, id, valid := connectionIdentity(target)
 		primaryKind, primaryID, primaryValid := connectionIdentity(*bound)
-		return valid && primaryValid && (primaryKind == "ssh" && kind == "ssh" || primaryKind == kind && primaryID == id)
+		return valid && primaryValid && primaryKind == kind && (primaryID == id || primaryKind == "ssh" && config.Assistant != nil)
 	}
 	return protocol.ConnectionSharingPermits(project, sharing)
+}
+
+func connectionCreationAllowed(config protocol.SessionConfig, kind string) bool {
+	return config.Resource == nil || config.Assistant != nil && config.Resource.Kind == "ssh" && kind == "ssh"
 }
 
 // connectionWorkspace returns the one scratch worktree every conversation

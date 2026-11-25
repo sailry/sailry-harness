@@ -72,6 +72,10 @@ func CurrentUser(ctx context.Context, db *sql.Conn) (protocol.User, error) {
 	return store.CurrentUser(ctx, db)
 }
 
+func CreateUser(ctx context.Context, db *sql.Conn, name string) (protocol.User, error) {
+	return store.CreateUser(ctx, db, name)
+}
+
 func LoadAgentState(ctx context.Context, db *sql.Conn, session protocol.SessionID) (AgentState, error) {
 	return store.LoadAgentState(ctx, db, session)
 }

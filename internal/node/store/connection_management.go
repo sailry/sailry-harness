@@ -360,8 +360,6 @@ func connectionKeyPath(path string) error {
 	return nil
 }
 
-// connectionCreation keeps database bindings scoped to their resource. An SSH
-// primary only selects the default, so its assistant can create SSH profiles.
 func connectionCreation(ctx context.Context, db *sql.Conn, turn protocol.TurnID, kind string) error {
 	if _, err := activeAgentRun(ctx, db, turn); err != nil {
 		return err
@@ -370,7 +368,7 @@ func connectionCreation(ctx context.Context, db *sql.Conn, turn protocol.TurnID,
 	if err != nil {
 		return err
 	}
-	if capture.Config.Resource != nil && (capture.Config.Resource.Kind != "ssh" || kind != "ssh") {
+	if !connectionCreationAllowed(capture.Config, kind) {
 		return fault(protocol.ErrorCodePermissionDenied, "bound conversations cannot create another connection")
 	}
 	return nil

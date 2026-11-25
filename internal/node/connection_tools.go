@@ -35,6 +35,7 @@ func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocatio
 			continue
 		}
 		if operations.ConnectionOperation(declaration.Operation) && slices.Contains(inv.Turn.Plugins, declaration.Owner) &&
+			store.ConnectionToolAllowed(inv.Turn.Config, declaration.Operation) &&
 			availableOperationTool(inv, declaration) &&
 			(inv.Turn.Config.Resource == nil || inv.Turn.Config.Assistant != nil || len(declaration.Contexts) != 0) {
 			declarations = append(declarations, declaration)
@@ -154,6 +155,9 @@ func (node *Node) connectionCatalog(ctx context.Context, inv *store.AgentInvocat
 // connectionCommand translates model arguments into the protocol command the
 // Node workers execute, after the store checks the turn may reach its target.
 func (node *Node) connectionCommand(ctx context.Context, inv *store.AgentInvocation, declaration operations.Declaration, arguments json.RawMessage, captured []protocol.ConnectionResource) (protocol.Command, error) {
+	if !store.ConnectionToolAllowed(inv.Turn.Config, declaration.Operation) {
+		return protocol.Command{}, connectionFault(protocol.ErrorCodePermissionDenied, "connection operation is outside the bound SSH session")
+	}
 	input, err := operations.ConnectionCall(declaration.Operation, arguments)
 	if err != nil {
 		return protocol.Command{}, err

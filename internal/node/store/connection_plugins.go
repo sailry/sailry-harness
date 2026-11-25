@@ -160,6 +160,27 @@ func PluginConnectionAction(ctx context.Context, db *sql.Conn, request protocol.
 	if err != nil {
 		return "", false, err
 	}
+	var effect protocol.ToolOperation
+	if scope.Session != nil {
+		session, err := ReadSession(ctx, db, *scope.Session)
+		if err != nil {
+			return "", false, err
+		}
+		if sshResourceOnly(session.Config) {
+			if scope.Turn == nil || scope.Invocation != nil {
+				return "", false, connectionDenied("bound SSH session requires a captured tool")
+			}
+			switch request.Command.Kind {
+			case "check_ssh", "trust_ssh", "cancel_ssh":
+			case "run_ssh":
+				effect = protocol.ToolOperationRunSsh
+			case "transfer_ssh":
+				effect = protocol.ToolOperationTransferSsh
+			default:
+				return "", false, connectionDenied("connection command is outside the bound SSH session")
+			}
+		}
+	}
 	creation := false
 	if management && (scope.Turn != nil || scope.Invocation != nil) {
 		if creation, err = authorizeConnectionManagement(ctx, db, request); err != nil {
@@ -177,6 +198,11 @@ func PluginConnectionAction(ctx context.Context, db *sql.Conn, request protocol.
 		}
 	case scope.Turn != nil && scope.Session == nil:
 		return "", false, connectionDenied("connection tool requires a captured session")
+	}
+	if effect != "" {
+		if err := authorizeConnectionApproval(ctx, db, request, effect, "SSH operation"); err != nil {
+			return "", false, err
+		}
 	}
 	if scope.Turn != nil {
 		var sharing *protocol.ConnectionSharing
@@ -207,7 +233,7 @@ func PluginConnectionAction(ctx context.Context, db *sql.Conn, request protocol.
 // resource a plugin scope captured. A Node-wide controller surface manages
 // every connection.
 func CheckPluginConnectionTarget(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, target protocol.ConnectionResource) error {
-	var bound *protocol.ConnectionResource
+	var config protocol.SessionConfig
 	var project *protocol.ProjectID
 	switch {
 	case scope.Session != nil:
@@ -218,7 +244,7 @@ func CheckPluginConnectionTarget(ctx context.Context, db *sql.Conn, scope protoc
 		if scope.Worktree == nil || session.Worktree != *scope.Worktree {
 			return connectionDenied("connection session belongs to another worktree")
 		}
-		bound, project = session.Config.Resource, session.Project
+		config, project = session.Config, session.Project
 	case scope.Worktree != nil:
 		var owner sql.NullString
 		err := db.QueryRowContext(ctx, "SELECT project FROM worktrees WHERE id=?1 AND id NOT IN (SELECT worktree FROM removed_worktrees)", scope.Worktree.String()).Scan(&owner)
@@ -254,7 +280,7 @@ func CheckPluginConnectionTarget(ctx context.Context, db *sql.Conn, scope protoc
 	if err != nil {
 		return err
 	}
-	if (exists || scope.Turn == nil) && ConnectionPermits(bound, project, target, sharing) {
+	if (exists || scope.Turn == nil) && ConnectionPermits(config, project, target, sharing) {
 		return nil
 	}
 	if exists && scope.Turn != nil {
@@ -326,27 +352,35 @@ func authorizeConnectionManagement(ctx context.Context, db *sql.Conn, request pr
 	default:
 		return false, connectionDenied("connection management requires a controller view")
 	}
+	if err := authorizeConnectionApproval(ctx, db, request, operation, "connection save"); err != nil {
+		return false, err
+	}
+	return creation, nil
+}
+
+func authorizeConnectionApproval(ctx context.Context, db *sql.Conn, request protocol.Request, operation protocol.ToolOperation, subject string) error {
+	scope := request.Plugin
 	var body, bound []byte
 	err := db.QueryRowContext(ctx, "SELECT body,binding FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1", scope.Turn.String(), request.ID.String()).Scan(&body, &bound)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, connectionDenied("connection save has no claimed approval")
+		return connectionDenied(subject + " has no claimed approval")
 	}
 	if err != nil {
-		return false, err
+		return err
 	}
 	var approval protocol.ConversationApproval
 	var binding *ApprovalBinding
 	if err := json.Unmarshal(body, &approval); err != nil {
-		return false, err
+		return err
 	}
 	if err := json.Unmarshal(bound, &binding); err != nil {
-		return false, err
+		return err
 	}
 	if approval.State != protocol.ConversationApprovalStateApproved || approval.Turn != *scope.Turn || scope.Session == nil || approval.Session != *scope.Session ||
 		binding == nil || binding.Owner != scope.Package || binding.Operation == nil || *binding.Operation != operation {
-		return false, connectionDenied("connection save differs from its claimed approval")
+		return connectionDenied(subject + " differs from its claimed approval")
 	}
-	return creation, nil
+	return nil
 }
 
 // RecordConnectionSave keeps an authorized turn's save without its secret.
