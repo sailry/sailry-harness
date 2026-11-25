@@ -30,13 +30,17 @@ type Look struct {
 	// Surfaces are the window materials' opacities the transparency
 	// sliders set.
 	Surfaces *theme.Surfaces
+	// Mark is the new session page's custom lettering; blank is the Sailry
+	// wordmark. Nil hides its row.
+	Mark *string
 }
 
 // ThemePreviewHeight is a theme card's preview (h_24).
 const ThemePreviewHeight = 96
 
 // appearance shows interface sizing, color mode and effects, transparency,
-// and installed themes with their update and import actions.
+// installed themes with their update and import actions, and the new
+// session page's lettering.
 func appearance(c *ui.Context, look Look, m *Model) {
 	kit.Group(c, "interface", i18n.T(c, "settings_interface"), "", nil, func() {
 		kit.Card(c, func() {
@@ -115,6 +119,27 @@ func appearance(c *ui.Context, look Look, m *Model) {
 				look.Actions.Preview = nil
 			}
 		}
+	})
+	welcomeMark(c, look.Mark)
+}
+
+// welcomeMark is the new session page's lettering, last on the page so the
+// groups above keep their places: a field that keeps only what the
+// lettering draws as it is typed.
+func welcomeMark(c *ui.Context, mark *string) {
+	if mark == nil {
+		return
+	}
+	kit.Group(c, "welcome", i18n.T(c, "appearance_welcome"), "", nil, func() {
+		kit.Card(c, func() {
+			title := i18n.T(c, "appearance_welcome_mark")
+			kit.WideRow(c, "welcome-mark", title, i18n.T(c, "appearance_welcome_mark_detail"), func() {
+				if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(i18n.T(c, "welcome_name")).
+					MaxLength(preferences.WelcomeMarkMax).FillWidth().Changed() {
+					*mark = preferences.CleanWelcomeMark(*mark)
+				}
+			})
+		})
 	})
 }
 

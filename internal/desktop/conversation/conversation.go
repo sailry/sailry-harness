@@ -56,6 +56,7 @@ type State struct {
 	mdSize        float32
 	light         float32            // the welcome wordmark's beam, in window DIPs
 	lit           bool               // the pointer has moved over the welcome page
+	letters       lettering          // the welcome page's custom lettering laid out last
 	views         map[string]*Viewer // the image viewer of each conversation
 	edits         map[string]*edit   // the open message editor of each conversation
 	rewind        string             // the turn whose rewind waits to be confirmed
@@ -66,6 +67,9 @@ type State struct {
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split bool
+	// Mark is the welcome page's custom lettering (Settings › Appearance);
+	// blank shows the Sailry wordmark.
+	Mark string
 	// Aside is the room Docked keeps clear at the transcript's end for what
 	// floats there (the session overview card): the turns, the dock and the
 	// rail center in what is left, while the list still fills the pane, so

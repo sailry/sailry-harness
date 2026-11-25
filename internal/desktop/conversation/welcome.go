@@ -64,9 +64,16 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 		padding = 8
 	}
 	available := max(width-2*padding-12, 0)
-	// The row is the brand, a square, and the wordmark, markW/markH wide for
-	// its height (as a fraction: the constants alone would divide whole).
-	logo = min(logo, float32(math.Floor(float64(available/(float32(markW)/markH+1)))))
+	mark := strings.TrimSpace(s.Mark)
+	if mark == "" {
+		// The row is the brand, a square, and the wordmark, markW/markH wide
+		// for its height (as a fraction: the constants alone would divide
+		// whole).
+		logo = min(logo, float32(math.Floor(float64(available/(float32(markW)/markH+1)))))
+	} else {
+		// Custom lettering keeps at least twice the brand's width.
+		logo = min(logo, float32(math.Floor(float64(available/3))))
+	}
 	scroll.Children(func() {
 		// At least the scroll's height (last frame's), so the page centers
 		// vertically; taller content grows from the top instead of being
@@ -85,7 +92,11 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 				kit.Banner(c, "hero.new_session")
 				ui.Row(c).Gap(12).Padding(4, 0).AlignItems(ui.Center).Children(func() {
 					kit.Brand(c, logo)
-					wordmark(c, s, logo)
+					if mark == "" {
+						wordmark(c, s, logo)
+					} else {
+						letters(c, s, mark, logo, available-logo)
+					}
 				})
 				ui.Text(c, i18n.T(c, "welcome_title")).FontSize(18).TextAlign(ui.Center).FillWidth()
 			})
@@ -213,13 +224,50 @@ func depth(x, y float32) float32 {
 	return stops[len(stops)-1][1]
 }
 
-// wordmark draws the square-dot lettering: its base at the package's rest
-// strength (18% of the ink by default), shaded across to the package's
-// gradient color where it has one, and the particles under a beam that
-// follows the pointer lit up to 86%, the lit particles in the package's glow
-// color, the ink by default; nothing is drawn outside the lettering. Custom drawing: MyGo's Icon tints a picture in
-// one color; the light varies per particle.
+// wordmark draws the Sailry wordmark height tall.
 func wordmark(c *ui.Context, s *State, height float32) {
+	particleLight(c, s, i18n.T(c, "welcome_name"), particles, markW, markH, height*markW/markH, height, markW*0.13)
+}
+
+// Custom lettering is drawn line high for the brand's height, shrinking to
+// minScale of that to stay on one line before it wraps; its particles are
+// never closer than minPitch DIPs, so a compact page wraps it rather than
+// shrinking it past reading.
+const (
+	minScale = 0.7
+	minPitch = 2
+)
+
+// letters draws text in the lettering face beside a brand logo tall, in at
+// most room DIPs across: a line as tall as the brand, narrower to fit, and
+// wrapped below minScale. Its beam is as wide for its height as the
+// wordmark's.
+func letters(c *ui.Context, s *State, text string, logo, room float32) {
+	unit := max(logo/letterLine, minPitch) // DIPs a particle at full size
+	pitch := unit
+	if full := float32(2 * cellsOf(text)); full*unit > room && full > 0 {
+		pitch = max(room/full, unit*minScale, minPitch)
+	}
+	cols := 0
+	if pitch > 0 && float32(2*cellsOf(text))*pitch > room {
+		cols = max(int(room/(2*pitch)), 1)
+	}
+	if s.letters.text != text || s.letters.cols != cols {
+		s.letters = layoutLettering(text, cols)
+	}
+	l := s.letters
+	particleLight(c, s, text, l.particles, l.w, l.h, l.w*pitch/8, l.h*pitch/8, 8*letterLine*markW*0.13/markH)
+}
+
+// particleLight draws square-dot lettering of 6-unit particles in a w x h
+// unit box at width x height DIPs: its base at the package's rest strength
+// (18% of the ink by default), shaded across to the package's gradient
+// color where it has one, and the particles under a beam sigma units wide
+// that follows the pointer lit up to 86%, the lit particles in the
+// package's glow color, the ink by default; nothing is drawn outside the
+// lettering. Custom drawing: MyGo's Icon tints a picture in one color; the
+// light varies per particle.
+func particleLight(c *ui.Context, s *State, label string, parts [][2]float32, w, h, width, height, sigma float32) {
 	p := theme.Of(c)
 	ink, glow := p.Foreground, p.Foreground
 	end, base := ui.Color{}, float32(theme.WordmarkBase)
@@ -234,19 +282,19 @@ func wordmark(c *ui.Context, s *State, height float32) {
 		end = ink
 	}
 	light, lit := s.light, s.lit
-	ui.Box(c.Key("wordmark")).Size(height*markW/markH, height).Shrink(0).Label(i18n.T(c, "welcome_name")).
+	ui.Box(c.Key("wordmark")).Size(width, height).Shrink(0).Label(label).
 		Role(ui.RoleImage).Draw(func(pt *ui.Painter, r ui.Rect) {
-		sx, sy := r.W/markW, r.H/markH
+		sx, sy := r.W/w, r.H/h
 		beam := float32(0.5)
 		if lit && r.W > 0 {
 			beam = min(max((light-r.X)/r.W, 0), 1)
 		}
-		center := beam * markW
-		for _, q := range particles {
+		center := beam * w
+		for _, q := range parts {
 			x, y := q[0], q[1]
 			rect := ui.Rect{X: r.X + x*sx, Y: r.Y + y*sy, W: dot * sx, H: dot * sy}
-			pt.Fill(rect, ink.Mix(end, x/markW).Alpha(base*depth(x, y)), 0)
-			d := (x + 3 - center) / (markW * 0.13)
+			pt.Fill(rect, ink.Mix(end, x/w).Alpha(base*depth(x/w*markW, y/h*markH)), 0)
+			d := (x + 3 - center) / sigma
 			if strength := float32(math.Exp(float64(-0.5 * d * d))); strength > 0.01 {
 				// The light shows only through the particles, in the
 				// package's glow color: the lettering is its mask.

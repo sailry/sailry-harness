@@ -827,7 +827,7 @@ func (a *App) page(c *ui.Context) {
 		a.notificationCenter(c)
 		return
 	case SettingsPage:
-		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
+		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces, Mark: &a.Messages.Mark})
 		return
 	case PluginPage:
 		if a.Hooks.PluginPage != nil {

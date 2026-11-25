@@ -82,6 +82,10 @@ func (r *Runtime) applyPreferences() {
 		m.ViewZoom = max(0, slices.Index(preferences.ViewZoomLevels, *d.ViewZoom))
 	}
 	a.Surfaces = d.Materials()
+	a.Messages.Mark = ""
+	if d.WelcomeMark != nil {
+		a.Messages.Mark = preferences.CleanWelcomeMark(*d.WelcomeMark)
+	}
 	r.lastMaterials = [3]float32{a.Surfaces.Main, a.Surfaces.Sidebar, a.Surfaces.Blur}
 	m.Keys.SetOverrides(nil)
 	if d.Shortcuts != nil {
@@ -151,6 +155,10 @@ func (r *Runtime) savePreferences() {
 	d.Appearance = preferences.Selection{Package: packageID, Mode: []string{"system", "light", "dark"}[min(max(int(a.Mode), 0), 2)]}
 	setChoice(&d.ThemeEffects, a.Effects, true)
 	setChoice(&d.WelcomeSeen, a.Welcome.Seen, true)
+	d.WelcomeMark = nil
+	if mark := preferences.CleanWelcomeMark(a.Messages.Mark); mark != "" {
+		d.WelcomeMark = &mark
+	}
 	// Every window of the profile shows the interface size last chosen in
 	// one of them.
 	levels := preferences.ViewZoomLevels

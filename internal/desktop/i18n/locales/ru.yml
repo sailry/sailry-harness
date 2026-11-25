@@ -77,6 +77,9 @@ appearance_information: Информация
 appearance_format_version: Версия формата
 appearance_author: Автор
 appearance_effects: Анимация темы
+appearance_welcome: Страница приветствия
+appearance_welcome_mark: Надпись новых сеансов
+appearance_welcome_mark_detail: Латинские буквы, цифры и знаки препинания. Пусто — Sailry.
 settings_interface: Тема интерфейса
 settings_theme_builtin: По умолчанию
 settings_version: Версия

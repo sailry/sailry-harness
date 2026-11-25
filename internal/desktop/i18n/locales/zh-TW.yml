@@ -77,6 +77,9 @@ appearance_information: 資訊
 appearance_format_version: 格式版本
 appearance_author: 作者
 appearance_effects: 主題動畫
+appearance_welcome: 歡迎頁
+appearance_welcome_mark: 新工作階段點陣字
+appearance_welcome_mark_detail: 英文字母、數字和標點，留空顯示 Sailry。
 settings_interface: 介面主題
 settings_theme_builtin: 預設
 settings_version: 版本

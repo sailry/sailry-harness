@@ -77,6 +77,9 @@ appearance_information: Informações
 appearance_format_version: Versão do formato
 appearance_author: Autor
 appearance_effects: Animação do tema
+appearance_welcome: Página de boas-vindas
+appearance_welcome_mark: Letreiro de novas sessões
+appearance_welcome_mark_detail: Letras em inglês, números e pontuação. Vazio mostra Sailry.
 settings_interface: Tema da interface
 settings_theme_builtin: Padrão
 settings_version: Versão

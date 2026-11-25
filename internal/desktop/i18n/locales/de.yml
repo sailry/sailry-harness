@@ -77,6 +77,9 @@ appearance_information: Informationen
 appearance_format_version: Formatversion
 appearance_author: Autor
 appearance_effects: Theme-Animation
+appearance_welcome: Startseite
+appearance_welcome_mark: Schriftzug neuer Sitzungen
+appearance_welcome_mark_detail: Englische Buchstaben, Ziffern und Satzzeichen. Leer zeigt Sailry.
 settings_interface: Interface-Thema
 settings_theme_builtin: Standard
 settings_version: Version

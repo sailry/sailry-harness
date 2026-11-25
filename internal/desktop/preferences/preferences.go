@@ -138,6 +138,10 @@ type Data struct {
 	// ViewZoomLevels; nil is 100. An optional Go presentation extension,
 	// independent of MessageTextSize.
 	ViewZoom *uint16 `json:"view_zoom,omitempty"`
+	// WelcomeMark is the new session page's custom lettering, at most
+	// WelcomeMarkMax printable ASCII characters; nil or blank shows the
+	// Sailry wordmark. An optional Go presentation extension.
+	WelcomeMark *string `json:"welcome_mark,omitempty"`
 	// Retained for preference round trips. Developer launch modes no longer
 	// restore or update these former UI switches.
 	DemoMode bool `json:"demo_mode,omitempty"`
@@ -221,6 +225,21 @@ func (d *Data) DictationMicrophone() *string {
 // ViewZoomLevels are the values of view_zoom, in percent, smallest first.
 var ViewZoomLevels = []uint16{100, 110, 125, 150}
 
+// WelcomeMarkMax is the length of welcome_mark in characters.
+const WelcomeMarkMax = 32
+
+// CleanWelcomeMark keeps the printable ASCII characters of s, the ones the
+// welcome lettering draws, up to WelcomeMarkMax.
+func CleanWelcomeMark(s string) string {
+	out := make([]byte, 0, min(len(s), WelcomeMarkMax))
+	for i := 0; i < len(s) && len(out) < WelcomeMarkMax; i++ {
+		if s[i] >= ' ' && s[i] <= '~' {
+			out = append(out, s[i])
+		}
+	}
+	return string(out)
+}
+
 var Languages = []string{"system", "english", "chinese", "traditional_chinese", "japanese", "korean", "french", "german", "spanish", "portuguese_brazil", "russian"}
 
 func (d Data) Validate() error {
@@ -255,6 +274,9 @@ func (d Data) Validate() error {
 	}
 	if d.ViewZoom != nil && !slices.Contains(ViewZoomLevels, *d.ViewZoom) {
 		return errors.New("invalid view zoom")
+	}
+	if d.WelcomeMark != nil && CleanWelcomeMark(*d.WelcomeMark) != *d.WelcomeMark {
+		return errors.New("invalid welcome lettering")
 	}
 	if d.Surfaces != nil {
 		valid := func(v float32, lo float32) bool { return !math.IsNaN(float64(v)) && v >= lo && v <= 100 }
