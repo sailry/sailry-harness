@@ -98,6 +98,11 @@ func TestBalanceAndPermissionClassification(t *testing.T) {
 		{"401", 401, `{"error":{"message":"Unauthorized"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
 		{"401 quota text", 401, `{"error":{"message":"no quota for this key"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
 		{"invalid key code", 400, `{"error":{"code":"invalid_api_key","message":"Incorrect API key"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
+		{"balance type behind a generic code", 400, `{"error":{"code":"api_error","type":"insufficient_quota","message":"Quota exceeded"}}`, Quota, true, protocol.ModelFailureQuota},
+		{"invalid key type behind a status code", 403, `{"error":{"code":"403","type":"invalid_api_key","message":"Invalid key"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
+		{"403 authentication error", 403, `{"error":{"type":"authentication_error","message":"Invalid credentials"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
+		{"403 unauthorized code", 403, `{"error":{"code":"unauthorized","message":"Unauthorized"}}`, Authentication, false, protocol.ModelFailureUnauthorized},
+		{"403 Bedrock access denied", 403, `{"type":"AccessDeniedException","message":"You don't have access to the model"}`, Authentication, false, protocol.ModelFailureUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			failure := Classify(&fantasy.ProviderError{StatusCode: test.status, ResponseBody: []byte(test.body)})

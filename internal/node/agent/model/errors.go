@@ -176,17 +176,23 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		overloaded := overloadedCode(code)
 		overflow := provider.ContextTooLargeErr || contextOverflowCode(code)
 		usageMissing := containsCode(code, "upstream_usage_missing")
+		// A generic code can stand beside the specific type, so every code
+		// the response names takes part in the classification; the first
+		// one labels the message.
+		codes := []string{provider.ErrorType}
 		foundCode := false
 		for _, path := range [][]string{{"error", "code"}, {"error", "type"}, {"response", "error", "code"}, {"response", "error", "type"}, {"code"}, {"type"}} {
 			if value := jsonString(body, path...); value != "" {
 				overloaded = overloaded || overloadedCode(value)
 				overflow = overflow || contextOverflowCode(value)
 				usageMissing = usageMissing || containsCode(value, "upstream_usage_missing")
+				codes = append(codes, value)
 				if !foundCode {
 					code, foundCode = value, true
 				}
 			}
 		}
+		invalidKey := anyCode(codes, invalidKeyCodes...)
 		message := ""
 		for _, path := range [][]string{{"error", "message"}, {"response", "error", "message"}, {"message"}, {"detail"}} {
 			if value := jsonString(body, path...); value != "" {
@@ -222,19 +228,21 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		case overflow || strings.Contains(lower, "maximum context length") ||
 			strings.Contains(strings.ToLower(message), "input exceeds the context window"):
 			f.Kind = ContextOverflow
-		case !invalidKeyCode(code) && (status == 402 || containsCode(code, "insufficient_quota", "credits_exhausted", "billing_not_active", "quota_exceeded", "billing_hard_limit_reached", "insufficient_balance", "insufficient_credits", "payment_required") ||
+		case !invalidKey && (status == 402 || anyCode(codes, "insufficient_quota", "credits_exhausted", "billing_not_active", "quota_exceeded", "billing_hard_limit_reached", "insufficient_balance", "insufficient_credits", "payment_required") ||
 			strings.Contains(lower, "all available accounts exhausted")):
 			// A declared balance code is checked before the authentication
 			// rule, since gateways send it with 403. A refusal stated only in
 			// prose stays a 403 and is shown with the provider's own message.
 			f.Kind = Quota
-		case status == 401 || status == 403 || provider.AuthError || invalidKeyCode(code) || containsCode(code, "authentication_error", "unauthorized", "permission_denied"):
+		case status == 401 || status == 403 || provider.AuthError || invalidKey || anyCode(codes, "authentication_error", "unauthorized", "permission_denied"):
 			f.Kind = Authentication
-			f.forbidden = status == 403 && !invalidKeyCode(code)
-		case status == 429 || rateLimitCode(code):
+			// A 403 that names a credential failure is not an account
+			// rotation and does not recover by resending.
+			f.forbidden = status == 403 && !invalidKey && !anyCode(codes, "authentication_error", "unauthorized", "AccessDeniedException")
+		case status == 429 || anyCode(codes, rateLimitCodes...):
 			f.Kind = RateLimited
 		// Bedrock reports stream exceptions by type after a 200 response.
-		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || containsCode(code, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error",
+		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || anyCode(codes, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error",
 			"serviceUnavailableException", "internalServerException", "modelStreamErrorException", "modelTimeoutException"):
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
@@ -269,12 +277,14 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	return f
 }
 
-func rateLimitCode(code string) bool {
-	return containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests", "throttlingException")
-}
+var (
+	rateLimitCodes  = []string{"rate_limit_exceeded", "rate_limit_error", "too_many_requests", "throttlingException"}
+	invalidKeyCodes = []string{"invalid_api_key", "invalid_authentication"}
+)
 
-func invalidKeyCode(code string) bool {
-	return containsCode(code, "invalid_api_key", "invalid_authentication")
+// anyCode reports whether any of the response's codes is one of codes.
+func anyCode(values []string, codes ...string) bool {
+	return slices.ContainsFunc(values, func(value string) bool { return containsCode(value, codes...) })
 }
 
 func contextOverflowCode(code string) bool {
