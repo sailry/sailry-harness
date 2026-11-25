@@ -90,7 +90,7 @@ go -C "$harness_root" run ./native/fetch -target "$platform" -host -seal "$stage
 # The installer accepts only an archive whose Host reports its release version.
 version=$("$stage/host/sailry-host" --version)
 version=${version#Sailry Host }
-cp "$package/sailry" "$package/install-host.sh" "$package/service.sh" "$stage/host/"
+cp "$package/sailry" "$package/install-host.sh" "$package/service.sh" "$package/select-host-release.py" "$stage/host/"
 if test -n "${SAILRY_RELEASE_REPOSITORY:-}"; then
   SAILRY_RELEASE_REPOSITORY=$SAILRY_RELEASE_REPOSITORY python3 - "$stage/host/install-host.sh" "$version" <<'PY'
 import os

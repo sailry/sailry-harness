@@ -45,6 +45,13 @@ case "${0##*/}" in
         test -z "$destination"
         cat "$SAILRY_INSTALL_FIXTURE/releases.json"
         ;;
+      https://api.github.com/repos/sailry/*/releases\?per_page=100\&page=*)
+        test -z "$destination"
+        cat "$SAILRY_INSTALL_FIXTURE/releases-${url##*=}.json"
+        if test -f "$SAILRY_INSTALL_FIXTURE/mark-release-complete"; then
+          : > "$SAILRY_INSTALL_FIXTURE/release-stream-complete"
+        fi
+        ;;
       https://github.com/sailry/*/releases/download/v*)
         test -n "$destination"
         cp "$SAILRY_INSTALL_FIXTURE/${url#https://github.com/}" "$destination"

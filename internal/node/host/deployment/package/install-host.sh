@@ -27,15 +27,20 @@ if test "$task_update" = 1 && test -n "$task_network_mode"; then
   echo 'Network options apply to new installations; edit an existing Host network through its controller' >&2
   exit 1
 fi
-task_version="${task_version:-$task_default_version}"
-if test -z "$task_version"; then
-  task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-    "https://api.github.com/repos/${task_repository#https://github.com/}/releases?per_page=1" | \
-    sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n 1)"
-fi
-case "$task_version" in ''|*[!a-zA-Z0-9.+-]*) echo 'Invalid release version' >&2; exit 1 ;; esac
-if ! [[ "$task_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-  echo 'Invalid release version' >&2; exit 1
+task_select_update=0
+if test -z "$task_version" && test "$task_update" = 1 && test "$task_repository" = https://github.com/sailry/sailry-code; then
+  task_select_update=1
+else
+  task_version="${task_version:-$task_default_version}"
+  if test -z "$task_version"; then
+    task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+      "https://api.github.com/repos/${task_repository#https://github.com/}/releases?per_page=1" | \
+      sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n 1)"
+  fi
+  case "$task_version" in ''|*[!a-zA-Z0-9.+-]*) echo 'Invalid release version' >&2; exit 1 ;; esac
+  if ! [[ "$task_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    echo 'Invalid release version' >&2; exit 1
+  fi
 fi
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) task_target=x86_64-unknown-linux-gnu ;;
@@ -94,6 +99,16 @@ task_check_paths() {
   fi
 }
 task_check_paths
+if test "$task_select_update" = 1; then
+  task_current_version="$("$task_existing/$task_binary" --version)"
+  SAILRY_HOST_EXPECT_CURRENT_VERSION="${SAILRY_HOST_EXPECT_CURRENT_VERSION:-$task_current_version}"
+  task_version="$("$task_existing/python/bin/python3.12" -I "$task_existing/select-host-release.py" \
+    "$task_repository" "$task_binary-$task_target.tar.gz" "SHA256SUMS-$task_target" "$task_current_version")"
+  if test -z "$task_version"; then
+    printf 'Host %s is already up to date\n' "${task_current_version#Sailry Host }"
+    exit 0
+  fi
+fi
 umask 077
 # Shared parents such as /usr/local/libexec stay usable by other software;
 # the program directory itself is published from the private stage.
