@@ -8,7 +8,7 @@ import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/ui/kit.dart';
 import 'package:sailry_mobile/ui/theme.dart';
 
-import 'support/drafts.dart';
+import '../../support/drafts.dart';
 
 void main() {
   for (final kind in ['register_project', 'update_project', 'remove_project']) {
