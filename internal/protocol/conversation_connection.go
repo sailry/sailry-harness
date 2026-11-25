@@ -4,6 +4,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"net/url"
+	"regexp"
+	"strings"
 )
 
 type ConversationConnectionOptions struct {
@@ -128,6 +131,42 @@ func (value ConversationConnectionOptionsVertexAiPayload) Endpoint() string {
 		return "https://aiplatform." + value.Location + ".rep.googleapis.com"
 	}
 	return "https://" + value.Location + "-aiplatform.googleapis.com"
+}
+
+// cloudName matches a cloud region or location: a lower-case DNS label such
+// as "us-east-1", "us-central1", "global" or "eu".
+var cloudName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
+
+// CloudName reports a valid Bedrock region or Vertex AI location.
+func CloudName(value string) bool { return cloudName.MatchString(value) }
+
+// CloudEndpointApi is the cloud whose public service host, the one a region
+// or location names, the HTTPS endpoint addresses: Bedrock or Vertex AI. It
+// is "" for any other host, including a private cloud endpoint.
+func CloudEndpointApi(endpoint string) ConversationModelApi {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Scheme != "https" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if name, ok := strings.CutPrefix(host, "bedrock-runtime."); ok {
+		if name, ok = strings.CutSuffix(name, ".amazonaws.com"); ok && CloudName(name) {
+			return ConversationModelApiBedrock
+		}
+		return ""
+	}
+	if host == "aiplatform.googleapis.com" {
+		return ConversationModelApiVertexAi
+	}
+	if name, ok := strings.CutSuffix(host, "-aiplatform.googleapis.com"); ok && CloudName(name) {
+		return ConversationModelApiVertexAi
+	}
+	if name, ok := strings.CutPrefix(host, "aiplatform."); ok {
+		if name, ok = strings.CutSuffix(name, ".rep.googleapis.com"); ok && CloudName(name) {
+			return ConversationModelApiVertexAi
+		}
+	}
+	return ""
 }
 
 // Bedrock is the Bedrock payload of options of that kind, decoded or built

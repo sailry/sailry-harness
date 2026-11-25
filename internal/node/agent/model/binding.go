@@ -355,7 +355,7 @@ func transportBinding(binding Binding) (transportConfig, error) {
 				version = v.ApiVersion
 			}
 		}
-		if !safeSegment(version) || !safeSegment(config.Model) {
+		if !providers.PathSegment(version) || !providers.PathSegment(config.Model) {
 			return config, &Failure{Kind: InvalidRequest, Message: "Azure connection options are invalid"}
 		}
 		path := strings.Trim(u.Path, "/")
@@ -498,16 +498,4 @@ func transportBinding(binding Binding) (transportConfig, error) {
 
 func customHeaderAllowed(name, credentialHeader string) bool {
 	return !strings.EqualFold(name, credentialHeader) && !providers.ReservedHeader(name)
-}
-
-func safeSegment(value string) bool {
-	if value == "" || len(value) > 128 || value == "." || value == ".." {
-		return false
-	}
-	for _, c := range value {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-			return false
-		}
-	}
-	return true
 }

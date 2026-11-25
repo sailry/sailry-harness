@@ -22,6 +22,7 @@ import (
 
 	"github.com/egoist/mygo/netproxy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	_ "golang.org/x/image/webp" // provider images that are re-encoded as PNG
 )
@@ -607,7 +608,7 @@ func generateVideo(ctx context.Context, binding Binding, prompt, resume string, 
 		}
 	}
 	id := current.ID
-	if !safeSegment(id) {
+	if !providers.PathSegment(id) {
 		return MediaOutput{}, &Failure{Kind: InvalidResponse, Message: "media provider returned an invalid video job"}
 	}
 	output := MediaOutput{Job: id}

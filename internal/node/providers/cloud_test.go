@@ -49,6 +49,20 @@ func TestValidateCloud(t *testing.T) {
 			t.Errorf("%s: %v", row.name, err)
 		}
 	}
+	// The endpoint is a service host: a path is refused when it is saved,
+	// while a private host is accepted as given.
+	for endpoint, valid := range map[string]bool{
+		"https://bedrock-runtime.us-east-1.amazonaws.com/":   true,
+		"https://vpce-1.bedrock-runtime.us-east-1.vpce.aws":  true,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/v1": false,
+		"https://gateway.example/bedrock":                    false,
+	} {
+		provider := cloudFixture(protocol.ConversationModelApiBedrock, bedrock("us-east-1"))
+		provider.Endpoint = endpoint
+		if err := ValidateConfiguration(provider); (err == nil) != valid {
+			t.Errorf("endpoint %s: %v", endpoint, err)
+		}
+	}
 	signedIn := cloudFixture(protocol.ConversationModelApiBedrock, bedrock("us-east-1"))
 	signedIn.Authentication = protocol.AuthenticationClaudeOAuth
 	if ValidateCloud(signedIn) == nil {
@@ -71,6 +85,11 @@ func TestCloudCatalogNamespace(t *testing.T) {
 		"https://aiplatform.eu.rep.googleapis.com":          "google-vertex",
 		"http://bedrock-runtime.us-east-1.amazonaws.com":    "",
 		"https://bedrock-runtime.us-east-1.amazonaws.com.x": "",
+		"https://bedrock-runtime..amazonaws.com":            "",
+		"https://bedrock-runtime.a.b.amazonaws.com":         "",
+		"https://-aiplatform.googleapis.com":                "",
+		"https://us.central1-aiplatform.googleapis.com":     "",
+		"https://aiplatform..rep.googleapis.com":            "",
 	} {
 		if got, err := ChannelCatalogNamespace(endpoint, protocol.AuthenticationApiKey); err != nil || got != namespace {
 			t.Errorf("namespace of %s = %q, %v; want %q", endpoint, got, err, namespace)

@@ -1,24 +1,20 @@
 package providers
 
 import (
-	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Cloud regions and locations are lower-case names such as "us-east-1",
-// "us-central1", "global" or "eu". Project IDs are lower-case words joined by
-// hyphens, optionally under a legacy "domain:" scope.
-var (
-	cloudRegion  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}[a-z0-9]$`)
-	cloudProject = regexp.MustCompile(`^(?:[a-z0-9.-]{1,63}:)?[a-z][a-z0-9-]{4,61}[a-z0-9]$`)
-)
+// Project IDs are lower-case words joined by hyphens, optionally under a
+// legacy "domain:" scope. Regions and locations are protocol.CloudName.
+var cloudProject = regexp.MustCompile(`^(?:[a-z0-9.-]{1,63}:)?[a-z][a-z0-9-]{4,61}[a-z0-9]$`)
 
 // ValidateCloud checks an Amazon Bedrock or Vertex AI provider: API-key
-// authentication (the Bedrock API key or the service-account JSON) and the
-// region, or the project and location, its options name.
+// authentication (the Bedrock API key or the service-account JSON), the
+// region, or the project and location, its options name, and an endpoint
+// that is a service host without a path.
 func ValidateCloud(provider protocol.ConversationProvider) error {
 	if provider.Authentication != protocol.AuthenticationApiKey {
 		return invalid("cloud providers use API-key authentication")
@@ -26,16 +22,23 @@ func ValidateCloud(provider protocol.ConversationProvider) error {
 	switch provider.Api {
 	case protocol.ConversationModelApiBedrock:
 		options, ok := provider.Options.Bedrock()
-		if !ok || !cloudRegion.MatchString(options.Region) {
+		if !ok || !protocol.CloudName(options.Region) {
 			return invalid("connection options do not match the provider")
 		}
 	case protocol.ConversationModelApiVertexAi:
 		options, ok := provider.Options.VertexAi()
-		if !ok || !cloudProject.MatchString(options.Project) || !cloudRegion.MatchString(options.Location) {
+		if !ok || !cloudProject.MatchString(options.Project) || !protocol.CloudName(options.Location) {
 			return invalid("connection options do not match the provider")
 		}
 	default:
 		return invalid("connection options do not match the provider")
+	}
+	endpoint, err := Endpoint(provider.Endpoint)
+	if err != nil {
+		return err
+	}
+	if strings.Trim(endpoint.Path, "/") != "" {
+		return invalid("cloud endpoint must be a service host without a path")
 	}
 	return nil
 }
@@ -43,16 +46,10 @@ func ValidateCloud(provider protocol.ConversationProvider) error {
 // cloudNamespace is the catalog namespace of a Bedrock runtime or Vertex AI
 // service endpoint, "" for any other host.
 func cloudNamespace(endpoint string) string {
-	u, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || u.Scheme != "https" {
-		return ""
-	}
-	host := strings.ToLower(u.Hostname())
-	if strings.HasPrefix(host, "bedrock-runtime.") && strings.HasSuffix(host, ".amazonaws.com") {
+	switch protocol.CloudEndpointApi(endpoint) {
+	case protocol.ConversationModelApiBedrock:
 		return "amazon-bedrock"
-	}
-	if host == "aiplatform.googleapis.com" || strings.HasSuffix(host, "-aiplatform.googleapis.com") ||
-		strings.HasPrefix(host, "aiplatform.") && strings.HasSuffix(host, ".rep.googleapis.com") {
+	case protocol.ConversationModelApiVertexAi:
 		return "google-vertex"
 	}
 	return ""
