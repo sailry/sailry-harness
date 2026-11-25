@@ -421,9 +421,18 @@ func testProviderFlow(t *testing.T) {
 	// connection options, and a saved one shows it again.
 	azure := viewmodel.Channel{ID: protocol.ProviderID{9}.String(), Name: "Azure", Node: snapshot.Node.String(), Method: snapshot.Node.String() + "/builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
 		Endpoint: "https://unit.openai.azure.com", APIVersion: "2025-01-01-preview", Models: []viewmodel.ChannelModel{{ID: "deployment", Context: 128000}}}
-	before := sent()
-	m.ProviderActions.Save(settings.ProviderDraft{Channel: azure, Key: "key"}, func(settings.ProviderSaveResult) {})
-	await("the Azure save", func() bool { return sent() == before+1 })
+	saveChannel := func(what string, draft settings.ProviderDraft) int {
+		t.Helper()
+		before := sent()
+		var result *settings.ProviderSaveResult
+		m.ProviderActions.Save(draft, func(r settings.ProviderSaveResult) { result = &r })
+		await(what, func() bool { return result != nil })
+		if len(result.Succeeded) != 1 || sent() != before+1 {
+			t.Fatalf("%s: %d successful targets, %d requests", what, len(result.Succeeded), sent()-before)
+		}
+		return before
+	}
+	before := saveChannel("the Azure save", settings.ProviderDraft{Channel: azure, Key: "key"})
 	transport.mu.Lock()
 	p = saves[before].Provider
 	transport.mu.Unlock()
@@ -447,9 +456,7 @@ func testProviderFlow(t *testing.T) {
 	} {
 		cloud.ID, cloud.Name, cloud.Node = protocol.ProviderID{byte(10 + i)}.String(), "Cloud", snapshot.Node.String()
 		cloud.Method = snapshot.Node.String() + cloud.Method
-		before := sent()
-		m.ProviderActions.Save(settings.ProviderDraft{Channel: cloud, Key: "credential"}, func(settings.ProviderSaveResult) {})
-		await("the cloud save", func() bool { return sent() == before+1 })
+		before := saveChannel("the cloud save", settings.ProviderDraft{Channel: cloud, Key: "credential"})
 		transport.mu.Lock()
 		p = saves[before].Provider
 		transport.mu.Unlock()
