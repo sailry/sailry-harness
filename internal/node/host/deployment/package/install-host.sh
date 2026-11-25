@@ -5,6 +5,7 @@ set -euo pipefail
 task_package=sailry
 task_label=ai.sailry.host
 task_repository=https://github.com/sailry/sailry-harness
+task_default_version=""
 task_binary="$task_package-host"
 task_version=""
 task_update=0
@@ -26,6 +27,7 @@ if test "$task_update" = 1 && test -n "$task_network_mode"; then
   echo 'Network options apply to new installations; edit an existing Host network through its controller' >&2
   exit 1
 fi
+task_version="${task_version:-$task_default_version}"
 if test -z "$task_version"; then
   task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
     "https://api.github.com/repos/${task_repository#https://github.com/}/releases?per_page=1" | \

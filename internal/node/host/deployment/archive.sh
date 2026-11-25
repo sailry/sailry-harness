@@ -92,9 +92,10 @@ version=$("$stage/host/sailry-host" --version)
 version=${version#Sailry Host }
 cp "$package/sailry" "$package/install-host.sh" "$package/service.sh" "$stage/host/"
 if test -n "${SAILRY_RELEASE_REPOSITORY:-}"; then
-  SAILRY_RELEASE_REPOSITORY=$SAILRY_RELEASE_REPOSITORY python3 - "$stage/host/install-host.sh" <<'PY'
+  SAILRY_RELEASE_REPOSITORY=$SAILRY_RELEASE_REPOSITORY python3 - "$stage/host/install-host.sh" "$version" <<'PY'
 import os
 from pathlib import Path
+import shlex
 import sys
 
 path = Path(sys.argv[1])
@@ -103,7 +104,13 @@ repository = os.environ["SAILRY_RELEASE_REPOSITORY"]
 previous = "task_repository=https://github.com/sailry/sailry-harness\n"
 if source.count(previous) != 1:
     raise SystemExit("Host installer repository declaration is missing or ambiguous")
-path.write_text(source.replace(previous, f"task_repository={repository}\n", 1))
+source = source.replace(previous, f"task_repository={repository}\n", 1)
+if repository == "https://github.com/sailry/sailry-code":
+    previous = 'task_default_version=""\n'
+    if source.count(previous) != 1:
+        raise SystemExit("Host installer default version declaration is missing or ambiguous")
+    source = source.replace(previous, f"task_default_version={shlex.quote(sys.argv[2])}\n", 1)
+path.write_text(source)
 PY
 fi
 chmod 755 "$stage/host/sailry"
