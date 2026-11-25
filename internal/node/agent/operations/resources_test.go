@@ -17,10 +17,6 @@ import (
 func TestSkillLoad(t *testing.T) {
 	document := "\ufeff\n---\nname: inspect\ndescription: Inspect bounded resources\nmetadata:\n  display-name.zh-CN: 检查\n...\n\n# Instructions\nKeep the complete document Ω\n"
 	tree := fstest.MapFS{"skills/inspect/SKILL.md": {Data: []byte(document)}, "skills/inspect/docs/guide.txt": {Data: []byte("complete text 界🙂\n")}, "skills/inspect/binary": {Data: []byte{0xff, 0xfe}}, "skills/inspect/large": {Data: []byte(strings.Repeat("x", SkillBytes+1))}}
-	skills := discoverSkills(tree)
-	if len(skills) != 1 || skills[0].DisplayLocales["zh-CN"] != "检查" {
-		t.Fatal("skill metadata", skills)
-	}
 	tree["plugin.json"] = &fstest.MapFile{Data: []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"fixture","version":"1.0.0","description":"Fixture"}`)}
 	source, profile := t.TempDir(), t.TempDir()
 	if err := os.CopyFS(source, tree); err != nil {
@@ -29,6 +25,9 @@ func TestSkillLoad(t *testing.T) {
 	info, err := plugins.NewManager(profile).Install(t.Context(), source, "", "fixture")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(info.Skills) != 1 || info.Skills[0].DisplayLocales["zh-CN"] != "检查" {
+		t.Fatal("skill metadata", info.Skills)
 	}
 	resources, err := CaptureResources(t.Context(), profile, []protocol.PluginReference{plugins.PackageReference(info)})
 	if err != nil {
@@ -60,6 +59,12 @@ func TestSkillLoad(t *testing.T) {
 	if _, err := resources.Read(ctx, "fixture:inspect", "SKILL.md"); err == nil {
 		t.Fatal("cancelled resource read succeeded")
 	}
+	t.Run("installed skill-only packages retain captured identities", func(t *testing.T) {
+		captured, err := CaptureResources(t.Context(), profile, []protocol.PluginReference{plugins.PackageReference(info)})
+		if err != nil || len(captured.Skills()) != 1 || captured.packages[0].Reference != plugins.PackageReference(info) {
+			t.Fatal("skill-only package missing from admission", err)
+		}
+	})
 	if err := os.WriteFile(filepath.Join(value.Directory, "docs", "guide.txt"), []byte("changed"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,96 +83,67 @@ func TestSkillLoad(t *testing.T) {
 	})
 	t.Run("metadata preserves source scalar types", func(t *testing.T) {
 		for _, header := range []string{"name: inspect\ndescription: 123\n", "name: inspect\ndescription: Description\nmetadata:\n  bad: 123\n", "name: inspect\ndescription: Description\nallowed-tools: null\n", "name: other\ndescription: Description\n"} {
-			if _, err := parseSkill("inspect", "---\n"+header+"---\nBody"); err == nil {
+			source, profile := t.TempDir(), t.TempDir()
+			if err := os.CopyFS(source, tree); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "skills", "inspect", "SKILL.md"), []byte("---\n"+header+"---\nBody"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := plugins.NewManager(profile).Install(t.Context(), source, "", "fixture")
+			if err == nil && len(info.Skills) != 0 {
 				t.Fatalf("invalid metadata accepted: %q", header)
 			}
 		}
 	})
-	t.Run("bundled skill-only packages retain captured identities", func(t *testing.T) {
-		catalog, err := Bundled()
-		if err != nil {
-			t.Fatal(err)
-		}
-		found := false
-		for _, p := range catalog.Packages {
-			if len(p.Skills) == 0 {
-				continue
-			}
-			native := false
-			for _, tool := range catalog.Tools {
-				if tool.Owner == p.Reference {
-					native = true
-				}
-			}
-			if !native {
-				found = true
-				captured, err := CaptureResources(t.Context(), t.TempDir(), []protocol.PluginReference{p.Reference})
-				if err != nil || len(captured.Skills()) != len(p.Skills) {
-					t.Fatal("skill-only package missing from admission", p.Reference, err)
-				}
-				break
-			}
-		}
-		if !found {
-			t.Fatal("pinned bundled skill-only fixture is missing")
-		}
-	})
 }
 
-// Cancel at the first context check after a package file has reached disk.
-// Neither the name of the in-progress directory nor filesystem timing matters.
-type cancelDuringPackageWrite struct {
-	context.Context
-	cancel context.CancelFunc
-	store  string
-}
-
-func (c cancelDuringPackageWrite) Err() error {
-	dirs, _ := os.ReadDir(c.store)
-	for _, dir := range dirs {
-		if entries, _ := os.ReadDir(filepath.Join(c.store, dir.Name())); len(entries) > 0 {
-			c.cancel()
-			break
-		}
+func TestCapturedSkillRetainsDigestAcrossUpdates(t *testing.T) {
+	source, profile := t.TempDir(), t.TempDir()
+	manager := plugins.NewManager(profile)
+	const document = "---\nname: inspect\ndescription: Inspect captured resources\n---\nOriginal instructions\n"
+	tree := fstest.MapFS{
+		"plugin.json":             {Data: []byte(`{"$schema":"` + plugins.ManifestSchema + `","name":"fixture","version":"1.0.0"}`)},
+		"skills/inspect/SKILL.md": {Data: []byte(document)},
 	}
-	return c.Context.Err()
-}
-
-func TestBundledSkillPublication(t *testing.T) {
-	profile := filepath.Join(t.TempDir(), "profile")
-	if err := os.Mkdir(profile, 0o700); err != nil {
+	if err := os.CopyFS(source, tree); err != nil {
 		t.Fatal(err)
 	}
-	manager := plugins.NewManager(profile)
-	info, err := manager.InspectBundled(t.Context(), "brief")
+	info, err := manager.Install(t.Context(), source, "", "fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ref := plugins.PackageReference(info)
+	if err := os.WriteFile(filepath.Join(source, "skills", "inspect", "SKILL.md"), []byte(document+"Updated instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := manager.Install(t.Context(), source, "", "fixture")
+	if err != nil || updated.Summary.Digest == ref.Digest {
+		t.Fatal("update did not produce a new capture", err)
+	}
 	resources, err := CaptureResources(t.Context(), profile, []protocol.PluginReference{ref})
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := filepath.Join(profile, "plugins", "packages")
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	if _, err := resources.Read(cancelDuringPackageWrite{ctx, cancel, store}, "brief:brief", "SKILL.md"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("read interrupted during publication: %v", err)
+	resources.AddNativeSkills([]NativeSkillPackage{{Package: "fixture", Skills: []protocol.PluginSkill{{Name: "inspect"}}, Tree: fstest.MapFS{
+		"skills/inspect/SKILL.md": {Data: []byte("Native instructions")},
+	}}})
+	read, err := resources.Read(t.Context(), "fixture:inspect", "SKILL.md")
+	if err != nil || read.Content != document || resources.packages[0].Reference != ref {
+		t.Fatal("captured skill was replaced by the updated package or native module", read, err)
 	}
-	if entries, err := os.ReadDir(store); err != nil || len(entries) != 0 {
-		t.Fatalf("interrupted publication left %v: %v", entries, err)
+	if _, err := CaptureCatalog(t.Context(), profile, []protocol.PluginReference{ref}); err != nil {
+		t.Fatal("old capture is no longer available", err)
 	}
-	if _, err := resources.Read(t.Context(), "brief:brief", "SKILL.md"); err != nil {
+	root, err := manager.PackageRoot(ref)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.CapturedInfo(t.Context(), ref); err != nil {
-		t.Fatal("retry did not publish the captured package:", err)
-	}
-	manifest := filepath.Join(store, ref.Digest, "plugin.json")
+	manifest := filepath.Join(root, "plugin.json")
 	if err := os.Remove(manifest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resources.Read(t.Context(), "brief:brief", "SKILL.md"); err == nil {
+	if _, err := resources.Read(t.Context(), "fixture:inspect", "SKILL.md"); err == nil {
 		t.Fatal("read accepted a damaged published package")
 	}
 	if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {

@@ -127,7 +127,7 @@ func capabilityInstructions(x *execution, policy string) string {
 func loadedToolContext(x *execution, policy string, loaded []string) []string {
 	var blocks, selected, shown, instructions []string
 	for _, tool := range x.tools {
-		if !tool.Deferred || !toolLoaded(loaded, tool) {
+		if !tool.Deferred || !toolLoaded(loaded, tool, x.names) {
 			continue
 		}
 		selected = append(selected, tool.Definition.Name)

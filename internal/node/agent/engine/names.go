@@ -130,31 +130,10 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 			result.reverse[value.name] = value.alias
 		}
 	}
-	if slices.Contains(historical, operations.LegacyUpdatePlanTool) {
-		result.forward[operations.LegacyUpdatePlanTool] = operations.UpdatePlanTool
-	}
-	for _, tool := range tools {
-		name := tool.Definition.Name
-		if operations.IsCommandTool(name) {
-			legacy := operations.Alias("commands", name)
+	for legacy, name := range legacyToolAliases(tools) {
+		if _, taken := result.reverse[legacy]; !taken {
 			result.forward[legacy] = name
 			result.reverse[legacy] = name
-		}
-		if legacy := tool.LegacyAlias(); legacy != "" && legacy != name {
-			result.forward[legacy] = name
-			result.reverse[legacy] = name
-		}
-		if tool.LegacyServer != "" {
-			legacyName := tool.LegacyName
-			if legacyName == "" {
-				legacyName = name
-			}
-			if exposed := MCPToolName(tool.LegacyServer, legacyName); exposed != "" && exposed != name {
-				if _, taken := result.reverse[exposed]; !taken && !registered[exposed] {
-					result.forward[exposed] = name
-					result.reverse[exposed] = name
-				}
-			}
 		}
 	}
 	return result
@@ -247,7 +226,7 @@ func (e *exposure) request(records []canonical.Record, tools []fantasy.FunctionT
 						call.Arguments = arguments
 						replace(position, &call)
 					}
-				} else if name := e.name(value.Name); dispatch && e.captured[value.Name] && !declared[name] {
+				} else if name := e.name(value.Name); dispatch && e.captured[e.alias(value.Name)] && !declared[name] {
 					if arguments, err := json.Marshal(dispatched{Name: name, Arguments: value.Arguments}); err == nil {
 						call := *value
 						call.Name, call.Arguments = callToolName, arguments

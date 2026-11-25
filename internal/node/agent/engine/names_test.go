@@ -69,10 +69,10 @@ func TestCoreCommandAliases(t *testing.T) {
 		t.Fatalf("unexpected tool alias mapping: %v %v", names.forward, names.reverse)
 	}
 	selector := protocol.PluginConversationTool{Kind: "package", Data: &protocol.PluginConversationToolPackagePayload{Package: "commands", Name: name}}
-	if !roleToolMatches(selector, native) || roleToolMatches(selector, tools[1]) {
+	if !roleToolMatches(selector, native, legacyToolAliases(tools)) || roleToolMatches(selector, tools[1], legacyToolAliases(tools)) {
 		t.Fatal("the legacy role selector did not bind exclusively to the core command tool")
 	}
-	if !toolWasLoaded([]string{legacy}, name) || toolWasLoaded([]string{other}, name) {
+	if !toolLoaded([]string{legacy}, native, names) || toolLoaded([]string{other}, native, names) {
 		t.Fatal("the core command did not preserve the saved discovery state")
 	}
 }

@@ -136,7 +136,7 @@ func (r *Runtime) CommandPython(ctx context.Context, turn protocol.TurnID) (*pyt
 	return value, err
 }
 
-func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool {
+func roleToolMatches(selection protocol.PluginConversationTool, tool Tool, legacy map[string]string) bool {
 	raw, err := json.Marshal(selection.Data)
 	if err != nil {
 		return false
@@ -150,22 +150,11 @@ func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool 
 		if json.Unmarshal(raw, &value) != nil {
 			return false
 		}
-		if value.Package == "progress" && value.Name == operations.UpdatePlanTool && tool.Definition.Name == operations.UpdatePlanTool {
-			return tool.Binding == nil
+		alias := operations.Alias(value.Package, value.Name)
+		if nativeTool(tool) && legacy[alias] == tool.Definition.Name {
+			return true
 		}
-		if value.Package == "commands" && operations.IsCommandTool(value.Name) {
-			return tool.Binding != nil && tool.Binding.Owner.Name == "" && tool.Definition.Name == value.Name
-		}
-		if tool.LegacyPackage == value.Package {
-			legacy := tool.LegacyName
-			if legacy == "" {
-				legacy = tool.Definition.Name
-			}
-			if legacy == value.Name {
-				return true
-			}
-		}
-		return tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == operations.Alias(value.Package, value.Name)
+		return tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == alias
 	}
 	return false
 }

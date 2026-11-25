@@ -122,11 +122,14 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 	}
 	parts = append(parts, prompt.Part{Key: "instructions", Text: strings.Join(instructions, "\n\n")})
+	if hasTools {
+		r.exposure(x, state)
+	}
 	ownedParts := []string{}
 	contextPackages := map[string]bool{}
 	child := x.inv.Session.Delegation != nil
 	for _, tool := range x.tools {
-		if !hasTools || child && tool.Deferred && !toolLoaded(state.LoadedTools, tool) {
+		if !hasTools || child && tool.Deferred && !toolLoaded(state.LoadedTools, tool, x.names) {
 			continue
 		}
 		// A package's initializer can describe an active goal or continuation
@@ -143,7 +146,6 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 	}
 	if hasTools {
-		r.exposure(x, state)
 		policy := ""
 		if state.Context.Policy != nil {
 			policy = *state.Context.Policy

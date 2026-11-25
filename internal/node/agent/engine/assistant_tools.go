@@ -31,21 +31,10 @@ func (r *Runtime) applyAssistant(x *execution) error {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant declaration is unavailable"}
 	}
 	nativeTools := map[string]bool{}
-	legacyTools := map[string]string{}
-	legacyByPackageName := map[[2]string]string{}
+	legacyTools := legacyToolAliases(x.tools)
 	for _, tool := range x.tools {
 		if tool.Binding == nil || tool.Binding.Owner.Name == "" {
 			nativeTools[tool.Definition.Name] = true
-		}
-		if legacy := tool.LegacyAlias(); legacy != "" {
-			legacyTools[legacy] = tool.Definition.Name
-		}
-		if tool.LegacyPackage != "" {
-			ln := tool.LegacyName
-			if ln == "" {
-				ln = tool.Definition.Name
-			}
-			legacyByPackageName[[2]string{tool.LegacyPackage, ln}] = tool.Definition.Name
 		}
 	}
 	initial := map[string]bool{}
@@ -72,11 +61,7 @@ func (r *Runtime) applyAssistant(x *execution) error {
 			}
 		case *protocol.PluginConversationToolPackagePayload:
 			name := operations.Alias(value.Package, value.Name)
-			if core := operations.LegacyCommandTool(name); core != "" {
-				name = core
-			} else if native, ok := legacyTools[name]; ok {
-				name = native
-			} else if native, ok := legacyByPackageName[[2]string{value.Package, value.Name}]; ok {
+			if native, ok := legacyTools[name]; ok {
 				name = native
 			}
 			initial[name] = true

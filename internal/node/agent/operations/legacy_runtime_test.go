@@ -19,7 +19,7 @@ func TestRealLegacyOfficialTurnCaptureRequiresNativeModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer archive.Close()
-	for _, name := range []string{"git", "worktrees"} {
+	for _, name := range []string{"databases", "files", "git", "ssh", "worktrees"} {
 		t.Run(name, func(t *testing.T) {
 			source, profile := t.TempDir(), t.TempDir()
 			for _, file := range archive.File {
@@ -57,11 +57,28 @@ func TestRealLegacyOfficialTurnCaptureRequiresNativeModules(t *testing.T) {
 			if _, err := CaptureResources(blocked, profile, references); err == nil {
 				t.Fatal("captured turn admitted actual undeclared legacy native resources")
 			}
-			if _, err := CaptureCatalog(allowed, profile, references); err != nil {
+			catalog, err := CaptureCatalog(allowed, profile, references)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := CaptureResources(allowed, profile, references); err != nil {
+			for _, tool := range catalog.Tools {
+				if tool.Owner != references[0] || tool.Name != Alias(name, tool.Exposed) {
+					t.Fatal("legacy tool lost its admitted package identity", tool)
+				}
+			}
+			resources, err := CaptureResources(allowed, profile, references)
+			if err != nil {
 				t.Fatal(err)
+			}
+			for key, skill := range resources.Skills() {
+				want, err := fs.ReadFile(archive, name+"/"+skill.Path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				read, err := resources.Read(allowed, key, "SKILL.md")
+				if err != nil || read.Content != string(want) {
+					t.Fatal("legacy skill did not retain its captured content", key, err)
+				}
 			}
 		})
 	}

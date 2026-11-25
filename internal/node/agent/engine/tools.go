@@ -96,7 +96,7 @@ func FunctionTool(name, description string, inputSchema map[string]any) fantasy.
 // LegacyAlias returns the former plugin-scoped (or MCP-scoped) canonical alias
 // superseded by this tool, or an empty string if none applies.
 func (t Tool) LegacyAlias() string {
-	if t.LegacyPackage == "" {
+	if !nativeTool(t) || t.LegacyPackage == "" {
 		return ""
 	}
 	name := t.LegacyName
@@ -163,14 +163,15 @@ func (r *Runtime) captureTools(x *execution) error {
 	if child {
 		x.tools = x.parentTools.restrict(x.tools)
 		if x.childRole != nil && x.childRole.Tools != nil {
+			legacy := legacyToolAliases(x.tools)
 			for _, selection := range *x.childRole.Tools {
-				if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return roleToolMatches(selection, tool) }) {
+				if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return roleToolMatches(selection, tool, legacy) }) {
 					return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "role references an unavailable tool"}
 				}
 			}
 			x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool {
 				return tool.Definition.Name != "read_tool_output" && !slices.ContainsFunc(*x.childRole.Tools, func(selection protocol.PluginConversationTool) bool {
-					return roleToolMatches(selection, tool)
+					return roleToolMatches(selection, tool, legacy)
 				})
 			})
 		}
@@ -364,36 +365,72 @@ func (r *Runtime) declarations(x *execution, binding model.Binding, state store.
 	return values
 }
 
-func toolWasLoaded(loaded []string, name string) bool {
-	if slices.Contains(loaded, name) {
-		return true
-	}
-	if operations.IsCommandTool(name) {
-		return slices.Contains(loaded, operations.Alias("commands", name))
-	}
-	return false
-}
-
-func toolLoaded(loaded []string, tool Tool) bool {
-	if toolWasLoaded(loaded, tool.Definition.Name) {
-		return true
-	}
-	if legacy := tool.LegacyAlias(); legacy != "" {
-		return slices.Contains(loaded, legacy)
-	}
-	return false
+func toolLoaded(loaded []string, tool Tool, names *exposure) bool {
+	return slices.ContainsFunc(loaded, func(name string) bool {
+		return names.alias(name) == tool.Definition.Name
+	})
 }
 
 func findTool(tools []Tool, name string) *Tool {
-	if name == operations.LegacyUpdatePlanTool {
-		name = operations.UpdatePlanTool
-	}
 	for i := range tools {
 		if tools[i].Definition.Name == name {
 			return &tools[i]
 		}
 	}
+	if name == operations.LegacyUpdatePlanTool {
+		return findTool(tools, operations.UpdatePlanTool)
+	}
 	return nil
+}
+
+func nativeTool(tool Tool) bool {
+	return tool.Binding == nil || tool.Binding.Owner.Name == ""
+}
+
+// Historical aliases only migrate absent package identities. A captured plugin
+// that owns the old name must keep its executor and approval binding.
+func legacyToolAliases(tools []Tool) map[string]string {
+	registered := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		registered[tool.Definition.Name] = true
+	}
+	aliases := map[string]string{}
+	claim := func(alias, name string) {
+		if alias == "" || registered[alias] {
+			return
+		}
+		if previous, exists := aliases[alias]; exists && previous != name {
+			aliases[alias] = ""
+			return
+		}
+		aliases[alias] = name
+	}
+	for _, tool := range tools {
+		if !nativeTool(tool) {
+			continue
+		}
+		name := tool.Definition.Name
+		claim(tool.LegacyAlias(), name)
+		if tool.LegacyServer != "" {
+			legacy := tool.LegacyName
+			if legacy == "" {
+				legacy = name
+			}
+			claim(MCPToolName(tool.LegacyServer, legacy), name)
+		}
+		if operations.IsCommandTool(name) {
+			claim(operations.Alias("commands", name), name)
+		}
+		if name == operations.UpdatePlanTool {
+			claim(operations.LegacyUpdatePlanTool, name)
+		}
+	}
+	for alias, name := range aliases {
+		if name == "" {
+			delete(aliases, alias)
+		}
+	}
+	return aliases
 }
 
 func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
