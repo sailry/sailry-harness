@@ -66,7 +66,7 @@ type PluginModelAdapterAcp struct {
 	ReplayBytes uint32 `json:"replay_bytes"`
 	// Concurrency is how many requests one of the package's programs serves at
 	// once, each in its own agent session, 1 to 16; without it one.
-	Concurrency uint8 `json:"concurrency,omitempty"`
+	Concurrency *uint8 `json:"concurrency,omitempty"`
 	// AuthMethod is the `authenticate` method tried once when the agent
 	// requires authentication.
 	AuthMethod *string `json:"auth_method,omitempty"`

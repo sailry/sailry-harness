@@ -27,10 +27,11 @@ func DiscoverACP(ctx context.Context, binding Binding, capture ACPCapture) (prot
 	if err != nil {
 		return catalog, Classify(err)
 	}
-	// A session opened only to read its models holds no history and stays
-	// outside the program's slots.
+	// A session opened only to read its models holds no history, stays
+	// outside the program's slots and ends at once.
 	slot := &acpSlot{}
 	err = model.open(owner, agent, slot, "")
+	model.discard(owner, agent, slot.session, true)
 	offers, images, thought := slot.offers, agent.images, slot.thought.Values
 	model.capture.Pool.Release(entry, err == nil)
 	if err != nil {

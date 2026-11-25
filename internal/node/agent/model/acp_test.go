@@ -483,6 +483,21 @@ func TestACPRoute(t *testing.T) {
 		}
 	})
 
+	for _, ending := range []acpFixtureReply{
+		{Chunks: []string{`Sorry, <tool_call>{"name":"read","argu`}, Stop: "max_tokens"},
+		{Stop: "refusal"},
+	} {
+		t.Run("reports a correction that ends by "+ending.Stop+" without its call", func(t *testing.T) {
+			fixture := acpFixtureModel(t, "meta", []acpFixtureReply{
+				{Chunks: []string{`<tool_call>{"name":"read","arguments":{}}</tool_call><tool_call>{"name":</tool_call>`}}, ending,
+			}, nil)
+			result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+			if result.failure == nil || result.failure.Kind != InvalidResponse || len(fixture.received("session/prompt")) != 2 {
+				t.Fatalf("reply = %#v", result)
+			}
+		})
+	}
+
 	t.Run("maps the stop reasons", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{{Chunks: []string{"cut"}, Stop: "max_tokens"}, {Stop: "refusal"}}, nil)
 		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil || result.finish != fantasy.FinishReasonLength || result.text != "cut" {
@@ -677,6 +692,142 @@ func TestACPSessionContinuation(t *testing.T) {
 		})
 	}
 
+	t.Run("counts only the retained messages as seen after /compact", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,resume,compact", []acpFixtureReply{{Chunks: []string{`<tool_call>{"name":"read","arguments":{}}</tool_call>`}}, {Chunks: []string{"done"}}}, nil)
+		first := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
+		if first.failure != nil || len(first.calls) != 1 {
+			t.Fatalf("reply = %#v", first)
+		}
+		id := first.calls[0].ID
+		// The handoff, the retained call, its result the session has not
+		// received and the carried user input, which reads as the first did.
+		compacted := fmt.Sprintf(`[{"role":"user","parts":[{"kind":"text","text":"Summary of the earlier work"}]},
+			{"role":"assistant","parts":[{"kind":"tool_call","id":%q,"name":"read","arguments":{}}]},
+			{"role":"tool","call_id":%q,"name":"read","is_error":false,"parts":[{"kind":"json","value":"content"}]},
+			{"role":"user","parts":[{"kind":"text","text":"hi"}]}]`, id, id)
+		request := acpRequest(t, "", compacted, "read")
+		call := fantasy.Call{ProviderOptions: fantasy.ProviderOptions{pluginRequestKey: &pluginCallRequest{Body: mustJSON(t, request)}}}
+		if err := CompactSession(t.Context(), fixture.model, call); err != nil {
+			t.Fatal(err)
+		}
+		if result := fixture.run(t.Context(), request, nil); result.failure != nil || result.text != "done" {
+			t.Fatalf("reply = %#v", result)
+		}
+		want := fmt.Sprintf("<tool_response id=%q name=\"read\">\ncontent\n</tool_response>\n\nhi", id)
+		if len(fixture.received("session/new")) != 1 || fixture.prompt(1) != acpfixture.Compact || fixture.prompt(2) != want {
+			t.Fatalf("sessions = %d, prompt = %q", len(fixture.received("session/new")), fixture.prompt(2))
+		}
+	})
+
+	compacted := func(t *testing.T) fantasy.Call {
+		history := `[{"role":"user","parts":[{"kind":"text","text":"Summary of the earlier work"}]},{"role":"user","parts":[{"kind":"text","text":"hi"}]},{"role":"assistant","parts":[{"kind":"text","text":"one"}]}]`
+		return fantasy.Call{ProviderOptions: fantasy.ProviderOptions{pluginRequestKey: &pluginCallRequest{Body: mustJSON(t, acpRequest(t, "", history))}}}
+	}
+
+	t.Run("cancels only the /compact prompt", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,resume,compact,compact-hang", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}}, nil)
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
+			t.Fatal(result.failure)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		go func() {
+			defer cancel()
+			for range 500 {
+				if raw, _ := os.ReadFile(filepath.Join(fixture.dir, "requests.log")); strings.Contains(string(raw), `"text":"`+acpfixture.Compact+`"`) {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
+		if err := CompactSession(ctx, fixture.model, compacted(t)); !errors.Is(err, context.Canceled) || len(fixture.received("session/cancel")) != 1 {
+			t.Fatalf("error = %v, cancellations = %d", err, len(fixture.received("session/cancel")))
+		}
+		// The program serves on; the session's content is unknown, so it replays.
+		if result := fixture.run(t.Context(), acpRequest(t, "", second), nil); result.failure != nil || result.text != "two" || len(fixture.received("initialize")) != 1 {
+			t.Fatalf("reply = %#v, programs = %d", result, len(fixture.received("initialize")))
+		}
+	})
+
+	t.Run("retires a program whose /compact never answers", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,resume,compact,compact-hang", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}}, func(capture *ACPCapture) {
+			capture.stall = 300 * time.Millisecond
+		})
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
+			t.Fatal(result.failure)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		if failure := Classify(CompactSession(ctx, fixture.model, compacted(t))); failure == nil || failure.Kind != Network || ctx.Err() != nil {
+			t.Fatalf("failure = %#v, waited until %v", failure, ctx.Err())
+		}
+		if result := fixture.run(t.Context(), acpRequest(t, "", second), nil); result.failure != nil || result.text != "two" || len(fixture.received("initialize")) != 2 {
+			t.Fatalf("reply = %#v, programs = %d", result, len(fixture.received("initialize")))
+		}
+	})
+
+	t.Run("replays a history another model continued", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"three"}}}, nil)
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
+			t.Fatal(result.failure)
+		}
+		switched := strings.TrimSuffix(second, "]") + `,{"role":"assistant","parts":[{"kind":"text","text":"from another model"}]},{"role":"user","parts":[{"kind":"text","text":"again"}]}]`
+		if result := fixture.run(t.Context(), acpRequest(t, "", switched), nil); result.failure != nil || result.text != "three" {
+			t.Fatalf("reply = %#v", result)
+		}
+		if want := "[USER]\nhi\n\n[ASSISTANT]\none\n\n[USER]\nmore\n\n[ASSISTANT]\nfrom another model\n\nagain"; len(fixture.received("session/new")) != 2 || fixture.prompt(1) != want {
+			t.Fatalf("sessions = %d, prompt = %q", len(fixture.received("session/new")), fixture.prompt(1))
+		}
+	})
+
+	// elsewhere is the same route served by another program, as when the
+	// program holding the session was busy.
+	elsewhere := func(t *testing.T, fixture *acpFixture) *acpFixture {
+		other := *fixture.model
+		other.capture.Pool = program.NewPool(2, time.Minute)
+		t.Cleanup(other.capture.Pool.Close)
+		return &acpFixture{t: t, model: &other, dir: fixture.dir}
+	}
+	sessionOf := func(line map[string]any) any { return line["params"].(map[string]any)["sessionId"] }
+
+	t.Run("resumes a session another program continued", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,resume,close", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}, {Chunks: []string{"three"}}}, nil)
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
+			t.Fatal(result.failure)
+		}
+		if result := elsewhere(t, fixture).run(t.Context(), acpRequest(t, "", second), nil); result.failure != nil || result.text != "two" {
+			t.Fatalf("reply elsewhere = %#v", result)
+		}
+		third := strings.TrimSuffix(second, "]") + `,{"role":"assistant","parts":[{"kind":"text","text":"two"}]},{"role":"user","parts":[{"kind":"text","text":"again"}]}]`
+		// Each program counts the scripted replies from its own start.
+		if result := fixture.run(t.Context(), acpRequest(t, "", third), nil); result.failure != nil {
+			t.Fatalf("reply = %#v", result)
+		}
+		prompts := fixture.received("session/prompt")
+		if len(fixture.received("session/new")) != 1 || len(fixture.received("session/close")) != 0 || fixture.prompt(2) != "again" || sessionOf(prompts[2]) != sessionOf(prompts[0]) {
+			t.Fatalf("sessions = %d, closed = %d, prompt = %q", len(fixture.received("session/new")), len(fixture.received("session/close")), fixture.prompt(2))
+		}
+	})
+
+	t.Run("closes its session when it resumes another program's", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,resume,close", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}, {Chunks: []string{"three"}}}, nil)
+		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
+			t.Fatal(result.failure)
+		}
+		// An edited history opens a new session in the other program.
+		edited := `[{"role":"user","parts":[{"kind":"text","text":"hello"}]},{"role":"assistant","parts":[{"kind":"text","text":"one"}]},{"role":"user","parts":[{"kind":"text","text":"again"}]}]`
+		if result := elsewhere(t, fixture).run(t.Context(), acpRequest(t, "", edited), nil); result.failure != nil || result.text != "two" {
+			t.Fatalf("reply elsewhere = %#v", result)
+		}
+		next := strings.TrimSuffix(edited, "]") + `,{"role":"assistant","parts":[{"kind":"text","text":"two"}]},{"role":"user","parts":[{"kind":"text","text":"more"}]}]`
+		if result := fixture.run(t.Context(), acpRequest(t, "", next), nil); result.failure != nil {
+			t.Fatalf("reply = %#v", result)
+		}
+		prompts, closed := fixture.received("session/prompt"), fixture.received("session/close")
+		if len(closed) != 1 || sessionOf(closed[0]) != sessionOf(prompts[0]) || sessionOf(prompts[2]) != sessionOf(prompts[1]) || fixture.prompt(2) != "more" {
+			t.Fatalf("closed = %#v, prompt = %q", closed, fixture.prompt(2))
+		}
+	})
+
 	t.Run("closes a replaced session and never sends a compact command", func(t *testing.T) {
 		fixture := acpFixtureModel(t, "meta,close", []acpFixtureReply{{Chunks: []string{"one"}}, {Chunks: []string{"two"}}}, nil)
 		if result := fixture.run(t.Context(), acpRequest(t, "", acpUser), nil); result.failure != nil {
@@ -770,6 +921,26 @@ func TestACPDiscovery(t *testing.T) {
 		set := fixture.received("session/set_config_option")
 		if len(set) != 2 || set[0]["params"].(map[string]any)["value"] != "captured" || set[1]["params"].(map[string]any)["configId"] != "thought_level" || set[1]["params"].(map[string]any)["value"] != "high" {
 			t.Fatalf("selection = %#v", set)
+		}
+	})
+	t.Run("ends the session it opened", func(t *testing.T) {
+		fixture := acpFixtureModel(t, "meta,variants,close,compact", nil, nil)
+		if _, err := DiscoverACP(t.Context(), fixture.model.binding, fixture.model.capture); err != nil {
+			t.Fatal(err)
+		}
+		if opened, closed := len(fixture.received("session/new")), len(fixture.received("session/close")); opened != 1 || closed != 1 {
+			t.Fatalf("sessions opened = %d, closed = %d", opened, closed)
+		}
+		entry, agent, err := fixture.model.lease(t.Context(), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		agent.mu.Lock()
+		commands := len(agent.commands)
+		agent.mu.Unlock()
+		fixture.model.capture.Pool.Release(entry, true)
+		if len(fixture.received("initialize")) != 1 || commands != 0 {
+			t.Fatalf("programs = %d, commands kept = %d", len(fixture.received("initialize")), commands)
 		}
 	})
 	t.Run("invents no model when the agent lists none", func(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 
 func TestACPProgramServesSessions(t *testing.T) {
 	t.Parallel()
-	fixture := acpFixtureModel(t, "meta", nil, func(capture *ACPCapture) { capture.Adapter.Acp.Concurrency = 2 })
+	fixture := acpFixtureModel(t, "meta", nil, func(capture *ACPCapture) { capture.Adapter.Acp.Concurrency = new(uint8(2)) })
 	other := cloneACPModel(t, fixture.model)
 	binding, err := Capture(other.binding.Provider, other.binding.Config, other.binding.Secret, protocol.NewSessionID())
 	if err != nil {

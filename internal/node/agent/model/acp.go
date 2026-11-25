@@ -203,7 +203,6 @@ func (agent *acpAgent) take(owner protocol.SessionID) (*acpSlot, []string) {
 			break
 		}
 		delete(agent.slots, oldest.owner)
-		delete(agent.commands, oldest.session)
 		if oldest.session != "" {
 			evicted = append(evicted, oldest.session)
 		}
@@ -663,7 +662,11 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 	// each in its own agent session. When the package runs its most programs
 	// and all are full, a request, such as one of many parallel delegations,
 	// waits for a running one to finish.
-	entry, err := model.capture.Pool.Lease(ctx, model.capture.Owner, int(model.capture.Adapter.Acp.Concurrency), rank, func() (*program.Process, any, error) {
+	shares := 1
+	if declared := model.capture.Adapter.Acp.Concurrency; declared != nil {
+		shares = int(*declared)
+	}
+	entry, err := model.capture.Pool.Lease(ctx, model.capture.Owner, shares, rank, func() (*program.Process, any, error) {
 		process, agent, err := model.start(ctx, spec, identity)
 		return process, agent, err
 	})
@@ -673,29 +676,58 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 	return entry, entry.Value.(*acpAgent), nil
 }
 
-// reserve takes the slot of the request's Sailry session in agent and closes
-// the agent sessions it evicted where the agent offers that.
+// reserve takes the slot of the request's Sailry session in agent and ends
+// the agent sessions it evicted.
 func (model *acpModel) reserve(ctx context.Context, agent *acpAgent) *acpSlot {
 	slot, evicted := agent.take(model.binding.Session)
 	for _, session := range evicted {
-		if agent.close {
-			_, _ = acpCall[json.RawMessage](ctx, agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": session})
+		model.discard(ctx, agent, session, true)
+	}
+	// A request that found this slot busy may have continued its session in
+	// another program, whose record then shows what this program's copy has
+	// not seen. The slot forgets that copy, so the request resumes the session
+	// as recorded instead of continuing or closing the outdated one.
+	if slot.owner != (protocol.SessionID{}) && slot.session != "" {
+		if kept := model.recall(agent.identity, slot.owner); kept != nil && kept.Session == slot.session && !slices.Equal(kept.Seen, slot.seen) {
+			slot.session, slot.seen = "", nil
 		}
 	}
 	return slot
 }
 
-// discard ends the agent session of a slot that is not stored. A program
-// that is retired takes its sessions with it.
+// discard ends an agent session this program no longer uses: it is closed
+// where the agent offers that, and its advertised commands are forgotten. A
+// program that is retired takes its sessions with it.
 func (model *acpModel) discard(ctx context.Context, agent *acpAgent, session string, live bool) {
 	if session == "" {
 		return
 	}
+	// The agent answers the close after the commands it advertised before, so
+	// none is recorded again once the session is forgotten.
+	if live && agent.close {
+		_, _ = acpCall[json.RawMessage](context.WithoutCancel(ctx), agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": session})
+	}
 	agent.mu.Lock()
 	delete(agent.commands, session)
 	agent.mu.Unlock()
-	if live && agent.close {
-		_, _ = acpCall[json.RawMessage](context.WithoutCancel(ctx), agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": session})
+}
+
+// acpCancel asks the agent to end the prompt in flight in session and waits
+// for its answer, handing updates that arrive meanwhile to drain. It reports
+// false when the agent did not answer in time; its program is then retired.
+func acpCancel[T any](agent *acpAgent, session string, done <-chan T, wake <-chan struct{}, drain func()) bool {
+	_ = agent.conn.SendNotification(context.Background(), acp.AgentMethodSessionCancel, map[string]any{"sessionId": session})
+	settle := time.NewTimer(acpSettle)
+	defer settle.Stop()
+	for {
+		select {
+		case <-wake:
+			drain()
+		case <-done:
+			return true
+		case <-settle.C:
+			return false
+		}
 	}
 }
 
@@ -723,27 +755,29 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	}
 	// A session this slot opened for its Sailry session holds a history that
 	// a new session replaces. A request without a session claims nothing.
-	stale := slot.session != "" && slot.owner != (protocol.SessionID{})
+	previous := ""
+	if slot.owner != (protocol.SessionID{}) {
+		previous = slot.session
+	}
 
 	// A session that has seen a prefix of this history receives the rest,
 	// whether this program holds it or resumes it; any other history is
 	// replayed into a new session.
 	sent := 0
 	switch {
-	case slot.session != "" && slot.system == system && acpExtends(slot.seen, digests):
+	case slot.session != "" && slot.system == system && acpExtends(slot.seen, digests, request.Messages):
 		sent = len(slot.seen)
-	case model.resume(ctx, agent, slot, system, digests):
+	case model.resume(ctx, agent, slot, system, digests, request.Messages):
 		sent = len(slot.seen)
 	default:
-		previous := slot.session
 		if err := model.open(ctx, agent, slot, system); err != nil {
 			return err
 		}
-		if stale && agent.close {
-			// The replaced session's context is no longer used; the agent may
-			// release it. A failure leaves only an unused session behind.
-			_, _ = acpCall[json.RawMessage](ctx, agent, acp.AgentMethodSessionClose, map[string]any{"sessionId": previous})
-		}
+	}
+	if previous != slot.session {
+		// The replaced session's context is no longer used; the agent may
+		// release it. A failure leaves only an unused session behind.
+		model.discard(ctx, agent, previous, true)
 	}
 	keep = true
 	if err := model.choose(ctx, agent, slot, request.Reasoning.Effort.Kind); err != nil {
@@ -823,19 +857,8 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	send(blocks)
 	// abandon asks the agent to stop and kills it when it does not.
 	abandon := func() {
-		_ = agent.conn.SendNotification(context.Background(), acp.AgentMethodSessionCancel, map[string]any{"sessionId": session})
-		settle := time.NewTimer(acpSettle)
-		defer settle.Stop()
-		for {
-			select {
-			case <-wake:
-				drain()
-			case <-done:
-				return
-			case <-settle.C:
-				keep = false
-				return
-			}
+		if !acpCancel(agent, session, done, wake, func() { drain() }) {
+			keep = false
 		}
 	}
 
@@ -950,6 +973,12 @@ func (model *acpModel) finish(agent *acpAgent, slot *acpSlot, digests []string, 
 		return &Failure{Kind: Cancelled, Message: command + " cancelled the request"}
 	default:
 		reason = protocol.PluginModelAdapterWireFinishOther
+	}
+	// A correction's reply must write the call it was asked for, however it
+	// ends: the calls before that call are already out, so dropping it would
+	// lose a call silently.
+	if parser.asked > 0 && parser.pending() != nil {
+		return errACPCall
 	}
 	rest, err := parser.finish()
 	if err != nil && (reason != protocol.PluginModelAdapterWireFinishLength || parser.failed != nil) {

@@ -511,12 +511,17 @@ seen, under the package's `program-sessions` data; the record holds no
 conversation text and the least recently written of 256 per program leave
 first. A program started again after an idle stop, an eviction or a Node
 restart reopens that session with `session/resume`, then `session/load`,
-where the agent advertises them. Only when neither succeeds, or when earlier
-history or the system text differs (an edit, rewind or compaction), is the
-whole history replayed into a new session; `replay_bytes` bounds that replay,
-and a larger one is a context overflow handled by compaction. A replaced
-session is closed when the agent offers `session/close`. Transcript summary
-requests and discovery use programs no session holds. A package runs at most
+where the agent advertises them. Only when neither succeeds, when earlier
+history or the system text differs (an edit, rewind or compaction), or when
+another model replied since the session last answered, is the whole history
+replayed into a new session; `replay_bytes` bounds that replay, and a larger
+one is a context overflow handled by compaction. A replaced session is closed
+when the agent offers `session/close`. A program whose copy of a session is
+older than the record, because another program continued it, resumes the
+session as recorded and neither continues nor closes its copy. Transcript
+summary requests, discovery and a request whose agent session is busy
+share any compatible program with room, each in an agent session of its own
+that ends with the request. A package runs at most
 four programs for each user across every session. One program serves as many
 requests at once as its adapter's `concurrency` declares, one by default, each
 Sailry session in its own agent session; updates are routed by agent session.

@@ -55,8 +55,9 @@ func TestProgramDeclarations(t *testing.T) {
 		}, false},
 		{"adapter without a sign-in instruction", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.SignIn = "" }, false},
 		{"replay budget below the floor", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.ReplayBytes = 1024 }, false},
-		{"declared concurrency", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Concurrency = 16 }, true},
-		{"concurrency above the ceiling", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Concurrency = 17 }, false},
+		{"declared concurrency", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Concurrency = new(uint8(16)) }, true},
+		{"concurrency above the ceiling", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Concurrency = new(uint8(17)) }, false},
+		{"declared concurrency of zero", func(extension *protocol.PluginExtension) { extension.ModelAdapters[0].Acp.Concurrency = new(uint8(0)) }, false},
 		{"unknown effort level", func(extension *protocol.PluginExtension) {
 			extension.ModelAdapters[0].Acp.Efforts = map[string]string{"extreme": "-x"}
 		}, false},

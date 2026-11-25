@@ -23,6 +23,7 @@ import (
 //   - forget: resuming or loading any session fails
 //   - compact: sessions advertise a /compact command, which answers without
 //     taking a scripted reply
+//   - compact-hang: /compact answers only when it is cancelled
 const Variable = "SAILRY_ACP_FIXTURE"
 
 // Compact is the prompt text of the native compaction command.
@@ -209,6 +210,10 @@ func Serve(scenario string) {
 			if len(message.Params.Prompt) == 1 && message.Params.Prompt[0].Text == Compact {
 				if !has("compact") {
 					send(map[string]any{"id": message.ID, "error": map[string]any{"code": -32602, "message": "Unknown command"}})
+					continue
+				}
+				if has("compact-hang") {
+					pending = message.ID
 					continue
 				}
 				send(map[string]any{"id": message.ID, "result": map[string]any{"stopReason": "end_turn"}})

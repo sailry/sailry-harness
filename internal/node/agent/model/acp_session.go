@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 	acp "github.com/coder/acp-go-sdk"
@@ -120,9 +122,9 @@ func (model *acpModel) prune() {
 // it, else, or when that fails, by `session/load`. The agent's replay of a
 // loaded session is not forwarded, because no prompt is in flight. It reports
 // false when neither succeeded; the caller then replays into a new session.
-func (model *acpModel) resume(ctx context.Context, agent *acpAgent, slot *acpSlot, system string, digests []string) bool {
+func (model *acpModel) resume(ctx context.Context, agent *acpAgent, slot *acpSlot, system string, digests []string, messages []protocol.PluginModelAdapterWireMessage) bool {
 	kept := model.recall(agent.identity, slot.owner)
-	if kept == nil || kept.Session == slot.session || kept.System != acpDigest(system) || !acpExtends(kept.Seen, digests) {
+	if kept == nil || kept.Session == slot.session || kept.System != acpDigest(system) || !acpExtends(kept.Seen, digests, messages) {
 		return false
 	}
 	params := map[string]any{"sessionId": kept.Session, "cwd": model.capture.Dir, "mcpServers": []any{}}
@@ -165,9 +167,17 @@ func (agent *acpAgent) advertise(session, command string) {
 }
 
 // acpExtends reports whether a session that has seen seen can continue to
-// digests by receiving only the messages after it.
-func acpExtends(seen, digests []string) bool {
-	return len(seen) > 0 && len(seen) < len(digests) && slices.Equal(seen, digests[:len(seen)])
+// messages, identified by digests, by receiving only the messages after it.
+// An assistant message among those is a reply another model or program
+// wrote; the session would read it as user text, so that history is replayed.
+func acpExtends(seen, digests []string, messages []protocol.PluginModelAdapterWireMessage) bool {
+	if len(seen) == 0 || len(seen) >= len(digests) || !slices.Equal(seen, digests[:len(seen)]) {
+		return false
+	}
+	return !slices.ContainsFunc(messages[len(seen):], func(message protocol.PluginModelAdapterWireMessage) bool {
+		_, assistant := message.Data.(*protocol.PluginModelAdapterWireMessageAssistantPayload)
+		return assistant
+	})
 }
 
 // acpHistory is the system text of a request and the digests that identify
@@ -218,10 +228,10 @@ func (model *acpModel) route(session protocol.SessionID) Route {
 // CompactSession asks an agent session that holds the history to shrink its
 // own context, after Sailry recorded its handoff. call is the next main
 // request over the compacted history. The command is sent only where the
-// session advertised it and the compacted history still shares messages the
-// session has seen; afterwards the session counts those messages as seen, so
-// the next request sends only what follows them. Otherwise nothing is sent
-// and the next request starts a new session with the handoff.
+// session advertised it and the compacted history retains the last messages
+// the session has seen; afterwards the session counts the history up to them
+// as seen, so the next request sends only what follows them. Otherwise
+// nothing is sent and the next request starts a new session with the handoff.
 func CompactSession(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call) error {
 	model, ok := languageModel.(*acpModel)
 	if !ok {
@@ -249,10 +259,21 @@ func CompactSession(ctx context.Context, languageModel fantasy.LanguageModel, ca
 	agent.mu.Lock()
 	advertised := agent.commands[slot.session]["compact"]
 	agent.mu.Unlock()
+	// The retained messages are a run the session saw in this order, from the
+	// first compacted message it has seen. What follows that run, such as a
+	// tool result or user input that was not yet sent, is new to the session
+	// even where an earlier message reads the same.
 	seen := 0
-	for index, digest := range digests {
-		if slices.Contains(slot.seen, digest) {
-			seen = index + 1
+	if start := slices.IndexFunc(digests, func(digest string) bool { return slices.Contains(slot.seen, digest) }); start >= 0 {
+		for from, digest := range slot.seen {
+			if digest != digests[start] {
+				continue
+			}
+			end := start
+			for end < len(digests) && from+end-start < len(slot.seen) && digests[end] == slot.seen[from+end-start] {
+				end++
+			}
+			seen = max(seen, end)
 		}
 	}
 	if !advertised || seen == 0 {
@@ -260,10 +281,27 @@ func CompactSession(ctx context.Context, languageModel fantasy.LanguageModel, ca
 	}
 	slot.seen = nil
 	model.keep(agent, slot)
-	_, err = acp.SendRequest[acpPrompted](agent.conn, ctx, acp.AgentMethodSessionPrompt, map[string]any{"sessionId": slot.session,
-		"prompt": []any{map[string]any{"type": "text", "text": "/compact"}}})
+	// The command is a prompt of this session alone: a cancelled one stops
+	// only that prompt, and one the agent never answers fails as a reply's
+	// silence does. The program keeps serving its other sessions.
+	done := make(chan error, 1)
+	go func() {
+		_, err := acp.SendRequest[acpPrompted](agent.conn, context.WithoutCancel(ctx), acp.AgentMethodSessionPrompt, map[string]any{"sessionId": slot.session,
+			"prompt": []any{map[string]any{"type": "text", "text": "/compact"}}})
+		done <- err
+	}()
+	stall := time.NewTimer(model.capture.stall)
+	defer stall.Stop()
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		keep = acpCancel(agent, slot.session, done, nil, nil)
+		return ctx.Err()
+	case <-stall.C:
+		keep = false
+		return &Failure{Kind: Network, Message: fmt.Sprintf("%s did not finish /compact in %d seconds", model.capture.Program.Command, int(model.capture.stall.Seconds()))}
+	}
 	if err != nil {
-		keep = ctx.Err() == nil
 		return model.failure(ctx, agent, err)
 	}
 	slot.seen = slices.Clone(digests[:seen])
