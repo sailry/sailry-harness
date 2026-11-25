@@ -48,49 +48,54 @@ import (
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
-	accessMu          sync.Mutex
-	accessObservers   map[*accessObservation]struct{}
-	pluginStatus      *pluginStatusService
-	terminals         *terminal.Service
-	auth              *authControls
-	plugins           *pluginControls
-	dispatch          *dispatchControls
-	tasks             *tasks.Supervisor
-	network           *link.Link
-	networkUpdate     sync.Mutex
-	networkDirectory  *networkDirectory
-	networkProbes     *networkProbes
-	hostSampler       *host.Sampler
-	hostInstalls      *host.Installations
-	sshPool           *sshBrowsePool
-	wsl               *wsl.Service
-	databases         databaseOperations
-	ports             *ports.Service
-	browsers          browserRegistry
-	externalBrowser   *externalbrowser.Browsers
-	localModels       *localModelControls
-	power             *power.Service
-	telemetry         *telemetry.Control
-	logs              bool
-	knowledge         *knowledgeservice.Service
-	knowledgeAdjust   func(*knowledgeservice.Options) // replaces model capabilities in tests
-	cancel            context.CancelFunc
-	web               *workspaceWeb
-	transfers         *files.Transfers
-	git               *workspacegit.Service
-	processes         *process.Service
-	watches           *workspaceWatches
-	codeIndex         *codeIndexControls
-	modules           moduleapi.Assembly
-	computerOverlay   computer.Overlay
-	environment       process.Environment
-	processAfter      func(time.Duration) <-chan time.Time
-	locks             workspaceLocks
-	keptWorktrees     keptWorktrees
-	stored            storedFiles
-	assetReads        store.ConversationAssetReads
-	profile           *Profile
-	ctx               context.Context
+	accessMu         sync.Mutex
+	accessObservers  map[*accessObservation]struct{}
+	pluginStatus     *pluginStatusService
+	terminals        *terminal.Service
+	auth             *authControls
+	plugins          *pluginControls
+	dispatch         *dispatchControls
+	tasks            *tasks.Supervisor
+	network          *link.Link
+	networkUpdate    sync.Mutex
+	networkDirectory *networkDirectory
+	networkProbes    *networkProbes
+	hostSampler      *host.Sampler
+	hostInstalls     *host.Installations
+	sshPool          *sshBrowsePool
+	wsl              *wsl.Service
+	databases        databaseOperations
+	ports            *ports.Service
+	browsers         browserRegistry
+	externalBrowser  *externalbrowser.Browsers
+	localModels      *localModelControls
+	power            *power.Service
+	telemetry        *telemetry.Control
+	logs             bool
+	knowledge        *knowledgeservice.Service
+	knowledgeAdjust  func(*knowledgeservice.Options) // replaces model capabilities in tests
+	cancel           context.CancelFunc
+	web              *workspaceWeb
+	transfers        *files.Transfers
+	git              *workspacegit.Service
+	processes        *process.Service
+	watches          *workspaceWatches
+	codeIndex        *codeIndexControls
+	modules          moduleapi.Assembly
+	computerOverlay  computer.Overlay
+	environment      process.Environment
+	processAfter     func(time.Duration) <-chan time.Time
+	locks            workspaceLocks
+	keptWorktrees    keptWorktrees
+	stored           storedFiles
+	assetReads       store.ConversationAssetReads
+	profile          *Profile
+	ctx              context.Context
+	// admitting orders durable admission writes and their lane enqueue, so
+	// queue order is admission order without holding mu across a store write.
+	// Stop takes it before mu, so an admission in flight reaches its lane
+	// before the lanes can drain.
+	admitting         sync.Mutex
 	mu                sync.Mutex
 	stopped           bool
 	lanes             [2]commandLane
@@ -319,6 +324,7 @@ const shutdownGrace = 5 * time.Second
 // returns core.ErrShutdownTimeout naming it, with the profile released, and
 // the caller exits. Go cannot abort a goroutine, so the exit is what ends it.
 func (node *Node) Stop(ctx context.Context) error {
+	node.admitting.Lock()
 	node.mu.Lock()
 	if !node.stopped {
 		node.stopped = true
@@ -336,6 +342,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	}
 	done := node.stopDone
 	node.mu.Unlock()
+	node.admitting.Unlock()
 	select {
 	case <-done:
 		node.mu.Lock()
@@ -567,18 +574,23 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		go func() { defer node.work.Done(); defer close(completion); completion <- node.read(ctx, caller, request) }()
 		return accepted, nil
 	}
+	// The admission write runs without mu, which every request and
+	// subscription takes to begin; admitting keeps admissions in order.
+	node.admitting.Lock()
 	node.mu.Lock()
-	if node.stopped {
-		node.mu.Unlock()
+	stopped := node.stopped
+	node.mu.Unlock()
+	if stopped {
+		node.admitting.Unlock()
 		return link.Admission{}, unavailable()
 	}
 	if err := ctx.Err(); err != nil {
-		node.mu.Unlock()
+		node.admitting.Unlock()
 		return link.Admission{}, nodeFault(err)
 	}
 	if !externalCommand(request.Command) {
 		result, err := node.execute(commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
-		node.mu.Unlock()
+		node.admitting.Unlock()
 		if err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
@@ -593,7 +605,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		close(completion)
 		return accepted, nil
 	}
-	defer node.mu.Unlock()
+	defer node.admitting.Unlock()
 	var previous *link.Response
 	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
@@ -614,7 +626,9 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if projectEffect(request.Command.Kind) || sessionRemoval(request.Command.Kind) {
 		lane = &node.lanes[projectLane]
 	}
+	node.mu.Lock()
 	lane.queue = append(lane.queue, commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, admitted: true, completion: completion})
+	node.mu.Unlock()
 	node.signal(lane)
 	return accepted, nil
 }
