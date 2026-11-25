@@ -31,6 +31,10 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 	for _, cause := range []error{
 		internal,
 		protocol,
+		http2.StreamError{StreamID: 3, Code: http2.ErrCodeRefusedStream},
+		http2.StreamError{StreamID: 3, Code: http2.ErrCodeCancel, Cause: errors.New("received from peer")},
+		http2.StreamError{StreamID: 3, Code: http2.ErrCodeHTTP11Required},
+		http2.StreamError{StreamID: 3, Code: http2.ErrCode(0xab)},
 		fmt.Errorf("wrapped: %w", protocol),
 		errors.New("http2: client connection lost"),
 		fmt.Errorf("read: %w", errors.New("http2: client connection lost")),
@@ -49,6 +53,7 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 	}{
 		{protocol, true},
 		{internal, false},
+		{http2.StreamError{StreamID: 3, Code: http2.ErrCodeHTTP11Required}, true},
 		{&fantasy.ProviderError{Cause: protocol}, true},
 		{fmt.Errorf("wrapped: %w", protocol), true},
 		{http2.ConnectionError(http2.ErrCodeProtocol), false},

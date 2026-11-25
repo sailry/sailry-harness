@@ -22,13 +22,13 @@ func http2TransportCause(err error) error {
 func http2ProtocolFailure(err error) bool {
 	// Go's bundled HTTP/2 StreamError supports errors.As into x/net/http2.
 	stream, ok := errors.AsType[http2.StreamError](http2TransportCause(err))
-	return ok && stream.Code == http2.ErrCodeProtocol
+	return ok && (stream.Code == http2.ErrCodeProtocol || stream.Code == http2.ErrCodeHTTP11Required)
 }
 
 func http2Interrupted(err error) bool {
 	err = http2TransportCause(err)
-	if stream, ok := errors.AsType[http2.StreamError](err); ok {
-		return stream.Code == http2.ErrCodeInternal || stream.Code == http2.ErrCodeProtocol
+	if _, ok := errors.AsType[http2.StreamError](err); ok {
+		return true
 	}
 	// Go's HTTP/2 transport creates a fresh, unexported plain error when its
 	// connection health check fails. Match the cause, not a provider's prose.
