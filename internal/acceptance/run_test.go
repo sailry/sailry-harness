@@ -42,6 +42,71 @@ func TestBackendCaseSelection(t *testing.T) {
 	}
 }
 
+func TestBackendNativeCasesDoNotRequireInstalledPackages(t *testing.T) {
+	ids := []string{"D01", "D02", "D03", "D04", "D05", "D06", "D09", "F01", "F01-exit7", "F01-exit127", "F02", "F03", "F07", "I01", "I02-sandbox-ask", "I03-sandbox-full", "I04", "B02-plan"}
+	for _, inventory := range []string{"empty", "disabled", "incompatible"} {
+		t.Run(inventory, func(t *testing.T) {
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node = protocol.NodeID{1}
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Enabled, provider.DefaultModel = protocol.ProviderID{1}, true, "fixture"
+			snapshot.Providers = []protocol.ConversationProvider{provider}
+			if inventory != "empty" {
+				for _, name := range []string{"files", "commands"} {
+					plugin := protocol.DefaultPluginSummary()
+					plugin.Name, plugin.Enabled = name, inventory != "disabled"
+					plugin.Compatibility.Kind = "compatible"
+					if inventory == "incompatible" {
+						plugin.Compatibility.Kind = "requires_newer"
+					}
+					snapshot.Plugins = append(snapshot.Plugins, plugin)
+				}
+			}
+			creates := 0
+			transport := &fixtureTransport{
+				subscribe: func(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
+					if topic.Kind != "node" {
+						t.Fatalf("native preflight observed an unexpected topic %q", topic.Kind)
+					}
+					return &fixtureSnapshotSubscription{initial: &snapshot}, nil
+				},
+				dispatch: func(_ context.Context, request protocol.Request) (link.Admission, error) {
+					switch request.Command.Kind {
+					case "inspect_host":
+						host := protocol.DefaultHostInfo()
+						host.Os = new("linux")
+						return fixtureResponse(request, protocol.Output{Kind: "host_info", Data: host}), nil
+					case "read_sandbox_settings":
+						settings := protocol.DefaultSandboxSettings()
+						settings.Enabled = true
+						return fixtureResponse(request, protocol.Output{Kind: "sandbox_settings", Data: settings}), nil
+					case "create_session":
+						creates++
+						return link.Admission{}, protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "fixture session capability unavailable"}
+					default:
+						t.Fatalf("native preflight attempted model work or an unexpected command %q", request.Command.Kind)
+						return link.Admission{}, nil
+					}
+				},
+			}
+			controller := client.New(transport)
+			t.Cleanup(func() { _ = controller.Close() })
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			report, err := RunBackend(t.Context(), controller, Options{Suite: "backend", Cases: ids, ReportDirectory: testReportDirectory(t)}, nil)
+			if err != nil || creates != len(ids) || len(report.Cases) != len(ids) {
+				t.Fatalf("native cases did not reach their fixture capability check: creates=%d cases=%d error=%v", creates, len(report.Cases), err)
+			}
+			for _, result := range report.Cases {
+				if result.Status != "failed" || result.Detail != "Node request failed: not_configured" || result.Session != "" {
+					t.Fatalf("a missing capability was hidden by a package skip: %+v", result)
+				}
+			}
+		})
+	}
+}
+
 func TestBackendConfigSelection(t *testing.T) {
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Enabled, provider.DefaultModel = protocol.ProviderID{1}, true, "fixture"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -152,6 +153,51 @@ func TestLiveCaseSelectionDoesNotRunOtherSuites(t *testing.T) {
 			}
 			if !slices.Equal(got, test.want) || !slices.Equal(emitted, test.want) || report.Finished.IsZero() {
 				t.Fatalf("selection emitted %v and reported %v, want %v", emitted, got, test.want)
+			}
+		})
+	}
+}
+
+func TestLiveCoreCommandCaseDoesNotRequireInstalledPackages(t *testing.T) {
+	for _, inventory := range []string{"empty", "disabled", "incompatible"} {
+		t.Run(inventory, func(t *testing.T) {
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node = protocol.NodeID{1}
+			config := protocol.DefaultSessionConfig()
+			config.Provider, config.Model = protocol.ProviderID{1}, "fixture"
+			config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+			snapshot.Defaults.Config = &config
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Enabled, provider.DefaultModel = config.Provider, true, config.Model
+			snapshot.Providers = []protocol.ConversationProvider{provider}
+			if inventory != "empty" {
+				plugin := protocol.DefaultPluginSummary()
+				plugin.Name, plugin.Enabled = "commands", inventory != "disabled"
+				plugin.Compatibility.Kind = "compatible"
+				if inventory == "incompatible" {
+					plugin.Compatibility.Kind = "requires_newer"
+				}
+				snapshot.Plugins = []protocol.PluginSummary{plugin}
+			}
+			creates := 0
+			transport := &recordedLiveTransport{updates: make(chan protocol.Update, 1), liveFixtureTransport: &liveFixtureTransport{
+				dispatch: func(_ context.Context, request protocol.Request) (protocol.Output, error) {
+					if request.Command.Kind != "create_session" {
+						t.Fatalf("Core command preflight attempted model work or an unexpected command %q", request.Command.Kind)
+					}
+					creates++
+					return protocol.Output{}, protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "fixture session capability unavailable"}
+				},
+			}}
+			transport.updates <- protocol.Update{Kind: "snapshot", Data: snapshot}
+			controller := client.New(transport)
+			t.Cleanup(func() { _ = controller.Close() })
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			report := RunLiveWithOptions(t.Context(), controller, core.Options{Cases: []string{"E2E02"}, ReportDirectory: filepath.Join(t.TempDir(), "acceptance")}, nil, t.TempDir(), shell.Assembly{})
+			if creates != 1 || len(report.Cases) != 1 || report.Cases[0].Status != "failed" || report.Cases[0].Detail != "Node request failed: not_configured" || report.Cases[0].Session != "" {
+				t.Fatalf("the Core command case skipped a missing capability: creates=%d cases=%+v", creates, report.Cases)
 			}
 		})
 	}

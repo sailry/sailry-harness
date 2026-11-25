@@ -168,7 +168,7 @@ func liveTool(w *liveWindow) error {
 	if state.Snapshot.Page.Session != w.session.ID {
 		return liveFail("The tool fixture projection belongs to another session")
 	}
-	toolName, err := w.commandToolName()
+	toolName, err := w.commandToolName(state.Snapshot.Page)
 	if err != nil {
 		return err
 	}
@@ -245,14 +245,17 @@ func liveTool(w *liveWindow) error {
 	return w.assertDurable(protocol.ConversationStatusCompleted)
 }
 
-func (w *liveWindow) commandToolName() (string, error) {
+func (w *liveWindow) commandToolName(page protocol.ConversationPage) (string, error) {
 	output, err := w.command(w.ctx, "read_turn_capture", protocol.CommandReadTurnCapturePayload{Session: w.session.ID, Turn: w.turn})
 	if err != nil {
 		return "", err
 	}
 	capture, err := liveOutput[protocol.QueuedTurn](output, "queued_turn")
-	if err != nil || capture.ID != w.turn || capture.Session != w.session.ID {
+	if err != nil || capture.ID != w.turn || capture.Session != w.session.ID || page.Session != w.session.ID {
 		return "", liveFail("The command tool capture belongs to another acceptance turn")
+	}
+	if _, _, err := liveToolReference(page, w.turn, "run_command"); err == nil {
+		return "run_command", nil
 	}
 	for _, reference := range capture.Plugins {
 		if reference.Name != "commands" {
@@ -268,11 +271,15 @@ func (w *liveWindow) commandToolName() (string, error) {
 		}
 		for _, tool := range info.Extension.Tools {
 			if tool.Name == "run_command" && tool.Server == nil && tool.Presentation == protocol.ToolPresentationContent {
-				return core.PackageToolAlias(reference.Name, tool.Name), nil
+				name := core.PackageToolAlias(reference.Name, tool.Name)
+				if _, _, err := liveToolReference(page, w.turn, name); err != nil {
+					return "", err
+				}
+				return name, nil
 			}
 		}
 	}
-	return "", liveFail("The UI-sent turn did not capture the commands package's content tool")
+	return "", liveFail("The UI-sent turn has no paired Core command or captured commands package content tool")
 }
 
 func liveToolReference(page protocol.ConversationPage, turn protocol.TurnID, name string) (protocol.ToolDetailReference, *protocol.ToolDetailSummary, error) {
@@ -303,7 +310,7 @@ func liveToolReference(page protocol.ConversationPage, turn protocol.TurnID, nam
 			}
 		}
 	}
-	if calls != 1 || results != 1 || call.ID == nil || result.ID == nil || *call.ID != *result.ID || call.Name != name || result.Name != name || callBranch != resultBranch || result.Summary == nil || result.Summary.Revision == "" {
+	if calls != 1 || results != 1 || call.ID == nil || result.ID == nil || *call.ID != *result.ID || call.Name != name || result.Name != name || call.Presentation != protocol.ToolPresentationContent || callBranch != resultBranch || result.Summary == nil || result.Summary.Revision == "" {
 		return reference, nil, liveFail("Expected one declared command call paired with its own canonical result")
 	}
 	reference.Revision = result.Summary.Revision

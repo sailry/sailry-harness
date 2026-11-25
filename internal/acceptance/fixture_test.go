@@ -134,19 +134,19 @@ func TestMissingRequiredPackages(t *testing.T) {
 		compatibility    string
 		want             string
 	}{
-		{"missing", false, false, "compatible", "files"},
-		{"disabled", true, false, "compatible", "files"},
-		{"incompatible", true, true, "requires_newer", "files"},
+		{"missing", false, false, "compatible", "brief"},
+		{"disabled", true, false, "compatible", "brief"},
+		{"incompatible", true, true, "requires_newer", "brief"},
 		{"available", true, true, "compatible", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := protocol.DefaultSnapshot()
 			if test.present {
 				installed := protocol.DefaultPluginSummary()
-				installed.Name, installed.Enabled, installed.Compatibility.Kind = "files", test.enabled, test.compatibility
+				installed.Name, installed.Enabled, installed.Compatibility.Kind = "brief", test.enabled, test.compatibility
 				snapshot.Plugins = []protocol.PluginSummary{installed}
 			}
-			if got := missingPackage(snapshot, []string{"files"}); got != test.want {
+			if got := missingPackage(snapshot, []string{"brief"}); got != test.want {
 				t.Fatalf("missing package = %q, want %q", got, test.want)
 			}
 		})

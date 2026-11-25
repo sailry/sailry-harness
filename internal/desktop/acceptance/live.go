@@ -23,7 +23,6 @@ const liveScope = "This is an explicitly requested Sailry acceptance case. Work 
 
 type liveScenario struct {
 	id, title string
-	tool      bool
 	run       func(*liveWindow) error
 }
 
@@ -43,9 +42,9 @@ func RunLiveWithOptions(ctx context.Context, controller *client.Client, options 
 		report.Node = controller.Target()
 	}
 	cases := []liveScenario{
-		{"E2E01", "Send through the live composer and observe streamed text", false, liveStream},
-		{"E2E02", "Expand and copy a real tool result", true, liveTool},
-		{"E2E03", "Stop a real reply through the live composer", false, liveStop},
+		{"E2E01", "Send through the live composer and observe streamed text", liveStream},
+		{"E2E02", "Expand and copy a real tool result", liveTool},
+		{"E2E03", "Stop a real reply through the live composer", liveStop},
 	}
 	if len(options.Cases) > 0 {
 		cases = slices.DeleteFunc(cases, func(scene liveScenario) bool { return !slices.Contains(options.Cases, scene.id) })
@@ -74,8 +73,6 @@ func RunLiveWithOptions(ctx context.Context, controller *client.Client, options 
 			result.Status, result.Detail = "blocked", "A previous case has unconfirmed cleanup or admission"
 		case problem != nil:
 			result.Status, result.Detail = "blocked", problem.Error()
-		case scene.tool && !commandsEnabled(controller.Snapshot()):
-			result.Status, result.Detail = "skipped", "The commands package is disabled, unavailable or incompatible"
 		default:
 			result, stop = runLiveCase(ctx, controller, selected, profile, options, scene, emit, assembly)
 		}
@@ -121,12 +118,6 @@ func liveConfig(controller *client.Client, requested *protocol.SessionConfig, pr
 		config.Effort = protocol.Effort{Kind: "default"}
 	}
 	return config, nil
-}
-
-func commandsEnabled(snapshot protocol.Snapshot) bool {
-	return slices.ContainsFunc(snapshot.Plugins, func(plugin protocol.PluginSummary) bool {
-		return plugin.Name == "commands" && plugin.Enabled && plugin.Compatibility.Kind == "compatible"
-	})
 }
 
 type liveWindow struct {

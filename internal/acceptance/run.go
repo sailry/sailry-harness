@@ -18,7 +18,7 @@ const defaultCaseTimeout = 2 * time.Minute
 type backendCase struct {
 	id, title string
 	quick     bool
-	packages  []string
+	packages  []string // Optional plugins only; cases assert native tool availability.
 	run       func(*caseRun) error
 }
 
@@ -83,7 +83,7 @@ func RunBackend(ctx context.Context, controller *client.Client, options Options,
 		} else if ctx.Err() != nil {
 			result.Status, result.Detail = "canceled", "Acceptance stopped before this case started"
 		} else if missing := missingPackage(controller.Snapshot(), definition.packages); missing != "" {
-			result.Status, result.Detail = "skipped", "Required package is disabled or incompatible: "+missing
+			result.Status, result.Detail = "skipped", "Required plugin is unavailable, disabled or incompatible: "+missing
 		} else {
 			started := time.Now()
 			scoped, cancel := context.WithTimeout(ctx, timeout)

@@ -3,6 +3,7 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -23,6 +24,26 @@ func toolFixtureView(name string) turnView {
 	page := protocol.DefaultConversationPage()
 	page.Session, page.Entries = protocol.SessionID{1}, []protocol.ConversationEntry{entry}
 	return turnView{page: page, run: protocol.ConversationRun{Turn: entry.Turn}}
+}
+
+func TestNativeToolNamesDoNotRequirePackageCaptures(t *testing.T) {
+	for _, name := range []string{"list_directory", "read_file", "find_files", "search_files", "write_file", "edit_file", "apply_patch", "run_command", "read_command", "write_command", "stop_command"} {
+		t.Run(name, func(t *testing.T) {
+			run := &caseRun{}
+			view := toolFixtureView(name)
+			resolved, err := run.resolveToolNames(view)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := resolved.tools()
+			if len(calls) != 1 || calls[0].name != name || !reflect.DeepEqual(calls[0].reference, view.tools()[0].reference) {
+				t.Fatalf("native tool identity changed without a package: %#v", calls)
+			}
+			if _, _, err := run.requireTool(turnView{}, name); err == nil {
+				t.Fatal("a missing native tool satisfied its required capability")
+			}
+		})
+	}
 }
 
 func TestCanonicalToolsPairOnlyTheirOwnResult(t *testing.T) {
