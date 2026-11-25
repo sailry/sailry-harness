@@ -133,6 +133,8 @@ jobs:
         run: bash .github/scripts/test_test.sh
       - name: Test release CI reuse
         run: bash .github/scripts/reuse-ci_test.sh
+      - name: Test release workflow boundaries
+        run: python3 -B .github/scripts/test_release_workflows.py
       - name: Test Sentry intake and repair routing
         run: |
           python3 -B .github/scripts/test_sentry_intake.py
@@ -417,7 +419,6 @@ jobs:
       # they need:
       #   internal/node, internal/desktop/live, internal/localmodels/...,
       #   internal/speech: downloaded models and ONNX Runtime (SAILRY_* paths)
-      #   internal/databases: external database servers
       #   internal/node/web: the public internet
       #   cmd/sailry-desktop: runs only beside a packaged executable
       # Select ./internal/desktop/application in integration_packages for the
@@ -433,7 +434,6 @@ jobs:
         ./internal/node/terminal
         ./internal/node/wsl
         ./internal/speech/capture
-        ./internal/ssh
         ${{ matrix.process }}
     steps:
       - name: Repository line endings

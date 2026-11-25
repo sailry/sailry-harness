@@ -10,6 +10,10 @@ on:
         description: Completed release run whose checks and non-macOS packages can be reused after macOS packaging-only fixes
         type: string
         default: ''
+      upload_testflight:
+        description: Upload the historical iOS package to TestFlight after building it
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -406,7 +410,7 @@ jobs:
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/sailry-android"
 
-  # The App Store IPA, kept as a workflow artifact and uploaded to TestFlight.
+  # The App Store IPA, kept as a workflow artifact; TestFlight upload is opt-in.
   # Xcode builds the Go mobile library through cmd/sailry-mobile/build.sh.
   ios:
     needs: [version, checks]
@@ -512,6 +516,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
       - name: Upload to TestFlight
+        if: inputs.upload_testflight
         env:
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
