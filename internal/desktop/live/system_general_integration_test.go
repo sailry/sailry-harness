@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,9 +21,9 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/node"
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -161,13 +160,8 @@ func (p *systemPower) counts() (bool, int, int) {
 	return p.held, p.acquired, p.released
 }
 
-// systemReadTool is the name under which a turn is offered the bundled
-// files package's read_file.
-var systemReadTool = operations.Alias("files", "read_file")
-
 // systemModel is a scripted chat-completions endpoint: a request that
-// is first answered with tool_search for read_file, then with a call of the
-// offered read_file for secret.txt, then with the final text. hold makes the
+// is answered with the native read_file for secret.txt, then the final text. hold makes the
 // next request wait, so a test can look at the Node while a turn runs.
 type systemModel struct {
 	mu      sync.Mutex
@@ -217,16 +211,13 @@ func newSystemModel(t *testing.T) *systemModel {
 		chunk := func(delta, finish string) {
 			fmt.Fprintf(writer, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":%s,\"finish_reason\":%s}]}\n\n", delta, finish)
 		}
-		discover := fmt.Sprintf("discover_fixture_%d", model.turnNow())
 		tool := func(id, name, arguments string) {
 			quoted, _ := json.Marshal(arguments)
 			chunk(`{"role":"assistant","tool_calls":[{"index":0,"id":"`+id+`","type":"function","function":{"name":"`+name+`","arguments":`+string(quoted)+`}}]}`, "null")
 			chunk(`{}`, `"tool_calls"`)
 		}
-		if !strings.Contains(body, discover) {
-			tool(discover, "tool_search", `{"query":"select:`+systemReadTool+`"}`)
-		} else if strings.Contains(body, `"name":"`+systemReadTool+`"`) && !strings.Contains(body, call) {
-			tool(call, systemReadTool, `{"path":"secret.txt"}`)
+		if strings.Contains(body, `"name":"read_file"`) && !strings.Contains(body, call) {
+			tool(call, "read_file", `{"path":"secret.txt"}`)
 		} else {
 			chunk(`{"role":"assistant","content":"`+systemResponse+`"}`, "null")
 			chunk(`{}`, `"stop"`)
@@ -235,12 +226,6 @@ func newSystemModel(t *testing.T) *systemModel {
 	}))
 	t.Cleanup(model.server.Close)
 	return model
-}
-
-func (m *systemModel) turnNow() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.turn
 }
 
 func (m *systemModel) next() {
@@ -335,7 +320,7 @@ func TestSystemGeneralUI(t *testing.T) {
 	}
 	t.Cleanup(closeLog)
 	reports, usage, backend, model := newSystemReports(t), &systemUsage{}, &systemPower{}, newSystemModel(t)
-	desk := newSystemDesk(t, ctx, profile, node.Options{Power: backend, Telemetry: telemetry.Options{Transport: usage, Timer: usage.timer,
+	desk := newSystemDesk(t, ctx, profile, node.Options{Assembly: hostassembly.Harness(), Power: backend, Telemetry: telemetry.Options{Transport: usage, Timer: usage.timer,
 		Lookup: func(name string) string {
 			return map[string]string{"SAILRY_SENTRY_DSN": reports.dsn(), "SAILRY_TELEMETRY_KEY": "usage-fixture-key"}[name]
 		}}})
@@ -343,14 +328,6 @@ func TestSystemGeneralUI(t *testing.T) {
 	project := desk.project("Harbour ledger workspace")
 	if err := os.WriteFile(filepath.Join(project.Path, "secret.txt"), []byte(systemFile+"\n"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(desk.setup.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == "files" }) {
-		desk.do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "files"}})
-	}
-	if info, valid := detail[protocol.PluginInfo](desk.do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "files"}}).Data); !valid {
-		t.Fatal("the bundled files package was not returned")
-	} else if !info.Summary.Enabled {
-		desk.do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "files", ExpectedRevision: info.Summary.Revision, Enabled: true}})
 	}
 	session := desk.session(project, provider, chosen, "Harbour ledger notes")
 
@@ -449,8 +426,8 @@ func TestSystemGeneralUI(t *testing.T) {
 		for {
 			now, _ := desk.current(session.ID)
 			if run := now.Activity.Run; run != nil && run.Turn != finished && run.FinishedMs != nil {
-				if run.Status != protocol.ConversationStatusCompleted || len(model.requests()) != before+3 {
-					t.Fatalf("%s: the turn ended %s (%+v) after %d model requests; tools offered: %v; search: %q", label, run.Status, run.Error, len(model.requests())-before, regexp.MustCompile(`"function":\{"name":"[A-Za-z_]+"`).FindAllString(model.requests()[len(model.requests())-1], -1), regexp.MustCompile(`.{200}discover_fixture.{900}`).FindAllString(model.requests()[len(model.requests())-1], -1))
+				if run.Status != protocol.ConversationStatusCompleted || len(model.requests()) != before+2 {
+					t.Fatalf("%s: the turn ended %s (%+v) after %d model requests, want a native file read and its result", label, run.Status, run.Error, len(model.requests())-before)
 				}
 				finished = run.Turn
 				break
@@ -658,7 +635,7 @@ func TestSystemGeneralUI(t *testing.T) {
 		t.Fatalf("the diagnostics event %s with attachment %s", lines[2], lines[3])
 	}
 	public := map[string]bool{"level": true, "timestamp": true, "area": true, "phase": true, "operation": true, "code": true, "cause_code": true,
-		"duration_us": true, "count": true, "elapsed_us": true, "app_version": true, "package": true}
+		"duration_us": true, "count": true, "elapsed_us": true, "app_version": true, "package": true, "command_stage": true, "report_ref": true}
 	records, failures := 0, 0
 	var failed []string
 	for _, entry := range lines[4:] {
@@ -670,7 +647,7 @@ func TestSystemGeneralUI(t *testing.T) {
 			t.Fatalf("attachment line %q: %v", entry, err)
 		}
 		for key := range record {
-			if !public[key] {
+			if !public[key] || key == "report_ref" && !logging.ValidReportRef(fmt.Sprint(record[key])) {
 				t.Fatalf("the attachment carries %q: %s", key, entry)
 			}
 		}
@@ -811,6 +788,9 @@ func TestSystemGeneralUI(t *testing.T) {
 		tables[batch.Table]++
 		for _, row := range batch.Data {
 			for key := range row {
+				if key == "feature" && batch.Table == "feature_uses" && protocol.FeatureUse(fmt.Sprint(row[key])).Listed() {
+					continue
+				}
 				if !rows[key] {
 					t.Fatalf("a %s row carries %q: %s", batch.Table, key, body)
 				}

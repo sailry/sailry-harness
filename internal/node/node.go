@@ -463,7 +463,7 @@ func (node *Node) begin() error {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if node.stopped {
-		return unavailable()
+		return admissionStopped{unavailable()}
 	}
 	node.work.Add(1)
 	return nil
@@ -481,6 +481,11 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 }
 
 func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	select {
+	case <-node.closed:
+		return link.Admission{}, admissionStopped{unavailable()}
+	default:
+	}
 	if request.Command.Kind == "call_host_handler" {
 		return node.admitHostHandler(ctx, caller, request)
 	}
@@ -604,7 +609,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	node.mu.Unlock()
 	if stopped {
 		node.admitting.Unlock()
-		return link.Admission{}, unavailable()
+		return link.Admission{}, admissionStopped{unavailable()}
 	}
 	if err := ctx.Err(); err != nil {
 		node.admitting.Unlock()
@@ -1163,7 +1168,11 @@ func (node *Node) publish() {
 	}
 }
 
-func unavailable() error {
+type admissionStopped struct{ *protocol.Fault }
+
+func (err admissionStopped) Unwrap() error { return err.Fault }
+
+func unavailable() *protocol.Fault {
 	return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node service is unavailable"}
 }
 

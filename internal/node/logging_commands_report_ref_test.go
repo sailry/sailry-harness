@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -105,6 +106,91 @@ func TestDispatchReportRef(t *testing.T) {
 	if err != nil || stored.State != client.RequestFailed || stored.Fault == nil || stored.Fault.ReportRef != "" || stored.Fault.ReportOwned || stored.Fault.Code != first.Code || stored.Fault.Message != first.Message {
 		t.Fatalf("reference changed the durable result: %+v, %v", stored, err)
 	}
+}
+
+func TestDispatchShutdownAdmission(t *testing.T) {
+	t.Setenv("SAILRY_TELEMETRY", "off")
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(root, "profile")
+	closeLog, err := logging.Install(profile, "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(closeLog)
+	owner, err := startFixtureNode(t.Context(), profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Stop(context.Background()) })
+
+	catalog := protocol.Command{Kind: "read_resource_catalog"}
+	during := protocol.NewRequest(owner.ID(), catalog)
+	after := protocol.NewRequest(owner.ID(), catalog)
+	unreachable := protocol.NewRequest(protocol.NodeID{1}, protocol.Command{Kind: "list_knowledge_collections"})
+	var reports []logging.Fields
+	logging.SetReport(func(_ slog.Level, fields logging.Fields) {
+		switch fields["request"] {
+		case during.ID.String(), after.ID.String(), unreachable.ID.String():
+			reports = append(reports, fields)
+		}
+	})
+	defer logging.SetReport(nil)
+	dispatch := func(ctx context.Context, request protocol.Request) *protocol.Fault {
+		t.Helper()
+		admitted, err := owner.Dispatch(ctx, owner.ID(), request)
+		fault, ok := err.(*protocol.Fault)
+		if !ok || fault.Code != protocol.ErrorCodeUnavailable || admitted.Completion != nil {
+			t.Fatalf("%s: admission = %+v, error = %v", request.Command.Kind, admitted, err)
+		}
+		return fault
+	}
+	fault := dispatch(t.Context(), unreachable)
+	if !fault.ReportOwned || !logging.ValidReportRef(fault.ReportRef) || len(reports) != 1 ||
+		reports[0]["command_stage"] != "admission" || reports[0]["request"] != unreachable.ID.String() || reports[0]["report_ref"] != fault.ReportRef {
+		t.Fatalf("running Node lost an unavailable admission report: fault %+v, reports %v", fault, reports)
+	}
+
+	// Hold one operation so reporting is still attached when the catalog read
+	// reaches the closed gate after authorization.
+	if err := owner.begin(); err != nil {
+		t.Fatal(err)
+	}
+	release := sync.OnceFunc(owner.work.Done)
+	defer release()
+	wait, cancel := context.WithCancel(t.Context())
+	cancel()
+	var stopErr error
+	readCtx := stopOnCommandAuthorization{Context: t.Context(), stop: sync.OnceFunc(func() { stopErr = owner.Stop(wait) })}
+	checkClosed := func(ctx context.Context, request protocol.Request) {
+		t.Helper()
+		if fault := dispatch(ctx, request); fault.Message != unavailable().Message || fault.ReportOwned || fault.ReportRef != "" || len(reports) != 1 {
+			t.Fatalf("closed admission produced a fault report: fault %+v, reports %v", fault, reports)
+		}
+	}
+	checkClosed(readCtx, during)
+	if !errors.Is(stopErr, context.Canceled) {
+		t.Fatalf("stop waiter = %v", stopErr)
+	}
+	release()
+	if err := owner.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	checkClosed(t.Context(), after)
+}
+
+type stopOnCommandAuthorization struct {
+	context.Context
+	stop func()
+}
+
+func (ctx stopOnCommandAuthorization) Value(key any) any {
+	if _, captured := key.(capturedDispatchKey); captured {
+		ctx.stop()
+	}
+	return ctx.Context.Value(key)
 }
 
 func TestReportFaultScope(t *testing.T) {
