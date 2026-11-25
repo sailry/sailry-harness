@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	desktop "github.com/sailry/sailry-harness/internal/assembly/desktop"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -27,7 +28,7 @@ func railPages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: hostassembly.Harness()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,6 +38,9 @@ func railPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
+	if installed := controller.Snapshot().Plugins; len(installed) != 0 {
+		t.Fatalf("native Files page fixture unexpectedly installed plugins: %+v", installed)
+	}
 	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
