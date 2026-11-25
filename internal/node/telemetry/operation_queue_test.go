@@ -116,6 +116,7 @@ func savedOperation(t *testing.T, settings protocol.TelemetrySettings) ([]byte, 
 }
 
 func TestOperationRetryRecovery(t *testing.T) {
+	setBuildProduct(t, "sailry")
 	settings := protocol.TelemetrySettings{InstallationID: uuid.New(), Errors: true}
 	body, item := savedOperation(t, settings)
 	fresh := func(t *testing.T, b []byte) (string, string) {
@@ -138,11 +139,14 @@ func TestOperationRetryRecovery(t *testing.T) {
 			}
 		}
 		assertClean(t, "replayed operation", report)
+		if event := productReportEvent(t, report); event.Tags["product"] != "sailry" || event.Tags["application"] != "desktop" {
+			t.Fatalf("replayed operation identity = %v", event.Tags)
+		}
 		if _, err := os.Stat(name); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("successful replay remained: %v", err)
 		}
 	})
-	for _, reason := range []string{"opt out", "errors off", "new identity", "new endpoint", "no endpoint", "expired", "attempts exhausted", "oversized", "corrupt"} {
+	for _, reason := range []string{"opt out", "errors off", "new identity", "new endpoint", "new product", "no endpoint", "expired", "attempts exhausted", "oversized", "corrupt"} {
 		t.Run(reason, func(t *testing.T) {
 			b, s, dsn := body, settings, retryDSN
 			switch reason {
@@ -152,6 +156,8 @@ func TestOperationRetryRecovery(t *testing.T) {
 				s.InstallationID = uuid.New()
 			case "new endpoint":
 				dsn = "http://public@other.invalid/42"
+			case "new product":
+				setBuildProduct(t, "another-product")
 			case "no endpoint":
 				dsn = " "
 			case "expired", "attempts exhausted":

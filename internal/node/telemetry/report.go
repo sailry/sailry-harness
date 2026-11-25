@@ -291,8 +291,8 @@ func (c *Control) Record(level slog.Level, fields logging.Fields) {
 }
 
 // Diagnostics sends the one report a controller asked for: the anonymous
-// identity, release, channel, application, system and architecture, with the
-// active log's recent records reduced to their public fields. It never
+// identity, release, channel, application, product, system and architecture,
+// with the active log's recent records reduced to their public fields. It never
 // carries requests, responses, prompts or file contents. The two switches do
 // not gate it: only the environment's opt-outs and a missing endpoint do.
 func (c *Control) Diagnostics(ctx context.Context) error {

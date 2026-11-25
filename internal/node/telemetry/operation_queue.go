@@ -52,7 +52,12 @@ type operationQueue struct {
 
 func newOperationQueue(c *Control) *operationQueue {
 	ctx, cancel := context.WithCancel(context.Background())
-	binding := sha256.Sum256([]byte(c.installation + "\x00" + c.dsn + "\x00" + c.application + "\x00" + c.release))
+	scope := c.installation + "\x00" + c.dsn + "\x00" + c.application + "\x00" + c.release
+	// Preserve existing Harness retries without relabeling them as another product.
+	if c.product != "harness" {
+		scope += "\x00" + c.product
+	}
+	binding := sha256.Sum256([]byte(scope))
 	return &operationQueue{ctx: ctx, cancel: cancel, done: make(chan struct{}), actions: make(chan pendingOperation, operationSlots), scope: hex.EncodeToString(binding[:])}
 }
 

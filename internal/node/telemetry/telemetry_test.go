@@ -24,16 +24,18 @@ import (
 
 // endpoints stands in for both remote endpoints: nothing leaves the process.
 type endpoints struct {
-	mu      sync.Mutex
-	usage   [][]byte
-	reports [][]byte
-	timers  []func()
+	mu       sync.Mutex
+	usage    [][]byte
+	reports  [][]byte
+	timers   []func()
+	requests []*http.Request
 }
 
 func (e *endpoints) RoundTrip(request *http.Request) (*http.Response, error) {
 	body, _ := io.ReadAll(request.Body)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.requests = append(e.requests, request.Clone(context.Background()))
 	if request.URL.Host == "api.telemetry.sh" {
 		e.usage = append(e.usage, body)
 	} else {
@@ -170,7 +172,7 @@ func TestCountersAndInterfaceReports(t *testing.T) {
 		remote.timers[len(remote.timers)-1]()
 		usage, _ := remote.sent()
 
-		common := []string{"event_id", "window_start", "window_end", "count", "installation_id", "channel", "application", "os", "arch", "release"}
+		common := []string{"event_id", "window_start", "window_end", "count", "installation_id", "channel", "application", "product", "os", "arch", "release"}
 		allowed := map[string][]string{
 			"app_launches":    nil,
 			"turns":           {"result", "mode", "subagent", "error_code"},

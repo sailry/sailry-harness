@@ -10,7 +10,7 @@ import sentry_intake as intake
 
 NOW = datetime(2026, 11, 20, 12, 17, tzinfo=UTC)
 SHA = "e" * 40
-ROW = {"issue": "SAILRY-1A", "release": "sailry@0.2.4+" + SHA, "project.id": 123,
+ROW = {"issue": "SAILRY-1A", "release": "sailry@0.2.4+" + SHA, "project.id": 123, "product": "harness",
        "timestamp": "2026-11-20T11:54:00Z"}
 
 
@@ -24,7 +24,7 @@ class PollTest(unittest.TestCase):
             query = parse_qs(url.query)
             self.assertEqual(query["dataset"], ["errors"])
             self.assertEqual(query["project"], ["123"])
-            self.assertEqual(query["field"], ["timestamp", "project.id", "issue", "release"])
+            self.assertEqual(query["field"], ["timestamp", "project.id", "issue", "release", "product"])
             self.assertEqual(query["per_page"], [str(intake.PAGE_SIZE)])
             self.assertEqual(token, "test-only")
             queries.append(query["query"][0])
@@ -32,6 +32,8 @@ class PollTest(unittest.TestCase):
 
         result = intake.collect("example", "123", "test-only", now, fetch)
         self.assertEqual(len(queries), 3)
+        for query in queries:
+            self.assertIn(" AND (product:harness OR (!has:product AND release:sailry@*)) AND ", query)
         self.assertIn('error.value:"command.guide_queued_turn:conflict" AND sailry.reason_code:recipient_stopping', queries[0])
         self.assertIn("(!has:sailry.reason_code OR !sailry.reason_code:recipient_stopping)", queries[1])
         self.assertIn('error.value:"desktop.workspace_action_failed:*"', queries[2])
@@ -50,6 +52,26 @@ class PollTest(unittest.TestCase):
         self.assertNotIn(raw, summary + json.dumps(outputs))
         self.assertNotIn("SAILRY-1A", summary + json.dumps(outputs))
         self.assertEqual(self.collect([[], [row], [row]])[0], [])
+
+    def test_shared_project_filters_other_products_and_preserves_legacy_harness(self):
+        legacy = {key: value for key, value in ROW.items() if key != "product"}
+        legacy.update(issue="SAILRY-LEGACY", release="sailry@v0.2.3+" + "f" * 40)
+        expected = self.collect([[ROW, legacy], [ROW, legacy], [ROW, legacy]])
+        self.assertEqual([output["target"] for output in expected[0]], [SHA, "f" * 40])
+        self.assertIn("Queue candidates: 2; other queue conflicts: 2; workspace observations: 2; invalid groups: 0", expected[1])
+        foreign = []
+        for product in ("code", "dot", "ultra"):
+            foreign.extend([
+                dict(ROW, product=product, issue=f"OTHER-{product}"),
+                dict(legacy, release=f"sailry-{product}@0.2.4+{SHA}"),
+            ])
+        foreign.extend(dict(legacy, release=release) for release in (
+            None, "sailry@0.2.4+unknown", "sailry@0.2.4+" + SHA + "extra",
+        ))
+        for row in (legacy, dict(legacy, product=None), dict(legacy, product="")):
+            with self.subTest(legacy_product=row.get("product", "missing")):
+                mixed = foreign + [ROW, row]
+                self.assertEqual(self.collect([mixed, mixed, mixed]), expected)
 
     def test_fixed_window_limits_and_no_catchup(self):
         rows = [dict(ROW, issue=f"SAILRY-{i}") for i in range(intake.PAGE_SIZE)]

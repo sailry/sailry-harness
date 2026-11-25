@@ -24,10 +24,15 @@ var (
 	BuildRevision string
 	BuildDSN      string
 	BuildKey      string
+	// BuildProduct is a stable lowercase kebab-case ID, at most 64 bytes.
+	// Unset or invalid values use "harness"; runtime input cannot override it.
+	BuildProduct string
 )
 
 // Options names the application and replaces the process boundaries in tests.
 type Options struct {
+	Product     string // Compiled product entry point, never supplied by a controller.
+	Version     string
 	Application string              // "desktop" (default) or "host"
 	Lookup      func(string) string // environment; os.Getenv by default
 	Transport   http.RoundTripper   // http.DefaultTransport by default
@@ -73,6 +78,7 @@ type Control struct {
 	dsn         string
 	key         string
 	application string
+	product     string
 	channel     string
 	release     string
 	transport   http.RoundTripper
@@ -88,7 +94,11 @@ func New(options Options) *Control {
 	if lookup == nil {
 		lookup = os.Getenv
 	}
-	c := &Control{application: options.Application, transport: options.Transport, timer: options.Timer, models: options.Models, packages: options.Packages, channel: "dev", limits: map[string]*limit{}}
+	product := options.Product
+	if product == "" {
+		product = BuildProduct
+	}
+	c := &Control{application: options.Application, product: productID(product), transport: options.Transport, timer: options.Timer, models: options.Models, packages: options.Packages, channel: "dev", limits: map[string]*limit{}}
 	if c.application == "" {
 		c.application = "desktop"
 	}
@@ -115,10 +125,21 @@ func New(options Options) *Control {
 	} else {
 		c.channel = "beta"
 	}
-	c.release = "sailry@" + link.ProductVersion + "+" + revision
+	version := options.Version
+	if version == "" {
+		version = link.ProductVersion
+	}
+	c.release = "sailry@" + version + "+" + revision
 	c.scope, c.advance = context.WithCancel(context.Background())
 	c.retryDir = options.RetryDirectory
 	return c
+}
+
+func productID(value string) string {
+	if !identifier(value, '-') || strings.HasSuffix(value, "-") || strings.Contains(value, "--") {
+		return "harness"
+	}
+	return value
 }
 
 // advanceLocked abandons everything prepared under the previous consent or
@@ -250,7 +271,7 @@ func (c *Control) tagsLocked() map[string]string {
 	if name, renamed := map[string]string{"arm64": "aarch64", "amd64": "x86_64", "386": "x86"}[arch]; renamed {
 		arch = name
 	}
-	return map[string]string{"installation_id": c.installation, "channel": c.channel, "application": c.application, "os": system, "arch": arch}
+	return map[string]string{"installation_id": c.installation, "channel": c.channel, "application": c.application, "product": c.product, "os": system, "arch": arch}
 }
 
 func unavailable() error {

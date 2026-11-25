@@ -13,7 +13,8 @@ HOST = "sentry.io"
 PAGE_SIZE = 20
 MAX_DISPATCH = 2
 MAX_BODY = 64 * 1024
-SOURCE = 'platform:native AND application:desktop AND error.type:SailryError'
+SOURCE = ('platform:native AND application:desktop AND error.type:SailryError '
+          'AND (product:harness OR (!has:product AND release:sailry@*))')
 QUEUE = 'error.value:"command.guide_queued_turn:conflict"'
 WORKSPACE = ["workspace_action_failed", "save_all_documents", "edit_markdown_source", "search_files", "write_file", "list_directory", "inspect_git", "list_worktrees"]
 QUERIES = {
@@ -21,7 +22,7 @@ QUERIES = {
     "queue-unclassified": QUEUE + " AND (!has:sailry.reason_code OR !sailry.reason_code:recipient_stopping)",
     "workspace-unclassified": "(" + " OR ".join(f'error.value:"desktop.{op}:*"' for op in WORKSPACE) + ")",
 }
-FIELDS = ["timestamp", "project.id", "issue", "release"]
+FIELDS = ["timestamp", "project.id", "issue", "release", "product"]
 RELEASE = re.compile(r"sailry@v?[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}(?:-[a-zA-Z0-9.-]{1,64})?\+([0-9a-f]{40})")
 
 
@@ -69,11 +70,14 @@ def collect(org, project, token, now, fetch=get_page):
                 continue
             issue = row.get("issue")
             release = row.get("release")
+            matched = isinstance(release, str) and RELEASE.fullmatch(release)
+            product = row.get("product")
+            if product != "harness" and not (product in (None, "") and matched):
+                continue
             if not isinstance(issue, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}-[A-Za-z0-9]{1,16}", issue):
                 counts["invalid group"] += 1
                 continue
             group = hashlib.sha256(f"sentry:{org}:{project}:{issue}".encode()).hexdigest()
-            matched = isinstance(release, str) and RELEASE.fullmatch(release)
             target = matched.group(1) if matched else None
             groups[kind, group, target] += 1
             counts[kind] += 1
