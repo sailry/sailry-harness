@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -751,6 +752,9 @@ func (p *workspaceProject) readGit() {
 	p.inspectGit()
 }
 func (p *workspaceProject) inspectGit() {
+	if p.runtime.App == nil || !p.runtime.App.NativePageEnabled(shell.GitPage) {
+		return
+	}
 	p.read("git-status", protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
 		if value, ok := detail[protocol.GitStatus](out.Data); ok {
 			p.status = value
@@ -930,6 +934,10 @@ func (p *workspaceProject) watch() {
 	files, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, false, func(protocol.Update) { p.runtime.enqueue(func(*ui.Context) { p.pendingFiles = true }) })
 	if err != nil {
 		cancel()
+		return
+	}
+	if p.runtime.App == nil || !p.runtime.App.NativePageEnabled(shell.GitPage) {
+		p.release = files
 		return
 	}
 	repository, err := p.runtime.controller.ObserveWorkspace(ctx, p.owner.ID, true, func(protocol.Update) { p.runtime.enqueue(func(*ui.Context) { p.pendingGit = true }) })

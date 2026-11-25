@@ -19,6 +19,7 @@ import (
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -81,8 +82,12 @@ type pluginLocationTestFixture struct {
 	target protocol.Worktree
 }
 
-func newPluginLocationTestFixture(t *testing.T) pluginLocationTestFixture {
+func newPluginLocationTestFixture(t *testing.T, assemblies ...shell.Assembly) pluginLocationTestFixture {
 	t.Helper()
+	assembly := shell.Assembly{}
+	if len(assemblies) != 0 {
+		assembly = assemblies[0]
+	}
 	// MyGo's raster helpers are process-wide goroutines. A frame painted inside
 	// a synctest bubble must stay on the bubble's own goroutine.
 	processors := runtime.GOMAXPROCS(1)
@@ -109,7 +114,10 @@ func newPluginLocationTestFixture(t *testing.T) pluginLocationTestFixture {
 	}
 	root := &Runtime{
 		ctx: ctx, cancel: cancel, controller: controller, packages: newPackageState(),
-		App: shell.NewLive(data), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
+		App: shell.NewLiveWithAssembly(data, assembly), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
+	}
+	if assembly.Worktrees {
+		root.App.Sidebar.Actions = &sidebar.Actions{Worktrees: root.sidebarWorkspaceAction}
 	}
 	root.initPluginViews()
 	root.initWorkspace()

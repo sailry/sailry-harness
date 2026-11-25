@@ -8,6 +8,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -61,7 +62,7 @@ func TestDraftProjectSelectionReadFailure(t *testing.T) {
 }
 
 func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol.Fault, linked bool, want []string) {
-	fixture := newPluginLocationTestFixture(t)
+	fixture := newPluginLocationTestFixture(t, testassembly.Full())
 	root := fixture.root
 	root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
 	root.App.Data.Projects = Sidebar(root.snapshot(), root.Preferences.Data).Projects

@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -132,7 +133,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		}
 	}
 	ctx.Repository = composer.Repository{Kind: composer.Inspecting}
-	if p.failedReads["git-status"] {
+	if p.failedReads["git-status"] || !r.App.NativePageEnabled(shell.GitPage) {
 		ctx.Repository.Kind = composer.Unavailable
 	}
 	if p.statusKnown {
@@ -210,7 +211,7 @@ func (r *Runtime) projectWorkspaceLocations() {
 				project.Worktrees[i].Branch = project.Worktrees[i].Path
 			}
 		}
-		if !main.locationsLoaded {
+		if !main.locationsLoaded && r.App.Sidebar.Actions != nil && r.App.Sidebar.Actions.Worktrees != nil {
 			main.locationsLoaded = true
 			main.read("git-worktrees", protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: main.owner.ID}}, func(c *ui.Context, out protocol.Output) {
 				if value, ok := detail[protocol.GitWorktrees](out.Data); ok {

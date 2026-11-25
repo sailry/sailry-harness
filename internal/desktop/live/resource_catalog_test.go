@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -210,7 +211,7 @@ func TestProjectOverviewReentryRefreshesUnobservedRepository(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = controller.Close() })
 	prefs := preferences.Default()
-	r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLive(Sidebar(snapshot, prefs)),
+	r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(Sidebar(snapshot, prefs), testassembly.Full()),
 		busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
 	r.initWorkspace()
 	settle := func() {

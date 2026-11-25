@@ -11,6 +11,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -141,7 +143,7 @@ func TestWorkspaceStatusRefreshKeepsLiveTranscripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = controller.Close() })
-	r, err := New(t.Context(), controller, t.TempDir())
+	r, err := NewWithAssembly(t.Context(), controller, preferences.ForStartup(t.TempDir()), testassembly.Full())
 	if err != nil {
 		t.Fatal(err)
 	}
