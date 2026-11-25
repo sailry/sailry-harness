@@ -60,7 +60,10 @@ func visible(records []canonical.Record, keepEmpty bool) []canonical.Record {
 		}
 	}
 	var out []canonical.Record
-	appendRecord := func(record canonical.Record) {
+	// The latest checkpoint stays even without readable text: an opaque native
+	// window is history that its own route replays and that a later
+	// compaction must carry forward.
+	appendRecord := func(record canonical.Record, keepEmpty bool) {
 		visible := record.Metadata.Runtime == nil || record.Metadata.Runtime.AgentVisible
 		if override, ok := visibility[record.ID]; ok {
 			visible = override
@@ -98,11 +101,11 @@ func visible(records []canonical.Record, keepEmpty bool) []canonical.Record {
 		out = append(out, record)
 	}
 	if summary >= 0 {
-		appendRecord(records[summary])
+		appendRecord(records[summary], true)
 	}
 	for i, record := range records {
 		if i > boundary && record.Kind != "compaction" {
-			appendRecord(record)
+			appendRecord(record, keepEmpty)
 		}
 	}
 	return out
