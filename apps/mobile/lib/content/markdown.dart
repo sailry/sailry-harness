@@ -5,7 +5,6 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:html/dom.dart' as html;
 import 'package:html/parser.dart' as html_parser;
 import 'package:markdown/markdown.dart' as md;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
@@ -13,6 +12,7 @@ import '../ui/toast.dart';
 import 'chart.dart';
 import 'image_preview.dart';
 import 'code.dart';
+import 'links.dart';
 import 'math.dart';
 import 'visuals.dart';
 
@@ -36,8 +36,7 @@ class MarkdownContent extends StatelessWidget {
   final MarkdownImageBuilder? imageBuilder;
   final Future<void> Function(Uri uri)? onOpenFile;
 
-  /// Opens a tapped link before the defaults and reports whether it did.
-  final bool Function(String link)? onOpenLink;
+  final Future<void> Function(BuildContext context, Uri uri)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -67,19 +66,20 @@ class MarkdownContent extends StatelessWidget {
       fitContent: false,
       styleSheet: contentStyleSheet(Theme.of(context), muted: muted),
       onTapLink: (_, href, _) async {
-        if (href != null && onOpenLink?.call(href) == true) return;
-        final uri = Uri.tryParse(href ?? '');
+        final uri = parseContentLink(href);
         try {
           if (uri != null) {
-            if ((uri.scheme.isEmpty || uri.scheme == 'file') &&
+            if (isContentAnchor(uri)) return;
+            if (onOpenLink != null) {
+              await onOpenLink!(context, uri);
+              return;
+            }
+            if ((!uri.hasScheme || uri.scheme == 'file') &&
                 onOpenFile != null) {
               await onOpenFile!(uri);
               return;
             }
-            if (['http', 'https', 'mailto'].contains(uri.scheme) &&
-                await launchUrl(uri)) {
-              return;
-            }
+            if (await launchExternalContentLink(uri)) return;
           }
         } catch (_) {
           // Keep unsupported links and failed opens visible to the user.

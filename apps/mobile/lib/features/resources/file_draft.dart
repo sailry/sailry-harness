@@ -1,6 +1,12 @@
 import '../../runtime/session.dart';
 import '../../runtime/json.dart';
 
+/// Retained by the browser so navigating back never discards a draft or retry ID.
+class FileDocument {
+  FileDraft? draft;
+  String? trashRequest;
+}
+
 /// A UI draft retains the revision read from the execution Node until a save succeeds.
 class FileDraft {
   FileDraft(Map<String, dynamic> content)

@@ -4,6 +4,7 @@ import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/assembly/lean.dart';
 import 'package:sailry_mobile/assembly/pages.dart';
 import 'package:sailry_mobile/features/conversations/live/references.dart';
+import 'package:sailry_mobile/features/resources/contributions.dart';
 import 'package:sailry_mobile/features/resources/file_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -12,6 +13,42 @@ import 'package:sailry_mobile/shell/assembly.dart';
 const _worktree = 'tree';
 
 void main() {
+  testWidgets('legacy openDirectory is called with the captured worktree', (
+    tester,
+  ) async {
+    final host = HostConnection.test(id: 'entry/legacy', label: 'Legacy host');
+    addTearDown(host.dispose);
+    final calls = <(HostConnection, String, String)>[];
+    await tester.pumpWidget(
+      ProjectResourcesScope(
+        features: [
+          ProjectResourceFeature(
+            openDirectory: (_, host, worktree, path) async {
+              calls.add((host, worktree, path));
+            },
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: MessageReferences(
+              host: host,
+              worktree: _worktree,
+              references: const [
+                {
+                  'label': 'Legacy directory',
+                  'target': {'kind': 'directory', 'data': 'src/./nested'},
+                },
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Legacy directory'));
+    await tester.pumpAndSettle();
+    expect(calls, [(host, _worktree, 'src/nested')]);
+  });
+
   testWidgets('lean references preview files but do not open directories', (
     tester,
   ) async {
@@ -55,6 +92,13 @@ void main() {
                   'label': 'Source file',
                   'target': {'kind': 'file', 'data': 'src/lib.txt'},
                 },
+                {
+                  'label': 'Context-only reference',
+                  'target': {
+                    'kind': 'skill',
+                    'data': {'name': 'example'},
+                  },
+                },
               ],
             ),
           ),
@@ -70,6 +114,12 @@ void main() {
     expect(Navigator.of(context).canPop(), isFalse);
     expect(calls.map((call) => call.$1), isNot(contains('list_directory')));
     await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Context-only reference'));
+    await tester.pumpAndSettle();
+    expect(find.text(context.tr('messageReferenceContext')), findsOneWidget);
+    Navigator.of(context).pop();
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Source file'));

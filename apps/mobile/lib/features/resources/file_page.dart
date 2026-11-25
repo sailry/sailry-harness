@@ -19,11 +19,7 @@ import '../../ui/toast.dart';
 import 'file_draft.dart';
 import 'files/code_view.dart';
 
-/// Retained by the browser so navigating back never discards a draft or retry ID.
-class FileDocument {
-  FileDraft? draft;
-  String? trashRequest;
-}
+export 'file_draft.dart' show FileDocument;
 
 class ResourceFilePage extends StatefulWidget {
   const ResourceFilePage({

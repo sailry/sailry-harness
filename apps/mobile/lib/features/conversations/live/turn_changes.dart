@@ -6,8 +6,8 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
-import '../../resources/file_navigation.dart';
-import '../../resources/file_page.dart';
+import '../../resources/file_draft.dart';
+import 'links.dart';
 import 'presentation.dart';
 
 /// Change sets confirm each file separately in their shared receipt.
@@ -397,13 +397,12 @@ class _ChangesPageState extends State<_ChangesPage> {
                       visualDensity: VisualDensity.compact,
                       onPressed: review.busy || !review.host.connected
                           ? null
-                          : () => openResourceFile(
-                              context,
+                          : () => ConversationLinks(
                               review.host,
                               widget.worktree,
-                              text(file['path']),
+                              session: review.session,
                               documents: documents,
-                            ),
+                            ).openFile(context, file['path']),
                       icon: const AppIcon('file', size: 16),
                     ),
                     TextButton(

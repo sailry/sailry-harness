@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
+import 'file_draft.dart';
 import 'overview_cards.dart';
 
 typedef ProjectResourceView = ({
@@ -24,6 +25,32 @@ typedef OpenDirectory =
       String worktree,
       String directory,
     );
+
+typedef ProjectResourceLink = ({
+  HostConnection host,
+  String worktree,
+  String? session,
+  String? kind,
+  Object? data,
+  Uri? uri,
+  Map<String, FileDocument>? documents,
+});
+
+typedef OpenProjectResourceLink =
+    Future<void> Function(BuildContext context, ProjectResourceLink link);
+
+/// A target match takes priority over a scheme match. The first match owns
+/// the open, including any failure. File/directory data is Node-relative.
+class ProjectLinkContribution {
+  const ProjectLinkContribution.target(String this.kind, this.open)
+    : scheme = null;
+  const ProjectLinkContribution.scheme(String this.scheme, this.open)
+    : kind = null;
+
+  final String? kind;
+  final String? scheme;
+  final OpenProjectResourceLink open;
+}
 
 /// A task list view another page opens on the task tab.
 @immutable
@@ -104,6 +131,7 @@ class ProjectResourceFeature {
     this.header,
     this.action,
     this.openDirectory,
+    this.links = const [],
     this.hostCount,
     this.taskSection,
   });
@@ -113,6 +141,7 @@ class ProjectResourceFeature {
   final ProjectResourceHeader? header;
   final ProjectResourceAction? action;
   final OpenDirectory? openDirectory;
+  final List<ProjectLinkContribution> links;
   final HostResourceCount? hostCount;
   final TaskListSection? taskSection;
 }

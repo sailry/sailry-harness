@@ -809,9 +809,14 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   }
 
   bool _openReplyLink(String link) {
-    if (widget.host.isDemo) return false;
+    if (!widget.host.hasConnection || widget.host.isDemo) return false;
     final linked = linkedSession(link, _view.value);
     if (linked == null) return false;
+    if (_closed || _ownerEnded) {
+      _failure(context.tr('conversationUnavailable'));
+      return true;
+    }
+    if (linked.id == widget.sessionId) return true;
     final child = linked.child;
     if (child != null) {
       _openChild(child);
@@ -1156,7 +1161,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                               pendingPlanFeedback: _pendingPlanFeedback,
                               toolOutput: _trackTools,
                               onOpenChild: _openChild,
-                              onOpenLink: _openReplyLink,
+                              onOpenSession: _openReplyLink,
                               onTurnAction: _canUseHistory ? _turnAction : null,
                               canChangeHistory: _canChangeHistory,
                               sending: _sending || _pendingSend != null,

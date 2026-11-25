@@ -1,3 +1,4 @@
+import '../../../content/links.dart';
 import '../../../runtime/json.dart';
 
 /// Rewind returns a recovery copy; editing replaces the original branch.
@@ -140,13 +141,9 @@ String citedText(
         : end == null && last
         ? runes.length
         : null;
-    final uri = Uri.tryParse(text(citation['uri']));
-    if (position == null ||
-        uri == null ||
-        !['http', 'https'].contains(uri.scheme) ||
-        uri.host.isEmpty) {
-      continue;
-    }
+    if (position == null) continue;
+    final uri = parseCitationLink(text(citation['uri']));
+    if (uri == null) continue;
     final href = uri
         .toString()
         .replaceAll('<', '%3C')

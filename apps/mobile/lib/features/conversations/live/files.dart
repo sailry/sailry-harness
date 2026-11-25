@@ -7,8 +7,8 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
-import '../../resources/file_navigation.dart';
-import '../../resources/file_page.dart';
+import '../../resources/file_draft.dart';
+import 'links.dart';
 
 /// Newer publications replace the same path while retaining transcript order.
 List<Map<String, dynamic>> publishedFiles(
@@ -34,6 +34,7 @@ class PublishedFiles extends StatelessWidget {
     required this.host,
     required this.worktree,
     required this.enabled,
+    this.session,
     this.documents,
   });
 
@@ -41,16 +42,16 @@ class PublishedFiles extends StatelessWidget {
   final HostConnection host;
   final String worktree;
   final bool enabled;
+  final String? session;
   final Map<String, FileDocument>? documents;
 
   Future<void> _open(BuildContext context, Map<String, dynamic> file) =>
-      openResourceFile(
-        context,
+      ConversationLinks(
         host,
         worktree,
-        text(file['path']),
+        session: session,
         documents: documents,
-      );
+      ).openFile(context, file['path']);
 
   Future<void> _save(BuildContext context, Map<String, dynamic> file) async {
     final path = text(file['path']);

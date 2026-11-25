@@ -1,8 +1,17 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import '../../../content/links.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import 'presentation.dart' show ConversationCommand, failureLabel;
+
+bool _isQuestionLink(Uri uri) =>
+    isWebContentLink(uri) &&
+    (uri.scheme == 'https' ||
+        uri.host == 'localhost' ||
+        InternetAddress.tryParse(uri.host)?.isLoopback == true);
 
 class ConversationQuestion extends StatefulWidget {
   const ConversationQuestion({
@@ -56,6 +65,10 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
       _busy = true;
       _error = null;
     });
+    await _resolve(response);
+  }
+
+  Future<void> _resolve(Map<String, dynamic> response) async {
     try {
       if (widget.onPlanFeedback != null &&
           response['kind'] == 'answer' &&
@@ -80,6 +93,35 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
           _error = failureLabel(error, translate: context.tr);
         });
       }
+    }
+  }
+
+  Future<void> _openQuestionLink(String value) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final uri = parseContentLink(value);
+      if (uri == null ||
+          !_isQuestionLink(uri) ||
+          !await launchExternalContentLink(uri)) {
+        throw StateError('Could not open the question link');
+      }
+      // Opening is consent, not a claim that the external workflow succeeded.
+      if (mounted) {
+        await _resolve({
+          'kind': 'answer',
+          'data': {'kind': 'opened'},
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = context.tr('conversationFailed');
+      });
     }
   }
 
@@ -214,32 +256,8 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
           OutlinedButton(
             onPressed: _busy
                 ? null
-                : () async {
-                    try {
-                      final uri = Uri.parse(input['url'] as String);
-                      if (!await launchUrl(
-                        uri,
-                        mode: LaunchMode.externalApplication,
-                      )) {
-                        throw StateError(context.tr('conversationFailed'));
-                      }
-                      // Opening is consent, not a claim that the external workflow succeeded.
-                      await _send({
-                        'kind': 'answer',
-                        'data': {'kind': 'opened'},
-                      });
-                    } catch (error) {
-                      if (mounted) {
-                        setState(
-                          () => _error = failureLabel(
-                            error,
-                            translate: context.tr,
-                          ),
-                        );
-                      }
-                    }
-                  },
-            child: Text(input['url'] as String),
+                : () => _openQuestionLink(text(input['url'])),
+            child: Text(text(input['url'])),
           ),
         if (_error != null)
           Padding(

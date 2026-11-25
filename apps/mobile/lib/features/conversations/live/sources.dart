@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' show parseFragment;
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../../content/links.dart';
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/toast.dart';
+import 'links.dart';
 
 /// Provider metadata accompanies the unchanged answer. HTML is parsed into
 /// native text and links; provider scripts, styles and embedded pages never run.
 class EntrySources extends StatelessWidget {
-  const EntrySources({super.key, required this.entry});
+  const EntrySources({super.key, required this.entry, this.links});
 
   final Map<String, dynamic> entry;
+  final ConversationLinks? links;
 
   @override
   Widget build(BuildContext context) {
@@ -41,23 +43,34 @@ class EntrySources extends StatelessWidget {
             label: text(citations[index]['title']).trim().isNotEmpty
                 ? text(citations[index]['title'])
                 : text(citations[index]['uri']),
-            uri: _destination(text(citations[index]['uri'])),
+            uri: parseCitationLink(text(citations[index]['uri'])),
             number: index + 1,
+            links: links,
           ),
         if (suggestions.isNotEmpty) heading('conversationSearchSuggestions'),
         for (final suggestion in suggestions)
-          _SourceLink(label: suggestion.label, uri: suggestion.uri),
+          _SourceLink(
+            label: suggestion.label,
+            uri: suggestion.uri,
+            links: links,
+          ),
       ],
     );
   }
 }
 
 class _SourceLink extends StatelessWidget {
-  const _SourceLink({required this.label, required this.uri, this.number});
+  const _SourceLink({
+    required this.label,
+    required this.uri,
+    this.number,
+    this.links,
+  });
 
   final String label;
   final Uri? uri;
   final int? number;
+  final ConversationLinks? links;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -87,23 +100,17 @@ class _SourceLink extends StatelessWidget {
   );
 
   Future<void> _open(BuildContext context, Uri uri) async {
+    if (links != null) {
+      await links!.openUri(context, uri);
+      return;
+    }
     try {
-      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+      if (await launchExternalContentLink(uri)) return;
     } catch (_) {
       // The platform may reject an otherwise valid web link.
     }
     if (context.mounted) showToast(context, context.tr('conversationFailed'));
   }
-}
-
-Uri? _destination(String value) {
-  final uri = Uri.tryParse(value.trim());
-  return uri != null &&
-          (uri.scheme == 'https' || uri.scheme == 'http') &&
-          uri.hasAuthority &&
-          uri.host.isNotEmpty
-      ? uri
-      : null;
 }
 
 typedef _Suggestion = ({String label, Uri? uri});
@@ -138,7 +145,7 @@ List<_Suggestion> _suggestions(String html) {
       if (label.isNotEmpty || href.isNotEmpty) {
         result.add((
           label: label.isEmpty ? href : label,
-          uri: _destination(href),
+          uri: parseCitationLink(href),
         ));
       }
       return;

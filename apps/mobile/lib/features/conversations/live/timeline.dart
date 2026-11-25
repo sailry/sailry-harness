@@ -10,11 +10,8 @@ import '../../../content/markdown.dart';
 import '../../../content/attachment.dart';
 import '../../../content/image_reference.dart';
 import '../../../content/images.dart';
-import '../../../content/paths.dart';
 import '../../../content/visuals.dart';
-import '../../../ui/toast.dart';
-import '../../resources/file_navigation.dart';
-import '../../resources/file_page.dart';
+import '../../resources/file_draft.dart';
 import 'presentation.dart';
 import 'tool_record.dart';
 import 'tool_display.dart';
@@ -27,6 +24,7 @@ import 'children.dart';
 import 'connection_status.dart';
 import 'background_data.dart';
 import 'sources.dart';
+import 'links.dart';
 import 'references.dart';
 import 'turn_actions.dart';
 import 'turn_changes.dart';
@@ -56,7 +54,7 @@ class LiveTimeline extends StatefulWidget {
     this.onPlanFeedback,
     this.pendingPlanFeedback,
     this.onOpenChild,
-    this.onOpenLink,
+    this.onOpenSession,
     this.onTurnAction,
     this.turnKey,
     this.canRestore,
@@ -80,8 +78,7 @@ class LiveTimeline extends StatefulWidget {
   final String? Function(String question)? pendingPlanFeedback;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
-  /// Opens a reply link before Markdown's defaults and reports whether it did.
-  final bool Function(String link)? onOpenLink;
+  final bool Function(String link)? onOpenSession;
   final void Function(String action, String turn)? onTurnAction;
   final Key Function(String turn)? turnKey;
   final bool Function()? canRestore;
@@ -124,6 +121,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final runs = transcript.timeline;
     final colors = Theme.of(context).colorScheme;
     final connected = host.connected && widget.connected;
+    ConversationLinks links(String worktree) => ConversationLinks(
+      host,
+      worktree,
+      session: session['id'] as String?,
+      documents: _documents,
+      openSession: (link) => widget.onOpenSession?.call(link) ?? false,
+    );
     Widget part(
       Map<String, dynamic> entry,
       Map<String, dynamic> part,
@@ -142,28 +146,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             child: MarkdownContent(
               data as String,
               selectable: selectable,
-              onOpenLink: widget.onOpenLink,
-              onOpenFile: (uri) async {
-                final tree = objects(
-                  host.snapshot['worktrees'],
-                ).where((tree) => tree['id'] == worktree).firstOrNull;
-                final path = resourcePath(
-                  uri,
-                  tree?['path'] as String?,
-                  lineReference: true,
-                );
-                if (path == null) {
-                  showToast(context, context.tr('fileLinkUnavailable'));
-                  return;
-                }
-                await openResourceFile(
-                  context,
-                  host,
-                  worktree,
-                  path,
-                  documents: _documents,
-                );
-              },
+              onOpenLink: links(worktree).openUri,
               imageBuilder: (uri, _, alt) {
                 final reference = imageReference(uri);
                 if (reference == null) return contentImage(host, worktree, uri);
@@ -281,6 +264,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             references: [object(data)],
             host: host,
             worktree: transcript.worktree(entry['turn'], session),
+            session: session['id'] as String?,
           );
         default:
           return const SizedBox.shrink();
@@ -457,6 +441,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                             documents: _documents,
                             host: host,
                             worktree: transcript.worktree(input.turn, session),
+                            session: session['id'] as String?,
                             references: input.references,
                             attachments: input.attachments,
                           ),
@@ -536,6 +521,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   files: publishedFiles(published, run['turn'] as String),
                   host: host,
                   worktree: worktree,
+                  session: session['id'] as String?,
                   enabled: connected,
                   documents: _documents,
                 ),
@@ -570,7 +556,11 @@ class _LiveTimelineState extends State<LiveTimeline> {
               worktree: worktree,
             ),
           for (final entry in rows.where((entry) => entry['author'] != 'user'))
-            EntrySources(key: ValueKey('sources-${entry['id']}'), entry: entry),
+            EntrySources(
+              key: ValueKey('sources-${entry['id']}'),
+              entry: entry,
+              links: links(worktree),
+            ),
           if (run['error'] != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -604,6 +594,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final inputs = (
       transcript,
       connected,
+      host,
       host.snapshot,
       host.childTargets,
       canChangeHistory,
