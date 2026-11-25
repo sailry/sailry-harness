@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -79,6 +80,13 @@ func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
 					raw.Error = v.Message
 				}
 			}
+		}
+	}
+	if raw.Display == nil {
+		// A listed MCP tool's call recorded without a display reads by its
+		// alias's server and tool, for every client.
+		if display, ok := mcp.AliasDisplay(raw.Name); ok {
+			raw.Display = &display
 		}
 	}
 	if response, ok := block.Data.(*canonical.ToolResponse); ok && raw.Failure == nil && response.Status == canonical.ToolErrorStatus {

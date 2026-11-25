@@ -40,6 +40,18 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 		case *canonical.ToolResponse:
 			name = value.Name
 		}
+		if tool := findTool(owner.tools, name); tool != nil && tool.Display != nil {
+			// A tool that carries its own display, such as a listed MCP tool,
+			// is shown as the turn built it.
+			if record.Metadata.Presentation == nil {
+				record.Metadata.Presentation = &canonical.Presentation{}
+			}
+			if record.Metadata.Presentation.Displays == nil {
+				record.Metadata.Presentation.Displays = map[string]protocol.ToolDisplay{}
+			}
+			record.Metadata.Presentation.Displays[name] = *tool.Display
+			continue
+		}
 		manager, catalog := managementLabels[name], slices.Contains(catalogToolNames, name)
 		media, shown := mediaDisplays()[name]
 		_, delegation := delegationDescriptions[name]

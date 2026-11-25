@@ -157,6 +157,12 @@ func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.
 		SchemaJSON: body, ReadOnly: readOnly, Concurrent: readOnly, Deferred: declaration == nil || !declaration.Initial,
 		Approval: !readOnly, Binding: &store.ApprovalBinding{Owner: reference, Tool: mcp.Alias(reference.Name, server, descriptor.Name)},
 		Exposed: engine.MCPToolName(server, descriptor.Name), MCPAuthority: lease.AuthorityKey()}
+	if declaration == nil || declaration.Display == nil {
+		// A listed tool without a declared display is shown by its server and
+		// name, not by its internal alias.
+		display := mcp.Display(server, descriptor.Name)
+		tool.Display = &display
+	}
 	if declaration != nil && declaration.Description != nil {
 		tool.Definition.Description = *declaration.Description
 	}

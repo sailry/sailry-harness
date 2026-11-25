@@ -67,6 +67,9 @@ type Tool struct {
 	// owns it. A package tool is offered under its declared name.
 	Exposed      string
 	MCPAuthority mcp.AuthorityKey
+	// Display is how the turn's records show a call of a tool that no package
+	// declaration describes, such as one an MCP server lists.
+	Display *protocol.ToolDisplay
 	// SearchLabels are the captured display labels and translations used only
 	// for discovery. They do not enlarge the model's tool declarations.
 	SearchLabels []string
