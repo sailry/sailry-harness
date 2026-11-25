@@ -23,6 +23,10 @@ func http2ProtocolFailure(err error) bool {
 
 func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 	transport := model.client.Transport
+	vertex, cloud := transport.(vertexTransport)
+	if cloud {
+		transport = vertex.base
+	}
 	claude, oauth := transport.(claudeTransport)
 	if oauth {
 		transport = claude.base
@@ -47,6 +51,10 @@ func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 	if oauth {
 		claude.base = transport
 		transport = claude
+	}
+	if cloud {
+		vertex.base = transport
+		transport = vertex
 	}
 	client := *model.client
 	client.Transport = transport

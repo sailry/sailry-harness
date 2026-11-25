@@ -295,7 +295,7 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 						for _, file := range files {
 							inline = append(inline, googleFile(file))
 						}
-						if strings.HasPrefix(strings.ToLower(config.Model), "gemini-3") {
+						if strings.HasPrefix(strings.ToLower(config.Model[strings.LastIndexByte(config.Model, '/')+1:]), "gemini-3") {
 							response["parts"] = inline
 						} else {
 							parts = append(parts, inline...)

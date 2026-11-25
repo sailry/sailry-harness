@@ -589,15 +589,19 @@ configuration marks the route (`transportConfig.Cloud`, `Bedrock()`), so
 features the cloud lacks can be decided per route. A cloud provider uses
 API-key authentication and stores its region, or project and location, as
 connection options; its endpoint is the service host they name, which Desktop
-derives and the Node accepts as given, without a path. Bedrock sends the
+derives and the Node accepts as given; saving refuses one with a path.
+Bedrock sends the
 Bedrock API key as a bearer token through the Anthropic SDK's Bedrock
 adaptation, and the configured key replaces any ambient
 `AWS_BEARER_TOKEN_BEDROCK`. It omits the Claude Code identity, session metadata
 and `?beta=true`, carrying the betas it needs in the body. Native web search
 is not offered on either route. Vertex AI stores the service-account JSON key
 as the channel credential. The Node mints cloud-platform access tokens from it
-with the JWT bearer grant and caches them per key until a minute before expiry;
-only HTTPS token endpoints, or loopback HTTP, receive the assertion. The genai
+with the JWT bearer grant and caches them per key until a minute before expiry.
+One request mints a replacement while others keep using the unexpired token or
+wait within their own cancellation; a 401 drops the refused token. Minted tokens
+are redacted from that attempt's failures. Only RSA keys are accepted, and only
+HTTPS token endpoints, or loopback HTTP, receive the assertion. The genai
 client receives an explicit project, location, endpoint and HTTP client, so it
 reads no ambient credentials or environment endpoints. Neither route lists
 models: they are entered by ID and completed from the catalog's

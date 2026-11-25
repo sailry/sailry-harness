@@ -3,6 +3,9 @@ package model
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -17,11 +20,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/oauth2"
 )
 
 func cloudProvider(api protocol.ConversationModelApi, endpoint string, options protocol.ConversationConnectionOptions, model string) (protocol.ConversationProvider, protocol.SessionConfig) {
@@ -403,7 +408,10 @@ func TestCloudCredentialProtection(t *testing.T) {
 	}
 	// An unusable key is refused without repeating it.
 	for _, raw := range []string{"", `{"type":"authorized_user","client_email":"a@b"}`, strings.Replace(account, "BEGIN PRIVATE KEY", "BEGIN NOTHING", 1)[:40],
-		strings.Replace(account, "https://oauth2.googleapis.com/token", "http://tokens.example/token", 1)} {
+		strings.Replace(account, "https://oauth2.googleapis.com/token", "http://tokens.example/token", 1),
+		// Keys the JWT grant cannot sign with are refused before any request.
+		serviceAccountKey(t, account, "PRIVATE KEY", ecdsaKey(t)), serviceAccountKey(t, account, "PUBLIC KEY", rsaPublicKey(t)),
+		serviceAccountKey(t, account, "PRIVATE KEY", []byte("not a key"))} {
 		bad := vertexBinding(t, "https://us-central1-aiplatform.googleapis.com", account)
 		value := protocol.NewSecret(raw)
 		bad.Secret = &value
@@ -424,6 +432,276 @@ func TestCloudCredentialProtection(t *testing.T) {
 	provider.Endpoint += "/v1"
 	if _, err := Capture(provider, selection, &secret, protocol.NewSessionID()); err == nil {
 		t.Error("a Bedrock endpoint with a path was captured")
+	}
+}
+
+// serviceAccountKey is the account with its private key replaced by a PEM
+// block of the type and bytes given.
+func serviceAccountKey(t *testing.T, account, kind string, der []byte) string {
+	t.Helper()
+	var document map[string]string
+	if err := json.Unmarshal([]byte(account), &document); err != nil {
+		t.Fatal(err)
+	}
+	document["private_key"] = string(pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}))
+	raw, _ := json.Marshal(document)
+	return string(raw)
+}
+
+func ecdsaKey(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+func rsaPublicKey(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+// tokenServer is a token endpoint whose replies the test sets: each request
+// takes the next reply, and a nil reply blocks until the test sends one.
+type tokenServer struct {
+	*httptest.Server
+	replies chan func(http.ResponseWriter)
+	minted  atomic.Int32
+}
+
+func newTokenServer(t *testing.T) *tokenServer {
+	t.Helper()
+	fake := &tokenServer{replies: make(chan func(http.ResponseWriter), 8)}
+	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case reply := <-fake.replies:
+			reply(w)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(fake.Close)
+	return fake
+}
+
+func (fake *tokenServer) grant(lifetime int) {
+	fake.replies <- func(w http.ResponseWriter) {
+		n := fake.minted.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":"token-%d","expires_in":%d,"token_type":"Bearer"}`, n, lifetime)
+	}
+}
+
+func (fake *tokenServer) fail(status int) {
+	fake.replies <- func(w http.ResponseWriter) { w.WriteHeader(status) }
+}
+
+func testServiceAccount(t *testing.T, tokenURL string) *serviceAccount {
+	t.Helper()
+	raw, _ := serviceAccountJSON(t, tokenURL)
+	account, err := parseServiceAccount(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return account
+}
+
+func TestVertexTokenCache(t *testing.T) {
+	t.Parallel()
+	t.Run("waiters keep their own cancellation", func(t *testing.T) {
+		t.Parallel()
+		fake := newTokenServer(t)
+		account := testServiceAccount(t, fake.URL)
+		minted := make(chan string, 1)
+		go func() {
+			token, _ := account.accessToken(t.Context())
+			minted <- token
+		}()
+		// Wait until the first request holds the mint.
+		for entry := account.cached(); ; time.Sleep(time.Millisecond) {
+			entry.mu.Lock()
+			minting := entry.minting != nil
+			entry.mu.Unlock()
+			if minting {
+				break
+			}
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := account.accessToken(ctx); Classify(err).Kind != Cancelled {
+			t.Fatalf("a cancelled waiter returned %v", err)
+		}
+		fake.grant(3600)
+		if token := <-minted; token != "token-1" {
+			t.Fatalf("the minting request received %q", token)
+		}
+		if token, err := account.accessToken(t.Context()); err != nil || token != "token-1" || fake.minted.Load() != 1 {
+			t.Fatalf("the cached token is %q, %v after %d mints", token, err, fake.minted.Load())
+		}
+	})
+	t.Run("a valid token outlives a failed refresh", func(t *testing.T) {
+		t.Parallel()
+		fake := newTokenServer(t)
+		account := testServiceAccount(t, fake.URL)
+		// Thirty seconds is within the refresh margin but not yet expired.
+		fake.grant(30)
+		if token, err := account.accessToken(t.Context()); err != nil || token != "token-1" {
+			t.Fatalf("first token %q, %v", token, err)
+		}
+		fake.fail(http.StatusServiceUnavailable)
+		if token, err := account.accessToken(t.Context()); err != nil || token != "token-1" {
+			t.Fatalf("a failed refresh discarded a valid token: %q, %v", token, err)
+		}
+		fake.grant(3600)
+		if token, err := account.accessToken(t.Context()); err != nil || token != "token-2" {
+			t.Fatalf("the refresh after a failure returned %q, %v", token, err)
+		}
+	})
+	t.Run("a refused token is minted again", func(t *testing.T) {
+		t.Parallel()
+		fake := newTokenServer(t)
+		account := testServiceAccount(t, fake.URL)
+		var refuse atomic.Bool
+		refuse.Store(true)
+		service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if refuse.Swap(false) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			io.WriteString(w, r.Header.Get("Authorization"))
+		}))
+		t.Cleanup(service.Close)
+		client := &http.Client{Transport: vertexTransport{base: http.DefaultTransport, account: account}}
+		fake.grant(3600)
+		fake.grant(3600)
+		for i, want := range []string{"", "Bearer token-2"} {
+			response, err := client.Get(service.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			if string(body) != want {
+				t.Errorf("request %d (HTTP %d) authorized with %q; want %q", i, response.StatusCode, body, want)
+			}
+		}
+	})
+}
+
+// TestVertexTokenEviction replaces the shared cache, so it does not run in
+// parallel with the tests that use it.
+func TestVertexTokenEviction(t *testing.T) {
+	vertexTokens.Lock()
+	saved := vertexTokens.entries
+	entries := map[[32]byte]*vertexToken{}
+	now := time.Now()
+	for i := range vertexTokenCapacity {
+		entries[[32]byte{byte(i)}] = &vertexToken{token: &oauth2.Token{AccessToken: "token", Expiry: now.Add(time.Duration(i+1) * time.Hour)}}
+	}
+	// The entry expiring first is minting its replacement.
+	entries[[32]byte{0}].minting = &vertexMint{done: make(chan struct{})}
+	vertexTokens.entries = entries
+	vertexTokens.Unlock()
+	t.Cleanup(func() {
+		vertexTokens.Lock()
+		vertexTokens.entries = saved
+		vertexTokens.Unlock()
+	})
+	account := &serviceAccount{digest: [32]byte{0xff}}
+	account.cached()
+	vertexTokens.Lock()
+	defer vertexTokens.Unlock()
+	_, minting := vertexTokens.entries[[32]byte{0}]
+	_, earliest := vertexTokens.entries[[32]byte{1}]
+	if !minting || earliest || len(vertexTokens.entries) != vertexTokenCapacity {
+		t.Errorf("eviction kept minting %t, earliest idle %t, %d entries", minting, earliest, len(vertexTokens.entries))
+	}
+}
+
+// A gateway that echoes the access token in its error body does not carry it
+// into the failure.
+func TestVertexTokenRedaction(t *testing.T) {
+	t.Parallel()
+	fake := newTokenServer(t)
+	fake.grant(3600)
+	account, _ := serviceAccountJSON(t, fake.URL)
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"rejected header %s"}}`, r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(service.Close)
+	binding := vertexBinding(t, service.URL, account)
+	language, err := New(t.Context(), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failure *Failure
+	Run(t.Context(), language, cloudCall(t, binding), Main, &policyClock{}, func(attempt Attempt) error {
+		failure = attempt.Failure
+		return nil
+	}, func(fantasy.StreamPart) bool { return true }, nil)
+	if failure == nil || strings.Contains(failure.Message, "token-1") || !strings.Contains(failure.Message, "[redacted]") {
+		t.Fatalf("failure %+v", failure)
+	}
+}
+
+// The HTTP/1.1 fallback replaces the wire transport under the Vertex AI
+// authorization.
+func TestVertexHTTP1Fallback(t *testing.T) {
+	t.Parallel()
+	account := &serviceAccount{email: "fallback"}
+	model := &sdkModel{client: &http.Client{Transport: vertexTransport{base: responseTransport{base: modelTransport(), stall: stallTimeout}, account: account}}}
+	fallback, release := model.http1Fallback()
+	if fallback == nil {
+		t.Fatal("a Vertex AI model has no HTTP/1.1 fallback")
+	}
+	defer release()
+	vertex, ok := fallback.client.Transport.(vertexTransport)
+	if !ok || vertex.account != account {
+		t.Fatalf("fallback transport %T lost its authorization", fallback.client.Transport)
+	}
+	wire := vertex.base.(responseTransport).base.(*http.Transport)
+	if wire == modelTransport() || wire.Protocols == nil || wire.Protocols.HTTP2() || !wire.Protocols.HTTP1() {
+		t.Errorf("fallback wire protocols %v", wire.Protocols)
+	}
+	if model.client.Transport.(vertexTransport).base.(responseTransport).base != modelTransport() {
+		t.Error("the fallback changed the shared transport")
+	}
+}
+
+// A full Vertex AI model path is shaped by its model name.
+func TestVertexModelPathParameters(t *testing.T) {
+	t.Parallel()
+	account, _ := serviceAccountJSON(t, "https://oauth2.googleapis.com/token")
+	binding := vertexBinding(t, "https://aiplatform.googleapis.com", account)
+	for _, row := range []struct {
+		model, effort, path string
+		value               any
+	}{
+		{"publishers/google/models/gemini-2.5-flash", "none", "generationConfig.thinkingConfig.thinkingBudget", 0},
+		{"publishers/google/models/gemini-3-pro", "medium", "generationConfig.thinkingConfig.thinkingLevel", "low"},
+	} {
+		binding.Config.Model, binding.Config.Effort = row.model, protocol.Effort{Kind: row.effort}
+		params := requestParameters(binding, &fantasy.Call{})
+		raw, _ := json.Marshal(params.Body)
+		var body map[string]any
+		json.Unmarshal(raw, &body)
+		if got := valueAt(body, row.path); fmt.Sprint(got) != fmt.Sprint(row.value) {
+			t.Errorf("%s at %s: %s = %v; want %v", row.model, row.effort, row.path, got, row.value)
+		}
 	}
 }
 

@@ -251,7 +251,8 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 		}
 		params.Remove = append(params.Remove, "budget_tokens")
 	case protocol.ConversationModelApiGemini:
-		name := strings.ToLower(binding.Config.Model)
+		// Vertex AI also accepts a full "publishers/google/models/..." path.
+		name := strings.ToLower(binding.Config.Model[strings.LastIndex(binding.Config.Model, "/")+1:])
 		var thinking map[string]any
 		if !enabled || effort.Kind == "none" {
 			if strings.HasPrefix(name, "gemini-3.5") || strings.HasPrefix(name, "gemini-3.6") {

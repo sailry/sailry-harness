@@ -175,7 +175,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		capture.apply(&attempt)
 		exhausted := false
 		if err != nil {
-			attempt.Failure = Classify(err, secrets...)
+			attempt.Failure = Classify(err, capture.redact(secrets)...)
 			if waitExhausted {
 				if attempt.Failure.Kind == Cancelled || attempt.Failure.truncated {
 					attempt.Failure = &Failure{Kind: Network, Message: "Model retry timed out waiting for output after HTTP 524"}

@@ -3,7 +3,9 @@ package model
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -35,10 +37,11 @@ import (
 func cloudBinding(binding Binding, config transportConfig, u *url.URL) (transportConfig, error) {
 	provider := binding.Provider
 	if err := providers.ValidateCloud(provider); err != nil {
-		return config, &Failure{Kind: NotConfigured, Message: "cloud connection options are invalid"}
-	}
-	if strings.Trim(u.Path, "/") != "" {
-		return config, &Failure{Kind: InvalidRequest, Message: "cloud endpoint must be a service host without a path"}
+		failure := &Failure{Kind: NotConfigured, Message: "cloud connection options are invalid"}
+		if fault, ok := errors.AsType[*protocol.Fault](err); ok {
+			failure.Message = fault.Message
+		}
+		return config, failure
 	}
 	config.Cloud = provider.Api
 	config.Endpoint = strings.TrimRight(u.String(), "/")
@@ -163,7 +166,17 @@ func parseServiceAccount(raw string) (*serviceAccount, error) {
 	if json.Unmarshal([]byte(raw), &document) != nil || document.Type != "service_account" || document.ClientEmail == "" {
 		return nil, invalid
 	}
-	if block, _ := pem.Decode([]byte(document.PrivateKey)); block == nil {
+	// The JWT grant signs with an RSA key in PKCS #8 or PKCS #1 form; any
+	// other key would fail on every token request.
+	block, _ := pem.Decode([]byte(document.PrivateKey))
+	if block == nil {
+		return nil, invalid
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		parsed, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	}
+	if _, ok := parsed.(*rsa.PrivateKey); err != nil || !ok {
 		return nil, invalid
 	}
 	tokenURL := document.TokenURI
@@ -190,11 +203,20 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// vertexToken is one service account's cached access token. Its lock makes
-// concurrent requests wait for one token request instead of each minting.
+// vertexToken is one service account's cached access token. One request at a
+// time mints its replacement; the others use the current token while it is
+// still valid, else wait for the mint or their own cancellation.
 type vertexToken struct {
-	sync.Mutex
+	mu      sync.Mutex
+	token   *oauth2.Token
+	minting *vertexMint
+}
+
+// vertexMint is one token request in flight; done closes when it ends.
+type vertexMint struct {
+	done  chan struct{}
 	token *oauth2.Token
+	err   error
 }
 
 // vertexTokens are the cached tokens by service-account key digest, bounded
@@ -212,10 +234,7 @@ func (account *serviceAccount) cached() *vertexToken {
 	entry := vertexTokens.entries[account.digest]
 	if entry == nil {
 		if len(vertexTokens.entries) >= vertexTokenCapacity {
-			for digest := range vertexTokens.entries {
-				delete(vertexTokens.entries, digest)
-				break
-			}
+			evictVertexToken()
 		}
 		entry = &vertexToken{}
 		vertexTokens.entries[account.digest] = entry
@@ -223,27 +242,112 @@ func (account *serviceAccount) cached() *vertexToken {
 	return entry
 }
 
+// evictVertexToken removes the entry whose token expires first among those
+// not minting, so a refresh in flight keeps its entry and is not repeated.
+// The caller holds vertexTokens.
+func evictVertexToken() {
+	var victim [32]byte
+	var earliest time.Time
+	found := false
+	for digest, entry := range vertexTokens.entries {
+		entry.mu.Lock()
+		var expiry time.Time
+		if entry.token != nil {
+			expiry = entry.token.Expiry
+		}
+		idle := entry.minting == nil
+		entry.mu.Unlock()
+		if idle && (!found || expiry.Before(earliest)) {
+			victim, earliest, found = digest, expiry, true
+		}
+	}
+	if found {
+		delete(vertexTokens.entries, victim)
+	}
+}
+
 // accessToken is the account's cached access token, minted again by the
-// JWT bearer grant when it is absent or about to expire.
+// JWT bearer grant when it is absent or about to expire. A token within the
+// refresh margin still serves while its replacement is minted, or when the
+// mint fails.
 func (account *serviceAccount) accessToken(ctx context.Context) (string, error) {
 	entry := account.cached()
-	entry.Lock()
-	defer entry.Unlock()
-	if entry.token != nil && entry.token.AccessToken != "" && time.Until(entry.token.Expiry) > vertexTokenMargin {
-		return entry.token.AccessToken, nil
+	for {
+		entry.mu.Lock()
+		current := entry.token
+		if current != nil && time.Until(current.Expiry) > vertexTokenMargin {
+			entry.mu.Unlock()
+			return current.AccessToken, nil
+		}
+		valid := current != nil && time.Now().Before(current.Expiry)
+		mint := entry.minting
+		switch {
+		case mint == nil:
+			mint = &vertexMint{done: make(chan struct{})}
+			entry.minting = mint
+			entry.mu.Unlock()
+			mint.token, mint.err = account.mint(ctx)
+			entry.mu.Lock()
+			entry.minting = nil
+			if mint.err == nil {
+				entry.token = mint.token
+			}
+			entry.mu.Unlock()
+			close(mint.done)
+		case valid:
+			entry.mu.Unlock()
+			return current.AccessToken, nil
+		default:
+			entry.mu.Unlock()
+			select {
+			case <-mint.done:
+			case <-ctx.Done():
+				return "", tokenFailure(ctx, ctx.Err())
+			}
+		}
+		if mint.err == nil {
+			return mint.token.AccessToken, nil
+		}
+		// A mint its own caller cancelled says nothing about this request,
+		// which mints in its place.
+		if failure, ok := mint.err.(*Failure); ok && failure.Kind == Cancelled && ctx.Err() == nil {
+			continue
+		}
+		if valid {
+			return current.AccessToken, nil
+		}
+		return "", mint.err
 	}
-	entry.token = nil
+}
+
+// mint requests a new access token by the JWT bearer grant.
+func (account *serviceAccount) mint(ctx context.Context) (*oauth2.Token, error) {
 	client := &http.Client{Transport: netproxy.Transport(), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	grant := &jwt.Config{Email: account.email, PrivateKey: account.key, PrivateKeyID: account.keyID, Scopes: []string{vertexScope}, TokenURL: account.tokenURL}
 	token, err := grant.TokenSource(context.WithValue(ctx, oauth2.HTTPClient, client)).Token()
 	if err != nil {
-		return "", tokenFailure(ctx, err)
+		return nil, tokenFailure(ctx, err)
 	}
 	if token.AccessToken == "" {
-		return "", &Failure{Kind: InvalidResponse, Message: "Vertex AI token response has no access token"}
+		return nil, &Failure{Kind: InvalidResponse, Message: "Vertex AI token response has no access token"}
 	}
-	entry.token = token
-	return token.AccessToken, nil
+	return token, nil
+}
+
+// invalidate drops the cached token when it is the one Vertex AI refused, so
+// the next request mints another instead of repeating it until it expires.
+func (account *serviceAccount) invalidate(value string) {
+	vertexTokens.Lock()
+	entry := vertexTokens.entries[account.digest]
+	vertexTokens.Unlock()
+	if entry == nil {
+		return
+	}
+	entry.mu.Lock()
+	if entry.token != nil && entry.token.AccessToken == value {
+		entry.token = nil
+	}
+	entry.mu.Unlock()
 }
 
 // tokenFailure classifies a failed token request by its status alone. The
@@ -287,8 +391,14 @@ func (transport vertexTransport) RoundTrip(request *http.Request) (*http.Respons
 		}
 		return nil, err
 	}
+	// The token is a credential a gateway may echo in an error body.
+	captureSecret(request.Context(), protocol.NewSecret(token))
 	request = request.Clone(request.Context())
 	request.Header.Del("X-Goog-Api-Key")
 	request.Header.Set("Authorization", "Bearer "+token)
-	return transport.base.RoundTrip(request)
+	response, err := transport.base.RoundTrip(request)
+	if err == nil && response.StatusCode == http.StatusUnauthorized {
+		transport.account.invalidate(token)
+	}
+	return response, err
 }
