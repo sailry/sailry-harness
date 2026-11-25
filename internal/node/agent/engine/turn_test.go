@@ -58,7 +58,7 @@ func TestOneRequestPerStep(t *testing.T) {
 			case "failed stream with a tool call":
 				m.scripts = []script{response(text("Partial"), call("partial", "probe", `{}`), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}
 			case "tool panic":
-				m.scripts = []script{response(call("boom", "probe", `{}`), call("fine", "probe", `{}`), finish()), response(text("Done"), finish())}
+				m.scripts = []script{response(call("boom", "probe", `{"n":1}`), call("fine", "probe", `{"n":2}`), finish()), response(text("Done"), finish())}
 			case "turn panic":
 				m.scripts = []script{response(call("stuck", "prepared", `{}`), finish()), response(text("Recovered"), finish())}
 			case "credential renewed mid-turn":
@@ -235,7 +235,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 			})
 			parts := []fantasy.StreamPart{}
 			for i := 0; i < count; i++ {
-				parts = append(parts, call(string(rune('a'+i)), "read", `{}`))
+				parts = append(parts, call(string(rune('a'+i)), "read", fmt.Sprintf(`{"n":%d}`, i)))
 				release[string(rune('a'+i))] = make(chan struct{})
 			}
 			parts = append(parts, finish())
@@ -323,7 +323,8 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 		})
 		parts := []fantasy.StreamPart{}
 		for i := range 9 {
-			parts = append(parts, call(string(rune('a'+i)), "read", `{}`))
+			// Distinct reads: a repeat of one would be answered by reference.
+			parts = append(parts, call(string(rune('a'+i)), "read", fmt.Sprintf(`{"n":%d}`, i)))
 		}
 		parts = append(parts, call("j", "serial", `{}`), finish())
 		f := newFixture(t, &scriptedModel{scripts: []script{response(parts...)}}, tool, serial)

@@ -96,7 +96,7 @@ func TestQueuedGuidanceInterruptsParallelTools(t *testing.T) {
 		return toolFault(ctx.Err())
 	})
 	m := &scriptedModel{scripts: []script{
-		response(call("a", "parallel_read", `{}`), call("b", "parallel_read", `{}`), finish()),
+		response(call("a", "parallel_read", `{"n":1}`), call("b", "parallel_read", `{"n":2}`), finish()),
 		response(text("Follow-up"), finish()),
 	}}
 	f := newFixture(t, m, tool)

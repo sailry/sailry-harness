@@ -36,9 +36,9 @@ func TestStreamReadsOverlapAndRespectSerialCalls(t *testing.T) {
 	})
 	model := &scriptedModel{scripts: []script{
 		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
-			response(call("a", "read", `{}`), call("b", "read", `{}`),
+			response(call("a", "read", `{"n":1}`), call("b", "read", `{"n":2}`),
 				fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputStart, ID: "ordered", ToolCallName: "serial"},
-				call("after", "read", `{}`))(ctx, request, yield)
+				call("after", "read", `{"n":3}`))(ctx, request, yield)
 			select {
 			case <-finishStream:
 				response(call("ordered", "serial", `{}`), text("Reads have started"), finish())(ctx, request, yield)

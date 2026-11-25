@@ -210,7 +210,7 @@ func setWorkingSetWindow(t *testing.T, f *engineFixture) {
 func workingSetBatch(first, size int, total int64) script {
 	parts := make([]fantasy.StreamPart, 0, size+1)
 	for i := first; i < first+size; i++ {
-		parts = append(parts, call("probe-"+strconv.Itoa(i), "probe", `{}`))
+		parts = append(parts, call("probe-"+strconv.Itoa(i), "probe", `{"n":`+strconv.Itoa(i)+`}`))
 	}
 	return response(append(parts, workingSetUsage(total))...)
 }

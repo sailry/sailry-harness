@@ -852,7 +852,9 @@ stopping it or writing to it from the same session. Adjacent concurrent reads ca
 run together and retain call order in history. Eligible native reads can begin
 as soon as the model streams their complete arguments. The Node cancels those
 reads on a failed stream and writes their results only after the corresponding
-tool calls commit. Writes, approvals and tool hooks retain their ordering.
+tool calls commit. A concurrent read that repeats an earlier call of the same
+reply, with arguments equal as JSON, does not run: its result names that call.
+Writes, approvals and tool hooks retain their ordering.
 Node owns approval and question deadlines.
 
 Goal reads and updates execute in the Node. The Goals surface and continuation

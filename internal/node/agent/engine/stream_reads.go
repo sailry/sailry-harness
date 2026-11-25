@@ -25,8 +25,11 @@ type streamedReads struct {
 	skipped  map[*canonical.ToolRequest]canonical.ToolRequest
 	accepted map[string]*streamedRead
 	priorIDs map[string]bool
-	next     int
-	blocked  bool
+	// keys are the reads started or deferred so far; a repeat waits for
+	// the batch, which answers it by reference (runToolBatch).
+	keys    map[string]bool
+	next    int
+	blocked bool
 }
 
 func priorToolCallIDs(records []canonical.Record) map[string]bool {
@@ -93,6 +96,15 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	if validateToolArguments(tool, call).Failure != nil {
 		reads.blocked = true
 		return
+	}
+	if key := repeatKey(call); key != "" {
+		if reads.keys[key] {
+			return
+		}
+		if reads.keys == nil {
+			reads.keys = map[string]bool{}
+		}
+		reads.keys[key] = true
 	}
 	// A read-only concurrent tool without StreamRead joins the same concurrent
 	// batch as following reads and does not mutate state they observe, so it

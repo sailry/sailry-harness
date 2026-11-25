@@ -446,8 +446,15 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	if readOnlyRole {
 		readOnlyMessage = "read-only role permits read-only tools"
 	}
+	// A concurrent read the reply already asked for, with the same
+	// arguments, would run at the same moment and read the same state, so it
+	// is answered by reference instead. Effects may be meant twice and run.
+	firsts := map[string]string{}
 	for i, call := range calls {
 		if x.streamReads.read(call.ID) != nil {
+			if key := repeatKey(call); key != "" && firsts[key] == "" {
+				firsts[key] = call.ID
+			}
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
 			continue
@@ -482,6 +489,13 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		if invalid := validateToolArguments(tool, call); invalid.Failure != nil {
 			results[i] = invalid
 			continue
+		}
+		if key := repeatKey(call); tool.ReadOnly && tool.Concurrent && key != "" {
+			if first := firsts[key]; first != "" {
+				results[i] = repeatedCall(first)
+				continue
+			}
+			firsts[key] = call.ID
 		}
 		if tool.ObserveHistory != nil {
 			tool.ObserveHistory(state.Records)
@@ -933,4 +947,25 @@ func returnedToolFailure(result ToolResult) protocol.ToolFailure {
 		return *result.ReturnedFailure
 	}
 	return protocol.ToolFailure{Origin: protocol.ToolFailureOriginTool}
+}
+
+// repeatKey identifies a call by its tool and its arguments read as JSON, so
+// key order and spacing do not make two equal requests differ; "" when the
+// arguments are not JSON.
+func repeatKey(call canonical.ToolRequest) string {
+	var arguments any
+	if json.Unmarshal(call.Arguments, &arguments) != nil {
+		return ""
+	}
+	normalized, err := json.Marshal(arguments)
+	if err != nil {
+		return ""
+	}
+	return call.Name + "\x00" + string(normalized)
+}
+
+// repeatedCall answers a read that repeats an earlier call of the same reply.
+func repeatedCall(first string) ToolResult {
+	text := fmt.Sprintf("Not run: this repeats call %s of the same reply, with the same tool and arguments. Use that call's result.", first)
+	return ToolResult{Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": text}}}}
 }
