@@ -1,10 +1,12 @@
 package kit
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/node/logging"
@@ -18,17 +20,48 @@ func Fail(c *ui.Context, outcome Outcome, key string, err error) {
 	RecordFailure("desktop", key, outcome, err)
 }
 
-// RecordFailure logs a failure shown to the user under its stable operation
-// name. A failed outcome is an error. A Node-issued reference may accompany
-// the public diagnostic fields; the fault message stays in the local log.
-// Conflicts, uncertain outcomes and cancellations are warnings, as are
-// Desktop's not_configured setup states; a plugin's chosen code stays as given.
+// RecordFailure logs the shown failure. A correlated Node failure stays local
+// as a warning instead of opening a second automatic error report.
 func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...slog.Attr) {
 	fault := failureFault(err)
+	level := slog.LevelError
+	if outcome != Failed || fault.Code == protocol.ErrorCodeCancelled || errors.Is(err, context.Canceled) || area == "desktop" && expectedRefusal(fault) {
+		level = slog.LevelWarn
+	}
+	recordFailure(level, area, operation, fault, err, attrs)
+}
+
+// RecordWarning records an outcome without asking for another error report.
+func RecordWarning(area, operation string, err error, attrs ...slog.Attr) {
+	recordFailure(slog.LevelWarn, area, operation, failureFault(err), err, attrs)
+}
+
+func expectedRefusal(fault protocol.Fault) bool {
+	switch fault.Code {
+	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeOutcomeUnknown:
+		return true
+	case protocol.ErrorCodeNotConfigured:
+		return fault.Details == nil || fault.ConfigurationReason().Expected()
+	case protocol.ErrorCodeUnavailable:
+		return fault.Details != nil && fault.Details.Kind == "network"
+	}
+	return false
+}
+
+func recordFailure(level slog.Level, area, operation string, fault protocol.Fault, err error, attrs []slog.Attr) {
+	if fault.Code == "" && errors.Is(err, context.Canceled) {
+		fault.Code = protocol.ErrorCodeCancelled
+	}
 	code := string(fault.Code)
 	if fault.Code != protocol.ErrorCodeCancelled {
-		if logging.ValidReportRef(fault.ReportRef) {
-			attrs = append(attrs, slog.String("report_ref", fault.ReportRef))
+		if ref, owned := client.DeliveredReport(err); logging.ValidReportRef(ref) {
+			if owned {
+				level = slog.LevelWarn
+			}
+			attrs = append(attrs, slog.String("report_ref", ref))
+		}
+		if reason := fault.ConfigurationReason(); reason.Known() {
+			attrs = append(attrs, slog.String("configuration_reason", string(reason)))
 		}
 		if area == "desktop" && operation == "inspect_git" {
 			reason := fault.GitInspectionReason
@@ -47,10 +80,6 @@ func RecordFailure(area, operation string, outcome Outcome, err error, attrs ...
 		if err == nil {
 			code = "unspecified"
 		}
-	}
-	level := slog.LevelError
-	if outcome != Failed || code == string(protocol.ErrorCodeCancelled) || area == "desktop" && code == string(protocol.ErrorCodeNotConfigured) {
-		level = slog.LevelWarn
 	}
 	attrs = append(attrs, slog.String("area", area), slog.String("operation", operation),
 		slog.String("phase", logging.Failed), slog.String("code", code))

@@ -18,24 +18,30 @@ func TestWorkspaceSaveFailureRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stop()
+	const ref = "e11525db-c4b2-45ff-9b82-ff23c41f1b15"
 	for _, test := range []struct {
 		name, operation, stage, code, reason string
 		writable                             bool
+		ref                                  string
+		level                                slog.Level
 	}{
-		{"read-only draft", "save_all_documents", "preflight", "unspecified", "draft_not_saveable", false},
-		{"refused write", "write_file", "workspace_mutation", "permission_denied", "", true},
+		{"read-only draft", "save_all_documents", "preflight", "unspecified", "draft_not_saveable", false, "", slog.LevelWarn},
+		{"unclassified permission failure", "write_file", "workspace_mutation", "permission_denied", "", true, "", slog.LevelError},
+		{"Node-classified write", "write_file", "workspace_mutation", "permission_denied", "", true, ref, slog.LevelWarn},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			project := closeTestDraft(fixture)
 			project.panel.SetFileWritable("a.go", test.writable)
 			fixture.source.dispatch = func(protocol.Request) (link.Admission, error) {
-				return link.Admission{}, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "private path in source"}}
+				return link.Admission{}, &link.FaultError{Fault: protocol.Fault{
+					Code: protocol.ErrorCodePermissionDenied, Message: "private path in source", ReportRef: test.ref, ReportOwned: test.ref != "",
+				}}
 			}
 			var records []logging.Fields
 			logging.SetReport(func(level slog.Level, fields logging.Fields) {
 				if fields["area"] == "desktop" {
-					if level != slog.LevelError {
+					if level != test.level {
 						t.Errorf("level = %v", level)
 					}
 					records = append(records, fields)
@@ -55,7 +61,9 @@ func TestWorkspaceSaveFailureRecords(t *testing.T) {
 				t.Fatalf("failure records = %v", records)
 			}
 			remote := logging.Remote(records[0])
-			if reason, _ := remote["reason_code"].(string); reason != test.reason || remote["detail"] != nil {
+			reason, _ := remote["reason_code"].(string)
+			gotRef, _ := remote["report_ref"].(string)
+			if reason != test.reason || gotRef != test.ref || remote["detail"] != nil {
 				t.Errorf("remote fields = %v", remote)
 			}
 		})
@@ -72,33 +80,44 @@ func TestGitInspectionFailureToastRecordsDiagnostic(t *testing.T) {
 	logging.Emit(slog.LevelDebug)
 
 	const ref = "e11525db-c4b2-45ff-9b82-ff23c41f1b15"
-	fault := &protocol.Fault{
-		Code: protocol.ErrorCodeUnavailable, Message: "Git repository operation failed: /private/worktree",
-		ReportRef: ref, GitInspectionReason: protocol.GitInspectionStatusCommandFailed,
-	}
-	var records []logging.Fields
-	logging.SetReport(func(level slog.Level, fields logging.Fields) {
-		if fields["area"] == "desktop" && fields["operation"] == "inspect_git" {
-			if level != slog.LevelError {
-				t.Errorf("Git inspection record level = %v", level)
+	for _, test := range []struct {
+		name  string
+		owned bool
+		level slog.Level
+	}{
+		{"legacy ref leaves reporting to Desktop", false, slog.LevelError},
+		{"Node-owned ref keeps a local warning", true, slog.LevelWarn},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fault := &protocol.Fault{
+				Code: protocol.ErrorCodeUnavailable, Message: "Git repository operation failed: /private/worktree",
+				ReportRef: ref, ReportOwned: test.owned, GitInspectionReason: protocol.GitInspectionStatusCommandFailed,
 			}
-			records = append(records, fields)
-		}
-	})
-	defer logging.SetReport(nil)
-	synctest.Test(t, func(t *testing.T) {
-		testDraftProjectSelectionReadFailure(t, nil, fault, false, []string{"git_inspection_failed"})
-	})
-	if len(records) == 0 {
-		t.Fatal("the Git inspection toast had no failure record")
-	}
-	for _, fields := range records {
-		if fields["detail"] != fault.Message || fields["report_ref"] != ref {
-			t.Fatalf("local Git inspection fields = %v", fields)
-		}
-		remote := logging.Remote(fields)
-		if remote["stage"] != "run_status" || remote["reason"] != "status_command_failed" || remote["report_ref"] != ref || remote["detail"] != nil {
-			t.Fatalf("remote Git inspection fields = %v", remote)
-		}
+			var records []logging.Fields
+			logging.SetReport(func(level slog.Level, fields logging.Fields) {
+				if fields["area"] == "desktop" && fields["operation"] == "inspect_git" {
+					if level != test.level {
+						t.Errorf("Git inspection record level = %v", level)
+					}
+					records = append(records, fields)
+				}
+			})
+			defer logging.SetReport(nil)
+			synctest.Test(t, func(t *testing.T) {
+				testDraftProjectSelectionReadFailure(t, nil, fault, false, []string{"git_inspection_failed"})
+			})
+			if len(records) == 0 {
+				t.Fatal("the Git inspection toast had no failure record")
+			}
+			for _, fields := range records {
+				if fields["detail"] != fault.Message || fields["report_ref"] != ref {
+					t.Fatalf("local Git inspection fields = %v", fields)
+				}
+				remote := logging.Remote(fields)
+				if remote["stage"] != "run_status" || remote["reason"] != "status_command_failed" || remote["report_ref"] != ref || remote["detail"] != nil {
+					t.Fatalf("remote Git inspection fields = %v", remote)
+				}
+			}
+		})
 	}
 }

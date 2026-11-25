@@ -34,7 +34,9 @@ func TestFramePlain(t *testing.T) {
 			{"subscribed", `{"kind":"subscribed"}`, "", func() any { return new(Reply) }},
 			{"receipt", `{"kind":"receipt","data":{"id":"01890f00-1234-7000-8000-000000000001","durable":true}}`, "", func() any { return new(Reply) }},
 			{"rejected", `{"kind":"rejected","data":{"code":"permission_denied","message":"fixture denied"}}`, "", func() any { return new(Reply) }},
+			{"rejected with report ownership", `{"kind":"rejected","data":{"code":"permission_denied","message":"fixture denied","report_ref":"e11525db-c4b2-45ff-9b82-ff23c41f1b15","report_owned":true}}`, "", func() any { return new(Reply) }},
 			{"completed failure", `{"kind":"completed","data":{"Err":{"code":"permission_denied","message":"fixture denied"}}}`, "", func() any { return new(Reply) }},
+			{"completed failure with report ownership", `{"kind":"completed","data":{"Err":{"code":"permission_denied","message":"fixture denied","report_ref":"e11525db-c4b2-45ff-9b82-ff23c41f1b15","report_owned":true}}}`, "", func() any { return new(Reply) }},
 			{"completed success", `{"kind":"completed","data":{"Ok":{"kind":"notifications_updated"}}}`, "", func() any { return new(Reply) }},
 			{"update", `{"kind":"update","data":{"kind":"reset_required"}}`, "", func() any { return new(Reply) }},
 		}

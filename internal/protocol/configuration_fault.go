@@ -31,6 +31,17 @@ const (
 	ConfigurationAuthenticationClientMissing ConfigurationReason = "authentication_client_missing"
 )
 
+// Expected reports an actionable setup state rather than lost captured data.
+func (value ConfigurationReason) Expected() bool {
+	switch value {
+	case ConfigurationDefaultsMissing, ConfigurationProviderDisabled, ConfigurationProviderRemoved,
+		ConfigurationLoginRequired, ConfigurationAuthenticationChanged, ConfigurationAuthorizationExpired,
+		ConfigurationRenewalDeferred, ConfigurationCredentialRevoked, ConfigurationMachineBound, ConfigurationPluginDisabled:
+		return true
+	}
+	return false
+}
+
 func (value ConfigurationReason) Known() bool {
 	switch value {
 	case ConfigurationDefaultsMissing, ConfigurationProviderDisabled, ConfigurationProviderRemoved,

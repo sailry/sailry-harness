@@ -92,7 +92,7 @@ func (client *Client) Dispatch(ctx context.Context, request protocol.Request) (l
 func (client *Client) Execute(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	admission, err := client.Dispatch(ctx, request)
 	if err != nil {
-		return protocol.Output{}, err
+		return protocol.Output{}, nodeCommandFailure(request, err)
 	}
 	select {
 	case response, ok := <-admission.Completion:
@@ -100,7 +100,7 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) (pr
 			return protocol.Output{}, unknownCompletion()
 		}
 		if response.Fault != nil {
-			return protocol.Output{}, &link.FaultError{Fault: *response.Fault}
+			return protocol.Output{}, nodeCommandFailure(request, &link.FaultError{Fault: *response.Fault})
 		}
 		return response.Output, nil
 	case <-ctx.Done():
@@ -121,7 +121,13 @@ func (client *Client) Do(ctx context.Context, command protocol.Command) (protoco
 // rather than an unknown outcome, which would end it.
 func (client *Client) read(ctx context.Context, command protocol.Command) (protocol.Output, error) {
 	output, err := client.Do(ctx, command)
-	if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+	if failure := observerFault(err); failure != nil && failure.Code == protocol.ErrorCodeOutcomeUnknown {
+		if ref, owned := DeliveredReport(err); ref != "" {
+			// Keep the Node's diagnostic while preserving the read's retry policy.
+			translated := *failure
+			translated.Code = protocol.ErrorCodeUnavailable
+			return output, &deliveredFault{error: &link.FaultError{Fault: translated}, ref: ref, owned: owned}
+		}
 		return output, fault(protocol.ErrorCodeUnavailable, "Link connection was lost before the reply")
 	}
 	return output, err

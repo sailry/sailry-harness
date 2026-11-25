@@ -1680,6 +1680,19 @@ are warnings kept as breadcrumbs, not standalone Sentry errors; Desktop logs eve
 `not_configured` failure, such as a missing Git executable, as a warning. Missing captured configuration,
 missing retained credentials and unclassified failures remain errors.
 
+Model diagnostics describe one logical inference request, not every transport attempt.
+A successful first attempt and caller cancellation produce no error report. Success
+after retry is one handled warning; a final failure, including a first-attempt
+non-retryable failure, is one error. The classification contains only the failure
+category, outcome, attempt count and optional HTTP status. Usage metrics are not
+required. A failed asynchronous turn is observed after durable settlement, unless
+its cause was already observed at the request or panic boundary. Neither reporting
+nor its delivery retries replay model calls or tools.
+
+Desktop and headless Host keep fatal traces in their own log directories. On the
+next launch only a reduced trace is eligible for reporting. Crashes use the
+faulting goroutine; the interface hang watchdog still selects the UI goroutine.
+
 Two Sentry groups need more evidence than their titles provide:
 
 - `command.guide_queued_turn:conflict` does not by itself identify a stopping
@@ -1702,15 +1715,17 @@ Two Sentry groups need more evidence than their titles provide:
   Markdown selection records `edit_markdown_source` at `map_selection` with
   `selection_unmapped`. Failed file searches record the command at `file_search`,
   not the query. Invalid search input and setup prompts are not failures.
-  Controller reads of `list_directory`, `inspect_git`, `list_worktrees` and
-  `search_files` retain local Node diagnostics without a duplicate automatic
-  Node report.
+  Node owns command failures for controller reads, file transfers and mutations.
+  A controller keeps its local outcome without creating a second automatic
+  report for a Node-classified delivery.
   Desktop conflicts, uncertain outcomes and cancellations are warnings. Plugin
   error toasts keep their stable toast ID and fault code.
 
-For covered queue and workspace commands, Node adds a fresh random UUIDv4
+For observed, non-cancelled command refusals, Node adds a fresh random UUIDv4
 (`report_ref`) to the delivered fault and its log record, not to the stored
-receipt. Match that value to the Desktop failure to trace one delivery. It is
+receipt. The optional `report_owned` delivery marker means Node classified the
+outcome, not that a collector received an event. With older Hosts, controller
+reads still use the previous Desktop reporting policy. Match that value to the Desktop failure to trace one delivery. It is
 not a request, session or user ID, is not reused on redelivery and is not part
 of the Sentry grouping fingerprint. Stack frames enter the fingerprint by module,
 function and file, not line, so a release does not regroup an unchanged failure. Only allowlisted fields leave the log;

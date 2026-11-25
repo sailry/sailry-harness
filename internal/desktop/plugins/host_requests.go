@@ -78,6 +78,7 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 		_, _ = owner.binding.Client.Execute(context.WithoutCancel(ctx), cancellation)
 	}
 	if err != nil {
+		owner.native.rememberNodeReport(err)
 		failure := hostFault(err)
 		encoded, _ := json.Marshal(failure)
 		return nil, errors.New(string(encoded))
@@ -177,6 +178,7 @@ func (owner *Host) complete(ctx context.Context, identity string, confirm bool) 
 		return nil, settingsErr
 	}
 	if failure != nil {
+		owner.native.rememberNodeReport(failure)
 		return hostJSON(map[string]any{"Err": hostFault(failure)})
 	}
 	value, err := publicHostOutput(output)

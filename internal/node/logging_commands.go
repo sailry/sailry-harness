@@ -32,7 +32,7 @@ const (
 	traced
 	// slow reads are recorded only when slow, failed or uncertain.
 	slow
-	// controllerRead uses the slow policy for reads whose controller reports failures.
+	// controllerRead identifies workspace reads also presented by the controller.
 	controllerRead
 	// readOnly commands return, probe or cancel a read and store nothing.
 	readOnly
@@ -155,13 +155,7 @@ func (node *Node) attachLogging() {
 	}
 	node.logs = true
 	_ = logging.Retain(node.profile.Ownership.Path)
-	logging.SetReport(func(level slog.Level, fields logging.Fields) {
-		// Use the command, not an operation named by a callback diagnostic.
-		name, _ := fields["command"].(string)
-		if transientCommands[name] != controllerRead {
-			node.telemetry.Record(level, fields)
-		}
-	})
+	logging.SetReport(node.telemetry.Record)
 }
 
 func (node *Node) detachLogging() {
@@ -187,7 +181,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 		// Only classified reads and other known transient commands reach this
 		// branch. Keep their kind locally without changing remote grouping.
 		sourceKind, name = name, "plugin_command"
-	case class == controllerRead:
+	case class == controllerRead || class == readOnly || class == transfer:
 	default:
 		return nil
 	}
@@ -219,7 +213,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 		return logging.NewSpan("command", attrs...)
 	case request.Plugin != nil:
 		return logging.NewBackground("command", attrs...)
-	case class == slow || class == controllerRead:
+	case class == slow || class == controllerRead || class == readOnly || class == transfer:
 		return logging.NewQuery("command", attrs...)
 	}
 	return logging.NewSpan("command", attrs...)
@@ -234,6 +228,12 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 		return
 	}
 	diagnostic := fault.Details != nil && fault.Details.Kind == "system_diagnostic"
+	if kind == "inspect_git" {
+		if stage := fault.GitInspectionReason.Stage(); stage != "" {
+			span.Set(slog.String("stage", stage))
+			span.Set(slog.String("reason", string(fault.GitInspectionReason)))
+		}
+	}
 	if kind == "check_ssh" || kind == "install_host" {
 		if stage := fault.SSHReason.Stage(); stage != "" {
 			span.Set(slog.String("stage", stage))
@@ -249,6 +249,7 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 		}
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
+		fault.Code == protocol.ErrorCodePermissionDenied && fault.Message == resourceAccessDenied ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
 	if codeIndexCommand(kind) && fault.Code == protocol.ErrorCodeUnavailable && fault.Message == codeIndexUnavailable {
 		expected = true
@@ -270,14 +271,8 @@ func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, aband
 	}
 	if reason := fault.ConfigurationReason(); reason.Known() {
 		span.Set(slog.String("configuration_reason", string(reason)))
-		if fault.Code == protocol.ErrorCodeNotConfigured {
-			switch reason {
-			case protocol.ConfigurationDefaultsMissing, protocol.ConfigurationProviderDisabled, protocol.ConfigurationProviderRemoved,
-				protocol.ConfigurationLoginRequired, protocol.ConfigurationAuthenticationChanged, protocol.ConfigurationAuthorizationExpired,
-				protocol.ConfigurationRenewalDeferred, protocol.ConfigurationCredentialRevoked, protocol.ConfigurationMachineBound,
-				protocol.ConfigurationPluginDisabled:
-				expected = true
-			}
+		if fault.Code == protocol.ErrorCodeNotConfigured && reason.Expected() {
+			expected = true
 		}
 	}
 	span.Finish(logging.Failed, string(fault.Code), expected && !diagnostic)
@@ -291,39 +286,22 @@ func faultDiagnostic(fault *protocol.Fault) (protocol.NotificationSystemSystemDi
 	case protocol.NotificationSystemSystemDiagnostic:
 		return report, true
 	case *protocol.NotificationSystemSystemDiagnostic:
-		return *report, report != nil
+		if report != nil {
+			return *report, true
+		}
 	}
 	return protocol.NotificationSystemSystemDiagnostic{}, false
 }
 
-func reportablePluginCompletion(fault *protocol.Fault) bool {
-	switch fault.Code {
-	case protocol.ErrorCodeInternal, protocol.ErrorCodeOutcomeUnknown:
-		return true
-	case protocol.ErrorCodeUnavailable:
-		return fault.Details == nil || fault.Details.Kind != "network"
-	}
-	return false
-}
-
 // reportFault correlates a single failure delivery, not the durable request.
 // Never modify a fault owned by a stored receipt, shared result or handler.
-func reportFault(span *logging.Span, kind string, original *protocol.Fault, pluginCompletion bool) *protocol.Fault {
+func reportFault(span *logging.Span, original *protocol.Fault) *protocol.Fault {
 	if original.Code == protocol.ErrorCodeCancelled {
 		return original
 	}
-	switch kind {
-	case "guide_queued_turn", "send_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused",
-		"create_directory", "rename_entry", "trash_entry", "copy_entry_to", "move_entry_to", "finish_file_upload", "restore_file_checkpoint", "apply_turn_hunk",
-		"register_worktree", "move_conversation", "check_ssh", "install_host":
-	default:
-		if !fileTextMutation(kind) && !workspaceGitWrite(kind) && transientCommands[kind] != controllerRead &&
-			!(pluginCompletion && reportablePluginCompletion(original)) {
-			return original
-		}
-	}
 	f := *original
 	f.ReportRef = uuid.NewString()
+	f.ReportOwned = true
 	span.Set(slog.String("report_ref", f.ReportRef))
 	if f.Details != nil && f.Details.Kind == "model_request" {
 		if details, ok := dispatchPayload[protocol.FaultDetailsModelRequestPayload](f.Details.Data); ok {
@@ -354,9 +332,10 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			}
 		}
 		if fault == nil {
-			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
-		} else if !abandoned {
-			if delivered := reportFault(span, kind, fault, false); delivered != fault {
+			fault = nodeFault(err).(*protocol.Fault)
+		}
+		if !abandoned {
+			if delivered := reportFault(span, fault); delivered != fault {
 				fault, err = delivered, delivered
 			}
 		}
@@ -373,12 +352,17 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		result, delivered := <-original
 		switch {
 		case !delivered:
-			span.Finish(logging.Interrupted, string(protocol.ErrorCodeOutcomeUnknown), false)
+			if ctx.Err() != nil || node.ctx.Err() != nil {
+				span.Finish(logging.Interrupted, string(protocol.ErrorCodeOutcomeUnknown), false)
+				return
+			}
+			span.Set(slog.String("command_stage", "completion"))
+			span.Finish(logging.Failed, string(protocol.ErrorCodeOutcomeUnknown), false)
 			return
 		case result.Fault != nil:
 			abandoned := !accepted.Receipt.Durable && ctx.Err() != nil
 			if !abandoned {
-				result.Fault = reportFault(span, kind, result.Fault, request.Plugin != nil)
+				result.Fault = reportFault(span, result.Fault)
 			}
 			span.Set(slog.String("command_stage", "completion"))
 			rejectCommand(span, kind, result.Fault, abandoned)

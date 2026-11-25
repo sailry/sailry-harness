@@ -78,6 +78,7 @@ type nativeState struct {
 	collapses       map[string]*bool
 	header          json.RawMessage
 	failure         error
+	nodeReports     []nodeReport
 	closed          bool
 	suspended       bool
 	workers         sync.WaitGroup
@@ -153,6 +154,7 @@ func (binding *NativeBinding) close() {
 	binding.state.workspace = WorkspaceLayout{}
 	binding.state.shortcuts = nil
 	binding.state.header = nil
+	binding.state.nodeReports = nil
 	binding.state.mu.Unlock()
 	binding.state.workers.Wait()
 	if binding.Release != nil {
@@ -173,6 +175,7 @@ func (binding *NativeBinding) suspend() {
 	}
 	clear(binding.state.droppedFiles)
 	clear(binding.state.actionElements)
+	binding.state.nodeReports = nil
 	binding.state.mu.Unlock()
 	binding.state.workers.Wait()
 }

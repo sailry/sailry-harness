@@ -247,11 +247,11 @@ func (r *Runtime) submitRemoval(command protocol.Command, finished func(*ui.Cont
 	}
 	controller := r.controller
 	if r != root && !controller.Connected() {
-		code, message := protocol.ErrorCodeUnavailable, "resource host is offline"
+		var err error = resourceOfflineFault()
 		if operation != nil {
-			code, message = protocol.ErrorCodeOutcomeUnknown, "could not inspect the original session removal: resource host is offline"
+			err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "could not inspect the original session removal: resource host is offline")
 		}
-		root.enqueue(func(c *ui.Context) { finished(c, fileActionFault(code, message)) })
+		root.enqueue(func(c *ui.Context) { finished(c, err) })
 		return false
 	}
 	if operation == nil {

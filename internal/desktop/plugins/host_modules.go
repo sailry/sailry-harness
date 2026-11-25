@@ -95,6 +95,7 @@ func (owner *Host) Modules() ([]HostModule, error) {
 					defer func() { stop(); cancel() }()
 					value, err := operation(lifetime, arguments)
 					if err != nil {
+						owner.native.rememberNodeReport(err)
 						return nil, hostNativeError(module, name, err)
 					}
 					return value, nil

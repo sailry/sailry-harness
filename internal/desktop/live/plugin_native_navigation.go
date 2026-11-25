@@ -17,11 +17,12 @@ import (
 )
 
 type pluginNativeToast struct {
-	ID      string `json:"id"`
-	Message string `json:"message"`
-	Kind    string `json:"kind"`
-	Code    string `json:"code"`
-	Action  *struct {
+	ID        string `json:"id"`
+	Message   string `json:"message"`
+	Kind      string `json:"kind"`
+	Code      string `json:"code"`
+	ReportRef string `json:"report_ref"`
+	Action    *struct {
 		ID    string `json:"id"`
 		Label string `json:"label"`
 	} `json:"action"`
@@ -258,10 +259,16 @@ func (state *pluginNativeState) showToast(_ context.Context, arguments []json.Ra
 		// An error toast is a failure the plugin showed; its id names it and
 		// its optional code says why. The message stays on screen only.
 		var cause error
+		code := protocol.ErrorCode(value.Code)
 		if value.Code != "" {
-			cause = protocol.Fault{Code: protocol.ErrorCode(value.Code), Message: "plugin reported " + value.Code}
+			cause = protocol.Fault{Code: code, Message: "plugin reported " + value.Code}
 		}
-		kit.RecordFailure("plugin", value.ID, kit.Failed, cause, slog.String("package", state.scope.Package.Name))
+		pack := slog.String("package", state.scope.Package.Name)
+		if state.native.OwnsNodeReport(value.ReportRef, code) {
+			kit.RecordWarning("plugin", value.ID, cause, pack, slog.String("report_ref", value.ReportRef))
+		} else {
+			kit.RecordFailure("plugin", value.ID, kit.Failed, cause, pack)
+		}
 	}
 	return state.effect(func(view *ui.Context) {
 		state.mu.Lock()

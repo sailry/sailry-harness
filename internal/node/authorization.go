@@ -48,8 +48,10 @@ var commandPolicies = func() map[string]accessPolicy {
 	return values
 }()
 
+const resourceAccessDenied = "resource access is unavailable"
+
 func permissionDenied() error {
-	return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource access is unavailable"}
+	return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: resourceAccessDenied}
 }
 
 type capturedDispatchKey struct{}

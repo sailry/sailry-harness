@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"image/png"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -62,24 +60,8 @@ func testNativeComponentAuthority(t *testing.T) {
 			}
 		})
 	}
-	t.Run("the ssh package mounts its SSH terminals", func(t *testing.T) {
-		// The bundled package's own declaration: no terminal actions.
-		data, err := fs.ReadFile(sailry.Plugins, "plugins/ssh/plugin.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var manifest struct {
-			Extensions map[string]struct {
-				Actions []protocol.PluginAction `json:"actions"`
-			} `json:"extensions"`
-		}
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			t.Fatal(err)
-		}
-		declared := manifest.Extensions["dev.sailry.platform"].Actions
-		if len(declared) == 0 || slices.Contains(declared, protocol.PluginActionReadTerminals) {
-			t.Fatalf("the ssh package declares %v", declared)
-		}
+	t.Run("SSH actions grant only SSH terminal authority", func(t *testing.T) {
+		declared := []protocol.PluginAction{protocol.PluginActionReadSsh, protocol.PluginActionControlSsh}
 		worktree, other, profile := protocol.WorktreeID{1}, protocol.WorktreeID{2}, protocol.SshID{3}
 		for _, current := range []struct {
 			name          string

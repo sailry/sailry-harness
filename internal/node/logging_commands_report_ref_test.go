@@ -102,26 +102,26 @@ func TestDispatchReportRef(t *testing.T) {
 		}
 	}
 	stored, err := controller.Resolve(t.Context(), request)
-	if err != nil || stored.State != client.RequestFailed || stored.Fault == nil || stored.Fault.ReportRef != "" || stored.Fault.Code != first.Code || stored.Fault.Message != first.Message {
+	if err != nil || stored.State != client.RequestFailed || stored.Fault == nil || stored.Fault.ReportRef != "" || stored.Fault.ReportOwned || stored.Fault.Code != first.Code || stored.Fault.Message != first.Message {
 		t.Fatalf("reference changed the durable result: %+v, %v", stored, err)
 	}
 }
 
 func TestReportFaultScope(t *testing.T) {
 	original := protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "private detail")
-	for _, kind := range []string{"guide_queued_turn", "create_managed_worktree", "register_worktree", "move_conversation", "list_worktrees", "search_files", "finish_file_upload"} {
-		got := reportFault(logging.NewQuery("command"), kind, original, false)
-		if got == original || original.ReportRef != "" || !logging.ValidReportRef(got.ReportRef) || got.Code != original.Code || got.Message != original.Message || got.ConfigurationReason() != original.ConfigurationReason() {
+	node := &Node{profile: &Profile{}, logs: true}
+	for _, kind := range []string{"guide_queued_turn", "create_managed_worktree", "register_worktree", "move_conversation", "list_worktrees", "search_files", "finish_file_upload", "snapshot", "read_git_diff", "fork_conversation_at", "upload_file"} {
+		span := node.commandSpan(node.ID(), protocol.Request{Command: protocol.Command{Kind: kind}})
+		if span == nil {
+			t.Fatalf("%s cannot report its failure", kind)
+		}
+		got := reportFault(span, original)
+		if got == original || original.ReportRef != "" || original.ReportOwned || !got.ReportOwned || !logging.ValidReportRef(got.ReportRef) || got.Code != original.Code || got.Message != original.Message || got.ConfigurationReason() != original.ConfigurationReason() {
 			t.Errorf("%s changed or failed to correlate its fault: %+v", kind, *got)
 		}
 	}
-	for _, kind := range []string{"snapshot", "read_git_diff", "fork_conversation_at"} {
-		if got := reportFault(logging.NewQuery("command"), kind, original, false); got != original || got.ReportRef != "" {
-			t.Errorf("uncorrelated %s = %+v", kind, *got)
-		}
-	}
 	cancelled := &protocol.Fault{Code: protocol.ErrorCodeCancelled}
-	if got := reportFault(logging.NewQuery("command"), "write_file", cancelled, false); got != cancelled || got.ReportRef != "" {
+	if got := reportFault(logging.NewQuery("command"), cancelled); got != cancelled || got.ReportRef != "" {
 		t.Errorf("cancelled command = %+v", *got)
 	}
 }
@@ -151,9 +151,10 @@ func TestPluginCompletionReportRef(t *testing.T) {
 		{stage: "completion", code: protocol.ErrorCodeUnavailable, want: true},
 		{stage: "completion", code: protocol.ErrorCodeInternal, want: true},
 		{stage: "completion", code: protocol.ErrorCodeOutcomeUnknown, want: true},
-		{stage: "completion", code: protocol.ErrorCodeUnavailable, kind: "network"},
-		{stage: "completion", code: protocol.ErrorCodeNotFound},
-		{stage: "admission", code: protocol.ErrorCodeUnavailable},
+		{stage: "completion", code: protocol.ErrorCodeUnavailable, kind: "network", want: true},
+		{stage: "completion", code: protocol.ErrorCodeNotFound, want: true},
+		{stage: "admission", code: protocol.ErrorCodeUnavailable, want: true},
+		{stage: "completion", code: protocol.ErrorCodeCancelled},
 	} {
 		span := node.commandSpan(node.ID(), request)
 		span.Set(slog.String("command_stage", test.stage))
@@ -161,16 +162,19 @@ func TestPluginCompletionReportRef(t *testing.T) {
 		if test.kind != "" {
 			original.Details = &protocol.FaultDetails{Kind: test.kind}
 		}
-		fault := reportFault(span, kind, original, test.stage == "completion")
+		fault := reportFault(span, original)
 		recorded = nil
 		rejectCommand(span, kind, fault, false)
 		if (fault != original) != test.want || logging.ValidReportRef(fault.ReportRef) != test.want || original.ReportRef != "" {
 			t.Fatalf("%s %s (%s): unexpected reference %q", test.stage, test.code, test.kind, fault.ReportRef)
 		}
-		var ref any
-		if test.want {
-			ref = fault.ReportRef
+		if test.code == protocol.ErrorCodeCancelled {
+			if recorded != nil {
+				t.Fatalf("cancel reached error reporting: %v", recorded)
+			}
+			continue
 		}
+		ref := fault.ReportRef
 		if recorded["source_kind"] != kind || recorded["command"] != "plugin_command" || recorded["code"] != string(test.code) ||
 			recorded["command_stage"] != test.stage || recorded["detail"] != nil || recorded["report_ref"] != ref {
 			t.Fatalf("local plugin record = %v", recorded)

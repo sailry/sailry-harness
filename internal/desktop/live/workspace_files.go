@@ -62,7 +62,8 @@ func (p *workspaceProject) fileAction(c *ui.Context, a panel.FileAction) {
 			name := values[0]
 			if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
 				p.runtime.enqueue(func(c *ui.Context) {
-					p.workspaceError(c, protocol.ErrorCodeInvalidRequest, "entry name must be a single nonempty name")
+					kit.Toast(c, kit.Failed, i18n.T(c, "workspace_action_failed"))
+					kit.RecordWarning("desktop", "workspace_action_failed", protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "entry name must be a single nonempty name"})
 				})
 				finish(false)
 				return

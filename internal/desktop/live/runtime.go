@@ -897,7 +897,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 	}
 	if r.parent != nil && !r.controller.Connected() {
 		deliver(func(c *ui.Context) {
-			finished(c, protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource host is offline"})
+			finished(c, protocol.Output{}, resourceOfflineFault())
 		})
 		return protocol.RequestID{}
 	}
@@ -979,6 +979,11 @@ func faultCode(err error) protocol.ErrorCode {
 	}
 	return ""
 }
+
+func resourceOfflineFault() *protocol.Fault {
+	return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource host is offline", Details: &protocol.FaultDetails{Kind: "network"}}
+}
+
 func (r *Runtime) report(c *ui.Context, err error, conflict string) {
 	if err == nil {
 		return

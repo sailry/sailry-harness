@@ -58,7 +58,9 @@ type Fault struct {
 	Message string        `json:"message"`
 	Details *FaultDetails `json:"details,omitempty"`
 	// ReportRef correlates this delivery's diagnostics, not the durable request.
-	ReportRef           string              `json:"report_ref,omitempty"`
+	ReportRef string `json:"report_ref,omitempty"`
+	// ReportOwned says the Node classified this delivery for reporting, not that telemetry was sent.
+	ReportOwned         bool                `json:"report_owned,omitempty"`
 	GitInspectionReason GitInspectionReason `json:"git_inspection_reason,omitempty"`
 	SSHReason           SSHFailureReason    `json:"ssh_reason,omitempty"`
 }
