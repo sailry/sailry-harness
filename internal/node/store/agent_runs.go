@@ -42,7 +42,9 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.P
 		references = make([]protocol.PluginReference, 0, len(catalog.Packages))
 		runtime := plugins.RuntimeFromContext(ctx)
 		for _, pkg := range catalog.Packages {
-			if plugins.InfoCompatibility(protocol.PluginInfo{Requirements: pkg.Requirements}, runtime).Kind == "compatible" {
+			if plugins.InfoCompatibility(protocol.PluginInfo{
+				Summary: protocol.PluginSummary{Name: pkg.Reference.Name, Digest: pkg.Reference.Digest}, Requirements: pkg.Requirements,
+			}, runtime).Kind == "compatible" {
 				references = append(references, pkg.Reference)
 			}
 		}

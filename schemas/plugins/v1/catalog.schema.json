@@ -14,11 +14,30 @@
         "required": ["id", "manifest", "versions"],
         "properties": {
           "id": { "type": "string" },
-          "manifest": { "type": "object" },
+          "manifest": {
+            "type": "object",
+            "properties": {
+              "extensions": {
+                "type": "object",
+                "properties": {
+                  "dev.sailry.platform": {
+                    "type": "object",
+                    "not": { "anyOf": [{ "required": ["products"] }, { "required": ["requires_modules"] }] }
+                  }
+                }
+              }
+            }
+          },
           "provides_models": { "type": "boolean" },
           "permissions": { "type": "array", "items": { "type": "string" } },
           "release_notes": { "$ref": "#/$defs/notes" },
-          "versions": { "type": "array", "items": { "$ref": "#/$defs/release" } }
+          "versions": { "type": "array", "items": { "$ref": "#/$defs/release" } },
+          "version_requirements": {
+            "type": "object",
+            "description": "When present, covers every advertised version; an empty object explicitly declares no runtime constraints. Releases with min_sailry_version >= 0.2.14 require an entry. Keep runtime fields out of the legacy manifest projection and versions records.",
+            "propertyNames": { "type": "string", "minLength": 1 },
+            "additionalProperties": { "$ref": "#/$defs/runtime_requirements" }
+          }
         },
         "additionalProperties": false
       }
@@ -44,6 +63,23 @@
       },
       "additionalProperties": false
     },
+    "runtime_requirements": {
+      "type": "object",
+      "properties": {
+        "products": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/runtime_id" }
+        },
+        "requires_modules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/runtime_id" }
+        }
+      },
+      "additionalProperties": false
+    },
     "release": {
       "type": "object",
       "required": ["version", "commit"],
@@ -56,17 +92,6 @@
           "description": "Present for a Sailry platform extension, including APIs unsupported by this reader."
         },
         "min_sailry_version": { "type": "string", "minLength": 1 },
-        "products": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/runtime_id" }
-        },
-        "requires_modules": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/runtime_id" }
-        },
         "release_notes": { "$ref": "#/$defs/notes" },
         "withdrawn": {
           "type": "boolean",

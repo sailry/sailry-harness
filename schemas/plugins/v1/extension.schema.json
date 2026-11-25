@@ -4162,14 +4162,14 @@
       ]
     },
     "min_sailry_version": {
-      "description": "Earliest Sailry execution Node supported by this package.",
+      "description": "Earliest Harness framework capability version supported by this package, independent of the embedding product's release version.",
       "type": [
         "string",
         "null"
       ]
     },
     "products": {
-      "description": "Supported execution product IDs. Omission supports every product.",
+      "description": "Supported execution product IDs. Omission supports every product. Requires min_sailry_version >= 0.2.14.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -4182,7 +4182,7 @@
       }
     },
     "requires_modules": {
-      "description": "Native module IDs that must all be present in the execution Node's assembled product.",
+      "description": "Native module IDs that must all be present in the execution Node's assembled product. Requires min_sailry_version >= 0.2.14.",
       "type": "array",
       "uniqueItems": true,
       "items": {

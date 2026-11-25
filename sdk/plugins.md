@@ -338,8 +338,9 @@ Menus reuse the existing declaration validation and 256 top-level item limit.
 
 Declare optional `min_sailry_version` inside `extensions.dev.sailry.platform`
 as a complete SemVer value, including a prerelease when applicable. The execution
-Node compares SemVer precedence against its own Sailry version. Omission imposes
-no minimum. This field filters product versions; the extension's `api_version` selects its API contract.
+Node compares SemVer precedence against its explicit Harness framework capability
+version. Omission imposes no minimum. The extension's `api_version` independently
+selects its API contract; product release numbers are not framework capabilities.
 
 When a package uses a new `sailry/*` module or export, extension field or permission,
 set the minimum to the first Sailry version containing that capability. Publish the
@@ -353,7 +354,7 @@ execution Node independently of API and application versions:
 ```json
 {
   "api_version": "v1",
-  "min_sailry_version": "0.2.13",
+  "min_sailry_version": "0.2.14",
   "products": ["harness", "code"],
   "requires_modules": ["files", "git"]
 }
@@ -364,14 +365,20 @@ are `harness` and `code`. `requires_modules` lists native module IDs that must
 **all** be present after the product's Node module assembly. IDs are distinct,
 lowercase package-style identifiers of at most 64 characters. An omitted
 `products` accepts any product; omitted or empty `requires_modules` requires no
-native modules. Historical manifests, catalog versions and stored installations
-without these fields retain those unrestricted defaults. These are not plugin
+native modules. These fields require a minimum framework version of `0.2.14`.
+Unrelated legacy packages without them retain unrestricted defaults. Reviewed
+official historical packages that depended on built-in native services have
+supplemental module requirements matched by immutable source commits and complete
+package digests, including installed and captured content. A package name or
+version alone never identifies such an exception. The legacy files package needs
+the files module, not its optional Git integration. These are not plugin
 dependencies, JavaScript import names, model capabilities or telemetry labels.
 
 The Node supplies its explicit product ID and actual assembled module IDs, checks
 them during catalog selection, installation, enabling and execution capture, and
-does not infer them from the controller. Catalog version records preserve the
-requirements of each immutable package version. An incompatible package cannot
+does not infer them from the controller. The official catalog carries each
+immutable version's runtime constraints in the package-level
+`version_requirements[version]` map. An incompatible package cannot
 become a candidate merely because a different version supports this product.
 
 A declared but invalid or unsupported platform extension is incompatible; it is
@@ -381,9 +388,11 @@ installation and enabling; an unmet minimum uses structured
 `PluginRequiresNewer {required}` fault details. An incompatible installed package
 retains its files, configuration and saved enable choice, while its contributions
 remain unavailable. `min_sailry_version` compares against the Harness runtime's
-platform capability version (`identity.OfficialVersion`), not a downstream
-product's marketing or package version. For example, Code 0.1.0 built on Harness
-0.2.13 satisfies a minimum of 0.2.13. The `api_version` extension contract remains
+platform capability version (`identity.FrameworkVersion`), not the official
+application's published version or a downstream product's marketing version.
+For example, Code 0.1.0 built with framework capability 0.2.14 satisfies a minimum
+of 0.2.14. Changing framework capabilities does not rewrite product releases or
+their update feeds. The `api_version` extension contract remains
 independent. Desktop checks its local
 requirements before offering an update or installing a package with Desktop
 contributions, and the loader checks again before evaluating remote UI code.
@@ -464,7 +473,20 @@ locale falls back to English when its matching section is absent. Official catal
 entries retain descending `versions` with each version's immutable package-content
 `commit`, optional platform `api_version` and `min_sailry_version`, exact-version
 notes and withdrawal status. The source index contract is
-[catalog.schema.json](../schemas/plugins/v1/catalog.schema.json). The Node adds
+[catalog.schema.json](../schemas/plugins/v1/catalog.schema.json). The source
+`versions[]` records and projected latest manifest keep their legacy format:
+`products` and `requires_modules` appear only in the package-level
+`version_requirements[version] = {products, requires_modules}` map. When that map
+is present, every advertised version has an entry; `{}` explicitly means no
+runtime constraints. A version with `min_sailry_version >= 0.2.14` must have an
+entry even if its requirements are empty. Missing or malformed requirements
+reject the catalog rather than granting compatibility. An unaffected legacy
+catalog may omit the map. Older clients ignore this package-level field and use
+the original API/minimum-version records to select real historical content.
+The Node merges the map with latest-manifest requirements and reviewed historical
+native-module requirements, never discarding a stricter constraint. Actual
+package manifests and captured bytes are checked again during inspection and
+installation; catalog hints do not override them. The Node adds
 per-version compatibility and a `compatible_version` candidate without replacing
 the entry's market-latest version or discarding its history. Automatic selection
 uses the highest compatible SemVer precedence, excludes withdrawn records, and

@@ -405,12 +405,12 @@ func Compatibility(required *string) protocol.PluginCompatibility {
 	}
 	minimum, minimumErr := semver.StrictNewVersion(*required)
 	// Packages target Harness capabilities, not downstream release numbering.
-	current, currentErr := semver.StrictNewVersion(identity.OfficialVersion)
+	current, currentErr := semver.StrictNewVersion(identity.FrameworkVersion)
 	if minimumErr != nil {
 		return unsupportedCompatibility("invalid minimum Sailry version")
 	}
 	if currentErr != nil {
-		return unsupportedCompatibility("Sailry Node version is invalid")
+		return unsupportedCompatibility("Sailry framework version is invalid")
 	}
 	if current.Compare(minimum) < 0 {
 		return protocol.PluginCompatibility{Kind: "requires_newer", Data: protocol.PluginCompatibilityRequiresNewerPayload{Required: *required}}
@@ -441,6 +441,9 @@ func requirementsCompatibility(requirements *protocol.PluginRequirements, runtim
 // InfoCompatibility also reads older stored records whose requirements had not
 // yet been separated from their parsed functionality.
 func InfoCompatibility(info protocol.PluginInfo, runtimes ...Runtime) protocol.PluginCompatibility {
+	if compatibility := runtimeCompatibility(nil, legacyOfficialInfoModules(info), runtimes); compatibility.Kind != "compatible" {
+		return compatibility
+	}
 	if info.Requirements != nil {
 		return requirementsCompatibility(info.Requirements, runtimes...)
 	}

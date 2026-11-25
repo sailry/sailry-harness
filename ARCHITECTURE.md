@@ -82,6 +82,8 @@ The Go module is `github.com/sailry/sailry-harness`.
 
 Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream module, not a fork. Its own entry points select the common components, add its developer pages and Node modules, and supply its version, package identity and release sources. The framework does not import the product. Product code cannot import its dependency's Go `internal` packages.
 
+Desktop and Host startup bind process-wide diagnostics to the configured product version; Mobile supplies the installed package version when opening its controller. Host checks resolve the same product release feed used by installation, without treating a lower version as an upgrade. Code Android distribution is independent of Desktop tags: `mobile-v<SemVer>+<store build>` releases must contain a completed, nonempty `Sailry-android-arm64.apk` asset. Updates preserve SemVer precedence and require an increasing Android build number. Harness retains its existing `v<SemVer>` mobile feed.
+
 The principal dependency direction is:
 
 ```text
@@ -1021,6 +1023,8 @@ approval for command input and stopping follows the live process identity.
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
 Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (installable and removable packages in `plugins/`). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH and interactive terminals) live in Code. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) are retired from `plugins/` (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and `office` provides bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+
+The official plugin feed keeps its original version records readable by installed clients. A package-level `version_requirements` map carries product and module requirements for individual releases. The executing Node checks those requirements against its own product, available services and Harness capability version, including when it opens a captured package from an older turn.
 
 On-demand code relations validate candidate files under the current worktree
 access and ignore rules. A bounded memory cache reuses lexical tests and index

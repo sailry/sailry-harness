@@ -142,6 +142,15 @@ func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogE
 		}
 		entry.Bundled = true
 		entry.Versions = []protocol.PluginCatalogVersion{manifestVersion(manifest, "", nil, RuntimeFromContext(ctx))}
+		modules, err := legacyBundledModules(ctx, files, manifest)
+		if err != nil {
+			return nil, err
+		}
+		entry.Versions[0].RequiresModules = append(entry.Versions[0].RequiresModules, modules...)
+		if compatibility := runtimeCompatibility(nil, modules, []Runtime{RuntimeFromContext(ctx)}); compatibility.Kind != "compatible" {
+			entry.Compatibility = compatibility
+			entry.Versions[0].Compatibility = compatibility
+		}
 		if manifest.Version != nil && slices.Contains(withdrawals[manifest.Name], *manifest.Version) {
 			entry.Versions[0].Withdrawn = true
 			entry.Versions[0].Compatibility = CatalogVersionCompatibility(entry.Versions[0], RuntimeFromContext(ctx))
@@ -189,10 +198,11 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		Version  uint32 `json:"version"`
 		Commit   string `json:"source_commit"`
 		Packages []struct {
-			ID           string                              `json:"id"`
-			Manifest     json.RawMessage                     `json:"manifest"`
-			ReleaseNotes *protocol.PluginCatalogReleaseNotes `json:"release_notes"`
-			Versions     []protocol.PluginCatalogVersion     `json:"versions"`
+			ID                  string                              `json:"id"`
+			Manifest            json.RawMessage                     `json:"manifest"`
+			ReleaseNotes        *protocol.PluginCatalogReleaseNotes `json:"release_notes"`
+			Versions            []protocol.PluginCatalogVersion     `json:"versions"`
+			VersionRequirements json.RawMessage                     `json:"version_requirements"`
 		} `json:"packages"`
 	}
 	endpoint := manager.OfficialURL
@@ -221,6 +231,10 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		if err != nil || item.ID != manifest.Name || seen[item.ID] || slices.Contains(retired, item.ID) {
 			continue
 		}
+		requirements, err := readCatalogRequirements(item.VersionRequirements)
+		if err != nil {
+			return nil, err
+		}
 		entry := manifestCatalogEntry(manifest, RuntimeFromContext(ctx))
 		repository, commit := manager.officialRepositoryURL(), feed.Commit
 		entry.Repository, entry.Commit, entry.ReleaseNotes, entry.Versions = &repository, &commit, item.ReleaseNotes, item.Versions
@@ -229,23 +243,44 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 			version := &entry.Versions[index]
 			if manifest.Version != nil && version.Version == *manifest.Version {
 				latest = index
-				version.APIVersion, version.MinSailryVersion = nil, nil
-				version.Products, version.RequiresModules = nil, nil
 				if requirements := manifest.Requirements; requirements != nil {
-					version.APIVersion, version.MinSailryVersion = &requirements.APIVersion, requirements.MinSailryVersion
-					version.Products, version.RequiresModules = requirements.Products, requirements.RequiresModules
+					if version.APIVersion == nil {
+						version.APIVersion = &requirements.APIVersion
+					}
+					if version.MinSailryVersion == nil || IsNewer(version.MinSailryVersion, requirements.MinSailryVersion) {
+						version.MinSailryVersion = requirements.MinSailryVersion
+					}
+					if err := mergeCatalogRequirements(version, catalogRuntimeRequirements{Products: requirements.Products, RequiresModules: requirements.RequiresModules}); err != nil {
+						return nil, err
+					}
 				}
 				if version.ReleaseNotes == nil {
 					version.ReleaseNotes = item.ReleaseNotes
 				}
 			}
+			if err := applyCatalogRequirements(version, requirements); err != nil {
+				return nil, err
+			}
+			*version = withLegacyOfficialRequirements(entry.ID, *version, entry.Repository)
 			version.Compatibility = CatalogVersionCompatibility(*version, RuntimeFromContext(ctx))
 			if manifest.Version != nil && version.Version == *manifest.Version && !version.Withdrawn && entry.Compatibility.Kind != "compatible" {
 				version.Compatibility = entry.Compatibility
 			}
+			if latest == index && !version.Withdrawn {
+				entry.Compatibility = version.Compatibility
+			}
 		}
 		if latest < 0 && manifest.Version != nil {
-			entry.Versions = append(entry.Versions, manifestVersion(manifest, feed.Commit, item.ReleaseNotes, RuntimeFromContext(ctx)))
+			version := manifestVersion(manifest, feed.Commit, item.ReleaseNotes, RuntimeFromContext(ctx))
+			if err := applyCatalogRequirements(&version, requirements); err != nil {
+				return nil, err
+			}
+			version = withLegacyOfficialRequirements(entry.ID, version, entry.Repository)
+			version.Compatibility = CatalogVersionCompatibility(version, RuntimeFromContext(ctx))
+			if entry.Compatibility.Kind == "compatible" {
+				entry.Compatibility = version.Compatibility
+			}
+			entry.Versions = append(entry.Versions, version)
 		} else if latest >= 0 {
 			entry.Commit = &entry.Versions[latest].Commit
 		}

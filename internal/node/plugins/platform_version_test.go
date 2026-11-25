@@ -11,7 +11,7 @@ func TestCompatibilityUsesHarnessPlatformVersion(t *testing.T) {
 	previous := link.ProductVersion
 	link.ProductVersion = "0.1.0"
 	t.Cleanup(func() { link.ProductVersion = previous })
-	minimum := "0.2.13"
+	minimum := "0.2.14"
 	info := protocol.DefaultPluginInfo()
 	info.Requirements = &protocol.PluginRequirements{APIVersion: "v1", MinSailryVersion: &minimum}
 	if compatibility := InfoCompatibility(info, Runtime{ProductID: "code"}); compatibility.Kind != "compatible" {
@@ -22,7 +22,7 @@ func TestCompatibilityUsesHarnessPlatformVersion(t *testing.T) {
 	if compatibility := CatalogVersionCompatibility(version, Runtime{ProductID: "code"}); compatibility.Kind != "compatible" {
 		t.Fatalf("catalog used marketing version: %+v", compatibility)
 	}
-	future := "999.0.0"
+	future := "0.2.15"
 	if compatibility := Compatibility(&future); compatibility.Kind != "requires_newer" {
 		t.Fatalf("future platform requirement was ignored: %+v", compatibility)
 	}

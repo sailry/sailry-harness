@@ -33,6 +33,7 @@ func SelectCompatibleVersion(entry protocol.PluginCatalogEntry, installed *strin
 	var selected *protocol.PluginCatalogVersion
 	var highest *semver.Version
 	for _, candidate := range entry.Versions {
+		candidate = withLegacyOfficialRequirements(entry.ID, candidate, entry.Repository)
 		candidate.Compatibility = CatalogVersionCompatibility(candidate, runtimes...)
 		if candidate.Compatibility.Kind != "compatible" ||
 			!commitHash(candidate.Commit) && !(entry.Bundled && entry.Commit == nil && entry.Version != nil && candidate.Version == *entry.Version && candidate.Commit == "") ||

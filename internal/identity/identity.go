@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// FrameworkVersion identifies the Harness capabilities available to packages,
+// independently of the embedding product's published release version.
+const FrameworkVersion = "0.2.14"
+
 const (
 	OfficialVersion        = "0.2.13"
 	SourceProfile          = "~/.sailry-go"

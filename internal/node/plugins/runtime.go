@@ -30,6 +30,7 @@ func RuntimeFromContext(ctx context.Context) Runtime {
 func refreshCompatibility(info *protocol.PluginInfo, runtime Runtime) {
 	info.Summary.Compatibility = InfoCompatibility(*info, runtime)
 	for index := range info.Versions {
+		info.Versions[index] = withLegacyOfficialRequirements(info.Summary.Name, info.Versions[index], nil)
 		info.Versions[index].Compatibility = CatalogVersionCompatibility(info.Versions[index], runtime)
 	}
 }

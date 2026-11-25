@@ -113,7 +113,9 @@ func CaptureResources(ctx context.Context, profile string, references []protocol
 			continue
 		}
 		captured := catalog.Packages[index]
-		if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{Requirements: captured.Requirements}, plugins.RuntimeFromContext(ctx))); err != nil {
+		if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{
+			Summary: protocol.PluginSummary{Name: reference.Name, Digest: reference.Digest}, Requirements: captured.Requirements,
+		}, plugins.RuntimeFromContext(ctx))); err != nil {
 			return nil, err
 		}
 		captured.Reference = reference

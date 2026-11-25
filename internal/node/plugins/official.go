@@ -30,6 +30,7 @@ func officialVersion(entry protocol.PluginCatalogEntry, requested *string, runti
 		if version.Version != *requested {
 			continue
 		}
+		version = withLegacyOfficialRequirements(entry.ID, version, entry.Repository)
 		version.Compatibility = CatalogVersionCompatibility(version, runtimes...)
 		if entry.Version != nil && version.Version == *entry.Version && entry.Compatibility.Kind != "compatible" {
 			version.Compatibility = entry.Compatibility

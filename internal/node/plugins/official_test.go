@@ -22,9 +22,10 @@ type officialCatalogFixture struct {
 	Version  uint32 `json:"version"`
 	Commit   string `json:"source_commit"`
 	Packages []struct {
-		ID       string                          `json:"id"`
-		Manifest json.RawMessage                 `json:"manifest"`
-		Versions []protocol.PluginCatalogVersion `json:"versions"`
+		ID                  string                                `json:"id"`
+		Manifest            json.RawMessage                       `json:"manifest"`
+		Versions            []protocol.PluginCatalogVersion       `json:"versions"`
+		VersionRequirements map[string]catalogRuntimeRequirements `json:"version_requirements,omitempty"`
 	} `json:"packages"`
 }
 
@@ -61,10 +62,11 @@ func TestOfficialSelectionAndInstallation(t *testing.T) {
 	commit := repositoryVersionFixture(t, directory, name)
 	feed := officialCatalogFixture{Version: 1}
 	feed.Packages = append(feed.Packages, struct {
-		ID       string                          `json:"id"`
-		Manifest json.RawMessage                 `json:"manifest"`
-		Versions []protocol.PluginCatalogVersion `json:"versions"`
-	}{ID: name})
+		ID                  string                                `json:"id"`
+		Manifest            json.RawMessage                       `json:"manifest"`
+		Versions            []protocol.PluginCatalogVersion       `json:"versions"`
+		VersionRequirements map[string]catalogRuntimeRequirements `json:"version_requirements,omitempty"`
+	}{ID: name, VersionRequirements: map[string]catalogRuntimeRequirements{}})
 	for _, version := range []string{"1.0.0", "1.1.0", "1.2.0-beta.1", "2.0.0", "3.0.0"} {
 		extension := `{"api_version":"v1","min_sailry_version":"0.0.1"}`
 		item := catalogVersionFixture(version)
@@ -81,13 +83,16 @@ func TestOfficialSelectionAndInstallation(t *testing.T) {
 		item.ReleaseNotes = &protocol.PluginCatalogReleaseNotes{Text: "Catalog notes for " + version}
 		feed.Commit = item.Commit
 		feed.Packages[0].Versions = append(feed.Packages[0].Versions, item)
+		feed.Packages[0].VersionRequirements[version] = catalogRuntimeRequirements{}
 	}
 	withdrawn := catalogVersionFixture("1.9.0")
 	withdrawn.Withdrawn = true
 	feed.Packages[0].Versions = append(feed.Packages[0].Versions, withdrawn)
+	feed.Packages[0].VersionRequirements[withdrawn.Version] = catalogRuntimeRequirements{}
 	invalid := catalogVersionFixture("1.8.0")
 	invalid.Commit = "unavailable-revision"
 	feed.Packages[0].Versions = append(feed.Packages[0].Versions, invalid)
+	feed.Packages[0].VersionRequirements[invalid.Version] = catalogRuntimeRequirements{}
 	var body atomic.Value
 	var requests atomic.Int32
 	publishFeed := func() {

@@ -25,7 +25,9 @@ func CaptureCatalog(ctx context.Context, profile string, references []protocol.P
 			return candidate.Reference.Name == reference.Name && candidate.Reference.Digest == reference.Digest
 		})
 		if index >= 0 {
-			if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{Requirements: bundled.Packages[index].Requirements}, plugins.RuntimeFromContext(ctx))); err != nil {
+			if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{
+				Summary: protocol.PluginSummary{Name: reference.Name, Digest: reference.Digest}, Requirements: bundled.Packages[index].Requirements,
+			}, plugins.RuntimeFromContext(ctx))); err != nil {
 				return nil, err
 			}
 			for _, declaration := range bundled.Tools {
