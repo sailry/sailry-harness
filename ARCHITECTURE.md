@@ -417,9 +417,20 @@ preserved when the normal schema update adds per-user configuration tables;
 initialization runs once with those tables so later restarts do not resurrect
 removed configuration.
 
-Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` to
-`~/.sailry` at link time. Development checks use isolated profiles as described in
-[CONTRIBUTING.md](CONTRIBUTING.md#setup).
+The Harness product identity selects `~/.sailry-harness` for Desktop and
+foreground Host in source and packaged builds. Products own this choice through
+`product.Desktop.DefaultProfile`; their entry points must not replace it with
+the framework's shared fallback. Host callers that omit the field retain the
+legacy `core.Default` fallback (`~/.sailry-go` in source builds). Release
+packaging still sets `core.Default` to `~/.sailry` at link time to confine native
+libraries to the package, without overriding the Harness identity. Harness does
+not migrate old profiles. A downstream product can declare `LegacyProfile` for
+its default Desktop and foreground Host startup; migration runs before logging
+or preferences create the new profile. Code adopts `~/.sailry` as `~/.sailry-code`
+without changing database engines. Explicit profile arguments, including those
+of installed services (`~/.sailry-host`), bypass adoption. `just desktop dev` uses the separate
+`~/.sailry-harness-dev` profile. Development checks use isolated profiles as
+described in [CONTRIBUTING.md](CONTRIBUTING.md#setup).
 
 ### Backups
 

@@ -25,11 +25,12 @@ const ServiceUsage = "Usage: sailry serve [--data-dir <absolute private director
 const TaskUsage = "Usage: sailry-host submit (--session <id> | --worktree <id>) (--prompt <text> | --prompt-file <path> | --stdin) [--request-id <id>] [--expected-revision <number>] [--config <JSON file>] [--execution model|team] [--team <id>] [--team-revision <number>] [--association <JSON file>] [--title <text>] [--no-wait] [--timeout <seconds>] [--data-dir <profile>]\n       sailry-host wait --session <id> --turn <id> [--timeout <seconds>] [--data-dir <profile>]\nWrites one JSON result. Exit codes: 0 admitted/completed, 1 failed/stopped, 3 approval/input/paused, 4 uncertain, 124 timeout, 130 observation cancelled. Waiting never grants approvals or stops execution."
 
 type ServiceOptions struct {
-	Profile        string
-	Network        link.NetworkScope
-	Bootstrap      bool
-	PairingService string
-	Telemetry      *bool
+	Profile         string
+	explicitProfile bool
+	Network         link.NetworkScope
+	Bootstrap       bool
+	PairingService  string
+	Telemetry       *bool
 }
 
 // Environment reads the process environment for the Node's telemetry. The
@@ -78,6 +79,7 @@ func parseService(args []string, profile string) (ServiceOptions, bool, error) {
 					return options, false, errors.New("--data-dir must be an absolute path")
 				}
 				options.Profile = value
+				options.explicitProfile = true
 			case "--bind":
 				if _, err := netip.ParseAddrPort(value); err != nil {
 					return options, false, errors.New("--bind requires a valid IP:port address")

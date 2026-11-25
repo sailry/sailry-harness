@@ -16,6 +16,7 @@ const FrameworkVersion = "0.2.14"
 
 const (
 	OfficialVersion        = "0.2.13"
+	HarnessProfile         = "~/.sailry-harness"
 	SourceProfile          = "~/.sailry-go"
 	InstalledProfile       = "~/.sailry"
 	OfficialRepository     = "sailry/sailry-harness"
@@ -49,6 +50,7 @@ type Desktop struct {
 	Release        DesktopRelease
 	Version        string
 	DefaultProfile string
+	LegacyProfile  string // Optional previous profile adopted on a default Node startup only.
 	DefaultEntry   string
 	HostRelease    HostRelease
 	Website        string
@@ -61,7 +63,7 @@ func OfficialDesktop() Desktop {
 			Package: DesktopPackage{Name: "Sailry", ID: "ai.sailry.desktop", Executable: "sailry-desktop"},
 			Source:  OfficialReleases, Downloads: OfficialDownloads, PublicKeys: officialUpdateKeys,
 		},
-		ID: "harness", Name: "Sailry", Version: OfficialVersion, DefaultProfile: SourceProfile, DefaultEntry: "page:conversation",
+		ID: "harness", Name: "Sailry", Version: OfficialVersion, DefaultProfile: HarnessProfile, DefaultEntry: "page:conversation",
 		Website: OfficialWebsite, Feedback: OfficialFeedback,
 	}
 }

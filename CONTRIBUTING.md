@@ -98,8 +98,8 @@ source executable's ancestor directories. `SAILRY_TURSO_LIB` selects an
 explicit source-build library and skips its build in `just native`.
 The Desktop recipes run `just native` and supply the helper path automatically:
 
-- `just desktop` opens the installed release data at `~/.sailry`.
-- `just desktop dev` opens the development data at `~/.sailry-dev`.
+- `just desktop` opens the Harness data at `~/.sailry-harness`.
+- `just desktop dev` opens separate Harness development data at `~/.sailry-harness-dev`.
 - `just desktop <name>` opens an isolated test profile at `.runtime/profiles/<name>`
   for any other name.
 
@@ -109,6 +109,12 @@ serve them only when `SAILRY_PPROF` names a loopback address.
 
 These commands run the current checkout; the choice selects data, not a different
 application version. Close another instance using that profile before starting.
+
+The Harness Desktop and foreground Host use `~/.sailry-harness` by default,
+including direct source runs and packaged builds. `--data-dir` selects another
+profile explicitly. Changing the default does not move or open the older
+`~/.sailry`, `~/.sailry-go` or `~/.sailry-dev` profiles. Installed Host services
+keep their dedicated `~/.sailry-host` profile.
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
 backend startup before opening any profile, including an explicit `--data-dir`.
@@ -423,9 +429,10 @@ equals `link.ProductVersion`. Shipped files sit beside the executable, or in
 A release build is one linked with
 `-X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry`
 (`MYGO_LDFLAGS` for `cmd/sailry-desktop`, `go build -ldflags` for
-`cmd/sailry-host`). It opens the release profile `~/.sailry` by default and
-loads its native libraries from its package and checks the package seal.
-Source builds can load the staged native libraries from `.runtime/native`. Source builds keep `~/.sailry-go`.
+`cmd/sailry-host`). This shared legacy value marks the release build: it loads
+native libraries from its package and checks the package seal. It does not
+override the Harness product's `~/.sailry-harness` default. Source builds can
+load the staged native libraries from `.runtime/native`.
 
 `cmd/sailry-desktop/macos/package.sh` packages the macOS Desktop on the target
 architecture: it stages the natives, the dependency notices (`licenses/`) and
@@ -508,8 +515,12 @@ catalog `update-v1.json`, then checks them with the updater's own
 verification. `TestPublishedRelease` proves the format with a throwaway key.
 The updater has no Windows installer, so the feed covers macOS only.
 
-Fork Desktop commands select their identity, profile and release settings in Go
-and use matching native packaging metadata. Use `updater.PublishRelease` with
+Product Desktop and Host commands select their profile explicitly with the public
+`product.Desktop.DefaultProfile` field; Harness does not change the shared
+fallback for Host callers that omit it (`~/.sailry-go` in source builds and
+the linked `core.Default` in packaged builds). Fork commands select their
+identity and release settings in Go and use matching native packaging metadata.
+Use `updater.PublishRelease` with
 the same `DesktopRelease` when signing a fork feed. Packaged builds set the
 existing release `core.Default` linker flag to the product's installed profile
 to keep native libraries confined to the package. The fork fixture selects the
@@ -543,8 +554,8 @@ limitations. A historical checklist or passing headless test does not establish
 current platform acceptance.
 
 Development checks use `just desktop <fixed-name>` with an isolated profile.
-For user acceptance, `just desktop dev` opens `~/.sailry-dev`; `just desktop`
-opens the installed release profile at `~/.sailry`.
+For Harness user acceptance, `just desktop dev` opens `~/.sailry-harness-dev`;
+`just desktop` opens `~/.sailry-harness`.
 Account and device checks require the corresponding account or device and remain
 explicitly initiated.
 

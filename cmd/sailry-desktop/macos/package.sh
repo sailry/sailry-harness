@@ -22,7 +22,7 @@
 #   SAILRY_REVISION, SAILRY_SENTRY_DSN, SAILRY_TELEMETRY_KEY: telemetry build
 #     values, each optional
 #
-# The package opens the release profile ~/.sailry. Nothing here runs it.
+# The Harness package opens ~/.sailry-harness. Nothing here runs it.
 set -euo pipefail
 
 test "$(uname -s)" = Darwin || { echo 'package.sh needs macOS' >&2; exit 1; }

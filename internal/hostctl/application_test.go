@@ -3,12 +3,44 @@ package hostctl
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/identity"
 )
+
+func TestHostProfileDefaultsRemainProductScoped(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "user")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	previous := core.Default
+	t.Cleanup(func() { core.Default = previous })
+	for _, shared := range []string{identity.SourceProfile, identity.InstalledProfile} {
+		core.Default = shared
+		for _, product := range []identity.Desktop{{}, identity.OfficialDesktop(), {ID: "code", DefaultProfile: "~/.sailry"}} {
+			profile := product.DefaultProfile
+			if profile == "" {
+				profile = shared
+			}
+			want := filepath.Join(home, strings.TrimPrefix(profile, "~/"))
+			options, help, err := parseService(nil, product.DefaultProfile)
+			if err != nil || help || options.Profile != want {
+				t.Fatalf("product %q service with shared %q = %+v, help %v, error %v; want %q", product.ID, shared, options, help, err, want)
+			}
+			task, help, err := parseTask([]string{"submit", "--session", "00000000-0000-0000-0000-000000000001", "--prompt", "Task"}, strings.NewReader(""), product.DefaultProfile)
+			if err != nil || help || task.Profile != want {
+				t.Fatalf("product %q task with shared %q = %+v, help %v, error %v; want %q", product.ID, shared, task, help, err, want)
+			}
+		}
+	}
+	if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("profile resolution wrote to the home directory: %v", err)
+	}
+}
 
 func TestHostProductDefaultProfile(t *testing.T) {
 	t.Parallel()

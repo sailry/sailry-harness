@@ -8,7 +8,33 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/identity"
 )
+
+func TestHostDefaultProfileIgnoresSharedBuildMarker(t *testing.T) {
+	previous := core.Default
+	t.Cleanup(func() { core.Default = previous })
+	for _, shared := range []string{identity.SourceProfile, identity.InstalledProfile} {
+		t.Run(shared, func(t *testing.T) {
+			core.Default = shared
+			output, err := os.CreateTemp(t.TempDir(), "stdout")
+			if err != nil {
+				t.Fatal(err)
+			}
+			previous := os.Stdout
+			os.Stdout = output
+			t.Cleanup(func() { os.Stdout = previous; _ = output.Close() })
+			code, err := run([]string{"serve", "--help"})
+			if code != 0 || err != nil {
+				t.Fatalf("Host help = %d, %v", code, err)
+			}
+			written, err := os.ReadFile(output.Name())
+			if err != nil || !strings.Contains(string(written), "Defaults to ~/.sailry-harness and loopback.") {
+				t.Fatalf("Host help with shared %q = %q, %v", shared, written, err)
+			}
+		})
+	}
+}
 
 func TestHostStartupLogUnavailable(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")

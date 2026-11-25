@@ -28,6 +28,10 @@ This repository contains the shared framework and a runnable base application.
 [Sailry Code](https://github.com/sailry/sailry-code) depends on it and owns the
 developer modules, product configuration and release entry points.
 
+Harness Desktop and foreground Host default to `~/.sailry-harness`; an explicit
+`--data-dir` selects another profile without moving existing data. Local
+`just desktop dev` runs use the separate `~/.sailry-harness-dev` profile.
+
 > [!NOTE]
 > **Early preview.** Sailry changes quickly between releases. Back up important work before
 > agents edit it, and [report issues](https://github.com/sailry/sailry-harness/issues) — your

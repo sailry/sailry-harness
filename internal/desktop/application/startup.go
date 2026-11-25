@@ -43,7 +43,13 @@ func parseOptions(args []string) (startupOptions, error) {
 	flags := flag.NewFlagSet("sailry-desktop", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&options.Preview, "preview", false, "Show the isolated preview without starting a Node")
-	flags.StringVar(&options.DataDir, "data-dir", "", "Use this Node profile directory")
+	flags.Func("data-dir", "Use this Node profile directory", func(value string) error {
+		if value == "" {
+			return errors.New("--data-dir requires a directory")
+		}
+		options.DataDir = value
+		return nil
+	})
 	flags.BoolVar(&options.AcceptanceUI, "acceptance-ui", false, "Run explicit headless conversation acceptance without opening a native window")
 	flags.StringVar(&options.AcceptanceDirectory, "acceptance-dir", "", "Use this isolated acceptance controller directory")
 	flags.StringVar(&options.AcceptanceSocket, "acceptance-socket", "", "Attach live acceptance to this private Node control directory")
@@ -120,6 +126,11 @@ func openBackend(ctx context.Context, options startupOptions, product identity.D
 	path, err := product.DataDir(options.DataDir)
 	if err != nil {
 		return nil, err
+	}
+	if options.DataDir == "" {
+		if err := node.MigrateLegacyProfile(ctx, product.LegacyProfile, path); err != nil {
+			return nil, err
+		}
 	}
 	// First-launch detection must precede creation of the Node database.
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)

@@ -51,8 +51,8 @@ mkdir -p "$stage/host"
 # ships no speech or capture library.
 go -C "$harness_root" run ./native/fetch -target "$platform" -host ${artifacts[@]+"${artifacts[@]}"} -bundle "$stage/host"
 
-# A release build opens the release profile by default and loads the Turso
-# library only from its package, against the seal written below.
+# A release build loads Turso only from its package, against the seal written
+# below. The command's product identity selects its default profile.
 flags="-w -X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry"
 flags+=" ${SAILRY_PACKAGE_LDFLAGS:-}"
 revision=${SAILRY_REVISION:-$(git rev-parse HEAD)}

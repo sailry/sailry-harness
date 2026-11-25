@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/sdk/host"
 	"github.com/sailry/sailry-harness/sdk/product"
 )
@@ -29,6 +30,26 @@ func TestHostCLIUsesSuppliedProduct(t *testing.T) {
 		})
 		if code != 0 || err != nil || !strings.Contains(stdout.String(), test.want) || stderr.Len() != 0 {
 			t.Fatalf("Host CLI %q = %d, %v; stdout=%q stderr=%q", test.args, code, err, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestHostCLIProfileHelpRemainsProductScoped(t *testing.T) {
+	for _, test := range []struct {
+		identity product.Desktop
+		want     string
+	}{
+		{product.Desktop{}, "~/.sailry-go"},
+		{identity.OfficialDesktop(), "~/.sailry-harness"},
+		{product.Desktop{ID: "code", DefaultProfile: "~/.sailry"}, "~/.sailry"},
+	} {
+		var output bytes.Buffer
+		code, err := host.RunContext(t.Context(), []string{"serve", "--help"}, host.Options{
+			Identity: test.identity,
+			Stdin:    strings.NewReader(""), Stdout: &output, Stderr: &output,
+		})
+		if code != 0 || err != nil || !strings.Contains(output.String(), "Defaults to "+test.want+" and loopback.") {
+			t.Fatalf("product %q help = %d, %v, %q", test.identity.ID, code, err, output.String())
 		}
 	}
 }

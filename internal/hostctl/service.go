@@ -29,6 +29,11 @@ func runHostService(ctx context.Context, args []string, config Options, restoreS
 		_, err := fmt.Fprintln(config.Stdout, usage)
 		return 0, err
 	}
+	if !options.explicitProfile {
+		if err := node.MigrateLegacyProfile(ctx, config.Identity.LegacyProfile, options.Profile); err != nil {
+			return 1, err
+		}
+	}
 	if closeLogs, err := logging.Install(options.Profile, "host"); err != nil {
 		_, _ = fmt.Fprintln(config.Stderr, config.Identity.HostRelease.Package().Binary()+": continuing without a diagnostic log:", err)
 	} else {

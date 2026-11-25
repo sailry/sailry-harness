@@ -194,7 +194,7 @@ func relocateRestored(ctx context.Context, db *sql.Conn, original, target string
 			return err
 		}
 	}
-	return nil
+	return relocateProfileSettings(ctx, db, original, target)
 }
 
 func relocated(value, original, target string) (string, bool) {

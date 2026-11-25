@@ -24,6 +24,8 @@ Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 
 
 这个仓库提供公共框架和可独立运行的基础应用。[Sailry Code](https://github.com/sailry/sailry-code) 单向依赖它，在自己的仓库维护研发模块、产品配置和发布入口。
 
+Harness 桌面端和前台 Host 默认使用 `~/.sailry-harness`；可通过 `--data-dir` 显式选择其他目录，不会搬迁已有数据。本地 `just desktop dev` 使用独立的 `~/.sailry-harness-dev`。
+
 > [!NOTE]
 > **早期预览版。** Sailry 版本之间变化较快。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
 

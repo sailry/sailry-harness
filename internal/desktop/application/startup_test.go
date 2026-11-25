@@ -28,6 +28,7 @@ func TestStartupScope(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"--relay"},
+		{"--data-dir="},
 		{"--relay", "https://old-relay.example.test"},
 		{"--relay", "/ip4/127.0.0.1/tcp/30001"},
 	} {
@@ -46,6 +47,31 @@ func TestStartupScope(t *testing.T) {
 		if got := startupScope(current.relays); !reflect.DeepEqual(*got, current.want) {
 			t.Errorf("%s: %+v, want %+v", current.name, *got, current.want)
 		}
+	}
+}
+
+func TestDesktopMigrationRunsBeforeProfileCreation(t *testing.T) {
+	home := t.TempDir()
+	product := identity.Desktop{DefaultProfile: filepath.Join(home, "new"), LegacyProfile: filepath.Join(home, "legacy")}
+	if err := os.WriteFile(product.LegacyProfile, []byte("not a profile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend, err := openBackend(t.Context(), startupOptions{}, product, moduleapi.Assembly{})
+	if backend != nil || err == nil {
+		t.Fatalf("startup ignored invalid legacy profile: %v", err)
+	}
+	if _, err := os.Lstat(product.DefaultProfile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("created target before migration: %v", err)
+	}
+	owner, err := core.AcquireProfile(filepath.Join(home, "explicit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	_, err = openBackend(t.Context(), startupOptions{DataDir: owner.Path}, product, moduleapi.Assembly{})
+	var busy *core.ProfileInUseError
+	if !errors.As(err, &busy) {
+		t.Fatalf("explicit startup did not use its own profile: %v", err)
 	}
 }
 

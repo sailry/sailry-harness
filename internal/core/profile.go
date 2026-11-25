@@ -12,7 +12,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Default is set to the release profile by packaging through -ldflags -X.
+// Default is the shared legacy profile fallback. Packaging replaces it through
+// -ldflags -X to mark release builds; product identities own their profile defaults.
 var Default = identity.SourceProfile
 
 // Release reports a build whose profile default packaging replaced. Release
