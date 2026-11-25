@@ -7,7 +7,6 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
-import '../../terminal/project_resource.dart';
 import '../contributions.dart';
 import 'host_parts.dart';
 import 'metric_charts.dart';
@@ -284,39 +283,64 @@ Color statusDotColor(BuildContext context, HostStatus status) =>
       ).colorScheme.onSurfaceVariant.withValues(alpha: .5),
     };
 
-/// Project, session, terminal and port counts separated by short hairlines.
+/// Project and session counts followed by the assembly's resource counts,
+/// separated by short hairlines.
 class CountsCard extends StatelessWidget {
-  const CountsCard({super.key, required this.host, required this.action});
+  const CountsCard({
+    super.key,
+    required this.host,
+    required this.action,
+    this.browseTasks,
+  });
   final HostConnection host;
 
-  /// Receives projects, sessions, terminals or ports.
+  /// Receives projects or sessions.
   final VoidCallback? Function(String) action;
+
+  /// Opens the task tab; null when the assembly has none.
+  final ValueChanged<TaskBrowse>? browseTasks;
 
   @override
   Widget build(BuildContext context) {
     final divider = Theme.of(context).colorScheme.outlineVariant;
-    final terminals = ProjectResourcesScope.of(
-      context,
-    ).contains(terminalResource);
+    final counts = [
+      for (final feature in ProjectResourcesScope.of(context))
+        ?feature.hostCount,
+    ];
+    final HostResourceView view = (host: host, browseTasks: browseTasks);
     return Surface(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: ListenableBuilder(
-        listenable: host.ports,
+        listenable: Listenable.merge([
+          for (final count in counts)
+            if (count.changes case final changes?) changes(host),
+        ]),
         builder: (context, _) {
           final cells = [
-            ('projects', 'project', objects(host.snapshot['projects']).length),
-            ('sessions', 'chat', objects(host.snapshot['sessions']).length),
-            if (terminals)
+            (
+              'projects',
+              'project',
+              objects(host.snapshot['projects']).length,
+              action('projects'),
+            ),
+            (
+              'sessions',
+              'chat',
+              objects(host.snapshot['sessions']).length,
+              action('sessions'),
+            ),
+            for (final count in counts)
               (
-                'terminals',
-                'terminal',
-                objects(host.snapshot['terminals']).length,
+                count.id,
+                count.label,
+                count.count(host),
+                count.open(context, view),
               ),
-            ('ports', 'activityPorts', host.ports.entries.length),
           ];
           return Row(
             children: [
-              for (final (index, (kind, label, count)) in cells.indexed) ...[
+              for (final (index, (kind, label, count, onTap))
+                  in cells.indexed) ...[
                 if (index > 0)
                   SizedBox(
                     width: 1,
@@ -327,7 +351,7 @@ class CountsCard extends StatelessWidget {
                   child: InkWell(
                     key: ValueKey('host-$kind'),
                     borderRadius: BorderRadius.circular(16),
-                    onTap: action(kind),
+                    onTap: onTap,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
                       child: Column(

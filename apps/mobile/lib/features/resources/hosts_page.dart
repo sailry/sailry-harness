@@ -5,8 +5,8 @@ import '../../runtime/json.dart';
 import 'pair_form.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import 'contributions.dart';
 import 'resources_page.dart';
-import 'ports_page.dart';
 import 'host/host_info_card.dart';
 import 'host/host_sheet.dart';
 import 'host/host_tabs.dart';
@@ -15,7 +15,7 @@ import 'host/resource_cards.dart';
 
 class HostsPage extends StatefulWidget {
   const HostsPage({super.key, this.onBrowseTasks, this.projectList});
-  final ValueChanged<String>? onBrowseTasks;
+  final ValueChanged<TaskBrowse>? onBrowseTasks;
   final Widget? Function(HostConnection host)? projectList;
   @override
   State<HostsPage> createState() => _HostsPageState();
@@ -119,16 +119,18 @@ class _HostsPageState extends State<HostsPage> {
 
   void _select() => showHostSheet(context, onPair: _pair);
 
-  VoidCallback? _browse(HostConnection host, String kind) =>
-      switch ((kind, widget.projectList, widget.onBrowseTasks)) {
-        ('ports', _, _) => () => pushPage(context, PortsPage(host: host)),
-        ('projects', final build?, _) => () {
-          final page = build(host);
-          if (page != null) pushPage(context, page);
-        },
-        ('sessions' || 'terminals', _, final browse?) => () => browse(kind),
-        _ => null,
-      };
+  VoidCallback? _browse(HostConnection host, String kind) => switch ((
+    kind,
+    widget.projectList,
+    widget.onBrowseTasks,
+  )) {
+    ('projects', final build?, _) => () {
+      final page = build(host);
+      if (page != null) pushPage(context, page);
+    },
+    ('sessions', _, final browse?) => () => browse(const TaskBrowse.sessions()),
+    _ => null,
+  };
 
   /// Keeps the host switcher above a state so another host stays reachable.
   Widget _blocked(HostConnection host, Widget state) => Column(
@@ -211,7 +213,11 @@ class _HostsPageState extends State<HostsPage> {
               const SizedBox(height: 14),
               HostInfoCard(host: host, metrics: _metrics, history: _history),
               gap,
-              CountsCard(host: host, action: (kind) => _browse(host, kind)),
+              CountsCard(
+                host: host,
+                action: (kind) => _browse(host, kind),
+                browseTasks: widget.onBrowseTasks,
+              ),
               if (_metrics.isNotEmpty) ...[
                 gap,
                 TrendCard(history: _history),

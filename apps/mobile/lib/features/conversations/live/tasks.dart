@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show mapEquals, setEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
@@ -19,7 +19,6 @@ import '../../resources/pair_form.dart';
 import '../../resources/project_form.dart';
 import '../../resources/scope_picker.dart';
 import '../../resources/workspace.dart';
-import '../../terminal/project_resource.dart';
 import 'create.dart';
 import 'host_status_bar.dart';
 import 'message_data.dart' show searchExcerpt;
@@ -28,7 +27,6 @@ import 'presentation.dart';
 import 'project_bar.dart';
 import 'recency.dart';
 import 'task_filters.dart';
-import 'terminal_tasks.dart';
 import '../../../ui/theme.dart';
 
 class LiveTasksPage extends StatefulWidget {
@@ -63,7 +61,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   Animation<double>? _cover;
   bool _ticking = true;
   bool _catalogDirty = true;
-  bool _interactiveTerminals = false;
+  List<TaskListSection> _sections = const [];
   Widget? _catalog;
   (AppLocalizations?, ColorScheme)? _catalogAppearance;
 
@@ -101,14 +99,19 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final terminals = ProjectResourcesScope.of(
-      context,
-    ).contains(terminalResource);
-    if (terminals != _interactiveTerminals) {
-      _interactiveTerminals = terminals;
+    final sections = [
+      for (final feature in ProjectResourcesScope.of(context))
+        ?feature.taskSection,
+    ];
+    if (!listEquals(sections, _sections)) {
+      _sections = sections;
       _catalogDirty = true;
     }
-    if (!terminals && _filter == 'terminal') _filter = 'all';
+    if (!taskFilters.contains(_filter) &&
+        _filter != 'archived' &&
+        !sections.any((section) => section.scope == _filter)) {
+      _filter = 'all';
+    }
     _ticking = TickerMode.valuesOf(context).enabled;
     _route = ModalRoute.of(context);
     final cover = _route?.secondaryAnimation;
@@ -235,17 +238,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     await widget.session.selectedHost?.refresh();
   }
 
-  Future<void> _closeTerminal(
-    HostConnection host,
-    Map<String, dynamic> terminal,
-  ) async {
-    try {
-      await closeTerminal(host, terminal);
-    } catch (error) {
-      _error(error);
-    }
-  }
-
   void _pair() => showAppSheet<void>(
     context,
     context.tr('pairTitle'),
@@ -354,9 +346,16 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final projectId = widget.session.selectedProjectId;
     final projects = hostRecords(widget.session.resourceHosts, 'projects');
     final sessions = hostRecords(hosts, 'sessions');
-    final allTerminals = _interactiveTerminals
-        ? hostRecords(hosts, 'terminals')
-        : const <HostRecord>[];
+    final sectionRecords = [
+      for (final section in _sections)
+        (
+          section,
+          <HostRecord>[
+            for (final host in hosts)
+              for (final record in section.records(host)) (host, record),
+          ],
+        ),
+    ];
     final creationHost = selected;
     final selectedProject = projects
         .where(
@@ -379,31 +378,29 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       tasks,
       (task) => sessionGroup(task.$2, now, lane: _laneOf(task.$1, task.$2)),
     );
-    Object? terminalProject(
-      HostConnection host,
-      Map<String, dynamic> terminal,
-    ) => objects(host.snapshot['worktrees'])
-        .where((tree) => tree['id'] == terminal['worktree'])
-        .firstOrNull?['project'];
-    final terminals = <HostRecord>[
-      for (final (host, terminal) in allTerminals)
-        if (!(widget.sessionsOnly && _filter != 'terminal') &&
-            activeTerminal(terminal) &&
-            _includes(terminalProject(host, terminal)) &&
-            (_filter == 'all' ||
-                _filter == 'terminal' ||
-                terminalStatus(terminal) == _filter) &&
-            terminalTitle(
-              terminal,
-              translate: context.tr,
-            ).toLowerCase().contains(_search.toLowerCase()))
-          (host, terminal),
+    final TaskSectionQuery query = (
+      filter: _filter,
+      search: _search,
+      includesProject: _includes,
+      translate: context.tr,
+    );
+    final sectionRows = [
+      for (final (section, records) in sectionRecords)
+        if (!(widget.sessionsOnly && _filter != section.scope))
+          (
+            section,
+            [
+              for (final (host, record) in records)
+                if (section.include(host, record, query)) (host, record),
+            ],
+          ),
     ];
-    final hasRecords = tasks.isNotEmpty || terminals.isNotEmpty;
+    final hasRecords =
+        tasks.isNotEmpty || sectionRows.any((section) => section.$2.isNotEmpty);
     final hasCatalog =
         projects.any((entry) => entry.$1.id == selected?.id) ||
         sessions.isNotEmpty ||
-        allTerminals.isNotEmpty;
+        sectionRecords.any((section) => section.$2.isNotEmpty);
     final connected = hosts.any((host) => host.connected);
     final hasHosts = widget.session.hosts.isNotEmpty;
     // A project belongs to the selected host; the unscoped filters summarize
@@ -520,9 +517,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           )
         else
           TaskScope(
-            label: context.tr(
-              _filter == 'archived' ? 'archiveTab' : 'terminal',
-            ),
+            label: context.tr(_filter),
             onClose: () => _setFilter('all'),
           ),
       ],
@@ -545,24 +540,27 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ),
           ),
       ],
-      if (terminals.isNotEmpty) ...[
-        (
-          const ValueKey('terminals'),
-          (key) => _GroupTitle(translate('terminal'), key: key),
-        ),
-        for (final (index, (host, terminal)) in terminals.indexed)
+      for (final (section, records) in sectionRows)
+        if (records.isNotEmpty) ...[
           (
-            ValueKey(('terminal', host.id, terminal['id'])),
-            (key) => _terminalRow(
-              key,
-              host,
-              terminal,
-              colors: colors,
-              translate: translate,
-              divider: index < terminals.length - 1,
-            ),
+            ValueKey(('section', section.scope)),
+            (key) => _GroupTitle(translate(section.scope), key: key),
           ),
-      ],
+          for (final (index, (host, record)) in records.indexed)
+            (
+              ValueKey((section.scope, host.id, record['id'])),
+              (key) => Builder(
+                key: key,
+                builder: (context) => section.row(
+                  context,
+                  key,
+                  host,
+                  record,
+                  divider: index < records.length - 1,
+                ),
+              ),
+            ),
+        ],
     ];
     final rowIndices = {
       for (final (index, (key, _)) in rows.indexed) key: index,
@@ -690,35 +688,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 .firstOrNull ??
             {},
       ),
-    );
-  }
-
-  Widget _terminalRow(
-    Key key,
-    HostConnection host,
-    Map<String, dynamic> terminal, {
-    required ColorScheme colors,
-    required Translator translate,
-    required bool divider,
-  }) {
-    return Slidable(
-      key: key,
-      endActionPane: ActionPane(
-        motion: const DrawerMotion(),
-        extentRatio: .24,
-        children: [
-          SwipeAction(
-            onPressed: host.connected
-                ? (_) => _closeTerminal(host, terminal)
-                : null,
-            color: colors.error,
-            foreground: colors.onError,
-            icon: Icons.close,
-            label: translate('close'),
-          ),
-        ],
-      ),
-      child: TerminalTask(host: host, terminal: terminal, divider: divider),
     );
   }
 }

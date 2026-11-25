@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
 import 'overview_cards.dart';
 
@@ -24,6 +25,78 @@ typedef OpenDirectory =
       String directory,
     );
 
+/// A task list view another page opens on the task tab.
+@immutable
+class TaskBrowse {
+  const TaskBrowse.sessions() : filter = 'all', sessionsOnly = true;
+  const TaskBrowse.filter(this.filter) : sessionsOnly = false;
+
+  final String filter;
+  final bool sessionsOnly;
+}
+
+typedef HostResourceView = ({
+  HostConnection host,
+
+  /// Null when the assembly has no task tab.
+  ValueChanged<TaskBrowse>? browseTasks,
+});
+
+/// One cell of the host page's resource counts.
+class HostResourceCount {
+  const HostResourceCount({
+    required this.id,
+    required this.label,
+    required this.count,
+    required this.open,
+    this.changes,
+  });
+
+  final String id;
+
+  /// Localization key.
+  final String label;
+  final int Function(HostConnection host) count;
+  final VoidCallback? Function(BuildContext context, HostResourceView view)
+  open;
+  final Listenable Function(HostConnection host)? changes;
+}
+
+typedef TaskSectionQuery = ({
+  String filter,
+  String search,
+  bool Function(Object? project) includesProject,
+  Translator translate,
+});
+
+/// Records a feature adds to the task list after conversations.
+class TaskListSection {
+  const TaskListSection({
+    required this.scope,
+    required this.records,
+    required this.include,
+    required this.row,
+  });
+
+  /// Filter that lists only this section; also its title's localization key.
+  final String scope;
+  final List<Map<String, dynamic>> Function(HostConnection host) records;
+  final bool Function(
+    HostConnection host,
+    Map<String, dynamic> record,
+    TaskSectionQuery query,
+  )
+  include;
+  final Widget Function(
+    BuildContext context,
+    Key key,
+    HostConnection host,
+    Map<String, dynamic> record, {
+    required bool divider,
+  })
+  row;
+}
+
 class ProjectResourceFeature {
   const ProjectResourceFeature({
     this.entry,
@@ -31,6 +104,8 @@ class ProjectResourceFeature {
     this.header,
     this.action,
     this.openDirectory,
+    this.hostCount,
+    this.taskSection,
   });
 
   final ProjectResourceEntry? entry;
@@ -38,6 +113,8 @@ class ProjectResourceFeature {
   final ProjectResourceHeader? header;
   final ProjectResourceAction? action;
   final OpenDirectory? openDirectory;
+  final HostResourceCount? hostCount;
+  final TaskListSection? taskSection;
 }
 
 class ProjectResourcesScope extends InheritedWidget {
