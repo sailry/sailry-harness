@@ -28,14 +28,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// packageCount writes a count as the statistics package does (format.js
-// compact): from a thousand with one decimal and a k.
+// packageCount writes a count in the composer metric's compact format.
 func packageCount(n int) string {
 	if n < 1000 {
 		return strconv.Itoa(n)
@@ -83,8 +83,6 @@ func subagentTokens(cv *viewmodel.Conversation) int {
 // the demo's ledger meanwhile and from the Node again after the way back,
 // the page's watch moving over with the presentation.
 func TestDemoMode(t *testing.T) {
-	// The test names the statistics package's control panel, so the panel
-	// package's terminal kind is taken here.
 	// The Node must outlive both language tours. The test runner bounds the
 	// complete fixture; a separate Node deadline would disconnect it mid-tour.
 	ctx := t.Context()
@@ -102,6 +100,14 @@ func TestDemoMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
+	statistics, err := testplugin.Install(ctx, controller, testplugin.Statistics())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statistics.Summary.Name != pluginStatisticsPackage {
+		t.Fatalf("the demo recognizes %q, not the installed fixture %q", pluginStatisticsPackage, statistics.Summary.Name)
+	}
+	reference := packageReference(statistics.Summary)
 	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
 	if err != nil {
 		t.Fatal(err)
@@ -733,14 +739,25 @@ func TestDemoMode(t *testing.T) {
 	})
 
 	t.Run("demo", func(t *testing.T) {
-		summaries := r.snapshot().Plugins
-		statistics := slices.IndexFunc(summaries, func(summary protocol.PluginSummary) bool { return summary.Name == pluginStatisticsPackage })
-		if statistics < 0 {
-			t.Fatal("the fixture has no statistics plugin; check the pinned plugins checkout")
+		// Demo mounts reuse the bundle read by the live draft's composer.
+		r.App.Navigate(shell.ConversationPage)
+		var liveMount *pluginMountedView
+		for range 8 {
+			settle()
+			for key, mounted := range r.pluginViews.mounts {
+				if key.name == reference.Name && key.role == "contribution" && key.scope.presentation == draft {
+					liveMount = mounted
+					break
+				}
+			}
+			if liveMount != nil && (liveMount.mounted != nil || liveMount.failure != nil) {
+				break
+			}
 		}
-		if summary := summaries[statistics]; !summary.Enabled || summary.Compatibility.Kind != "compatible" {
-			t.Fatalf("the statistics plugin is unavailable (enabled %v, compatibility %+v); check the pinned plugins checkout", summary.Enabled, summary.Compatibility)
+		if liveMount == nil || liveMount.bundle == nil || liveMount.mounted == nil || liveMount.failure != nil {
+			t.Fatalf("statistics fixture did not mount on the live draft: %+v", liveMount)
 		}
+		visited := len(sent())
 		flip()
 		if !r.App.Settings.DemoMode || !r.App.Demo() || r.Preferences.Data.DemoMode {
 			t.Fatalf("the fixture presentation: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
@@ -752,7 +769,6 @@ func TestDemoMode(t *testing.T) {
 		if tester.HasText(preview.DemoModel) || !tester.HasText(text("provider_empty_live")) {
 			t.Errorf("the providers' settings list the demo's provider: %q", tester.Texts())
 		}
-		visited := len(sent())
 		r.App.Navigate(shell.ConversationPage)
 		settle()
 
@@ -1270,12 +1286,6 @@ func TestDemoMode(t *testing.T) {
 			if changes != 1 || r.pluginUsageSample() == nil {
 				t.Fatalf("the switch told the plugin pages %d times; a sample %v", changes, r.pluginUsageSample() != nil)
 			}
-			reference := protocol.PluginReference{Name: "statistics"}
-			for _, summary := range controller.Snapshot().Plugins {
-				if summary.Name == reference.Name {
-					reference = packageReference(summary)
-				}
-			}
 			scope := protocol.DefaultPluginContext()
 			scope.Package, scope.Surface.Kind = reference, "workspace"
 			page = desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: controller, Scope: scope,
@@ -1389,16 +1399,6 @@ func TestDemoMode(t *testing.T) {
 			read := func() bool {
 				return slices.ContainsFunc(sent()[asked:], func(kind string) bool { return strings.HasSuffix(kind, "read_usage") })
 			}
-			reference := protocol.PluginReference{Name: "statistics"}
-			info := protocol.DefaultPluginInfo()
-			for _, summary := range controller.Snapshot().Plugins {
-				if summary.Name == reference.Name {
-					reference, info.Summary = packageReference(summary), summary
-				}
-			}
-			extension := protocol.DefaultPluginExtension()
-			extension.Actions = []protocol.PluginAction{protocol.PluginActionReadUsage, protocol.PluginActionReadConversation}
-			info.Extension = &extension
 			// The page is mounted for as long as the switch tells it; no
 			// frame is drawn meanwhile. Beside it are the package's view
 			// over a composer, which cannot read usage, and the page of a
@@ -1417,9 +1417,9 @@ func TestDemoMode(t *testing.T) {
 				return desktopplugins.NewHost(desktopplugins.HostBinding{Context: ctx, Client: controller, Scope: scope,
 					UsageSources: r.pluginUsageSources, UsageChanges: r.pluginUsageChanges(ctx), UsageSample: r.pluginUsageSample()})
 			}
-			usage := fixture("usage-fixture", "workspace", info, page)
+			usage := fixture("usage-fixture", "workspace", statistics, page)
 			usage.bundle = &protocol.PluginDesktopBundle{Package: reference}
-			figures := fixture("figures-fixture", "composer", info, host("composer"))
+			figures := fixture("figures-fixture", "composer", statistics, host("composer"))
 			plain := fixture("plain-fixture", "workspace", protocol.DefaultPluginInfo(), host("workspace"))
 			defer func() {
 				for _, mounted := range []*pluginMountedView{usage, figures, plain} {
@@ -1490,13 +1490,12 @@ func TestDemoMode(t *testing.T) {
 				value, err := ask("nextUsageChange", quote(fmt.Sprint(at(got.value, "cursor"))))
 				got = usageAnswer{value, err}
 			}
-			if got.err != nil {
-				t.Fatalf("the new page's watch failed: %v", got.err)
+			report := at(got.value, "view", "report")
+			if got.err != nil || report == nil {
+				t.Fatalf("the new page's watch did not return the Node's ledger: %v, %v", got.value, got.err)
 			}
-			if report := at(got.value, "view", "report"); report != nil {
-				if groups, _ := at(report, "groups").([]any); at(report, "totals", "responses") != "0" || len(groups) != 0 {
-					t.Errorf("the profile's own usage is %v", report)
-				}
+			if groups, _ := at(report, "groups").([]any); at(report, "totals", "responses") != "0" || len(groups) != 0 {
+				t.Errorf("the profile's own usage is %v", report)
 			}
 			if !read() {
 				t.Errorf("the Usage page did not ask the Node after the switch: %q", sent()[asked:])

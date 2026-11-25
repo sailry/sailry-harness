@@ -18,10 +18,10 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	desktop "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	packages "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -48,7 +48,7 @@ type result struct {
 }
 
 func main() {
-	root := flag.String("root", ".", "repository root containing the pinned packages")
+	root := flag.String("root", "", "optional local package directory; empty uses deterministic fixtures")
 	profile := flag.String("data-dir", ".runtime/profiles/b9-desktop-spike", "isolated immutable package cache")
 	match := flag.String("package", "", "optional exact package name for diagnostics")
 	flag.Parse()
@@ -67,7 +67,23 @@ func run(root, profile, match string) error {
 		return err
 	}
 	manager := packages.NewManager(absolute)
-	entries, err := inventory()
+	if root == "" {
+		sources, err := os.MkdirTemp("", "sailry-desktop-spike-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(sources)
+		root, err = testplugin.Desktop().Write(sources)
+		if err != nil {
+			return err
+		}
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	source := os.DirFS(root)
+	entries, err := inventory(source)
 	if err != nil {
 		return err
 	}
@@ -77,7 +93,7 @@ func run(root, profile, match string) error {
 	names := map[string]bool{}
 	encoder := json.NewEncoder(os.Stdout)
 	for _, current := range entries {
-		raw, err := fs.ReadFile(sailry.Plugins, current.Manifest)
+		raw, err := fs.ReadFile(source, current.Manifest)
 		if err != nil {
 			return err
 		}
@@ -90,13 +106,8 @@ func run(root, profile, match string) error {
 		}
 		names[manifest.Name] = true
 		count++
-		var info protocol.PluginInfo
 		directory := path.Dir(current.Manifest)
-		if path.Dir(directory) == "plugins" {
-			info, err = manager.InstallBundled(ctx, manifest.Name)
-		} else {
-			info, err = manager.Install(ctx, filepath.Join(root, filepath.FromSlash(directory)), "", manifest.Name)
-		}
+		info, err := manager.Install(ctx, filepath.Join(root, filepath.FromSlash(directory)), "", manifest.Name)
 		report := result{Package: manifest.Name, Entry: current.Path, Surface: current.Surface.Kind, Example: strings.Contains(current.Manifest, "/examples/")}
 		if err == nil {
 			var bundle protocol.PluginDesktopBundle
@@ -130,16 +141,16 @@ func run(root, profile, match string) error {
 	return nil
 }
 
-func inventory() ([]entry, error) {
+func inventory(source fs.FS) ([]entry, error) {
 	var entries []entry
-	err := fs.WalkDir(sailry.Plugins, "plugins", func(name string, directory fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(source, ".", func(name string, directory fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if directory.IsDir() || path.Base(name) != "plugin.json" {
 			return nil
 		}
-		body, err := fs.ReadFile(sailry.Plugins, name)
+		body, err := fs.ReadFile(source, name)
 		if err != nil {
 			return err
 		}
@@ -170,8 +181,8 @@ func inventory() ([]entry, error) {
 		}
 		seen := map[string]bool{}
 		add := func(script *string, surface protocol.PluginDesktopSurface) {
-			if script != nil && !seen[*script] {
-				seen[*script] = true
+			if script != nil && !seen[surface.Kind+"/"+*script] {
+				seen[surface.Kind+"/"+*script] = true
 				entries = append(entries, entry{Manifest: name, Path: *script, Surface: surface})
 			}
 		}
@@ -324,6 +335,9 @@ func render(ctx context.Context, info protocol.PluginInfo, bundle protocol.Plugi
 				report.Unavailable = append(report.Unavailable, failure)
 			}
 		default:
+			if report.Elements == 0 || len(report.Texts) == 0 || report.Pending != 0 || len(report.Unavailable) != 0 {
+				return report, fmt.Errorf("entry did not render settled fixture content: elements=%d texts=%d pending=%d unavailable=%v", report.Elements, len(report.Texts), report.Pending, report.Unavailable)
+			}
 			return report, nil
 		}
 	}

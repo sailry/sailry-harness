@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +20,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -30,15 +31,29 @@ func TestPluginUIIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	var requests atomic.Int32
+	var fixturePrompt atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Messages []struct {
+				Role    string
+				Content json.RawMessage
+			}
+		}
+		if json.NewDecoder(request.Body).Decode(&input) == nil {
+			for _, message := range input.Messages {
+				if message.Role == "user" && strings.Contains(string(message.Content), "Return the fixture reply.") {
+					fixturePrompt.Store(true)
+				}
+			}
+		}
 		requests.Add(1)
 		writer.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(writer, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"{\\\"move\\\":0}\"},\"finish_reason\":null}]}\n\n")
+		fmt.Fprint(writer, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Fixture model reply\"},\"finish_reason\":null}]}\n\n")
 		fmt.Fprint(writer, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3,\"total_tokens\":15}}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.Start(ctx, profile)
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: panelProjectionHost()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,53 +100,38 @@ func TestPluginUIIntegration(t *testing.T) {
 		t.Fatal("created session was not returned")
 	}
 	do(protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{Session: session.ID, ExpectedRevision: session.Revision, Title: "Plugin acceptance"}})
+	installCompetingTerminal(t, ctx, controller)
 	infos := map[string]protocol.PluginInfo{}
-	for _, name := range []string{"activity-board", "commands", "gomoku", "goals"} {
-		if !slices.ContainsFunc(controller.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == name }) {
-			do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name}})
+	for _, fixture := range []testplugin.Package{testplugin.Desktop(), testplugin.Status(), testplugin.Model()} {
+		info, err := testplugin.Install(ctx, controller, fixture)
+		if err != nil {
+			t.Fatal(err)
 		}
-		output := do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: name}})
-		info, exists := detail[protocol.PluginInfo](output.Data)
-		if !exists {
-			t.Fatalf("required bundled package %q was not returned", name)
-		}
-		if !info.Summary.Enabled {
-			do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
-				Name: name, ExpectedRevision: info.Summary.Revision, Enabled: true,
-			}})
-			output = do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: name}})
-			info, _ = detail[protocol.PluginInfo](output.Data)
-		}
-		infos[name] = info
+		infos[fixture.Name] = info
 	}
-	settingsOutput := do(protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: packageReference(infos["gomoku"].Summary)}})
-	gameSettings, valid := detail[protocol.PluginSettingsState](settingsOutput.Data)
+	settingsOutput := do(protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: packageReference(infos[testplugin.ModelName].Summary)}})
+	modelSettings, valid := detail[protocol.PluginSettingsState](settingsOutput.Data)
 	if !valid {
-		t.Fatal("game settings were not returned")
+		t.Fatal("fixture model settings were not returned")
 	}
-	gameSettings.Values["ai_model"], _ = json.Marshal(provider.ID.String() + "/" + model.ID)
+	modelSettings.Values["model"], _ = json.Marshal(provider.ID.String() + "/" + model.ID)
 	do(protocol.Command{Kind: "save_plugin_settings", Data: protocol.CommandSavePluginSettingsPayload{
-		Package: gameSettings.Package, Values: gameSettings.Values, Secrets: map[string]protocol.PluginSettingsSecretUpdate{},
+		Package: modelSettings.Package, Values: modelSettings.Values, Secrets: map[string]protocol.PluginSettingsSecretUpdate{},
 	}})
-	goal := protocol.NewRequestID()
-	// An active goal as the package stores it; no turn runs, so its loop
-	// stays where the seed left it.
-	started := time.Now().UnixMilli()
-	value, _ := json.Marshal(map[string]any{"id": goal.String(), "objective": "Exercise the real plugin status lifecycle", "version": 1,
-		"status": "active", "reason": nil, "detail": nil, "seq": 0, "waiting": false, "claim": nil, "evidence": nil, "edited": false,
-		"wrap": nil, "idle": 0, "notice": nil, "turns": 0, "chain": 0, "tokens": 0, "window_tokens": 0, "elapsed_ms": 0, "window_ms": 0,
-		"since_ms": started, "created_ms": started, "finished_ms": nil})
+	value, _ := json.Marshal(map[string]any{"text": "Exercise the real plugin status lifecycle", "phase": "active", "detail": "Just started"})
 	seed := controller.Prepare(protocol.Command{Kind: "write_plugin_conversation_value", Data: protocol.CommandWritePluginConversationValuePayload{
-		Key: "goal", Value: value,
+		Key: "state", Value: value,
 	}})
 	seed.Plugin = &protocol.PluginContext{
-		Surface: protocol.PluginDesktopSurface{Kind: "composer"}, Package: packageReference(infos["goals"].Summary),
+		Surface: protocol.PluginDesktopSurface{Kind: "composer"}, Package: packageReference(infos[testplugin.StatusName].Summary),
 		Worktree: &session.Worktree, Session: &session.ID,
 	}
 	if _, err := controller.Execute(ctx, seed); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := NewWithPreferences(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")))
+	assembly := testassembly.Full()
+	assembly.CodeIndex, assembly.Worktrees = false, false
+	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), assembly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,103 +175,116 @@ func TestPluginUIIntegration(t *testing.T) {
 		}
 	}
 	wait("plugin inventory", func() bool {
-		return runtime.pluginViews != nil && len(runtime.pluginViews.navigation) > 0 && runtime.packages.infos["gomoku"].Extension != nil
+		return runtime.pluginViews != nil && len(runtime.pluginViews.navigation) == 2 &&
+			runtime.packages.infos[testplugin.DesktopName].Extension != nil && runtime.packages.infos[testplugin.TerminalName].Extension != nil
 	})
 	auditContextRing(t, runtime, tester, session.ID.String(), wait)
-	order, pins := runtime.App.FeaturePreferences()
-	gameID := "plugin:" + controller.Target().String() + "/gomoku"
-	pins[gameID] = true
-	runtime.App.SetFeaturePreferences(order, pins)
-	tester.Frame()
-	click("Activity Board")
-	wait("activity board authoritative catalog", func() bool { return tester.HasText("Plugin acceptance") && tester.HasText("Idle") })
-	t.Log("activity board: real Node catalog and captured session rendered")
-	click("Gomoku")
-	wait("game settings and models", func() bool { return tester.HasText("Choose a side") })
-	click("Play black")
-	wait("game board", func() bool { return tester.HasText("Your turn") })
-	click("H8, empty")
-	wait("game model turn", func() bool {
-		return requests.Load() == 1 && tester.HasText("Your turn") && tester.HasText("H8, Black")
+	click("Desktop fixture")
+	wait("the fixture settings and live activity catalog", func() bool {
+		return tester.HasText("Fixture ready") && tester.HasText("Activity: Plugin acceptance · idle")
 	})
-	t.Log("gomoku: real retained callbacks, human move and one Node-owned model response completed")
+	click("Increment")
+	wait("retained fixture callback", func() bool { return tester.HasText("Fixture clicks: 1") })
+	click("Model fixture")
+	wait("fixture model configured", func() bool {
+		button, found := tester.AccessByRole(ui.RoleButton, "Generate fixture")
+		return found && !button.Disabled
+	})
+	click("Generate fixture")
+	wait("Node-owned plugin model response", func() bool {
+		return requests.Load() == 1 && fixturePrompt.Load() && tester.HasText("Fixture model reply")
+	})
 	runtime.App.Navigate(shell.ConversationPage)
 	runtime.OpenSession(session.ID.String())
-	// Coming back to the conversation, the badge is drawn disabled until its
-	// status watch reconnects, and its tooltip repeats the goal: the click waits
-	// for the watch and the popover is recognized by its own action. The
-	// capsule is the state and the time after the icon; the word Goal is the
-	// badge's name only.
-	wait("goal badge", func() bool {
+	badge := func(phase, detail string) bool {
 		for _, feed := range runtime.pluginStatus {
 			if feed.scope.Session == nil || *feed.scope.Session != session.ID || !feed.view.Connected {
 				continue
 			}
 			for _, entry := range feed.view.Entries {
-				if entry.Package.Name != "goals" || !entry.State.Visible {
+				if entry.Package.Name != testplugin.StatusName || !entry.State.Visible {
 					continue
 				}
 				segments := entry.State.Segments
-				if len(segments) != 2 || segments[0].Label.Label != "Running" || segments[1].Label.Label != "<1m" || entry.State.Label == nil || entry.State.Label.Label != "Goal" {
-					t.Fatalf("the goal badge is %+v, named %+v", segments, entry.State.Label)
+				if len(segments) != 2 || segments[0].Label.Label != phase || segments[1].Label.Label != detail ||
+					entry.State.Label == nil || entry.State.Label.Label != "Fixture status" {
+					return false
 				}
-				return tester.HasText("Running") && tester.HasText("<1m")
+				button, named := tester.AccessByRole(ui.RoleButton, "Fixture status")
+				return named && !button.Disabled && tester.HasText(phase) && tester.HasText(detail)
 			}
 		}
 		return false
-	})
-	tester.Frame()
-	if _, named := tester.AccessByRole(ui.RoleButton, "Goal"); !named {
-		t.Fatalf("no button is named Goal: %q", tester.Texts())
 	}
+	wait("the connected two-segment fixture badge", func() bool { return badge("Running", "Just started") })
 	click("Running")
-	wait("goal popover", func() bool {
+	wait("fixture popover", func() bool {
 		return tester.HasText("Exercise the real plugin status lifecycle") && tester.HasText("Pause") && tester.HasText("End")
 	})
-	// The panel has Pause or Resume and End, nothing else.
-	for _, gone := range []string{"Edit", "Clear", "Reopen", "Save"} {
-		if tester.HasText(gone) {
-			t.Fatalf("the goal panel offers %s: %q", gone, tester.Texts())
+	for _, label := range []string{"Edit", "Clear", "Reopen", "Save"} {
+		if _, found := tester.AccessByRole(ui.RoleButton, label); found {
+			t.Fatalf("the fixture popover offers %q: %q", label, tester.Texts())
 		}
 	}
 	click("Pause")
-	wait("goal pause", func() bool {
+	wait("paused fixture popover", func() bool {
 		return tester.HasText("Paused · Paused by you") && tester.HasText("Resume") && tester.HasText("End")
 	})
-	// The capsule follows with the state and its reason.
-	wait("paused goal badge", func() bool {
-		return tester.HasText("Paused") && tester.HasText("Paused by you") && !tester.HasText("Running")
+	wait("the Node updates both badge segments", func() bool {
+		return badge("Paused", "Paused by you") && !tester.HasText("Running")
 	})
-	t.Log("goals: Node-owned badge opened the mounted popover and persisted pause through the SDK")
+	readStatus := func() protocol.PluginStorageConversationEntry {
+		t.Helper()
+		read := controller.Prepare(protocol.Command{Kind: "read_plugin_conversation_value", Data: protocol.CommandReadPluginConversationValuePayload{Key: "state"}})
+		read.Plugin = seed.Plugin
+		output, err := controller.Execute(ctx, read)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry, valid := detail[protocol.PluginStorageConversationEntry](output.Data)
+		if output.Kind != "plugin_conversation_value" || !valid {
+			t.Fatalf("the Node returned no conversation value: %+v", output)
+		}
+		return entry
+	}
+	paused := readStatus()
+	var state struct{ Text, Phase, Detail string }
+	if !paused.Present || json.Unmarshal(paused.Value, &state) != nil || state.Phase != "paused" || state.Detail != "Paused by you" ||
+		state.Text != "Exercise the real plugin status lifecycle" {
+		t.Fatalf("the Node did not persist paused fixture status: %+v", paused)
+	}
 	click("End")
-	wait("hidden goal status", func() bool {
+	wait("hidden fixture status", func() bool {
 		for _, feed := range runtime.pluginStatus {
 			if feed.scope.Session == nil || *feed.scope.Session != session.ID {
 				continue
 			}
 			for _, entry := range feed.view.Entries {
-				if entry.Package.Name == "goals" {
-					return !entry.State.Visible && !feed.open[pluginStatusIdentity(entry)]
+				if entry.Package.Name == testplugin.StatusName {
+					return feed.view.Connected && !entry.State.Visible && !feed.open[pluginStatusIdentity(entry)] && !tester.HasText("End")
 				}
 			}
 		}
 		return false
 	})
+	if ended := readStatus(); ended.Present || ended.Revision <= paused.Revision {
+		t.Fatalf("the Node did not remove the ended fixture status: %+v", ended)
+	}
 	runtime.enqueue(func(view *ui.Context) {
 		conversation := runtime.App.Data.Find(session.ID.String())
 		input := runtime.App.Composer(conversation.ID)
 		_, actions := runtime.conversation(view, conversation, input)
 		actions.Send(composer.Message{
-			Text: "/goal", Model: input.Model, Effort: input.EffortName(view, input.Chosen(runtime.models())),
+			Text: "/fixture", Model: input.Model, Effort: input.EffortName(view, input.Chosen(runtime.models())),
 			Mode: input.Mode, Permission: input.Permission, Features: input.Features,
 		})
 	})
-	wait("command reveals hidden status popover", func() bool { return tester.HasText("No goal") })
+	wait("command reveals hidden status popover", func() bool { return tester.HasText("No fixture status") })
 	if requests.Load() != 1 {
-		t.Fatal("plugin slash command started an extra model request")
+		t.Fatal("plugin slash command started a model request")
 	}
-	t.Log("goals: original scoped slash command revealed the hidden status popover without a model call")
-	click("Goal")
+	t.Log("the scoped slash command revealed the hidden status popover without a model call")
+	click("Fixture status")
 	// The header offers the overview once the conversation has a turn: one
 	// plain message, answered by the fixture, with no tool and no output.
 	runtime.enqueue(func(view *ui.Context) {
@@ -288,13 +301,10 @@ func TestPluginUIIntegration(t *testing.T) {
 		return requests.Load() == 2 && conversation != nil && len(conversation.Turns) == 1 && !runtime.App.Composer(conversation.ID).Running
 	})
 	auditSessionOverview(t, runtime, tester, session.ID, wait)
-	runtime.App.PanelOpen = true
-	runtime.App.Panel.Open(panel.Terminal)
+	// A competing local package renderer must not replace the core terminal.
+	tester.Key(ui.Ctrl, ui.KeyBackquote)
 	var terminalID protocol.TerminalID
-	// Local terminals are core-owned: with the commands package enabled, its
-	// declared terminal renderer and creation contribution stay unmounted and
-	// the panel creates and draws a core terminal named by its Node ID.
-	wait("the panel creates a Node terminal", func() bool {
+	wait("the terminal shortcut creates a Node terminal", func() bool {
 		for _, terminal := range controller.Snapshot().Terminals {
 			if terminal.Worktree != nil && *terminal.Worktree == session.Worktree && terminal.Status.Kind == "running" {
 				terminalID = terminal.ID
@@ -310,18 +320,19 @@ func TestPluginUIIntegration(t *testing.T) {
 	})
 	tester.Type("printf '\\163\\141\\151\\154\\162\\171\\055\\160\\154\\165\\147\\151\\156\\055\\151\\157\\n'")
 	tester.Key(0, ui.KeyEnter)
-	wait("commands terminal input reaches the Node PTY", func() bool {
+	wait("native terminal input reaches the Node PTY", func() bool {
 		output := do(protocol.Command{Kind: "inspect_terminal", Data: protocol.CommandInspectTerminalPayload{Terminal: terminalID}})
 		screen, valid := detail[protocol.TerminalSnapshot](output.Data)
 		return valid && screen.Screen.VT != nil && strings.Contains(string(screen.Screen.VT.Bytes), "sailry-plugin-io")
 	})
-	t.Log("commands: with the package enabled its terminal renderer stayed unmounted; the core terminal was created, rendered and sent input to the attached Node PTY")
+	t.Log("the native terminal rendered and sent input while the package renderer stayed unmounted")
+	assertTerminalRendererUnmounted(t, runtime)
 	for _, mounted := range runtime.pluginViews.mounts {
 		if unmountedPlugin(mounted.scope.Package.Name) {
-			t.Fatal("native Files/Git were also mounted through the plugin runtime")
+			t.Fatal("a native resource was also mounted through the plugin runtime")
 		}
 	}
-	t.Run("bundled plugin pages", func(t *testing.T) {
+	t.Run("local plugin pages", func(t *testing.T) {
 		auditPluginPages(t, runtime, func(ctx context.Context, command protocol.Command) protocol.Output {
 			t.Helper()
 			output, err := controller.Do(ctx, command)

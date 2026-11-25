@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -77,8 +78,11 @@ func TestHarnessDesktopHostPreservesExplicitPluginChoices(t *testing.T) {
 		t.Fatalf("using native files installed plugins: %+v", inventory)
 	}
 
-	selected := do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "goals"}}).Data.(protocol.PluginInfo)
-	if selected.Summary.Name != "goals" || !selected.Summary.Enabled || selected.Summary.Compatibility.Kind != "compatible" {
+	selected, err := testplugin.Install(t.Context(), backend.Client, testplugin.Basic("retained-fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Summary.Name != "retained-fixture" || !selected.Summary.Enabled || selected.Summary.Compatibility.Kind != "compatible" {
 		t.Fatalf("explicit Desktop plugin installation = %+v", selected.Summary)
 	}
 	selected = do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
@@ -87,7 +91,10 @@ func TestHarnessDesktopHostPreservesExplicitPluginChoices(t *testing.T) {
 	selected = do(protocol.Command{Kind: "set_plugin_pinned", Data: protocol.CommandSetPluginPinnedPayload{
 		Name: selected.Summary.Name, ExpectedRevision: selected.Summary.Revision, Pinned: true,
 	}}).Data.(protocol.PluginInfo)
-	removed := do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "brief"}}).Data.(protocol.PluginInfo)
+	removed, err := testplugin.Install(t.Context(), backend.Client, testplugin.Basic("removed-fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	do(protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{
 		Name: removed.Summary.Name, ExpectedRevision: removed.Summary.Revision,
 	}})

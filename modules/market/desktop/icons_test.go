@@ -1,17 +1,14 @@
 package desktop
 
 import (
-	"encoding/json"
 	"image"
 	"image/png"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -21,51 +18,17 @@ import (
 var testCatalog = i18n.New(Locales)
 
 func TestDeclaredPackageIcons(t *testing.T) {
-	manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
-	if err != nil || len(manifests) < 40 {
-		t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
+	rows := []preview.Package{
+		{ID: "glyph-fixture", Name: "Glyph fixture", Icon: "phosphor:folder", Tint: "blue"},
+		{ID: "brand-fixture", Name: "Brand fixture", Icon: "ailogo:figma", Tint: "purple"},
+		{ID: "svg-fixture", Name: "SVG fixture", Icon: `<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>`, Tint: "green"},
+		{ID: "uninstalled-fixture", Name: "Available fixture", Icon: "phosphor:puzzle-piece", Tint: "orange"},
 	}
-	var rows []preview.Package
-	for _, name := range manifests {
-		data, err := fs.ReadFile(sailry.Plugins, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		type text struct {
-			Label   string            `json:"label"`
-			Locales map[string]string `json:"locales"`
-			Icon    json.RawMessage   `json:"icon"`
-		}
-		var manifest struct {
-			Name       string `json:"name"`
-			Version    string `json:"version"`
-			Extensions map[string]struct {
-				Display, Description text
-				Tint, Category       string
-			} `json:"extensions"`
-		}
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			t.Fatal(name, err)
-		}
-		extension := manifest.Extensions["dev.sailry.platform"]
-		row := preview.Package{ID: manifest.Name, Name: extension.Display.Locales["zh-CN"], Description: extension.Description.Locales["zh-CN"], Version: manifest.Version, Latest: manifest.Version,
-			Tint: extension.Tint, Category: "market_category_" + extension.Category, Source: "market_details_source_official", Official: true, Installable: true, Versions: []preview.PackageVersion{{Version: manifest.Version, Compatible: true}}}
-		var own struct {
-			Svg string `json:"svg"`
-		}
-		if json.Unmarshal(extension.Display.Icon, &row.Icon) != nil && json.Unmarshal(extension.Display.Icon, &own) == nil {
-			row.Icon = own.Svg
-		}
-		if row.Name == "" {
-			row.Name = extension.Display.Label
-		}
-		if row.Description == "" {
-			row.Description = extension.Description.Label
-		}
-		if row.Name == "" || row.Icon == "" {
-			t.Fatalf("%s: name %q, icon %q", name, row.Name, row.Icon)
-		}
-		rows = append(rows, row)
+	for i := range rows {
+		rows[i].Description, rows[i].Version, rows[i].Latest = "Local icon fixture", "1.0.0", "1.0.0"
+		rows[i].Category, rows[i].Source = "market_category_development", "market_details_source_official"
+		rows[i].Official, rows[i].Installable = true, true
+		rows[i].Versions = []preview.PackageVersion{{Version: "1.0.0", Compatible: true}}
 	}
 	s := settings.New()
 	s.Open(settings.Plugins)
@@ -73,10 +36,9 @@ func TestDeclaredPackageIcons(t *testing.T) {
 	r := &renderer{}
 	m.MarketPlugins = rows
 	m.Packages = nil
-	// Every third package stays uninstalled, wherever the bundled set
-	// puts it, except the Files package the steps below draw installed.
+	// Keep both installed and available rows; the glyph fixture is installed.
 	for i, row := range rows {
-		if i%3 != 0 || row.ID == "files" {
+		if i%3 != 0 || row.ID == "glyph-fixture" {
 			row.Installed, row.Enabled = true, true
 			m.Packages = append(m.Packages, row)
 		}
@@ -171,23 +133,23 @@ func TestDeclaredPackageIcons(t *testing.T) {
 	}
 	subject := &m.MarketPlugins[0]
 	for i := range m.MarketPlugins {
-		if m.MarketPlugins[i].ID == "files" {
+		if m.MarketPlugins[i].ID == "glyph-fixture" {
 			subject = &m.MarketPlugins[i]
 		}
 	}
 	installed := installedPackage(s.MarketScope(), subject.ID)
 	if subject.Icon != "phosphor:folder" || installed == nil {
-		t.Fatalf("the Files package declares %q, installed %v", subject.Icon, installed != nil)
+		t.Fatalf("the glyph fixture declares %q, installed %v", subject.Icon, installed != nil)
 	}
 	// brand is a package whose icon is a brand's mark in its own colors.
 	var brand *preview.Package
 	for i := range m.MarketPlugins {
-		if m.MarketPlugins[i].ID == "figma" {
+		if m.MarketPlugins[i].ID == "brand-fixture" {
 			brand = &m.MarketPlugins[i]
 		}
 	}
 	if brand == nil || brand.Icon != "ailogo:figma" {
-		t.Fatalf("the Figma package declares %+v", brand)
+		t.Fatalf("the brand fixture declares %+v", brand)
 	}
 	for index, step := range []struct {
 		name string

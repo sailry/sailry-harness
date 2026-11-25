@@ -20,20 +20,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// pluginAuditPackages are the bundled packages that contribute a rail page or
-// a Settings page. Core and native modules own Files, Git, Browser, Search,
-// Memory, and Computer settings natively.
-var pluginAuditPackages = []string{
-	"activity-board", "city-trader", "databases", "doudizhu", "gomoku",
-	"liars-dice", "poker", "reminders", "reversi", "scheduled-tasks", "ssh",
-	"statistics", "task-plaza", "xiangqi",
-}
+var pluginAuditPackages = []string{testplugin.DesktopName}
 
-// auditPluginPages renders every bundled plugin page from its real manifest
+// auditPluginPages renders the local package's navigation and Settings entries
 // in Chinese and English, light and dark. It is a step of
 // TestPluginUIIntegration; SAILRY_UI_SHOTS names a directory that receives one
 // frame per page.
@@ -47,13 +41,10 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 		}
 	}
 	for _, name := range pluginAuditPackages {
-		if !slices.ContainsFunc(runtime.controller.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == name }) {
-			do(ctx, protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name}})
-		}
 		output := do(ctx, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: name}})
 		info, exists := detail[protocol.PluginInfo](output.Data)
 		if !exists {
-			t.Fatalf("bundled package %q was not returned", name)
+			t.Fatalf("local fixture %q was not returned", name)
 		}
 		if !info.Summary.Enabled {
 			do(ctx, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
@@ -127,7 +118,7 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 			tester.Frame()
 			entries := make([]pluginNavigationEntry, 0, len(runtime.pluginViews.navigation))
 			for _, entry := range runtime.pluginViews.navigation {
-				if entry.scope.Surface.Kind != "settings" {
+				if entry.scope.Surface.Kind != "settings" && slices.Contains(pluginAuditPackages, entry.info.Summary.Name) {
 					entries = append(entries, entry)
 				}
 			}
@@ -151,24 +142,35 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 					return runtime.App.Page == shell.PluginPage && mounted != nil && (mounted.mounted != nil || mounted.failure != nil)
 				})
 				rest()
-				if mounted := runtime.pluginViews.mounts[key]; mounted == nil || mounted.failure != nil {
-					t.Errorf("%s %s: page failed: %v", name, suffix, mounted.failure)
+				if mounted := runtime.pluginViews.mounts[key]; mounted == nil {
+					t.Fatalf("%s %s: page was not mounted", name, suffix)
+				} else if mounted.failure != nil {
+					t.Fatalf("%s %s: page failed: %v", name, suffix, mounted.failure)
 				}
 				save(fmt.Sprintf("%s-page-%s", name, suffix))
-				if name == "scheduled-tasks" {
-					auditScheduledTasks(t, tester, locale, rest, func(step string) { save(fmt.Sprintf("%s-%s-%s", name, step, suffix)) })
-				}
+				auditFixturePage(t, tester, locale)
+				auditFixturePageControls(t, tester, locale, settle, func(step string) { save(fmt.Sprintf("%s-%s-%s", name, step, suffix)) })
+			}
+			if len(entries) != 1 || entries[0].info.Summary.Name != testplugin.DesktopName {
+				t.Fatalf("expected the local navigation fixture, got %+v", entries)
 			}
 			sections := make([]settings.Section, 0, len(runtime.pluginViews.settings))
 			for section := range runtime.pluginViews.settings {
 				sections = append(sections, section)
 			}
+			if len(sections) != 1 {
+				t.Fatalf("expected the local Settings fixture, got %v", sections)
+			}
 			slices.Sort(sections)
 			for _, section := range sections {
 				name := runtime.pluginViews.settings[section].info.Summary.Name
+				if name != testplugin.DesktopName {
+					t.Fatalf("Settings section %q belongs to %q, not the fixture", section, name)
+				}
 				runtime.App.Settings.Open(section)
 				runtime.App.Navigate(shell.SettingsPage)
 				rest()
+				auditFixturePage(t, tester, locale)
 				save(fmt.Sprintf("%s-settings-%s", name, suffix))
 			}
 			runtime.App.Navigate(shell.ConversationPage)
@@ -192,66 +194,66 @@ func auditPluginPages(t *testing.T, runtime *Runtime, do func(context.Context, p
 	}
 }
 
-// auditScheduledTasks asserts the scheduled-tasks page uses the Kit select,
-// the Kit empty state and one content column, in the package's own locale.
-func auditScheduledTasks(t *testing.T, tester *ui.Tester, locale string, rest func(), save func(string)) {
+func auditFixturePage(t *testing.T, tester *ui.Tester, locale string) {
 	t.Helper()
-	text := map[string][5]string{
-		"en":    {"Scheduled tasks", "Run tasks on a schedule", "All projects", "New task", "No tasks"},
-		"zh-CN": {"定时任务", "按计划运行任务", "全部项目", "新建任务", "暂无任务"},
+	labels := map[string][3]string{
+		"en":    {"Desktop fixture", "Fixture ready", "Increment"},
+		"zh-CN": {"桌面夹具", "已就绪", "递增"},
 	}[locale]
-	for _, value := range text {
-		if !tester.HasText(value) {
-			t.Fatalf("scheduled tasks %s: %q is not shown; visible text: %q", locale, value, tester.Texts())
+	for _, label := range labels {
+		if !tester.HasText(label) {
+			t.Fatalf("fixture %s: %q is not shown: %q", locale, label, tester.Texts())
 		}
 	}
-	// One content column: the description, the select and the empty card
-	// share a left edge, and the primary action ends at its right edge.
-	description, _ := tester.Find(text[1])
-	field, found := tester.Access(map[string]string{"en": "Project", "zh-CN": "项目"}[locale])
-	if !found || !tester.HasText(text[2]) {
-		t.Fatalf("scheduled tasks %s: the project select is missing; visible text: %q", locale, tester.Texts())
+	if control, found := tester.AccessByRole(ui.RoleButton, labels[2]); !found || control.Disabled || control.Bounds.W <= 0 || control.Bounds.H <= 0 {
+		t.Fatalf("fixture %s: no enabled retained callback: %+v", locale, control)
 	}
-	create, exists := tester.Access(text[3])
-	if !exists || field.Bounds.X != description.X || field.Bounds.W != 192 || field.Bounds.H < 30 || create.Bounds.X+create.Bounds.W != description.X+kitPageColumn {
-		t.Fatalf("scheduled tasks %s: column %v, select %v, action %v", locale, description, field.Bounds, create.Bounds)
-	}
-	// Kit's empty state, centered in the column under its round tile.
-	empty, _ := tester.Find(text[4])
-	if center := empty.X + empty.W/2; center < description.X+kitPageColumn/2-1 || center > description.X+kitPageColumn/2+1 ||
-		empty.Y-field.Bounds.Y-field.Bounds.H < 24+40+48+12 {
-		t.Fatalf("scheduled tasks %s: empty state %v is not centered under select %v", locale, empty, field.Bounds)
-	}
-	// The Kit select opens Kit's menu at its own width.
-	tester.ClickAt(field.Bounds.X+10, field.Bounds.Y+5)
-	tester.Frame()
-	tester.Advance(200 * time.Millisecond)
-	tester.Frame()
-	menu, exists := tester.AccessByRole(ui.RoleMenu, "")
-	if !exists || menu.Bounds.W != field.Bounds.W {
-		t.Fatalf("scheduled tasks %s: select menu %v, select %v", locale, menu.Bounds, field.Bounds)
-	}
-	save("select")
-	tester.Key(0, ui.KeyEscape)
-	rest()
-	if _, open := tester.AccessByRole(ui.RoleMenu, ""); open {
-		t.Fatalf("scheduled tasks %s: select menu stayed open", locale)
-	}
-	if err := tester.Click(text[3]); err != nil {
-		t.Fatal(err)
-	}
-	rest()
-	save("dialog")
-	tester.Key(0, ui.KeyEscape)
-	rest()
 }
 
-// auditSearchSettings asserts the web-search package's Settings page in
+func auditFixturePageControls(t *testing.T, tester *ui.Tester, locale string, settle func(string, func() bool), save func(string)) {
+	t.Helper()
+	labels := map[string][7]string{
+		"en":    {"Fixture ready", "Fixture project", "All projects", "No fixture tasks", "Open fixture dialog", "Fixture dialog body", "Local project"},
+		"zh-CN": {"已就绪", "夹具项目", "全部项目", "暂无夹具任务", "打开夹具对话框", "夹具对话框内容", "本地项目"},
+	}[locale]
+	description, _ := tester.Find(labels[0])
+	field, found := tester.Access(labels[1])
+	create, exists := tester.AccessByRole(ui.RoleButton, labels[4])
+	const columnWidth = kit.PageWidth - 2*24
+	if !found || !exists || field.Bounds.X != description.X || field.Bounds.W != 192 || field.Bounds.H < 30 ||
+		create.Bounds.X+create.Bounds.W != description.X+columnWidth || !tester.HasText(labels[2]) {
+		t.Fatalf("fixture %s: column %v, select %v, action %v", locale, description, field.Bounds, create.Bounds)
+	}
+	empty, shown := tester.Find(labels[3])
+	if center := empty.X + empty.W/2; !shown || center < description.X+columnWidth/2-1 || center > description.X+columnWidth/2+1 ||
+		empty.Y-field.Bounds.Y-field.Bounds.H < 24+40+48+12 {
+		t.Fatalf("fixture %s: empty state %v is not centered under select %v", locale, empty, field.Bounds)
+	}
+	tester.ClickAt(field.Bounds.X+10, field.Bounds.Y+5)
+	settle("the fixture SelectField opens the Kit menu", func() bool {
+		menu, open := tester.AccessByRole(ui.RoleMenu, "")
+		return open && menu.Bounds.W == field.Bounds.W && tester.HasText(labels[6])
+	})
+	save("select")
+	tester.Key(0, ui.KeyEscape)
+	settle("Escape closes the fixture menu", func() bool {
+		_, open := tester.AccessByRole(ui.RoleMenu, "")
+		return !open
+	})
+	if err := tester.Click(labels[4]); err != nil {
+		t.Fatal(err)
+	}
+	settle("the retained action opens the fixture dialog", func() bool { return tester.HasText(labels[5]) })
+	save("dialog")
+	tester.Key(0, ui.KeyEscape)
+	settle("Escape closes the fixture dialog", func() bool { return !tester.HasText(labels[5]) })
+}
+
+// auditSearchSettings asserts the native Search settings page in
 // Chinese: its rows keep the application's row metrics, the overflow menu is
-// an icon button, the services reorder by dragging a handle and from the
-// keyboard with the order saved on the Node, no arrow buttons remain and the
-// brand icons no icon set knows yet leave the rows without one. It is a step
-// of TestPluginUIIntegration.
+// an icon button, service names align after their leading icons, and dragging
+// a handle or using the keyboard saves the order on the Node. It is a step of
+// TestPluginUIIntegration.
 func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, tester *ui.Tester, do func(context.Context, protocol.Command) protocol.Output,
 	settle func(string, func() bool), rest func(), save func(string)) {
 	t.Helper()
@@ -263,9 +265,9 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 		}
 		return box
 	}
-	named := func(name string) (found []ui.AccessInfo) {
+	named := func(role ui.Role, name string) (found []ui.AccessInfo) {
 		for _, info := range tester.AccessAll() {
-			if info.Name == name {
+			if info.Role == role && info.Name == name {
 				found = append(found, info)
 			}
 		}
@@ -280,8 +282,10 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 		return saved.Order
 	}
 	services := order()
-	if len(services) < 3 || services[0] != "exa" || services[1] != "tinyfish" || services[2] != "tavily" {
-		t.Fatalf("search settings: unexpected default order %v", services)
+	firstService := slices.Index(services, protocol.SearchDriverExa)
+	if firstService < 0 || firstService+2 >= len(services) ||
+		services[firstService+1] != protocol.SearchDriverTinyfish || services[firstService+2] != protocol.SearchDriverTavily {
+		t.Fatalf("search settings: expected adjacent Exa, TinyFish and Tavily in %v", services)
 	}
 	// The application's rows: a title alone is the minimum row height, and
 	// a described row is its padding, title, gap and description.
@@ -298,31 +302,30 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 		!near(key.Y-tinyfish.Y-tinyfish.H, kit.TitleGap) || !near(tavily.Y-tinyfish.Y, 2*kit.RowPad+tinyfish.H+kit.TitleGap+key.H) || exa.H != service.H {
 		t.Errorf("search settings: service rows Exa %v, its detail %v, TinyFish %v, its detail %v, Tavily %v are off the row metrics", exa, quota, tinyfish, key, tavily)
 	}
-	// Until the brand icon set is merged every "ailogo:" name is unknown:
-	// the page draws without an icon and the texts stay aligned.
-	if exa.X != tinyfish.X || exa.X != tavily.X {
-		t.Errorf("search settings: service titles are not aligned: %v %v %v", exa, tinyfish, tavily)
+	// One handle and one overflow icon button per service, with no arrow
+	// buttons or visible text labels on the overflow controls.
+	handles, more := named(ui.RoleButton, "拖动排序"), named(ui.RoleMenuButton, "更多")
+	shown := len(named(ui.RoleText, "更多"))
+	arrows := len(named(ui.RoleButton, "上移")) + len(named(ui.RoleButton, "下移"))
+	if len(handles) != len(services) || len(more) != len(services) || shown != 0 || arrows != 0 {
+		t.Fatalf("search settings: %d handles, %d overflow menus, %d overflow texts, %d arrows for %d services",
+			len(handles), len(more), shown, arrows, len(services))
 	}
-	// One handle and one overflow icon button a service; no arrows, and
-	// the word of the menu only as its name.
-	handles, more := named("拖动排序"), named("更多")
-	shown := 0
-	for _, text := range tester.Texts() {
-		if text == "更多" {
-			shown++
+	for _, button := range more {
+		if button.Bounds.W != 28 || button.Bounds.H != 28 {
+			t.Errorf("search settings: the overflow menu is %v, want a 28 DIP icon button", button.Bounds)
 		}
 	}
-	if len(handles) != len(services) || len(more) != len(services) || shown != len(services) || len(named("上移"))+len(named("下移")) != 0 {
-		t.Fatalf("search settings: %d handles, %d overflow menus, %d overflow texts, arrows %d for %d services",
-			len(handles), len(more), shown, len(named("上移"))+len(named("下移")), len(services))
-	}
-	if more[0].Role != ui.RoleMenuButton || more[0].Bounds.W != 28 || more[0].Bounds.H != 28 {
-		t.Errorf("search settings: the overflow menu is %v with role %v, want a 28 icon button", more[0].Bounds, more[0].Role)
+	for i, title := range []ui.Rect{exa, tinyfish, tavily} {
+		handle := handles[firstService+i].Bounds
+		if title.X != exa.X || !near(title.X-handle.X-handle.W, 8+kit.RowIcon+kit.RowIconGap) {
+			t.Errorf("search settings: title %v is not aligned after the handle %v and leading icon", title, handle)
+		}
 	}
 	// Drag Exa by its handle below Tavily.
-	grip := handles[0].Bounds
+	grip, targetGrip := handles[firstService].Bounds, handles[firstService+2].Bounds
 	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
-	target := y + 2*(tavily.Y-tinyfish.Y)
+	target := targetGrip.Y + targetGrip.H/2
 	tester.Press(x, y)
 	for step := 1; step <= 8; step++ {
 		tester.Move(x, y+(target-y)*float32(step)/8)
@@ -338,16 +341,19 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 	tester.Release(x, target)
 	settle("search services reordered by drag", func() bool {
 		first, second, third := find("TinyFish"), find("Tavily"), find("Exa")
-		return first.Y < second.Y && second.Y < third.Y && len(named("拖动排序")) == len(services) && !named("拖动排序")[0].Disabled
+		handles := named(ui.RoleButton, "拖动排序")
+		return first.Y < second.Y && second.Y < third.Y && len(handles) == len(services) && !handles[firstService].Disabled
 	})
 	rest()
-	if saved := order(); saved[0] != "tinyfish" || saved[1] != "tavily" || saved[2] != "exa" || !slices.Equal(saved[3:], services[3:]) {
-		t.Fatalf("search settings: the Node saved %v after dragging Exa below Tavily from %v", saved, services)
+	reordered := slices.Clone(services)
+	reordered[firstService], reordered[firstService+1], reordered[firstService+2] = protocol.SearchDriverTinyfish, protocol.SearchDriverTavily, protocol.SearchDriverExa
+	if saved := order(); !slices.Equal(saved, reordered) {
+		t.Fatalf("search settings: the Node saved %v after dragging Exa below Tavily, want %v", saved, reordered)
 	}
 	save("reordered")
 	// The keyboard moves it back: Space lifts the row of the focused
 	// handle, Up moves it, Space drops it.
-	lifted := named("拖动排序")[2].Bounds
+	lifted := named(ui.RoleButton, "拖动排序")[firstService+2].Bounds
 	tester.ClickAt(lifted.X+lifted.W/2, lifted.Y+lifted.H/2)
 	for _, key := range []ui.Key{ui.KeySpace, ui.KeyUp, ui.KeyUp, ui.KeySpace} {
 		tester.Key(0, key)
@@ -356,7 +362,8 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 	}
 	settle("search services reordered from the keyboard", func() bool {
 		first, second, third := find("Exa"), find("TinyFish"), find("Tavily")
-		return first.Y < second.Y && second.Y < third.Y && !named("拖动排序")[0].Disabled
+		handles := named(ui.RoleButton, "拖动排序")
+		return first.Y < second.Y && second.Y < third.Y && len(handles) == len(services) && !handles[firstService].Disabled
 	})
 	rest()
 	if saved := order(); !slices.Equal(saved, services) {
@@ -369,14 +376,10 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 	save("core-general")
 }
 
-// kitPageColumn is the content width of kit.Page: its 800 column less its
-// padding of 24 a side.
-const kitPageColumn = 752
-
 // auditContextRing shows a session's context meter, the core's, in
-// Chinese: directly left of the model chip, its title and state as the
-// tooltip, a popover of the summary that Show details expands, and gone on a
-// draft. The statistics package gives the composer no ring of its own. It is
+// Chinese: directly left of the model chip, with an accessible title and
+// state, a summary on hover that can be pinned and expanded, and no meter on
+// a draft. The local package contributes no extra context ring. It is
 // a step of TestPluginUIIntegration; SAILRY_UI_SHOTS receives the light and
 // the dark frame of the summary and of the details.
 func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool)) {
@@ -433,35 +436,28 @@ func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session
 	if middle, row := meter.Bounds.Y+meter.Bounds.H/2, chip.Bounds.Y+chip.Bounds.H/2; middle < row-2 || middle > row+2 {
 		t.Errorf("the meter's middle %v is off the model chip's %v", middle, row)
 	}
-	hint := meter.Name
-	shows := func() (count int) {
-		for _, text := range tester.Texts() {
-			if text == hint {
-				count++
-			}
-		}
-		return
+	showDetails := i18n.In("zh-CN", "meter_show_details")
+	hideDetails := i18n.In("zh-CN", "meter_hide_details")
+	x, y := meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2
+	if _, open := tester.AccessByRole(ui.RoleButton, showDetails); open {
+		t.Fatal("the meter summary was open before hovering")
 	}
-	before := shows()
-	tester.Move(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
-	tester.Frame()
-	tester.Advance(2 * time.Second)
-	tester.Frame()
-	tester.Frame()
-	if shows() != before+1 {
-		t.Errorf("hovering the meter shows %q %d times, was %d: no tooltip", hint, shows(), before)
-	}
+	tester.Move(x, y)
+	wait("the meter summary opens on hover", func() bool {
+		return tester.HasText(i18n.In("zh-CN", "meter_window_limit")) && tester.HasText(showDetails)
+	})
 	settle := func() {
 		for range 4 {
 			tester.Advance(80 * time.Millisecond)
 			tester.Frame()
 		}
 	}
-	tester.ClickAt(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
+	tester.ClickAt(x, y)
+	tester.Move(1, 1)
 	settle()
-	details, ok := tester.Access(i18n.In("zh-CN", "meter_show_details"))
+	details, ok := tester.AccessByRole(ui.RoleButton, showDetails)
 	if !ok {
-		t.Fatalf("the meter's popover has no Show details: %q", tester.Texts())
+		t.Fatalf("clicking the hovered meter did not pin its summary: %q", tester.Texts())
 	}
 	shoot := func(name string) {
 		dir := os.Getenv("SAILRY_UI_SHOTS")
@@ -493,12 +489,17 @@ func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session
 	shoot("session-meter-summary")
 	tester.ClickAt(details.Bounds.X+details.Bounds.W/2, details.Bounds.Y+details.Bounds.H/2)
 	settle()
-	if _, ok := tester.Access(i18n.In("zh-CN", "meter_hide_details")); !ok {
-		t.Errorf("Show details did not expand the meter: %q", tester.Texts())
+	if _, expanded := tester.AccessByRole(ui.RoleButton, hideDetails); !expanded {
+		t.Fatalf("Show details did not expand the meter: %q", tester.Texts())
 	}
 	shoot("session-meter-details")
 	tester.Key(0, ui.KeyEscape)
 	settle()
+	_, summary := tester.AccessByRole(ui.RoleButton, showDetails)
+	_, expanded := tester.AccessByRole(ui.RoleButton, hideDetails)
+	if summary || expanded {
+		t.Fatalf("Escape did not close the meter: %q", tester.Texts())
+	}
 	auditDraftRing(runtime, tester, session, wait, project, &metered, find)
 }
 

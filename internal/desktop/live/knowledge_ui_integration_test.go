@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -310,16 +310,9 @@ func TestKnowledgeUIIntegration(t *testing.T) {
 	// ACT-008: a notification whose text details are the citation link shows
 	// in the activity centre; its click marks it read on the Node and opens
 	// the viewer on the cited chunk.
-	if !slices.ContainsFunc(controller.Snapshot().Plugins, func(entry protocol.PluginSummary) bool { return entry.Name == "files" }) {
-		do(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: "files"}})
-	}
-	publisher, valid := detail[protocol.PluginInfo](do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "files"}}).Data)
-	if !valid {
-		t.Fatal("the bundled files package was not returned")
-	}
-	if !publisher.Summary.Enabled {
-		do(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: "files", ExpectedRevision: publisher.Summary.Revision, Enabled: true}})
-		publisher, _ = detail[protocol.PluginInfo](do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "files"}}).Data)
+	publisher, err := testplugin.Install(ctx, controller, testplugin.Notification())
+	if err != nil {
+		t.Fatal(err)
 	}
 	do(protocol.Command{Kind: "publish_notification", Data: protocol.CommandPublishNotificationPayload{
 		Package: protocol.PluginReference{Name: publisher.Summary.Name, Digest: publisher.Summary.Digest, SettingsRevision: publisher.Summary.SettingsRevision},

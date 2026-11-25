@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -198,6 +200,10 @@ func interactionKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
+	statisticsFixture, err := testplugin.Install(ctx, controller, testplugin.Statistics())
+	if err != nil {
+		t.Fatal(err)
+	}
 	setHook := func(f func(protocol.Request) error) {
 		mu.Lock()
 		hook = f
@@ -439,17 +445,15 @@ func interactionKinds(t *testing.T) {
 	click(submitLabel)
 	answered(session, 1, "choice-ask", "Use the spinner")
 
-	// The session has a turn now. The statistics package publishes its
-	// figures for the context bar, the turns among them with their row, and
-	// its context panel is a header button the window opens and closes
-	// while it stays enabled.
+	// The statistics fixture publishes the real Node's turn count and its
+	// detail row. The core context meter opens and closes independently.
 	shown := r.App.Data.Find(session.String())
 	registry := r.pluginRegistry(composerPluginScope(r, shown, r.App.Composer(shown.ID)), shown.ID)
 	var turns string
-	wait("the statistics package's turns figure", func() bool {
+	wait("the statistics fixture's turns figure", func() bool {
 		for _, entry := range registry.Entries(protocol.PluginUiSlotStatistics) {
-			if entry.Key.Package.Name == pluginStatisticsPackage && entry.Key.ID == "composer_turns" && len(entry.State.Details) == 1 {
-				return json.Unmarshal(entry.State.Value, &turns) == nil && turns != ""
+			if entry.Key.Package == packageReference(statisticsFixture.Summary) && entry.Key.ID == testplugin.StatisticsTurnsID && len(entry.State.Details) == 1 {
+				return json.Unmarshal(entry.State.Value, &turns) == nil && turns == "1" && entry.State.Details[0].Value == turns
 			}
 		}
 		return false
@@ -465,7 +469,7 @@ func interactionKinds(t *testing.T) {
 			return false
 		}
 		observed, phases := statistics.Observations, statistics.Observations.Phases
-		if statistics.Budget == nil || statistics.Budget.TriggerTokens == 0 || statistics.Budget.OutputReserve == 0 ||
+		if turns != strconv.FormatUint(statistics.Turns, 10) || statistics.Budget == nil || statistics.Budget.TriggerTokens == 0 || statistics.Budget.OutputReserve == 0 ||
 			len(observed.Recent) != 1 || observed.Recent[0].TurnIndex == nil || *observed.Recent[0].TurnIndex != 1 ||
 			observed.Latency.FirstTokenUs == nil || observed.Latency.ElapsedUs == nil || observed.Tools["ask_user"] != 1 ||
 			phases.WaitingUs == nil || phases.OutputUs == nil || phases.ToolsUs == nil || phases.OtherUs == nil ||

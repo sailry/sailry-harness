@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -18,7 +16,6 @@ import (
 	"github.com/MoeForge/moejs"
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -537,101 +534,23 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("%q has a brand mark", name)
 			}
 		}
-		// Every icon the bundled packages declare has its glyph. A package's
-		// own icon, drawn on its tile, is a Phosphor icon, a brand's mark or
-		// the package's SVG, and so may a connector's be; every other icon is
-		// drawn in the text color beside the application's outline icons and
-		// is neither.
-		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
-		if err != nil || len(manifests) < 40 {
-			t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
-		}
-		declared, own, chrome := map[string]bool{}, map[string]string{}, 0
-		var walk func(manifest string, value any, tile bool)
-		walk = func(manifest string, value any, tile bool) {
-			switch value := value.(type) {
-			case map[string]any:
-				for key, child := range value {
-					if name, named := child.(string); named && key == "icon" && strings.Contains(name, ":") {
-						declared[name] = true
-						if !tile {
-							chrome++
-							if strings.HasPrefix(name, "phosphor:") || strings.HasPrefix(name, "ailogo:") {
-								t.Errorf("%s: %q is a tile's icon in a text-colored place", manifest, name)
-							}
-						}
-					}
-					walk(manifest, child, false)
-				}
-			case []any:
-				for _, child := range value {
-					walk(manifest, child, false)
-				}
-			}
-		}
-		for _, name := range manifests {
-			data, err := fs.ReadFile(sailry.Plugins, name)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var manifest struct {
-				Extensions map[string]struct {
-					Display struct {
-						Icon json.RawMessage `json:"icon"`
-					} `json:"display"`
-				} `json:"extensions"`
-			}
-			var document struct {
-				Extensions map[string]map[string]any `json:"extensions"`
-			}
-			if json.Unmarshal(data, &manifest) != nil || json.Unmarshal(data, &document) != nil {
-				t.Fatalf("%s does not parse", name)
-			}
-			for field, value := range document.Extensions["dev.sailry.platform"] {
-				switch connectors, listed := value.([]any); {
-				case field == "display":
-					walk(name, value, true)
-				case field == "connectors" && listed:
-					for _, connector := range connectors {
-						for part, value := range connector.(map[string]any) {
-							if part == "display" {
-								walk(name, value, true)
-							} else {
-								walk(name, map[string]any{part: value}, false)
-							}
-						}
-					}
-				default:
-					walk(name, map[string]any{field: value}, false)
-				}
-			}
+		for _, declaration := range []string{
+			`"phosphor:folder"`, `"ailogo:figma"`,
+			`{"svg":"<svg viewBox=\"0 0 24 24\"><path d=\"M4 4h16v16H4z\"/></svg>"}`,
+		} {
 			var icon protocol.PluginDesktopIcon
-			if err := json.Unmarshal(manifest.Extensions["dev.sailry.platform"].Display.Icon, &icon); err != nil {
-				t.Fatalf("%s declares no icon of its own: %v", name, err)
+			if err := json.Unmarshal([]byte(declaration), &icon); err != nil {
+				t.Fatalf("local package icon %s does not decode: %v", declaration, err)
 			}
-			title, named := icon.Data.(*string)
-			if named {
-				own[path.Base(path.Dir(name))] = *title
-			}
-			if mark, _ := icons.PluginBrand(own[path.Base(path.Dir(name))]); mark == nil && !icon.Valid() {
-				t.Errorf("%s: its own icon is neither declarable nor a brand's mark", name)
-			}
-			if named && !strings.HasPrefix(*title, "phosphor:") && !strings.HasPrefix(*title, "ailogo:") {
-				t.Errorf("%s: its own icon %q is not a Phosphor icon or a brand's mark", name, *title)
-			}
-		}
-		if len(declared) < 30 || chrome < 30 {
-			t.Fatalf("bundled manifests declare %d icon names, %d of them in text-colored places", len(declared), chrome)
-		}
-		for name := range declared {
-			if icon, err := icons.Plugin(name); err != nil || icon == nil {
-				t.Errorf("bundled icon %q is unavailable: %v", name, err)
-			}
-		}
-		for brand, slug := range map[string]string{"github": "github", "notion": "notion", "figma": "figma", "linear": "linear",
-			"google-workspace": "google", "microsoft-365": "microsoft", "claude-auth": "claude", "openai-auth": "openai", "copilot-auth": "githubcopilot"} {
-			if own[brand] != "ailogo:"+slug {
-				t.Errorf("%s declares %q, not its brand's mark", brand, own[brand])
+			if name, named := icon.Data.(*string); named {
+				if mark, _ := icons.PluginBrand(*name); !icon.Valid() && mark == nil {
+					t.Fatalf("local package icon %q is neither a glyph nor a brand", *name)
+				}
+				if glyph, err := icons.Plugin(*name); err != nil || glyph == nil {
+					t.Fatalf("local package icon %q is unavailable: %v", *name, err)
+				}
+			} else if !icon.Valid() {
+				t.Fatalf("local package SVG %s is invalid", declaration)
 			}
 		}
 		// A manifest may name every icon of the embedded Phosphor set, and

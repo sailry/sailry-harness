@@ -27,6 +27,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -443,9 +444,9 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
-	for _, name := range []string{"scheduled-tasks", "statistics", "context7", "github"} {
-		if _, err := controller.Do(ctx, protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name}}); err != nil {
-			t.Fatalf("install %s for the plugin UI checks: %v", name, err)
+	for _, fixture := range append([]testplugin.Package{testplugin.Desktop()}, testplugin.Connectors()...) {
+		if _, err := testplugin.Install(ctx, controller, fixture); err != nil {
+			t.Fatalf("install %s for the plugin UI checks: %v", fixture.Name, err)
 		}
 	}
 	settle()
@@ -610,8 +611,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, catalog *i18n.
 		t.Errorf("a draft shows %d context rings", len(projected.Indicators))
 	}
 
-	// The empty conversation keeps its navigation and right-column toggles;
-	// the statistics package's context control waits for the first turn.
+	// The empty conversation keeps its navigation and right-column toggles.
 	// New session opens the draft as a sidebar row does: its tab shows, named
 	// by the draft's title, and its close button belongs to the tab.
 	var header []ui.AccessInfo
@@ -681,22 +681,39 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, catalog *i18n.
 	}
 	click(button(zh("details")))
 
-	// Entering a plugin page reads its view and loads its data once.
+	// Entering the plugin's Settings page reads its view and settings data once.
+	section := settings.Section("plugin:" + testplugin.DesktopName)
+	if !r.App.Settings.HasSection(section) {
+		t.Fatalf("the fixture has no Settings section %q", section)
+	}
 	before := len(sent())
-	scheduled := "定时任务" // the scheduled-tasks package's rail entry
-	click(button(scheduled))
+	r.App.Settings.Open(section)
+	r.App.Navigate(shell.SettingsPage)
 	settle()
+	if r.App.Page != shell.SettingsPage || r.App.Settings.Section != section {
+		t.Fatalf("the fixture's Settings section did not open: page %v, section %q", r.App.Page, r.App.Settings.Section)
+	}
+	commands := sent()[before:]
 	entry := map[string]int{}
-	for _, kind := range sent()[before:] {
+	for _, kind := range commands {
 		entry[kind]++
 	}
-	for _, kind := range []string{"read_plugin_view", "scheduled-tasks:list_plugin_keys", "read_resource_catalog", "scheduled-tasks:list_plugin_models", "scheduled-tasks:list_teams"} {
+	qualified := testplugin.DesktopName + ":"
+	for _, kind := range []string{"read_plugin_view", "read_resource_catalog", qualified + "read_plugin_settings", qualified + "list_plugin_keys",
+		qualified + "list_plugin_models", qualified + "list_teams"} {
 		if entry[kind] != 1 {
-			t.Errorf("entering the page sent %s %d times: %q", kind, entry[kind], sent()[before:])
+			t.Errorf("entering the page sent %s %d times: %q", kind, entry[kind], commands)
 		}
 	}
-	translated("the scheduled tasks page", "Sailry", "SSH", "Git")
-	shots("scheduled-tasks")
+	if got := entry[qualified+"read_activity_catalog"]; got != 0 {
+		t.Errorf("entering Settings sent %d workspace activity catalog reads, want 0", got)
+	}
+	if !tester.HasText("已就绪") {
+		t.Fatalf("the fixture page did not load its Node data: %q", tester.Texts())
+	}
+	fixture := r.pluginViews.settings[section].info
+	translated("the fixture page", "Sailry", "SSH", "Git", zh("settings_group_ai"), zh("settings_ocr"), stringValue(fixture.Summary.Description))
+	shots("desktop-fixture")
 
 	// The providers' settings of a profile without one.
 	r.App.Settings.Open(settings.Providers)
@@ -1233,15 +1250,15 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(str
 	if tester.HasText(zh("connector_mcp_failed")) || count("check_plugin_mcp") != 0 {
 		t.Errorf("a new profile shows a failed connector or checked one: %q", tester.Texts())
 	}
-	if st := service("context7"); st.Problem != "connector_not_connected" || st.Failed {
-		t.Errorf("context7 %+v", *st)
+	if st := service("optional-fixture"); st.Problem != "connector_not_connected" || st.Failed {
+		t.Errorf("optional fixture %+v", *st)
 	}
-	if st := service("github"); st.Problem != "connector_not_connected" || st.Failed {
-		t.Errorf("github %+v", *st)
+	if st := service("account-fixture"); st.Problem != "connector_not_connected" || st.Failed {
+		t.Errorf("account fixture %+v", *st)
 	}
 	shots("connectors-fresh")
-	if items := open("context7"); len(items) == 0 {
-		t.Fatal("context7 has no menu")
+	if items := open("optional-fixture"); len(items) == 0 {
+		t.Fatal("optional fixture has no menu")
 	}
 	shots("connectors-fresh-menu")
 	tester.Key(0, ui.KeyEscape)
@@ -1249,29 +1266,29 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, zh func(str
 
 	// Each item does its action; none of them here reaches the network.
 	before := len(sent())
-	choose("context7", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_add_credentials")
-	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("Context7") {
-		t.Fatalf("Add credentials did not open context7's editor: %q", tester.Texts())
+	choose("optional-fixture", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_add_credentials")
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("Optional fixture") {
+		t.Fatalf("Add credentials did not open optional fixture's editor: %q", tester.Texts())
 	}
 	shots("connectors-add-credentials")
 	press(zh("settings_cancel"))
-	choose("github", []string{"connector_connect", "connector_details"}, "connector_connect")
-	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("GitHub") {
-		t.Fatalf("Connect did not open github's editor: %q", tester.Texts())
+	choose("account-fixture", []string{"connector_connect", "connector_details"}, "connector_connect")
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("Account fixture") {
+		t.Fatalf("Connect did not open account fixture's editor: %q", tester.Texts())
 	}
 	shots("connectors-connect-cli")
 	press(zh("settings_cancel"))
-	// GitHub's editor opens on its local CLI, which it looks at.
+	// Account fixture's editor opens on its local CLI, which it looks at.
 	if acted := sent()[before:]; !slices.Equal(acted, []string{"inspect_connector_cli"}) {
 		t.Errorf("opening details and editors sent %q", acted)
 	}
 	// The details of a plugin's own server lead to its editor, on the
 	// configuration read from the Node.
-	choose("context7", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_details")
+	choose("optional-fixture", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_details")
 	press(zh("connector_configure"))
 	settle()
 	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_save")); !ok || count("read_plugin_mcp") != 1 || !strings.HasPrefix(field(zh("mcp_url")), "https://") || tester.HasText(zh("connector_mcp_server")) {
-		t.Fatalf("Configure in context7's details did not open its configuration: %d reads, address %q: %q", count("read_plugin_mcp"), field(zh("mcp_url")), tester.Texts())
+		t.Fatalf("Configure in optional fixture's details did not open its configuration: %d reads, address %q: %q", count("read_plugin_mcp"), field(zh("mcp_url")), tester.Texts())
 	}
 	shots("connectors-package-configure")
 	press(zh("settings_cancel"))
