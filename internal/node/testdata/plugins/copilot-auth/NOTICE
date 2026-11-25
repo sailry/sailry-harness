@@ -1,0 +1,9 @@
+Sailry-owned implementation; Apache-2.0.
+
+The flow ports the device sign-in and session exchange of the earlier native
+Sailry login. Current wire values were reviewed at this immutable source. No
+source code was imported.
+
+- yetone/magpie 0af73f42b4e6281eb340abadfbb3c3d523f1fab8, internal/provider/copilot_signin.go and internal/provider/account.go (MIT)
+
+This package is not an official GitHub integration.

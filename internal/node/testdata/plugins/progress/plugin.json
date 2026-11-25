@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "progress",
+  "version": "1.0.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": ["dev.sailry.platform/host/main.js"],
+        "handlers": ["update"]
+      },
+      "tools": [{
+        "name": "update_plan",
+        "description": "Record the full current plan and progress.",
+        "contexts": ["plugin", "workspace"],
+        "presentation": "progress",
+        "handler": {"name": "update", "parameters": {"type": "object"}}
+      }]
+    }
+  }
+}

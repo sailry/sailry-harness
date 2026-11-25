@@ -390,7 +390,7 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	}
 }
 
-// TestCopilotSignIn drives the bundled Copilot sign-in package through the
+// TestCopilotSignIn drives the Copilot sign-in fixture through the
 // Node's workflow driver against a local server standing in for GitHub.
 // Over 3 s: a Node start, then two polls at GitHub's one-second interval.
 func TestCopilotSignIn(t *testing.T) {
@@ -401,6 +401,7 @@ func TestCopilotSignIn(t *testing.T) {
 	node := systemNodeFixture(t, Options{
 		DispatchClock: clockwork.NewFakeClockAt(time.Unix(0, 0)), Environment: &environment, MCP: fixtureMCPOptions(),
 	})
+	installPluginFixture(t, node, "copilot-auth")
 	var polls, exchanges, modelQueries atomic.Int32
 	answer := func(writer http.ResponseWriter, status int, body string) {
 		writer.Header().Set("Content-Type", "application/json")

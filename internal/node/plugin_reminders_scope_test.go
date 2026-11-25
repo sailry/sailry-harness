@@ -19,7 +19,7 @@ import (
 func TestReminderCallbackOutlivesSourceSession(t *testing.T) {
 	t.Parallel()
 	// Keep dispatch before the reminder's due time. The callback below runs the
-	// bundled JavaScript directly, after its originating session is removed.
+	// fixture JavaScript directly, after its originating session is removed.
 	clock := clockwork.NewFakeClockAt(time.Unix(0, 0))
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
@@ -29,6 +29,7 @@ func TestReminderCallbackOutlivesSourceSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { node.Stop(context.Background()) })
+	installPluginFixture(t, node, "reminders")
 	ctx := t.Context()
 	source := sessionFixture(t, node)
 	scope := protocol.DefaultPluginContext()
@@ -39,7 +40,7 @@ func TestReminderCallbackOutlivesSourceSession(t *testing.T) {
 			return err
 		}
 		if info == nil || !info.Summary.Enabled {
-			return errors.New("the bundled reminders package is not installed and enabled")
+			return errors.New("the reminders fixture is not installed and enabled")
 		}
 		scope.Package = plugins.PackageReference(*info)
 		return nil

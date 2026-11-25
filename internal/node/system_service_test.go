@@ -556,10 +556,10 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			return response.Fault
 		}
 		shipped, err := operations.OfficialPackages()
-		if err != nil || len(shipped) == 0 {
-			t.Fatal(shipped, err)
+		if err != nil || len(shipped) != 0 {
+			t.Fatalf("resource-free product official packages = %v, %v", shipped, err)
 		}
-		official := protocol.FeatureUsePagePluginOfficial + protocol.FeatureUse(shipped[0])
+		installPluginFixture(t, node, "gomoku")
 
 		save := func(metrics bool) {
 			t.Helper()
@@ -576,7 +576,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			t.Fatalf("usage off started %d windows", usage.started()-windows)
 		}
 		save(true)
-		for _, feature := range []protocol.FeatureUse{protocol.FeatureUsePageSettings, protocol.FeatureUsePageSettings, protocol.FeatureUseSaveTelemetry, official} {
+		for _, feature := range []protocol.FeatureUse{protocol.FeatureUsePageSettings, protocol.FeatureUsePageSettings, protocol.FeatureUseSaveTelemetry} {
 			if fault := count(node.ID(), feature); fault != nil {
 				t.Fatalf("%s: %v", feature, fault)
 			}
@@ -584,7 +584,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		// Outside the closed list, a package the application does not ship
 		// under a planted name, or a controller that is not this device.
 		for _, feature := range []protocol.FeatureUse{"", "page.unknown", "settings.save./Users/someone/private", protocol.FeatureUsePagePluginOfficial + "my-private-package",
-			protocol.FeatureUsePagePluginOfficial + protocol.FeatureUse(shipped[0]) + " copy"} {
+			protocol.FeatureUsePagePluginOfficial + "gomoku"} {
 			if fault := count(node.ID(), feature); fault == nil || fault.Code != protocol.ErrorCodeInvalidRequest {
 				t.Errorf("feature %q: %v", feature, fault)
 			}
@@ -607,7 +607,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 				}
 			}
 		}
-		if want := map[string]float64{"page.settings": 2, "settings.save.telemetry": 1, string(official): 1}; !reflect.DeepEqual(rows, want) {
+		if want := map[string]float64{"page.settings": 2, "settings.save.telemetry": 1}; !reflect.DeepEqual(rows, want) {
 			t.Fatalf("feature rows = %v, want %v", rows, want)
 		}
 

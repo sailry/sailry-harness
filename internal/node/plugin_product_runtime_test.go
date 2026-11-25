@@ -50,12 +50,12 @@ func TestPluginProductDefaultsAndBackgroundAdmission(t *testing.T) {
 		defaults []plugins.DefaultPackage
 		want     int
 	}{
-		{"platform nil", nil, len(plugins.BundledDefaults())},
+		{"platform nil", nil, 0},
 		{"explicit empty", []plugins.DefaultPackage{}, 0},
 		{"incompatible default", []plugins.DefaultPackage{{Name: "files", Enabled: true}, {Name: "ssh", Enabled: true}}, 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			assembly := moduleapi.Assembly{BundledDefaults: scenario.defaults, Modules: []moduleapi.Module{pluginProductModule("files"), pluginProductModule("ssh")}}
+			assembly := moduleapi.Assembly{BundledDefaults: scenario.defaults, BundledPackages: pluginFixtureBundles(), Modules: []moduleapi.Module{pluginProductModule("files"), pluginProductModule("ssh")}}
 			owner, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{ProductID: "code", Assembly: assembly, MCP: fixtureMCPOptions()})
 			if err != nil {
 				t.Fatal(err)
@@ -92,7 +92,7 @@ func TestPluginProductDefaultsAndBackgroundAdmission(t *testing.T) {
 
 func TestPluginProductPreservesRemovedDefaultInventory(t *testing.T) {
 	t.Parallel()
-	owner, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{ProductID: "harness", Assembly: moduleapi.Assembly{BundledDefaults: []plugins.DefaultPackage{}}, MCP: fixtureMCPOptions()})
+	owner, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{ProductID: "harness", Assembly: moduleapi.Assembly{BundledDefaults: []plugins.DefaultPackage{}, BundledPackages: pluginFixtureBundles()}, MCP: fixtureMCPOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "brief",
+  "version": "1.0.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": ["artifacts.read", "artifacts.write"],
+      "tools": [
+        {"name": "write_brief", "operation": "artifacts.write", "presentation": "content"},
+        {"name": "read_brief", "operation": "artifacts.read"},
+        {"name": "list_briefs", "operation": "artifacts.list"}
+      ]
+    }
+  }
+}

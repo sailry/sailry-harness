@@ -1,0 +1,116 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "copilot-auth",
+  "version": "0.1.2",
+  "description": "Sign in to use GitHub Copilot models",
+  "license": "Apache-2.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "scope": "host",
+      "actions": [
+        "models.authenticate",
+        "credentials.inspect"
+      ],
+      "display": {
+        "label": "Copilot",
+        "icon": "ailogo:githubcopilot"
+      },
+      "description": {
+        "label": "Sign in to use GitHub Copilot models",
+        "locales": {
+          "zh-CN": "登录并使用 GitHub Copilot 模型",
+          "zh-TW": "登入並使用 GitHub Copilot 模型",
+          "de": "Bei GitHub Copilot anmelden und Modelle nutzen",
+          "es": "Inicia sesión para usar modelos de GitHub Copilot",
+          "fr": "Se connecter pour utiliser les modèles GitHub Copilot",
+          "ja": "ログインして GitHub Copilot モデルを利用",
+          "ko": "로그인하여 GitHub Copilot 모델 사용",
+          "pt-BR": "Entre para usar os modelos GitHub Copilot",
+          "ru": "Войдите, чтобы использовать модели GitHub Copilot"
+        }
+      },
+      "model_auth": [
+        {
+          "id": "device",
+          "authentication": "copilot",
+          "display": {
+            "label": "Copilot"
+          },
+          "flow": {
+            "kind": "script",
+            "script": {
+              "entry": "dev.sailry.platform/auth/flow.js",
+              "resources": []
+            },
+            "handler": "authorize",
+            "requests": {
+              "device": {
+                "url": "https://github.com/login/device/code",
+                "body": {
+                  "kind": "form",
+                  "fields": {
+                    "client_id": "{client_id}",
+                    "scope": "{scope}"
+                  }
+                },
+                "headers": {
+                  "Accept": "application/json"
+                }
+              },
+              "token": {
+                "url": "https://github.com/login/oauth/access_token",
+                "body": {
+                  "kind": "form",
+                  "fields": {
+                    "client_id": "{client_id}",
+                    "device_code": "{device_code}",
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                  }
+                },
+                "headers": {
+                  "Accept": "application/json"
+                }
+              },
+              "session": {
+                "url": "https://api.github.com/copilot_internal/v2/token",
+                "method": "GET",
+                "headers": {
+                  "Accept": "application/json",
+                  "Authorization": "token {github}",
+                  "Editor-Version": "{editor_version}",
+                  "Editor-Plugin-Version": "{editor_plugin_version}",
+                  "User-Agent": "{user_agent}"
+                }
+              }
+            },
+            "callback": null,
+            "issuer": null,
+            "refresh": true
+          },
+          "client": {
+            "client_id": "Iv1.b507a08c87ecfe98"
+          },
+          "scopes": [
+            "read:user"
+          ],
+          "warning": {
+            "text": "Using a GitHub Copilot subscription outside GitHub's own clients may violate GitHub's terms and can lead to your Copilot access or account being restricted. You proceed at your own risk.",
+            "locales": {
+              "zh-CN": "在 GitHub 官方客户端之外使用 GitHub Copilot 订阅可能违反 GitHub 的条款，并可能导致 Copilot 访问权限或账号受限。风险由你自行承担。",
+              "zh-TW": "在 GitHub 官方用戶端之外使用 GitHub Copilot 訂閱可能違反 GitHub 的條款，並可能導致 Copilot 存取權或帳號受限。風險由你自行承擔。",
+              "de": "Die Nutzung eines GitHub-Copilot-Abonnements außerhalb der eigenen Clients von GitHub kann gegen die Bedingungen von GitHub verstoßen und dazu führen, dass dein Copilot-Zugang oder dein Konto eingeschränkt wird. Du handelst auf eigenes Risiko.",
+              "es": "Usar una suscripción de GitHub Copilot fuera de los clientes propios de GitHub puede infringir los términos de GitHub y hacer que se restrinja tu acceso a Copilot o tu cuenta. Continúas bajo tu propia responsabilidad.",
+              "fr": "Utiliser un abonnement GitHub Copilot en dehors des clients de GitHub peut enfreindre les conditions de GitHub et entraîner la restriction de votre accès à Copilot ou de votre compte. Vous continuez à vos propres risques.",
+              "ja": "GitHub 公式クライアント以外で GitHub Copilot のサブスクリプションを使うと、GitHub の規約に違反し、Copilot の利用やアカウントが制限されることがあります。自己責任で続行してください。",
+              "ko": "GitHub 공식 클라이언트 밖에서 GitHub Copilot 구독을 사용하면 GitHub 약관을 위반할 수 있으며 Copilot 이용 권한이나 계정이 제한될 수 있습니다. 위험은 사용자가 부담합니다.",
+              "pt-BR": "Usar uma assinatura do GitHub Copilot fora dos clientes do próprio GitHub pode violar os termos do GitHub e levar à restrição do seu acesso ao Copilot ou da sua conta. Você continua por sua conta e risco.",
+              "ru": "Использование подписки GitHub Copilot вне собственных клиентов GitHub может нарушать условия GitHub и привести к ограничению доступа к Copilot или аккаунта. Вы продолжаете на свой риск."
+            }
+          }
+        }
+      ],
+      "min_sailry_version": "0.1.6"
+    }
+  }
+}

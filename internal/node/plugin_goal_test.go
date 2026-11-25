@@ -124,7 +124,7 @@ func (child goalChild) Stream(ctx context.Context, _ fantasy.Call) (fantasy.Stre
 	}, nil
 }
 
-// goalFixture is a Node with the bundled goals package, a scripted model and
+// goalFixture is a Node with the captured goals workflow, a scripted model and
 // one session.
 type goalFixture struct {
 	t         *testing.T
@@ -140,7 +140,10 @@ type goalFixture struct {
 func (f *goalFixture) start(script *goalScript) {
 	f.t.Helper()
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(f.ctx, f.profile, Options{Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+	assembly := fixtureModuleAssembly()
+	assembly.BundledDefaults = []plugins.DefaultPackage{{Name: "goals", Enabled: true}}
+	assembly.BundledPackages = pluginFixtureBundles()
+	node, err := StartWithOptions(f.ctx, f.profile, Options{Assembly: assembly, Environment: &environment, Model: func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
 		if main := script.main.Load(); main != nil && binding.Session != *main {
 			return goalChild{gate: script.child}, nil
 		}
@@ -153,7 +156,7 @@ func (f *goalFixture) start(script *goalScript) {
 	if err := node.profile.Store.Node.Read(f.ctx, func(db *sql.Conn) error {
 		info, err := store.ReadPlugin(f.ctx, db, "goals")
 		if err != nil || info == nil {
-			return fmt.Errorf("the goals package is not bundled: %v", err)
+			return fmt.Errorf("the goals workflow fixture is not installed: %v", err)
 		}
 		f.reference = plugins.PackageReference(*info)
 		return nil
@@ -368,10 +371,9 @@ func (f *goalFixture) result(call string) string {
 	return f.script.results[call]
 }
 
-// TestGoalLoop runs the bundled goals package on a real Node with a scripted
+// TestGoalLoop runs the goals workflow fixture on a real Node with a scripted
 // model: the loop the package drives through after_turn and continue_turn,
-// and every way it stops. Over 1 s: each case starts its own Node, which
-// installs the bundled packages.
+// and every way it stops. Over 1 s: each case starts its own Node.
 func TestGoalLoop(t *testing.T) {
 	t.Parallel()
 	update := operations.Alias("goals", "update_goal")

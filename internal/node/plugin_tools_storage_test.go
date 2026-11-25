@@ -74,7 +74,7 @@ func (script *pluginStorageScript) Stream(_ context.Context, call fantasy.Call) 
 }
 
 // TestPluginStorageTools runs a real turn in which the model calls the
-// task-notes example's declared storage and progress tools.
+// task-notes fixture's declared storage and progress tools.
 func TestPluginStorageTools(t *testing.T) {
 	t.Parallel()
 	script := &pluginStorageScript{results: map[string]string{}}
@@ -94,7 +94,7 @@ func TestPluginStorageTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	references := map[string]protocol.PluginReference{}
-	for name, source := range map[string]string{"task-notes": filepath.Join("..", "..", "plugins", "examples", "task-notes"), "storage-peek-fixture": other} {
+	for name, source := range map[string]string{"task-notes": pluginFixturePath(t, "task-notes"), "storage-peek-fixture": other} {
 		info, err := node.plugins.manager.Install(t.Context(), source, "", name)
 		if err != nil || len(info.Issues) != 0 || info.Extension == nil {
 			t.Fatalf("%s is invalid: %+v, %v", name, info.Issues, err)

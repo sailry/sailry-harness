@@ -17,7 +17,7 @@ import (
 
 func TestLegacyProgressToolDoesNotDuplicateCore(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := bundledFixtureNode(t)
 	ctx := t.Context()
 	info, err := node.plugins.manager.InstallBundled(ctx, "progress")
 	if err != nil {

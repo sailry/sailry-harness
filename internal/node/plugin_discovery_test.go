@@ -13,6 +13,7 @@ import (
 func TestUnassignedReminderToolKeepsDiscoveryLabels(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
+	installPluginFixture(t, node, "reminders")
 	session := sessionFixture(t, node)
 	invocation := &store.AgentInvocation{Session: session, Turn: protocol.DefaultQueuedTurn(), Run: protocol.DefaultConversationRun()}
 	invocation.Turn.Config = session.Config
@@ -44,7 +45,7 @@ func TestUnassignedReminderToolKeepsDiscoveryLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	if invocation.Worktree.ID != session.Worktree || invocation.Worktree.Project != nil || len(invocation.Turn.Plugins) != 1 {
-		t.Fatal("fixture did not capture the bundled package in an unassigned conversation")
+		t.Fatal("fixture did not capture the installed package in an unassigned conversation")
 	}
 	tools, err := node.pluginTools(t.Context(), invocation)
 	if err != nil {

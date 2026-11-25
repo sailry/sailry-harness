@@ -25,6 +25,7 @@ func TestStartupIsolatesUnavailablePlugin(t *testing.T) {
 		t.Run(damage, func(t *testing.T) {
 			ctx := t.Context()
 			owner := nodeFixture(t)
+			healthy := installPluginFixture(t, owner, "task-notes")
 			profile := owner.profile.Ownership.Path
 			session := sessionFixture(t, owner)
 			source := t.TempDir()
@@ -100,7 +101,7 @@ func TestStartupIsolatesUnavailablePlugin(t *testing.T) {
 				t.Fatalf("unavailable callback: %+v", response)
 			}
 			turn := commandFixture(t, restarted, queue).Data.(protocol.QueuedTurn)
-			if slices.Contains(turn.Plugins, reference) || !slices.ContainsFunc(turn.Plugins, func(p protocol.PluginReference) bool { return p.Name == "goals" }) {
+			if slices.Contains(turn.Plugins, reference) || !slices.Contains(turn.Plugins, plugins.PackageReference(healthy)) {
 				t.Fatal("new turn did not isolate the broken package")
 			}
 			readQueued := protocol.Command{Kind: "read_queued_turn", Data: protocol.CommandReadQueuedTurnPayload{Turn: original.ID}}
@@ -175,6 +176,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 		{Name: olderName, Enabled: true},
 	}
 	start := func() *Node {
+		assembly.BundledPackages = pluginFixtureBundles()
 		owner, err := StartWithOptions(ctx, profile, Options{Assembly: assembly, MCP: fixtureMCPOptions()})
 		if err != nil {
 			t.Fatal(err)

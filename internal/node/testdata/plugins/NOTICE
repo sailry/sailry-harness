@@ -1,0 +1,5 @@
+Headless workflow fixtures derived from sailry/sailry-plugins.
+Only goal continuation, reminder and scheduled-task callbacks, the Copilot
+authentication flow, legacy progress validation, and their required host
+resources are retained. The goal UI entry is a non-rendering test stub.
+Copyright Sailry contributors. Licensed under Apache-2.0; see LICENSE.

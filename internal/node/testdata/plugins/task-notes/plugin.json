@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "task-notes",
+  "version": "1.0.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "actions": ["storage.read", "storage.write", "conversation.read", "conversation.control"],
+      "tools": [
+        {"name": "read_note", "operation": "storage.get"},
+        {"name": "list_notes", "operation": "storage.list"},
+        {"name": "save_note", "operation": "storage.set"},
+        {"name": "delete_note", "operation": "storage.delete"},
+        {"name": "progress", "operation": "progress.update", "presentation": "progress"}
+      ]
+    }
+  }
+}

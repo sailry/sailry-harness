@@ -22,7 +22,7 @@ import (
 
 func TestOfficialVersionOperationsUseRequestLedger(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := bundledFixtureNode(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 	t.Cleanup(server.Close)
 	node.plugins.manager.OfficialURL = server.URL

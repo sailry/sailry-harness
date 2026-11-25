@@ -1,0 +1,472 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "goals",
+  "version": "0.2.4",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "storage": {
+        "collections": [
+          {
+            "scope": "conversation",
+            "key": "goal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "objective",
+                "version",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+                },
+                "objective": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "paused",
+                    "blocked",
+                    "completed"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "stopped",
+                    "user",
+                    "turns",
+                    "tokens",
+                    "time",
+                    "no_progress",
+                    "needs_you",
+                    "error",
+                    "restart",
+                    "plan",
+                    "restored",
+                    null
+                  ]
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "held_through": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "waiting": {
+                  "type": "boolean"
+                },
+                "claim": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "required": [
+                    "note"
+                  ],
+                  "properties": {
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "evidence": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "edited": {
+                  "type": "boolean"
+                },
+                "wrap": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "turns",
+                    "tokens",
+                    "time",
+                    null
+                  ]
+                },
+                "notice": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "completed",
+                    "blocked",
+                    null
+                  ]
+                },
+                "idle": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "turns": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "chain": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "window_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "elapsed_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "window_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "since_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "created_ms": {
+                  "type": "integer"
+                },
+                "finished_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "scope": "conversation",
+            "key": "history",
+            "schema": {
+              "type": "object",
+              "required": [
+                "items"
+              ],
+              "properties": {
+                "items": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "objective",
+                      "outcome"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+                      },
+                      "objective": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "completed",
+                          "cleared",
+                          "replaced"
+                        ]
+                      },
+                      "turns": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "elapsed_ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "tokens": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "evidence": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "finished_ms": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "actions": [
+        "storage.read",
+        "storage.write",
+        "conversation.read",
+        "conversation.control",
+        "notifications.publish"
+      ],
+      "tools": [
+        {
+          "name": "get_goal",
+          "presentation": "content",
+          "handler": {
+            "name": "read",
+            "read_only": true,
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "description": "Read this conversation's goal: its objective, state and pause reason, the turns, time and tokens used, the limits, and a pending completion claim. A goal never grants additional authority.",
+          "display": {
+            "label": "View goal",
+            "locales": {
+              "zh-CN": "查看目标",
+              "zh-TW": "檢視目標",
+              "ja": "目標を見る",
+              "ko": "목표 보기",
+              "fr": "Voir l’objectif",
+              "de": "Ziel anzeigen",
+              "es": "Ver objetivo",
+              "pt-BR": "Ver objetivo",
+              "ru": "Показать цель",
+              "en": "View goal"
+            },
+            "icon": "reicon:ui/target"
+          }
+        },
+        {
+          "name": "create_goal",
+          "presentation": "content",
+          "handler": {
+            "name": "create",
+            "approval": true,
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objective": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The outcome to reach and how completion is checked, in the user's terms."
+                }
+              },
+              "required": [
+                "objective"
+              ]
+            }
+          },
+          "description": "Start a goal for this conversation only when the user explicitly asks for one in their own message. The conversation then keeps working, turn after turn, until the objective is achieved and verified or the user stops it, under the existing permissions. One goal exists per conversation; you cannot replace an unfinished one. State the objective as the outcome and how to check it.",
+          "display": {
+            "label": "Create goal",
+            "locales": {
+              "zh-CN": "创建目标",
+              "zh-TW": "建立目標",
+              "ja": "目標を作成",
+              "ko": "목표 만들기",
+              "fr": "Créer un objectif",
+              "de": "Ziel erstellen",
+              "es": "Crear objetivo",
+              "pt-BR": "Criar objetivo",
+              "ru": "Создать цель",
+              "en": "Create goal"
+            },
+            "icon": "reicon:ui/target"
+          }
+        },
+        {
+          "name": "update_goal",
+          "presentation": "content",
+          "handler": {
+            "name": "update",
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "complete",
+                    "blocked",
+                    "paused",
+                    "active"
+                  ]
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Evidence for complete; what is needed for blocked."
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          },
+          "description": "Report the goal's status. \"complete\": the objective is achieved; note states the evidence. The first call records a claim, and the goal closes only when the verification turn that follows calls it again. \"blocked\": the same obstacle stopped progress for three turns in a row and only the user can remove it; note says what is needed. \"paused\" and \"active\": only when the user asks in their own message to pause or resume. You cannot change the objective, clear the goal or reopen a completed one.",
+          "display": {
+            "label": "Update goal",
+            "locales": {
+              "zh-CN": "更新目标",
+              "zh-TW": "更新目標",
+              "ja": "目標を更新",
+              "ko": "목표 업데이트",
+              "fr": "Modifier l’objectif",
+              "de": "Ziel aktualisieren",
+              "es": "Actualizar objetivo",
+              "pt-BR": "Atualizar objetivo",
+              "ru": "Обновить цель",
+              "en": "Update goal"
+            },
+            "icon": "reicon:ui/target"
+          }
+        }
+      ],
+      "display": {
+        "label": "Goals",
+        "locales": {
+          "zh-CN": "目标"
+        },
+        "icon": "phosphor:target"
+      },
+      "description": {
+        "label": "Continue until the goal is finished",
+        "locales": {
+          "zh-CN": "持续执行直到目标完成"
+        }
+      },
+      "desktop": {
+        "ui_entry": "dev.sailry.platform/ui.js",
+        "resources": ["dev.sailry.platform/ui.js"]
+      },
+      "ui": [
+        {
+          "id": "goal",
+          "slot": "commands",
+          "kind": "button",
+          "command": {"name": "goal", "kind": "message"},
+          "label": {"label": "Goal"},
+          "handler": "command"
+        },
+        {
+          "id": "status",
+          "intent": "goal",
+          "slot": "status",
+          "kind": "popover",
+          "label": {"label": "Goal"},
+          "handler": "status"
+        }
+      ],
+      "host": {
+        "entry": "dev.sailry.platform/host/main.js",
+        "resources": [
+          "dev.sailry.platform/host/main.js",
+          "dev.sailry.platform/host/prompts.js",
+          "dev.sailry.platform/labels.js"
+        ],
+        "handlers": [
+          "read",
+          "create",
+          "update",
+          "initialize",
+          "ended",
+          "control",
+          "command",
+          "badge",
+          "inspect"
+        ],
+        "turn": {
+          "initialize": "initialize",
+          "before_model": null,
+          "after_turn": "ended"
+        },
+        "commands": [
+          {
+            "name": "goal",
+            "handler": "command"
+          }
+        ],
+        "read_only": [
+          "read",
+          "badge",
+          "inspect"
+        ],
+        "status": {
+          "read": "badge",
+          "changes": [
+            "package",
+            "conversation"
+          ]
+        }
+      },
+      "continuation_marker": {
+        "label": "Continue goal",
+        "locales": {
+          "zh-CN": "继续执行目标",
+          "zh-TW": "繼續執行目標",
+          "ja": "目標を続行",
+          "ko": "목표 계속 실행",
+          "de": "Ziel fortsetzen",
+          "es": "Continuar objetivo",
+          "fr": "Poursuivre l’objectif",
+          "pt-BR": "Continuar objetivo",
+          "ru": "Продолжить цель"
+        }
+      },
+      "continuation_markers": {
+        "verify": {
+          "label": "Verify goal",
+          "locales": {
+            "zh-CN": "核验目标",
+            "zh-TW": "核驗目標",
+            "ja": "目標を検証",
+            "ko": "목표 검증",
+            "de": "Ziel prüfen",
+            "es": "Verificar objetivo",
+            "fr": "Vérifier l’objectif",
+            "pt-BR": "Verificar objetivo",
+            "ru": "Проверить цель"
+          }
+        }
+      },
+      "settings_schema": "dev.sailry.platform/settings.json",
+      "min_sailry_version": "0.1.6"
+    }
+  }
+}

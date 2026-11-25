@@ -31,6 +31,7 @@ printf '%s' '{"hosts":{"github.com":[{"login":"current-account","active":true}]}
 	}
 	environment := process.NewEnvironment([]string{"PATH=" + directory})
 	node := systemNodeFixture(t, Options{Environment: &environment, MCP: fixtureMCPOptions()})
+	installPluginFixture(t, node, "github")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	var previous protocol.PluginConnectorConnection

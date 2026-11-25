@@ -21,7 +21,7 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-// Over 1 s: each Node start installs and verifies the bundled packages.
+// Over 1 s: starts Nodes and exercises durable callbacks and recovery.
 func TestPluginRuntimeAdmission(t *testing.T) {
 	t.Parallel()
 	t.Run("Status scheduling", testPluginStatusScheduling)
@@ -157,7 +157,7 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 	t.Run("a command whose transaction fails is settled with its failure", func(t *testing.T) {
 		t.Parallel()
 		node := nodeFixture(t)
-		selected := snapshotFixture(t, node).Plugins[0]
+		selected := installPluginFixture(t, node, "brief").Summary
 		exec := func(statement string) {
 			t.Helper()
 			err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
@@ -186,10 +186,11 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 	})
 	t.Run("bootstrap removal and settings survive restart", func(t *testing.T) {
 		t.Parallel()
-		node := nodeFixture(t)
+		defaults := []plugins.DefaultPackage{{Name: "brief", Enabled: true}, {Name: "reminders", Enabled: true}}
+		node := bundledFixtureNode(t, defaults...)
 		initial := snapshotFixture(t, node).Plugins
 		var compatible []string
-		for _, entry := range plugins.BundledDefaults() {
+		for _, entry := range defaults {
 			info, err := node.plugins.manager.InspectBundled(node.pluginContext(t.Context()), entry.Name)
 			if err != nil {
 				t.Fatal(err)
@@ -204,7 +205,7 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		}
 		slices.Sort(actual)
 		slices.Sort(compatible)
-		if !slices.Equal(actual, compatible) {
+		if len(initial) != len(defaults) || !slices.Equal(actual, compatible) {
 			t.Fatalf("bundled inventory: %v, want available defaults %v", actual, compatible)
 		}
 		selected := initial[0]
@@ -224,7 +225,7 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 				t.Fatalf("collection removed the installed %s: %v", kept.Name, err)
 			}
 		}
-		reopened, err := startFixtureNode(t.Context(), path)
+		reopened, err := startBundledFixtureNode(t.Context(), path, defaults...)
 		if err != nil {
 			t.Fatal(err)
 		}

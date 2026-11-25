@@ -29,13 +29,13 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/jonboulle/clockwork"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/localmodels/ocr"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -981,24 +981,12 @@ func (script *officeScript) Stream(_ context.Context, call fantasy.Call) (fantas
 // with an OCR model installed from the hub: the text equals the recorded
 // reference, a missing model and a disabled OCR report their faults,
 // cancellation is reported, and an agent turn reads an image attachment with
-// the bundled Office tool.
+// the native Office tool.
 func TestLocalModelOCR(t *testing.T) {
-	catalog, err := operations.Bundled()
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := &officeScript{}
-	for _, tool := range catalog.Tools {
-		if tool.Operation == protocol.ToolOperationReadOffice && protocol.ToolContextAvailable(tool.Contexts, new(protocol.ProjectID), protocol.SessionConfig{}) {
-			script.name = tool.Name
-			break
-		}
-	}
-	if script.name == "" {
-		t.Fatal("the bundled Office read tool is missing")
-	}
+	script := &officeScript{name: "read_office"}
 	hub := newModelHub(t)
 	node, counts := localModelNode(t, hub, func(options *Options) {
+		options.Assembly = hostassembly.Harness()
 		options.Model = func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil }
 	})
 	fixtures := requiredEnvironment(t, "SAILRY_LOCALMODELS_FIXTURES")
@@ -1056,7 +1044,7 @@ func TestLocalModelOCR(t *testing.T) {
 	selected.Output = 8000
 	selected.Tools = true
 	provider.Models = []protocol.ConversationModel{selected}
-	err = node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
 		body, err := json.Marshal(map[string]any{"id": provider.ID, "provider": provider, "listed": true, "authorizations": map[string]any{}, "quota": nil})
 		if err != nil {
 			return err

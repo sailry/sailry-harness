@@ -85,6 +85,7 @@ func TestScheduledTaskStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer node.Stop(context.Background())
+	installPluginFixture(t, node, "scheduled-tasks")
 	ctx := t.Context()
 	provider := protocol.DefaultConversationProvider()
 	provider.ID, provider.Revision, provider.Enabled, provider.Name = protocol.NewProviderID(), 1, true, "Fixture"
@@ -106,7 +107,7 @@ func TestScheduledTaskStart(t *testing.T) {
 			return err
 		}
 		if info == nil || !info.Summary.Enabled {
-			return errors.New("the bundled scheduled-tasks package is not installed and enabled")
+			return errors.New("the scheduled-tasks fixture is not installed and enabled")
 		}
 		scope = protocol.DefaultPluginContext()
 		scope.Package = plugins.PackageReference(*info)

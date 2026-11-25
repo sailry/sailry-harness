@@ -122,17 +122,10 @@ func TestAgentManagementTools(t *testing.T) {
 	script := &agentToolScript{}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	assembly := hostassembly.Harness()
-	assembly.BundledDefaults = []plugins.DefaultPackage{
-		{Name: "goals", Enabled: true},
-		{Name: "commands", Enabled: true},
-		{Name: "brief", Enabled: true},
-		{Name: "files", Enabled: true},
-		{Name: "github", Enabled: true},
-	}
 	var processMu sync.Mutex
 	var processCalls []process.Launch
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Assembly: assembly, Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Assembly: assembly, MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			processMu.Lock()
 			processCalls = append(processCalls, launch)
@@ -144,6 +137,9 @@ func TestAgentManagementTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer node.Stop(context.Background())
+	for _, name := range []string{"files", "brief", "goals", "commands", "retained-mcp"} {
+		installPluginFixture(t, node, name)
+	}
 	fixture := t.TempDir()
 	if err := os.WriteFile(filepath.Join(fixture, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"roles-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["roles.read","roles.write"],"tools":[{"name":"roster","operation":"roles.list"},{"name":"keep","operation":"roles.save"},{"name":"drop","operation":"roles.remove"},{"name":"assign","operation":"roles.apply"}]}}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -517,7 +513,7 @@ func TestAgentManagementTools(t *testing.T) {
 			"team":            {`"key":"review"`, `"revision":"1"`, `"members":["`},
 			"teams":           {`"teams":[`, `"key":"review"`},
 			"roster":          {`"kind":"roles"`, `"key":"reviewer"`, `"revision":"2"`},
-			"mcp-remove":      {`"servers":[`, `"name":"github"`},
+			"mcp-remove":      {`"servers":[`, `"name":"retained-mcp"`},
 			"apply":           {`"session":"`, `"roles":[{"id":"`, `"revision":"2"`},
 			"apply-stale":     {"configuration revision changed; reload before editing"},
 			"apply-team":      {`"team":{"id":"`, `"roles":[`},
@@ -648,10 +644,10 @@ func TestAgentManagementTools(t *testing.T) {
 				results = current
 				switch step {
 				case 1:
-					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief,create_goal,update_goal,save_memory"}`}}
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:` + plugins.ToolAlias("brief", "write_brief") + `,` + plugins.ToolAlias("goals", "create_goal") + `,` + plugins.ToolAlias("goals", "update_goal") + `,save_memory"}`}}
 				case 2:
 					calls := [][3]string{
-						{"brief", "write_brief", `{"title":"Notes","html":"<p>Outline</p>"}`},
+						{"brief", plugins.ToolAlias("brief", "write_brief"), `{"title":"Notes","html":"<p>Outline</p>"}`},
 						{"memory", "save_memory", `{"kind":"user","title":"Editor theme","body":"Prefers a dark theme"}`},
 					}
 					// The goals package offers no writing tool to a planning
@@ -660,7 +656,7 @@ func TestAgentManagementTools(t *testing.T) {
 					// create_goal declares that it asks and is covered with
 					// the goal loop.
 					if level.mode != protocol.WorkModePlan {
-						calls = append(calls, [3]string{"goal", "update_goal", `{"status":"paused"}`})
+						calls = append(calls, [3]string{"goal", plugins.ToolAlias("goals", "update_goal"), `{"status":"paused"}`})
 					}
 					return calls
 				}
@@ -700,9 +696,9 @@ func TestAgentManagementTools(t *testing.T) {
 			return func(step int, _ map[string]string) [][3]string {
 				switch step {
 				case 1:
-					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:write_brief"}`}}
+					return [][3]string{{"discover", "tool_search", `{"limit":8,"query":"select:` + plugins.ToolAlias("brief", "write_brief") + `"}`}}
 				case 2:
-					return [][3]string{{"brief", "write_brief", `{"title":"` + title + `","html":"<p>Outline</p>"}`}}
+					return [][3]string{{"brief", plugins.ToolAlias("brief", "write_brief"), `{"title":"` + title + `","html":"<p>Outline</p>"}`}}
 				}
 				return nil
 			}
@@ -1071,7 +1067,7 @@ func TestAgentManagementTools(t *testing.T) {
 		expect(t, results, map[string][]string{
 			"plugins":       {`"name":"roles-fixture"`},
 			"plugin-remove": {"planning turns cannot change plugins"},
-			"mcp-list":      {`"servers":[`, `"name":"github"`, `"standalone":false`},
+			"mcp-list":      {`"servers":[`, `"name":"retained-mcp"`, `"standalone":false`},
 			"mcp-install":   {"MCP mutations are unavailable in Plan mode"},
 			"skills":        {`{"skills":[]}`},
 			"skill-remove":  {"skill installation changes are unavailable in Plan mode"},

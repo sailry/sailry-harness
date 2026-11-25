@@ -70,7 +70,7 @@ func TestStandaloneMCPArgumentEditKeepsEnvironment(t *testing.T) {
 	}
 }
 
-// Over 1 s: each Node start installs and verifies the bundled packages.
+// Over 1 s: starts Nodes and exercises durable MCP and script operations.
 func TestMCPPackageAndScriptCapture(t *testing.T) {
 	t.Parallel()
 	t.Run("conversation selects MCP and preserves scripted native receipt", pluginMCPConversationAcceptance)

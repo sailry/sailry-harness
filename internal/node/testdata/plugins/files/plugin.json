@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "files",
+  "version": "1.0.0",
+  "extensions": {
+    "dev.sailry.platform": {
+      "api_version": "v1",
+      "products": ["harness", "code"],
+      "requires_modules": ["files"]
+    }
+  }
+}

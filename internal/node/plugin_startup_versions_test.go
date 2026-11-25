@@ -15,7 +15,7 @@ import (
 
 func TestRetiredProgressKeepsCapturedPackage(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := bundledFixtureNode(t)
 	ctx := t.Context()
 	info, err := node.plugins.manager.InstallBundled(ctx, "progress")
 	if err != nil {
@@ -55,7 +55,10 @@ func TestRetiredProgressKeepsCapturedPackage(t *testing.T) {
 
 func TestPinnedBundledVersionSurvivesInitialization(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := bundledFixtureNode(t,
+		plugins.DefaultPackage{Name: "reminders", Enabled: true},
+		plugins.DefaultPackage{Name: "brief", Enabled: true},
+	)
 	ctx := t.Context()
 	const name = "reminders"
 	const removedName = "brief"

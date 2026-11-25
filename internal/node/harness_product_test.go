@@ -49,18 +49,9 @@ func TestHarnessHostPreservesExplicitPluginChoices(t *testing.T) {
 		t.Fatalf("a fresh Harness Host installed plugins: %+v", inventory)
 	}
 
-	install := func(name string) protocol.PluginInfo {
-		t.Helper()
-		output := commandFixture(t, owner, protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name}})
-		info := output.Data.(protocol.PluginInfo)
-		if info.Summary.Name != name || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
-			t.Fatalf("explicit installation of %s = %+v", name, info.Summary)
-		}
-		return info
-	}
-	selected := install("goals")
-	install("reminders")
-	removed := install("brief")
+	selected := installPluginFixture(t, owner, "goals")
+	installPluginFixture(t, owner, "reminders")
+	removed := installPluginFixture(t, owner, "brief")
 	settings := commandFixture(t, owner, protocol.Command{Kind: "save_plugin_settings", Data: protocol.CommandSavePluginSettingsPayload{
 		Package: plugins.PackageReference(selected), Values: map[string]json.RawMessage{
 			"turn_limit": json.RawMessage(`17`), "token_budget": json.RawMessage(`3`), "time_limit": json.RawMessage(`5`),

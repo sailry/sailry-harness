@@ -1,29 +1,18 @@
 package node
 
 import (
-	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
-	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestHostHandlerUsesCapturedPackageAndOriginalReceipt(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
-	var info protocol.PluginInfo
-	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
-		value, err := store.ReadPlugin(t.Context(), db, "reminders")
-		if err == nil && value != nil {
-			info = *value
-		}
-		return err
-	}); err != nil || info.Extension == nil {
-		t.Fatalf("bundled reminders unavailable: %v", err)
-	}
+	info := installPluginFixture(t, node, "reminders")
 	scope := protocol.DefaultPluginContext()
 	scope.Package = plugins.PackageReference(info)
 	id := protocol.NewRequestID().String()
