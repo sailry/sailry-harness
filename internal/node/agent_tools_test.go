@@ -121,10 +121,18 @@ func TestAgentManagementTools(t *testing.T) {
 	t.Parallel()
 	script := &agentToolScript{}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	assembly := hostassembly.Harness()
+	assembly.BundledDefaults = []plugins.DefaultPackage{
+		{Name: "goals", Enabled: true},
+		{Name: "commands", Enabled: true},
+		{Name: "brief", Enabled: true},
+		{Name: "files", Enabled: true},
+		{Name: "github", Enabled: true},
+	}
 	var processMu sync.Mutex
 	var processCalls []process.Launch
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Assembly: hostassembly.Harness(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Assembly: assembly, Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			processMu.Lock()
 			processCalls = append(processCalls, launch)

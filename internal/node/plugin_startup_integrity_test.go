@@ -166,7 +166,14 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
+	const missing, changed, removed, olderName = "goals", "reminders", "brief", "files"
 	assembly := hostassembly.Harness()
+	assembly.BundledDefaults = []plugins.DefaultPackage{
+		{Name: missing, Enabled: true},
+		{Name: changed, Enabled: true},
+		{Name: removed, Enabled: true},
+		{Name: olderName, Enabled: true},
+	}
 	start := func() *Node {
 		owner, err := StartWithOptions(ctx, profile, Options{Assembly: assembly, MCP: fixtureMCPOptions()})
 		if err != nil {
@@ -183,7 +190,6 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	if !slices.Contains(owner.pluginRuntime().Modules, "files") {
 		t.Fatal("Harness did not assemble its default files module")
 	}
-	const missing, changed, removed, olderName = "goals", "reminders", "brief", "files"
 	olderSource := t.TempDir()
 	if err := os.WriteFile(filepath.Join(olderSource, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"`+olderName+`","version":"0.0.0"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -264,6 +270,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(packages, damaged.Digest, marker), []byte(marker), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	assembly = hostassembly.Harness()
 	restarted := start()
 	for _, expected := range []protocol.PluginSummary{unavailable, damaged} {
 		if err := restarted.plugins.manager.VerifyPackage(ctx, protocol.PluginReference{Name: expected.Name, Digest: expected.Digest}); err != nil {

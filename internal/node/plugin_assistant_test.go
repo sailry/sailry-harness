@@ -69,6 +69,7 @@ func pluginAssistantAcceptance(t *testing.T) {
 	var launches atomic.Int32
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	assembly := hostassembly.Harness()
+	assembly.BundledDefaults = []plugins.DefaultPackage{{Name: "files", Enabled: true}}
 	assembly.Modules = append(assembly.Modules, serviceTestModule("ssh"))
 	assembly.SSH = func(moduleapi.SSHServiceOptions) moduleapi.SSHService { return &serviceTestSSH{} }
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{

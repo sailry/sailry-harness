@@ -1099,9 +1099,17 @@ state.
 
 Packages use the Agent Plugins manifest and Sailry extension declarations in
 `schemas/`. Node owns validation, immutable resources, permissions, private KV,
-callbacks, tools, dispatch and credentials. Startup installs missing defaults
-without resurrecting removed packages. Bundled updates require strictly newer
-SemVer precedence; same-version changes and build metadata do not offer an update.
+callbacks, tools, dispatch and credentials. Official Harness Desktop and Host
+start new profiles with no installed plugins. The native Files page and file
+tools do not require the optional `files` panel package. Embedded packages remain
+available for installation. Downstream products set `Assembly.BundledDefaults`
+with a `[]node.DefaultPlugin` from `sdk/native/node`, separately from `Modules`.
+Each entry selects a package by name and its initial enabled state. An explicit
+empty list selects none; a nil list retains the legacy platform defaults.
+Startup installs missing selections without resurrecting removed packages or
+uninstalling packages just because they are no longer defaults. Bundled updates
+require strictly newer SemVer precedence; same-version changes and build metadata
+do not offer an update.
 Online packages are acquired from captured immutable commits. Failed updates keep
 the installed package and its configuration.
 

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels/decision"
@@ -34,7 +35,8 @@ func TestPackagedColdStartup(t *testing.T) {
 	}
 	profile := filepath.Join(t.TempDir(), "profile")
 	options := node.Options{
-		Network: &link.NetworkScope{Bind: "127.0.0.1:0"},
+		Assembly: hostassembly.Harness(),
+		Network:  &link.NetworkScope{Bind: "127.0.0.1:0"},
 		MCP: &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
 			return nil, errors.New("fixture MCP servers are unavailable")
 		}},
@@ -44,6 +46,9 @@ func TestPackagedColdStartup(t *testing.T) {
 			owner, err := node.StartWithOptions(t.Context(), profile, options)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if snapshot, err := owner.Snapshot(t.Context()); err != nil || len(snapshot.Plugins) != 0 {
+				t.Errorf("packaged Harness inventory: plugins=%v, err=%v", snapshot.Plugins, err)
 			}
 			if endpoint := owner.Link(); endpoint == nil {
 				t.Error("packaged startup has no Link endpoint")

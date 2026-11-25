@@ -4,6 +4,7 @@ package host
 
 import (
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 	computernode "github.com/sailry/sailry-harness/modules/computer/node"
 	filesnode "github.com/sailry/sailry-harness/modules/files/node"
@@ -15,6 +16,7 @@ import (
 // Harness returns the native Node assembly shared by Harness hosts.
 func Harness() moduleapi.Assembly {
 	return moduleapi.Assembly{
+		BundledDefaults: []plugins.DefaultPackage{},
 		Modules: []moduleapi.Module{
 			filesnode.Module(),
 			ocrnode.Module(),

@@ -249,6 +249,9 @@ func firstRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
+	if installed := controller.Snapshot().Plugins; len(installed) != 0 {
+		t.Fatalf("fresh Harness profile has installed plugins: %+v", installed)
+	}
 	assembly := desktop.Harness()
 	catalog := i18n.New(assembly.Locales...)
 	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), assembly)
@@ -440,6 +443,12 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
+	for _, name := range []string{"scheduled-tasks", "statistics", "context7", "github"} {
+		if _, err := controller.Do(ctx, protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name}}); err != nil {
+			t.Fatalf("install %s for the plugin UI checks: %v", name, err)
+		}
+	}
+	settle()
 	firstRunChinese(t, r, tester, catalog, func() *ui.Context { return view }, settle, sent, &gate, &flying, &resourceClients)
 	if count("refresh_model_catalog") != 1 {
 		t.Fatalf("the first visit sent %d automatic catalog refreshes", count("refresh_model_catalog"))
