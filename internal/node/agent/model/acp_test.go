@@ -98,6 +98,7 @@ type acpResult struct {
 	calls           []fantasy.StreamPart
 	finish          fantasy.FinishReason
 	usage           fantasy.Usage
+	context         *int64
 	failure         *Failure
 }
 
@@ -131,6 +132,9 @@ func (fixture *acpFixture) run(ctx context.Context, request protocol.PluginModel
 			result.calls = append(result.calls, part)
 		case fantasy.StreamPartTypeFinish:
 			result.finish, result.usage = part.FinishReason, part.Usage
+			if metadata, ok := part.ProviderMetadata[UsageMetadataKey].(*UsageMetadata); ok {
+				result.context = metadata.Context
+			}
 		}
 		if each != nil {
 			each(part)
@@ -423,6 +427,10 @@ func TestACPRoute(t *testing.T) {
 		result := fixture.run(t.Context(), acpRequest(t, "", acpUser, "read"), nil)
 		if result.failure != nil || len(result.calls) != 1 || result.usage.InputTokens != 22 || result.usage.OutputTokens != 7 {
 			t.Fatalf("reply = %#v", result)
+		}
+		// The window is the last prompt's, not the sum.
+		if result.context == nil || *result.context != 15 {
+			t.Fatalf("context = %v, want 15", result.context)
 		}
 	})
 

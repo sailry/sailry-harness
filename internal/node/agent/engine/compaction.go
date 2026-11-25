@@ -51,6 +51,11 @@ func contextTokens(records []canonical.Record) uint64 {
 					// Reasoning tokens that are not replayed back into the next request do not consume the next prompt window.
 					used = *message.Usage.Input + (*message.Usage.Output - *message.Usage.Reasoning)
 				}
+				// A reply that took several requests sums their usage; its
+				// window is what the last one occupied.
+				if execution := records[i].Metadata.Execution; execution != nil && execution.ContextTokens != nil && *execution.ContextTokens < used {
+					used = *execution.ContextTokens
+				}
 				return used + pendingTokens(records[i+1:])
 			}
 			// Only the latest observation can describe the current context. An

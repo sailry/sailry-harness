@@ -196,7 +196,7 @@ func (accumulator *pluginAccumulator) push(deltas []protocol.PluginModelAdapterW
 			for _, field := range []struct {
 				from *uint64
 				to   **int64
-			}{{value.InputTokens, &accumulator.usage.Input}, {value.OutputTokens, &accumulator.usage.Output}, {value.CachedInputTokens, &accumulator.usage.CacheRead}, {value.ReasoningTokens, &accumulator.usage.Reasoning}} {
+			}{{value.InputTokens, &accumulator.usage.Input}, {value.OutputTokens, &accumulator.usage.Output}, {value.CachedInputTokens, &accumulator.usage.CacheRead}, {value.ReasoningTokens, &accumulator.usage.Reasoning}, {value.ContextTokens, &accumulator.usage.Context}} {
 				if field.from != nil {
 					if *field.from > math.MaxInt64 {
 						return nil, &Failure{Kind: InvalidResponse, Message: "model usage exceeds the supported counter range"}

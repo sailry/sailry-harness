@@ -756,6 +756,9 @@ type PluginModelAdapterWireDeltaUsagePayload struct {
 	OutputTokens      *uint64 `json:"output_tokens"`
 	CachedInputTokens *uint64 `json:"cached_input_tokens"`
 	ReasoningTokens   *uint64 `json:"reasoning_tokens"`
+	// ContextTokens is what the reply's last request occupied, for a reply
+	// whose input and output tokens sum several requests.
+	ContextTokens *uint64 `json:"context_tokens,omitempty"`
 }
 
 func DefaultPluginModelAdapterWireDeltaUsagePayload() PluginModelAdapterWireDeltaUsagePayload {
@@ -764,6 +767,7 @@ func DefaultPluginModelAdapterWireDeltaUsagePayload() PluginModelAdapterWireDelt
 		OutputTokens:      nil,
 		CachedInputTokens: nil,
 		ReasoningTokens:   nil,
+		ContextTokens:     nil,
 	}
 }
 func (value *PluginModelAdapterWireDeltaUsagePayload) UnmarshalJSON(data []byte) error {

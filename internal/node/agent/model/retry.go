@@ -32,7 +32,10 @@ type Attempt struct {
 	Finished       time.Time
 	FirstToken     *time.Time
 	Usage          canonical.Usage
-	Failure        *Failure
+	// Context is what the last request of a reply that took several
+	// occupied; nil when Usage describes one request.
+	Context *uint64
+	Failure *Failure
 	// RetryLimit is the last resend allowed if the current failure streak continues.
 	RetryLimit uint64
 	// RetryDelay is the wait before the next attempt; nil on the last attempt.
@@ -119,6 +122,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		if err == nil && stream != nil {
 			for part := range stream {
 				attempt.Usage = mergeUsage(attempt.Usage, PartUsage(part))
+				if metadata, ok := part.ProviderMetadata[UsageMetadataKey].(*UsageMetadata); ok && metadata.Context != nil && *metadata.Context >= 0 {
+					context := uint64(*metadata.Context)
+					attempt.Context = &context
+				}
 				if part.Type == fantasy.StreamPartTypeReasoningDelta && part.Delta != "" {
 					attempt.ReasoningStreamed = true
 				}

@@ -783,7 +783,9 @@ compaction must reach a main request before another threshold compaction.
 Provider-reported usage alone enters usage and cost totals; local token estimates
 inform context budgeting without inventing billed usage. After a checkpoint,
 context estimates count the summary and retained tail until a new main-model
-measurement is available.
+measurement is available. A reply that took several requests, such as an ACP
+reply with correction prompts, bills them all but measures the window of its
+last request, which an adapter reports as `context_tokens`.
 
 Request observations retain the final serialized body size, attributed text
 character counts and excluded opaque payload sizes, never request bodies.

@@ -43,6 +43,9 @@ type UsageMetadata struct {
 	CandidateOutput *int64          `json:"candidate_output,omitempty"`
 	ToolInput       *int64          `json:"tool_input,omitempty"`
 	Raw             json.RawMessage `json:"raw,omitempty"`
+	// Context is what the last request occupied when the counts above sum
+	// several requests of one reply.
+	Context *int64 `json:"context,omitempty"`
 }
 
 func (*UsageMetadata) Options() {}

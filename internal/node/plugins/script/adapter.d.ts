@@ -44,7 +44,7 @@ declare module 'sailry/adapter' {
     | {kind: 'text'; text: string}
     | {kind: 'reasoning'; text?: string | null; replay?: string | null}
     | {kind: 'tool_call'; index: number; id?: string | null; name?: string | null; arguments_delta?: string | null}
-    | {kind: 'usage'; input_tokens?: number | null; output_tokens?: number | null; cached_input_tokens?: number | null; reasoning_tokens?: number | null}
+    | {kind: 'usage'; input_tokens?: number | null; output_tokens?: number | null; cached_input_tokens?: number | null; reasoning_tokens?: number | null; context_tokens?: number | null}
     | {kind: 'finish'; reason: Finish}
     | ({kind: 'error'} & Classified);
   export interface Decoded {state: Json; deltas: Delta[]}

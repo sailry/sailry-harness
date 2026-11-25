@@ -31,3 +31,23 @@ func TestContextTokensAfterRollingCompaction(t *testing.T) {
 		t.Fatalf("context = %d, want fresh measurement plus pending input %d", got, want)
 	}
 }
+
+// A reply whose usage sums several requests counts the window its last
+// request occupied, not the sum.
+func TestContextTokensOfAReplyThatTookSeveralRequests(t *testing.T) {
+	t.Parallel()
+	turn := protocol.NewTurnID()
+	reply := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer")), manualNow())
+	input, output, total, window := uint64(22000), uint64(700), uint64(22700), uint64(12300)
+	reply.Message().Usage = &canonical.Usage{Input: &input, Output: &output, Total: &total}
+	reply.Metadata.Execution = &canonical.Execution{ContextTokens: &window}
+	if got := contextTokens([]canonical.Record{reply}); got != window {
+		t.Fatalf("context = %d, want the last request's %d", got, window)
+	}
+	single := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer")), manualNow())
+	single.Message().Usage = &canonical.Usage{Input: &input, Output: &output, Total: &total}
+	single.Metadata.Execution = &canonical.Execution{ContextTokens: &total}
+	if got := contextTokens([]canonical.Record{single}); got != total {
+		t.Fatalf("single request context = %d, want %d", got, total)
+	}
+}

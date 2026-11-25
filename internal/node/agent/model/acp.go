@@ -292,6 +292,8 @@ func (usage *acpUsage) plus(other *acpUsage) *acpUsage {
 type acpPrompted struct {
 	StopReason string    `json:"stopReason"`
 	Usage      *acpUsage `json:"usage"`
+	// last is the final prompt's usage when Usage sums a corrected reply.
+	last *acpUsage
 }
 
 // acpChoices flattens a select option's values, grouped or not.
@@ -951,7 +953,11 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 				send([]any{map[string]any{"type": "text", "text": acpCorrection(malformed)}})
 				continue
 			}
-			// Every prompt of the reply counts, its corrections included.
+			// Every prompt of the reply counts, its corrections included; the
+			// window is what the last prompt occupied.
+			if spent != nil {
+				finished.prompted.last = finished.prompted.Usage
+			}
 			finished.prompted.Usage = spent.plus(finished.prompted.Usage)
 			return model.finish(agent, slot, digests, parser, finished.prompted, emit)
 		}
@@ -1012,10 +1018,19 @@ func (model *acpModel) finish(agent *acpAgent, slot *acpSlot, digests []string, 
 			}
 			return &total
 		}
-		deltas = append(deltas, protocol.PluginModelAdapterWireDelta{Kind: "usage", Data: &protocol.PluginModelAdapterWireDeltaUsagePayload{
+		payload := &protocol.PluginModelAdapterWireDeltaUsagePayload{
 			InputTokens: count(usage.InputTokens, usage.CachedReadTokens, usage.CachedWriteTokens), OutputTokens: count(usage.OutputTokens),
 			CachedInputTokens: count(usage.CachedReadTokens), ReasoningTokens: count(usage.ThoughtTokens),
-		}})
+		}
+		if last := prompted.last; last != nil && last.InputTokens != nil && last.OutputTokens != nil {
+			// Thoughts are not replayed, so they leave the next window.
+			occupied := *count(last.InputTokens, last.CachedReadTokens, last.CachedWriteTokens) + *count(last.OutputTokens)
+			if thought := count(last.ThoughtTokens); thought != nil {
+				occupied -= min(occupied, *thought)
+			}
+			payload.ContextTokens = &occupied
+		}
+		deltas = append(deltas, protocol.PluginModelAdapterWireDelta{Kind: "usage", Data: payload})
 	}
 	if len(parser.calls) > 0 && reason == protocol.PluginModelAdapterWireFinishStop {
 		reason = protocol.PluginModelAdapterWireFinishToolCalls
