@@ -72,6 +72,18 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		if cost != nil {
 			t.Fatalf("compatible API invented the reseller's one-hour price: %#v", cost)
 		}
+		// Bedrock bills Claude's one-hour writes as Anthropic does.
+		if _, err = db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('amazon-bedrock','fixture',?1)", tier); err != nil {
+			return err
+		}
+		cost, err = estimateAgentCost(ctx, db, &modelPrices{}, "bedrock", "bedrock", "fixture", usage, protocol.DefaultBillingRateBps)
+		if err != nil {
+			return err
+		}
+		if cost == nil || cost.UsdMicros != 1671 || cost.Breakdown == nil || cost.Breakdown.CacheWrite != 435 {
+			// Errorf: a Fatalf here would exit while holding the writer.
+			t.Errorf("Bedrock cost = %#v, want total 1671 and cache writes 435", cost)
+		}
 		return nil
 	})
 	if err != nil {

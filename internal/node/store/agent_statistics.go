@@ -46,7 +46,7 @@ const agentStatisticsUsageRows = `WITH selected AS (
  LEFT JOIN session_media media ON media.session=t.session
  LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
  WHERE ` + agentReportableUsage + `)
- SELECT CASE WHEN json_extract(provider,'$.api')='anthropic' AND json_extract(usage,'$.cache_write')>0
+ SELECT CASE WHEN json_extract(provider,'$.api') IN ('anthropic','bedrock') AND json_extract(usage,'$.cache_write')>0
   AND coalesce(json_type(usage,'$.pricing'),'null')='null'
   THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,first,reasoning_streamed,media,
  json_extract(provider,'$.id'),coalesce(

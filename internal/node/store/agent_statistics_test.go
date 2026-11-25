@@ -360,17 +360,26 @@ func TestAgentStatisticsCacheCoverage(t *testing.T) {
 
 func TestAgentStatisticsPreservesAnthropicCacheWritePricing(t *testing.T) {
 	t.Parallel()
+	for api, supplier := range map[protocol.ConversationModelApi]string{"anthropic": "anthropic", "bedrock": "amazon-bedrock"} {
+		t.Run(string(api), func(t *testing.T) {
+			t.Parallel()
+			cacheWriteStatistics(t, api, supplier)
+		})
+	}
+}
+
+func cacheWriteStatistics(t *testing.T, api protocol.ConversationModelApi, supplier string) {
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer"))
 		message.Usage = &canonical.Usage{Input: ptr(uint64(200)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(60)), CacheWrite: ptr(uint64(40)), Provider: json.RawMessage(`{"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":40}}`)}
 		record := canonical.NewRecord(turn, "message", &message, now)
-		record.Metadata.Execution = &canonical.Execution{Source: &canonical.ModelSource{ID: session.Config.Provider, Name: "Fixture", API: "anthropic", Authentication: "api_key", Model: "fixture"}}
+		record.Metadata.Execution = &canonical.Execution{Source: &canonical.ModelSource{ID: session.Config.Provider, Name: "Fixture", API: api, Authentication: "api_key", Model: "fixture"}}
 		if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO model_catalog(provider,id,body) VALUES('anthropic','fixture',?1)`, []byte(`{"cost":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}`)); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO model_catalog(provider,id,body) VALUES(?1,'fixture',?2)`, supplier, []byte(`{"cost":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}`)); err != nil {
 			return err
 		}
 		result, err := ReadAgentStatistics(ctx, db, session.ID)
