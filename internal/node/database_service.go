@@ -80,6 +80,6 @@ func (node *Node) dispatchDatabase(ctx context.Context, caller protocol.NodeID, 
 		operations.mu.Unlock()
 		cancel()
 	}()
-	outcome, err := node.modules.Databases(scoped, prepared)
+	outcome, err := node.executeDatabase(scoped, prepared)
 	return true, protocol.Output{Kind: "database_outcome", Data: outcome}, err
 }

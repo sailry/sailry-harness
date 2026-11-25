@@ -67,6 +67,7 @@ type Node struct {
 	ssh              moduleapi.SSHService
 	wsl              *wsl.Service
 	databases        databaseOperations
+	executeDatabase  moduleapi.DatabaseExecutor
 	ports            *ports.Service
 	browsers         browserRegistry
 	externalBrowser  *externalbrowser.Browsers
@@ -118,6 +119,9 @@ type Node struct {
 	providerDirectory providers.Directory
 	subscribersMu     sync.Mutex
 	subscribers       map[*events]struct{}
+
+	workspaceServices moduleapi.WorkspaceServices
+	registeredModules []moduleapi.RegisteredModule
 }
 
 // commandLane is one ordered queue of admitted jobs and its worker. Project
@@ -190,6 +194,10 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	options.Assembly.Modules = slices.Clone(options.Assembly.Modules)
 	options.Assembly.BundledDefaults = slices.Clone(options.Assembly.BundledDefaults)
+	if options.CodeIndex != nil {
+		options.Assembly.CodeIndex = options.CodeIndex
+	}
+	services := options.Assembly.ResolveServices()
 	profile, err := OpenProfile(ctx, path)
 	if err != nil {
 		return nil, err
@@ -211,9 +219,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, modules: options.Assembly, productID: options.ProductID, knowledgeAdjust: options.knowledge, closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
-	if options.CodeIndex == nil && options.Assembly.CodeIndex != nil {
-		options.CodeIndex = options.Assembly.CodeIndex
-	}
+	value.workspaceServices = services.Workspace
+	value.registeredModules = services.Modules
 	for index := range value.lanes {
 		value.lanes[index] = commandLane{wake: make(chan struct{}, 1), done: make(chan struct{})}
 	}
@@ -224,7 +231,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.tasks = tasks.New(nodeContext)
-	if err := value.initWorkspace(ctx, options); err != nil {
+	if err := value.initWorkspace(ctx, options, services.CodeIndex); err != nil {
 		cancel()
 		_ = profile.Close()
 		return nil, err
@@ -248,7 +255,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
-	if err := value.initTerminals(ctx); err != nil {
+	if err := value.initTerminals(ctx, services.Terminal); err != nil {
 		cancel()
 		value.closeAuth()
 		_ = value.closePlugins()
@@ -263,7 +270,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.removeExternalBrowserProfiles(ctx)
 	value.networkDirectory = &networkDirectory{}
 	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
-	value.initHost(options)
+	value.initHost(options, services.Databases, services.SSH)
 	value.ctx = value.pluginContext(value.ctx)
 	ctx = value.pluginContext(ctx)
 	if err := value.initPluginInventory(ctx); err != nil {

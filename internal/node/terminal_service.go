@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/terminal"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -21,14 +22,14 @@ func terminalCommand(kind string) bool {
 	return false
 }
 
-func (node *Node) initTerminals(ctx context.Context) error {
-	if !node.modules.HasModule("terminal") || node.modules.Terminal == nil {
+func (node *Node) initTerminals(ctx context.Context, factory moduleapi.TerminalFactory) error {
+	if factory == nil {
 		return nil
 	}
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecoverTerminals(ctx, db) }); err != nil {
 		return err
 	}
-	node.terminals = node.modules.Terminal(node.ctx, node.ID(), node.terminalChangedBy)
+	node.terminals = factory(node.ctx, node.ID(), node.terminalChangedBy)
 	return nil
 }
 
@@ -199,7 +200,7 @@ func (node *Node) closeTerminals() error {
 }
 
 func (node *Node) subscribeTerminal(topic protocol.Topic) (link.Subscription, error) {
-	if node.terminals == nil || !node.modules.HasModule("terminal") {
+	if node.terminals == nil {
 		return nil, moduleUnavailable("terminal")
 	}
 	switch id := topic.Data.(type) {

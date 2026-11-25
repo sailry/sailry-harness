@@ -23,7 +23,7 @@ func TestRemovedSessionManagedWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("Git executable is required")
 	}
-	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), nil, Options{})
+	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), nil, Options{Assembly: fixtureModuleAssembly("worktrees")})
 	defer node.Stop(context.Background())
 	root, commit := codeProject(t, codeFixture)
 	project := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{

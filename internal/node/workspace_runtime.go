@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -14,13 +15,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) initWorkspace(ctx context.Context, options Options) error {
+func (node *Node) initWorkspace(ctx context.Context, options Options, codeIndex codeindexapi.Factory) error {
 	if options.Environment == nil {
 		node.environment = process.CaptureEnvironment(ctx)
 	} else {
 		node.environment = *options.Environment
 	}
-	if node.modules.HasModule("git") {
+	// Worktrees share the Git engine without exposing Git commands or watches.
+	if node.workspaceServices.Git || node.workspaceServices.Worktrees {
 		gitOptions := options.Git
 		if gitOptions.Environment == nil {
 			gitOptions.Environment = node.environment.TerminalValues()
@@ -29,7 +31,11 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 		gitOptions.Lock = func(root string) func() { return node.locks.roots(root) }
 		node.git = workspacegit.New(gitOptions)
 	}
-	node.watches = newWorkspaceWatches(node.git)
+	var watchGit *workspacegit.Service
+	if node.hasGitService() {
+		watchGit = node.git
+	}
+	node.watches = newWorkspaceWatches(watchGit)
 	node.transfers = files.NewTransfers(node.profile.Ownership.Path)
 	processOptions := options.Process
 	node.processAfter = processOptions.After
@@ -65,7 +71,7 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 		err = node.initWeb(ctx, options)
 	}
 	if err == nil {
-		err = node.initCodeIndex(ctx, options.CodeIndex)
+		err = node.initCodeIndex(ctx, codeIndex)
 	}
 	if err != nil {
 		_ = node.closeWorkspace()

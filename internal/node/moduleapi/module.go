@@ -279,10 +279,16 @@ type Assembly struct {
 	// BundledPackages is immutable and rooted at plugins/<name>, with plugins/catalog.json.
 	BundledPackages fs.FS
 	CodeIndex       codeindexapi.Factory
-	Databases       DatabaseExecutor
-	SSH             SSHFactory
-	Terminal        TerminalFactory
-	Modules         []Module
+	// Databases overrides the selected database executor when non-nil.
+	Databases DatabaseExecutor
+	// SSH overrides the selected SSH provider's factory when non-nil.
+	SSH SSHFactory
+	// Terminal overrides the selected terminal provider's factory when non-nil.
+	Terminal TerminalFactory
+	// LegacyWorkspaceModules adapts old ID-only git and worktrees modules.
+	// New modules should implement WorkspaceServiceProvider instead.
+	LegacyWorkspaceModules bool
+	Modules                []Module
 }
 
 // NativeSkillPackages returns the skill trees contributed by assembled modules.

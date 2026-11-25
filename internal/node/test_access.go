@@ -30,6 +30,7 @@ func (access TestAccess) ModuleTools(ctx context.Context, invocation *store.Agen
 func (access TestAccess) SwapAssembly(assembly moduleapi.Assembly) moduleapi.Assembly {
 	previous := access.node.modules
 	access.node.modules = assembly
+	access.node.registeredModules = assembly.ResolveServices().Modules
 	return previous
 }
 

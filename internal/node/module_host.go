@@ -1282,7 +1282,7 @@ func (node *Node) moduleToolPresentation(name string) (protocol.ToolPresentation
 }
 
 func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) ([]engine.Tool, error) {
-	if len(node.modules.Modules) == 0 {
+	if len(node.registeredModules) == 0 {
 		return nil, nil
 	}
 	host := nodeModuleHost{node: node}
@@ -1293,8 +1293,10 @@ func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) (
 		}
 	}
 	var tools []engine.Tool
-	for _, module := range node.modules.Modules {
-		if !node.moduleServiceAvailable(module.ID()) {
+	// A code-index module can still provide file-only tools without its service.
+	running := node.runningModuleServices() | moduleapi.ServiceCodeIndex
+	for _, module := range node.registeredModules {
+		if module.Services&^running != 0 {
 			continue
 		}
 		built, err := module.ToolsForTurn(ctx, host, inv)
@@ -1319,8 +1321,9 @@ func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) (
 }
 
 func (node *Node) hasReplacedPlugin(name, digest string) bool {
-	for _, module := range node.modules.Modules {
-		if slices.Contains(module.ReplacesPlugins(), name) && node.moduleServiceAvailable(module.ID()) {
+	running := node.runningModuleServices() | moduleapi.ServiceCodeIndex
+	for _, module := range node.registeredModules {
+		if module.Services&^running == 0 && slices.Contains(module.ReplacesPlugins(), name) {
 			return legacyNativeToolPackage(name, digest)
 		}
 	}

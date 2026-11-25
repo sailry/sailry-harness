@@ -1,11 +1,12 @@
 package node
 
 import (
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func moduleUnavailable(id string) error {
-	return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: id + " module is unavailable"}
+func moduleUnavailable(family string) error {
+	return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: family + " module is unavailable"}
 }
 
 func databaseProfileCommand(kind string) bool {
@@ -37,42 +38,64 @@ func worktreeCommand(kind string) bool {
 	return false
 }
 
-func (node *Node) moduleServiceAvailable(id string) bool {
-	switch id {
-	case "databases":
-		return node.modules.Databases != nil
-	case "ssh":
-		return node.ssh != nil
-	case "terminal":
-		return node.terminals != nil
-	case "git", "worktrees":
-		return node.git != nil
+func (node *Node) hasGitService() bool {
+	return node.workspaceServices.Git && node.git != nil
+}
+
+func (node *Node) hasWorktreeService() bool {
+	return node.workspaceServices.Worktrees && node.git != nil
+}
+
+func (node *Node) runningModuleServices() moduleapi.ServiceCapabilities {
+	var running moduleapi.ServiceCapabilities
+	if node.executeDatabase != nil {
+		running |= moduleapi.ServiceDatabase
 	}
-	return true
+	if node.ssh != nil {
+		running |= moduleapi.ServiceSSH
+	}
+	if node.terminals != nil {
+		running |= moduleapi.ServiceTerminal
+	}
+	if node.hasGitService() {
+		running |= moduleapi.ServiceGit
+	}
+	if node.hasWorktreeService() {
+		running |= moduleapi.ServiceWorktrees
+	}
+	if node.codeIndex != nil {
+		running |= moduleapi.ServiceCodeIndex
+	}
+	return running
 }
 
 func (node *Node) checkCommandModule(command protocol.Command) error {
 	kind := command.Kind
-	if (databaseCommand(kind) || databaseProfileCommand(kind)) && (!node.modules.HasModule("databases") || node.modules.Databases == nil) {
+	if (databaseCommand(kind) || databaseProfileCommand(kind)) && node.executeDatabase == nil {
 		return moduleUnavailable("databases")
 	}
-	if sshCommand(kind) && (!node.modules.HasModule("ssh") || node.ssh == nil) {
+	if sshCommand(kind) && node.ssh == nil {
 		return moduleUnavailable("ssh")
 	}
-	if terminalCommand(kind) && (!node.modules.HasModule("terminal") || node.terminals == nil) {
+	if terminalCommand(kind) && node.terminals == nil {
 		return moduleUnavailable("terminal")
 	}
-	if worktreeCommand(kind) && (!node.modules.HasModule("worktrees") || node.git == nil) {
-		return moduleUnavailable("worktrees")
+	if worktreeCommand(kind) {
+		if !node.hasWorktreeService() {
+			return moduleUnavailable("worktrees")
+		}
+		return nil
 	}
-	if (workspaceGitRead(kind) || workspaceGitWrite(kind)) && (!node.modules.HasModule("git") || node.git == nil) {
-		return moduleUnavailable("git")
-	}
-	if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && kind == "create_project" && draft.Source.Kind == "clone" && (!node.modules.HasModule("git") || node.git == nil) {
-		return moduleUnavailable("git")
-	}
-	if input, ok := command.Data.(*protocol.ConversationCheckpointHunkSelection); ok && input.Operation != protocol.ConversationCheckpointHunkOperationReject && (!node.modules.HasModule("git") || node.git == nil) {
-		return moduleUnavailable("git")
+	if !node.hasGitService() {
+		if workspaceGitRead(kind) || workspaceGitWrite(kind) {
+			return moduleUnavailable("git")
+		}
+		if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && kind == "create_project" && draft.Source.Kind == "clone" {
+			return moduleUnavailable("git")
+		}
+		if input, ok := command.Data.(*protocol.ConversationCheckpointHunkSelection); ok && input.Operation != protocol.ConversationCheckpointHunkOperationReject {
+			return moduleUnavailable("git")
+		}
 	}
 	return nil
 }

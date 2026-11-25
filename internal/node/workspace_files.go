@@ -128,7 +128,7 @@ func (node *Node) applyWorkspaceHunk(ctx context.Context, request protocol.Reque
 		value, err := files.RejectHunk(ctx, root, input, capture)
 		return protocol.Output{Kind: "hunk_applied", Data: value}, err
 	}
-	if node.git == nil || !node.modules.HasModule("git") {
+	if !node.hasGitService() {
 		return protocol.Output{}, moduleUnavailable("git")
 	}
 	if input.ExpectedIndex == nil {

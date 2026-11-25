@@ -59,6 +59,7 @@ type (
 	SshUploadSpec                    = protocol.SshUploadSpec
 	StreamID                         = protocol.StreamID
 	TerminalID                       = protocol.TerminalID
+	TerminalInfo                     = protocol.TerminalInfo
 	UserID                           = protocol.UserID
 )
 

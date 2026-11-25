@@ -13,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) initHost(options Options) {
+func (node *Node) initHost(options Options, database moduleapi.DatabaseExecutor, ssh moduleapi.SSHFactory) {
 	node.hostSampler = host.NewSampler()
 	var deployment host.DeploymentOptions
 	if options.HostDeployment != nil {
@@ -21,8 +21,9 @@ func (node *Node) initHost(options Options) {
 	}
 	deployment.Release = options.HostRelease
 	node.hostInstalls = host.NewInstallations(deployment)
-	if node.modules.HasModule("ssh") && node.modules.SSH != nil {
-		node.ssh = node.modules.SSH(moduleapi.SSHServiceOptions{
+	node.executeDatabase = database
+	if ssh != nil {
+		node.ssh = ssh(moduleapi.SSHServiceOptions{
 			Context: node.ctx, ReadSSH: node.readSSHProfile, WorkspaceRoot: node.workspaceRoot,
 			Transfers: node.transfers, Terminals: node.terminals, Installations: node.hostInstalls, Link: node.Link,
 		})

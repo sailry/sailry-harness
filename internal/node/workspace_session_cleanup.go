@@ -96,7 +96,7 @@ func (node *Node) removePrivateWorkspace(session protocol.SessionID, path string
 }
 
 func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
-	if !node.modules.HasModule("worktrees") || node.git == nil {
+	if !node.hasWorktreeService() {
 		return
 	}
 	ctx := node.ctx

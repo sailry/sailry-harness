@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestUnassembledConnectionCommandsHaveNoEffects(t *testing.T) {
 			return nil
 		},
 	})
-	if node.git != nil || node.terminals != nil || node.ssh != nil || calls.Load() != 0 {
+	if node.git != nil || node.terminals != nil || node.ssh != nil || node.executeDatabase != nil || calls.Load() != 0 {
 		t.Fatal("unassembled service was initialized")
 	}
 	path := filepath.Join(t.TempDir(), "legacy.sqlite")
@@ -301,27 +302,111 @@ func TestUnassembledRuntimeKeepsGenericCommands(t *testing.T) {
 	}
 }
 
+type serviceTestDatabaseModule struct {
+	serviceTestModule
+	database moduleapi.DatabaseExecutor
+}
+
+func (module serviceTestDatabaseModule) ExecuteDatabase(ctx context.Context, operation store.DatabaseOperation) (protocol.DatabaseOutcome, error) {
+	return module.database(ctx, operation)
+}
+
+type serviceTestSSHModule struct {
+	serviceTestModule
+	ssh moduleapi.SSHFactory
+}
+
+func (module serviceTestSSHModule) NewSSHService(options moduleapi.SSHServiceOptions) moduleapi.SSHService {
+	return module.ssh(options)
+}
+
+type serviceTestTerminalModule struct {
+	serviceTestModule
+	terminal moduleapi.TerminalFactory
+}
+
+func (module serviceTestTerminalModule) NewTerminalService(ctx context.Context, id protocol.NodeID, changed func(context.Context, protocol.TerminalInfo)) *terminal.Service {
+	return module.terminal(ctx, id, changed)
+}
+
+type serviceTestWorkspaceModule struct {
+	serviceTestModule
+	services moduleapi.WorkspaceServices
+}
+
+func (module serviceTestWorkspaceModule) WorkspaceServices() moduleapi.WorkspaceServices {
+	return module.services
+}
+
 func TestAssembledServiceFactoriesAndLifecycle(t *testing.T) {
-	ssh := &serviceTestSSH{}
-	var created, executed atomic.Int32
-	node := serviceTestNode(t, moduleapi.Assembly{
-		Modules: []moduleapi.Module{serviceTestModule("databases"), serviceTestModule("ssh"), serviceTestModule("terminal")},
-		Databases: func(context.Context, store.DatabaseOperation) (protocol.DatabaseOutcome, error) {
-			executed.Add(1)
-			return protocol.DatabaseOutcome{Kind: "connected"}, nil
-		},
-		SSH: func(options moduleapi.SSHServiceOptions) moduleapi.SSHService {
-			created.Add(1)
-			if options.Context == nil || options.ReadSSH == nil || options.WorkspaceRoot == nil || options.Transfers == nil || options.Terminals == nil || options.Installations == nil || options.Link == nil {
-				t.Error("SSH service lost a required Node boundary")
-			}
-			return ssh
-		},
-		Terminal: terminal.New,
-	})
-	if created.Load() != 1 || node.terminals == nil || node.ssh != ssh {
+	for _, mode := range []string{"legacy assembly", "module services", "assembly overrides"} {
+		t.Run(mode, func(t *testing.T) { testAssembledServiceFactories(t, mode) })
+	}
+}
+
+func testAssembledServiceFactories(t *testing.T, mode string) {
+	t.Helper()
+	var createdSSH, createdTerminal, executed, ignored atomic.Int32
+	ssh := &serviceTestSSH{execute: func(_ context.Context, _ protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+		input := request.Command.Data.(*protocol.CommandCancelSshPayload)
+		return protocol.Output{Kind: "ssh_cancelled", Data: protocol.OutputSshCancelledPayload{Request: input.Request}}, nil
+	}}
+	executor := func(context.Context, store.DatabaseOperation) (protocol.DatabaseOutcome, error) {
+		executed.Add(1)
+		return protocol.DatabaseOutcome{Kind: "connected"}, nil
+	}
+	factory := func(options moduleapi.SSHServiceOptions) moduleapi.SSHService {
+		createdSSH.Add(1)
+		if options.Context == nil || options.ReadSSH == nil || options.WorkspaceRoot == nil || options.Transfers == nil || options.Terminals == nil || options.Installations == nil || options.Link == nil {
+			t.Error("SSH service lost a required Node boundary")
+		}
+		return ssh
+	}
+	terminalFactory := func(ctx context.Context, id protocol.NodeID, changed func(context.Context, protocol.TerminalInfo)) *terminal.Service {
+		createdTerminal.Add(1)
+		return terminal.New(ctx, id, changed)
+	}
+	assembly := moduleapi.Assembly{
+		Modules:   []moduleapi.Module{serviceTestModule("databases"), serviceTestModule("ssh"), serviceTestModule("terminal")},
+		Databases: executor,
+		SSH:       factory,
+		Terminal:  terminalFactory,
+	}
+	wantModules := []string{"databases", "ssh", "terminal"}
+	if mode != "legacy assembly" {
+		wantModules = []string{"fixture-db", "fixture-ssh", "fixture-terminal"}
+		assembly.Modules = append([]moduleapi.Module{
+			serviceTestDatabaseModule{serviceTestModule: "fixture-db", database: executor},
+			serviceTestSSHModule{serviceTestModule: "fixture-ssh", ssh: factory},
+			serviceTestTerminalModule{serviceTestModule: "fixture-terminal", terminal: terminalFactory},
+		}, assembly.Modules...)
+	}
+	switch mode {
+	case "module services":
+		assembly.Databases, assembly.SSH, assembly.Terminal = nil, nil, nil
+	case "assembly overrides":
+		assembly.Modules[0] = serviceTestDatabaseModule{serviceTestModule: "fixture-db", database: func(context.Context, store.DatabaseOperation) (protocol.DatabaseOutcome, error) {
+			ignored.Add(1)
+			return protocol.DatabaseOutcome{}, errors.New("database override was ignored")
+		}}
+		assembly.Modules[1] = serviceTestSSHModule{serviceTestModule: "fixture-ssh", ssh: func(moduleapi.SSHServiceOptions) moduleapi.SSHService {
+			ignored.Add(1)
+			return nil
+		}}
+		assembly.Modules[2] = serviceTestTerminalModule{serviceTestModule: "fixture-terminal", terminal: func(context.Context, protocol.NodeID, func(context.Context, protocol.TerminalInfo)) *terminal.Service {
+			ignored.Add(1)
+			return nil
+		}}
+	}
+	node := serviceTestNode(t, assembly)
+	if createdSSH.Load() != 1 || createdTerminal.Load() != 1 || node.terminals == nil || node.ssh != ssh {
 		t.Fatal("assembled services were not initialized")
 	}
+	if actual := node.pluginRuntime().Modules; !slices.Equal(actual, wantModules) {
+		t.Fatalf("advertised modules = %v", actual)
+	}
+	commandFixture(t, node, protocol.Command{Kind: "read_terminal_settings"})
+	commandFixture(t, node, protocol.Command{Kind: "cancel_ssh", Data: protocol.CommandCancelSshPayload{Request: protocol.NewRequestID()}})
 	profile := protocol.DefaultCommandSaveDatabasePayload()
 	profile.Profile.ID, profile.Profile.Name = protocol.NewDatabaseID(), "Injected database"
 	profile.Profile.Connection = protocol.DatabaseConnection{Kind: "sqlite", Data: &protocol.DatabaseConnectionSqlitePayload{Path: filepath.Join(t.TempDir(), "injected.sqlite")}}
@@ -330,10 +415,139 @@ func TestAssembledServiceFactoriesAndLifecycle(t *testing.T) {
 	if executed.Load() != 1 {
 		t.Fatal("database operation did not reach the assembled executor")
 	}
+	if ignored.Load() != 0 {
+		t.Fatal("an overridden default was used")
+	}
 	if err := node.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if ssh.closed.Load() != 1 {
 		t.Fatalf("SSH service closed %d times", ssh.closed.Load())
+	}
+}
+
+func TestModuleNamesDoNotRegisterServices(t *testing.T) {
+	assembly := moduleapi.Assembly{
+		Modules: []moduleapi.Module{
+			serviceTestModule("databases"), serviceTestModule("ssh"), serviceTestModule("terminal"),
+			serviceTestModule("git"), serviceTestModule("worktrees"),
+		},
+	}
+	node := serviceTestNode(t, assembly)
+	if len(node.pluginRuntime().Modules) != 0 || node.runningModuleServices() != 0 {
+		t.Fatal("module IDs registered or advertised unavailable services")
+	}
+	worktree := protocol.NewWorktreeID()
+	for _, command := range []protocol.Command{
+		{Kind: "list_databases"}, {Kind: "list_ssh"}, {Kind: "read_terminal_settings"},
+		{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: worktree}},
+		{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: worktree}},
+	} {
+		accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), command))
+		requireModuleUnavailable(t, err)
+		if accepted.Completion != nil {
+			t.Fatalf("%s was admitted", command.Kind)
+		}
+	}
+}
+
+func TestLegacyFactoriesDoNotAddServicesToTypedModule(t *testing.T) {
+	assembly := moduleapi.Assembly{
+		Modules: []moduleapi.Module{
+			serviceTestWorkspaceModule{serviceTestModule: "git"},
+			serviceTestWorkspaceModule{serviceTestModule: "terminal", services: moduleapi.WorkspaceServices{Worktrees: true}},
+		},
+		LegacyWorkspaceModules: true,
+		Terminal: func(context.Context, protocol.NodeID, func(context.Context, protocol.TerminalInfo)) *terminal.Service {
+			t.Fatal("terminal override ran for a typed worktree provider")
+			return nil
+		},
+	}
+	node := serviceTestNode(t, assembly)
+	if node.runningModuleServices() != moduleapi.ServiceWorktrees || len(node.pluginRuntime().Modules) != 0 {
+		t.Fatal("a typed module inherited a service or a requirement from its ID")
+	}
+}
+
+func TestTerminalProviderWithoutRunningService(t *testing.T) {
+	assembly := moduleapi.Assembly{
+		Modules: []moduleapi.Module{serviceTestTerminalModule{serviceTestModule: "fixture-terminal", terminal: terminal.New}},
+		Terminal: func(context.Context, protocol.NodeID, func(context.Context, protocol.TerminalInfo)) *terminal.Service {
+			return nil
+		},
+	}
+	node := serviceTestNode(t, assembly)
+	if len(node.pluginRuntime().Modules) != 0 {
+		t.Fatal("terminal provider without a running service was advertised")
+	}
+	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_terminal_settings"})
+	accepted, err := node.Dispatch(t.Context(), node.ID(), request)
+	requireModuleUnavailable(t, err)
+	if accepted.Completion != nil {
+		t.Fatal("terminal settings command was admitted")
+	}
+	_, err = node.subscribeTerminal(protocol.Topic{Kind: "terminal", Data: protocol.NewTerminalID()})
+	requireModuleUnavailable(t, err)
+}
+
+func TestWorkspaceCapabilitiesAreIndependentOfModuleIDs(t *testing.T) {
+	for _, workspace := range []struct {
+		id       string
+		services moduleapi.WorkspaceServices
+	}{
+		{"repo-provider", moduleapi.WorkspaceServices{Git: true}},
+		{"checkout-provider", moduleapi.WorkspaceServices{Worktrees: true}},
+	} {
+		t.Run(workspace.id, func(t *testing.T) {
+			node := serviceTestNode(t, moduleapi.Assembly{Modules: []moduleapi.Module{
+				serviceTestModule("git"), serviceTestModule("worktrees"),
+				serviceTestWorkspaceModule{serviceTestModule: serviceTestModule(workspace.id), services: workspace.services},
+			}})
+			if runtime := node.pluginRuntime().Modules; !slices.Equal(runtime, []string{workspace.id}) {
+				t.Fatalf("advertised modules = %v", runtime)
+			}
+			project := commandFixture(t, node, protocol.Command{Kind: "register_project", Data: protocol.CommandRegisterProjectPayload{Name: "Workspace capability", Path: t.TempDir()}}).Data.(protocol.Project)
+			var worktree protocol.WorktreeID
+			for _, tree := range snapshotFixture(t, node).Worktrees {
+				if tree.Project != nil && *tree.Project == project.ID && tree.Main {
+					worktree = tree.ID
+					break
+				}
+			}
+			if worktree == (protocol.WorktreeID{}) {
+				t.Fatal("project has no main worktree")
+			}
+			for _, test := range []struct {
+				command protocol.Command
+				allowed bool
+			}{
+				{protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: worktree}}, workspace.services.Git},
+				{protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: worktree}}, workspace.services.Worktrees},
+			} {
+				if test.allowed {
+					commandFixture(t, node, test.command)
+					continue
+				}
+				accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), test.command))
+				requireModuleUnavailable(t, err)
+				if accepted.Completion != nil {
+					t.Fatalf("cross-capability %s was admitted", test.command.Kind)
+				}
+			}
+			stream, err := node.Subscribe(t.Context(), node.ID(), protocol.Topic{Kind: "repository", Data: worktree})
+			if stream != nil {
+				defer stream.Close()
+			}
+			if workspace.services.Git {
+				if err != nil || stream == nil {
+					t.Fatalf("Git provider could not open repository subscription: %v", err)
+				}
+			} else {
+				requireModuleUnavailable(t, err)
+				if stream != nil {
+					t.Fatal("worktree provider exposed a repository subscription")
+				}
+			}
+		})
 	}
 }
