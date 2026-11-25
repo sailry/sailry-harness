@@ -82,7 +82,7 @@ func (r *Runtime) recoveredTurn(x *execution) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
 			logPanic(x, "turn", "", value)
-			err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "turn failed unexpectedly; calls were not replayed"}
+			err = &observedTurnPanic{&protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "turn failed unexpectedly; calls were not replayed"}}
 		}
 		if err != nil || x.ctx.Err() != nil {
 			r.stopChildren(x)

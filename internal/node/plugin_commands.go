@@ -92,6 +92,7 @@ func (node *Node) dispatchPlugins(ctx context.Context, caller protocol.NodeID, r
 	}
 	work := func(owner context.Context, report installations.Report) (result link.Response) {
 		defer node.work.Done()
+		defer close(completion)
 		defer func() {
 			if recover() != nil {
 				result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "plugin operation did not settle; inspect the resource before retrying"})
@@ -101,7 +102,6 @@ func (node *Node) dispatchPlugins(ctx context.Context, caller protocol.NodeID, r
 				node.authCommitted(caller, request, result.Fault)
 			}
 			completion <- result
-			close(completion)
 		}()
 		operation := ctx
 		if accepted.Receipt.Durable {

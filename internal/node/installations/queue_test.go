@@ -165,3 +165,30 @@ func TestInstallQueueOrder(t *testing.T) {
 		t.Fatal("dismissal retained a terminal installation")
 	}
 }
+
+func TestInstallQueueReleasesLaneAfterPanic(t *testing.T) {
+	owner := tasks.New(t.Context())
+	defer owner.Close(context.Background())
+	node := protocol.NodeID{1}
+	queue := New(owner, node, t.Context().Done())
+	resource := protocol.InstallationResource{Kind: "plugin", Data: protocol.InstallationResourcePluginPayload{Name: "fixture"}}
+	first, next := protocol.Request{ID: protocol.NewRequestID()}, protocol.Request{ID: protocol.NewRequestID()}
+	if err := queue.Submit(node, first, resource, true, func(context.Context, Report) link.Response {
+		panic("private fixture detail")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Submit(node, next, resource, true, func(context.Context, Report) link.Response { return link.Response{} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	records, err := queue.Read(node, []protocol.RequestID{first.ID, next.ID}, nil)
+	if err != nil || len(records) != 1 || records[0].Request != first.ID || records[0].State.Kind != "uncertain" {
+		t.Fatalf("records = %v, error = %v", records, err)
+	}
+	if failure := records[0].State.Data.(protocol.InstallationStateUncertainPayload).Error; failure.Code != protocol.ErrorCodeOutcomeUnknown || strings.Contains(failure.Message, "private fixture detail") {
+		t.Fatalf("uncertain outcome = %v", failure)
+	}
+}

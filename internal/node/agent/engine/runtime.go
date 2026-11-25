@@ -43,8 +43,9 @@ type Options struct {
 	NativeSkills       []operations.NativeSkillPackage
 	// AfterTurn, when set, runs after a main task turn's end is stored. It
 	// receives the settled run and what the execution observed.
-	AfterTurn func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
-	Telemetry *telemetry.Control
+	AfterTurn       func(context.Context, *store.AgentInvocation, protocol.ConversationRun, TurnObservation)
+	Telemetry       *telemetry.Control
+	RequestObserver func(model.RequestObservation)
 	// Working, when set, brackets every running turn.
 	Working func() func()
 	// StopCommands, when set, stops a session's background commands. The
@@ -131,37 +132,39 @@ type execution struct {
 	renewedSecret     protocol.Secret
 	// sessionRoute: the model keeps the session's history and receives only
 	// new messages, so rewriting earlier ones would replay all of it.
-	sessionRoute    bool
-	childBudget     uint64
-	finishing       bool
-	commandsStopped bool                    // guarded by Runtime.publication
-	queuedSteer     []protocol.TurnID       // guarded by Runtime.publication
-	directSteer     bool                    // guarded by Runtime.publication
-	interruptTools  context.CancelCauseFunc // guarded by Runtime.publication
-	interruptStream context.CancelCauseFunc // guarded by Runtime.publication
-	streamReads     *streamedReads
-	operations      uint64
-	operationsDone  chan struct{}
-	attachments     map[protocol.AttachmentID]*attachmentMaterial
-	hooks           *hooks.Binding
-	timeline        *timeline
-	inv             *store.AgentInvocation
-	ctx             context.Context
-	cancel          context.CancelFunc
-	done            chan struct{}
-	wake            chan struct{}
-	guidance        chan struct{}
-	tools           []Tool
-	parentTools     inheritedTools
-	delegationTools inheritedTools
-	names           *exposure
-	toolCleanup     []func() error
-	inputMu         sync.Mutex
-	inputWake       chan struct{}
-	output          output.Cache
-	modelSteps      uint32
-	doomSignature   string
-	doomStreak      int
+	sessionRoute          bool
+	childBudget           uint64
+	finishing             bool
+	commandsStopped       bool                    // guarded by Runtime.publication
+	queuedSteer           []protocol.TurnID       // guarded by Runtime.publication
+	directSteer           bool                    // guarded by Runtime.publication
+	interruptTools        context.CancelCauseFunc // guarded by Runtime.publication
+	interruptStream       context.CancelCauseFunc // guarded by Runtime.publication
+	streamReads           *streamedReads
+	operations            uint64
+	operationsDone        chan struct{}
+	attachments           map[protocol.AttachmentID]*attachmentMaterial
+	hooks                 *hooks.Binding
+	timeline              *timeline
+	inv                   *store.AgentInvocation
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	done                  chan struct{}
+	wake                  chan struct{}
+	guidance              chan struct{}
+	tools                 []Tool
+	parentTools           inheritedTools
+	delegationTools       inheritedTools
+	names                 *exposure
+	toolCleanup           []func() error
+	inputMu               sync.Mutex
+	inputWake             chan struct{}
+	output                output.Cache
+	modelSteps            uint32
+	failedInferenceRecord string
+	inferenceCause        error
+	doomSignature         string
+	doomStreak            int
 }
 
 func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hub, publish func(), options Options) *Runtime {
@@ -180,6 +183,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	}
 	base := store.WithPluginAvailability(plugins.WithRuntime(context.Background(), options.PluginRuntime), options.PluginAvailability)
 	base = store.WithToolPresentation(base, options.ToolPresentation)
+	base = model.WithRequestObserver(base, options.RequestObserver)
 	ctx, cancel := context.WithCancel(base)
 	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
 }

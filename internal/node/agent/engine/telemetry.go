@@ -2,14 +2,46 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+type observedTurnPanic struct{ error }
+
+func (e *observedTurnPanic) Unwrap() error { return e.error }
+
+// The receipt only admits a turn. Its execution owns the settled failure unless
+// the same cause was already observed at the model request or panic boundary.
+func recordTurnFailure(run protocol.ConversationRun, cause error) {
+	if run.Status != protocol.ConversationStatusFailed || run.Error == nil || errors.Is(cause, context.Canceled) {
+		return
+	}
+	if _, observed := errors.AsType[*observedTurnPanic](cause); observed {
+		return
+	}
+	if f, ok := errors.AsType[*model.Failure](cause); ok && (f.RequestObserved() || f.Kind == model.Cancelled) {
+		return
+	}
+	fault := run.Error
+	if fault.Code == protocol.ErrorCodeCancelled || fault.Code == protocol.ErrorCodePermissionDenied || fault.ConfigurationReason().Expected() || fault.ReportOwned && logging.ValidReportRef(fault.ReportRef) {
+		return
+	}
+	code := protocol.ErrorCodeInternal
+	if typed, ok := errors.AsType[*protocol.Fault](cause); ok {
+		code = typed.Code
+	} else if _, ok := errors.AsType[*model.Failure](cause); ok {
+		code = fault.Code
+	}
+	logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("operation", "turn"), slog.String("phase", logging.Failed), slog.String("code", string(code)), slog.String("configuration_reason", string(fault.ConfigurationReason())))
+}
 
 // Anonymous usage counters: results, modes, tool and model names from the
 // reviewed lists, error codes, durations and token counts. Never content.

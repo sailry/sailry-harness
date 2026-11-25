@@ -97,6 +97,7 @@ const MainRetries = 10
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool, reset func()) error {
 	buffered := purpose == SummaryPurpose || purpose == NativePurpose
 	schedule := newRetryPolicy()
+	var observation requestObservation
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	sdk, _ := languageModel.(*sdkModel)
 	nextModel := languageModel
@@ -205,6 +206,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				}
 			}
 		}
+		observation.record(attempt)
 		if observe != nil {
 			if observationErr := observe(attempt); observationErr != nil {
 				return observationErr
@@ -226,6 +228,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 					}
 				}
 			}
+			observation.finish(ctx, false)
 			return nil
 		}
 		if attempt.RetryDelay != nil {
@@ -235,15 +238,15 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 			waitExhausted = !ready
 		}
-		if exhausted || waitExhausted {
+		if exhausted || waitExhausted || attempt.RetryDelay == nil {
 			// Observations retain the provider failure. Only the terminal
 			// result names the exhausted recovery for the turn's final fault.
 			failure := *attempt.Failure
-			failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
+			if exhausted || waitExhausted {
+				failure.Exhausted, failure.WaitExhausted = exhausted, waitExhausted
+			}
+			failure.requestObserved = observation.finish(ctx, true)
 			return &failure
-		}
-		if attempt.RetryDelay == nil {
-			return attempt.Failure
 		}
 		if sdk != nil && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
 			// Spend one admitted retry on HTTP/1.1 without pinning an HTTP/2-only origin to it.

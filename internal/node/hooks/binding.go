@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -146,7 +148,15 @@ func (b *Binding) remember(err error) {
 		chars := []rune(next)
 		message += string(chars[:min(len(chars), max(4096-len(message), 0))])
 	}
-	b.failure = &protocol.Fault{Code: code, Message: message}
+	// A reference must not hide a different failure that still needs reporting.
+	var ref string
+	if previous != nil && current != nil && previous.ReportOwned && current.ReportOwned && logging.ValidReportRef(previous.ReportRef) && logging.ValidReportRef(current.ReportRef) {
+		ref = previous.ReportRef
+		if current.Code == protocol.ErrorCodeOutcomeUnknown {
+			ref = current.ReportRef
+		}
+	}
+	b.failure = &protocol.Fault{Code: code, Message: message, ReportRef: ref, ReportOwned: ref != ""}
 }
 func hookMessage(err error) string {
 	var fault *protocol.Fault
@@ -156,13 +166,30 @@ func hookMessage(err error) string {
 	return err.Error()
 }
 func (b *Binding) execute(ctx context.Context, ordinal uint64, input eventInput) (executionErr error) {
+	phase := input.Event
+	claimed := false
 	// The hook boundary retains the source's uncertain outcome after unwinding.
 	defer func() {
-		if recover() != nil {
+		panicked := recover() != nil
+		if panicked {
 			executionErr = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "hook execution failed; side effects were not replayed"}
 		}
+		// After Tool and Turn End failures settle with the turn; Before Tool
+		// failures only become tool results and do not necessarily fail the turn.
+		if phase != protocol.HooksPhaseBeforeTool {
+			return
+		}
+		var fault *protocol.Fault
+		if !errors.As(executionErr, &fault) || fault == nil || fault.ReportOwned && logging.ValidReportRef(fault.ReportRef) {
+			return
+		}
+		// An uncertain claim may be a refusal to replay a prior execution.
+		if fault.Code == protocol.ErrorCodeInternal || fault.Code == protocol.ErrorCodeOutcomeUnknown && (claimed || panicked) {
+			logging.Emit(slog.LevelError, slog.String("area", "hooks"), slog.String("operation", string(phase)),
+				slog.String("phase", logging.Failed), slog.String("code", string(fault.Code)),
+				slog.String("session", b.captured.Session.String()), slog.String("turn", b.captured.Turn.String()))
+		}
 	}()
-	phase := input.Event
 	var scripts []Entry
 	if phase == protocol.HooksPhaseBeforeTool || phase == protocol.HooksPhaseAfterTool {
 		scripts = ScriptsForTool(b.captured.Settings, phase, input.Tool)
@@ -189,6 +216,7 @@ func (b *Binding) execute(ctx context.Context, ordinal uint64, input eventInput)
 	if err := b.captured.Claim(ctx, b.captured.Turn, phase, ordinal); err != nil {
 		return err
 	}
+	claimed = true
 	metadata := map[string]string{
 		"SAILRY_HOOK_EVENT": string(phase), "SAILRY_HOOK_NODE": input.Node,
 		"SAILRY_HOOK_WORKTREE": input.Worktree, "SAILRY_HOOK_SESSION": input.Session, "SAILRY_HOOK_TURN": input.Turn,

@@ -37,9 +37,10 @@ const (
 )
 
 type Failure struct {
-	Kind    FailureKind
-	Message string
-	status  *uint16
+	Kind            FailureKind
+	Message         string
+	status          *uint16
+	requestObserved bool
 	// Exhausted marks only Run's terminal recovery outcome. Kind still names
 	// the provider failure, including when a summary records why it failed.
 	Exhausted bool
@@ -58,7 +59,8 @@ type Failure struct {
 	forbidden bool
 }
 
-func (f *Failure) Error() string { return f.Message }
+func (f *Failure) Error() string         { return f.Message }
+func (f *Failure) RequestObserved() bool { return f.requestObserved }
 func (f *Failure) Retryable() bool {
 	return f.Kind == RateLimited || f.Kind == Quota || f.Kind == Network || f.Kind == Unavailable || f.truncated || f.Kind == Authentication && f.forbidden
 }

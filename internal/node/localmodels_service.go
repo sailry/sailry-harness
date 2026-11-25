@@ -327,12 +327,12 @@ func (node *Node) submitLocalModel(caller protocol.NodeID, request protocol.Requ
 		resource := protocol.InstallationResource{Kind: "model", Data: protocol.InstallationResourceModelPayload{Kind: localmodels.Kind(definition.Format), ID: id}}
 		err = node.plugins.installations.Submit(caller, request, resource, !removing, func(owner context.Context, report installations.Report) (result link.Response) {
 			defer node.work.Done()
+			defer close(completion)
 			defer func() {
 				if recover() != nil {
 					result = settle(response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "local model operation did not settle; read the local models before retrying"}))
 				}
 				completion <- result
-				close(completion)
 			}()
 			report(protocol.InstallationPhaseInspecting, nil)
 			return settle(response(protocol.Output{Kind: "local_model", Data: protocol.OutputLocalModelPayload{ID: id}}, node.changeLocalModel(owner, caller, request, id, report)))

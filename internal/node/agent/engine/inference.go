@@ -211,6 +211,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	priorIDs := priorToolCallIDs(state.Records)
 	reads := &streamedReads{priorIDs: priorIDs}
 	defer func() { reads.close() }()
+	observeRequest := model.RequestObserver(x.ctx)
+	var diagnostic model.RequestObservation
+	var requestAttempts uint64
 	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {
 		out := newOutput()
 		var streamErr error
@@ -220,7 +223,13 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			return errQueuedSteer
 		}
 		streamCtx, endModelStep := r.beginModelStep(x)
+		if observeRequest != nil {
+			// The outer empty-response policy retries the very same request. Delay
+			// delivery until it too has settled, counting both kinds of attempt.
+			streamCtx = model.WithRequestObserver(streamCtx, func(result model.RequestObservation) { diagnostic = result })
+		}
 		err = model.Run(streamCtx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
+			requestAttempts++
 			if attempt.Failure != nil {
 				reads.close()
 			}
@@ -284,7 +293,19 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		for _, attempt := range attempts {
 			billing = append(billing, r.observationRecord(x, binding, purpose, attempt))
 		}
-		if x.ctx.Err() != nil || steered || err != nil || !empty || emptyAttempt == 3 || out.limited || successfulTool(state.Records) {
+		retryEmpty := empty && err == nil && !out.limited && !successfulTool(state.Records)
+		if retryEmpty {
+			diagnostic = model.RequestObservation{Failure: model.InvalidResponse}
+		}
+		if x.ctx.Err() != nil || steered || !retryEmpty || emptyAttempt == 3 {
+			if observeRequest != nil && diagnostic.Failure != "" && x.ctx.Err() == nil && !steered && (err == nil || model.Classify(err).RequestObserved()) {
+				diagnostic.Attempts = requestAttempts
+				diagnostic.Outcome = model.RequestRecovered
+				if retryEmpty || err != nil {
+					diagnostic.Outcome = model.RequestFailed
+				}
+				observeRequest(diagnostic)
+			}
 			finish := canonical.Completed
 			if x.ctx.Err() != nil || steered {
 				finish = canonical.Interrupted
@@ -348,6 +369,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				runtime := canonical.DefaultRuntime()
 				runtime.AgentVisible = false
 				record.Metadata.Runtime = &runtime
+				x.failedInferenceRecord, x.inferenceCause = record.ID, err
 				return r.save(x.ctx, x.inv.Session.ID, record)
 			}
 			if reads.adopt(out.blocks) {
