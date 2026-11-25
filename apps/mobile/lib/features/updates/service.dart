@@ -18,15 +18,13 @@ class AppUpdates extends ChangeNotifier {
     String? target,
     Uri? source,
     String repository = releaseRepository,
-    String tagPrefix = 'v',
-    bool requireBuildNumber = false,
+    this._tagPrefix = 'v',
+    this._requireBuildNumber = false,
     this.timeout = const Duration(seconds: 20),
   }) : _client = client ?? http.Client(),
        _readInfo = readInfo ?? PackageInfo.fromPlatform,
        _target = target ?? (Platform.isAndroid ? 'android-arm64' : 'ios'),
        _repository = repository,
-       _tagPrefix = tagPrefix,
-       _requireBuildNumber = requireBuildNumber,
        _source =
            source ??
            Uri.https('api.github.com', '/repos/$repository/releases', {
