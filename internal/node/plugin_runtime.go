@@ -12,6 +12,11 @@ func (node *Node) pluginRuntime() plugins.Runtime {
 		runtime.ProductID = "harness"
 	}
 	for _, module := range node.modules.Modules {
+		// The module still provides file-only pipelines without a persistent index;
+		// a plugin requiring code-index needs the service itself.
+		if module.ID() == "code-index" && node.codeIndex == nil {
+			continue
+		}
 		if node.moduleServiceAvailable(module.ID()) {
 			runtime.Modules = append(runtime.Modules, module.ID())
 		}
