@@ -325,11 +325,10 @@ func (agent *acpAgent) handle(_ context.Context, method string, params json.RawM
 		var update struct {
 			SessionID string `json:"sessionId"`
 			Update    struct {
-				Kind    string `json:"sessionUpdate"`
-				Content struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
+				Kind string `json:"sessionUpdate"`
+				// A message chunk's content is one block; a tool call's is a
+				// list, so it is read only for the kinds that carry text.
+				Content  json.RawMessage `json:"content"`
 				Commands []struct {
 					Name string `json:"name"`
 				} `json:"availableCommands"`
@@ -353,14 +352,19 @@ func (agent *acpAgent) handle(_ context.Context, method string, params json.RawM
 		agent.mu.Lock()
 		sink := agent.sinks[update.SessionID]
 		agent.mu.Unlock()
-		if sink == nil || update.Update.Content.Type != "text" || update.Update.Content.Text == "" {
+		thought := update.Update.Kind == "agent_thought_chunk"
+		if sink == nil || !thought && update.Update.Kind != "agent_message_chunk" {
 			return nil, nil
 		}
-		switch update.Update.Kind {
-		case "agent_message_chunk":
-			sink(false, update.Update.Content.Text)
-		case "agent_thought_chunk":
-			sink(true, update.Update.Content.Text)
+		var content struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(update.Update.Content, &content) != nil {
+			return nil, acp.NewInvalidParams(nil)
+		}
+		if content.Type == "text" && content.Text != "" {
+			sink(thought, content.Text)
 		}
 		return nil, nil
 	case acp.ClientMethodSessionRequestPermission:
