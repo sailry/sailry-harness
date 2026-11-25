@@ -35,6 +35,12 @@ func TestHTTP2ProtocolRecoveryDoesNotReplayTools(t *testing.T) {
 	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: reset}, model.Network, "model stream failed: "+reset.Error(), model.MainRetries)
 }
 
+func TestHTTP2ConnectionLossDoesNotReplayTools(t *testing.T) {
+	t.Parallel()
+	const diagnostic = "http2: client connection lost"
+	checkModelFailureRecovery(t, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: errors.New(diagnostic)}, model.Network, "model stream failed: "+diagnostic, model.MainRetries)
+}
+
 func TestHTTP524RecoveryDoesNotReplayTools(t *testing.T) {
 	t.Parallel()
 	const diagnostic = "origin timed out (HTTP 524)"

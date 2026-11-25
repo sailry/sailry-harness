@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"charm.land/fantasy"
@@ -29,6 +30,8 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 	for _, cause := range []error{
 		protocol,
 		fmt.Errorf("wrapped: %w", protocol),
+		errors.New("http2: client connection lost"),
+		fmt.Errorf("read: %w", errors.New("http2: client connection lost")),
 	} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			for _, err := range []error{cause, &fantasy.ProviderError{Message: "model stream failed", StatusCode: 200, Cause: cause}} {
@@ -56,7 +59,7 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 		}
 	}
 	provider := &fantasy.ProviderError{StatusCode: 200, ResponseBody: []byte(`{"error":{"type":"api_error","message":"stream error: stream ID 1; PROTOCOL_ERROR; received from peer"}}`)}
-	for _, cause := range []error{errors.New(protocol.Error()), protocol} {
+	for _, cause := range []error{errors.New(protocol.Error()), protocol, errors.New("http2: client connection lost")} {
 		provider.Cause = cause
 		if failure := Classify(provider); failure.Kind != InvalidResponse || failure.Retryable() || http2ProtocolFailure(provider) {
 			t.Fatalf("provider diagnostic was treated as a local HTTP/2 failure: %+v", failure)
@@ -170,6 +173,34 @@ func protocolResetServer(t *testing.T, success []byte, prefix string, recovers b
 	server.StartTLS()
 	t.Cleanup(server.Close)
 	return server, requests, read
+}
+
+func TestHTTP2ConnectionLossAfterChatFinish(t *testing.T) {
+	t.Parallel()
+	const chunk = `data: {"choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":"stop"}]}` + "\n\n"
+	language, err := newSDK(t.Context(), transportConfig{Kind: "chat", Model: "fixture", Endpoint: "https://model.invalid", Key: "fixture-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	language.(*sdkModel).client.Transport = responseTransport{base: sdkFixtureRoundTripper(func(r *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK, Request: r, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(io.MultiReader(strings.NewReader(chunk), iotest.ErrReader(errors.New("http2: client connection lost"))))}, nil
+	}), stall: stallTimeout}
+	var text string
+	var finishes int
+	err = Run(t.Context(), language, requestCall(t, "chat"), Main, &policyClock{}, nil, func(part fantasy.StreamPart) bool {
+		if part.Type == fantasy.StreamPartTypeTextDelta {
+			text += part.Delta
+		}
+		if part.Type == fantasy.StreamPartTypeFinish {
+			finishes++
+		}
+		return true
+	}, func() { t.Fatal("replayed a completed choice") })
+	if err != nil || requests != 1 || finishes != 1 || text != "Answer" {
+		t.Fatalf("lost optional trailer: err=%v requests=%d finishes=%d text=%q", err, requests, finishes, text)
+	}
 }
 
 func localConnectProxy(t *testing.T, target string) *url.URL {
