@@ -233,19 +233,21 @@ func (account *serviceAccount) cached() *vertexToken {
 	defer vertexTokens.Unlock()
 	entry := vertexTokens.entries[account.digest]
 	if entry == nil {
-		if len(vertexTokens.entries) >= vertexTokenCapacity {
-			evictVertexToken()
-		}
 		entry = &vertexToken{}
-		vertexTokens.entries[account.digest] = entry
+		// When every entry is refreshing, this request mints without
+		// keeping its token, so the cache stays within its capacity.
+		if len(vertexTokens.entries) < vertexTokenCapacity || evictVertexToken() {
+			vertexTokens.entries[account.digest] = entry
+		}
 	}
 	return entry
 }
 
 // evictVertexToken removes the entry whose token expires first among those
 // not minting, so a refresh in flight keeps its entry and is not repeated.
-// The caller holds vertexTokens.
-func evictVertexToken() {
+// It reports false when every entry is minting. The caller holds
+// vertexTokens.
+func evictVertexToken() bool {
 	var victim [32]byte
 	var earliest time.Time
 	found := false
@@ -264,6 +266,7 @@ func evictVertexToken() {
 	if found {
 		delete(vertexTokens.entries, victim)
 	}
+	return found
 }
 
 // accessToken is the account's cached access token, minted again by the

@@ -628,6 +628,17 @@ func TestVertexTokenEviction(t *testing.T) {
 	if !minting || earliest || len(vertexTokens.entries) != vertexTokenCapacity {
 		t.Errorf("eviction kept minting %t, earliest idle %t, %d entries", minting, earliest, len(vertexTokens.entries))
 	}
+	// When every entry is minting, a new account is served without growing
+	// the cache.
+	for _, entry := range vertexTokens.entries {
+		entry.minting = &vertexMint{done: make(chan struct{})}
+	}
+	vertexTokens.Unlock()
+	other := (&serviceAccount{digest: [32]byte{0xfe}}).cached()
+	vertexTokens.Lock()
+	if _, kept := vertexTokens.entries[[32]byte{0xfe}]; other == nil || kept || len(vertexTokens.entries) != vertexTokenCapacity {
+		t.Errorf("a full cache of mints kept the new entry %t with %d entries", kept, len(vertexTokens.entries))
+	}
 }
 
 // A gateway that echoes the access token in its error body does not carry it
