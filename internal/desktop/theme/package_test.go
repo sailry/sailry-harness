@@ -38,36 +38,49 @@ func TestGalleryBitmapKeepsFullSizeArtworkSeparate(t *testing.T) {
 	}
 }
 
-// Parse reads the built-in packages whole and refuses a package without both
-// variants, malformed JSON and a color that is not a hex value.
+func TestBuiltinTheme(t *testing.T) {
+	if got := Packages(); len(got) != 1 || got[0] != Builtin {
+		t.Fatalf("default packages = %v, want only the built-in theme", got)
+	}
+	if Builtin.Preset() != DefaultSurfaces {
+		t.Fatal("the built-in theme changed the default surfaces")
+	}
+	for _, dark := range []bool{false, true} {
+		p, widget := Look("", dark), Widget("", dark)
+		if p.Package != Builtin || p.Variant != nil || p.Dark != dark || widget.Dark != dark {
+			t.Fatalf("dark=%v: the default appearance is not the built-in theme", dark)
+		}
+		if p.Background.A != 255 || p.Foreground.A == 0 || p.Primary.A == 0 || widget.Background != p.Background || widget.Text != p.Foreground {
+			t.Fatalf("dark=%v: the built-in palette or widget theme is incomplete", dark)
+		}
+		if Find("not-installed") != Builtin || Look("not-installed", dark) != p || Widget("not-installed", dark) != widget {
+			t.Fatalf("dark=%v: an unavailable theme does not fall back to the built-in theme", dark)
+		}
+	}
+}
+
 func TestPackagesParse(t *testing.T) {
-	t.Run("Builtin", func(t *testing.T) {
-		want := []string{BuiltinID, "great-sage", "holographic-rhythm", "ink-dragon"}
-		if len(Packages()) != len(want) {
-			t.Fatalf("packages = %d, want %d", len(Packages()), len(want))
+	t.Run("Installed", func(t *testing.T) {
+		manifest, files := themeFixture(t)
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
 		}
-		ids := map[string]bool{}
-		for _, p := range Packages() {
-			ids[p.ID] = true
+		pkg, err := Parse(data, files)
+		if err != nil {
+			t.Fatal(err)
 		}
-		for _, id := range want {
-			if !ids[id] {
-				t.Errorf("missing package %s", id)
+		if pkg.Name == "" || pkg.Release == "" || pkg.License.Author == "" || pkg.License.Text == "" {
+			t.Fatal("incomplete manifest")
+		}
+		for _, dark := range []bool{false, true} {
+			v := pkg.Variant(dark)
+			if len(v.Theme.Colors) == 0 {
+				t.Errorf("dark=%v: no colors", dark)
 			}
-		}
-		for _, p := range Packages()[1:] {
-			if p.Name == "" || p.Release == "" || p.License.Author == "" || p.License.Text == "" {
-				t.Errorf("%s: incomplete manifest", p.ID)
-			}
-			for _, dark := range []bool{false, true} {
-				v := p.Variant(dark)
-				if len(v.Theme.Colors) == 0 {
-					t.Errorf("%s dark=%v: no colors", p.ID, dark)
-				}
-				for slot, d := range v.Assets {
-					if d.Bitmap() == nil {
-						t.Errorf("%s dark=%v: asset %s (%s) does not decode", p.ID, dark, slot, d.Path)
-					}
+			for slot, d := range v.Assets {
+				if d.Bitmap() == nil {
+					t.Errorf("dark=%v: asset %s (%s) does not decode", dark, slot, d.Path)
 				}
 			}
 		}
@@ -86,12 +99,15 @@ func TestPackagesParse(t *testing.T) {
 }
 
 func TestPaletteOverlaysNeutral(t *testing.T) {
-	sage := Find("great-sage")
-	p := palette(sage, false)
-	if p.Background != ui.Hex("#F0E6D2") {
+	pkg := &Package{ID: "coast", Light: &Variant{Theme: Config{Colors: map[string]Color{
+		"background": {V: ui.Hex("#edf5fb"), OK: true},
+		"link":       {V: ui.Hex("#125e82"), OK: true},
+	}}}}
+	p := palette(pkg, false)
+	if p.Background != ui.Hex("#edf5fb") {
 		t.Errorf("background = %v, want the package's", p.Background)
 	}
-	if p.Link != ui.Hex("#805914") {
+	if p.Link != ui.Hex("#125e82") {
 		t.Errorf("link = %v, want the package's", p.Link)
 	}
 	// Not in the package: neutral values.
@@ -116,9 +132,11 @@ func TestPaletteOverlaysNeutral(t *testing.T) {
 // look stays known to the window still showing it.
 func TestSetInstalled(t *testing.T) {
 	defer SetInstalled(nil)
-	shipped := Widget("ink-dragon", true)
+	first := &Package{ID: "coast", Name: "Coast"}
+	SetInstalled([]*Package{first})
+	original, builtin := Widget("coast", true), Widget(BuiltinID, true)
 	added := &Package{ID: "added", Name: "Added"}
-	newer := &Package{ID: "ink-dragon", Name: "Ink Dragon"}
+	newer := &Package{ID: "coast", Name: "Coast", Release: "0.1.1"}
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -127,7 +145,7 @@ func TestSetInstalled(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				if Look("ink-dragon", true) == nil || Widget("added", false) == nil || len(Packages()) < len(embeddedPackages) {
+				if Look("coast", true) == nil || Widget("added", false) == nil || len(Packages()) < 1 {
 					panic("a reader saw an incomplete set")
 				}
 			}
@@ -140,16 +158,19 @@ func TestSetInstalled(t *testing.T) {
 	SetInstalled([]*Package{added, newer})
 	close(stop)
 	<-done
-	if got := Packages(); len(got) != len(embeddedPackages)+1 || got[len(got)-1] != added || Find("ink-dragon") != newer {
+	if got := Packages(); len(got) != 3 || got[0] != Builtin || got[1] != added || got[2] != newer || Find("coast") != newer {
 		t.Fatalf("installed set %v", got)
 	}
-	replaced, kept := Widget("ink-dragon", true), Widget("added", false)
-	old := retiredAppearance(shipped)
-	if replaced == shipped || current.Load().byWidget[shipped] != nil || old.palette == nil || old.palette.Package.ID != "ink-dragon" {
+	replaced, kept := Widget("coast", true), Widget("added", false)
+	old := retiredAppearance(original)
+	if replaced == original || current.Load().byWidget[original] != nil || old.palette == nil || old.palette.Package != first {
 		t.Fatal("the replaced look is not known to the window showing it")
 	}
+	if Widget(BuiltinID, true) != builtin {
+		t.Fatal("installing packages replaced the built-in theme")
+	}
 	SetInstalled([]*Package{added})
-	if Widget("added", false) != kept || Find("ink-dragon") == newer || Widget("ink-dragon", true) == replaced {
+	if Widget("added", false) != kept || Find("coast") != Builtin || Widget("coast", true) != builtin {
 		t.Fatal("a staying package lost its look or a removed release stayed")
 	}
 }

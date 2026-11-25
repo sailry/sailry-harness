@@ -89,7 +89,7 @@ func (r *Runtime) themeCatalogRows() []viewmodel.MarketTheme {
 	for _, entry := range listing.Themes {
 		pkg := theme.Find(entry.ID)
 		installed := pkg.ID == entry.ID
-		row := viewmodel.MarketTheme{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Installed: installed, Builtin: installed, Current: r.App.Theme == entry.ID}
+		row := viewmodel.MarketTheme{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Installed: installed, Current: r.App.Theme == entry.ID}
 		if description := entry.DescriptionLocales[i18n.Match(r.packageLocale())]; description != "" {
 			row.Description = description
 		}
@@ -99,9 +99,6 @@ func (r *Runtime) themeCatalogRows() []viewmodel.MarketTheme {
 		}
 		if installed {
 			row.Update = entry.Newer(pkg)
-		}
-		if _, exists := r.packages.themes[entry.ID]; exists {
-			row.Builtin = false
 		}
 		rows = append(rows, row)
 	}

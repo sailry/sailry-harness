@@ -34,6 +34,42 @@ func profileFixture(t *testing.T, id, version string) Snapshot {
 	return snapshot
 }
 
+func TestThemeProfileKeepsExistingInstallations(t *testing.T) {
+	defer SetInstalled(nil)
+	ctx := t.Context()
+	profile := NewProfile(filepath.Join(t.TempDir(), "desktop"))
+	before := profileFixture(t, "ink-dragon", "0.1.0")
+	for name, body := range before.Files {
+		filename := filepath.Join(profile.Root, before.Package.ID, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	installed, err := profile.Installed(ctx)
+	if err != nil || len(installed) != 1 {
+		t.Fatalf("existing themes = %d, %v", len(installed), err)
+	}
+	pkg := installed[0].Package
+	SetInstalled([]*Package{pkg})
+	if Find(before.Package.ID) != pkg || Look(pkg.ID, false).Variant != pkg.Light || Look(pkg.ID, true).Variant != pkg.Dark {
+		t.Fatal("the existing selected theme was not registered")
+	}
+	if pkg.Light.Asset("background.content") == nil || pkg.Dark.Asset("background.content") == nil {
+		t.Fatal("the existing theme lost its artwork")
+	}
+	after, err := ReadSnapshot(ctx, filepath.Join(profile.Root, pkg.ID))
+	if err != nil || after.Digest != before.Digest {
+		t.Fatalf("reading the existing theme changed its files: %v", err)
+	}
+	entries, err := os.ReadDir(profile.Root)
+	if err != nil || len(entries) != 1 || entries[0].Name() != pkg.ID {
+		t.Fatalf("reading existing themes changed the profile: %v, %v", entries, err)
+	}
+}
+
 func TestThemeProfilePublication(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -123,9 +159,13 @@ func TestThemeMarketImmutableSelection(t *testing.T) {
 		entry.Resources = append(entry.Resources, CatalogResource{Path: name, Bytes: len(snapshot.Files[name]), Digest: "sha256:" + hex.EncodeToString(sum[:])})
 	}
 	listing := CatalogListing{Version: 1, Commit: commit, Themes: []CatalogEntry{entry}}
-	var corruptFeed, corruptResource atomic.Bool
+	var corruptFeed, corruptResource, unavailable atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/catalog" {
+			if unavailable.Load() {
+				http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
 			value := listing
 			if corruptFeed.Load() {
 				value.Commit = "main"
@@ -179,5 +219,14 @@ func TestThemeMarketImmutableSelection(t *testing.T) {
 	installed, err := profile.Installed(ctx)
 	if err != nil || len(installed) != 1 || installed[0].Digest != snapshot.Digest {
 		t.Fatalf("failed download changed the installed version: %v", err)
+	}
+	unavailable.Store(true)
+	restarted := NewMarket(profile)
+	restarted.Client, restarted.CatalogURL = server.Client(), server.URL+"/catalog"
+	for _, retained := range []*Market{market, restarted} {
+		cached, err := retained.List(ctx, true)
+		if err != nil || !cached.Unavailable || cached.Commit != commit || cached.Selection("coast") == nil {
+			t.Fatalf("unavailable catalog did not retain its immutable selection: %+v, %v", cached, err)
+		}
 	}
 }

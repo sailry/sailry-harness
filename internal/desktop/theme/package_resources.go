@@ -23,7 +23,7 @@ const (
 	themePreviewEdge   = 768
 )
 
-func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) error {
+func (value *Package) loadPictures(manifest []byte, files fs.FS) error {
 	seen := make(map[string]*picture)
 	encoded, decoded := len(manifest), uint64(0)
 	for _, variant := range []*Variant{value.Light, value.Dark} {
@@ -82,35 +82,21 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) 
 			}
 			// Validate installed resources at admission without retaining their
 			// pixels. The renderer decodes only the pictures it actually uses.
-			if !embedded {
-				if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
-					return fmt.Errorf("%s: %w", asset.Path, err)
-				}
-			}
-			size := len(data)
-			source := func() []byte { return data }
-			if embedded {
-				// The built-in themes cannot change: a picture reads its
-				// bytes again when it is first drawn instead of keeping them.
-				name := asset.Path
-				data = nil
-				source = func() []byte {
-					body, _ := readThemeResource(files, name)
-					return body
-				}
+			if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+				return fmt.Errorf("%s: %w", asset.Path, err)
 			}
 			picture := &picture{bitmap: sync.OnceValue(func() *ui.Bitmap {
-				bitmap, _ := ui.DecodeBitmap(source())
+				bitmap, _ := ui.DecodeBitmap(data)
 				return bitmap
 			})}
 			if max(configuration.Width, configuration.Height) > themePreviewEdge {
 				picture.preview = sync.OnceValue(func() *ui.Bitmap {
-					bitmap, _ := ui.DecodeBitmapScaled(source(), themePreviewEdge)
+					bitmap, _ := ui.DecodeBitmapScaled(data, themePreviewEdge)
 					return bitmap
 				})
 			}
 			seen[asset.Path], asset.pic = picture, picture
-			encoded += size
+			encoded += len(data)
 			decoded += allocation
 		}
 	}

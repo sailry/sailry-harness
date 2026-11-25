@@ -1,15 +1,11 @@
 package theme
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"path"
-	"sort"
 
 	"github.com/egoist/mygo/ui"
-	sailry "github.com/sailry/sailry-harness"
 )
 
 // BuiltinID is the built-in default theme's identifier.
@@ -300,10 +296,6 @@ func (v *Variant) Layers(surface string) []Effect {
 
 // Parse validates a current v1 manifest and a bounded snapshot of its images.
 func Parse(data []byte, files fs.FS) (*Package, error) {
-	return parsePackage(data, files, false)
-}
-
-func parsePackage(data []byte, files fs.FS, embedded bool) (*Package, error) {
 	if len(data) > themeManifestLimit {
 		return nil, fmt.Errorf("theme manifest exceeds file limit")
 	}
@@ -314,7 +306,7 @@ func parsePackage(data []byte, files fs.FS, embedded bool) (*Package, error) {
 	if err := p.validate(); err != nil {
 		return nil, err
 	}
-	if err := p.loadPictures(data, files, embedded); err != nil {
+	if err := p.loadPictures(data, files); err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -323,36 +315,6 @@ func parsePackage(data []byte, files fs.FS, embedded bool) (*Package, error) {
 // Builtin is the default theme, which has no package: neutral colors, no
 // assets, no effects.
 var Builtin = &Package{ID: BuiltinID}
-
-// embeddedPackages are the themes shipped: the built-in default first, then
-// the official packages by name.
-var embeddedPackages = load()
-
-func load() []*Package {
-	out := []*Package{Builtin}
-	manifests, err := fs.Glob(sailry.Themes, "themes/*/theme.json")
-	if err != nil {
-		panic(err)
-	}
-	var found []*Package
-	for _, manifest := range manifests {
-		root, err := fs.Sub(sailry.Themes, path.Dir(manifest))
-		if err != nil {
-			panic(err)
-		}
-		data, err := fs.ReadFile(root, "theme.json")
-		if err != nil {
-			panic(err)
-		}
-		p, err := parsePackage(bytes.TrimSpace(data), root, true)
-		if err != nil {
-			panic(fmt.Sprintf("theme %s: %v", path.Base(path.Dir(manifest)), err))
-		}
-		found = append(found, p)
-	}
-	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
-	return append(out, found...)
-}
 
 // Find returns the package with id, or the built-in theme.
 func Find(id string) *Package {
@@ -370,10 +332,4 @@ func (p *Package) Variant(dark bool) *Variant {
 		return p.Dark
 	}
 	return p.Light
-}
-
-// Notice is the official packages' attribution (themes/NOTICE).
-func Notice() string {
-	b, _ := sailry.Themes.ReadFile("themes/NOTICE")
-	return string(b)
 }

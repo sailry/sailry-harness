@@ -235,8 +235,7 @@ var (
 func init() { SetInstalled(nil) }
 
 // Packages are the themes in use: the built-in default first, then the
-// shipped packages by name with installed releases in their place, then
-// the other installed packages.
+// installed packages.
 func Packages() []*Package { return current.Load().packages }
 
 // SetInstalled replaces the installed packages. A package that stays keeps
@@ -245,11 +244,11 @@ func Packages() []*Package { return current.Load().packages }
 func SetInstalled(installed []*Package) {
 	changing.Lock()
 	defer changing.Unlock()
-	next := &registry{packages: append([]*Package(nil), embeddedPackages...), looks: map[key]look{}, byWidget: map[*ui.Theme]*Palette{}, neutral: map[*ui.Theme]*ui.Theme{}}
+	next := &registry{packages: []*Package{Builtin}, looks: map[key]look{}, byWidget: map[*ui.Theme]*Palette{}, neutral: map[*ui.Theme]*ui.Theme{}}
 	for _, pkg := range installed {
 		replaced := false
-		for index, embedded := range next.packages {
-			if embedded.ID == pkg.ID {
+		for index, existing := range next.packages {
+			if existing.ID == pkg.ID {
 				next.packages[index] = pkg
 				replaced = true
 				break

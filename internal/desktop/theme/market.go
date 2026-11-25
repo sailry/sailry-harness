@@ -18,7 +18,6 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/egoist/mygo/netproxy"
-	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -217,11 +216,7 @@ func (market *Market) List(ctx context.Context, force bool) (CatalogListing, err
 		} else if saved, readErr := market.restore(); readErr == nil {
 			listing = saved
 		} else {
-			bundled, readErr := sailry.Themes.ReadFile("themes/catalog.json")
-			if readErr != nil || json.Unmarshal(bundled, &listing) != nil || listing.validate(false) != nil {
-				return listing, errors.New("bundled theme catalog is invalid")
-			}
-			listing.Commit = ""
+			listing = CatalogListing{Version: 1, Themes: []CatalogEntry{}}
 		}
 		listing.Unavailable = true
 	}

@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -162,24 +164,18 @@ func rustProfile(t *testing.T) string {
 		"tmp/leftover.bin":                                                   []byte("temporary"),
 	}
 	// An installed theme is theme.json and its declared resources, the files
-	// the Rust installer writes from an official package.
-	source := filepath.Join("..", "..", "..", "themes", "ink-dragon")
-	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return err
-		}
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if relative = filepath.ToSlash(relative); relative == "theme.json" || strings.HasPrefix(relative, "assets/") {
-			files["desktop/themes/ink-dragon/"+relative], err = os.ReadFile(path)
-		}
-		return err
-	})
-	if err != nil {
+	// the Rust installer writes. The fixture needs no external theme source.
+	files["desktop/themes/ink-dragon/theme.json"] = []byte(`{
+		"version":1,"id":"ink-dragon","name":"Installed theme","package_version":"0.1.0",
+		"license":{"author":"Sailry","name":"CC0-1.0","text":"Synthetic upgrade fixture artwork, dedicated to the public domain under CC0 1.0"},
+		"light":{"theme":{"mode":"light","colors":{"background":"#edf5fb"}},"assets":{"background.content":{"path":"assets/preserved.png"}}},
+		"dark":{"theme":{"mode":"dark","colors":{"background":"#18242f"}},"assets":{"background.content":{"path":"assets/preserved.png"}}}
+	}`)
+	var artwork bytes.Buffer
+	if err := png.Encode(&artwork, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
+	files["desktop/themes/ink-dragon/assets/preserved.png"] = artwork.Bytes()
 	for name, body := range files {
 		path := filepath.Join(profile, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

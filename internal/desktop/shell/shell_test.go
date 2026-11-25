@@ -560,9 +560,10 @@ func TestWelcome(t *testing.T) {
 	}
 }
 
-// Every shipped theme paints the transcript and the welcome page in both
+// The built-in and installed themes paint the transcript and welcome in both
 // modes, each differently.
 func TestThemePackages(t *testing.T) {
+	installTestTheme(t)
 	seen := map[string]string{}
 	for _, pkg := range theme.Packages() {
 		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
@@ -586,36 +587,52 @@ func TestThemePackages(t *testing.T) {
 	}
 }
 
+func installTestTheme(t *testing.T) *theme.Package {
+	t.Helper()
+	pkg, err := theme.Parse([]byte(`{
+		"version":1,"id":"appearance-fixture","name":"Appearance fixture","package_version":"1.0.0",
+		"license":{"author":"Sailry","name":"CC0-1.0","text":"Synthetic theme fixture, dedicated to the public domain under CC0 1.0"},
+		"light":{"theme":{"mode":"light","colors":{"background":"#eff7fc","accent.background":"#2c6d9d","foreground":"#182f40"}}},
+		"dark":{"theme":{"mode":"dark","colors":{"background":"#162633","accent.background":"#80bddf","foreground":"#edf6fc"}}}
+	}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theme.SetInstalled([]*theme.Package{pkg})
+	t.Cleanup(func() { theme.SetInstalled(nil) })
+	return pkg
+}
+
 // Appearance applies a theme package from its card, shows its details in
 // a dialog from the card's right-click menu and turns the effects off.
 func TestAppearancePackages(t *testing.T) {
+	pkg := installTestTheme(t)
 	a, tt := newTester(t)
 	click(t, tt, "Settings")
 	click(t, tt, i18n.In("en", "settings_appearance"))
-	sage := theme.Find("great-sage")
-	clickButton(t, tt, sage.Name)
-	if a.Theme != sage.ID {
-		t.Fatalf("theme %q after choosing %s", a.Theme, sage.Name)
+	clickButton(t, tt, pkg.Name)
+	if a.Theme != pkg.ID {
+		t.Fatalf("theme %q after choosing %s", a.Theme, pkg.Name)
 	}
 	// The header's fold toggle is named Details too: the page is under it.
-	listed := tt.HasText(sage.Release)
+	listed := tt.HasText(pkg.Release)
 	for _, info := range tt.AccessAll() {
 		listed = listed || info.Name == i18n.In("en", "appearance_details") && info.Bounds.Y >= HeaderHeight
 	}
 	if listed {
 		t.Errorf("the page still lists the details: %q", tt.Texts())
 	}
-	if err := tt.RightClick(sage.Name); err != nil {
+	if err := tt.RightClick(pkg.Name); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.ChooseMenuItem(i18n.In("en", "appearance_details")); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if !tt.HasText(sage.Release) || !tt.HasText(sage.License.Author) || !tt.HasText(i18n.In("en", "appearance_information")) {
-		t.Errorf("no details dialog of %s: %q", sage.Name, tt.Texts())
+	if !tt.HasText(pkg.Release) || !tt.HasText(pkg.License.Author) || !tt.HasText(i18n.In("en", "appearance_information")) {
+		t.Errorf("no details dialog of %s: %q", pkg.Name, tt.Texts())
 	}
-	snapshot(t, tt, "appearance-great-sage")
+	snapshot(t, tt, "appearance-installed-theme")
 	clickButton(t, tt, i18n.In("en", "close"))
 	tt.Advance(time.Second)
 	tt.Frame()

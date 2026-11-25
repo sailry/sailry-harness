@@ -21,8 +21,14 @@ func TestEffects(t *testing.T) {
 // Theme effects ask for frames while they show, and none with Reduce
 // Motion, the Appearance switch off or a hidden window.
 func testEffectsFollowMotion(t *testing.T) {
+	variant := &theme.Variant{Effects: map[string][]theme.Effect{
+		"background.window": {{Kind: theme.Embers, Color: theme.Color{V: ui.Hex("#ffd090"), OK: true}, Count: 8, Opacity: 0.5, Size: 2, Duration: 4}},
+	}}
+	pkg := &theme.Package{ID: "motion-fixture", Light: variant, Dark: variant}
+	theme.SetInstalled([]*theme.Package{pkg})
+	t.Cleanup(func() { theme.SetInstalled(nil) })
 	tt := uitest.New(func(c *ui.Context) {
-		theme.Apply(c, "great-sage", theme.Dark)
+		theme.Apply(c, pkg.ID, theme.Dark)
 		Draws(ui.Column(c).Fill(), Backdrop(c, "background.window"))
 	}, 400, 300, uitest.Scale, "", ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	settle := func() {
