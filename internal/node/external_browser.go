@@ -63,13 +63,13 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 	}
 	completion := make(chan link.Response, 1)
 	result := link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: completion}
-	node.mu.Lock()
-	defer node.mu.Unlock()
-	if node.stopped {
+	// Admission is Node work without the Node mutex, as in dispatchWorkspace.
+	if err := node.begin(); err != nil {
 		finish()
-		return link.Admission{}, unavailable()
+		return link.Admission{}, err
 	}
 	if err := ctx.Err(); err != nil {
+		node.work.Done()
 		finish()
 		return link.Admission{}, nodeFault(err)
 	}
@@ -79,10 +79,12 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 		previous, err = admission.Admit(ctx, db, caller, request, body)
 		return err
 	}); err != nil {
+		node.work.Done()
 		finish()
 		return link.Admission{}, nodeFault(err)
 	}
 	if previous != nil {
+		node.work.Done()
 		finish()
 		completion <- *previous
 		close(completion)
@@ -94,7 +96,6 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 		// is repeated around browser startup.
 		call.Check = func(ctx context.Context) error { return node.validatePluginRequest(ctx, caller, request) }
 	}
-	node.work.Add(1)
 	go func() {
 		defer node.work.Done()
 		defer close(completion)

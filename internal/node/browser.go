@@ -386,12 +386,12 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 	if _, err := node.browserScope(ctx, input.Session, input.Worktree, request.Plugin != nil); err != nil {
 		return link.Admission{}, err
 	}
-	node.mu.Lock()
-	defer node.mu.Unlock()
-	if node.stopped {
-		return link.Admission{}, unavailable()
+	// Admission is Node work without the Node mutex, as in dispatchWorkspace.
+	if err := node.begin(); err != nil {
+		return link.Admission{}, err
 	}
 	if err := ctx.Err(); err != nil {
+		node.work.Done()
 		return link.Admission{}, nodeFault(err)
 	}
 	var previous *link.Response
@@ -400,14 +400,15 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 		previous, err = admission.Admit(ctx, db, caller, request, body)
 		return err
 	}); err != nil {
+		node.work.Done()
 		return link.Admission{}, nodeFault(err)
 	}
 	if previous != nil {
 		completion <- *previous
 		close(completion)
+		node.work.Done()
 		return result, nil
 	}
-	node.work.Add(1)
 	go func() {
 		defer node.work.Done()
 		defer close(completion)

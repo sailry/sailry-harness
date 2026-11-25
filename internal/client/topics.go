@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -11,19 +12,30 @@ import (
 
 func (client *Client) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
 	client.lifecycle.Lock()
-	defer client.lifecycle.Unlock()
 	if client.closed {
+		client.lifecycle.Unlock()
 		return nil, fault(protocol.ErrorCodeUnavailable, "Client is closed")
 	}
 	operation, cancel := context.WithCancel(ctx)
-	// Close must interrupt establishment before it waits for lifecycle. Once
-	// registered, the topic keeps operation until its own Close cancels it.
+	// Close cancels closing before it waits for lifecycle, which interrupts
+	// establishment. Once registered, the topic keeps operation until its own
+	// Close cancels it.
 	stop := context.AfterFunc(client.closing, cancel)
 	defer stop()
+	client.lifecycle.Unlock()
+	// Establishment waits for the Node, so lifecycle is not held across it:
+	// the interface thread takes lifecycle to observe a workspace, and a slow
+	// subscription must not stall a frame.
 	stream, err := client.transport.Subscribe(operation, copyValue(topic))
 	if err != nil {
 		cancel()
 		return nil, err
+	}
+	client.lifecycle.Lock()
+	defer client.lifecycle.Unlock()
+	if client.closed {
+		cancel()
+		return nil, errors.Join(fault(protocol.ErrorCodeUnavailable, "Client is closed"), stream.Close())
 	}
 	value := &topicSubscription{client: client, topic: copyValue(topic), stream: stream, ctx: operation, cancel: cancel, changed: make(chan struct{})}
 	client.topicsMu.Lock()

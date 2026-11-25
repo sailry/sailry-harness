@@ -160,12 +160,14 @@ func (node *Node) workspaceRoots(ctx context.Context, command protocol.Command, 
 // dispatchWorkspace records durable admission before starting any resource IO.
 // Its worker owns Node lifetime; losing the controller never repeats an effect.
 func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
-	node.mu.Lock()
-	defer node.mu.Unlock()
-	if node.stopped {
-		return link.Admission{}, unavailable()
+	// The admission is Node work, so Stop waits for it, but the Node mutex is
+	// not held across its write: a slow store write would otherwise stall
+	// every request and subscription that begins meanwhile.
+	if err := node.begin(); err != nil {
+		return link.Admission{}, err
 	}
 	if err := ctx.Err(); err != nil {
+		node.work.Done()
 		return link.Admission{}, nodeFault(err)
 	}
 	completion := make(chan link.Response, 1)
@@ -177,15 +179,16 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 			previous, err = admission.Admit(ctx, db, caller, request, body)
 			return err
 		}); err != nil {
+			node.work.Done()
 			return link.Admission{}, nodeFault(err)
 		}
 	}
 	if previous != nil {
 		completion <- *previous
 		close(completion)
+		node.work.Done()
 		return result, nil
 	}
-	node.work.Add(1)
 	go func() {
 		defer node.work.Done()
 		defer close(completion)
