@@ -752,7 +752,8 @@ pays one compaction call; a switch adds the transcript request.
 
 A rejected endpoint, parameter, content type or beta flag (HTTP 400 or 422
 naming it, or 404) falls back to Sailry's handoff. It is remembered for that
-provider, protocol, endpoint and model while the Node runs. So is a completed
+provider, protocol, endpoint and model while the Node runs, until the channel
+is edited; a bounded number of routes is kept. So is a completed
 response without any compaction item, which a gateway that drops the feature or
 a model without it returns as an ordinary reply. A refused or empty summary
 falls back without being remembered. A native request resends a provider error

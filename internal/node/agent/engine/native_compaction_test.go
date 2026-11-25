@@ -444,9 +444,11 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 		if _, checkpoint := latestCheckpoint(t, f); checkpoint.Native == nil {
 			t.Fatal("the retried native compaction was not used")
 		}
-		rejected := false
-		f.r.nativeRejected.Range(func(any, any) bool { rejected = true; return false })
-		if rejected || len(provider.all(compacting)) != 2 {
+		languageModel, err := model.New(f.ctx, binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if model.NativeRejected(binding, model.NativeCompactionRoute(languageModel)) || len(provider.all(compacting)) != 2 {
 			t.Fatal("a transient failure marked the route as unsupported")
 		}
 	})

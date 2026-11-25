@@ -403,16 +403,15 @@ func compactedFiles(summary handoff.Summary) []canonical.CompactedFile {
 // ok is false when the route has no native compaction, rejected it or
 // returned nothing usable, and Sailry's own handoff should be written
 // instead; err ends the compaction as a failure the handoff would meet too.
-// A rejection of the feature is remembered for the route and model;
-// transient failures follow the retry rules and are not.
+// The model package remembers a rejection of the feature for the provider
+// revision and route; transient failures follow the retry rules and are not.
 func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route model.Route, state store.AgentState, selection handoff.Selection, requestText string, observe func(model.Attempt) error) (model.Compacted, bool, error) {
 	// A user's focus for a manual compaction is part of Sailry's handoff
 	// request; a provider's summary prompt would replace or drop it.
 	if route.Native == "" || requestText != handoff.Request {
 		return model.Compacted{}, false, nil
 	}
-	key := binding.Provider.ID.String() + "\x00" + route.Native
-	if _, rejected := r.nativeRejected.Load(key); rejected {
+	if model.NativeRejected(binding, route.Native) {
 		return model.Compacted{}, false, nil
 	}
 	languageModel, err := r.model(x.ctx, binding)
@@ -446,7 +445,6 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 		nativeOutcome(binding, route, "native", nil)
 		return compacted, true, nil
 	case errors.Is(err, model.ErrNativeUnsupported):
-		r.nativeRejected.Store(key, true)
 		nativeOutcome(binding, route, "unsupported", err)
 		return model.Compacted{}, false, nil
 	case errors.Is(err, model.ErrNativeUnusable):

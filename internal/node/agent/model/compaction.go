@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -101,13 +102,66 @@ func NativeCompactionRoute(languageModel fantasy.LanguageModel) string {
 	return strings.Join([]string{model.config.Kind, model.config.Endpoint, model.config.Model}, "\x00")
 }
 
+// nativeRejectionCapacity bounds the remembered rejections; a forgotten one
+// costs a single native request that is rejected again.
+const nativeRejectionCapacity = 256
+
+// nativeRejections holds the routes whose provider rejected native
+// compaction, by provider and route, with the provider revision that was
+// rejected: an edited channel is asked again.
+var nativeRejections = struct {
+	sync.Mutex
+	entries map[string]uint64
+}{entries: map[string]uint64{}}
+
+func nativeRejectionKey(binding Binding, route string) string {
+	return binding.Provider.ID.String() + "\x00" + route
+}
+
+// NativeRejected reports whether the provider at its current revision
+// rejected native compaction on route, as named by NativeCompactionRoute.
+func NativeRejected(binding Binding, route string) bool {
+	key := nativeRejectionKey(binding, route)
+	nativeRejections.Lock()
+	defer nativeRejections.Unlock()
+	revision, ok := nativeRejections.entries[key]
+	if ok && revision != binding.Provider.Revision {
+		delete(nativeRejections.entries, key)
+		return false
+	}
+	return ok
+}
+
+func rejectNative(binding Binding, route string) {
+	key := nativeRejectionKey(binding, route)
+	nativeRejections.Lock()
+	defer nativeRejections.Unlock()
+	if _, ok := nativeRejections.entries[key]; !ok && len(nativeRejections.entries) >= nativeRejectionCapacity {
+		for other := range nativeRejections.entries {
+			delete(nativeRejections.entries, other)
+			break
+		}
+	}
+	nativeRejections.entries[key] = binding.Provider.Revision
+}
+
 // CompactNative sends call, the main request over the history to replace,
 // as the route's native compaction with the provider's own summary prompt. It
-// follows Run's retry rules and reports each attempt to observe.
+// follows Run's retry rules and reports each attempt to observe. A rejection
+// of the feature is remembered for NativeRejected.
 func CompactNative(ctx context.Context, languageModel fantasy.LanguageModel, binding Binding, call fantasy.Call, timer clock.Clock, observe func(Attempt) error) (Compacted, error) {
-	if NativeCompactionRoute(languageModel) == "" {
+	route := NativeCompactionRoute(languageModel)
+	if route == "" {
 		return Compacted{}, ErrNativeUnsupported
 	}
+	compacted, err := compactNative(ctx, languageModel, binding, call, timer, observe)
+	if errors.Is(err, ErrNativeUnsupported) {
+		rejectNative(binding, route)
+	}
+	return compacted, err
+}
+
+func compactNative(ctx context.Context, languageModel fantasy.LanguageModel, binding Binding, call fantasy.Call, timer clock.Clock, observe func(Attempt) error) (Compacted, error) {
 	options := fantasy.ProviderOptions{}
 	for key, value := range call.ProviderOptions {
 		options[key] = value
