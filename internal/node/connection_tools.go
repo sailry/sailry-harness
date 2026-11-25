@@ -31,7 +31,7 @@ type connectionToolCall struct {
 func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocation, catalog *operations.Catalog) ([]engine.Tool, error) {
 	var declarations []operations.Declaration
 	for _, declaration := range catalog.Tools {
-		if node.hasReplacedPlugin(declaration.Owner.Name) {
+		if node.hasReplacedPlugin(declaration.Owner.Name, declaration.Owner.Digest) {
 			continue
 		}
 		if operations.ConnectionOperation(declaration.Operation) && slices.Contains(inv.Turn.Plugins, declaration.Owner) &&

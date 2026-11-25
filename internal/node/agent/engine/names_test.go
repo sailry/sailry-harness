@@ -63,6 +63,7 @@ func TestCoreCommandAliases(t *testing.T) {
 	operation := protocol.ToolOperationWriteCommand
 	native := objectTool(name, false, false, nil)
 	native.Binding = &store.ApprovalBinding{Tool: name, Operation: &operation}
+	native.LegacyPackage = "commands"
 	tools := []Tool{native, packageTool("other", name, operation, false, nil)}
 	names := captureExposure(tools, []string{legacy})
 	if names.name(legacy) != name || names.alias(legacy) != name || names.alias(name) != name || names.name(other) != other {
@@ -75,6 +76,17 @@ func TestCoreCommandAliases(t *testing.T) {
 	if !toolLoaded([]string{legacy}, native, names) || toolLoaded([]string{other}, native, names) {
 		t.Fatal("the core command did not preserve the saved discovery state")
 	}
+	t.Run("alias not offered in captured context", func(t *testing.T) {
+		native.LegacyPackage = ""
+		tools[0] = native
+		names := captureExposure(tools, []string{legacy})
+		request := canonical.ToolRequest{ID: "old-alias", Name: legacy}
+		names.restoreCall(&request)
+		if request.Name != legacy || findTool(tools, request.Name) != nil || toolLoaded([]string{legacy}, native, names) ||
+			roleToolMatches(selector, native, legacyToolAliases(tools)) {
+			t.Fatal("an unclaimed package alias resolved to core command authority")
+		}
+	})
 }
 
 func TestToolSelectionAndNames(t *testing.T) {

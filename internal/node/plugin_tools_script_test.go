@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -34,8 +35,8 @@ func TestLegacyCommandsKeepDirectResourceScope(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
 	ctx := t.Context()
-	// Simulate an older captured commands package that still declared its four
-	// host command handlers so historical captures preserve direct-resource scope.
+	// A same-name package with four valid command handler declarations still
+	// needs package-owned adapters to use the scoped command operations.
 	source := t.TempDir()
 	entry := filepath.Join(source, "dev.sailry.platform", "host", "main.js")
 	if err := os.MkdirAll(filepath.Dir(entry), 0o700); err != nil {
@@ -53,11 +54,22 @@ func TestLegacyCommandsKeepDirectResourceScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	invocation := &store.AgentInvocation{Turn: protocol.DefaultQueuedTurn(), Run: protocol.DefaultConversationRun()}
-	if tools, err := node.scriptTools(ctx, invocation, info, nil); err != nil || len(tools) != 0 {
-		t.Fatalf("workspace command declarations duplicated the core: %d tools, %v", len(tools), err)
+	historical := info
+	// Immutable commands 0.1.23 content still had these command declarations.
+	historical.Summary.Digest = "b1f93da98c03016aa2c0bc951d5fa6ece12cd2e24130a3470fc6cdbd7ad61d74"
+	if tools, err := node.scriptTools(ctx, invocation, historical, nil); err != nil || len(tools) != 0 {
+		t.Fatalf("historical workspace command declarations duplicated the core: %d tools, %v", len(tools), err)
+	}
+	owner := plugins.PackageReference(info)
+	adapters := map[pluginToolBinding]engine.Tool{}
+	for _, declaration := range info.Extension.Tools {
+		alias := plugins.ToolAlias(owner.Name, declaration.Name)
+		adapters[pluginToolBinding{owner: owner, alias: alias}] = engine.Tool{
+			Binding: &store.ApprovalBinding{Owner: owner, Tool: alias, Operation: declaration.Handler.Operation},
+		}
 	}
 	invocation.Turn.Config.Resource = &protocol.ConnectionResource{Kind: "ssh", Data: protocol.NewSshID()}
-	if tools, err := node.scriptTools(ctx, invocation, info, nil); err != nil || len(tools) != 4 {
+	if tools, err := node.scriptTools(ctx, invocation, info, adapters); err != nil || len(tools) != 4 {
 		t.Fatalf("direct resources lost their scoped commands: %d tools, %v", len(tools), err)
 	}
 }

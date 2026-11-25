@@ -37,12 +37,18 @@ var legacyOfficialVersions = func() map[[2]string]string {
 	return result
 }()
 
+// IsLegacyOfficialPackage checks the immutable content identity of a known
+// official release, independent of its installation origin and compatibility.
+func IsLegacyOfficialPackage(name, digest string) bool {
+	release := legacyOfficialDigests[digest]
+	return release != nil && release.name == name
+}
+
 func legacyOfficialInfoModules(info protocol.PluginInfo) []string {
-	release := legacyOfficialDigests[info.Summary.Digest]
-	if release == nil || info.Summary.Name != release.name {
+	if !IsLegacyOfficialPackage(info.Summary.Name, info.Summary.Digest) {
 		return nil
 	}
-	return []string{release.name}
+	return []string{info.Summary.Name}
 }
 
 func withLegacyOfficialRequirements(name string, version protocol.PluginCatalogVersion, repository *string) protocol.PluginCatalogVersion {

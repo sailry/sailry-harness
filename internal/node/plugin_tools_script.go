@@ -83,17 +83,32 @@ func (owner *pluginScriptTurn) runTool(ctx context.Context, handler string, inpu
 	return result, err
 }
 
-func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvocation, info protocol.PluginInfo, native map[string]engine.Tool) ([]engine.Tool, error) {
+type pluginToolBinding struct {
+	owner protocol.PluginReference
+	alias string
+}
+
+func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvocation, info protocol.PluginInfo, native map[pluginToolBinding]engine.Tool) ([]engine.Tool, error) {
 	host := info.Extension.Host
+	packageRef := plugins.PackageReference(info)
+	legacy := legacyNativeToolPackage(packageRef.Name, packageRef.Digest)
+	boundTool := func(name string, operation protocol.ToolOperation) (engine.Tool, bool) {
+		alias := plugins.ToolAlias(packageRef.Name, name)
+		candidate, ok := native[pluginToolBinding{owner: packageRef, alias: alias}]
+		return candidate, ok && candidate.Binding != nil && candidate.Binding.Owner == packageRef && candidate.Binding.Tool == alias &&
+			candidate.Binding.Operation != nil && *candidate.Binding.Operation == operation
+	}
 	declarations := []protocol.ToolDeclaration{}
 	names := []string{}
 	// A directly bound resource still uses the captured package's scoped host tools.
 	coreCommands := invocation.Turn.Config.Resource == nil || invocation.Turn.Config.Assistant != nil
 	withoutIndex := node.codeIndex == nil
 	for _, declaration := range info.Extension.Tools {
-		if info.Summary.Name == "progress" && declaration.Name == operations.UpdatePlanTool ||
-			coreCommands && info.Summary.Name == "commands" && operations.IsCommandTool(declaration.Name) {
-			// Core replacements handle these reserved historical aliases.
+		if packageRef.Name == "progress" && declaration.Name == operations.UpdatePlanTool {
+			// The plan projection still reserves this exact canonical alias.
+			continue
+		}
+		if legacy && coreCommands && packageRef.Name == "commands" && operations.IsCommandTool(declaration.Name) {
 			continue
 		}
 		if declaration.Handler != nil && availablePluginTool(invocation, declaration) {
@@ -103,7 +118,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 					continue
 				}
 				if handler.Flow != nil && slices.ContainsFunc(handler.Flow.Operations, codeIndexOperation) {
-					if info.Summary.Name != "code" || declaration.Name != "code_pipeline" {
+					if !legacy || packageRef.Name != "code" || declaration.Name != "code_pipeline" {
 						continue
 					}
 					var ok bool
@@ -120,13 +135,16 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			// The media tools are the Node's own: a package's declaration of a
 			// media operation binds nothing. A managed browser tool exists
 			// only when this Node can run that browser, and a browser tool
-			// only when the turn's controller has a browser.
+			// only when the turn's controller has a browser. Command mutations
+			// likewise need a package-owned approval and execution binding.
 			if operation := declaration.Handler.Operation; operation != nil {
 				if _, media := mediaOperationKind(*operation); media {
 					continue
 				}
-				if *operation == protocol.ToolOperationReadExternalBrowser || *operation == protocol.ToolOperationControlExternalBrowser || *operation == browserReadOperation || *operation == browserControlOperation {
-					if _, bound := native[plugins.ToolAlias(info.Summary.Name, declaration.Name)]; !bound {
+				switch *operation {
+				case protocol.ToolOperationReadExternalBrowser, protocol.ToolOperationControlExternalBrowser, browserReadOperation, browserControlOperation,
+					protocol.ToolOperationRunCommand, protocol.ToolOperationStopCommand, protocol.ToolOperationWriteCommand:
+					if _, bound := boundTool(declaration.Name, *operation); !bound {
 						continue
 					}
 				}
@@ -138,17 +156,17 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	if len(declarations) == 0 {
 		return nil, nil
 	}
-	files, err := node.plugins.manager.ReadBundle(ctx, plugins.PackageReference(info), host.Entry, host.Resources)
+	files, err := node.plugins.manager.ReadBundle(ctx, packageRef, host.Entry, host.Resources)
 	if err != nil {
 		return nil, err
 	}
 	owner := &pluginScriptTurn{node: node, invocation: invocation, info: info, bundle: plugins.ScriptBundle{Entry: host.Entry, Files: files},
-		scope: protocol.PluginContext{Turn: &invocation.Run.Turn, Package: plugins.PackageReference(info), Worktree: &invocation.Run.Worktree,
+		scope: protocol.PluginContext{Turn: &invocation.Run.Turn, Package: packageRef, Worktree: &invocation.Run.Worktree,
 			Session: &invocation.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}, state: json.RawMessage("null")}
 	instruction := ""
 	if info.Extension.Instructions != nil {
 		instruction = *info.Extension.Instructions
-		if withoutIndex && info.Summary.Name == "code" {
+		if withoutIndex && legacy && packageRef.Name == "code" {
 			pipeline := operations.Alias("code", "code_pipeline")
 			invocation.Instructions = slices.DeleteFunc(slices.Clone(invocation.Instructions), func(captured store.AgentInstruction) bool {
 				return captured.Text == instruction && slices.Contains(captured.AnyTools, pipeline)
@@ -283,7 +301,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				tools = append(tools, tool)
 				continue
 			}
-			if bound, exists := native[tool.Definition.Name]; exists {
+			if bound, exists := boundTool(declaration.Name, *handler.Operation); exists {
 				tools = append(tools, owner.bindNative(tool, bound, declaration, handler))
 				continue
 			}

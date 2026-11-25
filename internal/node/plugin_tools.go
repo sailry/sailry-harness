@@ -20,13 +20,21 @@ import (
 )
 
 func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvocation, native ...[]engine.Tool) (tools []engine.Tool, resultErr error) {
-	byName := map[string]engine.Tool{}
+	bindings := map[pluginToolBinding]engine.Tool{}
 	labels := map[string][]string{}
 	var candidates []pluginMCPBinding
 	if len(native) != 0 {
-		tools = slices.Clone(native[0])
+		tools = make([]engine.Tool, 0, len(native[0]))
 		for _, tool := range native[0] {
-			byName[tool.Definition.Name] = tool
+			if binding := tool.Binding; binding != nil && binding.Owner.Name != "" {
+				// Old plan receipts identify the core tool by alias, not package digest.
+				if tool.Definition.Name == operations.LegacyUpdatePlanTool ||
+					!slices.Contains(invocation.Turn.Plugins, binding.Owner) || node.hasReplacedPlugin(binding.Owner.Name, binding.Owner.Digest) {
+					continue
+				}
+				bindings[pluginToolBinding{owner: binding.Owner, alias: tool.Definition.Name}] = tool
+			}
+			tools = append(tools, tool)
 		}
 	}
 	defer func() {
@@ -64,14 +72,16 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 				labels[name] = toolSearchLabels(*declaration.Display)
 			}
 		}
-		if info.Extension != nil && info.Extension.Host != nil && !node.hasReplacedPlugin(info.Summary.Name) {
+		if info.Extension != nil && info.Extension.Host != nil && !node.hasReplacedPlugin(reference.Name, reference.Digest) {
 			for _, declaration := range info.Extension.Tools {
 				if declaration.Handler != nil {
 					alias := operations.Alias(info.Summary.Name, declaration.Name)
-					tools = slices.DeleteFunc(tools, func(tool engine.Tool) bool { return tool.Definition.Name == alias })
+					tools = slices.DeleteFunc(tools, func(tool engine.Tool) bool {
+						return tool.Binding != nil && tool.Binding.Owner == reference && tool.Definition.Name == alias
+					})
 				}
 			}
-			scripts, err := node.scriptTools(ctx, invocation, info, byName)
+			scripts, err := node.scriptTools(ctx, invocation, info, bindings)
 			tools = append(tools, scripts...)
 			if err != nil {
 				return tools, err

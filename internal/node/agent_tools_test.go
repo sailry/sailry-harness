@@ -116,7 +116,7 @@ func (script *agentToolScript) Stream(_ context.Context, call fantasy.Call) (fan
 
 // TestAgentManagementTools runs real turns in which the model discovers and
 // calls the plugin, MCP and skill managers, the role and team catalog tools,
-// a package's roles.* operations and the files package's OCR model tools.
+// a package's roles.* operations and the native OCR tools through historical aliases.
 func TestAgentManagementTools(t *testing.T) {
 	t.Parallel()
 	script := &agentToolScript{}
@@ -137,7 +137,8 @@ func TestAgentManagementTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer node.Stop(context.Background())
-	for _, name := range []string{"files", "brief", "goals", "commands", "retained-mcp"} {
+	installLegacyFilesFixture(t, node, 0)
+	for _, name := range []string{"brief", "goals", "commands", "retained-mcp"} {
 		installPluginFixture(t, node, name)
 	}
 	fixture := t.TempDir()
@@ -562,7 +563,7 @@ func TestAgentManagementTools(t *testing.T) {
 			script.mu.Lock()
 			defer script.mu.Unlock()
 			// add_agent is approved; the next request's add_team and OCR
-			// removal are refused. Only the package operation, which has an
+			// removal are refused. Only the scoped OCR operation, which has an
 			// approval binding, can be remembered.
 			_, added := script.results["agent"]
 			if approval.Source != protocol.ConversationApprovalSourceUser || approval.CanRemember != (added && approval.Index == 1) {

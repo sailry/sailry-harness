@@ -434,9 +434,6 @@ func legacyToolAliases(tools []Tool) map[string]string {
 			}
 			claim(MCPToolName(tool.LegacyServer, legacy), name)
 		}
-		if operations.IsCommandTool(name) {
-			claim(operations.Alias("commands", name), name)
-		}
 		if name == operations.UpdatePlanTool {
 			claim(operations.LegacyUpdatePlanTool, name)
 		}

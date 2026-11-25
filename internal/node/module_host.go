@@ -118,6 +118,10 @@ func (h nodeModuleHost) ConnectComputerMCP(ctx context.Context, inv *store.Agent
 	if ctx.Err() != nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "MCP startup was cancelled"}
 	}
+	ctx = store.WithUser(ctx, inv.User)
+	if err := h.checkComputerEnabled(ctx); err != nil {
+		return nil, err
+	}
 	nativeLaunch, err := h.node.nativeComputerInvocation()
 	if err != nil {
 		return nil, err
@@ -253,7 +257,7 @@ func (h nodeModuleHost) ExternalBrowserCloseOnCancel(ctx context.Context, sessio
 
 func (h nodeModuleHost) PluginCaptured(inv *store.AgentInvocation, name string) (protocol.PluginReference, bool) {
 	for _, ref := range inv.Turn.Plugins {
-		if ref.Name == name {
+		if ref.Name == name && legacyNativeToolPackage(ref.Name, ref.Digest) {
 			return ref, true
 		}
 	}
@@ -267,9 +271,13 @@ func (h nodeModuleHost) PluginInstalled(ctx context.Context, name string) (bool,
 		if err != nil {
 			return err
 		}
-		if current != nil {
+		if current != nil && legacyNativeToolPackage(name, current.Summary.Digest) {
 			installed = true
 			enabled = current.Summary.Enabled
+		} else if current != nil && name == store.NativeMemoryNamespace {
+			// Memory cannot use its native schema while another package owns
+			// the same persisted namespace. Its capture will not match.
+			installed = true
 		}
 		return nil
 	})
@@ -988,23 +996,12 @@ func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg modu
 func (h nodeModuleHost) storageScope(ctx context.Context, inv *store.AgentInvocation, namespace string) (context.Context, protocol.PluginContext, error) {
 	ctx = store.WithCapturedUser(store.WithUser(ctx, inv.User), inv.StorageUser)
 	ref, captured := h.PluginCaptured(inv, namespace)
-	if !captured {
-		err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			current, err := store.ReadPlugin(ctx, db, namespace)
-			if err != nil {
-				return err
-			}
-			if current != nil {
-				ref = plugins.PackageReference(*current)
-			}
-			return nil
-		})
-		if err != nil {
-			return ctx, protocol.PluginContext{}, err
-		}
+	current, err := h.legacyStorageReference(ctx, namespace)
+	if err != nil {
+		return ctx, protocol.PluginContext{}, err
 	}
-	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
-		ref = store.NativeMemoryReference()
+	if !captured {
+		ref = current
 	}
 	scope := protocol.PluginContext{
 		Package:  ref,
@@ -1019,22 +1016,9 @@ func (h nodeModuleHost) storageScope(ctx context.Context, inv *store.AgentInvoca
 }
 
 func (h nodeModuleHost) controllerStorageScope(ctx context.Context, namespace string) (protocol.PluginContext, error) {
-	var ref protocol.PluginReference
-	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		current, err := store.ReadPlugin(ctx, db, namespace)
-		if err != nil {
-			return err
-		}
-		if current != nil {
-			ref = plugins.PackageReference(*current)
-		}
-		return nil
-	})
+	ref, err := h.legacyStorageReference(ctx, namespace)
 	if err != nil {
 		return protocol.PluginContext{}, err
-	}
-	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
-		ref = store.NativeMemoryReference()
 	}
 	if ref.Name == "" {
 		return protocol.PluginContext{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
@@ -1043,6 +1027,30 @@ func (h nodeModuleHost) controllerStorageScope(ctx context.Context, namespace st
 		Package: ref,
 		Surface: protocol.PluginDesktopSurface{Kind: "workspace"},
 	}, nil
+}
+
+func (h nodeModuleHost) legacyStorageReference(ctx context.Context, namespace string) (protocol.PluginReference, error) {
+	var ref protocol.PluginReference
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, namespace)
+		if err != nil {
+			return err
+		}
+		if current != nil {
+			if !legacyNativeToolPackage(namespace, current.Summary.Digest) {
+				return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "native storage is unavailable: its namespace is occupied by another package"}
+			}
+			ref = plugins.PackageReference(*current)
+		}
+		return nil
+	})
+	if err != nil {
+		return protocol.PluginReference{}, err
+	}
+	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
+		ref = store.NativeMemoryReference()
+	}
+	return ref, nil
 }
 
 func (h nodeModuleHost) ProjectExists(ctx context.Context, id string) (bool, error) {
@@ -1278,6 +1286,12 @@ func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) (
 		return nil, nil
 	}
 	host := nodeModuleHost{node: node}
+	claimed := map[string]bool{}
+	for _, reference := range inv.Turn.Plugins {
+		if !legacyNativeToolPackage(reference.Name, reference.Digest) {
+			claimed[reference.Name] = true
+		}
+	}
 	var tools []engine.Tool
 	for _, module := range node.modules.Modules {
 		if !node.moduleServiceAvailable(module.ID()) {
@@ -1292,13 +1306,25 @@ func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) (
 			}
 			return nil, err
 		}
+		for index := range built {
+			if claimed[built[index].LegacyPackage] {
+				// A captured package keeps its aliases even when a particular tool
+				// is not available in this context. The native name stays available.
+				built[index].LegacyPackage, built[index].LegacyServer, built[index].LegacyName = "", "", ""
+			}
+		}
 		tools = append(tools, built...)
 	}
 	return tools, nil
 }
 
-func (node *Node) hasReplacedPlugin(name string) bool {
-	return node.modules.ReplacesPlugin(name)
+func (node *Node) hasReplacedPlugin(name, digest string) bool {
+	for _, module := range node.modules.Modules {
+		if slices.Contains(module.ReplacesPlugins(), name) && node.moduleServiceAvailable(module.ID()) {
+			return legacyNativeToolPackage(name, digest)
+		}
+	}
+	return false
 }
 
 // suppressReplacedInstructions removes legacy plugin manifest instructions for
@@ -1307,12 +1333,26 @@ func (node *Node) suppressReplacedInstructions(inv *store.AgentInvocation) {
 	if len(node.modules.Modules) == 0 || len(inv.Instructions) == 0 {
 		return
 	}
+	owners := map[string]bool{}
+	for _, reference := range inv.Turn.Plugins {
+		prefix := operations.Alias(reference.Name, "")
+		replaced := node.hasReplacedPlugin(reference.Name, reference.Digest)
+		if previous, exists := owners[prefix]; exists {
+			replaced = replaced && previous
+		}
+		owners[prefix] = replaced
+	}
 	inv.Instructions = slices.DeleteFunc(slices.Clone(inv.Instructions), func(item store.AgentInstruction) bool {
 		if len(item.AnyTools) == 0 {
 			return false
 		}
 		for _, alias := range item.AnyTools {
-			if _, replaced := node.modules.LookupTool(alias); replaced {
+			meta, ok := node.modules.LookupTool(alias)
+			if !ok || meta.LegacyPackage == "" {
+				continue
+			}
+			prefix := operations.Alias(meta.LegacyPackage, "")
+			if owners[prefix] && !slices.ContainsFunc(item.AnyTools, func(tool string) bool { return !strings.HasPrefix(tool, prefix) }) {
 				return true
 			}
 		}

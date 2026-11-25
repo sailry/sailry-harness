@@ -55,6 +55,10 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
+	coreCommands := inv.Turn.Config.Resource == nil || inv.Turn.Config.Assistant != nil
+	legacyCommandAliases := !slices.ContainsFunc(inv.Turn.Plugins, func(reference protocol.PluginReference) bool {
+		return reference.Name == "commands" && !legacyNativeToolPackage(reference.Name, reference.Digest)
+	})
 	declarations := slices.Clone(catalog.Tools)
 	for _, command := range commands {
 		declarations = append(declarations, operations.Declaration{Spec: command.Spec, Name: command.Name, Initial: command.Name != "write_command", Display: &command.Display})
@@ -62,13 +66,14 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	var tools []engine.Tool
 	for _, declaration := range declarations {
 		packaged := declaration.Owner.Name != ""
-		if packaged && node.hasReplacedPlugin(declaration.Owner.Name) {
+		if packaged && node.hasReplacedPlugin(declaration.Owner.Name, declaration.Owner.Digest) {
 			continue
 		}
 		if node.codeIndex == nil && codeIndexOperation(declaration.Operation) {
 			continue
 		}
-		if declaration.Owner.Name == "commands" && operations.LegacyCommandTool(declaration.Name) != "" {
+		if coreCommands && declaration.Owner.Name == "commands" && operations.LegacyCommandTool(declaration.Name) != "" &&
+			legacyNativeToolPackage(declaration.Owner.Name, declaration.Owner.Digest) {
 			continue
 		}
 		if !availableOperationTool(inv, declaration) || packaged && !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
@@ -98,6 +103,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		if !packaged && legacyCommandAliases && operations.IsCommandTool(declaration.Name) {
+			tool.LegacyPackage = "commands"
+		}
 		switch declaration.Operation {
 		case protocol.ToolOperationListDirectory, protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines,
 			protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
