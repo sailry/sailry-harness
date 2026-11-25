@@ -159,6 +159,9 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 				if err := decodeBlock(block.Data, &value); err != nil {
 					return call, err
 				}
+				if binding.Provider.Api.Family() == protocol.ConversationModelApiAnthropic && (value.Signature == nil || *value.Signature == "") {
+					continue
+				}
 				part := fantasy.ReasoningPart{Text: value.Text, ProviderOptions: fantasy.ProviderOptions{}}
 				if value.Signature != nil {
 					switch binding.Provider.Api.Family() {
