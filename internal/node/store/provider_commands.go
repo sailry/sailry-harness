@@ -31,6 +31,7 @@ func draftProvider(input protocol.ConversationDiscoveryDraft) protocol.Conversat
 	provider.Authentication = protocol.AuthenticationApiKey
 	provider.Endpoint = input.Endpoint
 	provider.Preset = input.Preset
+	provider.Headers = input.Headers
 	provider.Credential = input.Credential
 	return provider
 }
@@ -163,6 +164,9 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 	}
 	if work.Provider != nil {
 		if err := bindProviderPreset(ctx, db, work.Provider, nil, true); err != nil {
+			return nil, err
+		}
+		if err := providers.ValidateHeaders(*work.Provider); err != nil {
 			return nil, err
 		}
 		if work.Secret == nil && work.Provider.Credential != nil {

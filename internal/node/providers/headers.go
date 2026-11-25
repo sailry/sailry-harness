@@ -41,7 +41,8 @@ func ReservedHeader(name string) bool {
 	return slices.ContainsFunc(reservedHeaders, func(reserved string) bool { return strings.EqualFold(reserved, name) })
 }
 
-func validateHeaders(provider protocol.ConversationProvider) error {
+// ValidateHeaders checks the custom request headers before saving or discovery.
+func ValidateHeaders(provider protocol.ConversationProvider) error {
 	if len(provider.Headers) == 0 {
 		return nil
 	}

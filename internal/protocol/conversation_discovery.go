@@ -59,6 +59,7 @@ type ConversationDiscoveryDraft struct {
 	Api        ConversationModelApi          `json:"api"`
 	Preset     *ConversationPresetsPresetRef `json:"preset,omitempty"`
 	Endpoint   string                        `json:"endpoint"`
+	Headers    map[string]string             `json:"headers,omitempty"`
 	Credential *CredentialRef                `json:"credential"`
 	Secret     *Secret                       `json:"secret"`
 }
@@ -69,6 +70,7 @@ func DefaultConversationDiscoveryDraft() ConversationDiscoveryDraft {
 		Api:        ConversationModelApi(""),
 		Preset:     nil,
 		Endpoint:   "",
+		Headers:    nil,
 		Credential: nil,
 		Secret:     nil,
 	}
@@ -77,6 +79,7 @@ func (value *ConversationDiscoveryDraft) UnmarshalJSON(data []byte) error {
 	type plain ConversationDiscoveryDraft
 	decoded := plain{}
 	decoded.Preset = nil
+	decoded.Headers = nil
 	if err := DecodeObject(data, &decoded, []string{"provider", "api", "endpoint"}, false); err != nil {
 		return err
 	}

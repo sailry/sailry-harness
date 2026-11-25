@@ -34,7 +34,7 @@ func TestCustomHeaderValidation(t *testing.T) {
 	provider.Headers = map[string]string{"X-Test": "a"}
 	provider.Authentication = protocol.AuthenticationClaudeOAuth
 	provider.Endpoint = "https://api.anthropic.com"
-	if err := validateHeaders(provider); err == nil {
+	if err := ValidateHeaders(provider); err == nil {
 		t.Error("a sign-in provider accepted custom headers")
 	}
 }
@@ -58,7 +58,7 @@ func TestDiscoveryForwardsUserAgentAndCustomHeaders(t *testing.T) {
 	}
 	if seen.Get("User-Agent") != "claude-cli/2.1.330 (external, sdk-cli)" || seen.Get("anthropic-version") != "2023-06-01" ||
 		seen.Get("Accept") != "application/json" || seen.Get("x-api-key") != "fixture-key" || seen.Get("Authorization") != "" {
-		t.Fatalf("default discovery headers = %v", seen)
+		t.Fatal("default discovery headers did not match the transport contract")
 	}
 
 	provider.Headers = map[string]string{
@@ -75,6 +75,24 @@ func TestDiscoveryForwardsUserAgentAndCustomHeaders(t *testing.T) {
 	if seen.Get("User-Agent") != "gateway-client/2" || len(seen.Values("User-Agent")) != 1 ||
 		seen.Get("anthropic-beta") != "custom-beta-1" || seen.Get("X-Tenant-Id") != "tenant-a" ||
 		seen.Get("x-api-key") != "fixture-key" || seen.Get("anthropic-version") != "2023-06-01" || seen.Get("Accept") != "application/vnd.gateway+json" {
-		t.Fatalf("custom discovery headers = %v", seen)
+		t.Fatal("custom discovery headers did not preserve overrides and transport credentials")
+	}
+}
+
+func TestDiscoveryHeadersPreserveInjectedCredential(t *testing.T) {
+	provider := protocol.DefaultConversationProvider()
+	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	binding := protocol.DefaultConversationPresetsBinding()
+	binding.KeyInjection = &protocol.PluginModelAuthInjection{Header: "X-Gateway-Key", Template: "Token {key}"}
+	captured := &binding
+	provider.Binding = &captured
+	provider.Headers = map[string]string{"X-Gateway-Key": "untrusted", "User-Agent": "fixture-client"}
+	if ValidateHeaders(provider) != nil {
+		t.Fatal("valid API-key discovery headers were rejected")
+	}
+	secret := protocol.NewSecret("fixture-key")
+	value, err := headers(provider, &secret)
+	if err != nil || value.Get("X-Gateway-Key") != "Token fixture-key" || value.Get("User-Agent") != "fixture-client" || value.Get("Authorization") != "" {
+		t.Fatal("custom discovery headers replaced or duplicated the captured credential injection")
 	}
 }

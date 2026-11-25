@@ -70,7 +70,7 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 	if _, err := OAuthFields(provider); err != nil {
 		return err
 	}
-	if err := validateHeaders(provider); err != nil {
+	if err := ValidateHeaders(provider); err != nil {
 		return err
 	}
 	if provider.BillingRateBps != nil && provider.Authentication != protocol.AuthenticationApiKey {
