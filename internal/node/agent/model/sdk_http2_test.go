@@ -27,7 +27,9 @@ import (
 func TestHTTP2TransportFailureClassification(t *testing.T) {
 	t.Parallel()
 	protocol := http2.StreamError{StreamID: 1, Code: http2.ErrCodeProtocol, Cause: errors.New("received from peer")}
+	internal := http2.StreamError{StreamID: 559, Code: http2.ErrCodeInternal, Cause: errors.New("received from peer")}
 	for _, cause := range []error{
+		internal,
 		protocol,
 		fmt.Errorf("wrapped: %w", protocol),
 		errors.New("http2: client connection lost"),
@@ -46,6 +48,7 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 		fallback bool
 	}{
 		{protocol, true},
+		{internal, false},
 		{&fantasy.ProviderError{Cause: protocol}, true},
 		{fmt.Errorf("wrapped: %w", protocol), true},
 		{http2.ConnectionError(http2.ErrCodeProtocol), false},
@@ -59,11 +62,66 @@ func TestHTTP2TransportFailureClassification(t *testing.T) {
 		}
 	}
 	provider := &fantasy.ProviderError{StatusCode: 200, ResponseBody: []byte(`{"error":{"type":"api_error","message":"stream error: stream ID 1; PROTOCOL_ERROR; received from peer"}}`)}
-	for _, cause := range []error{errors.New(protocol.Error()), protocol, errors.New("http2: client connection lost")} {
+	for _, cause := range []error{internal, errors.New(protocol.Error()), protocol, errors.New("http2: client connection lost")} {
 		provider.Cause = cause
 		if failure := Classify(provider); failure.Kind != InvalidResponse || failure.Retryable() || http2ProtocolFailure(provider) {
 			t.Fatalf("provider diagnostic was treated as a local HTTP/2 failure: %+v", failure)
 		}
+	}
+}
+
+func TestResponsesRetriesHTTP2InternalReset(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	success := fixture(t, "responses-text.sse")
+	consumed := make(chan struct{})
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor != 2 {
+			t.Error("a peer internal error should retry over HTTP/2")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if calls.Add(1) == 1 {
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"Discarded\"}\n\n")
+			w.(http.Flusher).Flush()
+			select {
+			case <-consumed:
+			case <-r.Context().Done():
+			}
+			panic(http.ErrAbortHandler)
+		}
+		_, _ = w.Write(success)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	language.(*sdkModel).client.Transport = responseTransport{base: server.Client().Transport, stall: stallTimeout}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var attempts []Attempt
+	var text string
+	var resets int
+	err = Run(ctx, language, requestCall(t, "responses"), Main, &policyClock{}, func(a Attempt) error {
+		attempts = append(attempts, a)
+		return nil
+	}, func(p fantasy.StreamPart) bool {
+		if p.Type == fantasy.StreamPartTypeTextDelta {
+			text += p.Delta
+			if p.Delta == "Discarded" {
+				close(consumed)
+			}
+		}
+		return true
+	}, func() { text = ""; resets++ })
+	if err != nil || len(attempts) != 2 || calls.Load() != 2 || text != "Read complete" || resets != 1 {
+		t.Fatalf("peer internal reset: err=%v attempts=%d requests=%d text=%q resets=%d", err, len(attempts), calls.Load(), text, resets)
+	}
+	first := attempts[0]
+	if first.Failure == nil || first.Failure.Kind != Network || !strings.Contains(first.Failure.Message, "INTERNAL_ERROR; received from peer") || first.RetryDelay == nil || first.RequestID != attempts[1].RequestID || attempts[1].Failure != nil {
+		t.Fatalf("unexpected recovery: %+v", attempts)
 	}
 }
 

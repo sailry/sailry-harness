@@ -8,26 +8,27 @@ import (
 	"golang.org/x/net/http2"
 )
 
-func http2ProtocolFailure(err error) bool {
+func http2TransportCause(err error) error {
 	var provider *fantasy.ProviderError
 	if errors.As(err, &provider) {
 		if len(provider.ResponseBody) > 0 {
-			return false
+			return nil
 		}
-		err = provider.Cause
+		return provider.Cause
 	}
+	return err
+}
+
+func http2ProtocolFailure(err error) bool {
 	// Go's bundled HTTP/2 StreamError supports errors.As into x/net/http2.
-	stream, ok := errors.AsType[http2.StreamError](err)
+	stream, ok := errors.AsType[http2.StreamError](http2TransportCause(err))
 	return ok && stream.Code == http2.ErrCodeProtocol
 }
 
-func http2ConnectionLost(err error) bool {
-	var provider *fantasy.ProviderError
-	if errors.As(err, &provider) {
-		if len(provider.ResponseBody) != 0 {
-			return false
-		}
-		err = provider.Cause
+func http2Interrupted(err error) bool {
+	err = http2TransportCause(err)
+	if stream, ok := errors.AsType[http2.StreamError](err); ok {
+		return stream.Code == http2.ErrCodeInternal || stream.Code == http2.ErrCodeProtocol
 	}
 	// Go's HTTP/2 transport creates a fresh, unexported plain error when its
 	// connection health check fails. Match the cause, not a provider's prose.
