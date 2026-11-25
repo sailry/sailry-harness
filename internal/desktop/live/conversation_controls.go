@@ -17,17 +17,19 @@ func (r *Runtime) projectControls(c *ui.Context, cv *viewmodel.Conversation, com
 	cv.Session.ReadOnly = !ok || delegated(session)
 	edit, editing := r.conversationEdits[cv.ID]
 	controls := x.pageControls()
+	unassembled := !r.worktreesAssembled()
 	shown := false
 	for i := range cv.Turns {
 		turn := &cv.Turns[i]
 		turn.Editing = nil
 		id, err := protocol.ParseTurnID(turn.ID)
 		if err != nil {
-			turn.Controls = conversation.Controls{ReadOnly: cv.Session.ReadOnly, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
+			turn.Controls = conversation.Controls{ReadOnly: cv.Session.ReadOnly, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true, HideWorktree: unassembled}
 			continue
 		}
 		turn.Controls = controls(id)
 		turn.Controls.NoExport = !r.controller.Connected()
+		turn.Controls.HideWorktree = unassembled
 		if editing && edit.Turn == id {
 			shown = true
 			turn.Editing = &conversation.Editing{Text: edit.Input.Text, Pending: edit.pending}

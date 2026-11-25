@@ -105,10 +105,13 @@ type Editing struct {
 // Controls is which actions of a turn apply; the zero value enables them
 // all. ReadOnly, a delegated or unowned session, hides Edit and the fork
 // menu; the rest disable their control. Busy is a fork or rewind of the turn
-// in flight: the fork menu shows a loader and is disabled.
+// in flight: the fork menu shows a loader and is disabled. HideWorktree
+// leaves New worktree out of the fork menu: the window assembles no worktree
+// actions.
 type Controls struct {
 	ReadOnly                             bool
 	NoEdit, NoFork, NoRewind, NoWorktree bool
+	HideWorktree                         bool
 	// NoExport disables the export menu: the Node does not answer.
 	NoExport bool
 	Busy     bool

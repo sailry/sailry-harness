@@ -194,7 +194,7 @@ func (s *State) footer(c *ui.Context, t *Turn, over bool, actions Actions) {
 					if m.Item(i18n.T(c, "chat_rewind")).Icon(icons.Undo).Disabled(ctl.NoRewind).Chosen() {
 						s.rewind, s.rewindOf = t.ID, session
 					}
-					if m.Item(i18n.T(c, "worktree_create")).Icon(icons.Plus).Disabled(ctl.NoWorktree).Chosen() {
+					if !ctl.HideWorktree && m.Item(i18n.T(c, "worktree_create")).Icon(icons.Plus).Disabled(ctl.NoWorktree).Chosen() {
 						actions.Worktree(t.ID)
 					}
 				})

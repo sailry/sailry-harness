@@ -133,7 +133,7 @@ func TestRailOpensPages(t *testing.T) {
 		// An archived record's menu restores it; a session's own menu is
 		// the sidebar row's.
 		var restored *viewmodel.Conversation
-		app.Sidebar.Actions = &sidebar.Actions{Unarchive: func(session *viewmodel.Conversation) { restored = session }}
+		app.Sidebar.Actions = &sidebar.Actions{Unarchive: func(session *viewmodel.Conversation) { restored = session }, Worktrees: func(*viewmodel.Project, string, string) {}}
 		if err := tester.RightClick("Archived remote session"); err != nil {
 			t.Fatal(err)
 		}

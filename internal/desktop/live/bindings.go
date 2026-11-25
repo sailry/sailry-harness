@@ -17,6 +17,13 @@ func (r *Runtime) localRuntime() *Runtime {
 	return r
 }
 
+// worktreesAssembled reports whether the window's assembly offers the native
+// worktree actions; every bound Node shares the window's choice.
+func (r *Runtime) worktreesAssembled() bool {
+	actions := r.localRuntime().App.Sidebar.Actions
+	return actions != nil && actions.Worktrees != nil
+}
+
 func (r *Runtime) runtimeFor(node string) *Runtime {
 	root := r.localRuntime()
 	if node == "" || node == root.controller.Target().String() {

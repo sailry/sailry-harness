@@ -48,6 +48,9 @@ type Context struct {
 	// worktree of the conversation's Git project: the bar shows that one
 	// and not the native worktree menu, so there is one such control.
 	PackageBranch bool
+	// NoWorktreeCreate leaves New worktree out of the worktree menu: the
+	// window assembles no worktree actions.
+	NoWorktreeCreate bool
 	// Indicators are the toolbar's progress rings in their order: a
 	// session's context usage. A draft without a session has none.
 	Indicators []Indicator

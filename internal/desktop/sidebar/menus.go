@@ -114,7 +114,8 @@ func (s *State) SessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 				s.notice(c)
 			}
 		}
-		if m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
+		// A live window without the worktree actions offers none.
+		if (s.Actions == nil || s.Actions.ForkWorktree != nil) && m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
 			if s.Actions != nil && s.Actions.ForkWorktree != nil {
 				s.Actions.ForkWorktree(cv)
 			} else if demo {
@@ -206,13 +207,14 @@ func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) 
 	if m.Item(t("project_edit")).Icon(icons.Settings2).Disabled(pr.Offline).Chosen() {
 		s.OpenEditor(pr)
 	}
-	if m.Item(t("worktree_create")).Icon(icons.Plus).Disabled(pr.Offline).Chosen() {
+	trees := s.Actions == nil || s.Actions.Worktrees != nil
+	if trees && m.Item(t("worktree_create")).Icon(icons.Plus).Disabled(pr.Offline).Chosen() {
 		worktrees("create")
 	}
 	if m.Item(t("workspace_copy_path")).Icon(icons.Copy).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
-	if m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(pr.Offline || len(pr.Worktrees) < 2).Chosen() {
+	if trees && m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(pr.Offline || len(pr.Worktrees) < 2).Chosen() {
 		worktrees("remove")
 	}
 	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Disabled(pr.Offline).Chosen() {

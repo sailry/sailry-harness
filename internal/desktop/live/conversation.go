@@ -808,12 +808,12 @@ func (x *conversationActions) Review(turn, path string) {
 	}
 }
 func (x *conversationActions) Worktree(turn string) {
-	if !x.readonly() {
+	if !x.readonly() && x.r.worktreesAssembled() {
 		x.r.forkWorkspaceTurn(x, turn)
 	}
 }
 func (x *conversationActions) CreateWorktree() {
-	if !x.readonly() {
+	if !x.readonly() && x.r.worktreesAssembled() {
 		x.r.createComposerWorktree(x)
 	}
 }

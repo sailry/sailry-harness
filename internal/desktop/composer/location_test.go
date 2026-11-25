@@ -63,6 +63,31 @@ func TestDraftLocationMenu(t *testing.T) {
 	}
 }
 
+func TestWorktreeMenuCreateFollowsAssembly(t *testing.T) {
+	uitest.Parallel(t)
+	for _, hidden := range []bool{false, true} {
+		state := New("local/model")
+		state.Host, state.Project, state.Worktree = "local", "repo", "main"
+		ctx := &Context{Repository: Repository{Kind: Git, Branch: "main"}, NoWorktreeCreate: hidden,
+			Projects: []Project{{ID: "repo", Host: "local", Name: "Repo", Worktrees: []Worktree{{Branch: "main", Main: true}, {Branch: "feature"}}}}}
+		tester := uitest.Fast(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			ui.Column(c).Fill().Justify(ui.End).Padding(20).Children(func() { state.contextBar(c, ctx, nil) })
+		}, 600, 480, "en")
+		if err := tester.Click("main"); err != nil {
+			t.Fatalf("worktree menu: %v; texts=%v", err, tester.Texts())
+		}
+		tester.Advance(300 * time.Millisecond)
+		tester.Frame()
+		if !tester.HasText("feature") {
+			t.Fatalf("worktree menu did not open: %v", tester.Texts())
+		}
+		if got := tester.HasText(i18n.In("en", "location_create")); got == hidden {
+			t.Fatalf("New worktree shown = %v with NoWorktreeCreate %v", got, hidden)
+		}
+	}
+}
+
 func TestCapturedLocationCannotChange(t *testing.T) {
 	uitest.Parallel(t)
 	for _, reason := range []string{"readonly", "admitted", "attachments"} {

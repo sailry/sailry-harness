@@ -401,6 +401,9 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, form 
 				}
 			}
 		}
+		if ctx.NoWorktreeCreate {
+			return
+		}
 		m.Separator()
 		if m.Item(i18n.T(c, "location_create")).Icon(icons.Plus).Chosen() {
 			actions.CreateWorktree()

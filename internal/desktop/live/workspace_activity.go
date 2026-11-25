@@ -96,6 +96,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 	if r.workspace == nil {
 		r.initWorkspace()
 	}
+	ctx.NoWorktreeCreate = !r.worktreesAssembled()
 	r.projectWorkspaceLocations()
 	session, ok := r.session(cv.ID)
 	if !ok {
