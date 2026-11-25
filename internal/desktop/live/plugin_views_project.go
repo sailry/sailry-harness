@@ -39,17 +39,15 @@ const (
 )
 
 // projectPluginMenu merges the project's enabled package entries with native
-// Desktop actions in their declared order. New terminal follows the commands
-// package's enabled choice. Worktrees uses the selected native adapter, not a
-// replaced package record. The commands package's CLI submenu and the git
-// package's Manage branches are not mounted here.
+// Desktop actions in their declared order. Actions supplied by the product
+// do not depend on the project's installed packages.
 func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *viewmodel.Project) {
 	owner := r.projectOverviewRuntime(project)
 	if owner == nil {
 		return
 	}
 	side := r.localRuntime().App.Sidebar
-	terminal := side.Actions != nil && side.Actions.NewTerminal != nil && owner.packageEnabled("commands")
+	terminal := side.Actions != nil && side.Actions.NewTerminal != nil
 	worktrees := side.Actions != nil && side.Actions.Worktrees != nil
 	native := func(before int) {
 		if terminal && projectMenuTerminalOrder <= before {
@@ -81,17 +79,6 @@ func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *vi
 		}
 	}
 	native(math.MaxInt)
-}
-
-// packageEnabled reports whether the Node has the package enabled and can
-// run it.
-func (r *Runtime) packageEnabled(name string) bool {
-	for _, summary := range r.snapshot().Plugins {
-		if summary.Name == name {
-			return summary.Enabled && summary.Compatibility.Kind == "compatible"
-		}
-	}
-	return false
 }
 
 func (r *Runtime) projectPluginChoices(view *ui.Context, menu *ui.Menu, registry *desktopplugins.Registry, entry desktopplugins.ContributionEntry, choices []protocol.PluginUiChoice, enabled bool) {
@@ -150,8 +137,8 @@ func projectMenuDeclared(catalog []protocol.PluginInfo) bool {
 			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
-		for _, declaration := range pluginViewDeclarations(info.Summary.Name, extension.Ui, "project") {
-			if declaration.Slot == protocol.PluginUiSlotProjectMenu {
+		for _, declaration := range extension.Ui {
+			if declaration.Slot == protocol.PluginUiSlotProjectMenu && pluginViewShows(info, declaration, "project") {
 				return true
 			}
 		}

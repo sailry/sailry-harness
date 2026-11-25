@@ -847,7 +847,9 @@ and termination handling.
 
 The Node supplies core conversation tools and captures enabled package tool
 declarations. Session commands use the Node's process service and workspace
-permission rules. The Commands package provides desktop terminal controls.
+permission rules, independently of interactive terminals. Code's native terminal
+module enables the project menu, project overview and conversation-panel terminal
+actions without an installed package. Harness does not assemble these actions.
 Command input is discoverable on demand. The first request exposes everyday
 file reads, discovery, search, writes, edits and patches, Git status and diff,
 code search and outline, and command run, read and stop. Extra Git subcommands,

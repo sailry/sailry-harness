@@ -41,10 +41,15 @@ type liveTerminal struct {
 func (r *Runtime) initLiveTerminals() {
 	r.packages.terminals = map[string]*liveTerminal{}
 	r.App.Panel.TerminalActions = &panel.TerminalActions{
-		View: r.terminalView, Pane: r.terminalPane, Close: r.closeLiveTerminal, Search: r.searchLiveTerminal,
+		Create: r.createPanelTerminal, View: r.terminalView, Pane: r.terminalPane, Close: r.closeLiveTerminal, Search: r.searchLiveTerminal,
 		Folder: r.terminalFolder, Split: r.splitLiveTerminal,
 	}
 	r.initTerminalActions()
+}
+
+func (r *Runtime) terminalAssembled() bool {
+	root := r.localRuntime()
+	return root.packages != nil && root.packages.terminals != nil
 }
 
 func (r *Runtime) terminalOwners() []*Runtime {

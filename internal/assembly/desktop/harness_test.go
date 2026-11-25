@@ -16,6 +16,9 @@ func TestHarnessOmitsCodePages(t *testing.T) {
 	if assembly.Worktrees {
 		t.Fatal("Harness assembled the Code worktree actions")
 	}
+	if assembly.Terminal {
+		t.Fatal("Harness assembled the Code terminal surfaces")
+	}
 	pages := map[shell.Page]bool{}
 	for _, page := range assembly.WorkspacePages {
 		pages[page.Page] = true

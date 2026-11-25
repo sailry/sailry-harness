@@ -5,6 +5,8 @@ import "github.com/egoist/mygo/ui"
 // TerminalActions connect terminal tabs to their Node terminals. A tab's ID
 // is its Node terminal's ID.
 type TerminalActions struct {
+	// Create starts a terminal in the selected workspace and opens it in the panel.
+	Create func()
 	// View builds the terminal's screen in its panel tab.
 	View func(*ui.Context, string)
 	// Pane builds the terminal's screen in a main workspace pane. Its ID is

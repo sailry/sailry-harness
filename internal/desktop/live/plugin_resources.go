@@ -9,30 +9,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// createPanelResource is the live panel's New for a terminal or a browser
-// page. A terminal is a core Node terminal in the selected worktree; a
-// browser page is the panel's own once the window has a WebView.
-func (r *Runtime) createPanelResource(kind panel.Kind) bool {
-	if kind != panel.Terminal && kind != panel.Browser {
+// createPanelBrowser handles New when the live panel has no WebView.
+func (r *Runtime) createPanelBrowser(kind panel.Kind) bool {
+	if kind != panel.Browser {
 		return false
 	}
 	root := r.localRuntime()
-	if kind == panel.Browser && root.browser != nil {
+	if root.browser != nil {
 		return false
 	}
 	owner := root.selectedRuntime()
 	if owner == nil || !owner.controller.Connected() || owner.workspace == nil || owner.workspace.selected == (protocol.WorktreeID{}) {
-		if kind == panel.Terminal {
-			// The panel offers no terminal here (panel.State.Worktree); one
-			// asked for all the same names why it cannot start.
-			root.terminalUnavailable()
-			return true
-		}
 		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "resource creation requires an available workspace"))
-		return true
-	}
-	if kind == panel.Terminal {
-		root.createLiveTerminal(owner, owner.workspace.selected, terminalPanel)
 		return true
 	}
 	root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "workspace resource renderer is unavailable"))

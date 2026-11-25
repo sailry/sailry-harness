@@ -53,6 +53,7 @@ type Runtime struct {
 	connections          *connectionState
 	connectionReferences map[string]*referenceCatalog
 	sshTransfers         *sshTransferStore
+	sshDesktopViews     sshDesktopViews
 	ports                *livePorts
 	pickKeyFile          func(func(string))
 	teams                *teamState
@@ -344,6 +345,7 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
 	r.App.Hooks.ResourceWorkspace = r.resourceWorkspace
+	r.App.Hooks.SSHWorkspace = r.sshWorkspaceForPage
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
@@ -385,8 +387,11 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
+	if assembly.Terminal {
+		r.initLiveTerminals()
+	}
 	r.initPluginViews()
-	r.App.Panel.SetCreateResource(r.createPanelResource)
+	r.App.Panel.SetCreateResource(r.createPanelBrowser)
 	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
 	r.App.Hooks.PluginTitle = r.renderPluginTitle
 	// A Client event may arrive between the first snapshot and subscription.
@@ -448,6 +453,7 @@ func (r *Runtime) Close() error {
 	for _, release := range r.conversationWatches {
 		release()
 	}
+	r.closeSSHDesktopViews()
 	r.closePluginViews()
 	r.closePluginStatus()
 	r.closePluginCards()
@@ -584,10 +590,7 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.App.Panel.Session = false
 	}
 	r.resourceWorkspaceFrame(owner)
-	// A terminal starts in the shown conversation's worktree on a connected
-	// Node; without one the panel does not offer Terminal.
-	r.App.Panel.Worktree = owner != nil && r.packages != nil && r.packages.terminals != nil && owner.controller.Connected() &&
-		owner.workspace != nil && owner.workspace.selected != (protocol.WorktreeID{})
+	r.App.Panel.Worktree = r.terminalAssembled() && panelTerminalWorktree(owner) != (protocol.WorktreeID{})
 	r.nodeSettingsFrame()
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
@@ -655,6 +658,7 @@ func (r *Runtime) afterFrame() {
 	r.releaseComposerCatalogs()
 	r.countFrame()
 	r.pluginViewsAfterFrame()
+	r.finishSSHDesktopViews()
 	r.pruneDrafts()
 	// Each conversation has its own search bar: one whose conversation is no
 	// longer shown closes alone.

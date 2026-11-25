@@ -20,24 +20,20 @@ func TestProjectPluginControls(t *testing.T) {
 		return protocol.PluginUiContribution{ID: id, Slot: slot, Kind: "button"}
 	}
 
-	t.Run("the bundled controls the application draws itself are not mounted", func(t *testing.T) {
-		for name, ids := range map[string][]string{
-			"commands":  {"terminal-new", "terminal-cli", "terminal-menu-new", "terminal-menu-cli"},
-			"worktrees": {"manage"},
-		} {
-			var declarations []protocol.PluginUiContribution
-			for index, id := range ids {
-				slot := protocol.PluginUiSlotProject
-				if index%2 == 1 || name == "worktrees" {
-					slot = protocol.PluginUiSlotProjectMenu
-				}
-				declarations = append(declarations, control(id, slot))
+	t.Run("replaced project controls are not mounted", func(t *testing.T) {
+		legacy := info("commands", protocol.PluginScopeHost,
+			control("terminal-new", protocol.PluginUiSlotProject), control("terminal-cli", protocol.PluginUiSlotProject),
+			control("terminal-menu-new", protocol.PluginUiSlotProjectMenu), control("terminal-menu-cli", protocol.PluginUiSlotProjectMenu))
+		legacy.Extension.Desktop.Renderers = []protocol.PluginDesktopRenderer{{Resource: protocol.PluginDesktopResourceKindTerminal, Create: new("terminal-new")}}
+		competing := info("other", protocol.PluginScopeHost, control("create-shell", protocol.PluginUiSlotProjectMenu))
+		competing.Extension.Desktop.Renderers = []protocol.PluginDesktopRenderer{{Resource: protocol.PluginDesktopResourceKindTerminal, Create: new("create-shell")}}
+		worktrees := info("worktrees", protocol.PluginScopeHost, control("manage", protocol.PluginUiSlotProjectMenu))
+		for _, current := range []protocol.PluginInfo{legacy, competing, worktrees} {
+			if shown := pluginViewDeclarations(current, current.Extension.Ui, "project"); len(shown) != 0 {
+				t.Fatalf("%s project controls = %+v", current.Summary.Name, shown)
 			}
-			if shown := pluginViewDeclarations(name, declarations, "project"); len(shown) != 0 {
-				t.Fatalf("%s project controls = %+v", name, shown)
-			}
-			if projectMenuDeclared([]protocol.PluginInfo{info(name, protocol.PluginScopeHost, declarations...)}) {
-				t.Fatalf("%s keeps a project registry mounted", name)
+			if projectMenuDeclared([]protocol.PluginInfo{current}) {
+				t.Fatalf("%s keeps a project registry mounted", current.Summary.Name)
 			}
 		}
 	})
@@ -47,15 +43,23 @@ func TestProjectPluginControls(t *testing.T) {
 			control("manage", protocol.PluginUiSlotProjectMenu), control("open", protocol.PluginUiSlotProject),
 			control("status", protocol.PluginUiSlotHeader),
 		}
-		shown := pluginViewDeclarations("deploy", declarations, "project")
+		deploy := info("deploy", protocol.PluginScopeHost, declarations...)
+		shown := pluginViewDeclarations(deploy, declarations, "project")
 		if len(shown) != 2 || shown[0].ID != "manage" || shown[1].ID != "open" {
 			t.Fatalf("project controls = %+v", shown)
 		}
-		if shown := pluginViewDeclarations("commands", declarations, "composer"); len(shown) != 1 || shown[0].ID != "status" {
+		if shown := pluginViewDeclarations(deploy, declarations, "composer"); len(shown) != 1 || shown[0].ID != "status" {
 			t.Fatalf("composer controls = %+v", shown)
 		}
-		if !projectMenuDeclared([]protocol.PluginInfo{info("deploy", protocol.PluginScopeHost, declarations...)}) {
+		if !projectMenuDeclared([]protocol.PluginInfo{deploy}) {
 			t.Fatal("a contributed project menu item mounts no registry")
+		}
+	})
+
+	t.Run("a package named commands keeps unrelated project controls", func(t *testing.T) {
+		current := info("commands", protocol.PluginScopeHost, control("terminal-menu-new", protocol.PluginUiSlotProjectMenu))
+		if !projectMenuDeclared([]protocol.PluginInfo{current}) {
+			t.Fatal("a package's name alone reserved its project control")
 		}
 	})
 

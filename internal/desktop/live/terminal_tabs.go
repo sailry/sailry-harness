@@ -89,17 +89,29 @@ func (r *Runtime) initTerminalActions() {
 	actions.CloseTerminal = r.closeLiveTerminal
 }
 
+func panelTerminalWorktree(owner *Runtime) protocol.WorktreeID {
+	if owner == nil || !owner.controller.Connected() || owner.workspace == nil {
+		return protocol.WorktreeID{}
+	}
+	return owner.workspace.selected
+}
+
+func (r *Runtime) createPanelTerminal() {
+	owner := r.selectedRuntime()
+	r.createLiveTerminal(owner, panelTerminalWorktree(owner), protocol.ProcessAccessUnrestricted, terminalPanel)
+}
+
 // createLiveTerminal starts a shell in worktree on owner's Node and shows
 // its surface at once using the request's ID. A failed creation removes it.
-func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeID, placement terminalPlacement) (string, bool) {
+func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeID, access protocol.ProcessAccess, placement terminalPlacement) (string, bool) {
 	root := r.localRuntime()
-	inventory := root.terminalInventory()
-	if owner == nil || root.packages == nil || root.packages.terminals == nil || !owner.controller.Connected() || worktree == (protocol.WorktreeID{}) {
+	if owner == nil || !root.terminalAssembled() || !owner.controller.Connected() || worktree == (protocol.WorktreeID{}) {
 		root.terminalUnavailable()
 		return "", false
 	}
+	inventory := root.terminalInventory()
 	request := owner.controller.Prepare(protocol.Command{Kind: "create_terminal", Data: protocol.TerminalLaunch{
-		Worktree: worktree, Access: protocol.ProcessAccessUnrestricted, Viewport: terminalViewport, Appearance: inventory.appearance,
+		Worktree: worktree, Access: access, Viewport: terminalViewport, Appearance: inventory.appearance,
 	}})
 	id := protocol.TerminalID(request.ID).String()
 	state := &liveTerminal{owner: owner, reading: true}
@@ -152,8 +164,8 @@ func (r *Runtime) terminalUnavailable() {
 	r.localRuntime().enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "terminal_unavailable")) })
 }
 
-// splitLiveTerminal starts a terminal beside terminal id, on its Node and in
-// its worktree.
+// splitLiveTerminal starts a terminal beside terminal id, on its Node, in its
+// worktree and with its access mode. A peer that omits the mode cannot grant full access.
 func (r *Runtime) splitLiveTerminal(id string) (string, bool) {
 	root := r.localRuntime()
 	if _, err := protocol.ParseTerminalID(id); err != nil {
@@ -164,7 +176,11 @@ func (r *Runtime) splitLiveTerminal(id string) (string, bool) {
 		root.terminalUnavailable()
 		return "", false
 	}
-	return root.createLiveTerminal(owner, *info.Worktree, terminalWorkspace)
+	access := protocol.ProcessAccessWorkspace
+	if info.Access != nil {
+		access = *info.Access
+	}
+	return root.createLiveTerminal(owner, *info.Worktree, access, terminalWorkspace)
 }
 
 // liveTerminalInfo is terminal id's Node and latest report: its attachment's,
@@ -254,7 +270,7 @@ func (r *Runtime) newProjectTerminal(project *viewmodel.Project, relative string
 		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
 		return
 	}
-	root.createLiveTerminal(owner, worktree.ID, terminalWorkspace)
+	root.createLiveTerminal(owner, worktree.ID, protocol.ProcessAccessUnrestricted, terminalWorkspace)
 }
 
 // projectTerminals lists the running shells in a project's worktrees on its

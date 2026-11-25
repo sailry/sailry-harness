@@ -226,10 +226,9 @@ func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) 
 // reference's groups in its order: the project's page and editor, what is
 // made in it, its path, its removal. The reference's own items are Project
 // overview, Edit project, New session, Copy path and Remove project; what
-// follows New session is the project_menu slot's, the enabled packages'
-// entries. The live window fills the slot through Actions.ProjectMenu; a
-// sample dataset has the bundled packages' two, New terminal and the
-// worktrees, which act on it in memory.
+// follows New session is the project_menu slot for native and contributed
+// actions. The live window fills the slot through Actions.ProjectMenu; the
+// sample's New terminal and worktree actions stay in memory.
 func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if m.Item(t("workspace_project")).Chosen() {
@@ -271,9 +270,7 @@ func (s *State) OpenOverview(c *ui.Context, pr *preview.Project) {
 	}
 }
 
-// TerminalItem is the project menu's New terminal, the commands package's
-// entry in the project_menu slot, which the application draws itself as it
-// owns the terminals.
+// TerminalItem draws the native New terminal entry in the project menu.
 func (s *State) TerminalItem(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	if !m.Item(i18n.T(c, "workspace_new_terminal")).Disabled(pr.Offline).Chosen() {
 		return

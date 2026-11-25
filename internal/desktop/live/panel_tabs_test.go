@@ -351,7 +351,7 @@ func panelTabs(t *testing.T) {
 		}
 	}
 	// Asked for all the same, the creation names its reason.
-	r.createPanelResource(panel.Terminal)
+	app.Panel.New(panel.Terminal)
 	settle()
 	if !tester.HasText(text("terminal_unavailable")) || tester.HasText(text("chat_action_failed")) || len(app.Panel.Tabs) != 0 {
 		t.Fatalf("a terminal that cannot start does not say why: %q", tester.Texts())
@@ -455,17 +455,29 @@ func panelTabs(t *testing.T) {
 	closes("session Browser", text("browser_empty"), browser)
 	closes("session Files", text("file_empty"), openKind(panel.Files))
 	closes("session file", "README.md", show(panel.Tab{Kind: panel.Files, ID: "README.md"}))
-	closes("session Git", "", openKind(panel.Changes))
-	closes("session diff", "README.md", show(panel.Tab{Kind: panel.Changes, ID: "README.md"}))
+	workspace := r.workspace.projects[session.Worktree]
+	diff := panel.Tab{Kind: panel.Changes, ID: "README.md"}
+	closes("session Git", diff.ID, func() panel.Tab {
+		// Closing the diff clears its selection. A status read picks the first change without opening it.
+		workspace.inspectGit()
+		wait("the first Git change to be selected", func() bool { return workspace.panel.Git.Change() == diff.ID })
+		if len(app.Panel.Tabs) != 0 {
+			t.Fatalf("reading Git status opened tabs: %v", app.Panel.Tabs)
+		}
+		app.Panel.Open(panel.Changes)
+		return diff
+	})
+	closes("session diff", diff.ID, show(diff))
 	closes("session Artifact", "Code editor", artifact)
 	closes("session Subagent", text("chat_child_unavailable"), child)
 	// A changed worktree reported again does not reopen the closed diff.
 	if err := os.WriteFile(filepath.Join(folder, "README.md"), []byte("# Panel\n\nchanged again\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r.workspace.projects[session.Worktree].refresh()
-	settle()
-	settle()
+	workspace.refresh()
+	wait("the refreshed Git status", func() bool {
+		return !workspace.loading["git-status"] && workspace.panel.Git.Change() == diff.ID
+	})
 	if len(app.Panel.Tabs) != 0 {
 		t.Fatalf("a Git refresh reopened a closed tab: %v", app.Panel.Tabs)
 	}

@@ -10,6 +10,7 @@ import (
 	harness "github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -20,13 +21,18 @@ import (
 
 func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 	for _, assembly := range []struct {
-		name string
-		open func() shell.Assembly
-		code bool
+		name             string
+		open             func() shell.Assembly
+		code, terminalUI bool
 	}{
-		{"empty", func() shell.Assembly { return shell.Assembly{} }, false},
-		{"Harness", harness.Harness, false},
-		{"Code contributions", testassembly.Full, true},
+		{"empty", func() shell.Assembly { return shell.Assembly{} }, false, false},
+		{"Harness", harness.Harness, false, false},
+		{"Code contributions", testassembly.Full, true, true},
+		{"Code without terminal surfaces", func() shell.Assembly {
+			assembly := testassembly.Full()
+			assembly.Terminal = false
+			return assembly
+		}, true, false},
 	} {
 		for _, section := range []settings.Section{settings.Conversation, "plugin:fixture"} {
 			t.Run(assembly.name+"/"+string(section), func(t *testing.T) {
@@ -35,7 +41,9 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				snapshot := protocol.DefaultSnapshot()
 				snapshot.Node, snapshot.Projects = protocol.NodeID{1}, []protocol.Project{project}
 				snapshot.Worktrees = []protocol.Worktree{{ID: protocol.WorktreeID{1}, Project: &project.ID, Path: project.Path, Main: true}}
-				snapshot.Plugins = []protocol.PluginSummary{{Name: "commands", Enabled: true, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}}
+				if assembly.name != "Harness" {
+					snapshot.Plugins = []protocol.PluginSummary{{Name: "commands", Enabled: !assembly.terminalUI, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}}
+				}
 				controller, source := optionalDesktopController(t, snapshot)
 				root, err := NewWithAssembly(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")), assembly.open())
 				if err != nil {
@@ -62,11 +70,17 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				if model.CodeIndexAvailable != assembly.code || (model.SaveCodeIndex != nil) != assembly.code || (model.SavePersistentCodeIndex != nil) != assembly.code {
 					t.Fatalf("code-index settings callbacks disagree with the assembly: available %v, save %v, persistent %v", model.CodeIndexAvailable, model.SaveCodeIndex != nil, model.SavePersistentCodeIndex != nil)
 				}
-				if (root.packages.terminals != nil) != assembly.code || (root.App.Panel.TerminalActions != nil) != assembly.code {
+				if root.terminalAssembled() != assembly.terminalUI || (root.App.Panel.TerminalActions != nil) != assembly.terminalUI {
 					t.Fatal("terminal panel adapters disagree with the assembly")
 				}
-				if root.App.Sidebar.Actions == nil || (root.App.Sidebar.Actions.NewTerminal != nil) != assembly.code {
+				if root.App.Sidebar.Actions == nil || (root.App.Sidebar.Actions.NewTerminal != nil) != assembly.terminalUI {
 					t.Fatal("terminal sidebar action disagrees with the assembly")
+				}
+				if !assembly.terminalUI {
+					root.App.Panel.New(panel.Terminal)
+					if len(root.App.Panel.Tabs) != 0 || len(source.sent("create_terminal")) != 0 {
+						t.Fatal("opening a live terminal without the module created a tab or sent a command")
+					}
 				}
 				if (root.App.Sidebar.Actions.Worktrees != nil) != assembly.code {
 					t.Fatal("worktree sidebar action disagrees with the assembly")
@@ -99,8 +113,8 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				if err := menu.RightClick("Project menu"); err != nil {
 					t.Fatal(err)
 				}
-				if got := slices.Contains(menu.Menu(), terminal); got != assembly.code {
-					t.Fatalf("project menu terminal = %v, want %v: %v", got, assembly.code, menu.Menu())
+				if got := slices.Contains(menu.Menu(), terminal); got != assembly.terminalUI {
+					t.Fatalf("project menu terminal = %v, want %v: %v", got, assembly.terminalUI, menu.Menu())
 				}
 			})
 		}

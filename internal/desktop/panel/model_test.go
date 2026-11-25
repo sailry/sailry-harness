@@ -1,13 +1,14 @@
 package panel
 
 import (
-	"github.com/sailry/sailry-harness/internal/desktop/kit/kittest"
+	"fmt"
 	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/kittest"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
@@ -63,6 +64,7 @@ func testSessionResources(t *testing.T) {
 		t.Fatalf("a live draft lists %v", got)
 	}
 	// Terminal starts another terminal every time; Browser shows its page.
+	s.TerminalActions = &TerminalActions{Create: func() { s.Show(Tab{Terminal, fmt.Sprint(s.pages + 1)}) }}
 	s.Open(Terminal)
 	s.Open(Browser)
 	s.Open(Terminal)
@@ -73,7 +75,7 @@ func testSessionResources(t *testing.T) {
 	// Closing a live terminal's tab asks first, then ends its shell: the
 	// tab leaves when its Node has closed the terminal.
 	var closed []string
-	s.TerminalActions = &TerminalActions{Close: func(id string) { closed = append(closed, id) }}
+	s.TerminalActions.Close = func(id string) { closed = append(closed, id) }
 	tt := ui.NewTester(func(c *ui.Context) { View(c, s, nil, kit.KeyText) }, 560, 600)
 	tt.SetLocale("en")
 	if s.Close(Tab{Terminal, "3"}); len(s.Tabs) != 3 || len(closed) != 0 {

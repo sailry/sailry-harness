@@ -4,7 +4,6 @@ package live
 
 import (
 	"context"
-	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,6 +17,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
+	"github.com/sailry/sailry-harness/internal/desktop/testplugin"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -34,6 +35,8 @@ type terminalUI struct {
 	gate       *terminalGate
 	closed     bool
 }
+
+const terminalWindowWidth = 1440
 
 func (w *terminalUI) frame() {
 	w.tester.Advance(16 * time.Millisecond)
@@ -188,6 +191,34 @@ func (w *terminalUI) buttons(name string) []ui.AccessInfo {
 	return found
 }
 
+// terminalTabButtons excludes workspace tabs, terminal screens and sidebar rows.
+func (w *terminalUI) terminalTabButtons() []ui.AccessInfo {
+	left := terminalWindowWidth - w.runtime.App.PanelWidth
+	return slices.DeleteFunc(w.buttons("Terminal"), func(entry ui.AccessInfo) bool {
+		bounds := entry.Bounds
+		return bounds.X < left || bounds.Y+bounds.H > shell.HeaderHeight
+	})
+}
+
+func (w *terminalUI) clickTerminalTabClose(id string) {
+	w.t.Helper()
+	var tab ui.AccessInfo
+	w.wait("terminal "+id+"'s detail tab at rest", func() bool {
+		ids, buttons := w.terminalTabs(), w.terminalTabButtons()
+		index := slices.Index(ids, id)
+		if index < 0 || len(buttons) != len(ids) {
+			return false
+		}
+		previous := tab.Bounds
+		tab = buttons[index]
+		return tab.Bounds == previous && tab.Bounds.X+tab.Bounds.W <= terminalWindowWidth
+	})
+	x, y := tab.Bounds.X+tab.Bounds.W-14, tab.Bounds.Y+tab.Bounds.H/2
+	w.tester.Move(x, y)
+	w.frame()
+	w.tester.ClickAt(x, y)
+}
+
 // corePanes fails unless every terminal surface names a Node terminal.
 func (w *terminalUI) corePanes(label string) {
 	w.t.Helper()
@@ -203,7 +234,7 @@ func (w *terminalUI) dragToMain(from ui.AccessInfo) {
 	sx, sy := center(from.Bounds)
 	app := w.runtime.App
 	left := shell.RailWidth + app.NavWidth
-	right := float32(1440)
+	right := float32(terminalWindowWidth)
 	if app.PanelOpen {
 		right -= app.PanelWidth
 	}
@@ -237,18 +268,33 @@ func center(bounds ui.Rect) (float32, float32) {
 	return bounds.X + bounds.W/2, bounds.Y + bounds.H/2
 }
 
-// beside is the button named name on from's row to its right, as a pane
-// header's close button after its drag handle.
-func (w *terminalUI) beside(from ui.AccessInfo, name string) ui.AccessInfo {
+func (w *terminalUI) clickWorkspaceTerminalClose(id string) {
 	w.t.Helper()
-	_, y := center(from.Bounds)
-	for _, candidate := range w.buttons(name) {
-		if _, cy := center(candidate.Bounds); cy > y-4 && cy < y+4 && candidate.Bounds.X > from.Bounds.X {
-			return candidate
+	var closeButton ui.AccessInfo
+	w.wait("the workspace pane's Close button for "+id+" at rest", func() bool {
+		targets := w.paneTargets()
+		index := slices.Index(targets, panes.Target{Kind: panes.Terminal, ID: id})
+		// The handles and the layout's leaves are both in pane traversal order.
+		handles := w.named(ui.RoleButton, "Drag to split")
+		if index < 0 || len(handles) != len(targets) {
+			return false
 		}
-	}
-	w.t.Fatalf("no %q button beside %q at %+v; visible text: %q", name, from.Name, from.Bounds, w.tester.Texts())
-	return ui.AccessInfo{}
+		h := handles[index].Bounds
+		buttons := slices.DeleteFunc(w.named(ui.RoleButton, "Close"), func(entry ui.AccessInfo) bool {
+			b := entry.Bounds
+			gap := b.X - (h.X + h.W)
+			return entry.Disabled || b.Y != h.Y || b.W != h.W || b.H != h.H || gap < 0 || gap > 6
+		})
+		if len(buttons) != 1 {
+			return false
+		}
+		previous := closeButton.Bounds
+		closeButton = buttons[0]
+		x, y := center(closeButton.Bounds)
+		w.tester.Move(x, y)
+		return closeButton.Bounds == previous
+	})
+	w.clickOn(closeButton)
 }
 
 func (w *terminalUI) click(label string) {
@@ -256,6 +302,88 @@ func (w *terminalUI) click(label string) {
 	if err := w.tester.Click(label); err != nil {
 		w.t.Fatalf("click %q: %v; visible text: %q", label, err, w.tester.Texts())
 	}
+}
+
+func (w *terminalUI) clickProjectTerminal(project string) {
+	w.t.Helper()
+	x, y := center(w.sidebarRow(project).Bounds)
+	w.tester.RightClickAt(x, y)
+	const label = "Create terminal"
+	items := w.tester.Menu()
+	count := 0
+	for _, item := range items {
+		if item == label {
+			count++
+		}
+	}
+	if count != 1 {
+		w.t.Fatalf("project menu has %d %q entries, want one: %q", count, label, items)
+	}
+	if err := w.tester.ChooseMenuItem(label); err != nil {
+		w.t.Fatalf("project New terminal: %v", err)
+	}
+}
+
+func (w *terminalUI) clickPanelTerminal() {
+	w.t.Helper()
+	w.frame()
+	app := w.runtime.App
+	if !app.PanelOpen {
+		toggle := w.one(ui.RoleButton, "Details")
+		if toggle.Disabled || toggle.Bounds.Y+toggle.Bounds.H > shell.HeaderHeight {
+			w.t.Fatalf("no enabled Details toggle in the header: %+v", toggle)
+		}
+		w.clickOn(toggle)
+	}
+	insidePanel := func(b ui.Rect) bool {
+		return b.X >= terminalWindowWidth-app.PanelWidth && b.X+b.W <= terminalWindowWidth
+	}
+	var items []ui.AccessInfo
+	if len(app.Panel.Tabs) == 0 {
+		launcher := func(label string) []ui.AccessInfo {
+			return slices.DeleteFunc(w.named(ui.RoleButton, label), func(entry ui.AccessInfo) bool {
+				return !insidePanel(entry.Bounds) || entry.Bounds.Y < shell.HeaderHeight
+			})
+		}
+		var previous ui.Rect
+		w.wait("the right panel launcher at rest", func() bool {
+			browser := launcher("Browser")
+			if !app.PanelOpen || len(app.Panel.Tabs) != 0 || len(browser) != 1 || browser[0].Disabled {
+				return false
+			}
+			stable := browser[0].Bounds == previous
+			previous = browser[0].Bounds
+			items = launcher("Terminal")
+			return stable
+		})
+	} else {
+		var add ui.AccessInfo
+		w.wait("the panel add button at rest", func() bool {
+			for _, entry := range w.named(ui.RoleMenuButton, "Details") {
+				if entry.Disabled || !insidePanel(entry.Bounds) || entry.Bounds.Y+entry.Bounds.H > shell.HeaderHeight {
+					continue
+				}
+				previous := add.Bounds
+				add = entry
+				return add.Bounds == previous
+			}
+			return false
+		})
+		w.clickOn(add)
+		w.wait("the panel add menu opens", func() bool {
+			items = items[:0]
+			opened := false
+			for _, role := range []ui.Role{ui.RoleMenuItem, ui.RoleMenuItemCheckBox, ui.RoleMenuItemRadio} {
+				opened = opened || len(w.named(role, "Browser")) != 0
+				items = append(items, w.named(role, "Terminal")...)
+			}
+			return opened
+		})
+	}
+	if len(items) != 1 || items[0].Disabled {
+		w.t.Fatalf("want one enabled Terminal entry in the right panel, got %+v", items)
+	}
+	w.clickOn(items[0])
 }
 
 // openTerminalWindow starts a Client and a Runtime on owner, as a launch of
@@ -277,7 +405,7 @@ func openTerminalWindow(t *testing.T, ctx context.Context, owner *node.Node, pro
 	}
 	runtime.OpenSession(session.ID.String())
 	runtime.App.NavOpen = true
-	tester := ui.NewTester(runtime.App.View, 1440, 1000)
+	tester := ui.NewTester(runtime.App.View, terminalWindowWidth, 1000)
 	tester.SetLocale("en")
 	window := &terminalUI{t: t, ctx: ctx, controller: controller, runtime: runtime, tester: tester, gate: gate}
 	window.wait("session workspace", func() bool {
@@ -295,26 +423,32 @@ func (w *terminalUI) close() {
 	_ = w.controller.Close()
 }
 
-// TestLiveTerminalIntegration is the terminal acceptance against a real
-// Node and real PTYs: creation by the shortcut, input and output, the starting
-// folder, split panes, pane and terminal closing, reattachment by a new
-// window and the Node's terminal settings. terminalFindAndSettings goes on
-// with the find bar, the rest of Settings › Terminal and the terminal
-// preferences of the window.
-func TestLiveTerminalIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
-	defer cancel()
+type terminalFixture struct {
+	owner   *node.Node
+	setup   *client.Client
+	profile string
+	folder  string
+	project protocol.Project
+	session protocol.Session
+	config  protocol.SessionConfig
+	do      func(protocol.Command) protocol.Output
+}
+
+const terminalSessionTitle = "Terminal conversation"
+
+func newTerminalFixture(t *testing.T, ctx context.Context) terminalFixture {
+	t.Helper()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.Start(ctx, profile)
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Assembly: panelProjectionHost()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Stop(context.Background())
+	t.Cleanup(func() { _ = owner.Stop(context.Background()) })
 	setup := client.New(link.NewLocal(owner.ID(), owner.ID(), owner))
+	t.Cleanup(func() { _ = setup.Close() })
 	if err := setup.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer setup.Close()
 	do := func(command protocol.Command) protocol.Output {
 		t.Helper()
 		output, err := setup.Do(ctx, command)
@@ -322,31 +456,6 @@ func TestLiveTerminalIntegration(t *testing.T) {
 			t.Fatalf("%s: %v", command.Kind, err)
 		}
 		return output
-	}
-	// The profile stays the default one: its bundled commands package is
-	// enabled and declares a terminal renderer with a creation contribution.
-	// Local terminals are core-owned, so that renderer must never be mounted.
-	declared := false
-	for _, summary := range setup.Snapshot().Plugins {
-		if !summary.Enabled {
-			continue
-		}
-		info, valid := detail[protocol.PluginInfo](do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: summary.Name}}).Data)
-		if !valid {
-			t.Fatalf("package %q was not returned", summary.Name)
-		}
-		if info.Extension == nil || info.Extension.Desktop == nil {
-			continue
-		}
-		for _, renderer := range info.Extension.Desktop.Renderers {
-			if renderer.Resource == "terminal" && renderer.Create != nil {
-				declared = true
-				t.Logf("fixture: enabled package %q declares a terminal renderer created by %q", summary.Name, *renderer.Create)
-			}
-		}
-	}
-	if !declared {
-		t.Fatal("the default profile enables no package that declares a terminal renderer")
 	}
 	folder, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -370,11 +479,25 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if !valid {
 		t.Fatal("created session was not returned")
 	}
-	const sessionTitle = "Terminal conversation"
 	do(protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{
-		Session: session.ID, ExpectedRevision: session.Revision, Title: sessionTitle,
+		Session: session.ID, ExpectedRevision: session.Revision, Title: terminalSessionTitle,
 	}})
+	return terminalFixture{owner: owner, setup: setup, profile: profile, folder: folder, project: project, session: session, config: config, do: do}
+}
 
+// TestLiveTerminalIntegration is the zero-plugin acceptance against a real
+// Node and real PTYs: creation from the project menu, the conversation panel
+// and the shortcut; input and output, the starting folder, split panes,
+// close and reattachment, and Settings › Terminal.
+func TestLiveTerminalIntegration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
+	defer cancel()
+	fixture := newTerminalFixture(t, ctx)
+	owner, profile, setup, do := fixture.owner, fixture.profile, fixture.setup, fixture.do
+	project, session, config, folder := fixture.project, fixture.session, fixture.config, fixture.folder
+	if plugins, valid := detail[[]protocol.PluginSummary](do(protocol.Command{Kind: "list_plugins"}).Data); !valid || len(plugins) != 0 {
+		t.Fatalf("the fresh terminal profile must have zero plugins: %+v", plugins)
+	}
 	window := openTerminalWindow(t, ctx, owner, profile, session, nil)
 	closed := false
 	defer func() {
@@ -412,7 +535,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	// The marker is computed by the shell, so the echoed command line cannot
 	// satisfy the check.
 	const marker = "sailry-b10-42-scrollback"
-	window.run("first terminal", first, "echo sailry-b10-$((40+2))-scrollback", marker)
+	window.run("first terminal", first, "[ -t 0 ] && [ -t 1 ] && echo sailry-b10-$((40+2))-scrollback", marker)
 	t.Log("step 2 passed: the shell's output is on the window's screen and in the Node mirror")
 
 	// (3) The terminal starts in its session's worktree; the tab has no folder bar.
@@ -431,7 +554,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	// (4) A detail terminal cannot become a main pane. A project's New
 	// terminal opens a standalone main surface, which can split with a
 	// conversation and another terminal.
-	tabs := window.buttons("Terminal")
+	tabs := window.terminalTabButtons()
 	if len(tabs) == 0 {
 		t.Fatalf("no terminal tab to drag; visible text: %q", window.tester.Texts())
 	}
@@ -443,30 +566,30 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if len(window.paneTargets()) != 0 || len(app.WorkspaceTerminalIDs()) != 0 || !slices.Equal(window.terminalTabs(), []string{first}) || window.runtime.terminalInventory().paned[first] {
 		t.Fatalf("a detail tab entered the main workspace: tabs %v, workspace %v, panes %v", window.terminalTabs(), app.WorkspaceTerminalIDs(), window.paneTargets())
 	}
-	projectRow := window.sidebarRow(project.Name)
-	x, y := center(projectRow.Bounds)
-	window.tester.RightClickAt(x, y)
-	if err := window.tester.ChooseMenuItem("Create terminal"); err != nil {
-		t.Fatalf("project New terminal: %v; menu %q", err, window.tester.Menu())
-	}
+	window.clickProjectTerminal(project.Name)
 	window.wait("the project menu opens an independent main terminal", func() bool {
 		ids := app.WorkspaceTerminalIDs()
 		return len(ids) == 1 && window.status(ids[0]) == "running" && app.FocusedConversation() == ""
 	})
 	workspaceFirst := app.WorkspaceTerminalIDs()[0]
-	if app.Sidebar.Selected != session.ID.String() || app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: workspaceFirst}) || !slices.Equal(window.terminalTabs(), []string{first}) {
-		t.Fatalf("project terminal changed the conversation's detail scope: selected %q, tabs %v", app.Sidebar.Selected, window.terminalTabs())
+	sessionID := session.ID.String()
+	detailTab := panel.Tab{Kind: panel.Terminal, ID: first}
+	if app.Sidebar.Selected != sessionID || app.ActiveTerminal() != workspaceFirst || app.PanelOpen || len(app.Panel.Tabs) != 0 ||
+		app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: workspaceFirst}) || !slices.Equal(app.ConversationTabs(sessionID), []panel.Tab{detailTab}) ||
+		app.ConversationActiveTab(sessionID) != detailTab || window.status(first) != "running" {
+		t.Fatalf("project terminal changed the conversation's detail scope: selected %q, active terminal %q, open %v, shown tabs %v, conversation tabs %v, Node %s",
+			app.Sidebar.Selected, app.ActiveTerminal(), app.PanelOpen, app.Panel.Tabs, app.ConversationTabs(sessionID), window.nodeTerminals())
 	}
 	if info := window.info(workspaceFirst); info.Worktree == nil || *info.Worktree != session.Worktree {
 		t.Fatalf("the project terminal has the wrong worktree: %+v", info)
 	}
 	const workspaceMarker = "main-terminal-42"
-	window.run("project main terminal", workspaceFirst, "echo main-terminal-$((6*7))", workspaceMarker)
+	window.run("project main terminal", workspaceFirst, "[ -t 0 ] && [ -t 1 ] && echo main-terminal-$((6*7))", workspaceMarker)
 	window.wait("the conversation has its sidebar title", func() bool {
 		cv := app.Data.Find(session.ID.String())
-		return cv != nil && cv.Title == sessionTitle
+		return cv != nil && cv.Title == terminalSessionTitle
 	})
-	conversationRow := window.sidebarRow(sessionTitle)
+	conversationRow := window.sidebarRow(terminalSessionTitle)
 	window.dragToMain(conversationRow)
 	window.wait("the conversation splits beside the main terminal", func() bool {
 		return window.paned(workspaceFirst) && window.runtime.terminalInventory().paned[workspaceFirst] &&
@@ -522,8 +645,12 @@ func TestLiveTerminalIntegration(t *testing.T) {
 			second = id
 		}
 	}
-	if second == workspaceFirst || window.status(workspaceFirst) != "running" || !window.paned(workspaceFirst) || !slices.Equal(window.terminalTabs(), []string{first}) {
-		t.Fatalf("the split disturbed another terminal: tabs %v, workspace %v, panes %v, Node %s", window.terminalTabs(), app.WorkspaceTerminalIDs(), window.paneTargets(), window.nodeTerminals())
+	if second == workspaceFirst || window.status(workspaceFirst) != "running" || !window.paned(workspaceFirst) ||
+		app.ActiveTerminal() != second || app.PanelOpen || len(app.Panel.Tabs) != 0 ||
+		!slices.Equal(app.ConversationTabs(sessionID), []panel.Tab{detailTab}) || app.ConversationActiveTab(sessionID) != detailTab ||
+		app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: second}) {
+		t.Fatalf("the split disturbed another terminal: shown tabs %v, conversation tabs %v, workspace %v, panes %v, Node %s",
+			app.Panel.Tabs, app.ConversationTabs(sessionID), app.WorkspaceTerminalIDs(), window.paneTargets(), window.nodeTerminals())
 	}
 	if info := window.info(second); info.Worktree == nil || *info.Worktree != session.Worktree {
 		t.Fatalf("the split terminal is not in the pane's worktree: %+v", info)
@@ -537,9 +664,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 
 	// (5) Closing a main terminal surface detaches it immediately. The
 	// process survives and project navigation can attach it again.
-	handles = window.buttons("Drag to split")
-	x, y = center(window.beside(handles[0], "Close").Bounds)
-	window.tester.ClickAt(x, y)
+	window.clickWorkspaceTerminalClose(workspaceFirst)
 	window.wait("the main terminal surface detaches", func() bool {
 		return !window.paned(workspaceFirst) && !app.HasWorkspaceTerminal(workspaceFirst) && window.runtime.packages.terminals[workspaceFirst] == nil
 	})
@@ -568,22 +693,9 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	// detail tab. Closing that tab asks first and then ends its shell.
 	window.runtime.showLiveTerminal(second)
 	window.wait("the second terminal's tab", func() bool {
-		return app.Panel.Active.ID == second && len(window.buttons("Terminal")) == 2 && !app.HasWorkspaceTerminal(second) && !window.paned(second)
+		return app.Panel.Active.ID == second && len(window.terminalTabButtons()) == 2 && !app.HasWorkspaceTerminal(second) && !window.paned(second)
 	})
-	var secondTab ui.AccessInfo
-	window.wait("the second terminal's tab at rest", func() bool {
-		found := window.buttons("Terminal")
-		if len(found) != 2 {
-			return false
-		}
-		previous := secondTab.Bounds.X
-		secondTab = found[1]
-		return secondTab.Bounds.X == previous && secondTab.Bounds.X+secondTab.Bounds.W <= 1440
-	})
-	closeX, closeY := secondTab.Bounds.X+secondTab.Bounds.W-14, secondTab.Bounds.Y+secondTab.Bounds.H/2
-	window.tester.Move(closeX, closeY)
-	window.frame()
-	window.tester.ClickAt(closeX, closeY)
+	window.clickTerminalTabClose(second)
 	window.wait("terminal close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
 	if window.status(second) != "running" || !slices.Contains(window.terminalTabs(), second) || app.HasWorkspaceTerminal(second) || window.paned(second) {
 		t.Fatal("the terminal closed before confirmation")
@@ -687,39 +799,13 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	app.Navigate(shell.ConversationPage)
 	window.runtime.OpenSession(session.ID.String())
-	// The strip's + menu creates a terminal in the selected conversation.
-	var add ui.AccessInfo
-	window.wait("the panel add button at rest", func() bool {
-		for _, entry := range window.tester.AccessAll() {
-			if entry.Role != ui.RoleMenuButton || entry.Name != "Details" || entry.Bounds.X < 1440-app.PanelWidth || entry.Bounds.Y+entry.Bounds.H > shell.HeaderHeight {
-				continue
-			}
-			previous := add.Bounds.X
-			add = entry
-			return add.Bounds.X == previous && add.Bounds.X+add.Bounds.W <= 1440
-		}
-		return false
-	})
-	addX, addY := center(add.Bounds)
-	window.tester.ClickAt(addX, addY)
-	var createTerminal ui.AccessInfo
-	window.wait("the panel menu offers Terminal", func() bool {
-		for _, entry := range window.tester.AccessAll() {
-			if (entry.Role == ui.RoleMenuItem || entry.Role == ui.RoleMenuItemCheckBox || entry.Role == ui.RoleMenuItemRadio) && entry.Name == "Terminal" {
-				createTerminal = entry
-				return true
-			}
-		}
-		return false
-	})
-	createX, createY := center(createTerminal.Bounds)
-	window.tester.ClickAt(createX, createY)
+	window.clickPanelTerminal()
 	window.wait("the panel menu creates a Node terminal", func() bool {
 		tabs := window.terminalTabs()
-		return len(tabs) == 2 && window.status(tabs[1]) == "running"
+		return len(tabs) == 2 && tabs[0] == first && app.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: tabs[1]}) && window.status(tabs[1]) == "running"
 	})
 	third := window.terminalTabs()[1]
-	window.run("terminal with the saved variable", third, "echo got-${"+name+"}-end", "got-"+value+"-end")
+	window.run("terminal with the saved variable", third, "[ -t 0 ] && [ -t 1 ] && echo got-${"+name+"}-end", "got-"+value+"-end")
 	t.Log("step 8 passed: the page read the Node's settings and shells, saved " + name + " and Node terminal " + third + " saw it")
 
 	// (9) The same exit handling removes a detail tab. It never moves
@@ -745,10 +831,10 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	// another terminal every time, each with its own shell; another
 	// conversation shows none of them while they keep running, and coming
 	// back shows them again. Closing a tab asks, then ends that shell alone.
-	app.Panel.Open(panel.Terminal)
+	window.clickPanelTerminal()
 	window.wait("Terminal opens a second terminal tab", func() bool {
 		tabs := window.terminalTabs()
-		return len(tabs) == 2 && tabs[0] == first && window.status(tabs[1]) == "running" && len(window.buttons("Terminal")) == 2
+		return len(tabs) == 2 && tabs[0] == first && window.status(tabs[1]) == "running" && len(window.terminalTabButtons()) == 2
 	})
 	fourth := window.terminalTabs()[1]
 	if app.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: fourth}) {
@@ -768,7 +854,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	window.wait("another conversation shows no terminal of this one", func() bool {
 		window.runtime.OpenSession(other.ID.String())
-		return app.Sidebar.Selected == other.ID.String() && len(app.Panel.Tabs) == 0 && !app.PanelOpen && len(window.buttons("Terminal")) == 0
+		return app.Sidebar.Selected == other.ID.String() && len(app.Panel.Tabs) == 0 && !app.PanelOpen && len(window.terminalTabButtons()) == 0
 	})
 	// Hidden, both keep running and stay attached to the window.
 	for range 10 {
@@ -779,8 +865,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 			t.Fatalf("hidden terminal %s did not keep running: Node %s", id, window.nodeTerminals())
 		}
 	}
-	app.PanelOpen = true
-	app.Panel.Open(panel.Terminal)
+	window.clickPanelTerminal()
 	window.wait("the second conversation's own terminal", func() bool {
 		tabs := window.terminalTabs()
 		return len(tabs) == 1 && tabs[0] != first && tabs[0] != fourth && window.status(tabs[0]) == "running"
@@ -789,28 +874,14 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.wait("coming back shows the conversation's terminals", func() bool {
 		window.runtime.OpenSession(session.ID.String())
 		return app.Sidebar.Selected == session.ID.String() && slices.Equal(window.terminalTabs(), []string{first, fourth}) && app.PanelOpen &&
-			app.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: first}) && len(window.buttons("Terminal")) == 2
+			app.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: first}) && len(window.terminalTabButtons()) == 2
 	})
 	if !strings.Contains(window.screen(first), "tab-one-25") || !strings.Contains(window.screen(fourth), "tab-two-42") {
 		t.Fatal("the terminals lost their screens while hidden")
 	}
 	// The second tab's close button: the confirmation, then the Node ends
 	// that shell and the tab leaves.
-	// The panel slides back in: the tab is ready once it has come to rest.
-	var strip ui.AccessInfo
-	window.wait("the second terminal's tab at rest", func() bool {
-		found := window.buttons("Terminal")
-		if len(found) != 2 {
-			return false
-		}
-		previous := strip.Bounds.X
-		strip = found[1]
-		return strip.Bounds.X == previous && strip.Bounds.X+strip.Bounds.W <= 1440
-	})
-	closeX, closeY = strip.Bounds.X+strip.Bounds.W-14, strip.Bounds.Y+strip.Bounds.H/2
-	window.tester.Move(closeX, closeY)
-	window.frame()
-	window.tester.ClickAt(closeX, closeY)
+	window.clickTerminalTabClose(fourth)
 	window.wait("tab close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
 	if window.status(fourth) != "running" || len(window.terminalTabs()) != 2 {
 		t.Fatalf("the tab closed before it was confirmed: %s", window.nodeTerminals())
@@ -844,6 +915,69 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	t.Log("step 9b passed: two terminals ran as two tabs with separate shells, stayed running while another conversation was shown, came back, one closed by its tab after confirmation, and an archived conversation's terminal ended")
 
 	terminalFindAndSettings(t, ctx, window, owner, profile, session, setup, first)
+}
+
+func TestLiveTerminalKeepsLegacyRendererUnmounted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	fixture := newTerminalFixture(t, ctx)
+	installCompetingTerminal(t, ctx, fixture.setup)
+	window := openTerminalWindow(t, ctx, fixture.owner, fixture.profile, fixture.session, nil)
+	defer window.close()
+	var before protocol.PluginInfo
+	window.wait("the competing renderer is in the Desktop inventory", func() bool {
+		before = window.runtime.packages.infos[testplugin.TerminalName]
+		return before.Extension != nil && before.Summary.Enabled && before.Summary.Compatibility.Kind == "compatible"
+	})
+
+	window.clickPanelTerminal()
+	window.wait("the panel entry creates exactly one native terminal", func() bool {
+		tabs := window.terminalTabs()
+		return len(tabs) == 1 && len(window.controller.Snapshot().Terminals) == 1 && window.status(tabs[0]) == "running"
+	})
+	first := window.terminalTabs()[0]
+	window.run("panel terminal with the legacy package enabled", first, "echo legacy-panel-$((6*7))", "legacy-panel-42")
+	assertTerminalRendererUnmounted(t, window.runtime)
+
+	window.clickProjectTerminal(fixture.project.Name)
+	window.wait("the project entry creates exactly one additional native terminal", func() bool {
+		ids := window.runtime.App.WorkspaceTerminalIDs()
+		return len(ids) == 1 && ids[0] != first && len(window.controller.Snapshot().Terminals) == 2 && window.status(first) == "running" && window.status(ids[0]) == "running"
+	})
+	window.run("project terminal with the legacy package enabled", window.runtime.App.WorkspaceTerminalIDs()[0], "echo legacy-project-$((5*5))", "legacy-project-25")
+	window.corePanes("with the legacy package enabled")
+	assertTerminalRendererUnmounted(t, window.runtime)
+	after, valid := detail[protocol.PluginInfo](window.do(protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: testplugin.TerminalName}}).Data)
+	if !valid || packageReference(after.Summary) != packageReference(before.Summary) || !after.Summary.Enabled || after.Summary.Revision != before.Summary.Revision {
+		t.Fatalf("native terminal use changed the legacy package: before %+v, after %+v", before.Summary, after.Summary)
+	}
+}
+
+func assertTerminalRendererUnmounted(t *testing.T, runtime *Runtime) {
+	t.Helper()
+	for key := range runtime.pluginViews.mounts {
+		if key.name == testplugin.TerminalName {
+			t.Fatalf("the native terminal also mounted the competing package: %+v", key)
+		}
+	}
+	for key := range runtime.pluginViews.failures {
+		if key.name == testplugin.TerminalName {
+			t.Fatalf("the native terminal attempted to mount the competing package: %+v", key)
+		}
+	}
+}
+
+func installCompetingTerminal(t *testing.T, ctx context.Context, controller *client.Client) {
+	t.Helper()
+	info, err := testplugin.Install(ctx, controller, testplugin.Terminal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Extension == nil || info.Extension.Desktop == nil || !slices.ContainsFunc(info.Extension.Desktop.Renderers, func(renderer protocol.PluginDesktopRenderer) bool {
+		return renderer.Resource == protocol.PluginDesktopResourceKindTerminal && renderer.Create != nil
+	}) {
+		t.Fatalf("enabled fixture %q has no competing terminal renderer with a creation contribution", info.Summary.Name)
+	}
 }
 
 // fixtureProvider is an enabled provider with one model that a session can

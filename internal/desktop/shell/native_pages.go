@@ -21,6 +21,8 @@ type Assembly struct {
 	Locales        []fs.FS
 	// CodeIndex offers the optional Node code-index settings in Conversation.
 	CodeIndex bool
+	// Terminal offers the native terminal surfaces and actions.
+	Terminal bool
 	// Worktrees offers the native project worktree actions.
 	Worktrees bool
 }

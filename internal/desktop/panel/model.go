@@ -27,8 +27,7 @@ const (
 	Terminal  Kind = "terminal"
 )
 
-// Resource is a kind's tab: its icon and label, and the shortcut that
-// opens it (plugins/catalog.json renderer shortcuts), if any.
+// Resource is a kind's tab: its icon and label, and the shortcut that opens it, if any.
 type Resource struct {
 	Kind  Kind
 	Icon  *ui.SVG
@@ -203,14 +202,19 @@ func (s *State) Open(k Kind) {
 	}
 }
 
-// SetCreateResource gives the live owner of New: it reports whether it took
-// the creation of a browser page or terminal.
+// SetCreateResource lets the live window intercept creation of a browser page.
 func (s *State) SetCreateResource(create func(Kind) bool) { s.createResource = create }
 
 // New opens another browser page or terminal.
 func (s *State) New(k Kind) {
 	// A new browser tab takes the keyboard in its address field.
 	s.focusAddress = k == Browser
+	if s.Live && k == Terminal {
+		if actions := s.TerminalActions; actions != nil && actions.Create != nil {
+			actions.Create()
+		}
+		return
+	}
 	if s.createResource != nil && s.createResource(k) {
 		return
 	}

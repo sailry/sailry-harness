@@ -16,6 +16,7 @@ func Full() shell.Assembly {
 	assembly := harness.Harness()
 	assembly.CodeIndex = true
 	assembly.Worktrees = true
+	assembly.Terminal = true
 	Register(&assembly)
 	if len(assembly.WorkspacePages) == 3 {
 		assembly.WorkspacePages[1], assembly.WorkspacePages[2] = assembly.WorkspacePages[2], assembly.WorkspacePages[1]

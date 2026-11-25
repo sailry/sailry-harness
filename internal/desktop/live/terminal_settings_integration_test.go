@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,6 +21,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -209,13 +209,13 @@ func (w *terminalUI) showTerminal(session protocol.Session, id string) {
 			return false
 		}
 		index := slices.Index(w.terminalTabs(), id)
-		found := w.buttons("Terminal")
+		found := w.terminalTabButtons()
 		if index < 0 || index >= len(found) {
 			return false
 		}
 		previous := tab.Bounds.X
 		tab = found[index]
-		return tab.Bounds.X == previous && tab.Bounds.X+tab.Bounds.W <= 1440 && w.tester.Focused("Terminal")
+		return tab.Bounds.X == previous && tab.Bounds.X+tab.Bounds.W <= terminalWindowWidth && w.tester.Focused("Terminal")
 	})
 }
 
@@ -559,10 +559,10 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 		screen := window.screen(first)
 		return strings.Contains(screen, "b10free-6-a") && strings.Contains(screen, "b10free-8-b")
 	})
-	window.tester.Key(ui.Ctrl, ui.KeyBackquote)
-	window.wait("New terminal creates a Node terminal", func() bool {
+	window.clickPanelTerminal()
+	window.wait("the panel menu creates a Node terminal with the saved settings", func() bool {
 		tabs := window.terminalTabs()
-		return len(tabs) == 2 && window.status(tabs[1]) == "running"
+		return len(tabs) == 2 && tabs[0] == first && app.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: tabs[1]}) && window.status(tabs[1]) == "running"
 	})
 	fresh := window.terminalTabs()[1]
 	window.wait("the new terminal attaches", func() bool {
@@ -576,22 +576,9 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	window.tester.Key(0, ui.KeyEnter)
 	started := regexp.MustCompile(`sh=(-|[^\s=]*/)?` + regexp.QuoteMeta(filepath.Base(chosen.Path)) + `=b10edited=end`)
 	window.wait("the new terminal runs the chosen shell with the edited variable", func() bool {
-		return started.MatchString(window.screen(fresh))
+		return started.MatchString(window.screen(fresh)) && started.MatchString(window.mirror(fresh))
 	})
-	var freshTab ui.AccessInfo
-	window.wait("the new terminal's tab at rest", func() bool {
-		found := window.buttons("Terminal")
-		if len(found) != 2 {
-			return false
-		}
-		previous := freshTab.Bounds.X
-		freshTab = found[1]
-		return freshTab.Bounds.X == previous && freshTab.Bounds.X+freshTab.Bounds.W <= 1440
-	})
-	closeX, closeY := freshTab.Bounds.X+freshTab.Bounds.W-14, freshTab.Bounds.Y+freshTab.Bounds.H/2
-	window.tester.Move(closeX, closeY)
-	window.frame()
-	window.tester.ClickAt(closeX, closeY)
+	window.clickTerminalTabClose(fresh)
 	window.wait("the new terminal's close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
 	if window.status(fresh) != "running" || !slices.Contains(window.terminalTabs(), fresh) {
 		t.Fatal("the new terminal closed before confirmation")

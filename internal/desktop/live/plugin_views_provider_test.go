@@ -65,14 +65,14 @@ func TestProviderPluginSlot(t *testing.T) {
 	providers := []protocol.ConversationProvider{account, key, disabled, revoked, unsigned, preset}
 
 	t.Run("a provider view mounts the provider controls alone", func(t *testing.T) {
-		shown := pluginViewDeclarations("status", declarations, "provider")
+		shown := pluginViewDeclarations(status, declarations, "provider")
 		if len(shown) != 1 || shown[0].ID != "provider_usage" {
 			t.Fatalf("provider controls = %+v", shown)
 		}
-		if shown := pluginViewDeclarations("status", declarations, "composer"); len(shown) != 1 || shown[0].ID != "usage" {
+		if shown := pluginViewDeclarations(status, declarations, "composer"); len(shown) != 1 || shown[0].ID != "usage" {
 			t.Fatalf("composer controls = %+v", shown)
 		}
-		if shown := pluginViewDeclarations("status", declarations[:1], "provider"); len(shown) != 0 {
+		if shown := pluginViewDeclarations(status, declarations[:1], "provider"); len(shown) != 0 {
 			t.Fatalf("a package without a provider control mounts %+v", shown)
 		}
 	})
@@ -140,7 +140,7 @@ func TestProviderPluginSlot(t *testing.T) {
 		})
 		t.Cleanup(func() { _ = registry.Close() })
 		reference := protocol.PluginReference{Name: "status", Digest: strings.Repeat("a", 64)}
-		hooks, err := registry.Hooks(reference, pluginViewDeclarations("status", declarations, "provider"))
+		hooks, err := registry.Hooks(reference, pluginViewDeclarations(status, declarations, "provider"))
 		if err != nil {
 			t.Fatal(err)
 		}

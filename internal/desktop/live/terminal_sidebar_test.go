@@ -20,7 +20,7 @@ import (
 // project in the sidebar; its right-click menu opens it and, once
 // confirmed, closes its shell on the Node.
 func TestSidebarListsAndClosesProjectTerminal(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
+	synctestWithRaster(t, func(t *testing.T) {
 		root, source := terminalTabsFixture(t)
 		var created protocol.TerminalInfo
 		source.respond = func(request protocol.Request) link.Response {
@@ -101,7 +101,7 @@ func TestSidebarListsAndClosesProjectTerminal(t *testing.T) {
 // opens the terminal as a kept tab as a session row does, and is the
 // selected row while the terminal shows.
 func TestSidebarTerminalRowOpensKeptTab(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
+	synctestWithRaster(t, func(t *testing.T) {
 		root, source := terminalTabsFixture(t)
 		var created protocol.TerminalInfo
 		source.respond = func(request protocol.Request) link.Response {

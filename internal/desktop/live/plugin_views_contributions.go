@@ -43,35 +43,47 @@ func pluginViewAccepts(surface string, slot protocol.PluginUiSlot) bool {
 	}
 }
 
-// nativeProjectControl reports whether a bundled package's project control
-// is the application's own rather than a mounted one: the overview's New
-// terminal and AI CLI buttons, and the project menu's New terminal and
-// Worktrees entries, which projectPluginMenu draws in the slot while their
-// package is enabled. The commands package's CLI submenu of the project menu
-// is not shown at all (AGENTS.md, Removed UI).
-func nativeProjectControl(name, id string) bool {
-	switch name {
-	case "commands":
-		return id == "terminal-new" || id == "terminal-cli" || id == "terminal-menu-new" || id == "terminal-menu-cli"
-	case pluginWorktreesPackage:
-		return id == "manage"
+// nativeProjectControl keeps package declarations from duplicating native
+// project actions. A package's terminal renderer never owns a native surface.
+func nativeProjectControl(info protocol.PluginInfo, id string) bool {
+	if info.Summary.Name == pluginWorktreesPackage && id == "manage" {
+		return true
+	}
+	if info.Extension == nil || info.Extension.Desktop == nil {
+		return false
+	}
+	for _, renderer := range info.Extension.Desktop.Renderers {
+		if renderer.Resource != protocol.PluginDesktopResourceKindTerminal {
+			continue
+		}
+		if renderer.Create != nil && *renderer.Create == id {
+			return true
+		}
+		// Historical commands manifests also declared project menu and CLI
+		// entries alongside their renderer. The name alone reserves no IDs.
+		if info.Summary.Name == "commands" {
+			switch id {
+			case "terminal-new", "terminal-cli", "terminal-menu-new", "terminal-menu-cli":
+				return true
+			}
+		}
 	}
 	return false
 }
 
 // pluginViewDeclarations are the controls a package shows on a surface.
-func pluginViewDeclarations(name string, declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
+func pluginViewDeclarations(info protocol.PluginInfo, declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
 	result := make([]protocol.PluginUiContribution, 0, len(declarations))
 	for _, declaration := range declarations {
-		if pluginViewShows(name, declaration, surface) {
+		if pluginViewShows(info, declaration, surface) {
 			result = append(result, declaration)
 		}
 	}
 	return result
 }
 
-func pluginViewShows(name string, declaration protocol.PluginUiContribution, surface string) bool {
-	return pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(name, declaration.ID))
+func pluginViewShows(info protocol.PluginInfo, declaration protocol.PluginUiContribution, surface string) bool {
+	return pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(info, declaration.ID))
 }
 
 func (r *Runtime) pluginRegistry(scope protocol.PluginContext, presentation ...string) *desktopplugins.Registry {
@@ -201,7 +213,7 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
 			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
 			!slices.ContainsFunc(extension.Ui, func(declaration protocol.PluginUiContribution) bool {
-				return pluginViewShows(info.Summary.Name, declaration, owner.scope.Surface.Kind)
+				return pluginViewShows(info, declaration, owner.scope.Surface.Kind)
 			}) {
 			return false
 		}
