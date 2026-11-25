@@ -556,6 +556,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'failureUnknown' => strings.failureUnknown,
   'failureDenied' => strings.failureDenied,
   'failureUnavailable' => strings.failureUnavailable,
+  'failureNotConfigured' => strings.failureNotConfigured,
   'failureBusy' => strings.failureBusy,
   'failureGeneric' => strings.failureGeneric,
   'settingsLoadFailed' => strings.settingsLoadFailed,

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -57,6 +56,10 @@ func serveShare(ctx context.Context, line []byte, writer io.Writer, endpoint *li
 }
 
 func RunShare(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return runShare(ctx, args, stdout, stderr, "")
+}
+
+func runShare(ctx context.Context, args []string, stdout, stderr io.Writer, defaultProfile string) error {
 	profile, origin := "", link.DefaultPairingService
 	seen := map[string]bool{}
 	for index := 0; index < len(args); index++ {
@@ -80,7 +83,7 @@ func RunShare(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	}
 	if profile == "" {
 		var err error
-		profile, err = core.DefaultDataDir()
+		profile, err = resolveProfile(defaultProfile)
 		if err != nil {
 			return err
 		}

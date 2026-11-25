@@ -3,15 +3,16 @@ package node
 import (
 	"context"
 	"database/sql"
-	"errors"
 
 	"github.com/sailry/sailry-harness/internal/node/host"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/internal/ssh"
 )
 
 func (node *Node) runHost(ctx context.Context, caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return protocol.Output{}, err
+	}
 	if handled, output, err := node.dispatchResource(ctx, caller, request); handled {
 		return output, err
 	}
@@ -19,50 +20,45 @@ func (node *Node) runHost(ctx context.Context, caller protocol.NodeID, request p
 		err := host.StopProcess(ctx, input.Pid, input.StartedAtSecs, input.Force)
 		return protocol.Output{Kind: "host_process_signalled", Data: protocol.OutputHostProcessSignalledPayload{Pid: input.Pid, StartedAtSecs: input.StartedAtSecs}}, err
 	}
-	var id protocol.SshID
-	var revision uint64
-	var expected *protocol.NodeID
-	var network *protocol.NetworkSelection
-	switch input := request.Command.Data.(type) {
-	case *protocol.CommandCheckSshPayload:
-		id, revision = input.Profile, input.ExpectedRevision
-	case *protocol.CommandInstallHostPayload:
-		id, revision, network = input.Profile, input.ExpectedRevision, input.Network
-	case *protocol.CommandUpdateSshHostPayload:
-		id, revision = input.Profile, input.ExpectedRevision
-		expected = &input.Node
-	default:
-		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "SSH operation expected"}
+	if node.ssh == nil {
+		return protocol.Output{}, moduleUnavailable("ssh")
 	}
-	if request.Command.Kind != "check_ssh" && node.Link() == nil {
-		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node Link is unavailable"}
-	}
+	return node.ssh.Execute(ctx, caller, request)
+}
+
+func (node *Node) readSSHProfile(ctx context.Context, id protocol.SshID, revision uint64) (protocol.SshProfile, protocol.SshCredential, error) {
 	var profile protocol.SshProfile
 	var credential protocol.SshCredential
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		profile, credential, err = store.ReadSsh(ctx, db, id, revision)
 		return err
-	}); err != nil {
-		return protocol.Output{}, err
+	})
+	return profile, credential, err
+}
+
+func (node *Node) closeSSH() error {
+	if node.ssh == nil {
+		return nil
 	}
-	scoped, finish, err := node.hostInstalls.Begin(ctx, caller, request)
-	if err != nil {
-		return protocol.Output{}, err
+	return node.ssh.Close()
+}
+
+func sshConfigurationProfileID(command protocol.Command) (protocol.SshID, bool) {
+	switch data := command.Data.(type) {
+	case *protocol.CommandSaveSshPayload:
+		return data.Profile.ID, true
+	case protocol.CommandSaveSshPayload:
+		return data.Profile.ID, true
+	case *protocol.CommandTrustSshPayload:
+		return data.Profile, true
+	case protocol.CommandTrustSshPayload:
+		return data.Profile, true
+	case *protocol.CommandRemoveSshPayload:
+		return data.Profile, true
+	case protocol.CommandRemoveSshPayload:
+		return data.Profile, true
+	default:
+		return protocol.SshID{}, false
 	}
-	defer finish()
-	connection, err := ssh.Connect(scoped, profile, credential)
-	if err != nil {
-		var required *ssh.HostKeyRequired
-		if errors.As(err, &required) {
-			return protocol.Output{Kind: "ssh_outcome", Data: required.Outcome()}, nil
-		}
-		return protocol.Output{}, sshConnectionFailure(scoped, err)
-	}
-	defer connection.Close()
-	if request.Command.Kind == "check_ssh" {
-		return protocol.Output{Kind: "ssh_outcome", Data: protocol.SshOutcome{Kind: "connected"}}, nil
-	}
-	outcome, err := node.hostInstalls.Execute(scoped, connection, node.Link(), caller, request.ID, expected, network)
-	return protocol.Output{Kind: "ssh_outcome", Data: outcome}, err
 }

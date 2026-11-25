@@ -11,11 +11,9 @@ import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/assembly/harness.dart';
 import 'package:sailry_mobile/demo/connection.dart';
 import 'package:sailry_mobile/features/conversations/live/creation_draft.dart';
-import 'package:sailry_mobile/features/conversations/live/modes.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/resources/pair_form.dart';
-import 'package:sailry_mobile/features/resources/git/model.dart' as git;
 import 'package:sailry_mobile/features/terminal/emulator.dart';
 import 'package:sailry_mobile/features/terminal/grid.dart';
 import 'package:sailry_mobile/features/terminal/session.dart';
@@ -346,11 +344,6 @@ void main() {
         unawaited(session.pairPin('888888'));
         clock.flushMicrotasks();
         final host = session.selectedHost!;
-        final modes = ConversationModes(host);
-        expect(modes.selected({'mode': 'code'}), 'code');
-        expect(modes.choices({'mode': 'code'}), isEmpty);
-        expect(modes.select({}, 'plan')!['mode'], 'plan');
-        modes.dispose();
         Map<String, dynamic>? run;
         unawaited(
           host
@@ -465,11 +458,12 @@ void main() {
       final repository = await host.command('inspect_git', {
         'worktree': 'demo-lumen-main',
       });
-      final groups = git.groupChanges(
-        objects(object(repository['data'])['entries']),
-      );
-      expect(groups.unstaged, isEmpty);
-      expect(groups.staged.single['path'], 'src/styles/login.css');
+      final entries = objects(object(repository['data'])['entries']);
+      expect(entries.single['path'], 'src/styles/login.css');
+      expect(entries.single['staged'], 'modified');
+      expect(entries.single['unstaged'], isNull);
+      expect(entries.single['untracked'], isNot(true));
+      expect(entries.single['conflicted'], isNot(true));
 
       final terminal = TerminalSession(
         controller: await session.controllerIdentity(host),
@@ -587,7 +581,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('conversation-settings')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('configuration-mode')), findsOneWidget);
+    expect(find.byKey(const ValueKey('configuration-mode')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('configuration-permission')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('demo-notice')), findsNothing);
     expect(tester.takeException(), isNull);
     expect(checks, 0);

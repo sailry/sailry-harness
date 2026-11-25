@@ -667,6 +667,7 @@
   "failureUnknown": "Ergebnis nicht bestätigt; überprüfen Sie zuerst den Host-Zustand",
   "failureDenied": "Berechtigung verweigert",
   "failureUnavailable": "Host nicht verbunden",
+  "failureNotConfigured": "Diese Funktion ist auf diesem Host nicht verfügbar",
   "failureBusy": "Bitte versuchen Sie es später noch einmal",
   "failureGeneric": "Operation ist fehlgeschlagen",
   "settingsLoadFailed": "Konnte nicht geladen werden",

@@ -667,6 +667,7 @@
   "failureUnknown": "결과가 확인되지 않았습니다. 먼저 호스트 상태를 확인하십시오",
   "failureDenied": "권한 거부됨",
   "failureUnavailable": "연결되지 않음",
+  "failureNotConfigured": "이 호스트에서는 이 기능을 사용할 수 없습니다",
   "failureBusy": "서비스가 바쁘습니다. 나중에 다시 시도하십시오",
   "failureGeneric": "작업 실패",
   "settingsLoadFailed": "불러올 수 없음",

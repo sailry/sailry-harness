@@ -181,7 +181,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		if err := json.Unmarshal(event["tags"], &tags); err != nil {
 			t.Fatal(err)
 		}
-		if len(tags) != 5 || tags["installation_id"] != settings.InstallationID.String() || tags["application"] != "desktop" ||
+		if len(tags) != 6 || tags["product"] != "harness" || tags["installation_id"] != settings.InstallationID.String() || tags["application"] != "desktop" ||
 			tags["os"] != reportedSystem[runtime.GOOS] || tags["arch"] != reportedArch[runtime.GOARCH] || tags["channel"] != "dev" {
 			t.Fatalf("tags = %v", tags)
 		}
@@ -501,9 +501,12 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			t.Fatalf("usage = %+v", batches)
 		}
 		allowed := map[string]bool{"event_id": true, "window_start": true, "window_end": true, "count": true, "installation_id": true, "channel": true, "application": true,
-			"os": true, "arch": true, "release": true, "result": true, "mode": true, "subagent": true, "error_code": true, "tool": true, "elapsed_us_total": true, "elapsed_us_max": true}
+			"product": true, "os": true, "arch": true, "release": true, "result": true, "mode": true, "subagent": true, "error_code": true, "tool": true, "elapsed_us_total": true, "elapsed_us_max": true}
 		for _, sent := range batches {
 			for _, row := range sent.Data {
+				if row["product"] != "harness" {
+					t.Errorf("%s product = %v", sent.Table, row["product"])
+				}
 				for key := range row {
 					if !allowed[key] {
 						t.Errorf("%s row carries %q", sent.Table, key)
@@ -598,7 +601,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			for _, row := range batch.Data {
 				rows[row["feature"].(string)] = row["count"].(float64)
 				for key := range row {
-					if !slices.Contains([]string{"event_id", "window_start", "window_end", "count", "installation_id", "channel", "application", "os", "arch", "release", "feature"}, key) {
+					if !slices.Contains([]string{"event_id", "window_start", "window_end", "count", "installation_id", "channel", "application", "product", "os", "arch", "release", "feature"}, key) {
 						t.Errorf("feature row carries %q", key)
 					}
 				}

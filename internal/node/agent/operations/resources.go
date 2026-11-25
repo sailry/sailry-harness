@@ -26,16 +26,17 @@ const SkillBytes = 128 * 1024
 
 // Package keeps metadata and resources from one immutable bundled digest.
 type Package struct {
-	Reference  protocol.PluginReference
-	Skills     []protocol.PluginSkill
-	Scope      protocol.PluginScope
-	Modes      []protocol.PluginModesDeclaration
-	Options    json.RawMessage
-	standalone bool
-	native     bool
-	tree       fs.FS
-	directory  string
-	read       func(context.Context, string, int) ([]byte, error)
+	Reference    protocol.PluginReference
+	Requirements *protocol.PluginRequirements
+	Skills       []protocol.PluginSkill
+	Scope        protocol.PluginScope
+	Modes        []protocol.PluginModesDeclaration
+	Options      json.RawMessage
+	standalone   bool
+	native       bool
+	tree         fs.FS
+	directory    string
+	read         func(context.Context, string, int) ([]byte, error)
 }
 
 // NativeSkillPackage describes a compile-time module skill tree embedded in the
@@ -98,7 +99,7 @@ func CaptureResources(ctx context.Context, profile string, references []protocol
 			if err != nil {
 				return nil, err
 			}
-			captured := Package{Reference: reference, Skills: info.Skills, directory: directory, standalone: info.Skill != nil}
+			captured := Package{Reference: reference, Requirements: info.Requirements, Skills: info.Skills, directory: directory, standalone: info.Skill != nil}
 			captured.read = func(ctx context.Context, name string, limit int) ([]byte, error) {
 				return manager.ReadResource(ctx, reference, name, limit)
 			}
@@ -112,6 +113,9 @@ func CaptureResources(ctx context.Context, profile string, references []protocol
 			continue
 		}
 		captured := catalog.Packages[index]
+		if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{Requirements: captured.Requirements}, plugins.RuntimeFromContext(ctx))); err != nil {
+			return nil, err
+		}
 		captured.Reference = reference
 		value.packages = append(value.packages, captured)
 	}

@@ -780,6 +780,7 @@
   "failureUnknown": "结果未确认，请先检查主机上的状态",
   "failureDenied": "没有操作权限",
   "failureUnavailable": "主机未连接",
+  "failureNotConfigured": "此主机不提供此功能",
   "failureBusy": "服务正忙，请稍后重试",
   "failureGeneric": "操作失败",
   "artifactContents": "目录",

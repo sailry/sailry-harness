@@ -11,6 +11,7 @@ String failureText(Object failure, {Translator translate = tr}) {
     'outcome_unknown' => 'failureUnknown',
     'revision_conflict' || 'conflict' => 'failureConflict',
     'permission_denied' => 'failureDenied',
+    'not_configured' => 'failureNotConfigured',
     'unavailable' => 'failureUnavailable',
     'busy' => 'failureBusy',
     _ => 'failureGeneric',

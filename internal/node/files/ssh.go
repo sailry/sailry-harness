@@ -7,21 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/sftp"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/internal/ssh"
-	cryptossh "golang.org/x/crypto/ssh"
 )
 
 // StageSSHUpload reserves a caller-owned stream that stages bytes on this Node.
 // The remote host is not contacted until FinishSSHUpload publishes them.
-func (transfers *Transfers) StageSSHUpload(ctx context.Context, caller protocol.NodeID, spec protocol.SshUploadSpec) (protocol.SshUpload, error) {
+func (transfers *Transfers) StageSSHUpload(ctx context.Context, caller protocol.NodeID, spec protocol.SshUploadSpec, limit uint64, validate func(string) error) (protocol.SshUpload, error) {
 	output := protocol.SshUpload{Spec: spec}
-	if err := ssh.ValidatePath(spec.Path); err != nil {
+	if err := validate(spec.Path); err != nil {
 		return output, err
 	}
-	if spec.Size > ssh.TransferLimit {
+	if spec.Size > limit {
 		return output, invalid("SSH file exceeds the transfer limit")
 	}
 	if !validRevision(spec.Revision) {
@@ -49,7 +46,7 @@ func (transfers *Transfers) StageSSHUpload(ctx context.Context, caller protocol.
 // FinishSSHUpload consumes a completely staged upload exactly once. A request
 // naming another caller, profile revision or path leaves the stage untouched;
 // once publication starts the stage is gone whatever the remote result.
-func (transfers *Transfers) FinishSSHUpload(caller protocol.NodeID, client *sftp.Client, profile protocol.SshProfile, path string, stream protocol.StreamID) (uint64, error) {
+func (transfers *Transfers) FinishSSHUpload(caller protocol.NodeID, profile protocol.SshProfile, path string, stream protocol.StreamID, publish func(*os.File, uint64, bool) (uint64, error)) (uint64, error) {
 	transfers.mu.Lock()
 	entry := transfers.entries[stream]
 	if entry == nil || entry.caller != caller {
@@ -84,18 +81,18 @@ func (transfers *Transfers) FinishSSHUpload(caller protocol.NodeID, client *sftp
 		transfers.mu.Unlock()
 		cleanupTransfer(entry)
 	}()
-	return ssh.Upload(client, path, entry.file, entry.size, spec.Overwrite)
+	return publish(entry.file, entry.size, spec.Overwrite)
 }
 
 // DownloadSSH stages a remote file on this Node and serves it through a
 // caller-owned, single-use download stream.
-func (transfers *Transfers) DownloadSSH(ctx context.Context, caller protocol.NodeID, client *sftp.Client, path string) (protocol.SshDownload, error) {
+func (transfers *Transfers) DownloadSSH(ctx context.Context, caller protocol.NodeID, path string, download func(*os.File) (uint64, string, error)) (protocol.SshDownload, error) {
 	output := protocol.SshDownload{Path: path}
 	entry := &transferEntry{download: true}
 	var err error
 	entry.file, entry.tempRoot, entry.temporary, err = transfers.temporary()
 	if err == nil {
-		entry.size, entry.revision, err = ssh.Download(client, path, entry.file)
+		entry.size, entry.revision, err = download(entry.file)
 	}
 	if err == nil {
 		err = ctx.Err()
@@ -119,10 +116,10 @@ func (transfers *Transfers) DownloadSSH(ctx context.Context, caller protocol.Nod
 // remote path. Bytes never leave this Node's side of the connection. A download
 // is staged in Node storage and published without following links; once
 // publication starts it runs to completion regardless of ctx.
-func (transfers *Transfers) TransferSSH(ctx context.Context, connection *cryptossh.Client, root string, access core.FileAccess, transfer protocol.SshTransfer) (uint64, error) {
+func (transfers *Transfers) TransferSSH(ctx context.Context, root string, access core.FileAccess, transfer protocol.SshTransfer, limit uint64, execute func(source, destination *os.File) (uint64, string, error), atStage func(error, string) error) (uint64, error) {
 	worktree, err := core.OpenFiles(root, access)
 	if err != nil {
-		return 0, ssh.AtStage(err, "local preparation")
+		return 0, atStage(err, "local preparation")
 	}
 	// The entry owns the worktree handle, the publication target and staging.
 	entry := &transferEntry{files: worktree}
@@ -134,7 +131,7 @@ func (transfers *Transfers) TransferSSH(ctx context.Context, connection *cryptos
 			defer source.Close()
 		}
 	} else {
-		entry.target, err = worktree.PrepareUploadTarget(ctx, transfer.Path, nil, ssh.TransferLimit)
+		entry.target, err = worktree.PrepareUploadTarget(ctx, transfer.Path, nil, limit)
 		if err == nil {
 			entry.file, entry.tempRoot, entry.temporary, err = transfers.temporary()
 		}
@@ -143,30 +140,25 @@ func (transfers *Transfers) TransferSSH(ctx context.Context, connection *cryptos
 		err = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Node storage cannot be transferred over SSH"}
 	}
 	if err != nil {
-		return 0, ssh.AtStage(err, "local preparation")
+		return 0, atStage(err, "local preparation")
 	}
-	client, err := ssh.OpenSFTP(connection)
-	if err != nil {
-		return 0, ssh.AtStage(err, "remote subsystem")
-	}
-	defer client.Close()
-	if source != nil {
-		return ssh.TransferUpload(client, source, transfer.Path, transfer.RemotePath)
-	}
-	size, revision, err := ssh.TransferDownload(client, transfer.RemotePath, entry.file)
+	size, revision, err := execute(source, entry.file)
 	if err != nil {
 		return 0, err
+	}
+	if source != nil {
+		return size, nil
 	}
 	if err = ctx.Err(); err != nil {
 		return 0, err
 	}
 	if _, err = entry.file.Seek(0, io.SeekStart); err != nil {
-		return 0, ssh.AtStage(err, "local publish")
+		return 0, atStage(err, "local publish")
 	}
 	target := entry.target
 	entry.target = nil
 	if _, err = target.Write(entry.file, size, revision); err != nil {
-		return 0, ssh.AtStage(err, "local publish")
+		return 0, atStage(err, "local publish")
 	}
 	return size, nil
 }

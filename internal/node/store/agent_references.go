@@ -11,6 +11,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -292,6 +293,9 @@ func validateReferencedPlugin(ctx context.Context, db *sql.Conn, session protoco
 			return value.Reference.Name == references[index].Name && value.Reference.Digest == references[index].Digest
 		})
 		if bundled < 0 {
+			return err
+		}
+		if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{Requirements: catalog.Packages[bundled].Requirements}, plugins.RuntimeFromContext(ctx))); err != nil {
 			return err
 		}
 		scope, skills = catalog.Packages[bundled].Scope, catalog.Packages[bundled].Skills

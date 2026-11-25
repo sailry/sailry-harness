@@ -686,6 +686,7 @@
   "failureUnknown": "Outcome unconfirmed; check the host state first",
   "failureDenied": "Permission denied",
   "failureUnavailable": "Host not connected",
+  "failureNotConfigured": "Feature unavailable on this host",
   "failureBusy": "Service busy; retry later",
   "failureGeneric": "Operation failed",
   "settingsLoadFailed": "Could not load",

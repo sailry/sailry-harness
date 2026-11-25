@@ -7,6 +7,8 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/theme.dart';
+import '../../terminal/project_resource.dart';
+import '../contributions.dart';
 import 'host_parts.dart';
 import 'metric_charts.dart';
 import 'metric_history.dart';
@@ -293,6 +295,9 @@ class CountsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final divider = Theme.of(context).colorScheme.outlineVariant;
+    final terminals = ProjectResourcesScope.of(
+      context,
+    ).contains(terminalResource);
     return Surface(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: ListenableBuilder(
@@ -301,11 +306,12 @@ class CountsCard extends StatelessWidget {
           final cells = [
             ('projects', 'project', objects(host.snapshot['projects']).length),
             ('sessions', 'chat', objects(host.snapshot['sessions']).length),
-            (
-              'terminals',
-              'terminal',
-              objects(host.snapshot['terminals']).length,
-            ),
+            if (terminals)
+              (
+                'terminals',
+                'terminal',
+                objects(host.snapshot['terminals']).length,
+              ),
             ('ports', 'activityPorts', host.ports.entries.length),
           ];
           return Row(

@@ -21,7 +21,7 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.P
 	if err != nil {
 		return nil, err
 	}
-	references := append([]protocol.PluginReference(nil), catalog.References...)
+	var references []protocol.PluginReference
 	var initialized bool
 	if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
 		return nil, err
@@ -36,6 +36,14 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.P
 			reference := plugins.PackageReference(info)
 			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" && checkPluginAvailability(ctx, reference) == nil {
 				references = append(references, reference)
+			}
+		}
+	} else {
+		references = make([]protocol.PluginReference, 0, len(catalog.Packages))
+		runtime := plugins.RuntimeFromContext(ctx)
+		for _, pkg := range catalog.Packages {
+			if plugins.InfoCompatibility(protocol.PluginInfo{Requirements: pkg.Requirements}, runtime).Kind == "compatible" {
+				references = append(references, pkg.Reference)
 			}
 		}
 	}

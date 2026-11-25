@@ -1703,6 +1703,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get failureUnavailable => 'Host não conectado';
 
   @override
+  String get failureNotConfigured => 'Funcionalidade indisponível neste host';
+
+  @override
   String get failureBusy => 'Tente novamente mais tarde';
 
   @override
@@ -2385,6 +2388,9 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
   String hostOriginSource(String name) {
     return 'Via $name';
   }
+
+  @override
+  String get failureNotConfigured => 'Recurso indisponível neste host';
 
   @override
   String get usageHitRate => 'Taxa de acerto do cache';

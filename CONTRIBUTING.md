@@ -311,8 +311,7 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
 New commits cancel obsolete pull-request and branch-push CI runs. Manual
 integration checks and tag releases keep their own runs.
 
-`release.yml` runs on a `v*` tag. Every job has read-only repository access
-except `publish`:
+New end-user releases belong to [Sailry Code](https://github.com/sailry/sailry-code). Harness runs upstream CI; a new Harness tag does not automatically publish applications. Existing Harness downloads and signatures remain valid. Switching products requires a manual first install, not an update signed by the old publisher. The following describes the historical Harness release workflow retained for explicit repairs. Every job has read-only repository access except `publish`:
 
 - `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
   and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
@@ -401,6 +400,8 @@ Actions are pinned by commit. Do not add nightly fuzzing, coverage gates,
 per-test matrices or retry-on-flake wrappers.
 
 ## Release packages
+
+The packaging tools below describe the base artifacts and legacy release identity. A downstream product supplies its own entry points, build metadata, signing key and release source. Code pins the Harness dependency; its build checks out that exact revision with the pinned plugins/themes submodules (the Go module zip alone does not contain Git submodule contents). Development against unpublished changes uses a local Go workspace, not a committed machine-specific `replace`.
 
 Packaging entry points are `mygo build`, `flutter build`,
 `native/*/build.sh` and the Host installer scripts under

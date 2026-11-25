@@ -14,7 +14,10 @@ require (
 	github.com/MoeForge/moego v0.1.0-alpha.1
 	github.com/MoeForge/moejs v0.1.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/aws/aws-sdk-go-v2 v1.47.5
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25
 	github.com/bmatcuk/doublestar/v4 v4.10.4
+	github.com/buger/jsonparser v1.1.2
 	github.com/caelyreth/untie v0.5.0
 	github.com/caelyreth/untie/contrib/mygo v0.5.0
 	github.com/cenkalti/backoff/v5 v5.0.3
@@ -34,10 +37,8 @@ require (
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376
 	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-git/go-git/v5 v5.19.3
-	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/kaptinlin/jsonpointer v0.4.28
 	github.com/klauspost/compress v1.20.4
@@ -51,9 +52,7 @@ require (
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multistream v0.6.1
 	github.com/nikolalohinski/gonja/v2 v2.5.1
-	github.com/odvcencio/gotreesitter v0.57.0
 	github.com/openai/openai-go/v3 v3.98.0
-	github.com/pkg/sftp v1.13.12
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/pkoukk/tiktoken-go-loader v0.0.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
@@ -78,7 +77,6 @@ require (
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	lukechampine.com/blake3 v1.4.1
-	modernc.org/libc v1.80.1
 	modernc.org/sqlite v1.62.0
 	rsc.io/qr v0.2.0
 	turso.tech/database/tursogo v0.8.3
@@ -96,8 +94,6 @@ require (
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.47.5 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.33.12 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.12 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.5 // indirect
@@ -115,7 +111,6 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/charmbracelet/openai-go v0.0.0-20260921175203-216db9e71b83 // indirect
 	github.com/charmbracelet/x/exp/slice v0.1.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
@@ -151,8 +146,6 @@ require (
 	github.com/huin/goupnp v1.3.1 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/ipfs/go-cid v0.6.2 // indirect
-	github.com/jackc/pgpassfile v1.0.0 // indirect
-	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackpal/go-nat-pmp v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
@@ -163,7 +156,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.2 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/koron/go-ssdp v0.9.2 // indirect
-	github.com/kr/fs v0.1.0 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.3.0 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.4.1 // indirect
@@ -271,6 +263,7 @@ require (
 	google.golang.org/grpc v1.85.0 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
+	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

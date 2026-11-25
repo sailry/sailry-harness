@@ -1704,6 +1704,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get failureUnavailable => 'Хост не подключен';
 
   @override
+  String get failureNotConfigured => 'Функция недоступна на этом хосте';
+
+  @override
   String get failureBusy => 'Служба занята; повторите попытку позже';
 
   @override

@@ -1,20 +1,16 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import '../../../shell/assembly.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
-import '../../../ui/toast.dart';
 import '../../resources/scope_picker.dart';
 import 'configuration_fields.dart';
-import 'draft_branches.dart';
-import 'presentation.dart' show failureLabel;
 import 'team.dart';
 
-class DraftSettings extends StatefulWidget {
+class DraftSettings extends StatelessWidget {
   const DraftSettings({
     super.key,
     required this.host,
@@ -44,132 +40,76 @@ class DraftSettings extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onConfig;
   final bool locationEnabled;
 
-  @override
-  State<DraftSettings> createState() => _DraftSettingsState();
-}
-
-class _DraftSettingsState extends State<DraftSettings> {
-  late final _branches = DraftBranches(widget.host);
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  @override
-  void didUpdateWidget(DraftSettings oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.project?['id'] != widget.project?['id'] ||
-        oldWidget.worktree == null && widget.worktree != null) {
-      unawaited(_load());
-    }
-  }
-
-  Future<void> _load() async {
-    await _branches.load(widget.worktree);
-    final error = _branches.error;
-    if (mounted && error != null) {
-      showToast(context, failureLabel(error, translate: context.tr));
-    }
-  }
-
-  @override
-  void dispose() {
-    _branches.dispose();
-    super.dispose();
-  }
-
-  String _projectLabel(Map<String, dynamic>? project) => project == null
+  String _projectLabel(BuildContext context, Map<String, dynamic>? value) =>
+      value == null
       ? context.tr('unassignedChats')
-      : text(project['name'], context.tr('project'));
+      : text(value['name'], context.tr('project'));
 
-  Widget _projectIcon(Map<String, dynamic>? project, {double size = 20}) =>
-      project == null
+  Widget _projectIcon(Map<String, dynamic>? value, {double size = 20}) =>
+      value == null
       ? AppIcon('chat', size: size)
-      : ProjectIcon(project: project, size: size);
+      : ProjectIcon(project: value, size: size);
 
-  Future<void> _choose({required bool chooseProject}) async {
-    if (!chooseProject) unawaited(_load());
-    final items = chooseProject ? widget.projects : widget.worktrees;
-    final selected = chooseProject ? widget.project : widget.worktree;
+  Future<void> _chooseProject(BuildContext context) async {
     final choice = await showAppSheet<Map<String, dynamic>>(
       context,
-      context.tr(chooseProject ? 'project' : 'gitBranches'),
-      child: ListenableBuilder(
-        listenable: _branches,
-        builder: (context, _) => ScopePicker(
-          rows: [
-            if (chooseProject)
-              ScopeRow(
-                leading: _projectIcon(null, size: scopeIconSize),
-                title: _projectLabel(null),
-                selected: selected == null,
-                onTap: () => Navigator.pop(context, <String, dynamic>{}),
-              ),
-            for (final item in items)
-              ScopeRow(
-                leading: chooseProject
-                    ? _projectIcon(item, size: scopeIconSize)
-                    : const AppIcon('branch', size: scopeIconSize),
-                title: chooseProject
-                    ? _projectLabel(item)
-                    : _branches.label(item, context.tr('worktree')),
-                titleLines: 2,
-                selected: item['id'] == selected?['id'],
-                onTap: () => Navigator.pop(context, item),
-              ),
-          ],
-        ),
+      context.tr('project'),
+      child: ScopePicker(
+        rows: [
+          ScopeRow(
+            leading: _projectIcon(null, size: scopeIconSize),
+            title: _projectLabel(context, null),
+            selected: project == null,
+            onTap: () => Navigator.pop(context, <String, dynamic>{}),
+          ),
+          for (final item in projects)
+            ScopeRow(
+              leading: _projectIcon(item, size: scopeIconSize),
+              title: _projectLabel(context, item),
+              titleLines: 2,
+              selected: item['id'] == project?['id'],
+              onTap: () => Navigator.pop(context, item),
+            ),
+        ],
       ),
     );
-    if (!mounted || choice == null) return;
-    if (chooseProject) {
-      widget.onProject(choice.isEmpty ? null : choice);
-    } else {
-      widget.onWorktree(choice);
-    }
+    if (!context.mounted || choice == null) return;
+    onProject(choice.isEmpty ? null : choice);
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      ConfigurationFields(
-        host: widget.host,
-        providers: widget.providers,
-        config: widget.config,
-        onChanged: widget.onConfig,
-        team: widget.team,
-      ),
-      const Divider(height: 16),
-      ListTile(
-        key: const ValueKey('draft-project'),
-        leading: _projectIcon(widget.project),
-        title: Text(_projectLabel(widget.project)),
-        trailing: const AppIcon('chevron', size: 16),
-        onTap: widget.locationEnabled
-            ? () => _choose(chooseProject: true)
-            : null,
-      ),
-      if (widget.project != null)
-        ListenableBuilder(
-          listenable: _branches,
-          builder: (context, _) => ListTile(
-            key: const ValueKey('draft-worktree'),
-            leading: const AppIcon('branch', size: 20),
-            title: Text(
-              _branches.label(widget.worktree, context.tr('worktree')),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const AppIcon('chevron', size: 16),
-            onTap: widget.locationEnabled && widget.worktrees.isNotEmpty
-                ? () => _choose(chooseProject: false)
-                : null,
-          ),
+  Widget build(BuildContext context) {
+    final workspace = MobileAssemblyScope.maybeOf(context)?.draftWorkspace;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ConfigurationFields(
+          host: host,
+          providers: providers,
+          config: config,
+          onChanged: onConfig,
+          team: team,
         ),
-    ],
-  );
+        const Divider(height: 16),
+        ListTile(
+          key: const ValueKey('draft-project'),
+          leading: _projectIcon(project),
+          title: Text(_projectLabel(context, project)),
+          trailing: const AppIcon('chevron', size: 16),
+          onTap: locationEnabled ? () => _chooseProject(context) : null,
+        ),
+        if (project != null && workspace != null)
+          workspace(
+            DraftWorkspaceContext(
+              host: host,
+              worktrees: worktrees,
+              selected: worktree,
+              enabled: locationEnabled,
+              onChanged: onWorktree,
+            ),
+          ),
+      ],
+    );
+  }
 }

@@ -31,7 +31,7 @@ func ReadPluginInfos(ctx context.Context, db *sql.Conn) ([]protocol.PluginInfo, 
 	}
 	infos, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_user_installations WHERE user=?1 AND installed=1 ORDER BY name", user)
 	for index := range infos {
-		refreshPluginCompatibility(&infos[index])
+		refreshPluginCompatibility(ctx, &infos[index])
 	}
 	return infos, err
 }
@@ -46,15 +46,16 @@ func ReadPlugin(ctx context.Context, db *sql.Conn, name string) (*protocol.Plugi
 	}
 	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_user_installations WHERE name=?1 AND user=?2 AND installed=1", name, user)
 	if info != nil {
-		refreshPluginCompatibility(info)
+		refreshPluginCompatibility(ctx, info)
 	}
 	return info, err
 }
 
-func refreshPluginCompatibility(info *protocol.PluginInfo) {
-	info.Summary.Compatibility = plugins.InfoCompatibility(*info)
+func refreshPluginCompatibility(ctx context.Context, info *protocol.PluginInfo) {
+	runtime := plugins.RuntimeFromContext(ctx)
+	info.Summary.Compatibility = plugins.InfoCompatibility(*info, runtime)
 	for index := range info.Versions {
-		info.Versions[index].Compatibility = plugins.CatalogVersionCompatibility(info.Versions[index])
+		info.Versions[index].Compatibility = plugins.CatalogVersionCompatibility(info.Versions[index], runtime)
 	}
 }
 
@@ -137,7 +138,7 @@ func installPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	if !plugins.ValidateName(info.Summary.Name) || len(info.Summary.Digest) != 64 {
 		return protocol.PluginInfo{}, invalid("invalid plugin package identity")
 	}
-	refreshPluginCompatibility(&info)
+	refreshPluginCompatibility(ctx, &info)
 	if err := plugins.EnsureCompatible(info.Summary.Compatibility); err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -301,7 +302,7 @@ func ResolvePluginInfo(ctx context.Context, db *sql.Conn, reference protocol.Plu
 	if err != nil {
 		return info, err
 	}
-	refreshPluginCompatibility(&info)
+	refreshPluginCompatibility(ctx, &info)
 	if info.Summary.Compatibility.Kind != "compatible" {
 		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is incompatible")
 	}

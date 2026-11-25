@@ -1,32 +1,42 @@
 package node
 
 import (
-	"net"
+	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestCheckSSHReportsHandshakeFailure(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	var calls atomic.Int32
+	var request protocol.Request
+	failure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture SSH handshake failed", SSHReason: protocol.SSHHandshakeFailed}
+	assembly := fixtureModuleAssembly("ssh")
+	assembly.SSH = func(options moduleapi.SSHServiceOptions) moduleapi.SSHService {
+		return &serviceTestSSH{execute: func(ctx context.Context, caller protocol.NodeID, received protocol.Request) (protocol.Output, error) {
+			calls.Add(1)
+			if caller != request.Target || received.ID != request.ID || received.Command.Kind != "check_ssh" {
+				return protocol.Output{}, errors.New("SSH service received another command or caller")
+			}
+			input := received.Command.Data.(*protocol.CommandCheckSshPayload)
+			profile, credential, err := options.ReadSSH(ctx, input.Profile, input.ExpectedRevision)
+			if err != nil {
+				return protocol.Output{}, err
+			}
+			password, ok := dispatchPayload[protocol.SshCredentialPasswordPayload](credential.Data)
+			if profile.ID != input.Profile || profile.Revision != input.ExpectedRevision || !ok || password.Password.Expose() != "fixture" {
+				return protocol.Output{}, errors.New("SSH service did not retain the saved profile and credential")
+			}
+			return protocol.Output{}, failure
+		}}
 	}
-	done := make(chan struct{})
-	t.Cleanup(func() {
-		_ = listener.Close()
-		<-done
-	})
-	go func() {
-		defer close(done)
-		if connection, err := listener.Accept(); err == nil {
-			_ = connection.Close()
-		}
-	}()
+	node := serviceTestNode(t, assembly)
 	profile := protocol.SshProfile{
-		ID: protocol.NewSshID(), Name: "Fixture", Host: "127.0.0.1", Port: uint16(listener.Addr().(*net.TCPAddr).Port),
+		ID: protocol.NewSshID(), Name: "Fixture", Host: "127.0.0.1", Port: 22,
 		Username: "fixture", Authentication: protocol.SshAuthenticationPassword,
 	}
 	credential := protocol.SshCredential{Kind: "password", Data: protocol.SshCredentialPasswordPayload{Password: protocol.NewSecret("fixture")}}
@@ -35,9 +45,14 @@ func TestCheckSSHReportsHandshakeFailure(t *testing.T) {
 	if !ok {
 		t.Fatalf("SSH save output = %v", saved.Kind)
 	}
-	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "check_ssh", Data: protocol.CommandCheckSshPayload{Profile: profile.ID, ExpectedRevision: profile.Revision}})
-	result := dispatchFixture(t, node, node.ID(), request)
-	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeUnavailable || result.Fault.SSHReason != protocol.SSHHandshakeFailed {
-		t.Fatalf("check_ssh = %+v, fault = %+v", result.Output, result.Fault)
+	request = protocol.NewRequest(node.ID(), protocol.Command{Kind: "check_ssh", Data: protocol.CommandCheckSshPayload{Profile: profile.ID, ExpectedRevision: profile.Revision}})
+	for range 2 {
+		result := dispatchFixture(t, node, node.ID(), request)
+		if result.Fault == nil || *result.Fault != *failure {
+			t.Fatalf("check_ssh = %+v, fault = %+v", result.Output, result.Fault)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("SSH check replay executed the service %d times", calls.Load())
 	}
 }

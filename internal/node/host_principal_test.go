@@ -11,7 +11,7 @@ import (
 
 func TestHostCommandsRetainRemotePrincipal(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := moduleFixtureNode(t, "ssh")
 	ctx := t.Context()
 	owner, other := protocol.NodeID{94}, protocol.NodeID{95}
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {

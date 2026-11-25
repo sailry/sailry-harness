@@ -9,7 +9,6 @@ import (
 	connectors "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
 	files "github.com/sailry/sailry-harness/modules/files/desktop"
-	git "github.com/sailry/sailry-harness/modules/git/desktop"
 	hooks "github.com/sailry/sailry-harness/modules/hooks/desktop"
 	knowledge "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
@@ -20,17 +19,16 @@ import (
 	runtime "github.com/sailry/sailry-harness/modules/runtime/desktop"
 	skills "github.com/sailry/sailry-harness/modules/skills/desktop"
 	teams "github.com/sailry/sailry-harness/modules/teams/desktop"
-	terminal "github.com/sailry/sailry-harness/modules/terminal/desktop"
 	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
 
 // Harness returns the module contributions for an official Desktop window.
 func Harness() shell.Assembly {
 	return shell.Assemble(
-		files.Register, git.Register, market.Register,
+		files.Register, market.Register,
 		providers.Register, connectors.Register, teams.Register, skills.Register,
 		knowledge.Module(), memory.Register, media.Register, decision.Register,
-		terminal.Register, websearch.Register, browser.Register, computer.Register,
+		websearch.Register, browser.Register, computer.Register,
 		connections.Register, hooks.Register, runtime.Register, ocr.Register,
 	)
 }

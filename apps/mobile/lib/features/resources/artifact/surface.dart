@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../content/code.dart';
@@ -158,16 +157,22 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
   Future<void> _initialize() async {
     try {
       final background = Theme.of(context).colorScheme.surface;
-      final page = await artifactPage(widget.content, _theme, {
-        'contents': context.tr('artifactContents'),
-        'submit': context.tr('send'),
-        'zoom_in': context.tr('artifactZoomIn'),
-        'zoom_out': context.tr('artifactZoomOut'),
-        'close': context.tr('close'),
-        'required': context.tr('artifactFormRequired'),
-        'invalid_form': context.tr('artifactFormInvalid'),
-        'render_error': context.tr('artifactRenderFailed'),
-      }, writable: writable);
+      final page = await artifactPage(
+        widget.content,
+        _theme,
+        {
+          'contents': context.tr('artifactContents'),
+          'submit': context.tr('send'),
+          'zoom_in': context.tr('artifactZoomIn'),
+          'zoom_out': context.tr('artifactZoomOut'),
+          'close': context.tr('close'),
+          'required': context.tr('artifactFormRequired'),
+          'invalid_form': context.tr('artifactFormInvalid'),
+          'render_error': context.tr('artifactRenderFailed'),
+        },
+        writable: writable,
+        assets: DefaultAssetBundle.of(context),
+      );
       if (_closed) return;
       final controller = WebViewController();
       await controller.setBackgroundColor(background);
@@ -345,6 +350,7 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
     if (!_ready || _closed || _export != null) {
       throw StateError('Artifact renderer is not ready');
     }
+    final assets = DefaultAssetBundle.of(context);
     if (_preview) {
       return artifactPreviewPage(
         text(widget.content['html']),
@@ -362,8 +368,8 @@ class ArtifactSurfaceState extends State<ArtifactSurface> {
       );
       final markup = await result.future.timeout(const Duration(seconds: 30));
       final branding = await Future.wait([
-        rootBundle.loadString('assets/branding/sailry-mark.svg'),
-        rootBundle.loadString('assets/branding/sailry-site-qr.svg'),
+        assets.loadString('assets/branding/sailry-mark.svg'),
+        assets.loadString('assets/branding/sailry-site-qr.svg'),
       ]);
       return exportedArtifact(
         markup,

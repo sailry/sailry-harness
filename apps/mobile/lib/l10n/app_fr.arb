@@ -667,6 +667,7 @@
   "failureUnknown": "Résultat non confirmé; vérifiez d'abord l'état de l'hôte",
   "failureDenied": "Permission refusée",
   "failureUnavailable": "Hôte non connecté",
+  "failureNotConfigured": "Fonction indisponible sur cet hôte",
   "failureBusy": "Service occupé; réessayez plus tard",
   "failureGeneric": "L'opération a échoué",
   "settingsLoadFailed": "Impossible de charger",

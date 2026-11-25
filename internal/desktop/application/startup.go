@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
+	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -128,11 +129,14 @@ func openBackend(ctx context.Context, options startupOptions, product identity.D
 		backend.reports = catchCrashes()
 	}
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
-		MCP:         &mcp.Options{Warm: true},
-		Network:     startupScope(options.Relays),
-		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
-		HostRelease: product.HostRelease,
-		Assembly:    hostAssembly,
+		MCP:             &mcp.Options{Warm: true},
+		Network:         startupScope(options.Relays),
+		LocalModels:     localmodels.Options{Capabilities: node.LocalModelCapabilities()},
+		HostRelease:     product.HostRelease,
+		ProductID:       product.ID,
+		SoftwareVersion: product.Version,
+		Telemetry:       telemetry.Options{Product: product.ID, Version: product.Version},
+		Assembly:        hostAssembly,
 	})
 	if err != nil {
 		backend.closeLogs()

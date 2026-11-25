@@ -25,7 +25,7 @@ import (
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestTerminalSettings(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := moduleFixtureNode(t, "terminal")
 	save := func(settings protocol.TerminalSettings) link.Response {
 		return dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_terminal_settings", Data: settings}))
 	}
@@ -135,7 +135,7 @@ func TestTerminalSettings(t *testing.T) {
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestTerminalInventory(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
+	node := moduleFixtureNode(t, "terminal", "ssh")
 	session := sessionFixture(t, node)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()

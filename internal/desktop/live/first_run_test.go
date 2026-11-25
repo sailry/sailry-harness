@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -230,7 +231,7 @@ func firstRun(t *testing.T) {
 	// A fixture environment: a connector's local CLI finds no signed-in
 	// account of the person running the test.
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()})
-	owner, err := node.StartWithOptions(ctx, profile, node.Options{Environment: &environment})
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Environment: &environment, Assembly: hostassembly.Harness()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -899,11 +900,9 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 	// Editing sends the changed appearance with update_project.
 	menu("inner")
 	items := tester.Menu()
-	// The reference's menu in its order: its own items, and after New
-	// session the project_menu slot, here the commands package's New terminal
-	// and the worktrees package's entry. No AI CLI, trust or records.
-	want := []string{zh("workspace_project"), zh("project_edit"), "-", zh("workspace_new_session"), zh("workspace_new_terminal"),
-		zh("worktree_manage"), "-", zh("workspace_copy_path"), "-", zh("project_remove")}
+	// Harness retains its project operations without Code's native entries.
+	want := []string{zh("workspace_project"), zh("project_edit"), "-", zh("workspace_new_session"),
+		"-", zh("workspace_copy_path"), "-", zh("project_remove")}
 	if !slices.Equal(items, want) {
 		t.Fatalf("the project menu is %q, want %q", items, want)
 	}
@@ -918,23 +917,6 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 	if got := tester.Clipboard(); got != chosen {
 		t.Fatalf("Copy path copied %q, want %q", got, chosen)
 	}
-	// New terminal and the worktrees reach their adapters with the project;
-	// what the adapters send is covered where they are tested.
-	actions := r.App.Sidebar.Actions
-	newTerminal, worktrees := actions.NewTerminal, actions.Worktrees
-	var asked []string
-	actions.NewTerminal = func(project *viewmodel.Project) { asked = append(asked, "terminal "+project.Name) }
-	actions.Worktrees = func(project *viewmodel.Project, operation, _ string) {
-		asked = append(asked, operation+" "+project.Name)
-	}
-	menu("inner")
-	pick(zh("workspace_new_terminal"))
-	menu("inner")
-	pick(zh("worktree_manage"), zh("worktree_create"))
-	actions.NewTerminal, actions.Worktrees = newTerminal, worktrees
-	if !slices.Equal(asked, []string{"terminal inner", "create inner"}) {
-		t.Fatalf("the contributed entries asked %q", asked)
-	}
 	menu("inner")
 	pick(zh("workspace_project"))
 	if _, id, shown := r.App.ProjectOwner(); !shown || id != project.ID.String() {
@@ -942,29 +924,6 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 	}
 	r.App.Navigate(shell.ConversationPage)
 	settle()
-	// A contributed entry shows only while its package is enabled.
-	enable := func(name string, enabled bool) {
-		t.Helper()
-		for _, summary := range r.snapshot().Plugins {
-			if summary.Name == name {
-				if _, err := r.controller.Do(r.ctx, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
-					Name: name, ExpectedRevision: summary.Revision, Enabled: enabled}}); err != nil {
-					t.Fatal(err)
-				}
-				settle()
-				return
-			}
-		}
-		t.Fatalf("no %s package", name)
-	}
-	enable("commands", false)
-	menu("inner")
-	if items := tester.Menu(); slices.Contains(items, zh("workspace_new_terminal")) || !slices.Contains(items, zh("worktree_manage")) {
-		t.Fatalf("the menu without the commands package is %q", items)
-	}
-	tester.Key(0, ui.KeyEscape)
-	settle()
-	enable("commands", true)
 	menu("inner")
 	if err := tester.ChooseMenuItem(zh("project_edit")); err != nil {
 		t.Fatal(err)
@@ -1077,11 +1036,8 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 	}
 }
 
-// firstRunLocation shows the context bar's location with the bundled
-// packages mounted: one project control on a chat and on a plain folder's
-// draft, and the project with its branch on one line in a Git project. The
-// worktrees package's own project control is not drawn beside the native
-// one. It is a step of firstRun.
+// firstRunLocation shows Harness's project picker without development modules.
+// A directory's Git metadata does not add a branch control to this assembly.
 func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, zh func(string, ...any) string, settle func(), shots func(string)) {
 	// controls are the context bar's controls: its small menu buttons.
 	controls := func() (bar []ui.AccessInfo) {
@@ -1141,16 +1097,12 @@ func firstRunLocation(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 	if got := names(); !slices.Equal(got, []string{"Plain folder"}) {
 		t.Errorf("a plain folder's context bar shows the controls %q, want the project alone", got)
 	}
-	// A Git project: the project, then its branch, on one line.
+	// Harness has no Git module, even when the chosen project is a repository.
 	choose("Git folder")
-	bar := controls()
-	if len(bar) != 2 || bar[0].Name != "Git folder" || bar[1].Name != "main" {
-		t.Fatalf("a Git project's context bar shows the controls %q, want the project and its branch", names())
+	if got := names(); !slices.Equal(got, []string{"Git folder"}) {
+		t.Fatalf("Harness's repository context shows %q, want the project alone without a Git module", got)
 	}
-	if bar[0].Bounds.Y != bar[1].Bounds.Y || bar[1].Bounds.X < bar[0].Bounds.X+bar[0].Bounds.W {
-		t.Errorf("the project %v and the branch %v are not side by side on one line", bar[0].Bounds, bar[1].Bounds)
-	}
-	shots("context-git-project")
+	shots("context-project-without-git")
 }
 
 // firstRunConnectors shows the connectors of the new profile and of a server

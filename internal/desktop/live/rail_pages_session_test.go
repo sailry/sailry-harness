@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -70,7 +70,7 @@ func railPagesSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer controller.Close()
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Full())
 	if err != nil {
 		t.Fatal(err)
 	}

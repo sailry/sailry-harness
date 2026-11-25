@@ -28,6 +28,13 @@
   "additionalProperties": false,
   "$defs": {
     "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "runtime_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+      "not": { "pattern": "--|\\.\\." }
+    },
     "notes": {
       "type": "object",
       "required": ["text"],
@@ -49,6 +56,17 @@
           "description": "Present for a Sailry platform extension, including APIs unsupported by this reader."
         },
         "min_sailry_version": { "type": "string", "minLength": 1 },
+        "products": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/runtime_id" }
+        },
+        "requires_modules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/runtime_id" }
+        },
         "release_notes": { "$ref": "#/$defs/notes" },
         "withdrawn": {
           "type": "boolean",

@@ -1,19 +1,14 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/session.dart';
-import '../../../ui/toast.dart';
-import 'choice_row.dart';
+import '../../../shell/assembly.dart';
 import 'model_controls.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/list_group.dart';
 import '../../../ui/theme.dart';
-import 'modes.dart';
 import 'team.dart';
 import 'team_controls.dart';
-import 'presentation.dart' show failureLabel;
 
 class ConfigurationFields extends StatefulWidget {
   const ConfigurationFields({
@@ -40,52 +35,8 @@ class ConfigurationFields extends StatefulWidget {
 }
 
 class _ConfigurationFieldsState extends State<ConfigurationFields> {
-  late ConversationModes _modes;
-  Object? _reported;
-
   /// The team list replaces the fields until a team is chosen.
   bool _choosingTeam = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _observe();
-  }
-
-  void _observe() {
-    _reported = null;
-    _modes = ConversationModes(widget.host)..addListener(_changed);
-  }
-
-  void _changed() {
-    final failure = _modes.error;
-    if (failure != null && !identical(failure, _reported)) {
-      _reported = failure;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && identical(failure, _modes.error)) {
-          showToast(context, failureLabel(failure, translate: context.tr));
-        }
-      });
-    }
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void didUpdateWidget(ConfigurationFields oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.host != widget.host) {
-      _modes.removeListener(_changed);
-      _modes.dispose();
-      _observe();
-    }
-  }
-
-  @override
-  void dispose() {
-    _modes.removeListener(_changed);
-    _modes.dispose();
-    super.dispose();
-  }
 
   void _commit(Map<String, dynamic> value) {
     widget.onChanged(value);
@@ -94,78 +45,10 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final config = widget.config;
-    final selectedMode = _modes.selected(config);
-    List<(String, String, bool)> modeChoices() => [
-      for (final (value, label) in const [
-        ('code', 'conversationCode'),
-        ('plan', 'conversationPlan'),
-        ('flagship', 'conversationFlagship'),
-      ])
-        (value, context.tr(label), true),
-      for (final mode in _modes.choices(widget.config))
-        (mode.key, mode.label(Localizations.localeOf(context)), mode.enabled),
-    ];
-    final current = modeChoices()
-        .where((mode) => mode.$1 == selectedMode)
-        .firstOrNull;
-    // Plugin packages can add modes, so a list scales where segments would not.
-    final mode = ListGroupRow(
-      key: const ValueKey('configuration-mode'),
-      title: context.tr('conversationMode'),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            current?.$2 ?? '',
-            style: TextStyle(
-              fontSize: TypeScale.body,
-              color: colors.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: 6),
-          AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
-        ],
-      ),
-      onTap: !widget.enabled
-          ? null
-          : () async {
-              if (_modes.error != null) unawaited(_modes.reload());
-              final key = await showAppSheet<String>(
-                context,
-                context.tr('conversationMode'),
-                child: ListenableBuilder(
-                  listenable: _modes,
-                  builder: (sheet, _) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final (value, label, enabled) in modeChoices())
-                        Opacity(
-                          opacity: enabled && _modes.canSelect(widget.config)
-                              ? 1
-                              : .45,
-                          child: ChoiceRow(
-                            label: label,
-                            selected: value == _modes.selected(widget.config),
-                            onTap: enabled && _modes.canSelect(widget.config)
-                                ? () => Navigator.pop(sheet, value)
-                                : () {},
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-              if (!mounted ||
-                  key == null ||
-                  key == _modes.selected(widget.config)) {
-                return;
-              }
-              final next = _modes.select(widget.config, key);
-              if (next != null) _commit(next);
-            },
-    );
+    final contribution = MobileAssemblyScope.maybeOf(
+      context,
+    )?.conversationConfiguration;
     final team = widget.team;
     if (team != null && _choosingTeam) {
       return ListenableBuilder(
@@ -193,7 +76,15 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
               ? () => setState(() => _choosingTeam = true)
               : null,
         ),
-        ListGroup(children: [mode]),
+        if (contribution != null)
+          contribution(
+            ConversationConfigurationContext(
+              host: widget.host,
+              config: config,
+              enabled: widget.enabled,
+              onChanged: _commit,
+            ),
+          ),
         // Each level says what it allows; full access, which reaches past
         // the project, wears the warning color.
         ListGroup(

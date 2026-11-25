@@ -38,14 +38,16 @@ func conversation(c *ui.Context, m *Model) {
 					report(c, m.Sandbox.Commit(), sandboxMessages)
 				}
 			}
-			if settingSwitch(c, "code-index", i18n.T(c, "settings_code_index"), i18n.T(c, "settings_code_index_description"), &m.CodeIndex.Draft, m.Live && m.SaveCodeIndex == nil || m.CodeIndex.Pending) {
-				if m.Live {
-					m.SaveCodeIndex()
-				} else {
-					report(c, m.CodeIndex.Commit(), CodeIndexMessages)
+			if m.CodeIndexAvailable {
+				if settingSwitch(c, "code-index", i18n.T(c, "settings_code_index"), i18n.T(c, "settings_code_index_description"), &m.CodeIndex.Draft, m.Live && m.SaveCodeIndex == nil || m.CodeIndex.Pending) {
+					if m.Live {
+						m.SaveCodeIndex()
+					} else {
+						report(c, m.CodeIndex.Commit(), CodeIndexMessages)
+					}
 				}
+				persistentCodeIndex(c, m)
 			}
-			persistentCodeIndex(c, m)
 		})
 	})
 	personalInstructions(c, m)

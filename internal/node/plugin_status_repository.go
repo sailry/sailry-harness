@@ -11,7 +11,7 @@ func (runner *pluginStatusRunner) watchRepository() error {
 	for _, entry := range runner.packages {
 		required = required || entry.changes(protocol.PluginHostChangeRepository)
 	}
-	if !required || runner.effective.Worktree == nil {
+	if !required || runner.effective.Worktree == nil || runner.service.node.git == nil {
 		runner.closeRepository()
 		return nil
 	}

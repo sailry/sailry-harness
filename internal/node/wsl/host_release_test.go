@@ -82,3 +82,32 @@ func TestIndependentHostSelectsItsRelease(t *testing.T) {
 		t.Fatalf("independent Host release = %q, %v", version, err)
 	}
 }
+
+func TestCodeHostSelectsItsFeedWithTheExistingNamespace(t *testing.T) {
+	t.Parallel()
+	product := identity.Desktop{
+		Version: "9.0.0", HostRelease: identity.CodeHost(),
+		Release: identity.DesktopRelease{Source: "https://desktop.example/feed", Downloads: "https://desktop.example/download"},
+	}
+	client := &http.Client{Transport: releaseTransport(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases/latest" {
+			t.Fatalf("wrong Code Host release request: %s %s", request.Method, request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v4.5.6"}`))}, nil
+	})}
+	version, err := resolveRelease(t.Context(), product.HostRelease, client)
+	if err != nil || version != "4.5.6" {
+		t.Fatalf("Code Host release = %q, %v", version, err)
+	}
+	for _, update := range []bool{false, true} {
+		script, err := ReleaseScriptFor(product.HostRelease, version, update, nil)
+		if err != nil || !strings.Contains(script, "install_downloads='https://github.com/sailry/sailry-code/releases/download'") ||
+			strings.Contains(script, "sailry-harness") || strings.Contains(script, "desktop.example") || strings.Contains(script, product.Version) {
+			t.Fatalf("Code Host bootstrap used another product feed or version: %q, %v", script, err)
+		}
+	}
+	preflight := PreflightScript(product.HostRelease)
+	if !strings.HasPrefix(preflight, "wsl_name='sailry'\n") {
+		t.Fatalf("Code Host preflight changed the installed namespace: %q", preflight)
+	}
+}

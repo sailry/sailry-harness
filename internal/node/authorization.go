@@ -64,6 +64,7 @@ func (node *Node) dispatchCaptured(ctx context.Context, caller protocol.NodeID, 
 }
 
 func (node *Node) authorizeCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (context.Context, error) {
+	ctx = node.pluginContext(ctx)
 	var verified context.Context
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var user protocol.User
@@ -93,6 +94,9 @@ func (node *Node) authorizeCommand(ctx context.Context, caller protocol.NodeID, 
 }
 
 func (node *Node) authorizeCommandDB(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request) error {
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return err
+	}
 	policy, ok := commandPolicies[request.Command.Kind]
 	if !ok {
 		return permissionDenied()

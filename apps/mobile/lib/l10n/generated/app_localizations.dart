@@ -3360,6 +3360,12 @@ abstract class AppLocalizations {
   /// **'Host not connected'**
   String get failureUnavailable;
 
+  /// No description provided for @failureNotConfigured.
+  ///
+  /// In en, this message translates to:
+  /// **'Feature unavailable on this host'**
+  String get failureNotConfigured;
+
   /// No description provided for @failureBusy.
   ///
   /// In en, this message translates to:

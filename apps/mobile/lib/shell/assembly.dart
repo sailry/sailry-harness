@@ -3,12 +3,16 @@ import 'package:flutter/widgets.dart';
 import '../features/resources/contributions.dart';
 import '../features/updates/service.dart';
 import '../runtime/preferences.dart';
+import '../runtime/session.dart';
 
 class MobileAssembly {
   MobileAssembly({
     required Iterable<MobilePage> pages,
     required this.defaultRoute,
     Iterable<ProjectResourceFeature> resources = const [],
+    this.draftWorkspace,
+    this.conversationConfiguration,
+    this.createUpdates,
   }) : pages = List.unmodifiable(pages),
        resources = List.unmodifiable(resources) {
     final ids = this.pages.map((page) => page.id).toSet();
@@ -23,6 +27,10 @@ class MobileAssembly {
   final List<MobilePage> pages;
   final String defaultRoute;
   final List<ProjectResourceFeature> resources;
+  final Widget Function(DraftWorkspaceContext)? draftWorkspace;
+  final Widget Function(ConversationConfigurationContext)?
+  conversationConfiguration;
+  final AppUpdates Function()? createUpdates;
 
   MobilePage? page(String? id) =>
       pages.where((page) => page.id == id).firstOrNull;
@@ -30,6 +38,54 @@ class MobileAssembly {
   bool hasPage(String? id) => page(id) != null;
 
   String resolveRoute(String? saved) => page(saved)?.id ?? defaultRoute;
+}
+
+class ConversationConfigurationContext {
+  const ConversationConfigurationContext({
+    required this.host,
+    required this.config,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final HostConnection host;
+  final Map<String, dynamic> config;
+  final bool enabled;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+}
+
+class DraftWorkspaceContext {
+  const DraftWorkspaceContext({
+    required this.host,
+    required this.worktrees,
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final HostConnection host;
+  final List<Map<String, dynamic>> worktrees;
+  final Map<String, dynamic>? selected;
+  final bool enabled;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+}
+
+class MobileAssemblyScope extends InheritedWidget {
+  const MobileAssemblyScope({
+    super.key,
+    required this.assembly,
+    required super.child,
+  });
+
+  final MobileAssembly assembly;
+
+  static MobileAssembly? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<MobileAssemblyScope>()
+      ?.assembly;
+
+  @override
+  bool updateShouldNotify(MobileAssemblyScope oldWidget) =>
+      assembly != oldWidget.assembly;
 }
 
 class MobilePage {

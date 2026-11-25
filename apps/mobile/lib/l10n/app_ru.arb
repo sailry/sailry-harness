@@ -667,6 +667,7 @@
   "failureUnknown": "Результат не подтвержден; сначала проверьте состояние хоста",
   "failureDenied": "Разрешение отказано",
   "failureUnavailable": "Хост не подключен",
+  "failureNotConfigured": "Функция недоступна на этом хосте",
   "failureBusy": "Служба занята; повторите попытку позже",
   "failureGeneric": "Операция не удалась",
   "settingsLoadFailed": "Не удалось загрузить",

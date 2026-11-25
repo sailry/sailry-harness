@@ -20,7 +20,7 @@ func decodePackageData(input any, target any) error {
 func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.PluginInfo, worktreeRoot *string, force bool) (protocol.PluginUpdatesReport, error) {
 	report := protocol.DefaultPluginUpdatesReport()
 	report.Current = current.Summary
-	report.Current.Compatibility = InfoCompatibility(current)
+	report.Current.Compatibility = InfoCompatibility(current, RuntimeFromContext(ctx))
 	if current.Summary.Pinned {
 		return report, nil
 	}
@@ -41,7 +41,7 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 			}
 			return report, err
 		}
-		entry.CompatibleVersion = SelectCompatibleVersion(entry, current.Summary.Version)
+		entry.CompatibleVersion = SelectCompatibleVersion(entry, current.Summary.Version, RuntimeFromContext(ctx))
 		if entry.CompatibleVersion != nil && IsNewer(current.Summary.Version, &entry.CompatibleVersion.Version) {
 			report.Available = &protocol.PluginUpdatesCandidate{Kind: "official", Data: entry}
 		}
@@ -121,15 +121,15 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 	if err != nil {
 		return report, err
 	}
-	return AssessUpdate(current, candidate)
+	return AssessUpdate(current, candidate, RuntimeFromContext(ctx))
 }
 
 // AssessUpdate applies this Node's update policy to an already captured package,
 // including packages uploaded from a controller's local directory.
-func AssessUpdate(current, candidate protocol.PluginInfo) (protocol.PluginUpdatesReport, error) {
+func AssessUpdate(current, candidate protocol.PluginInfo, runtimes ...Runtime) (protocol.PluginUpdatesReport, error) {
 	report := protocol.DefaultPluginUpdatesReport()
 	report.Current = current.Summary
-	report.Current.Compatibility = InfoCompatibility(current)
+	report.Current.Compatibility = InfoCompatibility(current, runtimes...)
 	if current.Summary.Pinned {
 		return report, nil
 	}
@@ -146,7 +146,7 @@ func AssessUpdate(current, candidate protocol.PluginInfo) (protocol.PluginUpdate
 	if current.Skill == nil && !packagePrerelease(current.Summary.Version) && packagePrerelease(candidate.Summary.Version) {
 		return report, nil
 	}
-	candidate.Summary.Compatibility = InfoCompatibility(candidate)
+	candidate.Summary.Compatibility = InfoCompatibility(candidate, runtimes...)
 	if candidate.Summary.Compatibility.Kind == "compatible" {
 		report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: candidate}
 	}

@@ -17,14 +17,21 @@
 #     APPLE_SIGNING_KEYCHAIN
 set -euo pipefail
 
-test -f go.mod && test -d internal/node/host/deployment/package || { echo 'run from the repository root' >&2; exit 1; }
+harness_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)
+package_root=$PWD
+command=${SAILRY_HOST_COMMAND:-./cmd/sailry-host}
+test -f go.mod && test -d "$command" || { echo 'run from the product repository root' >&2; exit 1; }
 artifacts=()
 if test "${1:-}" = -artifacts; then
   test -d "${2:-}" || { echo '-artifacts needs a directory' >&2; exit 1; }
-  artifacts=(-artifacts "$2")
+  artifacts=(-artifacts "$(cd "$2" && pwd)")
   shift 2
 fi
 test $# -eq 0 || { echo 'usage: archive.sh [-artifacts <dir>]' >&2; exit 1; }
+case "${SAILRY_RELEASE_REPOSITORY:-https://github.com/sailry/sailry-harness}" in
+  https://github.com/sailry/sailry-harness | https://github.com/sailry/sailry-code) ;;
+  *) echo 'Official Host packages only support Harness and Code release repositories; forks need an independent package identity' >&2; exit 1 ;;
+esac
 
 unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
@@ -35,24 +42,23 @@ case "$(uname -s)/$(uname -m)" in
   Darwin/x86_64) platform=darwin/amd64 triple=x86_64-apple-darwin ;;
   *) echo 'Host archives are built on Linux and macOS, amd64 or arm64' >&2; exit 1 ;;
 esac
-stage=.runtime/host/$triple
-package=internal/node/host/deployment/package
+stage=$package_root/.runtime/host/$triple
+package=$harness_root/internal/node/host/deployment/package
 rm -rf -- "$stage"
 mkdir -p "$stage/host"
 
 # The pinned runtimes from their official URLs and the Turso library; the Host
 # ships no speech or capture library.
-go run ./native/fetch -target "$platform" -host ${artifacts[@]+"${artifacts[@]}"} -bundle "$stage/host"
+go -C "$harness_root" run ./native/fetch -target "$platform" -host ${artifacts[@]+"${artifacts[@]}"} -bundle "$stage/host"
 
 # A release build opens the release profile by default and loads the Turso
 # library only from its package, against the seal written below.
-telemetry=github.com/sailry/sailry-harness/internal/node/telemetry
 flags="-w -X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry"
+flags+=" ${SAILRY_PACKAGE_LDFLAGS:-}"
 revision=${SAILRY_REVISION:-$(git rev-parse HEAD)}
-flags="$flags -X $telemetry.BuildRevision=$revision"
-test -z "${SAILRY_SENTRY_DSN:-}" || flags="$flags -X $telemetry.BuildDSN=$SAILRY_SENTRY_DSN"
-test -z "${SAILRY_TELEMETRY_KEY:-}" || flags="$flags -X $telemetry.BuildKey=$SAILRY_TELEMETRY_KEY"
-go build -trimpath -ldflags "$flags" -o "$stage/host/sailry-host" ./cmd/sailry-host
+source "$harness_root/internal/node/telemetry/build-flags.sh"
+telemetry_build_flags "$revision"
+go build -trimpath -ldflags "$flags" -o "$stage/host/sailry-host" "$command"
 
 # macOS: only Sailry's own code is signed. The pinned runtimes keep the bytes
 # their locks record, which the Host verifies outside an application bundle.
@@ -79,14 +85,29 @@ if test "$(uname -s)" = Darwin; then
   codesign --force "${signing[@]}" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
   codesign --verify --strict "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
 fi
-go run ./native/fetch -target "$platform" -host -seal "$stage/host"
+go -C "$harness_root" run ./native/fetch -target "$platform" -host -seal "$stage/host"
 
 # The installer accepts only an archive whose Host reports its release version.
 version=$("$stage/host/sailry-host" --version)
 version=${version#Sailry Host }
 cp "$package/sailry" "$package/install-host.sh" "$package/service.sh" "$stage/host/"
+if test -n "${SAILRY_RELEASE_REPOSITORY:-}"; then
+  SAILRY_RELEASE_REPOSITORY=$SAILRY_RELEASE_REPOSITORY python3 - "$stage/host/install-host.sh" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+repository = os.environ["SAILRY_RELEASE_REPOSITORY"]
+previous = "task_repository=https://github.com/sailry/sailry-harness\n"
+if source.count(previous) != 1:
+    raise SystemExit("Host installer repository declaration is missing or ambiguous")
+path.write_text(source.replace(previous, f"task_repository={repository}\n", 1))
+PY
+fi
 chmod 755 "$stage/host/sailry"
-bash internal/node/host/deployment/licenses.sh "$platform" "$triple" "$stage/host/licenses"
+bash "$harness_root/internal/node/host/deployment/licenses.sh" "$platform" "$triple" "$stage/host/licenses" "$command" "$package_root"
 cp go.mod go.sum "$stage/host/"
 dirty=false
 if test -n "$(git status --porcelain)"; then dirty=true; fi

@@ -11,9 +11,9 @@ func TestPluginVersionOperationsPreserveSelection(t *testing.T) {
 	version, api := "1.4.0", "v999"
 	info.Summary.Name, info.Summary.Version, info.Summary.Digest = "fixture", &version, strings.Repeat("a", 64)
 	info.Summary.Pinned = true
-	info.Requirements = &PluginRequirements{APIVersion: api, Invalid: true}
+	info.Requirements = &PluginRequirements{APIVersion: api, Products: []string{"harness"}, RequiresModules: []string{"files"}, Invalid: true}
 	info.UpdateSource = &PluginOrigin{Kind: "official"}
-	info.Versions = []PluginCatalogVersion{{Version: version, Commit: strings.Repeat("b", 40), APIVersion: &api, Withdrawn: true,
+	info.Versions = []PluginCatalogVersion{{Version: version, Commit: strings.Repeat("b", 40), APIVersion: &api, Products: []string{"harness"}, RequiresModules: []string{"files"}, Withdrawn: true,
 		Compatibility: PluginCompatibility{Kind: "unsupported", Data: PluginCompatibilityUnsupportedPayload{Reason: "unsupported API"}}}}
 	selection := PluginCatalogSelection{Info: info, Path: "fixture", Source: PluginSkillsResolved{Repository: "https://example.test/fixture.git", Commit: strings.Repeat("b", 40), GitRef: strings.Repeat("b", 40)}}
 	command := Command{Kind: "install_catalog_plugin", Data: CommandInstallCatalogPluginPayload{Selection: selection, ExpectedRevision: 7, Mode: PluginInstallModeSwitch}}
@@ -33,6 +33,10 @@ func TestPluginVersionOperationsPreserveSelection(t *testing.T) {
 	if actual.Summary.Digest != info.Summary.Digest || !actual.Summary.Pinned || actual.UpdateSource == nil || actual.UpdateSource.Kind != "official" ||
 		actual.Requirements == nil || !actual.Requirements.Invalid || actual.Requirements.APIVersion != api || len(actual.Versions) != 1 || !actual.Versions[0].Withdrawn || actual.Versions[0].Compatibility.Kind != "unsupported" {
 		t.Fatalf("version requirements or withdrawal were lost: %+v", actual)
+	}
+	if strings.Join(actual.Requirements.Products, ",") != "harness" || strings.Join(actual.Requirements.RequiresModules, ",") != "files" ||
+		strings.Join(actual.Versions[0].Products, ",") != "harness" || strings.Join(actual.Versions[0].RequiresModules, ",") != "files" {
+		t.Fatalf("runtime requirements were lost: %+v", actual)
 	}
 	if !(Command{Kind: "set_plugin_pinned", Data: CommandSetPluginPinnedPayload{Name: "fixture", ExpectedRevision: 7, Pinned: true}}).Durable() {
 		t.Fatal("pinning bypassed the durable request ledger")

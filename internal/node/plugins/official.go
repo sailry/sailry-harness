@@ -13,9 +13,9 @@ func (manager *Manager) officialRepositoryURL() string {
 	return OfficialRepository + ".git"
 }
 
-func officialVersion(entry protocol.PluginCatalogEntry, requested *string) (*protocol.PluginCatalogVersion, error) {
+func officialVersion(entry protocol.PluginCatalogEntry, requested *string, runtimes ...Runtime) (*protocol.PluginCatalogVersion, error) {
 	if requested == nil {
-		if selected := SelectCompatibleVersion(entry, nil); selected != nil {
+		if selected := SelectCompatibleVersion(entry, nil, runtimes...); selected != nil {
 			return selected, nil
 		}
 		if err := EnsureCompatible(entry.Compatibility); err != nil {
@@ -30,7 +30,7 @@ func officialVersion(entry protocol.PluginCatalogEntry, requested *string) (*pro
 		if version.Version != *requested {
 			continue
 		}
-		version.Compatibility = CatalogVersionCompatibility(version)
+		version.Compatibility = CatalogVersionCompatibility(version, runtimes...)
 		if entry.Version != nil && version.Version == *entry.Version && entry.Compatibility.Kind != "compatible" {
 			version.Compatibility = entry.Compatibility
 		}
@@ -77,7 +77,7 @@ func (manager *Manager) InspectOfficial(ctx context.Context, name string, versio
 	if err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}
-	selected, err := officialVersion(entry, version)
+	selected, err := officialVersion(entry, version, RuntimeFromContext(ctx))
 	if err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}
@@ -93,7 +93,7 @@ func (manager *Manager) InspectOfficial(ctx context.Context, name string, versio
 	if selection.Info.Summary.Name != name || selection.Info.Summary.Version == nil || *selection.Info.Summary.Version != selected.Version || selection.Source.Commit != selected.Commit {
 		return protocol.PluginCatalogSelection{}, packageFault("official plugin identity differs from its catalog version")
 	}
-	if err := EnsureCompatible(InfoCompatibility(selection.Info)); err != nil {
+	if err := EnsureCompatible(InfoCompatibility(selection.Info, RuntimeFromContext(ctx))); err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}
 	applyOfficialMetadata(&selection.Info, entry, *selected)
@@ -119,7 +119,7 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}
-		selected, err := officialVersion(entry, version)
+		selected, err := officialVersion(entry, version, RuntimeFromContext(ctx))
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}
@@ -175,7 +175,7 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	selected, err := officialVersion(entry, version)
+	selected, err := officialVersion(entry, version, RuntimeFromContext(ctx))
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}

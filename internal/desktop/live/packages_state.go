@@ -193,7 +193,9 @@ func (r *Runtime) initB8Packages() {
 	}
 	r.App.SetInstallations(&r.packages.queue)
 	r.App.Hooks.PackageDialogs = r.packageDialogs
-	r.initLiveTerminals()
+	if r.App.Settings.HasSection(settings.Terminal) {
+		r.initLiveTerminals()
+	}
 	r.readInstalledThemes()
 	r.packagesFrame(nil)
 	r.App.SyncNativePages()

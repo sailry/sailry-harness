@@ -21,9 +21,13 @@ func CaptureCatalog(ctx context.Context, profile string, references []protocol.P
 	manager := plugins.NewManager(profile)
 	result := &Catalog{References: slices.Clone(references)}
 	for _, reference := range references {
-		if slices.ContainsFunc(bundled.References, func(candidate protocol.PluginReference) bool {
-			return candidate.Name == reference.Name && candidate.Digest == reference.Digest
-		}) {
+		index := slices.IndexFunc(bundled.Packages, func(candidate Package) bool {
+			return candidate.Reference.Name == reference.Name && candidate.Reference.Digest == reference.Digest
+		})
+		if index >= 0 {
+			if err := plugins.EnsureCompatible(plugins.InfoCompatibility(protocol.PluginInfo{Requirements: bundled.Packages[index].Requirements}, plugins.RuntimeFromContext(ctx))); err != nil {
+				return nil, err
+			}
 			for _, declaration := range bundled.Tools {
 				if declaration.Owner.Name == reference.Name {
 					declaration.Owner = reference

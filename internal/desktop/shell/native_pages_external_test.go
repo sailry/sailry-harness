@@ -7,18 +7,17 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	desktop "github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	files "github.com/sailry/sailry-harness/modules/files/desktop"
-	git "github.com/sailry/sailry-harness/modules/git/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 
-func init() { shell.TestHarnessAssembly = desktop.Harness }
+func init() { shell.TestHarnessAssembly = testassembly.Full }
 
 func TestNativePageAssembly(t *testing.T) {
 	for _, mode := range []struct {
@@ -32,7 +31,7 @@ func TestNativePageAssembly(t *testing.T) {
 		}, []string{string(shell.ConversationPage)}},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			assembly := shell.Assemble(files.Register, git.Register, market.Register)
+			assembly := shell.Assemble(files.Register, testassembly.Register, market.Register)
 			pages := assembly.WorkspacePages
 			full := mode.open(assembly)
 			without := mode.open(shell.Assembly{})
@@ -112,8 +111,8 @@ func TestGitOpenSource(t *testing.T) {
 		assembly  shell.Assembly
 		canReveal bool
 	}{
-		{"standalone", shell.Assemble(git.Register), false},
-		{"with Files", shell.Assemble(git.Register, files.Register), true},
+		{"standalone", shell.Assemble(testassembly.Register), false},
+		{"with Files", shell.Assemble(testassembly.Register, files.Register), true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a := shell.NewWithAssembly(preview.Load(), test.assembly)

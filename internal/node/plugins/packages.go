@@ -239,7 +239,7 @@ func digestPackage(entries []packageEntry) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expected string) (protocol.PluginInfo, error) {
+func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expected string, runtimes ...Runtime) (protocol.PluginInfo, error) {
 	files := map[string][]byte{}
 	for _, entry := range entries {
 		if !entry.directory {
@@ -294,7 +294,7 @@ func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expe
 			}
 		}
 	}
-	info.Summary.Compatibility = InfoCompatibility(info)
+	info.Summary.Compatibility = InfoCompatibility(info, runtimes...)
 	info.ReleaseNotes = releaseNotes(files, manifest.Version)
 	return info, nil
 }
@@ -322,7 +322,7 @@ func (manager *Manager) Inspect(ctx context.Context, directory, workingDirectory
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	info, err := describePackage(entries, issues, name)
+	info, err := describePackage(entries, issues, name, RuntimeFromContext(ctx))
 	info.Origin = &protocol.PluginOrigin{Kind: "directory"}
 	return info, err
 }
@@ -435,7 +435,11 @@ func (manager *Manager) InspectBundled(ctx context.Context, name string) (protoc
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}
-		return cached.cloneInfo()
+		info, err := cached.cloneInfo()
+		if err == nil {
+			refreshCompatibility(&info, RuntimeFromContext(ctx))
+		}
+		return info, err
 	}
 	entries, issues, err := captureBundled(ctx, manager.bundled, name)
 	if err != nil {
@@ -447,6 +451,7 @@ func (manager *Manager) InspectBundled(ctx context.Context, name string) (protoc
 	}
 	info.Origin = &protocol.PluginOrigin{Kind: "bundled"}
 	err = manager.bundledMetadata(&info)
+	refreshCompatibility(&info, RuntimeFromContext(ctx))
 	return info, err
 }
 
@@ -499,6 +504,7 @@ func (manager *Manager) InstallBundled(ctx context.Context, name string) (protoc
 }
 
 func (manager *Manager) publishEmbeddedBundled(ctx context.Context, entries []packageEntry, info protocol.PluginInfo, repair bool) (protocol.PluginInfo, error) {
+	refreshCompatibility(&info, RuntimeFromContext(ctx))
 	if IsWithdrawn(info) {
 		return info, packageFault("bundled plugin version is withdrawn")
 	}
@@ -533,7 +539,7 @@ func (manager *Manager) publish(ctx context.Context, entries []packageEntry, iss
 }
 
 func (manager *Manager) publishPackage(ctx context.Context, entries []packageEntry, issues []protocol.PluginIssue, name string, origin protocol.PluginOrigin, repair bool) (protocol.PluginInfo, error) {
-	info, err := describePackage(entries, issues, name)
+	info, err := describePackage(entries, issues, name, RuntimeFromContext(ctx))
 	if err != nil {
 		return info, err
 	}
@@ -546,6 +552,7 @@ func (manager *Manager) publishPackage(ctx context.Context, entries []packageEnt
 			return info, packageFault("bundled plugin version is withdrawn")
 		}
 	}
+	refreshCompatibility(&info, RuntimeFromContext(ctx))
 	for _, issue := range info.Issues {
 		if issue.Kind == protocol.PluginIssueKindInvalidSkills || issue.Kind == protocol.PluginIssueKindInvalidSkill {
 			return info, packageFault("plugin skills must be valid before installation")
@@ -755,7 +762,7 @@ func (manager *Manager) archive(ctx context.Context, reader io.ReaderAt, size in
 		return slices.Compare(strings.Split(left.name, "/"), strings.Split(right.name, "/"))
 	})
 	if !install {
-		info, err := describePackage(entries, nil, name)
+		info, err := describePackage(entries, nil, name, RuntimeFromContext(ctx))
 		info.Origin = &protocol.PluginOrigin{Kind: "archive"}
 		return info, err
 	}

@@ -24,11 +24,9 @@ internal/node/agent/compact	*	10
 modules/skills/desktop	*	9
 internal/node/files	*	8
 internal/node/git	*	7
-modules/terminal/desktop	*	7
 modules/hooks/desktop	*	6
 internal/desktop/fileview	*	5
 modules/market/desktop	*	5
-modules/code-index/node	*	5
 internal/desktop/composer	*	3
 internal/desktop/acceptance	*	3
 internal/desktop/live	TestDemoMode	120

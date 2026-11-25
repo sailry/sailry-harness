@@ -51,6 +51,9 @@ func (r *Runtime) terminalSettingsFrame() {
 	root := r.localRuntime()
 	state := &root.terminalSettings
 	m := root.App.Settings
+	if !m.HasSection(settings.Terminal) {
+		return
+	}
 	owner := root.managedSettingsNode()
 	if previous := state.shown; previous != nil {
 		previous.terminalSettings.model = m.Host

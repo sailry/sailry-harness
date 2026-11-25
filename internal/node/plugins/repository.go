@@ -353,7 +353,7 @@ func (manager *Manager) InspectRepository(ctx context.Context, source protocol.P
 	if err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}
-	info, err := describePackage(entries, issues, "")
+	info, err := describePackage(entries, issues, "", RuntimeFromContext(ctx))
 	if err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}

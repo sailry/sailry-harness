@@ -5,7 +5,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func CatalogVersionCompatibility(version protocol.PluginCatalogVersion) protocol.PluginCompatibility {
+func CatalogVersionCompatibility(version protocol.PluginCatalogVersion, runtimes ...Runtime) protocol.PluginCompatibility {
 	if version.Withdrawn {
 		return unsupportedCompatibility("plugin version is withdrawn")
 	}
@@ -16,20 +16,24 @@ func CatalogVersionCompatibility(version protocol.PluginCatalogVersion) protocol
 		return unsupportedCompatibility("invalid plugin source revision")
 	}
 	if version.APIVersion != nil {
-		return requirementsCompatibility(&protocol.PluginRequirements{APIVersion: *version.APIVersion, MinSailryVersion: version.MinSailryVersion})
+		return requirementsCompatibility(&protocol.PluginRequirements{APIVersion: *version.APIVersion, MinSailryVersion: version.MinSailryVersion,
+			Products: version.Products, RequiresModules: version.RequiresModules}, runtimes...)
 	}
-	return Compatibility(version.MinSailryVersion)
+	if compatibility := Compatibility(version.MinSailryVersion); compatibility.Kind != "compatible" {
+		return compatibility
+	}
+	return runtimeCompatibility(version.Products, version.RequiresModules, runtimes)
 }
 
 // SelectCompatibleVersion keeps catalog presentation independent from the
 // installed Node's candidate. Prereleases enter automatic selection only when
 // the installed package already follows a prerelease channel.
-func SelectCompatibleVersion(entry protocol.PluginCatalogEntry, installed *string) *protocol.PluginCatalogVersion {
+func SelectCompatibleVersion(entry protocol.PluginCatalogEntry, installed *string, runtimes ...Runtime) *protocol.PluginCatalogVersion {
 	allowPrerelease := packagePrerelease(installed)
 	var selected *protocol.PluginCatalogVersion
 	var highest *semver.Version
 	for _, candidate := range entry.Versions {
-		candidate.Compatibility = CatalogVersionCompatibility(candidate)
+		candidate.Compatibility = CatalogVersionCompatibility(candidate, runtimes...)
 		if candidate.Compatibility.Kind != "compatible" ||
 			!commitHash(candidate.Commit) && !(entry.Bundled && entry.Commit == nil && entry.Version != nil && candidate.Version == *entry.Version && candidate.Commit == "") ||
 			entry.Version != nil && candidate.Version == *entry.Version && entry.Compatibility.Kind != "compatible" {
@@ -54,7 +58,7 @@ func packagePrerelease(version *string) bool {
 	return err == nil && parsed.Prerelease() != ""
 }
 
-func manifestVersion(manifest Manifest, commit string, notes *protocol.PluginCatalogReleaseNotes) protocol.PluginCatalogVersion {
+func manifestVersion(manifest Manifest, commit string, notes *protocol.PluginCatalogReleaseNotes, runtimes ...Runtime) protocol.PluginCatalogVersion {
 	version := protocol.DefaultPluginCatalogVersion()
 	if manifest.Version != nil {
 		version.Version = *manifest.Version
@@ -62,9 +66,10 @@ func manifestVersion(manifest Manifest, commit string, notes *protocol.PluginCat
 	version.Commit, version.ReleaseNotes = commit, notes
 	if requirements := manifest.Requirements; requirements != nil {
 		version.APIVersion, version.MinSailryVersion = &requirements.APIVersion, requirements.MinSailryVersion
+		version.Products, version.RequiresModules = requirements.Products, requirements.RequiresModules
 	}
-	version.Compatibility = CatalogVersionCompatibility(version)
-	if compatibility := requirementsCompatibility(manifest.Requirements); compatibility.Kind != "compatible" {
+	version.Compatibility = CatalogVersionCompatibility(version, runtimes...)
+	if compatibility := requirementsCompatibility(manifest.Requirements, runtimes...); compatibility.Kind != "compatible" {
 		version.Compatibility = compatibility
 	}
 	return version

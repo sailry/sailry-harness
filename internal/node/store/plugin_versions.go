@@ -24,7 +24,7 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 	if info.Summary.Name != reference.Name || info.Summary.Digest != reference.Digest {
 		return protocol.PluginInfo{}, invalid("stored plugin version identity differs from its capture")
 	}
-	refreshPluginCompatibility(info)
+	refreshPluginCompatibility(ctx, info)
 	if info.Summary.Compatibility.Kind != "compatible" {
 		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is incompatible")
 	}

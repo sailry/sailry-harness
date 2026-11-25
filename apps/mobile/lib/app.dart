@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,10 +20,10 @@ import 'ui/icons.dart';
 import 'ui/theme.dart';
 import 'ui/toast.dart';
 
-void runSailryApp(MobileAssembly assembly) {
+void runSailryApp(MobileAssembly assembly, {AssetBundle? assets}) {
   WidgetsFlutterBinding.ensureInitialized();
-  registerIconLicense();
-  runApp(SailryApp(assembly: assembly));
+  registerIconLicense(assets: assets);
+  runApp(SailryApp(assembly: assembly, assets: assets));
 }
 
 class SailryApp extends StatefulWidget {
@@ -32,12 +33,14 @@ class SailryApp extends StatefulWidget {
     this.session,
     this.preferences,
     this.updates,
+    this.assets,
   });
 
   final MobileAssembly assembly;
   final AppSession? session;
   final SharedPreferencesAsync? preferences;
   final AppUpdates? updates;
+  final AssetBundle? assets;
 
   @override
   State<SailryApp> createState() => _SailryAppState();
@@ -56,7 +59,11 @@ class _SailryAppState extends State<SailryApp> {
   @override
   void initState() {
     super.initState();
-    _updates = widget.updates ?? (widget.session == null ? AppUpdates() : null);
+    _updates =
+        widget.updates ??
+        (widget.session == null
+            ? (widget.assembly.createUpdates?.call() ?? AppUpdates())
+            : null);
     _session = widget.session ?? AppSession();
     if (widget.session == null) unawaited(_session.start());
     _preferences.addListener(_refreshPreferences);
@@ -120,9 +127,15 @@ class _SailryAppState extends State<SailryApp> {
       ),
       home: _home(),
     );
-    return ProjectResourcesScope(
-      features: widget.assembly.resources,
-      child: SessionScope(session: _session, child: app),
+    return DefaultAssetBundle(
+      bundle: widget.assets ?? rootBundle,
+      child: MobileAssemblyScope(
+        assembly: widget.assembly,
+        child: ProjectResourcesScope(
+          features: widget.assembly.resources,
+          child: SessionScope(session: _session, child: app),
+        ),
+      ),
     );
   }
 

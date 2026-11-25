@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -21,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
@@ -337,7 +337,7 @@ func TestWindowPreferencesAcrossNativeAssemblies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assembly := desktop.Harness()
+	assembly := desktop.Full()
 	full, tester, window := open(assembly)
 	full.App.SetFeaturePreferences([]string{string(shell.ConversationPage), string(shell.GitPage), string(shell.FilesPage), string(shell.MarketPage)}, map[string]bool{
 		string(shell.FilesPage): false, string(shell.GitPage): true, string(shell.MarketPage): true,

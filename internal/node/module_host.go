@@ -1280,6 +1280,9 @@ func (node *Node) moduleTools(ctx context.Context, inv *store.AgentInvocation) (
 	host := nodeModuleHost{node: node}
 	var tools []engine.Tool
 	for _, module := range node.modules.Modules {
+		if !node.moduleServiceAvailable(module.ID()) {
+			continue
+		}
 		built, err := module.ToolsForTurn(ctx, host, inv)
 		if err != nil {
 			for _, tool := range tools {

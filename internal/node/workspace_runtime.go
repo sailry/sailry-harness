@@ -20,13 +20,15 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 	} else {
 		node.environment = *options.Environment
 	}
-	gitOptions := options.Git
-	if gitOptions.Environment == nil {
-		gitOptions.Environment = node.environment.TerminalValues()
+	if node.modules.HasModule("git") {
+		gitOptions := options.Git
+		if gitOptions.Environment == nil {
+			gitOptions.Environment = node.environment.TerminalValues()
+		}
+		gitOptions.Profile = node.profile.Ownership.Path
+		gitOptions.Lock = func(root string) func() { return node.locks.roots(root) }
+		node.git = workspacegit.New(gitOptions)
 	}
-	gitOptions.Profile = node.profile.Ownership.Path
-	gitOptions.Lock = func(root string) func() { return node.locks.roots(root) }
-	node.git = workspacegit.New(gitOptions)
 	node.watches = newWorkspaceWatches(node.git)
 	node.transfers = files.NewTransfers(node.profile.Ownership.Path)
 	processOptions := options.Process
@@ -35,7 +37,11 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 		node.processAfter = time.After
 	}
 	processOptions.Context, processOptions.Profile, processOptions.Environment = node.ctx, node.profile.Ownership.Path, node.environment
-	processOptions.CaptureManaged = node.git.CaptureManaged
+	if node.git != nil {
+		processOptions.CaptureManaged = node.git.CaptureManaged
+	} else {
+		processOptions.CaptureManaged = process.CaptureWorkspaceBoundary
+	}
 	processOptions.Finished = node.commandFinished
 	processOptions.Stalled = node.commandStalled
 	processOptions.Working = node.power.Hold

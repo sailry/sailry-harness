@@ -101,7 +101,9 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 			}
 			active.started = true
 			close(active.ready)
-			w.git.Invalidate(root)
+			if w.git != nil {
+				w.git.Invalidate(root)
+			}
 			go active.run()
 		} else if !active.started {
 			w.mu.Unlock()
@@ -124,9 +126,14 @@ func (w *workspaceWatches) observe(ctx context.Context, root string, node protoc
 // open watches the worktree and the Git directories outside it. Git's own
 // directory inside the worktree is part of the tree.
 func (w *workspaceWatch) open(ctx context.Context) error {
-	filter, watched, err := w.owner.git.NewWatchFilter(ctx, w.root)
-	if err != nil {
-		return err
+	var filter *workspacegit.WatchFilter
+	var watched []string
+	var err error
+	if w.owner.git != nil {
+		filter, watched, err = w.owner.git.NewWatchFilter(ctx, w.root)
+		if err != nil {
+			return err
+		}
 	}
 	w.filter = filter
 	if w.native, err = fswatch.New(); err != nil {
@@ -184,12 +191,16 @@ func (w *workspaceWatch) notify(paths []string, failure error) {
 	if failure != nil {
 		w.failure = failure
 	}
-	references := failure != nil || w.filter.ReferencesChanged(paths)
-	relevant := failure != nil || w.filter.Changed(paths)
+	references := failure != nil
+	relevant := true
+	if w.filter != nil {
+		references = references || w.filter.ReferencesChanged(paths)
+		relevant = failure != nil || w.filter.Changed(paths)
+	}
 	if references {
 		w.references++
 	}
-	if relevant {
+	if relevant && w.owner.git != nil {
 		w.owner.git.Invalidate(w.root)
 	}
 	for observer := range w.observers {
@@ -220,7 +231,7 @@ func (w *workspaceWatches) changed(root string, paths []string) {
 	}
 	if active != nil {
 		active.notify(paths, nil)
-	} else {
+	} else if w.git != nil {
 		w.git.Invalidate(root)
 	}
 }

@@ -1678,6 +1678,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get failureUnavailable => '연결되지 않음';
 
   @override
+  String get failureNotConfigured => '이 호스트에서는 이 기능을 사용할 수 없습니다';
+
+  @override
   String get failureBusy => '서비스가 바쁘습니다. 나중에 다시 시도하십시오';
 
   @override

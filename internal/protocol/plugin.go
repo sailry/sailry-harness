@@ -202,6 +202,8 @@ func (value *PluginTint) UnmarshalText(data []byte) error {
 
 type PluginExtension struct {
 	MinSailryVersion    *string                            `json:"min_sailry_version,omitempty"`
+	Products            []string                           `json:"products,omitempty"`
+	RequiresModules     []string                           `json:"requires_modules,omitempty"`
 	ApiVersion          string                             `json:"api_version"`
 	Permissions         []PermissionsContribution          `json:"permissions,omitempty"`
 	Connectors          []PluginConnectorDeclaration       `json:"connectors,omitempty"`

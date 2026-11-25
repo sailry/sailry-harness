@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	sailry "github.com/sailry/sailry-harness"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -87,6 +88,10 @@ func load() (*Catalog, error) {
 		if err != nil {
 			return nil, err
 		}
+		validated, err := plugins.ValidateManifest(data)
+		if err != nil {
+			return nil, err
+		}
 		var manifest struct {
 			Name       string `json:"name"`
 			Extensions map[string]struct {
@@ -147,7 +152,7 @@ func load() (*Catalog, error) {
 			return nil, err
 		}
 		owner := protocol.PluginReference{Name: manifest.Name, Digest: digest}
-		catalog.Packages = append(catalog.Packages, Package{Reference: owner, Skills: discoverSkills(tree), Scope: extension.Scope, Modes: extension.Modes, Options: extension.Options, tree: tree})
+		catalog.Packages = append(catalog.Packages, Package{Reference: owner, Requirements: validated.Requirements, Skills: discoverSkills(tree), Scope: extension.Scope, Modes: extension.Modes, Options: extension.Options, tree: tree})
 		catalog.References = append(catalog.References, owner)
 		for _, declaration := range declarations {
 			declaration.Owner = owner

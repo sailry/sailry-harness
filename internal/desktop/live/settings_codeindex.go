@@ -12,6 +12,9 @@ type codeIndexSettingsState struct {
 }
 
 func (r *Runtime) readCodeIndex() {
+	if !r.App.Settings.CodeIndexAvailable {
+		return
+	}
 	m := &r.codeIndexSettings
 	r.publishCodeIndex()
 	if m.Pending {
@@ -38,6 +41,9 @@ func (r *Runtime) readCodeIndex() {
 }
 
 func (r *Runtime) saveCodeIndex() {
+	if !r.App.Settings.CodeIndexAvailable {
+		return
+	}
 	m := &r.codeIndexSettings
 	if m.Pending {
 		return
@@ -47,6 +53,9 @@ func (r *Runtime) saveCodeIndex() {
 }
 
 func (r *Runtime) savePersistentCodeIndex(enabled bool) {
+	if !r.App.Settings.CodeIndexAvailable {
+		return
+	}
 	m := &r.codeIndexSettings
 	if m.Pending || !m.Saved || m.persistent == nil || *m.persistent == enabled {
 		return

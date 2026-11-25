@@ -13,11 +13,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	git "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	files "github.com/sailry/sailry-harness/modules/files/desktop"
-	git "github.com/sailry/sailry-harness/modules/git/desktop"
 	marketModule "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 

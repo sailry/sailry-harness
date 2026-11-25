@@ -1713,6 +1713,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get failureUnavailable => 'Host nicht verbunden';
 
   @override
+  String get failureNotConfigured =>
+      'Diese Funktion ist auf diesem Host nicht verfügbar';
+
+  @override
   String get failureBusy => 'Bitte versuchen Sie es später noch einmal';
 
   @override

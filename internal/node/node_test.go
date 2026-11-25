@@ -175,7 +175,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 	// the ledger holds the secret, replay returns the recorded outcome, and a
 	// different secret under the same identifier is a conflict.
 	t.Run("secret-bearing commands are kept by digest", func(t *testing.T) {
-		node := nodeFixture(t)
+		node := moduleFixtureNode(t, "databases", "ssh")
 		ledger := func() string {
 			var text bytes.Buffer
 			err := node.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
@@ -266,7 +266,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		}
 	})
 	t.Run("project lifecycle and worktree ownership", func(t *testing.T) {
-		node := nodeFixture(t)
+		node := moduleFixtureNode(t, "git", "worktrees")
 		directory := t.TempDir()
 		other := t.TempDir()
 		if _, err := git.PlainInit(directory, false); err != nil {
@@ -308,7 +308,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		reopened, err := startFixtureNode(context.Background(), path)
+		reopened, err := startFixtureNode(context.Background(), path, "git", "worktrees")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -319,7 +319,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		}
 	})
 	t.Run("registered projects, conversation location, media roles and diagnostics", func(t *testing.T) {
-		node := nodeFixture(t)
+		node := moduleFixtureNode(t, "git", "worktrees")
 		refused := func(command protocol.Command, want protocol.ErrorCode) {
 			t.Helper()
 			response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command))
@@ -615,7 +615,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "profile")
-	node, err := startFixtureNode(ctx, path)
+	node, err := startFixtureNode(ctx, path, "ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if len(stored(secret)) != 0 || len(stored("interrupted-ledger-key")) != 0 || backups() != 0 {
 		t.Fatalf("before the restart: secret in %v, interrupted secret in %v, %d backups", stored(secret), stored("interrupted-ledger-key"), backups())
 	}
-	restarted, err := startFixtureNode(ctx, path)
+	restarted, err := startFixtureNode(ctx, path, "ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +810,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if files := stored(secret); len(files) != 0 || backups() != 0 {
 		t.Fatalf("after the restart: secret in %v, %d backups", files, backups())
 	}
-	again, err := startFixtureNode(ctx, path)
+	again, err := startFixtureNode(ctx, path, "ssh")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1207,9 +1207,9 @@ func TestResetRequiredRecovers(t *testing.T) {
 	}
 }
 
-func startFixtureNode(ctx context.Context, path string) (*Node, error) {
+func startFixtureNode(ctx context.Context, path string, modules ...string) (*Node, error) {
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	return StartWithOptions(ctx, path, Options{Environment: &environment, MCP: fixtureMCPOptions()})
+	return StartWithOptions(ctx, path, Options{Assembly: fixtureModuleAssembly(modules...), Environment: &environment, MCP: fixtureMCPOptions()})
 }
 
 func fixtureMCPOptions() *mcp.Options {

@@ -14,7 +14,8 @@ func (manager *Manager) ReadDesktop(ctx context.Context, info protocol.PluginInf
 	bundle.Package = PackageReference(info)
 	bundle.Requirements = info.Requirements
 	if bundle.Requirements == nil && info.Extension != nil {
-		bundle.Requirements = &protocol.PluginRequirements{APIVersion: info.Extension.ApiVersion, MinSailryVersion: info.Extension.MinSailryVersion}
+		bundle.Requirements = &protocol.PluginRequirements{APIVersion: info.Extension.ApiVersion, MinSailryVersion: info.Extension.MinSailryVersion,
+			Products: info.Extension.Products, RequiresModules: info.Extension.RequiresModules}
 	}
 	if info.Extension == nil || info.Extension.Desktop == nil {
 		return bundle, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin has no desktop view"}

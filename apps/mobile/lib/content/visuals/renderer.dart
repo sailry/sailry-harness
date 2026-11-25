@@ -27,9 +27,12 @@ class _CachedVisual {
 }
 
 class VisualRenderer extends ChangeNotifier {
-  VisualRenderer({VisualRender? render}) : renderOverride = render;
+  VisualRenderer({VisualRender? render, AssetBundle? assets})
+    : renderOverride = render,
+      _assets = assets ?? rootBundle;
 
   VisualRender? renderOverride;
+  final AssetBundle _assets;
   WebViewController? get controller => _controller;
   final _cache = <String, _CachedVisual>{};
   var _cacheBytes = 0;
@@ -148,7 +151,7 @@ class VisualRenderer extends ChangeNotifier {
 
     final scripts = await Future.wait([
       for (final name in ['config', 'mermaid', 'mathjax', 'fonts', 'render'])
-        rootBundle.loadString('assets/visuals/$name.js', cache: false),
+        _assets.loadString('assets/visuals/$name.js', cache: false),
     ]);
     available();
     final controller = WebViewController();

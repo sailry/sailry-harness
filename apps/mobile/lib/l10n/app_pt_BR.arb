@@ -1,5 +1,6 @@
 {
   "@@locale": "pt_BR",
+  "failureNotConfigured": "Recurso indisponível neste host",
   "artifactContents": "Conteúdo",
   "artifactZoomIn": "Ampliar",
   "artifactZoomOut": "Reduzir",

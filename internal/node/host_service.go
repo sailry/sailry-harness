@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/host"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -20,7 +21,12 @@ func (node *Node) initHost(options Options) {
 	}
 	deployment.Release = options.HostRelease
 	node.hostInstalls = host.NewInstallations(deployment)
-	node.sshPool = newSSHBrowsePool(nil)
+	if node.modules.HasModule("ssh") && node.modules.SSH != nil {
+		node.ssh = node.modules.SSH(moduleapi.SSHServiceOptions{
+			Context: node.ctx, ReadSSH: node.readSSHProfile, WorkspaceRoot: node.workspaceRoot,
+			Transfers: node.transfers, Terminals: node.terminals, Installations: node.hostInstalls, Link: node.Link,
+		})
+	}
 	node.wsl = wsl.NewServiceForRelease(options.HostRelease)
 }
 
@@ -36,7 +42,11 @@ func hostCommand(kind string) bool {
 // that share the Host admission path. It performs remote work and must be
 // called outside any store writer.
 func (node *Node) dispatchResource(ctx context.Context, caller protocol.NodeID, request protocol.Request) (bool, protocol.Output, error) {
-	if handled, output, err := node.dispatchSSHResource(ctx, caller, request); handled {
+	if sshResourceCommand(request.Command.Kind) {
+		if err := node.checkCommandModule(request.Command); err != nil {
+			return true, protocol.Output{}, err
+		}
+		output, err := node.ssh.Execute(ctx, caller, request)
 		return true, output, err
 	}
 	if handled, output, err := node.dispatchDatabase(ctx, caller, request); handled {
@@ -46,6 +56,9 @@ func (node *Node) dispatchResource(ctx context.Context, caller protocol.NodeID, 
 }
 
 func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return link.Admission{}, err
+	}
 	// Plugin scopes reach only the connection commands their declared database
 	// and SSH actions admit; Node inspection and process signals stay with
 	// controllers.
@@ -91,6 +104,9 @@ func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, requ
 }
 
 func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return response(protocol.Output{}, err)
+	}
 	if handled, output, err := node.dispatchResource(ctx, caller, request); handled {
 		return response(output, err)
 	}
@@ -179,7 +195,7 @@ func (node *Node) executeHost(ctx context.Context, caller protocol.NodeID, reque
 	}
 	if configuration && operationErr == nil {
 		if profileID, ok := sshConfigurationProfileID(request.Command); ok {
-			node.sshPool.invalidate(profileID)
+			node.ssh.Invalidate(profileID)
 		}
 		node.publish()
 	}

@@ -347,14 +347,44 @@ dependent package version only after that Sailry version is released; earlier
 applications do not enforce this field.
 
 Compatibility requirements are read before decoding the platform's functionality.
+The optional extension fields `products` and `requires_modules` constrain the
+execution Node independently of API and application versions:
+
+```json
+{
+  "api_version": "v1",
+  "min_sailry_version": "0.2.13",
+  "products": ["harness", "code"],
+  "requires_modules": ["files", "git"]
+}
+```
+
+`products` is a nonempty list of execution product IDs; the current official IDs
+are `harness` and `code`. `requires_modules` lists native module IDs that must
+**all** be present after the product's Node module assembly. IDs are distinct,
+lowercase package-style identifiers of at most 64 characters. An omitted
+`products` accepts any product; omitted or empty `requires_modules` requires no
+native modules. Historical manifests, catalog versions and stored installations
+without these fields retain those unrestricted defaults. These are not plugin
+dependencies, JavaScript import names, model capabilities or telemetry labels.
+
+The Node supplies its explicit product ID and actual assembled module IDs, checks
+them during catalog selection, installation, enabling and execution capture, and
+does not infer them from the controller. Catalog version records preserve the
+requirements of each immutable package version. An incompatible package cannot
+become a candidate merely because a different version supports this product.
+
 A declared but invalid or unsupported platform extension is incompatible; it is
 not treated as a package without an extension. Ordinary skill and MCP packages
 without a Sailry extension remain supported. The Node rejects incompatible
 installation and enabling; an unmet minimum uses structured
 `PluginRequiresNewer {required}` fault details. An incompatible installed package
 retains its files, configuration and saved enable choice, while its contributions
-remain unavailable. The execution Node evaluates package compatibility against
-its own application and platform API versions. Desktop checks its local
+remain unavailable. `min_sailry_version` compares against the Harness runtime's
+platform capability version (`identity.OfficialVersion`), not a downstream
+product's marketing or package version. For example, Code 0.1.0 built on Harness
+0.2.13 satisfies a minimum of 0.2.13. The `api_version` extension contract remains
+independent. Desktop checks its local
 requirements before offering an update or installing a package with Desktop
 contributions, and the loader checks again before evaluating remote UI code.
 Pure Node packages do not inherit the controller's version requirements. A newer

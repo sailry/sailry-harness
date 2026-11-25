@@ -38,7 +38,7 @@ func TestHostStartupLogUnavailable(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			code, err := runService(t.Context(), []string{"--data-dir", profile}, func() {})
+			code, err := run([]string{"serve", "--data-dir", profile})
 			var inUse *core.ProfileInUseError
 			if code != 1 || !errors.As(err, &inUse) {
 				t.Fatalf("Node startup error was masked: exit %d: %v", code, err)

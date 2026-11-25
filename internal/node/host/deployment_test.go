@@ -2,7 +2,6 @@ package host
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"os/exec"
 	"runtime"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/internal/ssh"
-	cryptossh "golang.org/x/crypto/ssh"
 )
 
 const (
@@ -86,24 +83,6 @@ func TestSSHInstallationContracts(t *testing.T) {
 	finish()
 	if _, err := owner.Read(node, request.ID, nil); err == nil {
 		t.Fatal("completed installation retained active progress")
-	}
-	seed := make([]byte, ed25519.SeedSize)
-	public := ed25519.NewKeyFromSeed(seed).Public()
-	key, err := cryptossh.NewPublicKey(public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var required *ssh.HostKeyRequired
-	if err := ssh.VerifyHostKey(nil, key); !errors.As(err, &required) || required.Changed {
-		t.Fatal("first-use SSH key did not require explicit trust")
-	}
-	trusted := required.Key
-	if err := ssh.VerifyHostKey(&trusted, key); err != nil {
-		t.Fatal("explicitly trusted SSH key was rejected")
-	}
-	trusted.Fingerprint = "SHA256:changed"
-	if err := ssh.VerifyHostKey(&trusted, key); !errors.As(err, &required) || !required.Changed {
-		t.Fatal("changed SSH key did not require explicit trust")
 	}
 	for _, row := range []struct {
 		bytes    uint64

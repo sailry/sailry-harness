@@ -40,6 +40,8 @@ type DesktopRelease struct {
 }
 
 type Desktop struct {
+	ID             string
+	Name           string
 	Release        DesktopRelease
 	Version        string
 	DefaultProfile string
@@ -55,7 +57,7 @@ func OfficialDesktop() Desktop {
 			Package: DesktopPackage{Name: "Sailry", ID: "ai.sailry.desktop", Executable: "sailry-desktop"},
 			Source:  OfficialReleases, Downloads: OfficialDownloads, PublicKeys: officialUpdateKeys,
 		},
-		Version: OfficialVersion, DefaultProfile: SourceProfile, DefaultEntry: "page:conversation",
+		ID: "harness", Name: "Sailry", Version: OfficialVersion, DefaultProfile: SourceProfile, DefaultEntry: "page:conversation",
 		Website: OfficialWebsite, Feedback: OfficialFeedback,
 	}
 }

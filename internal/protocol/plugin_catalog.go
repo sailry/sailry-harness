@@ -365,6 +365,8 @@ type PluginCatalogVersion struct {
 	Version          string                     `json:"version"`
 	Commit           string                     `json:"commit"`
 	MinSailryVersion *string                    `json:"min_sailry_version,omitempty"`
+	Products         []string                   `json:"products,omitempty"`
+	RequiresModules  []string                   `json:"requires_modules,omitempty"`
 	ReleaseNotes     *PluginCatalogReleaseNotes `json:"release_notes,omitempty"`
 	Compatibility    PluginCompatibility        `json:"compatibility"`
 }

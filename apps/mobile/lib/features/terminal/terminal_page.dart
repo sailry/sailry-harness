@@ -63,6 +63,7 @@ class _TerminalPageState extends State<TerminalPage>
   String? _appearance;
   String? _error;
   bool _opening = false;
+  bool _unsupported = false;
   bool _started = false;
   bool _connected = false;
   bool _resetting = false;
@@ -135,9 +136,12 @@ class _TerminalPageState extends State<TerminalPage>
     if (host == null || !host.connected || _opening) return;
     setState(() {
       _opening = true;
+      _unsupported = false;
       _error = null;
     });
     try {
+      await host.command('read_terminal_settings');
+      if (!mounted) return;
       final launch = terminalLaunch(context);
       if (_session == null) {
         final identity = host.routed
@@ -169,7 +173,11 @@ class _TerminalPageState extends State<TerminalPage>
       unawaited(_watch(updates));
     } catch (error) {
       if (mounted) {
-        setState(() => _error = failureText(error, translate: context.tr));
+        setState(() {
+          _unsupported =
+              error is CommandFailure && error.code == 'not_configured';
+          _error = failureText(error, translate: context.tr);
+        });
       }
     } finally {
       if (mounted) setState(() => _opening = false);
@@ -193,9 +201,12 @@ class _TerminalPageState extends State<TerminalPage>
             _emulator.feed(object(vt), reset: view['reset'] == true);
           }
           final fault = view['error'];
+          _unsupported = object(fault)['code'] == 'not_configured';
           final version = versionMismatchKey(fault);
           _error = fault == null
               ? null
+              : _unsupported
+              ? context.tr('failureNotConfigured')
               : version != null
               ? context.tr(version)
               : text(object(fault)['message']);
@@ -640,25 +651,27 @@ class _TerminalPageState extends State<TerminalPage>
       title: widget.title.isEmpty ? context.tr('terminal') : widget.title,
       scroll: false,
       actions: [
-        if (selected.isNotEmpty)
+        if (!_unsupported) ...[
+          if (selected.isNotEmpty)
+            RoundButton(
+              icon: 'copy',
+              tooltip: context.tr('copy'),
+              onPressed: () => Clipboard.setData(ClipboardData(text: selected)),
+            ),
           RoundButton(
-            icon: 'copy',
-            tooltip: context.tr('copy'),
-            onPressed: () => Clipboard.setData(ClipboardData(text: selected)),
+            icon: 'paste',
+            tooltip: context.tr('resourceTerminalPaste'),
+            onPressed: _controlling ? _paste : null,
           ),
-        RoundButton(
-          icon: 'paste',
-          tooltip: context.tr('resourceTerminalPaste'),
-          onPressed: _controlling ? _paste : null,
-        ),
-        RoundButton(
-          key: const ValueKey('terminal-end'),
-          icon: 'close',
-          tooltip: context.tr('terminalEnd'),
-          onPressed: _host?.connected == true && _terminal != null && _running
-              ? _end
-              : null,
-        ),
+          RoundButton(
+            key: const ValueKey('terminal-end'),
+            icon: 'close',
+            tooltip: context.tr('terminalEnd'),
+            onPressed: _host?.connected == true && _terminal != null && _running
+                ? _end
+                : null,
+          ),
+        ],
       ],
       child: Column(
         children: [
@@ -673,7 +686,10 @@ class _TerminalPageState extends State<TerminalPage>
                     icon: 'terminal',
                     message: _error ?? context.tr('hostDisconnected'),
                     onRetry:
-                        _opening || _host?.connected != true || _updates != null
+                        _unsupported ||
+                            _opening ||
+                            _host?.connected != true ||
+                            _updates != null
                         ? null
                         : _open,
                   )
@@ -791,17 +807,18 @@ class _TerminalPageState extends State<TerminalPage>
                     },
                   ),
           ),
-          TerminalToolbar(
-            modifiers: _modifiers,
-            keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
-            onKeyboard: _controlling ? _keyboard : null,
-            onKey: _controlling ? _key : null,
-            onModifier: _controlling
-                ? (key) => setState(() {
-                    if (!_modifiers.add(key)) _modifiers.remove(key);
-                  })
-                : null,
-          ),
+          if (!_unsupported)
+            TerminalToolbar(
+              modifiers: _modifiers,
+              keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+              onKeyboard: _controlling ? _keyboard : null,
+              onKey: _controlling ? _key : null,
+              onModifier: _controlling
+                  ? (key) => setState(() {
+                      if (!_modifiers.add(key)) _modifiers.remove(key);
+                    })
+                  : null,
+            ),
         ],
       ),
     );

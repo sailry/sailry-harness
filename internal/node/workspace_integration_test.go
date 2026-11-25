@@ -26,7 +26,6 @@ func (f workspaceHTTP) RoundTrip(request *http.Request) (*http.Response, error) 
 // Over 1 s: each Node start installs and verifies the bundled packages.
 func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 	t.Parallel()
-	t.Run("manual Git hunk receipt never replays its index effect", testManualGitHunkAdmission)
 	t.Run("completed file effect never replays", func(t *testing.T) {
 		t.Parallel()
 		node := nodeFixture(t)

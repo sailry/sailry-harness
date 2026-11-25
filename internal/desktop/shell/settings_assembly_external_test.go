@@ -16,7 +16,6 @@ import (
 	connectors "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	decision "github.com/sailry/sailry-harness/modules/decision/desktop"
 	files "github.com/sailry/sailry-harness/modules/files/desktop"
-	git "github.com/sailry/sailry-harness/modules/git/desktop"
 	hooks "github.com/sailry/sailry-harness/modules/hooks/desktop"
 	knowledge "github.com/sailry/sailry-harness/modules/knowledge/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
@@ -27,7 +26,6 @@ import (
 	runtime "github.com/sailry/sailry-harness/modules/runtime/desktop"
 	skills "github.com/sailry/sailry-harness/modules/skills/desktop"
 	teams "github.com/sailry/sailry-harness/modules/teams/desktop"
-	terminal "github.com/sailry/sailry-harness/modules/terminal/desktop"
 	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
 
@@ -35,7 +33,7 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 	sections := []settings.Section{
 		settings.Providers, settings.Connectors, settings.Teams, settings.Skills,
 		settings.Knowledge, settings.Memory, settings.Media, settings.Decision,
-		settings.Search, settings.Terminal, settings.Browser, settings.Computer,
+		settings.Search, settings.Browser, settings.Computer,
 		settings.Connections, settings.Hooks, settings.Runtime, settings.OCR,
 	}
 	for _, window := range []struct {
@@ -51,10 +49,10 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 	} {
 		t.Run(window.name, func(t *testing.T) {
 			full := desktop.Harness()
-			workspaceOnly := shell.Assemble(files.Register, git.Register, market.Register)
+			workspaceOnly := shell.Assemble(files.Register, market.Register)
 			settingsOnly := shell.Assemble(providers.Register, connectors.Register, teams.Register, skills.Register,
 				knowledge.Module(), memory.Register, media.Register, decision.Register, websearch.Register,
-				terminal.Register, browser.Register, computer.Register, connections.Register,
+				browser.Register, computer.Register, connections.Register,
 				hooks.Register, runtime.Register, ocr.Register)
 			for _, variant := range []struct {
 				name                string

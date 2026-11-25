@@ -122,8 +122,9 @@ A non-empty runtime environment value takes precedence over the value compiled
 into the build. Builds without a configured destination do not send that
 category.
 
-Release builds compile the destinations in through the Go linker variables
-`telemetry.BuildDSN`, `telemetry.BuildKey` and `telemetry.BuildRevision`, as
-described in [Release packages](../CONTRIBUTING.md#release-packages). GitHub
-release builds receive the values through repository Secrets with the same
-names; actual values do not belong in source, build metadata or documentation.
+Official product repositories inherit the two delivery settings from selected-repository
+GitHub Actions organization secrets. Each sets its own `SAILRY_PRODUCT` repository
+variable (for example `harness` or `code`). Desktop and Host packages compile that
+ID into both reporting paths. Filter Sentry by `product:code`, or filter usage
+events by their `product` property; `application` still identifies Desktop or Host.
+Previously shipped builds do not acquire these tags retroactively.

@@ -10,10 +10,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	git "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	files "github.com/sailry/sailry-harness/modules/files/desktop"
-	git "github.com/sailry/sailry-harness/modules/git/desktop"
 	market "github.com/sailry/sailry-harness/modules/market/desktop"
 )
 

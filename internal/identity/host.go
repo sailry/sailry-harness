@@ -17,8 +17,9 @@ type HostPackage struct {
 }
 
 const (
-	officialHostName  = "sailry"
-	officialHostAgent = "ai.sailry.host"
+	officialHostName   = "sailry"
+	officialHostAgent  = "ai.sailry.host"
+	codeHostRepository = "sailry/sailry-code"
 )
 
 func (pkg HostPackage) Name() string        { return pkg.name }
@@ -36,10 +37,15 @@ var (
 // of the controller build. The zero value retains the bundled Harness version.
 func OfficialHost() HostRelease { return HostRelease{repository: OfficialRepository} }
 
+// CodeHost selects the official successor's Host feed while retaining installed
+// Sailry profiles, commands and services. This trusted binding is not available
+// to independent products through IndependentHost.
+func CodeHost() HostRelease { return HostRelease{repository: codeHostRepository} }
+
 // IndependentHost selects the fork's published installer and the namespace its
 // package uses for the program, command, profile and services.
 func IndependentHost(repository, name, launchAgent string) (HostRelease, error) {
-	if !hostRepository.MatchString(repository) || strings.EqualFold(repository, OfficialRepository) {
+	if !hostRepository.MatchString(repository) || strings.EqualFold(repository, OfficialRepository) || strings.EqualFold(repository, codeHostRepository) {
 		return HostRelease{}, errors.New("independent Host requires its own GitHub repository")
 	}
 	if !hostName.MatchString(name) || name == officialHostName || !hostLaunch.MatchString(launchAgent) || launchAgent == officialHostAgent {

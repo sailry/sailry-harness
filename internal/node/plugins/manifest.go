@@ -9,7 +9,7 @@ import (
 	"unicode"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -175,6 +175,16 @@ func readRequirements(data []byte) *protocol.PluginRequirements {
 			}
 		}
 	}
+	for name, target := range map[string]*[]string{"products": &result.Products, "requires_modules": &result.RequiresModules} {
+		if raw, exists := fields[name]; exists {
+			if string(raw) == "null" || json.Unmarshal(raw, target) != nil {
+				result.Invalid = true
+			}
+		}
+	}
+	if !validRuntimeRequirements(result.Products, result.RequiresModules) {
+		result.Invalid = true
+	}
 	return result
 }
 
@@ -242,6 +252,9 @@ func validConnectorCLI(cli protocol.PluginConnectorAuthLocalCliPayload) bool {
 }
 
 func validateExtension(extension protocol.PluginExtension) error {
+	if !validRuntimeRequirements(extension.Products, extension.RequiresModules) {
+		return packageFault("invalid plugin product or module requirements")
+	}
 	if len(extension.Actions) > 32 || len(extension.Connectors) > 8 || len(extension.Tools) > 256 {
 		return packageFault("plugin extension exceeds declaration limits")
 	}
@@ -391,7 +404,8 @@ func Compatibility(required *string) protocol.PluginCompatibility {
 		return result
 	}
 	minimum, minimumErr := semver.StrictNewVersion(*required)
-	current, currentErr := semver.StrictNewVersion(link.ProductVersion)
+	// Packages target Harness capabilities, not downstream release numbering.
+	current, currentErr := semver.StrictNewVersion(identity.OfficialVersion)
 	if minimumErr != nil {
 		return unsupportedCompatibility("invalid minimum Sailry version")
 	}
@@ -408,7 +422,7 @@ func unsupportedCompatibility(reason string) protocol.PluginCompatibility {
 	return protocol.PluginCompatibility{Kind: "unsupported", Data: protocol.PluginCompatibilityUnsupportedPayload{Reason: reason}}
 }
 
-func requirementsCompatibility(requirements *protocol.PluginRequirements) protocol.PluginCompatibility {
+func requirementsCompatibility(requirements *protocol.PluginRequirements, runtimes ...Runtime) protocol.PluginCompatibility {
 	if requirements == nil {
 		return protocol.PluginCompatibility{Kind: "compatible"}
 	}
@@ -418,17 +432,21 @@ func requirementsCompatibility(requirements *protocol.PluginRequirements) protoc
 	if requirements.APIVersion != "v1" {
 		return unsupportedCompatibility("unsupported Sailry platform API version")
 	}
-	return Compatibility(requirements.MinSailryVersion)
+	if compatibility := Compatibility(requirements.MinSailryVersion); compatibility.Kind != "compatible" {
+		return compatibility
+	}
+	return runtimeCompatibility(requirements.Products, requirements.RequiresModules, runtimes)
 }
 
 // InfoCompatibility also reads older stored records whose requirements had not
 // yet been separated from their parsed functionality.
-func InfoCompatibility(info protocol.PluginInfo) protocol.PluginCompatibility {
+func InfoCompatibility(info protocol.PluginInfo, runtimes ...Runtime) protocol.PluginCompatibility {
 	if info.Requirements != nil {
-		return requirementsCompatibility(info.Requirements)
+		return requirementsCompatibility(info.Requirements, runtimes...)
 	}
 	if extension := info.Extension; extension != nil {
-		return requirementsCompatibility(&protocol.PluginRequirements{APIVersion: extension.ApiVersion, MinSailryVersion: extension.MinSailryVersion})
+		return requirementsCompatibility(&protocol.PluginRequirements{APIVersion: extension.ApiVersion, MinSailryVersion: extension.MinSailryVersion,
+			Products: extension.Products, RequiresModules: extension.RequiresModules}, runtimes...)
 	}
 	for _, issue := range info.Issues {
 		if issue.Kind == protocol.PluginIssueKindUnsupportedExtension || issue.Kind == protocol.PluginIssueKindInvalidExtensions {
@@ -443,6 +461,10 @@ func EnsureCompatible(compatibility protocol.PluginCompatibility) error {
 		return nil
 	}
 	if compatibility.Kind != "requires_newer" {
+		var unsupported protocol.PluginCompatibilityUnsupportedPayload
+		if decodePackageData(compatibility.Data, &unsupported) == nil && unsupported.Reason != "" {
+			return packageFault(unsupported.Reason)
+		}
 		return packageFault("plugin declares an invalid or unsupported Sailry platform extension")
 	}
 	var requirement protocol.PluginCompatibilityRequiresNewerPayload

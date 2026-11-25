@@ -357,8 +357,14 @@ func TestBundledPackageContracts(t *testing.T) {
 			}
 		}
 	})
-	if len(BundledDefaults()) != 19 {
-		t.Fatal("initial distribution changed")
+	wantDefaults := []DefaultPackage{
+		{"reminders", true}, {"scheduled-tasks", true}, {"goals", true}, {"commands", true},
+		{"brief", true}, {"files", true}, {"statistics", true}, {"provider-status", true},
+		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true},
+		{"context7", true}, {"github", true}, {"office", true},
+	}
+	if !slices.Equal(BundledDefaults(), wantDefaults) {
+		t.Fatalf("Harness defaults = %+v, want %+v", BundledDefaults(), wantDefaults)
 	}
 	for _, selection := range BundledDefaults() {
 		info, err := manager.InstallBundled(t.Context(), selection.Name)

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,7 +25,7 @@ import (
 )
 
 func TestManagedSystemSettings(t *testing.T) {
-	app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())
+	app := shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Full())
 	app.Page = shell.SettingsPage
 	var owners [2]*Runtime
 	var transports [2]*conversationTestTransport
@@ -214,7 +214,7 @@ func TestReleasedTerminalSaveKeepsProposalRevision(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { controller.Close() })
-			r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
+			r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Full())}
 			r.terminalSettings.shown, r.terminalSettings.visible = r, true
 			r.acceptTerminalSettings(protocol.TerminalSettings{Revision: 1}, nil)
 			r.App.Settings.Host.Draft.Env = []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}
@@ -509,7 +509,7 @@ func checkBackupSettingsHelpers(t *testing.T) {
 	// Closing the storage dialog on an unconfirmed save drops the request
 	// kept for it, and no other: the same draft sent later is a new request.
 	{
-		r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness()), uncertain: map[string]protocol.Request{}}
+		r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Full()), uncertain: map[string]protocol.Request{}}
 		state := &r.backupSettings
 		state.shown, state.known = r, true
 		state.actions = r.backupActions()
@@ -537,7 +537,7 @@ func checkBackupSettingsHelpers(t *testing.T) {
 	// over: the answer cannot change, so its request is not kept to be
 	// asked about again.
 	{
-		r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
+		r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Full())}
 		item, record := &composer.Attachment{}, &attachmentRecord{running: true}
 		r.attachments = &attachmentState{items: map[*composer.Attachment]*attachmentRecord{item: record}}
 		pending, expected := protocol.Request{}, protocol.AttachmentSpec{Name: "notes.txt", Size: 4}
@@ -556,7 +556,7 @@ func checkBackupSettingsHelpers(t *testing.T) {
 
 	// A read answered before an action that was accepted since does not
 	// take the page back; a newer one is taken.
-	r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Harness())}
+	r := &Runtime{App: shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, desktop.Full())}
 	r.acceptBackupSettings(saved)
 	r.acceptBackupRead(protocol.BackupSettings{Revision: 6})
 	if held := r.backupSettings.saved; held.Revision != 7 || held.Local == nil {

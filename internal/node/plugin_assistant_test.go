@@ -18,6 +18,7 @@ import (
 	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -67,8 +68,11 @@ func pluginAssistantAcceptance(t *testing.T) {
 	script := &pluginAssistantScript{}
 	var launches atomic.Int32
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	assembly := hostassembly.Harness()
+	assembly.Modules = append(assembly.Modules, serviceTestModule("ssh"))
+	assembly.SSH = func(moduleapi.SSHServiceOptions) moduleapi.SSHService { return &serviceTestSSH{} }
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Assembly: hostassembly.Harness(), MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Assembly: assembly, MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
 		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			if launch.Command != "fixture inherited command" || launch.Access != protocol.ProcessAccessUnrestricted {
 				return protocol.ProcessCompletion{}, errors.New("assistant command lost its captured input or access")

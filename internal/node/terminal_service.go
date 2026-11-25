@@ -3,17 +3,13 @@ package node
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log/slog"
 	"runtime"
-	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/terminal"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/internal/ssh"
 )
 
 func terminalCommand(kind string) bool {
@@ -26,10 +22,13 @@ func terminalCommand(kind string) bool {
 }
 
 func (node *Node) initTerminals(ctx context.Context) error {
+	if !node.modules.HasModule("terminal") || node.modules.Terminal == nil {
+		return nil
+	}
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecoverTerminals(ctx, db) }); err != nil {
 		return err
 	}
-	node.terminals = terminal.New(node.ctx, node.ID(), node.terminalChangedBy)
+	node.terminals = node.modules.Terminal(node.ctx, node.ID(), node.terminalChangedBy)
 	return nil
 }
 
@@ -53,6 +52,9 @@ func (node *Node) terminalChangedBy(ctx context.Context, info protocol.TerminalI
 }
 
 func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, effect *workspaceCompletion) (protocol.Output, error) {
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return protocol.Output{}, err
+	}
 	service := node.terminals
 	if service == nil {
 		return protocol.Output{}, unavailable()
@@ -103,7 +105,7 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		})
 		return protocol.Output{Kind: "terminals", Data: values}, err
 	case *protocol.CommandOpenSshTerminalPayload:
-		outcome, err := node.openSSHTerminal(ctx, caller, request, *input)
+		outcome, err := node.ssh.OpenTerminal(ctx, caller, request, *input)
 		if opened, valid := outcome.Data.(protocol.TerminalInfo); valid && err == nil {
 			// The remote shell runs whether or not its row is stored.
 			effect.external = true
@@ -189,61 +191,17 @@ func (node *Node) startTerminal(ctx context.Context, launch terminal.Launch) (pr
 	return node.terminals.Start(ctx, launch)
 }
 
-// sshTerminalTimeout bounds connecting and requesting the remote shell.
-const sshTerminalTimeout = 30 * time.Second
-
-// openSSHTerminal connects to a saved profile and starts its shell as a
-// terminal. The terminal owns the connection from then on; cancel_ssh from
-// the same caller stops the opening.
-func (node *Node) openSSHTerminal(ctx context.Context, caller protocol.NodeID, request protocol.Request, input protocol.CommandOpenSshTerminalPayload) (protocol.SshOutcome, error) {
-	if err := terminal.ValidateViewport(input.Launch.Viewport); err != nil {
-		return protocol.SshOutcome{}, err
+func (node *Node) closeTerminals() error {
+	if node.terminals == nil {
+		return nil
 	}
-	profile, credential, err := node.readSSH(ctx, input.Profile, input.ExpectedRevision)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	scoped, finish, err := node.hostInstalls.Begin(ctx, caller, request)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	defer finish()
-	timed, cancel := context.WithTimeout(scoped, sshTerminalTimeout)
-	defer cancel()
-	interrupted := func(failure error) error {
-		return sshInterrupted(ctx, timed, failure, "SSH terminal opening cancelled; inspect terminals before retrying", "SSH terminal opening interrupted; inspect terminals before retrying", "SSH terminal opening timed out; inspect the remote process before retrying")
-	}
-	connection, err := ssh.ConnectWithRecovery(timed, clockwork.NewRealClock(), profile, credential)
-	if err != nil {
-		var required *ssh.HostKeyRequired
-		if errors.As(err, &required) {
-			return required.Outcome(), nil
-		}
-		return protocol.SshOutcome{}, sshConnectionFailure(timed, err)
-	}
-	// Session requests have no cancellation; closing the connection releases them.
-	stop := context.AfterFunc(timed, func() { _ = connection.Close() })
-	shell, err := terminal.OpenSSH(connection, input.Launch.Viewport)
-	if err != nil {
-		_ = connection.Close()
-		return protocol.SshOutcome{}, interrupted(err)
-	}
-	if !stop() {
-		_ = shell.Close()
-		return protocol.SshOutcome{}, interrupted(context.Cause(timed))
-	}
-	info, err := node.terminals.Start(ctx, terminal.Launch{
-		ID: protocol.TerminalID(request.ID), Caller: caller, SSH: &input.Profile, Connection: shell,
-		Viewport: input.Launch.Viewport, Appearance: input.Launch.Appearance,
-	})
-	if err != nil {
-		_ = shell.Close()
-		return protocol.SshOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "SSH shell opened but terminal registration failed: " + err.Error()}
-	}
-	return protocol.SshOutcome{Kind: "terminal", Data: info}, nil
+	return node.terminals.Close()
 }
 
 func (node *Node) subscribeTerminal(topic protocol.Topic) (link.Subscription, error) {
+	if node.terminals == nil || !node.modules.HasModule("terminal") {
+		return nil, moduleUnavailable("terminal")
+	}
 	switch id := topic.Data.(type) {
 	case protocol.TerminalID:
 		return node.terminals.Subscribe(id)

@@ -16,19 +16,22 @@ class AppUpdates extends ChangeNotifier {
     Future<PackageInfo> Function()? readInfo,
     String? target,
     Uri? source,
+    String repository = releaseRepository,
     this.timeout = const Duration(seconds: 20),
   }) : _client = client ?? http.Client(),
        _readInfo = readInfo ?? PackageInfo.fromPlatform,
        _target = target ?? (Platform.isAndroid ? 'android-arm64' : 'ios'),
+       _repository = repository,
        _source =
            source ??
-           Uri.https('api.github.com', '/repos/$releaseRepository/releases', {
+           Uri.https('api.github.com', '/repos/$repository/releases', {
              'per_page': '100',
            });
 
   final http.Client _client;
   final Future<PackageInfo> Function() _readInfo;
   final String _target;
+  final String _repository;
   final Uri _source;
   final Duration timeout;
   PackageInfo? _info;
@@ -68,6 +71,7 @@ class AppUpdates extends ChangeNotifier {
         jsonDecode(utf8.decode(response.bodyBytes)),
         current: current,
         target: _target,
+        repository: _repository,
       );
       available = latest != null && latest.version > current ? latest : null;
       return latest == null

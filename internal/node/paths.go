@@ -18,6 +18,9 @@ import (
 )
 
 func (node *Node) prepare(ctx context.Context, command protocol.Command) (store.PreparedPaths, error) {
+	if err := node.checkCommandModule(command); err != nil {
+		return store.PreparedPaths{}, err
+	}
 	if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && command.Kind == "create_project" && draft.Source.Kind == "clone" {
 		if err := store.ValidateProjectDraft(*draft); err != nil {
 			return store.PreparedPaths{}, err
@@ -29,6 +32,9 @@ func (node *Node) prepare(ctx context.Context, command protocol.Command) (store.
 	prepared, err := store.PreparePaths(command)
 	if err != nil {
 		return prepared, err
+	}
+	if node.git == nil {
+		return prepared, nil
 	}
 	var project protocol.ProjectID
 	switch input := command.Data.(type) {

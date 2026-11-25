@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	hostassembly "github.com/sailry/sailry-harness/internal/assembly/host"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -164,8 +165,24 @@ func waitForUnavailablePluginTurn(t *testing.T, node *Node, turn protocol.TurnID
 func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	owner := nodeFixture(t)
-	profile := owner.profile.Ownership.Path
+	profile := filepath.Join(t.TempDir(), "profile")
+	assembly := hostassembly.Harness()
+	start := func() *Node {
+		owner, err := StartWithOptions(ctx, profile, Options{Assembly: assembly, MCP: fixtureMCPOptions()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := owner.Stop(context.Background()); err != nil {
+				t.Error(err)
+			}
+		})
+		return owner
+	}
+	owner := start()
+	if !slices.Contains(owner.pluginRuntime().Modules, "files") {
+		t.Fatal("Harness did not assemble its default files module")
+	}
 	const missing, changed, removed, olderName = "goals", "reminders", "brief", "files"
 	olderSource := t.TempDir()
 	if err := os.WriteFile(filepath.Join(olderSource, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"`+olderName+`","version":"0.0.0"}`), 0o600); err != nil {
@@ -180,9 +197,12 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	var configured protocol.PluginSettingsState
 	if err := owner.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		for _, name := range []string{missing, changed, removed, olderName} {
-			info, err := store.ReadPlugin(ctx, db, name)
+			info, err := store.ReadPlugin(owner.pluginContext(ctx), db, name)
 			if err != nil || info == nil {
 				return fmt.Errorf("read bundled %s: %v", name, err)
+			}
+			if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+				return fmt.Errorf("Harness default %s is not enabled and compatible: %+v", name, info.Summary)
 			}
 			switch name {
 			case missing:
@@ -244,15 +264,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(packages, damaged.Digest, marker), []byte(marker), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := startFixtureNode(ctx, profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := restarted.Stop(context.Background()); err != nil {
-			t.Error(err)
-		}
-	})
+	restarted := start()
 	for _, expected := range []protocol.PluginSummary{unavailable, damaged} {
 		if err := restarted.plugins.manager.VerifyPackage(ctx, protocol.PluginReference{Name: expected.Name, Digest: expected.Digest}); err != nil {
 			t.Fatalf("restored %s failed verification: %v", expected.Name, err)
@@ -270,7 +282,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	}
 	if err := restarted.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		for _, expected := range []protocol.PluginSummary{unavailable, damaged, older.Summary} {
-			current, err := store.ReadPlugin(ctx, db, expected.Name)
+			current, err := store.ReadPlugin(restarted.pluginContext(ctx), db, expected.Name)
 			if err != nil || current == nil || !reflect.DeepEqual(current.Summary, expected) {
 				return fmt.Errorf("recovery changed inventory for %s: %+v, %v", expected.Name, current, err)
 			}

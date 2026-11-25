@@ -667,6 +667,7 @@
   "failureUnknown": "Resultado não confirmado; verifique o estado do host primeiro",
   "failureDenied": "Permissão negada",
   "failureUnavailable": "Host não conectado",
+  "failureNotConfigured": "Funcionalidade indisponível neste host",
   "failureBusy": "Tente novamente mais tarde",
   "failureGeneric": "A operação falhou",
   "settingsLoadFailed": "Não foi possível carregar",

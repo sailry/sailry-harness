@@ -18,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
@@ -37,6 +38,7 @@ type Options struct {
 	ToolsForTurn       func(context.Context, *store.AgentInvocation) ([]Tool, error)
 	HooksForTurn       func(context.Context, *store.AgentInvocation) *hooks.Binding
 	PluginAvailability func(protocol.PluginReference) error
+	PluginRuntime      plugins.Runtime
 	ToolPresentation   store.ToolPresentationLookup
 	NativeSkills       []operations.NativeSkillPackage
 	// AfterTurn, when set, runs after a main task turn's end is stored. It
@@ -176,7 +178,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	case options.MaxModelSteps == 0:
 		maxSteps = defaultMaxMainModelSteps
 	}
-	base := store.WithPluginAvailability(context.Background(), options.PluginAvailability)
+	base := store.WithPluginAvailability(plugins.WithRuntime(context.Background(), options.PluginRuntime), options.PluginAvailability)
 	base = store.WithToolPresentation(base, options.ToolPresentation)
 	ctx, cancel := context.WithCancel(base)
 	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}

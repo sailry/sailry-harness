@@ -1677,6 +1677,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get failureUnavailable => 'ホストは接続されていません';
 
   @override
+  String get failureNotConfigured => 'このホストではこの機能を利用できません';
+
+  @override
   String get failureBusy => 'サービスが忙しいので、後でやり直します';
 
   @override

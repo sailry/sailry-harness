@@ -24,6 +24,10 @@ Sailry is an open-source AI harness: agent teams that run on your own Mac or Lin
 to your code and data, driven from the desktop app or your phone on the
 [models you choose](https://sailry.dev/docs/models/).
 
+This repository contains the shared framework and a runnable base application.
+[Sailry Code](https://github.com/sailry/sailry-code) depends on it and owns the
+developer modules, product configuration and release entry points.
+
 > [!NOTE]
 > **Early preview.** Sailry changes quickly between releases. Back up important work before
 > agents edit it, and [report issues](https://github.com/sailry/sailry-harness/issues) — your
@@ -67,10 +71,10 @@ Collaborate mode fans work out to parallel subagents, each on its own model — 
 code, Claude plans, Codex takes the hard problems — and every step stays visible in the
 conversation, where you approve actions as they run.
 
-### Built-in coding tools
+### Coding tools in Sailry Code
 
-Coding plugins work the moment you open a project — no language servers, drivers or extensions to
-install. Structured tools return the result the agent needs instead of raw shell output.
+Code adds native developer modules to the base Node. Structured tools return
+the result the agent needs instead of raw shell output.
 
 - **Code graph** — symbol search, file outlines, callers and callees, change impact and a ranked
   project map, so agents read the right code instead of searching the whole tree.

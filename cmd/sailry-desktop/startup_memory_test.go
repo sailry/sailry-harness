@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/assembly/desktop"
-	"github.com/sailry/sailry-harness/internal/desktop/application"
 	"github.com/sailry/sailry-harness/internal/identity"
+	desktopsdk "github.com/sailry/sailry-harness/sdk/desktop"
 )
 
 func TestDesktopPreservesRuntimeHeapPolicy(t *testing.T) {
@@ -32,7 +32,7 @@ func TestDesktopPreservesRuntimeHeapPolicy(t *testing.T) {
 	}
 
 	before := debug.SetMemoryLimit(-1)
-	if err := application.Run([]string{"--invalid-heap-policy-test-flag"}, application.Options{Identity: identity.OfficialDesktop(), Assembly: desktop.Harness()}); err == nil {
+	if err := desktopsdk.Run([]string{"--invalid-heap-policy-test-flag"}, desktopsdk.Options{Identity: identity.OfficialDesktop(), Assembly: desktop.Harness()}); err == nil {
 		t.Fatal("invalid startup arguments did not stop before opening a profile")
 	}
 	if after := debug.SetMemoryLimit(-1); after != before {

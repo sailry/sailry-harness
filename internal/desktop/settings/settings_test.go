@@ -61,6 +61,7 @@ func TestConversationCustomPrompt(t *testing.T) {
 	state.PersonalInstructions = editor
 	var submitted string
 	state.EditPersonalInstructions = func() { submitted = editor.Draft }
+	state.CodeIndexAvailable = true
 	state.CodeIndex = stored(true)
 	state.SavePersistentCodeIndex = func(enabled bool) { state.PersistentCodeIndex = new(enabled) }
 	state.PersistentCodeIndex = new(false)

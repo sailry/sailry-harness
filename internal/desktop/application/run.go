@@ -58,7 +58,10 @@ func Run(args []string, config Options) error {
 	}
 	configureMyGo(mygo.App, config)
 	product := config.Identity
-	name := product.Release.Package.Name
+	name := product.Name
+	if name == "" {
+		name = product.Release.Package.Name
+	}
 	if name == "" {
 		name = mygo.App.Name()
 	}

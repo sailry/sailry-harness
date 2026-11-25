@@ -1,11 +1,8 @@
 name: Release
 
-# A version tag reuses verified CI results for its exact commit, runs the
-# remaining checks and gathers packages in a draft release.
-# Secrets and variables keep the names of the existing release settings.
+# Historical application releases remain available for explicit repair.
+# Terminal application tags now belong to their product repositories.
 on:
-  push:
-    tags: ['v*']
   # A manual run must select the version tag as its ref.
   workflow_dispatch:
     inputs:
@@ -25,6 +22,7 @@ env:
   GOTOOLCHAIN: go1.27.3
   CGO_ENABLED: '0'
   SAILRY_REVISION: ${{ github.sha }}
+  SAILRY_PRODUCT: ${{ vars.SAILRY_PRODUCT || 'harness' }}
 
 jobs:
   version:

@@ -20,6 +20,8 @@ String failureLabel(Object error, {Translator translate = tr}) =>
                     ? 'conversationConflict'
                     : error.code == 'context_overflow'
                     ? 'conversationContextOverflow'
+                    : error.code == 'not_configured'
+                    ? 'failureNotConfigured'
                     : 'conversationFailed'),
           )
     : error is String

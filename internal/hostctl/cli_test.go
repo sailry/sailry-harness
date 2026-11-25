@@ -52,11 +52,11 @@ func TestRunMenuSelectsDefaultAndNamedCommands(t *testing.T) {
 func TestLinkDispatcherPreservesTerminalStateAcrossBufferedInput(t *testing.T) {
 	t.Parallel()
 	arguments := []string{"link", "--data-dir", t.TempDir()}
-	_, err := runCLI(t.Context(), arguments, bufio.NewReader(strings.NewReader("")), true, &bytes.Buffer{}, &bytes.Buffer{}, CLIHandlers{})
+	_, err := runCLI(t.Context(), arguments, bufio.NewReader(strings.NewReader("")), nil, true, &bytes.Buffer{}, &bytes.Buffer{}, CLIHandlers{})
 	if err == nil || strings.Contains(err.Error(), "requires a terminal") {
 		t.Fatalf("interactive link was treated as redirected input: %v", err)
 	}
-	_, err = runCLI(t.Context(), arguments, bufio.NewReader(strings.NewReader("")), false, &bytes.Buffer{}, &bytes.Buffer{}, CLIHandlers{})
+	_, err = runCLI(t.Context(), arguments, bufio.NewReader(strings.NewReader("")), nil, false, &bytes.Buffer{}, &bytes.Buffer{}, CLIHandlers{})
 	if err == nil || !strings.Contains(err.Error(), "requires a terminal") {
 		t.Fatalf("noninteractive link did not require explicit relay flags: %v", err)
 	}

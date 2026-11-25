@@ -66,7 +66,10 @@ func terminalTabsFixture(t *testing.T, terminals ...protocol.TerminalInfo) (*Run
 	snapshot.Node, snapshot.Projects = protocol.NodeID{1}, []protocol.Project{project}
 	snapshot.Worktrees = []protocol.Worktree{{ID: protocol.WorktreeID{1}, Project: &project.ID, Path: project.Path, Main: true}}
 	snapshot.Terminals = terminals
-	return snapshotFixture(t, snapshot)
+	root, source := snapshotFixture(t, snapshot)
+	root.App.Sidebar.Actions = &sidebar.Actions{}
+	root.initTerminalActions()
+	return root, source
 }
 
 // snapshotFixture is a started Runtime on a Node that delivers snapshot and

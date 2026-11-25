@@ -61,7 +61,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/node/program` | Package-declared executable lifecycle and process isolation |
 | `internal/core` | Profile ownership, paths, confined files and common faults |
 | `internal/localmodels` | Model registry, verified installation and CPU inference scheduling |
-| `internal/office`, `internal/databases`, `internal/ssh` | Document extraction, database drivers and verified SSH connections |
+| `internal/office` | Document extraction. Product-specific external database drivers and SSH connections are owned by Code, not the framework. |
 | `internal/speech` | Controller-local speech recognition and capture |
 | `internal/shipped` | Packaged resources and native library seals |
 | `internal/desktop` | Feature views, view models and action contracts |
@@ -70,14 +70,17 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/desktop/live` | Client projections, live actions and scoped plugin bindings |
 | `internal/desktop/preview` | Isolated fixture views and simulated actions |
 | `internal/acceptance`, `internal/desktop/acceptance` | Explicit conversation acceptance and recorded UI replay |
-| `cmd/sailry-desktop`, `internal/assembly/desktop` | Official product identity and native page selection |
-| `internal/assembly/host` | Explicit official Node module assembly selected by Desktop and Host entry points |
+| `cmd/sailry-desktop`, `internal/assembly/desktop` | Runnable Harness desktop and its default native pages |
+| `internal/assembly/host` | Default Harness Node assembly shared by Desktop and Host |
+| `sdk/desktop`, `sdk/host`, `sdk/native`, `sdk/product`, `sdk/release` | Go contracts used by downstream product entry points, native modules, and release publishers |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
-| `modules/*/desktop` | Compile-time native workspace and settings pages (`files`, `git`, `market`, `providers`, `connectors`, `teams`, `skills`, `knowledge`, `memory`, `media`, `decision`, `web-search`, `terminal`, `browser`, `computer`, `connections`, `hooks`, `runtime`, `ocr`) |
-| `modules/*/node` | Compile-time native Node modules (`files`, `ocr`, `git`, `worktrees`, `code-index`, `web-search`, `databases`, `ssh`, `memory`, `browser` including external-browser, `computer`) and the optional code index engine |
+| `modules/*/desktop` | Common native workspace and settings contributions selected by each product |
+| `modules/*/node` | Common native Node modules: files, OCR, web search, memory, browsers and computer use |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
 | `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
 | [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
+
+Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream module, not a fork. Its own entry points select the common components, add its developer pages and Node modules, and supply its version, package identity and release sources. The framework does not import the product. Product code cannot import its dependency's Go `internal` packages.
 
 The principal dependency direction is:
 
@@ -343,8 +346,8 @@ enables the same full-text index implementation as the Rust database.
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
-files and configuration are independent. Official Desktop and Host supply the
-code index to each Node at startup. Forks may omit it. The
+files and configuration are independent. Code Desktop and Host supply the
+code index to their Node at startup; the Harness assembly does not. The
 `sailry_no_code_index` build tag omits gotreesitter. A Node without the service
 reports code queries and index settings as unavailable, preserves saved
 settings, and offers plain file tools and file-only pipelines.
@@ -1016,7 +1019,7 @@ approval for command input and stopping follows the live process identity.
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
-Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time native features assembled by official entry points under `modules/*/{node,desktop}` via `internal/assembly/{host,desktop}`), and **Plugins** (installable and removable packages in `plugins/`). Native Node modules (`files`, `ocr`, `git`, `worktrees`, `code-index`, `web-search`, `databases`, `ssh`, `memory`, `browser` including external-browser, `computer`) bind against the leaf `internal/node/moduleapi` contract, execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) are retired from `plugins/` (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and `office` provides bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (installable and removable packages in `plugins/`). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH and interactive terminals) live in Code. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) are retired from `plugins/` (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and `office` provides bundled Office skills (`excel`, `pdf`, `powerpoint`, `word`).
 
 On-demand code relations validate candidate files under the current worktree
 access and ignore rules. A bounded memory cache reuses lexical tests and index
@@ -1642,7 +1645,9 @@ The helper requires a graphical login; its absence does not prevent Node startup
 Shutdown rejects new work, closes subscriptions, joins admitted operations,
 closes storage and releases the profile lock. Recovery reads durable facts without
 silently rerunning uncertain effects. Notifications have one Node-owned store.
-Automatic error reporting is inactive while its switch is off. Configuration
+Official products share Sentry and Telemetry.sh projects. Both transports include a
+build-owned `product` field; `application` identifies the reporting Desktop or Host
+independently of product. Automatic error reporting is inactive while its switch is off. Configuration
 refusals carry a bounded reason through command admission and completion. Explicit
 setup states (such as missing defaults, sign-in required or a disabled provider)
 are warnings kept as breadcrumbs, not standalone Sentry errors; Desktop logs every
@@ -1696,7 +1701,7 @@ fingerprint, timestamps, retry count and a binding hash, not an envelope,
 stack, breadcrumbs or attachment. Retries keep the original event ID and
 fingerprint. Expired, invalid and excess records are discarded. A restart can
 recover records left by an interrupted process only for the same installation,
-DSN, application and release. Retry delays start at five minutes, then grow to
+DSN, product, application and release. Legacy retry records belong to Harness. Retry delays start at five minutes, then grow to
 at least 30 minutes and three hours. The process reads `SAILRY_SENTRY_DSN` at startup;
 a nonempty override replaces the compiled endpoint. Turning off automatic errors,
 opting out via `SAILRY_TELEMETRY=off` or `DO_NOT_TRACK=1`, or starting without

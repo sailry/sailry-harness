@@ -28,18 +28,25 @@ class VisualScope extends StatefulWidget {
 }
 
 class _VisualScopeState extends State<VisualScope> {
-  late final _renderer = VisualRenderer(render: widget.render);
+  VisualRenderer? _renderer;
+  AssetBundle? _assets;
 
   @override
-  void initState() {
-    super.initState();
-    _renderer.addListener(_changed);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final assets = DefaultAssetBundle.of(context);
+    if (assets == _assets) return;
+    _renderer?.removeListener(_changed);
+    _renderer?.dispose();
+    _assets = assets;
+    _renderer = VisualRenderer(render: widget.render, assets: assets)
+      ..addListener(_changed);
   }
 
   @override
   void didUpdateWidget(VisualScope oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _renderer.renderOverride = widget.render;
+    _renderer?.renderOverride = widget.render;
   }
 
   void _changed() {
@@ -48,18 +55,18 @@ class _VisualScopeState extends State<VisualScope> {
 
   @override
   void dispose() {
-    _renderer.removeListener(_changed);
-    _renderer.dispose();
+    _renderer?.removeListener(_changed);
+    _renderer?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => _VisualHost(
-    owner: _renderer,
+    owner: _renderer!,
     child: Stack(
       children: [
         widget.child,
-        if (_renderer.controller != null)
+        if (_renderer?.controller != null)
           // UIKit sizes the native view during composition. Keep it composed;
           // the transparent page hides its DOM while preserving SVG layout.
           Positioned(
@@ -69,7 +76,7 @@ class _VisualScopeState extends State<VisualScope> {
             height: 480,
             child: IgnorePointer(
               child: ExcludeSemantics(
-                child: WebViewWidget(controller: _renderer.controller!),
+                child: WebViewWidget(controller: _renderer!.controller!),
               ),
             ),
           ),

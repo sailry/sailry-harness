@@ -102,10 +102,12 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
 			root.openProjectSession(project, cv, done)
 		},
-		NewTerminal:  func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) },
-		Terminals:    func() []shell.ProjectTerminal { return root.projectTerminals(project) },
-		OpenTerminal: root.showWorkspaceTerminal,
-		Controls:     func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
+		Controls: func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
+	}
+	if side := root.App.Sidebar.Actions; side != nil && side.NewTerminal != nil {
+		actions.NewTerminal = func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) }
+		actions.Terminals = func() []shell.ProjectTerminal { return root.projectTerminals(project) }
+		actions.OpenTerminal = root.showWorkspaceTerminal
 	}
 	var enteredWorkspace *workspaceProject
 	currentWorkspace := func() (*Runtime, *workspaceProject, bool) {

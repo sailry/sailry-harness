@@ -26,8 +26,6 @@ func TestPluginRuntimeAdmission(t *testing.T) {
 	t.Parallel()
 	t.Run("Status scheduling", testPluginStatusScheduling)
 	t.Run("native slash commands", testPluginMessageCommandOutputs)
-	t.Run("ssh resources", testSSHResourceRules)
-	t.Run("connection tools", testConnectionTools)
 	t.Run("callback storage receipt and read-only authority", func(t *testing.T) {
 		t.Parallel()
 		node := nodeFixture(t)
@@ -190,8 +188,24 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 		t.Parallel()
 		node := nodeFixture(t)
 		initial := snapshotFixture(t, node).Plugins
-		if len(initial) != len(plugins.BundledDefaults()) {
-			t.Fatalf("bundled inventory: %d", len(initial))
+		var compatible []string
+		for _, entry := range plugins.BundledDefaults() {
+			info, err := node.plugins.manager.InspectBundled(node.pluginContext(t.Context()), entry.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Summary.Compatibility.Kind == "compatible" {
+				compatible = append(compatible, entry.Name)
+			}
+		}
+		actual := make([]string, 0, len(initial))
+		for _, entry := range initial {
+			actual = append(actual, entry.Name)
+		}
+		slices.Sort(actual)
+		slices.Sort(compatible)
+		if !slices.Equal(actual, compatible) {
+			t.Fatalf("bundled inventory: %v, want available defaults %v", actual, compatible)
 		}
 		selected := initial[0]
 		commandFixture(t, node, protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: selected.Name, ExpectedRevision: selected.Revision}})

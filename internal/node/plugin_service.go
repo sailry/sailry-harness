@@ -57,7 +57,7 @@ const (
 	programIdle  = 10 * time.Minute
 )
 
-func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) (startupErr error) {
+func (node *Node) initPlugins(configured *mcp.Options) {
 	options := mcp.Options{}
 	if configured != nil {
 		options = *configured
@@ -75,11 +75,12 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) (sta
 		controls.warm = make(chan struct{}, 1)
 	}
 	node.plugins = controls
-	defer func() {
-		if startupErr != nil {
-			startupErr = errors.Join(startupErr, node.closePlugins())
-		}
-	}()
+}
+
+// Inventory follows native service initialization so module requirements describe
+// available services rather than the product's requested assembly.
+func (node *Node) initPluginInventory(ctx context.Context) error {
+	ctx = node.pluginContext(ctx)
 	node.collectPlugins(ctx)
 	var users []protocol.User
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -163,6 +164,7 @@ func (plan userPluginPlan) hasChanges() bool {
 }
 
 func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User, startup bool) error {
+	ctx = node.pluginContext(ctx)
 	plan, err := node.prepareUserPlugins(ctx, user, startup)
 	if err != nil {
 		return err
@@ -182,7 +184,7 @@ func (node *Node) initializeUserPlugins(ctx context.Context, user protocol.User,
 
 func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, startup bool) (userPluginPlan, error) {
 	plan := userPluginPlan{user: user}
-	userCtx := store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
+	userCtx := store.WithCapturedUser(store.WithUser(node.pluginContext(ctx), user), user.ID)
 	var infos []protocol.PluginInfo
 	var recorded map[string]bool
 	if err := node.profile.Store.Node.Read(userCtx, func(db *sql.Conn) error {
@@ -202,7 +204,10 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 		installed[info.Summary.Name] = info
 		plan.summaries = append(plan.summaries, info.Summary)
 	}
-	defaults := plugins.BundledDefaults()
+	defaults := node.modules.BundledDefaults
+	if defaults == nil {
+		defaults = plugins.BundledDefaults()
+	}
 	defaultNames := make(map[string]bool, len(defaults))
 	for _, entry := range defaults {
 		defaultNames[entry.Name] = true
@@ -221,7 +226,7 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 			logUnavailablePackage(protocol.PluginReference{Name: entry.Name}, "bundled plugin inspection failed", err)
 			continue
 		}
-		if plugins.IsWithdrawn(inspected) {
+		if plugins.IsWithdrawn(inspected) || inspected.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
 		if hasCurrent && !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
@@ -241,10 +246,12 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 			continue
 		}
 		revision := uint64(0)
+		enabled := entry.Enabled
 		if hasCurrent {
 			revision = current.Summary.Revision
+			enabled = current.Summary.Enabled
 		}
-		plan.installs = append(plan.installs, pendingPluginInstall{info: info, revision: revision, enabled: entry.Enabled})
+		plan.installs = append(plan.installs, pendingPluginInstall{info: info, revision: revision, enabled: enabled})
 		plan.publishedDigests = append(plan.publishedDigests, info.Summary.Digest)
 	}
 	retired := plugins.RetiredBundled()
@@ -272,7 +279,7 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 			}
 			continue
 		}
-		if plugins.IsWithdrawn(inspected) || !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
+		if plugins.IsWithdrawn(inspected) || inspected.Summary.Compatibility.Kind != "compatible" || !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
 			continue
 		}
 		var info protocol.PluginInfo

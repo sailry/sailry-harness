@@ -667,6 +667,7 @@
   "failureUnknown": "結果は確認されていません。まずホストの状態を確認してください",
   "failureDenied": "許可を拒否",
   "failureUnavailable": "ホストは接続されていません",
+  "failureNotConfigured": "このホストではこの機能を利用できません",
   "failureBusy": "サービスが忙しいので、後でやり直します",
   "failureGeneric": "操作に失敗しました",
   "settingsLoadFailed": "読み込めませんでした",

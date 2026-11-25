@@ -702,6 +702,13 @@ class DemoConnection implements Connection {
       case 'list_channel_presets':
       case 'read_model_catalog':
         return <dynamic>[];
+      case 'read_terminal_settings':
+        return {
+          'revision': 0,
+          'shell': '',
+          'shell_arguments': <String>[],
+          'environment': <String, String>{},
+        };
       case 'open_terminal':
       case 'create_terminal':
         if (!_terminalRunning) {

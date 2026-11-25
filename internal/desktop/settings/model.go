@@ -186,7 +186,8 @@ type Model struct {
 	Telemetry               Stored[Telemetry]
 
 	// Conversation.
-	Sandbox Stored[bool]
+	Sandbox            Stored[bool]
+	CodeIndexAvailable bool
 	// CodeIndex is the enabled choice for the Node's code tools.
 	CodeIndex      Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
@@ -384,7 +385,7 @@ func NewModel(d *preview.Settings) *Model {
 		Power:                stored(d.PreventSleep),
 		Telemetry:            stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
 		PersonalInstructions: &PersonalInstructions{Known: true},
-		Sandbox:              stored(d.Sandbox), CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
+		Sandbox:              stored(d.Sandbox), CodeIndexAvailable: true, CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),

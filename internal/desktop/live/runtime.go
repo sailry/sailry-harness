@@ -325,11 +325,14 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Messages.SessionLink = func(link string) bool { return client.SessionLink(normalizeLink(link)) != nil }
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Unarchive: r.unarchive, Read: r.read, Delete: r.removeSessions,
-		Pin: r.pin, MovePin: r.movePin, MoveSession: r.moveSession, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenHost: r.App.OpenHost, OpenWindow: func(id string) {
+		Pin: r.pin, MovePin: r.movePin, MoveSession: r.moveSession, NewDraft: r.newDraft, RemoveProject: r.removeProject, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenHost: r.App.OpenHost, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
 			}
 		}}
+	if assembly.Worktrees {
+		r.App.Sidebar.Actions.Worktrees = r.sidebarWorkspaceAction
+	}
 	r.bindPicker()
 	r.initCommands()
 	r.initAttachments()

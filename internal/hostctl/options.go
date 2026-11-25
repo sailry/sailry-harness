@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -42,6 +43,10 @@ func (options ServiceOptions) Environment(name string) string {
 }
 
 func ParseService(args []string) (ServiceOptions, bool, error) {
+	return parseService(args, "")
+}
+
+func parseService(args []string, profile string) (ServiceOptions, bool, error) {
 	options := ServiceOptions{Network: link.NetworkScope{Bind: "127.0.0.1:0"}}
 	if len(args) != 0 && (args[0] == "--help" || args[0] == "-h") {
 		if len(args) != 1 {
@@ -116,12 +121,19 @@ func ParseService(args []string) (ServiceOptions, bool, error) {
 	}
 	if options.Profile == "" {
 		var err error
-		options.Profile, err = core.DefaultDataDir()
+		options.Profile, err = resolveProfile(profile)
 		if err != nil {
 			return options, false, err
 		}
 	}
 	return options, false, nil
+}
+
+func resolveProfile(profile string) (string, error) {
+	if profile == "" {
+		return core.DefaultDataDir()
+	}
+	return identity.ResolveProfile(profile)
 }
 
 func validateOrigin(origin string) error {
@@ -149,6 +161,10 @@ type TaskOptions struct {
 }
 
 func ParseTask(args []string, stdin io.Reader) (TaskOptions, bool, error) {
+	return parseTask(args, stdin, "")
+}
+
+func parseTask(args []string, stdin io.Reader, profile string) (TaskOptions, bool, error) {
 	options := TaskOptions{Wait: true}
 	if len(args) == 0 || args[0] != "submit" && args[0] != "wait" {
 		return options, false, errors.New(TaskUsage)
@@ -186,7 +202,7 @@ func ParseTask(args []string, stdin io.Reader) (TaskOptions, bool, error) {
 	}
 	if options.Profile == "" {
 		var err error
-		options.Profile, err = core.DefaultDataDir()
+		options.Profile, err = resolveProfile(profile)
 		if err != nil {
 			return options, false, err
 		}

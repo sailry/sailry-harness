@@ -125,15 +125,12 @@ func (a *App) projectView(c *ui.Context) {
 					ui.Icon(c, icons.Plus).FontSize(16)
 					ui.Text(c, label).FontSize(14)
 				}).OnClick(func() { state.actions.NewSession(project) })
-				terminal := i18n.T(c, "workspace_new_terminal")
-				button := kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(project.Offline || state.actions.NewTerminal == nil).Children(func() {
-					ui.Icon(c, icons.Terminal).FontSize(16)
-					ui.Text(c, terminal).FontSize(14)
-				})
 				if state.actions.NewTerminal != nil {
-					button.OnClick(func() { state.actions.NewTerminal(project) })
-				} else {
-					kit.Tooltip(c, button, i18n.T(c, "unavailable"))
+					terminal := i18n.T(c, "workspace_new_terminal")
+					kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(project.Offline).Children(func() {
+						ui.Icon(c, icons.Terminal).FontSize(16)
+						ui.Text(c, terminal).FontSize(14)
+					}).OnClick(func() { state.actions.NewTerminal(project) })
 				}
 				// A plain directory offers Git beside the project's other
 				// actions; a repository shows its branch above them instead.

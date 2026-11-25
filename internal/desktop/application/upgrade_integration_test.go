@@ -37,6 +37,9 @@ import (
 //go:embed testdata/rust-node-schema.sql
 var rustNodeSchema string
 
+//go:embed testdata/v0.2.13-code-index-schema.sql
+var legacyCodeIndexSchema string
+
 const (
 	rustSession    = "0197c0de-0000-7000-8000-000000000001"
 	rustWorktree   = "0197c0de-0000-7000-8000-000000000002"
@@ -305,7 +308,7 @@ func rustDatabases(t *testing.T, profile string, seed []byte) {
 	}
 	create(filepath.Join(profile, "storage", "node.turso"), rustNodeSchema, populate)
 	create(filepath.Join(profile, "storage", "knowledge.turso"), store.KnowledgeSchema, nil)
-	create(filepath.Join(profile, "cache", "code-index", rustWorktree, "index.turso"), store.CodeSchema, nil)
+	create(filepath.Join(profile, "cache", "code-index", rustWorktree, "index.turso"), legacyCodeIndexSchema, nil)
 	create(filepath.Join(profile, "storage", "backups", "node-before-upgrade-0197c0de-0000-7000-8000-00000000000a.turso"), rustNodeSchema, nil)
 }
 

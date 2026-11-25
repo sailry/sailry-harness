@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/sailry/sailry-harness/internal/client"
-	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -85,12 +84,16 @@ func parseIdentity(args []string) (identityOptions, error) {
 // RunIdentity uses the owner-only Host control transport and the same durable
 // admission as remote controllers. Uncertain results include their original ID.
 func RunIdentity(ctx context.Context, args []string, stdout io.Writer) (int, error) {
+	return runIdentityCommand(ctx, args, stdout, "")
+}
+
+func runIdentityCommand(ctx context.Context, args []string, stdout io.Writer, profile string) (int, error) {
 	options, err := parseIdentity(args)
 	if err != nil {
 		return 1, err
 	}
 	if options.profile == "" {
-		options.profile, err = core.DefaultDataDir()
+		options.profile, err = resolveProfile(profile)
 		if err != nil {
 			return 1, err
 		}

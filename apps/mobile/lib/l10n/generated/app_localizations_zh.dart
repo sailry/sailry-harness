@@ -1672,6 +1672,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get failureUnavailable => '主机未连接';
 
   @override
+  String get failureNotConfigured => '此主机不提供此功能';
+
+  @override
   String get failureBusy => '服务正忙，请稍后重试';
 
   @override
@@ -3979,6 +3982,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get failureUnavailable => '主機未連線';
+
+  @override
+  String get failureNotConfigured => '此主機不提供此功能';
 
   @override
   String get failureBusy => '服務正忙，請稍後重試';

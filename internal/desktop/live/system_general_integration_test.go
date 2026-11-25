@@ -769,7 +769,7 @@ func TestSystemGeneralUI(t *testing.T) {
 	_ = json.Unmarshal(event["breadcrumbs"], &crumbs)
 	fields := contexts["sailry"]
 	if string(event["message"]) != `"command.submit_turn:revision_conflict"` || string(event["level"]) != `"error"` || len(contexts) != 1 ||
-		len(tags) != 5 || tags["installation_id"] != reset.InstallationID.String() || tags["application"] != "desktop" {
+		len(tags) != 6 || tags["product"] != "harness" || tags["installation_id"] != reset.InstallationID.String() || tags["application"] != "desktop" {
 		t.Fatalf("the error report is %s", lines[2])
 	}
 	for key := range fields {
@@ -792,7 +792,7 @@ func TestSystemGeneralUI(t *testing.T) {
 	bodies, headers, urls := usage.bodies, usage.headers, usage.urls
 	usage.mu.Unlock()
 	rows := map[string]bool{"event_id": true, "window_start": true, "window_end": true, "count": true, "installation_id": true, "channel": true, "application": true,
-		"os": true, "arch": true, "release": true, "result": true, "mode": true, "subagent": true, "error_code": true, "tool": true, "elapsed_us_total": true, "elapsed_us_max": true,
+		"product": true, "os": true, "arch": true, "release": true, "result": true, "mode": true, "subagent": true, "error_code": true, "tool": true, "elapsed_us_total": true, "elapsed_us_max": true,
 		"api": true, "authentication": true, "model": true, "http_status_class": true, "retries": true, "input": true, "output": true, "cache_read": true, "cache_write": true}
 	tables := map[string]int{}
 	turns := 0

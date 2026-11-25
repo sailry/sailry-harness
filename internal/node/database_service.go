@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/sailry/sailry-harness/internal/databases"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -43,6 +42,9 @@ func (node *Node) dispatchDatabase(ctx context.Context, caller protocol.NodeID, 
 	if !databaseCommand(request.Command.Kind) {
 		return false, protocol.Output{}, nil
 	}
+	if err := node.checkCommandModule(request.Command); err != nil {
+		return true, protocol.Output{}, err
+	}
 	operations := &node.databases
 	if input, ok := request.Command.Data.(*protocol.CommandCancelDatabasePayload); ok {
 		operations.mu.Lock()
@@ -64,16 +66,6 @@ func (node *Node) dispatchDatabase(ctx context.Context, caller protocol.NodeID, 
 	}); err != nil {
 		return true, protocol.Output{}, err
 	}
-	operation := databases.Operation{Profile: prepared.Profile, Password: prepared.Password, Storage: prepared.Storage}
-	if prepared.Ssh != nil {
-		operation.SSH = &databases.SSH{Profile: prepared.Ssh.Profile, Credential: prepared.Ssh.Credential}
-	}
-	if prepared.Query != nil {
-		operation.Query = &databases.Query{SQL: prepared.Query.Sql, RowLimit: uint32(prepared.Query.RowLimit), TimeoutMS: prepared.Query.TimeoutMs}
-	}
-	if prepared.Browse != nil {
-		operation.Browse = &databases.Browse{Database: prepared.Browse.Database}
-	}
 	scoped, cancel := context.WithCancel(ctx)
 	owner := databaseOwner{caller, request.ID}
 	operations.mu.Lock()
@@ -88,6 +80,6 @@ func (node *Node) dispatchDatabase(ctx context.Context, caller protocol.NodeID, 
 		operations.mu.Unlock()
 		cancel()
 	}()
-	outcome, err := databases.Execute(scoped, operation)
+	outcome, err := node.modules.Databases(scoped, prepared)
 	return true, protocol.Output{Kind: "database_outcome", Data: outcome}, err
 }

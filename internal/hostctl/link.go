@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/client"
-	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -22,6 +21,10 @@ import (
 const LinkUsage = "Usage: sailry link [--data-dir <profile>] [--pairing-service <HTTPS origin>] [--relay <preset-id|direct|custom> [--address <relay address>]]"
 
 func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactive bool, stdout, stderr io.Writer) error {
+	return runLink(ctx, args, stdin, interactive, stdout, stderr, "")
+}
+
+func runLink(ctx context.Context, args []string, stdin *bufio.Reader, interactive bool, stdout, stderr io.Writer, defaultProfile string) error {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		_, err := fmt.Fprintln(stdout, LinkUsage)
 		return err
@@ -40,7 +43,7 @@ func RunLink(ctx context.Context, args []string, stdin *bufio.Reader, interactiv
 	}
 	if *profile == "" {
 		var err error
-		*profile, err = core.DefaultDataDir()
+		*profile, err = resolveProfile(defaultProfile)
 		if err != nil {
 			return err
 		}

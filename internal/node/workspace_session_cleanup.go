@@ -96,6 +96,9 @@ func (node *Node) removePrivateWorkspace(session protocol.SessionID, path string
 }
 
 func (node *Node) removeUnusedWorktree(tree protocol.Worktree) {
+	if !node.modules.HasModule("worktrees") || node.git == nil {
+		return
+	}
 	ctx := node.ctx
 	// Removing a worktree changes which roots exist, as remove_worktree does,
 	// and like it holds the root from Git's local work to the row: the root

@@ -4168,6 +4168,31 @@
         "null"
       ]
     },
+    "products": {
+      "description": "Supported execution product IDs. Omission supports every product.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+        "not": { "pattern": "--|\\.\\." }
+      }
+    },
+    "requires_modules": {
+      "description": "Native module IDs that must all be present in the execution Node's assembled product.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+        "not": { "pattern": "--|\\.\\." }
+      }
+    },
     "model_adapters": {
       "default": [],
       "items": {

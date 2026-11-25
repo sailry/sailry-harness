@@ -32,29 +32,25 @@ func (r *Runtime) renderProjectControls(view *ui.Context, project *viewmodel.Pro
 	}
 }
 
-// The orders the bundled packages give their project menu entries the
-// application draws itself: the commands package's New terminal and the
-// worktrees package's Manage worktrees.
+// The native project menu orders retain New terminal before Manage worktrees.
 const (
 	projectMenuTerminalOrder  = 10
 	projectMenuWorktreesOrder = 30
 )
 
-// projectPluginMenu fills a project menu's project_menu slot with the
-// entries of the packages enabled on the project's Node, in their order: a
-// button is an item, a menu a submenu of its choices. The commands package's
-// New terminal and the worktrees package's entry are the application's own
-// controls, as it owns terminals and worktrees, shown while their package is
-// enabled. The commands package's CLI submenu and the git package's Manage
-// branches are not shown (AGENTS.md, Removed UI): the project_menu slot is
-// not mounted.
+// projectPluginMenu merges the project's enabled package entries with native
+// Desktop actions in their declared order. New terminal follows the commands
+// package's enabled choice. Worktrees uses the selected native adapter, not a
+// replaced package record. The commands package's CLI submenu and the git
+// package's Manage branches are not mounted here.
 func (r *Runtime) projectPluginMenu(view *ui.Context, menu *ui.Menu, project *viewmodel.Project) {
 	owner := r.projectOverviewRuntime(project)
 	if owner == nil {
 		return
 	}
 	side := r.localRuntime().App.Sidebar
-	terminal, worktrees := owner.packageEnabled("commands"), owner.packageEnabled(pluginWorktreesPackage)
+	terminal := side.Actions != nil && side.Actions.NewTerminal != nil && owner.packageEnabled("commands")
+	worktrees := side.Actions != nil && side.Actions.Worktrees != nil
 	native := func(before int) {
 		if terminal && projectMenuTerminalOrder <= before {
 			side.TerminalItem(view, menu, project)

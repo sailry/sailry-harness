@@ -20,13 +20,13 @@ import (
 
 	"github.com/egoist/mygo/plugins/permissionflow"
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -164,7 +164,7 @@ func newCrawlDesk(t *testing.T, ctx context.Context) *crawlDesk {
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Harness())
+	r, err := NewWithAssembly(ctx, controller, preferences.ForStartup(profile), desktop.Full())
 	if err != nil {
 		_ = controller.Close()
 		t.Fatal(err)

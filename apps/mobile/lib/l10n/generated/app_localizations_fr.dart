@@ -1714,6 +1714,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get failureUnavailable => 'Hôte non connecté';
 
   @override
+  String get failureNotConfigured => 'Fonction indisponible sur cet hôte';
+
+  @override
   String get failureBusy => 'Service occupé; réessayez plus tard';
 
   @override

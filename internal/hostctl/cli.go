@@ -18,6 +18,7 @@ import (
 )
 
 type CLIHandlers struct {
+	Identity   identity.Desktop
 	Service    func(context.Context, []string) (int, error)
 	Acceptance func(context.Context, []string) (int, error)
 }
@@ -26,17 +27,17 @@ type CLIHandlers struct {
 // parsers; new interactive flows use this small command table.
 func RunCLI(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, handlers CLIHandlers) (int, error) {
 	input := bufio.NewReader(stdin)
-	return runCLI(ctx, args, input, terminal(stdin), stdout, stderr, handlers)
+	return runCLI(ctx, args, input, stdin, terminal(stdin), stdout, stderr, handlers)
 }
 
-func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive bool, stdout, stderr io.Writer, handlers CLIHandlers) (int, error) {
+func runCLI(ctx context.Context, args []string, input *bufio.Reader, stdin io.Reader, interactive bool, stdout, stderr io.Writer, handlers CLIHandlers) (int, error) {
 	if len(args) == 0 {
 		if interactive {
-			command, err := RunMenu(ctx, input, stdout)
+			command, err := runMenu(ctx, input, stdout, handlers.Identity)
 			if err != nil || command == "" {
 				return 0, err
 			}
-			return runCLI(ctx, []string{command}, input, interactive, stdout, stderr, handlers)
+			return runCLI(ctx, []string{command}, input, stdin, interactive, stdout, stderr, handlers)
 		}
 		return 0, PrintHelp(stdout)
 	}
@@ -51,7 +52,7 @@ func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive
 		if len(rest) > 0 {
 			return 1, errors.New("version does not take arguments")
 		}
-		_, err := fmt.Fprintln(stdout, identity.OfficialHostVersionTag+link.ProductVersion)
+		_, err := fmt.Fprintln(stdout, versionLabel(handlers.Identity))
 		return 0, err
 	case "menu":
 		flags := flag.NewFlagSet("menu", flag.ContinueOnError)
@@ -66,7 +67,7 @@ func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive
 		if !interactive {
 			return 0, PrintHelp(stdout)
 		}
-		selected, err := RunMenu(ctx, input, stdout)
+		selected, err := runMenu(ctx, input, stdout, handlers.Identity)
 		if err != nil || selected == "" {
 			return 0, err
 		}
@@ -74,22 +75,22 @@ func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive
 		if selected == "link" && *profile != "" {
 			selectedArgs = append(selectedArgs, "--data-dir", *profile)
 		}
-		return runCLI(ctx, selectedArgs, input, interactive, stdout, stderr, handlers)
+		return runCLI(ctx, selectedArgs, input, stdin, interactive, stdout, stderr, handlers)
 	case "serve":
 		return runService(ctx, rest, handlers)
 	case "link":
-		return 0, RunLink(ctx, rest, input, interactive, stdout, stderr)
+		return 0, runLink(ctx, rest, input, interactive, stdout, stderr, handlers.Identity.DefaultProfile)
 	case "share":
-		return 0, RunShare(ctx, rest, stdout, stderr)
+		return 0, runShare(ctx, rest, stdout, stderr, handlers.Identity.DefaultProfile)
 	case "users", "devices":
-		return runIdentity(ctx, command, rest, stdout)
+		return runIdentity(ctx, command, rest, stdout, handlers.Identity.DefaultProfile)
 	case "submit", "wait":
-		return runTask(ctx, command, rest, input, stdout)
+		return runTask(ctx, command, rest, input, stdout, handlers.Identity.DefaultProfile)
 	case "start", "stop", "restart", "status", "update":
 		if command != "update" && len(rest) > 0 {
 			return 1, fmt.Errorf("%s does not take arguments", command)
 		}
-		return 0, RunInstalledCommand(ctx, command, rest)
+		return 0, runInstalledCommand(ctx, command, rest, handlers.Identity, stdin, stdout, stderr)
 	case "acceptance", "acceptance-cleanup":
 		if handlers.Acceptance == nil {
 			return 1, errors.New("acceptance is unavailable")
@@ -113,16 +114,24 @@ func runService(ctx context.Context, args []string, handlers CLIHandlers) (int, 
 	return handlers.Service(ctx, args)
 }
 
-func runIdentity(ctx context.Context, command string, args []string, stdout io.Writer) (int, error) {
+func versionLabel(product identity.Desktop) string {
+	version := product.Version
+	if version == "" {
+		version = link.ProductVersion
+	}
+	return identity.OfficialHostVersionTag + version
+}
+
+func runIdentity(ctx context.Context, command string, args []string, stdout io.Writer, profile string) (int, error) {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		_, err := fmt.Fprintln(stdout, IdentityUsage)
 		return 0, err
 	}
-	return RunIdentity(ctx, append([]string{command}, args...), stdout)
+	return runIdentityCommand(ctx, append([]string{command}, args...), stdout, profile)
 }
 
-func runTask(ctx context.Context, command string, args []string, stdin io.Reader, stdout io.Writer) (int, error) {
-	options, help, err := ParseTask(append([]string{command}, args...), stdin)
+func runTask(ctx context.Context, command string, args []string, stdin io.Reader, stdout io.Writer, profile string) (int, error) {
+	options, help, err := parseTask(append([]string{command}, args...), stdin, profile)
 	if err != nil {
 		return 1, err
 	}
@@ -159,11 +168,15 @@ func PrintHelp(stdout io.Writer) error {
 }
 
 func RunMenu(ctx context.Context, input *bufio.Reader, output io.Writer) (string, error) {
+	return runMenu(ctx, input, output, identity.Desktop{})
+}
+
+func runMenu(ctx context.Context, input *bufio.Reader, output io.Writer, product identity.Desktop) (string, error) {
 	commands := []struct{ command, label string }{
 		{"link", "Connect a device"}, {"status", "Host status"}, {"start", "Start Host"},
 		{"stop", "Stop Host"}, {"restart", "Restart Host"}, {"update", "Update Host"}, {"help", "Command help"},
 	}
-	if _, err := fmt.Fprintln(output, "\n"+identity.OfficialHostVersionTag+link.ProductVersion); err != nil {
+	if _, err := fmt.Fprintln(output, "\n"+versionLabel(product)); err != nil {
 		return "", err
 	}
 	for index, item := range commands {
@@ -212,15 +225,20 @@ func terminal(value any) bool {
 }
 
 func RunInstalledCommand(ctx context.Context, action string, args []string) error {
+	return runInstalledCommand(ctx, action, args, identity.Desktop{}, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runInstalledCommand(ctx context.Context, action string, args []string, product identity.Desktop, stdin io.Reader, stdout, stderr io.Writer) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	launcher := filepath.Join(filepath.Dir(executable), "sailry")
+	name := product.HostRelease.Package().Name()
+	launcher := filepath.Join(filepath.Dir(executable), name)
 	if info, err := os.Stat(launcher); err != nil || !info.Mode().IsRegular() {
-		return errors.New("managed service commands require an installed Host; use sailry serve for a foreground Host")
+		return fmt.Errorf("managed service commands require an installed Host; use %s serve for a foreground Host", name)
 	}
 	command := exec.CommandContext(ctx, launcher, append([]string{action}, args...)...)
-	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	command.Stdin, command.Stdout, command.Stderr = stdin, stdout, stderr
 	return command.Run()
 }

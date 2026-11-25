@@ -152,7 +152,9 @@ Future<String> artifactPage(
   Map<String, String> theme,
   Map<String, String> labels, {
   required bool writable,
+  AssetBundle? assets,
 }) async {
+  final bundle = assets ?? rootBundle;
   final view = object(content['view']);
   final template = text(view['template']);
   final styles = (view['styles'] as List? ?? []).cast<String>();
@@ -173,7 +175,7 @@ Future<String> artifactPage(
   for (final library in libraries) {
     if (library == 'mathjax') {
       for (final file in ['config', 'mathjax', 'fonts', 'render']) {
-        final script = await rootBundle.loadString(
+        final script = await bundle.loadString(
           'assets/visuals/$file.js',
           cache: false,
         );
@@ -185,7 +187,7 @@ Future<String> artifactPage(
       }
     } else {
       sources.add(
-        await rootBundle.loadString('assets/visuals/$library.js', cache: false),
+        await bundle.loadString('assets/visuals/$library.js', cache: false),
       );
     }
   }

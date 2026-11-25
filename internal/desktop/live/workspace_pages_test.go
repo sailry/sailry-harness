@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -31,7 +31,7 @@ func TestResourcePagesKeepTheirOwnWorktree(t *testing.T) {
 	remoteProject := &viewmodel.Project{ID: projectID.String(), Host: remoteNode.String(), Name: "Runner", Path: main}
 	chat := &viewmodel.Conversation{ID: "draft/local", Node: localNode.String(), Title: "Local draft"}
 	localProject.Conversations = []*viewmodel.Conversation{chat}
-	app := shell.NewLiveWithAssembly(&viewmodel.Data{Projects: []*viewmodel.Project{localProject, remoteProject}, Workspace: &viewmodel.Workspace{}}, desktop.Harness())
+	app := shell.NewLiveWithAssembly(&viewmodel.Data{Projects: []*viewmodel.Project{localProject, remoteProject}, Workspace: &viewmodel.Workspace{}}, desktop.Full())
 	app.Sidebar.Selected = chat.ID
 	composer := app.Composer(chat.ID)
 	composer.Draft = "Keep this input"

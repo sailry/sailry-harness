@@ -5,9 +5,11 @@ import "encoding/json"
 // PluginRequirements survive extension decoding, including an unsupported API.
 // Nil requirements identify a package with no Sailry platform extension.
 type PluginRequirements struct {
-	APIVersion       string  `json:"api_version"`
-	MinSailryVersion *string `json:"min_sailry_version,omitempty"`
-	Invalid          bool    `json:"invalid,omitempty"`
+	APIVersion       string   `json:"api_version"`
+	MinSailryVersion *string  `json:"min_sailry_version,omitempty"`
+	Products         []string `json:"products,omitempty"`
+	RequiresModules  []string `json:"requires_modules,omitempty"`
+	Invalid          bool     `json:"invalid,omitempty"`
 }
 
 func (value *PluginRequirements) UnmarshalJSON(data []byte) error {

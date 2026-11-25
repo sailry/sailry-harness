@@ -46,7 +46,10 @@ func (manager *Manager) CapturedInfo(ctx context.Context, reference protocol.Plu
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	info, err := describePackage(entries, nil, reference.Name)
+	info, err := describePackage(entries, nil, reference.Name, RuntimeFromContext(ctx))
 	info.Summary.SettingsRevision = reference.SettingsRevision
-	return info, err
+	if err != nil {
+		return info, err
+	}
+	return info, EnsureCompatible(info.Summary.Compatibility)
 }

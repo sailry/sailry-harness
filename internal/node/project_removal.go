@@ -28,6 +28,9 @@ func (node *Node) closeProjectResources(command protocol.Command) (bool, error) 
 	}
 	closed := false
 	for _, terminal := range plan.Terminals {
+		if node.terminals == nil {
+			break
+		}
 		// A record without a terminal in this process is closed with the removal.
 		_, err := node.terminals.CloseTerminal(terminal.Worktree, terminal.ID)
 		var failure *protocol.Fault

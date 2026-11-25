@@ -19,6 +19,10 @@ type Assembly struct {
 	SettingsPages  []settings.NativePage
 	ProviderUI     func(*settings.State) ProviderUI
 	Locales        []fs.FS
+	// CodeIndex offers the optional Node code-index settings in Conversation.
+	CodeIndex bool
+	// Worktrees offers the native project worktree actions.
+	Worktrees bool
 }
 
 // Module registers the contributions it supplies to a desktop assembly.
@@ -56,6 +60,7 @@ type NativePage struct {
 func (a *App) installPages(assembly Assembly) {
 	a.translations = i18n.New(assembly.Locales...)
 	a.Settings.SetNativePages(assembly.SettingsPages)
+	a.Settings.CodeIndexAvailable = assembly.CodeIndex
 	if assembly.ProviderUI != nil && a.Settings.HasSection(settings.Providers) {
 		a.ProviderUI = assembly.ProviderUI(a.Settings)
 	}

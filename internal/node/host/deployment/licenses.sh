@@ -7,6 +7,8 @@ task_target="${2:?Missing Rust target or --go-only}"
 task_output="${3:?Missing output directory}"
 task_command="${4:-./cmd/sailry-host}"
 task_root="$(cd "$(dirname "$0")/../../../.." && pwd)"
+task_command_root="${5:-$task_root}"
+task_command_root="$(cd "$task_command_root" && pwd)"
 test ! -e "$task_output"
 mkdir -p "$task_output"
 task_output="$(cd "$task_output" && pwd)"
@@ -19,15 +21,16 @@ task_notices() {
     task_relative="${task_license#"$1/"}"
     mkdir -p "$(dirname "$2/$task_relative")"
     cp -f "$task_license" "$2/$task_relative"
-  done < <(find "$1" -type f \( -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'COPYING*' -o -name 'NOTICE*' -o -name 'THIRD_PARTY_NOTICES*' \))
+  done < <(find "$1" -type d \( -name .git -o -name .runtime \) -prune -o -type f \( -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'COPYING*' -o -name 'NOTICE*' -o -name 'THIRD_PARTY_NOTICES*' \) -print)
 }
 
 # Go modules linked into the command for this platform. Go module metadata
 # declares no license, so a module without a notice file is listed instead.
-GOOS="${task_platform%/*}" GOARCH="${task_platform#*/}" CGO_ENABLED=0 go -C "$task_root" list -deps \
-  -f '{{with .Module}}{{if .Version}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}' \
+GOOS="${task_platform%/*}" GOARCH="${task_platform#*/}" CGO_ENABLED=0 go -C "$task_command_root" list -deps \
+  -f '{{with .Module}}{{.Path}}{{"\t"}}{{or .Version "workspace"}}{{"\t"}}{{.Dir}}{{end}}' \
   "$task_command" | sort -u > "$task_scratch/modules.tsv"
 while IFS=$'\t' read -r task_name task_version task_directory; do
+  test -n "$task_name" && test "$task_directory" != "$task_command_root" || continue
   task_destination="$task_output/go/$task_name@$task_version"
   mkdir -p "$task_destination"
   task_notices "$task_directory" "$task_destination"

@@ -24,6 +24,7 @@ Release? latestRelease(
   Object? metadata, {
   required Version current,
   required String target,
+  String repository = releaseRepository,
 }) {
   if (metadata is! List) {
     throw const FormatException('Release metadata must be a list');
@@ -65,7 +66,7 @@ Release? latestRelease(
       if (!names.contains(name) || asset['state'] != 'uploaded') continue;
       final expected = Uri.https(
         'github.com',
-        '/$releaseRepository/releases/download/$tag/$name',
+        '/$repository/releases/download/$tag/$name',
       );
       if (asset['browser_download_url'] != expected.toString() ||
           asset['size'] is! num ||

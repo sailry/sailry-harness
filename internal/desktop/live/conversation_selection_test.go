@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -79,7 +79,7 @@ func selectionWindow(t *testing.T, snapshot protocol.Snapshot) selectionTestWind
 	}
 	prefs := preferences.Open(filepath.Join(t.TempDir(), "desktop", "preferences.json"))
 	prefs.Data.WelcomeSeen = new(true)
-	r, err := NewWithAssembly(ctx, controller, prefs, desktop.Harness())
+	r, err := NewWithAssembly(ctx, controller, prefs, desktop.Full())
 	if err != nil {
 		t.Fatal(err)
 	}

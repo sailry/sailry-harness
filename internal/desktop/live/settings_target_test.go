@@ -179,6 +179,7 @@ func TestSettingsTarget(t *testing.T) {
 		defer controllers[index].Close()
 	}
 	assembly := desktop.Harness()
+	assembly.CodeIndex = true
 	root, err := NewWithAssembly(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"), assembly)
 	if err != nil {
 		t.Fatal(err)

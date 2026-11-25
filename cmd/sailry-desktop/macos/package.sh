@@ -26,12 +26,15 @@
 set -euo pipefail
 
 test "$(uname -s)" = Darwin || { echo 'package.sh needs macOS' >&2; exit 1; }
-test -f go.mod && test -f cmd/sailry-desktop/mygo.json || { echo 'run from the repository root' >&2; exit 1; }
+harness_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+package_root=$PWD
+desktop=${SAILRY_DESKTOP_DIR:-cmd/sailry-desktop}
+test -f go.mod && test -f "$desktop/mygo.json" || { echo 'run from the product repository root' >&2; exit 1; }
 
 artifacts=()
 if test "${1:-}" = -artifacts; then
   test -d "${2:-}" || { echo '-artifacts needs a directory' >&2; exit 1; }
-  artifacts=(-artifacts "$2")
+  artifacts=(-artifacts "$(cd "$2" && pwd)")
   shift 2
 fi
 test $# -eq 0 || { echo 'usage: package.sh [-artifacts <dir>]' >&2; exit 1; }
@@ -65,11 +68,11 @@ case "$(uname -m)" in
   *) echo 'unsupported architecture' >&2; exit 1 ;;
 esac
 platform=darwin/$arch
-out=.runtime/package/out/darwin-$arch
+out=$package_root/.runtime/package/out/darwin-$arch
 app=$out/Sailry.app
 image=$out/Sailry-$triple.dmg
 update=$out/Sailry-$triple-unsigned.zip
-resources=cmd/sailry-desktop/resources/darwin-$arch
+resources=$package_root/$desktop/resources/darwin-$arch
 
 # codesign finds the identity of a temporary keychain through the search
 # list, which is restored when the script ends.
@@ -86,7 +89,7 @@ if test -n "${APPLE_SIGNING_KEYCHAIN:-}"; then
 fi
 
 rm -f -- "$resources/libsailry_iroh.dylib"
-go run ./native/fetch -target "$platform" ${artifacts[@]+"${artifacts[@]}"} -bundle "$resources"
+go -C "$harness_root" run ./native/fetch -target "$platform" ${artifacts[@]+"${artifacts[@]}"} -bundle "$resources"
 # Pinned MyGo reaches the helper app's main executable before its sibling.
 # Intel's unsigned sibling must be signed before codesign validates that app.
 helper_signing=(--force --sign "$identity" --preserve-metadata=entitlements)
@@ -99,25 +102,24 @@ go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 # Shipped beside the runtimes: the dependency notices and the build record
 # the updater requires of every package it installs.
 revision=${SAILRY_REVISION:-$(git rev-parse HEAD)}
-version=$(jq -r .version cmd/sailry-desktop/mygo.json)
+version=$(jq -r .version "$desktop/mygo.json")
 rm -rf -- "$resources/licenses"
-bash internal/node/host/deployment/licenses.sh "$platform" "$triple" "$resources/licenses" ./cmd/sailry-desktop
+bash "$harness_root/internal/node/host/deployment/licenses.sh" "$platform" "$triple" "$resources/licenses" "./$desktop" "$package_root"
 dirty=false
 if test -n "$(git status --porcelain)"; then dirty=true; fi
 jq -n --arg revision "$revision" --argjson dirty "$dirty" --arg target "$triple" --arg version "$version" \
   '{version:1,source_revision:$revision,source_dirty:$dirty,profile:"release",target:$target,application_version:$version}' \
   > "$resources/build.json"
 
-telemetry=github.com/sailry/sailry-harness/internal/node/telemetry
 flags="-X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry"
-flags="$flags -X $telemetry.BuildRevision=$revision"
-test -z "${SAILRY_SENTRY_DSN:-}" || flags="$flags -X $telemetry.BuildDSN=$SAILRY_SENTRY_DSN"
-test -z "${SAILRY_TELEMETRY_KEY:-}" || flags="$flags -X $telemetry.BuildKey=$SAILRY_TELEMETRY_KEY"
+flags+=" ${SAILRY_PACKAGE_LDFLAGS:-}"
+source "$harness_root/internal/node/telemetry/build-flags.sh"
+telemetry_build_flags "$revision"
 
 rm -rf -- "$app" "$image" "$update"
 # mygo signs nested code and the bundle. Notarization and the disk image
 # follow the seal, which changes the bundle after mygo has signed it.
-MYGO_LDFLAGS=$flags .runtime/package/bin/mygo build -platform "$platform" -sign "$identity" -skip-notarize -skip-dmg cmd/sailry-desktop
+MYGO_LDFLAGS=$flags .runtime/package/bin/mygo build -platform "$platform" -sign "$identity" -skip-notarize -skip-dmg "$desktop"
 test -d "$app"
 
 # mygo names the executable after the product. The updater, like every
@@ -133,7 +135,7 @@ bundle_version=${version%%[-+]*}
 
 # Signing rewrote the native libraries and the rename changed the bundle:
 # record the libraries as shipped and sign the bundle again over the records.
-go run ./native/fetch -target "$platform" -seal "$app" -sign "$identity"
+go -C "$harness_root" run ./native/fetch -target "$platform" -seal "$app" -sign "$identity" -entitlements "$package_root/$desktop/macos/app.entitlements.plist"
 
 codesign --verify --deep --strict "$app"
 if test "$signing" = developer-id; then

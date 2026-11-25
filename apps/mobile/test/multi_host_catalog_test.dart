@@ -8,9 +8,11 @@ import 'package:sailry_mobile/features/conversations/live/task_filters.dart';
 import 'package:sailry_mobile/features/conversations/live/tasks.dart';
 import 'package:sailry_mobile/features/conversations/live/terminal_tasks.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
+import 'package:sailry_mobile/features/resources/contributions.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/resources/scope_picker.dart';
+import 'package:sailry_mobile/features/terminal/project_resource.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/catalog.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -452,7 +454,12 @@ void main() {
       ];
     }
     final session = AppSession.test(hosts: [first, second]);
-    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
+    await tester.pumpWidget(
+      ProjectResourcesScope(
+        features: const [terminalResource],
+        child: screen(session, LiveTasksPage(session: session)),
+      ),
+    );
     await tester.pump();
     final rows = tester
         .widgetList<TerminalTask>(find.byType(TerminalTask))

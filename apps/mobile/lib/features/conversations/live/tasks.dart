@@ -14,10 +14,12 @@ import '../../../ui/project_icon.dart';
 import '../../../ui/swipe_action.dart';
 import '../../../ui/toast.dart';
 import '../../resources/host/host_sheet.dart';
+import '../../resources/contributions.dart';
 import '../../resources/pair_form.dart';
 import '../../resources/project_form.dart';
 import '../../resources/scope_picker.dart';
 import '../../resources/workspace.dart';
+import '../../terminal/project_resource.dart';
 import 'create.dart';
 import 'host_status_bar.dart';
 import 'message_data.dart' show searchExcerpt;
@@ -61,6 +63,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   Animation<double>? _cover;
   bool _ticking = true;
   bool _catalogDirty = true;
+  bool _interactiveTerminals = false;
   Widget? _catalog;
   (AppLocalizations?, ColorScheme)? _catalogAppearance;
 
@@ -98,6 +101,14 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final terminals = ProjectResourcesScope.of(
+      context,
+    ).contains(terminalResource);
+    if (terminals != _interactiveTerminals) {
+      _interactiveTerminals = terminals;
+      _catalogDirty = true;
+    }
+    if (!terminals && _filter == 'terminal') _filter = 'all';
     _ticking = TickerMode.valuesOf(context).enabled;
     _route = ModalRoute.of(context);
     final cover = _route?.secondaryAnimation;
@@ -343,7 +354,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final projectId = widget.session.selectedProjectId;
     final projects = hostRecords(widget.session.resourceHosts, 'projects');
     final sessions = hostRecords(hosts, 'sessions');
-    final allTerminals = hostRecords(hosts, 'terminals');
+    final allTerminals = _interactiveTerminals
+        ? hostRecords(hosts, 'terminals')
+        : const <HostRecord>[];
     final creationHost = selected;
     final selectedProject = projects
         .where(

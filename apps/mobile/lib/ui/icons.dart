@@ -3,20 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-void registerIconLicense() {
+void registerIconLicense({AssetBundle? assets}) {
+  final bundle = assets ?? rootBundle;
   LicenseRegistry.addLicense(() async* {
-    final notice = await rootBundle.loadString('assets/icons/NOTICE.txt');
-    final license = await rootBundle.loadString('assets/icons/LICENSE.txt');
+    final notice = await bundle.loadString('assets/icons/NOTICE.txt');
+    final license = await bundle.loadString('assets/icons/LICENSE.txt');
     yield LicenseEntryWithLineBreaks(['Reicon'], '$notice\n$license');
-    final lucide = await rootBundle.loadString(
-      'assets/icons/LICENSE-LUCIDE.txt',
-    );
+    final lucide = await bundle.loadString('assets/icons/LICENSE-LUCIDE.txt');
     yield LicenseEntryWithLineBreaks(['Lucide'], lucide);
-    final monsters = await rootBundle.loadString(
+    final monsters = await bundle.loadString(
       'third_party_licenses/kenney-monsters.md',
     );
     yield LicenseEntryWithLineBreaks(['Kenney Monster Builder'], monsters);
-    final modelCatalog = await rootBundle.loadString(
+    final modelCatalog = await bundle.loadString(
       'third_party_licenses/models.dev.md',
     );
     yield LicenseEntryWithLineBreaks(['models.dev'], modelCatalog);

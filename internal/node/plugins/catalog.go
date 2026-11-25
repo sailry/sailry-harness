@@ -28,8 +28,8 @@ func BundledDefaults() []DefaultPackage {
 		{"reminders", true}, {"scheduled-tasks", true}, {"goals", true},
 		{"commands", true},
 		{"brief", true}, {"files", true}, {"statistics", true}, {"provider-status", true},
-		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true}, {"databases", true}, {"ssh", true}, {"worktrees", true},
-		{"git", true}, {"context7", true}, {"github", true}, {"office", true},
+		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true},
+		{"context7", true}, {"github", true}, {"office", true},
 	}
 }
 
@@ -40,11 +40,11 @@ func RetiredBundled() []string {
 	return []string{"media", "progress", "code", "web-search", "external-browser", "browser", "computer", "memory"}
 }
 
-func manifestCatalogEntry(manifest Manifest) protocol.PluginCatalogEntry {
+func manifestCatalogEntry(manifest Manifest, runtimes ...Runtime) protocol.PluginCatalogEntry {
 	entry := protocol.DefaultPluginCatalogEntry()
 	entry.ID, entry.Name, entry.Version, entry.Description = manifest.Name, manifest.Name, manifest.Version, manifest.Description
 	entry.Repository = manifest.Repository
-	entry.Compatibility = requirementsCompatibility(manifest.Requirements)
+	entry.Compatibility = requirementsCompatibility(manifest.Requirements, runtimes...)
 	if extension := manifest.Extension; extension != nil {
 		entry.Category, entry.Tint, entry.Display, entry.Icon = extension.Category, extension.Tint, extension.Display, extension.Icon
 		entry.Permissions = extension.Actions
@@ -131,7 +131,7 @@ func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogE
 		if slices.Contains(retired, manifest.Name) {
 			continue
 		}
-		entry := manifestCatalogEntry(manifest)
+		entry := manifestCatalogEntry(manifest, RuntimeFromContext(ctx))
 		if manifest.Extension != nil && manifest.Extension.Icon != nil {
 			data, err := fs.ReadFile(files, path.Join(path.Dir(name), *manifest.Extension.Icon))
 			if err == nil {
@@ -141,12 +141,12 @@ func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogE
 			}
 		}
 		entry.Bundled = true
-		entry.Versions = []protocol.PluginCatalogVersion{manifestVersion(manifest, "", nil)}
+		entry.Versions = []protocol.PluginCatalogVersion{manifestVersion(manifest, "", nil, RuntimeFromContext(ctx))}
 		if manifest.Version != nil && slices.Contains(withdrawals[manifest.Name], *manifest.Version) {
 			entry.Versions[0].Withdrawn = true
-			entry.Versions[0].Compatibility = CatalogVersionCompatibility(entry.Versions[0])
+			entry.Versions[0].Compatibility = CatalogVersionCompatibility(entry.Versions[0], RuntimeFromContext(ctx))
 		}
-		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil)
+		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil, RuntimeFromContext(ctx))
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -221,7 +221,7 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		if err != nil || item.ID != manifest.Name || seen[item.ID] || slices.Contains(retired, item.ID) {
 			continue
 		}
-		entry := manifestCatalogEntry(manifest)
+		entry := manifestCatalogEntry(manifest, RuntimeFromContext(ctx))
 		repository, commit := manager.officialRepositoryURL(), feed.Commit
 		entry.Repository, entry.Commit, entry.ReleaseNotes, entry.Versions = &repository, &commit, item.ReleaseNotes, item.Versions
 		latest := -1
@@ -230,24 +230,26 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 			if manifest.Version != nil && version.Version == *manifest.Version {
 				latest = index
 				version.APIVersion, version.MinSailryVersion = nil, nil
+				version.Products, version.RequiresModules = nil, nil
 				if requirements := manifest.Requirements; requirements != nil {
 					version.APIVersion, version.MinSailryVersion = &requirements.APIVersion, requirements.MinSailryVersion
+					version.Products, version.RequiresModules = requirements.Products, requirements.RequiresModules
 				}
 				if version.ReleaseNotes == nil {
 					version.ReleaseNotes = item.ReleaseNotes
 				}
 			}
-			version.Compatibility = CatalogVersionCompatibility(*version)
+			version.Compatibility = CatalogVersionCompatibility(*version, RuntimeFromContext(ctx))
 			if manifest.Version != nil && version.Version == *manifest.Version && !version.Withdrawn && entry.Compatibility.Kind != "compatible" {
 				version.Compatibility = entry.Compatibility
 			}
 		}
 		if latest < 0 && manifest.Version != nil {
-			entry.Versions = append(entry.Versions, manifestVersion(manifest, feed.Commit, item.ReleaseNotes))
+			entry.Versions = append(entry.Versions, manifestVersion(manifest, feed.Commit, item.ReleaseNotes, RuntimeFromContext(ctx)))
 		} else if latest >= 0 {
 			entry.Commit = &entry.Versions[latest].Commit
 		}
-		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil)
+		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil, RuntimeFromContext(ctx))
 		seen[item.ID] = true
 		entries = append(entries, entry)
 	}
@@ -309,7 +311,7 @@ func (manager *Manager) CatalogSource(ctx context.Context, source protocol.Plugi
 		}
 		for _, entry := range entries {
 			if entry.ID == id {
-				selected := SelectCompatibleVersion(entry, nil)
+				selected := SelectCompatibleVersion(entry, nil, RuntimeFromContext(ctx))
 				if selected == nil {
 					return protocol.PluginSkillsSource{}, packageFault("no compatible official plugin version is available")
 				}

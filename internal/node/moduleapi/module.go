@@ -21,6 +21,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/codeindexapi"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -273,8 +274,13 @@ type Module interface {
 
 // Assembly selects the compile-time Node modules and optional services.
 type Assembly struct {
-	CodeIndex codeindexapi.Factory
-	Modules   []Module
+	// A nil list uses platform defaults; an explicit empty list selects none.
+	BundledDefaults []plugins.DefaultPackage
+	CodeIndex       codeindexapi.Factory
+	Databases       DatabaseExecutor
+	SSH             SSHFactory
+	Terminal        TerminalFactory
+	Modules         []Module
 }
 
 // NativeSkillPackages returns the skill trees contributed by assembled modules.

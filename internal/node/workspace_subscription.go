@@ -34,6 +34,9 @@ func (s *commandEvents) Next(ctx context.Context) (protocol.Update, error) {
 	}
 }
 func (node *Node) subscribeWorkspace(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "repository" && (!node.modules.HasModule("git") || node.git == nil) {
+		return nil, moduleUnavailable("git")
+	}
 	if err := node.begin(); err != nil {
 		return nil, err
 	}

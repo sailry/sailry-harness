@@ -1696,6 +1696,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get failureUnavailable => 'Host not connected';
 
   @override
+  String get failureNotConfigured => 'Feature unavailable on this host';
+
+  @override
   String get failureBusy => 'Service busy; retry later';
 
   @override

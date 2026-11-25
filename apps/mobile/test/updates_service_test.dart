@@ -12,6 +12,30 @@ import 'support/updates.dart' as fixture;
 
 void main() {
   group('release selection', () {
+    test('product repository owns its mobile downloads', () {
+      final row = fixture.release('0.2.14');
+      final asset = (row['assets'] as List).single as Map<String, dynamic>;
+      asset['browser_download_url'] =
+          'https://github.com/sailry/sailry-code/releases/download/v0.2.14/Sailry-android-arm64.apk';
+      expect(
+        latestRelease(
+          [row],
+          current: precedence('0.2.13'),
+          target: 'android-arm64',
+          repository: 'sailry/sailry-code',
+        )?.version,
+        precedence('0.2.14'),
+      );
+      expect(
+        () => latestRelease(
+          [row],
+          current: precedence('0.2.13'),
+          target: 'android-arm64',
+        ),
+        throwsFormatException,
+      );
+    });
+
     Release? select(
       List<Map<String, dynamic>> rows, {
       String current = '0.1.0-alpha.1',
@@ -103,6 +127,25 @@ void main() {
   });
 
   group('update checks', () {
+    test('a Code desktop version reset cannot downgrade mobile', () async {
+      final row = fixture.release('0.1.0');
+      (row['assets'] as List).first['browser_download_url'] =
+          'https://github.com/sailry/sailry-code/releases/download/v0.1.0/Sailry-android-arm64.apk';
+      final service = AppUpdates(
+        repository: 'sailry/sailry-code',
+        target: 'android-arm64',
+        readInfo: () async => fixture.info('0.2.13'),
+        client: MockClient((request) async {
+          expect(request.url.path, '/repos/sailry/sailry-code/releases');
+          return http.Response(jsonEncode([row]), 200);
+        }),
+      );
+      addTearDown(service.dispose);
+      expect(await service.check(), UpdateResult.current);
+      expect(service.available, isNull);
+      expect(service.version, '0.2.13');
+    });
+
     test(
       'reads the public index over HTTP without an execution Node',
       () async {

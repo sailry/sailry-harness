@@ -131,9 +131,12 @@ func (r *Runtime) initNodeSettings() {
 	m.RetryPersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.savePersonalInstructions() }) }
 	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
-	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
-	m.SavePersistentCodeIndex = func(enabled bool) {
-		onMachine(func(owner *Runtime) { owner.savePersistentCodeIndex(enabled) })
+	m.SaveCodeIndex, m.SavePersistentCodeIndex = nil, nil
+	if m.CodeIndexAvailable {
+		m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
+		m.SavePersistentCodeIndex = func(enabled bool) {
+			onMachine(func(owner *Runtime) { owner.savePersistentCodeIndex(enabled) })
+		}
 	}
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },

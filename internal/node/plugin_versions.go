@@ -35,7 +35,7 @@ func (node *Node) checkUploadedPluginUpdate(ctx context.Context, caller protocol
 		return protocol.PluginUpdatesReport{}, err
 	}
 	if current.Summary.Pinned {
-		return plugins.AssessUpdate(*current, protocol.PluginInfo{})
+		return plugins.AssessUpdate(*current, protocol.PluginInfo{}, plugins.RuntimeFromContext(ctx))
 	}
 	var candidate protocol.PluginInfo
 	err = node.transfers.UsePluginUpload(ctx, caller, *input.Upload, false, func(reader io.ReaderAt, size int64) error {
@@ -46,7 +46,7 @@ func (node *Node) checkUploadedPluginUpdate(ctx context.Context, caller protocol
 	if err != nil {
 		return protocol.PluginUpdatesReport{}, err
 	}
-	return plugins.AssessUpdate(*current, candidate)
+	return plugins.AssessUpdate(*current, candidate, plugins.RuntimeFromContext(ctx))
 }
 
 func (node *Node) prepareCatalogPlugin(ctx context.Context, input protocol.CommandInstallCatalogPluginPayload) (protocol.PluginInfo, error) {

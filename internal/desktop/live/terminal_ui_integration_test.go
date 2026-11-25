@@ -4,7 +4,7 @@ package live
 
 import (
 	"context"
-	"github.com/sailry/sailry-harness/internal/assembly/desktop"
+	desktop "github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -267,7 +267,7 @@ func openTerminalWindow(t *testing.T, ctx context.Context, owner *node.Node, pro
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), desktop.Harness())
+	runtime, err := NewWithAssembly(ctx, controller, preferences.Open(filepath.Join(profile, "desktop", "preferences.json")), desktop.Full())
 	if err != nil {
 		_ = controller.Close()
 		t.Fatal(err)
