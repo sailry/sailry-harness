@@ -30,7 +30,7 @@ demo:
 
 # Run Harness Desktop with its default data, separate dev data for "dev", or a named test profile.
 desktop name="": native
-    SAILRY_PPROF=127.0.0.1:6061 SAILRY_HELPERS_DIR={{ quote(native / "helpers") }} go run ./cmd/sailry-desktop {{ if name == "" { "" } else if name == "dev" { "--data-dir " + quote(home_directory() / ".sailry-harness-dev") } else if name =~ '^[A-Za-z0-9_-][A-Za-z0-9_.-]*$' { "--data-dir " + quote(profiles / name) } else { error("Expected a single profile name") } }}
+    SAILRY_PPROF="${SAILRY_PPROF-127.0.0.1:6061}" SAILRY_HELPERS_DIR={{ quote(native / "helpers") }} go run ./cmd/sailry-desktop {{ if name == "" { "" } else if name == "dev" { "--data-dir " + quote(home_directory() / ".sailry-harness-dev") } else if name =~ '^[A-Za-z0-9_-][A-Za-z0-9_.-]*$' { "--data-dir " + quote(profiles / name) } else { error("Expected a single profile name") } }}
 
 # Build and run Host against the fixed profile .runtime/profiles/<name>; extra arguments are Host options such as --internet.
 host name="host" *options: native
