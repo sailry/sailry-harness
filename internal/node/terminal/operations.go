@@ -47,6 +47,7 @@ func (service *Service) Claim(caller protocol.NodeID, id protocol.TerminalID, ex
 	value.info.Owner = &caller
 	value.info.Revision++
 	info := value.info
+	value.wakeStreamsLocked()
 	value.mu.Unlock()
 	value.publish()
 	return info, nil
@@ -105,6 +106,7 @@ func (service *Service) Input(caller protocol.NodeID, input protocol.CommandInpu
 	if input.Clear {
 		value.terminal.ClearScreen()
 	}
+	value.wakeStreamsLocked()
 	return value.info, nil
 }
 
@@ -123,6 +125,7 @@ func (service *Service) Resize(caller protocol.NodeID, input protocol.CommandRes
 	}
 	value.terminal.ResizePixels(int(input.Viewport.Columns), int(input.Viewport.Rows), cellPixels(input.Viewport.PixelWidth, input.Viewport.Columns), cellPixels(input.Viewport.PixelHeight, input.Viewport.Rows))
 	value.viewport = input.Viewport
+	value.wakeStreamsLocked()
 	return value.info, nil
 }
 
@@ -137,6 +140,7 @@ func (service *Service) Appearance(caller protocol.NodeID, input protocol.Comman
 		return protocol.TerminalInfo{}, err
 	}
 	value.terminal.UseTheme(terminalTheme(input.Appearance))
+	value.wakeStreamsLocked()
 	return value.info, nil
 }
 

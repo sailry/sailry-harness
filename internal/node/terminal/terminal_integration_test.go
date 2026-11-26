@@ -30,7 +30,8 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 		text, _ := reader.ReadString('\n')
 		fmt.Printf("received %s\r\n", strings.TrimSpace(text))
 		_, _ = reader.ReadString('\n')
-		fmt.Print("final output\r\n")
+		// Exit mid-draw, before the program can release synchronized output.
+		fmt.Print("\x1b[?2026hfinal output\r\n")
 		os.Exit(0)
 	}
 	for _, encoded := range []bool{false, true} {

@@ -62,6 +62,7 @@ type handle struct {
 	mu       sync.Mutex
 	changes  sync.Mutex
 	terminal *myterminal.Terminal
+	hasConn  bool
 	starting bool
 	streams  map[*subscription]struct{}
 	finished chan struct{}
@@ -214,11 +215,15 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		ShellIntegration: launch.Tool == nil && len(launch.Settings.ShellArguments) == 0,
 	}
 	if launch.Connection != nil {
+		value.hasConn = true
 		value.info.Worktree, value.info.Access, value.info.Directory, value.info.Ssh = nil, nil, nil, launch.SSH
 		options = myterminal.Options{Conn: launch.Connection}
 		// Only a connection's output passes through this package; the
 		// plugin reads a local program's itself and reports no activity.
-		launch.Connection.observe = value.track
+		launch.Connection.observe = func(output []byte) {
+			value.wakeStreams()
+			value.track(output)
+		}
 	}
 	options.Theme = terminalTheme(launch.Appearance)
 	options.ClipboardRead = myterminal.ClipboardForward
@@ -229,6 +234,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 			return
 		}
 		value.info.Title = &title
+		value.wakeStreamsLocked()
 		value.mu.Unlock()
 		value.publish()
 	}
@@ -271,6 +277,9 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	go func() {
 		defer service.work.Done()
 		<-terminal.Done()
+		// The output source has ended, so it cannot release a synchronized
+		// draw itself. Let attached mirrors capture its last screen.
+		terminal.Feed([]byte("\x1b[?2026l"))
 		status := protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: uint32(terminal.ExitCode())}}
 		switch {
 		case launch.Connection != nil:
