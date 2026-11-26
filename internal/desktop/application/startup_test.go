@@ -73,6 +73,9 @@ func TestDesktopMigrationRunsBeforeProfileCreation(t *testing.T) {
 	if !errors.As(err, &busy) {
 		t.Fatalf("explicit startup did not use its own profile: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(owner.Path, "logs", "desktop", "interface-crash.raw")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("busy startup opened the profile's crash output: %v", err)
+	}
 }
 
 func TestDesktopStartupLogUnavailable(t *testing.T) {

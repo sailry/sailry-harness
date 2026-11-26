@@ -88,11 +88,16 @@ func Run(args []string, config Options) error {
 	if err != nil {
 		return reportStartFailure(name, err)
 	}
-	defer func() {
-		if err := backend.Close(); err != nil {
-			log.Printf("Node shutdown: %v", err)
-		}
-	}()
+	// Keep the runtime's crash output installed if the interface panics.
+	err = runInterface(ctx, cancel, config, options, name, backend)
+	if closeErr := backend.Close(); closeErr != nil {
+		log.Printf("Node shutdown: %v", closeErr)
+	}
+	return err
+}
+
+func runInterface(ctx context.Context, cancel context.CancelFunc, config Options, options startupOptions, name string, backend *desktopBackend) error {
+	product := config.Identity
 	mygo.App.SetLanguages(i18n.Languages...)
 	crychic.Setup()
 	if backend.Node != nil {

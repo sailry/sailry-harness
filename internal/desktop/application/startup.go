@@ -136,8 +136,6 @@ func openBackend(ctx context.Context, options startupOptions, product identity.D
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
 	if backend.logs, err = logging.Install(path, "desktop"); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "sailry-desktop: continuing without a diagnostic log:", err)
-	} else {
-		backend.reports = catchCrashes()
 	}
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		MCP:             &mcp.Options{Warm: true},
@@ -153,7 +151,11 @@ func openBackend(ctx context.Context, options startupOptions, product identity.D
 		backend.closeLogs()
 		return nil, err
 	}
-	backend.reports.start(backend.Node.Telemetry())
+	// Only the profile owner may consume or truncate its previous crash trace.
+	if backend.logs != nil {
+		backend.reports = catchCrashes()
+		backend.reports.start(backend.Node.Telemetry())
+	}
 	backend.Client = client.New(link.NewLocal(backend.Node.ID(), backend.Node.ID(), backend.Node))
 	if err = backend.Client.Start(ctx); err != nil {
 		return nil, errors.Join(err, backend.Close())

@@ -3,6 +3,7 @@ package application
 import (
 	"log"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -21,6 +22,7 @@ const firstFrameGrace = 30 * time.Second
 type interfaceReports struct {
 	directory string
 	crash     *telemetry.Crash
+	capturing bool
 	watchdog  *telemetry.Watchdog
 	visible   map[*mygo.Window]bool
 }
@@ -38,6 +40,8 @@ func catchCrashes() *interfaceReports {
 	var err error
 	if reports.crash, err = telemetry.CatchCrashes(reports.directory); err != nil {
 		log.Printf("crash traces: %v", err)
+	} else {
+		reports.capturing = true
 	}
 	return reports
 }
@@ -133,7 +137,13 @@ func (reports *interfaceReports) apply() {
 }
 
 func (reports *interfaceReports) close() {
-	if reports != nil && reports.watchdog != nil {
+	if reports == nil {
+		return
+	}
+	if reports.watchdog != nil {
 		reports.watchdog.Close()
+	}
+	if reports.capturing {
+		_ = debug.SetCrashOutput(nil, debug.CrashOptions{})
 	}
 }
