@@ -8,6 +8,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -98,15 +99,15 @@ func (manager *Manager) DiscoverRepositorySkills(ctx context.Context, source pro
 		source.Repository = "https://github.com/" + parts[0] + "/" + parts[1]
 		selectedSkill = parts[2]
 	}
-	return discoverRepositorySkills(ctx, source, selectedSkill)
+	return manager.discoverRepositorySkills(ctx, source, selectedSkill)
 }
 
-func discoverRepositorySkills(ctx context.Context, source protocol.PluginSkillsSource, selectedSkill string) (protocol.PluginSkillsDiscovery, error) {
+func (manager *Manager) discoverRepositorySkills(ctx context.Context, source protocol.PluginSkillsSource, selectedSkill string) (protocol.PluginSkillsDiscovery, error) {
 	selected, err := ParseRepositorySource(source)
 	if err != nil {
 		return protocol.PluginSkillsDiscovery{}, err
 	}
-	resolved, entries, issues, err := acquireRepository(ctx, selected, "", repositoryCaptureOptions{maximum: 10000})
+	resolved, entries, issues, err := manager.captureRepositorySkill(ctx, selected, "", repositoryCaptureOptions{maximum: 10000})
 	if err != nil {
 		return protocol.PluginSkillsDiscovery{}, err
 	}
@@ -170,7 +171,7 @@ func (manager *Manager) InstallRepositorySkill(ctx context.Context, source proto
 	if err != nil || selected.Repository != source.Repository {
 		return protocol.PluginInfo{}, packageFault("invalid immutable skill repository source")
 	}
-	entries, err := repositorySkillPackage(ctx, selected, source, name)
+	entries, err := manager.repositorySkillPackage(ctx, selected, source, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -184,13 +185,85 @@ func (manager *Manager) InstallRepositorySkill(ctx context.Context, source proto
 	return info, err
 }
 
-func repositorySkillPackage(ctx context.Context, selected RepositorySelection, source protocol.PluginSkillsResolved, name string) ([]packageEntry, error) {
+func (manager *Manager) repositorySkillPackage(ctx context.Context, selected RepositorySelection, source protocol.PluginSkillsResolved, name string) ([]packageEntry, error) {
 	var licenses []packageEntry
-	_, captured, issues, err := acquireRepository(ctx, selected, source.Commit, repositoryCaptureOptions{maximum: 10000, licenses: &licenses})
+	_, captured, issues, err := manager.captureRepositorySkill(ctx, selected, source.Commit, repositoryCaptureOptions{maximum: 10000, licenses: &licenses})
 	if err != nil {
 		return nil, err
 	}
 	return normalizeRepositorySkill(captured, issues, licenses, source, name)
+}
+
+func (manager *Manager) officialSkillPackage(selected RepositorySelection) string {
+	if selected.Repository != manager.officialRepositoryURL() {
+		return ""
+	}
+	parts := strings.Split(selected.Path, "/")
+	if len(parts) != 3 || parts[1] != "skills" || !ValidateName(parts[0]) || !skillName(parts[2]) {
+		return ""
+	}
+	return parts[0]
+}
+
+// The v1 Git selection has no product or package metadata. Recover the release
+// from the canonical repository, skill path, and immutable commit even when the
+// controller replays a previously captured selection without discovery.
+func (manager *Manager) captureRepositorySkill(ctx context.Context, selected RepositorySelection, commit string, options repositoryCaptureOptions) (protocol.PluginSkillsResolved, []packageEntry, []protocol.PluginIssue, error) {
+	name := manager.officialSkillPackage(selected)
+	if name == "" {
+		return acquireRepository(ctx, selected, commit, options)
+	}
+	if slices.Contains(RetiredBundled(), name) {
+		return protocol.PluginSkillsResolved{}, nil, nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "official skill has been retired"}
+	}
+	catalogContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+	feed, err := manager.readOfficialCatalog(catalogContext)
+	cancel()
+	if err != nil {
+		return protocol.PluginSkillsResolved{}, nil, nil, err
+	}
+	runtime := RuntimeFromContext(ctx)
+	entry, err := manager.officialSkillPackageEntry(feed, name, runtime)
+	if err != nil {
+		return protocol.PluginSkillsResolved{}, nil, nil, err
+	}
+	var release *protocol.PluginCatalogVersion
+	requested := commit
+	if requested == "" {
+		requested = selected.GitRef
+	}
+	if commit == "" && (requested == "HEAD" || requested == "main") {
+		release, err = currentSkillRelease(entry, runtime)
+	} else if len(entry.Versions) == 0 && requested == feed.Commit {
+		release, err = currentSkillRelease(entry, runtime)
+	} else if index := slices.IndexFunc(entry.Versions, func(version protocol.PluginCatalogVersion) bool { return version.Commit == requested }); index >= 0 {
+		release, err = officialVersion(entry, &entry.Versions[index].Version, runtime)
+		if err == nil && release.Commit != requested {
+			err = officialSelectionChanged()
+		}
+	} else {
+		err = officialSelectionChanged()
+	}
+	if err != nil {
+		return protocol.PluginSkillsResolved{}, nil, nil, err
+	}
+	commit = feed.Commit
+	if release != nil {
+		commit = release.Commit
+	}
+	selected.GitRef = commit
+	options.manifestPath = name + "/plugin.json"
+	options.checkManifest = func(data []byte) error {
+		manifest, err := ValidateManifest(data)
+		if err != nil {
+			return err
+		}
+		if manifest.Name != name || release != nil && (manifest.Version == nil || *manifest.Version != release.Version) {
+			return packageFault("official skill manifest differs from its catalog release")
+		}
+		return EnsureCompatible(requirementsCompatibility(manifest.Requirements, runtime))
+	}
+	return acquireRepository(ctx, selected, commit, options)
 }
 
 func normalizeRepositorySkill(captured []packageEntry, issues []protocol.PluginIssue, licenses []packageEntry, source protocol.PluginSkillsResolved, name string) ([]packageEntry, error) {
@@ -232,7 +305,7 @@ func (manager *Manager) inspectRepositorySkill(ctx context.Context, source proto
 		return protocol.PluginInfo{}, packageFault("skill identity does not match its source")
 	}
 	var licenses []packageEntry
-	resolved, captured, issues, err := acquireRepository(ctx, selected, "", repositoryCaptureOptions{maximum: 10000, licenses: &licenses})
+	resolved, captured, issues, err := manager.captureRepositorySkill(ctx, selected, "", repositoryCaptureOptions{maximum: 10000, licenses: &licenses})
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}

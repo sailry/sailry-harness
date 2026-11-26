@@ -72,6 +72,12 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 		}
 		source := protocol.PluginSkillsSource{Repository: origin.Source.Repository, GitRef: &origin.Source.GitRef, Path: &origin.Path}
 		if current.Skill != nil {
+			// An official skill selected at an immutable revision does not
+			// follow a branch. Preserve existing captures even if that old
+			// revision is no longer offered for a new installation.
+			if commitHash(origin.Source.GitRef) && manager.officialSkillPackage(RepositorySelection{Repository: origin.Source.Repository, Path: origin.Path}) != "" {
+				return report, nil
+			}
 			candidate, err = manager.inspectRepositorySkill(ctx, source, current.Summary.Name)
 		} else {
 			selection, inspectErr := manager.InspectRepository(ctx, source)

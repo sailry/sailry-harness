@@ -388,6 +388,15 @@ func (manager *Manager) ReadSkillDocument(ctx context.Context, source protocol.P
 		if !ValidateName(input.Package) || !skillName(input.Skill) {
 			return protocol.PluginSkillsDocument{}, packageFault("invalid bundled skill identity")
 		}
+		entries, catalogErr := bundledEntries(ctx, manager.bundled)
+		if catalogErr != nil {
+			return protocol.PluginSkillsDocument{}, catalogErr
+		}
+		if index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == input.Package }); index >= 0 {
+			if _, err := currentSkillRelease(entries[index], RuntimeFromContext(ctx)); err != nil {
+				return protocol.PluginSkillsDocument{}, err
+			}
+		}
 		data, err = fs.ReadFile(manager.bundledFiles(), "plugins/"+input.Package+"/skills/"+input.Skill+"/SKILL.md")
 	case "installed":
 		var input protocol.PluginSkillsDocumentSourceInstalledPayload
@@ -407,7 +416,7 @@ func (manager *Manager) ReadSkillDocument(ctx context.Context, source protocol.P
 		if parseErr != nil || selected.Repository != input.Source.Repository || !commitHash(input.Source.Commit) {
 			return protocol.PluginSkillsDocument{}, packageFault("invalid captured skill source")
 		}
-		_, entries, issues, readErr := acquireRepository(ctx, selected, input.Source.Commit)
+		_, entries, issues, readErr := manager.captureRepositorySkill(ctx, selected, input.Source.Commit, repositoryCaptureOptions{maximum: MaxPackageEntries})
 		if readErr != nil {
 			return protocol.PluginSkillsDocument{}, readErr
 		}

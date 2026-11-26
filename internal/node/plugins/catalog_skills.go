@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,12 +27,12 @@ type cachedSkillCatalog struct {
 	used uint64
 }
 
-func officialSkillEntry(packageName string, skill protocol.PluginSkill, bundled bool, commit string) protocol.PluginSkillcatalogEntry {
+func officialSkillEntry(packageName string, skill protocol.PluginSkill, bundled bool, repository, commit string) protocol.PluginSkillcatalogEntry {
 	entry := protocol.DefaultPluginSkillcatalogEntry()
 	entry.ID, entry.Package, entry.Name = packageName+"/"+skill.Name, &packageName, skill.Name
 	entry.DisplayName, entry.DisplayLocales, entry.Description, entry.Origin, entry.Bundled = skill.DisplayName, skill.DisplayLocales, &skill.Description, "sailry/sailry-plugins", bundled
 	directory := packageName + "/skills/" + skill.Name
-	source := protocol.PluginSkillsSource{Repository: OfficialRepository, GitRef: &commit, Path: &directory}
+	source := protocol.PluginSkillsSource{Repository: repository, GitRef: &commit, Path: &directory}
 	entry.Source = &protocol.PluginSkillcatalogInstallSource{Kind: "git", Data: source}
 	return entry
 }
@@ -50,6 +51,9 @@ func bundledSkillEntries(ctx context.Context, files fs.FS) ([]protocol.PluginSki
 	}
 	entries := []protocol.PluginSkillcatalogEntry{}
 	for _, item := range packages {
+		if _, err := currentSkillRelease(item, RuntimeFromContext(ctx)); err != nil {
+			continue
+		}
 		captured, issues, err := captureBundled(ctx, files, item.ID)
 		if err != nil {
 			return nil, err
@@ -68,8 +72,103 @@ func bundledSkillEntries(ctx context.Context, files fs.FS) ([]protocol.PluginSki
 			return nil, packageFault("invalid bundled skill documents")
 		}
 		for _, skill := range skills {
-			entries = append(entries, officialSkillEntry(item.ID, skill, true, "main"))
+			entries = append(entries, officialSkillEntry(item.ID, skill, true, OfficialRepository, "main"))
 		}
+	}
+	return entries, nil
+}
+
+// The v1 skill index describes the current package tree, not a skill at every
+// historical release. Never pair its frontmatter with an older compatible release.
+func currentSkillRelease(entry protocol.PluginCatalogEntry, runtime Runtime) (*protocol.PluginCatalogVersion, error) {
+	if entry.Version == nil {
+		return nil, EnsureCompatible(entry.Compatibility)
+	}
+	return officialVersion(entry, entry.Version, runtime)
+}
+
+func (manager *Manager) officialSkillPackageEntry(feed officialCatalogFeed, name string, runtime Runtime) (protocol.PluginCatalogEntry, error) {
+	var item *officialCatalogPackage
+	for index := range feed.Packages {
+		if feed.Packages[index].ID != name {
+			continue
+		}
+		if item != nil {
+			return protocol.PluginCatalogEntry{}, packageFault("duplicate official skill package")
+		}
+		item = &feed.Packages[index]
+	}
+	if item == nil {
+		// Some legacy skill feeds have no package index. Their pinned tree
+		// is still checked against the captured parent manifest at use time.
+		if feed.Packages == nil {
+			entry := protocol.DefaultPluginCatalogEntry()
+			entry.Commit, entry.Compatibility = &feed.Commit, protocol.PluginCompatibility{Kind: "compatible"}
+			return entry, nil
+		}
+		return protocol.PluginCatalogEntry{}, packageFault("official skill package is missing from the catalog")
+	}
+	manifest, err := ValidateManifest(item.Manifest)
+	if err != nil || manifest.Name != name {
+		return protocol.PluginCatalogEntry{}, packageFault("invalid official skill package manifest")
+	}
+	if manifest.Version == nil && (len(item.Versions) != 0 || item.VersionRequirements != nil) {
+		return protocol.PluginCatalogEntry{}, packageFault("official skill package has no current release")
+	}
+	if manifest.Version != nil && !slices.ContainsFunc(item.Versions, func(version protocol.PluginCatalogVersion) bool { return version.Version == *manifest.Version }) &&
+		(len(item.Versions) != 0 || item.VersionRequirements != nil || manifest.Requirements != nil && (manifest.Requirements.Products != nil || manifest.Requirements.RequiresModules != nil)) {
+		return protocol.PluginCatalogEntry{}, packageFault("official skill package has no current release")
+	}
+	return manager.projectOfficialRelease(*item, manifest, feed.Commit, runtime)
+}
+
+func (manager *Manager) officialSkillEntries(ctx context.Context) ([]protocol.PluginSkillcatalogEntry, error) {
+	feed, err := manager.readOfficialCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var skills []struct {
+		Package     string `json:"package"`
+		Path        string `json:"path"`
+		Frontmatter string `json:"frontmatter"`
+	}
+	if feed.Skills != nil && json.Unmarshal(feed.Skills, &skills) != nil || len(skills) > 4096 {
+		return nil, packageFault("invalid official skill catalog")
+	}
+	entries := make([]protocol.PluginSkillcatalogEntry, 0, len(skills))
+	retired, runtime := RetiredBundled(), RuntimeFromContext(ctx)
+	commits := map[string]string{}
+	for _, item := range skills {
+		if slices.Contains(retired, item.Package) {
+			continue
+		}
+		skillName := strings.TrimSuffix(strings.TrimPrefix(item.Path, "skills/"), "/SKILL.md")
+		if !ValidateName(item.Package) || item.Path != "skills/"+skillName+"/SKILL.md" || strings.Contains(skillName, "/") {
+			return nil, packageFault("invalid official skill catalog identity")
+		}
+		commit, checked := commits[item.Package]
+		if !checked {
+			entry, err := manager.officialSkillPackageEntry(feed, item.Package, runtime)
+			if err != nil {
+				return nil, err
+			}
+			if release, err := currentSkillRelease(entry, runtime); err == nil {
+				commit = feed.Commit
+				if release != nil {
+					commit = release.Commit
+				}
+			}
+			commits[item.Package] = commit
+		}
+		if commit == "" {
+			continue
+		}
+		skill, err := ParseSkill([]byte(item.Frontmatter), skillName)
+		if err != nil {
+			return nil, err
+		}
+		skill.Path = item.Path
+		entries = append(entries, officialSkillEntry(item.Package, skill, false, manager.officialRepositoryURL(), commit))
 	}
 	return entries, nil
 }
@@ -82,6 +181,13 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 	}
 	query = strings.TrimSpace(query)
 	key := fmt.Sprintf("%s\x00%s\x00%d", source, query, page)
+	if source == protocol.PluginSkillcatalogSourceOfficial {
+		runtime := RuntimeFromContext(ctx)
+		if runtime.ProductID != "" || len(runtime.Modules) != 0 {
+			slices.Sort(runtime.Modules)
+			key += "\x00" + runtime.ProductID + "\x00" + strings.Join(runtime.Modules, "\x00")
+		}
+	}
 	manager.repositoryMu.Lock()
 	cached, exists := manager.skillPages[key]
 	if exists {
@@ -101,41 +207,9 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 	var err error
 	switch source {
 	case protocol.PluginSkillcatalogSourceOfficial:
-		var feed struct {
-			Version uint32 `json:"version"`
-			Commit  string `json:"source_commit"`
-			Skills  []struct {
-				Package     string `json:"package"`
-				Path        string `json:"path"`
-				Frontmatter string `json:"frontmatter"`
-			} `json:"skills"`
-		}
-		endpoint := manager.OfficialURL
-		if endpoint == "" {
-			endpoint = OfficialCatalogURL
-		}
-		err = readJSON(endpoint, &feed)
-		if err == nil {
-			if feed.Version != 1 || !commitHash(feed.Commit) || len(feed.Skills) > 4096 {
-				return result, packageFault("invalid official skill catalog")
-			}
-			retired := RetiredBundled()
-			for _, item := range feed.Skills {
-				if slices.Contains(retired, item.Package) {
-					continue
-				}
-				skillName := strings.TrimSuffix(strings.TrimPrefix(item.Path, "skills/"), "/SKILL.md")
-				if !ValidateName(item.Package) || item.Path != "skills/"+skillName+"/SKILL.md" || strings.Contains(skillName, "/") {
-					return result, packageFault("invalid official skill catalog identity")
-				}
-				skill, parseErr := ParseSkill([]byte(item.Frontmatter), skillName)
-				if parseErr != nil {
-					return result, parseErr
-				}
-				skill.Path = item.Path
-				result.Entries = append(result.Entries, officialSkillEntry(item.Package, skill, false, feed.Commit))
-			}
-		}
+		request, cancel := context.WithTimeout(ctx, 30*time.Second)
+		result.Entries, err = manager.officialSkillEntries(request)
+		cancel()
 		if err != nil {
 			var fault *protocol.Fault
 			if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable && fault.Code != protocol.ErrorCodeNotFound {

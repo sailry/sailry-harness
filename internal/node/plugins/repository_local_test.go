@@ -76,12 +76,14 @@ func TestSelectedRepositorySkillIgnoresMalformedSibling(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := protocol.PluginSkillsSource{Repository: source}
-	discovery, err := discoverRepositorySkills(t.Context(), input, "office-mcp")
+	manager := NewManager(t.TempDir())
+	t.Cleanup(manager.Close)
+	discovery, err := manager.discoverRepositorySkills(t.Context(), input, "office-mcp")
 	if err != nil || discovery.Source.Commit != commit.String() || len(discovery.Skills) != 1 || discovery.Skills[0].Path != "office-mcp" || discovery.Skills[0].Skill.Name != "office-mcp" {
 		t.Fatalf("selected skill = %+v, %v", discovery, err)
 	}
 	for _, slug := range []string{"broken", ""} {
-		_, err := discoverRepositorySkills(t.Context(), input, slug)
+		_, err := manager.discoverRepositorySkills(t.Context(), input, slug)
 		var fault *protocol.Fault
 		if !errors.As(err, &fault) || fault.Message != "skill name does not match its directory" {
 			t.Errorf("discovery for %q = %v, want skill validation fault", slug, err)

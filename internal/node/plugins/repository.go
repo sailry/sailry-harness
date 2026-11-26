@@ -164,9 +164,11 @@ func (writer *transferWriter) Write(data []byte) (int, error) {
 }
 
 type repositoryCaptureOptions struct {
-	maximum  int
-	licenses *[]packageEntry
-	transfer int64 // pack bytes allowed; zero selects maxRepositoryTransferBytes
+	maximum       int
+	licenses      *[]packageEntry
+	transfer      int64 // pack bytes allowed; zero selects maxRepositoryTransferBytes
+	manifestPath  string
+	checkManifest func([]byte) error
 }
 
 func acquireRepository(ctx context.Context, selected RepositorySelection, expectedCommit string, options ...repositoryCaptureOptions) (protocol.PluginSkillsResolved, []packageEntry, []protocol.PluginIssue, error) {
@@ -248,6 +250,11 @@ func acquireRepository(ctx context.Context, selected RepositorySelection, expect
 		return resolved, nil, nil, err
 	}
 	repositoryTree := tree
+	if rules.checkManifest != nil {
+		if err := checkRepositoryManifest(repositoryTree, rules.manifestPath, rules.checkManifest); err != nil {
+			return resolved, nil, nil, err
+		}
+	}
 	if selected.Path != "" {
 		tree, err = tree.Tree(selected.Path)
 		if err != nil {
@@ -342,6 +349,26 @@ func acquireRepository(ctx context.Context, selected RepositorySelection, expect
 		return slices.Compare(strings.Split(left.name, "/"), strings.Split(right.name, "/"))
 	})
 	return resolved, values, issues, err
+}
+
+func checkRepositoryManifest(tree *object.Tree, name string, check func([]byte) error) error {
+	file, err := tree.File(name)
+	if err != nil || file.Mode != filemode.Regular && file.Mode != filemode.Executable && file.Mode != filemode.Deprecated {
+		return packageFault("official skill parent manifest is unavailable")
+	}
+	if file.Size > MaxManifestBytes {
+		return packageFault("plugin manifest exceeds its size limit")
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, MaxManifestBytes+1))
+	if err != nil {
+		return err
+	}
+	return check(data)
 }
 
 func (manager *Manager) InspectRepository(ctx context.Context, source protocol.PluginSkillsSource) (protocol.PluginCatalogSelection, error) {
