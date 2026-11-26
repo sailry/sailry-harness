@@ -40,13 +40,17 @@ func SupportsRead(kind string) bool {
 }
 
 // Document inspects the bytes of a document or image file. The Node supplies
-// it to read text with OCR or render PDF pages on request.
+// it so that images and scanned pages are read with its OCR model or rendered
+// to compact page images on demand.
 type Document func(ctx context.Context, name string, data []byte, options protocol.OfficeRead) (protocol.OfficeInspection, error)
 
 func Inspect(ctx context.Context, root string, command protocol.Command, access core.FileAccess, document Document) (protocol.Output, error) {
 	timeout := 5 * time.Second
-	if command.Kind == "find_files" || command.Kind == "search_files" {
+	switch command.Kind {
+	case "find_files", "search_files":
 		timeout = 20 * time.Second
+	case "read_office":
+		timeout = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

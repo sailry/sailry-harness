@@ -13,12 +13,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/files"
+	"github.com/sailry/sailry-harness/internal/office"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
 
-const attachmentPrefix = "sailry-attachment://"
-const attachmentReadNote = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"
+const (
+	attachmentPrefix       = "sailry-attachment://"
+	inlineAttachmentBudget = 64 << 20
+	inlinePDFMaxBytes      = 5 << 20
+	attachmentReadNote     = "Contents not included; use read_office for Office documents and spreadsheets with source {\"kind\":\"attachment\",\"value\":\"<id>\"}; use an attachment-capable tool for other files"
+)
 
 type attachmentMaterial struct {
 	attachment    protocol.Attachment
@@ -39,12 +44,20 @@ type attachmentMaterial struct {
 func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) ([]canonical.Record, map[string][]byte, error) {
 	request := slices.Clone(records)
 	assets := map[string][]byte{}
-	remaining := uint64(64 << 20)
+	remaining := uint64(inlineAttachmentBudget)
 	binding := model.Binding{Provider: *x.inv.Provider, Config: x.inv.Turn.Config}
 	vision := model.ReadsImages(binding)
+	modelTools := capturedModel(binding).Tools
 	inspect := findTool(x.tools, "inspect_image")
 	canInspect := inspect != nil && inspect.Binding != nil && inspect.Binding.Owner.Name == "" &&
-		inspect.Binding.Operation != nil && *inspect.Binding.Operation == protocol.ToolOperationInspectMedia && capturedModel(binding).Tools
+		inspect.Binding.Operation != nil && *inspect.Binding.Operation == protocol.ToolOperationInspectMedia && modelTools
+	var pdfTool *Tool
+	if modelTools {
+		pdfTool = findTool(x.tools, "read_pdf")
+		if pdfTool == nil {
+			pdfTool = findTool(x.tools, "read_office")
+		}
+	}
 	if x.attachments == nil {
 		x.attachments = map[protocol.AttachmentID]*attachmentMaterial{}
 	}
@@ -114,12 +127,15 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 				mime = entry.mime
 			}
 			image := strings.HasPrefix(mime, "image/")
-			mayInclude := !entry.referenceOnly
+			pdf := mime == "application/pdf"
+			pdfToolCanRead := pdfTool != nil && attachment.Spec.Size <= office.Limit
+			preferPDFTool := pdf && pdfToolCanRead && attachment.Spec.Size > inlinePDFMaxBytes
+			mayInclude := !entry.referenceOnly && !preferPDFTool
 			if mayInclude && entry.mime != "" {
 				switch {
 				case image:
 					mayInclude = vision
-				case mime == "application/pdf" || attachmentAudioVideo(mime):
+				case pdf || attachmentAudioVideo(mime):
 					mayInclude = model.AttachmentFileMIME(binding, mime) != ""
 				}
 			}
@@ -145,6 +161,9 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 				}
 				mime = entry.mime
 				image = strings.HasPrefix(mime, "image/")
+				pdf = mime == "application/pdf"
+				pdfToolCanRead = pdfToolCanRead && len(entry.data) <= office.Limit
+				preferPDFTool = pdf && pdfToolCanRead && len(entry.data) > inlinePDFMaxBytes
 				switch {
 				case image && vision:
 					if !entry.prepared {
@@ -167,7 +186,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					assets[key] = entry.data
 					content = append(content, canonical.Block{Index: uint64(len(content)), Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Digest: key, Mime: mime, Size: uint64(len(entry.data))}}})
 					included = true
-				case mime == "application/pdf" || attachmentAudioVideo(mime):
+				case pdf && !preferPDFTool || attachmentAudioVideo(mime):
 					if media := model.AttachmentFileMIME(binding, mime); media != "" {
 						content = append(content, canonical.Block{Index: uint64(len(content)), Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: base64.StdEncoding.EncodeToString(entry.data), Mime: &media}}})
 						included = true
@@ -177,24 +196,39 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					included = true
 				}
 				if included {
-					if image {
-						remaining -= uint64(len(entry.data))
-					} else {
-						remaining -= attachment.Spec.Size
-					}
+					remaining -= uint64(len(entry.data))
 					referenced[id] = true
 				} else {
 					entry.data, entry.loaded, entry.prepared = nil, false, false
 					// A model change can make detected media eligible again.
-					entry.referenceOnly = entry.referenceOnly || !image && mime != "application/pdf" && !attachmentAudioVideo(mime)
+					entry.referenceOnly = entry.referenceOnly || !image && !pdf && !attachmentAudioVideo(mime)
 				}
 			}
 			descriptor, _ := json.Marshal(map[string]any{"id": id, "name": attachment.Spec.Name, "media_type": attachment.Spec.MediaType, "size": attachment.Spec.Size})
 			note := "Attachment reference: " + string(descriptor)
 			if !included {
 				switch {
-				case !image && (mime == "application/pdf" || declared == "application/pdf"):
-					note += "\nThe PDF is not included directly. Use read_office with source {\"kind\":\"attachment\",\"value\":\"" + id.String() + "\"}."
+				case !image && (pdf || declared == "application/pdf"):
+					note += "\nThe PDF is not included directly"
+					switch {
+					case pdfTool == nil:
+						note += "; no document tool is available to the conversation model."
+					case !pdfToolCanRead:
+						note += "; it exceeds the document tools' attachment size limit."
+					default:
+						if preferPDFTool {
+							note += " because it exceeds the 5 MiB inline limit"
+						}
+						toolName := pdfTool.Definition.Name
+						note += `. Use ` + toolName + ` with source {"kind":"attachment","value":"` + id.String() + `"}`
+						if preferPDFTool && toolName == "read_pdf" {
+							note += ` (default mode "text" for fast text extraction, or mode "images" with optional 1-based pages, up to 4 per call, for charts, diagrams, or scanned pages)`
+						}
+						note += "."
+						if pdfTool.Deferred {
+							note += ` If needed, load it with tool_search and query "select:` + toolName + `".`
+						}
+					}
 				case !image && (attachmentAudioVideo(mime) || attachmentAudioVideo(declared)):
 					note += "\nThe conversation model cannot directly read this attachment in this request; only its reference is included."
 				case !image:
