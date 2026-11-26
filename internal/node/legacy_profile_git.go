@@ -221,7 +221,18 @@ func visitLegacyProfileRegistration(root *os.Root, relative, legacy, expectedAdm
 		return "", err
 	}
 	shared = filepath.FromSlash(shared)
-	if shared != filepath.Join("..", "..") && shared != common {
+	if !filepath.IsAbs(shared) {
+		shared = admin + string(filepath.Separator) + shared
+	}
+	owner, err := os.Stat(common)
+	if err != nil {
+		return "", err
+	}
+	actual, err := os.Stat(shared)
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(owner, actual) {
 		return "", fmt.Errorf("Git worktree registration %q belongs to a different common directory", admin)
 	}
 	backlink, info, err := readLegacyGitLine(directory, "gitdir")

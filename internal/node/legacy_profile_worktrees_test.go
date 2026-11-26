@@ -46,6 +46,13 @@ func TestMigrateLegacyProfileLinkedGitWorktrees(t *testing.T) {
 			for _, relative := range checkouts {
 				path := filepath.Join(fixture.legacy, relative)
 				migrationGit(t, "-C", repo, "worktree", "add", "-b", filepath.Base(path), path)
+				if filepath.Base(path) == "managed" {
+					// Older Git clients stored an absolute common directory with a trailing slash.
+					common := filepath.Join(repo, ".git")
+					if err := os.WriteFile(filepath.Join(common, "worktrees", "managed", "commondir"), []byte(filepath.ToSlash(common)+"/\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
 				for _, name := range []string{"tracked", "untracked"} {
 					if err := os.WriteFile(filepath.Join(path, name), []byte("draft"), 0o600); err != nil {
 						t.Fatal(err)
