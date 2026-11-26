@@ -77,12 +77,17 @@ func (node *Node) generatePluginText(ctx context.Context, request protocol.Reque
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	cooldownKey := model.CredentialCooldownKey(binding)
+	if err := node.cooldowns.Wait(ctx, nil, cooldownKey); err != nil {
+		return protocol.Output{}, model.Fault(err)
+	}
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	timer := time.AfterFunc(120*time.Second, cancel)
 	defer timer.Stop()
 	stream, err := languageModel.Stream(operation, call)
 	if err != nil {
+		node.cooldowns.ObserveFailure(cooldownKey, model.Classify(err), time.Now())
 		return protocol.Output{}, model.Fault(err)
 	}
 	result := protocol.PluginText{Model: config.Model}
@@ -104,6 +109,7 @@ func (node *Node) generatePluginText(ctx context.Context, request protocol.Reque
 		case fantasy.StreamPartTypeToolCall, fantasy.StreamPartTypeToolInputStart, fantasy.StreamPartTypeToolInputDelta, fantasy.StreamPartTypeToolInputEnd:
 			nonText = true
 		case fantasy.StreamPartTypeError:
+			node.cooldowns.ObserveFailure(cooldownKey, model.Classify(part.Error), time.Now())
 			return protocol.Output{}, model.Fault(part.Error)
 		case fantasy.StreamPartTypeFinish:
 			finished = true

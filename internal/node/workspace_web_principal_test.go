@@ -6,12 +6,16 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/web"
@@ -133,5 +137,72 @@ func TestWorkspaceSearchKeepsPersonalCredentialsAndCaches(t *testing.T) {
 		if calls[key] != 1 {
 			t.Errorf("personal search cache for %s made %d requests, want 1", key, calls[key])
 		}
+	}
+}
+
+func TestNativeSearchSharesCooldownWithModelRequests(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		hits.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Retry-After", "45")
+		writer.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(writer, `{"error":{"code":"rate_limit_exceeded","message":"Rate limit reached"}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	node, err := StartWithOptions(ctx, filepath.Join(t.TempDir(), "profile"), Options{Environment: &environment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := node.Stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+
+	secret := protocol.NewSecret("sk-native-search-shared")
+	provider := protocol.ConversationProvider{
+		ID:             protocol.NewProviderID(),
+		Enabled:        true,
+		Api:            protocol.ConversationModelApiResponses,
+		Authentication: protocol.AuthenticationApiKey,
+		Endpoint:       server.URL,
+		Models:         []protocol.ConversationModel{{ID: "fixture-model"}},
+	}
+	binding := model.Binding{
+		Provider: provider,
+		Secret:   &secret,
+		Config:   protocol.SessionConfig{Model: "fixture-model"},
+	}
+	cooldownKey := model.CredentialCooldownKey(binding)
+	input := protocol.DefaultSearchRequest()
+	input.Query, input.Limit = "shared cooldown test", 2
+	req := protocol.NewRequest(node.ID(), protocol.Command{Kind: "search_web"})
+
+	// 1. A 429 from nativeSearch must populate node.cooldowns for sibling model calls.
+	if _, err := node.nativeSearch(ctx, req, binding, nil, input); err == nil {
+		t.Fatal("expected HTTP 429 failure from nativeSearch")
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("nativeSearch hits = %d, want 1", hits.Load())
+	}
+	until, active := node.cooldowns.Until(cooldownKey, time.Now())
+	if !active || time.Until(until) < 30*time.Second {
+		t.Fatalf("nativeSearch did not record shared cooldown: active=%v remaining=%s", active, time.Until(until))
+	}
+
+	// 2. While cooled down, a subsequent nativeSearch waits rather than hitting the gateway.
+	shortCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+	defer cancel()
+	if _, err := node.nativeSearch(shortCtx, req, binding, nil, input); err == nil {
+		t.Fatal("expected cooldown rejection/cancellation on short deadline")
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("nativeSearch hit gateway %d times during active shared cooldown", hits.Load())
 	}
 }

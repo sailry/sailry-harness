@@ -1,12 +1,17 @@
 package engine
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -55,5 +60,88 @@ func TestRetryWaitExhaustionPersistsWithoutExhaustingAttempts(t *testing.T) {
 	var restored canonical.Message
 	if err := json.Unmarshal(raw, &restored); err != nil || restored.Error == nil || !restored.Error.RetryWaitExhausted || restored.Error.RetryExhausted {
 		t.Fatalf("the canonical codec changed the waiting budget: %+v, %v", restored.Error, err)
+	}
+}
+
+func TestShared429CooldownAcrossConcurrentSessions(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	m := &scriptedModel{scripts: []script{
+		response(fantasy.StreamPart{
+			Type: fantasy.StreamPartTypeError,
+			Error: &fantasy.ProviderError{
+				StatusCode: 429, Message: "too many requests",
+				ResponseHeaders: map[string]string{"Retry-After": "45"},
+			},
+		}),
+		response(text("Recovered A"), finish()),
+		response(text("Completed B"), finish()),
+	}}
+	// Wrap scriptedModel to observe exact gateway call timing.
+	wrapped := &scriptedModel{scripts: []script{
+		func(ctx context.Context, call fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			hits.Add(1)
+			m.scripts[0](ctx, call, yield)
+		},
+		func(ctx context.Context, call fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			hits.Add(1)
+			m.scripts[1](ctx, call, yield)
+		},
+		func(ctx context.Context, call fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			hits.Add(1)
+			m.scripts[2](ctx, call, yield)
+		},
+	}}
+	f := newFixture(t, wrapped)
+	// Create a second session on the same Runtime sharing the same provider/credential.
+	config := f.session.Config
+	var sessionB protocol.Session
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		req := protocol.NewRequest(f.node, protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &config}})
+		out, _, err := store.ExecuteCommand(f.ctx, db, f.node, f.node, f.r.profile, req, store.PreparedPaths{})
+		if err != nil {
+			return err
+		}
+		sessionB = out.Data.(protocol.Session)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.start()
+
+	// Session A starts and hits HTTP 429 with Retry-After: 45.
+	turnA := f.submit("Request A")
+	clock := f.r.clock.(*manualClock)
+	waitA := <-clock.waits
+	if waitA.duration != 45*time.Second {
+		t.Fatalf("session A wait = %s, want 45s", waitA.duration)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("gateway hits during A's 429 = %d, want 1", hits.Load())
+	}
+
+	// While Session A is cooling down, Session B submits a turn on the same credential.
+	inputB := protocol.DefaultConversationInput()
+	inputB.Text = "Request B"
+	submittedB := f.command("submit_turn", &protocol.CommandSubmitTurnPayload{
+		Session: sessionB.ID, ExpectedRevision: sessionB.Revision, Message: inputB,
+	})
+	turnB := submittedB.Data.(protocol.QueuedTurn).ID
+	waitB := <-clock.waits
+	if waitB.duration <= 40*time.Second || waitB.duration > 45*time.Second {
+		t.Fatalf("session B cooldown wait = %s, want ~45s", waitB.duration)
+	}
+	// Session B MUST NOT have reached the gateway while A's cooldown is active!
+	if hits.Load() != 1 {
+		t.Fatalf("session B hit the gateway %d times during A's 429 cooldown", hits.Load()-1)
+	}
+
+	// Release cooldown: both A and B complete with zero extra 429 hits.
+	close(waitA.advance)
+	close(waitB.advance)
+	f.waitRun(turnA, protocol.ConversationStatusCompleted)
+	f.waitRun(turnB, protocol.ConversationStatusCompleted)
+	if hits.Load() != 3 {
+		t.Fatalf("total gateway hits = %d, want 3 (A 429, A retry 200, B 200)", hits.Load())
 	}
 }

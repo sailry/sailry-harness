@@ -12,7 +12,12 @@ import (
 
 // RuntimeCredentialsChanged wakes model steps only after their replacement
 // credentials have committed. It also recalculates controller renewal timers.
-func (node *Node) RuntimeCredentialsChanged() { node.authChanged() }
+func (node *Node) RuntimeCredentialsChanged() {
+	if node.cooldowns != nil {
+		node.cooldowns.Clear()
+	}
+	node.authChanged()
+}
 
 func (node *Node) startCredentialRenewals() {
 	node.work.Add(1)

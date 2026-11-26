@@ -402,12 +402,17 @@ func (node *Node) inspectMedia(ctx context.Context, inv *store.AgentInvocation, 
 	if err != nil {
 		return engine.ToolResult{}, err
 	}
+	cooldownKey := model.CredentialCooldownKey(binding)
+	if err := node.cooldowns.Wait(ctx, nil, cooldownKey); err != nil {
+		return visionStreamFault(err, false), nil
+	}
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	timer := time.AfterFunc(mediaInspectIdle, cancel)
 	defer timer.Stop()
 	stream, err := languageModel.Stream(operation, call)
 	if err != nil {
+		node.cooldowns.ObserveFailure(cooldownKey, model.Classify(err), time.Now())
 		return visionStreamFault(err, ctx.Err() == nil && operation.Err() != nil), nil
 	}
 	var text strings.Builder
@@ -422,6 +427,7 @@ func (node *Node) inspectMedia(ctx context.Context, inv *store.AgentInvocation, 
 		case fantasy.StreamPartTypeTextDelta:
 			text.WriteString(part.Delta)
 		case fantasy.StreamPartTypeError:
+			node.cooldowns.ObserveFailure(cooldownKey, model.Classify(part.Error), time.Now())
 			return visionStreamFault(part.Error, false), nil
 		case fantasy.StreamPartTypeFinish:
 			finished = true

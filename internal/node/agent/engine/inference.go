@@ -228,6 +228,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			// delivery until it too has settled, counting both kinds of attempt.
 			streamCtx = model.WithRequestObserver(streamCtx, func(result model.RequestObservation) { diagnostic = result })
 		}
+		streamCtx = model.WithCooldown(streamCtx, r.cooldowns, model.CredentialCooldownKey(binding))
 		err = model.Run(streamCtx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			requestAttempts++
 			if attempt.Failure != nil {
@@ -541,7 +542,10 @@ func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canon
 func (r *Runtime) observationRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
 	message := canonical.NewMessage(canonical.Assistant)
 	message.Model = &binding.Config.Model
-	message.Usage = &attempt.Usage
+	if usageReported(attempt.Usage) {
+		usage := attempt.Usage
+		message.Usage = &usage
+	}
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", message, attempt.Finished)
 	record.Provenance.Author = "assistant"
 	elapsed := uint64(max(0, attempt.Finished.Sub(attempt.Started).Microseconds()))

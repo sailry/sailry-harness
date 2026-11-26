@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,9 +82,10 @@ func (f *Failure) nativeFallback() bool {
 // failures. Keeping the cause preserves SDK error inspection without retaining
 // unrelated response headers in a Failure.
 type httpResponseFailure struct {
-	cause      error
-	status     *uint16
-	retryAfter []string
+	cause        error
+	status       *uint16
+	retryAfter   []string
+	retryAfterMs *uint64
 }
 
 func (f *httpResponseFailure) Error() string { return f.cause.Error() }
@@ -97,7 +99,7 @@ func withResponseHints(err error, status int, headers http.Header) error {
 	if errors.As(err, &retained) {
 		return err
 	}
-	failure := &httpResponseFailure{cause: err, retryAfter: retryAfterValues(headers)}
+	failure := &httpResponseFailure{cause: err, retryAfter: retryAfterValues(headers), retryAfterMs: retryAfterMsValue(headers)}
 	if status > 0 && status <= 65535 {
 		value := uint16(status)
 		failure.status = &value
@@ -120,11 +122,42 @@ func retryAfterValues(headers http.Header) []string {
 	return values
 }
 
+func retryAfterMsValue(headers http.Header) *uint64 {
+	var best *uint64
+	for name, values := range headers {
+		if !strings.EqualFold(name, "Retry-After-Ms") {
+			continue
+		}
+		for _, raw := range values {
+			value := strings.TrimSpace(raw)
+			millis, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				if errors.Is(err, strconv.ErrRange) {
+					maxVal := ^uint64(0)
+					best = &maxVal
+				}
+				continue
+			}
+			if best == nil || millis > *best {
+				v := millis
+				best = &v
+			}
+		}
+	}
+	return best
+}
+
 func (f *Failure) retainResponseHints(err error) {
 	var response *httpResponseFailure
 	if errors.As(err, &response) {
 		f.status = response.status
 		f.retryAfter = slices.Clone(response.retryAfter)
+		if response.retryAfterMs != nil {
+			v := *response.retryAfterMs
+			if f.retryAfterMs == nil || v > *f.retryAfterMs {
+				f.retryAfterMs = &v
+			}
+		}
 	}
 	if f.status != nil || len(f.retryAfter) > 0 || f.retryAfterMs != nil {
 		f.tcpDialTimeout = false
@@ -163,11 +196,12 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		status := provider.StatusCode
 		headers := http.Header{}
 		for name, value := range provider.ResponseHeaders {
-			if strings.EqualFold(name, "Retry-After") {
+			if strings.EqualFold(name, "Retry-After") || strings.EqualFold(name, "Retry-After-Ms") {
 				headers[name] = []string{value}
 			}
 		}
 		f.retryAfter = retryAfterValues(headers)
+		f.retryAfterMs = retryAfterMsValue(headers)
 		if status > 0 && status <= 65535 {
 			v := uint16(status)
 			f.status = &v

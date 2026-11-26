@@ -43,30 +43,65 @@ func contextTokens(records []canonical.Record) uint64 {
 	}
 	for i := len(records) - 1; i >= start; i-- {
 		message := records[i].MutableMessage()
-		if message != nil && message.Usage != nil {
-			if !compactionUsage(records[i]) && message.Usage.Total != nil {
-				used := *message.Usage.Total
-				if message.Usage.Input != nil && message.Usage.Output != nil && message.Usage.Reasoning != nil &&
-					!hasSignedReasoning(message) && *message.Usage.Reasoning <= *message.Usage.Output {
-					// Reasoning tokens that are not replayed back into the next request do not consume the next prompt window.
-					used = *message.Usage.Input + (*message.Usage.Output - *message.Usage.Reasoning)
-				}
-				// A reply that took several requests sums their usage; its
-				// window is what the last one occupied.
-				if execution := records[i].Metadata.Execution; execution != nil && execution.ContextTokens != nil && *execution.ContextTokens < used {
-					used = *execution.ContextTokens
-				}
-				return used + pendingTokens(records[i+1:])
-			}
-			// Only the latest observation can describe the current context. An
-			// incomplete report or summary usage cannot reuse an older total.
-			break
+		if message == nil || message.Usage == nil || !usageReported(*message.Usage) {
+			continue
 		}
+		if compactionUsage(records[i]) {
+			if records[i].Kind == "compaction" {
+				break
+			}
+			continue
+		}
+		// An interrupted, cancelled, or failed attempt (or a hidden non-visible
+		// observation) did not establish a new context baseline; keep scanning
+		// for the last completed measured step.
+		if !completedUsageRecord(records[i], message) {
+			continue
+		}
+		if message.Usage.Total != nil {
+			used := *message.Usage.Total
+			if message.Usage.Input != nil && message.Usage.Output != nil && message.Usage.Reasoning != nil &&
+				!hasSignedReasoning(message) && *message.Usage.Reasoning <= *message.Usage.Output {
+				// Reasoning tokens that are not replayed back into the next request do not consume the next prompt window.
+				used = *message.Usage.Input + (*message.Usage.Output - *message.Usage.Reasoning)
+			}
+			// A reply that took several requests sums their usage; its
+			// window is what the last one occupied.
+			if execution := records[i].Metadata.Execution; execution != nil && execution.ContextTokens != nil && *execution.ContextTokens < used {
+				used = *execution.ContextTokens
+			}
+			return used + pendingTokens(records[i+1:])
+		}
+		// Only the latest completed observation can describe the current context. An
+		// incomplete report or summary usage cannot reuse an older total.
+		break
 	}
 	// Retained messages can precede the checkpoint in storage. Their old
 	// measurements describe the pre-compaction request, but their content
 	// still belongs to the new context alongside the latest summary.
 	return pendingTokens(records)
+}
+
+func usageReported(usage canonical.Usage) bool {
+	return usage.Input != nil || usage.Output != nil || usage.Total != nil ||
+		usage.CacheRead != nil || usage.CacheWrite != nil || usage.Reasoning != nil ||
+		usage.Cost != nil || usage.Pricing != nil || len(usage.Provider) > 0
+}
+
+func completedUsageRecord(record canonical.Record, message *canonical.Message) bool {
+	if message.Finish != nil && *message.Finish != canonical.Completed {
+		return false
+	}
+	if runtime := record.Metadata.Runtime; runtime != nil && !runtime.AgentVisible {
+		return false
+	}
+	if execution := record.Metadata.Execution; execution != nil && execution.Observation != nil && len(execution.Observation.Attempts) > 0 {
+		last := execution.Observation.Attempts[len(execution.Observation.Attempts)-1]
+		if last.Outcome != "" && last.Outcome != protocol.ConversationObservationOutcomeSucceeded {
+			return false
+		}
+	}
+	return true
 }
 
 func hasSignedReasoning(message *canonical.Message) bool {
@@ -361,7 +396,7 @@ func (r *Runtime) summarize(x *execution, binding model.Binding, route model.Rou
 		if err != nil {
 			return err
 		}
-		return model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
+		return model.Run(model.WithCooldown(x.ctx, r.cooldowns, model.CredentialCooldownKey(summaryBinding)), languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
 	}
 	err = run(system)
 	const maxCompactionShrinks = 4
@@ -444,7 +479,7 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 	if err != nil {
 		return model.Compacted{}, false, err
 	}
-	compacted, err := model.CompactNative(x.ctx, languageModel, binding, call, r.clock, observe)
+	compacted, err := model.CompactNative(model.WithCooldown(x.ctx, r.cooldowns, model.CredentialCooldownKey(binding)), languageModel, binding, call, r.clock, observe)
 	switch {
 	case err == nil:
 		nativeOutcome(binding, route, "native", nil)
@@ -575,7 +610,10 @@ func servedFromCache(binding model.Binding, records []canonical.Record) bool {
 	for i := len(records) - 1; i >= 0; i-- {
 		record := records[i]
 		message := record.Message()
-		if message == nil || message.Role != canonical.Assistant || message.Usage == nil || compactionUsage(record) {
+		if message == nil || message.Role != canonical.Assistant || message.Usage == nil || !usageReported(*message.Usage) || compactionUsage(record) {
+			continue
+		}
+		if !completedUsageRecord(record, message) {
 			continue
 		}
 		execution := record.Metadata.Execution
@@ -696,7 +734,7 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 		return handoff.Summary{}, false, err
 	}
 	stream.reset()
-	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
+	err = model.Run(model.WithCooldown(x.ctx, r.cooldowns, model.CredentialCooldownKey(binding)), languageModel, call, model.SummaryPurpose, r.clock, observe, collect, nil)
 	if err != nil {
 		// A request that spent its retries would spend them again on the transcript.
 		if compactionStops(x, err) {

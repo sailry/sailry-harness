@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
@@ -12,6 +13,10 @@ import (
 )
 
 func (node *Node) nativeSearch(ctx context.Context, request protocol.Request, binding model.Binding, turn *protocol.TurnID, input protocol.SearchRequest) (protocol.SearchPage, error) {
+	cooldownKey := model.CredentialCooldownKey(binding)
+	if err := node.cooldowns.Wait(ctx, nil, cooldownKey); err != nil {
+		return protocol.SearchPage{}, searchModelFault(err)
+	}
 	options := web.NativeSearch{Provider: binding.Provider, Model: binding.Config.Model, Input: input, Session: binding.Session, Request: request.ID, Prepare: func(ctx context.Context, body map[string]any) (*http.Request, error) {
 		value, err := model.PrepareNativeSearch(ctx, binding, body)
 		return value, searchModelFault(err)
@@ -24,7 +29,14 @@ func (node *Node) nativeSearch(ctx context.Context, request protocol.Request, bi
 			return nodeFault(node.agent.RecordSearchUsage(ctx, binding.Session, *turn, binding.Provider, binding.Config.Model, usage))
 		}
 	}
-	return web.SearchNative(ctx, options)
+	page, err := web.SearchNative(ctx, options)
+	if err != nil {
+		if until, ok := web.RateLimitRetryAt(err); ok {
+			node.cooldowns.Observe(cooldownKey, until, time.Now())
+		}
+		return protocol.SearchPage{}, err
+	}
+	return page, nil
 }
 
 func searchModelFault(err error) error {

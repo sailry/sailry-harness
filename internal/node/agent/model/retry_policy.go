@@ -137,6 +137,57 @@ func (policy *retryPolicy) wait(ctx context.Context, timer clock.Clock, attempt 
 	return policy.fits(ctx, attempt, timer.Now(), 0), nil
 }
 
+// waitCooldown waits out an active credential-wide rate-limit cooldown before
+// sending an attempt so concurrent requests sharing the same credential do not
+// bypass an in-progress Retry-After window.
+func (policy *retryPolicy) waitCooldown(ctx context.Context, timer clock.Clock, cooldowns *Cooldowns, key string) (bool, error) {
+	if cooldowns == nil || key == "" {
+		return true, nil
+	}
+	var lastUntil time.Time
+	for {
+		now := timer.Now()
+		var until time.Time
+		var stagger time.Duration
+		var active bool
+		if lastUntil.IsZero() {
+			until, stagger, active = cooldowns.WaitWindow(key, now)
+		} else {
+			until, active = cooldowns.Until(key, now)
+			if active && !until.Equal(lastUntil) {
+				until, stagger, active = cooldowns.WaitWindow(key, now)
+			}
+		}
+		if !active || !until.After(now) {
+			return true, nil
+		}
+		lastUntil = until
+		base := until.Sub(now)
+		deadline, bounded := ctx.Deadline()
+		if base > retryWaitBudget-policy.waited || bounded && base >= deadline.Sub(now) {
+			return false, nil
+		}
+		if !policy.originDeadline.IsZero() && base >= policy.originDeadline.Sub(now) {
+			return false, nil
+		}
+		headroom := retryWaitBudget - policy.waited - base
+		if bounded {
+			headroom = min(headroom, deadline.Sub(now)-base-time.Nanosecond)
+		}
+		if !policy.originDeadline.IsZero() {
+			headroom = min(headroom, policy.originDeadline.Sub(now)-base-time.Nanosecond)
+		}
+		delay := base + max(0, min(stagger, headroom))
+		if err := timer.Sleep(ctx, delay); err != nil {
+			return false, err
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		policy.waited += delay
+	}
+}
+
 func retryHint(failure *Failure, now time.Time) time.Duration {
 	var delay time.Duration
 	for _, raw := range failure.retryAfter {

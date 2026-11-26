@@ -97,6 +97,7 @@ const MainRetries = 10
 func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool, reset func()) error {
 	buffered := purpose == SummaryPurpose || purpose == NativePurpose
 	schedule := newRetryPolicy()
+	cooldowns, cooldownKey := cooldownFromContext(ctx)
 	var observation requestObservation
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	sdk, _ := languageModel.(*sdkModel)
@@ -112,6 +113,17 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	for index := uint64(0); ; index++ {
 		if err := ctx.Err(); err != nil {
 			return Classify(err)
+		}
+		if cooldowns != nil && cooldownKey != "" {
+			ready, waitErr := schedule.waitCooldown(ctx, timer, cooldowns, cooldownKey)
+			if waitErr != nil {
+				return Classify(waitErr)
+			}
+			if !ready {
+				failure := &Failure{Kind: RateLimited, Message: "Rate limit cooldown exceeds remaining retry wait budget", WaitExhausted: true}
+				failure.requestObserved = observation.finish(ctx, true)
+				return failure
+			}
 		}
 		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now(), RetryLimit: MainRetries}
 		owner, cancel := context.WithCancel(ctx)
@@ -203,10 +215,23 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				}
 				if index >= attempt.RetryLimit {
 					exhausted = true
-				} else if delay, allowed := schedule.next(ctx, attempt, timer.Now()); allowed {
-					attempt.RetryDelay = &delay
 				} else {
-					waitExhausted = true
+					now := timer.Now()
+					if delay, allowed := schedule.next(ctx, attempt, now); allowed {
+						attempt.RetryDelay = &delay
+					} else {
+						waitExhausted = true
+					}
+				}
+			}
+			if cooldowns != nil && cooldownKey != "" && attempt.Failure.Kind == RateLimited {
+				now := timer.Now()
+				delay := retryHint(attempt.Failure, now)
+				if attempt.RetryDelay != nil && *attempt.RetryDelay > delay {
+					delay = *attempt.RetryDelay
+				}
+				if delay > 0 && delay <= retryWaitBudget {
+					cooldowns.Observe(cooldownKey, now.Add(delay), now)
 				}
 			}
 		}

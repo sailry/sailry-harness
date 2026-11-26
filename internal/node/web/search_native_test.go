@@ -377,4 +377,22 @@ func TestNativeSearchProtection(t *testing.T) {
 			t.Fatal("cancelled enrichment succeeded")
 		}
 	})
+	t.Run("exposes rate-limit retry deadline", func(t *testing.T) {
+		search := nativeSearchFixture(protocol.ConversationModelApiResponses)
+		search.Transport = fixtureTransport(func(*http.Request) (*http.Response, error) {
+			resp := responseFixture(`{"error":{"message":"rate limited"}}`, "application/json")
+			resp.StatusCode = http.StatusTooManyRequests
+			resp.Header.Set("Retry-After", "45")
+			return resp, nil
+		})
+		_, err := SearchNative(context.Background(), search)
+		until, ok := RateLimitRetryAt(err)
+		want := search.Now().Add(45 * time.Second)
+		if !ok || !until.Equal(want) {
+			t.Fatalf("RateLimitRetryAt = (%v, %v), want (%v, true) from err=%v", until, ok, want, err)
+		}
+		if _, ok := RateLimitRetryAt(errors.New("other error")); ok {
+			t.Fatal("RateLimitRetryAt reported true for non-rate-limit error")
+		}
+	})
 }
