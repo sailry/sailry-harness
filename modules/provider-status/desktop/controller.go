@@ -364,16 +364,3 @@ func cloneAccountUsage(u protocol.ProviderAccountUsage) protocol.ProviderAccount
 	}
 	return out
 }
-
-// validCredentialForProvider checks whether a provider's credential is present,
-// belongs to that provider, and is not revoked.
-func validCredentialForProvider(provider protocol.ConversationProvider, creds map[protocol.CredentialID]protocol.Credential) (protocol.Credential, bool) {
-	if provider.Credential == nil || !supportsAccountUsage(provider.Authentication) {
-		return protocol.Credential{}, false
-	}
-	cred, exists := creds[provider.Credential.ID]
-	if !exists || cred.Provider != provider.ID || cred.Revoked {
-		return protocol.Credential{}, false
-	}
-	return cred, true
-}

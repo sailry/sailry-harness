@@ -165,6 +165,16 @@ type UsageServices struct {
 	Sample        func() (*UsageSample, bool)
 }
 
+// ProviderAccount identifies a connected provider's credential binding.
+// CredentialKnown is false until its credential metadata has loaded.
+type ProviderAccount struct {
+	Authentication     protocol.Authentication
+	ProviderRevision   uint64
+	Credential         protocol.CredentialID
+	CredentialKnown    bool
+	CredentialRevision uint64
+}
+
 // Services belong to one window and its local Node. They are for compiled
 // contributions, which expose only their scoped operations to a template.
 // Requests and local file paths must come from those native operations, not
@@ -192,18 +202,19 @@ type Services struct {
 	// ModelOptions returns the canonical kit.ModelSelect options for enabled
 	// model channels on the given Node (zero NodeID selects the local Node),
 	// with Mark, Brand, BrandName, Efforts, DefaultEffort, and Score populated.
-	ModelOptions  func(protocol.NodeID) []kit.ModelOption
-	PrepareOn     func(protocol.NodeID, protocol.Command) (protocol.Request, error)
-	ExecuteOn     func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
-	SettleOn      func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
-	ResolveOn     func(context.Context, protocol.NodeID, protocol.Request) (Receipt, error)
-	OutcomeOn     func(context.Context, protocol.NodeID, protocol.Request) (protocol.RequestOutcome, error)
-	Snapshot      func(protocol.NodeID) (*protocol.Snapshot, bool)
-	Credentials   func(protocol.NodeID) map[protocol.CredentialID]protocol.Credential
-	OpenSession   func(protocol.NodeID, protocol.SessionID)
-	RevealDetails func()
-	OnChange      func(func()) func()
-	Usage         *UsageServices
+	ModelOptions    func(protocol.NodeID) []kit.ModelOption
+	PrepareOn       func(protocol.NodeID, protocol.Command) (protocol.Request, error)
+	ExecuteOn       func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
+	SettleOn        func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
+	ResolveOn       func(context.Context, protocol.NodeID, protocol.Request) (Receipt, error)
+	OutcomeOn       func(context.Context, protocol.NodeID, protocol.Request) (protocol.RequestOutcome, error)
+	Snapshot        func(protocol.NodeID) (*protocol.Snapshot, bool)
+	ProviderAccount func(protocol.NodeID, protocol.ProviderID) (ProviderAccount, bool)
+	Credentials     func(protocol.NodeID) map[protocol.CredentialID]protocol.Credential
+	OpenSession     func(protocol.NodeID, protocol.SessionID)
+	RevealDetails   func()
+	OnChange        func(func()) func()
+	Usage           *UsageServices
 
 	// Mounting and interacting with these elements run on the window's UI thread.
 	TerminalLaunch    func(*ui.Context) any

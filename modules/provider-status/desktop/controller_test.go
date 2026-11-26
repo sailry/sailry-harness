@@ -304,30 +304,11 @@ func TestRegisterAndBindWindowMetrics(t *testing.T) {
 	services := viewapi.Services{
 		Node: node,
 		Wake: func() { woke <- struct{}{} },
-		Nodes: func() []viewapi.NodeInfo {
-			return []viewapi.NodeInfo{{ID: node, Label: "local", Connected: true, Local: true}}
-		},
-		Snapshot: func(id protocol.NodeID) (*protocol.Snapshot, bool) {
-			if id != node {
-				return nil, false
-			}
-			return &protocol.Snapshot{
-				Node: node,
-				Providers: []protocol.ConversationProvider{{
-					ID:             provID,
-					Revision:       3,
-					Authentication: protocol.AuthenticationClaudeOAuth,
-					Credential:     &protocol.CredentialRef{ID: credID},
-				}},
-			}, true
-		},
-		Credentials: func(id protocol.NodeID) map[protocol.CredentialID]protocol.Credential {
-			if id != node {
-				return nil
-			}
-			return map[protocol.CredentialID]protocol.Credential{
-				credID: {ID: credID, Provider: provID, Revision: 5},
-			}
+		ProviderAccount: func(id protocol.NodeID, provider protocol.ProviderID) (viewapi.ProviderAccount, bool) {
+			return viewapi.ProviderAccount{
+				Authentication: protocol.AuthenticationClaudeOAuth, ProviderRevision: 3,
+				Credential: credID, CredentialKnown: true, CredentialRevision: 5,
+			}, id == node && provider == provID
 		},
 		PrepareOn: func(_ protocol.NodeID, cmd protocol.Command) (protocol.Request, error) {
 			return protocol.Request{Command: cmd}, nil
@@ -403,39 +384,16 @@ func TestLeadAndReconcileBeforeCredentialsLoaded(t *testing.T) {
 	credID := protocol.CredentialID(uuid.New())
 	woke := make(chan struct{}, 8)
 
-	var (
-		mu         sync.Mutex
-		credsMap   map[protocol.CredentialID]protocol.Credential // nil on startup before Settings > Providers loads
-		fetchCount atomic.Int32
-	)
+	var fetchCount atomic.Int32
+	var revoked atomic.Bool
 
 	services := viewapi.Services{
 		Node: node,
 		Wake: func() { woke <- struct{}{} },
-		Nodes: func() []viewapi.NodeInfo {
-			return []viewapi.NodeInfo{{ID: node, Label: "local", Connected: true, Local: true}}
-		},
-		Snapshot: func(id protocol.NodeID) (*protocol.Snapshot, bool) {
-			if id != node {
-				return nil, false
-			}
-			return &protocol.Snapshot{
-				Node: node,
-				Providers: []protocol.ConversationProvider{{
-					ID:             provID,
-					Revision:       2,
-					Authentication: protocol.AuthenticationChatGptOAuth,
-					Credential:     &protocol.CredentialRef{ID: credID},
-				}},
-			}, true
-		},
-		Credentials: func(id protocol.NodeID) map[protocol.CredentialID]protocol.Credential {
-			if id != node {
-				return nil
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			return credsMap
+		ProviderAccount: func(id protocol.NodeID, provider protocol.ProviderID) (viewapi.ProviderAccount, bool) {
+			return viewapi.ProviderAccount{
+				Authentication: protocol.AuthenticationChatGptOAuth, ProviderRevision: 2, Credential: credID,
+			}, id == node && provider == provID && !revoked.Load()
 		},
 		PrepareOn: func(_ protocol.NodeID, cmd protocol.Command) (protocol.Request, error) {
 			return protocol.Request{Command: cmd}, nil
@@ -476,7 +434,7 @@ func TestLeadAndReconcileBeforeCredentialsLoaded(t *testing.T) {
 	}, 400, 200)
 	tester.SetLocale("en")
 
-	// Before credentials load (Credentials returns nil), Lead still fetches and displays usage.
+	// Before credential metadata loads, Lead still fetches and displays usage.
 	binding.Sync()
 	tester.Frame()
 	<-woke
@@ -490,11 +448,7 @@ func TestLeadAndReconcileBeforeCredentialsLoaded(t *testing.T) {
 	}
 
 	// Once credentials load and report the credential revoked, reconcile evicts it and Lead hides it.
-	mu.Lock()
-	credsMap = map[protocol.CredentialID]protocol.Credential{
-		credID: {ID: credID, Provider: provID, Revision: 4, Revoked: true},
-	}
-	mu.Unlock()
+	revoked.Store(true)
 	binding.Sync()
 	tester.Frame()
 	if len(leadResult) != 0 {
@@ -519,11 +473,8 @@ func TestOnChangeNeverCallsWindowVisibleOffUIThread(t *testing.T) {
 			onChange = cb
 			return func() { onChange = nil }
 		},
-		Nodes: func() []viewapi.NodeInfo {
-			return []viewapi.NodeInfo{{ID: node, Label: "Local", Connected: true, Local: true}}
-		},
-		Snapshot: func(protocol.NodeID) (*protocol.Snapshot, bool) {
-			return &protocol.Snapshot{Node: node}, true
+		ProviderAccount: func(protocol.NodeID, protocol.ProviderID) (viewapi.ProviderAccount, bool) {
+			return viewapi.ProviderAccount{}, false
 		},
 	}
 

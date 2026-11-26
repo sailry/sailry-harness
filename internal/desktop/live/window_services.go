@@ -93,20 +93,21 @@ func (h *windowViewHost) services() view.Services {
 		Outcome: func(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
 			return windowRequest(h, ctx, request, controller.Outcome)
 		},
-		Nodes:         h.nodes,
-		NodeLabel:     h.nodeLabel,
-		ModelOptions:  h.modelOptions,
-		PrepareOn:     h.prepareOn,
-		ExecuteOn:     h.executeOn,
-		SettleOn:      h.settleOn,
-		ResolveOn:     h.resolveOn,
-		OutcomeOn:     h.outcomeOn,
-		Snapshot:      h.snapshot,
-		Credentials:   h.credentials,
-		OpenSession:   h.openSession,
-		RevealDetails: h.revealDetails,
-		OnChange:      h.onChange,
-		Usage:         h.usageServices(),
+		Nodes:           h.nodes,
+		NodeLabel:       h.nodeLabel,
+		ModelOptions:    h.modelOptions,
+		PrepareOn:       h.prepareOn,
+		ExecuteOn:       h.executeOn,
+		SettleOn:        h.settleOn,
+		ResolveOn:       h.resolveOn,
+		OutcomeOn:       h.outcomeOn,
+		Snapshot:        h.snapshot,
+		ProviderAccount: h.providerAccount,
+		Credentials:     h.credentials,
+		OpenSession:     h.openSession,
+		RevealDetails:   h.revealDetails,
+		OnChange:        h.onChange,
+		Usage:           h.usageServices(),
 		TerminalLaunch: func(c *ui.Context) any {
 			return protocol.SshTerminalLaunch{Viewport: terminalViewport, Appearance: pluginNativeAppearance(theme.Of(c))}
 		},
@@ -632,6 +633,30 @@ func (h *windowViewHost) snapshot(node protocol.NodeID) (*protocol.Snapshot, boo
 	}
 	snap := entry.client.Snapshot()
 	return &snap, true
+}
+
+func (h *windowViewHost) providerAccount(node protocol.NodeID, provider protocol.ProviderID) (view.ProviderAccount, bool) {
+	if !h.open() {
+		return view.ProviderAccount{}, false
+	}
+	entry, ok := h.entryFor(node)
+	if !ok || entry.client == nil {
+		return view.ProviderAccount{}, false
+	}
+	auth, rev, id, ok := entry.client.ProviderCredential(provider)
+	if !ok {
+		return view.ProviderAccount{}, false
+	}
+	account := view.ProviderAccount{Authentication: auth, ProviderRevision: rev, Credential: id}
+	if entry.credentials != nil {
+		credential, exists := entry.credentials[id]
+		if !exists || credential.Revoked || credential.Provider != provider {
+			return view.ProviderAccount{}, false
+		}
+		account.CredentialKnown = true
+		account.CredentialRevision = credential.Revision
+	}
+	return account, true
 }
 
 func (h *windowViewHost) credentials(node protocol.NodeID) map[protocol.CredentialID]protocol.Credential {

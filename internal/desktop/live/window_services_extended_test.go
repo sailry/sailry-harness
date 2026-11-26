@@ -22,6 +22,41 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestWindowProviderAccountLookup(t *testing.T) {
+	snap := protocol.DefaultSnapshot()
+	snap.Node = protocol.NodeID{1}
+	id, credID := protocol.NewProviderID(), protocol.NewCredentialID()
+	snap.Providers = []protocol.ConversationProvider{{
+		ID: id, Revision: 3, Authentication: protocol.AuthenticationClaudeOAuth,
+		Credential: &protocol.CredentialRef{ID: credID}, Models: make([]protocol.ConversationModel, 1000),
+	}}
+	source := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snap, updates: make(chan protocol.Update, 1)}}
+	r, services, _ := newWindowServicesFixture(t, source, nil)
+	account, ok := services.ProviderAccount(snap.Node, id)
+	if !ok || account.Credential != credID || account.ProviderRevision != 3 || account.Authentication != protocol.AuthenticationClaudeOAuth || account.CredentialKnown {
+		t.Fatalf("provider binding before credential metadata loaded: %+v, %v", account, ok)
+	}
+	r.authorizations = &authorizationState{
+		credentialKey: "v1",
+		credentials: map[protocol.CredentialID]protocol.Credential{
+			credID: {ID: credID, Provider: id, Revision: 5},
+		},
+	}
+	tester := ui.NewTester(r.App.View, 960, 600)
+	tester.Frame()
+	if allocs := testing.AllocsPerRun(100, func() {
+		account, ok = services.ProviderAccount(snap.Node, id)
+	}); allocs != 0 || !ok || !account.CredentialKnown || account.CredentialRevision != 5 {
+		t.Fatalf("unchanged lookup: %+v, %v, %.1f allocs", account, ok, allocs)
+	}
+	r.authorizations.credentialKey = "v2"
+	r.authorizations.credentials[credID] = protocol.Credential{ID: credID, Provider: id, Revision: 6, Revoked: true}
+	tester.Frame()
+	if _, ok := services.ProviderAccount(snap.Node, id); ok {
+		t.Fatal("revoked credential still available")
+	}
+}
+
 func TestWindowServicesMultiNodeAndUsage(t *testing.T) {
 	localNodeID := protocol.NodeID{1}
 	remoteNodeID := protocol.NodeID{2}

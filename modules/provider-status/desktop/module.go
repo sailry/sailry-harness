@@ -54,7 +54,7 @@ func parseNodeID(value string, fallback protocol.NodeID) (protocol.NodeID, bool)
 
 func bindProviderStatus(window shell.WindowContext) shell.MetricBinding {
 	services, ok := viewapi.WindowServices(window.Context)
-	if !ok {
+	if !ok || services.ProviderAccount == nil {
 		return shell.MetricBinding{}
 	}
 
@@ -95,21 +95,6 @@ func bindProviderStatus(window shell.WindowContext) shell.MetricBinding {
 		wake:  services.Wake,
 	})
 
-	isNodeConnected := func(node protocol.NodeID) bool {
-		if services.Nodes == nil {
-			if services.Connected != nil && node == services.Node {
-				return services.Connected()
-			}
-			return true
-		}
-		for _, info := range services.Nodes() {
-			if info.ID == node {
-				return info.Connected
-			}
-		}
-		return false
-	}
-
 	// window.Visible reads UI-thread App fields, so cache it in an atomic.Bool
 	// updated only on UI-thread callbacks (Bind, Sync, Lead, Provider) and read
 	// safely from background OnChange notifications.
@@ -126,37 +111,10 @@ func bindProviderStatus(window shell.WindowContext) shell.MetricBinding {
 			tracker.PauseAll()
 			return
 		}
-		if services.Snapshot == nil {
-			return
-		}
 		tracker.Reconcile(func(k usageScopeKey) bool {
-			if !isNodeConnected(k.node) {
-				return false
-			}
-			snap, exists := services.Snapshot(k.node)
-			if !exists || snap == nil {
-				return false
-			}
-			var creds map[protocol.CredentialID]protocol.Credential
-			if services.Credentials != nil {
-				creds = services.Credentials(k.node)
-			}
-			for _, prov := range snap.Providers {
-				if prov.ID != k.provider {
-					continue
-				}
-				if prov.Revision != k.providerRev {
-					return false
-				}
-				if creds == nil {
-					return supportsAccountUsage(prov.Authentication) &&
-						prov.Credential != nil &&
-						prov.Credential.ID == k.credID
-				}
-				cred, valid := validCredentialForProvider(prov, creds)
-				return valid && cred.ID == k.credID && cred.Revision == k.credRev
-			}
-			return false
+			account, ok := services.ProviderAccount(k.node, k.provider)
+			return ok && supportsAccountUsage(account.Authentication) && account.ProviderRevision == k.providerRev &&
+				account.Credential == k.credID && (!account.CredentialKnown || account.CredentialRevision == k.credRev)
 		})
 	}
 
@@ -181,15 +139,13 @@ func bindProviderStatus(window shell.WindowContext) shell.MetricBinding {
 			if err != nil {
 				return nil
 			}
+			account, ok := services.ProviderAccount(nodeID, provID)
+			if !ok || account.ProviderRevision != scope.ProviderRev || account.Credential != scope.Credential.ID || !supportsAccountUsage(account.Authentication) {
+				return nil
+			}
 			credRev := scope.CredRev
-			if services.Credentials != nil {
-				if creds := services.Credentials(nodeID); creds != nil {
-					cred, exists := creds[scope.Credential.ID]
-					if !exists || cred.Provider != provID || cred.Revoked {
-						return nil
-					}
-					credRev = cred.Revision
-				}
+			if account.CredentialKnown {
+				credRev = account.CredentialRevision
 			}
 			snapshot := tracker.Observe(usageScopeKey{
 				node:        nodeID,
@@ -209,39 +165,25 @@ func bindProviderStatus(window shell.WindowContext) shell.MetricBinding {
 				return nil
 			}
 			nodeID, ok := parseNodeID(nodeStr, services.Node)
-			if !ok || !isNodeConnected(nodeID) {
+			if !ok {
 				return nil
 			}
 			provID, err := protocol.ParseProviderID(channelStr)
 			if err != nil {
 				return nil
 			}
-			if services.Snapshot == nil || services.Credentials == nil {
+			account, ok := services.ProviderAccount(nodeID, provID)
+			if !ok || !account.CredentialKnown || !supportsAccountUsage(account.Authentication) {
 				return nil
 			}
-			snap, exists := services.Snapshot(nodeID)
-			if !exists || snap == nil {
-				return nil
-			}
-			creds := services.Credentials(nodeID)
-			for _, prov := range snap.Providers {
-				if prov.ID != provID {
-					continue
-				}
-				cred, valid := validCredentialForProvider(prov, creds)
-				if !valid {
-					return nil
-				}
-				usage := tracker.Observe(usageScopeKey{
-					node:        nodeID,
-					provider:    prov.ID,
-					providerRev: prov.Revision,
-					credID:      cred.ID,
-					credRev:     cred.Revision,
-				}, true)
-				return buildChannelUsage(usage, func(key string) string { return i18n.T(c, key) }, time.Local)
-			}
-			return nil
+			usage := tracker.Observe(usageScopeKey{
+				node:        nodeID,
+				provider:    provID,
+				providerRev: account.ProviderRevision,
+				credID:      account.Credential,
+				credRev:     account.CredentialRevision,
+			}, true)
+			return buildChannelUsage(usage, func(key string) string { return i18n.T(c, key) }, time.Local)
 		},
 		Sync: func() {
 			if !refreshVisible() {

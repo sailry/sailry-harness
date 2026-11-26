@@ -18,6 +18,7 @@ type (
 	Terminal         = viewapi.Terminal
 	ConversationSpec = viewapi.ConversationSpec
 	Conversation     = viewapi.Conversation
+	ProviderAccount  = viewapi.ProviderAccount
 	Services         = viewapi.Services
 )
 
