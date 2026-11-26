@@ -8,21 +8,31 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func legacyProfileLinkedGit(path string) error {
-	return fmt.Errorf("legacy profile contains a linked Git checkout at %q; use Git to safely move or finish linked worktrees outside the profile before retrying; neither the checkout nor its external repository was moved or repaired", path)
+	return fmt.Errorf("legacy profile contains a linked Git checkout at %q; use Git to safely move or finish linked worktrees outside the profile before retrying", path)
 }
 
-func checkLegacyProfileGit(root *os.Root, relative string) error {
+func checkLegacyProfileGit(root *os.Root, relative string, linked map[string]string) error {
 	info, err := root.Lstat(filepath.Join(relative, ".git"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if info.Mode().IsRegular() {
+		admin, err := visitLegacyProfileRegistration(root, relative, root.Name(), "")
+		if err != nil {
+			return fmt.Errorf("linked Git checkout at %q: %w", filepath.Join(root.Name(), relative), err)
+		}
+		linked[relative] = admin
+		return nil
 	}
 	if !info.IsDir() {
 		return legacyProfileLinkedGit(filepath.Join(root.Name(), relative))
@@ -48,14 +58,14 @@ func checkLegacyProfileGit(root *os.Root, relative string) error {
 }
 
 // Inspect only known managed roots and registered paths, never walk user trees
-// or follow a .git pointer into an external repository.
-func checkLegacyProfileWorktrees(profile string) error {
+// or inspect project contents.
+func checkLegacyProfileWorktrees(profile string, linked map[string]string) error {
 	root, err := os.OpenRoot(profile)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
-	if err := checkLegacyProfileGit(root, "."); err != nil {
+	if err := checkLegacyProfileGit(root, ".", linked); err != nil {
 		return err
 	}
 	parents := []string{"."}
@@ -100,7 +110,7 @@ func checkLegacyProfileWorktrees(profile string) error {
 					return legacyProfileLinkedGit(filepath.Join(profile, name, entry.Name()))
 				}
 				if entry.IsDir() {
-					if err := checkLegacyProfileGit(root, filepath.Join(name, entry.Name())); err != nil {
+					if err := checkLegacyProfileGit(root, filepath.Join(name, entry.Name()), linked); err != nil {
 						return err
 					}
 				}
@@ -110,7 +120,7 @@ func checkLegacyProfileWorktrees(profile string) error {
 	return nil
 }
 
-func checkLegacyProfileRegisteredGit(ctx context.Context, db *sql.Conn, profile string, aliases ...string) error {
+func checkLegacyProfileRegisteredGit(ctx context.Context, db *sql.Conn, profile string, linked map[string]string, aliases ...string) error {
 	root, err := os.OpenRoot(profile)
 	if err != nil {
 		return err
@@ -131,11 +141,156 @@ func checkLegacyProfileRegisteredGit(ctx context.Context, db *sql.Conn, profile 
 			if err != nil || relative != "." && !filepath.IsLocal(relative) {
 				continue
 			}
-			if err := checkLegacyProfileGit(root, relative); err != nil {
+			if err := checkLegacyProfileGit(root, relative, linked); err != nil {
 				return err
 			}
 			break
 		}
 	}
 	return rows.Err()
+}
+
+func repairLegacyProfileWorktrees(legacy, target string, linked map[string]string) error {
+	if len(linked) == 0 {
+		return nil
+	}
+	root, err := os.OpenRoot(target)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for relative, admin := range linked {
+		if !filepath.IsLocal(relative) || filepath.Clean(relative) != relative || admin == "" {
+			return fmt.Errorf("invalid linked Git checkout in migration journal: %q", relative)
+		}
+		if _, err := visitLegacyProfileRegistration(root, relative, legacy, admin); err != nil {
+			return fmt.Errorf("repair linked Git checkout at %q: %w", filepath.Join(target, relative), err)
+		}
+	}
+	return nil
+}
+
+// Git stores an absolute pointer in the checkout and a reciprocal gitdir file
+// under its owner's .git/worktrees directory. Only that backlink needs to
+// change. Recheck both ends after publication, including on journal recovery.
+func visitLegacyProfileRegistration(root *os.Root, relative, legacy, expectedAdmin string) (string, error) {
+	name := filepath.Join(relative, ".git")
+	gitfile, _, err := readLegacyGitLine(root, name)
+	if err != nil {
+		return "", err
+	}
+	pointer, ok := strings.CutPrefix(gitfile, "gitdir: ")
+	if !ok || !filepath.IsAbs(pointer) {
+		return "", fmt.Errorf("expected an absolute Git worktree registration in %q", filepath.Join(root.Name(), name))
+	}
+	admin, err := filepath.EvalSymlinks(pointer)
+	if err != nil {
+		return "", fmt.Errorf("open external Git worktree registration %q: %w", pointer, err)
+	}
+	worktrees := filepath.Dir(admin)
+	common := filepath.Dir(worktrees)
+	if filepath.Base(worktrees) != "worktrees" || filepath.Base(common) != ".git" {
+		return "", fmt.Errorf("unsupported Git worktree registration %q", admin)
+	}
+	for _, profile := range []string{legacy, root.Name()} {
+		for _, candidate := range []string{admin, filepath.Clean(pointer)} {
+			if inside, err := filepath.Rel(profile, candidate); err == nil && filepath.IsLocal(inside) {
+				return "", fmt.Errorf("Git worktree registration %q is inside the moving profile", candidate)
+			}
+		}
+	}
+	if expectedAdmin != "" && expectedAdmin != admin {
+		return "", fmt.Errorf("Git worktree registration changed from %q to %q", expectedAdmin, admin)
+	}
+
+	directory, err := os.OpenRoot(admin)
+	if err != nil {
+		return "", err
+	}
+	defer directory.Close()
+	shared, _, err := readLegacyGitLine(directory, "commondir")
+	if err != nil {
+		return "", err
+	}
+	shared = filepath.FromSlash(shared)
+	if shared != filepath.Join("..", "..") && shared != common {
+		return "", fmt.Errorf("Git worktree registration %q belongs to a different common directory", admin)
+	}
+	backlink, info, err := readLegacyGitLine(directory, "gitdir")
+	if err != nil {
+		return "", err
+	}
+	old, current := filepath.Join(legacy, name), filepath.Join(root.Name(), name)
+	switch filepath.FromSlash(backlink) {
+	case old:
+		if expectedAdmin != "" && current != old {
+			if err := replaceLegacyGitBacklink(directory, backlink, info, current); err != nil {
+				return "", err
+			}
+		}
+	case current:
+		// The previous attempt installed the backlink before recording completion.
+	default:
+		return "", fmt.Errorf("Git worktree registration %q points to %q, expected %q", admin, backlink, old)
+	}
+	if expectedAdmin != "" {
+		if err := syncLegacyProfileDirectory(admin); err != nil {
+			return "", err
+		}
+	}
+	return admin, nil
+}
+
+// These are Git's single-line path files. Read through the retained directory,
+// and require the opened regular file to match what was inspected.
+func readLegacyGitLine(root *os.Root, name string) (string, os.FileInfo, error) {
+	info, err := root.Lstat(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 64*1024 {
+		return "", nil, fmt.Errorf("invalid Git registration file %q", filepath.Join(root.Name(), name))
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return "", nil, err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	if !os.SameFile(info, opened) {
+		return "", nil, fmt.Errorf("Git registration file %q changed", name)
+	}
+	body, err := io.ReadAll(io.LimitReader(f, info.Size()+1))
+	if err != nil {
+		return "", nil, err
+	}
+	line := strings.TrimSuffix(strings.TrimSuffix(string(body), "\n"), "\r")
+	if int64(len(body)) != info.Size() || line == "" || strings.ContainsAny(line, "\x00\r\n") {
+		return "", nil, fmt.Errorf("invalid Git registration file %q", filepath.Join(root.Name(), name))
+	}
+	return line, info, nil
+}
+
+func replaceLegacyGitBacklink(admin *os.Root, before string, info os.FileInfo, target string) error {
+	name := ".sailry-gitdir-" + uuid.NewString()
+	file, err := admin.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer admin.Remove(name)
+	_, writeErr := file.WriteString(filepath.ToSlash(target) + "\n")
+	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
+		return err
+	}
+	current, currentInfo, err := readLegacyGitLine(admin, "gitdir")
+	if err != nil {
+		return err
+	}
+	if before != current || !os.SameFile(info, currentInfo) {
+		return fmt.Errorf("Git worktree registration %q changed during migration", admin.Name())
+	}
+	return admin.Rename(name, "gitdir")
 }
