@@ -234,10 +234,12 @@ type Model struct {
 	ConnAccounts       []string
 	ConnectorPageState ConnectorPageState
 
-	Teams         []preview.Team
-	Roles         []preview.Role
-	Concurrency   Stored[float64]
-	TeamPageState TeamPageState
+	Teams            []preview.Team
+	Roles            []preview.Role
+	Concurrency      Stored[float64]
+	TeamPageState    TeamPageState
+	TeamChannels     []preview.Channel
+	TeamModelOptions []kit.ModelOption
 
 	// Installed packages, installed skills, and the profile's themes.
 	Packages       []preview.Package
@@ -421,6 +423,7 @@ func NewModel(d *preview.Settings) *Model {
 		Archived: d.Archived, Sessions: d.Sessions,
 		Version: d.Version,
 	}
+	m.SetTeamChannels(pr.Channels)
 	m.MarketLoad.Start()
 	return m
 }

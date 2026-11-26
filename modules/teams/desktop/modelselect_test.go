@@ -46,10 +46,10 @@ func TestRoleModelField(t *testing.T) {
 	// channel is the preview's first enabled channel having a model with
 	// efforts, and that model.
 	channel := func(t *testing.T, m *page) (*viewmodel.Channel, viewmodel.ChannelModel) {
-		for i := range m.Channels {
-			for _, x := range m.Channels[i].Models {
-				if m.Channels[i].Enabled && len(x.Efforts) > 1 && x.Name != "" && x.Name != x.ID {
-					return &m.Channels[i], x
+		for i := range m.TeamChannels {
+			for _, x := range m.TeamChannels[i].Models {
+				if m.TeamChannels[i].Enabled && len(x.Efforts) > 1 && x.Name != "" && x.Name != x.ID {
+					return &m.TeamChannels[i], x
 				}
 			}
 		}
@@ -58,6 +58,7 @@ func TestRoleModelField(t *testing.T) {
 	}
 
 	m := pageFor(settings.New().Model)
+	m.Channels = nil // Provider settings are unmounted while editing a role.
 	ch, x := channel(t, m)
 	id := ch.ID + "/" + x.ID
 	model, effort := "", ""

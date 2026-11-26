@@ -55,6 +55,14 @@ func TestTeamsProjection(t *testing.T) {
 		if got, err = r.roleDraft(draft); err != nil || got.Model.Features == nil || len(*got.Model.Features) != 0 {
 			t.Fatalf("a role with its features off saves %v, %v", got.Model.Features, err)
 		}
+		draft.Model, draft.Effort = modelKey(protocol.ProviderID{7}, "vendor/other"), "high"
+		saved, err := r.roleDraft(draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reopened := roleView(saved); reopened.Model != draft.Model || reopened.Effort != draft.Effort {
+			t.Fatalf("reopened role model %q at %q, want %q at %q", reopened.Model, reopened.Effort, draft.Model, draft.Effort)
+		}
 		if follows := roleView(protocol.RoleProfile{Model: &protocol.RoleModel{}}); follows.Features != nil {
 			t.Fatalf("a model without features shows %v", follows.Features)
 		}

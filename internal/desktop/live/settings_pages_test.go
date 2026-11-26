@@ -20,6 +20,7 @@ import (
 	computerdesktop "github.com/sailry/sailry-harness/modules/computer/desktop"
 	connectordesktop "github.com/sailry/sailry-harness/modules/connectors/desktop"
 	memorydesktop "github.com/sailry/sailry-harness/modules/memory/desktop"
+	teamsdesktop "github.com/sailry/sailry-harness/modules/teams/desktop"
 )
 
 type settingsPageTransport struct {
@@ -157,7 +158,8 @@ func TestSettingsPageContributions(t *testing.T) {
 	}{
 		{settings.Providers, []string{"list_channel_presets", "list_credentials", "read_compaction_settings"}, func(m *settings.State) bool { return len(m.Channels) == 1 && m.Compaction.Revision == 1 }},
 		{settings.Teams, []string{"read_team_settings"}, func(m *settings.State) bool {
-			return len(m.Roles) == 1 && len(m.Teams) == 1 && m.Concurrency.Revision == 1
+			return len(m.Roles) == 1 && len(m.Teams) == 1 && m.Concurrency.Revision == 1 &&
+				len(m.TeamChannels) == 1 && len(m.TeamChannels[0].Models) != 0
 		}},
 		{settings.Connectors, nil, func(m *settings.State) bool { return m.ConnectorActions != nil }},
 		{settings.Media, []string{"read_media_settings", "list_media_models"}, func(m *settings.State) bool { return m.Media.Revision == 1 }},
@@ -183,6 +185,7 @@ func TestSettingsPageContributions(t *testing.T) {
 		{"combo without providers", shell.Assemble(connectordesktop.Register, memorydesktop.Register), func(section settings.Section) bool {
 			return section == settings.Connectors || section == settings.Memory
 		}},
+		{"Teams without provider settings", shell.Assemble(teamsdesktop.Register), func(section settings.Section) bool { return section == settings.Teams }},
 		{"Browser panel only", browser, func(settings.Section) bool { return false }},
 		{"Browser settings only", settingsOnly, func(section settings.Section) bool { return section == settings.Browser }},
 	} {

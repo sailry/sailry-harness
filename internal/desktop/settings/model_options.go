@@ -50,6 +50,13 @@ func ModelOptionsFromChannels(channels []viewmodel.Channel, brandNames map[strin
 	return out
 }
 
+// SetTeamChannels updates the role and team editors together when their
+// target Node's available models change.
+func (m *Model) SetTeamChannels(channels []viewmodel.Channel) {
+	m.TeamChannels = channels
+	m.TeamModelOptions = ModelOptionsFromChannels(channels, nil)
+}
+
 // ModelOptions returns the enabled channels' models as kit.ModelSelect offers
 // them: identified by channel/model and grouped by channel and brand.
 func (m *Model) ModelOptions(node string) []kit.ModelOption {

@@ -194,7 +194,7 @@ func (h *windowViewHost) syncState(initial bool) {
 			} else if entry.Owner != nil {
 				opts = entry.Owner.modelOptions()
 			} else {
-				opts = canonicalModelOptions(entry.IDString, entry.Client.Snapshot().Providers, nil, nil, nil)
+				opts = snapshotModelOptions(entry.Client.Snapshot())
 			}
 		}
 		next[entry.ID] = syncedNodeEntry{
@@ -564,7 +564,7 @@ func (h *windowViewHost) modelOptions(node protocol.NodeID) []kit.ModelOption {
 	if entry.modelOptions != nil && entry.providerRev == entry.client.ProviderRevision() {
 		return cloneModelOptions(entry.modelOptions)
 	}
-	return canonicalModelOptions(entry.id.String(), entry.client.Snapshot().Providers, nil, nil, nil)
+	return snapshotModelOptions(entry.client.Snapshot())
 }
 
 func cloneModelOptions(options []kit.ModelOption) []kit.ModelOption {

@@ -16,9 +16,13 @@ import (
 // Efforts, DefaultEffort, and Score populated through the shared settings
 // channel projection.
 func (r *Runtime) modelOptions() []kit.ModelOption {
-	return canonicalModelOptions(
+	return settings.ModelOptionsFromChannels(r.modelChannels(r.composerProviders()), r.providerBrands)
+}
+
+func (r *Runtime) modelChannels(providers []protocol.ConversationProvider) []viewmodel.Channel {
+	return canonicalModelChannels(
 		r.controller.Target().String(),
-		r.composerProviders(),
+		providers,
 		r.providerPresets,
 		r.providerBrands,
 		func(id string, effort protocol.Effort) float64 {
@@ -30,13 +34,18 @@ func (r *Runtime) modelOptions() []kit.ModelOption {
 	)
 }
 
-func canonicalModelOptions(
+func snapshotModelOptions(snapshot protocol.Snapshot) []kit.ModelOption {
+	channels := canonicalModelChannels(snapshot.Node.String(), snapshot.Providers, nil, nil, nil)
+	return settings.ModelOptionsFromChannels(channels, nil)
+}
+
+func canonicalModelChannels(
 	node string,
 	providers []protocol.ConversationProvider,
 	presets map[string]protocol.ConversationPresetsEntry,
 	brandNames map[string]string,
 	score func(id string, effort protocol.Effort) float64,
-) []kit.ModelOption {
+) []viewmodel.Channel {
 	channels := make([]viewmodel.Channel, 0, len(providers))
 	for _, p := range providers {
 		if !p.Enabled {
@@ -86,5 +95,5 @@ func canonicalModelOptions(
 		}
 		channels = append(channels, ch)
 	}
-	return settings.ModelOptionsFromChannels(channels, brandNames)
+	return channels
 }

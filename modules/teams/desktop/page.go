@@ -109,43 +109,30 @@ func (e *roleEditor) modelHint() string {
 	return ""
 }
 
-// modelChoices are the channels' models as "channel/model" with their
-// labels, after none (the "" choice labeled follow).
-func (m *page) modelChoices(c *ui.Context, follow string) (ids, names []string) {
-	ids, names = []string{""}, []string{i18n.T(c, follow)}
-	for _, ch := range m.ChannelsAt(m.ManagedNode) {
-		if !ch.Enabled {
-			continue
-		}
-		for _, x := range ch.Models {
-			ids = append(ids, ch.ID+"/"+x.ID)
-			names = append(names, ch.Name+" · "+x.Name)
-		}
+func (m *page) roleChannelModel(id string) (string, *viewmodel.ChannelModel) {
+	channelID, modelID, ok := strings.Cut(id, "/")
+	if !ok {
+		return "", nil
 	}
-	return ids, names
-}
-
-// modelFeatures are the features a model declares.
-func (m *page) modelFeatures(id string) []viewmodel.ModelFeature {
-	ch, model, _ := strings.Cut(id, "/")
-	for _, x := range m.ChannelsAt(m.ManagedNode) {
-		if x.ID != ch {
+	for _, ch := range m.TeamChannels {
+		if !ch.Enabled || ch.ID != channelID {
 			continue
 		}
-		for _, y := range x.Models {
-			if y.ID == model {
-				return y.Features
+		for i := range ch.Models {
+			if ch.Models[i].ID == modelID {
+				return ch.Name, &ch.Models[i]
 			}
 		}
 	}
-	return nil
+	return "", nil
 }
 
-// modelSummary is the model's label, or follow.
 func (m *page) modelSummary(c *ui.Context, id, follow string) string {
-	ids, names := m.modelChoices(c, follow)
-	if i := slices.Index(ids, id); i >= 0 {
-		return names[i]
+	if id == "" {
+		return i18n.T(c, follow)
+	}
+	if name, model := m.roleChannelModel(id); model != nil {
+		return name + " · " + model.Name
 	}
 	return id
 }
@@ -359,7 +346,7 @@ func roleRows(c *ui.Context, m *page) {
 func modelField(c *ui.Context, m *page, key, label, follow string, model, effort *string, features *map[string]string) {
 	kit.Field(c, key, label, "", func() {
 		ui.Row(c).Gap(8).Wrap().Children(func() {
-			kit.ModelSelect(c.Key("model"), kit.ModelSelectProps{Label: label, None: i18n.T(c, follow), Models: m.ModelOptions(m.ManagedNode),
+			kit.ModelSelect(c.Key("model"), kit.ModelSelectProps{Label: label, None: i18n.T(c, follow), Models: m.TeamModelOptions,
 				Model: *model, Effort: *effort, AutoEffort: i18n.T(c, "role_effort_inherit"),
 				OnChange: func(id, level string) {
 					if id != *model {
@@ -367,7 +354,11 @@ func modelField(c *ui.Context, m *page, key, label, follow string, model, effort
 					}
 					*model, *effort = id, level
 				}}).Grow(1)
-			for _, f := range m.modelFeatures(*model) {
+			_, selected := m.roleChannelModel(*model)
+			if selected == nil {
+				return
+			}
+			for _, f := range selected.Features {
 				shown := []string{i18n.T(c, "role_effort_inherit"), i18n.T(c, "composer_feature_off")}
 				at := 0
 				if *features != nil {

@@ -9,7 +9,10 @@ import (
 func (r *Runtime) BindTeamSettings() settings.WindowBinding {
 	m := r.App.Settings
 	return settings.WindowBinding{
-		Blocked: func(string) { m.Concurrency = settings.Stored[float64]{Pending: true} },
+		Blocked: func(string) {
+			m.SetTeamChannels(nil)
+			m.Concurrency = settings.Stored[float64]{Pending: true}
+		},
 		Mount: func(target settings.PageTarget) settings.PageBinding {
 			owner := r.runtimeFor(target.Node)
 			if owner.teams == nil {
@@ -53,9 +56,14 @@ func (r *Runtime) BindTeamSettings() settings.WindowBinding {
 			}
 			owner.readTeamSettings()
 			var projected bool
-			var delivered uint64
+			var delivered, providers, scores uint64
 			return settings.PageBinding{
 				Follow: func() {
+					revision := owner.controller.ProviderRevision()
+					if !projected || providers != revision || scores != owner.modelScores.revision {
+						m.SetTeamChannels(owner.modelChannels(owner.snapshot().Providers))
+						providers, scores = revision, owner.modelScores.revision
+					}
 					if !projected || delivered != r.delivered {
 						owner.teamsFrame()
 						projected, delivered = true, r.delivered
@@ -68,6 +76,7 @@ func (r *Runtime) BindTeamSettings() settings.WindowBinding {
 					}
 					owner.teams.settingsUnknown = nil
 					m.TeamActions, m.Roles, m.Teams = nil, nil, nil
+					m.SetTeamChannels(nil)
 					m.Concurrency, m.ConcurrencyReadOnly = settings.Stored[float64]{}, false
 				},
 			}

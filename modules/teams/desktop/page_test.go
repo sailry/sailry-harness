@@ -38,9 +38,9 @@ func TestTeams(t *testing.T) {
 	t.Run("model features", func(t *testing.T) {
 		m := pageFor(settings.New().Model)
 		var ch *viewmodel.Channel
-		for i := range m.Channels {
-			if m.Channels[i].Enabled && len(m.Channels[i].Models) > 1 {
-				ch = &m.Channels[i]
+		for i := range m.TeamChannels {
+			if m.TeamChannels[i].Enabled && len(m.TeamChannels[i].Models) > 1 {
+				ch = &m.TeamChannels[i]
 				break
 			}
 		}
