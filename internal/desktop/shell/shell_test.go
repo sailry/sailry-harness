@@ -610,6 +610,16 @@ func TestAppearancePackages(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "Settings")
 	click(t, tt, i18n.In("en", "settings_appearance"))
+	info, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "appearance_effects"))
+	if !ok {
+		t.Fatalf("no effects switch: %q", tt.Texts())
+	}
+	tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+	if a.Effects {
+		t.Error("the effects switch does not turn them off")
+	}
+	tt.Scroll(800, 600, 0, 300)
+	tt.Frame()
 	clickButton(t, tt, pkg.Name)
 	if a.Theme != pkg.ID {
 		t.Fatalf("theme %q after choosing %s", a.Theme, pkg.Name)
@@ -639,14 +649,6 @@ func TestAppearancePackages(t *testing.T) {
 	clickButton(t, tt, i18n.In("en", "settings_theme_builtin"))
 	if a.Theme != "" {
 		t.Errorf("theme %q after choosing the default", a.Theme)
-	}
-	info, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "appearance_effects"))
-	if !ok {
-		t.Fatalf("no effects switch: %q", tt.Texts())
-	}
-	tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-	if a.Effects {
-		t.Error("the effects switch does not turn them off")
 	}
 }
 
