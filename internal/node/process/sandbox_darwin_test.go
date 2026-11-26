@@ -46,3 +46,25 @@ func TestSandboxProfileMacOS(t *testing.T) {
 		t.Fatal("scratch grant must follow profile read deny so last-match-wins allows scratch")
 	}
 }
+
+func TestSandboxProfileMacOSReadOnly(t *testing.T) {
+	t.Parallel()
+	policy := sandboxPolicy{
+		paths:       []allowedPath{{"/workspace", false}, {"/profile/tmp/scratch", true}},
+		deniedReads: []string{"/profile"},
+		protected:   []string{"/workspace/.sailry/worktrees"},
+	}
+	profile, err := sandboxProfileMacOS(policy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(profile, `(allow file-read* file-write* (subpath "/workspace"))`) {
+		t.Fatalf("read-only sandbox granted write access to workspace:\n%s", profile)
+	}
+	if !strings.Contains(profile, `(allow file-read* (subpath "/workspace"))`) {
+		t.Fatalf("read-only sandbox omitted read access to workspace:\n%s", profile)
+	}
+	if !strings.Contains(profile, `(allow file-read* file-write* (subpath "/profile/tmp/scratch"))`) {
+		t.Fatalf("read-only sandbox omitted scratch write access:\n%s", profile)
+	}
+}

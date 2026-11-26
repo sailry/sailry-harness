@@ -105,12 +105,15 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 					t.Errorf("parent prompt is missing %q", phrase)
 				}
 			}
-			if mode == protocol.WorkModePlan && !strings.Contains(parent, "Do not implement changes or run tools with side effects, except to record conversation progress with update_plan when offered.") {
-				t.Error("Plan prompt lost its read-only policy or conversation progress exception")
+			if mode == protocol.WorkModePlan && (!strings.Contains(parent, "Do not implement changes or run tools with side effects, except to record conversation progress with update_plan when offered.") || !strings.Contains(parent, "foreground read-only workspace commands")) {
+				t.Error("Plan prompt lost its read-only policy, read-only command guidance, or conversation progress exception")
 			}
 
 			childPolicy := Policy(mode, protocol.PermissionFull, true)
 			child := System(Instruction(true, ""), canonical.Context{Policy: &childPolicy})
+			if mode == protocol.WorkModePlan && !strings.Contains(child, "foreground read-only workspace commands") {
+				t.Error("read-only child prompt lost its read-only command guidance")
+			}
 			if strings.Contains(child, report) || strings.Contains(child, link) || strings.Contains(child, initialPlan) || strings.Contains(child, revisePlan) {
 				t.Error("child prompt includes parent progress instructions")
 			}

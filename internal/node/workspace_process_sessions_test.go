@@ -20,7 +20,7 @@ func TestPromotedCommandNoticeRespectsDelegation(t *testing.T) {
 	var delegation *protocol.Delegation
 	for _, session := range []protocol.Session{{}, {Delegation: &delegation}} {
 		for _, timedOut := range []bool{false, true} {
-			value, _ := node.workspaceToolValue(session, request, output, timedOut).(map[string]any)
+			value, _ := node.workspaceToolValue(session, request, output, timedOut, false).(map[string]any)
 			data, _ := value["data"].(map[string]any)
 			notice, _ := data["notice"].(string)
 			child := session.Delegation != nil

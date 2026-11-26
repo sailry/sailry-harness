@@ -1231,6 +1231,51 @@ func TestReadOnlyChildRoleRefusesMutatingToolWithRoleMessage(t *testing.T) {
 	}
 }
 
+func TestReadOnlyChildRefusesRunCommandWithoutSandboxApproval(t *testing.T) {
+	t.Parallel()
+	f, x := delegationFixture(t)
+	op := protocol.ToolOperationRunCommand
+	cmdTool := objectTool("run_command", false, false, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		t.Errorf("command %s ran without its sandbox approval", call.ID)
+		return ToolResult{}
+	})
+	cmdTool.Binding = &store.ApprovalBinding{Tool: "run_command", Operation: &op}
+	f.r.tools = append(f.r.tools, cmdTool)
+	if err := f.r.captureTools(x); err != nil {
+		t.Fatal(err)
+	}
+	delegation := &protocol.Delegation{
+		Session: protocol.NewSessionID(),
+		Turn:    protocol.NewTurnID(),
+		Entry:   "call-1",
+	}
+	x.inv.Session.Delegation = &delegation
+	x.inv.Turn.Config.Mode = protocol.WorkModePlan
+	x.childRole = &protocol.RoleProfile{Key: "review", Name: "Code review", ReadOnly: true}
+	calls := []canonical.ToolRequest{
+		{ID: "ro-git", Name: "run_command", Arguments: json.RawMessage(`{"command":"git --no-pager diff --stat"}`)},
+		{ID: "mut-cmd", Name: "run_command", Arguments: json.RawMessage(`{"command":"git commit -m nope"}`)},
+	}
+	if err := f.r.runToolBatch(x, x.ctx, store.AgentState{}, calls); err != nil {
+		t.Fatal(err)
+	}
+	responses := map[string]*canonical.ToolResponse{}
+	for _, rec := range f.state().Records {
+		if msg := rec.Message(); msg != nil {
+			for _, block := range msg.Content {
+				if resp, ok := block.Data.(*canonical.ToolResponse); ok {
+					responses[resp.ID] = resp
+				}
+			}
+		}
+	}
+	for _, call := range calls {
+		if got := responses[call.ID]; got == nil || got.Status != canonical.ToolErrorStatus || !strings.Contains(string(got.Result.Value), string(protocol.ErrorCodePermissionDenied)) {
+			t.Fatalf("command %s without sandbox approval was not refused: %+v", call.ID, got)
+		}
+	}
+}
+
 func TestSpawnSchemaAndRoleValidation(t *testing.T) {
 	t.Parallel()
 	decodeJSON := func(t *testing.T, raw string) any {

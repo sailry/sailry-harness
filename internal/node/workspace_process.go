@@ -90,6 +90,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	var run protocol.ConversationRun
 	var root string
 	var attachments []protocol.Attachment
+	var planMode bool
 	followUp := input.FollowUp
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
@@ -99,6 +100,10 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		}
 		if run.Status != protocol.ConversationStatusRunning || run.Kind != protocol.ConversationRunKindTask {
 			return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "task turn is not running"}
+		}
+		planMode, err = store.TurnIsPlanMode(ctx, db, input.Turn)
+		if err != nil {
+			return err
 		}
 		if input.FollowUp || !input.Background {
 			allowed, err := store.CommandFollowUpAllowed(ctx, db, run.Session)
@@ -138,7 +143,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	if input.Description != nil && (strings.TrimSpace(*input.Description) == "" || strings.ContainsRune(*input.Description, 0)) {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command description"}
 	}
-	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background, FollowUp: followUp, Service: input.Service}
+	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background, FollowUp: followUp, Service: input.Service, ReadOnly: planMode}
 	if err = launch.Validate(); err != nil {
 		return protocol.Output{}, err
 	}
@@ -184,6 +189,23 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		}
 		return protocol.Output{}, err
 	}
+	if planMode {
+		// Recheck at launch: a setting change can revoke consent, never
+		// convert the approved workspace command into an unrestricted one.
+		err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			sandbox, err := store.ReadSandboxSettings(ctx, db)
+			if err != nil {
+				return err
+			}
+			return store.CheckPlanRunCommand(input, process.SandboxSupported(), sandbox.Enabled)
+		})
+		if err != nil {
+			if launch.Release != nil {
+				launch.Release()
+			}
+			return protocol.Output{}, err
+		}
+	}
 	gate := make(chan struct{})
 	launch.CompletionGate = gate
 	effect.after = func() { close(gate) }
@@ -202,9 +224,17 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		return protocol.Output{Kind: "command_started", Data: value}, err
 	}
 	foreground := engine.ForegroundToolContext(ctx, operation)
-	promotion, release := node.commandPromotion(foreground, input.Turn)
-	defer release()
-	output, timedOut, err := node.processes.ExecutePromotable(foreground, launch, promotion)
+	var output protocol.Output
+	var timedOut bool
+	if planMode {
+		var result protocol.ProcessCompletion
+		result, err = node.processes.Execute(foreground, launch)
+		output = protocol.Output{Kind: "command_result", Data: result}
+	} else {
+		promotion, release := node.commandPromotion(foreground, input.Turn)
+		defer release()
+		output, timedOut, err = node.processes.ExecutePromotable(foreground, launch, promotion)
+	}
 	effect.timedOut = timedOut
 	if result, ok := output.Data.(protocol.ProcessCompletion); ok && engine.Steered(foreground) {
 		if errors.Is(err, context.Canceled) {

@@ -20,9 +20,9 @@ import (
 
 // Environment reports captured execution facts. Git appends its actual snapshot
 // when that service is available; an unavailable project snapshot is explicit.
-// sandbox is the effective command sandbox: the setting on a supported OS
-// outside Full permission. Commands reread the setting, so a change during the
-// turn appears in the next captured environment.
+// sandbox is the command sandbox setting as applied to the captured mode and
+// permission on a supported OS. Commands reread the setting before launch, so
+// a change during the turn appears in the next captured environment.
 func Environment(now time.Time, model, shell string, project, commands, sandbox bool) string {
 	osName := runtime.GOOS
 	if osName == "darwin" {

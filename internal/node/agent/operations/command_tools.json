@@ -18,7 +18,7 @@
               "unrestricted"
             ],
             "default": "workspace",
-            "description": "Sandboxed workspace mode (macOS/Linux) needs no approval, confines writes to worktree/temp, protects Git metadata, and blocks network. Ordinary external reads do not require unrestricted access. Request unrestricted for external writes or working directories, Git writes, or network access."
+            "description": "In Plan mode and read-only roles, only foreground workspace commands in an enabled, available read-only OS sandbox are permitted, even with Full permission. Use read-only tools if the sandbox is unavailable. In other modes, sandboxed workspace access needs no approval, confines writes to the worktree and temporary directories, protects Git metadata, and blocks network. Request unrestricted for external writes or working directories, Git writes, or network access only outside Plan and read-only roles."
           },
           "description": {
             "type": [

@@ -347,6 +347,9 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		readOnly, concurrent = operations.Policy(spec.Operation)
 	}
 	op := spec.Operation
+	if op == protocol.ToolOperationRunCommand && inv.Turn.Config.Mode == protocol.WorkModePlan {
+		spec.Description = planRunCommandDescription
+	}
 	var mu sync.Mutex
 	calls := map[string]*workspaceToolCall{}
 	preparedArgs := map[string]json.RawMessage{}
@@ -431,22 +434,12 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return err
 			}
 		}
-		sandbox := protocol.DefaultSandboxSettings()
-		if op == protocol.ToolOperationRunCommand {
-			if err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-				var err error
-				sandbox, err = store.ReadSandboxSettings(ctx, db)
-				return err
-			}); err != nil {
-				return err
-			}
-		}
 		if !readOnly {
 			if err := h.node.locks.waitFiles(ctx, root, collectFileArgPaths(op, args)); err != nil {
 				return err
 			}
 		}
-		command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, op, args, root, sandbox.Enabled)
+		command, patchChanges, err := h.node.prepareWorkspaceToolCommand(ctx, inv, op, args, root)
 		if err != nil {
 			return err
 		}
@@ -531,7 +524,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			if err != nil {
 				return workspaceToolFault(err)
 			}
-			value := h.node.workspaceToolValue(inv.Session, request, scope.result(output), false)
+			value := h.node.workspaceToolValue(inv.Session, request, scope.result(output), false, inv.Turn.Config.Mode == protocol.WorkModePlan)
 			result := engine.ToolResult{Value: value, ReturnedError: workspaceOutputFailed(output), ReturnedFailure: workspaceOutputFailure(output)}
 			if cfg.FormatResult != nil && result.Failure == nil {
 				result = cfg.FormatResult(ctx, args, result)
@@ -574,7 +567,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		if effectErr != nil {
 			return workspaceToolFault(effectErr)
 		}
-		value := h.node.workspaceToolValue(inv.Session, request, output, effect.timedOut)
+		value := h.node.workspaceToolValue(inv.Session, request, output, effect.timedOut, inv.Turn.Config.Mode == protocol.WorkModePlan)
 		if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && output.Kind == "artifact_written" {
 			value = map[string]any{"kind": output.Kind, "data": output.Data, "sailry_content": protocol.ToolContent{Version: 1,
 				Blocks: []protocol.ToolContentBlock{{Kind: "artifact", Data: protocol.ToolContentBlockArtifactPayload{Artifact: written.Artifact}}}}}

@@ -153,4 +153,38 @@ printf ok > work.txt
 	}
 }
 
+func TestNativeSandboxReadOnlyDeniesWorkspaceWrites(t *testing.T) {
+	ctx := context.Background()
+	home, profile, root := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "readme.txt"), []byte("hello-readonly"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(Options{Profile: profile, Environment: NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + home}), CaptureManaged: CaptureWorkspaceBoundary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	cmd := `set -eu
+test "$(cat readme.txt)" = "hello-readonly"
+printf scratch-ok > "$TMPDIR/scratch.txt"
+test "$(cat "$TMPDIR/scratch.txt")" = "scratch-ok"
+if printf mut > mutated.txt 2>/dev/null; then exit 21; fi
+if printf mut >> readme.txt 2>/dev/null; then exit 22; fi
+`
+	result, err := service.Execute(ctx, Launch{
+		ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(),
+		Root: root, Command: cmd, Access: protocol.ProcessAccessWorkspace, ReadOnly: true, TimeoutMs: 10000,
+	})
+	if err != nil || result.Outcome.Kind != "exited" {
+		t.Fatalf("read-only sandbox check failed: %+v, %v", result, err)
+	}
+	if code, ok := result.Outcome.Data.(int32); !ok || code != 0 {
+		t.Fatalf("read-only sandbox check exited %v: stdout=%q stderr=%q", result.Outcome.Data, result.Stdout.Text, result.Stderr.Text)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mutated.txt")); !os.IsNotExist(err) {
+		t.Fatalf("read-only sandbox allowed creating mutated.txt: %v", err)
+	}
+}
+
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }

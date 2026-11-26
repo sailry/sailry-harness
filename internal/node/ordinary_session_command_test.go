@@ -51,6 +51,13 @@ func ordinarySessionCommandFixture(t *testing.T, script *agentToolScript, option
 	return node, config
 }
 
+func setCommandSandbox(t *testing.T, node *Node, enabled bool) {
+	t.Helper()
+	current := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
+	current.Enabled = enabled
+	commandFixture(t, node, protocol.Command{Kind: "save_sandbox_settings", Data: &current})
+}
+
 func ordinarySessionStarted(t *testing.T, ctx context.Context, subscription link.Subscription, turn protocol.QueuedTurn) protocol.Session {
 	t.Helper()
 	for {
@@ -120,7 +127,7 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 	const command = "echo command fixture"
 	const stdout = "command fixture\n"
 	script := &agentToolScript{}
-	launches := make(chan process.Launch, 2)
+	launches := make(chan process.Launch, 8)
 	node, defaults := ordinarySessionCommandFixture(t, script, process.Options{Run: func(ctx context.Context, launch process.Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 		select {
 		case launches <- launch:
@@ -140,12 +147,16 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 		cwd        string
 	}{
 		{name: "explicit Code and Full", explicit: true, mode: protocol.WorkModeCode, permission: protocol.PermissionFull},
+		{name: "explicit Plan and Full", explicit: true, mode: protocol.WorkModePlan, permission: protocol.PermissionFull},
 		{name: "saved Plan and Ask", mode: protocol.WorkModePlan, permission: protocol.PermissionAsk},
 		{name: "saved Code and Ask", mode: protocol.WorkModeCode, permission: protocol.PermissionAsk, cwd: "subdir"},
 	} {
 		if !t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
+			if test.mode == protocol.WorkModePlan {
+				defer setCommandSandbox(t, node, true)
+			}
 			saved := defaults
 			if !test.explicit {
 				saved.Mode, saved.Permission = test.mode, test.permission
@@ -165,10 +176,10 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 				args["cwd"] = test.cwd
 			}
 			wantAccess, wantSource, sandbox := protocol.ProcessAccessUnrestricted, protocol.ConversationApprovalSourceFull, "disabled"
-			if test.permission == protocol.PermissionAsk {
+			if test.mode == protocol.WorkModePlan || test.permission == protocol.PermissionAsk {
 				if process.SandboxSupported() {
 					wantAccess, wantSource, sandbox = protocol.ProcessAccessWorkspace, protocol.ConversationApprovalSourceSandbox, "enabled"
-				} else {
+				} else if test.mode != protocol.WorkModePlan {
 					args["access"], wantSource = string(protocol.ProcessAccessUnrestricted), protocol.ConversationApprovalSourceUser
 				}
 			}
@@ -179,8 +190,27 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 			script.reset(func(step int, results map[string]string) [][3]string {
 				switch step {
 				case 1:
+					if test.mode == protocol.WorkModePlan {
+						return [][3]string{
+							{"launch", "run_command", string(arguments)},
+							{"escape", "run_command", `{"command":"echo escape","access":"unrestricted"}`},
+							{"background", "run_command", `{"command":"pwd","background":true}`},
+							{"service", "run_command", `{"command":"pwd","background":true,"service":true}`},
+							{"pty", "run_command", `{"command":"pwd","background":true,"pty":true}`},
+						}
+					}
 					return [][3]string{{"launch", "run_command", string(arguments)}}
 				case 2:
+					if test.mode == protocol.WorkModePlan {
+						// A new call in the same admitted turn must honor the
+						// changed setting, including for a previously allowlisted command.
+						setCommandSandbox(t, node, false)
+						calls := [][3]string{{"disabled", "run_command", `{"command":"pwd"}`}}
+						if call, ok := ordinaryCommandReadCall("read", results["launch"]); ok {
+							calls = append(calls, call)
+						}
+						return calls
+					}
 					if call, ok := ordinaryCommandReadCall("read", results["launch"]); ok {
 						return [][3]string{call}
 					}
@@ -266,8 +296,27 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 			}
 			launchResult := script.results["launch"]
 			if test.mode == protocol.WorkModePlan {
-				if len(launches) != 0 || len(approvals) != 0 || !strings.Contains(launchResult, "planning mode permits read-only tools") {
-					t.Fatalf("Plan command produced %d launches, %d approvals, and receipt %q", len(launches), len(approvals), launchResult)
+				for _, id := range []string{"escape", "background", "service", "pty", "disabled"} {
+					if result := script.results[id]; !strings.Contains(result, "permission_denied") || !strings.Contains(result, "planning mode permits only") {
+						t.Errorf("Plan command %s was not refused: %q", id, result)
+					}
+				}
+				if !process.SandboxSupported() {
+					if len(launches) != 0 || len(approvals) != 0 || !strings.Contains(launchResult, "planning mode permits only") {
+						t.Fatalf("Plan command without sandbox produced %d launches, %d approvals, and receipt %q", len(launches), len(approvals), launchResult)
+					}
+					return
+				}
+				if len(launches) != 1 {
+					t.Fatalf("Plan sandboxed command produced %d launches and receipt %q", len(launches), launchResult)
+				}
+				id := expectOrdinaryCommandReadback(t, launchResult, script.results["read"], stdout)
+				launch := <-launches
+				if launch.ID != id || !launch.ReadOnly || launch.Access != protocol.ProcessAccessWorkspace || launch.Background || launch.Service || launch.Pty {
+					t.Fatalf("Plan sandboxed launch was not confined read-only: %+v", launch)
+				}
+				if len(approvals) != 1 || approvals[0].State != protocol.ConversationApprovalStateApproved || approvals[0].Source != protocol.ConversationApprovalSourceSandbox || approvals[0].Access == nil || *approvals[0].Access != protocol.ProcessAccessWorkspace {
+					t.Fatalf("Plan sandboxed approval = %+v", approvals)
 				}
 				return
 			}
@@ -276,7 +325,7 @@ func TestOrdinarySessionCommandRoundTrip(t *testing.T) {
 			}
 			id := expectOrdinaryCommandReadback(t, launchResult, script.results["read"], stdout)
 			launch := <-launches
-			if launch.ID != id || launch.Session != session.ID || launch.Turn != turn.ID || launch.Worktree != session.Worktree || launch.Root != root || launch.Cwd != test.cwd || launch.Access != wantAccess || launch.Command != command || launch.Background {
+			if launch.ID != id || launch.Session != session.ID || launch.Turn != turn.ID || launch.Worktree != session.Worktree || launch.Root != root || launch.Cwd != test.cwd || launch.Access != wantAccess || launch.ReadOnly || launch.Command != command || launch.Background {
 				t.Fatalf("unexpected launch for %q with cwd %q and access %s: %+v", root, test.cwd, wantAccess, launch)
 			}
 			if len(approvals) != 1 || approvals[0].State != protocol.ConversationApprovalStateApproved || approvals[0].Source != wantSource || approvals[0].Access == nil || *approvals[0].Access != wantAccess {

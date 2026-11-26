@@ -26,6 +26,9 @@ type Launch struct {
 	Command    string
 	Stdin      string // Foreground input, written verbatim and followed by EOF.
 	Access     protocol.ProcessAccess
+	// ReadOnly confines a sandboxed command's workspace root to read-only while
+	// keeping its private temporary scratch directory writable.
+	ReadOnly   bool
 	Cwd        string
 	TimeoutMs  uint64
 	Pty        bool

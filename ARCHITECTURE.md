@@ -910,11 +910,18 @@ shells as one list. Node assigns both a shared creation sequence and records the
 last title or activity change for project shells.
 Command input is discoverable on demand. On the first request, Harness exposes
 everyday file reads, discovery, search, writes, edits and patches, command run,
-read and stop, and progress tools. A product that assembles Git exposes status
-and diff. Native modules can expose composite tools through their catalogs.
-Sailry Code exposes code_context for symbol lookups with source excerpts when
-the index is available. Other index tools, extra Git subcommands and web tools
-are discoverable on demand.
+read and stop, and progress tools. Native modules can expose composite tools
+through their catalogs. Sailry Code exposes `code_context` for symbol lookups
+with source excerpts when the index is available; agents inspect Git through
+shell commands instead of separate Git tools. Plan mode and read-only delegated
+roles take precedence over Full permission. Their `run_command` calls require
+foreground workspace access and an enabled, available OS sandbox with a read-only
+worktree, writable private scratch and no network. They cannot use unrestricted
+access, background execution, services or a PTY, and a foreground command never
+promotes to the background. The Node rechecks the sandbox setting at launch;
+disabling it can revoke an approval, not broaden the approved access. Without
+the sandbox, use dedicated read-only tools. Other index tools and web tools are
+discoverable on demand.
 `tool_search` discovers other declared tools under the captured permission.
 Provider prompt caches key on the declared tools and system prompt before the
 history, so loading never changes either: a turn declares its initial tools,

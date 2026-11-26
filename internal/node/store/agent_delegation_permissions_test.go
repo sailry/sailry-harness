@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -62,24 +63,69 @@ func TestChildPermissionInheritance(t *testing.T) {
 					if !readOnly {
 						return nil
 					}
-					// Both native and plugin command admission must respect Plan,
-					// including a read-only child that inherited Full permission.
-					for _, access := range []protocol.ProcessAccess{protocol.ProcessAccessWorkspace, protocol.ProcessAccessUnrestricted} {
+					// A read-only child keeps the parent's permission but can run
+					// commands only in the enabled, read-only OS sandbox.
+					{
 						input := protocol.DefaultCommandRunCommandPayload()
-						input.Turn, input.Command, input.Access = child.Run.Turn, "git --no-pager diff", access
+						input.Turn, input.Command, input.Access = child.Run.Turn, "git --no-pager diff", protocol.ProcessAccessWorkspace
+						command := protocol.Command{Kind: "run_command", Data: &input}
+						approval := protocol.DefaultConversationApproval()
+						approval.Session, approval.Turn = child.Session.ID, child.Run.Turn
+						approval.State, approval.Source = protocol.ConversationApprovalStatePending, protocol.ConversationApprovalSourceUser
+						settled, err := ConfigureWorkspaceApproval(ctx, db, child.Run.Turn, approval, protocol.ToolOperationRunCommand, command, nil)
+						if process.SandboxSupported() {
+							if err != nil || settled.State != protocol.ConversationApprovalStateApproved || settled.Source != protocol.ConversationApprovalSourceSandbox {
+								return fmt.Errorf("read-only child refused read-only workspace command: %+v, %v", settled, err)
+							}
+						} else if !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+							return fmt.Errorf("read-only child authorized a command on an unsupported OS: %v", err)
+						}
+					}
+					{
+						input := protocol.DefaultCommandRunCommandPayload()
+						input.Turn, input.Command, input.Access = child.Run.Turn, "git --no-pager diff", protocol.ProcessAccessUnrestricted
 						command := protocol.Command{Kind: "run_command", Data: &input}
 						approval := protocol.DefaultConversationApproval()
 						approval.Session, approval.Turn = child.Session.ID, child.Run.Turn
 						approval.State, approval.Source = protocol.ConversationApprovalStateApproved, protocol.ConversationApprovalSourceFull
 						if _, err := ConfigureWorkspaceApproval(ctx, db, child.Run.Turn, approval, protocol.ToolOperationRunCommand, command, nil); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
-							return fmt.Errorf("read-only child authorized native %s command: %v", access, err)
+							return fmt.Errorf("read-only child authorized unrestricted command while sandbox enabled: %v", err)
 						}
+					}
+					{
+						input := protocol.DefaultCommandRunCommandPayload()
+						input.Turn, input.Command, input.Access, input.Background = child.Run.Turn, "git status", protocol.ProcessAccessWorkspace, true
+						command := protocol.Command{Kind: "run_command", Data: &input}
+						approval := protocol.DefaultConversationApproval()
+						approval.Session, approval.Turn = child.Session.ID, child.Run.Turn
+						approval.State, approval.Source = protocol.ConversationApprovalStateApproved, protocol.ConversationApprovalSourceFull
+						if _, err := ConfigureWorkspaceApproval(ctx, db, child.Run.Turn, approval, protocol.ToolOperationRunCommand, command, nil); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+							return fmt.Errorf("read-only child authorized background command: %v", err)
+						}
+					}
+					for _, access := range []protocol.ProcessAccess{protocol.ProcessAccessWorkspace, protocol.ProcessAccessUnrestricted} {
+						input := protocol.DefaultCommandRunCommandPayload()
+						input.Turn, input.Command, input.Access = child.Run.Turn, "git --no-pager diff", access
+						command := protocol.Command{Kind: "run_command", Data: &input}
 						scope := protocol.DefaultPluginContext()
 						scope.Worktree, scope.Session, scope.Turn = &child.Session.Worktree, &child.Session.ID, &child.Run.Turn
 						request := protocol.Request{Plugin: &scope, Command: command}
 						if err := CheckPluginPlanAction(ctx, db, request, protocol.PluginActionControlCommands); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
 							return fmt.Errorf("read-only child authorized plugin %s command: %v", access, err)
 						}
+					}
+					sandbox, err := ReadSandboxSettings(ctx, db)
+					if err != nil {
+						return err
+					}
+					sandbox.Enabled = false
+					if _, err := SaveSandboxSettings(ctx, db, sandbox); err != nil {
+						return err
+					}
+					input := protocol.DefaultCommandRunCommandPayload()
+					input.Turn, input.Command, input.Access = child.Run.Turn, "git status", protocol.ProcessAccessWorkspace
+					if _, err := ConfigureWorkspaceApproval(ctx, db, child.Run.Turn, protocol.DefaultConversationApproval(), protocol.ToolOperationRunCommand, protocol.Command{Kind: "run_command", Data: &input}, nil); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+						return fmt.Errorf("read-only child authorized a workspace command after the sandbox was disabled: %v", err)
 					}
 					return nil
 				})

@@ -159,7 +159,7 @@ func prepareSandbox(launch Launch, environment Environment, captureManaged func(
 			cleanup()
 		}
 	}()
-	policy.paths = append(policy.paths, allowedPath{root, true}, allowedPath{scratch, true})
+	policy.paths = append(policy.paths, allowedPath{root, !launch.ReadOnly}, allowedPath{scratch, true})
 	if launch.Inputs != "" {
 		inputs, err := filepath.EvalSymlinks(launch.Inputs)
 		if err != nil {

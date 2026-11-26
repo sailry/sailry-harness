@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
-	"runtime"
 
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -21,10 +21,31 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 		return storageApproval(ctx, db, value)
 	}
 	if capture.Config.Mode == protocol.WorkModePlan {
+		if operation == protocol.ToolOperationRunCommand {
+			input := command.Data.(*protocol.CommandRunCommandPayload)
+			sandbox, err := ReadSandboxSettings(ctx, db)
+			if err != nil {
+				return value, err
+			}
+			if err := CheckPlanRunCommand(*input, process.SandboxSupported(), sandbox.Enabled); err != nil {
+				return value, err
+			}
+			access := input.Access
+			value.Access = &access
+			value.State = protocol.ConversationApprovalStateApproved
+			value.Source = protocol.ConversationApprovalSourceSandbox
+			value.CanRemember = false
+			value.Prefix = nil
+			value.Choice = nil
+			if err = putApproval(ctx, db, value); err != nil {
+				return value, err
+			}
+			return value, nil
+		}
 		return value, fault(protocol.ErrorCodePermissionDenied, "planning turns cannot authorize tools with side effects")
 	}
 	value.Changes = changes
-	supported := runtime.GOOS == "darwin" || runtime.GOOS == "linux"
+	supported := process.SandboxSupported()
 	if operation == protocol.ToolOperationRunCommand {
 		input := command.Data.(*protocol.CommandRunCommandPayload)
 		access := input.Access
@@ -112,6 +133,9 @@ func ApprovedWorkspaceRequest(ctx context.Context, db *sql.Conn, turn protocol.T
 		return fault(protocol.ErrorCodePermissionDenied, "tool operation differs from its admitted approval")
 	}
 	input, command := request.Command.Data.(*protocol.CommandRunCommandPayload)
+	if command && input.Turn != turn {
+		return fault(protocol.ErrorCodePermissionDenied, "prepared command turn differs from approval")
+	}
 	if command && (value.Access == nil || *value.Access != input.Access) {
 		return fault(protocol.ErrorCodePermissionDenied, "prepared command access differs from approval")
 	}

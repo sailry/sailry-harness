@@ -1039,6 +1039,12 @@ func TestAgentManagementTools(t *testing.T) {
 	})
 
 	t.Run("plan mode", func(t *testing.T) {
+		// list_agents reports the catalog, not a built-in roster. Seed this
+		// fixture here so the subtest does not rely on a prior permission test.
+		role := protocol.DefaultRoleProfile()
+		role.ID, role.Key, role.Name, role.ReadOnly = protocol.NewRoleID(), "plan-reader", "Plan reader", true
+		role = commandFixture(t, node, protocol.Command{Kind: "put_role", Data: protocol.CommandPutRolePayload{Role: role}}).Data.(protocol.RoleProfile)
+		setCommandSandbox(t, node, false)
 		var results map[string]string
 		_, approvals, history := turn(t, protocol.WorkModePlan, protocol.PermissionFull, func(protocol.ConversationApproval) string {
 			t.Fatal("plan mode must not ask")
@@ -1072,11 +1078,11 @@ func TestAgentManagementTools(t *testing.T) {
 			"mcp-install":   {"MCP mutations are unavailable in Plan mode"},
 			"skills":        {`{"skills":[]}`},
 			"skill-remove":  {"skill installation changes are unavailable in Plan mode"},
-			"agents":        {`"key":"writer"`},
+			"agents":        {`{"agents":[`, `"id":"` + role.ID.String() + `"`, `"key":"plan-reader"`},
 			"agent":         {"planning mode permits read-only tools"},
 			"keep":          {"planning mode permits read-only tools"},
 			"ocr-install":   {"planning mode permits read-only tools"},
-			"command":       {"planning mode permits read-only tools"},
+			"command":       {"planning mode permits only commands in an enabled read-only OS sandbox"},
 		})
 		expectCodes(t, history, map[string]protocol.ErrorCode{
 			"plugin-remove": protocol.ErrorCodePermissionDenied, "mcp-install": protocol.ErrorCodePermissionDenied,
@@ -1085,6 +1091,10 @@ func TestAgentManagementTools(t *testing.T) {
 		})
 		if len(approvals) != 0 {
 			t.Fatalf("plan mode recorded approvals: %+v", approvals)
+		}
+		roles := commandFixture(t, node, protocol.Command{Kind: "list_roles"}).Data.([]protocol.RoleProfile)
+		if slices.ContainsFunc(roles, func(entry protocol.RoleProfile) bool { return entry.Key == "planner" }) {
+			t.Fatalf("plan mode edited the agent catalog: %+v", roles)
 		}
 		installed := commandFixture(t, node, protocol.Command{Kind: "list_plugins"}).Data.([]protocol.PluginSummary)
 		if !slices.ContainsFunc(installed, func(entry protocol.PluginSummary) bool { return entry.Name == "roles-fixture" }) ||

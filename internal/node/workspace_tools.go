@@ -72,9 +72,28 @@ func (node *Node) refreshWorkspacePatch(ctx context.Context, call *workspaceTool
 	return nil
 }
 
-func prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation, op protocol.ToolOperation, args json.RawMessage, root string, sandbox bool) (protocol.Command, *files.Prepared, error) {
+func (node *Node) prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation, op protocol.ToolOperation, args json.RawMessage, root string) (protocol.Command, *files.Prepared, error) {
 	if op != protocol.ToolOperationApplyChanges {
-		command, err := operations.Command(op, args, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox && inv.Turn.Config.Permission != protocol.PermissionFull)
+		var sandbox protocol.SandboxSettings
+		if op == protocol.ToolOperationRunCommand {
+			// Commands follow the current setting, not the one at turn start.
+			if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var err error
+				sandbox, err = store.ReadSandboxSettings(ctx, db)
+				return err
+			}); err != nil {
+				return protocol.Command{}, nil, err
+			}
+		}
+		// Plan takes precedence over Full. Preserve explicit access so an
+		// unrestricted request is refused rather than silently rewritten.
+		planning := op == protocol.ToolOperationRunCommand && inv.Turn.Config.Mode == protocol.WorkModePlan
+		workspaceAccess := planning || sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull
+		command, err := operations.Command(op, args, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, workspaceAccess)
+		if err == nil && planning {
+			input := command.Data.(*protocol.CommandRunCommandPayload)
+			err = store.CheckPlanRunCommand(*input, process.SandboxSupported(), sandbox.Enabled)
+		}
 		return command, nil, err
 	}
 	var patch struct {
@@ -91,6 +110,7 @@ func prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation
 }
 
 const childRunCommandDescription = "Run a command on the Node. Provide a short description and use the admitted worktree by default. The foreground timeout defaults to 120000 ms. For longer work use background=true, then read_command with wait_ms to collect the result before returning to the parent. Background commands stop when the delegated task ends. Use pty=true with background=true for a command that needs a terminal. Output reports truncation. Invoke the tool directly so it can obtain consent when needed."
+const planRunCommandDescription = "Run a foreground command in the admitted workspace's read-only OS sandbox, only when the sandbox is enabled and available. No workspace writes, network, unrestricted access, background commands, services, or PTY. Otherwise use dedicated read-only tools."
 
 func releasePrepared[T any](mu *sync.Mutex, calls map[string]T) func(canonical.ToolRequest) {
 	return func(call canonical.ToolRequest) {
@@ -161,6 +181,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			}
 			declaration.Description = childRunCommandDescription
 		}
+		if declaration.Operation == protocol.ToolOperationRunCommand && inv.Turn.Config.Mode == protocol.WorkModePlan {
+			declaration.Description = planRunCommandDescription
+		}
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
@@ -184,20 +207,6 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			tool.ObserveHistory = observed.update
 		}
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
-			sandbox := protocol.DefaultSandboxSettings()
-			if declaration.Operation == protocol.ToolOperationRunCommand {
-				// Each command follows the setting as it is now, not as it
-				// was when the turn started.
-				if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-					var err error
-					sandbox, err = store.ReadSandboxSettings(ctx, db)
-					return err
-				}); err != nil {
-					return err
-				}
-			}
-			// Full access is the admitted turn's policy, including for children.
-			// Normalize access before approval captures the command to execute.
 			arguments, err := observed.resolve(declaration.Operation, call.Arguments)
 			if err != nil {
 				return err
@@ -207,7 +216,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					return err
 				}
 			}
-			command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, declaration.Operation, arguments, inv.Worktree.Path, sandbox.Enabled)
+			command, patchChanges, err := node.prepareWorkspaceToolCommand(ctx, inv, declaration.Operation, arguments, inv.Worktree.Path)
 			if err != nil {
 				return err
 			}
@@ -351,7 +360,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					}
 				}
 			}
-			value := node.workspaceToolValue(inv.Session, request, output, effect.timedOut)
+			value := node.workspaceToolValue(inv.Session, request, output, effect.timedOut, inv.Turn.Config.Mode == protocol.WorkModePlan)
 			// A written artifact is delivered as its card, whichever package's
 			// tool wrote it: the Node stamps the summary it committed.
 			if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && output.Kind == "artifact_written" {
@@ -510,7 +519,7 @@ func workspaceOutputFailure(output protocol.Output) *protocol.ToolFailure {
 	}
 	return failure
 }
-func (node *Node) workspaceToolValue(session protocol.Session, request protocol.Request, output protocol.Output, timedOut bool) any {
+func (node *Node) workspaceToolValue(session protocol.Session, request protocol.Request, output protocol.Output, timedOut, planning bool) any {
 	if value, shaped := codeToolValue(output); shaped {
 		return value
 	}
@@ -580,7 +589,11 @@ func (node *Node) workspaceToolValue(session protocol.Session, request protocol.
 			for _, diagnostic := range []string{"operation not permitted", "permission denied", "sandbox", "dyld:", "dyld[", "could not resolve host", "network is unreachable"} {
 				if strings.Contains(lower, diagnostic) {
 					if data, ok := value["data"].(map[string]any); ok {
-						data["sandbox_notice"] = "This command ran in the workspace sandbox: network access is disabled, writes are limited to the worktree and temporary directories, and existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Git writes, including git init, git add and git commit, require access=\"unrestricted\" under the current permission policy. If sandbox restrictions caused the failure, inspect any partial changes before requesting unrestricted access to retry. Unrestricted access does not override operating-system permissions."
+						if planning {
+							data["sandbox_notice"] = "This command ran in a read-only workspace sandbox with no network. Unrestricted access is unavailable in Plan mode and read-only roles. Use dedicated read-only tools if the sandbox prevents inspection."
+						} else {
+							data["sandbox_notice"] = "This command ran in the workspace sandbox: network access is disabled, writes are limited to the worktree and temporary directories, and existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Git writes, including git init, git add and git commit, require access=\"unrestricted\" under the current permission policy. If sandbox restrictions caused the failure, inspect any partial changes before requesting unrestricted access to retry. Unrestricted access does not override operating-system permissions."
+						}
 					}
 					break
 				}

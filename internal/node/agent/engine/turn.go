@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -373,8 +372,8 @@ func (r *Runtime) turn(x *execution) error {
 			policy += "\n\n" + addition
 		}
 	}
-	// Full permission and unsupported systems run commands outside the sandbox
-	// whatever the setting says; the model is told the effective state.
+	// Full bypasses the sandbox only outside Plan. The prompt describes
+	// the setting at admission; launches also require an actual OS sandbox.
 	sandbox := protocol.DefaultSandboxSettings()
 	if err = r.db.Read(x.ctx, func(db *sql.Conn) error {
 		var err error
@@ -383,7 +382,7 @@ func (r *Runtime) turn(x *execution) error {
 	}); err != nil {
 		return err
 	}
-	sandboxed := sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull && (runtime.GOOS == "darwin" || runtime.GOOS == "linux")
+	sandboxed := sandbox.Enabled && process.SandboxSupported() && (inv.Turn.Config.Mode == protocol.WorkModePlan || inv.Turn.Config.Permission != protocol.PermissionFull)
 	commands := capturedModel(binding).Tools && findTool(x.tools, "run_command") != nil
 	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, process.NewEnvironment(os.Environ()).Shell(), inv.Worktree.Project != nil, commands, sandboxed)
 	personal, err := prompt.CapturePersonal(x.ctx, r.profile)

@@ -1,1 +1,1 @@
-This delegated task is read-only. Gather evidence with read-only tools, make no changes and run no tools with side effects, then report your findings.
+This delegated task is read-only, even with Full permission. Use dedicated read-only tools and, only when the Node's OS sandbox is enabled and available, foreground read-only workspace commands. No unrestricted commands, background commands, services, or PTY. Make no changes, run no tools with side effects, and report your findings.

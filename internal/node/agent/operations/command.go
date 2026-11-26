@@ -11,7 +11,7 @@ import (
 
 // Command binds model arguments to immutable turn resources. Resource identity
 // never comes from an untrusted tool argument except an explicit worktree tool.
-func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktree protocol.WorktreeID, session protocol.SessionID, turn protocol.TurnID, project *protocol.ProjectID, sandbox bool) (protocol.Command, error) {
+func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktree protocol.WorktreeID, session protocol.SessionID, turn protocol.TurnID, project *protocol.ProjectID, workspaceAccess bool) (protocol.Command, error) {
 	var values map[string]any
 	if err := json.Unmarshal(arguments, &values); err != nil {
 		return protocol.Command{}, err
@@ -127,9 +127,10 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 	case "process.run":
 		kind = "run_command"
 		set("turn", turn)
-		// With the sandbox setting off every command is unrestricted, a
-		// requested workspace access included.
-		if !sandbox {
+		// The caller selects whether workspace access is an option before
+		// approval captures the command. When it is, preserve any explicit
+		// access so the caller can reject unrestricted requests in Plan mode.
+		if !workspaceAccess {
 			set("access", "unrestricted")
 		} else if values["access"] == nil {
 			set("access", "workspace")

@@ -40,7 +40,7 @@ func missingRoleTools(role protocol.RoleProfile, mode protocol.WorkMode, modelTo
 	readOnly := role.ReadOnly || mode == protocol.WorkModePlan
 	for _, selection := range *role.Tools {
 		if !modelTools || !slices.ContainsFunc(tools, func(tool Tool) bool {
-			return (!readOnly || tool.ReadOnly) && roleToolMatches(selection, tool, legacy)
+			return (!readOnly || tool.ReadOnly || isPlanRunCommand(&tool)) && roleToolMatches(selection, tool, legacy)
 		}) {
 			missing = append(missing, roleToolLabel(selection))
 		}

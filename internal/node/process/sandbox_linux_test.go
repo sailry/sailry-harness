@@ -167,3 +167,32 @@ func TestSandboxProtectedParentsLinux(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxArgsLinuxReadOnly(t *testing.T) {
+	t.Parallel()
+	root, scratch := t.TempDir(), t.TempDir()
+	args, err := sandboxArgsLinux(sandboxPolicy{
+		paths:     []allowedPath{{root, false}, {scratch, true}},
+		protected: []string{filepath.Join(root, ".git")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := func(flag, path string) int {
+		for i := 0; i+2 < len(args); i++ {
+			if args[i] == flag && args[i+1] == path && args[i+2] == path {
+				return i
+			}
+		}
+		return -1
+	}
+	if index("--bind", root) >= 0 {
+		t.Fatalf("read-only sandbox mounted workspace writable: %v", args)
+	}
+	if index("--ro-bind", root) < 0 {
+		t.Fatalf("read-only sandbox did not mount workspace read-only: %v", args)
+	}
+	if index("--bind", scratch) < 0 {
+		t.Fatalf("read-only sandbox did not mount scratch writable: %v", args)
+	}
+}
