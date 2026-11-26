@@ -365,7 +365,7 @@ func (r *Runtime) rememberConfig(config protocol.SessionConfig, team string) {
 	r.localRuntime().Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Team: team, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
 }
 
-func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) ([]composer.Reference, []composer.Reference) {
+func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State, offered []composer.Model, models []composer.Reference) ([]composer.Reference, []composer.Reference) {
 	snapshot := r.snapshot()
 	locations := []composer.Reference{{ID: "host", Kind: composer.Location, Label: "local_host_name", Key: true, Icon: icons.Monitor}}
 	for _, project := range snapshot.Projects {
@@ -384,11 +384,13 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 	}
 	refs := []composer.Reference{{ID: "context", Kind: composer.Page, Label: "reference_context", Key: true, Group: "reference_group_context", Icon: icons.Folder, Children: locations}}
 	var sessions []composer.Reference
+	current, _ := protocol.ParseSessionID(cv.ID)
+	project, projectErr := protocol.ParseProjectID(comp.Project)
 	for _, s := range r.filterRemovedSessions(snapshot.Sessions) {
-		if s.ID.String() == cv.ID || s.Archived {
+		if s.ID == current || s.Archived {
 			continue
 		}
-		same := s.Project == nil && comp.Project == "" || s.Project != nil && s.Project.String() == comp.Project
+		same := s.Project == nil && comp.Project == "" || s.Project != nil && projectErr == nil && *s.Project == project
 		if same {
 			sessions = append(sessions, composer.Reference{ID: s.ID.String(), Kind: composer.Session, Label: s.Activity.Title, Icon: icons.Chat})
 		}
@@ -396,11 +398,7 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 	if len(sessions) > 0 {
 		refs = append(refs, composer.Reference{ID: "sessions", Kind: composer.Page, Label: "reference_sessions", Key: true, Group: "reference_group_context", Icon: icons.Chat, Children: sessions})
 	}
-	var models, efforts []composer.Reference
-	offered := r.offeredModels(cv.ID, r.models())
-	for _, m := range offered {
-		models = append(models, composer.Reference{ID: m.ID, Kind: composer.ModelCommand, Label: m.Name, Insert: m.ID, Description: m.Provider, Icon: icons.Bot})
-	}
+	var efforts []composer.Reference
 	chosen := comp.Chosen(offered)
 	for _, e := range chosen.Efforts {
 		efforts = append(efforts, composer.Reference{ID: e, Kind: composer.EffortCommand, Label: e, Insert: e, Icon: icons.Bot})

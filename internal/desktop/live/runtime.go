@@ -161,10 +161,11 @@ type Runtime struct {
 	drafts                    uint64
 	openDrafts                map[string]bool // drafts New session opened, on the local Runtime
 	draftsShown               map[string]bool // those a pane showed this frame
-	lastPreferences           string
+	lastPreferences           preferences.Data
 	lastMaterials             [3]float32
-	lastFeatures              string
-	lastKeys                  string
+	lastFeatureOrder          []string
+	lastFeaturePins           map[string]bool
+	lastKeys                  map[string]string
 	powerObservedRevision     uint64
 	powerSaving               map[protocol.PowerSettings]func() bool
 	compactionObserved        uint64

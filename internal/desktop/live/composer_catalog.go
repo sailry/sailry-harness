@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -21,6 +22,7 @@ type composerCatalog struct {
 	families             []composer.Family
 	referencesKey        composerCatalogKey
 	references, commands []composer.Reference
+	modelCommands        []composer.Reference
 }
 
 // composerCatalogKey is what a catalog part is derived from: the Client
@@ -87,6 +89,12 @@ func (r *Runtime) projectComposerModels(c *ui.Context, cv *viewmodel.Conversatio
 	if key := r.composerCatalogKey(c, cv, comp); catalog.modelsKey != key {
 		catalog.modelsKey = key
 		models := r.offeredModels(cv.ID, ctx.Models)
+		// Slash commands show the provider's original name. The model picker
+		// below also identifies the host that supplied a forwarded model.
+		catalog.modelCommands = make([]composer.Reference, len(models))
+		for i, model := range models {
+			catalog.modelCommands[i] = composer.Reference{ID: model.ID, Kind: composer.ModelCommand, Label: model.Name, Insert: model.ID, Description: model.Provider, Icon: icons.Bot}
+		}
 		r.nameModelSources(c, cv.ID, models)
 		members := r.memberModels(models)
 		for i := range models {
@@ -111,7 +119,7 @@ func (r *Runtime) catalogReferences(c *ui.Context, cv *viewmodel.Conversation, c
 	catalog := r.composerCatalog(cv.ID)
 	if key := r.composerCatalogKey(c, cv, comp); catalog.referencesKey != key {
 		catalog.referencesKey = key
-		references, commands := r.references(cv, comp)
+		references, commands := r.references(cv, comp, catalog.models, catalog.modelCommands)
 		catalog.references, catalog.commands = slices.Clip(references), slices.Clip(commands)
 	}
 	return catalog.references, catalog.commands

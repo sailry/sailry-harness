@@ -3,6 +3,7 @@ package live
 import (
 	"encoding/json"
 	"maps"
+	"reflect"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -14,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 var updateChannels = []string{"stable", "experience"}
@@ -102,10 +104,9 @@ func (r *Runtime) applyPreferences() {
 	if d.WelcomeSeen != nil {
 		a.SetWelcome(*d.WelcomeSeen)
 	}
-	order, pins = a.FeaturePreferences()
-	r.lastFeatures = encoded([]any{order, pins})
-	r.lastKeys = encoded(m.Keys.Overrides())
-	r.lastPreferences = encoded(d)
+	r.lastFeatureOrder, r.lastFeaturePins = a.FeaturePreferences()
+	r.lastKeys = m.Keys.Overrides()
+	r.lastPreferences = protocol.Clone(d)
 }
 
 func encoded(v any) string { b, _ := json.Marshal(v); return string(b) }
@@ -182,12 +183,12 @@ func (r *Runtime) savePreferences() {
 		r.lastMaterials = now
 	}
 	order, pins := a.FeaturePreferences()
-	if current := encoded([]any{order, pins}); current != r.lastFeatures {
+	if !slices.Equal(order, r.lastFeatureOrder) || !maps.Equal(pins, r.lastFeaturePins) {
 		d.FeatureOrder = &order
 		d.FeaturePins = &pins
-		r.lastFeatures = current
+		r.lastFeatureOrder, r.lastFeaturePins = slices.Clone(order), maps.Clone(pins)
 	}
-	if keys := m.Keys.Overrides(); encoded(keys) != r.lastKeys {
+	if keys := m.Keys.Overrides(); !maps.Equal(keys, r.lastKeys) {
 		all := map[string]string{}
 		if d.Shortcuts != nil {
 			all = maps.Clone(*d.Shortcuts)
@@ -199,17 +200,16 @@ func (r *Runtime) savePreferences() {
 			}
 		}
 		d.Shortcuts = &all
-		r.lastKeys = encoded(keys)
+		r.lastKeys = keys
 	}
-	current := encoded(d)
-	if current == r.lastPreferences {
+	if equalProtocolValue(reflect.ValueOf(d).Elem(), reflect.ValueOf(&r.lastPreferences).Elem()) {
 		return
 	}
 	bytes, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
 		return
 	}
-	r.lastPreferences = current
+	r.lastPreferences = protocol.Clone(*d)
 	if !r.Preferences.Readable {
 		return
 	}

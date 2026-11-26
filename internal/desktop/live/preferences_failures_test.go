@@ -107,3 +107,30 @@ func TestUnreadablePreferencesErrorRemainsInEachWindow(t *testing.T) {
 		t.Fatalf("opening windows overwrote unreadable preferences: %q, %v", got, err)
 	}
 }
+
+func TestPreferenceSaveDetectsNestedEdits(t *testing.T) {
+	store := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
+	fields := []preferences.ArtifactField{{Name: "text", Values: []string{"initial"}}}
+	store.Data.ArtifactDrafts = &map[string]preferences.ArtifactDraft{"draft": {Form: "form", Fields: fields}}
+	r, err := NewWithPreferences(t.Context(), preferencesFailureController(t), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.savePreferences()
+	r.workers.Wait()
+	before := store.Revision()
+	fields[0].Values[0] = "edited"
+	r.savePreferences()
+	r.workers.Wait()
+	reopened := preferences.Open(store.Path)
+	if reopened.Err != nil || reopened.Data.ArtifactDrafts == nil || (*reopened.Data.ArtifactDrafts)["draft"].Fields[0].Values[0] != "edited" {
+		t.Fatalf("nested preference edit was not persisted: %v", reopened.Err)
+	}
+	for range 3 {
+		r.savePreferences()
+	}
+	if store.Revision() != before+1 {
+		t.Fatalf("one nested edit advanced revision from %d to %d", before, store.Revision())
+	}
+}
