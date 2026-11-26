@@ -354,13 +354,14 @@
   },
   {
     "operation": "files.search",
-    "description": "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Matching paths are the default; select content rows or line counts when needed. type uses ripgrep language names; context adds neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial",
+    "description": "Search UTF-8 files within path, respecting .gitignore and skipping symlinks. Matching paths are the default; select content rows or line counts when needed. type uses ripgrep language names; context adds neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial",
     "parameters": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Literal text by default. For alternatives such as foo|bar or other regular expressions, set regex to true."
         },
         "regex": {
           "type": "boolean",

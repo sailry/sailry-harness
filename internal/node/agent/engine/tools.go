@@ -38,6 +38,9 @@ type Tool struct {
 	Concurrent bool
 	// StreamRead permits a native read to start before its model response is committed.
 	StreamRead bool
+	// WritePaths returns every canonical file target of a native mutation,
+	// including move destinations. An empty set keeps the call sequential.
+	WritePaths func(canonical.ToolRequest) []string
 	Deferred   bool
 	Delegation bool
 	Approval   bool
@@ -473,6 +476,19 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	return r.runToolBatch(x, step, state, calls)
 }
 
+// Paths are canonical, slash-separated file names supplied by the executor.
+// A patch that creates or removes a parent must finish before its descendants.
+func overlappingWritePaths(first, second []string) bool {
+	for _, a := range first {
+		for _, b := range second {
+			if a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.AgentState, calls []canonical.ToolRequest) error {
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
@@ -556,6 +572,9 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			// Defer ObserveHistory and Prepare for history-observing approval
 			// calls until earlier calls in this batch finish, so sequential
 			// reads and edits against the same file observe fresh revisions.
+			if tool.Prepare != nil && tool.ReleasePrepared != nil {
+				defer tool.ReleasePrepared(call)
+			}
 			asks[i] = true
 			clear(firsts)
 			continue
@@ -630,7 +649,16 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			batchHistory = append(batchHistory, rec)
 		}
 	}
-	for start := 0; start < len(calls); {
+	var batchErr error
+	var workers sync.WaitGroup
+	writePaths := func(i int) []string {
+		tool := findTool(x.tools, calls[i].Name)
+		if !asks[i] || tool == nil || tool.WritePaths == nil || x.hooks.WrapsTool(calls[i].Name) {
+			return nil
+		}
+		return tool.WritePaths(calls[i])
+	}
+	for start := 0; start < len(calls) && batchErr == nil; {
 		if step.Err() != nil {
 			break
 		}
@@ -639,45 +667,55 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			for end < len(calls) && concurrent(end) {
 				end++
 			}
-		} else if asks[start] {
-			call := calls[start]
-			tool := findTool(x.tools, call.Name)
-			if tool != nil && tool.Approval && tool.ObserveHistory != nil {
-				appendBatchHistory(start)
-				tool.ObserveHistory(batchHistory)
-				if tool.Prepare != nil {
-					if tool.ReleasePrepared != nil {
-						defer tool.ReleasePrepared(call)
-					}
-					if err := tool.Prepare(x.ctx, call); err != nil {
-						results[start] = toolFault(err)
-						start = end
-						continue
-					}
+		} else if end < len(calls) {
+			occupied := writePaths(start)
+			for len(occupied) > 0 && end < len(calls) && end-start < maxConcurrentTools {
+				next := writePaths(end)
+				if len(next) == 0 || overlappingWritePaths(occupied, next) {
+					break
 				}
-			}
-			approved, err := r.approval(x, step, call, tool)
-			if err == errQueuedSteer {
-				break
-			}
-			if err != nil {
-				return err
-			}
-			executable[start] = approved
-			if !approved {
-				results[start] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
-			}
-			if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
-				return err
+				occupied = append(occupied, next...)
+				end++
 			}
 		}
-		var workers sync.WaitGroup
 		for i := start; i < end; i++ {
-			if !executable[i] || x.streamReads.read(calls[i].ID) != nil {
-				continue
-			}
 			if step.Err() != nil {
 				break
+			}
+			if asks[i] {
+				call := calls[i]
+				tool := findTool(x.tools, call.Name)
+				if tool.Approval && tool.ObserveHistory != nil {
+					// All writes in this group name disjoint files. Only completed
+					// groups can contribute a revision needed by their preparation.
+					appendBatchHistory(start)
+					tool.ObserveHistory(batchHistory)
+					if tool.Prepare != nil {
+						if err := tool.Prepare(x.ctx, call); err != nil {
+							results[i] = toolFault(err)
+							continue
+						}
+					}
+				}
+				approved, err := r.approval(x, step, call, tool)
+				if err == errQueuedSteer {
+					break
+				}
+				if err != nil {
+					batchErr = err
+					break
+				}
+				executable[i] = approved
+				if !approved {
+					results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
+				}
+				if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
+					batchErr = err
+					break
+				}
+			}
+			if !executable[i] || x.streamReads.read(calls[i].ID) != nil {
+				continue
 			}
 			workers.Add(1)
 			go func(i int) {
@@ -747,7 +785,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		if startedCalls[i] && (results[i].Failure != nil || results[i].ReturnedFailure != nil) {
 			recordToolFailure(step, findTool(x.tools, call.Name), results[i])
 		}
-		if (executable[i] || step.Err() != nil) && results[i].Value == nil && results[i].Failure == nil && (!results[i].Error || step.Err() != nil) {
+		if (executable[i] || step.Err() != nil || batchErr != nil) && results[i].Value == nil && results[i].Failure == nil && (!results[i].Error || step.Err() != nil) {
 			results[i] = interruptedTool(startedCalls[i])
 			if !startedCalls[i] && Steered(step) {
 				results[i].Failure.Message = "Tool call did not start before queued guidance redirected the turn"
@@ -755,7 +793,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		}
 	}
 	doomAborted := false
-	if step.Err() == nil && len(calls) > 0 {
+	if step.Err() == nil && batchErr == nil && len(calls) > 0 {
 		doomAborted = trackDoomLoop(x, calls, results)
 	}
 	for i, call := range calls {
@@ -806,7 +844,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	if doomAborted {
 		return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("turn stopped after %d consecutive identical failing tool calls", x.doomStreak)}
 	}
-	return nil
+	return batchErr
 }
 
 // Report only evidence from an executed native tool. Preparation and hook

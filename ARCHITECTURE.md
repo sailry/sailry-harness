@@ -817,8 +817,11 @@ observed and billed as compaction requests; Messages usage sums the reported
 The active history holds stored tool payloads and asset references. A request
 hydrates eligible tool results after selecting its visible, answered history.
 Hidden history is filtered before materialization. In ordinary main requests,
-older tool pages can be shortened at answered batch boundaries when cumulative
-output reaches 96 KiB or observed input reaches half the model window. With
+older tool pages can be shortened at answered batch boundaries. The tool
+output budget varies from 96 KiB to 1.5 MiB with the model window recorded
+for that batch. The first answered batch of a later turn can fold prior work
+at 256 KiB or the smaller window's budget. High observed input can also
+trigger folding. With
 exact output recovery available, eligible older tool results use a short receipt
 with the original call and revision. File and history pages retain pagination
 facts. Successful command receipts retain the exit status and stream references.
@@ -863,7 +866,10 @@ after 15 seconds without data and retires idle connections after 30 seconds,
 so a connection a gateway dropped silently fails fast instead of stalling.
 A transport-reported HTTP/2 stream reset uses the same request retry budget,
 regardless of its reset code. A protocol error or explicit HTTP/1.1 requirement
-can spend one retry on HTTP/1.1 without changing other requests' protocol.
+can spend one retry on HTTP/1.1. After a successful recovery the captured
+model uses HTTP/1.1 for subsequent steps. Other model bindings negotiate
+independently. The 300-second idle timer measures the wait for response
+headers and each pending read of response bytes.
 The first retry of every model request is silent: its record is numbered 0
 and the transcript shows no row for it, even when a provider wait hint requires
 five seconds or more. From the second retry, rows count up to nine retries after
@@ -912,7 +918,11 @@ as soon as the model streams their complete arguments. The Node cancels those
 reads on a failed stream and writes their results only after the corresponding
 tool calls commit. A concurrent read that repeats an earlier call of the same
 reply, with arguments equal as JSON, does not run: its result names that call.
-Writes, approvals and tool hooks retain their ordering.
+Adjacent native file writes can overlap after their individual approvals
+when their targets are disjoint. Patch and move destinations count as targets.
+Overlapping paths, including parent and child paths, keep request order.
+The Node orders conflicting workspace effects through their durable completion.
+Approvals, hooks and the stored tool responses keep request order.
 Node owns approval and question deadlines.
 
 Goal reads and updates execute in the Node. The Goals surface and continuation

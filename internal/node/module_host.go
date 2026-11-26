@@ -366,13 +366,26 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		ContextParts:    cfg.ContextParts,
 		SearchLabels:    spec.SearchLabels(),
 	}
+	if cfg.FileWritePaths {
+		switch op {
+		case protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
+			protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationEditNotebook:
+			tool.WritePaths = func(call canonical.ToolRequest) []string {
+				paths := collectFileArgPaths(op, call.Arguments)
+				for i, path := range paths {
+					paths[i] = workspaceFileKey(inv.Worktree.Path, path)
+				}
+				return paths
+			}
+		}
+	}
 	tool.ReleasePrepared = func(call canonical.ToolRequest) {
 		mu.Lock()
 		delete(calls, call.ID)
 		delete(preparedArgs, call.ID)
 		mu.Unlock()
 	}
-	var observed workspaceRevisions
+	observed := workspaceRevisions{worktreeID: inv.Run.Worktree}
 	fullFiles := inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op)
 	if fullFiles {
 		observed.worktree = inv.Worktree.Path

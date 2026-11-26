@@ -286,6 +286,13 @@ func (node *Node) externalFileIO(ctx context.Context, caller protocol.NodeID, re
 		return protocol.Output{}, err
 	}
 	command := request.Command
+	if files.SupportsMutation(command.Kind) {
+		if create, ok := command.Data.(*protocol.CommandCreateDirectoryPayload); ok {
+			defer node.locks.joinEffect(node.locks.paths([]string{workspaceFileKey(root, create.Path)}))()
+		} else {
+			defer node.locks.fileEffect(root, prepared)()
+		}
+	}
 	access := core.FileAccessForRequest(request, false)
 	switch {
 	case files.SupportsRead(command.Kind):

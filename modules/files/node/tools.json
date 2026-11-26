@@ -1039,14 +1039,14 @@
     {
       "name": "search_files",
       "legacy_package": "files",
-      "description": "Search UTF-8 files with embedded ripgrep (honors .gitignore, skips symlinks/binaries, no approval needed). Modes: files, content, or count; supports globs (! excludes) and multiline. Up to 200 rows/page (~32 KiB budget); paginate via next_offset or narrow path on 20s timeout.",
+      "description": "Search UTF-8 files, respecting .gitignore and skipping symlinks and binaries. Modes: files, content, or count; supports globs (! excludes) and multiline. Up to 200 rows/page (~32 KiB budget); paginate via next_offset or narrow path on 20s timeout.",
       "parameters": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
             "minLength": 1,
-            "description": "Text or regex to match in files. Globs filter paths."
+            "description": "Literal text by default. For alternatives such as foo|bar or other regular expressions, set regex to true."
           },
           "regex": {
             "type": "boolean",
@@ -1585,5 +1585,5 @@
       }
     }
   ],
-  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands, and batch independent reads in one turn. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Batch independent reads together, and issue independent edits to different files together in the same response. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

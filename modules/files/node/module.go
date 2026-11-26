@@ -58,9 +58,10 @@ func (module) ToolsForTurn(_ context.Context, host moduleapi.Host, inv *store.Ag
 		}
 		prepare := prepareFor(spec.Name)
 		tool, err := host.WorkspaceTool(inv, moduleapi.WorkspaceToolConfig{
-			Spec:        spec,
-			Instruction: catalog.Instructions,
-			PrepareArgs: prepare,
+			Spec:           spec,
+			FileWritePaths: true,
+			Instruction:    catalog.Instructions,
+			PrepareArgs:    prepare,
 		})
 		if err != nil {
 			return nil, err

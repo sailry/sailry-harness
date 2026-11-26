@@ -249,21 +249,20 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 	}
 	// 12 batches (~120 KiB) exceeds the 64K window budget (96 KiB) but stays
 	// untouched on 200K and 1M windows to preserve their prompt cache prefix.
-	small := makeHistory(64_000, 12)
 	medium := makeHistory(200_000, 12)
 	large := makeHistory(400_000, 12)
 	huge := makeHistory(1_000_000, 12)
-	if pressureLimitBytes(small) != toolOutputPressureBytes {
-		t.Fatalf("64K limit = %d, want %d", pressureLimitBytes(small), toolOutputPressureBytes)
+	if pressureLimitBytes(64_000) != toolOutputPressureBytes {
+		t.Fatalf("64K limit = %d, want %d", pressureLimitBytes(64_000), toolOutputPressureBytes)
 	}
-	if pressureLimitBytes(medium) != mediumWindowPressureBytes {
-		t.Fatalf("200K limit = %d, want %d", pressureLimitBytes(medium), mediumWindowPressureBytes)
+	if pressureLimitBytes(200_000) != mediumWindowPressureBytes {
+		t.Fatalf("200K limit = %d, want %d", pressureLimitBytes(200_000), mediumWindowPressureBytes)
 	}
-	if pressureLimitBytes(large) != largeWindowPressureBytes {
-		t.Fatalf("400K limit = %d, want %d", pressureLimitBytes(large), largeWindowPressureBytes)
+	if pressureLimitBytes(400_000) != largeWindowPressureBytes {
+		t.Fatalf("400K limit = %d, want %d", pressureLimitBytes(400_000), largeWindowPressureBytes)
 	}
-	if pressureLimitBytes(huge) != hugeWindowPressureBytes {
-		t.Fatalf("1M limit = %d, want %d", pressureLimitBytes(huge), hugeWindowPressureBytes)
+	if pressureLimitBytes(1_000_000) != hugeWindowPressureBytes {
+		t.Fatalf("1M limit = %d, want %d", pressureLimitBytes(1_000_000), hugeWindowPressureBytes)
 	}
 	baselineMedium := new(output.Cache).Project(model.VisibleAnsweredRecords(medium))
 	if !reflect.DeepEqual(pressureProjection(medium, new(output.Cache), true), baselineMedium) {
@@ -283,6 +282,64 @@ func TestContextPressureScalesWithLargeWindow(t *testing.T) {
 	afterHeavy := pressureProjection(heavy, new(output.Cache), true)
 	if reflect.DeepEqual(beforeHeavy, afterHeavy) {
 		t.Fatal("200K window failed to fold once past its scaled budget")
+	}
+}
+
+func TestContextPressureKeepsReceiptsAcrossModelWindowChanges(t *testing.T) {
+	t.Parallel()
+	var history []canonical.Record
+	for i := range 12 {
+		history = append(history, pressureExchange(i, 1200, fmt.Sprintf("pkg/file%d.go", i))...)
+	}
+	var warm output.Cache
+	before := pressureProjection(history, &warm, true)
+	if reflect.DeepEqual(before[1], new(output.Cache).Project(model.VisibleAnsweredRecords(history))[1]) {
+		t.Fatal("small-window fixture did not fold its first file")
+	}
+	change := pressureExchange(12, 1200, "pkg/next.go")
+	change[0].Metadata.Execution.Observation.ContextLimit = new(uint32(1_000_000))
+	history = append(history, change...)
+	after := pressureProjection(history, &warm, true)
+	if !reflect.DeepEqual(before, after[:len(before)]) ||
+		!reflect.DeepEqual(after, pressureProjection(history, new(output.Cache), true)) {
+		t.Fatal("switching to a larger model expanded an earlier receipt")
+	}
+}
+
+func TestContextPressureLargeWindowFinishedTurns(t *testing.T) {
+	t.Parallel()
+	var history []canonical.Record
+	for i := range 32 {
+		exchange := pressureExchange(i, 1200, fmt.Sprintf("pkg/large%d.go", i))
+		exchange[0].Metadata.Execution.Observation.ContextLimit = new(uint32(1_000_000))
+		history = append(history, exchange...)
+	}
+	baseline := pressureProjection(history, new(output.Cache), true)
+	history[len(history)-2].Turn, history[len(history)-1].Turn = protocol.TurnID{2}, protocol.TurnID{2}
+	projected := pressureProjection(history, new(output.Cache), true)
+	var before, after int
+	for i := 1; i < len(history); i += 2 {
+		source := history[i].Message().Content[0].Data.(*canonical.ToolResponse)
+		full := baseline[i].Message().Content[0].Data.(*canonical.ToolResponse)
+		short := projected[i].Message().Content[0].Data.(*canonical.ToolResponse)
+		before += len(full.Result.Value)
+		after += len(short.Result.Value)
+		if i == len(history)-1 {
+			if !reflect.DeepEqual(full, short) {
+				t.Fatal("first batch of the new turn lost its file contents")
+			}
+			continue
+		}
+		var receipt struct {
+			Output protocol.ToolOutputOutputReference `json:"output"`
+		}
+		if json.Unmarshal(short.Result.Value, &receipt) != nil || receipt.Output.Call != source.ID || receipt.Output.Revision != source.Revision {
+			t.Fatal("finished turn lost its exact output reference")
+		}
+	}
+	t.Logf("large-window replay, projected tool bytes across turns: %d -> %d", before, after)
+	if after*2 >= before {
+		t.Fatal("finished turn still dominates the request")
 	}
 }
 

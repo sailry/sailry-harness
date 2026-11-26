@@ -1,8 +1,13 @@
 package node
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
+
+	"github.com/sailry/sailry-harness/internal/node/files"
 )
 
 func TestWorkspaceLocks(t *testing.T) {
@@ -118,6 +123,37 @@ func TestWorkspaceLocks(t *testing.T) {
 			t.Fatalf("registrations = %d, want the change and the project command", locks.registrations.Load())
 		}
 	})
+	t.Run("prepared_files_and_moves_share_the_root_lock_domain", func(t *testing.T) {
+		var locks workspaceLocks
+		root := t.TempDir()
+		// A mixed patch also owns a path in another worktree.
+		other := t.TempDir()
+		to := filepath.Join(other, "outside")
+		patch := &files.Prepared{Changes: []files.PreparedChange{{Path: "one", Destination: &to}, {Path: "two"}}}
+		hold := locks.fileEffect(root, patch)
+		sibling, ok := within(free, func() func() {
+			return locks.fileEffect(root, &files.Prepared{Changes: []files.PreparedChange{{Path: "one-more"}}})
+		})
+		if !ok {
+			t.Fatal("an independent file waited behind the patch")
+		}
+		sibling()
+		var blockedReleases []func()
+		for _, name := range []string{filepath.Join(root, "one"), filepath.Join(root, "two", "child"), to, other, root} {
+			release, ok := within(blocked, func() func() { return locks.effect(name) })
+			if ok {
+				t.Fatalf("%s ran during an overlapping patch", name)
+			}
+			blockedReleases = append(blockedReleases, release)
+		}
+		hold()
+		for _, release := range blockedReleases {
+			release()
+		}
+		if len(locks.held) != 0 {
+			t.Fatalf("released reservations retained: %d", len(locks.held))
+		}
+	})
 	t.Run("commands_without_a_root_run_together", func(t *testing.T) {
 		var locks workspaceLocks
 		// A web fetch holds no worktree; its cancellation must not wait for it.
@@ -139,4 +175,27 @@ func TestWorkspaceLocks(t *testing.T) {
 			t.Fatalf("released roots are kept: %v", locks.held)
 		}
 	})
+}
+
+func TestWorkspaceFileKeys(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Ordering also works for names that do not exist until the patch creates them.
+	one := workspaceFileKey(root, "Folder/caf\u00e9")
+	if one != workspaceFileKey(root, "folder/cafe\u0301") || one != workspaceFileKey("", filepath.Join(root, "Folder", "caf\u00e9")) {
+		t.Fatal("alternate spellings split the file lock")
+	}
+	if !workspacePathsOverlap(one, workspaceFileKey(root, "")) || !workspacePathsOverlap(workspaceFileKey(root, ""), one) ||
+		workspacePathsOverlap(one, one+"2") {
+		t.Fatal("path overlap must match complete components")
+	}
+	if runtime.GOOS != "windows" {
+		alias := filepath.Join(t.TempDir(), "alias")
+		if err := os.Symlink(root, alias); err != nil {
+			t.Fatal(err)
+		}
+		if one != workspaceFileKey(alias, "Folder/caf\u00e9") {
+			t.Fatal("parent alias split the file lock")
+		}
+	}
 }

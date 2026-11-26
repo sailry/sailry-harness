@@ -18,34 +18,25 @@ const (
 	largeContextWindowThreshold  = 512_000
 )
 
-// pressureLimitBytes scales the tool-output folding budget with the model's
-// observed context window so 200K–1M sessions keep their prompt cache hot
-// across multi-file reads instead of rewriting history every 96 KiB.
-func pressureLimitBytes(history []canonical.Record) int {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Kind == "compaction" {
-			break
-		}
-		x := history[i].Metadata.Execution
-		if x == nil || x.Purpose == nil || *x.Purpose != canonical.PurposeMain || x.Observation == nil || x.Observation.ContextLimit == nil {
-			continue
-		}
-		window := uint64(*x.Observation.ContextLimit)
-		if window == 0 {
-			continue
-		}
-		if window > largeContextWindowThreshold {
-			return hugeWindowPressureBytes
-		}
-		if window > mediumContextWindowThreshold {
-			return largeWindowPressureBytes
-		}
-		if window > smallContextWindowThreshold {
-			return mediumWindowPressureBytes
-		}
+func mainContextWindow(record canonical.Record) uint64 {
+	x := record.Metadata.Execution
+	if x == nil || x.Purpose == nil || *x.Purpose != canonical.PurposeMain || x.Observation == nil || x.Observation.ContextLimit == nil {
+		return 0
+	}
+	return uint64(*x.Observation.ContextLimit)
+}
+
+func pressureLimitBytes(window uint64) int {
+	switch {
+	case window > largeContextWindowThreshold:
+		return hugeWindowPressureBytes
+	case window > mediumContextWindowThreshold:
+		return largeWindowPressureBytes
+	case window > smallContextWindowThreshold:
+		return mediumWindowPressureBytes
+	default:
 		return toolOutputPressureBytes
 	}
-	return toolOutputPressureBytes
 }
 
 // Replay pressure at answered batch boundaries to keep already shortened
@@ -65,7 +56,8 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 	for i := range projected {
 		positions[projected[i].ID] = i
 	}
-	pressureBytes := pressureLimitBytes(history)
+	var window uint64
+	pressureBytes := toolOutputPressureBytes
 
 	var start, batchStart, olderBytes, batchBytes int
 	var windowPressure, usedWindowPressure bool
@@ -88,6 +80,9 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 		batchBytes = 0
 	}
 	for i, original := range history {
+		if original.Kind == "compaction" {
+			window = 0
+		}
 		j, visible := positions[original.ID]
 		if !visible {
 			continue
@@ -96,8 +91,17 @@ func projectContextPressure(projected, history []canonical.Record, tools []fanta
 		if m == nil {
 			continue
 		}
+		if observed := mainContextWindow(original); observed != 0 {
+			window = observed
+		}
 		if m.Role == canonical.Assistant && slices.ContainsFunc(m.Content, func(b canonical.Block) bool { return b.Kind == "tool_request" }) {
 			finishBatch()
+			pressureBytes = pressureLimitBytes(window)
+			// A new turn can fold finished work earlier while a large single
+			// turn keeps its working set and its cached request prefix.
+			if olderBytes > 0 && original.Turn != history[batchStart].Turn {
+				pressureBytes = min(pressureBytes, mediumWindowPressureBytes)
+			}
 			batchStart, windowPressure = i, mainReplyOverHalfWindow(original, m)
 		} else if m.Role == canonical.User {
 			for _, block := range m.Content {
@@ -114,11 +118,7 @@ func mainReplyOverHalfWindow(record canonical.Record, m *canonical.Message) bool
 	if m.Finish == nil || *m.Finish != canonical.Completed || m.Error != nil || m.Usage == nil || m.Usage.Input == nil {
 		return false
 	}
-	x := record.Metadata.Execution
-	if x == nil || x.Purpose == nil || *x.Purpose != canonical.PurposeMain || x.Observation == nil || x.Observation.ContextLimit == nil {
-		return false
-	}
-	window := uint64(*x.Observation.ContextLimit)
+	window := mainContextWindow(record)
 	if window == 0 {
 		return false
 	}

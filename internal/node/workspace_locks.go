@@ -1,77 +1,130 @@
 package node
 
 import (
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/sailry/sailry-harness/internal/node/files"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 )
 
-// workspaceLocks orders durable workspace effects. Effects on one worktree
-// root run one at a time and effects on different roots run together. A
-// registration, which changes which projects and roots exist, excludes every
-// effect while it is recorded. Creating or removing one worktree is an effect
-// of its own kind (change).
+// workspaceLocks orders effects on overlapping files or whole worktrees.
+// A registration excludes every effect while it changes the set of roots.
 type workspaceLocks struct {
 	registry sync.RWMutex
 	// registrations counts the recorded ones, so an effect that waited can
 	// tell that its roots may have changed.
 	registrations atomic.Uint64
 	mu            sync.Mutex
-	held          map[string]*rootLock
+	held          map[*workspaceReservation]struct{}
 	// settings orders the saves whose refresh after the commit reads the
 	// saved settings back and applies them, so the last save is the applied
 	// one. They work in no root.
 	settings sync.Mutex
 }
 
-type rootLock struct {
-	mu   sync.Mutex
-	uses int
+type workspaceReservation struct {
+	paths []string
+	done  chan struct{}
 }
 
-// roots locks the given roots, in one order so that an effect across two
-// roots cannot deadlock with its mirror image. A command that works in no
-// worktree has an empty root, which is no lock: such commands (a web fetch
-// and its cancellation, for one) run together.
-func (locks *workspaceLocks) roots(roots ...string) (release func()) {
-	roots = slices.Clone(roots)
-	slices.Sort(roots)
-	roots = slices.Compact(roots)
-	if len(roots) > 0 && roots[0] == "" {
-		roots = roots[1:]
+// workspaceFileKey is only an ordering key. Operations still use the original
+// spelling with the confined file API. Fold equivalent names conservatively
+// because different mounts can have different case and normalization rules.
+func workspaceFileKey(root, name string) string {
+	if root == "" && name == "" {
+		return ""
 	}
-	entries := make([]*rootLock, len(roots))
-	for index, root := range roots {
-		locks.mu.Lock()
-		if locks.held == nil {
-			locks.held = map[string]*rootLock{}
+	if !filepath.IsAbs(name) {
+		name = filepath.Join(root, filepath.FromSlash(name))
+	}
+	// On Windows, resolving the existing leaf expands its 8.3 alias too.
+	// File access itself still rejects symlinks independently of this key.
+	name = resolvedPath(filepath.Clean(name))
+	return norm.NFC.String(cases.Fold().String(norm.NFC.String(filepath.ToSlash(name))))
+}
+
+func workspacePathsOverlap(a, b string) bool {
+	return a == b || strings.HasPrefix(a, strings.TrimSuffix(b, "/")+"/") || strings.HasPrefix(b, strings.TrimSuffix(a, "/")+"/")
+}
+
+// Reserve the entire set at once. A later overlapping operation waits for
+// its predecessors, including waiting ones, while independent paths proceed.
+func (locks *workspaceLocks) paths(keys []string) func() {
+	if len(keys) == 0 {
+		return func() {}
+	}
+	reserved := &workspaceReservation{paths: keys, done: make(chan struct{})}
+	var wait []chan struct{}
+	locks.mu.Lock()
+	if locks.held == nil {
+		locks.held = make(map[*workspaceReservation]struct{})
+	}
+	for earlier := range locks.held {
+		for _, key := range keys {
+			if slices.ContainsFunc(earlier.paths, func(path string) bool { return workspacePathsOverlap(key, path) }) {
+				wait = append(wait, earlier.done)
+				break
+			}
 		}
-		entry := locks.held[root]
-		if entry == nil {
-			entry = &rootLock{}
-			locks.held[root] = entry
-		}
-		entry.uses++
-		locks.mu.Unlock()
-		entry.mu.Lock()
-		entries[index] = entry
+	}
+	locks.held[reserved] = struct{}{}
+	locks.mu.Unlock()
+	for _, done := range wait {
+		<-done
 	}
 	return func() {
-		for index := len(entries) - 1; index >= 0; index-- {
-			entries[index].mu.Unlock()
-			locks.mu.Lock()
-			if entries[index].uses--; entries[index].uses == 0 {
-				delete(locks.held, roots[index])
-			}
-			locks.mu.Unlock()
-		}
+		locks.mu.Lock()
+		delete(locks.held, reserved)
+		close(reserved.done)
+		locks.mu.Unlock()
 	}
 }
 
-// effect locks the roots and then joins the effects a registration waits
-// for. Nothing is held while it waits for a root.
-func (locks *workspaceLocks) effect(roots ...string) (release func()) {
-	unlock := locks.roots(roots...)
+// A command that operates in no worktree has no root to reserve.
+func (locks *workspaceLocks) roots(roots ...string) func() {
+	var keys []string
+	for _, root := range roots {
+		if key := workspaceFileKey(root, ""); key != "" && !slices.Contains(keys, key) {
+			keys = append(keys, key)
+		}
+	}
+	return locks.paths(keys)
+}
+
+// Paths are relative to the actual filesystem root used to prepare the change,
+// which can be a volume root on calls with external paths.
+func preparedFileKeys(root string, prepared *files.Prepared) []string {
+	if prepared == nil || prepared.Rejected != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(prepared.Changes))
+	for _, change := range prepared.Changes {
+		keys = append(keys, workspaceFileKey(root, change.Path))
+		if change.Destination != nil {
+			keys = append(keys, workspaceFileKey(root, *change.Destination))
+		}
+	}
+	return keys
+}
+
+func (locks *workspaceLocks) fileEffect(root string, prepared *files.Prepared) func() {
+	if keys := preparedFileKeys(root, prepared); len(keys) != 0 {
+		return locks.joinEffect(locks.paths(keys))
+	}
+	return locks.effect(root)
+}
+
+func (locks *workspaceLocks) effect(roots ...string) func() {
+	return locks.joinEffect(locks.roots(roots...))
+}
+
+// Joining after the paths are available lets registrations pass queued effects.
+func (locks *workspaceLocks) joinEffect(unlock func()) func() {
 	locks.registry.RLock()
 	return func() {
 		locks.registry.RUnlock()

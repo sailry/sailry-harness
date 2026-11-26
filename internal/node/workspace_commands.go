@@ -255,6 +255,12 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 			node.locks.settings.Lock()
 			release := node.locks.effect()
 			effect.release = func() { release(); node.locks.settings.Unlock() }
+		case prepared != nil && prepared.Rejected == nil && fileTextMutation(command.Kind):
+			fileRoot := root
+			if effect.fileScope.root != "" {
+				fileRoot = effect.fileScope.root
+			}
+			effect.release = node.locks.fileEffect(fileRoot, prepared)
 		default:
 			effect.release = node.locks.effect(source, root)
 		}
