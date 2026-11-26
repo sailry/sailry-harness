@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"cmp"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -43,7 +45,7 @@ func (a *App) header(c *ui.Context, f frame) {
 		// so the name stays on every page: the column is at least as wide as
 		// it, whether the sidebar shows or not. With them it fades with the
 		// sidebar, the lights taking its place.
-		name, shown, brand := i18n.T(c, "app"), f.nav, left
+		name, shown, brand := cmp.Or(a.Settings.ProductName, i18n.T(c, "app")), f.nav, left
 		if lights == 0 {
 			w, _ := c.MeasureText(0, ui.Span{Text: name, Size: 14})
 			shown, brand = 1, max(left, w+24)
@@ -478,7 +480,7 @@ func (a *App) trail(c *ui.Context) {
 	}
 	cv := a.SelectedConversation()
 	if cv == nil {
-		ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.Foreground)
+		ui.Text(c, cmp.Or(a.Settings.ProductName, i18n.T(c, "app"))).FontSize(14).SingleLine().TextColor(p.Foreground)
 		return
 	}
 	pr := a.Data.ProjectHolding(cv)

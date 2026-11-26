@@ -42,11 +42,11 @@ func TestDesktopProductPreservesNativeOwnership(t *testing.T) {
 
 func TestDesktopProductPresentation(t *testing.T) {
 	product := identity.Desktop{
-		Version: "7.1.0-beta.2", Website: "https://example.test/desktop", Feedback: "https://example.test/issues",
-		Release: identity.DesktopRelease{Package: identity.DesktopPackage{Name: "ExampleDesktop"}},
+		Name: "ExampleDesktop", Version: "7.1.0-beta.2", Website: "https://example.test/desktop", Feedback: "https://example.test/issues",
+		Release: identity.DesktopRelease{Package: identity.DesktopPackage{Name: "ExampleBundle"}},
 	}
 	app := shell.NewWithAssembly(preview.Load(), shell.Assemble(providers.Register))
-	applyProduct(app, product, product.Release.Package.Name)
+	applyProduct(app, product, product.Name)
 	profile := t.TempDir()
 	backend := &desktopBackend{Path: profile, Client: new(client.Client), Preferences: preferences.Open(filepath.Join(profile, "preferences.json"))}
 	updates := backend.updates(product, nil)
@@ -85,6 +85,9 @@ func TestDesktopProductPresentation(t *testing.T) {
 	view := ui.NewTester(app.View, 1280, 820)
 	view.SetLocale("en")
 	view.Frame()
+	if bounds, ok := view.Find(product.Name); !ok || bounds.Y >= shell.HeaderHeight {
+		t.Fatalf("window header does not show the product name %q", product.Name)
+	}
 	about := menu[0].Submenu[0]
 	about.Click(about, nil)
 	view.Frame()
