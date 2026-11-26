@@ -582,10 +582,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir ../unsigned
-          mv Sailry-aarch64-apple-darwin-unsigned.zip Sailry-x86_64-apple-darwin-unsigned.zip ../unsigned/
+          mv Sailry-aarch64-apple-darwin-unsigned.zip Sailry-x86_64-apple-darwin-unsigned.zip \
+            Sailry-x86_64-pc-windows-msvc.zip ../unsigned/
           go -C "$GITHUB_WORKSPACE" run ./internal/desktop/updater/cmd/update-feed -version "$VERSION" -output "$PWD" \
             "aarch64-apple-darwin=$RUNNER_TEMP/unsigned/Sailry-aarch64-apple-darwin-unsigned.zip" \
-            "x86_64-apple-darwin=$RUNNER_TEMP/unsigned/Sailry-x86_64-apple-darwin-unsigned.zip"
+            "x86_64-apple-darwin=$RUNNER_TEMP/unsigned/Sailry-x86_64-apple-darwin-unsigned.zip" \
+            "x86_64-pc-windows-msvc=$RUNNER_TEMP/unsigned/Sailry-x86_64-pc-windows-msvc.zip"
       - name: Checksums
         working-directory: ${{ runner.temp }}/assets
         run: |
@@ -595,7 +597,8 @@ jobs:
           for triple in aarch64-apple-darwin x86_64-apple-darwin; do
             sha256sum "Sailry-$triple.dmg" "Sailry-$triple.zip" "Sailry-$triple.zip.update.json" > "SHA256SUMS-desktop-$triple"
           done
-          sha256sum Sailry-x86_64-pc-windows-msvc-setup.exe Sailry-x86_64-pc-windows-msvc.zip > SHA256SUMS-desktop-x86_64-pc-windows-msvc
+          triple=x86_64-pc-windows-msvc
+          sha256sum "Sailry-$triple-setup.exe" "Sailry-$triple.zip" "Sailry-$triple.zip.update.json" > "SHA256SUMS-desktop-$triple"
           sha256sum --check SHA256SUMS-aarch64-apple-darwin SHA256SUMS-x86_64-apple-darwin \
             SHA256SUMS-aarch64-unknown-linux-gnu SHA256SUMS-x86_64-unknown-linux-gnu Sailry-android-arm64.sha256
           ls -l
