@@ -14,19 +14,22 @@ import (
 )
 
 const (
-	exploreDescription         = "Inspect the codebase and return concise findings with exact paths"
-	previousExploreDescription = "Read existing code and report findings with exact paths"
-	exploreInstructions        = "Inspect only the assigned codebase scope using read-only tools. Search and read in parallel, separate confirmed facts from inferences, and return concise findings with exact file:line pointers and open gaps."
-	exploreInstructionsV1      = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
-	exploreInstructionsV2      = "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
+	exploreDescription           = "Inspect a bounded codebase area quickly and return concise file:line findings"
+	previousExploreDescription   = "Read existing code and report findings with exact paths"
+	previousExploreDescriptionV2 = "Inspect the codebase and return concise findings with exact paths"
+	exploreInstructions          = "Answer only the assigned codebase question in the fewest read-only turns possible (usually 1-3 parallel batches). Search and read directly, stop as soon as the target files and facts are confirmed without expanding into unrelated areas, and return concise confirmed findings with exact file:line pointers."
+	exploreInstructionsV1        = "Explore the assigned scope using read-only tools. Read existing code and relevant project instructions, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
+	exploreInstructionsV2        = "Explore the assigned scope using read-only tools. Read files the task names or needs, distinguish confirmed facts from inferences, and return concise findings with exact paths and unresolved questions. Do not modify resources or request user input."
+	exploreInstructionsV3        = "Inspect only the assigned codebase scope using read-only tools. Search and read in parallel, separate confirmed facts from inferences, and return concise findings with exact file:line pointers and open gaps."
 
 	researchDescription         = "Investigate public sources and return cited conclusions"
 	previousResearchDescription = "Investigate public sources and return supported conclusions"
 	researchInstructions        = "Investigate the assigned question using the web-search:research skill and available read-only tools. Lead with evidence-backed conclusions, inline source links, dates where relevant, and conflicting or missing evidence."
 	researchInstructionsV1      = "Research the assigned question using the selected web-search:research skill and available read-only tools. Return supported conclusions with source links, uncertainty and conflicting evidence to the parent. Keep the inherited permissions and the task's budget; do not modify resources or ask the user for input."
 
-	exploreMaxTurns  = uint32(16)
-	researchMaxTurns = uint32(8)
+	exploreMaxTurns         = uint32(8)
+	previousExploreMaxTurns = uint32(16)
+	researchMaxTurns        = uint32(8)
 )
 
 func initialExplore(id protocol.RoleID) protocol.RoleProfile {
@@ -52,14 +55,18 @@ func initialResearch(id protocol.RoleID) protocol.RoleProfile {
 func upgradeDefaultRole(role protocol.RoleProfile) (protocol.RoleProfile, bool) {
 	switch role.Key {
 	case "explore":
-		if role.Name == "Explore" && role.ReadOnly && role.Tools == nil && len(role.Skills) == 0 &&
-			role.MaxTurns == nil && role.Description == previousExploreDescription &&
-			(role.Instructions == exploreInstructionsV1 || role.Instructions == exploreInstructionsV2) {
-			limit := exploreMaxTurns
-			role.Description = exploreDescription
-			role.MaxTurns = &limit
-			role.Instructions = exploreInstructions
-			return role, true
+		if role.Name == "Explore" && role.ReadOnly && role.Tools == nil && len(role.Skills) == 0 {
+			legacyV1V2 := role.MaxTurns == nil && role.Description == previousExploreDescription &&
+				(role.Instructions == exploreInstructionsV1 || role.Instructions == exploreInstructionsV2)
+			legacyV3 := role.MaxTurns != nil && *role.MaxTurns == previousExploreMaxTurns &&
+				role.Description == previousExploreDescriptionV2 && role.Instructions == exploreInstructionsV3
+			if legacyV1V2 || legacyV3 {
+				limit := exploreMaxTurns
+				role.Description = exploreDescription
+				role.MaxTurns = &limit
+				role.Instructions = exploreInstructions
+				return role, true
+			}
 		}
 	case "research":
 		if role.Name == "Research" && role.ReadOnly && role.Tools == nil &&

@@ -73,6 +73,22 @@ func TestDefaultRolesAndUpgrade(t *testing.T) {
 		t.Fatal("upgraded explore role was not idempotent")
 	}
 
+	previousLimit := previousExploreMaxTurns
+	legacyExploreV3 := protocol.RoleProfile{
+		ID: protocol.NewRoleID(), Revision: 3, Key: "explore", Name: "Explore",
+		Appearance:  &protocol.ProjectsAppearance{Icon: "code", Color: "teal"},
+		Description: previousExploreDescriptionV2, ReadOnly: true, MaxTurns: &previousLimit, Model: chosenModel,
+		Skills: []string{}, Instructions: exploreInstructionsV3,
+	}
+	upgradedExploreV3, changedV3 := upgradeDefaultRole(legacyExploreV3)
+	if !changedV3 || upgradedExploreV3.Instructions != exploreInstructions || upgradedExploreV3.Description != exploreDescription ||
+		upgradedExploreV3.MaxTurns == nil || *upgradedExploreV3.MaxTurns != exploreMaxTurns || !reflect.DeepEqual(upgradedExploreV3.Model, chosenModel) {
+		t.Fatalf("legacy explore V3 upgrade = %+v (changed=%v)", upgradedExploreV3, changedV3)
+	}
+	if _, again := upgradeDefaultRole(upgradedExploreV3); again {
+		t.Fatal("upgraded explore V3 role was not idempotent")
+	}
+
 	customExplore := legacyExplore
 	customExplore.Instructions = "My custom explore rules"
 	if got, changed := upgradeDefaultRole(customExplore); changed || got.Instructions != customExplore.Instructions {
