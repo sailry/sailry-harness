@@ -1,5 +1,8 @@
 .preview/
 .runtime/
+go.work
+go.work.sum
+/benchmarks/
 /plugins/
 /themes/
 /sailry
