@@ -127,7 +127,7 @@ func TestPublishedInstallerBootstrapDoesNotUseSystemPython(t *testing.T) {
 	directory, stage, environment := hostArchiveFixture(t, repository, "0.1.0")
 	publishInstallerArchive(t, directory, repository, "0.1.0", stage)
 	tools := filepath.Join(directory, "bin")
-	for _, name := range []string{"bash", "cp", "tar", "mkdir", "dirname", "mktemp", "awk", "find", "chmod", "rm", "mv", "ln", "cat", "basename", "readlink", "rmdir"} {
+	for _, name := range []string{"bash", "cp", "tar", "gzip", "mkdir", "dirname", "mktemp", "awk", "find", "chmod", "rm", "mv", "ln", "cat", "basename", "readlink", "rmdir"} {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			t.Fatal(err)

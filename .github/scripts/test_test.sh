@@ -233,7 +233,7 @@ write_test_file internal/node/agent/engine/shared_test.go TestLargeInstructionsR
 write_test_file internal/node/shared_test.go TestCopilotSignIn TestProfileLeftovers TestSharedNodeShouldNotRun
 write_test_file internal/shipped/shared_test.go TestSeal TestSharedShippedShouldNotRun
 write_test_file internal/desktop/kit/shared_test.go TestNativeConfirmation TestAlertDialogUsesNativeConfirmation TestDialogKeepsPressWhenEarlierOverlayAppears
-write_test_file internal/desktop/panel/shared_test.go TestEditorTakesFocusBesideTree
+write_test_file internal/desktop/panel/shared_test.go TestExplicitEditorTakesFocusWithoutTree
 write_test_file internal/desktop/live/shared_test.go TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestUpdatePendingNativeInput TestSharedLiveShouldNotRun
 write_test_file internal/desktop/shell/shared_test.go TestCloseShortcut TestNativeClosePrompt TestMenu TestSharedShellShouldNotRun
 write_test_file internal/core/shared_test.go TestCoreOne
@@ -284,7 +284,7 @@ SOURCE
   printf '%s\n' TestConstrainedProfile TestCopilotSignIn TestProfileLeftovers > "$fixture/node.$platform.expected"
   printf '%s\n' TestSeal > "$fixture/shipped.$platform.expected"
   printf '%s\n' TestNativeConfirmation TestAlertDialogUsesNativeConfirmation TestDialogKeepsPressWhenEarlierOverlayAppears > "$fixture/kit.$platform.expected"
-  printf '%s\n' TestEditorTakesFocusBesideTree > "$fixture/panel.$platform.expected"
+  printf '%s\n' TestExplicitEditorTakesFocusWithoutTree > "$fixture/panel.$platform.expected"
   printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestUpdatePendingNativeInput > "$fixture/live.$platform.expected"
   printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu > "$fixture/shell.$platform.expected"
   all_extra=()
