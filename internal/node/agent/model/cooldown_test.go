@@ -190,6 +190,24 @@ func TestShared429CooldownCancelsCleanlyWhileWaiting(t *testing.T) {
 	}
 }
 
+func TestLongRetryAfterStillStartsSharedCooldown(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 26, 4, 0, 0, 0, time.UTC)
+	timer := newSharedTestClock(now)
+	cooldowns := NewCooldowns()
+	fake := &policyModel{startErrors: []error{&fantasy.ProviderError{
+		StatusCode: http.StatusTooManyRequests, Message: "rate limited",
+		ResponseHeaders: map[string]string{"Retry-After": "900"},
+	}}}
+	err := Run(WithCooldown(t.Context(), cooldowns, "shared"), fake, fantasy.Call{}, Main, timer, nil, nil, nil)
+	if err == nil || !Classify(err).WaitExhausted || fake.calls != 1 {
+		t.Fatalf("calls = %d, error = %v", fake.calls, err)
+	}
+	if until, ok := cooldowns.Until("shared", now); !ok || !until.Equal(now.Add(retryWaitBudget)) {
+		t.Fatalf("shared cooldown = %v, want %v", until, now.Add(retryWaitBudget))
+	}
+}
+
 func TestRetryAfterMsHeaderIsHonoredOnSDKFailure(t *testing.T) {
 	t.Parallel()
 	failure := Classify(&fantasy.ProviderError{
@@ -228,20 +246,20 @@ func TestCooldownsBoundsAndCredentialKeyGrouping(t *testing.T) {
 	if size > maxCooldownEntries {
 		t.Fatalf("cooldowns map grew to %d, want <= %d", size, maxCooldownEntries)
 	}
-	// Clear drops all entries.
-	c.Clear()
-	if _, ok := c.Until("k", now); ok {
-		t.Fatal("Clear did not remove active cooldown")
-	}
-
 	// OAuth account credential identity stays stable across access token rotations.
 	ref := protocol.CredentialRef{Node: protocol.NodeID{1}, ID: protocol.NewCredentialID()}
 	tok1, tok2 := protocol.NewSecret("access-token-v1"), protocol.NewSecret("access-token-v2")
-	provider := protocol.ConversationProvider{ID: protocol.NewProviderID(), Endpoint: "https://api.example.invalid/v1"}
+	provider := protocol.ConversationProvider{ID: protocol.NewProviderID(), Endpoint: "https://api.example.invalid/v1", Authentication: protocol.AuthenticationClaudeOAuth}
 	k1 := CredentialCooldownKey(Binding{Provider: provider, Config: protocol.SessionConfig{Credential: &ref}, Secret: &tok1})
 	k2 := CredentialCooldownKey(Binding{Provider: provider, Config: protocol.SessionConfig{Credential: &ref}, Secret: &tok2})
 	if k1 != k2 {
 		t.Fatalf("same OAuth account rotated token changed cooldown key: %q vs %q", k1, k2)
+	}
+	provider.Authentication = protocol.AuthenticationApiKey
+	k1 = CredentialCooldownKey(Binding{Provider: provider, Config: protocol.SessionConfig{Credential: &ref}, Secret: &tok1})
+	k2 = CredentialCooldownKey(Binding{Provider: provider, Config: protocol.SessionConfig{Credential: &ref}, Secret: &tok2})
+	if k1 == k2 {
+		t.Fatal("replacement API key reused the old key's cooldown")
 	}
 }
 

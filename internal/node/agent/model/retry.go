@@ -230,7 +230,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				if attempt.RetryDelay != nil && *attempt.RetryDelay > delay {
 					delay = *attempt.RetryDelay
 				}
-				if delay > 0 && delay <= retryWaitBudget {
+				if delay > 0 {
 					cooldowns.Observe(cooldownKey, now.Add(delay), now)
 				}
 			}

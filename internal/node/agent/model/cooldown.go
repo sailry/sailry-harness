@@ -177,31 +177,22 @@ func (c *Cooldowns) Wait(ctx context.Context, timer clock.Clock, key string) err
 	}
 }
 
-// Clear drops all active cooldowns (e.g. after provider or credential changes).
-func (c *Cooldowns) Clear() {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	clear(c.entries)
-	c.mu.Unlock()
-}
-
 // CredentialCooldownKey derives a secret-safe identifier grouping requests that
 // consume the same upstream credential and rate-limit scope.
 func CredentialCooldownKey(binding Binding) string {
 	origin := cooldownOrigin(binding.Provider)
-	var credential string
-	switch {
-	case binding.Config.Credential != nil:
-		credential = "cred:" + binding.Config.Credential.Node.String() + ":" + binding.Config.Credential.ID.String()
-	case binding.Provider.Credential != nil:
-		credential = "cred:" + binding.Provider.Credential.Node.String() + ":" + binding.Provider.Credential.ID.String()
-	case binding.Secret != nil && binding.Secret.Expose() != "":
+	ref := binding.Config.Credential
+	if ref == nil {
+		ref = binding.Provider.Credential
+	}
+	credential := "provider:" + binding.Provider.ID.String()
+	// API keys can be replaced in place. Account tokens can rotate while the
+	// same account is still throttled, so retain its credential reference.
+	if binding.Secret != nil && binding.Secret.Expose() != "" && (binding.Provider.Authentication == protocol.AuthenticationApiKey || ref == nil) {
 		sum := sha256.Sum256([]byte(binding.Secret.Expose()))
 		credential = "secret:" + hex.EncodeToString(sum[:16])
-	default:
-		credential = "provider:" + binding.Provider.ID.String()
+	} else if ref != nil {
+		credential = "cred:" + ref.Node.String() + ":" + ref.ID.String()
 	}
 	if origin == "" {
 		return credential

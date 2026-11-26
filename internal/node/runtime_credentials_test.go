@@ -61,6 +61,18 @@ DO UPDATE SET body=excluded.body,revision=excluded.revision`,
 	return node, ctx, provider, reference, write
 }
 
+func TestCredentialWakePreservesActiveAccountCooldown(t *testing.T) {
+	t.Parallel()
+	node := nodeFixture(t)
+	now := time.Now()
+	until := now.Add(time.Minute)
+	node.cooldowns.Observe("unchanged-account", until, now)
+	node.RuntimeCredentialsChanged()
+	if observed, ok := node.cooldowns.Until("unchanged-account", now); !ok || !observed.Equal(until) {
+		t.Fatalf("cooldown after credential wake = %v, want %v", observed, until)
+	}
+}
+
 func TestExecutorWaitResumesOnlyUnsentSameAccountStep(t *testing.T) {
 	t.Parallel()
 	node, ctx, provider, reference, write := runtimeCredentialFixture(t)
