@@ -1585,5 +1585,5 @@
       }
     }
   ],
-  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Issue independent reads, searches, foreground commands and file edits together in one response. Send a dependent command after its prerequisite finishes. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

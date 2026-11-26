@@ -96,6 +96,40 @@ func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestIncrementalDiscoverySharesInstructionsAndCompactsSchemas(t *testing.T) {
+	t.Parallel()
+	const instructions = "Use the calendar tools with the captured account."
+	const description = "Look up an entry in the workspace calendar."
+	const compactSchema = `{"type":"object","properties":{"title":{"const":"two  spaces"}}}`
+	alpha := jsonTool("alpha", description, `{
+		"type": "object",
+		"properties": {"title": {"const": "two  spaces"}}
+	}`, true, true, nil)
+	beta := objectTool("beta", true, true, nil)
+	alpha.Deferred, beta.Deferred = true, true
+	alpha.Instruction, beta.Instruction = instructions, instructions
+	model := &scriptedModel{scripts: []script{
+		response(call("first", "tool_search", `{"query":"select:beta"}`), finish()),
+		response(call("second", "tool_search", `{"query":"select:alpha,beta"}`), finish()),
+		response(text("Loaded"), finish()),
+	}}
+	fixture := newFixture(t, model, alpha, beta)
+	fixture.start()
+	fixture.waitRun(fixture.submit("Find the calendar tools"), protocol.ConversationStatusCompleted)
+	if model.count() != 3 {
+		t.Fatalf("discovery requests = %d", model.count())
+	}
+	for _, request := range model.calls[1:] {
+		if got := strings.Count(promptText(request), instructions); got != 1 {
+			t.Fatalf("shared instructions appeared %d times", got)
+		}
+	}
+	final := promptText(model.calls[2])
+	if strings.Count(final, description) != 1 || !strings.Contains(final, "Input schema: "+compactSchema) {
+		t.Fatalf("loaded description or schema differs:\n%s", final)
+	}
+}
+
 func TestLocalizedDiscoveryLoadsNextRequest(t *testing.T) {
 	t.Parallel()
 	deferred := objectTool("task_records", true, true, func(context.Context, canonical.ToolRequest) ToolResult {

@@ -573,8 +573,8 @@ func TestKnowledgeAgentTools(t *testing.T) {
 	}
 	for index, name := range exposed {
 		match, _ := matches[index].(map[string]any)
-		if description, _ := match["description"].(string); match["name"] != tools[index] || description == "" {
-			t.Errorf("tool_search match %d = %v, want %s with a description", index, match, tools[index])
+		if match["name"] != tools[index] {
+			t.Errorf("tool_search match %d = %v, want %s", index, match, tools[index])
 		}
 		marker := `<loaded-tool name="` + name + `">`
 		if slices.Contains(requests[0], name) || strings.Contains(beforeDiscovery, marker) || strings.Count(afterDiscovery, marker) != 1 {
@@ -583,8 +583,10 @@ func TestKnowledgeAgentTools(t *testing.T) {
 		}
 		_, loaded, _ := strings.Cut(afterDiscovery, marker)
 		declaration, _, closed := strings.Cut(loaded, "</loaded-tool>")
-		_, schema, _ := strings.Cut(declaration, "\nInput schema: ")
-		schema, _, _ = strings.Cut(schema, "\nInstructions:\n")
+		description, schema, _ := strings.Cut(declaration, "\nInput schema: ")
+		if strings.TrimSpace(description) == "" {
+			t.Errorf("%s did not receive a loaded description", name)
+		}
 		var parameters map[string]json.RawMessage
 		if !closed || json.Unmarshal([]byte(schema), &parameters) != nil || parameters == nil {
 			t.Errorf("%s did not receive a loaded input schema: %q", name, declaration)

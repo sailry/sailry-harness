@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -125,25 +126,24 @@ func capabilityInstructions(x *execution, policy string) string {
 // compaction removes it, so loading leaves the declared tool list and system
 // prompt byte-identical.
 func loadedToolContext(x *execution, policy string, loaded []string) []string {
-	var blocks, selected, shown, instructions []string
+	var blocks, selected, instructions []string
 	for _, tool := range x.tools {
 		if !tool.Deferred || !toolLoaded(loaded, tool, x.names) {
 			continue
 		}
 		selected = append(selected, tool.Definition.Name)
-		schema := tool.SchemaJSON
-		if len(schema) == 0 {
-			schema, _ = json.Marshal(tool.Definition.InputSchema)
+		var schema bytes.Buffer
+		if len(tool.SchemaJSON) == 0 || json.Compact(&schema, tool.SchemaJSON) != nil {
+			encoded, _ := json.Marshal(tool.Definition.InputSchema)
+			schema.Write(encoded)
 		}
-		block := fmt.Sprintf("<loaded-tool name=%q>\n%s\nInput schema: %s", x.names.name(tool.Definition.Name), tool.Definition.Description, schema)
-		if tool.Instruction != "" && !strings.Contains(policy, tool.Instruction) {
-			block += "\nInstructions:\n" + tool.Instruction
-			shown = append(shown, tool.Instruction)
+		blocks = append(blocks, fmt.Sprintf("<loaded-tool name=%q>\n%s\nInput schema: %s\n</loaded-tool>", x.names.name(tool.Definition.Name), tool.Definition.Description, schema.Bytes()))
+		if tool.Instruction != "" && !strings.Contains(policy, tool.Instruction) && !slices.Contains(instructions, tool.Instruction) {
+			instructions = append(instructions, tool.Instruction)
 		}
-		blocks = append(blocks, block+"\n</loaded-tool>")
 	}
 	for _, instruction := range x.inv.Instructions {
-		if instruction.Text == "" || strings.Contains(policy, instruction.Text) || slices.Contains(shown, instruction.Text) || slices.Contains(instructions, instruction.Text) {
+		if instruction.Text == "" || strings.Contains(policy, instruction.Text) || slices.Contains(instructions, instruction.Text) {
 			continue
 		}
 		if slices.ContainsFunc(instruction.AnyTools, func(name string) bool { return slices.Contains(selected, name) }) {
@@ -203,7 +203,7 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 		tools := []map[string]string{}
 		for _, entry := range matched {
 			name := entry.Definition.Name
-			tools = append(tools, map[string]string{"name": name, "description": entry.Definition.Description})
+			tools = append(tools, map[string]string{"name": name})
 			if !slices.Contains(loaded, name) {
 				loaded = append(loaded, name)
 			}

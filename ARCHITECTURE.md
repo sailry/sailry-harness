@@ -898,8 +898,10 @@ module enables the project menu, project overview and conversation-panel termina
 actions without an installed package. Harness does not assemble these actions.
 Command input is discoverable on demand. The first request exposes everyday
 file reads, discovery, search, writes, edits and patches, Git status and diff,
-code search and outline, and command run, read and stop. Extra Git subcommands,
-web and other lower-frequency tools stay deferred.
+and command run, read and stop. A native module can expose a composite tool
+through its catalog. Sailry Code exposes code_context for symbol lookups with
+source excerpts when the index is available. Other index tools, extra Git
+subcommands and web tools are discoverable on demand.
 `tool_search` discovers other declared tools under the captured permission.
 Provider prompt caches key on the declared tools and system prompt before the
 history, so loading never changes either: a turn declares its initial tools,

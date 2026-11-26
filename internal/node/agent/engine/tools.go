@@ -298,9 +298,6 @@ func (r *Runtime) deferTools(x *execution) error {
 		case tool.Delegation && role:
 			tool.Deferred = false
 		case tool.Binding == nil || tool.Binding.Owner.Name == "":
-			// The Node's own tools state their rule where they are built, and
-			// native module tools whose declared operations are visible start
-			// visible just like their former packaged bindings.
 			if slices.Contains([]string{"list_sessions", "read_session", "search_session"}, tool.Definition.Name) {
 				tool.Deferred = true
 			} else if tool.Deferred && (visibleTool(*tool) || (selected != "" && tool.LegacyPackage == selected)) {
@@ -323,23 +320,23 @@ func declaredOperations(tool Tool) []protocol.ToolOperation {
 	return declared
 }
 
-// visibleTool reports whether every operation a tool declares starts visible.
+// A native workflow chooses its initial visibility in its catalog. Its flow
+// lists its capabilities; only direct operation bindings inherit a default.
 func visibleTool(tool Tool) bool {
+	if nativeTool(tool) {
+		return tool.Binding != nil && tool.Binding.Operation != nil && visibleOperation(*tool.Binding.Operation)
+	}
 	declared := declaredOperations(tool)
 	return len(declared) != 0 && !slices.ContainsFunc(declared, func(operation protocol.ToolOperation) bool { return !visibleOperation(operation) })
 }
 
 // visibleOperation names the operations offered on the first request.
-// Everyday coding workflows (file reads/edits/patches, git status/diff, code
-// search/outline, and commands) start visible without a tool_search round-trip,
-// while lower-frequency domains (web, extra git subcommands, worktree
-// management) stay in the deferred catalog.
+// Common file operations, Git status/diff and commands are directly callable.
 func visibleOperation(operation protocol.ToolOperation) bool {
 	switch operation {
 	case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationListDirectory, protocol.ToolOperationFindFiles, protocol.ToolOperationSearchFiles,
 		protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
 		protocol.ToolOperationInspectGit, protocol.ToolOperationReadGitDiff,
-		protocol.ToolOperationSearchCode, protocol.ToolOperationOutlineCode, protocol.ToolOperationGraphCode,
 		protocol.ToolOperationRunCommand, protocol.ToolOperationReadCommand, protocol.ToolOperationStopCommand,
 		protocol.ToolOperationProgress, protocol.ToolOperationListRoles, protocol.ToolOperationListArtifactRevisions:
 		return true
