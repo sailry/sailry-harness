@@ -18,7 +18,7 @@ import (
 
 const presentFilesLimit = 16
 
-const presentFilesDescription = "Deliver finished files to the user as file cards in this conversation, after creating and verifying them in the session worktree. Pass each deliverable's exact path: documents, spreadsheets, presentations, PDFs, standalone HTML pages, exports, archives, audio or video, and source files only when the user asked for the file itself. Show pictures in the reply with Markdown image syntax instead; do not present them. A card refers to the file's version at this call; present a file again after changing it. Do not repeat a presented file as a link in the reply."
+const presentFilesDescription = "Deliver finished files to the user as file cards in this conversation, after creating and verifying them in the session worktree. Pass each deliverable's exact path: documents, spreadsheets, presentations, PDFs, standalone HTML pages, exports, archives, audio or video, and source files only when the user asked for the file itself. For an HTML preview, deliver self-contained UTF-8 HTML within 2 MiB with inline assets. Show pictures in the reply with Markdown image syntax instead; do not present them. A card refers to the file's version at this call; present a file again after changing it. Do not repeat a presented file as a link in the reply."
 
 const presentFilesSchema = `{"type":"object","additionalProperties":false,"required":["paths"],"properties":{"paths":{"type":"array","minItems":1,"maxItems":16,"items":{"type":"string","description":"Relative to the session worktree, with forward slashes"}}}}`
 

@@ -25,12 +25,16 @@ func text(name string) string {
 	return strings.TrimSpace(string(value))
 }
 
-func Instruction(child bool) string {
+func Instruction(child bool, productPrompt string) string {
+	productPrompt = strings.TrimSpace(productPrompt)
+	if productPrompt == "" {
+		productPrompt = text("default")
+	}
 	recipient := "parent"
 	if child {
 		recipient = "child"
 	}
-	return text("baseline") + "\n\n" + text(recipient)
+	return productPrompt + "\n\n" + text("baseline") + "\n\n" + text(recipient)
 }
 func Policy(mode protocol.WorkMode, permission protocol.Permission, child bool) string {
 	if mode == protocol.WorkModePlan {

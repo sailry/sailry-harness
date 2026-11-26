@@ -487,7 +487,7 @@ func (r *Runtime) nativeCompaction(x *execution, binding model.Binding, route mo
 			prefix.Records = append(prefix.Records, record)
 		}
 	}
-	request, err := r.mainRequest(x, binding, prefix, prompt.Instruction(x.inv.Session.Delegation != nil))
+	request, err := r.mainRequest(x, binding, prefix, prompt.Instruction(x.inv.Session.Delegation != nil, r.systemPrompt))
 	if err != nil {
 		return model.Compacted{}, false, err
 	}
@@ -604,7 +604,7 @@ func (r *Runtime) compactSession(x *execution, binding model.Binding, route mode
 	if err != nil {
 		return err
 	}
-	request, err := r.mainRequest(x, binding, state, prompt.Instruction(x.inv.Session.Delegation != nil))
+	request, err := r.mainRequest(x, binding, state, prompt.Instruction(x.inv.Session.Delegation != nil, r.systemPrompt))
 	if err != nil {
 		return err
 	}
@@ -734,7 +734,7 @@ func (r *Runtime) inPlaceSummary(x *execution, binding model.Binding, state stor
 	if contextTokens(state.Records)+handoff.InPlaceTokens(instructions)+uint64(maxOutput) > contextLimit {
 		return handoff.Summary{}, false, nil
 	}
-	request, err := r.mainRequest(x, binding, state, prompt.Instruction(x.inv.Session.Delegation != nil))
+	request, err := r.mainRequest(x, binding, state, prompt.Instruction(x.inv.Session.Delegation != nil, r.systemPrompt))
 	if err != nil {
 		return handoff.Summary{}, false, err
 	}

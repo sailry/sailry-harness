@@ -299,6 +299,9 @@ type Module interface {
 
 // Assembly selects the compile-time Node modules and optional services.
 type Assembly struct {
+	// SystemPrompt replaces the default product instructions for main and
+	// delegated turns. An empty value selects the Harness default.
+	SystemPrompt string
 	// Nil and empty lists select no packages.
 	BundledDefaults []plugins.DefaultPackage
 	// BundledPackages is immutable and rooted at plugins/<name>, with plugins/catalog.json.

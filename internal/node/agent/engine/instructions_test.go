@@ -49,14 +49,19 @@ func TestInstructionContextCapacity(t *testing.T) {
 	}}
 	binding := model.Binding{Config: protocol.SessionConfig{Model: "fixture"}, Provider: protocol.ConversationProvider{Models: []protocol.ConversationModel{{ID: "fixture", Context: 1000000}}}}
 	before, _ := json.Marshal(context)
-	if err := validateInstructionContext(binding, context, false); err != nil {
+	if err := validateInstructionContext(binding, context, false, ""); err != nil {
 		t.Fatalf("large-window model rejected the complete instructions: %v", err)
 	}
 	binding.Provider.Models[0].Context = 4096
-	err := validateInstructionContext(binding, context, false)
+	err := validateInstructionContext(binding, context, false, "")
 	var fault *protocol.Fault
 	if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest || !strings.Contains(fault.Message, "estimated") || !strings.Contains(fault.Message, "4096-token") || !strings.Contains(fault.Message, "AGENTS.md") {
 		t.Fatalf("small-window instruction failure = %v", err)
+	}
+	// The same capacity applies when the assembly supplies the only instructions.
+	oversized := strings.Repeat("Product instructions. ", 7000)
+	if err := validateInstructionContext(binding, canonical.Context{}, false, oversized); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("oversized product prompt alone = %v", err)
 	}
 	after, _ := json.Marshal(context)
 	if string(before) != string(after) {

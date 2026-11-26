@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 
 // Options exposes the actual model and clock boundaries to deterministic tests.
 type Options struct {
+	SystemPrompt       string
 	Python             *python.Manager
 	ValidateWorktree   func(context.Context, protocol.WorktreeID) error
 	Attachment         func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
@@ -65,6 +67,7 @@ type Options struct {
 const defaultMaxMainModelSteps uint32 = 200
 
 type Runtime struct {
+	systemPrompt      string
 	python            *python.Manager
 	validateWorktree  func(context.Context, protocol.WorktreeID) error
 	attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
@@ -199,7 +202,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	base = store.WithToolPresentation(base, options.ToolPresentation)
 	base = model.WithRequestObserver(base, options.RequestObserver)
 	ctx, cancel := context.WithCancel(base)
-	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, cooldowns: options.Cooldowns, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, turnCompletion: options.TurnCompletion, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
+	return &Runtime{systemPrompt: strings.TrimSpace(options.SystemPrompt), telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, cooldowns: options.Cooldowns, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, turnCompletion: options.TurnCompletion, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never

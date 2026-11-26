@@ -162,7 +162,7 @@ func compactNow(t *testing.T, f *engineFixture, x *execution, binding model.Bind
 // sendMain sends the next main request for binding and returns its body.
 func sendMain(t *testing.T, f *engineFixture, x *execution, binding model.Binding, provider *fakeProvider) wireRequest {
 	t.Helper()
-	request, err := f.r.mainRequest(x, binding, f.state(), prompt.Instruction(false))
+	request, err := f.r.mainRequest(x, binding, f.state(), prompt.Instruction(false, f.r.systemPrompt))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +199,7 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 			}
 			writeSSE(writer, anthropicText("Done"))
 		})
+		f.r.systemPrompt = "Assist with library cataloging."
 		if err := compactNow(t, f, x, binding); err != nil {
 			t.Fatal(err)
 		}
@@ -226,6 +227,9 @@ func TestAnthropicNativeCompaction(t *testing.T) {
 		}
 
 		same := sendMain(t, f, x, binding, provider)
+		if !strings.Contains(fmt.Sprint(ask.body["system"]), f.r.systemPrompt) || fmt.Sprint(ask.body["system"]) != fmt.Sprint(same.body["system"]) {
+			t.Fatal("compaction and the subsequent turn did not share the product system prompt")
+		}
 		messages := same.body["messages"].([]any)
 		first := messages[0].(map[string]any)
 		block := first["content"].([]any)[0].(map[string]any)

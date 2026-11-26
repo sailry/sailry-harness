@@ -168,7 +168,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 		state.Records = append(state.Records, *contextRecord)
 	}
-	instruction := prompt.Instruction(x.inv.Session.Delegation != nil)
+	instruction := prompt.Instruction(x.inv.Session.Delegation != nil, r.systemPrompt)
 	request, err := r.mainRequest(x, binding, state, instruction)
 	if err != nil {
 		return err

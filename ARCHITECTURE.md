@@ -721,6 +721,14 @@ threshold replaces the percentage boundary. The same threshold applies on
 every route; a prompt byte bound does not move it. Summaries preserve original records and raw tool output.
 Context-length failures allow up to two reactive compactions.
 
+The execution Node owns the product's base instructions. A product can set
+`SystemPrompt` on its `sdk/native/node.Assembly` and pass that assembly to
+both desktop and headless host startup. A blank value selects the general
+Harness assistant. Sailry Code supplies its coding instructions in its own
+host assembly. The same base applies to parent and delegated turns. Harness
+adds the recipient, workflow, permissions, personal instructions and project
+guides independently of the product's choice.
+
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
 Edits save when the editor loses focus, using that Node's revision.
 Window close and application quit flush pending edits and wait for a save in

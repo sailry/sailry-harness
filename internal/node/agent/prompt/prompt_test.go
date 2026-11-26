@@ -40,14 +40,25 @@ func TestSystemPromptByteStable(t *testing.T) {
 			t.Fatalf("%s policy does not describe its command sandbox", permission)
 		}
 	}
+}
+
+func TestProductPromptReplacesDefaultAndRetainsRuntimeInstructions(t *testing.T) {
+	t.Parallel()
+	const product = "You are a travel planner."
 	for _, child := range []bool{false, true} {
-		instructions := Instruction(child)
-		if !strings.HasPrefix(instructions, text("baseline")+"\n\n") || !strings.Contains(instructions, "use tool_search when offered to load its exact current name") {
-			t.Fatalf("shared instructions missing for child=%t", child)
+		standard := Instruction(child, "")
+		if !strings.HasPrefix(standard, text("default")+"\n\n") || Instruction(child, " \n\t") != standard {
+			t.Fatalf("default product instructions missing for child=%t", child)
 		}
-	}
-	if !strings.HasPrefix(Instruction(false), "You are Sailry,") || !strings.Contains(Instruction(false), "Responses\n") || strings.Contains(Instruction(true), "Responses\n") {
-		t.Fatal("recipient instructions changed")
+		custom := Instruction(child, "\n"+product+"\n")
+		if custom != product+strings.TrimPrefix(standard, text("default")) || strings.Contains(custom, text("default")) {
+			t.Fatalf("override changed more than the product prompt for child=%t", child)
+		}
+		if !strings.Contains(custom, "use tool_search when offered to load its exact current name") ||
+			strings.Contains(custom, "Responses\n") == child ||
+			strings.Contains(custom, "Delegated child\n") != child {
+			t.Fatalf("missing shared or recipient instructions for child=%t", child)
+		}
 	}
 }
 
@@ -78,7 +89,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 	for _, mode := range []protocol.WorkMode{protocol.WorkModeCode, protocol.WorkModeFlagship, protocol.WorkModePlan} {
 		t.Run(string(mode), func(t *testing.T) {
 			parentPolicy := Policy(mode, protocol.PermissionFull, false)
-			parent := System(Instruction(false), canonical.Context{Policy: &parentPolicy})
+			parent := System(Instruction(false, ""), canonical.Context{Policy: &parentPolicy})
 			for _, phrase := range []string{
 				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
 				initialPlan, "skip the tool for simple tasks", "without claiming a saved plan", revisePlan,
@@ -95,7 +106,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 			}
 
 			childPolicy := Policy(mode, protocol.PermissionFull, true)
-			child := System(Instruction(true), canonical.Context{Policy: &childPolicy})
+			child := System(Instruction(true, ""), canonical.Context{Policy: &childPolicy})
 			if strings.Contains(child, report) || strings.Contains(child, link) || strings.Contains(child, initialPlan) || strings.Contains(child, revisePlan) {
 				t.Error("child prompt includes parent progress instructions")
 			}
@@ -338,7 +349,7 @@ func TestLegacyContextAddsBaselineWithoutRewritingHistory(t *testing.T) {
 func TestInstructionPrecedenceIsExplicit(t *testing.T) {
 	t.Parallel()
 	for _, child := range []bool{false, true} {
-		text := Instruction(child)
+		text := Instruction(child, "")
 		for _, phrase := range []string{
 			"the user's requested format takes precedence",
 			"A delegated child follows the verification scope in its delegation instructions",
@@ -349,7 +360,7 @@ func TestInstructionPrecedenceIsExplicit(t *testing.T) {
 			}
 		}
 	}
-	if parent := Instruction(false); !strings.Contains(parent, "Name a file outside the worktree by its absolute path") || strings.Contains(parent, "at the start of the task") {
+	if parent := Instruction(false, ""); !strings.Contains(parent, "Name a file outside the worktree by its absolute path") || strings.Contains(parent, "at the start of the task") {
 		t.Error("parent prompt lost the outside-worktree reference rule or still front-loads questions")
 	}
 }

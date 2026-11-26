@@ -424,7 +424,7 @@ func (r *Runtime) turn(x *execution) error {
 		for key, guide := range guides {
 			current.Guides[key] = guide
 		}
-		if err := validateInstructionContext(binding, current, inv.Session.Delegation != nil); err != nil {
+		if err := validateInstructionContext(binding, current, inv.Session.Delegation != nil, r.systemPrompt); err != nil {
 			return err
 		}
 		if !inv.Run.Notice {
