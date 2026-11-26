@@ -45,11 +45,17 @@ func TestWriteSnapshotWindowsShareLockedDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer windows.CloseHandle(handle)
 	s.Data.ToastSeconds = 10
 	err = s.Save()
+	if closeErr := windows.CloseHandle(handle); closeErr != nil {
+		t.Fatal(closeErr)
+	}
 	stage, reason := WriteFailure(err)
-	if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) || stage != "replace" || reason != "file_locked" || s.Data.ToastSeconds != 10 || !s.Readable {
+	// MoveFileEx can also return access denied when replacing a destination
+	// opened without FILE_SHARE_DELETE. Report the error Windows returned.
+	matched := errors.Is(err, windows.ERROR_ACCESS_DENIED) && reason == "permission_denied" ||
+		errors.Is(err, windows.ERROR_SHARING_VIOLATION) && reason == "file_locked"
+	if !matched || stage != "replace" || s.Data.ToastSeconds != 10 || !s.Readable {
 		t.Fatalf("share-locked save = %v, %q/%q, data %+v", err, stage, reason, s.Data)
 	}
 	got, err := os.ReadFile(s.Path)
@@ -59,5 +65,8 @@ func TestWriteSnapshotWindowsShareLockedDestination(t *testing.T) {
 	temporary, err := filepath.Glob(filepath.Join(filepath.Dir(s.Path), ".preferences-*"))
 	if err != nil || len(temporary) != 0 {
 		t.Fatalf("failed replacement retained a temporary file: %v, %v", temporary, err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatalf("save after releasing the handle: %v", err)
 	}
 }
