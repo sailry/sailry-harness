@@ -21,8 +21,27 @@ type composerCatalog struct {
 	models, members      []composer.Model
 	families             []composer.Family
 	referencesKey        composerCatalogKey
+	referencesGen        uint64
 	references, commands []composer.Reference
 	modelCommands        []composer.Reference
+	filesRefKey          composerFilesReferencesKey
+	filesRefGen          uint64
+	filesReferences      []composer.Reference
+	connRefGen           uint64
+	connReferences       []composer.Reference
+}
+
+type composerFilesReferencesKey struct {
+	valid               bool
+	referencesGen       uint64
+	hasFiles, hasAttach bool
+}
+
+func sameReferenceSlice(a, b []composer.Reference) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return len(a) == 0 || &a[0] == &b[0]
 }
 
 // composerCatalogKey is what a catalog part is derived from: the Client
@@ -119,6 +138,7 @@ func (r *Runtime) catalogReferences(c *ui.Context, cv *viewmodel.Conversation, c
 	catalog := r.composerCatalog(cv.ID)
 	if key := r.composerCatalogKey(c, cv, comp); catalog.referencesKey != key {
 		catalog.referencesKey = key
+		catalog.referencesGen++
 		references, commands := r.references(cv, comp, catalog.models, catalog.modelCommands)
 		catalog.references, catalog.commands = slices.Clip(references), slices.Clip(commands)
 	}

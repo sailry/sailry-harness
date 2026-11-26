@@ -2,12 +2,14 @@ package theme
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"io"
 	"io/fs"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -85,16 +87,7 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS) error {
 			if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
 				return fmt.Errorf("%s: %w", asset.Path, err)
 			}
-			picture := &picture{bitmap: sync.OnceValue(func() *ui.Bitmap {
-				bitmap, _ := ui.DecodeBitmap(data)
-				return bitmap
-			})}
-			if max(configuration.Width, configuration.Height) > themePreviewEdge {
-				picture.preview = sync.OnceValue(func() *ui.Bitmap {
-					bitmap, _ := ui.DecodeBitmapScaled(data, themePreviewEdge)
-					return bitmap
-				})
-			}
+			picture := lazyPicture(func() []byte { return data }, max(configuration.Width, configuration.Height) > themePreviewEdge)
 			seen[asset.Path], asset.pic = picture, picture
 			encoded += len(data)
 			decoded += allocation
@@ -117,4 +110,55 @@ func readThemeResource(files fs.FS, name string) ([]byte, error) {
 		return nil, errors.New("theme resource exceeds file limit")
 	}
 	return io.ReadAll(io.LimitReader(file, themeFileLimit+1))
+}
+
+func lazyPicture(read func() []byte, hasPreview bool) *picture {
+	pic := &picture{bitmap: sync.OnceValue(func() *ui.Bitmap {
+		data := read()
+		if data == nil {
+			return nil
+		}
+		bitmap, _ := ui.DecodeBitmap(data)
+		return bitmap
+	})}
+	if hasPreview {
+		pic.preview = sync.OnceValue(func() *ui.Bitmap {
+			data := read()
+			if data == nil {
+				return nil
+			}
+			bitmap, _ := ui.DecodeBitmapScaled(data, themePreviewEdge)
+			return bitmap
+		})
+	}
+	return pic
+}
+
+// Installed pictures retain only the digest of the bytes validated for this
+// package. A replacement at the same path belongs to a different snapshot.
+func (value *Package) bindDiskPictures(dir string, files map[string][]byte) {
+	seen := make(map[string]*picture)
+	for _, variant := range []*Variant{value.Light, value.Dark} {
+		for _, asset := range variant.Assets {
+			pic := seen[asset.Path]
+			if pic == nil {
+				name := asset.Path
+				expected := sha256.Sum256(files[name])
+				pic = lazyPicture(func() []byte {
+					root, err := os.OpenRoot(dir)
+					if err != nil {
+						return nil
+					}
+					defer root.Close()
+					body, err := readThemeFile(root, name, themeFileLimit)
+					if err != nil || sha256.Sum256(body) != expected {
+						return nil
+					}
+					return body
+				}, asset.pic.preview != nil)
+				seen[name] = pic
+			}
+			asset.pic = pic
+		}
+	}
 }

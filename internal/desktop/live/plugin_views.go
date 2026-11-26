@@ -64,6 +64,87 @@ type pluginViewState struct {
 	// sshDirectories caches recent SSH sidebar directory listings across
 	// navigation switches so returning to the SSH panel renders immediately.
 	sshDirectories *desktopplugins.SshDirectoryCache
+	projectionKey  pluginViewsProjectionKey
+}
+
+type pluginViewsProjectionKey struct {
+	valid            bool
+	delivered        uint64
+	locale           string
+	viewPresent      bool
+	rootConnected    bool
+	rootRevision     uint64
+	workspace        *Runtime
+	workspaceConn    bool
+	workspaceRev     uint64
+	workspaceTree    protocol.WorktreeID
+	selected         *Runtime
+	selectedConn     bool
+	selectedRev      uint64
+	activeSection    settings.Section
+	rootCatalog      *protocol.PluginInfo
+	rootCatalogLen   int
+	workCatalog      *protocol.PluginInfo
+	workCatalogLen   int
+	selCatalog       *protocol.PluginInfo
+	selCatalogLen    int
+	iconCount        int
+	iconFailureCount int
+}
+
+func pluginCatalogSliceRef(catalog []protocol.PluginInfo) (*protocol.PluginInfo, int) {
+	if len(catalog) == 0 {
+		return nil, 0
+	}
+	return &catalog[0], len(catalog)
+}
+
+func (r *Runtime) pluginViewsProjectionKey(view *ui.Context) pluginViewsProjectionKey {
+	root := r.localRuntime()
+	state := root.pluginViews
+	workspace := root.selectedRuntime()
+	selected := root.packageOwner()
+	rootCatalog := root.pluginViewCatalog(root)
+	workCatalog := rootCatalog
+	if workspace != root {
+		workCatalog = root.pluginViewCatalog(workspace)
+	}
+	selCatalog := rootCatalog
+	if selected == workspace {
+		selCatalog = workCatalog
+	} else if selected != root {
+		selCatalog = root.pluginViewCatalog(selected)
+	}
+	key := pluginViewsProjectionKey{
+		valid:         true,
+		delivered:     root.delivered,
+		locale:        root.packageLocale(),
+		viewPresent:   view != nil,
+		rootConnected: root.controller.Connected(),
+		rootRevision:  root.controller.Revision(),
+		workspace:     workspace,
+		selected:      selected,
+		activeSection: root.App.Settings.Section,
+	}
+	key.rootCatalog, key.rootCatalogLen = pluginCatalogSliceRef(rootCatalog)
+	key.workCatalog, key.workCatalogLen = pluginCatalogSliceRef(workCatalog)
+	key.selCatalog, key.selCatalogLen = pluginCatalogSliceRef(selCatalog)
+	if workspace != nil {
+		key.workspaceConn = workspace.controller.Connected()
+		key.workspaceRev = workspace.controller.Revision()
+		if workspace.workspace != nil {
+			key.workspaceTree = workspace.workspace.selected
+		}
+	}
+	if selected != nil {
+		key.selectedConn = selected.controller.Connected()
+		key.selectedRev = selected.controller.Revision()
+	}
+	if state != nil {
+		key.iconCount = len(state.icons)
+		key.iconFailureCount = len(state.iconFailures)
+	}
+	return key
 }
 
 type pluginDemoBundleKey struct {
@@ -204,7 +285,9 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 		r.syncPluginRegistry(view, owner)
 	}
 	r.projectMenuRegistries()
-	r.projectPluginViews(view)
+	if key := r.pluginViewsProjectionKey(view); state.projectionKey != key {
+		r.projectPluginViews(view)
+	}
 	for section, schema := range state.schemas {
 		// Re-entering a failed settings page is an explicit read attempt.
 		if !rootPluginSchemaCurrent(r, section, schema) || schema.failure != nil &&

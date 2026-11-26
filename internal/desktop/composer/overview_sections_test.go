@@ -304,3 +304,44 @@ func TestOverviewSectionChevron(t *testing.T) {
 		t.Fatalf("the folded chevron is visible without hover: %v", got)
 	}
 }
+
+func TestOverviewMoreRowMatchesExpandRow(t *testing.T) {
+	uitest.Parallel(t)
+	en := func(key string) string { return i18n.In("en", key) }
+	var loaded []bool
+	o := &composer.Overview{
+		Session: true,
+		Changes: []composer.OverviewChange{
+			{Path: "a.go", Added: 1},
+			{Path: "b.go", Added: 1},
+			{Path: "c.go", Added: 1},
+			{Path: "d.go", Added: 1},
+		},
+		Sources: []composer.OverviewAsset{
+			{ID: "s1", Name: "first.md", Icon: icons.File},
+			{ID: "s2", Name: "second.md", Icon: icons.File},
+		},
+		More: true,
+		Load: func(more bool) { loaded = append(loaded, more) },
+	}
+	tt := overviewSectionTester(&composer.OverviewState{Docked: true}, o)
+	allRow, ok := tt.AccessByRole(ui.RoleButton, en("chat_assets_all")+" 4")
+	if !ok {
+		t.Fatalf("no expand row: %q", tt.Texts())
+	}
+	moreLabel := en("chat_assets_more")
+	moreRow, ok := tt.AccessByRole(ui.RoleButton, moreLabel)
+	if !ok {
+		t.Fatalf("no Show earlier row: %q", tt.Texts())
+	}
+	if moreRow.Bounds.X != allRow.Bounds.X || moreRow.Bounds.W != allRow.Bounds.W || moreRow.Bounds.H != allRow.Bounds.H {
+		t.Fatalf("Show earlier bounds %+v do not match All row bounds %+v", moreRow.Bounds, allRow.Bounds)
+	}
+	if err := tt.Click(moreLabel); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !slices.Equal(loaded, []bool{true}) {
+		t.Fatalf("Load calls = %v, want [true]", loaded)
+	}
+}

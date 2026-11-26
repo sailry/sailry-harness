@@ -93,10 +93,10 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	if ctx.Repository.Kind != composer.Unavailable || !ctx.Activity.Connected || comp.Project != project.String() || comp.Worktree != snapshot.Worktrees[0].Path {
 		t.Fatalf("a connected catalog did not use the captured project/worktree without Git: repository=%v project=%q worktree=%q", ctx.Repository.Kind, comp.Project, comp.Worktree)
 	}
-	if catalog == nil || len(catalog.references) == 0 || len(ctx.Models) == 0 {
+	if catalog == nil || len(catalog.references) == 0 || len(ctx.References) == 0 || len(ctx.Models) == 0 {
 		t.Fatalf("no catalog or models: %+v", catalog)
 	}
-	references, models := &catalog.references[0], &ctx.Models[0]
+	references, composedReferences, models := &catalog.references[0], &ctx.References[0], &ctx.Models[0]
 	sibling := func() bool {
 		for _, page := range ctx.References {
 			for _, child := range page.Children {
@@ -125,7 +125,7 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	for range 4 {
 		tester.Frame()
 		r.workers.Wait()
-		if r.composerCatalogs[cv.ID] != catalog || &catalog.references[0] != references || &ctx.Models[0] != models || !sibling() {
+		if r.composerCatalogs[cv.ID] != catalog || &catalog.references[0] != references || &ctx.References[0] != composedReferences || &ctx.Models[0] != models || !sibling() {
 			t.Fatal("an idle frame rebuilt the composer catalog")
 		}
 	}
@@ -135,7 +135,7 @@ func TestComposerCatalogKeptAcrossIdleFrames(t *testing.T) {
 	// The session's project is the composer's; a model choice rebuilds.
 	comp.Effort++
 	tester.Frame()
-	if &catalog.references[0] == references || !sibling() {
+	if &catalog.references[0] == references || &ctx.References[0] == composedReferences || !sibling() {
 		t.Fatal("a composer choice kept the stale catalog")
 	}
 }

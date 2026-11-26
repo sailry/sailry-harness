@@ -33,6 +33,7 @@ type Network struct {
 	cancel    context.CancelFunc
 	mu        sync.Mutex
 	peers     map[protocol.NodeID]*networkPeer
+	revision  uint64
 	callbacks map[uint64]func()
 	callback  uint64
 	workers   sync.WaitGroup
@@ -80,6 +81,7 @@ func (network *Network) onChange(callback func()) func() {
 
 func (network *Network) changed() {
 	network.mu.Lock()
+	network.revision++
 	callbacks := make([]func(), 0, len(network.callbacks))
 	for _, callback := range network.callbacks {
 		callbacks = append(callbacks, callback)
@@ -88,6 +90,16 @@ func (network *Network) changed() {
 	for _, callback := range callbacks {
 		callback()
 	}
+}
+
+func (network *Network) version() (uint64, int) {
+	if network == nil {
+		return 0, 0
+	}
+	network.mu.Lock()
+	rev, count := network.revision, len(network.peers)
+	network.mu.Unlock()
+	return rev, count
 }
 
 func (network *Network) snapshot() []networkPeer {
@@ -156,6 +168,7 @@ func (network *Network) discover() {
 			delete(network.peers, id)
 		}
 	}
+	network.revision++
 	network.mu.Unlock()
 	for _, peer := range removed {
 		network.closePeer(peer)
@@ -227,6 +240,7 @@ func (network *Network) inspect(id protocol.NodeID) {
 				peer.controller = controller
 				peer.release = controller.OnChange(network.changed)
 			}
+			network.revision++
 		}
 		network.mu.Unlock()
 		if create && (!retained || err != nil || !outbound) {
@@ -257,6 +271,7 @@ func (network *Network) watchConnection(ctx context.Context, peer *networkPeer, 
 			if network.peers[address.ID] == peer {
 				peer.connection = value
 				peer.online = value.Route != nil
+				network.revision++
 			}
 			network.mu.Unlock()
 			network.changed()

@@ -146,32 +146,7 @@ func ReadSnapshot(ctx context.Context, selected string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	defer root.Close()
-	read := func(name string, limit int64) ([]byte, error) {
-		for prefix := name; prefix != "."; prefix = path.Dir(prefix) {
-			info, err := root.Lstat(prefix)
-			if err != nil {
-				return nil, err
-			}
-			if info.Mode()&os.ModeSymlink != 0 {
-				return nil, errors.New("theme resources cannot use symbolic links")
-			}
-		}
-		file, err := root.Open(name)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
-			return nil, errors.New("theme resource exceeds file limit")
-		}
-		body, err := io.ReadAll(io.LimitReader(file, limit+1))
-		if len(body) > int(limit) {
-			return nil, errors.New("theme resource exceeds file limit")
-		}
-		return body, err
-	}
-	manifest, err := read("theme.json", themeManifestLimit)
+	manifest, err := readThemeFile(root, "theme.json", themeManifestLimit)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -191,7 +166,7 @@ func ReadSnapshot(ctx context.Context, selected string) (Snapshot, error) {
 		if name == "theme.json" {
 			continue
 		}
-		body, err := read(name, themeFileLimit)
+		body, err := readThemeFile(root, name, themeFileLimit)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -201,12 +176,38 @@ func ReadSnapshot(ctx context.Context, selected string) (Snapshot, error) {
 		}
 		files[name] = body
 	}
-	if source, err := read(themeSourceFile, themeManifestLimit); err == nil {
+	if source, err := readThemeFile(root, themeSourceFile, themeManifestLimit); err == nil {
 		files[themeSourceFile] = source
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Snapshot{}, err
 	}
 	return snapshotFiles(files)
+}
+
+func readThemeFile(root *os.Root, name string, limit int64) ([]byte, error) {
+	for prefix := name; prefix != "."; prefix = path.Dir(prefix) {
+		info, err := root.Lstat(prefix)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("theme resources cannot use symbolic links")
+		}
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, errors.New("theme resource exceeds file limit")
+	}
+	body, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if len(body) > int(limit) {
+		return nil, errors.New("theme resource exceeds file limit")
+	}
+	return body, err
 }
 
 func readThemeArchive(ctx context.Context, selected string) (Snapshot, error) {
@@ -275,7 +276,8 @@ func (profile *Profile) Installed(ctx context.Context) ([]Snapshot, error) {
 		if !validThemeID(entry.Name()) {
 			continue
 		}
-		snapshot, err := ReadSnapshot(ctx, filepath.Join(profile.Root, entry.Name()))
+		dir := filepath.Join(profile.Root, entry.Name())
+		snapshot, err := ReadSnapshot(ctx, dir)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -286,6 +288,8 @@ func (profile *Profile) Installed(ctx context.Context) ([]Snapshot, error) {
 			invalid = append(invalid, fmt.Errorf("installed theme %s: %w", entry.Name(), err))
 			continue
 		}
+		snapshot.Package.bindDiskPictures(dir, snapshot.Files)
+		snapshot.Files = nil
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots, errors.Join(invalid...)

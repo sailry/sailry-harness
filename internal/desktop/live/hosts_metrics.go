@@ -142,17 +142,33 @@ func (r *Runtime) projectSidebarMetrics(id string, enabled bool) {
 		r.App.Sidebar.Metrics = nil
 		return
 	}
-	display := &sidebar.Metrics{}
+	var cpuVal, memVal float64
+	var hasCPU, hasMem bool
 	if state := r.hosts[id]; state != nil && state.owner != nil && state.owner.controller.Connected() && state.view.MetricsError == "" && state.sample != nil {
 		if state.sample.CpuBasisPoints != nil {
-			cpu := float64(*state.sample.CpuBasisPoints) / 100
-			display.CPU = &cpu
+			cpuVal = float64(*state.sample.CpuBasisPoints) / 100
+			hasCPU = true
 		}
 		if memory := state.sample.Memory; memory != nil {
 			if percent, ok := host.Usage(memory.TotalBytes-min(memory.AvailableBytes, memory.TotalBytes), memory.TotalBytes); ok {
-				display.Memory = &percent
+				memVal = percent
+				hasMem = true
 			}
 		}
+	}
+	if cur := r.App.Sidebar.Metrics; cur != nil &&
+		(cur.CPU != nil) == hasCPU && (!hasCPU || *cur.CPU == cpuVal) &&
+		(cur.Memory != nil) == hasMem && (!hasMem || *cur.Memory == memVal) {
+		return
+	}
+	display := &sidebar.Metrics{}
+	if hasCPU {
+		cpu := cpuVal
+		display.CPU = &cpu
+	}
+	if hasMem {
+		mem := memVal
+		display.Memory = &mem
 	}
 	r.App.Sidebar.Metrics = display
 }

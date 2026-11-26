@@ -117,16 +117,32 @@ func sameChoiceGroup(first, second protocol.PluginUiChoice, locale string) bool 
 // The system's menu is built at the moment it is asked for and cannot wait
 // for a package to mount. Without such a package nothing is mounted.
 func (r *Runtime) projectMenuRegistries() {
-	declared := map[*Runtime]bool{}
+	if len(r.App.Data.Projects) == 0 {
+		return
+	}
+	var localChecked, localWanted bool
+	var declared map[*Runtime]bool
 	for _, project := range r.App.Data.Projects {
 		owner := r.projectOverviewRuntime(project)
 		if owner == nil {
 			continue
 		}
-		wanted, known := declared[owner]
-		if !known {
-			wanted = r.projectMenuDeclared(r.pluginViewCatalog(owner))
-			declared[owner] = wanted
+		var wanted bool
+		if owner == r {
+			if !localChecked {
+				localChecked = true
+				localWanted = r.projectMenuDeclared(r.pluginViewCatalog(r))
+			}
+			wanted = localWanted
+		} else {
+			if declared == nil {
+				declared = map[*Runtime]bool{}
+			}
+			var known bool
+			if wanted, known = declared[owner]; !known {
+				wanted = r.projectMenuDeclared(r.pluginViewCatalog(owner))
+				declared[owner] = wanted
+			}
 		}
 		if wanted {
 			r.projectPluginRegistry(project, "")

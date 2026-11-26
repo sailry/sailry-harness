@@ -16,11 +16,104 @@ func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 // before it, so a growing run never adds a second block below the card.
 // Failures stay at the end of the answer, outside the work region even when
 // later work or children were projected.
+// isCompact reports whether blocks are already in the form Compact produces,
+// allowing Compact to reuse them without allocating.
+func isCompact(blocks []Block) bool {
+	seenError := false
+	canJoinTools := false
+	for i := range blocks {
+		b := &blocks[i]
+		if seenError && b.Kind != ErrorBlock {
+			return false
+		}
+		switch b.Kind {
+		case ErrorBlock:
+			seenError = true
+			canJoinTools = false
+		case TextBlock:
+			if strings.TrimSpace(b.Text) == "" {
+				return false
+			}
+			canJoinTools = false
+		case ToolsBlock:
+			if len(b.Calls) == 0 {
+				return false
+			}
+			if len(b.Calls) == 1 {
+				g := groupable(b.Calls[0])
+				if canJoinTools && g {
+					return false
+				}
+				canJoinTools = g
+				continue
+			}
+			if canJoinTools {
+				return false
+			}
+			for j := range b.Calls {
+				if !groupable(b.Calls[j]) {
+					return false
+				}
+			}
+			canJoinTools = true
+		case ChildrenBlock:
+			if len(b.Calls) > 0 || (b.Children != nil && len(b.Children) == 0) || (i+1 < len(blocks) && blocks[i+1].Kind == ChildrenBlock) {
+				return false
+			}
+			canJoinTools = false
+		case ProgressBlock:
+		default:
+			canJoinTools = false
+		}
+	}
+	return true
+}
+
+// groupableRunLen counts consecutive groupable calls starting at
+// blocks[blockIdx].Calls[callIdx] that will merge into one ToolsBlock.
+func groupableRunLen(blocks []Block, blockIdx, callIdx int) int {
+	count := 0
+	for j := callIdx; j < len(blocks[blockIdx].Calls); j++ {
+		if !groupable(blocks[blockIdx].Calls[j]) {
+			return count
+		}
+		count++
+	}
+	for i := blockIdx + 1; i < len(blocks); i++ {
+		b := &blocks[i]
+		switch b.Kind {
+		case ProgressBlock:
+			continue
+		case TextBlock:
+			if strings.TrimSpace(b.Text) == "" {
+				continue
+			}
+			return count
+		case ToolsBlock:
+			for j := range b.Calls {
+				if !groupable(b.Calls[j]) {
+					return count
+				}
+				count++
+			}
+		default:
+			return count
+		}
+	}
+	return count
+}
+
 func Compact(blocks []Block) []Block {
+	if len(blocks) == 0 {
+		return nil
+	}
+	if isCompact(blocks) {
+		return blocks[:len(blocks):len(blocks)]
+	}
 	var out []Block
 	var failures []Block
 	joinFrom := 0
-	pushCall := func(c Call) {
+	appendChildCall := func(c Call, hint int, solo []Call) {
 		n := len(out)
 		for n > joinFrom && out[n-1].Kind == ProgressBlock {
 			n--
@@ -32,19 +125,49 @@ func Compact(blocks []Block) []Block {
 				return
 			}
 		}
-		out = append(out, Block{Kind: ToolsBlock, Calls: []Call{c}})
+		if !groupable(c) {
+			out = append(out, Block{Kind: ToolsBlock, Calls: solo})
+			return
+		}
+		if hint < 1 {
+			hint = 1
+		}
+		calls := make([]Call, 1, hint)
+		calls[0] = c
+		out = append(out, Block{Kind: ToolsBlock, Calls: calls})
 	}
-	for len(blocks) > 0 {
-		b := blocks[0]
-		blocks = blocks[1:]
+	for i := 0; i < len(blocks); i++ {
+		b := blocks[i]
 		switch {
 		case b.Kind == ErrorBlock:
 			failures = append(failures, b)
 			joinFrom = len(out)
 		case b.Kind == TextBlock && strings.TrimSpace(b.Text) == "":
 		case b.Kind == ToolsBlock:
-			for _, c := range b.Calls {
-				pushCall(c)
+			for j, c := range b.Calls {
+				if !groupable(c) {
+					out = append(out, Block{Kind: ToolsBlock, Calls: b.Calls[j : j+1 : j+1]})
+					continue
+				}
+				n := len(out)
+				for n > joinFrom && out[n-1].Kind == ProgressBlock {
+					n--
+				}
+				if n > joinFrom {
+					last := &out[n-1]
+					if last.Kind == ToolsBlock && groupable(last.Calls[len(last.Calls)-1]) {
+						last.Calls = append(last.Calls, c)
+						continue
+					}
+				}
+				run := groupableRunLen(blocks, i, j)
+				if j == 0 && run == len(b.Calls) {
+					out = append(out, Block{Kind: ToolsBlock, Calls: b.Calls[:len(b.Calls):len(b.Calls)]})
+					break
+				}
+				calls := make([]Call, 1, run)
+				calls[0] = c
+				out = append(out, Block{Kind: ToolsBlock, Calls: calls})
 			}
 		case b.Kind == ChildrenBlock:
 			// Consecutive launches share one count after their original call
@@ -52,14 +175,15 @@ func Compact(blocks []Block) []Block {
 			joinFrom = len(out)
 			var children []Child
 			for {
-				for _, c := range b.Calls {
-					pushCall(c)
+				for j, c := range b.Calls {
+					appendChildCall(c, len(b.Calls)-j, b.Calls[j:j+1:j+1])
 				}
 				children = append(children, b.Children...)
-				if len(blocks) == 0 || blocks[0].Kind != ChildrenBlock {
+				if i+1 >= len(blocks) || blocks[i+1].Kind != ChildrenBlock {
 					break
 				}
-				b, blocks = blocks[0], blocks[1:]
+				i++
+				b = blocks[i]
 			}
 			out = append(out, Block{Kind: ChildrenBlock, Children: children})
 		default:

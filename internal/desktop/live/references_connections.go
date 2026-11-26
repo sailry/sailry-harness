@@ -173,18 +173,15 @@ func referenceCatalogKey(session string, profile protocol.DatabaseProfile, datab
 // picker. Profiles come from the conversation's own execution Node.
 func (r *Runtime) projectConnectionReferences(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context) {
 	scope := r.connectionScope(cv, comp)
-	rows := []composer.Reference{
-		{ID: "databases", Source: connectionReferenceSource, Kind: composer.Page, Label: "reference_databases", Key: true, Alias: "database", Group: "reference_group_connections", Icon: icons.HardDrive},
-		{ID: "ssh", Source: connectionReferenceSource, Kind: composer.Page, Label: "reference_ssh", Key: true, Alias: "ssh", Group: "reference_group_connections", Icon: icons.Network},
-	}
-	at := len(ctx.References)
-	for index, reference := range ctx.References {
-		if reference.Group != "reference_group_context" {
-			at = index
-			break
+	if catalog := r.composerCatalogs[cv.ID]; catalog != nil && catalog.filesRefKey.valid && sameReferenceSlice(ctx.References, catalog.filesReferences) {
+		if catalog.connRefGen != catalog.filesRefGen || len(catalog.connReferences) == 0 {
+			catalog.connRefGen = catalog.filesRefGen
+			catalog.connReferences = insertConnectionReferences(ctx.References)
 		}
+		ctx.References = catalog.connReferences
+	} else {
+		ctx.References = insertConnectionReferences(ctx.References)
 	}
-	ctx.References = slices.Insert(ctx.References, at, rows...)
 	session := cv.ID
 	comp.AddReferenceChildren(func(page composer.Reference) ([]composer.Reference, bool) {
 		if page.Source != connectionReferenceSource || page.Kind != composer.Page {
@@ -208,6 +205,25 @@ func (r *Runtime) projectConnectionReferences(cv *viewmodel.Conversation, comp *
 		}
 		return nil, true
 	})
+}
+
+func insertConnectionReferences(base []composer.Reference) []composer.Reference {
+	rows := [2]composer.Reference{
+		{ID: "databases", Source: connectionReferenceSource, Kind: composer.Page, Label: "reference_databases", Key: true, Alias: "database", Group: "reference_group_connections", Icon: icons.HardDrive},
+		{ID: "ssh", Source: connectionReferenceSource, Kind: composer.Page, Label: "reference_ssh", Key: true, Alias: "ssh", Group: "reference_group_connections", Icon: icons.Network},
+	}
+	at := len(base)
+	for index, reference := range base {
+		if reference.Group != "reference_group_context" {
+			at = index
+			break
+		}
+	}
+	refs := make([]composer.Reference, len(base)+len(rows))
+	copy(refs, base[:at])
+	copy(refs[at:], rows[:])
+	copy(refs[at+len(rows):], base[at:])
+	return refs
 }
 
 func (r *Runtime) databaseReferences(session string, scope connectionScope, profile protocol.DatabaseProfile, database *string) []composer.Reference {

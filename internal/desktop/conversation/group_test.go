@@ -336,6 +336,13 @@ func testCompact(t *testing.T) {
 	if len(got[1].Calls) != 3 || len(got[4].Calls) != 1 {
 		t.Errorf("progress split the run: %d calls before it, %d after the children", len(got[1].Calls), len(got[4].Calls))
 	}
+	// Already-compact blocks return without allocating and clip capacity so
+	// appending to the result never mutates the caller's backing array.
+	compact := []Block{{Kind: ToolsBlock, Calls: named("read", 2)}, {Kind: TextBlock, Text: "final"}}
+	reused := Compact(compact)
+	if &reused[0] != &compact[0] || cap(reused) != len(compact) {
+		t.Fatalf("already-compact blocks were not reused with clipped cap: same=%v cap=%d len=%d", &reused[0] == &compact[0], cap(reused), len(compact))
+	}
 }
 
 // A row's color is its own call's state alone.

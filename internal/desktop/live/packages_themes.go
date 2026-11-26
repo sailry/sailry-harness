@@ -2,6 +2,7 @@ package live
 
 import (
 	"errors"
+	"path/filepath"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -31,6 +32,9 @@ func (r *Runtime) readInstalledThemes() {
 			r.packages.themes = map[string]theme.Snapshot{}
 			var packages []*theme.Package
 			for _, snapshot := range installed {
+				// Retain only package metadata and digest; export reloads files from
+				// disk on demand so installed theme assets do not stay pinned in heap.
+				snapshot.Files = nil
 				r.packages.themes[snapshot.Package.ID] = snapshot
 				packages = append(packages, snapshot.Package)
 			}
@@ -200,12 +204,23 @@ func (r *Runtime) exportTheme(pkg *theme.Package) {
 			return
 		}
 		r.async(func() {
-			destination, err := prepareDownloadDestination(path)
+			exportSnapshot := snapshot
+			var err error
+			if len(exportSnapshot.Files) == 0 {
+				exportSnapshot, err = theme.ReadSnapshot(r.ctx, filepath.Join(r.packages.profile.Root, pkg.ID))
+				if err == nil && exportSnapshot.Digest != snapshot.Digest {
+					err = theme.ErrConflict
+				}
+			}
 			if err == nil {
-				defer destination.close()
-				err = snapshot.WriteZIP(destination.file)
+				var destination *downloadDestination
+				destination, err = prepareDownloadDestination(path)
 				if err == nil {
-					err = destination.publish(r.ctx)
+					defer destination.close()
+					err = exportSnapshot.WriteZIP(destination.file)
+					if err == nil {
+						err = destination.publish(r.ctx)
+					}
 				}
 			}
 			r.enqueue(func(c *ui.Context) {

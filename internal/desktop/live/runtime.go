@@ -65,6 +65,9 @@ type Runtime struct {
 	unsubscribeNetwork   func()
 	nodeModels           []composer.Model
 	hosts                map[string]*liveHost
+	hostsProjection      hostsProjectionKey
+	localHostID          string
+	localHostIDNode      protocol.NodeID
 	connections          *connectionState
 	connectionReferences map[string]*referenceCatalog
 	sshTransfers         *sshTransferStore

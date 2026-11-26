@@ -48,6 +48,101 @@ type liveHost struct {
 	active         []hostActivity
 	activeOwner    *Runtime
 	activeRevision uint64
+
+	projectedOwner         *Runtime
+	projectedRev           uint64
+	projectedConnected     bool
+	projectedInfo          *protocol.HostInfo
+	projectedInfoError     string
+	projectedLinkError     string
+	projectedUpdatePhase   host.Phase
+	projectedUpdateTarget  string
+	projectedVersion       string
+	projectedInstallActive bool
+}
+
+type hostsProjectionKey struct {
+	valid                bool
+	data                 *viewmodel.Data
+	localNode            protocol.NodeID
+	localRev             uint64
+	localConnected       bool
+	delivered            uint64
+	networkRev           uint64
+	networkPeers         int
+	resourceCatalog      *protocol.ResourceCatalog
+	bindingsLen          int
+	removalsLen          int
+	confirmedRemovalsLen int
+	hostPage             string
+	hostsLen             int
+	projectedHostsLen    int
+	hostReleasePub       bool
+}
+
+func (r *Runtime) hostIDString() string {
+	target := r.controller.Target()
+	if r.localHostID == "" || r.localHostIDNode != target {
+		r.localHostIDNode = target
+		r.localHostID = target.String()
+	}
+	return r.localHostID
+}
+
+func (r *Runtime) currentHostsProjectionKey(d *viewmodel.Data) hostsProjectionKey {
+	networkRev, networkPeers := r.network.version()
+	return hostsProjectionKey{
+		valid:                true,
+		data:                 d,
+		localNode:            r.controller.Target(),
+		localRev:             r.controller.Revision(),
+		localConnected:       r.controller.Connected(),
+		delivered:            r.delivered,
+		networkRev:           networkRev,
+		networkPeers:         networkPeers,
+		resourceCatalog:      r.resourceCatalog,
+		bindingsLen:          len(r.bindings),
+		removalsLen:          len(r.sessionRemovals),
+		confirmedRemovalsLen: len(r.confirmedRemovals),
+		hostPage:             r.App.Host,
+		hostsLen:             len(r.hosts),
+		projectedHostsLen:    len(d.Hosts),
+		hostReleasePub:       r.hostRelease().Published(),
+	}
+}
+
+func (r *Runtime) hostsNeedProject(d *viewmodel.Data) bool {
+	if r.parent != nil || d == nil {
+		return false
+	}
+	if !r.hostsProjection.valid || r.hostsProjection != r.currentHostsProjectionKey(d) {
+		return true
+	}
+	for id, state := range r.hosts {
+		expectedOwner := r
+		if !state.view.Local {
+			expectedOwner = r.bindings[id]
+		}
+		if state.owner != expectedOwner || state.projectedOwner != state.owner {
+			return true
+		}
+		if state.owner != nil {
+			if state.projectedRev != state.owner.controller.Revision() || state.projectedConnected != state.owner.controller.Connected() {
+				return true
+			}
+		}
+		if state.projectedInfo != state.info || state.projectedInfoError != state.infoError || state.projectedLinkError != state.linkError || state.projectedVersion != state.view.Runtime.Version {
+			return true
+		}
+		if state.view.Update != nil && (state.projectedUpdatePhase != state.view.Update.Phase || state.projectedUpdateTarget != state.view.Update.Target) {
+			return true
+		}
+		installActive := state.install != nil && state.install.active
+		if state.projectedInstallActive != installActive {
+			return true
+		}
+	}
+	return false
 }
 
 // hostActivity is a session that runs or waits in its Node snapshot.
@@ -116,7 +211,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 	if r.hosts == nil {
 		r.hosts = map[string]*liveHost{}
 	}
-	localID := r.controller.Target().String()
+	localID := r.hostIDString()
 	local := r.ensureHost(localID, r, true)
 	local.view.Runtime.Version = link.ProductVersion
 	local.view.Runtime.ProtocolMin, local.view.Runtime.ProtocolMax = int(protocol.VERSION), int(protocol.VERSION)
@@ -220,6 +315,26 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		r.App.Host = localID
 	}
 	r.App.SetHosts(present)
+	for _, state := range r.hosts {
+		state.projectedOwner = state.owner
+		if state.owner != nil {
+			state.projectedRev = state.owner.controller.Revision()
+			state.projectedConnected = state.owner.controller.Connected()
+		} else {
+			state.projectedRev = 0
+			state.projectedConnected = false
+		}
+		state.projectedInfo = state.info
+		state.projectedInfoError = state.infoError
+		state.projectedLinkError = state.linkError
+		state.projectedVersion = state.view.Runtime.Version
+		if state.view.Update != nil {
+			state.projectedUpdatePhase = state.view.Update.Phase
+			state.projectedUpdateTarget = state.view.Update.Target
+		}
+		state.projectedInstallActive = state.install != nil && state.install.active
+	}
+	r.hostsProjection = r.currentHostsProjectionKey(d)
 }
 
 // hostLinkError is what the host's page says of a Link failure: the copy
@@ -343,11 +458,13 @@ func (r *Runtime) hostsFrame(c *ui.Context) {
 	if r.hosts == nil {
 		r.initHosts()
 	}
-	r.projectHosts(r.App.Data)
+	if r.hostsNeedProject(r.App.Data) {
+		r.projectHosts(r.App.Data)
+	}
 	now := c.Now()
 	selected := ""
 	if owner := r.selectedRuntime(); owner != nil {
-		selected = owner.controller.Target().String()
+		selected = owner.hostIDString()
 	}
 	if r.App.Page == shell.HostPage {
 		selected = r.App.Host

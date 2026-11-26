@@ -130,6 +130,7 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	state.navigation = navigation
 	root.App.SetPluginFeatures(features)
 	root.projectPluginSettings(view)
+	state.projectionKey = root.pluginViewsProjectionKey(view)
 }
 
 func (r *Runtime) projectPluginSettings(view *ui.Context) {

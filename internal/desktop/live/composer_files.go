@@ -17,24 +17,57 @@ func (r *Runtime) projectComposerFiles(cv *viewmodel.Conversation, comp *compose
 	if !ok {
 		session, ok = r.draftWorkspaceSession(cv.ID)
 	}
+	var project *workspaceProject
 	if ok {
-		if project := r.workspace.projects[session.Worktree]; project != nil {
-			ctx.References = append([]composer.Reference{{ID: "files", Source: "files", Kind: composer.Page, Label: "reference_files", Description: "reference_files_description", Key: true, Alias: "files", Group: "reference_group_context", Icon: icons.Folder}}, ctx.References...)
-			comp.AddReferenceChildren(func(page composer.Reference) ([]composer.Reference, bool) {
-				if page.ID != "files" && (page.Kind != composer.Folder || page.Source != "files") {
-					return nil, false
-				}
-				directory := page.ID
-				if page.Kind == composer.Page {
-					directory = ""
-				}
-				return project.pickFiles(directory), true
-			})
+		project = r.workspace.projects[session.Worktree]
+	}
+	hasFiles := project != nil
+	if hasFiles {
+		comp.AddReferenceChildren(func(page composer.Reference) ([]composer.Reference, bool) {
+			if page.ID != "files" && (page.Kind != composer.Folder || page.Source != "files") {
+				return nil, false
+			}
+			directory := page.ID
+			if page.Kind == composer.Page {
+				directory = ""
+			}
+			return project.pickFiles(directory), true
+		})
+	}
+	hasAttach := !ctx.Readonly && r.attachments != nil
+	if catalog := r.composerCatalogs[cv.ID]; catalog != nil && sameReferenceSlice(ctx.References, catalog.references) {
+		key := composerFilesReferencesKey{valid: true, referencesGen: catalog.referencesGen, hasFiles: hasFiles, hasAttach: hasAttach}
+		if catalog.filesRefKey != key {
+			catalog.filesRefKey = key
+			catalog.filesRefGen++
+			catalog.filesReferences = composeFileReferences(ctx.References, hasFiles, hasAttach)
 		}
+		ctx.References = catalog.filesReferences
+		return
 	}
-	if !ctx.Readonly && r.attachments != nil {
-		ctx.References = append(ctx.References, composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true, Group: "reference_group_attach", Icon: icons.Plus})
+	ctx.References = composeFileReferences(ctx.References, hasFiles, hasAttach)
+}
+
+func composeFileReferences(base []composer.Reference, hasFiles, hasAttach bool) []composer.Reference {
+	if !hasFiles && !hasAttach {
+		return base
 	}
+	extra := 0
+	if hasFiles {
+		extra++
+	}
+	if hasAttach {
+		extra++
+	}
+	refs := make([]composer.Reference, 0, len(base)+extra)
+	if hasFiles {
+		refs = append(refs, composer.Reference{ID: "files", Source: "files", Kind: composer.Page, Label: "reference_files", Description: "reference_files_description", Key: true, Alias: "files", Group: "reference_group_context", Icon: icons.Folder})
+	}
+	refs = append(refs, base...)
+	if hasAttach {
+		refs = append(refs, composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true, Group: "reference_group_attach", Icon: icons.Plus})
+	}
+	return refs
 }
 
 func composerFileReferences(directory string, entries []protocol.FileEntry) []composer.Reference {

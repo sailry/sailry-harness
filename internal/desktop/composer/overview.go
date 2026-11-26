@@ -475,11 +475,13 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 				kit.Secondary(c, i18n.T(c, "chat_retry")).Height(28).OnClick(func() { o.Load(s.more) })
 			})
 		case o.More && s.all["output"] || o.More && s.all["sources"] || o.More && len(o.Output)+len(o.Sources) <= overviewRows:
-			ui.Row(c.Key("more")).FillWidth().Justify(ui.Center).Children(func() {
-				kit.Secondary(c, i18n.T(c, "chat_assets_more")).Height(28).OnClick(func() {
-					s.more = true
-					o.Load(true)
-				})
+			more := i18n.T(c, "chat_assets_more")
+			ghost("more", more, func() {
+				ui.Icon(c, icons.ChevronDown).FontSize(15).Shrink(0)
+				name(more)
+			}).TextColor(p.MutedForeground).OnClick(func() {
+				s.more = true
+				o.Load(true)
 			})
 		}
 	})
