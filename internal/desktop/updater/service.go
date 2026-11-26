@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -194,7 +196,11 @@ func (s *Service) Startup() {
 	go func() {
 		defer s.work.Done()
 		installed, _ := s.installed()
-		key, err := readReceipt(s.options.Directory, installed, s.options.Version, s.options.Release.Package.Name+".app")
+		bundle := s.options.Release.Package.Name
+		if strings.HasSuffix(installed, ".app") {
+			bundle += ".app"
+		}
+		key, err := readReceipt(s.options.Directory, installed, s.options.Version, bundle)
 		s.mu.Lock()
 		if err != nil {
 			s.failed(err)
@@ -444,6 +450,9 @@ func (s *Service) install(update *staged, config *Config, installed, root string
 	path := filepath.Join(root, "receipt.json")
 	if _, err := os.Lstat(path); err == nil {
 		return false, failure("updates_receipt_unread", "an earlier update receipt has not been acknowledged")
+	}
+	if runtime.GOOS == "windows" && strings.HasSuffix(release.Target, "-pc-windows-msvc") {
+		return s.installWindows(update, config, installed, root)
 	}
 	// The backup is created beside the bundle. Find an unwritable location
 	// before stopping the Node, while running work can still continue.

@@ -36,6 +36,7 @@ portable=$out/Sailry-$triple.zip
 
 rm -f -- "$resources/sailry_iroh.dll"
 go -C "$harness_root" run ./native/fetch -target "$platform" -artifacts "$artifacts" -bundle "$resources"
+GOOS=windows GOARCH=amd64 go -C "$harness_root" build -trimpath -ldflags="-s -w -H=windowsgui" -o "$resources/sailry-update.exe" ./internal/desktop/updater/cmd/windows-install
 go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 
 # Everything the package ships is staged before the build, because the build
@@ -52,6 +53,22 @@ jq -n --arg revision "$revision" --argjson dirty "$dirty" --arg target "$triple"
   > "$resources/build.json"
 go -C "$harness_root" run ./native/fetch -target "$platform" -seal "$resources"
 
+# The installer lists top-level entries. Include individual package files so
+# future upgrades can also preserve local additions inside resource folders.
+python3 - "$resources" <<'PYTHON'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "build.json"
+build = json.loads(path.read_text())
+build["files"] = sorted({".mygo-files", "Sailry.exe"} | {
+    entry.relative_to(root).as_posix() for entry in root.rglob("*") if entry.is_file()
+})
+path.write_text(json.dumps(build, separators=(",", ":")) + "\n")
+PYTHON
+
 flags="-X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry"
 flags+=" ${SAILRY_PACKAGE_LDFLAGS:-}"
 source "$harness_root/internal/node/telemetry/build-flags.sh"
@@ -59,7 +76,7 @@ telemetry_build_flags "$revision"
 
 rm -rf -- "$out"
 MYGO_LDFLAGS=$flags .runtime/package/bin/mygo build -platform "$platform" "$desktop"
-for name in Sailry.exe native-seal.json build.json; do
+for name in Sailry.exe sailry-update.exe native-seal.json build.json; do
   test -f "$out/$name" || { echo "the package has no $name" >&2; exit 1; }
 done
 mv "$out/sailry-setup-$version-amd64.exe" "$installer"
