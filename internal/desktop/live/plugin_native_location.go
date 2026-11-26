@@ -15,24 +15,24 @@ import (
 )
 
 type pluginNativeLocation struct {
-	state     *pluginNativeState
-	mu        sync.Mutex
-	source    json.RawMessage
-	value     json.RawMessage
-	cursor    uint64
-	failure   error
-	changed   chan struct{}
-	known     map[protocol.WorktreeID]protocol.Worktree
-	confirmed map[protocol.WorktreeID]protocol.Worktree
-	project   *protocol.ProjectID
-	captured  bool
-	composer  string
-	read      bool
-	write     bool
-	control   bool
+	state              *pluginNativeState
+	mu                 sync.Mutex
+	source             json.RawMessage
+	value              json.RawMessage
+	cursor             uint64
+	failure            error
+	changed            chan struct{}
+	known              map[protocol.WorktreeID]protocol.Worktree
+	confirmed          map[protocol.WorktreeID]protocol.Worktree
+	project            *protocol.ProjectID
+	captured           bool
+	composer           string
+	read               bool
+	write              bool
+	control            bool
 	repositoryWorktree protocol.WorktreeID
-	repositoryKind protocol.RepositoryKind
-	repositoryBranch string
+	repositoryKind     protocol.RepositoryKind
+	repositoryBranch   string
 }
 
 func (state *pluginNativeState) locationOperations() {
@@ -48,7 +48,9 @@ func (state *pluginNativeState) locationOperations() {
 		if location.read && slices.Contains(info.Extension.Actions, protocol.PluginActionReadGit) {
 			state.native.RepositoryLocation = func(id protocol.WorktreeID, kind protocol.RepositoryKind, branch string) {
 				state.post(func(*ui.Context) {
-					if state.native.Context.Err() != nil { return }
+					if state.native.Context.Err() != nil {
+						return
+					}
 					location.repositoryWorktree, location.repositoryKind, location.repositoryBranch = id, kind, branch
 					location.refresh()
 				})
@@ -181,7 +183,9 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 	}
 	if worktree != nil {
 		kind, branch := protocol.RepositoryKind(""), ""
-		if *worktree == location.repositoryWorktree { kind, branch = location.repositoryKind, location.repositoryBranch }
+		if *worktree == location.repositoryWorktree {
+			kind, branch = location.repositoryKind, location.repositoryBranch
+		}
 		if state.runtime.workspace != nil {
 			if project := state.runtime.workspace.projects[*worktree]; kind == "" && project != nil && project.statusKnown {
 				kind, branch = project.status.Kind, workspaceString(project.status.Branch)
@@ -193,7 +197,9 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 		}
 		if kind != "" {
 			value["branch"], value["git"], value["git_status"] = branch, kind != protocol.RepositoryKindDirectory, "repository"
-			if kind == protocol.RepositoryKindDirectory { value["git_status"] = "plain_directory" }
+			if kind == protocol.RepositoryKindDirectory {
+				value["git_status"] = "plain_directory"
+			}
 		}
 	}
 	return value, nil

@@ -540,7 +540,9 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 				s.projectButton(c, ctx, actions, toolbarForm)
 				s.hostButton(c, ctx, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
-					if ctx.CheckoutControl != nil { ctx.CheckoutControl(c, false) }
+				if ctx.CheckoutControl != nil {
+					ctx.CheckoutControl(c, false)
+				}
 			}
 			s.renderPluginControls(c, "context", ControlStart)
 		})

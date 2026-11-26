@@ -142,9 +142,19 @@ jobs:
         id: go-cache
       - name: Format
         run: |
-          files=$(gofmt -l .)
+          files=$(git ls-files --cached --others --exclude-standard -z -- '*.go' | xargs -0 gofmt -l)
           if [ -n "$files" ]; then
             printf 'gofmt differs:\n%s\n' "$files" >&2
+            exit 1
+          fi
+      - name: Architecture boundaries
+        run: |
+          set -euo pipefail
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          bad=$(go list -f '{{.ImportPath}} {{range .Imports}}{{.}} {{end}}' ./internal/... | awk '$1 != "github.com/sailry/sailry-harness/internal/desktop/testassembly" && $0 ~ /github\.com\/sailry\/sailry-harness\/sdk\// { print $1 }')
+          if [ -n "$bad" ]; then
+            printf 'internal packages must not import sdk packages:\n%s\n' "$bad" >&2
             exit 1
           fi
       # The integration tag adds files and removes none, so one pass per OS also
@@ -234,7 +244,8 @@ jobs:
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=1
           go test -race -p 2 -parallel 4 \
             ./internal/client ./internal/link ./internal/mobile ./internal/protocol/wire \
-            ./internal/node/agent/engine ./internal/node/mcp ./internal/node/process \
+            ./internal/node/agent/engine ./internal/node/agent/model ./internal/node/agent/output \
+            ./internal/node/mcp ./internal/node/process ./internal/node/web \
             ./internal/node/telemetry ./internal/node/fswatch ./internal/node/externalbrowser
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}

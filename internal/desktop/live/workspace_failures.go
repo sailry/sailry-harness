@@ -14,7 +14,7 @@ import (
 
 // File mutations use the editor's own failure handling.
 const (
-	fileSave       = "file_save"
+	fileSave = "file_save"
 	// workspaceAction is any other workspace mutation: the general copy.
 	workspaceAction = "workspace"
 )

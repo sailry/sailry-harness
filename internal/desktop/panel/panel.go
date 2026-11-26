@@ -583,8 +583,10 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 }
 
 func (pr *Project) diff(c *ui.Context, path string, narrow bool) {
- if pr.RenderCapturedDiff(c, path, narrow) { return }
- pr.RenderChangeDiff(c, path, narrow, nil)
+	if pr.RenderCapturedDiff(c, path, narrow) {
+		return
+	}
+	pr.RenderChangeDiff(c, path, narrow, nil)
 }
 
 func (pr *Project) RenderChangeDiff(c *ui.Context, path string, narrow bool, action func(*ui.Context, *preview.FileChange, int, string)) {

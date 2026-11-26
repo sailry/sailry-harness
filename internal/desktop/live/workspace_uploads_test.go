@@ -413,7 +413,6 @@ func testWorkspaceUploads(t *testing.T) {
 	})
 }
 
-
 // testQueuedReadRepeated is grouped under the existing controller IO test:
 // a queued message read again before the first read answered (its editor
 // reopened) is answered too.

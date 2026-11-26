@@ -25,7 +25,9 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		}
 		return
 	}
-	if p.git.ReadDiff != nil { p.git.ReadDiff(relative, scope) }
+	if p.git.ReadDiff != nil {
+		p.git.ReadDiff(relative, scope)
+	}
 }
 
 // readSessionResources reloads every session resource after a session change
@@ -309,7 +311,9 @@ func (p *workspaceProject) applyCheckpointHunk(c *ui.Context, relative string, d
 		return false
 	}
 	source, loaded := p.files[relative]
-	if !loaded { p.readFile(relative) }
+	if !loaded {
+		p.readFile(relative)
+	}
 	if invalidReview || !loaded || source.Revision == nil || source.Truncated {
 		p.runtime.reportKeys(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "hunk source is not loaded"}, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
 		return true

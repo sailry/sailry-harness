@@ -27,7 +27,7 @@ type Activity struct {
 	// Changes is the worktree's Git changes, nil outside a repository.
 	Changes *Changes
 	// Badges are the plugins' Status-slot contributions, in their order.
-	Badges []StatusBadge
+	Badges        []StatusBadge
 	ResourceBadge *StatusBadge
 	// Progress is the running turn's task progress, nil for none.
 	Progress []conversation.Step
@@ -108,12 +108,12 @@ type Detail struct {
 // segments, or its label without them, the details as its tooltip. A popover
 // badge opens its Panel.
 type StatusBadge struct {
-	ID      string // package/contribution
-	Label   Text
-	Icon    *ui.SVG // nil: Settings2
-	Segment []Segment
-	Details []Detail
-	Panel   *Panel // nil for a button
+	ID       string // package/contribution
+	Label    Text
+	Icon     *ui.SVG // nil: Settings2
+	Segment  []Segment
+	Details  []Detail
+	Panel    *Panel // nil for a button
 	Activate func()
 }
 
@@ -162,7 +162,9 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 		if a.Changes != nil {
 			s.gitChanges(c, *a.Changes, actions)
 		}
-		if a.ResourceBadge != nil { s.badge(c, *a.ResourceBadge, actions) }
+		if a.ResourceBadge != nil {
+			s.badge(c, *a.ResourceBadge, actions)
+		}
 		for _, b := range a.Badges {
 			s.badge(c, b, actions)
 		}
@@ -281,7 +283,10 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 	}
 	kit.Tooltip(c, trigger, strings.Join(tip, "\n"))
 	if b.Panel == nil {
-		if b.Activate != nil { trigger.OnClick(b.Activate); return }
+		if b.Activate != nil {
+			trigger.OnClick(b.Activate)
+			return
+		}
 		trigger.OnClick(func() { actions.Badge(b.ID, "") })
 		return
 	}
