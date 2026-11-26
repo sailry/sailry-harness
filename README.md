@@ -59,9 +59,74 @@ It also includes browser and desktop automation, Office/PDF and local OCR, HTML 
 
 ## Quick start
 
-Follow [Setup](CONTRIBUTING.md#setup) to install Go 1.27.3 and the prerequisites for your platform, then run from source:
+### Use as a Go library
+
+Install Go 1.27.3 and the platform prerequisites described in [Setup](CONTRIBUTING.md#setup). Create a module and add Harness as a dependency.
 
 ```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+mkdir my-agent
+cd my-agent
+go mod init example.com/my-agent
+go get github.com/sailry/sailry-harness@main
+```
+
+`@main` selects the current preview SDK. Go records the resolved version in your `go.mod`.
+
+Save this minimal Host entry point as `main.go`. It uses the public SDK and the built-in Harness module assembly.
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/sailry/sailry-harness/sdk/host"
+	"github.com/sailry/sailry-harness/sdk/native/node"
+	"github.com/sailry/sailry-harness/sdk/product"
+)
+
+func main() {
+	code, err := host.Run(os.Args[1:], host.Options{
+		Identity: product.Desktop{
+			ID:             "my-agent",
+			Version:        "0.1.0",
+			DefaultProfile: "~/.my-agent",
+		},
+		Assembly: node.HarnessAssembly(),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	os.Exit(code)
+}
+```
+
+```sh
+go mod tidy
+go run . --help
+```
+
+To start the Host, run `just native` in a Harness checkout to prepare the Turso library under `.runtime/native/<goos>-<goarch>/`. Set its absolute path in your own project:
+
+```sh
+export SAILRY_TURSO_LIB=/absolute/path/to/turso-library
+go run . serve --data-dir "$PWD/.runtime/profiles/my-agent"
+```
+
+Use `host.RunContext` to control shutdown from an existing application.
+
+For a native desktop app, use `sdk/desktop` with the optional `sdk/desktop/harness` preset. The [SDK overview](#sdks-and-extension-points) lists the public extension points.
+
+### Run from source
+
+Clone the repository to run the base app or develop Harness itself.
+
+```sh
+git clone https://github.com/sailry/sailry-harness.git
+cd sailry-harness
 just native
 just desktop
 ```

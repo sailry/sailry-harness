@@ -7,7 +7,7 @@
 <p align="center">面向原生应用的开源 AI 智能体运行时与 SDK。</p>
 
 <p align="center">
-  <a href="#开发快速上手">快速上手</a> ·
+  <a href="#快速开始">快速开始</a> ·
   <a href="ARCHITECTURE.md">架构文档</a> ·
   <a href="sdk/plugins.md">插件 SDK</a> ·
   <a href="https://github.com/sailry/sailry-code">Sailry Code</a> ·
@@ -57,11 +57,78 @@
 
 <a id="安装"></a>
 
-## 开发快速上手
+<a id="开发快速上手"></a>
 
-按[环境配置指南](CONTRIBUTING.md#setup)安装 Go 1.27.3 和当前平台的前置依赖，再从源码运行：
+## 快速开始
+
+### 作为 Go 库接入
+
+按[环境配置指南](CONTRIBUTING.md#setup)安装 Go 1.27.3 和当前平台的前置依赖，创建自己的模块并引入 Harness。
 
 ```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+mkdir my-agent
+cd my-agent
+go mod init example.com/my-agent
+go get github.com/sailry/sailry-harness@main
+```
+
+`@main` 使用当前预览版 SDK，Go 会将解析出的版本记录到项目的 `go.mod`。
+
+将下面的最小 Host 入口保存为 `main.go`。示例使用公共 SDK 和 Harness 内置模块装配。
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/sailry/sailry-harness/sdk/host"
+	"github.com/sailry/sailry-harness/sdk/native/node"
+	"github.com/sailry/sailry-harness/sdk/product"
+)
+
+func main() {
+	code, err := host.Run(os.Args[1:], host.Options{
+		Identity: product.Desktop{
+			ID:             "my-agent",
+			Version:        "0.1.0",
+			DefaultProfile: "~/.my-agent",
+		},
+		Assembly: node.HarnessAssembly(),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	os.Exit(code)
+}
+```
+
+```sh
+go mod tidy
+go run . --help
+```
+
+要启动 Host，先在 Harness 源码目录运行 `just native`，在 `.runtime/native/<goos>-<goarch>/` 准备原生 Turso 库。回到自己的项目，将环境变量设为该库的绝对路径：
+
+```sh
+export SAILRY_TURSO_LIB=/absolute/path/to/turso-library
+go run . serve --data-dir "$PWD/.runtime/profiles/my-agent"
+```
+
+嵌入已有应用时，可通过 `host.RunContext` 控制退出。
+
+原生桌面应用可使用 `sdk/desktop` 和可选的 `sdk/desktop/harness` 预设。公共扩展入口见 [SDK 概览](#sdk-与扩展方式)。
+
+### 从源码运行
+
+克隆仓库即可运行基础应用或参与 Harness 开发。
+
+```sh
+git clone https://github.com/sailry/sailry-harness.git
+cd sailry-harness
 just native
 just desktop
 ```
