@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -57,25 +58,23 @@ func writeBatchIDs(records []canonical.Record) []string {
 	return ids
 }
 
-func TestDisjointWriteBatchOverlapsAndOrdersDependencies(t *testing.T) {
+func TestDisjointWriteBatchWaitsOnlyForTheSameFile(t *testing.T) {
 	t.Parallel()
-	paths := map[string][]string{
-		"first": {"dir/a"}, "second": {"elsewhere", "other/file"},
-		"parent": {"dir", "destination"}, "again": {"destination"},
-	}
-	started := make(chan string, 2)
-	releaseFirst, releaseSecond, secondDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	// The second call targets the same file as the first. The third shares
+	// only a path prefix and can run while the first is still executing.
+	paths := map[string]string{"first": "assets", "again": "assets", "child": "assets/icon"}
+	releaseFirst, releaseChild := make(chan struct{}), make(chan struct{})
+	started := make(chan string, len(paths))
 	write := objectTool("write_files", false, false, func(ctx context.Context, req canonical.ToolRequest) ToolResult {
+		started <- req.ID
 		var release <-chan struct{}
 		switch req.ID {
 		case "first":
 			release = releaseFirst
-		case "second":
-			release = releaseSecond
-			defer close(secondDone)
+		case "child":
+			release = releaseChild
 		}
 		if release != nil {
-			started <- req.ID
 			select {
 			case <-release:
 			case <-ctx.Done():
@@ -85,62 +84,131 @@ func TestDisjointWriteBatchOverlapsAndOrdersDependencies(t *testing.T) {
 		return ToolResult{Value: req.ID}
 	})
 	write.Approval = true
-	write.WritePaths = func(req canonical.ToolRequest) []string { return paths[req.ID] }
+	write.FilePaths = func(req canonical.ToolRequest) []string { return []string{paths[req.ID]} }
 	var receipts []string
 	write.ObserveHistory = func(records []canonical.Record) { receipts = writeBatchIDs(records) }
 	write.Prepare = func(_ context.Context, req canonical.ToolRequest) error {
-		var want []string
-		switch req.ID {
-		case "parent":
-			want = []string{"first", "second"}
-		case "again":
-			want = []string{"first", "second", "parent"}
-		}
-		if !slices.Equal(receipts, want) {
-			t.Errorf("preparing %s saw receipts %v, want %v", req.ID, receipts, want)
+		if req.ID == "again" && !slices.Contains(receipts, "first") {
+			t.Errorf("same-file preparation did not observe the preceding write: %v", receipts)
 		}
 		return nil
 	}
 	m := &scriptedModel{scripts: []script{
-		response(call("first", "write_files", "{}"), call("second", "write_files", "{}"), call("parent", "write_files", "{}"), call("again", "write_files", "{}"), finish()),
+		response(call("first", "write_files", "{}"), call("again", "write_files", "{}"), call("child", "write_files", "{}"), finish()),
 		response(text("Done"), finish()),
 	}}
 	f := newFixture(t, m, write)
 	f.start()
 	turn := f.submit("Edit the files")
-	f.decideWrite("first", "approve")
-	f.decideWrite("second", "approve")
-	var running []string
-	for range 2 {
+	waitStarted := func(want string) {
+		t.Helper()
 		select {
 		case id := <-started:
-			running = append(running, id)
+			if id != want {
+				t.Fatalf("started %q, want %q", id, want)
+			}
 		case <-f.ctx.Done():
-			t.Fatalf("disjoint writes did not overlap: %v", running)
+			t.Fatalf("waiting for %s to start", want)
 		}
 	}
-	slices.Sort(running)
-	if !slices.Equal(running, []string{"first", "second"}) {
-		t.Fatalf("unexpected concurrent writes: %v", running)
-	}
-	close(releaseSecond)
-	select {
-	case <-secondDone:
-	case <-f.ctx.Done():
-		t.Fatal("second write did not finish")
-	}
+	f.decideWrite("first", "approve")
+	waitStarted("first")
+	f.decideWrite("child", "approve")
+	waitStarted("child")
+	// The slow independent operation cannot delay the second write once
+	// the first write to that file is complete.
 	close(releaseFirst)
-	f.decideWrite("parent", "approve")
 	f.decideWrite("again", "approve")
+	waitStarted("again")
+	close(releaseChild)
 	f.waitRun(turn, protocol.ConversationStatusCompleted)
 	state := f.state()
-	if ids := writeBatchIDs(state.Records); !slices.Equal(ids, []string{"first", "second", "parent", "again"}) {
+	if ids := writeBatchIDs(state.Records); !slices.Equal(ids, []string{"first", "again", "child"}) {
 		t.Fatalf("persisted receipt order: %v", ids)
 	}
 	for id, result := range pressureStoredResults(state.Records) {
 		if result.Status != canonical.ToolSuccess || string(result.Result.Value) != `"`+id+`"` {
 			t.Errorf("write %s returned %s: %s", id, result.Status, result.Result.Value)
 		}
+	}
+}
+
+func TestMixedCodingBatchReadsWritesAndRunsCommandTogether(t *testing.T) {
+	t.Parallel()
+	readRelease, releaseOthers := make(chan struct{}), make(chan struct{})
+	started := make(chan string, 4)
+	makeTool := func(name string, op protocol.ToolOperation, readOnly bool, release <-chan struct{}) Tool {
+		tool := objectTool(name, readOnly, readOnly, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+			started <- call.ID
+			if release != nil {
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return toolFault(ctx.Err())
+				}
+			}
+			return ToolResult{Value: call.ID}
+		})
+		tool.Binding = &store.ApprovalBinding{Tool: name, Operation: &op}
+		tool.Approval = !readOnly
+		return tool
+	}
+	read := makeTool("read_file", protocol.ToolOperationReadFileLines, true, readRelease)
+	edit := makeTool("edit_file", protocol.ToolOperationEditFile, false, nil)
+	write := makeTool("write_file", protocol.ToolOperationWriteFile, false, releaseOthers)
+	shell := makeTool("run_command", protocol.ToolOperationRunCommand, false, releaseOthers)
+	read.FilePaths = func(canonical.ToolRequest) []string { return []string{"a.go"} }
+	edit.FilePaths = read.FilePaths
+	write.FilePaths = func(canonical.ToolRequest) []string { return []string{"b.go"} }
+
+	var readObserved bool
+	edit.ObserveHistory = func(records []canonical.Record) {
+		result := pressureStoredResults(records)["read"]
+		readObserved = result != nil && result.Status == canonical.ToolSuccess
+	}
+	edit.Prepare = func(context.Context, canonical.ToolRequest) error {
+		if !readObserved {
+			return errors.New("the required file read has not completed")
+		}
+		return nil
+	}
+	m := &scriptedModel{scripts: []script{
+		response(call("read", "read_file", `{"path":"a.go"}`), call("edit", "edit_file", `{"path":"a.go","old_text":"old","new_text":"new"}`),
+			call("write", "write_file", `{"path":"b.go","text":"new"}`), call("shell", "run_command", `{"command":"git status"}`), finish()),
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, m, read, edit, write, shell)
+	f.start()
+	turn := f.submit("Inspect the workspace and update the files")
+	f.decideWrite("write", "approve")
+	f.decideWrite("shell", "approve")
+	var active []string
+	for range 3 {
+		select {
+		case id := <-started:
+			active = append(active, id)
+		case <-f.ctx.Done():
+			t.Fatalf("mixed batch stalled with %v active", active)
+		}
+	}
+	slices.Sort(active)
+	if !slices.Equal(active, []string{"read", "shell", "write"}) {
+		t.Fatalf("unexpected concurrent calls: %v", active)
+	}
+	close(readRelease)
+	f.decideWrite("edit", "approve")
+	select {
+	case id := <-started:
+		if id != "edit" {
+			t.Fatalf("expected same-file edit, got %s", id)
+		}
+	case <-f.ctx.Done():
+		t.Fatal("edit did not start after its file read returned")
+	}
+	close(releaseOthers)
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if ids := writeBatchIDs(f.state().Records); !slices.Equal(ids, []string{"read", "edit", "write", "shell"}) {
+		t.Fatalf("mixed batch lost request order: %v", ids)
 	}
 }
 
@@ -161,7 +229,7 @@ func TestDisjointWriteBatchSteeringDrainsApprovedWrite(t *testing.T) {
 		}
 	})
 	write.Approval = true
-	write.WritePaths = func(req canonical.ToolRequest) []string { return []string{req.ID} }
+	write.FilePaths = func(req canonical.ToolRequest) []string { return []string{req.ID} }
 	m := &scriptedModel{scripts: []script{
 		response(call("approved", "write_files", "{}"), call("denied", "write_files", "{}"), call("withdrawn", "write_files", "{}"), finish()),
 		response(text("Updated"), finish()),
@@ -202,7 +270,7 @@ func TestDisjointWriteBatchStopKeepsCompletedWrite(t *testing.T) {
 		return ToolResult{Value: req.ID}
 	})
 	write.Approval = true
-	write.WritePaths = func(req canonical.ToolRequest) []string { return []string{req.ID} }
+	write.FilePaths = func(req canonical.ToolRequest) []string { return []string{req.ID} }
 	m := &scriptedModel{scripts: []script{
 		response(call("first", "write_files", "{}"), call("second", "write_files", "{}"), finish()),
 	}}

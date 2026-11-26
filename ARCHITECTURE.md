@@ -918,11 +918,13 @@ as soon as the model streams their complete arguments. The Node cancels those
 reads on a failed stream and writes their results only after the corresponding
 tool calls commit. A concurrent read that repeats an earlier call of the same
 reply, with arguments equal as JSON, does not run: its result names that call.
-Adjacent native file writes can overlap after their individual approvals
-when their targets are disjoint. Patch and move destinations count as targets.
-Overlapping paths, including parent and child paths, keep request order.
-The Node orders conflicting workspace effects through their durable completion.
-Approvals, hooks and the stored tool responses keep request order.
+In a batch of native coding tools, reads, searches, foreground commands
+and independent writes can run together. Writes queue by exact file path.
+An edit that consumes a revision from an earlier read of that file waits for
+its receipt. Independent calls can proceed while a same-file write is queued.
+Approvals are presented one at a time and results retain request order.
+A textual patch matches the current files during preparation. Its approved
+preview captures the revisions used to apply the change.
 Node owns approval and question deadlines.
 
 Goal reads and updates execute in the Node. The Goals surface and continuation

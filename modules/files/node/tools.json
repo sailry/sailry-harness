@@ -528,7 +528,7 @@
     {
       "name": "apply_patch",
       "legacy_package": "files",
-      "description": "Add, update, move or delete files under one approval. Prefer edit_file or write_file for a single-file edit.\n*** Begin Patch\n*** Add File: a\n+one\n*** Update File: b\n@@ anchor\n context\n-old\n+new\n*** Delete File: c\n*** End Patch\nPrefix added lines with +, including every line of a new file. Update context (space), removals (-) and optional @@ anchors must match the current file exactly at one location, including whitespace. An additions-only hunk inserts right after that line, or at EOF with bare @@. *** Move to: renames and creates missing directories. *** End of File anchors a hunk at EOF. Read every file you update, move or delete first. A prior write counts. If a file changed since you read it, read it again. Up to 16 files are validated before anything is written, counting a moved and edited file twice. Validation failure rejects all with per-file reasons. Writes then proceed in order and stop on failure without rolling back earlier files. Each file reports applied, failed, unknown or not_attempted. Inspect an unknown file before retrying.",
+      "description": "Add, update, move or delete text files in one patch.\n*** Begin Patch\n*** Add File: a\n+one\n*** Update File: b\n@@ anchor\n context\n-old\n+new\n*** Delete File: c\n*** End Patch\nPrefix added lines with +. An update finds the first matching context after the previous hunk or optional @@ anchor. Additions-only hunks append at EOF. *** End of File matches the end of the file. *** Move to: follows an update header. Add and move can replace an existing file. Writes run in patch order and stop on error. Inspect partial results before retrying.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1585,5 +1585,5 @@
       }
     }
   ],
-  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Batch independent reads together, and issue independent edits to different files together in the same response. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Issue independent reads, searches, foreground commands and file edits together in one response. Send a dependent command after its prerequisite finishes. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

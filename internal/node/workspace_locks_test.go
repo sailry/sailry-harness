@@ -138,8 +138,15 @@ func TestWorkspaceLocks(t *testing.T) {
 			t.Fatal("an independent file waited behind the patch")
 		}
 		sibling()
+		child, ok := within(free, func() func() {
+			return locks.fileEffect(root, &files.Prepared{Changes: []files.PreparedChange{{Path: "two/child"}}})
+		})
+		if !ok {
+			t.Fatal("a file waited for an unrelated parent path")
+		}
+		child()
 		var blockedReleases []func()
-		for _, name := range []string{filepath.Join(root, "one"), filepath.Join(root, "two", "child"), to, other, root} {
+		for _, name := range []string{filepath.Join(root, "one"), to, other, root} {
 			release, ok := within(blocked, func() func() { return locks.effect(name) })
 			if ok {
 				t.Fatalf("%s ran during an overlapping patch", name)
@@ -182,12 +189,11 @@ func TestWorkspaceFileKeys(t *testing.T) {
 	root := t.TempDir()
 	// Ordering also works for names that do not exist until the patch creates them.
 	one := workspaceFileKey(root, "Folder/caf\u00e9")
-	if one != workspaceFileKey(root, "folder/cafe\u0301") || one != workspaceFileKey("", filepath.Join(root, "Folder", "caf\u00e9")) {
-		t.Fatal("alternate spellings split the file lock")
+	if one != workspaceFileKey("", filepath.Join(root, "Folder", "caf\u00e9")) {
+		t.Fatal("relative and absolute names split the file queue")
 	}
-	if !workspacePathsOverlap(one, workspaceFileKey(root, "")) || !workspacePathsOverlap(workspaceFileKey(root, ""), one) ||
-		workspacePathsOverlap(one, one+"2") {
-		t.Fatal("path overlap must match complete components")
+	if one == workspaceFileKey(root, "folder/cafe\u0301") {
+		t.Fatal("distinct unresolved file names share a queue")
 	}
 	if runtime.GOOS != "windows" {
 		alias := filepath.Join(t.TempDir(), "alias")

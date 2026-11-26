@@ -306,7 +306,7 @@ func TestAgentManagementTools(t *testing.T) {
 	}
 	unknown := strings.Repeat("a", 64)
 
-	t.Run("patch receipts allow consecutive guarded edits", func(t *testing.T) {
+	t.Run("patches match current contents across consecutive edits", func(t *testing.T) {
 		path := filepath.Join(root, "repeated.txt")
 		turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string { return "deny" }, func(step int, results map[string]string) [][3]string {
 			switch step {
@@ -326,17 +326,17 @@ func TestAgentManagementTools(t *testing.T) {
 					t.Error(err)
 					return nil
 				}
-				return [][3]string{{"stale", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-third\n+fourth\n*** End Patch"}`}}
+				return [][3]string{{"current", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-third\n+fourth\n*** End Patch"}`}}
 			case 5:
-				if !strings.Contains(results["stale"], "repeated.txt") || !strings.Contains(results["stale"], "changed since") {
-					t.Errorf("external modification: %s", results["stale"])
+				if !strings.Contains(results["current"], "repeated.txt") {
+					t.Errorf("patch result after external change: %s", results["current"])
 				}
 			}
 			return nil
 		})
 		content, err := os.ReadFile(path)
-		if err != nil || string(content) != "third\nexternal\n" {
-			t.Fatalf("stale patch modified external content: file=%q error=%v", content, err)
+		if err != nil || string(content) != "fourth\nexternal\n" {
+			t.Fatalf("patch did not preserve an unrelated external line: file=%q error=%v", content, err)
 		}
 	})
 	t.Run("mixed file patch keeps worktree receipts and revisions", func(t *testing.T) {

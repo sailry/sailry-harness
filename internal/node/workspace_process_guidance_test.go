@@ -18,7 +18,7 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 	t.Parallel()
 	for _, outcome := range []string{"cancelled", "exited", "unknown"} {
 		t.Run(outcome, func(t *testing.T) {
-			started, cancelled := make(chan struct{}), make(chan struct{})
+			started, cancelled := make(chan struct{}, 2), make(chan struct{}, 2)
 			backgroundStarted, backgroundStopped := make(chan struct{}), make(chan struct{})
 			var launches atomic.Int32
 			f := newStopFixture(t, func(ctx context.Context, launch process.Launch, output func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
@@ -30,14 +30,14 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 					<-ctx.Done()
 					close(backgroundStopped)
 					return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
-				case "in progress":
+				case "in progress", "also in progress":
 				default:
 					return result, nil
 				}
-				close(started)
+				started <- struct{}{}
 				<-ctx.Done()
-				close(cancelled)
-				output(protocol.ProcessOutputOutputStreamStdout, []byte("output before cancellation"))
+				cancelled <- struct{}{}
+				output(protocol.ProcessOutputOutputStreamStdout, []byte(launch.Command+" output before cancellation"))
 				switch outcome {
 				case "cancelled":
 					result.Outcome = protocol.ProcessOutcome{Kind: "cancelled"}
@@ -52,14 +52,17 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 						{"prior", "run_command", `{"command":"already done"}`},
 						{"background", "run_command", `{"command":"background work","background":true}`},
 						{"active", "run_command", `{"command":"in progress"}`},
-						{"later", "run_command", `{"command":"unneeded"}`},
+						{"peer", "run_command", `{"command":"also in progress"}`},
+						{"later", "run_command", `{"command":"unneeded","background":true}`},
 					}
 				}
 				return nil
 			})
 			f.submit("Original task")
 			f.wait("the background command", backgroundStarted)
-			f.wait("the foreground command", started)
+			for range 2 {
+				f.wait("both foreground commands to start", started)
+			}
 			runs, _, _ := f.read()
 			recipient := runs[0].Turn
 			ordinary := queueGuidanceFixture(f, "Leave this in the queue")
@@ -72,7 +75,9 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 					t.Fatal(result.Fault)
 				}
 			}
-			f.wait("foreground cancellation", cancelled)
+			for range 2 {
+				f.wait("both foreground commands to receive cancellation", cancelled)
+			}
 			f.until("the guided task to finish", func(runs []protocol.ConversationRun, _ []protocol.ConversationBackgroundTask) bool {
 				return slices.ContainsFunc(runs, func(run protocol.ConversationRun) bool {
 					return run.Turn == recipient && run.Status == protocol.ConversationStatusCompleted
@@ -87,7 +92,7 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 				t.Fatalf("selected guidance did not reach the next model call: %v", prompts)
 			}
 			_, background, queue := f.read()
-			if queue.Paused || len(queue.Items) != 1 || queue.Items[0].Turn != ordinary.Turn || launches.Load() != 3 {
+			if queue.Paused || len(queue.Items) != 1 || queue.Items[0].Turn != ordinary.Turn || launches.Load() != 4 {
 				t.Fatalf("unexpected background/queue/launches: %+v / %+v / %d", background, queue, launches.Load())
 			}
 			if commands := f.node.processes.List(f.session.ID); !slices.ContainsFunc(commands, func(command protocol.ProcessInfo) bool {
@@ -102,18 +107,20 @@ func TestGuideQueuedTurnInterruptsForegroundCommand(t *testing.T) {
 			}
 
 			results := guidanceToolResults(f)
-			if len(results) != 4 || results["prior"] == nil || results["prior"].Status != canonical.ToolSuccess || results["later"] == nil || results["later"].Status != canonical.ToolErrorStatus || !strings.Contains(string(results["later"].Result.Value), string(protocol.ErrorCodeCancelled)) {
+			if len(results) != 5 || results["prior"] == nil || results["prior"].Status != canonical.ToolSuccess || results["later"] == nil || results["later"].Status != canonical.ToolErrorStatus || !strings.Contains(string(results["later"].Result.Value), string(protocol.ErrorCodeCancelled)) {
 				t.Fatalf("prior success or skipped call lost: %+v", results)
 			}
-			active := results["active"]
-			if active == nil || !strings.Contains(string(active.Result.Value), "output before cancellation") {
-				t.Fatalf("foreground receipt lost: %+v", active)
-			}
-			if outcome == "exited" && active.Status != canonical.ToolSuccess || outcome != "exited" && (active.Status != canonical.ToolErrorStatus || !strings.Contains(string(active.Result.Value), `"kind":"unknown"`)) {
-				t.Fatalf("foreground outcome was replaced: %s", active.Result.Value)
-			}
-			if outcome == "unknown" && !strings.Contains(string(active.Result.Value), "original uncertain result") {
-				t.Fatalf("original unknown outcome was lost: %s", active.Result.Value)
+			for id, command := range map[string]string{"active": "in progress", "peer": "also in progress"} {
+				active := results[id]
+				if active == nil || !strings.Contains(string(active.Result.Value), command+" output before cancellation") {
+					t.Fatalf("foreground receipt lost: %+v", active)
+				}
+				if outcome == "exited" && active.Status != canonical.ToolSuccess || outcome != "exited" && (active.Status != canonical.ToolErrorStatus || !strings.Contains(string(active.Result.Value), `"kind":"unknown"`)) {
+					t.Fatalf("foreground outcome was replaced: %s", active.Result.Value)
+				}
+				if outcome == "unknown" && !strings.Contains(string(active.Result.Value), "original uncertain result") {
+					t.Fatalf("original unknown outcome was lost: %s", active.Result.Value)
+				}
 			}
 		})
 	}

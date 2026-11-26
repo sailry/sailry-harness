@@ -38,9 +38,8 @@ type Tool struct {
 	Concurrent bool
 	// StreamRead permits a native read to start before its model response is committed.
 	StreamRead bool
-	// WritePaths returns every canonical file target of a native mutation,
-	// including move destinations. An empty set keeps the call sequential.
-	WritePaths func(canonical.ToolRequest) []string
+	// FilePaths identifies the exact files a native file tool reads or changes.
+	FilePaths  func(canonical.ToolRequest) []string
 	Deferred   bool
 	Delegation bool
 	Approval   bool
@@ -402,6 +401,13 @@ func findTool(tools []Tool, name string) *Tool {
 	return nil
 }
 
+// File mutations prepare against the state left by earlier calls. Other
+// approvals retain the command captured in the initial batch preflight.
+func (tool *Tool) prepareAtAdmission() bool {
+	return tool.Approval && (tool.FilePaths != nil || tool.ObserveHistory != nil ||
+		tool.Binding != nil && tool.Binding.Operation != nil && *tool.Binding.Operation == protocol.ToolOperationApplyChanges)
+}
+
 func nativeTool(tool Tool) bool {
 	return tool.Binding == nil || tool.Binding.Owner.Name == ""
 }
@@ -476,24 +482,12 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	return r.runToolBatch(x, step, state, calls)
 }
 
-// Paths are canonical, slash-separated file names supplied by the executor.
-// A patch that creates or removes a parent must finish before its descendants.
-func overlappingWritePaths(first, second []string) bool {
-	for _, a := range first {
-		for _, b := range second {
-			if a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.AgentState, calls []canonical.ToolRequest) error {
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
 	startedCalls := make([]bool, len(calls))
 	asks := make([]bool, len(calls))
+	var historyLimit int
 	var marks []canonical.Record
 	x.observedMu.Lock()
 	if x.observed.Tools == nil {
@@ -568,10 +562,10 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = repeatedCall(first)
 			continue
 		}
-		if tool.Approval && tool.ObserveHistory != nil {
-			// Defer ObserveHistory and Prepare for history-observing approval
-			// calls until earlier calls in this batch finish, so sequential
-			// reads and edits against the same file observe fresh revisions.
+		if tool.prepareAtAdmission() {
+			if tool.ObserveHistory != nil {
+				historyLimit = i
+			}
 			if tool.Prepare != nil && tool.ReleasePrepared != nil {
 				defer tool.ReleasePrepared(call)
 			}
@@ -628,150 +622,147 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	} else {
 		slots = make(chan struct{}, maxConcurrentTools)
 	}
-	batchHistory := state.Records
-	appendedBatch := 0
-	appendBatchHistory := func(upto int) {
-		for ; appendedBatch < upto; appendedBatch++ {
-			k := appendedBatch
-			if read := x.streamReads.read(calls[k].ID); read != nil {
-				<-read.done
-				results[k], startedCalls[k] = read.result, read.ran
+	// Earlier writes may finish out of order. Preparation sees completed
+	// predecessors in the same order as their eventual canonical receipts.
+	receipts := make([]canonical.Record, historyLimit)
+	completed := make([]bool, historyLimit)
+	recordCompletion := func(i int) {
+		if i >= historyLimit {
+			return
+		}
+		completed[i] = true
+		if results[i].Value == nil && results[i].Failure == nil {
+			return
+		}
+		rec := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(uint64(i), calls[i], results[i])), r.clock.Now())
+		rec.ID = "batch:" + calls[i].ID
+		rec.Provenance.Author = "tool"
+		receipts[i] = rec
+	}
+	prefix := 0
+	history := state.Records[:len(state.Records):len(state.Records)]
+	historyBefore := func(i int) []canonical.Record {
+		// An unadmitted call is incomplete, so the prefix cannot pass i
+		// even when an independent later call was admitted first.
+		for prefix < i && completed[prefix] {
+			if receipts[prefix].ID != "" {
+				history = append(history, receipts[prefix])
 			}
-			if results[k].Value == nil && results[k].Failure == nil {
-				continue
+			prefix++
+		}
+		visible := history[:len(history):len(history)]
+		for j := prefix + 1; j < i; j++ {
+			if receipts[j].ID != "" {
+				visible = append(visible, receipts[j])
 			}
-			if len(batchHistory) == len(state.Records) {
-				batchHistory = append(make([]canonical.Record, 0, len(state.Records)+len(calls)), state.Records...)
+		}
+		return visible
+	}
+	admit := func(i int) error {
+		if !asks[i] {
+			return nil
+		}
+		call := calls[i]
+		tool := findTool(x.tools, call.Name)
+		if tool.prepareAtAdmission() {
+			if tool.ObserveHistory != nil {
+				tool.ObserveHistory(historyBefore(i))
 			}
-			rec := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(uint64(k), calls[k], results[k])), r.clock.Now())
-			rec.ID = "batch:" + calls[k].ID
-			rec.Provenance.Author = "tool"
-			batchHistory = append(batchHistory, rec)
+			if tool.Prepare != nil {
+				if err := tool.Prepare(x.ctx, call); err != nil {
+					results[i] = toolFault(err)
+					return nil
+				}
+			}
+		}
+		approved, err := r.approval(x, step, call, tool)
+		if err != nil {
+			return err
+		}
+		executable[i] = approved
+		if !approved {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
+		}
+		return r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved))
+	}
+	execute := func(i int) {
+		if read := x.streamReads.read(calls[i].ID); read != nil {
+			<-read.done
+			results[i], startedCalls[i] = read.result, read.ran
+			return
+		}
+		if !executable[i] {
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		case <-step.Done():
+			return
+		}
+		call := calls[i]
+		metric, started := r.telemetry.Capture(), time.Now()
+		defer func() { observeTool(metric, x.ctx, x.tools, call.Name, results[i], started) }()
+		beforeRan := false
+		defer func() {
+			if beforeRan {
+				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
+			}
+		}()
+		defer containToolPanic(x, call, &results[i])
+		if step.Err() != nil {
+			return
+		}
+		tool := findTool(x.tools, call.Name)
+		hookCtx := x.ctx
+		if tool != nil && tool.ReadOnly && !asks[i] && !tool.Delegation {
+			hookCtx = step
+		}
+		if err := x.hooks.Before(hookCtx, call.Name, call.ID); err != nil {
+			if step.Err() != nil {
+				return
+			}
+			results[i] = toolFault(err)
+			return
+		}
+		if step.Err() != nil {
+			return
+		}
+		beforeRan = true
+		ctx := toolContext
+		if tool.ReadOnly && !asks[i] && !tool.Delegation {
+			ctx = step
+		}
+		defer r.toolActivity(x, call)()
+		defer x.timeline.tool(call, tool.Delegation)()
+		startedCalls[i] = true
+		results[i] = tool.Execute(ctx, call)
+	}
+	access := make([]toolAccess, len(calls))
+	for i, call := range calls {
+		tool := findTool(x.tools, call.Name)
+		if tool != nil && (executable[i] || asks[i]) && !x.hooks.WrapsTool(call.Name) {
+			access[i] = parallelToolAccess(tool, call)
 		}
 	}
 	var batchErr error
-	var workers sync.WaitGroup
-	writePaths := func(i int) []string {
-		tool := findTool(x.tools, calls[i].Name)
-		if !asks[i] || tool == nil || tool.WritePaths == nil || x.hooks.WrapsTool(calls[i].Name) {
-			return nil
-		}
-		return tool.WritePaths(calls[i])
-	}
-	for start := 0; start < len(calls) && batchErr == nil; {
-		if step.Err() != nil {
-			break
-		}
+	for start := 0; start < len(calls) && step.Err() == nil; {
 		end := start + 1
-		if concurrent(start) {
-			for end < len(calls) && concurrent(end) {
-				end++
-			}
-		} else if end < len(calls) {
-			occupied := writePaths(start)
-			for len(occupied) > 0 && end < len(calls) && end-start < maxConcurrentTools {
-				next := writePaths(end)
-				if len(next) == 0 || overlappingWritePaths(occupied, next) {
-					break
-				}
-				occupied = append(occupied, next...)
-				end++
-			}
-		}
-		for i := start; i < end; i++ {
-			if step.Err() != nil {
+		reads, mixed := concurrent(start), access[start].parallel
+		for end < len(calls) {
+			reads = reads && concurrent(end)
+			mixed = mixed && access[end].parallel
+			if !reads && !mixed {
 				break
 			}
-			if asks[i] {
-				call := calls[i]
-				tool := findTool(x.tools, call.Name)
-				if tool.Approval && tool.ObserveHistory != nil {
-					// All writes in this group name disjoint files. Only completed
-					// groups can contribute a revision needed by their preparation.
-					appendBatchHistory(start)
-					tool.ObserveHistory(batchHistory)
-					if tool.Prepare != nil {
-						if err := tool.Prepare(x.ctx, call); err != nil {
-							results[i] = toolFault(err)
-							continue
-						}
-					}
-				}
-				approved, err := r.approval(x, step, call, tool)
-				if err == errQueuedSteer {
-					break
-				}
-				if err != nil {
-					batchErr = err
-					break
-				}
-				executable[i] = approved
-				if !approved {
-					results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
-				}
-				if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
-					batchErr = err
-					break
-				}
-			}
-			if !executable[i] || x.streamReads.read(calls[i].ID) != nil {
-				continue
-			}
-			workers.Add(1)
-			go func(i int) {
-				defer workers.Done()
-				select {
-				case slots <- struct{}{}:
-					defer func() { <-slots }()
-				case <-step.Done():
-					return
-				}
-				call := calls[i]
-				metric, started := r.telemetry.Capture(), time.Now()
-				defer func() { observeTool(metric, x.ctx, x.tools, call.Name, results[i], started) }()
-				beforeRan := false
-				defer func() {
-					if beforeRan {
-						x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
-					}
-				}()
-				defer containToolPanic(x, call, &results[i])
-				if step.Err() != nil {
-					return
-				}
-				tool := findTool(x.tools, call.Name)
-				hookCtx := x.ctx
-				if tool != nil && tool.ReadOnly && !asks[i] && !tool.Delegation {
-					hookCtx = step
-				}
-				if err := x.hooks.Before(hookCtx, call.Name, call.ID); err != nil {
-					if step.Err() != nil {
-						return
-					}
-					results[i] = toolFault(err)
-					return
-				}
-				if step.Err() != nil {
-					return
-				}
-				beforeRan = true
-				ctx := toolContext
-				if tool.ReadOnly && !asks[i] && !tool.Delegation {
-					ctx = step
-				}
-				func() {
-					defer r.toolActivity(x, call)()
-					defer x.timeline.tool(call, tool.Delegation)()
-					startedCalls[i] = true
-					results[i] = tool.Execute(ctx, call)
-				}()
-			}(i)
+			end++
 		}
-		workers.Wait()
-		for i := start; i < end; i++ {
-			if read := x.streamReads.read(calls[i].ID); read != nil {
-				<-read.done
+		err := runQueuedTools(step, start, access[start:end], admit, execute, recordCompletion)
+		if err != nil {
+			if err != errQueuedSteer {
+				batchErr = err
 			}
+			break
 		}
 		start = end
 	}

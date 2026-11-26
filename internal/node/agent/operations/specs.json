@@ -280,7 +280,7 @@
   },
   {
     "operation": "files.apply",
-    "description": "Apply a patch in the *** Begin Patch format that adds, updates, moves or deletes up to 16 related files with one approval. Context lines match the current file exactly, and updated, moved or deleted files must have been read in this session. Every file is validated first; any failure rejects the whole patch without writing. Files are then written in order; a later failure stops without rollback and each file reports its status",
+    "description": "Apply a *** Begin Patch text patch to current files. Add, update, move or delete files in patch order. Use context lines to locate edits. Add and move may overwrite existing files.",
     "parameters": {
       "type": "object",
       "properties": {

@@ -64,13 +64,18 @@ func (files *Files) DeleteFile(ctx context.Context, relative, revision string) e
 	}
 	return files.RemoveVerified(ctx, relative, revision, stamp)
 }
-func (files *Files) MoveFile(ctx context.Context, from, to, revision string) error {
+func (files *Files) MoveFile(ctx context.Context, from, to, revision string, createParents bool) error {
 	stamp, err := files.SourceRevision(from)
 	if err != nil {
 		return err
 	}
 	if err = files.VerifySource(ctx, from, revision, stamp); err != nil {
 		return err
+	}
+	if createParents {
+		if err := files.createParents(to); err != nil {
+			return err
+		}
 	}
 	return files.MoveEntryTo(ctx, files, from, to)
 }

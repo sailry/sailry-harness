@@ -1,5 +1,5 @@
-// Codex patch parsing and exact matching derive from openai/codex
-// 451787127c0e70247034c33e358536ffd2b89cf8 (Apache-2.0).
+// Codex patch parsing and matching derive from openai/codex
+// 451787127c0e70247034c33e358536ffd2b89cf8 and af71942309704997f4bdc86c020717646423c080 (Apache-2.0).
 package files
 
 import (
@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 type PatchHunk struct {
@@ -139,21 +140,11 @@ func ParsePatch(input string) ([]PatchHunk, error) {
 				}
 			}
 		}
-		paths := []string{entry.Path}
-		if entry.Destination != nil {
-			paths = append(paths, *entry.Destination)
+		if seen[entry.Path] {
+			return nil, invalid(entry.Path + " appears in more than one patch entry")
 		}
-		for _, path := range paths {
-			key := strings.ToLower(path)
-			if seen[key] {
-				return nil, invalid(path + " appears in more than one patch entry")
-			}
-			seen[key] = true
-		}
+		seen[entry.Path] = true
 		out = append(out, entry)
-		if len(out) > protocol.MAX_CHANGES {
-			return nil, invalid("a patch can change at most 16 files; a moved and edited file counts twice")
-		}
 	}
 	return out, nil
 }
@@ -188,27 +179,39 @@ func patchLines(text string) ([]patchLine, string) {
 	}
 	return lines, ending
 }
+func normalizePatchLine(line string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= '\u2010' && r <= '\u2015', r == '\u2212':
+			return '-'
+		case r >= '\u2018' && r <= '\u201b':
+			return '\''
+		case r >= '\u201c' && r <= '\u201f':
+			return '"'
+		case r == '\u00a0', r >= '\u2002' && r <= '\u200a', r == '\u202f', r == '\u205f', r == '\u3000':
+			return ' '
+		default:
+			return r
+		}
+	}, strings.TrimSpace(line))
+}
+
 func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 	lines, ending := patchLines(before)
 	type replacement struct {
 		start, count int
 		new          []patchLine
 	}
-	type located struct {
-		start, from int
-		pattern     []string
-		fixed       bool
-		mode        uint8
-	}
 	var replacements []replacement
-	var positions []located
 	cursor := 0
 	matchLine := func(a, b string, mode uint8) bool {
 		switch mode {
 		case 1:
-			return strings.TrimRight(a, " \t") == strings.TrimRight(b, " \t")
+			return strings.TrimRightFunc(a, unicode.IsSpace) == strings.TrimRightFunc(b, unicode.IsSpace)
 		case 2:
 			return strings.TrimSpace(a) == strings.TrimSpace(b)
+		case 3:
+			return normalizePatchLine(a) == normalizePatchLine(b)
 		default:
 			return a == b
 		}
@@ -224,28 +227,25 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		return true
 	}
-	seek := func(pattern []string, start int, eof bool) (int, uint8) {
-		for mode := uint8(0); mode <= 2; mode++ {
-			if eof {
-				at := len(lines) - len(pattern)
-				if at >= start && matchesMode(pattern, at, mode) {
-					return at, mode
-				}
-				continue
-			}
+	seek := func(pattern []string, start int, eof bool) int {
+		if len(pattern) == 0 {
+			return start
+		}
+		if eof {
+			start = max(start, len(lines)-len(pattern))
+		}
+		for mode := uint8(0); mode <= 3; mode++ {
 			for at := start; at+len(pattern) <= len(lines); at++ {
 				if matchesMode(pattern, at, mode) {
-					return at, mode
+					return at
 				}
 			}
 		}
-		return -1, 0
+		return -1
 	}
 	for index, chunk := range chunks {
-		previous := cursor
-		anchor, anchorMode := -1, uint8(0)
 		if chunk.Context != nil {
-			anchor, anchorMode = seek([]string{*chunk.Context}, cursor, false)
+			anchor := seek([]string{*chunk.Context}, cursor, false)
 			if anchor < 0 {
 				return "", invalid(fmt.Sprintf("hunk %d: @@ context line was not found", index+1))
 			}
@@ -253,34 +253,24 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		old, new := chunk.Old, chunk.New
 		if len(old) == 0 {
-			at := len(lines)
-			if anchor >= 0 && !chunk.EndOfFile {
-				at = cursor
-				positions = append(positions, located{anchor, previous, []string{*chunk.Context}, false, anchorMode})
-			}
 			var inserted []patchLine
 			for _, text := range new {
 				inserted = append(inserted, patchLine{text, ending})
 			}
-			replacements = append(replacements, replacement{at, 0, inserted})
+			replacements = append(replacements, replacement{len(lines), 0, inserted})
 			continue
 		}
-		at, mode := seek(old, cursor, chunk.EndOfFile)
+		at := seek(old, cursor, chunk.EndOfFile)
 		if at < 0 && len(old) > 0 && old[len(old)-1] == "" {
 			old = old[:len(old)-1]
 			if len(new) > 0 && new[len(new)-1] == "" {
 				new = new[:len(new)-1]
 			}
-			at, mode = seek(old, cursor, chunk.EndOfFile)
+			at = seek(old, cursor, chunk.EndOfFile)
 		}
 		if at < 0 {
 			return "", invalid(fmt.Sprintf("hunk %d: expected lines were not found", index+1))
 		}
-		start := at
-		if anchor >= 0 {
-			start = anchor
-		}
-		positions = append(positions, located{start, cursor, old, chunk.EndOfFile, mode})
 		var inserted []patchLine
 		kept := map[int]int{}
 		for _, pair := range chunk.Kept {
@@ -289,9 +279,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		for i, text := range new {
 			style := ending
 			if original, ok := kept[i]; ok && original < len(old) {
-				if mode > 0 {
-					text = lines[at+original].text
-				}
+				text = lines[at+original].text
 				if lines[at+original].ending != "" {
 					style = lines[at+original].ending
 				}
@@ -300,24 +288,6 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		replacements = append(replacements, replacement{at, len(old), inserted})
 		cursor = at + len(old)
-	}
-	for index, p := range positions {
-		if p.fixed {
-			continue
-		}
-		bound := len(lines)
-		if index+1 < len(positions) {
-			bound = positions[index+1].start
-		}
-		first := -1
-		for at := p.from; at+len(p.pattern) <= bound; at++ {
-			if matchesMode(p.pattern, at, p.mode) {
-				if first >= 0 {
-					return "", invalid(fmt.Sprintf("patch hunk matches multiple locations at lines %d and %d; add context lines or an @@ line", first+1, at+1))
-				}
-				first = at
-			}
-		}
 	}
 	slices.SortStableFunc(replacements, func(a, b replacement) int { return a.start - b.start })
 	var out strings.Builder
@@ -350,88 +320,149 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 	}
 	return out.String(), nil
 }
-func ResolvePatchWithRevisions(ctx context.Context, root, input string, observed map[string]string, access core.FileAccess) ([]protocol.FileChange, error) {
-	hunks, e := ParsePatch(input)
-	if e != nil {
-		return nil, e
+
+// PreparePatch captures each file as it is matched so the approval preview
+// and the revision checked at execution describe the same contents.
+func PreparePatch(ctx context.Context, root, input string, worktree protocol.WorktreeID, access core.FileAccess) (*Prepared, error) {
+	hunks, err := ParsePatch(input)
+	if err != nil {
+		return nil, err
 	}
 	if len(hunks) == 0 {
 		return nil, invalid("patch contains no file changes")
 	}
-	f, e := core.OpenFiles(root, access)
-	if e != nil {
-		return nil, e
+	f, err := core.OpenFiles(root, access)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
-	var changes []protocol.FileChange
-	budget := 0
-	for _, hunk := range hunks {
-		if e := f.ValidatePath(hunk.Path, true); e != nil {
-			return nil, e
+	command := &protocol.CommandApplyChangesPayload{Worktree: worktree}
+	p := &Prepared{Command: protocol.Command{Kind: "apply_changes", Data: command}, Access: access}
+	// A later hunk can refer to a path written by an earlier move.
+	contents := map[string]*string{}
+	read := func(path string) (*string, error) {
+		if text, ok := contents[path]; ok {
+			return text, nil
 		}
-		if hunk.Destination != nil {
-			if e := f.ValidatePath(*hunk.Destination, true); e != nil {
-				return nil, e
+		if err := f.ValidatePath(path, true); err != nil {
+			return nil, err
+		}
+		text, err := f.CompleteText(ctx, path)
+		if err != nil {
+			if fault(err).Code == protocol.ErrorCodeNotFound {
+				return nil, nil
 			}
+			return nil, err
+		}
+		return &text, nil
+	}
+	budget := 0
+	appendChange := func(entry PreparedChange, change protocol.FileChange) error {
+		if entry.Before != nil {
+			budget += len(*entry.Before)
+		}
+		if entry.After != nil {
+			budget += len(*entry.After)
+			if !nonnull(*entry.After) || len(*entry.After) > protocol.MAX_EDIT_BYTES || entry.Before == nil && len(*entry.After) > protocol.MAX_WRITE_BYTES {
+				return invalid(entry.Path + ": file text exceeds the content limit or contains a NUL byte")
+			}
+		}
+		if budget > protocol.MAX_CHANGE_BYTES {
+			return invalid("patch exceeds the combined text limit")
+		}
+		contents[entry.Path] = entry.After
+		if entry.Destination != nil {
+			contents[*entry.Destination] = entry.Before
+		}
+		command.Changes = append(command.Changes, change)
+		p.Changes = append(p.Changes, entry)
+		p.Preview.Files = append(p.Preview.Files, preview(entry))
+		return nil
+	}
+	record := func(path string, before, after *string) error {
+		entry := PreparedChange{Path: path, Before: before, After: after}
+		var change protocol.FileChange
+		if before != nil {
+			expected := revision([]byte(*before))
+			entry.ExpectedRevision = &expected
+		}
+		switch {
+		case after == nil:
+			entry.Operation, entry.Kind = "delete", protocol.ChangeKindDeleted
+			change = protocol.FileChange{Kind: "delete", Data: protocol.FileChangeDeletePayload{Path: path, ExpectedRevision: *entry.ExpectedRevision}}
+		case before == nil:
+			entry.Operation, entry.Kind = "create", protocol.ChangeKindAdded
+			change = protocol.FileChange{Kind: "create", Data: protocol.FileChangeCreatePayload{Path: path, Text: *after}}
+		default:
+			entry.Operation, entry.Kind = "write", protocol.ChangeKindModified
+			change = protocol.FileChange{Kind: "write", Data: protocol.FileChangeWritePayload{Path: path, Text: *after, ExpectedRevision: *entry.ExpectedRevision}}
+		}
+		return appendChange(entry, change)
+	}
+	for _, hunk := range hunks {
+		before, err := read(hunk.Path)
+		if err != nil {
+			return nil, err
 		}
 		if hunk.Kind == "add" {
-			hunk.Contents, e = PrepareCreation(hunk.Path, hunk.Contents)
-			if e != nil {
-				return nil, e
-			}
-			if len(hunk.Contents) > protocol.MAX_WRITE_BYTES {
-				return nil, invalid("added file exceeds the content limit")
-			}
-			changes = append(changes, protocol.FileChange{Kind: "create", Data: protocol.FileChangeCreatePayload{Path: hunk.Path, Text: hunk.Contents}})
-			budget += len(hunk.Contents)
-			if budget > protocol.MAX_CHANGE_BYTES || len(changes) > protocol.MAX_CHANGES {
-				return nil, invalid("patch exceeds the combined text or file limit")
+			if err := record(hunk.Path, before, &hunk.Contents); err != nil {
+				return nil, err
 			}
 			continue
 		}
-		expected, ok := observed[hunk.Path]
-		if !ok {
-			return nil, conflict(hunk.Path + ": the current revision has not been read; read this file before editing")
-		}
-		before, e := f.CompleteText(ctx, hunk.Path)
-		if e != nil {
-			return nil, e
-		}
-		if revision([]byte(before)) != expected {
-			return nil, conflict(hunk.Path + ": file changed since it was last read; read this file again")
-		}
-		budget += len(before)
-		if budget > protocol.MAX_CHANGE_BYTES || len(changes) >= protocol.MAX_CHANGES {
-			return nil, invalid("patch exceeds the combined text or file limit")
+		if before == nil {
+			return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: hunk.Path + ": file does not exist"}
 		}
 		if hunk.Kind == "delete" {
-			changes = append(changes, protocol.FileChange{Kind: "delete", Data: protocol.FileChangeDeletePayload{Path: hunk.Path, ExpectedRevision: expected}})
-			continue
-		}
-		if len(hunk.Chunks) == 0 {
-			changes = append(changes, protocol.FileChange{Kind: "move", Data: protocol.FileChangeMovePayload{Path: hunk.Path, Destination: *hunk.Destination, ExpectedRevision: expected}})
-			continue
-		}
-		after, e := ApplyPatchChunks(before, hunk.Chunks)
-		if e != nil {
-			return nil, invalid(hunk.Path + ": " + fault(e).Message)
-		}
-		budget += len(after)
-		if after == before {
-			if hunk.Destination == nil {
-				return nil, invalid("patch does not change this file")
+			if err := record(hunk.Path, before, nil); err != nil {
+				return nil, err
 			}
-			changes = append(changes, protocol.FileChange{Kind: "move", Data: protocol.FileChangeMovePayload{Path: hunk.Path, Destination: *hunk.Destination, ExpectedRevision: expected}})
-		} else if hunk.Destination != nil {
-			changes = append(changes, protocol.FileChange{Kind: "create", Data: protocol.FileChangeCreatePayload{Path: *hunk.Destination, Text: after}}, protocol.FileChange{Kind: "delete", Data: protocol.FileChangeDeletePayload{Path: hunk.Path, ExpectedRevision: expected}})
-		} else if before == "" {
-			changes = append(changes, protocol.FileChange{Kind: "write", Data: protocol.FileChangeWritePayload{Path: hunk.Path, Text: after, ExpectedRevision: expected}})
-		} else {
-			changes = append(changes, protocol.FileChange{Kind: "edit", Data: protocol.FileChangeEditPayload{Path: hunk.Path, ExpectedRevision: expected, Edits: []protocol.FileEdit{{OldText: before, NewText: after}}}})
+			continue
 		}
-		if budget > protocol.MAX_CHANGE_BYTES || len(changes) > protocol.MAX_CHANGES {
-			return nil, invalid("patch exceeds the combined text or file limit")
+		after := *before
+		if len(hunk.Chunks) > 0 {
+			after, err = ApplyPatchChunks(*before, hunk.Chunks)
+			if err != nil {
+				return nil, invalid(hunk.Path + ": " + fault(err).Message)
+			}
+		}
+		if hunk.Destination != nil && *hunk.Destination != hunk.Path {
+			dst := *hunk.Destination
+			current, err := read(dst)
+			if err != nil {
+				return nil, err
+			}
+			sameEntry := false
+			if current != nil {
+				sameEntry, err = f.SameFileEntry(hunk.Path, dst)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if sameEntry || current == nil && after == *before {
+				// Rename an alias before writing through its new spelling.
+				expected := revision([]byte(*before))
+				entry := PreparedChange{Operation: "move", Kind: protocol.ChangeKindRenamed, Path: hunk.Path, Destination: &dst, Before: before, ExpectedRevision: &expected, CreateParents: current == nil}
+				change := protocol.FileChange{Kind: "move", Data: protocol.FileChangeMovePayload{Path: hunk.Path, Destination: dst, ExpectedRevision: expected}}
+				if err := appendChange(entry, change); err != nil {
+					return nil, err
+				}
+				if after != *before {
+					if err := record(dst, before, &after); err != nil {
+						return nil, err
+					}
+				}
+				continue
+			}
+			if err := record(dst, current, &after); err != nil {
+				return nil, err
+			}
+			if err := record(hunk.Path, before, nil); err != nil {
+				return nil, err
+			}
+		} else if err := record(hunk.Path, before, &after); err != nil {
+			return nil, err
 		}
 	}
-	return changes, nil
+	return p, nil
 }

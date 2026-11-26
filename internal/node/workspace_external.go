@@ -253,17 +253,6 @@ func (scope externalFileScope) checkpoints(prepared *files.Prepared) *files.Prep
 	return &local
 }
 
-// rootRevisions keys observed revisions by their paths relative to root.
-func rootRevisions(worktree, root string, observed map[string]string) map[string]string {
-	keyed := make(map[string]string, len(observed))
-	for path, revision := range observed {
-		if rel, err := rootPath(worktree, root, path); err == nil {
-			keyed[rel] = revision
-		}
-	}
-	return keyed
-}
-
 // externalFileOperation reports the file tools that may name paths outside
 // the session worktree.
 func externalFileOperation(op protocol.ToolOperation) bool {
@@ -288,7 +277,7 @@ func (node *Node) externalFileIO(ctx context.Context, caller protocol.NodeID, re
 	command := request.Command
 	if files.SupportsMutation(command.Kind) {
 		if create, ok := command.Data.(*protocol.CommandCreateDirectoryPayload); ok {
-			defer node.locks.joinEffect(node.locks.paths([]string{workspaceFileKey(root, create.Path)}))()
+			defer node.locks.joinEffect(node.locks.reserve([]string{workspaceFileKey(root, create.Path)}, false))()
 		} else {
 			defer node.locks.fileEffect(root, prepared)()
 		}

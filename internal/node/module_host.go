@@ -368,9 +368,10 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 	}
 	if cfg.FileWritePaths {
 		switch op {
-		case protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
+		case protocol.ToolOperationReadFile, protocol.ToolOperationReadFileLines, protocol.ToolOperationReadNotebook,
+			protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationApplyChanges,
 			protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationEditNotebook:
-			tool.WritePaths = func(call canonical.ToolRequest) []string {
+			tool.FilePaths = func(call canonical.ToolRequest) []string {
 				paths := collectFileArgPaths(op, call.Arguments)
 				for i, path := range paths {
 					paths[i] = workspaceFileKey(inv.Worktree.Path, path)
@@ -443,25 +444,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return err
 			}
 		}
-		command, err := operations.Command(op, args, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull)
-		if op == protocol.ToolOperationApplyChanges {
-			var patch struct {
-				Input string `json:"input"`
-			}
-			if err = json.Unmarshal(args, &patch); err != nil {
-				return err
-			}
-			revisions := observed.paths
-			if scope.root != "" {
-				revisions = rootRevisions(worktree, root, revisions)
-			}
-			changes, e := files.ResolvePatchWithRevisions(ctx, root, patch.Input, revisions, core.RestrictedFiles)
-			if e != nil {
-				return e
-			}
-			command = protocol.Command{Kind: "apply_changes", Data: &protocol.CommandApplyChangesPayload{Worktree: inv.Run.Worktree, Changes: changes}}
-			err = nil
-		}
+		command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, op, args, root, sandbox.Enabled)
 		if err != nil {
 			return err
 		}
@@ -485,8 +468,8 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		request := protocol.NewRequest(h.node.ID(), command)
-		current := &workspaceToolCall{request: request, fileScope: scope}
-		if fileTextMutation(command.Kind) {
+		current := &workspaceToolCall{request: request, fileScope: scope, prepared: patchChanges}
+		if current.prepared == nil && fileTextMutation(command.Kind) {
 			current.prepared, err = files.Prepare(ctx, root, command, core.RestrictedFiles)
 			if err != nil {
 				return err

@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/node/files"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
 )
 
 // workspaceLocks orders effects on overlapping files or whole worktrees.
@@ -20,21 +18,20 @@ type workspaceLocks struct {
 	// tell that its roots may have changed.
 	registrations atomic.Uint64
 	mu            sync.Mutex
-	held          map[*workspaceReservation]struct{}
+	held          map[workspacePath]chan struct{}
 	// settings orders the saves whose refresh after the commit reads the
 	// saved settings back and applies them, so the last save is the applied
 	// one. They work in no root.
 	settings sync.Mutex
 }
 
-type workspaceReservation struct {
-	paths []string
-	done  chan struct{}
+type workspacePath struct {
+	name string
+	root bool
 }
 
-// workspaceFileKey is only an ordering key. Operations still use the original
-// spelling with the confined file API. Fold equivalent names conservatively
-// because different mounts can have different case and normalization rules.
+// Use the path resolved by the filesystem, preserving distinct file names
+// on case-sensitive mounts. Creation can name a leaf which does not exist yet.
 func workspaceFileKey(root, name string) string {
 	if root == "" && name == "" {
 		return ""
@@ -42,45 +39,60 @@ func workspaceFileKey(root, name string) string {
 	if !filepath.IsAbs(name) {
 		name = filepath.Join(root, filepath.FromSlash(name))
 	}
-	// On Windows, resolving the existing leaf expands its 8.3 alias too.
-	// File access itself still rejects symlinks independently of this key.
-	name = resolvedPath(filepath.Clean(name))
-	return norm.NFC.String(cases.Fold().String(norm.NFC.String(filepath.ToSlash(name))))
+	return filepath.ToSlash(resolvedPath(filepath.Clean(name)))
 }
 
-func workspacePathsOverlap(a, b string) bool {
-	return a == b || strings.HasPrefix(a, strings.TrimSuffix(b, "/")+"/") || strings.HasPrefix(b, strings.TrimSuffix(a, "/")+"/")
-}
-
-// Reserve the entire set at once. A later overlapping operation waits for
-// its predecessors, including waiting ones, while independent paths proceed.
-func (locks *workspaceLocks) paths(keys []string) func() {
+// Each file waits only for the preceding writer of that file and an operation
+// on its entire worktree. A worktree removal must also drain its active files.
+func (locks *workspaceLocks) reserve(keys []string, root bool) func() {
 	if len(keys) == 0 {
 		return func() {}
 	}
-	reserved := &workspaceReservation{paths: keys, done: make(chan struct{})}
+	done := make(chan struct{})
 	var wait []chan struct{}
 	locks.mu.Lock()
 	if locks.held == nil {
-		locks.held = make(map[*workspaceReservation]struct{})
+		locks.held = make(map[workspacePath]chan struct{})
 	}
-	for earlier := range locks.held {
-		for _, key := range keys {
-			if slices.ContainsFunc(earlier.paths, func(path string) bool { return workspacePathsOverlap(key, path) }) {
-				wait = append(wait, earlier.done)
+	for _, key := range keys {
+		if prior := locks.held[workspacePath{name: key}]; prior != nil {
+			wait = append(wait, prior)
+		}
+		for parent := key; ; {
+			if prior := locks.held[workspacePath{name: parent, root: true}]; prior != nil {
+				wait = append(wait, prior)
+			}
+			dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(parent)))
+			if dir == parent {
 				break
+			}
+			parent = dir
+		}
+		if root {
+			prefix := strings.TrimSuffix(key, "/") + "/"
+			for held, prior := range locks.held {
+				if strings.HasPrefix(held.name, prefix) {
+					wait = append(wait, prior)
+				}
 			}
 		}
 	}
-	locks.held[reserved] = struct{}{}
+	for _, key := range keys {
+		locks.held[workspacePath{name: key, root: root}] = done
+	}
 	locks.mu.Unlock()
-	for _, done := range wait {
-		<-done
+	for _, prior := range wait {
+		<-prior
 	}
 	return func() {
 		locks.mu.Lock()
-		delete(locks.held, reserved)
-		close(reserved.done)
+		for _, name := range keys {
+			key := workspacePath{name: name, root: root}
+			if locks.held[key] == done {
+				delete(locks.held, key)
+			}
+		}
+		close(done)
 		locks.mu.Unlock()
 	}
 }
@@ -93,7 +105,7 @@ func (locks *workspaceLocks) roots(roots ...string) func() {
 			keys = append(keys, key)
 		}
 	}
-	return locks.paths(keys)
+	return locks.reserve(keys, true)
 }
 
 // Paths are relative to the actual filesystem root used to prepare the change,
@@ -114,7 +126,7 @@ func preparedFileKeys(root string, prepared *files.Prepared) []string {
 
 func (locks *workspaceLocks) fileEffect(root string, prepared *files.Prepared) func() {
 	if keys := preparedFileKeys(root, prepared); len(keys) != 0 {
-		return locks.joinEffect(locks.paths(keys))
+		return locks.joinEffect(locks.reserve(keys, false))
 	}
 	return locks.effect(root)
 }

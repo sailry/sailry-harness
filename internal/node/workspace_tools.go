@@ -32,6 +32,24 @@ type workspaceToolCall struct {
 	fileScope      externalFileScope
 }
 
+func prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation, op protocol.ToolOperation, args json.RawMessage, root string, sandbox bool) (protocol.Command, *files.Prepared, error) {
+	if op != protocol.ToolOperationApplyChanges {
+		command, err := operations.Command(op, args, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox && inv.Turn.Config.Permission != protocol.PermissionFull)
+		return command, nil, err
+	}
+	var patch struct {
+		Input string `json:"input"`
+	}
+	if err := json.Unmarshal(args, &patch); err != nil {
+		return protocol.Command{}, nil, err
+	}
+	prepared, err := files.PreparePatch(ctx, root, patch.Input, inv.Run.Worktree, core.RestrictedFiles)
+	if err != nil {
+		return protocol.Command{}, nil, err
+	}
+	return prepared.Command, prepared, nil
+}
+
 const childRunCommandDescription = "Run a command on the Node. Provide a short description and use the admitted worktree by default. The foreground timeout defaults to 120000 ms. For longer work use background=true, then read_command with wait_ms to collect the result before returning to the parent. Background commands stop when the delegated task ends. Use pty=true with background=true for a command that needs a terminal. Output reports truncation. Invoke the tool directly so it can obtain consent when needed."
 
 func releasePrepared[T any](mu *sync.Mutex, calls map[string]T) func(canonical.ToolRequest) {
@@ -144,21 +162,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			if err != nil {
 				return err
 			}
-			command, err := operations.Command(declaration.Operation, arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull)
-			if declaration.Operation == protocol.ToolOperationApplyChanges {
-				var patch struct {
-					Input string `json:"input"`
-				}
-				if err = json.Unmarshal(call.Arguments, &patch); err != nil {
-					return err
-				}
-				changes, e := files.ResolvePatchWithRevisions(ctx, inv.Worktree.Path, patch.Input, observed.paths, core.RestrictedFiles)
-				if e != nil {
-					return e
-				}
-				command = protocol.Command{Kind: "apply_changes", Data: &protocol.CommandApplyChangesPayload{Worktree: inv.Run.Worktree, Changes: changes}}
-				err = nil
-			}
+			command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, declaration.Operation, arguments, inv.Worktree.Path, sandbox.Enabled)
 			if err != nil {
 				return err
 			}
@@ -185,8 +189,8 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			if packaged {
 				request.Plugin = &protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 			}
-			current := &workspaceToolCall{request: request}
-			if fileTextMutation(command.Kind) {
+			current := &workspaceToolCall{request: request, prepared: patchChanges}
+			if current.prepared == nil && fileTextMutation(command.Kind) {
 				current.prepared, err = files.Prepare(ctx, inv.Worktree.Path, command, core.RestrictedFiles)
 				if err != nil {
 					return err
@@ -643,7 +647,7 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 
 func observesRevisions(operation protocol.ToolOperation) bool {
 	switch operation {
-	case protocol.ToolOperationApplyChanges, protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile,
+	case protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile,
 		protocol.ToolOperationDeleteFile, protocol.ToolOperationMoveFile, protocol.ToolOperationEditNotebook:
 		return true
 	}
@@ -657,7 +661,7 @@ func observesRevisions(operation protocol.ToolOperation) bool {
 // approval prompt, which reads the model's arguments, names the real effect.
 // Other mutations require a prior read.
 func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments json.RawMessage) (json.RawMessage, error) {
-	if operation == protocol.ToolOperationApplyChanges || !observesRevisions(operation) {
+	if !observesRevisions(operation) {
 		return arguments, nil
 	}
 	var values map[string]json.RawMessage
