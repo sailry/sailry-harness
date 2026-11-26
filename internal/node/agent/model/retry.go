@@ -212,11 +212,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				}
 				waitExhausted = attempt.Failure.Retryable()
 			}
-			if releaseHTTP1 != nil && sdk.preferHTTP1.Load() {
-				switch attempt.Failure.Kind {
-				case Network, Unavailable:
+			if releaseHTTP1 != nil {
+				if attempt.Failure.Kind == Network || attempt.Failure.Kind == Unavailable && !attempt.Failure.overloaded {
 					sdk.preferHTTP1.Store(false)
-				default:
+				} else {
+					// A provider rejection reached its destination on HTTP/1.1.
 					tryHTTP1 = true
 				}
 			}

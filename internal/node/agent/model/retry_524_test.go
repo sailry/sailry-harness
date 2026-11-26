@@ -212,3 +212,41 @@ func TestStreamStallMeasuresOnlyPendingIO(t *testing.T) {
 		}
 	})
 }
+
+func TestSilentStreamStallSharesRetryWaitBudget(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		transport := responseTransport{stall: stallTimeout, base: pluginRoundTripper(func(req *http.Request) (*http.Response, error) {
+			defer req.Body.Close()
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})}
+		language := &sdkModel{config: transportConfig{Kind: "responses", Model: "fixture", Endpoint: "https://fixture.invalid"}, client: &http.Client{Transport: transport}}
+		var attempts []Attempt
+		started := time.Now()
+		err := Run(t.Context(), language, requestCall(t, "responses"), Main, clock.System{}, func(a Attempt) error {
+			attempts = append(attempts, a)
+			return nil
+		}, nil, nil)
+		failure := Classify(err)
+		if failure == nil || failure.Kind != Network || !failure.WaitExhausted || failure.Exhausted || len(attempts) != 2 {
+			t.Fatalf("attempts=%d failure=%+v", len(attempts), failure)
+		}
+		if delay := attempts[0].RetryDelay; delay == nil || attempts[1].RetryDelay != nil || time.Since(started) != 2*stallTimeout+*delay {
+			t.Fatalf("silent waits=%v elapsed=%s", attempts, time.Since(started))
+		}
+	})
+}
+
+func TestStallAfterModelOutputKeepsNormalRetry(t *testing.T) {
+	t.Parallel()
+	for _, part := range []fantasy.StreamPart{textPart("partial"), {Type: fantasy.StreamPartTypeToolInputStart, ToolCallName: "read"}} {
+		t.Run(string(part.Type), func(t *testing.T) {
+			stalled := []fantasy.StreamPart{part, {Type: fantasy.StreamPartTypeError, Error: stallError{idle: stallTimeout}}}
+			model := &policyModel{responses: [][]fantasy.StreamPart{stalled, stalled, {finishPart()}}}
+			if err := Run(t.Context(), model, fantasy.Call{}, Main, &policyClock{}, nil, nil, nil); err != nil || model.calls != 3 {
+				t.Fatalf("attempts=%d error=%v", model.calls, err)
+			}
+		})
+	}
+}

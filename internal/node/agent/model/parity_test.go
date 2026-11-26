@@ -1078,7 +1078,7 @@ func stallFixture(t *testing.T) {
 					return true
 				}, nil)
 				<-released
-				if len(attempts) == 0 || attempts[0].Failure == nil || attempts[0].Failure.Kind != Network || !attempts[0].Failure.Retryable() || attempts[0].Failure.Message != "Model stream sent no data for 300 seconds" {
+				if len(attempts) == 0 || attempts[0].Failure == nil || attempts[0].Failure.Kind != Network || !attempts[0].Failure.Retryable() || attempts[0].Failure.Message != "Model stream sent no data for 0.05 seconds" {
 					t.Fatalf("stalled attempt = %+v", attempts)
 				}
 				// A partial answer was shown, so that step is not sent again.

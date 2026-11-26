@@ -137,17 +137,25 @@ type protocolRequest struct {
 	stream     uint32
 }
 
-func protocolResetServer(t *testing.T, success []byte, prefix string, recovers bool) (*httptest.Server, <-chan protocolRequest, chan<- struct{}) {
+func protocolResetServer(t *testing.T, success []byte, prefix string, firstHTTP1Status int) (*httptest.Server, <-chan protocolRequest, chan<- struct{}) {
 	t.Helper()
 	requests := make(chan protocolRequest, 2*(MainRetries+1))
 	read := make(chan struct{}, 2)
+	var replied atomic.Bool
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Error(err)
 		}
 		requests <- protocolRequest{body: string(body), major: request.ProtoMajor}
-		if !recovers {
+		if firstHTTP1Status != 0 && !replied.Swap(true) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Retry-After", "4")
+			writer.WriteHeader(firstHTTP1Status)
+			_, _ = io.WriteString(writer, `{"error":{"message":"Try again later"}}`)
+			return
+		}
+		if success == nil {
 			writer.Header().Set("Content-Type", "application/json")
 			writer.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(writer, `{"error":{"code":"upstream_bad_gateway","message":"Gateway unavailable"}}`)
@@ -318,7 +326,7 @@ func TestSDKHTTP2ProtocolResetWithoutReplay(t *testing.T) {
 				reason = `"stop"`
 			}
 			prefix := fmt.Sprintf(`data: {"choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":%s}]}`, reason) + "\n\n"
-			server, requests, read := protocolResetServer(t, nil, prefix, false)
+			server, requests, read := protocolResetServer(t, nil, prefix, 0)
 			language, err := newSDK(t.Context(), transportConfig{Kind: "chat", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
 			if err != nil {
 				t.Fatal(err)
@@ -387,7 +395,11 @@ func TestSDKHTTP2ProtocolRecoveryIsModelScoped(t *testing.T) {
 			if test.headers {
 				prefix = prefixes[test.kind]
 			}
-			server, requests, read := protocolResetServer(t, fixture(t, test.kind+"-text.sse"), prefix, test.recovers)
+			var success []byte
+			if test.recovers {
+				success = fixture(t, test.kind+"-text.sse")
+			}
+			server, requests, read := protocolResetServer(t, success, prefix, 0)
 			base := server.Client().Transport.(*http.Transport).Clone()
 			var proxy *url.URL
 			if test.proxy {
@@ -496,7 +508,7 @@ func TestSDKHTTP2ProtocolRecoveryIsModelScoped(t *testing.T) {
 
 func TestSDKRechecksHTTP2AfterPreferredHTTP1Fails(t *testing.T) {
 	t.Parallel()
-	server, requests, _ := protocolResetServer(t, nil, "", false)
+	server, requests, _ := protocolResetServer(t, nil, "", 0)
 	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
 	if err != nil {
 		t.Fatal(err)
@@ -513,5 +525,40 @@ func TestSDKRechecksHTTP2AfterPreferredHTTP1Fails(t *testing.T) {
 		if index == 0 && request.major != 1 || index > 0 && request.major != 2 {
 			t.Fatalf("attempt %d used HTTP/%d", index+1, request.major)
 		}
+	}
+}
+
+func TestSDKHTTP1ProbeRetriesProviderThrottle(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusTooManyRequests, 529} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			server, requests, _ := protocolResetServer(t, fixture(t, "responses-text.sse"), "", status)
+			language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sdk := language.(*sdkModel)
+			sdk.client.Transport = responseTransport{base: server.Client().Transport, stall: stallTimeout}
+			var attempts []Attempt
+			err = Run(t.Context(), sdk, requestCall(t, "responses"), Main, &policyClock{}, func(a Attempt) error {
+				if a.Failure != nil && sdk.preferHTTP1.Load() {
+					t.Fatal("HTTP/1 preferred before a completed response")
+				}
+				attempts = append(attempts, a)
+				return nil
+			}, nil, nil)
+			if err != nil || len(attempts) != 3 || !sdk.preferHTTP1.Load() || len(requests) != 3 {
+				t.Fatalf("attempts=%d requests=%d preferHTTP1=%t error=%v", len(attempts), len(requests), sdk.preferHTTP1.Load(), err)
+			}
+			throttle := attempts[1]
+			if throttle.Status == nil || int(*throttle.Status) != status || throttle.RetryDelay == nil || *throttle.RetryDelay != 4*time.Second {
+				t.Fatalf("provider retry hint lost: %+v", throttle)
+			}
+			for index, protocol := range []int{2, 1, 1} {
+				if r := <-requests; r.major != protocol || attempts[index].RequestID != attempts[0].RequestID {
+					t.Fatalf("attempt %d protocol=%d request=%s", index, r.major, attempts[index].RequestID)
+				}
+			}
+		})
 	}
 }

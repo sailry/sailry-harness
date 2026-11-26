@@ -51,6 +51,7 @@ type Failure struct {
 	retryAfterMs   *uint64
 	overloaded     bool
 	tcpDialTimeout bool
+	streamIdle     time.Duration
 	// A transport EOF can recover; other invalid responses remain permanent.
 	truncated bool
 	// forbidden marks an Authentication failure the provider refused with
@@ -306,8 +307,9 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		f.truncated = true
 		f.Message = "Model stream ended before a completion event"
 	}
-	if errors.Is(err, stallError{}) {
-		f.Kind, f.Message = Network, fmt.Sprintf("Model stream sent no data for %d seconds", int(stallTimeout/time.Second))
+	if stall, ok := errors.AsType[stallError](err); ok {
+		f.streamIdle = stall.idle
+		f.Kind, f.Message = Network, fmt.Sprintf("Model stream sent no data for %g seconds", stall.idle.Seconds())
 	}
 	f.retainResponseHints(err)
 	f.Message = safeDiagnostic(f.Message, secrets)

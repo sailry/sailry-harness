@@ -103,6 +103,11 @@ func (policy *retryPolicy) firstOutputTimer(start time.Time, cancel context.Canc
 }
 
 func (policy *retryPolicy) next(ctx context.Context, attempt Attempt, now time.Time) (time.Duration, bool) {
+	// An expired transport watchdog spent this interval waiting for bytes.
+	// Only charge it if the attempt never produced model output.
+	if attempt.FirstToken == nil {
+		policy.waited += attempt.Failure.streamIdle
+	}
 	delay := policy.schedule.InitialInterval
 	if attempt.Failure.Retryable() {
 		// The library caps the nominal interval, before jitter. Keep our actual
