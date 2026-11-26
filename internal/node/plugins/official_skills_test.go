@@ -92,7 +92,7 @@ func TestOfficialRepositorySkillChecksCapturedManifestAndReplay(t *testing.T) {
 	// The v1 projection lacks SKU information here, but the immutable package
 	// that supplies the skill has an explicit declaration.
 	current := catalogVersionFixture("1.0.0")
-	current.Commit, _ = commit(current.Version, `{"api_version":"v1","products":["code"],"requires_modules":["files"]}`)
+	current.Commit, _ = commit(current.Version, `{"api_version":"v1","min_sailry_version":"0.0.2","products":["code","partner"],"requires_modules":["files"]}`)
 	snapshot, _ := commit("1.1.0", `{"api_version":"v1"}`)
 	feed := officialCatalogFeed{Version: 1, Commit: snapshot, Packages: []officialCatalogPackage{{
 		ID:       officialSkillFixtureName,
@@ -149,16 +149,44 @@ func TestOfficialRepositorySkillChecksCapturedManifestAndReplay(t *testing.T) {
 	if _, err := manager.InstallRepositorySkill(harness, stale, path, name); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
 		t.Fatalf("old catalog snapshot became an unrestricted package: %v", err)
 	}
+	// The selected commit's catalog record and sidecar add separate constraints
+	// to the pinned parent manifest. None can be discarded when deriving the skill.
+	release := &feed.Packages[0].Versions[0]
+	release.MinSailryVersion = versionText("0.0.1")
+	release.RequiresModules = []string{"git"}
+	feed.Packages[0].VersionRequirements = json.RawMessage(`{"1.0.0":{"products":["code","harness"],"requires_modules":["worktrees"]}}`)
+	publish()
+	modules := []string{"files", "git", "worktrees"}
+	code = WithRuntime(t.Context(), Runtime{ProductID: "code", Modules: modules})
 	installed, err := manager.InstallRepositorySkill(code, selection.Source, path, name)
 	if err != nil {
 		t.Fatal(err)
+	}
+	reference := PackageReference(installed)
+	captured, err := manager.CapturedInfo(code, reference)
+	if err != nil || captured.Requirements == nil || captured.Requirements.MinSailryVersion == nil || *captured.Requirements.MinSailryVersion != "0.0.2" {
+		t.Fatalf("compatible host could not capture the skill with its parent minimum: %+v %v", captured.Requirements, err)
+	}
+	for _, test := range []struct {
+		runtime Runtime
+		reason  string
+	}{
+		{Runtime{ProductID: "harness", Modules: modules}, "plugin does not support product harness"},
+		{Runtime{ProductID: "partner", Modules: modules}, "plugin does not support product partner"},
+		{Runtime{ProductID: "code", Modules: []string{"git", "worktrees"}}, "plugin requires Node module files"},
+		{Runtime{ProductID: "code", Modules: []string{"files", "worktrees"}}, "plugin requires Node module git"},
+		{Runtime{ProductID: "code", Modules: []string{"files", "git"}}, "plugin requires Node module worktrees"},
+	} {
+		if _, err := manager.CapturedInfo(WithRuntime(t.Context(), test.runtime), reference); err == nil || !strings.Contains(err.Error(), test.reason) {
+			t.Errorf("incompatible host %+v captured installed official skill: %v", test.runtime, err)
+		}
 	}
 	feed.Packages[0].Versions[0].Withdrawn = true
 	publish()
 	if _, err := manager.InstallRepositorySkill(code, selection.Source, path, name); err == nil {
 		t.Fatal("an old selection bypassed a release withdrawal")
 	}
-	installedDocument := protocol.PluginSkillsDocumentSource{Kind: "installed", Data: protocol.PluginSkillsDocumentSourceInstalledPayload{Package: PackageReference(installed), Skill: "inspect"}}
+	installedDocument := protocol.PluginSkillsDocumentSource{Kind: "installed", Data: protocol.PluginSkillsDocumentSourceInstalledPayload{Package: reference, Skill: "inspect"}}
 	if document, err := manager.ReadSkillDocument(harness, installedDocument); err != nil || document.Content != officialSkillFixtureDocument {
 		t.Fatalf("history lost its captured skill: %+v %v", document, err)
 	}

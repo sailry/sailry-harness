@@ -416,14 +416,14 @@ func (manager *Manager) ReadSkillDocument(ctx context.Context, source protocol.P
 		if parseErr != nil || selected.Repository != input.Source.Repository || !commitHash(input.Source.Commit) {
 			return protocol.PluginSkillsDocument{}, packageFault("invalid captured skill source")
 		}
-		_, entries, issues, readErr := manager.captureRepositorySkill(ctx, selected, input.Source.Commit, repositoryCaptureOptions{maximum: MaxPackageEntries})
+		capture, readErr := manager.captureRepositorySkill(ctx, selected, input.Source.Commit, repositoryCaptureOptions{maximum: MaxPackageEntries})
 		if readErr != nil {
 			return protocol.PluginSkillsDocument{}, readErr
 		}
-		if len(issues) != 0 {
+		if len(capture.issues) != 0 {
 			return protocol.PluginSkillsDocument{}, packageFault("skill source contains unsupported files")
 		}
-		for _, entry := range entries {
+		for _, entry := range capture.entries {
 			if entry.name == "SKILL.md" {
 				data = entry.data
 			}
