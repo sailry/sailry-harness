@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -136,22 +135,6 @@ func (r *Runtime) mountPluginCard(view *ui.Context, card *pluginCardInstance, bu
 		return
 	}
 	r.pluginCardLoginState(card)
-	card.owner.observe(func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				r.enqueue(func(*ui.Context) {
-					if r.pluginCardLive(card, generation) {
-						r.pluginCardLoginState(card)
-					}
-				})
-			}
-		}
-	})
 }
 
 func (card *pluginCardInstance) scope() protocol.PluginContext {

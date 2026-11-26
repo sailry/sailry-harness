@@ -1108,13 +1108,13 @@ func TestSystemIcons(t *testing.T) {
 	SystemIcons.Folder = func(int) ([]byte, error) { return icon("folder") }
 	t.Cleanup(func() {
 		SystemIcons.File, SystemIcons.Type, SystemIcons.Folder = nil, nil, nil
-		clear(systemIcons)
+		systemIcons.Store(nil)
 	})
 	listing := Listing{Separator: "/", Path: "/work", Parent: "/", Entries: []Entry{
 		{Name: "docs", Kind: "directory"}, {Name: "notes.MD", Kind: "file"}, {Name: "readme.md", Kind: "file"}}}
 	source := Source{Browse: func(_ string, done func(Listing, string)) { done(listing, "") }}
 	for _, remote := range []bool{false, true} {
-		clear(systemIcons)
+		systemIcons.Store(nil)
 		clear(asked)
 		b := newBench(t, Options{Source: source, Remote: remote, Host: "host"})
 		b.settle()

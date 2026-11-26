@@ -419,6 +419,9 @@ func (s *State) remove(t Tab) {
 	}
 	s.Tabs, s.Active = Closed(s.Tabs, t, s.Active)
 	s.DiscardTabChrome(t)
+	if t.Kind == Subagent {
+		delete(s.children, t.ID)
+	}
 	if len(s.Tabs) == 0 && s.OnEmpty != nil {
 		s.OnEmpty()
 	}

@@ -29,12 +29,24 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return nil, err
 	}
 	switch method {
-	case "prepare":
+	case "prepare", "prepare_task":
 		var command protocol.Command
 		if err := json.Unmarshal([]byte(values.Command), &command); err != nil {
 			return nil, invalid("invalid command")
 		}
-		return encode(owner.client.Prepare(command))
+		request := owner.client.Prepare(command)
+		prepared, err := encode(request)
+		if err != nil || method == "prepare" {
+			return prepared, err
+		}
+		turn, release := owner.client.WatchTaskAdmission(request.ID)
+		lifetime, cancel, detach := runtime.lifetime(ctx, handle)
+		detach()
+		watch, err := runtime.add(handle, "task_admission", &taskAdmission{turn, release}, lifetime, cancel)
+		if err != nil {
+			return nil, err
+		}
+		return preparedTask{watch, prepared}, nil
 	case "execute", "resolve":
 		// execute sends a request once and looks an unobserved result up;
 		// resolve only asks what became of a request sent earlier. "released"
@@ -188,6 +200,33 @@ func (owner *connection) close() error {
 		owner.controller.mu.Unlock()
 	}
 	return owner.client.Close()
+}
+
+type preparedTask struct {
+	Handle
+	Request string `json:"request"`
+}
+
+type taskAdmission struct {
+	turn    <-chan protocol.TurnSummary
+	release func()
+}
+
+func (owner *taskAdmission) invoke(ctx context.Context, _ *Runtime, _ uint64, method string, _ json.RawMessage) (any, error) {
+	if method != "next" {
+		return nil, invalid("unknown task admission operation")
+	}
+	select {
+	case turn := <-owner.turn:
+		return turn, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (owner *taskAdmission) close() error {
+	owner.release()
+	return nil
 }
 
 type observation struct {

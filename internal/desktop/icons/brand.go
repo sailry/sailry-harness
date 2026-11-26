@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/memory"
 	ailogo "github.com/yldm-tech/ai-logo/mygo"
 )
 
@@ -43,20 +44,44 @@ func BrandSlug(id string) string {
 	return id
 }
 
+const maxBrandLogos = 256
+
 // logos are the marks asked for so far by archive name, nil for one the
 // collection does not have, so a miss is searched for once.
-var logos sync.Map
+var (
+	logosMu sync.Mutex
+	logos   = map[string]*ui.SVG{}
+)
+
+func init() {
+	memory.Default().Register("desktop.brand_logos", func(level memory.Level) {
+		if level < memory.Pressure {
+			return
+		}
+		logosMu.Lock()
+		clear(logos)
+		logosMu.Unlock()
+	})
+}
 
 func logo(slug string, variant ailogo.Variant) *ui.SVG {
 	key := slug + "/" + string(variant)
-	if found, cached := logos.Load(key); cached {
-		return found.(*ui.SVG)
+	logosMu.Lock()
+	if found, cached := logos[key]; cached {
+		logosMu.Unlock()
+		return found
 	}
+	logosMu.Unlock()
 	mark, err := ailogo.Parse(slug, variant)
 	if err != nil {
 		mark = nil
 	}
-	logos.Store(key, mark)
+	logosMu.Lock()
+	if len(logos) >= maxBrandLogos {
+		clear(logos)
+	}
+	logos[key] = mark
+	logosMu.Unlock()
 	return mark
 }
 

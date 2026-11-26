@@ -108,6 +108,28 @@ func TestTaskAdmissionSurvivesCompletionAndSnapshotReplacement(t *testing.T) {
 	}
 }
 
+func TestQueuedAdmissionSurvivesPruning(t *testing.T) {
+	t.Parallel()
+	snapshot := projectionSnapshot(0)
+	project := NewProjection(snapshot.Node, 1)
+	controller := &Client{project: project}
+	mustApply(t, project, 1, protocol.Update{Kind: "snapshot", Data: snapshot}, Applied)
+	session := projectionSession(1, 1)
+	turn := protocol.QueuedTurn{ID: protocol.TurnID{1}, Session: session.ID, Request: protocol.RequestID{1}}
+	receipt, release := controller.WatchTaskAdmission(turn.Request)
+	defer release()
+	mustApply(t, project, 1, projectionEvent(1, "turn_queued", protocol.EventTurnQueuedPayload{Turn: turn, Activity: &session.Activity}), Applied)
+	mustApply(t, project, 1, projectionEvent(2, "conversation_changed", protocol.EventConversationChangedPayload{Session: session.ID, Activity: &session.Activity}), Applied)
+	select {
+	case got := <-receipt:
+		if got.Request != turn.Request || len(project.snapshot.Turns) != 0 {
+			t.Fatalf("unexpected queued receipt or remaining live turns: %+v, %+v", got, project.snapshot.Turns)
+		}
+	default:
+		t.Fatal("lost admission for the queued turn")
+	}
+}
+
 func TestProjectionOrder(t *testing.T) {
 	t.Parallel()
 	t.Run("conversation", testConversationProjectionOrder)

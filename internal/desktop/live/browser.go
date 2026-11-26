@@ -255,6 +255,35 @@ func (r *Runtime) releaseBrowserTab(id string) {
 	}
 }
 
+func (r *Runtime) closeDocuments() {
+	if state := r.browser; state != nil {
+		for id, doc := range state.documents {
+			doc.close()
+			delete(state.documents, id)
+		}
+		clear(state.sources)
+		clear(state.drafts)
+		clear(state.sent)
+	}
+}
+
+func (r *Runtime) pruneBrowserSources(keep map[string]bool) {
+	if r.browser == nil {
+		return
+	}
+	for id, src := range r.browser.sources {
+		if r.browser.documents[id] != nil || keep[id] {
+			continue
+		}
+		delete(r.browser.sources, id)
+		if src.owner != nil && src.owner.workspace != nil {
+			for _, project := range src.owner.workspace.projects {
+				delete(project.documents, id)
+			}
+		}
+	}
+}
+
 func (r *Runtime) closePanelBrowser() {
 	if state := r.browser; state != nil {
 		if state.watchTimer != nil {

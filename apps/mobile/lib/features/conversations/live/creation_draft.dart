@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show TextEditingController;
+import 'package:sailry_bridge/api/connection.dart';
+import 'package:sailry_bridge/bridge.dart';
 
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
@@ -72,6 +75,7 @@ class CreationDraft extends ChangeNotifier {
   final _models = <String, dynamic>{};
   bool _leadChosen = false;
   String? _pendingRequest;
+  TaskAdmission? _admission;
   bool _busy = false;
   bool _unavailable = false;
   bool _missingReceipt = false;
@@ -273,18 +277,53 @@ class CreationDraft extends ChangeNotifier {
     }
   }
 
+  void _watchAdmission(TaskAdmission watch) {
+    if (_disposed) {
+      watch.dispose();
+      throw const CommandFailure('cancelled');
+    }
+    _admission = watch;
+    unawaited(_receiveAdmission(watch));
+  }
+
+  Future<void> _receiveAdmission(TaskAdmission watch) async {
+    try {
+      final turn = await watch.next();
+      if (_admission == watch && _acceptTurn(turn, _requestId())) _changed();
+    } on StateError {
+      // A closed bridge cannot deliver pending observations.
+    } on BridgeFailure {
+      // Closing the draft or connection cancels the native observation.
+      // A retained request still has its durable Node outcome.
+    } finally {
+      if (_admission == watch) _closeAdmission();
+    }
+  }
+
+  void _closeAdmission() {
+    _admission?.dispose();
+    _admission = null;
+  }
+
+  bool _acceptTurn(Map<String, dynamic> turn, String request) {
+    final session = text(turn['session']);
+    if (request.isEmpty ||
+        turn['request'] != request ||
+        session.isEmpty ||
+        text(turn['id']).isEmpty) {
+      return false;
+    }
+    _admitted = (id: session, revision: 0);
+    _pendingRequest = null;
+    _closeAdmission();
+    return true;
+  }
+
   void _observeAdmission() {
     final id = _requestId();
     if (id.isEmpty) return;
     for (final turn in objects(host.snapshot['turns'])) {
-      final session = text(turn['session']);
-      if (turn['request'] == id &&
-          session.isNotEmpty &&
-          text(turn['id']).isNotEmpty) {
-        _admitted = (id: session, revision: 0);
-        _pendingRequest = null;
-        return;
-      }
+      if (_acceptTurn(turn, id)) return;
     }
   }
 
@@ -329,44 +368,58 @@ class CreationDraft extends ChangeNotifier {
       _observeAdmission();
       if (_admitted == null) {
         final request = pendingRequest;
+        var requestId = _requestId();
         try {
           final result = request != null
               ? await host.check(request)
-              : await host.command('start_session', {
-                  'project': project?['id'],
-                  'worktree': worktree?['id'],
-                  'config': Map.of(config),
-                  'message': {
-                    'text': message,
-                    'attachments': List.of(attachments),
+              : await host.command(
+                  'start_session',
+                  {
+                    'project': project?['id'],
+                    'worktree': worktree?['id'],
+                    'config': Map.of(config),
+                    'message': {
+                      'text': message,
+                      'attachments': List.of(attachments),
+                    },
+                    'execution': 'team',
+                    'team': teamSelection(_team),
+                    'models': Map.of(_models),
+                    if (_leadChosen) 'use_explicit_config': true,
                   },
-                  'execution': 'team',
-                  'team': teamSelection(_team),
-                  'models': Map.of(_models),
-                  if (_leadChosen) 'use_explicit_config': true,
-                }, (prepared) => _pendingRequest = prepared);
+                  (prepared) {
+                    _pendingRequest = prepared;
+                    requestId = _requestId();
+                  },
+                  _watchAdmission,
+                );
           if (_disposed) return;
           final turn = object(result['data']);
           final id = text(turn['session']);
           final revision = turn['revision'];
-          final requestId = _requestId();
           if (result['kind'] != 'queued_turn' ||
               id.isEmpty ||
               text(turn['id']).isEmpty ||
               revision is! int ||
               revision < 1 ||
               (requestId.isNotEmpty && turn['request'] != requestId)) {
-            _missingReceipt = pendingRequest == null;
+            _missingReceipt = _admitted == null && pendingRequest == null;
             throw CommandFailure('outcome_unknown', request: pendingRequest);
           }
           _admitted = (id: id, revision: revision);
           _pendingRequest = null;
+          _closeAdmission();
         } on CommandFailure catch (error) {
           if (_disposed) rethrow;
-          if (error.retained) _pendingRequest = error.request;
+          if (error.retained && _admitted == null) {
+            _pendingRequest = error.request;
+          }
           _observeAdmission();
           if (_admitted == null) {
-            if (error.rejected) _pendingRequest = null;
+            if (error.rejected) {
+              _pendingRequest = null;
+              _closeAdmission();
+            }
             rethrow;
           }
         }
@@ -431,6 +484,7 @@ class CreationDraft extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _closeAdmission();
     if (identical(_drafts[host], this)) _drafts[host] = null;
     host.removeListener(_changed);
     input.dispose();

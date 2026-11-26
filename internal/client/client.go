@@ -6,10 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"slices"
 	"sync"
+	"weak"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -60,11 +63,50 @@ type Client struct {
 	conversationBookmarks []conversationBookmark
 	conversationOwners    sync.WaitGroup
 	usageCache            *usageReadCache
+	stopMemory            func()
 }
 
 func New(transport link.Transport) *Client {
 	closing, abort := context.WithCancel(context.Background())
-	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func()), closing: closing, abort: abort, usageCache: newUsageReadCache()}
+	c := &Client{
+		pluginStatusObservers: newPluginStatusObservers(),
+		detailSlots:           make(chan struct{}, 4),
+		transport:             transport,
+		project:               NewProjection(transport.Target(), 0),
+		callbacks:             make(map[uint64]func()),
+		closing:               closing,
+		abort:                 abort,
+		usageCache:            newUsageReadCache(),
+	}
+	weakClient := weak.Make(c)
+	c.stopMemory = memory.Default().Register("client.caches", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		if owner := weakClient.Value(); owner != nil {
+			owner.trimCaches()
+		}
+	})
+	runtime.AddCleanup(c, func(stop func()) { stop() }, c.stopMemory)
+	return c
+}
+
+func (client *Client) trimCaches() {
+	client.conversationMu.Lock()
+	var watches []*conversationWatch
+	if len(client.conversationDetails) > 0 {
+		clear(client.conversationDetails)
+		client.conversationDetailOrder = nil
+		client.conversationDetailBytes = 0
+		for _, w := range client.conversations {
+			watches = append(watches, w)
+		}
+	}
+	client.conversationMu.Unlock()
+	client.usageCache.clear()
+	for _, w := range watches {
+		client.conversationChanged(w)
+	}
 }
 
 func (client *Client) Target() protocol.NodeID { return client.transport.Target() }
@@ -248,9 +290,9 @@ func (client *Client) Err() error {
 	return client.err
 }
 
-// WatchTaskAdmission keeps the matching task_started receipt for the caller,
+// WatchTaskAdmission keeps the matching turn admission receipt for the caller,
 // even if the task finishes or the projection is replaced before it is read.
-// Register before sending start_session and release when the draft closes.
+// Register before dispatching the request and release when its owner settles or closes.
 func (client *Client) WatchTaskAdmission(request protocol.RequestID) (<-chan protocol.TurnSummary, func()) {
 	result := make(chan protocol.TurnSummary, 1)
 	client.mu.Lock()

@@ -20,6 +20,7 @@ type elementCache struct {
 	native     *nativeParse
 	// chart is the chart source derived from the props, by the chart kind.
 	chart any
+	table *nativeTableCache
 }
 
 type nativeParse struct {

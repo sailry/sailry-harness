@@ -33,7 +33,9 @@
 package kit
 
 import (
+	"runtime"
 	"sync"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -119,34 +121,54 @@ func Markdown(c *ui.Context, src string, p MarkdownProps) ui.Element {
 }
 
 type markdownThemeKey struct {
-	p *theme.Palette
+	p weak.Pointer[theme.Palette]
 	v MarkdownVariant
 }
 
 var (
 	markdownThemes sync.Map // markdownThemeKey -> *markdown.Theme
-	markdownOwn    sync.Map // *markdown.Theme -> struct{}: Kit's themes
+	markdownOwn    sync.Map // weak.Pointer[markdown.Theme] -> struct{}: Kit's themes
 )
 
 func isMarkdownTheme(th *markdown.Theme) bool {
-	_, ok := markdownOwn.Load(th)
+	if th == nil {
+		return false
+	}
+	_, ok := markdownOwn.Load(weak.Make(th))
+	runtime.KeepAlive(th)
 	return ok
 }
 
 // MarkdownTheme is the look of a Variant in the app theme.
 func MarkdownTheme(c *ui.Context, v MarkdownVariant) *markdown.Theme {
-	p := theme.Of(c)
-	key := markdownThemeKey{p, v}
+	return markdownThemeForPalette(theme.Of(c), v, func() *markdown.Theme {
+		return markdown.DefaultTheme(c.Theme())
+	})
+}
+
+func markdownThemeForPalette(p *theme.Palette, v MarkdownVariant, defaultTheme func() *markdown.Theme) *markdown.Theme {
+	wp := weak.Make(p)
+	key := markdownThemeKey{wp, v}
 	if th, ok := markdownThemes.Load(key); ok {
+		runtime.KeepAlive(p)
 		return th.(*markdown.Theme)
 	}
-	th := markdown.DefaultTheme(c.Theme())
+	var th *markdown.Theme
 	if v == Chat {
 		th = chatTheme(p)
+	} else {
+		th = defaultTheme()
 	}
-	markdownThemes.Store(key, th)
-	markdownOwn.Store(th, struct{}{})
-	return th
+	wth := weak.Make(th)
+	if _, owned := markdownOwn.LoadOrStore(wth, struct{}{}); !owned && th != nil {
+		runtime.AddCleanup(th, func(w weak.Pointer[markdown.Theme]) { markdownOwn.Delete(w) }, wth)
+	}
+	actual, loaded := markdownThemes.LoadOrStore(key, th)
+	if !loaded && p != nil {
+		runtime.AddCleanup(p, func(k markdownThemeKey) { markdownThemes.Delete(k) }, key)
+	}
+	runtime.KeepAlive(p)
+	return actual.(*markdown.Theme)
 }
 
 // chatTheme is the reply's look: 14 DIP text on 24 DIP lines, code blocks on

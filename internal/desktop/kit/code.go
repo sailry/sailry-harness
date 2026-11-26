@@ -1,8 +1,10 @@
 package kit
 
 import (
+	"runtime"
 	"strings"
 	"sync"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -24,7 +26,7 @@ var codeFont = ui.Font{Family: "monospace", Size: 13}
 const codeLine = 1.6
 
 type codeThemeKey struct {
-	p    *theme.Palette
+	p    weak.Pointer[theme.Palette]
 	look codeLook
 }
 
@@ -52,12 +54,18 @@ func CodeTheme(c *ui.Context, tint bool) *editor.Theme {
 }
 
 func codeTheme(c *ui.Context, look codeLook) *editor.Theme {
-	p := theme.Of(c)
-	key := codeThemeKey{p, look}
+	return codeThemeForPalette(theme.Of(c), look, func() *editor.Theme {
+		return editor.DefaultTheme(c.Theme())
+	})
+}
+
+func codeThemeForPalette(p *theme.Palette, look codeLook, defaultTheme func() *editor.Theme) *editor.Theme {
+	key := codeThemeKey{weak.Make(p), look}
 	if t, ok := codeThemes.Load(key); ok {
+		runtime.KeepAlive(p)
 		return t.(*editor.Theme)
 	}
-	t := editor.DefaultTheme(c.Theme())
+	t := defaultTheme()
 	// Transparent: file tabs and sources show the surface they sit on,
 	// with no block ending at the last line, and no current-line band
 	// (as the reference's views).
@@ -86,8 +94,12 @@ func codeTheme(c *ui.Context, look codeLook) *editor.Theme {
 		t.Cursor = p.Caret
 	}
 	t.Added, t.Deleted = p.Success, p.Danger
-	codeThemes.Store(key, t)
-	return t
+	actual, loaded := codeThemes.LoadOrStore(key, t)
+	if !loaded && p != nil {
+		runtime.AddCleanup(p, func(k codeThemeKey) { codeThemes.Delete(k) }, key)
+	}
+	runtime.KeepAlive(p)
+	return actual.(*editor.Theme)
 }
 
 // codeView keeps an editor of a block of code and the text it shows.

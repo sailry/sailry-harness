@@ -158,20 +158,28 @@ func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
 	s.MarketKind, s.MarketMore, s.MarketLoad = 1, true, preview.Fetch{Loaded: true}
 	for i := range 26 {
 		id := fmt.Sprintf("Skill %02d", i)
-		s.MarketSkills = append(s.MarketSkills, preview.Skill{ID: id, Name: id})
+		s.MarketSkills = append(s.MarketSkills, preview.Skill{ID: id, Name: id, Avatar: id})
 	}
+	pictures := map[string]bool{}
 	calls := 0
 	s.PackageActions = &settings.PackageActions{MoreMarket: func() {
 		calls++
 		s.MarketPaging, s.MarketPagingFailed = true, false
 		s.SetBusy(settings.BusyMarket, true)
 	}}
+	s.PackageActions.Image = func(address string) *ui.Bitmap {
+		pictures[address] = true
+		return nil
+	}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		i18n.Bind(c, testCatalog)
 		r.render(c, s.MarketScope())
 	}, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Advance(time.Second)
+	if !pictures["Skill 00"] || pictures["Skill 25"] {
+		t.Fatalf("initial picture requests cover the wrong cards: %v", pictures)
+	}
 	if calls != 0 || r.scroll.MaxY <= 320 {
 		t.Fatalf("near-end load before scrolling: %d requests, scroll %+v", calls, r.scroll)
 	}
@@ -181,6 +189,9 @@ func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
 	}
 	tt.Scroll(450, 400, 0, 10_000)
 	tt.Advance(time.Second)
+	if !pictures["Skill 25"] {
+		t.Fatal("scrolling to the last skill did not request its picture")
+	}
 	if calls != 1 {
 		t.Fatalf("scrolling to the bottom requested %d pages", calls)
 	}

@@ -30,6 +30,9 @@ func bindCatalog(app *shell.App, visible func() bool) func() {
 				return
 			}
 		}
+		if catalog.images != nil {
+			catalog.images.beginFrame()
+		}
 		catalog.sync(false)
 	}
 }
@@ -113,12 +116,17 @@ func (c *catalogController) sync(force bool) {
 			c.searched, m.MarketLoad.Loading = false, false
 		}
 		c.stop()
+		if c.images != nil && len(c.images.entries) > 0 {
+			c.pruneImages(nil)
+			c.images.client.CloseIdleConnections()
+		}
 		return
 	}
 	query := c.currentQuery()
 	if query.kind == themeCatalog {
 		c.stop()
 		c.searched = false
+		c.pruneImages(nil)
 		m.MarketMore, m.MarketFailed, m.MarketPagingFailed = false, false, false
 		m.Themes, m.MarketLoad.Loading, m.MarketLoad.Loaded = c.service.ThemeCatalog(force)
 		return

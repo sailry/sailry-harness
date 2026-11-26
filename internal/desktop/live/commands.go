@@ -3,7 +3,6 @@ package live
 import (
 	"github.com/egoist/mygo/ui"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -11,18 +10,27 @@ import (
 )
 
 type liveCommands struct {
-	busy     map[commandViewKey]bool
-	releases map[protocol.SessionID]func()
-	outputs  map[commandViewKey]func()
-	details  map[commandDetailKey]*commandDetailRead
+	busy        map[commandViewKey]bool
+	releases    map[protocol.SessionID]func()
+	outputs     map[commandViewKey]func()
+	details     map[commandDetailKey]*commandDetailRead
+	outputCache map[commandViewKey]commandOutputCache
 }
 type commandViewKey struct {
 	session protocol.SessionID
 	command protocol.RequestID
 }
+type commandOutputCache struct {
+	stdout, stderr, formatted string
+}
 
 func (r *Runtime) initCommands() {
-	r.commands = &liveCommands{busy: map[commandViewKey]bool{}, releases: map[protocol.SessionID]func(){}, outputs: map[commandViewKey]func(){}}
+	r.commands = &liveCommands{
+		busy:        map[commandViewKey]bool{},
+		releases:    map[protocol.SessionID]func(){},
+		outputs:     map[commandViewKey]func(){},
+		outputCache: map[commandViewKey]commandOutputCache{},
+	}
 }
 func (r *Runtime) closeCommands() {
 	if r.commands == nil {
@@ -38,6 +46,7 @@ func (r *Runtime) closeCommands() {
 		read.cancel()
 	}
 	clear(r.commands.details)
+	clear(r.commands.outputCache)
 }
 func (r *Runtime) projectCommands(cv string, comp *composer.State, activity *composer.Activity) {
 	session, ok := r.session(cv)
@@ -97,16 +106,17 @@ func (r *Runtime) projectCommands(cv string, comp *composer.State, activity *com
 				command.Ports = append(command.Ports, int(service.Port))
 			}
 			if output, ok := r.controller.CommandOutput(session.ID, value.ID); ok && output.Known {
-				command.Output = output.Snapshot.Stdout.Text
-				if output.Snapshot.Stderr.Text != "" {
-					if command.Output != "" {
-						command.Output += "\n"
-					}
-					command.Output += output.Snapshot.Stderr.Text
+				stdout, stderr := output.Snapshot.Stdout.Text, output.Snapshot.Stderr.Text
+				key := commandViewKey{session.ID, value.ID}
+				if r.commands.outputCache == nil {
+					r.commands.outputCache = map[commandViewKey]commandOutputCache{}
 				}
-				lines := strings.Split(command.Output, "\n")
-				if len(lines) > 100 {
-					command.Output = strings.Join(lines[len(lines)-100:], "\n")
+				if cached, hit := r.commands.outputCache[key]; hit && cached.stdout == stdout && cached.stderr == stderr {
+					command.Output = cached.formatted
+				} else {
+					formatted := tailCommandLines(stdout, stderr, 100)
+					r.commands.outputCache[key] = commandOutputCache{stdout: stdout, stderr: stderr, formatted: formatted}
+					command.Output = formatted
 				}
 			}
 			activity.Commands = append(activity.Commands, command)
@@ -142,9 +152,71 @@ func (r *Runtime) pruneCommands() {
 		if !active[key] {
 			release()
 			delete(r.commands.outputs, key)
+			delete(r.commands.outputCache, key)
+		}
+	}
+	for key := range r.commands.outputCache {
+		if !r.conversationSeen[key.session] {
+			delete(r.commands.outputCache, key)
 		}
 	}
 	r.pruneCommandDetails()
+}
+
+// tailCommandLines returns at most the last limit newline-separated lines of
+// stdout and stderr joined by "\n" without splitting the full logs.
+func tailCommandLines(stdout, stderr string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if stderr == "" {
+		if cut := tailNewlineStart(stdout, limit); cut > 0 {
+			return stdout[cut:]
+		}
+		return stdout
+	}
+	if stdout == "" {
+		if cut := tailNewlineStart(stderr, limit); cut > 0 {
+			return stderr[cut:]
+		}
+		return stderr
+	}
+	newlines := 0
+	for i := len(stderr) - 1; i >= 0; i-- {
+		if stderr[i] == '\n' {
+			newlines++
+			if newlines == limit {
+				return stderr[i+1:]
+			}
+		}
+	}
+	// Count the separator newline inserted between stdout and stderr.
+	newlines++
+	if newlines == limit {
+		return stderr
+	}
+	for i := len(stdout) - 1; i >= 0; i-- {
+		if stdout[i] == '\n' {
+			newlines++
+			if newlines == limit {
+				return stdout[i+1:] + "\n" + stderr
+			}
+		}
+	}
+	return stdout + "\n" + stderr
+}
+
+func tailNewlineStart(text string, limit int) int {
+	newlines := 0
+	for i := len(text) - 1; i >= 0; i-- {
+		if text[i] == '\n' {
+			newlines++
+			if newlines == limit {
+				return i + 1
+			}
+		}
+	}
+	return 0
 }
 func (x *conversationActions) stopWorkspaceCommand(text string) {
 	session, ok := x.r.session(x.cv.ID)

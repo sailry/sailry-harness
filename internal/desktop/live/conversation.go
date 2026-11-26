@@ -170,6 +170,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if key := r.composerKey(comp); key == r.composerObserved[cv.ID] {
 			r.applyComposer(comp, s.Config)
 			r.composerObserved[cv.ID] = r.composerKey(comp)
+			delete(r.composerObservedConfig, cv.ID)
 		}
 		r.composerRevisions[cv.ID] = s.Revision
 	}
@@ -241,15 +242,23 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		ctx.SelectModel = func() { r.openNodeSettings(settings.Providers) }
 	}
 	if err == nil && !ctx.Readonly && !teamUnsettled {
-		encoded, _ := json.Marshal(config)
-		key := string(encoded)
-		if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {
-			if s, exists := r.session(cv.ID); exists {
-				r.saveComposerConfig(s, config, nil)
+		observedCfg, haveCfg := r.composerObservedConfig[cv.ID]
+		observedKey := r.composerObserved[cv.ID]
+		if !haveCfg || observedKey == "" || !sameSessionConfig(observedCfg, config) {
+			encoded, _ := json.Marshal(config)
+			key := string(encoded)
+			if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {
+				if s, exists := r.session(cv.ID); exists {
+					r.saveComposerConfig(s, config, nil)
+				}
 			}
-		}
-		if !r.composerSaving[cv.ID] || r.composerObserved[cv.ID] == "" {
-			r.composerObserved[cv.ID] = key
+			if !r.composerSaving[cv.ID] || r.composerObserved[cv.ID] == "" {
+				r.composerObserved[cv.ID] = key
+				if r.composerObservedConfig == nil {
+					r.composerObservedConfig = map[string]protocol.SessionConfig{}
+				}
+				r.composerObservedConfig[cv.ID] = cloneSessionConfig(config)
+			}
 		}
 	}
 	r.projectWorkspaceComposer(cv, comp, ctx)

@@ -1,6 +1,7 @@
 package live
 
 import (
+	"bytes"
 	"encoding/json"
 	"maps"
 	"reflect"
@@ -10,6 +11,41 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func sameSessionConfig(a, b protocol.SessionConfig) bool {
+	if a.Provider != b.Provider || a.Model != b.Model || a.Mode != b.Mode || a.Permission != b.Permission || a.Effort != b.Effort {
+		return false
+	}
+	if !maps.Equal(a.Features, b.Features) || len(a.Options) != len(b.Options) {
+		return false
+	}
+	for pkg, optsA := range a.Options {
+		optsB, ok := b.Options[pkg]
+		if !ok || len(optsA) != len(optsB) {
+			return false
+		}
+		for k, vA := range optsA {
+			if vB, ok := optsB[k]; !ok || !bytes.Equal(vA, vB) {
+				return false
+			}
+		}
+	}
+	return reflect.DeepEqual(a.Assistant, b.Assistant) &&
+		reflect.DeepEqual(a.Resource, b.Resource) &&
+		reflect.DeepEqual(a.Credential, b.Credential)
+}
+
+func cloneSessionConfig(cfg protocol.SessionConfig) protocol.SessionConfig {
+	cfg.Features = maps.Clone(cfg.Features)
+	if cfg.Options != nil {
+		cloned := make(map[string]map[string]json.RawMessage, len(cfg.Options))
+		for pkg, opts := range cfg.Options {
+			cloned[pkg] = maps.Clone(opts)
+		}
+		cfg.Options = cloned
+	}
+	return cfg
+}
 
 func (r *Runtime) composerKey(c *composer.State) string {
 	effort := ""
@@ -90,6 +126,7 @@ func (r *Runtime) initializeDraftComposer(comp *composer.State) {
 func (r *Runtime) resetDraftComposer(id string, comp *composer.State) {
 	delete(r.composerInitialized, id)
 	delete(r.composerObserved, id)
+	delete(r.composerObservedConfig, id)
 	delete(r.composerCatalogs, id)
 	r.clearComposerBase(comp)
 	if r.teams != nil {
@@ -200,6 +237,10 @@ func (r *Runtime) saveComposerConfig(session protocol.Session, config protocol.S
 	r.composerSaving[id] = true
 	value, _ := json.Marshal(config)
 	r.composerObserved[id] = string(value)
+	if r.composerObservedConfig == nil {
+		r.composerObservedConfig = map[string]protocol.SessionConfig{}
+	}
+	r.composerObservedConfig[id] = cloneSessionConfig(config)
 	r.execute(protocol.Command{Kind: "set_session_config", Data: protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: session.Revision, Config: config}}, func(c *ui.Context, output protocol.Output, err error) {
 		ok := err == nil
 		if ok {

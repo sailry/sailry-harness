@@ -143,6 +143,9 @@ func (s *State) Forget(id string) {
 	delete(s.anchors, id)
 	delete(s.edits, id)
 	delete(s.references, id)
+	if s.referenceDetail.session == id {
+		s.referenceDetail = referenceDetail{}
+	}
 	if s.rewindOf == id {
 		s.rewind, s.rewindOf = "", ""
 	}

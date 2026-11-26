@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_mobile/features/conversations/live/attachments.dart';
 import 'package:sailry_mobile/features/conversations/live/creation_draft.dart';
 import 'package:sailry_mobile/features/conversations/live/history_write.dart';
@@ -13,14 +14,34 @@ import 'support/drafts.dart';
 PickedAttachment attachment(String id) =>
     (attachment: {'id': id}, preview: null);
 
+class _TaskAdmission extends Fake implements TaskAdmission {
+  @override
+  final request = '{"id":"original"}';
+  final receipt = Completer<Map<String, dynamic>>();
+  bool closed = false;
+
+  @override
+  Future<Map<String, dynamic>> next() => receipt.future;
+
+  @override
+  void dispose() {
+    closed = true;
+    if (!receipt.isCompleted) {
+      receipt.completeError(StateError('closed'));
+    }
+  }
+}
+
 class MalformedStartConnection extends RecoveryConnection {
   final started = <String>[];
   final prepared = <String>[];
 
+  final admission = _TaskAdmission();
+
   @override
-  Future<String> prepare({required String command}) async {
+  Future<TaskAdmission> prepareTask({required String command}) async {
     prepared.add(command);
-    return '{"id":"original"}';
+    return admission;
   }
 
   @override
@@ -287,6 +308,43 @@ void main() {
     expect(draft.canCheck, isFalse);
     expect(connection.started, hasLength(1));
   });
+
+  test(
+    'first-task receipt resolves a draft after the live turn disappears',
+    () async {
+      final connection = MalformedStartConnection();
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        snapshot: snapshot('a'),
+        connection: connection,
+      );
+      final draft = CreationDraft(host);
+      addTearDown(host.dispose);
+      addTearDown(draft.dispose);
+      await expectLater(
+        draft.send(message: 'First message'),
+        throwsA(isA<CommandFailure>()),
+      );
+      host.snapshot['sessions'] = [
+        {'id': 'created', 'revision': 2},
+      ];
+      host.snapshot['turns'] = [];
+      host.notifyListeners();
+      expect(draft.created, isNull);
+      connection.admission.receipt.complete({
+        'id': 'turn',
+        'session': 'created',
+        'request': 'original',
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(draft.created?['id'], 'created');
+      expect(draft.pendingRequest, isNull);
+      expect(connection.admission.closed, isTrue);
+      expect(connection.started, hasLength(1));
+      expect(connection.requests, isEmpty);
+    },
+  );
 
   test('admission preserves newly typed text and attachments', () async {
     final reply = Completer<Map<String, dynamic>>();

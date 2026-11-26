@@ -7,11 +7,44 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+	"unsafe"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
+
+type nativeTableCache struct {
+	columns    []string
+	rows       [][]string
+	cells      [][]nativeTableCell
+	revision   string
+	page       int
+	widths     []float32
+	alignments []string
+	details    [][]string
+	rowIDs     []string
+	fill       *int
+	resizable  bool
+	rowHeight  float32
+	header     bool
+	stripe     bool
+	bordered   bool
+	empty      string
+	emptyIcon  string
+	menu       []nativeMenuItem
+	err        error
+}
+
+func sameTableRows(a, b [][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 || unsafe.SliceData(a) == unsafe.SliceData(b) {
+		return true
+	}
+	return reflect.DeepEqual(a, b)
+}
 
 type tableDraft struct {
 	list      ui.ListState
@@ -47,22 +80,18 @@ type nativeTableCell struct {
 	Secondary *nativeTableLine `json:"secondary"`
 }
 
-func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElement, _ func(), _ func(CallbackRef, json.RawMessage)) (ui.Element, error) {
-	identity, props, err := nativeProps(element)
-	if err != nil {
-		return ui.Element{}, err
-	}
+func parseNativeTable(props map[string]json.RawMessage) *nativeTableCache {
 	columns := nativeProp(props, "columns", []string{})
 	rows := nativeProp(props, "rows", [][]string{})
 	cells := nativeProp(props, "cells", [][]nativeTableCell{})
 	revision := nativeProp(props, "revision", "")
 	page := nativeProp(props, "page", 0)
 	if page < 0 {
-		return ui.Element{}, hostInvalid("invalid plugin table bounds")
+		return &nativeTableCache{err: hostInvalid("invalid plugin table bounds")}
 	}
 	for _, row := range rows {
 		if len(row) != len(columns) {
-			return ui.Element{}, hostInvalid("plugin table row width differs from its columns")
+			return &nativeTableCache{err: hostInvalid("plugin table row width differs from its columns")}
 		}
 	}
 	widths := nativeProp(props, "widths", []float32{})
@@ -71,31 +100,31 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	rowIDs := nativeProp(props, "row_ids", []string{})
 	fill := nativeProp[*int](props, "fill", nil)
 	if len(cells) != 0 && len(cells) != len(rows) || len(details) != 0 && len(details) != len(rows) {
-		return ui.Element{}, hostInvalid("plugin table cells differ from its rows")
+		return &nativeTableCache{err: hostInvalid("plugin table cells differ from its rows")}
 	}
 	for _, row := range cells {
 		if len(row) != len(columns) {
-			return ui.Element{}, hostInvalid("plugin table cell width differs from its columns")
+			return &nativeTableCache{err: hostInvalid("plugin table cell width differs from its columns")}
 		}
 		for _, cell := range row {
 			if !validTableLine(cell.Primary) || cell.Secondary != nil && !validTableLine(*cell.Secondary) {
-				return ui.Element{}, hostInvalid("invalid plugin table cell")
+				return &nativeTableCache{err: hostInvalid("invalid plugin table cell")}
 			}
 		}
 	}
 	for _, row := range details {
 		if len(row) != len(columns) {
-			return ui.Element{}, hostInvalid("plugin table details differ from its columns")
+			return &nativeTableCache{err: hostInvalid("plugin table details differ from its columns")}
 		}
 	}
 	for _, width := range widths {
 		if !finiteNumber(float64(width)) || width < 16 || width > 4096 {
-			return ui.Element{}, hostInvalid("invalid plugin table column width")
+			return &nativeTableCache{err: hostInvalid("invalid plugin table column width")}
 		}
 	}
 	for _, alignment := range alignments {
 		if alignment != "start" && alignment != "end" {
-			return ui.Element{}, hostInvalid("invalid plugin table alignment")
+			return &nativeTableCache{err: hostInvalid("invalid plugin table alignment")}
 		}
 	}
 	for _, bound := range []struct {
@@ -103,24 +132,73 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		minimum float32
 	}{{"row_height", 32}, {"header_height", 24}} {
 		if height := nativeProp[*float32](props, bound.name, nil); height != nil && (!finiteNumber(float64(*height)) || *height < bound.minimum || *height > 96) {
-			return ui.Element{}, hostInvalid("invalid plugin table height")
+			return &nativeTableCache{err: hostInvalid("invalid plugin table height")}
 		}
 	}
 	if fill != nil && (*fill < 0 || *fill >= len(columns)) {
-		return ui.Element{}, hostInvalid("invalid plugin table fill column")
+		return &nativeTableCache{err: hostInvalid("invalid plugin table fill column")}
 	}
 	if len(rowIDs) != 0 {
 		if len(rowIDs) != len(rows) {
-			return ui.Element{}, hostInvalid("plugin table identifiers differ from its rows")
+			return &nativeTableCache{err: hostInvalid("plugin table identifiers differ from its rows")}
 		}
 		unique := map[string]struct{}{}
 		for _, identity := range rowIDs {
 			if _, exists := unique[identity]; exists {
-				return ui.Element{}, hostInvalid("plugin table identifiers must be unique")
+				return &nativeTableCache{err: hostInvalid("plugin table identifiers must be unique")}
 			}
 			unique[identity] = struct{}{}
 		}
 	}
+	return &nativeTableCache{
+		columns:    columns,
+		rows:       rows,
+		cells:      cells,
+		revision:   revision,
+		page:       page,
+		widths:     widths,
+		alignments: alignments,
+		details:    details,
+		rowIDs:     rowIDs,
+		fill:       fill,
+		resizable:  nativeProp(props, "resizable", true),
+		rowHeight:  nativeProp(props, "row_height", float32(32)),
+		header:     nativeProp(props, "header", true),
+		stripe:     nativeProp(props, "stripe", false),
+		bordered:   nativeProp(props, "bordered", true),
+		empty:      nativeProp(props, "empty", ""),
+		emptyIcon:  nativeProp(props, "empty_icon", ""),
+		menu:       nativeProp(props, "menu", []nativeMenuItem{}),
+	}
+}
+
+func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElement, _ func(), _ func(CallbackRef, json.RawMessage)) (ui.Element, error) {
+	identity, props, err := nativeProps(element)
+	if err != nil {
+		return ui.Element{}, err
+	}
+	var cached *nativeTableCache
+	if element.cache != nil && element.cache.table != nil {
+		cached = element.cache.table
+	} else {
+		cached = parseNativeTable(props)
+		if element.cache != nil {
+			element.cache.table = cached
+		}
+	}
+	if cached.err != nil {
+		return ui.Element{}, cached.err
+	}
+	columns := cached.columns
+	rows := cached.rows
+	cells := cached.cells
+	revision := cached.revision
+	page := cached.page
+	widths := cached.widths
+	alignments := cached.alignments
+	details := cached.details
+	rowIDs := cached.rowIDs
+	fill := cached.fill
 	first := len(rows)
 	if page <= len(rows)/50 {
 		first = page * 50
@@ -132,7 +210,7 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		state = &tableDraft{selected: -1}
 		binding.state.tables[identity] = state
 	}
-	if state.revision != revision || state.page != page || !reflect.DeepEqual(state.rows, rows) {
+	if state.revision != revision || state.page != page || !sameTableRows(state.rows, rows) {
 		retained := map[string]struct{}{}
 		for index := range state.selection.All() {
 			absolute := index + state.page*50
@@ -162,8 +240,9 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	state.list.Selected = &state.selected
 	state.list.Selection = &state.selection
 	definitions := make([]ui.TableColumn, len(columns))
+	fixed := !cached.resizable
 	for index, label := range columns {
-		column := ui.TableColumn{Title: label, ID: strconv.Itoa(index), Width: 180, MinWidth: 16, MaxWidth: 4096, Fixed: !nativeProp(props, "resizable", true)}
+		column := ui.TableColumn{Title: label, ID: strconv.Itoa(index), Width: 180, MinWidth: 16, MaxWidth: 4096, Fixed: fixed}
 		if index < len(widths) && finiteNumber(float64(widths[index])) && widths[index] > 0 {
 			column.Width = widths[index]
 		}
@@ -188,8 +267,9 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		}
 		binding.emit("table", event)
 	}
+	menuItems := cached.menu
 	state.list.CellMenu = func(menu *ui.Menu, row, column int) {
-		for _, item := range nativeProp(props, "menu", []nativeMenuItem{}) {
+		for _, item := range menuItems {
 			if item.Separator {
 				menu.Separator()
 				continue
@@ -202,9 +282,9 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	}
 	// The frame, the header's fill and the rows' separators are Kit's table
 	// look (kit.TableFrame, kit.TableCell), shared with the host's processes.
-	rowHeight := nativeProp(props, "row_height", float32(32))
-	header := nativeProp(props, "header", true)
-	stripe := nativeProp(props, "stripe", false)
+	rowHeight := cached.rowHeight
+	header := cached.header
+	stripe := cached.stripe
 	headHeight := theme.Neutral(view).Space(8)
 	cellPadding := theme.Neutral(view).Space(1.5)
 	// The alternate rows are a half tint: at full Muted, under the rows'
@@ -215,7 +295,7 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 	if len(columns) > 0 {
 		// bordered:false is a table filling a region whose own edges bound
 		// it, where a frame would draw a second border inside the first.
-		if nativeProp(props, "bordered", true) {
+		if cached.bordered {
 			kit.TableFrame(view, result)
 		} else {
 			kit.TableFlush(view, result)
@@ -281,7 +361,7 @@ func (binding *NativeBinding) renderTable(view *ui.Context, element NativeElemen
 		}
 		if count == 0 {
 			ui.Column(view.Key("empty")).Grow(1).FillWidth().MinHeight(0).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-				kit.Result(view, kit.ResultProps{Title: nativeProp(props, "empty", ""), Icon: nativeIcon(nativeProp(props, "empty_icon", ""))})
+				kit.Result(view, kit.ResultProps{Title: cached.empty, Icon: nativeIcon(cached.emptyIcon)})
 			})
 			return
 		}

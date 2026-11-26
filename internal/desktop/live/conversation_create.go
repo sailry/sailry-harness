@@ -525,6 +525,10 @@ func (p *conversationCreation) adopt(session protocol.Session) {
 	r.setComposerBase(x.comp, session.Config)
 	key, _ := json.Marshal(session.Config)
 	r.composerObserved[after] = string(key)
+	if r.composerObservedConfig == nil {
+		r.composerObservedConfig = map[string]protocol.SessionConfig{}
+	}
+	r.composerObservedConfig[after] = cloneSessionConfig(session.Config)
 	if r.teams != nil {
 		state := r.teams.composers[before]
 		delete(r.teams.composers, before)

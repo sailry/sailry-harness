@@ -19,20 +19,21 @@ type pluginCardBrowserRequest struct {
 }
 
 type pluginCardAuthorization struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	generation uint64
-	attempt    *protocol.PluginConnectorAttempt
-	request    *protocol.Request
-	pending    bool
-	observing  bool
-	receiving  bool
-	returned   <-chan string
-	redirect   *string
-	url        string
-	expires    uint64
-	state      string
-	browser    *pluginCardBrowserRequest
+	ctx         context.Context
+	cancel      context.CancelFunc
+	generation  uint64
+	attempt     *protocol.PluginConnectorAttempt
+	request     *protocol.Request
+	pending     bool
+	observing   bool
+	receiving   bool
+	returned    <-chan string
+	redirect    *string
+	url         string
+	expires     uint64
+	expiryTimer *time.Timer
+	state       string
+	browser     *pluginCardBrowserRequest
 }
 
 func (login *pluginCardAuthorization) canOpen(now time.Time) bool {
@@ -48,13 +49,22 @@ func (login *pluginCardAuthorization) keepsAlive(now time.Time) bool {
 	return login.pending || login.canOpen(now)
 }
 
+func (login *pluginCardAuthorization) clearBrowserURL() {
+	login.url, login.expires = "", 0
+	if login.expiryTimer != nil {
+		login.expiryTimer.Stop()
+		login.expiryTimer = nil
+	}
+}
+
 func (login *pluginCardAuthorization) suspend() {
+	login.clearBrowserURL()
 	if login.cancel != nil {
 		login.cancel()
 	}
 	login.generation++
 	login.ctx, login.cancel, login.returned, login.redirect, login.browser = nil, nil, nil, nil, nil
-	login.url, login.expires, login.pending, login.observing, login.receiving = "", 0, false, false, false
+	login.pending, login.observing, login.receiving = false, false, false
 	if login.request != nil {
 		login.state = "unconfirmed"
 	}
@@ -286,7 +296,8 @@ func (r *Runtime) sendPluginCardLogin(card *pluginCardInstance, inspect bool) {
 				}
 			} else {
 				login.state = "unconfirmed"
-				login.url, login.browser = "", nil
+				login.clearBrowserURL()
+				login.browser = nil
 				kit.Toast(view, kit.Uncertain, i18n.T(view, "plugins_unknown"))
 			}
 			r.pluginCardLoginState(card)

@@ -116,6 +116,18 @@ func (r *Runtime) draftSubmitted(cv *viewmodel.Conversation) bool {
 
 func (r *Runtime) removeDraft(id string) {
 	r = r.localRuntime()
+	release := func(owner *Runtime) {
+		if pending := owner.conversationCreations[id]; pending != nil {
+			pending.releaseAdmission()
+			delete(owner.conversationCreations, id)
+			delete(owner.conversationCreating, id)
+			owner.discardOutgoing(id)
+		}
+	}
+	release(r)
+	for _, bound := range r.bindings {
+		release(bound)
+	}
 	remove := func(list []*viewmodel.Conversation) []*viewmodel.Conversation {
 		out := list[:0]
 		for _, cv := range list {
@@ -285,11 +297,18 @@ func (r *Runtime) pruneDrafts() {
 }
 
 func (r *Runtime) releaseDraftComposer(id string) {
-	comp := r.App.DropComposer(id)
+	if r.App == nil {
+		return
+	}
+	r.releaseComposerMetadata(id, r.App.DropComposer(id))
+}
+
+func (r *Runtime) releaseComposerMetadata(id string, comp *composer.State) {
 	release := func(owner *Runtime) {
 		delete(owner.composerCatalogs, id)
 		delete(owner.composerInitialized, id)
 		delete(owner.composerObserved, id)
+		delete(owner.composerObservedConfig, id)
 		delete(owner.composerRevisions, id)
 		owner.clearComposerBase(comp)
 		delete(owner.sessionBases, comp)

@@ -42,8 +42,18 @@ func (r *Runtime) invalidateFilePreview(worktree *protocol.WorktreeID) {
 	if preview.cancel != nil {
 		preview.cancel()
 	}
+	if preview.file.State == conversation.PreviewReady {
+		releasePreviewImage(preview.file.Image)
+	}
 	*preview = filePreview{}
 	root.filePreview = nil
+}
+
+func releasePreviewImage(img *conversation.Image) {
+	if img != nil {
+		bitmap, _ := img.Source.(*ui.Bitmap)
+		releaseAttachmentBitmap(bitmap)
+	}
 }
 
 // errPreviewLarge is a read refused at fileview.Limit.
@@ -78,6 +88,9 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context, func(c
 				}
 			})
 		})
+		if ctx.Err() != nil {
+			return
+		}
 		loaded := file
 		loaded.State = conversation.PreviewReady
 		switch {
@@ -104,6 +117,7 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context, func(c
 		}
 		root.enqueue(func(c *ui.Context) {
 			if root.filePreview != preview || !preview.open || ctx.Err() != nil {
+				releasePreviewImage(loaded.Image)
 				return
 			}
 			if err != nil {

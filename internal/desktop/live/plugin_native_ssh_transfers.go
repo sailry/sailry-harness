@@ -2,6 +2,7 @@ package live
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -57,6 +58,7 @@ func (access sshTransferAccess) execute(ctx context.Context, command protocol.Co
 }
 
 type sshTransferJob struct {
+	seq       uint64
 	access    sshTransferAccess
 	upload    bool
 	local     string
@@ -106,10 +108,13 @@ func (job *sshTransferJob) snapshot(id protocol.RequestID) map[string]any {
 	}
 }
 
+const maxFinishedSSHTransfers = 64
+
 // sshTransferStore is shared by every plugin view of one desktop window so a
 // reopened SSH page keeps its transfers.
 type sshTransferStore struct {
 	mu      sync.Mutex
+	nextSeq uint64
 	jobs    map[protocol.RequestID]*sshTransferJob
 	changed chan struct{}
 	uploads chan struct{}
@@ -128,6 +133,35 @@ func (r *Runtime) sshTransferStore() *sshTransferStore {
 func (store *sshTransferStore) publish() {
 	close(store.changed)
 	store.changed = make(chan struct{})
+}
+
+func (store *sshTransferStore) finish(job *sshTransferJob) {
+	store.nextSeq++
+	job.seq = store.nextSeq
+	if len(store.jobs) <= maxFinishedSSHTransfers {
+		return
+	}
+	type candidate struct {
+		id  protocol.RequestID
+		seq uint64
+	}
+	var finished []candidate
+	for id, job := range store.jobs {
+		if job.busy {
+			continue
+		}
+		if job.status.stage == sshTransferDone || (job.status.stage == sshTransferFailed && job.plan.pending == nil) {
+			finished = append(finished, candidate{id: id, seq: job.seq})
+		}
+	}
+	if len(finished) <= maxFinishedSSHTransfers {
+		return
+	}
+	slices.SortFunc(finished, func(a, b candidate) int { return cmp.Compare(a.seq, b.seq) })
+	drop := len(finished) - maxFinishedSSHTransfers
+	for _, entry := range finished[:drop] {
+		delete(store.jobs, entry.id)
+	}
 }
 
 func (store *sshTransferStore) insert(access sshTransferAccess, upload bool, local string, directory bool, remote string) protocol.RequestID {
@@ -230,8 +264,12 @@ func (store *sshTransferStore) action(id protocol.RequestID, kind string) error 
 		} else {
 			status = job.access.download(ctx, job.remote, job.local, job.directory, update)
 		}
+		if status.stage == sshTransferDone {
+			plan = sshTransferPlan{}
+		}
 		store.mu.Lock()
 		job.plan, job.status, job.busy = plan, status, false
+		store.finish(job)
 		store.publish()
 		store.mu.Unlock()
 	})
@@ -239,6 +277,7 @@ func (store *sshTransferStore) action(id protocol.RequestID, kind string) error 
 		cancel()
 		job.plan, job.busy = plan, false
 		job.status = sshTransferFailure(&protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "file transfer pool is unavailable"})
+		store.finish(job)
 	}
 	store.publish()
 	return nil

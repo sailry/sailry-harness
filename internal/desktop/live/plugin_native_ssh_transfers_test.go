@@ -557,3 +557,28 @@ func testSshTransferBridge(t *testing.T) {
 		}
 	})
 }
+
+func TestSSHTransferRetentionUsesCompletionOrder(t *testing.T) {
+	store := &sshTransferStore{jobs: map[protocol.RequestID]*sshTransferJob{}, changed: make(chan struct{})}
+	insert := func() protocol.RequestID {
+		return store.insert(sshTransferAccess{}, true, "", false, "")
+	}
+	finish := func(id protocol.RequestID) {
+		job := store.jobs[id]
+		job.status.stage = sshTransferDone
+		store.finish(job)
+	}
+	slow := insert()
+	first := insert()
+	finish(first)
+	for range maxFinishedSSHTransfers - 1 {
+		finish(insert())
+	}
+	if store.jobs[slow] == nil {
+		t.Fatal("an unfinished transfer was discarded")
+	}
+	finish(slow)
+	if len(store.jobs) != maxFinishedSSHTransfers || store.jobs[first] != nil || store.jobs[slow] == nil {
+		t.Fatal("the result of the last transfer to finish is unavailable")
+	}
+}

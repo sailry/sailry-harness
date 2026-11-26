@@ -13,9 +13,11 @@ import (
 )
 
 type treeDraft struct {
-	items    []nativeTreeItem
-	cursor   string
-	expanded map[string]*bool
+	source    string
+	hasSource bool
+	items     []nativeTreeItem
+	cursor    string
+	expanded  map[string]*bool
 }
 
 type nativeTreeItem struct {
@@ -63,28 +65,44 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 		return ui.Element{}, err
 	}
 	source := nativeProp(props, "items", "")
-	var items []nativeTreeItem
-	decoder := json.NewDecoder(strings.NewReader(source))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&items) != nil || decoder.Decode(new(any)) != io.EOF || items == nil && strings.TrimSpace(source) != "[]" {
-		return ui.Element{}, hostInvalid("invalid resource tree items")
-	}
 	selected := nativeProp(props, "selected", []string{})
+	var selectedSet map[string]struct{}
+	if len(selected) > 4 {
+		selectedSet = make(map[string]struct{}, len(selected))
+		for _, id := range selected {
+			selectedSet[id] = struct{}{}
+		}
+	}
 	current := nativeProp(props, "current", "")
 	variant := nativeProp(props, "variant", "resource")
 	if variant != "resource" && variant != "branch" {
 		return ui.Element{}, hostInvalid("invalid resource tree variant")
 	}
+	indent := nativeProp(props, "indent", float32(16))
+	skip := max(0, nativeProp(props, "skip_depth", 0))
+	guides := nativeProp(props, "guides", false)
+	rootMenu := nativeProp(props, "menu", []nativeMenuItem{})
 	binding.state.mu.Lock()
 	state := binding.state.trees[identity]
-	if state == nil {
-		state = &treeDraft{expanded: map[string]*bool{}}
-		binding.state.trees[identity] = state
+	if state == nil || !state.hasSource || state.source != source {
+		var items []nativeTreeItem
+		decoder := json.NewDecoder(strings.NewReader(source))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&items) != nil || decoder.Decode(new(any)) != io.EOF || items == nil && strings.TrimSpace(source) != "[]" {
+			binding.state.mu.Unlock()
+			return ui.Element{}, hostInvalid("invalid resource tree items")
+		}
+		if state == nil {
+			state = &treeDraft{}
+			binding.state.trees[identity] = state
+		}
+		if !state.hasSource || !reflect.DeepEqual(state.items, items) {
+			state.items = items
+			state.expanded = map[string]*bool{}
+		}
+		state.source, state.hasSource = source, true
 	}
-	if !reflect.DeepEqual(state.items, items) {
-		state.items = items
-		state.expanded = map[string]*bool{}
-	}
+	items := state.items
 	state.cursor = current
 	binding.state.mu.Unlock()
 	emit := func(itemID, kind string, extra map[string]any) {
@@ -101,7 +119,7 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 	palette := theme.Of(view)
 	root := ui.Scroll(view).Fill().MinWidth(0)
 	root.ContextMenu(func(menu *ui.Menu) {
-		nativeTreeMenu(menu, nativeProp(props, "menu", []nativeMenuItem{}), func(entry nativeMenuItem) {
+		nativeTreeMenu(menu, rootMenu, func(entry nativeMenuItem) {
 			emit("", "menu", nativeTreeAction(entry))
 		})
 	})
@@ -132,10 +150,14 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 					parts := tree.Item(open)
 					row := parts.Row.Label(item.Label).Height(28).Gap(8).PaddingX(8).MinWidth(0).Radius(palette.Radius).Disabled(item.Disabled).Tooltip(item.Label)
 					depth := parts.Depth()
-					indent := nativeProp(props, "indent", float32(16))
-					skip := max(0, nativeProp(props, "skip_depth", 0))
 					left := 8 + indent*float32(max(0, depth-skip))
-					active := slices.Contains(selected, item.ID) && !decoration.Group
+					var isSelected bool
+					if selectedSet != nil {
+						_, isSelected = selectedSet[item.ID]
+					} else {
+						isSelected = slices.Contains(selected, item.ID)
+					}
+					active := isSelected && !decoration.Group
 					if variant == "branch" {
 						left = 8 + 20*float32(depth)
 						if len(selected) == 0 {
@@ -160,7 +182,7 @@ func (binding *NativeBinding) renderTree(view *ui.Context, element NativeElement
 							nativeTreeDashedLine(painter, horizontal, bounds.Y, horizontal, end, bounds.H/14, palette.MutedForeground.Alpha(0.65))
 							nativeTreeDashedLine(painter, horizontal, middle, horizontal+8, middle, bounds.H/14, palette.MutedForeground.Alpha(0.65))
 						})
-					} else if nativeProp(props, "guides", false) {
+					} else if guides {
 						row.Draw(func(painter *ui.Painter, bounds ui.Rect) {
 							visible := max(0, len(path)-1-skip)
 							for column := 0; column < visible; column++ {

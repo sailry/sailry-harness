@@ -33,12 +33,13 @@ func newDocumentSubmissionFixture(t *testing.T) *documentSubmissionFixture {
 	model := protocol.DefaultConversationModel()
 	model.ID = "fixture"
 	session := protocol.DefaultSession()
-	session.ID, session.Revision = content.Artifact.Session, 1
+	session.ID, session.Worktree, session.Revision = content.Artifact.Session, protocol.WorktreeID{1}, 1
 	session.Config.Provider, session.Config.Model = provider, model.ID
 	session.Config.Mode, session.Config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
 	session.Roles.Execution = protocol.ConversationExecutionModel
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Node, snapshot.Sessions = protocol.NodeID{1}, []protocol.Session{session}
+	snapshot.Worktrees = []protocol.Worktree{{ID: session.Worktree}}
 	snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Models: []protocol.ConversationModel{model}}}
 	r, node := snapshotFixture(t, snapshot)
 	r.App.Data.Unassigned = []*viewmodel.Conversation{{ID: session.ID.String(), Node: snapshot.Node.String()}}
@@ -220,11 +221,41 @@ func TestDocumentSubmissionUnknownTurn(t *testing.T) {
 		if len(f.node.sent("submit_turn")) != 1 || len(f.node.sent("list_artifact_revisions")) != 1 {
 			t.Fatal("an uncertain turn was sent twice", f.node.commands)
 		}
-		f.frame(func(*ui.Context) {
-			f.r.settleTurnRetry(f.content.Artifact.Session.String(), f.comp, []protocol.TurnSummary{{Request: f.turn}}, protocol.ConversationPage{})
-		})
-		if !f.r.browser.sent[key]["decisions"] || f.r.browser.drafts[key]["decisions"] != nil {
-			t.Fatal("observing the original request did not acknowledge its form")
+		first := f.turn
+		secondKey := f.submit(documentFormContent())
+		f.settle()
+		second := f.turn
+		if second == first || len(f.node.sent("submit_turn")) != 2 {
+			t.Fatal("two different forms did not make independent submissions")
+		}
+		session := f.node.snapshot.Sessions[0]
+		publish := func(cursor uint64, kind string, data any) {
+			f.node.updates <- protocol.Update{Kind: "event", Data: protocol.EventEnvelope{
+				Node: f.node.snapshot.Node, Cursor: cursor, Event: protocol.Event{Kind: kind, Data: data},
+			}}
+			synctest.Wait()
+		}
+		for index, request := range []protocol.RequestID{second, first} {
+			cursor := uint64(2*index + 1)
+			turn := protocol.DefaultQueuedTurn()
+			turn.Session, turn.ID, turn.Request = session.ID, protocol.TurnID{byte(cursor)}, request
+			publish(cursor, "task_started", protocol.EventTaskStartedPayload{Session: &session, Turn: turn})
+			if turns := f.r.controller.Snapshot().Turns; len(turns) != 1 || turns[0].Request != request {
+				t.Fatalf("the request did not start: %+v", turns)
+			}
+			publish(cursor+1, "conversation_changed", protocol.EventConversationChangedPayload{Session: session.ID, Activity: &session.Activity})
+			snapshot := f.r.controller.Snapshot()
+			if snapshot.Cursor != cursor+1 || len(snapshot.Turns) != 0 {
+				t.Fatalf("the completed turn was still visible before the desktop frame: %+v", snapshot.Turns)
+			}
+			// This is the global projection pass, with both document and conversation closed.
+			f.frame(func(*ui.Context) { f.r.pruneSessions(snapshot) })
+			if !f.r.browser.sent[secondKey]["decisions"] || f.r.browser.sent[key]["decisions"] != (request == first) {
+				t.Fatal("admission acknowledged the wrong form")
+			}
+		}
+		if f.r.browser.drafts[key]["decisions"] != nil || len(f.r.turnRetries) != 0 || len(f.r.uncertain) != 0 {
+			t.Fatal("confirmed forms retained their answers or pending requests")
 		}
 	})
 }

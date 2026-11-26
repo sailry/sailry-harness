@@ -344,7 +344,9 @@ func (c *Client) closeConversations() {
 		owners = append(owners, w)
 	}
 	c.conversations, c.conversationBookmarks = nil, nil
-	c.pruneConversationDetails()
+	if len(c.conversationDetails) > 0 {
+		c.pruneConversationDetails()
+	}
 	c.conversationMu.Unlock()
 	for _, w := range owners {
 		<-w.done
@@ -373,7 +375,9 @@ func (c *Client) reconcileConversations() {
 			removed = append(removed, w)
 		}
 	}
-	c.pruneConversationDetails()
+	if len(c.conversationDetails) > 0 {
+		c.pruneConversationDetails()
+	}
 	c.conversationMu.Unlock()
 	for _, w := range removed {
 		c.conversationChanged(w)
@@ -553,7 +557,9 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 		w.state.Connected = true
 		w.state.Err = nil
 		w.rememberExtent()
-		c.pruneConversationDetails()
+		if len(c.conversationDetails) > 0 && changesConversationInventory(update) {
+			c.pruneConversationDetails()
+		}
 	}
 	return applied, err
 }

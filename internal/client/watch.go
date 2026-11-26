@@ -163,6 +163,9 @@ func (client *Client) Close() error {
 	client.connected = false
 	client.mu.Unlock()
 	client.usageCache.clear()
+	if client.stopMemory != nil {
+		client.stopMemory()
+	}
 	client.lifecycle.Unlock()
 	client.changed()
 	return err

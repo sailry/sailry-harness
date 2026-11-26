@@ -78,7 +78,7 @@ func terminalTabsFixture(t *testing.T, terminals ...protocol.TerminalInfo) (*Run
 // fails every command until the test sets its responses.
 func snapshotFixture(t *testing.T, snapshot protocol.Snapshot) (*Runtime, *terminalTabsTestNode) {
 	t.Helper()
-	source := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snapshot}}
+	source := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snapshot, updates: make(chan protocol.Update)}}
 	source.respond = func(request protocol.Request) link.Response {
 		return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture command is unavailable"}}
 	}

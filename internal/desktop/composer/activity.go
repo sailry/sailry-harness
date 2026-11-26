@@ -161,6 +161,8 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 	ui.Row(c.Key("activity")).FillWidth().MinHeight(28).PaddingX(16).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
 		if a.Changes != nil {
 			s.gitChanges(c, *a.Changes, actions)
+		} else {
+			s.act.changes = false
 		}
 		if a.ResourceBadge != nil {
 			s.badge(c, *a.ResourceBadge, actions)
@@ -178,10 +180,15 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 		in := ctx.Interactions
 		if len(in.Approvals) > 0 {
 			s.approvals(c, in.Approvals, actions)
+		} else {
+			s.in.approvals = false
 		}
 		s.questionReceipts(c, in.QuestionReceipts)
 		if in.Question != nil {
 			s.ask(c, in.Question, actions)
+		} else if a.Connected && !a.Unsynced && s.in.asked != "" {
+			s.in.question, s.in.asked, s.in.text = false, "", ""
+			s.in.choices, s.in.fields = nil, nil
 		}
 	})
 }
@@ -337,6 +344,7 @@ func (s *State) progress(c *ui.Context, steps []conversation.Step, animated bool
 		}
 	}
 	if done >= len(steps) {
+		s.act.progress = false
 		return
 	}
 	label := i18n.T(c, "composer_todo_count", "completed", done, "total", len(steps))

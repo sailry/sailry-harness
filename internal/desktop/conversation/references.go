@@ -40,6 +40,9 @@ func (s *State) referenceDialog(c *ui.Context, session string) {
 	detail := &s.referenceDetail
 	if detail.session == session {
 		kit.Details(c.Key("reference-detail"), &detail.open, detail.title, detail.subtitle, detail.body)
+		if !detail.open {
+			*detail = referenceDetail{}
+		}
 	}
 }
 

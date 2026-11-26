@@ -38,6 +38,47 @@ func (s *State) KeepFailedDraft(m Message, restoreNow bool) {
 	s.recovery.drafts = append(s.recovery.drafts, d)
 }
 
+// Idle reports whether the composer holds no user draft, attachments,
+// recovery entries, active run, dictation or open popovers.
+func (s *State) Idle() bool {
+	if s == nil {
+		return true
+	}
+	for _, open := range s.act.badges {
+		if *open {
+			return false
+		}
+	}
+	return !s.in.approvals && !s.in.question && !s.in.receipts && s.in.asked == "" &&
+		!s.act.changes && !s.act.progress && !s.act.commands && !s.act.children &&
+		!s.pluginEdit.composing && s.pluginEdit.pending == nil &&
+		s.Draft == "" && len(s.Attachments) == 0 && len(s.References) == 0 &&
+		!s.Running && !s.Stoppable && s.Dictation.Phase == Idle &&
+		len(s.recovery.drafts) == 0 && len(s.recovery.outgoing) == 0 && s.recovery.pending == nil &&
+		len(s.later) == 0 && !s.picker && !s.settings && !s.stats && !s.projectPicker &&
+		!s.queueOpen && s.queue.editing == "" && s.queue.text == "" && !s.queue.saving && !s.queue.loading &&
+		len(s.view.Images) == 0
+}
+
+// ClearLiveCallbacks drops closures and surface callbacks held for the
+// controller before a retained composer leaves view.
+func (s *State) ClearLiveCallbacks() {
+	if s == nil {
+		return
+	}
+	s.pluginControls = nil
+	s.pluginCommand = nil
+	s.statusCallbacks = nil
+	s.ActivityCallbacks = nil
+	s.Metrics = nil
+	s.Indicator = nil
+	s.SelectTeam = nil
+	s.attachmentCallbacks = nil
+	s.referenceChildren = nil
+	s.referencePickerOpen = nil
+	s.view.close()
+}
+
 // HoldOutgoingAttachments keeps the staged files valid even if a newer draft
 // removes one of their cards or reference chips while admission is pending.
 func (s *State) HoldOutgoingAttachments(files []*Attachment, pending func() bool) {

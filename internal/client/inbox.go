@@ -71,6 +71,17 @@ func (inbox *Inbox) Merge(node protocol.NodeID, notices []Notice) []Notice {
 	return added
 }
 
+// Forget drops retained notices and cursor state for a removed Node.
+func (inbox *Inbox) Forget(node protocol.NodeID) {
+	inbox.mu.Lock()
+	defer inbox.mu.Unlock()
+	delete(inbox.cursors, inboxCursor{node: node, durable: false})
+	delete(inbox.cursors, inboxCursor{node: node, durable: true})
+	inbox.notices = slices.DeleteFunc(inbox.notices, func(notice Notice) bool {
+		return notice.ID.Node == node
+	})
+}
+
 func (inbox *Inbox) Notices() []Notice {
 	inbox.mu.Lock()
 	defer inbox.mu.Unlock()

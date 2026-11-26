@@ -16,13 +16,13 @@ import (
 )
 
 // Market card pictures are the public HTTPS addresses a skill directory names for a
-// publisher or a skill. Each is fetched once by the Desktop, at most
-// marketImageBytes, decoded down to marketImageEdge and kept only while a
-// card of the shown catalog names it. A failed fetch keeps the card's tile.
+// publisher or a skill. Pictures near the viewport are decoded to marketImageEdge.
+// A failed fetch keeps the card's tile.
 const (
 	marketImageBytes     = 512 << 10
 	marketImageEdge      = 96
 	marketImageFetches   = 6
+	marketImageLimit     = 96
 	marketImageDeadline  = 20 * time.Second
 	marketImageRedirects = 4
 	// marketImagePixels bounds the size a picture's header may declare: the
@@ -32,10 +32,12 @@ const (
 
 type marketImage struct {
 	bitmap *ui.Bitmap
-	done   bool
+	cancel context.CancelFunc
+	frame  uint64
 }
 
 type marketImages struct {
+	frame   uint64
 	entries map[string]*marketImage
 	slots   chan struct{}
 	client  *http.Client
@@ -44,6 +46,26 @@ type marketImages struct {
 func newMarketImages() *marketImages {
 	return &marketImages{entries: map[string]*marketImage{}, slots: make(chan struct{}, marketImageFetches),
 		client: web.NewPublicHTTPSClient(marketImageDeadline, marketImageRedirects)}
+}
+
+// Keep the working set near the viewport. Evict only between frames so
+// visible cards and their pending requests cannot evict each other.
+func (images *marketImages) beginFrame() {
+	if len(images.entries) > marketImageLimit {
+		for address, entry := range images.entries {
+			if entry.frame != images.frame {
+				images.remove(address, entry)
+			}
+		}
+	}
+	images.frame++
+}
+
+func (images *marketImages) remove(address string, entry *marketImage) {
+	if entry.cancel != nil {
+		entry.cancel()
+	}
+	delete(images.entries, address)
 }
 
 // image is the picture at address once fetched, else nil while it is
@@ -58,24 +80,30 @@ func (c *catalogController) image(address string) *ui.Bitmap {
 	}
 	images := c.images
 	if entry, exists := images.entries[address]; exists {
+		entry.frame = images.frame
 		return entry.bitmap
 	}
+	entry := &marketImage{frame: images.frame}
+	images.entries[address] = entry
 	parsed, err := url.Parse(address)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-		images.entries[address] = &marketImage{done: true}
 		return nil
 	}
-	entry := &marketImage{}
-	images.entries[address] = entry
-	c.service.Run(func() {
-		bitmap, _ := images.fetch(c.service.Context, address)
+	ctx, cancel := context.WithCancel(c.service.Context)
+	entry.cancel = cancel
+	if !c.service.Run(func() {
+		defer cancel()
+		bitmap, _ := images.fetch(ctx, address)
 		c.service.Enqueue(func(*ui.Context) {
 			// A pruned entry stays released; the card asks again when shown.
 			if images.entries[address] == entry {
-				entry.bitmap, entry.done = bitmap, true
+				entry.bitmap, entry.cancel = bitmap, nil
 			}
 		})
-	})
+	}) {
+		cancel()
+		entry.cancel = nil
+	}
 	return nil
 }
 
@@ -116,9 +144,9 @@ func (c *catalogController) pruneImages(addresses map[string]bool) {
 	if images == nil {
 		return
 	}
-	for address := range images.entries {
+	for address, entry := range images.entries {
 		if !addresses[address] {
-			delete(images.entries, address)
+			images.remove(address, entry)
 		}
 	}
 }

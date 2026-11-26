@@ -197,6 +197,49 @@ func (transport topicTransport) Subscribe(_ context.Context, topic protocol.Topi
 	return stream, nil
 }
 
+func TestPreparedTaskDeliversMatchingAdmission(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	node := protocol.NodeID{1}
+	topics := map[string][]protocol.Update{}
+	shared := client.New(topicTransport{noticeTransport{node}, topics})
+	bridge := New(nil)
+	t.Cleanup(func() { bridge.Close(1); _ = shared.Close() })
+	owner := &connection{client: shared}
+	start, err := encode(protocol.Command{Kind: "start_session", Data: protocol.DefaultConversationStart()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"command": start})
+	value, err := owner.invoke(ctx, bridge, 0, "prepare_task", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch := value.(preparedTask)
+	var request protocol.Request
+	if err := json.Unmarshal([]byte(watch.Request), &request); err != nil || watch.Kind != "task_admission" || watch.Handle.Handle != "1" {
+		t.Fatalf("prepared task: %+v, %v", watch, err)
+	}
+	session := protocol.DefaultSession()
+	session.ID, session.Worktree = protocol.SessionID{1}, protocol.WorktreeID{1}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node, snapshot.Worktrees = node, []protocol.Worktree{{ID: session.Worktree}}
+	turn := protocol.QueuedTurn{ID: protocol.TurnID{1}, Session: session.ID, Request: request.ID}
+	topics["node"] = []protocol.Update{
+		{Kind: "snapshot", Data: snapshot},
+		{Kind: "event", Data: protocol.EventEnvelope{Node: node, Cursor: 1, Event: protocol.Event{
+			Kind: "task_started", Data: protocol.EventTaskStartedPayload{Session: &session, Turn: turn},
+		}}},
+	}
+	if err := shared.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := bridge.handles[1].object.invoke(ctx, bridge, 1, "next", nil)
+	if err != nil || got != (protocol.TurnSummary{ID: turn.ID, Session: session.ID, Request: request.ID}) {
+		t.Fatalf("task admission = %+v, %v", got, err)
+	}
+}
+
 type refreshConversationTransport struct {
 	topicTransport
 	failed bool

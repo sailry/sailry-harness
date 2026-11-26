@@ -16,6 +16,16 @@ class Connection extends NativeHandle {
   Future<String> prepare({required String command}) async =>
       await invoke('prepare', {'command': command}) as String;
 
+  Future<TaskAdmission> prepareTask({required String command}) async {
+    final value = await invoke('prepare_task', {'command': command});
+    final handle = nativeHandle(value, 'task_admission');
+    return TaskAdmission.internal(
+      bridge,
+      handle,
+      (value as Map<String, dynamic>)['request'] as String,
+    );
+  }
+
   Future<String> execute({required String request}) async =>
       await invoke('execute', {'request': request}) as String;
 
@@ -136,4 +146,12 @@ class Updates extends NativeHandle {
   Future<void> close() => closeNative();
 
   Future<String> next() => nextObservationView(this);
+}
+
+class TaskAdmission extends NativeHandle {
+  TaskAdmission.internal(super.bridge, super.handle, this.request);
+  final String request;
+
+  Future<Map<String, dynamic>> next() async =>
+      await nextValue() as Map<String, dynamic>;
 }

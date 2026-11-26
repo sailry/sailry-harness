@@ -102,6 +102,12 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		if previous := projection.snapshot; previous == nil || !reflect.DeepEqual(previous.Providers, snapshot.Providers) {
 			projection.providers++
 		}
+		for _, turn := range snapshot.Turns {
+			if len(projection.admissions) == 0 {
+				break
+			}
+			projection.observeAdmission(turn)
+		}
 		projection.snapshot, projection.recovery = &snapshot, false
 		projection.credential++
 		return Applied, nil
@@ -284,12 +290,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		if change.Session == nil {
 			return false, fault(protocol.ErrorCodeInvalidRequest, "task update is missing its session")
 		}
-		for result, request := range projection.admissions {
-			if request == change.Turn.Request {
-				result <- protocol.TurnSummary{Session: change.Turn.Session, ID: change.Turn.ID, Request: request}
-				delete(projection.admissions, result)
-			}
-		}
+		projection.observeAdmission(turnSummary(change.Turn))
 		if !slices.ContainsFunc(snapshot.Worktrees, func(item protocol.Worktree) bool { return item.ID == change.Session.Worktree }) {
 			return true, nil
 		}
@@ -303,6 +304,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		if change.Activity == nil {
 			return false, fault(protocol.ErrorCodeInvalidRequest, "queued turn update is missing its activity")
 		}
+		projection.observeAdmission(turnSummary(change.Turn))
 		for index := range snapshot.Sessions {
 			if snapshot.Sessions[index].ID == change.Turn.Session {
 				snapshot.Sessions[index].Activity = *change.Activity
@@ -314,6 +316,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		projection.observeAdmission(turnSummary(change.Turn))
 		updateSession(snapshot, change.Session)
 		updateTurn(snapshot, change.Turn)
 	case "notification_changed":
@@ -569,9 +572,22 @@ func updateSession(snapshot *protocol.Snapshot, session protocol.Session) {
 	snapshot.Sessions = append([]protocol.Session{session}, snapshot.Sessions...)
 }
 
+func (projection *Projection) observeAdmission(turn protocol.TurnSummary) {
+	for result, request := range projection.admissions {
+		if request == turn.Request {
+			result <- turn
+			delete(projection.admissions, result)
+		}
+	}
+}
+
+func turnSummary(turn protocol.QueuedTurn) protocol.TurnSummary {
+	return protocol.TurnSummary{ID: turn.ID, Session: turn.Session, Request: turn.Request}
+}
+
 func updateTurn(snapshot *protocol.Snapshot, turn protocol.QueuedTurn) {
 	snapshot.Turns = slices.DeleteFunc(snapshot.Turns, func(item protocol.TurnSummary) bool { return item.ID == turn.ID })
-	snapshot.Turns = append(snapshot.Turns, protocol.TurnSummary{ID: turn.ID, Session: turn.Session, Request: turn.Request})
+	snapshot.Turns = append(snapshot.Turns, turnSummary(turn))
 }
 
 func pruneSessionTurns(snapshot *protocol.Snapshot, session protocol.SessionID, activity protocol.ActivitySummary) {

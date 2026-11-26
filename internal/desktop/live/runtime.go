@@ -7,10 +7,12 @@ import (
 	"errors"
 	"maps"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -24,6 +26,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/memory"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -134,6 +137,7 @@ type Runtime struct {
 	memoryBase                []kit.TreemapGroup
 	pluginMemory              *pluginMemoryState
 	cancel                    context.CancelFunc
+	stopMemory                func()
 	unsubscribe               func()
 	unsubscribePrefs          func()
 	mu                        sync.Mutex
@@ -174,6 +178,7 @@ type Runtime struct {
 	childStops                map[protocol.TurnID]bool
 	composerInitialized       map[string]bool
 	composerObserved          map[string]string
+	composerObservedConfig    map[string]protocol.SessionConfig
 	readAloud                 func(string, string, string)
 	exportConversation        func(string, string, conversation.ExportFormat)
 	conversationEdits         map[string]conversationEdit
@@ -381,6 +386,7 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	r.conversationSeen = map[protocol.SessionID]bool{}
 	r.composerInitialized = map[string]bool{}
 	r.composerObserved = map[string]string{}
+	r.composerObservedConfig = map[string]protocol.SessionConfig{}
 	r.composerRevisions = map[string]uint64{}
 	r.composerSaving = map[string]bool{}
 	r.composerWaiters = map[string][]func(bool){}
@@ -434,6 +440,17 @@ func NewWithAssembly(ctx context.Context, controller *client.Client, prefs *pref
 	// Project its latest state on the first frame even if no later event arrives.
 	r.changed()
 	r.observeResourceCatalog()
+	weakRoot := weak.Make(r)
+	stopMemory := memory.Default().Register("desktop.runtime", func(level memory.Level) {
+		if level < memory.Pressure {
+			return
+		}
+		if root := weakRoot.Value(); root != nil {
+			root.enqueue(func(*ui.Context) { root.trimMemory() })
+		}
+	})
+	r.stopMemory = stopMemory
+	runtime.AddCleanup(r, func(stop func()) { stop() }, stopMemory)
 	return r, nil
 }
 
@@ -482,6 +499,10 @@ func (r *Runtime) Close() error {
 	if r.unsubscribeNetwork != nil {
 		r.unsubscribeNetwork()
 	}
+	if r.stopMemory != nil {
+		r.stopMemory()
+		r.stopMemory = nil
+	}
 	r.closeSettingsPages()
 	for _, bound := range r.bindings {
 		_ = bound.Close()
@@ -491,6 +512,7 @@ func (r *Runtime) Close() error {
 		release()
 	}
 	r.closeNativeWindow()
+	r.closeDocuments()
 	r.closePluginViews()
 	r.closePluginStatus()
 	r.closePluginCards()
@@ -501,6 +523,9 @@ func (r *Runtime) Close() error {
 	if r.backupSettings.scheduleTimer != nil {
 		r.backupSettings.scheduleTimer.Stop()
 		r.backupSettings.scheduleTimer = nil
+	}
+	for id := range r.turnRetries {
+		r.forgetTurnRetry(id)
 	}
 	for _, pending := range r.conversationCreations {
 		pending.releaseAdmission()
@@ -693,6 +718,7 @@ func (r *Runtime) afterFrame() {
 	r.pluginViewsAfterFrame()
 	r.finishNativeWindowResources()
 	r.pruneDrafts()
+	r.pruneIdleComposers()
 	r.pruneClosedChildTabs()
 	// Each conversation has its own search bar: one whose conversation is no
 	// longer shown closes alone.
@@ -808,6 +834,7 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	}
 	maps.DeleteFunc(r.composerInitialized, func(id string, _ bool) bool { return gone(id) })
 	maps.DeleteFunc(r.composerObserved, func(id string, _ string) bool { return gone(id) })
+	maps.DeleteFunc(r.composerObservedConfig, func(id string, _ protocol.SessionConfig) bool { return gone(id) })
 	maps.DeleteFunc(r.composerRevisions, func(id string, _ uint64) bool { return gone(id) })
 	maps.DeleteFunc(r.composerCatalogs, func(id string, _ *composerCatalog) bool { return gone(id) })
 	maps.DeleteFunc(r.composerSaving, func(id string, saving bool) bool { return !saving && gone(id) })
@@ -819,6 +846,23 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	maps.DeleteFunc(r.usageFailed, func(id string, _ bool) bool { return gone(id) })
 	maps.DeleteFunc(r.guidanceSent, func(id string, _ map[protocol.TurnID]sentGuidance) bool { return gone(id) })
 	maps.DeleteFunc(r.queuedSends, func(id protocol.SessionID, _ map[protocol.TurnID]*queuedSend) bool { return !known[id] })
+	maps.DeleteFunc(r.interactionFlows, func(id string, flow *interactionFlow) bool {
+		return gone(id) && (flow == nil || flow.approval == nil && len(flow.questions) == 0)
+	})
+	maps.DeleteFunc(r.connectionReferences, func(key string, entry *referenceCatalog) bool {
+		if entry != nil && entry.loading {
+			return false
+		}
+		if session, _, ok := strings.Cut(key, "\x00"); ok {
+			return gone(session)
+		}
+		return false
+	})
+	if r.attachments != nil {
+		maps.DeleteFunc(r.attachments.files, func(_ string, desc attachmentDescriptor) bool {
+			return desc.session != (protocol.SessionID{}) && !known[desc.session]
+		})
+	}
 	if r.App != nil && !r.App.Demo() {
 		maps.DeleteFunc(r.composerBases, func(comp *composer.State, _ protocol.SessionConfig) bool { return !r.App.HasDraft(comp) })
 		maps.DeleteFunc(r.sessionBases, func(comp *composer.State, _ *sessionBaseStart) bool { return !r.App.HasDraft(comp) })
@@ -826,18 +870,118 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 			maps.DeleteFunc(r.usage.dictated, func(comp *composer.State, _ bool) bool { return !r.App.HasDraft(comp) })
 		}
 	}
-	for id, retry := range r.turnRetries {
-		if !r.busy[retry.key] && gone(id) {
-			r.forgetTurnRetry(id)
+	for slot, retry := range r.turnRetries {
+		if r.busy[retry.key] {
+			continue
+		}
+		if slot != retry.session && retry.admitted(snapshot.Turns, nil) {
+			r.confirmTurnRetry(slot, retry)
+		} else if gone(retry.session) {
+			r.forgetTurnRetry(slot)
 		}
 	}
 	if r.teams != nil {
 		maps.DeleteFunc(r.teams.childParents, func(id string, _ protocol.SessionID) bool { return gone(id) })
 		maps.DeleteFunc(r.teams.composers, func(id string, state *teamComposer) bool {
-			return state != nil && !state.saving && state.pending == nil && gone(id)
+			return !state.inFlight() && gone(id)
 		})
+		if r.currentSettingsPage(settings.Teams) == nil {
+			knownRoles := make(map[protocol.RoleID]uint64, len(snapshot.Roles))
+			for _, role := range snapshot.Roles {
+				knownRoles[role.ID] = role.Revision
+			}
+			maps.DeleteFunc(r.teams.roles, func(_ string, role protocol.RoleProfile) bool {
+				rev, ok := knownRoles[role.ID]
+				return !ok || rev != role.Revision
+			})
+			knownTeams := make(map[protocol.TeamID]uint64, len(snapshot.Teams))
+			for _, team := range snapshot.Teams {
+				knownTeams[team.ID] = team.Revision
+			}
+			maps.DeleteFunc(r.teams.teams, func(_ string, team protocol.TeamProfile) bool {
+				rev, ok := knownTeams[team.ID]
+				return !ok || rev != team.Revision
+			})
+		}
 	}
 	r.pruneProviderDraftBases(snapshot)
+}
+
+func (r *Runtime) pruneIdleComposers() {
+	if r.parent != nil || r.App == nil || r.App.Demo() || r.App.Sidebar == nil {
+		return
+	}
+	open := r.App.OpenSessionIDs()
+	inUseByAttachment := func(owner *Runtime, comp *composer.State) bool {
+		if owner.attachments == nil {
+			return false
+		}
+		for _, record := range owner.attachments.items {
+			if record != nil && record.composer == comp {
+				return true
+			}
+		}
+		return false
+	}
+	inFlight := func(owner *Runtime, id string) bool {
+		return owner.teams != nil && owner.teams.composers[id].inFlight() ||
+			owner.conversationCreating[id] ||
+			owner.composerOutgoing[id] != nil ||
+			owner.composerTrayOutgoing[id] != nil ||
+			owner.composerSaving[id] ||
+			len(owner.composerWaiters[id]) > 0
+	}
+	dropped := r.App.PruneComposers(func(id string) bool {
+		if id == r.App.Sidebar.Selected || r.draftsShown[id] || r.openDrafts[id] || open[id] {
+			return true
+		}
+		session, err := protocol.ParseSessionID(id)
+		if err != nil {
+			return true
+		}
+		if r.seenConversation(session) || inFlight(r, id) {
+			return true
+		}
+		for _, bound := range r.bindings {
+			if inFlight(bound, id) {
+				return true
+			}
+		}
+		comp := r.App.DraftComposer(id)
+		if comp != nil {
+			if inUseByAttachment(r, comp) {
+				return true
+			}
+			for _, bound := range r.bindings {
+				if inUseByAttachment(bound, comp) {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	for id, comp := range dropped {
+		r.releaseComposerMetadata(id, comp)
+	}
+}
+
+func (r *Runtime) trimMemory() {
+	if r.parent != nil {
+		return
+	}
+	r.pruneIdleComposers()
+	r.pruneDocumentPreviews()
+	if r.pluginViews != nil {
+		clear(r.pluginViews.icons)
+	}
+	maps.DeleteFunc(r.connectionReferences, func(_ string, entry *referenceCatalog) bool {
+		return entry == nil || !entry.loading
+	})
+	for _, bound := range r.bindings {
+		maps.DeleteFunc(bound.connectionReferences, func(_ string, entry *referenceCatalog) bool {
+			return entry == nil || !entry.loading
+		})
+	}
 }
 
 func (r *Runtime) prunePins(snapshot protocol.Snapshot) {
@@ -932,6 +1076,10 @@ func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, p
 }
 
 func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error), delivery ...func(func(*ui.Context))) protocol.RequestID {
+	return r.executeObserved(scope, command, nil, finished, delivery...)
+}
+
+func (r *Runtime) executeObserved(scope string, command protocol.Command, prepared func(protocol.RequestID), finished func(*ui.Context, protocol.Output, error), delivery ...func(func(*ui.Context))) protocol.RequestID {
 	deliver := r.enqueue
 	if len(delivery) != 0 {
 		deliver = delivery[0]
@@ -957,7 +1105,10 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 	if !exists {
 		request = r.controller.Prepare(command)
 	}
-	r.async(func() {
+	if prepared != nil {
+		prepared(request.ID)
+	}
+	if !r.async(func() {
 		output, err := r.controller.Settle(r.ctx, request)
 		deliver(func(c *ui.Context) {
 			delete(r.busy, key)
@@ -970,7 +1121,10 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 			}
 			finished(c, output, err)
 		})
-	})
+	}) {
+		delete(r.busy, key)
+		return protocol.RequestID{}
+	}
 	return request.ID
 }
 

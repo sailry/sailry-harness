@@ -47,9 +47,11 @@ type documentView struct {
 	plain  bool // the loaded page has no renderer, including after a composition failure
 	// writable and theme are what the page was last told; dark is the
 	// scheme it loaded in, which a page without a renderer reloads to change.
-	writable bool
-	theme    string
-	dark     bool
+	writable     bool
+	theme        string
+	dark         bool
+	lastPalette  *theme.Palette
+	lastFontSize float32
 	// background is the color the view fills with until its page paints.
 	background string
 	// stop ends the relay of the page loaded last.
@@ -203,6 +205,7 @@ func (document *documentView) compose(source documentSource, mount documentMount
 	theme, _ := json.Marshal(mount.Theme)
 	document.source, document.writable, document.theme = source, mount.Writable, string(theme)
 	document.dark = mount.Dark
+	document.lastPalette, document.lastFontSize = nil, 0
 	return documentPage(frame, document.plain, mount), err
 }
 
@@ -244,21 +247,34 @@ func (r *Runtime) relayDocument(document *documentView) {
 // syncDocument tells a page what changed since it loaded: whether its forms
 // can submit, and the theme.
 func (r *Runtime) syncDocument(c *ui.Context, document *documentView) {
-	if background := documentTheme(theme.Of(c), c.Theme().FontSize)["background"]; background != document.background {
-		document.background = background
-		_ = document.view.SetBackgroundColor(background)
+	p := theme.Of(c)
+	fontSize := c.Theme().FontSize
+	themeDirty := p != document.lastPalette || fontSize != document.lastFontSize
+	var vars map[string]string
+	if themeDirty {
+		vars = documentTheme(p, fontSize)
+		if background := vars["background"]; background != document.background {
+			document.background = background
+			_ = document.view.SetBackgroundColor(background)
+		}
 	}
 	if document.plain {
+		if themeDirty {
+			document.lastPalette, document.lastFontSize = p, fontSize
+		}
 		return
 	}
 	if writable := documentWritable(document.source); writable != document.writable {
 		document.writable = writable
 		r.postDocument(document, map[string]any{"kind": "writable", "writable": writable})
 	}
-	palette, _ := json.Marshal(documentTheme(theme.Of(c), c.Theme().FontSize))
-	if string(palette) != document.theme {
-		document.theme = string(palette)
-		r.postDocument(document, map[string]any{"kind": "theme", "theme": json.RawMessage(palette)})
+	if themeDirty {
+		palette, _ := json.Marshal(vars)
+		if string(palette) != document.theme {
+			document.theme = string(palette)
+			r.postDocument(document, map[string]any{"kind": "theme", "theme": json.RawMessage(palette)})
+		}
+		document.lastPalette, document.lastFontSize = p, fontSize
 	}
 }
 
@@ -317,9 +333,17 @@ func (r *Runtime) documentEvent(c *ui.Context, document *documentView, raw strin
 func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, event documentEvent) {
 	source := document.source
 	content := source.content
+	owner, session, pageID := source.owner, source.conversation, source.id()
+	key := documentDraftKey{content.Artifact.ID, content.Artifact.Revision}
+	form := event.Form
 	acknowledge := func(accepted bool) {
-		if current := r.browser.documents[source.id()]; current != nil && current.source.same(source) {
-			r.postDocument(current, map[string]any{"kind": "submitted", "form": event.Form, "accepted": accepted})
+		current := r.browser.documents[pageID]
+		if current == nil || current.source.owner != owner || current.source.conversation != session {
+			return
+		}
+		artifact := current.source.content.Artifact
+		if artifact.ID == key.artifact && artifact.Revision == key.revision {
+			r.postDocument(current, map[string]any{"kind": "submitted", "form": form, "accepted": accepted})
 		}
 	}
 	if content.Artifact.Revision != content.LatestRevision {
@@ -344,8 +368,7 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 	}
 	// Presence reserves the form across reloads; only true means admitted.
 	// Keep both states even when other document revisions are opened.
-	key := documentDraftKey{content.Artifact.ID, content.Artifact.Revision}
-	if accepted, exists := r.browser.sent[key][event.Form]; exists {
+	if accepted, exists := r.browser.sent[key][form]; exists {
 		if accepted {
 			acknowledge(true)
 		}
@@ -354,13 +377,13 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 	if r.browser.sent[key] == nil {
 		r.browser.sent[key] = map[string]bool{}
 	}
-	r.browser.sent[key][event.Form] = false
+	r.browser.sent[key][form] = false
 	settle := func(accepted bool) {
 		if accepted {
-			r.browser.sent[key][event.Form] = true
-			delete(r.browser.drafts[key], event.Form)
+			r.browser.sent[key][form] = true
+			delete(r.browser.drafts[key], form)
 		} else {
-			delete(r.browser.sent[key], event.Form)
+			delete(r.browser.sent[key], form)
 			if len(r.browser.sent[key]) == 0 {
 				delete(r.browser.sent, key)
 			}
@@ -369,11 +392,10 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 	}
 	// The revision read may have been replaced since; the Node's latest
 	// visible revision decides.
-	owner := source.owner
 	artifact := content.Artifact
 	if !owner.async(func() {
 		output, err := owner.controller.Do(r.ctx, protocol.Command{Kind: "list_artifact_revisions", Data: protocol.CommandListArtifactRevisionsPayload{
-			ID: artifact.ID, Limit: 1, Session: &source.conversation,
+			ID: artifact.ID, Limit: 1, Session: &session,
 		}})
 		page, valid := detail[protocol.ArtifactRevisionPage](output.Data)
 		r.enqueue(func(c *ui.Context) {
@@ -388,7 +410,7 @@ func (r *Runtime) submitDocumentForm(c *ui.Context, document *documentView, even
 				kit.Toast(c, kit.Failed, i18n.T(c, "artifact_form_stale"))
 				settle(false)
 			default:
-				r.sendDocumentReply(c, source.conversation, reply, settle)
+				r.sendDocumentReply(c, session, reply, settle)
 			}
 		})
 	}) {

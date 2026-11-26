@@ -77,3 +77,25 @@ func TestUnsyncedConversationKeepsStopAvailable(t *testing.T) {
 		t.Fatal("Stop did not reach its action")
 	}
 }
+
+func TestQuestionDraftSurvivesUnobservedConversation(t *testing.T) {
+	uitest.Parallel(t)
+	state := New("")
+	ctx := &Context{Activity: Activity{Connected: true}, Interactions: Interactions{Question: &Ask{ID: "request", Kind: AskChoice}}}
+	tester := uitest.Fast(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		state.activity(c, ctx, nil)
+	}, 600, 400, "en")
+	tester.Frame()
+	state.in.text = "unsent answer"
+	ctx.Activity.Unsynced, ctx.Interactions.Question = true, nil
+	tester.Frame()
+	if state.Idle() || state.in.text != "unsent answer" {
+		t.Fatal("a pending answer became eligible for eviction")
+	}
+	ctx.Activity.Unsynced = false
+	tester.Frame()
+	if !state.Idle() || state.in.text != "" {
+		t.Fatal("completed question still retains its composer")
+	}
+}

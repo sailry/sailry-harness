@@ -93,12 +93,12 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 			content.Html = document.inlineHTML(content.Html)
 		}
 		r.enqueue(func(c *ui.Context) {
-			if ctx.Err() != nil {
-				return
-			}
 			if preview != nil {
 				root := r.localRuntime()
-				if root.filePreview != preview || !preview.open {
+				if root.filePreview != preview || !preview.open || ctx.Err() != nil {
+					if loaded.Image != file.Image {
+						releasePreviewImage(loaded.Image)
+					}
 					return
 				}
 				if err != nil {
@@ -109,7 +109,7 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 				}
 				return
 			}
-			if tab.loading != document {
+			if tab.loading != document || ctx.Err() != nil {
 				return
 			}
 			tab.loading = nil
@@ -158,6 +158,15 @@ func (r *Runtime) artifactMarkdown(file conversation.File) *markdown.Options {
 }
 
 func (r *Runtime) pruneDocumentPreviews() {
+	if r.parent == nil && r.browser != nil && len(r.browser.sources) > 0 && r.App != nil {
+		keep := map[string]bool{}
+		for _, tab := range r.App.AllPanelTabs() {
+			if (tab.Kind == panel.Documents || tab.Kind == panel.Artifact) && tab.ID != "" {
+				keep[tab.ID] = true
+			}
+		}
+		r.pruneBrowserSources(keep)
+	}
 	if r.attachments == nil || len(r.attachments.previewDocuments) == 0 {
 		return
 	}
@@ -187,7 +196,11 @@ func (r *Runtime) forgetDocumentPreview(id string) {
 	delete(r.attachments.previewDocuments, id)
 	delete(r.attachments.previewContent, id)
 	delete(r.attachments.previews, id)
-	app := r.localRuntime().App
+	root := r.localRuntime()
+	if root.browser != nil {
+		delete(root.browser.sources, id)
+	}
+	app := root.App
 	app.DropPanelTab(panel.Tab{Kind: panel.Artifact, ID: id})
 	app.Panel.ForgetArtifact(id)
 }

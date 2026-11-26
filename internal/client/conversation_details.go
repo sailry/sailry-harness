@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/hex"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -31,7 +33,33 @@ type conversationDetailRead struct {
 	err     error
 }
 
-func detailKey(ref protocol.ToolDetailReference) string { b, _ := json.Marshal(ref); return string(b) }
+func detailKey(ref protocol.ToolDetailReference) string {
+	var b strings.Builder
+	b.Grow(96 + len(ref.Entry) + len(ref.Revision))
+	b.WriteString(hex.EncodeToString(ref.Session[:]))
+	b.WriteByte('|')
+	b.WriteString(hex.EncodeToString(ref.Turn[:]))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(len(ref.Entry)))
+	b.WriteByte(':')
+	b.WriteString(ref.Entry)
+	b.WriteByte('|')
+	b.WriteString(strconv.FormatUint(ref.Index, 10))
+	b.WriteByte('|')
+	if ref.Call == nil {
+		b.WriteByte('0')
+	} else {
+		b.WriteByte('1')
+		b.WriteString(strconv.Itoa(len(*ref.Call)))
+		b.WriteByte(':')
+		b.WriteString(*ref.Call)
+	}
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(len(ref.Revision)))
+	b.WriteByte(':')
+	b.WriteString(ref.Revision)
+	return b.String()
+}
 
 func (c *Client) ConversationDetail(ref protocol.ToolDetailReference) (protocol.ToolDetail, bool) {
 	value, ok := c.cachedConversationDetail(detailKey(ref), ref)

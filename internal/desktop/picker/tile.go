@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/memory"
 )
 
 // Class is the family of an entry's type, which picks the glyph and the tint
@@ -63,7 +65,7 @@ type systemIcon struct{ image ui.ImageSource }
 var (
 	// systemIcons keeps the icons read, by what was asked and its size,
 	// failures too, so that each is read once. Only the UI thread reads it.
-	systemIcons = map[string]systemIcon{}
+	systemIcons atomic.Pointer[map[string]systemIcon]
 	// iconFrame and iconReads limit the icons read in one frame: a large
 	// directory fills in over a few frames rather than stalling one.
 	iconFrame time.Time
@@ -74,9 +76,17 @@ var (
 )
 
 const (
-	iconBudget = 24   // the icons read in a frame
-	iconLimit  = 4096 // the icons kept before the cache starts over
+	iconBudget = 24  // the icons read in a frame
+	iconLimit  = 512 // the icons kept before the cache starts over
 )
+
+func init() {
+	memory.Default().Register("desktop.picker_icons", func(level memory.Level) {
+		if level >= memory.Pressure {
+			systemIcons.Store(nil)
+		}
+	})
+}
 
 // systemImage is the system's icon of e in the directory shown, side DIPs
 // across: a local entry's own, a remote one's by its type. It reports false
@@ -85,6 +95,12 @@ func (s *State) systemImage(c *ui.Context, e Entry, side float32) (ui.ImageSourc
 	icons := SystemIcons
 	if s.o.Preview || icons.File == nil || icons.Type == nil || icons.Folder == nil {
 		return nil, false
+	}
+	cache := systemIcons.Load()
+	if cache == nil {
+		entries := make(map[string]systemIcon)
+		cache = &entries
+		systemIcons.Store(cache)
 	}
 	// Twice the size keeps it sharp on a high-density display.
 	px := int(side * 2)
@@ -104,7 +120,7 @@ func (s *State) systemImage(c *ui.Context, e Entry, side float32) (ui.ImageSourc
 		key, read = "type:"+ext, func() ([]byte, error) { return icons.Type(ext, px) }
 	}
 	key += "@" + strconv.Itoa(px)
-	if icon, ok := systemIcons[key]; ok {
+	if icon, ok := (*cache)[key]; ok {
 		return icon.image, icon.image != nil
 	}
 	if now := c.Now(); now != iconFrame {
@@ -115,8 +131,8 @@ func (s *State) systemImage(c *ui.Context, e Entry, side float32) (ui.ImageSourc
 		return nil, false
 	}
 	iconReads++
-	if len(systemIcons) >= iconLimit {
-		clear(systemIcons)
+	if len(*cache) >= iconLimit {
+		clear(*cache)
 	}
 	var icon systemIcon
 	data, err := read()
@@ -127,7 +143,7 @@ func (s *State) systemImage(c *ui.Context, e Entry, side float32) (ui.ImageSourc
 		iconLogged = true
 		log.Printf("file picker: no system icon for %s: %v", key, err)
 	}
-	systemIcons[key] = icon
+	(*cache)[key] = icon
 	return icon.image, icon.image != nil
 }
 

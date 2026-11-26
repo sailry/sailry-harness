@@ -81,6 +81,56 @@ func (a *App) DropComposer(id string) *composer.State {
 	return state
 }
 
+// OpenSessionIDs reports the session IDs currently referenced in open panes or
+// kept tabs on the live workspace without cloning all preferences.
+func (a *App) OpenSessionIDs() map[string]bool {
+	open := map[string]bool{}
+	a.underneath(func() {
+		add := func(t panes.Target) {
+			if t.Kind == panes.Session && t.ID != "" {
+				open[t.ID] = true
+			}
+		}
+		add(a.panes.Active)
+		for _, t := range a.panes.Kept {
+			add(t)
+		}
+		for _, t := range a.panes.order {
+			add(t)
+		}
+		for _, g := range a.panes.Groups {
+			for _, t := range g.Targets() {
+				add(t)
+			}
+		}
+	})
+	return open
+}
+
+// PruneComposers releases idle composers not kept by keep, and strips stale
+// controller callbacks from non-idle off-screen composers.
+func (a *App) PruneComposers(keep func(id string) bool) map[string]*composer.State {
+	if len(a.drafts) == 0 {
+		return nil
+	}
+	var dropped map[string]*composer.State
+	for id, comp := range a.drafts {
+		if keep != nil && keep(id) {
+			continue
+		}
+		if comp.Idle() {
+			delete(a.drafts, id)
+			if dropped == nil {
+				dropped = map[string]*composer.State{}
+			}
+			dropped[id] = comp
+		} else {
+			comp.ClearLiveCallbacks()
+		}
+	}
+	return dropped
+}
+
 // ReplaceConversationID retains local input state when a draft is created on Node.
 func (a *App) ReplaceConversationID(before, after string) {
 	if cv := a.Data.Find(before); cv != nil {

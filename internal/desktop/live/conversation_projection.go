@@ -149,6 +149,20 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	}
 	owners := turnOwners(runs)
 	inputs := client.TranscriptInputs(page)
+	nonUserEntries := make(map[protocol.TurnID]bool, len(page.Entries))
+	for i := range page.Entries {
+		if page.Entries[i].Author != "user" {
+			nonUserEntries[page.Entries[i].Turn] = true
+		}
+	}
+	contRuns := map[protocol.TurnID]*protocol.ConversationContinuation{}
+	for i := range page.Runs {
+		if page.Runs[i].Continuation != nil {
+			if _, exists := contRuns[page.Runs[i].Turn]; !exists {
+				contRuns[page.Runs[i].Turn] = page.Runs[i].Continuation
+			}
+		}
+	}
 	waiting := make(map[protocol.TurnID]*protocol.ConversationPending, len(page.Queue.Items))
 	for i := range page.Queue.Items {
 		item := &page.Queue.Items[i]
@@ -169,7 +183,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 				continue
 			}
 		}
-		if r.Status == "continued" && r.Continuation != nil && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == r.Turn && e.Author != "user" }) {
+		if r.Status == "continued" && r.Continuation != nil && !nonUserEntries[r.Turn] {
 			continue
 		}
 		t := conversation.Turn{ID: r.Turn.String(), Reply: conversation.Reply{Status: runStatus(r.Status), Notice: r.Notice}}
@@ -332,14 +346,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			continue
 		}
 		blockCount := len(t.Reply.Blocks)
-		textOffset := 0
-		if len(entry.Citations) > 0 {
-			for _, block := range t.Reply.Blocks {
-				if block.Kind == conversation.TextBlock {
-					textOffset += utf8.RuneCountInString(block.Text)
-				}
-			}
-		}
+		textOffset := texts[position].runes
 		var entryText strings.Builder
 		if entry.SearchSuggestions != nil || len(entry.Citations) > 0 {
 			for _, part := range entry.Parts {
@@ -385,23 +392,33 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 				}
 			}
 		}
-		for _, citation := range entry.Citations {
-			v := conversation.Citation{URI: citation.Uri, End: textOffset + utf8.RuneCountInString(entryText.String())}
-			if citation.Title != nil {
-				v.Title = *citation.Title
-			}
-			if citation.End != nil {
-				v.End = textOffset + int(*citation.End)
-				if *citation.End == 0 {
-					v.End = -(textOffset + 1)
+		if len(entry.Citations) > 0 {
+			entryTextRunes := utf8.RuneCountInString(entryText.String())
+			for _, citation := range entry.Citations {
+				v := conversation.Citation{URI: citation.Uri, End: textOffset + entryTextRunes}
+				if citation.Title != nil {
+					v.Title = *citation.Title
 				}
+				if citation.End != nil {
+					v.End = textOffset + int(*citation.End)
+					if *citation.End == 0 {
+						v.End = -(textOffset + 1)
+					}
+				}
+				t.Reply.Citations = append(t.Reply.Citations, v)
 			}
-			t.Reply.Citations = append(t.Reply.Citations, v)
 		}
 	}
 	// A completed compaction whose loaded turn holds no summary compacted nothing.
+	var missingTurns map[protocol.TurnID]bool
+	if len(snapshot.Missing) > 0 {
+		missingTurns = make(map[protocol.TurnID]bool, len(snapshot.Missing))
+		for _, id := range snapshot.Missing {
+			missingTurns[id] = true
+		}
+	}
 	for _, r := range runs {
-		if position, ok := positions[r.Turn]; ok && r.Kind == "compaction" && r.Status == "completed" && !summarized[position] && !slices.Contains(snapshot.Missing, r.Turn) {
+		if position, ok := positions[r.Turn]; ok && r.Kind == "compaction" && r.Status == "completed" && !summarized[position] && !missingTurns[r.Turn] {
 			if k := turns[position].Compaction; k != nil {
 				k.State = conversation.CompactionUnneeded
 			}
@@ -510,10 +527,17 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 	// A command sent to the background says where it is on the row of the
 	// call that started it, so a result no turn has taken is still in the
 	// transcript. A task the Node no longer lists leaves the row as it was.
-	for id, task := range started {
-		index := slices.IndexFunc(page.Background, func(t protocol.ConversationBackgroundTask) bool { return t.ID == task })
-		if call := calls[id]; call != nil && index >= 0 {
-			call.Background = projectBackground(page.Background[index])
+	if len(started) > 0 && len(page.Background) > 0 {
+		bgIndex := make(map[string]int, len(page.Background))
+		for i := range page.Background {
+			bgIndex[page.Background[i].ID] = i
+		}
+		for id, task := range started {
+			if index, ok := bgIndex[task]; ok {
+				if call := calls[id]; call != nil {
+					call.Background = projectBackground(page.Background[index])
+				}
+			}
 		}
 	}
 	entryIndex := make(map[string]*protocol.ConversationEntry, len(page.Entries))
@@ -631,8 +655,8 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
 		// A queued continuation is an automatic row named by its marker: its
 		// prompt is not a message to read, edit or send ahead.
-		if index := slices.IndexFunc(page.Runs, func(r protocol.ConversationRun) bool { return r.Turn == item.Turn && r.Continuation != nil }); index >= 0 {
-			marker := continuationMarker(page.Runs[index].Continuation)
+		if continuation := contRuns[item.Turn]; continuation != nil {
+			marker := continuationMarker(continuation)
 			q.Text, q.Notice, q.Marker = "", true, &composer.Text{Label: marker.Label, Locales: marker.Locales}
 		}
 		for _, file := range item.Attachments {
@@ -898,9 +922,11 @@ func segmentFrom(turn *conversation.Turn) int {
 type transcriptText struct {
 	block   int
 	builder strings.Builder
+	runes   int
 }
 
 func (text *transcriptText) append(reply *conversation.Reply, value string, from int) {
+	text.runes += utf8.RuneCountInString(value)
 	n := len(reply.Blocks)
 	if n <= from || reply.Blocks[n-1].Kind != conversation.TextBlock {
 		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.TextBlock, Text: value})

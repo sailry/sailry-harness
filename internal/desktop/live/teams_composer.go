@@ -30,6 +30,10 @@ type teamComposer struct {
 	waiters     []func(bool)
 }
 
+func (team *teamComposer) inFlight() bool {
+	return team != nil && (team.saving || team.selecting || team.pending != nil || len(team.waiters) != 0)
+}
+
 const defaultTeamID = "default"
 
 func selectedTeam(roles protocol.RoleSnapshot) string {
@@ -446,6 +450,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 			r.applyComposer(comp, composerConfigAfterTeam(state.baseConfig, config, current.Config))
 			baseline, _ := json.Marshal(current.Config)
 			r.composerObserved[id] = string(baseline)
+			delete(r.composerObservedConfig, id)
 			r.composerRevisions[id] = current.Revision
 		}
 		r.project()

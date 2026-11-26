@@ -1187,15 +1187,22 @@ class HostConnection extends ChangeNotifier {
     String kind, [
     Map<String, dynamic>? data,
     ValueChanged<String>? onPrepared,
+    ValueChanged<TaskAdmission>? onAdmission,
   ]) async {
     if (_closed) throw StateError('connection is closed');
     if (!connected && kind != 'inspect_host') {
       throw CommandFailure('unavailable');
     }
     if (_handler != null) return _handler!(kind, data);
-    final request = await connection.prepare(
-      command: jsonEncode({'kind': kind, 'data': ?data}),
-    );
+    final command = jsonEncode({'kind': kind, 'data': ?data});
+    final String request;
+    if (onAdmission != null && !isDemo) {
+      final admission = await connection.prepareTask(command: command);
+      request = admission.request;
+      onAdmission(admission);
+    } else {
+      request = await connection.prepare(command: command);
+    }
     onPrepared?.call(request);
     return execute(request);
   }

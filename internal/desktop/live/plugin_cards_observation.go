@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"time"
 
@@ -67,7 +68,8 @@ func (r *Runtime) observePluginCardLogin(card *pluginCardInstance, attempt proto
 			retry := faultCode(err) == protocol.ErrorCodeUnavailable || faultCode(err) == protocol.ErrorCodeBusy
 			r.enqueue(func(*ui.Context) {
 				if r.pluginCardLive(card, generation) && card.login.generation == epoch {
-					card.login.observing, card.login.url, card.login.browser = retry, "", nil
+					card.login.clearBrowserURL()
+					card.login.observing, card.login.browser = retry, nil
 					card.login.state = "unconfirmed"
 					r.pluginCardLoginState(card)
 				}
@@ -93,20 +95,37 @@ func (r *Runtime) applyPluginCardLogin(view *ui.Context, card *pluginCardInstanc
 	login := &card.login
 	switch update.State.Kind {
 	case "starting":
+		login.clearBrowserURL()
 		login.state = "starting"
 	case "browser":
 		browser, valid := detail[protocol.PluginConnectorLoginStateBrowserPayload](update.State.Data)
 		if !valid {
 			return
 		}
+		login.clearBrowserURL()
 		login.url, login.expires, login.state = browser.Url, browser.ExpiresAtMs, "pending"
+		if now := time.Now(); login.canOpen(now) {
+			expires := login.expires
+			ms := expires - uint64(max(now.UnixMilli(), 0))
+			delay := time.Duration(min(ms, uint64(math.MaxInt64/int64(time.Millisecond)))) * time.Millisecond
+			generation, epoch := card.generation, login.generation
+			login.expiryTimer = time.AfterFunc(delay, func() {
+				r.enqueue(func(*ui.Context) {
+					if r.pluginCardLive(card, generation) && card.login.generation == epoch && card.login.expires == expires {
+						card.login.expiryTimer = nil
+						r.pluginCardLoginState(card)
+					}
+				})
+			})
+		}
 		r.receivePluginCardCallback(card)
 		if requested := login.browser; requested != nil {
 			login.browser = nil
 			r.openPluginCardBrowser(view, card, requested.target, requested.mode)
 		}
 	case "exchanging":
-		login.url, login.state = "", "exchanging"
+		login.clearBrowserURL()
+		login.state = "exchanging"
 	case "connected":
 		connection, valid := detail[protocol.PluginConnectorConnection](update.State.Data)
 		if !valid || connection.Package.Name != card.summary.Package.Name || connection.Package.Digest != card.summary.Package.Digest {
@@ -127,7 +146,8 @@ func (r *Runtime) applyPluginCardLogin(view *ui.Context, card *pluginCardInstanc
 		login.attempt, login.state = nil, "failed"
 		r.pluginCardToast(view, i18n.T(view, "mcp_oauth_failed"), true)
 	default:
-		login.url, login.state = "", "pending"
+		login.clearBrowserURL()
+		login.state = "pending"
 	}
 	r.pluginCardLoginState(card)
 }
@@ -149,7 +169,8 @@ func (r *Runtime) receivePluginCardCallback(card *pluginCardInstance) {
 					return
 				}
 				login := &card.login
-				login.receiving, login.returned, login.redirect, login.url = false, nil, nil, ""
+				login.clearBrowserURL()
+				login.receiving, login.returned, login.redirect = false, nil, nil
 				if login.attempt == nil {
 					return
 				}

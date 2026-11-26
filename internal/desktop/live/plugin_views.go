@@ -155,6 +155,8 @@ func (r *Runtime) closePluginViews() {
 	if r.parent == nil {
 		state.closed = true
 		state.sshDirectories.Clear()
+		clear(state.icons)
+		clear(state.iconFailures)
 		root.showPluginDetails(nil)
 	} else {
 		state.sshDirectories.InvalidateNode(r.controller.Target())
@@ -755,6 +757,8 @@ func (owner *Runtime) pluginViewList() []protocol.PluginInfo {
 	return owner.pluginCatalog
 }
 
+const maxPluginNavIcons = 256
+
 func (r *Runtime) pluginNavigationIcon(view *ui.Context, declaration *protocol.PluginDesktopIcon) *ui.SVG {
 	if declaration == nil {
 		return icons.Puzzle
@@ -784,6 +788,9 @@ func (r *Runtime) pluginNavigationIcon(view *ui.Context, declaration *protocol.P
 	}
 	if icon == nil {
 		if view != nil && !root.pluginViews.iconFailures[key] {
+			if len(root.pluginViews.iconFailures) >= maxPluginNavIcons {
+				clear(root.pluginViews.iconFailures)
+			}
 			root.pluginViews.iconFailures[key] = true
 			if err == nil {
 				err = errors.New("plugin navigation icon is unavailable")
@@ -791,6 +798,9 @@ func (r *Runtime) pluginNavigationIcon(view *ui.Context, declaration *protocol.P
 			root.packageReport(view, err)
 		}
 		return icons.Puzzle
+	}
+	if len(root.pluginViews.icons) >= maxPluginNavIcons {
+		clear(root.pluginViews.icons)
 	}
 	root.pluginViews.icons[key] = icon
 	return icon

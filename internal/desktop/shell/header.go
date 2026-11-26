@@ -221,7 +221,12 @@ func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size 
 	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), size, a.Messages.SearchOpenIn(cv.ID)).
 		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
 	entry := a.overviewEntry(cv.ID)
-	overview := a.conversationOverview(c, cv, entry.act)
+	var overview *composer.Overview
+	if entry.state.Open() {
+		overview = a.conversationOverview(c, cv, entry.act)
+	} else {
+		overview = a.sessionOverview(c, cv)
+	}
 	entry.state.Docked = a.overviewDocked(overview)
 	composer.OverviewButton(c, &entry.state, overview, size, &a.OverviewHidden)
 }

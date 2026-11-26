@@ -603,10 +603,12 @@ func (x *conversationActions) Start(text string) {
 // runs and queue are what they were, so a later message with the same text is
 // a new request.
 type turnRetry struct {
-	key, observed, draft string
-	request              protocol.RequestID
-	comp                 *composer.State
-	done                 func(protocol.Output, error)
+	key, session, observed, draft string
+	request                       protocol.RequestID
+	admission                     <-chan protocol.TurnSummary
+	stopAdmission                 func()
+	comp                          *composer.State
+	done                          func(protocol.Output, error)
 }
 
 func turnObserved(page protocol.ConversationPage) string {
@@ -627,27 +629,55 @@ func turnObserved(page protocol.ConversationPage) string {
 // turn sends a command that adds to or replaces the session's turns.
 func (x *conversationActions) turn(command protocol.Command, done func(protocol.Output, error)) protocol.RequestID {
 	id := x.cv.ID
-	encoded, _ := json.Marshal(command)
-	key := "turn/" + id + "\x00" + string(encoded)
-	observed, draft := "", composerFingerprint(x.comp)
-	if _, state, ok := x.state(); ok {
-		observed = turnObserved(state.Page)
+	scope := "turn/" + id
+	if x.settled != nil {
+		scope = "form/" + id
 	}
-	if retry, ok := x.r.turnRetries[id]; ok {
-		if retry.key != key || retry.observed != "" && observed != "" && retry.observed != observed {
-			x.r.forgetTurnRetry(id)
-		} else if observed == "" {
-			observed = retry.observed
+	encoded, _ := json.Marshal(command)
+	key := scope + "\x00" + string(encoded)
+	// A composer has one editable draft. Each submitted form has its own
+	// reservation, identified in the command by artifact, revision and form.
+	slot := id
+	var observed, draft string
+	if x.settled != nil {
+		slot = key
+	} else {
+		draft = composerFingerprint(x.comp)
+		if _, state, ok := x.state(); ok {
+			observed = turnObserved(state.Page)
+		}
+		if retry, ok := x.r.turnRetries[slot]; ok {
+			if retry.key != key || retry.observed != "" && observed != "" && retry.observed != observed {
+				x.r.forgetTurnRetry(slot)
+			} else if observed == "" {
+				observed = retry.observed
+			}
 		}
 	}
-	return x.r.executeScoped("turn/"+id, command, func(c *ui.Context, output protocol.Output, err error) {
-		if request, uncertain := x.r.uncertain[key]; uncertain {
-			if x.r.turnRetries == nil {
-				x.r.turnRetries = map[string]turnRetry{}
+	var sent protocol.RequestID
+	request := x.r.executeObserved(scope, command, func(request protocol.RequestID) {
+		sent = request
+		retry := x.r.turnRetries[slot]
+		if retry.request != request {
+			x.r.forgetTurnRetry(slot)
+			retry.admission, retry.stopAdmission = x.r.controller.WatchTaskAdmission(request)
+		}
+		retry.key, retry.session, retry.request, retry.comp, retry.done = key, id, request, x.comp, done
+		retry.observed, retry.draft = observed, draft
+		if x.r.turnRetries == nil {
+			x.r.turnRetries = map[string]turnRetry{}
+		}
+		x.r.turnRetries[slot] = retry
+	}, func(c *ui.Context, output protocol.Output, err error) {
+		if retry, ok := x.r.turnRetries[slot]; ok && retry.request == sent {
+			if _, uncertain := x.r.uncertain[key]; uncertain || x.settled != nil && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+				if retry.admitted(x.r.snapshot().Turns, nil) {
+					x.r.forgetTurnRetry(slot)
+					err = nil
+				}
+			} else {
+				x.r.forgetTurnRetry(slot)
 			}
-			x.r.turnRetries[id] = turnRetry{key: key, observed: observed, draft: draft, request: request.ID, comp: x.comp, done: done}
-		} else {
-			delete(x.r.turnRetries, id)
 		}
 		if code := faultCode(err); err != nil && x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && code != protocol.ErrorCodeOutcomeUnknown {
 			x.restoreFailedDraft(c, err)
@@ -658,6 +688,10 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			done(output, err)
 		}
 	})
+	if request == (protocol.RequestID{}) && sent != (protocol.RequestID{}) {
+		x.r.forgetTurnRetry(slot)
+	}
+	return request
 }
 
 func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {
@@ -667,8 +701,30 @@ func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {
 
 func (r *Runtime) forgetTurnRetry(id string) {
 	if retry, ok := r.turnRetries[id]; ok {
+		if retry.stopAdmission != nil {
+			retry.stopAdmission()
+		}
 		r.dropUncertainCommand(retry.key)
 		delete(r.turnRetries, id)
+	}
+}
+
+func (retry *turnRetry) admitted(turns []protocol.TurnSummary, queue []protocol.ConversationPending) bool {
+	select {
+	case <-retry.admission:
+		return true
+	default:
+	}
+	return slices.ContainsFunc(turns, func(turn protocol.TurnSummary) bool { return turn.Request == retry.request }) ||
+		slices.ContainsFunc(queue, func(item protocol.ConversationPending) bool {
+			return item.Request != nil && *item.Request == retry.request
+		})
+}
+
+func (r *Runtime) confirmTurnRetry(slot string, retry turnRetry) {
+	r.forgetTurnRetry(slot)
+	if retry.done != nil {
+		retry.done(protocol.Output{}, nil)
 	}
 }
 
@@ -676,27 +732,31 @@ func (r *Runtime) forgetTurnRetry(id string) {
 // turn was admitted, the history or queue moved, or the draft was changed. An
 // admitted turn completes the send that lost its result.
 func (r *Runtime) settleTurnRetry(id string, comp *composer.State, turns []protocol.TurnSummary, page protocol.ConversationPage) {
+	if len(page.Queue.Items) > 0 {
+		for slot, retry := range r.turnRetries {
+			if slot != id && retry.session == id && !r.busy[retry.key] && retry.admitted(turns, page.Queue.Items) {
+				r.confirmTurnRetry(slot, retry)
+			}
+		}
+	}
 	retry, ok := r.turnRetries[id]
 	if !ok || r.busy[retry.key] {
 		return
 	}
-	landed := slices.ContainsFunc(turns, func(turn protocol.TurnSummary) bool { return turn.Request == retry.request }) ||
-		slices.ContainsFunc(page.Queue.Items, func(item protocol.ConversationPending) bool {
-			return item.Request != nil && *item.Request == retry.request
-		})
+	if retry.admitted(turns, page.Queue.Items) {
+		r.confirmTurnRetry(id, retry)
+		return
+	}
 	observed := turnObserved(page)
 	if retry.observed == "" && observed != "" {
 		// The request was sent before its new session's history was read.
 		retry.observed = observed
 		r.turnRetries[id] = retry
 	}
-	if !landed && (observed == "" || retry.observed == observed) && (retry.comp != comp || retry.draft == composerFingerprint(comp)) {
+	if (observed == "" || retry.observed == observed) && (retry.comp != comp || retry.draft == composerFingerprint(comp)) {
 		return
 	}
 	r.forgetTurnRetry(id)
-	if landed && retry.done != nil {
-		retry.done(protocol.Output{}, nil)
-	}
 }
 
 func composerFingerprint(s *composer.State) string {

@@ -175,7 +175,7 @@ func (r *Runtime) newBinding(controller *client.Client) *Runtime {
 		readsConnected: controller.Connected(),
 		App:            r.App, Preferences: r.Preferences, busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
 		conversationWatches: map[protocol.SessionID]func(){}, conversationSeen: map[protocol.SessionID]bool{},
-		composerInitialized: map[string]bool{}, composerObserved: map[string]string{}, composerRevisions: map[string]uint64{},
+		composerInitialized: map[string]bool{}, composerObserved: map[string]string{}, composerObservedConfig: map[string]protocol.SessionConfig{}, composerRevisions: map[string]uint64{},
 		composerSaving: map[string]bool{}, composerWaiters: map[string][]func(bool){}, composerBases: map[*composer.State]protocol.SessionConfig{}, sessionBases: map[*composer.State]*sessionBaseStart{},
 		admittedSessions: map[string]protocol.Session{}, conversationEdits: map[string]conversationEdit{}, conversationPending: map[string]protocol.TurnID{},
 		conversationCreations: map[string]*conversationCreation{}, conversationCreating: map[string]bool{},

@@ -412,7 +412,7 @@ func marketSkillCard(c *ui.Context, m settings.MarketScope, x *viewmodel.Skill, 
 		b.Children(func() {
 			ui.Column(c).FillWidth().MinWidth(0).Gap(10).Children(func() {
 				ui.Row(c).FillWidth().MinWidth(0).Gap(10).AlignItems(ui.Center).Children(func() {
-					skillPicture(c, m, x)
+					skillPicture(c, m, x, card)
 					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
 						publisher := x.Publisher
 						if publisher == "" {
@@ -469,9 +469,9 @@ func marketSkillCard(c *ui.Context, m settings.MarketScope, x *viewmodel.Skill, 
 }
 
 // skillPicture is the card's 36 DIP picture once fetched, else the tile.
-func skillPicture(c *ui.Context, m settings.MarketScope, x *viewmodel.Skill) {
+func skillPicture(c *ui.Context, m settings.MarketScope, x *viewmodel.Skill, card ui.Element) {
 	var bitmap *ui.Bitmap
-	if x.Avatar != "" && m.Image != nil {
+	if x.Avatar != "" && m.Image != nil && card.InViewMargin(160) {
 		bitmap = m.Image(x.Avatar)
 	}
 	if bitmap == nil {
