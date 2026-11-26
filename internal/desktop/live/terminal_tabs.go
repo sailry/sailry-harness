@@ -123,6 +123,11 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	root.packages.terminals[id] = state
 	inventory.pending[id], inventory.focus = true, id
 	inventory.nodes[id] = owner.controller.Target()
+	if placement == terminalWorkspace && !root.App.HasWorkspacePane(panes.Terminal) {
+		// An assembly with only the panel resource shows project terminals
+		// in the right panel rather than starting a shell with no surface.
+		placement = terminalPanel
+	}
 	if placement == terminalWorkspace {
 		root.App.OpenWorkspaceTerminal(id, "")
 	} else {
@@ -247,6 +252,12 @@ func (r *Runtime) showLiveTerminal(id string) {
 // surface. Moving it from a panel keeps one renderer attached to the Node.
 func (r *Runtime) showWorkspaceTerminal(id string) {
 	root := r.localRuntime()
+	if !root.App.HasWorkspacePane(panes.Terminal) {
+		// Without the workspace pane, taking the tab out of the panel would
+		// leave the terminal with no surface.
+		root.showLiveTerminal(id)
+		return
+	}
 	terminalID, err := protocol.ParseTerminalID(id)
 	if err != nil {
 		return

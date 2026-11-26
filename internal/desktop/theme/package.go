@@ -207,10 +207,12 @@ type Decoration struct {
 	pic *picture
 }
 
-// picture decodes a verified resource on first use.
+// picture decodes a verified resource on first use. loads are an installed
+// picture's background loads.
 type picture struct {
 	bitmap  func() *ui.Bitmap
 	preview func() *ui.Bitmap
+	loads   []*diskBitmap
 }
 
 // UnmarshalJSON applies the defaults to the omitted fields.

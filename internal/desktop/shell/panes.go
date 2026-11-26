@@ -370,6 +370,11 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 		return
 	}
 	a.pane(c, col, h, true, func() { a.closePane(c, t) })
+	if t.Kind != panes.Session && !a.paneExists(t) {
+		// ⌘W released the module surface in this build; its callbacks must
+		// not see the closed ID.
+		return
+	}
 	active := w.Active
 	if t.Kind == panes.Session {
 		a.paneKeys(c, col, t)
@@ -400,7 +405,10 @@ func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 			a.paneHeader(c, t)
 		}
 		if pane != nil {
-			pane.Render(a, c, t.ID)
+			// The header's close button may have released the surface above.
+			if pane.Exists(a, t.ID) {
+				pane.Render(a, c, t.ID)
+			}
 			return
 		}
 		if cv := a.paneSession(t); cv != nil {

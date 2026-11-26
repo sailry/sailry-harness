@@ -193,8 +193,11 @@ func readThemeFile(root *os.Root, name string, limit int64) ([]byte, error) {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil, errors.New("theme resources cannot use symbolic links")
 		}
+		if prefix == name && (!info.Mode().IsRegular() || info.Size() > limit) {
+			return nil, errors.New("theme resource is not a bounded regular file")
+		}
 	}
-	file, err := root.Open(name)
+	file, err := root.OpenFile(name, themeReadFlags, 0)
 	if err != nil {
 		return nil, err
 	}

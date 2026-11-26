@@ -13,6 +13,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -136,6 +137,7 @@ func lazyPicture(read func() []byte, hasPreview bool) *picture {
 
 // Installed pictures retain only the digest of the bytes validated for this
 // package. A replacement at the same path belongs to a different snapshot.
+// They read and decode off the GUI thread (diskBitmap).
 func (value *Package) bindDiskPictures(dir string, files map[string][]byte) {
 	seen := make(map[string]*picture)
 	for _, variant := range []*Variant{value.Light, value.Dark} {
@@ -144,21 +146,149 @@ func (value *Package) bindDiskPictures(dir string, files map[string][]byte) {
 			if pic == nil {
 				name := asset.Path
 				expected := sha256.Sum256(files[name])
-				pic = lazyPicture(func() []byte {
-					root, err := os.OpenRoot(dir)
+				// read is false when the file cannot be read now, and final
+				// when its bytes belong to another revision.
+				read := func() (body []byte, final bool) {
+					body, err := readInstalledPicture(dir, name)
 					if err != nil {
-						return nil
+						return nil, false
 					}
-					defer root.Close()
-					body, err := readThemeFile(root, name, themeFileLimit)
-					if err != nil || sha256.Sum256(body) != expected {
-						return nil
+					if sha256.Sum256(body) != expected {
+						return nil, true
 					}
-					return body
-				}, asset.pic.preview != nil)
+					return body, false
+				}
+				decode := func(scaled bool) *diskBitmap {
+					return &diskBitmap{load: func() (*ui.Bitmap, bool) {
+						data, final := read()
+						if data == nil {
+							return nil, final
+						}
+						var bitmap *ui.Bitmap
+						var err error
+						if scaled {
+							bitmap, err = ui.DecodeBitmapScaled(data, themePreviewEdge)
+						} else {
+							bitmap, err = ui.DecodeBitmap(data)
+						}
+						return bitmap, err != nil
+					}}
+				}
+				full := decode(false)
+				pic = &picture{bitmap: full.get, loads: []*diskBitmap{full}}
+				if asset.pic.preview != nil {
+					preview := decode(true)
+					pic.preview, pic.loads = preview.get, append(pic.loads, preview)
+				}
 				seen[name] = pic
 			}
 			asset.pic = pic
 		}
+	}
+}
+
+var (
+	// pictureLoads bounds the installed pictures read and decoded at once.
+	pictureLoads = make(chan struct{}, 2)
+	watchers     struct {
+		sync.Mutex
+		next  uint64
+		wakes map[uint64]func()
+	}
+)
+
+// pictureRetry is the pause after a read failure before a later frame asks
+// for the picture again.
+const pictureRetry = time.Second
+
+// readInstalledPicture reads an installed picture. It opens only a regular
+// file, checked before the open: a FIFO put at its path would otherwise
+// hold a loader, and the load budget, until something wrote to it.
+func readInstalledPicture(dir, name string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return readThemeFile(root, name, themeFileLimit)
+}
+
+// WatchPictures calls wake, from a loading goroutine, whenever an installed
+// theme picture finishes loading, so the window draws it. Release stops it.
+func WatchPictures(wake func()) (release func()) {
+	watchers.Lock()
+	defer watchers.Unlock()
+	if watchers.wakes == nil {
+		watchers.wakes = map[uint64]func(){}
+	}
+	watchers.next++
+	id := watchers.next
+	watchers.wakes[id] = wake
+	return func() {
+		watchers.Lock()
+		delete(watchers.wakes, id)
+		watchers.Unlock()
+	}
+}
+
+func picturesChanged() {
+	watchers.Lock()
+	wakes := make([]func(), 0, len(watchers.wakes))
+	for _, wake := range watchers.wakes {
+		wakes = append(wakes, wake)
+	}
+	watchers.Unlock()
+	for _, wake := range wakes {
+		wake()
+	}
+}
+
+// diskBitmap is an installed picture's bitmap. The first frame that asks
+// starts its load and draws without it. A read failure is asked again after
+// pictureRetry; bytes of another revision or undecodable ones stay absent.
+type diskBitmap struct {
+	load func() (bitmap *ui.Bitmap, final bool)
+
+	mu      sync.Mutex
+	value   *ui.Bitmap
+	final   bool
+	retry   time.Time
+	loading chan struct{}
+}
+
+func (d *diskBitmap) get() *ui.Bitmap {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.value != nil || d.final || d.loading != nil || time.Now().Before(d.retry) {
+		return d.value
+	}
+	done := make(chan struct{})
+	d.loading = done
+	go func() {
+		pictureLoads <- struct{}{}
+		bitmap, final := d.load()
+		<-pictureLoads
+		d.mu.Lock()
+		d.value, d.final, d.loading = bitmap, bitmap == nil && final, nil
+		if bitmap == nil && !final {
+			d.retry = time.Now().Add(pictureRetry)
+		}
+		d.mu.Unlock()
+		close(done)
+		// A failure changes nothing on screen; a later frame asks again.
+		if bitmap != nil {
+			picturesChanged()
+		}
+	}()
+	return nil
+}
+
+// wait returns once the load get started, if any, has ended.
+func (d *diskBitmap) wait() {
+	d.mu.Lock()
+	done := d.loading
+	d.mu.Unlock()
+	if done != nil {
+		<-done
 	}
 }

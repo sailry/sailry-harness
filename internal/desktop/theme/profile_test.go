@@ -66,7 +66,8 @@ func TestThemeProfileKeepsExistingInstallations(t *testing.T) {
 	if installed[0].Files != nil {
 		t.Fatal("installed theme retained raw snapshot files in memory")
 	}
-	if pkg.Light.Asset("background.content").Bitmap() == nil || pkg.Dark.Asset("background.content").Bitmap() == nil {
+	light, dark := pkg.Light.Asset("background.content"), pkg.Dark.Asset("background.content")
+	if loadedBitmap(light) == nil || loadedBitmap(dark) == nil {
 		t.Fatal("disk-backed installed theme artwork failed to decode lazily")
 	}
 	after, err := ReadSnapshot(ctx, filepath.Join(profile.Root, pkg.ID))
@@ -104,14 +105,15 @@ func TestInstalledThemePictureStaysWithItsRevision(t *testing.T) {
 	if err := profile.Install(ctx, next, &first.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if old.PreviewBitmap() != nil || old.Bitmap() != nil {
+	old.PreviewBitmap()
+	if loadedBitmap(old) != nil || old.PreviewBitmap() != nil {
 		t.Fatal("old theme decoded artwork from the new revision")
 	}
 	installed, err = profile.Installed(ctx)
 	if err != nil || len(installed) != 1 {
 		t.Fatalf("updated themes = %d, %v", len(installed), err)
 	}
-	if installed[0].Package.Light.Asset("background.content").Bitmap() == nil {
+	if loadedBitmap(installed[0].Package.Light.Asset("background.content")) == nil {
 		t.Fatal("updated theme did not decode its own artwork")
 	}
 }

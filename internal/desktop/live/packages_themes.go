@@ -43,6 +43,12 @@ func (r *Runtime) readInstalledThemes() {
 	})
 }
 
+// watchThemePictures redraws the window when an installed theme picture
+// it asked for has loaded, until the window closes.
+func (r *Runtime) watchThemePictures() {
+	r.nativeWindowResources = append(r.nativeWindowResources, nativeWindowResource{close: theme.WatchPictures(r.wake)})
+}
+
 func (r *Runtime) themeCatalogView(refresh bool) ([]viewmodel.MarketTheme, bool, bool) {
 	state := r.packages
 	if refresh || !state.themeRead {

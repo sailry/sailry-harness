@@ -186,6 +186,7 @@ func (r *Runtime) initB8Packages() {
 	}
 	r.App.SetInstallations(&r.packages.queue)
 	r.App.Hooks.PackageDialogs = r.packageDialogs
+	r.watchThemePictures()
 	r.readInstalledThemes()
 	r.packagesFrame(nil)
 	r.App.SyncNativePages()
