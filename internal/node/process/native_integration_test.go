@@ -84,7 +84,64 @@ func TestNativeCommandLifecycle(t *testing.T) {
 	if code, ok := result.Outcome.Data.(int32); !ok || code == 0 {
 		t.Fatal("sandbox allowed network access", result)
 	}
+}
 
+func TestNativeSandboxDefaultReadAndCredentialDeny(t *testing.T) {
+	ctx := context.Background()
+	home, profile, external, root := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	sshKey := filepath.Join(home, ".ssh", "id_test")
+	if err := os.MkdirAll(filepath.Dir(sshKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sshKey, []byte("PRIVATE-SSH-KEY"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	profileSecret := filepath.Join(profile, "node.db")
+	if err := os.WriteFile(profileSecret, []byte("SAILRY-PROFILE-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	externalAsset := filepath.Join(external, "cache.txt")
+	if err := os.WriteFile(externalAsset, []byte("shared-cache-ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig := filepath.Join(root, ".git", "config")
+	if err := os.MkdirAll(filepath.Dir(gitConfig), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gitConfig, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(Options{Profile: profile, Environment: NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + home}), CaptureManaged: CaptureWorkspaceBoundary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	cmd := fmt.Sprintf(`set -eu
+# External non-sensitive paths are readable (default-allow read) but never writable.
+test "$(cat %s)" = "shared-cache-ok"
+if printf hacked > %s 2>/dev/null; then exit 11; fi
+# User credentials and Sailry profile data are unreadable.
+if cat %s >/dev/null 2>&1; then exit 12; fi
+if cat %s >/dev/null 2>&1; then exit 13; fi
+# Existing .git metadata is protected from writes.
+if printf bad >> %s 2>/dev/null; then exit 14; fi
+# Workspace and TMPDIR remain writable.
+printf ok > "$TMPDIR/scratch.txt"
+test "$(cat "$TMPDIR/scratch.txt")" = "ok"
+printf ok > work.txt
+`, shellQuote(externalAsset), shellQuote(filepath.Join(external, "denied.txt")), shellQuote(sshKey), shellQuote(profileSecret), shellQuote(gitConfig))
+
+	result, err := service.Execute(ctx, Launch{
+		ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(),
+		Root: root, Command: cmd, Access: protocol.ProcessAccessWorkspace, TimeoutMs: 10000,
+	})
+	if err != nil || result.Outcome.Kind != "exited" {
+		t.Fatalf("sandbox security check failed: %+v, %v", result, err)
+	}
+	if code, ok := result.Outcome.Data.(int32); !ok || code != 0 {
+		t.Fatalf("sandbox security check exited %v: stdout=%q stderr=%q", result.Outcome.Data, result.Stdout.Text, result.Stderr.Text)
+	}
 }
 
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }

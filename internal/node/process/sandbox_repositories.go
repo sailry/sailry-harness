@@ -71,8 +71,8 @@ func (policy *sandboxPolicy) captureRepositories(root string) {
 			break
 		}
 	}
-	var directory func(*os.Root, string, int, []gitignore.Pattern)
-	directory = func(anchor *os.Root, relative string, depth int, patterns []gitignore.Pattern) {
+	var directory func(*os.Root, string, int, []gitignore.Pattern, gitignore.Matcher)
+	directory = func(anchor *os.Root, relative string, depth int, patterns []gitignore.Pattern, matcher gitignore.Matcher) {
 		path := filepath.Join(root, relative)
 		inspect(path)
 		if text, ok := repositoryIgnore(anchor); ok {
@@ -86,8 +86,8 @@ func (policy *sandboxPolicy) captureRepositories(root string) {
 					patterns = append(patterns, gitignore.ParsePattern(line, domain))
 				}
 			}
+			matcher = gitignore.NewMatcher(patterns)
 		}
-		matcher := gitignore.NewMatcher(patterns)
 		file, err := anchor.Open(".")
 		if err != nil {
 			skipped++
@@ -112,7 +112,7 @@ func (policy *sandboxPolicy) captureRepositories(root string) {
 				continue
 			}
 			childRelative := filepath.Join(relative, entry.Name())
-			if matcher.Match(strings.Split(filepath.ToSlash(childRelative), "/"), true) {
+			if matcher != nil && matcher.Match(strings.Split(filepath.ToSlash(childRelative), "/"), true) {
 				continue
 			}
 			if depth >= 64 {
@@ -130,23 +130,19 @@ func (policy *sandboxPolicy) captureRepositories(root string) {
 				child.Close()
 				continue
 			}
-			directory(child, childRelative, depth+1, patterns)
+			directory(child, childRelative, depth+1, patterns, matcher)
 			child.Close()
 		}
 	}
 	anchor, err := os.OpenRoot(root)
 	if err == nil {
-		directory(anchor, "", 0, nil)
+		directory(anchor, "", 0, nil, nil)
 		anchor.Close()
 	} else {
 		skipped++
 	}
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
-		if within(root, path) {
-			policy.protected = append(policy.protected, path)
-		} else if path = policy.read(path); path != "" {
-			policy.protected = append(policy.protected, path)
-		}
+		policy.protected = append(policy.protected, path)
 	}
 	if skipped > 0 {
 		slog.Warn("Git metadata discovery omitted unreadable or unsupported entries; discovered metadata remains protected", "omitted", skipped, "root", root)

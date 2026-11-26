@@ -13,7 +13,15 @@ import (
 
 // The terminal subtest sets a process variable, so this test is not parallel.
 func TestSandboxArgsLinux(t *testing.T) {
-	policy := sandboxPolicy{paths: []allowedPath{{"/workspace/a/.git", false}, {"/workspace", true}, {"/usr", false}}, links: map[string]string{}}
+	secretDir := t.TempDir()
+	secretFile := filepath.Join(t.TempDir(), ".npmrc")
+	if err := os.WriteFile(secretFile, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxPolicy{
+		paths:       []allowedPath{{"/workspace/a/.git", false}, {"/workspace", true}, {"/usr", false}},
+		deniedReads: []string{secretDir, secretFile},
+	}
 	args := sandboxArgsLinux(policy, "/usr/bin/sh")
 	for _, required := range []string{"--die-with-parent", "--unshare-pid", "--unshare-net", "--new-session"} {
 		if !slices.Contains(args, required) {
@@ -27,6 +35,22 @@ func TestSandboxArgsLinux(t *testing.T) {
 			}
 		}
 		return -1
+	}
+	if index("--ro-bind", "/") < 0 {
+		t.Fatal("missing root read-only bind", args)
+	}
+	if tmpfs := slices.Index(args, secretDir); tmpfs < 1 || args[tmpfs-1] != "--tmpfs" {
+		t.Fatal("denied secret directory not masked with tmpfs", args)
+	}
+	maskedFile := false
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == "--ro-bind" && args[i+1] == "/dev/null" && args[i+2] == secretFile {
+			maskedFile = true
+			break
+		}
+	}
+	if !maskedFile {
+		t.Fatal("denied secret file not masked with /dev/null", args)
 	}
 	root, parent, metadata := index("--bind", "/workspace"), index("--bind", "/workspace/a"), index("--ro-bind", "/workspace/a/.git")
 	if root < 0 || parent < root || metadata < parent {
@@ -98,7 +122,7 @@ func TestSandboxProtectedParentsLinux(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	args := sandboxArgsLinux(sandboxPolicy{paths: []allowedPath{{root, true}}, protected: protected, links: map[string]string{}}, "/usr/bin/sh")
+	args := sandboxArgsLinux(sandboxPolicy{paths: []allowedPath{{root, true}}, protected: protected}, "/usr/bin/sh")
 	index := func(flag, path string) int {
 		for i := 0; i+2 < len(args); i++ {
 			if args[i] == flag && args[i+1] == path && args[i+2] == path {

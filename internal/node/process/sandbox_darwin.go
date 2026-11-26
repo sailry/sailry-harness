@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -24,7 +25,9 @@ func sandboxCommand(policy sandboxPolicy, program string, args []string, device 
 
 func sandboxProfileMacOS(policy sandboxPolicy, device string) (string, error) {
 	var profile strings.Builder
-	profile.WriteString("(version 1)\n(deny default)\n(allow process-exec)\n(allow process-fork)\n(allow signal (target same-sandbox))\n(allow sysctl-read)\n(allow user-preference-read)\n(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n")
+	// Default-deny writes and network; allow reads broadly except explicit
+	// system and user credential paths so arbitrary host toolchains work.
+	profile.WriteString("(version 1)\n(deny default)\n(allow process-exec)\n(allow process-fork)\n(allow signal (target same-sandbox))\n(allow sysctl-read)\n(allow user-preference-read)\n(allow file-read-metadata)\n(allow file-read*)\n")
 	rule := func(action, filter string, paths ...string) {
 		profile.WriteString("(" + action)
 		for _, path := range paths {
@@ -32,12 +35,18 @@ func sandboxProfileMacOS(policy sandboxPolicy, device string) (string, error) {
 		}
 		profile.WriteString(")\n")
 	}
-	rule("allow file-read*", "subpath", "/bin", "/sbin", "/usr", "/System", "/Library/Apple", "/Library/Frameworks", "/opt/homebrew", "/private/etc", "/private/var/db/dyld", "/private/var/db/timezone", "/private/var/select")
-	rule("allow file-read*", "literal", "/dev/random", "/dev/urandom")
+	rule("deny file-read*", "subpath", "/private/etc/master.passwd", "/private/etc/sudoers", "/private/etc/sudoers.d")
+	denied := slices.Clone(policy.deniedReads)
+	slices.Sort(denied)
+	for _, path := range slices.Compact(denied) {
+		if !utf8.ValidString(path) {
+			return "", sandboxFailure(fmt.Errorf("denied path is not valid UTF-8"))
+		}
+		rule("deny file-read*", "subpath", path)
+	}
 	rule("allow file-read* file-write-data", "literal", "/dev/null", "/dev/zero")
 	rule("allow file-read* file-write-data file-ioctl", "literal", "/dev/dtracehelper")
 	rule("allow file-read-data file-write-data", "subpath", "/dev/fd")
-	rule("deny file-read*", "subpath", "/private/etc/master.passwd", "/private/etc/sudoers", "/private/etc/sudoers.d")
 	rule("allow mach-lookup", "global-name", "com.apple.system.opendirectoryd.libinfo", "com.apple.system.opendirectoryd.membership", "com.apple.bsd.dirhelper", "com.apple.system.notification_center", "com.apple.system.logger", "com.apple.logd", "com.apple.cfprefsd.daemon", "com.apple.cfprefsd.agent")
 	profile.WriteString("(allow ipc-posix-shm-read* (ipc-posix-name \"apple.shm.notification_center\") (ipc-posix-name-prefix \"apple.cfprefs.\"))\n")
 	for _, entry := range orderedPaths(policy.paths) {
