@@ -455,11 +455,11 @@ func readConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 		seenTurns[r.Turn] = struct{}{}
 		checkTurns = append(checkTurns, r.Turn.String())
 	}
-	// The turn-first scan stops at its first visible sequence. Batch across
-	// all runs on the page instead of issuing one SQL query per run.
+	// Give the JSON turn ID the same type as agent_events.turn so Turso
+	// seeks the (turn, sequence) index for each run on the page.
 	const firstVisibleBatch = `SELECT requested.value, (
 		SELECT e.sequence FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1
-		WHERE e.turn=requested.value AND ` + visibleCanonical + `
+		WHERE e.turn=CAST(requested.value AS TEXT) AND ` + visibleCanonical + `
 		ORDER BY e.sequence LIMIT 1
 	) FROM json_each(?2) requested`
 	for start := 0; start < len(checkTurns); start += 200 {
