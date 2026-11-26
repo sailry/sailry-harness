@@ -239,3 +239,105 @@ func TestSelectionPill(t *testing.T) {
 		gone("the frame after scrolling")
 	})
 }
+
+func TestSelectionPillInToolOutput(t *testing.T) {
+	const width, height = 900, 640
+	T := func(key string) string { return i18n.In("en", key) }
+	r := &quotes{}
+	r.turns = []conversation.Turn{{
+		ID:   "tools",
+		User: "Fix the test",
+		Reply: conversation.Reply{
+			Status: conversation.Running,
+			Blocks: []conversation.Block{
+				{Kind: conversation.TextBlock, Text: "Earlier progress paragraph above tools."},
+				{Kind: conversation.ToolsBlock, Calls: []conversation.Call{
+					{ID: "c1", Name: "run_command", Label: "Command", Detail: "go test ./...", Code: true, Standalone: true},
+					{ID: "c2", Name: "write_file", Label: "Write file", Detail: "snapshot.py", Code: true, Standalone: true},
+					{ID: "c3", Name: "run_command", Label: "Command", Detail: "cat targeted.log", Code: true, Standalone: true},
+					{ID: "c4", Name: "edit_file", Label: "Edit file", Detail: "sandbox_linux_test.go", Code: true, Standalone: true, Output: &conversation.Output{
+						Failure:     "old text was not found in the file",
+						ToolFailure: true,
+					}},
+					{ID: "c5", Name: "run_command", Label: "Command", Detail: "echo ok", Code: true, Standalone: true, Output: &conversation.Output{
+						Text: "command output line for selection",
+					}},
+				}},
+			},
+		},
+	}}
+	s := conversation.New()
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		ui.Column(c).Fill().Children(func() {
+			conversation.View(c, s, "t", r.turns, &conversation.Session{}, r)
+		})
+	}, width, height)
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+
+	pill := func() (ui.Rect, bool) {
+		quote, ok := tt.AccessByRole(ui.RoleButton, T("message_quote"))
+		start, ok2 := tt.AccessByRole(ui.RoleButton, T("chat_new"))
+		if !ok || !ok2 {
+			return ui.Rect{}, false
+		}
+		a, b := quote.Bounds, start.Bounds
+		return ui.Rect{X: a.X - 4, Y: a.Y - 4, W: b.X + b.W - a.X + 8, H: a.H + 8}, true
+	}
+	find := func(text string) ui.Rect {
+		t.Helper()
+		at, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("no %q in %q", text, tt.Texts())
+		}
+		return at
+	}
+	selectText := func(target ui.Rect) ui.Rect {
+		t.Helper()
+		tt.Press(target.X+1, target.Y+target.H/2)
+		tt.Move(target.X+target.W/2, target.Y+target.H/2)
+		tt.Move(target.X+target.W-1, target.Y+target.H/2)
+		tt.Frame()
+		tt.Release(target.X+target.W-1, target.Y+target.H/2)
+		tt.Frame()
+		tt.Frame()
+		p, ok := pill()
+		if !ok {
+			t.Fatalf("no selection pill for %+v", target)
+		}
+		return p
+	}
+
+	prose := find("Earlier progress paragraph above tools.")
+	if err := tt.Click("sandbox_linux_test.go"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	notice := find("old text was not found in the file")
+	p := selectText(notice)
+	if p.Y < prose.Y+prose.H {
+		t.Fatalf("selection pill %+v jumped up onto earlier prose %+v instead of staying near notice %+v", p, prose, notice)
+	}
+	if p.Y < notice.Y-120 || p.Y > notice.Y+notice.H+120 {
+		t.Fatalf("selection pill %+v is too far from selected notice %+v", p, notice)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+
+	if err := tt.Click("echo ok"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	output := find("command output line for selection")
+	p = selectText(output)
+	if p.Y < prose.Y+prose.H {
+		t.Fatalf("selection pill %+v jumped up onto earlier prose %+v instead of staying near output %+v", p, prose, output)
+	}
+	if p.Y < output.Y-120 || p.Y > output.Y+output.H+120 {
+		t.Fatalf("selection pill %+v is too far from selected output %+v", p, output)
+	}
+}

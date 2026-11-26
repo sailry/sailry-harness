@@ -82,13 +82,15 @@ func (s *State) diagnostic(c *ui.Context, d *Diagnostic) {
 		for i, f := range d.Fields {
 			ui.Row(c.Key(i)).Gap(8).Children(func() {
 				ui.Text(c, f[0]).FontSize(size - 1).Shrink(0).TextColor(p.MutedForeground)
-				ui.Text(c, f[1]).Selectable().Font("monospace").FontSize(size - 1).Grow(1).Shrink(1).MinWidth(0)
+				s.span(ui.Text(c, f[1]).Selectable().Font("monospace").FontSize(size-1).Grow(1).Shrink(1).MinWidth(0), 0, 0, 0)
 			})
 		}
 		if d.Detail != "" {
-			ui.Scroll(c).MaxHeight(120).Children(func() {
+			box := ui.Scroll(c).MaxHeight(120)
+			box.Children(func() {
 				ui.Text(c, d.Detail).Selectable().Font("monospace").FontSize(size - 2).TextColor(p.MutedForeground)
 			})
+			s.span(box, 0, 0, 0)
 		}
 	})
 }

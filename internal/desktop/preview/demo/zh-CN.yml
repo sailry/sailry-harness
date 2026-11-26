@@ -483,6 +483,11 @@ audit.0.partial: "自动检查在页面上发现了五个问题。我正在两�
 audit.queue.focus: "顺便检查清单的焦点顺序"
 audit.queue.report: "按严重程度对发现的问题分组"
 
+a11y.title: "无障碍检查：结账"
+a11y.0.user: "对结账流程运行无障碍检查，逐条报告失败项。"
+a11y.0.error: "子代理已停止"
+a11y.0.cause: "结账测试账号不可用。"
+
 pulse.title: "来自 Pulse Analytics 的注册数据"
 pulse.0.user: "从 Pulse Analytics 拉取上周的注册数据。"
 pulse.0.answer: "Pulse Analytics 已连接，但尚未登录。需要你先在浏览器中授权，它才会提供数据。"

@@ -153,7 +153,7 @@ func toolOutput(w *window) error {
 		cv.Turns = []conversation.Turn{{ID: "acceptance/tool", User: "Inspect a failed fixture command", Reply: conversation.Reply{
 			Status: conversation.Running,
 			Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{{
-				ID: "acceptance/command", Name: "command", Label: "Command", Detail: command, Code: true, Warning: true, Error: label("tool_failed"), Output: output,
+				ID: "acceptance/command", Name: "command", Label: "Command", Detail: command, Code: true, Error: label("tool_failed"), Output: output,
 				Load: func(apply func(*conversation.Output)) func() {
 					loads++
 					apply(&conversation.Output{Text: raw})

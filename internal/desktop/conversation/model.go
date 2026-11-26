@@ -112,6 +112,9 @@ type Controls struct {
 	ReadOnly                             bool
 	NoEdit, NoFork, NoRewind, NoWorktree bool
 	HideWorktree                         bool
+	// Retryable lets a read-only delegated child offer Retry on its latest
+	// failed or interrupted turn without unlocking Edit, Fork or Rewind.
+	Retryable bool
 	// NoExport disables the export menu: the Node does not answer.
 	NoExport bool
 	Busy     bool
@@ -372,8 +375,8 @@ type Call struct {
 	State  RowState
 	// Failed is a failed call, the only red row: the tool could not run
 	// (unknown, invalid arguments, execution or transport error). Warning
-	// is a tool-origin error or a denied, interrupted or unexecuted call,
-	// tinted in the warning color.
+	// is a denied, interrupted or unexecuted call, tinted in the warning
+	// color. A tool-origin error keeps the plain row.
 	Failed, Warning, Pending, Running bool
 	// AwaitingModel marks a call of the latest returned batch while the run
 	// waits for the model's next output: its row keeps the running sweep in
@@ -427,7 +430,7 @@ type Output struct {
 	Diff  *Diff
 	Table *Table
 	// Failure is a failed call's text, tinted danger (runtime) or, with
-	// ToolFailure, warning.
+	// ToolFailure, muted.
 	Failure     string
 	ToolFailure bool
 	Notices     []string

@@ -1311,7 +1311,6 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	if failure != nil {
 		call.Error = toolFailure(language, summary.Error, failure)
 		call.Failed = failure.Origin == protocol.ToolFailureOriginRuntime
-		call.Warning = failure.Origin == protocol.ToolFailureOriginTool
 		if call.Failed {
 			call.State = conversation.StateFailed
 		}

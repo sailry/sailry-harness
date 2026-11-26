@@ -555,9 +555,7 @@ func modelForm(c *ui.Context, d *modelDraft, api string) {
 			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth().Disabled(d.pending)
 		})
 		capabilityForm(c, d, api)
-		if d.model.ID == "" || len(d.model.Efforts) > 0 {
-			effortsForm(c, d)
-		}
+		effortsForm(c, d)
 	})
 }
 

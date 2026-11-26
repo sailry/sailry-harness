@@ -97,6 +97,24 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	}
 }
 
+func TestFailureToneKeepsRoutineToolErrorsMuted(t *testing.T) {
+	var toolColor, runtimeColor, muted, danger ui.Color
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		p := theme.Of(c)
+		muted, danger = p.MutedForeground, p.Danger
+		toolColor = failureTone(c, &Output{Failure: "old text was not found", ToolFailure: true})
+		runtimeColor = failureTone(c, &Output{Failure: "runtime crash"})
+	}, 400, 120)
+	tester.Frame()
+	if toolColor != muted {
+		t.Fatalf("routine tool failure tone = %v, want muted %v", toolColor, muted)
+	}
+	if runtimeColor != danger {
+		t.Fatalf("runtime failure tone = %v, want danger %v", runtimeColor, danger)
+	}
+}
+
 // An open command row shows the command's own output and nothing the
 // application wrote about its state, whatever that state is.
 func TestToolCommandShowsOnlyOutput(t *testing.T) {

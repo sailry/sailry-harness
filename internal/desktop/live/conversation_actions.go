@@ -389,6 +389,8 @@ type conversationControlFacts struct {
 	busy                  bool
 	head                  protocol.TurnID
 	ended, sent, editable map[protocol.TurnID]bool
+	// headRetryable reports a failed or interrupted latest run.
+	headRetryable bool
 }
 
 func controlFacts(page protocol.ConversationPage) *conversationControlFacts {
@@ -406,10 +408,13 @@ func controlFacts(page protocol.ConversationPage) *conversationControlFacts {
 		}
 	}
 	var head protocol.TurnID
+	headRetryable := false
 	if len(page.Runs) > 0 {
-		head = page.Runs[len(page.Runs)-1].Turn
+		latest := page.Runs[len(page.Runs)-1]
+		head = latest.Turn
+		headRetryable = latest.Status == protocol.ConversationStatusFailed || latest.Status == protocol.ConversationStatusInterrupted
 	}
-	return &conversationControlFacts{pageBusy(page), head, ended, sent, editable}
+	return &conversationControlFacts{pageBusy(page), head, ended, sent, editable, headRetryable}
 }
 
 func (x *conversationActions) controlsFrom(session protocol.Session, state protocol.ConversationSnapshot, ok bool) func(protocol.TurnID) conversation.Controls {
@@ -417,9 +422,22 @@ func (x *conversationActions) controlsFrom(session protocol.Session, state proto
 }
 
 func (x *conversationActions) controlsWith(session protocol.Session, f *conversationControlFacts, ok bool) func(protocol.TurnID) conversation.Controls {
-	if !ok || delegated(session) {
+	if !ok {
 		return func(protocol.TurnID) conversation.Controls {
 			return conversation.Controls{ReadOnly: true, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
+		}
+	}
+	if delegated(session) {
+		connected := x.r.controller.Connected()
+		return func(turn protocol.TurnID) conversation.Controls {
+			return conversation.Controls{
+				ReadOnly:   true,
+				NoEdit:     true,
+				NoFork:     true,
+				NoRewind:   true,
+				NoWorktree: true,
+				Retryable:  connected && !f.busy && turn == f.head && f.headRetryable,
+			}
 		}
 	}
 	edit, replacing := x.r.conversationEdits[x.cv.ID]
@@ -487,6 +505,17 @@ func (x *conversationActions) Retry(turn string) {
 	}
 	id, err := protocol.ParseTurnID(turn)
 	if err != nil || pageBusy(state.Page) {
+		return
+	}
+	if delegated(s) {
+		if len(state.Page.Runs) == 0 || state.Page.Runs[len(state.Page.Runs)-1].Turn != id {
+			return
+		}
+		latest := state.Page.Runs[len(state.Page.Runs)-1]
+		if latest.Status != protocol.ConversationStatusFailed && latest.Status != protocol.ConversationStatusInterrupted {
+			return
+		}
+		x.turn(protocol.Command{Kind: "retry_child_turn", Data: protocol.CommandRetryChildTurnPayload{Turn: id}}, nil)
 		return
 	}
 	if !slices.ContainsFunc(state.Page.Runs, func(r protocol.ConversationRun) bool {

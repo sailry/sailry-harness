@@ -76,8 +76,9 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 	return p.MutedForeground.Alpha(0.65)
 }
 
-// flagged gives tool errors, denied, interrupted and unexecuted calls, and
-// background execution faults the warning color. A command exit uses the plain row.
+// flagged gives denied, interrupted and unexecuted calls, and background
+// execution faults the warning color. Ordinary tool errors and command exits
+// use the plain row.
 func flagged(call Call) bool {
 	return call.Warning || backgroundFailed(call.Background)
 }
@@ -606,14 +607,14 @@ func bare(call Call) bool {
 
 func failureTone(c *ui.Context, o *Output) ui.Color {
 	if o.ToolFailure {
-		return theme.Of(c).Warning
+		return theme.Of(c).MutedForeground
 	}
 	return theme.Of(c).Danger
 }
 
 // notice is a line of the output's notes.
-func notice(c *ui.Context, text string, tone ui.Color) {
-	ui.Text(c, text).FontSize(textSize(c)).Padding(8, 12).TextColor(tone).Selectable()
+func (s *State) notice(c *ui.Context, text string, tone ui.Color) {
+	s.span(ui.Text(c, text).FontSize(textSize(c)).Padding(8, 12).TextColor(tone).Selectable(), 0, 8, 12)
 }
 
 // output builds a call's result. A path list uses the file links in place
@@ -630,7 +631,7 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 			}
 		}
 		if o.Failure != "" {
-			notice(c, o.Failure, failureTone(c, o))
+			s.notice(c, o.Failure, failureTone(c, o))
 		}
 		if o.Table != nil {
 			s.table(c, o.Table)
@@ -647,15 +648,16 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 			full := ui.Local(box, "text-full", func() bool { return false })
 			shown, hidden := previewText(lines, *full, o.Command)
 			// Long lines wrap within the row rather than scrolling sideways.
-			ui.Text(c, strings.Join(shown, "\n")).Font("monospace").FontSize(size).LineHeight(20.0 / 14).
+			el := ui.Text(c, strings.Join(shown, "\n")).Font("monospace").FontSize(size).LineHeight(20.0 / 14).
 				Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
+			s.span(el, 0, 0, 0)
 			s.previewToggle(c, "text-more", full, len(lines), hidden)
 		}
 		if len(o.Images) > 0 {
 			s.thumbnails(c, "output-images", o.Images, false)
 		}
 		for _, n := range o.Notices {
-			notice(c, n, p.MutedForeground)
+			s.notice(c, n, p.MutedForeground)
 		}
 		if paths {
 			return
@@ -812,7 +814,7 @@ func (s *State) previewToggle(c *ui.Context, key string, full *bool, total, hidd
 	}
 	if *full {
 		if hidden > 0 {
-			notice(c, i18n.T(c, "diff_more_lines", "count", hidden), theme.Of(c).MutedForeground)
+			s.notice(c, i18n.T(c, "diff_more_lines", "count", hidden), theme.Of(c).MutedForeground)
 		}
 		s.revealRow(c, key, "chevron-up", i18n.T(c, "output_show_less"), func() { *full = false })
 		return
@@ -929,11 +931,13 @@ func (s *State) question(c *ui.Context, q *Question) {
 		return
 	}
 	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func(ui.Element) {
-		ui.Scroll(c).MaxHeight(outputMax(size)).Gap(4).Children(func() {
+		box := ui.Scroll(c).MaxHeight(outputMax(size)).Gap(4)
+		box.Children(func() {
 			for _, a := range q.Answers {
 				ui.Text(c, a).FontSize(size).Selectable().TextColor(p.Foreground)
 			}
 		})
+		s.span(box, 0, 0, 0)
 	})
 }
 

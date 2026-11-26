@@ -484,6 +484,11 @@ audit.0.partial: "The automated pass found five issues on the page. I am checkin
 audit.queue.focus: "Check the focus order of the checklist too"
 audit.queue.report: "Group the findings by severity"
 
+a11y.title: "Accessibility pass: checkout"
+a11y.0.user: "Run the accessibility checks on the checkout flow and report each failure."
+a11y.0.error: "The subagent stopped"
+a11y.0.cause: "The checkout test account is unavailable."
+
 pulse.title: "Signups from Pulse Analytics"
 pulse.0.user: "Pull last week's signup numbers from Pulse Analytics."
 pulse.0.answer: "Pulse Analytics is connected but not signed in. It needs your approval in the browser before it shares any data."

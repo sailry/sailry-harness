@@ -82,7 +82,7 @@ func TestHiddenToolFailuresRetainDetails(t *testing.T) {
 			}
 			raw := json.RawMessage(`{"error":"original maintenance failure"}`)
 			ProjectToolDetail(call, &summary, protocol.ToolDetail{Result: &raw})
-			if call.Output == nil || call.Output.Text != "" || call.Output.Failure != *summary.Error || call.Failed != (origin == protocol.ToolFailureOriginRuntime) || call.Warning != (origin == protocol.ToolFailureOriginTool) {
+			if call.Output == nil || call.Output.Text != "" || call.Output.Failure != *summary.Error || call.Failed != (origin == protocol.ToolFailureOriginRuntime) || call.Warning || call.Output.ToolFailure != (origin == protocol.ToolFailureOriginTool) {
 				t.Fatalf("original failure output or status lost: %+v", call)
 			}
 		})

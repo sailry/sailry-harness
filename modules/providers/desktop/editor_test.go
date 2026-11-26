@@ -494,6 +494,44 @@ func TestProviderEditor(t *testing.T) {
 			t.Errorf("efforts %v, default %d", d.efforts, d.def)
 		}
 	})
+	// A saved model without catalog or discovered efforts still shows the
+	// reasoning effort tag input so the user can add custom levels.
+	t.Run("saved model without efforts shows effort input", func(t *testing.T) {
+		m := testController()
+		m.Live = true
+		var saved []settings.ProviderDraft
+		m.ProviderActions.Save = func(d settings.ProviderDraft, _ func(settings.ProviderSaveResult)) { saved = append(saved, d) }
+		e := &m.provider
+		e.add(m)
+		e.configure(preview.Method{Name: "Provider", Auth: preview.AuthKey})
+		e.keySet = true
+		e.models = draftsOf([]preview.ChannelModel{{ID: "quick-smart-think", Context: 400000, Tools: true}})
+		e.models[0].open = true
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			i18n.Bind(c, testCatalog)
+			providerEditorDialog(c, m)
+		}, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Advance(time.Second)
+		field, ok := tt.AccessByRole(ui.RoleTextField, testCatalog.In("en", "provider_effort_placeholder"))
+		if !ok {
+			t.Fatalf("saved model without efforts hid the effort input: %q", tt.Texts())
+		}
+		tt.ClickAt(field.Bounds.X+field.Bounds.W/2, field.Bounds.Y+field.Bounds.H/2)
+		tt.Type("low,")
+		tt.Frame()
+		tt.Type("high")
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		if problem := e.save(m); problem != "" || len(saved) != 1 {
+			t.Fatalf("save = %q, drafts = %d", problem, len(saved))
+		}
+		got := saved[0].Channel.Models[0]
+		if !slices.Equal(got.Efforts, []string{"low", "high"}) || got.DefaultEffort != "low" {
+			t.Fatalf("saved efforts = %v default %q, want [low high] default low", got.Efforts, got.DefaultEffort)
+		}
+	})
 	// The capability boxes show a model's tags; a change marks them the
 	// user's own, and the save carries them.
 	t.Run("capabilities", func(t *testing.T) {

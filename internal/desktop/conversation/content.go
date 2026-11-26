@@ -361,9 +361,11 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 		return
 	}
 	s.disclosure(c, "retry-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		ui.Scroll(c).MaxHeight(160).Children(func() {
+		box := ui.Scroll(c).MaxHeight(160)
+		box.Children(func() {
 			ui.Text(c, r.Detail).Selectable().FontSize(textSize(c)).TextColor(p.MutedForeground)
 		})
+		s.span(box, 0, 0, 0)
 	})
 }
 
@@ -432,9 +434,11 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 				}).OnClick(func() { s.toggleFor(session, id) })
 			})
 			if open {
-				ui.Scroll(c).MaxHeight(160).Children(func() {
+				box := ui.Scroll(c).MaxHeight(160)
+				box.Children(func() {
 					ui.Text(c, cause).Selectable().FontSize(size).TextColor(p.MutedForeground)
 				})
+				s.span(box, 0, 0, 0)
 			}
 		})
 	case k.Summary != "":

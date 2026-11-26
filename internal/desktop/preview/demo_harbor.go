@@ -131,7 +131,7 @@ func (b *demo) flakyTest() *Conversation {
 	fail.Failed, fail.State, fail.Error = true, cv.StateFailed, "exit status 1"
 	fail.Output = &cv.Output{Failure: "--- FAIL: TestReserveSeat (0.03s)\n    reserve_test.go:88: seat 14C reserved 2 times\nFAIL\tgithub.com/harbor/harbor-api/internal/booking\t1.188s"}
 	fetch := b.call(first.ID, "fetch", "globe", "https://pkg.go.dev/database/sql#TxOptions")
-	fetch.Warning, fetch.Error = true, b.t("flaky.fetch.error")
+	fetch.Error = b.t("flaky.fetch.error")
 	fetch.Output = &cv.Output{Failure: b.t("flaky.fetch.failure"), ToolFailure: true}
 	first.Reply = done(cv.Completed, 52)
 	first.Reply.Blocks = []cv.Block{reasoning(b.t("flaky.0.think")), tools(read, search), tools(fail), tools(fetch), text(b.t("flaky.0.answer"))}

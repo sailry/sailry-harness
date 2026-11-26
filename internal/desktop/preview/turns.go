@@ -102,14 +102,14 @@ func edit(id string) cv.Turn {
 	return cv.Turn{User: "Add a test that scrolls to the middle of the transcript.", Reply: r}
 }
 
-// failed: a runtime failure (danger), a tool's own failure (warning), and
-// the turn's error.
+// failed: a runtime failure (danger), a tool's own failure (muted), and the
+// turn's error.
 func failed(id string) cv.Turn {
 	f := call(id, "command", "Command", "command", "gofmt -l .")
 	f.Failed, f.State, f.Error = true, cv.StateFailed, "exit status 2"
 	f.Output = &cv.Output{Failure: "internal/conversation/list.go:12:1: expected declaration, found '}'"}
 	w := call(id, "fetch", "Fetch page", "globe", "https://go.dev/doc/effective_go")
-	w.Warning, w.Error = true, "The page did not answer in 30 s"
+	w.Error = "The page did not answer in 30 s"
 	w.Output = &cv.Output{Failure: "Request timed out after 30 s", ToolFailure: true}
 	r := done(cv.Failed, 9)
 	r.Blocks = []cv.Block{

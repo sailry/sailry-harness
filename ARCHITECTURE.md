@@ -871,20 +871,35 @@ wait hints are minimums, never shortened to fit the budget. A model response
 that sends nothing for 300 seconds fails as a retryable network error. If the
 attempt produced no model output, that idle interval consumes the same wait
 budget as backoff. An ACP agent may stay silent for 600 seconds while running tools.
-Direct model requests share one connection pool that sends HTTP/2 health pings
+The default transport for direct model requests shares a connection pool that sends HTTP/2 health pings
 after 15 seconds without data and retires idle connections after 30 seconds,
 so a connection a gateway dropped silently fails fast instead of stalling.
+Large model request bodies (256 KiB and above) use a sibling HTTP/1.1 connection
+pool directly so reverse proxies with small HTTP/2 per-stream flow-control windows
+do not stall uploads or reset streams, falling back to HTTP/2 if HTTP/1.1 is
+rejected.
 A transport-reported HTTP/2 stream reset uses the same request retry budget,
 regardless of its reset code. A protocol error or explicit HTTP/1.1 requirement
 can spend a retry on HTTP/1.1. A provider throttle received on that route
 keeps the pending request on HTTP/1.1 through its normal retry. After a
-successful recovery the captured model uses HTTP/1.1 for subsequent steps. Other model bindings negotiate
-independently. The 300-second idle timer measures the wait for response
+successful recovery (or an HTTP/1.1 stream that began emitting output before
+being steered) the captured model and its endpoint origin remember HTTP/1.1 for
+30 minutes across subsequent turns, subagents and compactions (resetting if
+HTTP/1.1 later fails with a transport or non-overloaded availability error).
+Other origins negotiate independently. Shared per-credential cooldowns also
+apply an adaptive in-flight concurrency queue when upstream gateways reject
+concurrent requests (including HTTP 200 stream errors reporting concurrency
+limits), clamping active slots so sibling turns and subagents wait locally for a
+free slot instead of exhausting retries and gradually probing back up after
+sustained success. The 300-second idle timer measures the wait for response
 headers and each pending read of response bytes.
-The first retry of every model request is silent: its record is numbered 0
+The first retry of a fast transient failure is silent: its record is numbered 0
 and the transcript shows no row for it, even when a provider wait hint requires
 five seconds or more. From the second retry, rows count up to nine retries after
-the silent resend. Waiting and attempt budgets do not depend on visibility.
+the silent resend. When the first attempt already waited visibly (a 300-second
+stream idle stall or at least 15 seconds elapsed), retries are numbered from 1
+so recovery is visible immediately instead of leaving the user on a silent
+spinner. Waiting and attempt budgets do not depend on visibility.
 Persisted retry records retain their saved numbering and visibility.
 Interrupted main requests clear the failed attempt's provisional draft before retrying the same
 model step; tool calls execute only after that step completes. Consumers without
@@ -994,7 +1009,12 @@ that wait ends it. When the parent makes no further model call because its
 model failed, its plan was reviewed or guidance ended a plugin stop, its
 undelivered foreground children detach to background delivery instead of being
 cancelled: they keep running and their results arrive as a notice or with the
-next input. A stop still cancels them. Automatic child results keep the first
+next input. A stop still cancels them. Failed child results delivered to the parent
+model retain structured error reasons and retryability so parent turns can continue transiently failed
+children with `guide_agent`, and controllers can recover a child session whose
+latest turn ended failed or interrupted via `retry_child_turn` using the child's
+persisted inherited tool boundary (`delegated_tools`) without unlocking general
+writes on delegated sessions. Automatic child results keep the first
 16 KiB of the answer (falling back to text-only assistant content stripped of
 tool and thinking blocks if the child hit its turn limit on a tool step) and
 mark a cut with `response_truncated` and the full byte count; `wait_agent` with
@@ -1464,7 +1484,9 @@ results folded until chosen separately. Those choices live only in the window.
 A failed call displays its error message when one is available and falls back to
 its original result. A cancelled call is a plain row; a call whose outcome is
 unknown is marked interrupted and its body keeps only the tool's own result.
-Visible conversation image rows resolve bounded thumbnails. The viewer loads the selected
+Visible conversation image rows resolve bounded thumbnails, including public HTTPS
+Markdown pictures (raster and SVG) fetched from the Desktop without credentials or
+a referrer and degrading to clickable links on failure. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane
 previews release images after their last visible use. Installed themes validate
 artwork at admission and decode the full image only when it is rendered. Each

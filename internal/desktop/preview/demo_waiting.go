@@ -177,6 +177,24 @@ func (b *demo) audit() *Conversation {
 	return c
 }
 
+// a11yCheck is the review's failed accessibility subagent in its own
+// session: read-only, its latest failed run still offers Retry.
+func (b *demo) a11yCheck() *Conversation {
+	const id = "lumen-web/review-a11y"
+	run := b.user(id+"/0", "a11y.0.user")
+	run.Controls = cv.Controls{ReadOnly: true, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true, Retryable: true}
+	login := b.call(run.ID, "command", "command", "npx playwright test checkout/a11y.spec.ts")
+	login.Output = &cv.Output{Text: "Signing in as checkout-qa@lumen.example\nError: 401 Unauthorized", Command: true}
+	run.Reply = done(cv.Failed, 41)
+	run.Reply.Blocks = []cv.Block{
+		tools(login),
+		{Kind: cv.ErrorBlock, Label: b.t("a11y.0.error"), Text: b.t("a11y.0.cause")},
+	}
+	c := b.conv(id, "a11y.title", Idle, 9*time.Minute, cv.Usage{Tokens: 3100, Speed: 91.3, Cost: 0.0006, Cached: 1800, Context: 0.02}, run)
+	c.Session.ReadOnly = true
+	return c
+}
+
 // signIn is a connector's authorization link, in a project that is a plain
 // folder: the page to open in the system's browser, which can be declined.
 func (b *demo) signIn() *Conversation {

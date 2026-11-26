@@ -455,7 +455,7 @@ func TestHiddenDelegationDiagnosticKeepsChildBoundary(t *testing.T) {
 	}
 	turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Node: protocol.NodeID{1}, Page: page}})
 	blocks := conversation.Compact(turns[0].Reply.Blocks)
-	if len(blocks) != 4 || blocks[0].Kind != conversation.ToolsBlock || len(blocks[0].Calls) != 1 || blocks[0].Calls[0].ID != "first/0" || !blocks[0].Calls[0].Warning || blocks[1].Kind != conversation.ChildrenBlock || blocks[2].Text != "Between launches" || blocks[3].Kind != conversation.ChildrenBlock || len(blocks[1].Children) != 1 || len(blocks[3].Children) != 1 {
+	if len(blocks) != 4 || blocks[0].Kind != conversation.ToolsBlock || len(blocks[0].Calls) != 1 || blocks[0].Calls[0].ID != "first/0" || blocks[0].Calls[0].Error == "" || blocks[0].Calls[0].Warning || blocks[1].Kind != conversation.ChildrenBlock || blocks[2].Text != "Between launches" || blocks[3].Kind != conversation.ChildrenBlock || len(blocks[1].Children) != 1 || len(blocks[3].Children) != 1 {
 		t.Fatalf("a late diagnostic moved past text or the reused child: %+v", blocks)
 	}
 	if blocks[0].Calls[0].AwaitingModel {

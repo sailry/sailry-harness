@@ -199,7 +199,7 @@ func (s *State) footer(c *ui.Context, t *Turn, over bool, actions Actions) {
 					}
 				})
 			}
-			if Resendable(t.Reply.Status) && !t.Controls.ReadOnly {
+			if Resendable(t.Reply.Status) && (!t.Controls.ReadOnly || t.Controls.Retryable) {
 				quiet(c, kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false)).OnClick(func() { actions.Retry(t.ID) })
 			}
 		}

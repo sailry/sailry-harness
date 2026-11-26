@@ -360,7 +360,7 @@ func testRowColor(t *testing.T) {
 		{"running", Call{Running: true}, p.MutedForeground.Alpha(0.65)},
 		{"awaiting approval", Call{Pending: true}, p.Warning},
 		{"interrupted", Call{Warning: true, State: NotExecuted}, p.Warning},
-		{"tool error", Call{Warning: true}, p.Warning},
+		{"tool error", Call{Error: "exit status 1", Output: &Output{Failure: "boom", ToolFailure: true}}, p.MutedForeground.Alpha(0.65)},
 		{"failed", Call{Failed: true}, p.Danger},
 	} {
 		t.Run(row.name, func(t *testing.T) {

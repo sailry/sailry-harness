@@ -81,3 +81,51 @@ func TestRetryWaitBudgetProjectsItsOwnTerminalReason(t *testing.T) {
 		})
 	}
 }
+
+func TestDelegatedChildRetryControls(t *testing.T) {
+	parentSession := protocol.SessionID{1}
+	childSession := protocol.SessionID{2}
+	failedTurn := protocol.TurnID{10}
+	completedTurn := protocol.TurnID{9}
+	cancelledTurn := protocol.TurnID{11}
+	origin := &protocol.Delegation{Session: parentSession, Turn: protocol.TurnID{1}}
+	delegation := &origin
+	session := protocol.Session{ID: childSession, Delegation: delegation}
+
+	page := protocol.ConversationPage{
+		Session: childSession,
+		Runs: []protocol.ConversationRun{
+			{Turn: completedTurn, Session: childSession, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusCompleted},
+			{Turn: failedTurn, Session: childSession, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusFailed},
+		},
+	}
+	facts := controlFacts(page)
+	if facts.head != failedTurn || !facts.headRetryable {
+		t.Fatalf("head = %v, headRetryable = %v", facts.head, facts.headRetryable)
+	}
+	disconnected := (&conversationActions{r: &Runtime{controller: &client.Client{}}}).controlsWith(session, facts, true)(failedTurn)
+	if !disconnected.ReadOnly || !disconnected.NoEdit || !disconnected.NoFork || disconnected.Retryable {
+		t.Fatalf("disconnected delegated controls = %+v", disconnected)
+	}
+	// Connected runtime enables Retryable ONLY on the latest failed/interrupted child turn.
+	r, _, _ := readRecoveryFixture(t)
+	connected := (&conversationActions{r: r}).controlsWith(session, facts, true)
+	if ctl := connected(failedTurn); !ctl.ReadOnly || !ctl.NoEdit || !ctl.NoFork || !ctl.NoRewind || !ctl.NoWorktree || !ctl.Retryable {
+		t.Fatalf("connected latest failed child controls = %+v", ctl)
+	}
+	if ctl := connected(completedTurn); !ctl.ReadOnly || ctl.Retryable {
+		t.Fatalf("older completed child turn became retryable: %+v", ctl)
+	}
+	// A cancelled latest child turn must not become retryable.
+	cancelledPage := protocol.ConversationPage{
+		Session: childSession,
+		Runs: []protocol.ConversationRun{
+			{Turn: failedTurn, Session: childSession, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusFailed},
+			{Turn: cancelledTurn, Session: childSession, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusCancelled},
+		},
+	}
+	cancelledFacts := controlFacts(cancelledPage)
+	if ctl := (&conversationActions{r: r}).controlsWith(session, cancelledFacts, true)(cancelledTurn); ctl.Retryable {
+		t.Fatalf("cancelled child turn became retryable: %+v", ctl)
+	}
+}

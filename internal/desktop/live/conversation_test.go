@@ -175,7 +175,7 @@ func TestConversationProjection(t *testing.T) {
 			t.Run(string(origin), func(t *testing.T) {
 				call := projectCall("run_command", &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: origin}}, "en")
 				projectToolContent(&call, protocol.ToolDetail{Result: &result})
-				if call.Error == "" || call.Failed != (origin == "runtime") || call.Warning != (origin == "tool") {
+				if call.Error == "" || call.Failed != (origin == "runtime") || call.Warning {
 					t.Fatalf("failure status was lost: %+v", call)
 				}
 				if call.Output == nil || call.Output.Failure != "" || call.Output.Text != string(want) || !call.Output.Command {
@@ -255,7 +255,7 @@ func TestConversationProjection(t *testing.T) {
 		{"attachment", []protocol.ConversationPart{{Kind: "attachment", Data: protocol.Attachment{ID: protocol.AttachmentID{1}, Spec: protocol.AttachmentSpec{Name: "report.txt"}}}}, conversation.FilesBlock, 1, false, false},
 		{"compaction", []protocol.ConversationPart{{Kind: "compaction", Data: "Summary"}}, conversation.CompactionBlock, 1, false, false},
 		{"failed_call", []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: "runtime"}}}}}, conversation.ToolsBlock, 1, true, false},
-		{"returned_tool_error", []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: "tool"}}}}}, conversation.ToolsBlock, 1, false, true},
+		{"returned_tool_error", []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{Name: "read", Summary: &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Origin: "tool"}}}}}, conversation.ToolsBlock, 1, false, false},
 		{"retry", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":2,"limit":5}`)}}, conversation.RetryBlock, 1, false, false},
 		{"quiet_resend", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"model_retry","attempt":0,"limit":9}`)}}, conversation.RetryBlock, 0, false, false},
 		{"compacting", []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"compacting","started_ms":1}`)}}, conversation.TextBlock, 0, false, false},
