@@ -77,8 +77,7 @@ appearance_information: 情報
 appearance_format_version: 形式バージョン
 appearance_author: 作成者
 appearance_effects: テーマのアニメーション
-appearance_welcome_mark: 新規セッションのドット文字
-appearance_welcome_mark_detail: 英字、数字、記号。空欄で %{mark} を表示します。
+appearance_welcome_mark: セッションのタイトル
 settings_interface: インターフェーステーマ
 settings_theme_builtin: デフォルト
 settings_version: バージョン

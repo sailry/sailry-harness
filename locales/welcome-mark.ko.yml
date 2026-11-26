@@ -1,2 +1,1 @@
-appearance_welcome_mark: "새 세션 도트 문자"
-appearance_welcome_mark_detail: "영문자, 숫자, 문장 부호. 비우면 %{mark}가 표시됩니다."
+appearance_welcome_mark: "세션 제목"

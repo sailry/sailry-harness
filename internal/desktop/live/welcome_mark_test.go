@@ -165,9 +165,6 @@ func TestWelcomeDefaultMarkEndToEnd(t *testing.T) {
 	}
 
 	openAppearance(t, r, window)
-	if !window.HasText(i18n.In("en", "appearance_welcome_mark_detail", "mark", "SAILRY HARNESS")) {
-		t.Fatal("the lettering hint did not show the product default")
-	}
 	focusMarkField(t, window, title)
 	window.Type("MY TEAM")
 	window.Frame()

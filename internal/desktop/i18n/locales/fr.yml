@@ -77,8 +77,7 @@ appearance_information: Informations
 appearance_format_version: Version du format
 appearance_author: Auteur
 appearance_effects: Animation du thème
-appearance_welcome_mark: Lettrage des nouvelles sessions
-appearance_welcome_mark_detail: Lettres latines, chiffres et ponctuation. Vide affiche %{mark}.
+appearance_welcome_mark: Titre de la session
 settings_interface: Thème d'interface
 settings_theme_builtin: Par défaut
 settings_version: Version

@@ -1,2 +1,1 @@
-appearance_welcome_mark: "Rótulo de sesiones nuevas"
-appearance_welcome_mark_detail: "Letras inglesas, dígitos y puntuación. Vacío muestra %{mark}."
+appearance_welcome_mark: "Título de la sesión"

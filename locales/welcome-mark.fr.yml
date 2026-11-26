@@ -1,2 +1,1 @@
-appearance_welcome_mark: "Lettrage des nouvelles sessions"
-appearance_welcome_mark_detail: "Lettres latines, chiffres et ponctuation. Vide affiche %{mark}."
+appearance_welcome_mark: "Titre de la session"

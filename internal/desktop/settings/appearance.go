@@ -134,7 +134,7 @@ func welcomeMark(c *ui.Context, mark *string, fallback string) {
 		placeholder = i18n.T(c, "welcome_name")
 	}
 	title := i18n.T(c, "appearance_welcome_mark")
-	kit.WideRow(c, "welcome-mark", title, i18n.T(c, "appearance_welcome_mark_detail", "mark", placeholder), func() {
+	kit.WideRow(c, "welcome-mark", title, "", func() {
 		if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(placeholder).
 			MaxLength(preferences.WelcomeMarkMax).FillWidth().Changed() {
 			*mark = preferences.CleanWelcomeMark(*mark)

@@ -1,2 +1,1 @@
-appearance_welcome_mark: "新規セッションのドット文字"
-appearance_welcome_mark_detail: "英字、数字、記号。空欄で %{mark} を表示します。"
+appearance_welcome_mark: "セッションのタイトル"

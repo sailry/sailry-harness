@@ -77,8 +77,7 @@ appearance_information: Information
 appearance_format_version: Format version
 appearance_author: Author
 appearance_effects: Theme animation
-appearance_welcome_mark: New session lettering
-appearance_welcome_mark_detail: English letters, digits and punctuation. Empty shows %{mark}.
+appearance_welcome_mark: Session title
 settings_interface: Interface theme
 settings_theme_builtin: Default
 settings_version: Version

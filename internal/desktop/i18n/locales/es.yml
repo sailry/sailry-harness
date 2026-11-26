@@ -77,8 +77,7 @@ appearance_information: Información
 appearance_format_version: Versión del formato
 appearance_author: Autor
 appearance_effects: Animación del tema
-appearance_welcome_mark: Rótulo de sesiones nuevas
-appearance_welcome_mark_detail: Letras inglesas, dígitos y puntuación. Vacío muestra %{mark}.
+appearance_welcome_mark: Título de la sesión
 settings_interface: Tema de interfaz
 settings_theme_builtin: Predeterminado
 settings_version: Versión

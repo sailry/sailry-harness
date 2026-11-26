@@ -77,8 +77,7 @@ appearance_information: 정보
 appearance_format_version: 형식 버전
 appearance_author: 작성자
 appearance_effects: 테마 애니메이션
-appearance_welcome_mark: 새 세션 도트 문자
-appearance_welcome_mark_detail: 영문자, 숫자, 문장 부호. 비우면 %{mark}가 표시됩니다.
+appearance_welcome_mark: 세션 제목
 settings_interface: 인터페이스
 settings_theme_builtin: 기본값
 settings_version: 버전

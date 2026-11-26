@@ -1,2 +1,1 @@
-appearance_welcome_mark: "Надпись новых сеансов"
-appearance_welcome_mark_detail: "Латинские буквы, цифры и знаки препинания. Пусто — %{mark}."
+appearance_welcome_mark: "Название сеанса"
