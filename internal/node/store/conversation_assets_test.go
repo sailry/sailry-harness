@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/protocol/wire"
 	"lukechampine.com/blake3"
 )
 
@@ -404,14 +406,14 @@ func TestConversationAssetInventory(t *testing.T) {
 				return fmt.Errorf("fork resource targets lost origin scope: %+v", resource)
 			}
 			plain := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_response", Data: &canonical.ToolResponse{ID: "write", Result: canonical.Payload{Value: json.RawMessage(`{"kind":"file_written","data":{"path":"source.go","revision":"captured","size":1}}`)}}})), now)
-			items, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"), nil)
+			items, _, err := conversationAssetItems(ctx, db, plain, session.Worktree, ptr("/project"), nil)
 			if err != nil || len(items) != 0 {
 				return fmt.Errorf("ordinary write receipt became a delivery: %+v, %v", items, err)
 			}
 			review := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0,
 				"Review [Inline](export.py#L7).\n\n- [List](stock.py)\n\n> [Quoted](test_export.py)\n\n[Top level](export.py)"))), now)
 			review.Provenance.Author = "assistant"
-			items, err = conversationAssetItems(ctx, db, review, session.Worktree, ptr("/project"), nil)
+			items, _, err = conversationAssetItems(ctx, db, review, session.Worktree, ptr("/project"), nil)
 			if err != nil || len(items) != 0 {
 				return fmt.Errorf("review references became published outputs: %+v, %v", items, err)
 			}
@@ -608,5 +610,126 @@ func TestConversationAssetCursorUsesStoredBytes(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConversationAssetEncodedPageBudget(t *testing.T) {
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	var reads ConversationAssetReads
+	list := func(query protocol.ConversationAssetsQuery) protocol.ConversationAssetsPage {
+		t.Helper()
+		var page protocol.ConversationAssetsPage
+		if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			page, err = reads.List(ctx, db, session.ID, query)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if query.Checkpoint != nil && page.Checkpoint == "" {
+			t.Fatal("missing checkpoint")
+		}
+		return page
+	}
+	kind := protocol.ConversationAssetsKindResource
+	query := protocol.ConversationAssetsQuery{Limit: 20, Kind: &kind, Checkpoint: ptr("")}
+	seed := list(query)
+	// Two names fit in 16 MiB before response headroom, but not in the page budget.
+	const padding = (protocol.MAX_FRAME_BYTES - 32*1024) / (2 * len(`\u003c`))
+	large := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: protocol.AttachmentSpec{
+		Worktree: session.Worktree, Name: strings.Repeat("<", padding) + ".txt", MediaType: "text/plain", Size: 1, Revision: strings.Repeat("a", 64),
+	}}
+	note := large
+	note.ID, note.Spec.Name = protocol.NewAttachmentID(), "deferred.txt"
+	file := func(index uint64, id protocol.AttachmentID) canonical.Block {
+		return canonical.Block{Index: index, Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: "sailry-attachment://" + id.String(), Mime: &large.Spec.MediaType}}}
+	}
+	var sequences [3]uint64
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		// Populate legacy metadata directly: canonical history stores only the references.
+		body, err := encode(large)
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO attachments(id,worktree,caller,body) VALUES(?1,?2,?3,?4)", large.ID.String(), session.Worktree.String(), node[:], body); err != nil {
+			return err
+		}
+		if err := InsertAttachment(ctx, db, node, note); err != nil {
+			return err
+		}
+		if err := BindTurnAttachments(ctx, db, turn, []protocol.AttachmentID{large.ID, note.ID}); err != nil {
+			return err
+		}
+		for i, message := range []canonical.Message{
+			canonical.NewMessage(canonical.User, file(0, large.ID), file(1, note.ID)),
+			canonical.NewMessage(canonical.Assistant, canonical.Text(0, "[Filtered](filtered.pdf)")),
+			canonical.NewMessage(canonical.User, file(0, large.ID)),
+		} {
+			record := canonical.NewRecord(turn, "message", &message, now)
+			record.Provenance.Author = string(message.Role)
+			if sequences[i], err = insertConversationAssetFixture(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	query.Checkpoint = &seed.Checkpoint
+	first := list(query)
+	if first.Delta || len(first.Groups) != 1 || first.Groups[0].Sequence != sequences[2] || first.NextBefore == nil || *first.NextBefore != sequences[1] {
+		t.Fatalf("an incomplete delta must return a full page ending at the filtered record: %+v", first)
+	}
+	reply := wire.Reply{Kind: wire.ReplyCompleted, Completed: &wire.Response{Output: &protocol.Output{Kind: "conversation_assets", Data: first}}}
+	if err := wire.Write(io.Discard, reply, false); err != nil {
+		t.Fatalf("byte-capped page does not fit a Link frame: %v", err)
+	}
+	updateNote := func(name string) {
+		t.Helper()
+		note.Spec.Name = name
+		if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			body, err := encode(note)
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "UPDATE attachments SET body=?2 WHERE id=?1", note.ID.String(), body)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updateNote("changed while deferred.txt")
+	query.Before, query.Checkpoint = first.NextBefore, &first.Checkpoint
+	next := list(query)
+	if next.Delta || next.Revision != first.Revision || next.NextBefore != nil || len(next.Groups) != 1 || next.Groups[0].Sequence != sequences[0] || len(next.Groups[0].Items) != 2 {
+		t.Fatalf("continuation did not deliver the deferred group: %+v", next)
+	}
+	if got, ok := next.Groups[0].Items[1].Data.(*protocol.Attachment); !ok || got.Spec.Name != note.Spec.Name {
+		t.Fatal("continuation did not read the updated deferred attachment")
+	}
+	query.Before, query.Checkpoint = nil, &next.Checkpoint
+	if warm := list(query); !warm.Delta || warm.NextBefore != nil || len(warm.Groups) != 0 {
+		t.Fatalf("completed traversal did not retain the head: %+v", warm)
+	}
+
+	updateNote(large.Spec.Name)
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		page, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20, Before: first.NextBefore})
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest || fault.Message != "conversation asset group exceeds the response frame budget" {
+			return fmt.Errorf("oversized group did not return an explicit frame fault: %v", err)
+		}
+		if page.NextBefore != nil || len(page.Groups) != 0 {
+			return errors.New("oversized group consumed a cursor or emitted groups")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	artifact := protocol.ConversationAssetsKindArtifact
+	filtered := list(protocol.ConversationAssetsQuery{Limit: 20, Kind: &artifact})
+	if len(filtered.Groups) != 1 || filtered.Groups[0].Sequence != sequences[1] || filtered.NextBefore != nil {
+		t.Fatalf("kind filter did not bypass the oversized group: %+v", filtered)
 	}
 }

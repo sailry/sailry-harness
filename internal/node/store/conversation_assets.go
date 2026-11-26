@@ -14,6 +14,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Match the history response's frame headroom for page metadata and the reply envelope.
+const conversationAssetPageBytes = protocol.MAX_FRAME_BYTES - 64*1024
+
 // ListConversationAssets derives bounded inventory pages from canonical history.
 // It does not index workspace writes or inspect the filesystem.
 func ListConversationAssets(ctx context.Context, db *sql.Conn, session protocol.SessionID, query protocol.ConversationAssetsQuery) (protocol.ConversationAssetsPage, error) {
@@ -79,7 +82,8 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 	if err != nil {
 		return page, err
 	}
-	var last uint64
+	var lastConsumed uint64
+	remaining := conversationAssetPageBytes
 	if oldest != 0 {
 		rows, err := db.QueryContext(ctx, `SELECT h.sequence,e.turn,e.id,e.body`+conversationAssetMembers, session.String(), boundary, oldest-1)
 		if err != nil {
@@ -87,14 +91,21 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 		}
 		defer rows.Close()
 		locations := map[protocol.TurnID]assetLocation{}
+		// A group deferred to the next page is not covered by this checkpoint.
+		var rowDeps *assetDependencies
+		if deps != nil {
+			pending := newAssetDependencies()
+			rowDeps = &pending
+		}
 		for rows.Next() {
+			var sequence uint64
 			var turnText, eventID string
 			var body sql.RawBytes
-			if err = rows.Scan(&last, &turnText, &eventID, &body); err != nil {
+			if err = rows.Scan(&sequence, &turnText, &eventID, &body); err != nil {
 				return page, err
 			}
 			if entry.head == 0 {
-				entry.head, entry.headID = last, eventID
+				entry.head, entry.headID = sequence, eventID
 			}
 			turn, err := protocol.ParseTurnID(turnText)
 			if err != nil {
@@ -109,6 +120,7 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 				kind = protocol.ConversationAssetsKindResource
 			}
 			if query.Kind != nil && *query.Kind != kind {
+				lastConsumed = sequence
 				continue
 			}
 			owner, ok := locations[turn]
@@ -117,21 +129,51 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 				if err != nil {
 					return page, err
 				}
-				if deps.bounded() {
-					deps.turns[turn] = owner.fingerprint()
+				if rowDeps != nil {
+					rowDeps.turns[turn] = owner.fingerprint()
 				}
 				locations[turn] = owner
 			}
-			items, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root, deps)
+			items, itemBytes, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root, rowDeps)
 			if err != nil {
 				return page, err
 			}
 			if len(items) > 0 {
-				page.Groups = append(page.Groups, protocol.ConversationAssetsGroup{Sequence: last, Turn: turn, Worktree: owner.worktree, TimestampMs: record.Created.UnixMilli(), Kind: kind, Items: items})
-				if len(page.Groups) == int(query.Limit) {
-					more = more || last > oldest
+				group := protocol.ConversationAssetsGroup{Sequence: sequence, Turn: turn, Worktree: owner.worktree, TimestampMs: record.Created.UnixMilli(), Kind: kind}
+				// The encoded group with an empty items array accounts for its metadata and brackets.
+				header, err := encode(group)
+				if err != nil {
+					return page, err
+				}
+				size := len(header) + itemBytes
+				if size > conversationAssetPageBytes {
+					return page, invalid("conversation asset group exceeds the response frame budget")
+				}
+				if len(page.Groups) > 0 {
+					size++ // comma between groups
+				}
+				if size > remaining {
+					more = true
 					break
 				}
+				remaining -= size
+				group.Items = items
+				page.Groups = append(page.Groups, group)
+			}
+			lastConsumed = sequence
+			if rowDeps != nil {
+				deps.merge(*rowDeps)
+				if !deps.bounded() {
+					rowDeps = nil
+				} else {
+					clear(rowDeps.turns)
+					clear(rowDeps.attachments)
+					clear(rowDeps.blobs)
+				}
+			}
+			if len(page.Groups) == int(query.Limit) {
+				more = more || lastConsumed > oldest
+				break
 			}
 		}
 		if err = errors.Join(rows.Err(), rows.Close()); err != nil {
@@ -139,11 +181,11 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 		}
 	}
 	if more {
-		page.NextBefore = &last
+		page.NextBefore = &lastConsumed
 	}
 	if deps != nil {
 		if more {
-			entry.next = last
+			entry.next = lastConsumed
 		}
 		if prior != nil && (query.Before != nil || !more) {
 			entry.deps.merge(prior.deps)
@@ -191,9 +233,10 @@ func conversationAssetBoundary(ctx context.Context, db *sql.Conn, session protoc
 }
 
 type conversationAssetTargets struct {
-	items []protocol.ConversationAssetsTarget
-	seen  map[string]bool
-	err   error
+	items        []protocol.ConversationAssetsTarget
+	seen         map[string]bool
+	encodedBytes int
+	err          error
 }
 
 func (targets *conversationAssetTargets) push(kind string, data any) {
@@ -210,6 +253,10 @@ func (targets *conversationAssetTargets) push(kind string, data any) {
 		targets.seen = map[string]bool{}
 	}
 	if !targets.seen[string(body)] {
+		if len(targets.items) > 0 {
+			targets.encodedBytes++ // comma between targets
+		}
+		targets.encodedBytes += len(body)
 		targets.items = append(targets.items, value)
 		targets.seen[string(body)] = true
 	}
@@ -227,11 +274,11 @@ func (targets *conversationAssetTargets) image(record canonical.Record, worktree
 	}
 	return err
 }
-func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.Record, worktree protocol.WorktreeID, root *string, deps *assetDependencies) ([]protocol.ConversationAssetsTarget, error) {
+func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.Record, worktree protocol.WorktreeID, root *string, deps *assetDependencies) ([]protocol.ConversationAssetsTarget, int, error) {
 	targets := &conversationAssetTargets{items: []protocol.ConversationAssetsTarget{}}
 	message := record.Message()
 	if message == nil {
-		return targets.items, nil
+		return targets.items, 0, nil
 	}
 	hidden := record.Provenance.Author == "system" && record.Metadata.Context != nil && record.Metadata.Context.Captured
 	if !hidden {
@@ -255,27 +302,27 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 				case *canonical.AssetContent:
 					if block.Kind == "image" {
 						if err := targets.image(record, worktree, part, 0, value.Asset); err != nil {
-							return nil, err
+							return nil, 0, err
 						}
 					}
 				case *canonical.FileContent:
 					if strings.HasPrefix(value.File.URI, "sailry-attachment://") {
 						id, err := protocol.ParseAttachmentID(strings.TrimPrefix(value.File.URI, "sailry-attachment://"))
 						if err != nil {
-							return nil, err
+							return nil, 0, err
 						}
 						attachment, err := GetTurnAttachment(ctx, db, record.Turn, id)
 						if err != nil {
-							return nil, err
+							return nil, 0, err
 						}
 						if value.File.Mime == nil || *value.File.Mime != attachment.Spec.MediaType {
-							return nil, invalid("attachment media type mismatch")
+							return nil, 0, invalid("attachment media type mismatch")
 						}
 						targets.push("attachment", &attachment)
 						if deps.bounded() {
 							body, err := encode(attachment)
 							if err != nil {
-								return nil, err
+								return nil, 0, err
 							}
 							deps.attachments[assetAttachmentKey{record.Turn, id}] = sha256.Sum256(body)
 						}
@@ -287,7 +334,7 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 					}
 					for index, asset := range conversationAssetImages(value) {
 						if err := targets.image(record, worktree, part, uint64(index), asset); err != nil {
-							return nil, err
+							return nil, 0, err
 						}
 					}
 				}
@@ -317,7 +364,7 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 		}
 		hydrated, err := HydrateCanonicalPayload(ctx, db, response.Result)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		for _, slot := range response.Result.Assets {
 			if !deps.bounded() {
@@ -346,7 +393,7 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 			}
 		}
 	}
-	return targets.items, targets.err
+	return targets.items, targets.encodedBytes, targets.err
 }
 
 func conversationAssetResultMayContain(value json.RawMessage, key string) bool {
