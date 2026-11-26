@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"net/http"
+	"sync"
 
 	"charm.land/fantasy"
 	"golang.org/x/net/http2"
@@ -40,6 +41,21 @@ func http2Interrupted(err error) bool {
 	return false
 }
 
+// Reuse connections when the captured model selects HTTP/1.1. Other
+// transports keep their own proxy and TLS configuration.
+var modelHTTP1Transport = sync.OnceValue(func() *http.Transport { return http1Transport(modelTransport()) })
+
+func http1Transport(base *http.Transport) *http.Transport {
+	fallback := base.Clone()
+	fallback.Protocols = &http.Protocols{}
+	fallback.Protocols.SetHTTP1(true)
+	if fallback.TLSClientConfig != nil {
+		// Clone retains the ALPN offers installed when the original transport negotiated h2.
+		fallback.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	}
+	return fallback
+}
+
 func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 	transport := model.client.Transport
 	vertex, cloud := transport.(vertexTransport)
@@ -58,12 +74,13 @@ func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 	if !ok {
 		return nil, nil
 	}
-	fallback := base.Clone()
-	fallback.Protocols = &http.Protocols{}
-	fallback.Protocols.SetHTTP1(true)
-	if fallback.TLSClientConfig != nil {
-		// Clone retains the ALPN offers installed when the original transport negotiated h2.
-		fallback.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	var fallback *http.Transport
+	release := func() {}
+	if base == modelTransport() {
+		fallback = modelHTTP1Transport()
+	} else {
+		fallback = http1Transport(base)
+		release = fallback.CloseIdleConnections
 	}
 	response.base = fallback
 	transport = response
@@ -77,7 +94,5 @@ func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 	}
 	client := *model.client
 	client.Transport = transport
-	copy := *model
-	copy.client = &client
-	return &copy, fallback.CloseIdleConnections
+	return &sdkModel{config: model.config, client: &client}, release
 }

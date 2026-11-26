@@ -361,7 +361,7 @@ func TestSDKHTTP2ProtocolResetWithoutReplay(t *testing.T) {
 	}
 }
 
-func TestSDKHTTP2ProtocolRecoveryIsRequestScoped(t *testing.T) {
+func TestSDKHTTP2ProtocolRecoveryIsModelScoped(t *testing.T) {
 	t.Parallel()
 	prefixes := map[string]string{
 		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"Discarded\"}\n\n",
@@ -437,6 +437,15 @@ func TestSDKHTTP2ProtocolRecoveryIsRequestScoped(t *testing.T) {
 					output = ""
 					resets++
 				})
+				if run == 1 {
+					if count := len(attempts); err != nil || count != 1 || attempts[0].Failure != nil || len(timer.delays) != 0 || resets != 0 || output != "Read complete" || finishes != 1 {
+						t.Fatalf("later step repeated a confirmed protocol reset: attempts=%d waits=%v resets=%d text=%q err=%v", count, timer.delays, resets, output, err)
+					}
+					if request := <-requests; request.major != 1 {
+						t.Fatalf("later step negotiated HTTP/%d", request.major)
+					}
+					continue
+				}
 				count := MainRetries + 1
 				if test.recovers {
 					count = 2
@@ -478,9 +487,31 @@ func TestSDKHTTP2ProtocolRecoveryIsRequestScoped(t *testing.T) {
 					}
 				}
 			}
-			if proxyCalls.Load() < int32(iterations*2) {
+			if proxyCalls.Load() < int32(iterations+1) {
 				t.Fatal("HTTP/1 fallback bypassed the captured proxy function")
 			}
 		})
+	}
+}
+
+func TestSDKRechecksHTTP2AfterPreferredHTTP1Fails(t *testing.T) {
+	t.Parallel()
+	server, requests, _ := protocolResetServer(t, nil, "", false)
+	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk := language.(*sdkModel)
+	sdk.client.Transport = responseTransport{base: server.Client().Transport, stall: stallTimeout}
+	sdk.preferHTTP1.Store(true)
+	err = Run(t.Context(), sdk, requestCall(t, "responses"), Main, &policyClock{}, nil, nil, nil)
+	if failure := Classify(err); failure == nil || !failure.Exhausted || sdk.preferHTTP1.Load() || len(requests) != MainRetries+1 {
+		t.Fatalf("failed HTTP/1 route retained: attempts=%d error=%v", len(requests), err)
+	}
+	for index := range MainRetries + 1 {
+		request := <-requests
+		if index == 0 && request.major != 1 || index > 0 && request.major != 2 {
+			t.Fatalf("attempt %d used HTTP/%d", index+1, request.major)
+		}
 	}
 }

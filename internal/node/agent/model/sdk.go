@@ -78,6 +78,9 @@ func (metadata UsageMetadata) scalar() fantasy.Usage {
 type sdkModel struct {
 	config transportConfig
 	client *http.Client
+	// Prefer HTTP/1.1 only after it completed a stream that this captured
+	// model's HTTP/2 route reset.
+	preferHTTP1 atomic.Bool
 }
 type responseFacts struct {
 	status   int
@@ -138,7 +141,7 @@ func sameRequestBody(left, right io.ReadCloser) bool {
 }
 
 // stallTimeout is how long a model response may send nothing, counted from
-// the request and again from each read.
+// dispatch until headers arrive and during each pending body read.
 const stallTimeout = 300 * time.Second
 
 type responseTransport struct {
@@ -164,12 +167,11 @@ type stallBody struct {
 }
 
 func (body *stallBody) Read(buffer []byte) (int, error) {
+	body.timer.Reset(body.limit)
 	count, err := body.ReadCloser.Read(buffer)
+	body.timer.Stop()
 	if body.stalled.Load() {
 		return 0, stallError{}
-	}
-	if count > 0 {
-		body.timer.Reset(body.limit)
 	}
 	return count, err
 }
@@ -208,13 +210,15 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 	timer := time.AfterFunc(transport.stall, func() { stalled.Store(true); cancel() })
 	captureDispatch(owner)
 	response, err := transport.base.RoundTrip(request.WithContext(owner))
-	if err != nil || response == nil {
-		timer.Stop()
+	// Receiving headers ends the dispatch wait. Time spent by the consumer
+	// between reads is local work and does not indicate a silent peer.
+	headersInTime := timer.Stop()
+	if !headersInTime || err != nil || response == nil {
 		cancel()
 		if response != nil && response.Body != nil {
 			response.Body.Close()
 		}
-		if stalled.Load() {
+		if !headersInTime {
 			err = stallError{}
 		}
 		return nil, err

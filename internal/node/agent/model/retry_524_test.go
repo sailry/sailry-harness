@@ -175,3 +175,40 @@ func TestHTTP524AfterFinishDoesNotReplay(t *testing.T) {
 		t.Fatalf("tail failure replayed committed output: calls=%d commits=%d resets=%d delays=%v failure=%+v", fake.calls, commits, resets, timer.delays, f)
 	}
 }
+
+func TestStreamStallMeasuresOnlyPendingIO(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		trip := pluginRoundTripper(func(req *http.Request) (*http.Response, error) {
+			reader, writer := io.Pipe()
+			// Headers arrive near the end of their own idle timeout.
+			time.Sleep(stallTimeout - time.Second)
+			go func() {
+				defer writer.Close()
+				time.Sleep(2 * time.Second)
+				_, _ = writer.Write([]byte("one"))
+				_, _ = writer.Write([]byte("two"))
+			}()
+			context.AfterFunc(req.Context(), func() { reader.CloseWithError(req.Context().Err()) })
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: reader}, nil
+		})
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://fixture.invalid", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport := responseTransport{base: trip, stall: stallTimeout}
+		resp, err := transport.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var data [3]byte
+		for _, want := range []string{"one", "two"} {
+			if _, err := io.ReadFull(resp.Body, data[:]); err != nil || string(data[:]) != want {
+				t.Fatalf("expected %q after an active read, got %q, %v", want, data, err)
+			}
+			// The model consumer is publishing output, not waiting for bytes.
+			time.Sleep(stallTimeout + time.Second)
+		}
+	})
+}

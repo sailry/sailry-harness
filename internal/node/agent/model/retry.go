@@ -101,8 +101,8 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	var observation requestObservation
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	sdk, _ := languageModel.(*sdkModel)
-	nextModel := languageModel
-	var releaseFallback func()
+	tryHTTP1 := sdk != nil && sdk.preferHTTP1.Load()
+	triedHTTP1 := false
 	var secrets []protocol.Secret
 	if sdk != nil {
 		secrets = append(secrets, sdk.config.Protection...)
@@ -129,6 +129,14 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		owner, cancel := context.WithCancel(ctx)
 		firstOutputTimer := schedule.firstOutputTimer(attempt.Started, cancel)
 		owner, capture := captureAttempt(owner, call, timer, attempt.Started)
+		nextModel := languageModel
+		var releaseHTTP1 func()
+		if tryHTTP1 {
+			triedHTTP1, tryHTTP1 = true, false
+			if alternative, release := sdk.http1Fallback(); alternative != nil {
+				nextModel, releaseHTTP1 = alternative, release
+			}
+		}
 		stream, err := nextModel.Stream(owner, call)
 		var pending []fantasy.StreamPart
 		streamed, escaped, finished, released := false, false, false, false
@@ -187,9 +195,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			err, waitExhausted = ctx.Err(), false
 		}
 		cancel()
-		if releaseFallback != nil {
-			releaseFallback()
-			nextModel, releaseFallback = languageModel, nil
+		if releaseHTTP1 != nil {
+			releaseHTTP1()
+			if err == nil {
+				sdk.preferHTTP1.Store(true)
+			}
 		}
 		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
@@ -201,6 +211,14 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 					attempt.Failure = &Failure{Kind: Network, Message: "Model retry timed out waiting for output after HTTP 524"}
 				}
 				waitExhausted = attempt.Failure.Retryable()
+			}
+			if releaseHTTP1 != nil && sdk.preferHTTP1.Load() {
+				switch attempt.Failure.Kind {
+				case Network, Unavailable:
+					sdk.preferHTTP1.Store(false)
+				default:
+					tryHTTP1 = true
+				}
 			}
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
@@ -277,12 +295,8 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			failure.requestObserved = observation.finish(ctx, true)
 			return &failure
 		}
-		if sdk != nil && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
-			// Spend one admitted retry on HTTP/1.1 without pinning an HTTP/2-only origin to it.
-			if fallback, release := sdk.http1Fallback(); fallback != nil {
-				nextModel, releaseFallback = fallback, release
-			}
-			sdk = nil
+		if sdk != nil && !triedHTTP1 && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
+			tryHTTP1 = true
 		}
 	}
 }
