@@ -68,6 +68,7 @@ func TestCollaborateWorkflowUsesAvailableDelegation(t *testing.T) {
 	unavailable := Workflow(protocol.WorkModeFlagship, false, false)
 	child := Workflow(protocol.WorkModeFlagship, true, false)
 	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "this turn's model") ||
+		!strings.Contains(available, "only if no team is selected or the selected team's instructions allow delegation without a role") ||
 		!strings.Contains(available, "fan out ready subagents together") ||
 		!strings.Contains(available, "Handle tiny single-area lookups") ||
 		!strings.Contains(available, "Never duplicate in the parent") {
@@ -96,6 +97,8 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 				initialPlan, "skip the tool for simple tasks", "without claiming a saved plan", revisePlan,
 				"do not guess at a saved plan", "build a fresh plan from the current scope and confirmed evidence",
 				"Batch update_plan in the same turn alongside real tool calls",
+				"You may use a standalone call to close an existing plan only after reading the final verification result and when no other real tool calls remain.",
+				"This is optional, not a required extra round.",
 				"read the corresponding results", "leave unrun required checks pending", "not proof of completion or new authorization",
 			} {
 				if !strings.Contains(parent, phrase) {

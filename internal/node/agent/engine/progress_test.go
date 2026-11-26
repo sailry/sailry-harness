@@ -14,6 +14,23 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestNativePlanDescribesOptionalVerifiedClose(t *testing.T) {
+	t.Parallel()
+	tool := updatePlanTool()
+	var schema struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(tool.SchemaJSON, &schema); err != nil {
+		t.Fatal(err)
+	}
+	const closeRule = "You may use a standalone call to close an existing plan only after reading the final verification result and when no other real tool calls remain. This is optional, not a required extra round."
+	for _, description := range []string{tool.Definition.Description, schema.Description} {
+		if !strings.Contains(description, closeRule) {
+			t.Errorf("missing optional plan close guidance: %q", description)
+		}
+	}
+}
+
 func TestNativePlanPersistsOrderedProgressInPlanMode(t *testing.T) {
 	t.Parallel()
 	const earlier = `{"title":null,"steps":[{"description":"Read inputs","state":"in_progress"}]}`

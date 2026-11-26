@@ -2624,6 +2624,7 @@
     "description": "Record the current structured progress snapshot",
     "parameters": {
       "type": "object",
+      "description": "Send the full ordered snapshot, including unchanged steps. You may use a standalone call to close an existing plan only after reading the final verification result and when no other real tool calls remain. This is optional, not a required extra round.",
       "properties": {
         "title": {
           "type": [

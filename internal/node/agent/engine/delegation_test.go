@@ -140,10 +140,8 @@ func TestStopAgentStopsAndCollectsChild(t *testing.T) {
 func TestChildTurnLimitIsRuntimeNote(t *testing.T) {
 	t.Parallel()
 	f, x := delegationFixture(t)
-	x.childRole = &protocol.RoleProfile{MaxTurns: new(uint32(0))}
-	limited, err := f.r.childTurnLimit(x, f.state())
-	if err != nil || !limited {
-		t.Fatal(limited, err)
+	if err := f.r.recordChildTurnLimit(x); err != nil {
+		t.Fatal(err)
 	}
 	state := f.state()
 	last := state.Records[len(state.Records)-1]

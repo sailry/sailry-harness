@@ -14,7 +14,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$","description":"Exact session ID of an idle child to continue; omit for a new child"},"role":{"type":["string","null"],"description":"Exact roster role key; omit or pass null to use this turn's model"},"task":{"type":"string","description":"Goal, scope, expected result and established findings"},"title":{"type":"string","minLength":1,"description":"Short single-line label for the child"},"background":{"type":"boolean","description":"Not owned by this turn; the result arrives as a later notice"},"overlap":{"type":"boolean","description":"Continue parent work while this foreground child runs. Defaults to true in Flagship. Set false if the next parent step needs its result."},"worktree":{"type":["string","null"],"description":"Registered worktree ID for a new child; defaults to this turn's worktree"}}}`
+const rolelessSpawnCondition = "only if no team is selected or the selected team's instructions allow delegation without a role"
+
+const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$","description":"Exact session ID of an idle child to continue; omit for a new child"},"role":{"type":["string","null"],"description":"Exact roster role key for a new child. Omit or pass null to use this turn's model ` + rolelessSpawnCondition + `. Omit when continuing an idle child."},"task":{"type":"string","description":"Goal, scope, expected result and established findings"},"title":{"type":"string","minLength":1,"description":"Short single-line label for the child"},"background":{"type":"boolean","description":"Not owned by this turn; the result arrives as a later notice"},"overlap":{"type":"boolean","description":"Continue parent work while this foreground child runs. Defaults to true in Flagship. Set false if the next parent step needs its result."},"worktree":{"type":["string","null"],"description":"Registered worktree ID for a new child; defaults to this turn's worktree"}}}`
 const listSubagentsSchema = `{"type":"object","additionalProperties":false,"properties":{"before":{"type":"string","pattern":"^[1-9][0-9]{0,18}$","description":"Use next_before from the preceding page"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":20}}}`
 
 func delegationAvailable(x *execution) bool {
@@ -24,7 +26,8 @@ func delegationAvailable(x *execution) bool {
 func (r *Runtime) usableRoles(x *execution) []protocol.RoleProfile {
 	var usable []protocol.RoleProfile
 	for _, role := range x.inv.Turn.Roles.Profiles {
-		if r.usableRole(x, role) {
+		missing := r.missingRoleRequirements(x, role)
+		if len(missing.skills) == 0 && len(missing.tools) == 0 {
 			usable = append(usable, role)
 		}
 	}
@@ -52,11 +55,10 @@ func spawnDescriptionFor(x *execution, usable []protocol.RoleProfile) string {
 	}
 	const paragraph1 = "Delegate a bounded multi-step task when authorized; handle tiny lookups or edits directly. Send independent spawns together. Foreground children in Flagship overlap parent work by default; set overlap=false only if the very next parent step immediately blocks on the result (outside Flagship, set overlap=true to opt in). Completed overlapping results arrive automatically—do not re-fetch an un-truncated completion with wait_agent. Detached background children complete as later notices. Extra children queue at the concurrency limit. Keep the returned session and turn IDs."
 	roleSentence := "No team roles are configured for this turn; omit role so new children run with this turn's model."
-	if len(x.inv.Turn.Roles.Profiles) > 0 {
+	if x.inv.Turn.Roles.Team != nil || strings.TrimSpace(x.inv.Turn.Roles.Instructions) != "" {
+		roleSentence = "No roles from the captured team are available for new children in this turn; omit role to use this turn's model only if the team instructions allow delegation without a role."
+	} else if len(x.inv.Turn.Roles.Profiles) > 0 {
 		roleSentence = "No roles from the captured team are available for new children in this turn; omit role to use this turn's model."
-		if strings.TrimSpace(x.inv.Turn.Roles.Instructions) != "" {
-			roleSentence = "No roles from the captured team are available for new children in this turn; follow the team instructions and omit role when roleless delegation is allowed."
-		}
 	}
 	paragraph2 := "Give each child its goal, disjoint scope, known path:line facts, expected output, and stop condition. " +
 		roleSentence +
@@ -68,7 +70,6 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 	if !delegationAvailable(x) {
 		return nil
 	}
-	usable := r.usableRoles(x)
 	deferred := x.inv.Turn.Config.Mode != protocol.WorkModeFlagship && selectedRole(x.inv.Message) == nil
 	var values []Tool
 	for _, name := range []string{"spawn_agent", "guide_agent", "wait_agent"} {
@@ -76,7 +77,6 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 		var schema string
 		switch name {
 		case "spawn_agent":
-			description = spawnDescriptionFor(x, usable)
 			schema = spawnSchema
 		case "guide_agent":
 			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1},"overlap":{"type":"boolean","description":"Continue parent work while an idle child runs its new task. Defaults to true in Flagship. Guidance to an already running child returns immediately."}},"required":["session","message"],"additionalProperties":false}`
@@ -243,33 +243,24 @@ func (r *Runtime) selectedAgent(x *execution, state store.AgentState) (bool, err
 			}
 		}
 	}
-	role := slices.IndexFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool {
-		return role.ID == selected.ID && role.Revision == selected.Revision && r.usableRole(x, role)
+	index := slices.IndexFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool {
+		return role.ID == selected.ID && role.Revision == selected.Revision
 	})
-	if role < 0 {
+	if index < 0 {
 		return false, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "selected role is absent from the frozen roster"}
+	}
+	role := x.inv.Turn.Roles.Profiles[index]
+	if reason := r.missingRoleRequirements(x, role).reason(); reason != "" {
+		return false, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: fmt.Sprintf("selected role %q is unavailable in this turn because %s", role.Key, reason)}
 	}
 	task := x.inv.Message.Text
 	if strings.TrimSpace(task) == "" {
 		task = "Complete the request using the selected context"
 	}
-	arguments, _ := json.Marshal(map[string]any{"role": x.inv.Turn.Roles.Profiles[role].Key, "task": task})
+	arguments, _ := json.Marshal(map[string]any{"role": role.Key, "task": task})
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &canonical.ToolRequest{ID: id, Name: "spawn_agent", Arguments: arguments}}), r.clock.Now())
 	record.Provenance.Author = "assistant"
 	return true, r.save(x.ctx, x.inv.Session.ID, record)
-}
-
-func (r *Runtime) usableRole(x *execution, role protocol.RoleProfile) bool {
-	if x.resources == nil {
-		return len(role.Skills) == 0
-	}
-	skills := x.resources.Skills()
-	for _, key := range role.Skills {
-		if _, ok := skills[key]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string {
@@ -277,9 +268,10 @@ func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string 
 		return ""
 	}
 	var roster []string
-	var unavailable []string
+	var unavailableSkills, unavailableTools []string
 	for _, role := range x.inv.Turn.Roles.Profiles {
-		if r.usableRole(x, role) {
+		missing := r.missingRoleRequirements(x, role)
+		if len(missing.skills) == 0 && len(missing.tools) == 0 {
 			line := role.Key + " (" + role.Name + ")"
 			if role.ReadOnly {
 				line += " [read only]"
@@ -288,27 +280,32 @@ func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string 
 				line += ": " + purpose
 			}
 			roster = append(roster, line)
-		} else {
-			unavailable = append(unavailable, fmt.Sprintf("%s (missing: %s)", role.Key, strings.Join(r.missingRoleSkills(x, role), ", ")))
+		}
+		if len(missing.skills) > 0 {
+			unavailableSkills = append(unavailableSkills, fmt.Sprintf("%s (missing: %s)", role.Key, strings.Join(missing.skills, ", ")))
+		}
+		if len(missing.tools) > 0 {
+			unavailableTools = append(unavailableTools, fmt.Sprintf("%s (missing: %s)", role.Key, strings.Join(missing.tools, ", ")))
 		}
 	}
-	hasTeamInstructions := strings.TrimSpace(x.inv.Turn.Roles.Instructions) != ""
+	hasTeam := x.inv.Turn.Roles.Team != nil || strings.TrimSpace(x.inv.Turn.Roles.Instructions) != ""
 	text := "Omit role to create children using this turn's model."
 	if len(roster) > 0 {
-		if hasTeamInstructions {
+		if hasTeam {
 			text = "Follow the team instructions and choose the exact key of the role whose responsibilities fit. Available roles:\n" + strings.Join(roster, "\n") + "\nIf the team instructions allow delegation without a role, omit role to use this turn's model."
 		} else {
 			text = "Available roles (pass the exact key when a role's responsibilities fit, or omit role to use this turn's model):\n" + strings.Join(roster, "\n")
 		}
+	} else if hasTeam {
+		text = "The captured team has no available roles for new children. If the team instructions allow delegation without a role, omit role to use this turn's model."
 	} else if len(x.inv.Turn.Roles.Profiles) > 0 {
-		if hasTeamInstructions {
-			text = "The captured team has no available roles for new children. Follow the team instructions for work outside role responsibilities."
-		} else {
-			text = "The captured team has no available roles for new children; omit role to use this turn's model."
-		}
+		text = "The captured team has no available roles for new children; omit role to use this turn's model."
 	}
-	if len(unavailable) > 0 {
-		text += "\nUnavailable roles (missing required skills): " + strings.Join(unavailable, ", ")
+	if len(unavailableSkills) > 0 {
+		text += "\nUnavailable roles (missing required skills): " + strings.Join(unavailableSkills, ", ")
+	}
+	if len(unavailableTools) > 0 {
+		text += "\nUnavailable roles (missing required tools): " + strings.Join(unavailableTools, ", ")
 	}
 	if list := findTool(x.tools, "list_subagents"); list != nil {
 		text += "\nBefore reusing earlier children across turns, inspect list_subagents for exact IDs and status; never resume a cancelled or stopped child unless explicitly requested."
@@ -355,20 +352,21 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 		args.Role = nil
 	}
 	if args.Role != nil {
-		usable := r.usableRoles(x)
-		if !slices.ContainsFunc(usable, func(role protocol.RoleProfile) bool { return role.Key == *args.Role }) {
-			if index := slices.IndexFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool { return role.Key == *args.Role }); index >= 0 {
-				missing := r.missingRoleSkills(x, x.inv.Turn.Roles.Profiles[index])
-				return invalidTool(fmt.Sprintf("role %q is unavailable in this turn because required skills are missing: %s", *args.Role, strings.Join(missing, ", ")))
+		if index := slices.IndexFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool { return role.Key == *args.Role }); index >= 0 {
+			role := x.inv.Turn.Roles.Profiles[index]
+			if reason := r.missingRoleRequirements(x, role).reason(); reason != "" {
+				return invalidTool(fmt.Sprintf("role %q is unavailable in this turn because %s", role.Key, reason))
 			}
+		} else {
+			usable := r.usableRoles(x)
 			if len(usable) == 0 {
-				return invalidTool("this turn has no available roles; omit role to use this turn's model")
+				return invalidTool("this turn has no available roles; omit role to use this turn's model " + rolelessSpawnCondition)
 			}
 			keys := make([]string, len(usable))
 			for i, role := range usable {
 				keys[i] = role.Key
 			}
-			return invalidTool(fmt.Sprintf("role %q is not listed in this turn's roster; available roles: %s (or omit role to use this turn's model)", *args.Role, strings.Join(keys, ", ")))
+			return invalidTool(fmt.Sprintf("role %q is not listed in this turn's roster; available roles: %s (or omit role to use this turn's model %s)", *args.Role, strings.Join(keys, ", "), rolelessSpawnCondition))
 		}
 	}
 	explicitOverlap := args.Overlap != nil && *args.Overlap

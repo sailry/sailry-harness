@@ -59,6 +59,32 @@ func (r *Runtime) executeOwned(x *execution) {
 	r.execute(x)
 }
 
+// handoffChildGuidance gives already queued guidance the same owner and tool
+// boundary. A controller-retried child has no in-memory delegation owner.
+func (r *Runtime) handoffChildGuidance(x *execution, child *delegatedChild, successor protocol.ConversationRun) {
+	next := &delegatedChild{session: successor.Session, turn: successor.Turn, sequence: successor.Sequence, released: true, commandsInherited: true}
+	if child == nil {
+		origin := *x.inv.Session.Delegation
+		next.root, next.parent, next.detached = origin.Session, origin.Turn, true
+		next.ctx, next.cancel = context.WithCancel(r.ctx)
+		next.tools, next.connections = x.parentTools, x.inv.ConnectionTargets
+	} else {
+		next.root, next.parent, next.overlap, next.detached = child.root, child.parent, child.overlap, child.detached
+		next.ctx, next.cancel = child.ctx, child.cancel
+		next.tools, next.connections = child.tools, child.connections
+	}
+	r.mu.Lock()
+	if child != nil {
+		child.successor = next
+		delete(r.children, child.turn)
+	}
+	if r.children == nil {
+		r.children = make(map[protocol.TurnID]*delegatedChild)
+	}
+	r.children[next.turn] = next
+	r.mu.Unlock()
+}
+
 // stopChildCommands ends the background commands of a child whose run has
 // ended. Their completion is never delivered to a delegated session and no
 // record hands them to the parent, so they would otherwise outlive every
@@ -125,18 +151,19 @@ func effectiveChildMaxTurns(x *execution) (uint32, bool) {
 	return defaultChildMaxTurns, true
 }
 
-func (r *Runtime) childTurnLimit(x *execution, state store.AgentState) (bool, error) {
+func childTurnBudgetExhausted(x *execution, state store.AgentState) bool {
 	limit, bounded := effectiveChildMaxTurns(x)
-	if !bounded || usedChildTurns(x, state) < limit {
-		return false, nil
-	}
+	return bounded && usedChildTurns(x, state) >= limit
+}
+
+func (r *Runtime) recordChildTurnLimit(x *execution) error {
 	// The runtime ended the turn, so it says so as a note clients localize,
 	// not as an assistant reply in the child's model history.
 	value := &canonical.Note{Note: canonical.OperationNote{Kind: "turn_limit"}}
 	record := canonical.NewRecord(x.inv.Run.Turn, "operation", &canonical.Operation{Kind: "note", Data: value}, r.clock.Now())
 	record.Provenance.Author = "system"
 	record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, Notes: &canonical.OperationNotes{TurnLimit: true}}
-	return true, r.save(x.ctx, x.inv.Session.ID, record)
+	return r.save(x.ctx, x.inv.Session.ID, record)
 }
 
 func childBudgetContext(x *execution, state store.AgentState) string {

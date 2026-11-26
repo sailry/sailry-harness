@@ -178,10 +178,8 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.tools = x.parentTools.restrict(x.tools)
 		if x.childRole != nil && x.childRole.Tools != nil {
 			legacy := legacyToolAliases(x.tools)
-			for _, selection := range *x.childRole.Tools {
-				if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return roleToolMatches(selection, tool, legacy) }) {
-					return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "role references an unavailable tool"}
-				}
+			if len(missingRoleTools(*x.childRole, x.inv.Turn.Config.Mode, modelSupportsTools(x.inv.Provider, x.inv.Turn.Config.Model), x.tools, legacy)) != 0 {
+				return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "role references an unavailable tool"}
 			}
 			x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool {
 				return tool.Definition.Name != "read_tool_output" && !slices.ContainsFunc(*x.childRole.Tools, func(selection protocol.PluginConversationTool) bool {
@@ -216,6 +214,9 @@ func (r *Runtime) captureTools(x *execution) error {
 	}
 	if delegationAvailable(x) {
 		x.delegationTools = captureInheritedTools(x.tools)
+		if spawn := findTool(x.tools, "spawn_agent"); spawn != nil {
+			spawn.Definition.Description = spawnDescriptionFor(x, r.usableRoles(x))
+		}
 	}
 	return nil
 }

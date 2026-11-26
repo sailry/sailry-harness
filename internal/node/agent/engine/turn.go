@@ -143,7 +143,7 @@ func (r *Runtime) execute(x *execution) {
 		if run.Status == protocol.ConversationStatusCancelled && !settledStop && x.inv.Session.Delegation == nil {
 			return errSettleStoppedChildren
 		}
-		if child != nil && run.Status == protocol.ConversationStatusCompleted {
+		if run.Status == protocol.ConversationStatusCompleted && (child != nil || x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil) {
 			var guidanceEvents []protocol.Event
 			successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
 			if err != nil {
@@ -219,16 +219,7 @@ func (r *Runtime) execute(x *execution) {
 	recordTurnFailure(run, cause)
 	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
 	if successor != nil {
-		next := &delegatedChild{
-			root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence,
-			ctx: child.ctx, cancel: child.cancel, released: true, overlap: child.overlap, detached: child.detached,
-			commandsInherited: true, tools: child.tools, connections: child.connections,
-		}
-		r.mu.Lock()
-		child.successor = next
-		delete(r.children, child.turn)
-		r.children[next.turn] = next
-		r.mu.Unlock()
+		r.handoffChildGuidance(x, child, *successor)
 	} else {
 		r.stopChildCommands(x, run)
 	}
@@ -490,8 +481,9 @@ func (r *Runtime) turn(x *execution) error {
 			continue
 		}
 		// One batch joins after tool results or a finished reply, before the
-		// next inference. A failed step leaves its guidance in the queue.
-		if failed := lastMessage(state.Records); !x.foregroundSteered && (failed == nil || failed.Error == nil) {
+		// next inference. A failed step or exhausted child leaves it queued.
+		childLimited := childTurnBudgetExhausted(x, state)
+		if failed := lastMessage(state.Records); !childLimited && !x.foregroundSteered && (failed == nil || failed.Error == nil) {
 			joined, err := r.guidance(x)
 			if err != nil {
 				return err
@@ -573,17 +565,13 @@ func (r *Runtime) turn(x *execution) error {
 			continue
 		}
 		if finishing && !x.callbackPending {
-			if r.hasQueuedSteer(x) || r.hasDirectSteer(x) {
+			if !childLimited && (r.hasQueuedSteer(x) || r.hasDirectSteer(x)) {
 				continue
 			}
 			return nil
 		}
-		limited, err := r.childTurnLimit(x, state)
-		if err != nil {
-			return err
-		}
-		if limited {
-			return nil
+		if childLimited {
+			return r.recordChildTurnLimit(x)
 		}
 		if inv.Session.Delegation == nil && r.maxModelSteps > 0 && x.modelSteps >= r.maxModelSteps {
 			if err = r.detachForeground(x); err != nil {
