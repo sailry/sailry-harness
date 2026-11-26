@@ -8,9 +8,9 @@ import (
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 	"lukechampine.com/blake3"
 )
 

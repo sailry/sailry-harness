@@ -185,7 +185,8 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 func (r *Runtime) connectionStatus() settings.ConnectionStatus {
 	state := r.connections
 	status := settings.ConnectionStatus{
-		Revoking: state.revoking, Narrowing: state.narrowing, Distributions: state.wsl.names,
+		SSHUnavailable: r.App != nil && r.App.Settings.HasSection(settings.Connections) && !r.App.NativePageEnabled("page:ssh"),
+		Revoking:       state.revoking, Narrowing: state.narrowing, Distributions: state.wsl.names,
 		DistributionsLoading: state.wsl.loading, DistributionsLoaded: state.wsl.loaded,
 	}
 	if !r.App.Settings.Adding() {

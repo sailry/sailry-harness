@@ -4,16 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"math"
 	"slices"
 	"strings"
-	"sync"
 
-	"charm.land/fantasy"
-	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -50,85 +47,21 @@ func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocatio
 	}
 	captured := reachable.Resources()
 	inv.ConnectionTargets = captured
+	host := nodeModuleHost{node: node}
 	var tools []engine.Tool
 	for _, declaration := range declarations {
-		var schema map[string]any
-		if err := json.Unmarshal(declaration.Parameters, &schema); err != nil {
+		tool, err := host.buildConnectionTool(inv, declaration.Owner, moduleapi.ConnectionToolConfig{
+			Spec: moduleapi.ToolSpec{
+				Name:        declaration.Name,
+				Description: declaration.Description,
+				Operation:   declaration.Operation,
+				Parameters:  declaration.Parameters,
+				Initial:     declaration.Initial,
+			},
+			Captured: captured,
+		})
+		if err != nil {
 			return nil, err
-		}
-		scope := protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
-		var mu sync.Mutex
-		calls := map[string]*connectionToolCall{}
-		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
-		tool.ReleasePrepared = releasePrepared(&mu, calls)
-		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
-			command, err := node.connectionCommand(ctx, inv, declaration, call.Arguments, captured)
-			if err != nil {
-				return err
-			}
-			current := &connectionToolCall{request: protocol.NewRequest(node.ID(), command)}
-			current.request.Plugin = &scope
-			if current.trust, err = node.connectionPreflight(ctx, inv, declaration.Owner, scope, command, captured); err != nil {
-				return err
-			}
-			mu.Lock()
-			calls[call.ID] = current
-			mu.Unlock()
-			return nil
-		}
-		tool.ConfigureApproval = func(ctx context.Context, db *sql.Conn, call canonical.ToolRequest, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
-			mu.Lock()
-			current := calls[call.ID]
-			mu.Unlock()
-			if current.trust != nil {
-				// Host-key consent is always an explicit decision of this call.
-				if err := store.ValidateConnectionTrust(ctx, db, inv.Run.Turn, tool.Binding, *current.trust); err != nil {
-					return value, err
-				}
-				value.Ssh = current.trust
-				value.State, value.Source = protocol.ConversationApprovalStatePending, protocol.ConversationApprovalSourceUser
-				value.Choice, value.Prefix, value.CanRemember = nil, nil, false
-			}
-			return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, declaration.Operation, current.request.Command, nil)
-		}
-		tool.Approved = func(call canonical.ToolRequest, _ protocol.ApprovalID, request protocol.RequestID) {
-			mu.Lock()
-			defer mu.Unlock()
-			calls[call.ID].request.ID = request
-		}
-		tool.Execute = func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
-			mu.Lock()
-			current := calls[call.ID]
-			delete(calls, call.ID)
-			mu.Unlock()
-			if current == nil {
-				return workspaceToolFault(errors.New("native tool was not prepared"))
-			}
-			if current.trust != nil {
-				revision, err := node.connectionTrust(ctx, scope, *current.trust)
-				if err != nil {
-					return workspaceToolFault(err)
-				}
-				switch input := current.request.Command.Data.(type) {
-				case *protocol.CommandRunSshPayload:
-					input.ExpectedRevision = revision
-				case *protocol.CommandTransferSshPayload:
-					input.ExpectedRevision = revision
-				}
-			}
-			stopped := connectionFault(protocol.ErrorCodeCancelled, "plugin tool was cancelled")
-			if connectionCancel(current.request.Command.Kind) != "" {
-				stopped = connectionFault(protocol.ErrorCodeOutcomeUnknown, "connection operation was cancelled; inspect its outcome before retrying")
-			}
-			output, err := node.connectionDispatch(ctx, current.request, stopped, connectionFault(protocol.ErrorCodeOutcomeUnknown, "connection operation outcome is unavailable"))
-			if err != nil {
-				return workspaceToolFault(err)
-			}
-			value, err := node.connectionResult(ctx, inv, declaration.Owner, output, captured)
-			if err != nil {
-				return workspaceToolFault(err)
-			}
-			return engine.ToolResult{Value: value}
 		}
 		tools = append(tools, tool)
 	}

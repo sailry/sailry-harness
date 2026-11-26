@@ -10,6 +10,9 @@ type Option uint8
 
 const CollectionsOnly Option = 1
 
+// Register adds the full knowledge settings page, locales, and link handlers.
+func Register(assembly *shell.Assembly) { Module()(assembly) }
+
 func Module(options ...Option) shell.Module {
 	page := PageWithEmbedding
 	if slices.Contains(options, CollectionsOnly) {

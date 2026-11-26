@@ -5,8 +5,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 )
 
 func (h *windowViewHost) mountTerminal(id protocol.TerminalID, allows func(protocol.TerminalInfo) bool) view.Terminal {

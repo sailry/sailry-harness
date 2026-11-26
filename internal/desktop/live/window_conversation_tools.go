@@ -11,9 +11,9 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 )
 
 // A compiled workspace watches the same Client projection as the docked

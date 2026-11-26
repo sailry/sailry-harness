@@ -15,9 +15,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 )
 
 const servicesTestPage shell.Page = "fixture/window-services"

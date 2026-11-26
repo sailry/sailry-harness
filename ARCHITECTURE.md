@@ -19,7 +19,7 @@ Desktop A / MyGo ── Client ── Node A (controller and resource entry)
 Mobile / Flutter ── Dart FFI ── Client ── Link / libp2p ── Node A
 
 Host service ── Node + Link endpoint
-Node ── agent loop + resource services ── models / files / Git / PTY / SSH / databases
+Node ── agent loop + resource services ── models / files / browser / memory / optional product services (Git, PTY, SSH, databases, code index)
 ```
 
 Node owns execution, configuration, credentials and durable conversation history.
@@ -67,13 +67,14 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/shipped` | Packaged resources and native library seals |
 | `internal/desktop` | Feature views, view models and action contracts |
 | `internal/desktop/kit` | Shared MyGo controls, themes, overlays and CrychicUI adapters |
+| `internal/desktop/viewapi` | Internal window-scoped service contracts shared between `desktop/live` and `sdk/desktop/view` |
 | `internal/desktop/plugins` | JavaScript desktop runtime, SDK and native component bridge |
 | `internal/desktop/live` | Client projections, live actions and scoped plugin bindings |
 | `internal/desktop/preview` | Isolated fixture views and simulated actions |
 | `internal/acceptance`, `internal/desktop/acceptance` | Explicit conversation acceptance and recorded UI replay |
 | `cmd/sailry-desktop`, `internal/assembly/desktop` | Runnable Harness desktop and its default native pages |
 | `internal/assembly/host` | Default Harness Node assembly shared by Desktop and Host |
-| `sdk/desktop`, `sdk/host`, `sdk/native`, `sdk/product`, `sdk/release` | Go contracts used by downstream product entry points, native modules, and release publishers |
+| `sdk/desktop`, `sdk/host`, `sdk/native`, `sdk/product`, `sdk/release` | Go facades and contracts used by downstream product entry points, native modules, and release publishers |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
 | `modules/*/desktop` | Common native workspace and settings contributions selected by each product |
 | `modules/*/node` | Common native Node modules: files, OCR, web search, memory, browsers and computer use |
@@ -124,11 +125,11 @@ Desktop and Host entry points → Node → agent / store / resource services
 Node and Link share Protocol contracts
 ```
 
-`internal/client` imports only Protocol and Link from this repository. Service
-packages such as Core, SSH, databases, local models and speech do not import
-Node. Desktop production packages do not start Node or import its root package;
-`desktop/live` uses Node leaf value types and pure helpers from Git, knowledge,
-plugins, providers and telemetry. Production startup belongs to the entry points.
+`internal/client` imports only Protocol and Link from this repository. Leaf service
+packages such as Core, local models, office and speech do not import
+Node. Desktop view and controller packages (`desktop/shell`, `desktop/live`, `desktop/settings`) do not start Node or import its root package;
+`desktop/live` uses Node leaf value types and pure helpers from knowledge,
+logging, mcp, plugins, providers, telemetry, web and wsl, and depends on `internal/desktop/viewapi` rather than any `sdk/*` facade. Local Node startup belongs to `internal/desktop/application` and the Host/Desktop entry points.
 
 Node uses MyGo's proxy-aware HTTP and headless terminal implementation. Terminal
 appearance also uses MyGo color values; Node creates no application, window or
@@ -378,8 +379,7 @@ Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
 files and configuration are independent. Code Desktop and Host supply the
-code index to their Node at startup; the Harness assembly does not. The
-`sailry_no_code_index` build tag omits gotreesitter. A Node without the service
+code index module (backed by gotreesitter in `sailry-code`) to their Node at startup; the Harness assembly does not. A Node without the service
 reports code queries and index settings as unavailable, preserves saved
 settings, and offers plain file tools and file-only pipelines.
 
@@ -1063,7 +1063,7 @@ approval for command input and stopping follows the live process identity.
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
-| Code index | On-demand gotreesitter queries with optional Node-wide persistence and bounded name-based graph resolution |
+| Code index | Optional product-supplied `codeindexapi.Service` (implemented via on-demand gotreesitter queries and optional Node-wide persistence in Sailry Code) |
 | Local models | Verified explicit installation, one CPU inference at a time, interactive priority and idle engine release |
 | Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
 | Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |
@@ -1071,7 +1071,7 @@ approval for command input and stopping follows the live process identity.
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
-Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (separately distributed packages installed at runtime). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH and interactive terminals) live in Code. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) no longer require their historical packages (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and the optional `office` plugin provides Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, shared PTY/terminal runtime, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (separately distributed packages installed at runtime). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH, and the interactive terminal UI/service module) live in Code, with Harness providing the underlying shared PTY runtime and panel contracts when a product enables them. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`) no longer require their historical packages (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and the optional `office` plugin provides Office skills (`excel`, `pdf`, `powerpoint`, `word`).
 
 The official plugin feed keeps its original version records readable by installed clients. A package-level `version_requirements` map carries product and module requirements for individual releases. The executing Node checks those requirements against its own product, available services and Harness capability version, including when it opens a captured package from an older turn.
 
@@ -1677,8 +1677,8 @@ paired controllers remain devices. Node relay changes use revision-checked durab
 commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logic.
 
 Host starts with an explicit profile, network configuration and opt-in pairing.
-Add Host installs checksum-verified assets over Node-owned SSH, starts systemd or
-launchd and pairs through a private bootstrap ticket. Windows controllers deploy a
+When an SSH module is assembled (such as in Sailry Code), Add Host also installs checksum-verified assets over Node-owned SSH, starts systemd or
+launchd and pairs through a private bootstrap ticket; stock Harness hides the SSH installation tab when no SSH module is present. Windows controllers deploy a
 Linux Host into WSL2. The installed `sailry` command offers an interactive menu;
 `link` selects the Host's network before publishing a pairing code. `share` remains
 an alias using the current network. Host's `link`, `share`, `submit`, `wait`,

@@ -583,6 +583,10 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 }
 
 func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.ScopedToolConfig) (engine.Tool, error) {
+	return h.buildScopedTool(inv, protocol.PluginReference{}, cfg)
+}
+
+func (h nodeModuleHost) buildScopedTool(inv *store.AgentInvocation, owner protocol.PluginReference, cfg moduleapi.ScopedToolConfig) (engine.Tool, error) {
 	spec := cfg.Spec
 	var schema map[string]any
 	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
@@ -590,7 +594,7 @@ func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.Sco
 	}
 	op := spec.Operation
 	readOnly, concurrent := operations.Policy(op)
-	scope := protocol.PluginContext{Turn: &inv.Run.Turn, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
+	scope := protocol.PluginContext{Turn: &inv.Run.Turn, Package: owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 	var mu sync.Mutex
 	calls := map[string]*protocol.Request{}
 	tool := engine.Tool{
@@ -600,7 +604,7 @@ func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.Sco
 		Concurrent:    concurrent,
 		Deferred:      !spec.Initial,
 		Approval:      !readOnly,
-		Binding:       &store.ApprovalBinding{Tool: spec.Name, Operation: &op},
+		Binding:       &store.ApprovalBinding{Owner: owner, Tool: spec.Name, Operation: &op},
 		LegacyPackage: spec.LegacyPackage,
 		LegacyName:    spec.LegacyName,
 		Instruction:   strings.TrimSpace(cfg.Instruction),
@@ -643,6 +647,10 @@ func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.Sco
 		defer mu.Unlock()
 		calls[call.ID].ID = request
 	}
+	cancelledMsg, unavailableMsg := "tool was cancelled", "tool response is unavailable"
+	if owner.Name != "" {
+		cancelledMsg, unavailableMsg = "plugin tool was cancelled", "plugin tool response is unavailable"
+	}
 	tool.Execute = func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
 		mu.Lock()
 		request := calls[call.ID]
@@ -651,8 +659,8 @@ func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.Sco
 		if request == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
-		output, err := h.node.connectionDispatch(ctx, *request, connectionFault(protocol.ErrorCodeCancelled, "tool was cancelled"),
-			connectionFault(protocol.ErrorCodeOutcomeUnknown, "tool response is unavailable"))
+		output, err := h.node.connectionDispatch(ctx, *request, connectionFault(protocol.ErrorCodeCancelled, cancelledMsg),
+			connectionFault(protocol.ErrorCodeOutcomeUnknown, unavailableMsg))
 		if err != nil {
 			return workspaceToolFault(err)
 		}
@@ -666,6 +674,10 @@ func (h nodeModuleHost) ScopedTool(inv *store.AgentInvocation, cfg moduleapi.Sco
 }
 
 func (h nodeModuleHost) ConnectionTool(inv *store.AgentInvocation, cfg moduleapi.ConnectionToolConfig) (engine.Tool, error) {
+	return h.buildConnectionTool(inv, protocol.PluginReference{}, cfg)
+}
+
+func (h nodeModuleHost) buildConnectionTool(inv *store.AgentInvocation, owner protocol.PluginReference, cfg moduleapi.ConnectionToolConfig) (engine.Tool, error) {
 	spec := cfg.Spec
 	var schema map[string]any
 	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
@@ -673,7 +685,6 @@ func (h nodeModuleHost) ConnectionTool(inv *store.AgentInvocation, cfg moduleapi
 	}
 	op := spec.Operation
 	readOnly, concurrent := operations.Policy(op)
-	owner := protocol.PluginReference{}
 	scope := protocol.PluginContext{Turn: &inv.Run.Turn, Package: owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 	var mu sync.Mutex
 	calls := map[string]*connectionToolCall{}
@@ -764,7 +775,11 @@ func (h nodeModuleHost) ConnectionTool(inv *store.AgentInvocation, cfg moduleapi
 				input.ExpectedRevision = revision
 			}
 		}
-		stopped := connectionFault(protocol.ErrorCodeCancelled, "connection tool was cancelled")
+		stoppedMsg := "connection tool was cancelled"
+		if owner.Name != "" {
+			stoppedMsg = "plugin tool was cancelled"
+		}
+		stopped := connectionFault(protocol.ErrorCodeCancelled, stoppedMsg)
 		if connectionCancel(current.request.Command.Kind) != "" {
 			stopped = connectionFault(protocol.ErrorCodeOutcomeUnknown, "connection operation was cancelled; inspect its outcome before retrying")
 		}
@@ -786,6 +801,12 @@ func (h nodeModuleHost) ConnectionTool(inv *store.AgentInvocation, cfg moduleapi
 }
 
 func (h nodeModuleHost) BrowserTool(inv *store.AgentInvocation, cfg moduleapi.BrowserToolConfig) (engine.Tool, error) {
+	return h.buildBrowserTool(inv, protocol.PluginReference{}, cfg, func(ctx context.Context) error {
+		return h.pluginGateEnabled(ctx, cfg.PluginGate)
+	})
+}
+
+func (h nodeModuleHost) buildBrowserTool(inv *store.AgentInvocation, owner protocol.PluginReference, cfg moduleapi.BrowserToolConfig, check func(context.Context) error) (engine.Tool, error) {
 	spec := cfg.Spec
 	var schema map[string]any
 	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
@@ -801,7 +822,7 @@ func (h nodeModuleHost) BrowserTool(inv *store.AgentInvocation, cfg moduleapi.Br
 		ReadOnly:      readOnly,
 		Deferred:      !spec.Initial,
 		Approval:      !readOnly,
-		Binding:       &store.ApprovalBinding{Tool: spec.Name, Operation: &op},
+		Binding:       &store.ApprovalBinding{Owner: owner, Tool: spec.Name, Operation: &op},
 		LegacyPackage: spec.LegacyPackage,
 		LegacyName:    spec.LegacyName,
 		Instruction:   strings.TrimSpace(cfg.Instruction),
@@ -878,8 +899,10 @@ func (h nodeModuleHost) BrowserTool(inv *store.AgentInvocation, cfg moduleapi.Br
 		if current == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
-		if err := h.pluginGateEnabled(ctx, cfg.PluginGate); err != nil {
-			return workspaceToolFault(err)
+		if check != nil {
+			if err := check(ctx); err != nil {
+				return workspaceToolFault(err)
+			}
 		}
 		output, err := h.node.useBrowser(ctx, inv.Caller, current.ID, *current.Command.Data.(*protocol.CommandUseBrowserPayload))
 		if err != nil {
@@ -895,6 +918,10 @@ func (h nodeModuleHost) BrowserTool(inv *store.AgentInvocation, cfg moduleapi.Br
 }
 
 func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg moduleapi.ExternalBrowserToolConfig) (engine.Tool, error) {
+	return h.buildExternalBrowserTool(inv, protocol.PluginReference{}, cfg, h.checkExternalBrowserEnabled)
+}
+
+func (h nodeModuleHost) buildExternalBrowserTool(inv *store.AgentInvocation, owner protocol.PluginReference, cfg moduleapi.ExternalBrowserToolConfig, check func(context.Context) error) (engine.Tool, error) {
 	spec := cfg.Spec
 	var schema map[string]any
 	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
@@ -910,7 +937,7 @@ func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg modu
 		ReadOnly:      readOnly,
 		Deferred:      !spec.Initial,
 		Approval:      !readOnly,
-		Binding:       &store.ApprovalBinding{Tool: spec.Name, Operation: &op},
+		Binding:       &store.ApprovalBinding{Owner: owner, Tool: spec.Name, Operation: &op},
 		LegacyPackage: spec.LegacyPackage,
 		LegacyName:    spec.LegacyName,
 		Instruction:   strings.TrimSpace(cfg.Instruction),
@@ -976,7 +1003,6 @@ func (h nodeModuleHost) ExternalBrowserTool(inv *store.AgentInvocation, cfg modu
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		input := current.Command.Data.(*protocol.CommandUseExternalBrowserPayload)
-		check := func(ctx context.Context) error { return h.checkExternalBrowserEnabled(ctx) }
 		output, err := h.node.externalBrowser.Execute(ctx, externalbrowser.Call{
 			Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments,
 			Check: check,

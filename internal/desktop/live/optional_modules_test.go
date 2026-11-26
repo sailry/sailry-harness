@@ -132,6 +132,11 @@ func TestOptionalDesktopSettingsAndTerminals(t *testing.T) {
 				if got := slices.Contains(menu.Menu(), i18n.In("en", "worktree_manage")); got != assembly.worktrees {
 					t.Fatalf("project menu worktrees = %v, want %v: %v", got, assembly.worktrees, menu.Menu())
 				}
+				if assembly.name == "Harness" {
+					if status := root.connectionStatus(); !status.SSHUnavailable {
+						t.Fatal("stock Harness desktop assembly left SSH host installation enabled without an SSH module")
+					}
+				}
 			})
 		}
 	}

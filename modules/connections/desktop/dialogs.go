@@ -84,28 +84,40 @@ func addHost(c *ui.Context, m *settings.Model) {
 			ui.Text(c, i18n.T(c, hint)).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
-			names := []string{i18n.T(c, "host_pairing_mode"), i18n.T(c, "host_ssh_mode")}
+			if pr.Status.SSHUnavailable && pr.Method.SSH() {
+				pr.Method = settings.ByPairing
+			}
+			modes := []settings.Method{settings.ByPairing}
+			names := []string{i18n.T(c, "host_pairing_mode")}
+			if !pr.Status.SSHUnavailable {
+				modes = append(modes, settings.ByPassword)
+				names = append(names, i18n.T(c, "host_ssh_mode"))
+			}
 			if hostOS == "windows" {
+				modes = append(modes, settings.ByWSL)
 				names = append(names, i18n.T(c, "host_wsl"))
 			}
 			choice := 0
-			if pr.Method.SSH() {
-				choice = 1
-			} else if pr.Method == settings.ByWSL {
-				choice = 2
+			for index, mode := range modes {
+				if mode == pr.Method || mode.SSH() && pr.Method.SSH() {
+					choice = index
+					break
+				}
 			}
 			props := kit.SegmentedProps{Block: true, Natural: true}
-			tabs = kit.SegmentedWidth(c, names, props)
-			kit.Segmented(c, "mode", &choice, names, props).Disabled(locked).Label(i18n.T(c, "connection"))
-			switch choice {
-			case 0:
+			if len(names) > 1 {
+				tabs = kit.SegmentedWidth(c, names, props)
+				kit.Segmented(c, "mode", &choice, names, props).Disabled(locked).Label(i18n.T(c, "connection"))
+			}
+			switch selected := modes[choice]; {
+			case selected == settings.ByPairing:
 				pr.Method = settings.ByPairing
-			case 1:
+			case selected.SSH():
 				if !pr.Authentication.SSH() {
 					pr.Authentication = settings.ByPassword
 				}
 				pr.Method = pr.Authentication
-			case 2:
+			case selected == settings.ByWSL:
 				pr.Method = settings.ByWSL
 			}
 			switch method := pr.Method; {

@@ -390,6 +390,20 @@ func TestAddHostFromSettings(t *testing.T) {
 	if len(added) != 2 || added[1].Method != settings.ByWSL || added[1].Distribution != "Ubuntu" {
 		t.Fatalf("WSL install: %+v", added)
 	}
+
+	// Without an SSH module (stock Harness), Install via SSH is hidden and
+	// an SSH method draft falls back to pairing.
+	hostOS = "darwin"
+	state.AddHost()
+	m.ConnectionForm().Method = settings.ByPassword
+	m.SetConnectionStatus(settings.ConnectionStatus{SSHUnavailable: true})
+	tt.Frame()
+	if tt.HasText(en("host_ssh_mode")) {
+		t.Fatalf("SSH installation tab shown when SSHUnavailable: %q", tt.Texts())
+	}
+	if m.ConnectionDraft().Method != settings.ByPairing || !tt.HasText(en("pairing_pin_hint")) {
+		t.Fatalf("method did not fall back to pairing when SSHUnavailable: method=%d texts=%q", m.ConnectionDraft().Method, tt.Texts())
+	}
 }
 
 func snapshot(t *testing.T, name string, tt *ui.Tester) {

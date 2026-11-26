@@ -1,6 +1,6 @@
 package live
 
-import "github.com/sailry/sailry-harness/sdk/desktop/view"
+import view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 
 type nativeWindowResource struct {
 	beforeFrame func()

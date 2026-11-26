@@ -21,13 +21,18 @@ import (
 	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
 
-// Harness returns the module contributions for an official Desktop window.
-func Harness() shell.Assembly {
-	return shell.Assemble(
+// HarnessModules returns the ordered desktop modules shipped with Harness.
+func HarnessModules() []shell.Module {
+	return []shell.Module{
 		market.Register,
 		providers.Register, connectors.Register, teams.Register, skills.Register,
-		knowledge.Module(), memory.Register, media.Register, decision.Register,
+		knowledge.Register, memory.Register, media.Register, decision.Register,
 		websearch.Register, browser.Register, computer.Register,
 		connections.Register, hooks.Register, runtime.Register, ocr.Register,
-	)
+	}
+}
+
+// Harness returns the module contributions for an official Desktop window.
+func Harness() shell.Assembly {
+	return shell.Assemble(HarnessModules()...)
 }

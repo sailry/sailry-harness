@@ -1,19 +1,16 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"sync"
 
-	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
-	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/externalbrowser"
+	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -128,10 +125,6 @@ func (node *Node) externalBrowserTools(ctx context.Context, inv *store.AgentInvo
 	if err != nil {
 		return nil, err
 	}
-	var schema map[string]any
-	if err := json.Unmarshal(browserToolSchema, &schema); err != nil {
-		return nil, err
-	}
 	// A stopped turn closes the session's browser once, whichever tool the
 	// turn kept.
 	var closing sync.Once
@@ -141,11 +134,13 @@ func (node *Node) externalBrowserTools(ctx context.Context, inv *store.AgentInvo
 		}
 		return nil
 	}
+	host := nodeModuleHost{node: node}
 	var tools []engine.Tool
 	for _, info := range infos {
 		if info.Extension == nil || info.Extension.Host == nil || node.hasReplacedPlugin(info.Summary.Name, info.Summary.Digest) {
 			continue
 		}
+		owner := plugins.PackageReference(info)
 		for _, declaration := range info.Extension.Tools {
 			if declaration.Handler == nil || declaration.Handler.Operation == nil {
 				continue
@@ -155,83 +150,24 @@ func (node *Node) externalBrowserTools(ctx context.Context, inv *store.AgentInvo
 				continue
 			}
 			name := plugins.ToolAlias(info.Summary.Name, declaration.Name)
-			tool := node.externalBrowserTool(inv, plugins.PackageReference(info), name, operation, schema)
-			tool.Close = closeStopped
+			tool, err := host.buildExternalBrowserTool(inv, owner, moduleapi.ExternalBrowserToolConfig{
+				Spec: moduleapi.ToolSpec{
+					Name:       name,
+					Operation:  operation,
+					Parameters: browserToolSchema,
+					Initial:    true,
+				},
+				Close: closeStopped,
+			}, func(ctx context.Context) error {
+				return node.pluginEnabled(ctx, owner.Name)
+			})
+			if err != nil {
+				return nil, err
+			}
 			tools = append(tools, tool)
 		}
 	}
 	return tools, nil
-}
-
-func (node *Node) externalBrowserTool(inv *store.AgentInvocation, owner protocol.PluginReference, name string, operation protocol.ToolOperation, schema map[string]any) engine.Tool {
-	readOnly := operation == protocol.ToolOperationReadExternalBrowser
-	var mu sync.Mutex
-	calls := map[string]*protocol.Request{}
-	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: name, InputSchema: schema}, SchemaJSON: browserToolSchema, ReadOnly: readOnly, Approval: !readOnly,
-		Binding: &store.ApprovalBinding{Owner: owner, Tool: name, Operation: &operation}}
-	tool.ReleasePrepared = releasePrepared(&mu, calls)
-	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
-		var input struct {
-			Action    protocol.ExternalBrowserAction `json:"action"`
-			Arguments json.RawMessage                `json:"arguments"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(call.Arguments))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || input.Arguments == nil {
-			return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid browser tool arguments"}
-		}
-		if input.Action.ReadOnly() != readOnly {
-			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "browser action does not match the declared operation"}
-		}
-		if _, err := externalbrowser.Validate(input.Action, input.Arguments); err != nil {
-			return err
-		}
-		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "use_external_browser", Data: &protocol.CommandUseExternalBrowserPayload{
-			Session: inv.Session.ID, Worktree: inv.Run.Worktree, Action: input.Action, Arguments: input.Arguments}})
-		mu.Lock()
-		calls[call.ID] = &request
-		mu.Unlock()
-		return nil
-	}
-	if !readOnly {
-		tool.ConfigureApproval = func(ctx context.Context, db *sql.Conn, call canonical.ToolRequest, value protocol.ConversationApproval) (protocol.ConversationApproval, error) {
-			mu.Lock()
-			current := calls[call.ID]
-			mu.Unlock()
-			if current == nil {
-				return value, errors.New("native tool was not prepared")
-			}
-			return store.ConfigureWorkspaceApproval(ctx, db, inv.Run.Turn, value, operation, current.Command, nil)
-		}
-		tool.Approved = func(call canonical.ToolRequest, _ protocol.ApprovalID, request protocol.RequestID) {
-			mu.Lock()
-			defer mu.Unlock()
-			if current := calls[call.ID]; current != nil {
-				current.ID = request
-			}
-		}
-	}
-	tool.Execute = func(ctx context.Context, call canonical.ToolRequest) engine.ToolResult {
-		mu.Lock()
-		current := calls[call.ID]
-		delete(calls, call.ID)
-		mu.Unlock()
-		if current == nil {
-			return workspaceToolFault(errors.New("native tool was not prepared"))
-		}
-		input := current.Command.Data.(*protocol.CommandUseExternalBrowserPayload)
-		// The turn's context stops the call; an interrupted call closes the
-		// session's browser. A turn keeps the package it started with, but
-		// browser authority follows the package as it is now, so the
-		// decision is repeated around browser startup.
-		output, err := node.externalBrowser.Execute(ctx, externalbrowser.Call{Request: current.ID, Session: input.Session, Root: inv.Worktree.Path, Action: input.Action, Arguments: input.Arguments,
-			Check: func(ctx context.Context) error { return node.pluginEnabled(ctx, owner.Name) }})
-		if err != nil {
-			return workspaceToolFault(err)
-		}
-		return engine.ToolResult{Value: map[string]any{"kind": output.Kind, "data": output.Data}}
-	}
-	return tool
 }
 
 // pluginEnabled refuses a browser tool of a package the user disabled or

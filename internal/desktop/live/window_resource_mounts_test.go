@@ -6,9 +6,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 )
 
 func fixtureConversationSpec(profile protocol.DatabaseID) view.ConversationSpec {

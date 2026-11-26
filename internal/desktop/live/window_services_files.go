@@ -9,8 +9,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
+	view "github.com/sailry/sailry-harness/internal/desktop/viewapi"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/sailry/sailry-harness/sdk/desktop/view"
 )
 
 func windowPick[Value any](h *windowViewHost, ctx context.Context, resolve func() func(func(Value))) (Value, error) {

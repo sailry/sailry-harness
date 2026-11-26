@@ -167,7 +167,6 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause | `LICENSE` | D H M |
 | `github.com/ncruces/go-strftime` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/nikolalohinski/gonja/v2` | v2.5.1 | MIT | `LICENSE` | D H |
-| `github.com/odvcencio/gotreesitter` | v0.57.0 | MIT | `LICENSE` | D H |
 | `github.com/openai/openai-go/v3` | v3.98.0 | Apache-2.0 | `LICENSE` | D H |
 | `github.com/pandatix/go-abnf` | v0.5.5 | MIT | `LICENSE` | D H M |
 | `github.com/pb33f/ordered-map/v2` | v2.3.1 | Apache-2.0 | `LICENSE` | D H |

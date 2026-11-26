@@ -45,6 +45,9 @@ type ConnectionStatus struct {
 	// Distributions are the WSL distributions a Host can be installed in.
 	Distributions                             []string
 	DistributionsLoading, DistributionsLoaded bool
+	// SSHUnavailable hides SSH Host installation when the local product
+	// assembly does not ship an SSH module.
+	SSHUnavailable bool
 	// Revoking are the devices whose pairing is being removed, by ID.
 	Revoking  map[string]bool
 	Narrowing map[string]bool
