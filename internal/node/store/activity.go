@@ -192,7 +192,7 @@ func readActivitiesBatch(ctx context.Context, db *sql.Conn, sessionTexts []strin
 		firstRows, err := db.QueryContext(ctx, `SELECT session,id FROM (
 			SELECT h.session AS session,t.id AS id,ROW_NUMBER() OVER (PARTITION BY h.session ORDER BY t.rowid) AS rn
 			FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=t.id
-			WHERE h.session IN (SELECT value FROM json_each(?1)) AND json_extract(a.body,'$.kind')='task'
+			WHERE h.session IN (SELECT CAST(value AS TEXT) FROM json_each(?1)) AND json_extract(a.body,'$.kind')='task'
 		) WHERE rn=1`, string(untitledJSON))
 		if err != nil {
 			return nil, err
@@ -222,7 +222,7 @@ func readActivitiesBatch(ctx context.Context, db *sql.Conn, sessionTexts []strin
 				json_extract(a.input,'$.text'))
 				FROM turns t LEFT JOIN agent_pending p ON p.turn=t.id JOIN agent_runs a ON a.turn=t.id
 				JOIN requests r ON r.id=coalesce(p.request,t.request) AND r.caller=coalesce(p.caller,t.caller)
-				WHERE t.id IN (SELECT value FROM json_each(?1))`, string(turnsJSON))
+				WHERE t.id IN (SELECT CAST(value AS TEXT) FROM json_each(?1))`, string(turnsJSON))
 			if err != nil {
 				return nil, err
 			}

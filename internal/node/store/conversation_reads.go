@@ -343,7 +343,7 @@ func searchAgentConversation(ctx context.Context, db *sql.Conn, session protocol
 			break
 		}
 		var sequence, turnSequence uint64
-		var body []byte
+		var body sql.RawBytes
 		var visible bool
 		if err = rows.Scan(&sequence, &body, &turnSequence, &visible); err != nil {
 			return value, err
@@ -376,12 +376,17 @@ func searchAgentConversation(ctx context.Context, db *sql.Conn, session protocol
 				continue
 			}
 			start, end := match[0], match[1]
-			left := []rune(text[:start])
-			right := []rune(text[end:])
-			prefix := string(left[max(0, len(left)-96):])
-			suffix := string(right[:min(len(right), 96)])
-			snippet := prefix + text[start:end] + suffix
-			value.Matches = append(value.Matches, protocol.ConversationSearchMatch{Turn: record.Turn, TurnSequence: turnSequence, Entry: record.ID, Sequence: sequence, Part: uint64(index), Author: record.Provenance.Author, Snippet: snippet, Highlight: protocol.Range[uint64]{Start: uint64(len(prefix)), End: uint64(len(prefix) + end - start)}})
+			left, right := start, end
+			for i := 0; i < 96 && left > 0; i++ {
+				_, size := utf8.DecodeLastRuneInString(text[:left])
+				left -= size
+			}
+			for i := 0; i < 96 && right < len(text); i++ {
+				_, size := utf8.DecodeRuneInString(text[right:])
+				right += size
+			}
+			snippet := strings.Clone(text[left:right])
+			value.Matches = append(value.Matches, protocol.ConversationSearchMatch{Turn: record.Turn, TurnSequence: turnSequence, Entry: record.ID, Sequence: sequence, Part: uint64(index), Author: record.Provenance.Author, Snippet: snippet, Highlight: protocol.Range[uint64]{Start: uint64(start - left), End: uint64(end - left)}})
 			break
 		}
 	}

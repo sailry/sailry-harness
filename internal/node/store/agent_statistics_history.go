@@ -344,10 +344,10 @@ func AgentStatisticsAffected(ctx context.Context, db *sql.Conn, candidates []pro
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx, `WITH affected AS (
- SELECT value AS turn FROM json_each(?2)
- UNION SELECT d.parent_turn FROM json_each(?2) changed JOIN agent_delegations d ON d.turn=changed.value)
+ SELECT CAST(value AS TEXT) AS turn FROM json_each(?2)
+ UNION SELECT d.parent_turn FROM json_each(?2) changed JOIN agent_delegations d ON d.turn=CAST(changed.value AS TEXT))
  SELECT candidates.value FROM json_each(?1) candidates WHERE EXISTS(
- SELECT 1 FROM affected a CROSS JOIN conversation_turns h ON h.session=candidates.value AND h.turn=a.turn)`, string(sessions), string(keys))
+ SELECT 1 FROM affected a CROSS JOIN conversation_turns h ON h.session=CAST(candidates.value AS TEXT) AND h.turn=a.turn)`, string(sessions), string(keys))
 	if err != nil {
 		return nil, err
 	}

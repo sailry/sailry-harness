@@ -81,7 +81,7 @@ const agentStatisticCallsQuery = `SELECT h.sequence,json_extract(e.body,'$.metad
 const agentStatisticCallLimitsQuery = `SELECT t.id,
  (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
   WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1)
- FROM json_each(?1) observed CROSS JOIN turns t ON t.id=observed.value
+ FROM json_each(?1) observed CROSS JOIN turns t ON t.id=CAST(observed.value AS TEXT)
  CROSS JOIN agent_runs r ON r.turn=t.id
  CROSS JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision`
 
