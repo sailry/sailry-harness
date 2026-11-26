@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -84,8 +85,14 @@ func TestSubscriptionReadsOnlyTheDeliveredCursorWithCurrentAccess(t *testing.T) 
 
 func TestAuthorizedSubscriptionSkipsRedundantChecksUntilDatabaseWrites(t *testing.T) {
 	t.Parallel()
-	node := nodeFixture(t)
 	ctx := t.Context()
+	// Only the test writes to this profile, so each invalidation has a known cause.
+	profile, err := OpenProfile(ctx, filepath.Join(t.TempDir(), "profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer profile.Close()
+	node := &Node{profile: profile}
 	caller := protocol.NodeID{38}
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		return store.PairLinkPeer(ctx, db, caller, link.DirectionController)
