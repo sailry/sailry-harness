@@ -22,7 +22,7 @@ func TestCompatibilityUsesHarnessPlatformVersion(t *testing.T) {
 	if compatibility := CatalogVersionCompatibility(version, Runtime{ProductID: "code"}); compatibility.Kind != "compatible" {
 		t.Fatalf("catalog used marketing version: %+v", compatibility)
 	}
-	future := "0.2.15"
+	future := "0.3.1"
 	if compatibility := Compatibility(&future); compatibility.Kind != "requires_newer" {
 		t.Fatalf("future platform requirement was ignored: %+v", compatibility)
 	}

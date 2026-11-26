@@ -3,7 +3,7 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## [0.2.14](https://github.com/sailry/sailry-harness/releases/tag/v0.2.14)
+## [0.3.0](https://github.com/sailry/sailry-harness/releases/tag/v0.3.0)
 
 - Distribute Harness as a Go module. Harness tags provide source and release notes; downstream products own application packages and update feeds.
 - Preserve file revision checks when reapplying patches, and prevent stale child results from replacing newer workspace revisions.

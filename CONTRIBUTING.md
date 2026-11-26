@@ -389,8 +389,12 @@ Library releases do not take GitHub's Latest badge, so historical
 upload assets or publish application update feeds.
 
 [Sailry Code](https://github.com/sailry/sailry-code) is a separate product and
-owns its installers and update feeds. Moving from an older packaged Harness
-app to Code requires a separate installation, not an in-app update. Historical
+owns its installers and update feeds. The one-time `v0.3.0` handoff may carry
+Code-built compatibility assets for packaged macOS and Android clients; it does
+not change the library workflow or the Latest badge. Prepare and test them using
+[Code's release instructions](https://github.com/sailry/sailry-code/blob/main/CONTRIBUTING.md#one-time-harness-handoff).
+Windows v0.2.13 requires a separate Code installation; iOS stays on its Apple
+channel. Source builds do not acquire an application update feed. Historical
 Harness Host installers that query the releases list can see a source-only tag
 even though the Latest badge has not moved. To reinstall a historical Host,
 use that release's installer with `--version <historical-version>`.

@@ -1,8 +1,8 @@
-// Command update-feed signs a release's Desktop update archives and writes
-// its signed catalog. The release workflow runs it once per tag:
+// Command update-feed prepares a signed catalog for historical Harness clients.
+// Library release automation does not run this command. For the Code handoff:
 //
-//	go run ./internal/desktop/updater/cmd/update-feed -version 0.1.6 -output <dir> \
-//	    aarch64-apple-darwin=<zip> x86_64-apple-darwin=<zip> x86_64-pc-windows-msvc=<zip>
+//	go run ./internal/desktop/updater/cmd/update-feed -version 0.3.0 -output <dir> \
+//	    aarch64-apple-darwin=<zip> x86_64-apple-darwin=<zip>
 //
 // The input ZIPs hold the signed, notarized Mac apps and the portable Windows app.
 // The output directory receives Sailry-<target>.zip, its .update.json and
