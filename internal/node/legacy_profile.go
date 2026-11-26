@@ -24,13 +24,14 @@ import (
 const legacyProfileMarker = ".legacy-profile-migration"
 
 type legacyProfileState struct {
-	Version  int               `json:"version"`
-	Legacy   string            `json:"legacy"`
-	Target   string            `json:"target"`
-	Attempt  string            `json:"attempt"`
-	Node     protocol.NodeID   `json:"node"`
-	Original map[string]string `json:"original"`
-	Prepared map[string]string `json:"prepared"`
+	Version   int               `json:"version"`
+	Legacy    string            `json:"legacy"`
+	Target    string            `json:"target"`
+	Attempt   string            `json:"attempt"`
+	Node      protocol.NodeID   `json:"node"`
+	Original  map[string]string `json:"original"`
+	Prepared  map[string]string `json:"prepared"`
+	Worktrees map[string]string `json:"worktrees,omitempty"`
 }
 
 type legacyProfileMigration struct {
@@ -182,7 +183,8 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 	if err := checkLegacyProfileRootLinks(migration.legacy, migration.declared); err != nil {
 		return err
 	}
-	if err := checkLegacyProfileWorktrees(migration.legacy); err != nil {
+	worktrees := make(map[string]string)
+	if err := checkLegacyProfileWorktrees(migration.legacy, worktrees); err != nil {
 		return err
 	}
 	if err := checkLegacyProfilePython(migration.legacy); err != nil {
@@ -261,7 +263,7 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 		return err
 	}
 	err = handle.Read(ctx, func(db *sql.Conn) error {
-		return checkLegacyProfileRegisteredGit(ctx, db, migration.legacy, migration.declared)
+		return checkLegacyProfileRegisteredGit(ctx, db, migration.legacy, worktrees, migration.declared)
 	})
 	if err == nil {
 		err = handle.Write(ctx, func(db *sql.Conn) error {
@@ -287,10 +289,9 @@ func (migration *legacyProfileMigration) prepare(ctx context.Context) (failure e
 	if err != nil {
 		return err
 	}
-	migration.state = legacyProfileState{
-		Version: 1, Legacy: migration.legacy, Target: migration.target, Attempt: attempt,
-		Node: node.ID(), Original: originalFiles, Prepared: preparedFiles,
-	}
+	migration.state.Original = originalFiles
+	migration.state.Prepared = preparedFiles
+	migration.state.Worktrees = worktrees
 	if err := writeLegacyProfileFile(filepath.Join(original, legacyProfileMarker), []byte(attempt)); err != nil {
 		return err
 	}
@@ -480,6 +481,9 @@ func (migration *legacyProfileMigration) finish(ctx context.Context) error {
 	if err := migration.checkIdentity(migration.target); err != nil {
 		return err
 	}
+	if err := repairLegacyProfileWorktrees(migration.legacy, migration.target, migration.state.Worktrees); err != nil {
+		return err
+	}
 	if err := writeLegacyProfileFile(filepath.Join(migration.directory, "done"), []byte(migration.state.Attempt)); err != nil {
 		return err
 	}
@@ -518,12 +522,8 @@ func (*legacyProfileMigration) matchesFile(path, token string) bool {
 }
 
 func legacyProfileReadJSON(path string, target any) error {
-	info, err := legacyProfileRegular(path)
-	if err != nil {
+	if _, err := legacyProfileRegular(path); err != nil {
 		return err
-	}
-	if info.Size() > 64*1024 {
-		return fmt.Errorf("legacy migration journal is too large at %q", path)
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
