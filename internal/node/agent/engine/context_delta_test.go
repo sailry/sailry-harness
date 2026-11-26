@@ -48,7 +48,7 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 	if revisions[0] == revisions[7] || !strings.Contains(last, fmt.Sprintf("Captured conversation revision: %d.", revisions[7])) {
 		t.Fatal("updated capture revision missing from the model prompt")
 	}
-	for _, section := range []string{"Active work mode: Flagship", "Follow the team instructions and choose the exact key of the role whose responsibilities fit.", "Session environment", `<context-section name="deferred_tools">`} {
+	for _, section := range []string{"Active work mode: Flagship", "Available roles (pass the exact key when a role's responsibilities fit, or omit role to use this turn's model):", "Session environment", `<context-section name="deferred_tools">`} {
 		if count := strings.Count(last, section); count != 1 {
 			t.Errorf("stable section %q occurs %d times, want 1", section, count)
 		}

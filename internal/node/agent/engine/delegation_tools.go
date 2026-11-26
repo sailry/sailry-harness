@@ -50,18 +50,18 @@ func spawnDescriptionFor(x *execution, usable []protocol.RoleProfile) string {
 	if len(usable) > 0 {
 		return delegationDescriptions["spawn_agent"]
 	}
-	const (
-		paragraph1 = "Delegate a bounded multi-step task when authorized; handle small lookups or edits directly. Send independent spawns together. Foreground children in Flagship run alongside the parent by default. Continue independent work after admission and use wait_agent when a step needs a result. Set overlap=false only if the very next parent step needs the child result. Outside Flagship, set overlap=true to opt in. Overlapping children stay owned by this turn and completed results arrive automatically. Detached background work completes separately. Extra children queue at the concurrency limit. Keep the returned session and turn IDs."
-		paragraph3 = "Use guide_agent for follow-ups. To explicitly continue verified unfinished work with spawn_agent in an idle child, pass its exact returned session ID and omit role to keep its role, model, worktree, settings and history. After a user stop or cancellation, do not restart stopped children unless the user asks to resume them."
-	)
+	const paragraph1 = "Delegate a bounded multi-step task when authorized; handle tiny lookups or edits directly. Send independent spawns together. Foreground children in Flagship overlap parent work by default; set overlap=false only if the very next parent step immediately blocks on the result (outside Flagship, set overlap=true to opt in). Completed overlapping results arrive automatically—do not re-fetch an un-truncated completion with wait_agent. Detached background children complete as later notices. Extra children queue at the concurrency limit. Keep the returned session and turn IDs."
 	roleSentence := "No team roles are configured for this turn; omit role so new children run with this turn's model."
 	if len(x.inv.Turn.Roles.Profiles) > 0 {
-		roleSentence = "No roles from the captured team are available for new children in this turn; follow the team instructions and omit role when roleless delegation is allowed."
+		roleSentence = "No roles from the captured team are available for new children in this turn; omit role to use this turn's model."
+		if strings.TrimSpace(x.inv.Turn.Roles.Instructions) != "" {
+			roleSentence = "No roles from the captured team are available for new children in this turn; follow the team instructions and omit role when roleless delegation is allowed."
+		}
 	}
-	paragraph2 := "Give the child the goal, scope and expected result. Include established findings and path:line references so its separate conversation can start with the remaining work. " +
+	paragraph2 := "Give each child its goal, disjoint scope, known path:line facts, expected output, and stop condition. " +
 		roleSentence +
-		" Children inherit the worktree, mode and permissions. Children cannot delegate. A registered worktree or disjoint file scope keeps parallel edits separate."
-	return paragraph1 + "\n\n" + paragraph2 + "\n\n" + paragraph3
+		" Children inherit the worktree, mode, model settings, and permissions and cannot delegate. Use guide_agent for follow-ups; to continue an idle child with spawn_agent, pass its exact session ID and omit role. Do not restart user-stopped or cancelled children unless asked."
+	return paragraph1 + "\n\n" + paragraph2
 }
 
 func (r *Runtime) delegationTools(x *execution) []Tool {
@@ -292,17 +292,26 @@ func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string 
 			unavailable = append(unavailable, fmt.Sprintf("%s (missing: %s)", role.Key, strings.Join(r.missingRoleSkills(x, role), ", ")))
 		}
 	}
+	hasTeamInstructions := strings.TrimSpace(x.inv.Turn.Roles.Instructions) != ""
 	text := "Omit role to create children using this turn's model."
 	if len(roster) > 0 {
-		text = "Follow the team instructions and choose the exact key of the role whose responsibilities fit. Available roles:\n" + strings.Join(roster, "\n") + "\nIf the team instructions allow delegation without a role, omit role to use this turn's model."
+		if hasTeamInstructions {
+			text = "Follow the team instructions and choose the exact key of the role whose responsibilities fit. Available roles:\n" + strings.Join(roster, "\n") + "\nIf the team instructions allow delegation without a role, omit role to use this turn's model."
+		} else {
+			text = "Available roles (pass the exact key when a role's responsibilities fit, or omit role to use this turn's model):\n" + strings.Join(roster, "\n")
+		}
 	} else if len(x.inv.Turn.Roles.Profiles) > 0 {
-		text = "The captured team has no available roles for new children. Follow the team instructions for work outside role responsibilities."
+		if hasTeamInstructions {
+			text = "The captured team has no available roles for new children. Follow the team instructions for work outside role responsibilities."
+		} else {
+			text = "The captured team has no available roles for new children; omit role to use this turn's model."
+		}
 	}
 	if len(unavailable) > 0 {
 		text += "\nUnavailable roles (missing required skills): " + strings.Join(unavailable, ", ")
 	}
 	if list := findTool(x.tools, "list_subagents"); list != nil {
-		text += "\nBefore reusing earlier delegated work, inspect list_subagents for exact IDs and status. Only continue a child when the user is continuing the same unfinished task and prior calls, receipts or other reliable evidence match its original scope. A title alone is not evidence. Reuse matching completed results as recorded; if needed, collect the result with wait_agent using the exact session and turn. Do not reopen running, queued or stopping work. Never resume a cancelled or separately stopped child without an explicit request to resume that child. Require the same request if an interruption could have been a deliberate stop; a missing stop reason is not proof otherwise."
+		text += "\nBefore reusing earlier children across turns, inspect list_subagents for exact IDs and status; never resume a cancelled or stopped child unless explicitly requested."
 		if list.Deferred && !slices.Contains(state.LoadedTools, "list_subagents") {
 			text += "\nLoad it with tool_search using select:list_subagents."
 		}
@@ -462,7 +471,14 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 			if state.TurnLimit {
 				value["turn_limit"] = store.ChildTurnLimitSummary
 			}
-			return ToolResult{Value: value, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
+			var meta *map[string]json.RawMessage
+			if len(state.FileRevisions) > 0 {
+				if encoded, err := json.Marshal(state.FileRevisions); err == nil {
+					entries := map[string]json.RawMessage{canonical.FileChangesKey(state.Run.Worktree): encoded}
+					meta = &entries
+				}
+			}
+			return ToolResult{Value: value, Meta: meta, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
 		}
 		value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status}
 		if state.Paused && state.Run.Status == protocol.ConversationStatusQueued {

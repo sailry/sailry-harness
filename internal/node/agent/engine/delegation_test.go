@@ -1132,11 +1132,56 @@ func TestTeamRosterDescribesRolesAndAllowsGenericSpawn(t *testing.T) {
 	call := saveDelegationCall(t, f, x, "team-child", false)
 	x.inv.Turn.Roles.Profiles = []protocol.RoleProfile{{Key: "reviewer", Name: "Reviewer", ReadOnly: true, Description: "Review code"}}
 	roster := f.r.delegationRoster(x, store.AgentState{})
-	if !strings.Contains(roster, "reviewer (Reviewer) [read only]: Review code") {
-		t.Fatalf("unexpected team routing guidance: %s", roster)
+	if !strings.Contains(roster, "reviewer (Reviewer) [read only]: Review code") || strings.Contains(roster, "Follow the team instructions") {
+		t.Fatalf("unexpected team routing guidance without team instructions: %s", roster)
+	}
+	x.inv.Turn.Roles.Instructions = "Use reviewer for code checks."
+	rosterWithLead := f.r.delegationRoster(x, store.AgentState{})
+	if !strings.Contains(rosterWithLead, "Follow the team instructions") || !strings.Contains(rosterWithLead, "reviewer (Reviewer) [read only]: Review code") {
+		t.Fatalf("unexpected team routing guidance with team instructions: %s", rosterWithLead)
 	}
 	if result := f.r.spawnChild(x, call, call.Arguments); result.Failure != nil {
 		t.Fatalf("roleless team spawn: %+v", result)
+	}
+}
+
+func TestDefaultChildTurnBudgetsAndWrapUpCue(t *testing.T) {
+	t.Parallel()
+	f, x := delegationFixture(t)
+	if limit, bounded := effectiveChildMaxTurns(x); bounded || limit != 0 {
+		t.Fatalf("parent turn should not have a child turn limit: %d, %t", limit, bounded)
+	}
+	delegation := &protocol.Delegation{Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Entry: "call-1"}
+	x.inv.Session.Delegation = &delegation
+
+	if limit, bounded := effectiveChildMaxTurns(x); !bounded || limit != defaultChildMaxTurns {
+		t.Fatalf("roleless write child limit = %d (%t), want %d", limit, bounded, defaultChildMaxTurns)
+	}
+	x.inv.Turn.Config.Mode = protocol.WorkModePlan
+	if limit, bounded := effectiveChildMaxTurns(x); !bounded || limit != defaultReadOnlyChildMaxTurns {
+		t.Fatalf("read-only child limit = %d (%t), want %d", limit, bounded, defaultReadOnlyChildMaxTurns)
+	}
+	explicit := uint32(6)
+	x.childRole = &protocol.RoleProfile{Key: "custom", MaxTurns: &explicit}
+	if limit, bounded := effectiveChildMaxTurns(x); !bounded || limit != 6 {
+		t.Fatalf("explicit role limit = %d (%t), want 6", limit, bounded)
+	}
+
+	makeState := func(steps int) store.AgentState {
+		records := make([]canonical.Record, 0, steps)
+		for range steps {
+			records = append(records, canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "step")), f.r.clock.Now()))
+		}
+		return store.AgentState{Records: records}
+	}
+	if got := childBudgetContext(x, makeState(2)); got != "" {
+		t.Fatalf("early child step emitted budget: %q", got)
+	}
+	if got := childBudgetContext(x, makeState(3)); got != "<turn-budget>3/6 used</turn-budget>" {
+		t.Fatalf("mid child step budget = %q", got)
+	}
+	if got := childBudgetContext(x, makeState(4)); !strings.Contains(got, "4/6 used") || !strings.Contains(got, "wrap up") {
+		t.Fatalf("near-limit child step missing wrap-up cue: %q", got)
 	}
 }
 

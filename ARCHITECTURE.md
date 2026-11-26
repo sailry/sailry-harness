@@ -954,11 +954,16 @@ path. Collaborate can delegate with a single selected model. A child without
 a role inherits that model when team instructions allow roleless delegation.
 The Node binds tools to the child's own turn and worktree within the same
 project. By default the child inherits the parent turn's captured tools,
-including deferred tools and package tools. Child scheduling tools are excluded.
+including deferred tools and package tools. Child scheduling tools, role/team
+catalog tools, and by default `update_plan` are excluded (a role with an
+explicit `tools` list can still opt in to `update_plan`).
 The parent's captured schemas, connection targets and MCP bindings bound the
 child's calls. Explicit role tool lists narrow the catalog further. Read-only
 roles use Plan, and the child's effects follow its own approval and connection
 checks. Assistant selectors prioritize initial tools within this catalog.
+Delegated children without an explicit role turn limit use runtime-managed
+default step budgets (`12` for read-only/Plan children, `20` otherwise) with
+halfway `<turn-budget>` cues and a wrap-up prompt near the limit.
 Guidance for an active child uses that task's capture. A new task for an idle
 child uses the admitting parent's capture and keeps the child's original role.
 Team selection supplies named roles and optional model overrides. Code Review
@@ -983,11 +988,11 @@ next input. A stop still cancels them. Automatic child results keep the first
 16 KiB of the answer (falling back to text-only assistant content stripped of
 tool and thinking blocks if the child hit its turn limit on a tool step) and
 mark a cut with `response_truncated` and the full byte count; `wait_agent` with
-the exact turn returns all of it. Delegated children do not expose `ask_user` or
-`set_session_title`, so ambiguities return to the parent in the child's final
-message. `read_session` detail mode omits raw `tool_call`, `tool_result` and
-`thinking` blocks by default (`include_tools: true` opts back in), while exact
-`entry_sequence` lookups return full entry details. Waiting for a child is
+the exact turn returns all of it. Delegated children do not expose `ask_user`,
+`set_session_title`, or catalog management tools, so ambiguities return to the
+parent in the child's final message. `read_session` detail mode omits raw
+`tool_call`, `tool_result` and `thinking` blocks by default (`include_tools: true`
+opts back in), while exact `entry_sequence` lookups return full entry details. Waiting for a child is
 accounted for separately from active tool execution. Child commands may run
 in the background while the child works. The child collects any needed results
 before its task ends, when the Node stops its remaining commands.

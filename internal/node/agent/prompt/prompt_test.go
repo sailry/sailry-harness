@@ -67,9 +67,10 @@ func TestCollaborateWorkflowUsesAvailableDelegation(t *testing.T) {
 	available := Workflow(protocol.WorkModeFlagship, false, true)
 	unavailable := Workflow(protocol.WorkModeFlagship, false, false)
 	child := Workflow(protocol.WorkModeFlagship, true, false)
-	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "use the current model") ||
-		!strings.Contains(available, "Handle small, straightforward or tightly coupled tasks directly") ||
-		!strings.Contains(available, "Do not duplicate in the parent") {
+	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "this turn's model") ||
+		!strings.Contains(available, "fan out ready subagents together") ||
+		!strings.Contains(available, "Handle tiny single-area lookups") ||
+		!strings.Contains(available, "Never duplicate in the parent") {
 		t.Fatalf("missing collaboration instructions: %q", available)
 	}
 	if !strings.Contains(unavailable, "Delegation is unavailable") || strings.Contains(unavailable, "spawn_agent") {

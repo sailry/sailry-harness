@@ -78,7 +78,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	}
 	canDelegate := hasTools && findTool(x.tools, "spawn_agent") != nil
 	identity := fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)
-	if hasTools && (findTool(x.tools, "apply_agents") != nil || findTool(x.tools, "apply_team") != nil) {
+	if hasTools && x.inv.Session.Delegation == nil && (findTool(x.tools, "apply_agents") != nil || findTool(x.tools, "apply_team") != nil) {
 		identity += fmt.Sprintf("\nCaptured conversation revision: %d.", x.inv.Turn.Revision)
 		if delegation != "" {
 			delegation += "\n"

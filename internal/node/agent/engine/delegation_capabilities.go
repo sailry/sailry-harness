@@ -81,6 +81,9 @@ func childSchedulingTool(tool Tool) bool {
 		case "spawn_agent", "guide_agent", "wait_agent", "list_subagents", "stop_agent", "set_session_title", "ask_user":
 			return true
 		}
+		if slices.Contains(catalogToolNames, tool.Definition.Name) {
+			return true
+		}
 	}
 	return slices.ContainsFunc(declaredOperations(tool), func(operation protocol.ToolOperation) bool {
 		switch operation {

@@ -104,8 +104,30 @@ func usedChildTurns(x *execution, state store.AgentState) uint32 {
 	return count
 }
 
+const (
+	// Runtime-managed default step budgets for delegated children when no role
+	// MaxTurns is set, preventing unbounded serial loops without requiring users
+	// to tune turn caps per role.
+	defaultChildMaxTurns         uint32 = 20
+	defaultReadOnlyChildMaxTurns uint32 = 12
+)
+
+func effectiveChildMaxTurns(x *execution) (uint32, bool) {
+	if x.childRole != nil && x.childRole.MaxTurns != nil {
+		return *x.childRole.MaxTurns, true
+	}
+	if x.inv.Session.Delegation == nil || *x.inv.Session.Delegation == nil {
+		return 0, false
+	}
+	if x.inv.Turn.Config.Mode == protocol.WorkModePlan || (x.childRole != nil && x.childRole.ReadOnly) {
+		return defaultReadOnlyChildMaxTurns, true
+	}
+	return defaultChildMaxTurns, true
+}
+
 func (r *Runtime) childTurnLimit(x *execution, state store.AgentState) (bool, error) {
-	if x.childRole == nil || x.childRole.MaxTurns == nil || usedChildTurns(x, state) < *x.childRole.MaxTurns {
+	limit, bounded := effectiveChildMaxTurns(x)
+	if !bounded || usedChildTurns(x, state) < limit {
 		return false, nil
 	}
 	// The runtime ended the turn, so it says so as a note clients localize,
@@ -118,12 +140,16 @@ func (r *Runtime) childTurnLimit(x *execution, state store.AgentState) (bool, er
 }
 
 func childBudgetContext(x *execution, state store.AgentState) string {
-	if x.childRole == nil || x.childRole.MaxTurns == nil {
+	limit, bounded := effectiveChildMaxTurns(x)
+	if !bounded || limit == 0 {
 		return ""
 	}
-	used, limit := usedChildTurns(x, state), *x.childRole.MaxTurns
-	if limit == 0 || uint64(used)*2 < uint64(limit) {
+	used := usedChildTurns(x, state)
+	if uint64(used)*2 < uint64(limit) {
 		return ""
+	}
+	if uint64(used)+2 >= uint64(limit) {
+		return fmt.Sprintf("<turn-budget>%d/%d used — wrap up and return your final concise report now</turn-budget>", used, limit)
 	}
 	return fmt.Sprintf("<turn-budget>%d/%d used</turn-budget>", used, limit)
 }

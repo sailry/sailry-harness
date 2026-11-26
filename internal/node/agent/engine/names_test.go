@@ -189,6 +189,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 			packageTool("files", "read_file", protocol.ToolOperationReadFile, false, done),
 			packageTool("files", "delete_file", protocol.ToolOperationDeleteFile, false, done),
 			packageTool("memory", "search_memory", "", true, done),
+			{Definition: fantasy.FunctionTool{Name: "apply_team"}, Deferred: true},
 		}
 		if err := fixture.r.captureTools(x); err != nil {
 			t.Fatal(err)
@@ -215,7 +216,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(visible, []string{operations.UpdatePlanTool, "read_tool_output", operations.Alias("files", "read_file"), operations.Alias("memory", "search_memory"), "tool_search", callToolName}) ||
+		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), operations.Alias("memory", "search_memory"), "tool_search", callToolName}) ||
 			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file")}) {
 			t.Fatalf("default child visible=%v deferred=%v", visible, deferred)
 		}
@@ -239,6 +240,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "list_subagents"}),
 			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "ask_user"}),
 			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "set_session_title"}),
+			selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: "apply_team"}),
 			selection("package", &protocol.PluginConversationToolPackagePayload{Package: "fixture", Name: "child_only"}),
 		} {
 			tools := []protocol.PluginConversationTool{unavailable}

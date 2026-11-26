@@ -188,6 +188,13 @@ func (r *Runtime) captureTools(x *execution) error {
 					return roleToolMatches(selection, tool, legacy)
 				})
 			})
+		} else {
+			// Default children are bounded workers; omit update_plan so they act
+			// directly instead of spending turns maintaining a separate plan.
+			// Roles that want plan tracking can still opt in via role.Tools.
+			x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool {
+				return tool.Definition.Name == operations.UpdatePlanTool
+			})
 		}
 	}
 	if err := r.deferTools(x); err != nil {
