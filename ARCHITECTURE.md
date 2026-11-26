@@ -1709,8 +1709,10 @@ Add Project `Local | Clone` switcher only when the selected host supports
 
 The updater verifies signed `update-v1` catalogs and archives against compiled
 publisher keys. Stable selects final versions; the experience channel includes
-prereleases. Installation targets the local macOS app. The updater keeps a
-backup and commits the replacement in one same-volume exchange.
+prereleases. The macOS updater keeps a backup and exchanges the local app
+bundle on the same volume. Windows x64 uses the signed portable package for
+both installed and portable copies. After the local Desktop exits, a helper
+replaces packaged files and restarts the executable with its original arguments.
 `internal/shipped` verifies packaged native libraries against their seal.
 Release loading is confined to packaged resources.
 

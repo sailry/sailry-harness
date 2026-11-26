@@ -498,11 +498,13 @@ The Desktop update feed is written by
 `go run ./internal/desktop/updater/cmd/update-feed -version <version> -output
 <dir> <target>=<unsigned zip>...` with the publisher key in
 `SAILRY_UPDATE_SIGNING_KEY`, which must belong to
-`internal/identity/update-public-keys.txt`. For both macOS targets it
-writes the signed `Sailry-<triple>.zip`, its `.zip.update.json` and the signed
-catalog `update-v1.json`, then checks them with the updater's own
-verification. `TestPublishedRelease` proves the format with a throwaway key.
-The updater has no Windows installer, so the feed covers macOS only.
+`internal/identity/update-public-keys.txt`. Supply both macOS archives and
+the Windows x64 portable ZIP from the package build. The publisher signs each
+`Sailry-<triple>.zip`, writes its `.zip.update.json`, and verifies the results
+with the updater. macOS reads `update-v1.json` and Windows reads
+`update-v1-windows.json`, so existing macOS clients keep their release format.
+The Windows setup executable remains available for first installs and for users
+upgrading from a build that predates Windows in-app updates.
 
 Product Desktop and Host commands select their profile explicitly with the public
 `product.Desktop.DefaultProfile` field; Harness does not change the shared

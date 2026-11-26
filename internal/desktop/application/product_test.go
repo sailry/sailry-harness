@@ -185,7 +185,7 @@ func TestDesktopUpdaterUsesApplicationRelease(t *testing.T) {
 					if failure == nil || failure.Key != "updates_source_unready" || len(requests) != 0 {
 						t.Fatalf("missing release tried another source: requests %v, failure %v", requests, failure)
 					}
-				case runtime.GOOS == "darwin":
+				case runtime.GOOS == "darwin" || runtime.GOOS == "windows" && runtime.GOARCH == "amd64":
 					if failure != nil || state.Kind != updater.Idle || len(requests) != 1 || requests[0].Scheme+"://"+requests[0].Host+requests[0].Path != feed {
 						t.Fatalf("fork check: requests %v, state %v, failure %v", requests, state, failure)
 					}
