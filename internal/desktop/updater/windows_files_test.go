@@ -39,6 +39,11 @@ func TestWindowsPackageReconcilesOnlyOwnedFiles(t *testing.T) {
 			write(installed, "resources/current", "old resource")
 			write(installed, "resources/mine", "user")
 			write(installed, "Uninstall.exe", "uninstaller")
+			write(installed, ".mygo-files", "app.exe\r\nresources\r\nnative-plugin.dll\r\nold-plugin.dll\r\n")
+			write(installed, "native-plugin.dll", "old plugin")
+			write(installed, "old-plugin.dll", "retired plugin")
+			write(src, ".mygo-files", "app.exe\nresources\nnative-plugin.dll\n")
+			write(src, "native-plugin.dll", "updated plugin")
 			write(src, "app.exe", "new")
 			write(src, "resources/current", "new resource")
 			write(src, "resources/new", "added")
@@ -63,6 +68,12 @@ func TestWindowsPackageReconcilesOnlyOwnedFiles(t *testing.T) {
 			check(installed, "resources/new", "added")
 			check(backup, "app.exe", "old")
 			check(backup, "resources/retired", "retired")
+			check(installed, "native-plugin.dll", "updated plugin")
+			check(backup, "native-plugin.dll", "old plugin")
+			check(backup, "old-plugin.dll", "retired plugin")
+			if _, err := os.Stat(filepath.Join(installed, "old-plugin.dll")); !os.IsNotExist(err) {
+				t.Fatal("retired plugin still installed")
+			}
 			if _, err := os.Stat(filepath.Join(installed, "resources/retired")); !os.IsNotExist(err) {
 				t.Fatal("retired file still installed")
 			}

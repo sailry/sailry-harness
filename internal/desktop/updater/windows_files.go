@@ -34,6 +34,29 @@ func applyWindowsFiles(incoming, installed, backup string) (result error) {
 	if err := json.Unmarshal(metadata, &previous); err != nil {
 		return err
 	}
+	// MyGo adds native libraries from plugin manifests after the product
+	// stages its resources. Its own inventory records those top-level files;
+	// a listed directory does not confer ownership of local files inside it.
+	list, err := target.ReadFile(".mygo-files")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		previous.Files = append(previous.Files, ".mygo-files")
+	}
+	for line := range strings.Lines(string(list)) {
+		name := strings.TrimRight(line, "\r\n")
+		if !filepath.IsLocal(name) || name == "." || filepath.Base(name) != name || strings.EqualFold(name, "Uninstall.exe") {
+			continue
+		}
+		info, err := target.Lstat(name)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && info.Mode().IsRegular() {
+			previous.Files = append(previous.Files, name)
+		}
+	}
 	// The package preserves the installer's own uninstaller, shortcuts and
 	// registration. Windows treats case variants as the same path.
 	owned := make(map[string]bool, len(previous.Files))
