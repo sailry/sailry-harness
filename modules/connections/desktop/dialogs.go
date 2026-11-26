@@ -75,15 +75,12 @@ func addHost(c *ui.Context, m *settings.Model) {
 	locked := m.ConnectionPending || pr.Status.Recovery
 	var tabs float32
 	kit.Dialog(c.Key("add-host"), &pr.AddOpen, func() {
-		ui.Column(c.Key("head")).Gap(4).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			hint := "host_pairing_hint"
-			if pr.Method != settings.ByPairing {
-				hint = "host_install_hint"
-			}
-			ui.Text(c, i18n.T(c, hint)).FontSize(14).TextColor(p.MutedForeground)
-		})
-		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+		hint := "host_pairing_hint"
+		if pr.Method != settings.ByPairing {
+			hint = "host_install_hint"
+		}
+		kit.DialogHeader(c, title, i18n.T(c, hint))
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			if pr.Status.SSHUnavailable && pr.Method.SSH() {
 				pr.Method = settings.ByPairing
 			}
@@ -165,7 +162,7 @@ func addHost(c *ui.Context, m *settings.Model) {
 		case pr.Method != settings.ByPairing:
 			action = i18n.T(c, "host_install")
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pr.AddOpen = false })
 			// A step under way shows in its button, which cannot start another.
 			kit.PrimaryBusy(c.Key("ok"), action, !pr.Status.Recovery && !installable(m.ConnectionDraft()), m.ConnectionPending).OnClick(func() {
@@ -375,11 +372,8 @@ func shareCode(c *ui.Context, m *settings.Model) {
 	width, _ := c.Size()
 	title := i18n.T(c, "pairing_local_code")
 	kit.Dialog(c.Key("share"), &pr.ShareOpen, func() {
-		ui.Column(c.Key("head")).Gap(4).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextColor(p.MutedForeground)
-		})
-		ui.Column(c.Key("body")).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+		kit.DialogHeader(c, title, i18n.T(c, "pairing_share_hint"))
+		ui.Column(c.Key("body")).Gap(16).Children(func() {
 			connectionRelayFields(c, &pr.Relay, &pr.Address, m.Relays, m.ConnectionRelays, false, true)
 			codePanel(c, func() {
 				ready := m.Live && len(m.Share.Code) == 6
@@ -473,14 +467,13 @@ func connectionDialogs(c *ui.Context, m *settings.Model) {
 		width, _ := c.Size()
 		title := i18n.T(c, "host_network_edit")
 		kit.Dialog(c.Key("network-editor"), &open, func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Text(c, deviceName(c, editor.Device)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+			kit.DialogHeader(c, title, deviceName(c, editor.Device))
 			if editor.Loading {
 				kit.Shimmer(c, i18n.T(c, "host_runtime_loading"), 14, theme.Of(c).MutedForeground)
 			} else {
 				connectionRelayFields(c, &editor.Relay, &editor.Address, m.Relays, editor.Relays, editor.Pending || editor.Locked || editor.Unavailable, false)
 			}
-			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.DialogFooter(c, func() {
 				kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(editor.Pending).OnClick(func() { m.NetworkEditor = nil })
 				label := i18n.T(c, "settings_save")
 				if editor.Retry {
@@ -492,7 +485,7 @@ func connectionDialogs(c *ui.Context, m *settings.Model) {
 					}
 				})
 			})
-		}).Width(min(420, width-48)).Gap(16).Label(title)
+		}).Width(min(420, width-48)).Label(title)
 		// A save under way keeps its editor, as its Cancel says.
 		if !open && !editor.Pending {
 			m.NetworkEditor = nil

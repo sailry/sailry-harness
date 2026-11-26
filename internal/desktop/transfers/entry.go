@@ -64,7 +64,7 @@ func EntryTransferDialog(c *ui.Context, d *EntryTransfer, actions EntryTransferA
 	title := i18n.T(c, titleKey)
 	open := d.Open
 	kit.Dialog(c.Key("entry-transfer"), &d.Open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, title)
 		ui.Column(c.Key("body")).Gap(12).Children(func() {
 			if !d.Upload {
 				ui.Column(c.Key("source")).Gap(4).Children(func() {
@@ -117,7 +117,7 @@ func EntryTransferDialog(c *ui.Context, d *EntryTransfer, actions EntryTransferA
 				}
 			}
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Padding(12, 0, 0, 0).Children(func() {
+		kit.DialogFooter(c, func() {
 			cancel := d.Status == EntryReady || d.Status == EntryRunning && (d.Cancelable || len(d.Remaining) > 0)
 			label := i18n.T(c, "files_download_close")
 			if cancel {

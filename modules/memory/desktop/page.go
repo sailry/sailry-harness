@@ -371,137 +371,136 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 	loadFailed := st.editorError != "" && st.editingRev > 0 && st.body == ""
 	locked := st.editorLoading || st.editorSaving || st.editorRetry || loadFailed
 
+	dialogTitle := t("memory_create")
+	if st.editingRev > 0 {
+		dialogTitle = t("memory_editor")
+	}
+
 	kit.Dialog(c.Key("memory-editor-dialog"), &open, func() {
-		dialogTitle := t("memory_create")
-		if st.editingRev > 0 {
-			dialogTitle = t("memory_editor")
-		}
-		ui.Column(c).Width(580).Gap(14).Children(func() {
-			ui.Text(c, dialogTitle).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			if st.editorLoading {
-				ui.Row(c).Height(120).Center().Children(func() { kit.Busy(c) })
-			} else {
-				if loadFailed {
-					kit.Alert(c, "editor-load-error", kit.Negative, t(st.editorError), nil)
+		kit.DialogHeader(c, dialogTitle)
+		if st.editorLoading {
+			ui.Row(c).Height(120).Center().Children(func() { kit.Busy(c) })
+		} else {
+			if loadFailed {
+				kit.Alert(c, "editor-load-error", kit.Negative, t(st.editorError), nil)
+			}
+			kit.Field(c, "title", t("memory_title"), "", func() {
+				ui.TextInput(c.Key("input"), &st.title).Label(t("memory_title")).Placeholder(t("memory_title_hint")).Disabled(locked).FillWidth()
+			})
+			kindIdx := max(slices.Index(memoryKinds, st.kind), 0)
+			kindLabels := []string{t("memory_user"), t("memory_feedback"), t("memory_project"), t("memory_reference")}
+			kit.Field(c, "kind", t("memory_kind"), "", func() {
+				if kit.Segmented(c, "kind-tabs", &kindIdx, kindLabels, kit.SegmentedProps{Block: true, Disabled: locked}).Label(t("memory_kind")).Changed() {
+					st.kind = memoryKinds[kindIdx]
 				}
-				kit.Field(c, "title", t("memory_title"), "", func() {
-					ui.TextInput(c.Key("input"), &st.title).Label(t("memory_title")).Placeholder(t("memory_title_hint")).Disabled(locked).FillWidth()
+			})
+			kit.Field(c, "body", t("memory_body"), "", func() {
+				ui.TextArea(c.Key("textarea"), &st.body).Label(t("memory_body")).Placeholder(t("memory_body_hint")).Disabled(locked).FillWidth().MinHeight(140)
+			})
+			if st.editingRev > 0 {
+				ui.Row(c.Key("archive-row")).AlignItems(ui.Center).Gap(8).Children(func() {
+					ui.Switch(c.Key("switch"), &st.archived).Label(t("memory_archived")).Disabled(locked || len(st.sources) > 0)
+					ui.Text(c, t("memory_archived")).FontSize(14).TextColor(p.PopoverForeground)
 				})
-				kindIdx := max(slices.Index(memoryKinds, st.kind), 0)
-				kindLabels := []string{t("memory_user"), t("memory_feedback"), t("memory_project"), t("memory_reference")}
-				kit.Field(c, "kind", t("memory_kind"), "", func() {
-					if kit.Segmented(c, "kind-tabs", &kindIdx, kindLabels, kit.SegmentedProps{Block: true, Disabled: locked}).Label(t("memory_kind")).Changed() {
-						st.kind = memoryKinds[kindIdx]
+				var candidates []settings.MemoryEntryItem
+				for _, cand := range m.AllActive {
+					if !cand.Archived && cand.Project == st.editingProject && cand.ID != st.editingID {
+						candidates = append(candidates, cand)
 					}
-				})
-				kit.Field(c, "body", t("memory_body"), "", func() {
-					ui.TextArea(c.Key("textarea"), &st.body).Label(t("memory_body")).Placeholder(t("memory_body_hint")).Disabled(locked).FillWidth().MinHeight(140)
-				})
-				if st.editingRev > 0 {
-					ui.Row(c.Key("archive-row")).AlignItems(ui.Center).Gap(8).Children(func() {
-						ui.Switch(c.Key("switch"), &st.archived).Label(t("memory_archived")).Disabled(locked || len(st.sources) > 0)
-						ui.Text(c, t("memory_archived")).FontSize(14).TextColor(p.PopoverForeground)
-					})
-					var candidates []settings.MemoryEntryItem
-					for _, cand := range m.AllActive {
-						if !cand.Archived && cand.Project == st.editingProject && cand.ID != st.editingID {
-							candidates = append(candidates, cand)
-						}
-					}
-					if !st.archived && len(candidates) > 0 {
-						kit.MenuButton(c, "memory-merge-source", func(b ui.Element) {
-							kit.SecondaryLook(c, b.Label(t("memory_merge_source")).Disabled(locked || len(st.sources) > 0)).Children(func() {
-								ui.Text(c, t("memory_merge_source")).FontSize(14).SingleLine()
-								ui.Icon(c, icons.ChevronDown).FontSize(12)
-							})
-						}, func(menu *kit.Menu) {
-							for _, cand := range candidates {
-								cand := cand
-								if menu.Item(cand.Title).Chosen() && act != nil && act.LoadEntry != nil {
-									st.editorLoading = true
-									gen := st.generation
-									act.LoadEntry(cand.ID, func(loaded settings.MemoryEntryItem, body string, errKey string) {
-										if st.generation != gen || !st.editorOpen {
-											return
-										}
-										st.editorLoading = false
-										if errKey != "" || loaded.Project != st.editingProject || loaded.Archived {
-											return
-										}
-										st.sources = []settings.MemoryMergeSource{{ID: loaded.ID, Revision: loaded.Revision}}
-										if st.body != "" {
-											st.body += "\n\n"
-										}
-										st.body += body
-									})
-								}
+				}
+				if !st.archived && len(candidates) > 0 {
+					kit.MenuButton(c, "memory-merge-source", func(b ui.Element) {
+						kit.SecondaryLook(c, b.Label(t("memory_merge_source")).Disabled(locked || len(st.sources) > 0)).Children(func() {
+							ui.Text(c, t("memory_merge_source")).FontSize(14).SingleLine()
+							ui.Icon(c, icons.ChevronDown).FontSize(12)
+						})
+					}, func(menu *kit.Menu) {
+						for _, cand := range candidates {
+							cand := cand
+							if menu.Item(cand.Title).Chosen() && act != nil && act.LoadEntry != nil {
+								st.editorLoading = true
+								gen := st.generation
+								act.LoadEntry(cand.ID, func(loaded settings.MemoryEntryItem, body string, errKey string) {
+									if st.generation != gen || !st.editorOpen {
+										return
+									}
+									st.editorLoading = false
+									if errKey != "" || loaded.Project != st.editingProject || loaded.Archived {
+										return
+									}
+									st.sources = []settings.MemoryMergeSource{{ID: loaded.ID, Revision: loaded.Revision}}
+									if st.body != "" {
+										st.body += "\n\n"
+									}
+									st.body += body
+								})
 							}
-						}, kit.MenuOptions{MaxHeight: 280})
-					}
-					if len(st.sources) > 0 {
-						ui.Text(c, t("memory_merge_description")).FontSize(13).TextColor(p.MutedForeground)
-					}
+						}
+					}, kit.MenuOptions{MaxHeight: 280})
+				}
+				if len(st.sources) > 0 {
+					ui.Text(c, t("memory_merge_description")).FontSize(13).TextColor(p.MutedForeground)
 				}
 			}
+		}
 
-			ui.Row(c.Key("footer")).Justify(ui.End).Gap(8).Children(func() {
-				kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.editorSaving).OnClick(func() {
-					if st.editorRetry && act != nil && act.ForgetPending != nil {
-						act.ForgetPending()
-					}
-					st.CloseDialogs()
+		kit.DialogFooter(c, func() {
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.editorSaving).OnClick(func() {
+				if st.editorRetry && act != nil && act.ForgetPending != nil {
+					act.ForgetPending()
+				}
+				st.CloseDialogs()
+			})
+			if loadFailed {
+				kit.Secondary(c.Key("reload"), t("memory_retry")).OnClick(func() {
+					openMemoryEditor(st, settings.MemoryEntryItem{
+						ID: st.editingID, Revision: st.editingRev, Project: st.editingProject,
+						Title: st.title, Kind: st.kind, Archived: st.archived,
+					}, s.Live, act)
 				})
-				if loadFailed {
-					kit.Secondary(c.Key("reload"), t("memory_retry")).OnClick(func() {
-						openMemoryEditor(st, settings.MemoryEntryItem{
-							ID: st.editingID, Revision: st.editingRev, Project: st.editingProject,
-							Title: st.title, Kind: st.kind, Archived: st.archived,
-						}, s.Live, act)
-					})
+			}
+			saveLabel := t("settings_save")
+			if st.editorRetry {
+				saveLabel = t("memory_retry")
+			} else if len(st.sources) > 0 {
+				saveLabel = t("memory_merge")
+			}
+			kit.PrimaryBusy(c.Key("save"), saveLabel, st.editorLoading || loadFailed || !m.Connected, st.editorSaving).OnClick(func() {
+				title := strings.TrimSpace(st.title)
+				if !validMemoryInput(title, st.body) {
+					kit.Toast(c, kit.Failed, t("memory_invalid"))
+					return
 				}
-				saveLabel := t("settings_save")
-				if st.editorRetry {
-					saveLabel = t("memory_retry")
-				} else if len(st.sources) > 0 {
-					saveLabel = t("memory_merge")
+				draft := settings.MemorySaveDraft{
+					ID:               st.editingID,
+					ExpectedRevision: st.editingRev,
+					Project:          st.editingProject,
+					Title:            title,
+					Kind:             st.kind,
+					Body:             st.body,
+					Archived:         st.archived,
+					MergeSources:     slices.Clone(st.sources),
 				}
-				kit.PrimaryBusy(c.Key("save"), saveLabel, st.editorLoading || loadFailed || !m.Connected, st.editorSaving).OnClick(func() {
-					title := strings.TrimSpace(st.title)
-					if !validMemoryInput(title, st.body) {
-						kit.Toast(c, kit.Failed, t("memory_invalid"))
+				if !s.Live || act == nil || act.SaveEntry == nil {
+					st.CloseDialogs()
+					return
+				}
+				st.editorSaving = true
+				gen := st.generation
+				act.SaveEntry(draft, func(ok bool, retry bool, errKey string) {
+					if st.generation != gen {
 						return
 					}
-					draft := settings.MemorySaveDraft{
-						ID:               st.editingID,
-						ExpectedRevision: st.editingRev,
-						Project:          st.editingProject,
-						Title:            title,
-						Kind:             st.kind,
-						Body:             st.body,
-						Archived:         st.archived,
-						MergeSources:     slices.Clone(st.sources),
-					}
-					if !s.Live || act == nil || act.SaveEntry == nil {
+					st.editorSaving = false
+					st.editorRetry = retry
+					st.editorError = errKey
+					if ok {
 						st.CloseDialogs()
-						return
 					}
-					st.editorSaving = true
-					gen := st.generation
-					act.SaveEntry(draft, func(ok bool, retry bool, errKey string) {
-						if st.generation != gen {
-							return
-						}
-						st.editorSaving = false
-						st.editorRetry = retry
-						st.editorError = errKey
-						if ok {
-							st.CloseDialogs()
-						}
-					})
 				})
 			})
 		})
-	})
+	}).Width(settings.DialogWidth(c, 580+2*kit.DialogInset)).Label(dialogTitle)
 	if !open && st.editorOpen && !st.editorSaving {
 		if st.editorRetry && act != nil && act.ForgetPending != nil {
 			act.ForgetPending()
@@ -514,43 +513,42 @@ func renderDelete(c *ui.Context, s *settings.State, st *pageState, m *settings.M
 	t := func(key string) string { return i18n.T(c, key) }
 	p := theme.Of(c)
 	open := st.deleteOpen
+	title := t("memory_delete")
 	kit.Dialog(c.Key("memory-delete-dialog"), &open, func() {
-		ui.Column(c).Width(420).Gap(14).Children(func() {
-			ui.Text(c, t("memory_delete")).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			ui.Text(c, st.deleteTarget.Title).FontSize(14).FontWeight(500).TextColor(p.PopoverForeground)
-			ui.Text(c, t("memory_delete_confirm")).FontSize(13).TextColor(p.MutedForeground)
-			ui.Row(c.Key("footer")).Justify(ui.End).Gap(8).Children(func() {
-				kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.deleteSaving).OnClick(func() {
-					if st.deleteRetry && act != nil && act.ForgetPending != nil {
-						act.ForgetPending()
-					}
-					st.CloseDialogs()
-				})
-				delLabel := t("settings_delete")
-				if st.deleteRetry {
-					delLabel = t("memory_retry")
+		kit.DialogHeader(c, title)
+		ui.Text(c, st.deleteTarget.Title).FontSize(14).FontWeight(500).TextColor(p.PopoverForeground)
+		ui.Text(c, t("memory_delete_confirm")).FontSize(13).TextColor(p.MutedForeground)
+		kit.DialogFooter(c, func() {
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.deleteSaving).OnClick(func() {
+				if st.deleteRetry && act != nil && act.ForgetPending != nil {
+					act.ForgetPending()
 				}
-				kit.DangerBusy(c.Key("confirm"), delLabel, st.deleteSaving).Disabled(!m.Connected).OnClick(func() {
-					if !s.Live || act == nil || act.DeleteEntry == nil {
-						st.CloseDialogs()
+				st.CloseDialogs()
+			})
+			delLabel := t("settings_delete")
+			if st.deleteRetry {
+				delLabel = t("memory_retry")
+			}
+			kit.DangerBusy(c.Key("confirm"), delLabel, st.deleteSaving).Disabled(!m.Connected).OnClick(func() {
+				if !s.Live || act == nil || act.DeleteEntry == nil {
+					st.CloseDialogs()
+					return
+				}
+				st.deleteSaving = true
+				gen := st.generation
+				act.DeleteEntry(st.deleteTarget.ID, st.deleteTarget.Revision, func(ok bool, retry bool, _ string) {
+					if st.generation != gen {
 						return
 					}
-					st.deleteSaving = true
-					gen := st.generation
-					act.DeleteEntry(st.deleteTarget.ID, st.deleteTarget.Revision, func(ok bool, retry bool, _ string) {
-						if st.generation != gen {
-							return
-						}
-						st.deleteSaving = false
-						st.deleteRetry = retry
-						if ok {
-							st.CloseDialogs()
-						}
-					})
+					st.deleteSaving = false
+					st.deleteRetry = retry
+					if ok {
+						st.CloseDialogs()
+					}
 				})
 			})
 		})
-	})
+	}).Width(settings.DialogWidth(c, 420+2*kit.DialogInset)).Label(title)
 	if !open && st.deleteOpen && !st.deleteSaving {
 		if st.deleteRetry && act != nil && act.ForgetPending != nil {
 			act.ForgetPending()

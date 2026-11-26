@@ -159,7 +159,7 @@ func (a *App) knowledge(c *ui.Context) {
 	}
 	title := i18n.T(c, "knowledge_source")
 	kit.Dialog(c.Key("knowledge"), &r.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Text(c, ct.Title).FontSize(14).FontWeight(500)
 		ui.Text(c, name+" · "+path+" · "+lines).FontSize(12).TextColor(p.MutedForeground)
 		if r.live != nil && r.live.Unavailable {
@@ -168,7 +168,7 @@ func (a *App) knowledge(c *ui.Context) {
 		ui.Scroll(c.Key("text")).MaxHeight(max(160, h-260)).Padding(12).Radius(p.Radius).Background(p.Muted).Children(func() {
 			ui.Text(c, text).FontSize(12).Font("monospace").PreserveSpaces().Selectable()
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("previous"), i18n.T(c, "knowledge_previous")).Disabled(first).OnClick(previous)
 			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(last).OnClick(next)
 			kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })

@@ -90,7 +90,6 @@ func deletePort(h *Host, x Port, actions Actions) {
 // after preparation succeeds; a failed save keeps the old mapping and draft.
 func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 	pk := &s.ports
-	p := theme.Of(c)
 	w, _ := c.Size()
 	if !pk.open {
 		return
@@ -103,7 +102,7 @@ func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 		others = slices.DeleteFunc(slices.Clone(h.Ports), func(p Port) bool { return p.Remote == edited.Remote })
 	}
 	kit.Dialog(c.Key("port-add"), &pk.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).PaddingEnd(32).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, title)
 		for _, f := range []struct {
 			key, label string
 			value      *string
@@ -113,7 +112,7 @@ func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 				ui.TextInput(c.Key("input"), f.value).Label(label).FillWidth()
 			})
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pk.open = false })
 			kit.PrimaryBusy(c.Key("create"), action, false, pk.pending).OnClick(func() {
 				x, problem := AddPort(others, pk.remote, pk.local)

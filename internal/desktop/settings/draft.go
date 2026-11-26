@@ -6,7 +6,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // DraftField is a draft dialog's input: its label's and placeholder's i18n
@@ -25,10 +24,9 @@ func DraftDialog(c *ui.Context, key any, open *bool, title string, fields []Draf
 	if !*open {
 		return
 	}
-	p := theme.Of(c)
 	t := i18n.T(c, title)
 	kit.Dialog(c.Key(key), open, func() {
-		ui.Text(c, t).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, t)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			for _, f := range fields {
 				label := i18n.T(c, f.Label)
@@ -52,7 +50,7 @@ func DraftDialog(c *ui.Context, key any, open *bool, title string, fields []Draf
 
 // DialogFooter is a dialog's footer: Cancel and the primary action, at the end.
 func DialogFooter(c *ui.Context, action string, cancel, ok func(), pending ...bool) {
-	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+	kit.DialogFooter(c, func() {
 		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(cancel)
 		kit.PrimaryBusy(c.Key("ok"), action, false, slices.Contains(pending, true)).OnClick(ok)
 	})

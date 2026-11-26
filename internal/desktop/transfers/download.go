@@ -22,7 +22,7 @@ func DownloadDialog(c *ui.Context, d *Download, cancel func()) {
 	finished := d.Status == Finished
 	open := d.Open
 	kit.Dialog(c.Key("download"), &d.Open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, title)
 		ui.Text(c, d.Name).FontSize(14)
 		ui.Text(c, d.Destination).FontSize(14).TextColor(p.MutedForeground)
 		key, value := d.Key()
@@ -32,7 +32,7 @@ func DownloadDialog(c *ui.Context, d *Download, cancel func()) {
 		if !finished {
 			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Padding(12, 0, 0, 0).Children(func() {
+		kit.DialogFooter(c, func() {
 			label := i18n.T(c, "settings_cancel")
 			if finished {
 				label = i18n.T(c, "files_download_close")

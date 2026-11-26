@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // selection is the selected text dialog of the system shortcut: the text
@@ -70,15 +69,14 @@ func (a *App) selectionDialog(c *ui.Context) {
 	if !s.open {
 		return
 	}
-	p := theme.Of(c)
 	w, _ := c.Size()
 	title := i18n.T(c, "selection_title")
 	kit.Dialog(c.Key("selection"), &s.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("text")).MaxHeight(260).Children(func() {
 			ui.Text(c, s.text).FontSize(14).Selectable()
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			icon, label := icons.Volume, "reader_read"
 			if a.Hooks.ReaderActive != nil && a.Hooks.ReaderActive("selection/"+s.chat) {
 				icon, label = icons.Square, "reader_stop"

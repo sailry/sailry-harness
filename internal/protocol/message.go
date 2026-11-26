@@ -8829,6 +8829,8 @@ type Snapshot struct {
 	ExternalBrowserSettingsRevision uint64                      `json:"external_browser_settings_revision,omitempty"`
 	MemoryRevision                  uint64                      `json:"memory_revision,omitempty"`
 	NativeSkills                    []NativeSkill               `json:"native_skills,omitempty"`
+	ProjectSources                  []string                    `json:"project_sources,omitempty"`
+	HostTools                       []HostTool                  `json:"host_tools,omitempty"`
 	Ssh                             []SshProfile                `json:"ssh"`
 	Databases                       []DatabaseProfile           `json:"databases"`
 	Plugins                         []PluginSummary             `json:"plugins"`

@@ -113,7 +113,7 @@ func connectorDialog(c *ui.Context, m *page) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	kit.Dialog(c.Key("connector-editor"), &e.open, func() {
 		if e.kind == nil {
-			ui.Text(c, t("connector_add")).FontSize(18).FontWeight(600)
+			kit.DialogHeader(c, t("connector_add"))
 			ui.SearchField(c.Key("query"), &e.query).Placeholder(t("connector_search")).Label(t("connector_search")).FillWidth()
 			q := strings.ToLower(strings.TrimSpace(e.query))
 			var kinds []*preview.ConnectorType
@@ -146,17 +146,19 @@ func connectorDialog(c *ui.Context, m *page) {
 			return
 		}
 		k := e.kind
-		ui.Row(c.Key("header")).Gap(12).Children(func() {
+		existing := m.service(e.service)
+		kit.DialogHeaderRow(c, func() {
 			if e.service == "" && !e.direct {
 				kit.Action(c.Key("back"), icons.ArrowLeft, t("provider_step_back"), e.pending).OnClick(func() { e.kind = nil })
 			}
 			ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon) })
-			ui.Text(c, k.Name).FontSize(18).FontWeight(600)
+			ui.Column(c).MinWidth(0).Gap(2).Children(func() {
+				ui.Text(c, k.Name).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+				if existing != nil && existing.Identity != "" {
+					ui.Text(c, existing.Identity).FontSize(14).TextColor(p.MutedForeground)
+				}
+			})
 		})
-		existing := m.service(e.service)
-		if existing != nil && existing.Identity != "" {
-			ui.Text(c, existing.Identity).FontSize(14).TextColor(p.MutedForeground)
-		}
 		// A saved connection shows the same methods, on the one it uses.
 		if len(k.Methods) > 1 {
 			kit.Segmented(c, "methods", &e.method, settings.Labels(c, k.Methods), kit.SegmentedProps{Block: true}).Label(t("connector_filter")).Disabled(e.pending)
@@ -255,7 +257,7 @@ func connectorDialog(c *ui.Context, m *page) {
 		case method == "connector_cli":
 			action = "connector_bind"
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), t("authorization_cancel")).OnClick(func() { e.open = false })
 			pendingButton(c, "ok", t(action), !ready, e.pending).OnClick(func() {
 				if !ready || e.pending {

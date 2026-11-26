@@ -1695,6 +1695,14 @@ Host metrics use one Node sampler for local and remote reads. macOS disk rates m
 APFS volumes to physical device counters; volumes sharing a physical device share
 its throughput. Desktop memory diagnostics sample Go runtime classes and plugin
 heap estimates while the diagnostics page is visible.
+Each Node reports its registered project sources in `Snapshot.ProjectSources`
+(for example `["local"]` on stock Harness, adding `"clone"` when a Git module
+is assembled) and probes standard CLI runtime tools (`fd`, `git`, `node`,
+`python`, `rg`, `uv`) into `Snapshot.HostTools` and `HostInfo.Tools` on
+`inspect_host`. Desktop propagates those per-host capabilities through its
+unified host directory (`viewapi.NodeInfo` and `viewmodel.Host`) and shows the
+Add Project `Local | Clone` switcher only when the selected host supports
+`"clone"` and reports `git` available.
 
 The updater verifies signed `update-v1` catalogs and archives against compiled
 publisher keys. Stable selects final versions; the experience channel includes

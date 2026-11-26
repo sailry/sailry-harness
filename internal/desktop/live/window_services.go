@@ -22,16 +22,22 @@ import (
 )
 
 type syncedNodeEntry struct {
-	id           protocol.NodeID
-	client       *client.Client
-	label        string
-	local        bool
-	credentials  map[protocol.CredentialID]protocol.Credential
-	credKey      string
-	modelOptions []kit.ModelOption
-	providerRev  uint64
-	scoreRev     uint64
-	presetCount  int
+	id             protocol.NodeID
+	client         *client.Client
+	label          string
+	local          bool
+	projectSources []string
+	tools          []protocol.HostTool
+	snapTools      []protocol.HostTool
+	canClone       bool
+	snapRev        uint64
+	hasSnap        bool
+	credentials    map[protocol.CredentialID]protocol.Credential
+	credKey        string
+	modelOptions   []kit.ModelOption
+	providerRev    uint64
+	scoreRev       uint64
+	presetCount    int
 }
 
 type usageWatchEntry struct {
@@ -191,16 +197,22 @@ func (h *windowViewHost) syncState(initial bool) {
 			}
 		}
 		next[entry.ID] = syncedNodeEntry{
-			id:           entry.ID,
-			client:       entry.Client,
-			label:        label,
-			local:        entry.Local,
-			credentials:  creds,
-			credKey:      credKey,
-			modelOptions: opts,
-			providerRev:  provRev,
-			scoreRev:     scoreRev,
-			presetCount:  presetCount,
+			id:             entry.ID,
+			client:         entry.Client,
+			label:          label,
+			local:          entry.Local,
+			projectSources: slices.Clone(entry.ProjectSources),
+			tools:          cloneHostTools(entry.Tools),
+			snapTools:      cloneHostTools(entry.SnapTools),
+			canClone:       entry.CanClone,
+			snapRev:        entry.SnapRev,
+			hasSnap:        entry.HasSnap,
+			credentials:    creds,
+			credKey:        credKey,
+			modelOptions:   opts,
+			providerRev:    provRev,
+			scoreRev:       scoreRev,
+			presetCount:    presetCount,
 		}
 	}
 	remembered := root.rememberedHostNames()
@@ -232,7 +244,8 @@ func (h *windowViewHost) syncState(initial bool) {
 		} else {
 			for id, entry := range next {
 				prev, ok := h.syncedNodes[id]
-				if !ok || prev.client != entry.client || prev.label != entry.label || prev.credKey != entry.credKey {
+				if !ok || prev.client != entry.client || prev.label != entry.label || prev.credKey != entry.credKey ||
+					prev.canClone != entry.canClone || !slices.Equal(prev.projectSources, entry.projectSources) || !hostToolsEqual(prev.tools, entry.tools) {
 					changed = true
 					break
 				}
@@ -515,11 +528,25 @@ func (h *windowViewHost) nodes() []view.NodeInfo {
 	entries := h.currentEntries()
 	out := make([]view.NodeInfo, 0, len(entries))
 	for _, entry := range entries {
+		sources := slices.Clone(entry.projectSources)
+		tools := cloneHostTools(entry.tools)
+		canClone := entry.canClone
+		if entry.client != nil && (!entry.hasSnap || entry.snapRev != entry.client.Revision()) {
+			snap := entry.client.Snapshot()
+			sources = slices.Clone(snap.ProjectSources)
+			if !entry.hasSnap || !hostToolsEqual(snap.HostTools, entry.snapTools) {
+				tools = cloneHostTools(snap.HostTools)
+			}
+			canClone = hostCanClone(sources, tools)
+		}
 		out = append(out, view.NodeInfo{
-			ID:        entry.id,
-			Label:     entry.label,
-			Connected: entry.client != nil && entry.client.Connected(),
-			Local:     entry.local,
+			ID:             entry.id,
+			Label:          entry.label,
+			Connected:      entry.client != nil && entry.client.Connected(),
+			Local:          entry.local,
+			ProjectSources: sources,
+			Tools:          tools,
+			CanClone:       canClone,
 		})
 	}
 	return out

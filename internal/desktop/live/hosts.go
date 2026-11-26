@@ -21,13 +21,14 @@ import (
 )
 
 type liveHost struct {
-	node        protocol.NodeID
-	view        *host.Host
-	owner       *Runtime
-	info        *protocol.HostInfo
-	infoPending bool
-	infoNext    time.Time
-	infoError   string
+	node          protocol.NodeID
+	view          *host.Host
+	owner         *Runtime
+	info          *protocol.HostInfo
+	infoSnapTools []protocol.HostTool
+	infoPending   bool
+	infoNext      time.Time
+	infoError     string
 	// linkError is why the Link does not reach the host now, "" once it
 	// does: a copy key for a protocol mismatch, else the Link's own reason.
 	linkError      string
@@ -123,6 +124,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		local.view.OS = hostOS(runtime.GOOS)
 	}
 	order := []string{localID}
+	peerClients := map[string]*client.Client{}
 	if r.network != nil {
 		devices := map[string]viewmodel.Device{}
 		for _, device := range r.projectDevices() {
@@ -130,6 +132,9 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		}
 		for _, peer := range r.network.snapshot() {
 			id := peer.address.ID.String()
+			if peer.controller != nil {
+				peerClients[id] = peer.controller
+			}
 			device := devices[id]
 			if !device.Execution {
 				continue
@@ -185,7 +190,23 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		if state.view.Local {
 			name = "local_host_name"
 		}
-		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: name, Platform: state.view.OS, Local: state.view.Local, Update: r.hostUpdateAvailable(state)})
+		var hostClient *client.Client
+		if state.owner != nil {
+			hostClient = state.owner.controller
+		} else {
+			hostClient = peerClients[id]
+		}
+		caps := effectiveHostCapabilities(state, hostClient)
+		d.Hosts = append(d.Hosts, viewmodel.Host{
+			ID:             id,
+			Name:           name,
+			Platform:       state.view.OS,
+			Local:          state.view.Local,
+			Update:         r.hostUpdateAvailable(state),
+			ProjectSources: caps.projectSources,
+			Tools:          caps.tools,
+			CanClone:       caps.canClone,
+		})
 	}
 	for id, state := range r.hosts {
 		if present[id] == nil && (state.install == nil || !state.install.active) {
@@ -367,6 +388,7 @@ func (r *Runtime) readHostInfo(state *liveHost) {
 	}
 	state.infoPending = true
 	owner := state.owner
+	snapTools := cloneHostTools(owner.controller.Snapshot().HostTools)
 	r.async(func() {
 		output, err := owner.controller.Do(owner.ctx, protocol.Command{Kind: "inspect_host"})
 		info, ok := detail[protocol.HostInfo](output.Data)
@@ -381,7 +403,7 @@ func (r *Runtime) readHostInfo(state *liveHost) {
 			if err != nil {
 				state.infoError = err.Error()
 			} else {
-				state.info, state.infoError = &info, ""
+				state.info, state.infoSnapTools, state.infoError = &info, snapTools, ""
 			}
 			r.projectHosts(r.App.Data)
 		})

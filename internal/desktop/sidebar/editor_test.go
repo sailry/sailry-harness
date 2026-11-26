@@ -4,7 +4,11 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -138,4 +142,145 @@ func TestProjectEditorVisibilityDefaults(t *testing.T) {
 	if got := s.Draft(); got.Visibility != string(protocol.ProjectVisibilityShared) || !got.folder {
 		t.Fatalf("open-folder draft = %+v", got)
 	}
+}
+
+func renderEditorDialog(t *testing.T, s *State) *ui.Tester {
+	t.Helper()
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() {
+			s.editorDialog(c)
+		})
+	}, 720, 640)
+	tester.SetLocale("en")
+	tester.Frame()
+	return tester
+}
+
+func TestProjectEditorCloneGating(t *testing.T) {
+	cloneLabel := i18n.In("en", "project_clone")
+	repoLabel := i18n.In("en", "project_repository")
+	hostFieldLabel := i18n.In("en", "project_host")
+
+	for _, tc := range []struct {
+		name      string
+		host      viewmodel.Host
+		wantClone bool
+	}{
+		{
+			name: "harness host hides clone even with git",
+			host: viewmodel.Host{
+				ID:             "harness",
+				Name:           "local_host_name",
+				Local:          true,
+				ProjectSources: []string{"local"},
+				Tools:          []protocol.HostTool{{Name: "git", Available: true}},
+				CanClone:       false,
+			},
+			wantClone: false,
+		},
+		{
+			name: "code host with git shows clone",
+			host: viewmodel.Host{
+				ID:             "code-git",
+				Name:           "local_host_name",
+				Local:          true,
+				ProjectSources: []string{"local", "clone"},
+				Tools:          []protocol.HostTool{{Name: "git", Available: true}},
+				CanClone:       true,
+			},
+			wantClone: true,
+		},
+		{
+			name: "code host without git hides clone",
+			host: viewmodel.Host{
+				ID:             "code-no-git",
+				Name:           "local_host_name",
+				Local:          true,
+				ProjectSources: []string{"local", "clone"},
+				Tools:          []protocol.HostTool{{Name: "git", Available: false}},
+				CanClone:       false,
+			},
+			wantClone: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{tc.host}}}
+			s := New(data, "")
+			s.Actions = &Actions{}
+			s.OpenEditor(nil)
+			tester := renderEditorDialog(t, s)
+			if got := tester.HasText(cloneLabel); got != tc.wantClone {
+				t.Fatalf("HasText(%q) = %v, want %v; texts=%q", cloneLabel, got, tc.wantClone, tester.Texts())
+			}
+			if got := s.Draft(); got.Clone != 0 {
+				t.Fatalf("initial Clone = %d, want 0", got.Clone)
+			}
+
+			// OpenCloneEditor selects Clone only when the host supports it.
+			s.OpenCloneEditor()
+			tester.Frame()
+			if tc.wantClone {
+				if got := s.Draft(); got.Clone != 1 || !tester.HasText(repoLabel) {
+					t.Fatalf("OpenCloneEditor on clone-capable host: draft=%+v texts=%q", got, tester.Texts())
+				}
+			} else {
+				if got := s.Draft(); got.Clone != 0 || tester.HasText(cloneLabel) || tester.HasText(repoLabel) {
+					t.Fatalf("OpenCloneEditor on non-clone host did not stay local: draft=%+v texts=%q", got, tester.Texts())
+				}
+			}
+		})
+	}
+
+	t.Run("OpenCloneEditor picks first clone-capable host", func(t *testing.T) {
+		data := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{
+			{ID: "local", Name: "local_host_name", Local: true, ProjectSources: []string{"local"}, CanClone: false},
+			{ID: "remote-code", Name: "Build Box", Local: false, ProjectSources: []string{"local", "clone"}, Tools: []protocol.HostTool{{Name: "git", Available: true}}, CanClone: true},
+		}}}
+		s := New(data, "")
+		s.Actions = &Actions{}
+		s.SelectedHost = "local"
+		s.OpenCloneEditor()
+		tester := renderEditorDialog(t, s)
+		if got := s.Draft(); got.Clone != 1 || got.host != "remote-code" || !tester.HasText(cloneLabel) || !tester.HasText(repoLabel) {
+			t.Fatalf("OpenCloneEditor draft = %+v, texts = %q", got, tester.Texts())
+		}
+	})
+
+	t.Run("switching host resets clone draft to local", func(t *testing.T) {
+		data := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{
+			{ID: "code-host", Name: "Code Box", Local: false, ProjectSources: []string{"local", "clone"}, Tools: []protocol.HostTool{{Name: "git", Available: true}}, CanClone: true},
+			{ID: "harness-host", Name: "Harness Box", Local: false, ProjectSources: []string{"local"}, Tools: []protocol.HostTool{{Name: "git", Available: true}}, CanClone: false},
+		}}}
+		s := New(data, "")
+		s.Actions = &Actions{}
+		s.OpenCloneEditor()
+		s.editor.Repo = "https://github.com/org/tool.git"
+		s.editor.Branch = "release"
+		s.editor.Path = "/srv/src"
+		tester := renderEditorDialog(t, s)
+		if got := s.Draft(); got.Clone != 1 || got.Name != "tool" || !tester.HasText(cloneLabel) || !tester.HasText(repoLabel) {
+			t.Fatalf("before switch: draft=%+v texts=%q", got, tester.Texts())
+		}
+
+		// Switch Host select from Code Box to Harness Box.
+		trigger, ok := tester.AccessByRole(ui.RoleMenuButton, hostFieldLabel)
+		if !ok {
+			t.Fatalf("no host select trigger %q: %+v", hostFieldLabel, tester.AccessAll())
+		}
+		tester.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
+		tester.Frame()
+		if err := tester.Click("Harness Box"); err != nil {
+			t.Fatalf("click Harness Box: %v; texts=%q", err, tester.Texts())
+		}
+		tester.Frame()
+		tester.Frame()
+
+		if got := s.Draft(); got.host != "harness-host" || got.Clone != 0 || got.mode != 0 || got.Repo != "" || got.Branch != "" || got.Path != "" || got.Name != "" {
+			t.Fatalf("after switch to non-clone host: draft=%+v", got)
+		}
+		if tester.HasText(cloneLabel) || tester.HasText(repoLabel) {
+			t.Fatalf("clone UI still visible after switching to non-clone host: %q", tester.Texts())
+		}
+	})
 }

@@ -63,10 +63,13 @@ type Conversation struct {
 
 // NodeInfo describes an execution Node visible to this window.
 type NodeInfo struct {
-	ID        protocol.NodeID
-	Label     string
-	Connected bool
-	Local     bool
+	ID             protocol.NodeID
+	Label          string
+	Connected      bool
+	Local          bool
+	ProjectSources []string
+	Tools          []protocol.HostTool
+	CanClone       bool
 }
 
 // UsageSource identifies a Node included in usage reads and overviews.

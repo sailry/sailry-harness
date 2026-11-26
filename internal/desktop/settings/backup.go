@@ -333,7 +333,7 @@ func storageDialog(c *ui.Context, m *Model) {
 		action = t("plugins_retry")
 	}
 	kit.Dialog(c.Key("storage"), &d.editing, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			kit.Segmented(c, "tabs", &x.Tab, []string{t("backup_webdav"), t("backup_s3"), t("backup_local")}, kit.SegmentedProps{Block: true, Disabled: retry}).Label(title)
 			input := func(key string, value *string, secret, kept bool) {
@@ -432,7 +432,7 @@ func archivesDialog(c *ui.Context, m *Model) {
 	locked := m.BackupActions != nil && (m.BackupActions.ArchiveUnavailable || m.BackupActions.ArchiveBusy)
 	title := t("backup_archived_sessions")
 	kit.Dialog(c.Key("archives"), &d.archives, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		if len(m.Archived) == 0 {
 			d.archiveSelection.Reset()
 			kit.Result(c, kit.ResultProps{Icon: icons.Archive, Title: t("backup_no_archived"), Card: true})
@@ -447,7 +447,7 @@ func archivesDialog(c *ui.Context, m *Model) {
 				}
 			})
 		}
-		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { d.archives = false })
 		})
 	}).Width(min(560, width(c)-48)).Label(title)

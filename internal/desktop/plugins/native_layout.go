@@ -546,24 +546,22 @@ func (binding *NativeBinding) renderModal(view *ui.Context, element NativeElemen
 		backdrop.Children(func() {
 			panel := ui.Column(view).MinWidth(0).MinHeight(0)
 			if form {
-				panel.Width(width).MinHeight(96).MaxHeight(windowHeight*0.8).Gap(24).Padding(24, 0)
+				panel.Width(width).MinHeight(96).MaxHeight(windowHeight * 0.8).Gap(12).Padding(20)
 			} else {
 				panel.Padding(40, 20, 20, 20)
 			}
 			dialog = kit.Floating(view, panel).OnClick(func() {})
 			dialog.Children(func() {
 				if form {
-					ui.Column(view).Grow(1).MinHeight(0).Gap(8).Children(func() {
-						nativeText(view, nativeProp(props, "title", "")).FontSize(16).FontWeight(600).Padding(0, 48, 0, 24).Shrink(0)
-						if len(element.Children) > 0 {
-							ui.Scroll(view).Grow(1).MinHeight(0).FillWidth().Padding(8, 24, 4, 24).Gap(16).Children(func() {
-								renderErr = renderNativeChildren(view, element, element.Children[:1])
-							})
-						}
-					})
+					kit.DialogHeader(view, nativeProp(props, "title", ""))
+					if len(element.Children) > 0 {
+						ui.Scroll(view).Grow(1).Shrink(1).MinHeight(0).FillWidth().Gap(16).Children(func() {
+							renderErr = renderNativeChildren(view, element, element.Children[:1])
+						})
+					}
 					if len(element.Children) > 1 {
 						// Kit's dialog footer ends its actions at the right.
-						ui.Row(view).FillWidth().Shrink(0).PaddingX(24).Justify(ui.End).Children(func() {
+						kit.DialogFooter(view, func() {
 							if renderErr == nil {
 								renderErr = renderNativeChildren(view, element, element.Children[1:2])
 							}
@@ -572,7 +570,7 @@ func (binding *NativeBinding) renderModal(view *ui.Context, element NativeElemen
 				} else {
 					renderErr = renderNativeChildren(view, element, element.Children)
 				}
-				kit.IconButton(view, icons.Close, i18n.T(view, "close"), 24, false).Absolute().Top(14).Right(14).Disabled(!dismissable).OnClick(close)
+				kit.IconButton(view, icons.Close, i18n.T(view, "close"), 28, false).Absolute().Top(12).Right(12).Disabled(!dismissable).OnClick(close)
 			})
 		})
 	})

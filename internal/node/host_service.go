@@ -114,6 +114,9 @@ func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request 
 	switch request.Command.Kind {
 	case "inspect_host":
 		value, err := node.hostSampler.Inspect(ctx, node.ID())
+		if err == nil {
+			value.Tools = node.refreshHostTools(ctx)
+		}
 		return response(protocol.Output{Kind: "host_info", Data: value}, err)
 	case "read_host_metrics":
 		input := request.Command.Data.(*protocol.CommandReadHostMetricsPayload)

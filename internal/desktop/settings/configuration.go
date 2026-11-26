@@ -139,7 +139,7 @@ func configurationDialog(c *ui.Context, m *Model) {
 	}
 	busy := m.Busy[BusyBackup+"configuration-import"]
 	kit.Dialog(c.Key("configuration"), &d.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		if len(d.items) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: t("configuration_empty"), Card: true})
 		} else {

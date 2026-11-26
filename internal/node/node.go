@@ -63,6 +63,7 @@ type Node struct {
 	networkProbes    *networkProbes
 	hostSampler      *host.Sampler
 	hostInstalls     *host.Installations
+	hostEnv          hostEnvironment
 	ssh              moduleapi.SSHService
 	wsl              *wsl.Service
 	databases        databaseOperations
@@ -485,7 +486,11 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 	ctx = store.WithNativeSkills(node.pluginContext(ctx), node.modules.NativeSkills)
 	var value protocol.Snapshot
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; value, err = store.Snapshot(ctx, db, node.ID()); return err })
-	return value, nodeFault(err)
+	if err != nil {
+		return protocol.Snapshot{}, nodeFault(err)
+	}
+	node.attachHostSnapshot(ctx, &value)
+	return value, nil
 }
 
 func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
@@ -885,13 +890,18 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "command is unavailable"}
 		}
 	})
-	switch history := output.Data.(type) {
+	switch value := output.Data.(type) {
 	case protocol.ConversationHistory:
-		history.Sequence = sequence
-		output.Data = history
+		value.Sequence = sequence
+		output.Data = value
 	case protocol.ConversationTurnHistory:
-		history.Sequence = sequence
-		output.Data = history
+		value.Sequence = sequence
+		output.Data = value
+	case protocol.Snapshot:
+		if err == nil {
+			node.attachHostSnapshot(ctx, &value)
+			output.Data = value
+		}
 	}
 	return response(output, err)
 }

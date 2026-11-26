@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -30,9 +31,10 @@ type Look struct {
 	// Surfaces are the window materials' opacities the transparency
 	// sliders set.
 	Surfaces *theme.Surfaces
-	// Mark is the new session page's custom lettering; blank is the Sailry
-	// wordmark. Nil hides its row.
-	Mark *string
+	// Mark is the new session page's custom lettering; blank falls back to
+	// DefaultMark or the default welcome lettering. Nil hides its row.
+	Mark        *string
+	DefaultMark string
 }
 
 // ThemePreviewHeight is a theme card's preview (h_24).
@@ -120,21 +122,25 @@ func appearance(c *ui.Context, look Look, m *Model) {
 			}
 		}
 	})
-	welcomeMark(c, look.Mark)
+	welcomeMark(c, look.Mark, look.DefaultMark)
 }
 
 // welcomeMark is the new session page's lettering, last on the page so the
 // groups above keep their places: a field that keeps only what the
 // lettering draws as it is typed.
-func welcomeMark(c *ui.Context, mark *string) {
+func welcomeMark(c *ui.Context, mark *string, fallback string) {
 	if mark == nil {
 		return
+	}
+	placeholder := strings.TrimSpace(fallback)
+	if placeholder == "" {
+		placeholder = i18n.T(c, "welcome_name")
 	}
 	kit.Group(c, "welcome", i18n.T(c, "appearance_welcome"), "", nil, func() {
 		kit.Card(c, func() {
 			title := i18n.T(c, "appearance_welcome_mark")
 			kit.WideRow(c, "welcome-mark", title, i18n.T(c, "appearance_welcome_mark_detail"), func() {
-				if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(i18n.T(c, "welcome_name")).
+				if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(placeholder).
 					MaxLength(preferences.WelcomeMarkMax).FillWidth().Changed() {
 					*mark = preferences.CleanWelcomeMark(*mark)
 				}
@@ -287,7 +293,7 @@ func details(c *ui.Context, d *themeDetails, look Look) {
 	title := name(c, pkg)
 	w := min(width(c)-48, 640)
 	kit.Dialog(c.Key("theme-details"), &d.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).SingleLine().PaddingEnd(24)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Shrink(1).MinHeight(0).Gap(16).Padding(4).Children(func() {
 			cols := 2
 			if w < 520 {
@@ -337,7 +343,7 @@ func details(c *ui.Context, d *themeDetails, look Look) {
 				})
 			})
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { d.open = false })
 			if d.importing != nil {
 				kit.SecondaryBusy(c.Key("install"), i18n.T(c, "plugins_install"), d.importing.Pending).OnClick(func() {

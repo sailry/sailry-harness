@@ -2,9 +2,11 @@ package preview
 
 import (
 	"fmt"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"strings"
 	"time"
+
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type Host = viewmodel.Host
@@ -106,8 +108,24 @@ func change(path, status string, hunks ...Hunk) FileChange {
 func workspace() *Workspace {
 	w := &Workspace{
 		Hosts: []Host{
-			{ID: "local", Name: "local_host_name", Platform: "macos", Local: true},
-			{ID: "remote", Name: "remote_host_name", Platform: "linux", Update: true},
+			{
+				ID:             "local",
+				Name:           "local_host_name",
+				Platform:       "macos",
+				Local:          true,
+				ProjectSources: []string{"local", "clone"},
+				Tools:          []protocol.HostTool{{Name: "git", Available: true}},
+				CanClone:       true,
+			},
+			{
+				ID:             "remote",
+				Name:           "remote_host_name",
+				Platform:       "linux",
+				Update:         true,
+				ProjectSources: []string{"local", "clone"},
+				Tools:          []protocol.HostTool{{Name: "git", Available: true}},
+				CanClone:       true,
+			},
 		},
 		Files: files(),
 	}

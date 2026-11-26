@@ -14,7 +14,7 @@ func TestDesktopProfileSelection(t *testing.T) {
 		t.Fatalf("fixture home already exists: %v", err)
 	}
 	official := OfficialDesktop()
-	if official.ID != "harness" || official.DefaultProfile != "~/.sailry-harness" {
+	if official.ID != "harness" || official.DefaultProfile != "~/.sailry-harness" || official.WelcomeMark != "SAILRY HARNESS" {
 		t.Fatalf("Harness identity: %+v", official)
 	}
 	if path, err := profileFromHome(official.DefaultProfile, home); err != nil || path != filepath.Join(home, ".sailry-harness") {

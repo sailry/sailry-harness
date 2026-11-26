@@ -115,6 +115,32 @@ func TestDesktopProductPresentation(t *testing.T) {
 	}
 }
 
+func TestDesktopProductDefaultWelcomeMark(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		product identity.Desktop
+		want    string
+	}{
+		{name: "official harness", product: identity.OfficialDesktop(), want: "SAILRY HARNESS"},
+		{name: "harness id fallback", product: identity.Desktop{ID: "harness"}, want: "SAILRY HARNESS"},
+		{name: "code id fallback", product: identity.Desktop{ID: "code"}, want: "SAILRY CODE"},
+		{name: "explicit override", product: identity.Desktop{ID: "code", WelcomeMark: "CUSTOM CODE"}, want: "CUSTOM CODE"},
+		{name: "cleaned override", product: identity.Desktop{ID: "custom", WelcomeMark: "Caf\u00e9!"}, want: "Caf!"},
+		{name: "unknown fork keeps DefaultWordmark fallback", product: identity.Desktop{ID: "custom"}, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := shell.NewWithAssembly(preview.Load(), shell.Assemble(providers.Register))
+			applyProduct(app, tc.product, "Sailry")
+			if app.Messages.DefaultMark != tc.want {
+				t.Fatalf("DefaultMark = %q, want %q", app.Messages.DefaultMark, tc.want)
+			}
+			if app.Messages.Mark != "" {
+				t.Fatalf("applyProduct mutated user Mark = %q", app.Messages.Mark)
+			}
+		})
+	}
+}
+
 type releaseTransport func(*http.Request) (*http.Response, error)
 
 func (f releaseTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

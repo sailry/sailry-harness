@@ -6,7 +6,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 func Page() settings.NativePage {
@@ -84,26 +83,24 @@ func render(c *ui.Context, s *settings.State) {
 	})
 
 	open := len(b.Profiles) > 0
+	title := t("browser_choose_profile")
 	kit.Dialog(c.Key("browser-profiles-dialog"), &open, func() {
-		p := theme.Of(c)
-		ui.Column(c).Width(388).Gap(12).Children(func() {
-			ui.Text(c, t("browser_choose_profile")).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			ui.Scroll(c.Key("profiles")).MaxHeight(320).Gap(4).Children(func() {
-				for _, profile := range b.Profiles {
-					profile := profile
-					busy := b.Importing && b.ImportingProfile == profile.ID
-					disabled := !b.Enabled || (b.Importing && !busy)
-					kit.TextActionBusy(c.Key(profile.ID), profile.Name, disabled, busy).
-						FillWidth().Justify(ui.Start).
-						OnClick(func() {
-							if s.Live && act != nil && act.ImportChrome != nil {
-								act.ImportChrome(profile.ID)
-							}
-						})
-				}
-			})
+		kit.DialogHeader(c, title)
+		ui.Scroll(c.Key("profiles")).FillWidth().MaxHeight(320).Gap(4).Children(func() {
+			for _, profile := range b.Profiles {
+				profile := profile
+				busy := b.Importing && b.ImportingProfile == profile.ID
+				disabled := !b.Enabled || (b.Importing && !busy)
+				kit.TextActionBusy(c.Key(profile.ID), profile.Name, disabled, busy).
+					FillWidth().Justify(ui.Start).
+					OnClick(func() {
+						if s.Live && act != nil && act.ImportChrome != nil {
+							act.ImportChrome(profile.ID)
+						}
+					})
+			}
 		})
-	})
+	}).Width(settings.DialogWidth(c, 388+2*kit.DialogInset)).Label(title)
 	if !open && len(b.Profiles) > 0 && !b.Importing {
 		if act != nil && act.CloseProfiles != nil {
 			act.CloseProfiles()

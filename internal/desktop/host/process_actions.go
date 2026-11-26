@@ -94,7 +94,7 @@ func processDialogs(c *ui.Context, s *State, h *Host, act Actions) {
 		pid = strconv.FormatUint(uint64(x.PID), 10)
 	}
 	kit.Dialog(c.Key("process-details"), &s.detailed, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		kit.DialogHeader(c, title)
 		ui.Column(c.Key("facts")).Gap(6).Children(func() {
 			for _, f := range []Fact{
 				{"host_process_name", x.Name}, {"host_pid", pid},
@@ -106,5 +106,5 @@ func processDialogs(c *ui.Context, s *State, h *Host, act Actions) {
 				})
 			}
 		})
-	}).Width(min(420, w-48)).Gap(12).Label(title)
+	}).Width(min(420, w-48)).Label(title)
 }

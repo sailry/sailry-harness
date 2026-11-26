@@ -29,7 +29,7 @@ func (r *Runtime) skillSelectionDialog(c *ui.Context) {
 	title := i18n.T(c, "skills_install")
 	width, height := c.Size()
 	kit.Dialog(c.Key("skill-selection"), &selection.Open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("candidates")).MaxHeight(min(400, height*0.55)).Gap(8).Children(func() {
 			for index := range selection.Candidates {
 				candidate := &selection.Candidates[index]
@@ -39,7 +39,7 @@ func (r *Runtime) skillSelectionDialog(c *ui.Context) {
 				})
 			}
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(selection.Pending).OnClick(func() { selection.Open = false })
 			var indices []int
 			for index, candidate := range selection.Candidates {

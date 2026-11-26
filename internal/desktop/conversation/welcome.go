@@ -1,9 +1,7 @@
 package conversation
 
 import (
-	_ "embed"
 	"math"
-	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -66,14 +64,13 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 	available := max(width-2*padding-12, 0)
 	mark := strings.TrimSpace(s.Mark)
 	if mark == "" {
-		// The row is the brand, a square, and the wordmark, markW/markH wide
-		// for its height (as a fraction: the constants alone would divide
-		// whole).
-		logo = min(logo, float32(math.Floor(float64(available/(float32(markW)/markH+1)))))
-	} else {
-		// Custom lettering keeps at least twice the brand's width.
-		logo = min(logo, float32(math.Floor(float64(available/3))))
+		mark = strings.TrimSpace(s.DefaultMark)
 	}
+	if mark == "" {
+		mark = DefaultWordmark
+	}
+	// Lettering keeps at least twice the brand's width.
+	logo = min(logo, float32(math.Floor(float64(available/3))))
 	scroll.Children(func() {
 		// At least the scroll's height (last frame's), so the page centers
 		// vertically; taller content grows from the top instead of being
@@ -92,11 +89,7 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 				kit.Banner(c, "hero.new_session")
 				ui.Row(c).Gap(12).Padding(4, 0).AlignItems(ui.Center).Children(func() {
 					kit.Brand(c, logo)
-					if mark == "" {
-						wordmark(c, s, logo)
-					} else {
-						letters(c, s, mark, logo, available-logo)
-					}
+					letters(c, s, mark, logo, available-logo)
 				})
 				ui.Text(c, i18n.T(c, "welcome_title")).FontSize(18).TextAlign(ui.Center).FillWidth()
 			})
@@ -179,41 +172,22 @@ func card(c *ui.Context, m mode, stacked bool, prompt func(string)) {
 	}).OnClick(func() { prompt(i18n.T(c, m.prompt)) })
 }
 
-//go:embed wordmark.svg
-var wordmarkSVG string
+// DefaultWordmark is the fallback lettering shown on the welcome page when
+// neither user preferences nor the embedding product sets a custom mark.
+const DefaultWordmark = "SAILRY"
 
-// The wordmark's artwork: 6-unit square particles on an 8-unit grid in a
-// 328 x 112 box, its depth an alpha gradient along the diagonal.
+// Square-dot lettering geometry and shading proportions: 6-unit square
+// particles on an 8-unit grid, using a 328:112 aspect ratio for diagonal depth
+// shading and spotlight beam width.
 const (
-	markW, markH = 328, 112
-	dot          = 6
+	shadeAspectW, shadeAspectH = 328, 112
+	dot                        = 6
 )
 
-// particles are the wordmark's squares, parsed from the embedded artwork's
-// "M{x} {y}h6v6h-6z" paths.
-var particles = func() [][2]float32 {
-	var out [][2]float32
-	for _, path := range strings.Split(wordmarkSVG, "<path ")[1:] {
-		_, d, _ := strings.Cut(path, ` d="`)
-		d, _, _ = strings.Cut(d, `"`)
-		for _, m := range strings.Split(d, "M")[1:] {
-			xy, ok := strings.CutSuffix(m, "h6v6h-6z")
-			xs, ys, ok2 := strings.Cut(xy, " ")
-			x, err1 := strconv.ParseFloat(xs, 32)
-			y, err2 := strconv.ParseFloat(ys, 32)
-			if !ok || !ok2 || err1 != nil || err2 != nil {
-				panic("wordmark particles must be squares: " + m)
-			}
-			out = append(out, [2]float32{float32(x), float32(y)})
-		}
-	}
-	return out
-}()
-
-// depth is the artwork's alpha gradient from its top left to its bottom
+// depth is the lettering's alpha gradient from its top left to its bottom
 // right corner.
 func depth(x, y float32) float32 {
-	t := (x*markW + y*markH) / (markW*markW + markH*markH)
+	t := (x*shadeAspectW + y*shadeAspectH) / (shadeAspectW*shadeAspectW + shadeAspectH*shadeAspectH)
 	stops := [][2]float32{{0, 0.96}, {0.38, 0.76}, {0.72, 0.46}, {1, 0.78}}
 	for i := 1; i < len(stops); i++ {
 		if t <= stops[i][0] {
@@ -224,15 +198,10 @@ func depth(x, y float32) float32 {
 	return stops[len(stops)-1][1]
 }
 
-// wordmark draws the Sailry wordmark height tall.
-func wordmark(c *ui.Context, s *State, height float32) {
-	particleLight(c, s, i18n.T(c, "welcome_name"), particles, markW, markH, height*markW/markH, height, markW*0.13)
-}
-
-// Custom lettering is drawn line high for the brand's height, shrinking to
-// minScale of that to stay on one line before it wraps; its particles are
-// never closer than minPitch DIPs, so a compact page wraps it rather than
-// shrinking it past reading.
+// Lettering is drawn line high for the brand's height, shrinking to minScale
+// of that to stay on one line before it wraps; its particles are never closer
+// than minPitch DIPs, so a compact page wraps it rather than shrinking it past
+// reading.
 const (
 	minScale = 0.7
 	minPitch = 2
@@ -240,8 +209,7 @@ const (
 
 // letters draws text in the lettering face beside a brand logo tall, in at
 // most room DIPs across: a line as tall as the brand, narrower to fit, and
-// wrapped below minScale. Its beam is as wide for its height as the
-// wordmark's.
+// wrapped below minScale.
 func letters(c *ui.Context, s *State, text string, logo, room float32) {
 	unit := max(logo/letterLine, minPitch) // DIPs a particle at full size
 	pitch := unit
@@ -256,7 +224,7 @@ func letters(c *ui.Context, s *State, text string, logo, room float32) {
 		s.letters = layoutLettering(text, cols)
 	}
 	l := s.letters
-	particleLight(c, s, text, l.particles, l.w, l.h, l.w*pitch/8, l.h*pitch/8, 8*letterLine*markW*0.13/markH)
+	particleLight(c, s, text, l.particles, l.w, l.h, l.w*pitch/8, l.h*pitch/8, 8*letterLine*shadeAspectW*0.13/shadeAspectH)
 }
 
 // particleLight draws square-dot lettering of 6-unit particles in a w x h
@@ -293,7 +261,7 @@ func particleLight(c *ui.Context, s *State, label string, parts [][2]float32, w,
 		for _, q := range parts {
 			x, y := q[0], q[1]
 			rect := ui.Rect{X: r.X + x*sx, Y: r.Y + y*sy, W: dot * sx, H: dot * sy}
-			pt.Fill(rect, ink.Mix(end, x/w).Alpha(base*depth(x/w*markW, y/h*markH)), 0)
+			pt.Fill(rect, ink.Mix(end, x/w).Alpha(base*depth(x/w*shadeAspectW, y/h*shadeAspectH)), 0)
 			d := (x + 3 - center) / sigma
 			if strength := float32(math.Exp(float64(-0.5 * d * d))); strength > 0.01 {
 				// The light shows only through the particles, in the

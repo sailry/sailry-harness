@@ -3,11 +3,13 @@ package live
 import (
 	"encoding/hex"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -18,14 +20,103 @@ const localHostNameKey = "local_host_name"
 // canonicalHost is one execution host known to this window from the single
 // canonical host directory.
 type canonicalHost struct {
-	ID        protocol.NodeID
-	IDString  string
-	NameKey   string // localHostNameKey for local; peer/catalog/remembered name or shortNodeID for remote
-	Platform  string
-	Connected bool
-	Local     bool
-	Client    *client.Client
-	Owner     *Runtime
+	ID             protocol.NodeID
+	IDString       string
+	NameKey        string // localHostNameKey for local; peer/catalog/remembered name or shortNodeID for remote
+	Platform       string
+	Connected      bool
+	Local          bool
+	ProjectSources []string
+	Tools          []protocol.HostTool
+	CanClone       bool
+	SnapTools      []protocol.HostTool
+	SnapRev        uint64
+	HasSnap        bool
+	Client         *client.Client
+	Owner          *Runtime
+}
+
+type hostCapabilities struct {
+	projectSources []string
+	tools          []protocol.HostTool
+	snapTools      []protocol.HostTool
+	canClone       bool
+	snapRev        uint64
+	hasSnap        bool
+}
+
+func hostToolAvailable(tools []protocol.HostTool, name string) bool {
+	for _, tool := range tools {
+		if tool.Name == name && tool.Available {
+			return true
+		}
+	}
+	return false
+}
+
+func hostCanClone(projectSources []string, tools []protocol.HostTool) bool {
+	return slices.Contains(projectSources, "clone") && hostToolAvailable(tools, "git")
+}
+
+func cloneHostTools(tools []protocol.HostTool) []protocol.HostTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]protocol.HostTool, len(tools))
+	for i, tool := range tools {
+		cloned := protocol.HostTool{
+			Name:      tool.Name,
+			Available: tool.Available,
+		}
+		if tool.Path != nil {
+			path := *tool.Path
+			cloned.Path = &path
+		}
+		if tool.Version != nil {
+			version := *tool.Version
+			cloned.Version = &version
+		}
+		out[i] = cloned
+	}
+	return out
+}
+
+func hostToolsEqual(left, right []protocol.HostTool) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i].Name != right[i].Name || left[i].Available != right[i].Available {
+			return false
+		}
+		if (left[i].Path == nil) != (right[i].Path == nil) || (left[i].Path != nil && *left[i].Path != *right[i].Path) {
+			return false
+		}
+		if (left[i].Version == nil) != (right[i].Version == nil) || (left[i].Version != nil && *left[i].Version != *right[i].Version) {
+			return false
+		}
+	}
+	return true
+}
+
+// effectiveHostCapabilities resolves a host's project sources, CLI tools and
+// clone capability from its Client snapshot, overlaying fresher inspect_host
+// tool probes while the snapshot's own HostTools have not superseded them.
+func effectiveHostCapabilities(state *liveHost, c *client.Client) hostCapabilities {
+	var caps hostCapabilities
+	if c != nil {
+		caps.snapRev = c.Revision()
+		snap := c.Snapshot()
+		caps.hasSnap = true
+		caps.projectSources = slices.Clone(snap.ProjectSources)
+		caps.snapTools = cloneHostTools(snap.HostTools)
+		caps.tools = cloneHostTools(snap.HostTools)
+	}
+	if state != nil && state.info != nil && len(state.info.Tools) > 0 && hostToolsEqual(caps.snapTools, state.infoSnapTools) {
+		caps.tools = cloneHostTools(state.info.Tools)
+	}
+	caps.canClone = hostCanClone(caps.projectSources, caps.tools)
+	return caps
 }
 
 // shortNodeID formats an unnamed or offline Node ID consistently without
@@ -219,19 +310,26 @@ func (r *Runtime) canonicalHosts() []canonicalHost {
 		}
 	}
 
+	localCaps := effectiveHostCapabilities(root.hosts[localIDStr], root.controller)
 	hosts := []canonicalHost{{
-		ID:        localID,
-		IDString:  localIDStr,
-		NameKey:   localHostNameKey,
-		Platform:  localPlatform,
-		Connected: root.controller.Connected(),
-		Local:     true,
-		Client:    root.controller,
-		Owner:     root,
+		ID:             localID,
+		IDString:       localIDStr,
+		NameKey:        localHostNameKey,
+		Platform:       localPlatform,
+		Connected:      root.controller.Connected(),
+		Local:          true,
+		ProjectSources: localCaps.projectSources,
+		Tools:          localCaps.tools,
+		CanClone:       localCaps.canClone,
+		SnapTools:      localCaps.snapTools,
+		SnapRev:        localCaps.snapRev,
+		HasSnap:        localCaps.hasSnap,
+		Client:         root.controller,
+		Owner:          root,
 	}}
 	seen := map[string]bool{localIDStr: true}
 
-	appendRemote := func(id protocol.NodeID, idStr, platform string, peerPtr *networkPeer, c *client.Client, owner *Runtime) {
+	appendRemote := func(id protocol.NodeID, idStr, platform string, peerPtr *networkPeer, c *client.Client, owner *Runtime, fallback *viewmodel.Host) {
 		if idStr == "" || seen[idStr] {
 			return
 		}
@@ -279,15 +377,27 @@ func (r *Runtime) canonicalHosts() []canonicalHost {
 				nameKey = shortNodeID(idStr)
 			}
 		}
+		caps := effectiveHostCapabilities(root.hosts[idStr], c)
+		if c == nil && fallback != nil {
+			caps.projectSources = slices.Clone(fallback.ProjectSources)
+			caps.tools = cloneHostTools(fallback.Tools)
+			caps.canClone = fallback.CanClone
+		}
 		hosts = append(hosts, canonicalHost{
-			ID:        id,
-			IDString:  idStr,
-			NameKey:   nameKey,
-			Platform:  platform,
-			Connected: c != nil && c.Connected(),
-			Local:     false,
-			Client:    c,
-			Owner:     owner,
+			ID:             id,
+			IDString:       idStr,
+			NameKey:        nameKey,
+			Platform:       platform,
+			Connected:      c != nil && c.Connected(),
+			Local:          false,
+			ProjectSources: caps.projectSources,
+			Tools:          caps.tools,
+			CanClone:       caps.canClone,
+			SnapTools:      caps.snapTools,
+			SnapRev:        caps.snapRev,
+			HasSnap:        caps.hasSnap,
+			Client:         c,
+			Owner:          owner,
 		})
 	}
 
@@ -302,7 +412,8 @@ func (r *Runtime) canonicalHosts() []canonicalHost {
 				copied := p
 				peerPtr = &copied
 			}
-			appendRemote(id, host.ID, host.Platform, peerPtr, nil, nil)
+			hostCopy := host
+			appendRemote(id, host.ID, host.Platform, peerPtr, nil, nil, &hostCopy)
 		}
 	}
 	for _, peer := range peerOrder {
@@ -310,7 +421,7 @@ func (r *Runtime) canonicalHosts() []canonicalHost {
 			continue
 		}
 		copied := peer
-		appendRemote(peer.address.ID, peer.address.ID.String(), "", &copied, peer.controller, nil)
+		appendRemote(peer.address.ID, peer.address.ID.String(), "", &copied, peer.controller, nil, nil)
 	}
 	for _, bound := range root.bindings {
 		if bound == nil || bound.controller == nil {
@@ -323,7 +434,7 @@ func (r *Runtime) canonicalHosts() []canonicalHost {
 			copied := p
 			peerPtr = &copied
 		}
-		appendRemote(id, idStr, "", peerPtr, bound.controller, bound)
+		appendRemote(id, idStr, "", peerPtr, bound.controller, bound, nil)
 	}
 	return hosts
 }

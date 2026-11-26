@@ -237,7 +237,7 @@ func hookDialog(c *ui.Context, m *page, canSave bool) {
 	}
 	title := i18n.T(c, "hooks_configure")
 	kit.Dialog(c.Key("hook"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			label := i18n.T(c, "hooks_name")
 			kit.Field(c, "name", label, "", func() {
@@ -259,7 +259,7 @@ func hookDialog(c *ui.Context, m *page, canSave bool) {
 				ui.TextInput(c.Key("input"), &e.timeout).Label(label).FillWidth()
 			})
 		})
-		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			if !canSave {
 				kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.open = false })
 				return

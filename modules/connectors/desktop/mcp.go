@@ -174,8 +174,8 @@ func mcpDialog(c *ui.Context, m *page) {
 	locked := e.locked()
 	live := m.Live && m.ConnectorActions != nil
 	kit.Dialog(c.Key("mcp-editor"), &e.open, func() {
-		ui.Row(c.Key("title")).Gap(8).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeaderRow(c, func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
 			if e.loading {
 				kit.Busy(c)
 			}
@@ -289,7 +289,7 @@ func mcpDialog(c *ui.Context, m *page) {
 			kit.Toast(c, kit.Done, t("mcp_configuration_saved"))
 			e.open = false
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			if e.unread {
 				kit.Secondary(c.Key("reload"), t("plugins_settings_reload")).Disabled(e.loading).OnClick(reload)
 			}

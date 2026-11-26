@@ -856,13 +856,13 @@ func (s *State) nameDialog(c *ui.Context) {
 		title = i18n.T(c, "files_rename")
 	}
 	kit.Dialog(c.Key("picker-name"), &n.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		input := ui.TextInput(c.Key("input"), &n.value).Placeholder(i18n.T(c, "directory_name")).Label(i18n.T(c, "directory_name")).
 			FillWidth().AutoFocus()
 		if input.Submitted() {
 			s.saveName()
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { n.open = false })
 			save := i18n.T(c, "settings_save")
 			kit.Primary(c.Key("save"), save, false).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(s.saveName)

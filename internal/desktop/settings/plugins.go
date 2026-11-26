@@ -354,8 +354,7 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	title := t("plugins_settings_title")
 	kit.Dialog(c.Key("plugin-config"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Text(c, name+" · "+t("plugins_settings_description")).FontSize(14).TextColor(pal.MutedForeground)
+		kit.DialogHeader(c, title, name+" · "+t("plugins_settings_description"))
 		if len(e.tabs) > 0 {
 			titles := make([]string, len(e.tabs))
 			for i, tab := range e.tabs {
@@ -460,7 +459,7 @@ func pluginInstallDialog(c *ui.Context, m *Model) {
 		}
 		title := i18n.T(c, "plugins_install")
 		kit.Dialog(c.Key("plugin-install"), &e.open, func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
+			kit.DialogHeader(c, title)
 			for _, field := range []struct {
 				label, hint string
 				value       *string
@@ -534,7 +533,7 @@ func pluginDownloadDialog(c *ui.Context, m *Model) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	title := t("plugins_download")
 	kit.Dialog(c.Key("plugin-download"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		for _, f := range []struct {
 			label, hint string
 			value       *string
@@ -569,7 +568,7 @@ func pluginDownloadDialog(c *ui.Context, m *Model) {
 		if e.pending {
 			label = t("plugins_installing")
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.CancelDownload != nil {
 					m.PackageActions.CancelDownload()
@@ -610,7 +609,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	title := t("plugins_updates_title")
 	kit.Dialog(c.Key("plugin-updates"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
 			for i := range m.Packages {
 				p := &m.Packages[i]
@@ -640,7 +639,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 				n++
 			}
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("later"), t("plugins_updates_later")).OnClick(func() { e.open = false })
 			label := t("plugins_updates_selected", "count", n)
 			kit.Primary(c.Key("ok"), label, n == 0).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {

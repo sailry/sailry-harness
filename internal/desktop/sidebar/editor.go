@@ -71,8 +71,62 @@ func (s *State) OpenEditorAtHost(id string) {
 	s.editor.host = id
 }
 
-// OpenCloneEditor opens the existing new-project form with Clone selected.
-func (s *State) OpenCloneEditor() { s.OpenEditor(nil); s.editor.Clone, s.editor.mode = 1, 1 }
+func (s *State) hostCanClone(id string) bool {
+	if s.Data == nil {
+		return false
+	}
+	for _, h := range s.Data.Hosts {
+		if h.ID == id {
+			return h.CanClone
+		}
+	}
+	return false
+}
+
+func (s *State) firstCloneHost() (string, bool) {
+	if s.Data == nil {
+		return "", false
+	}
+	for _, h := range s.Data.Hosts {
+		if h.CanClone {
+			return h.ID, true
+		}
+	}
+	return "", false
+}
+
+func (e *Editor) resetToLocal(restorePath bool) {
+	if restorePath && e.mode == 1 {
+		e.Path = e.other
+	}
+	e.other = ""
+	e.Clone, e.mode = 0, 0
+	e.Repo, e.Branch = "", ""
+}
+
+// OpenCloneEditor opens the existing new-project form with Clone selected
+// when a clone-capable host is available, otherwise falling back to local mode.
+func (s *State) OpenCloneEditor() {
+	s.OpenEditor(nil)
+	preferred := s.SelectedHost
+	if preferred == "" && s.Data != nil && len(s.Data.Hosts) > 0 {
+		preferred = s.Data.Hosts[0].ID
+	}
+	if preferred != "" && s.hostCanClone(preferred) {
+		s.editor.host = preferred
+		s.editor.Clone, s.editor.mode = 1, 1
+		return
+	}
+	if id, ok := s.firstCloneHost(); ok {
+		s.editor.host = id
+		s.editor.Clone, s.editor.mode = 1, 1
+		return
+	}
+	if preferred != "" {
+		s.editor.host = preferred
+	}
+	s.editor.Clone, s.editor.mode = 0, 0
+}
 
 // SuggestName is the name a path or a repository suggests: its last segment,
 // split on / \ and :, a repository's without ".git".
@@ -175,6 +229,11 @@ func (s *State) editorDialog(c *ui.Context) {
 	if e.Project != nil {
 		e.host = e.Project.Host
 	}
+	canClone := e.Project == nil && s.hostCanClone(e.host)
+	if !canClone && (e.Clone != 0 || e.mode != 0 || e.Repo != "" || e.Branch != "") {
+		e.resetToLocal(true)
+		e.suggestName()
+	}
 	// Each source keeps its own folder.
 	if e.Clone != e.mode {
 		e.mode, e.Path, e.other = e.Clone, e.other, e.Path
@@ -193,14 +252,13 @@ func (s *State) editorDialog(c *ui.Context) {
 		title = i18n.T(c, "project_edit")
 	}
 	kit.Dialog(c.Key("editor"), &e.Open, func() {
-		ui.Column(c.Key("head")).Gap(6).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			if s.Actions == nil && !kit.Demo(c) {
-				ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
-			}
-		})
+		subtitle := ""
+		if s.Actions == nil && !kit.Demo(c) {
+			subtitle = i18n.T(c, "project_editor_preview")
+		}
+		kit.DialogHeader(c, title, subtitle)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
-			if e.Project == nil {
+			if canClone {
 				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")},
 					kit.SegmentedProps{Block: true, Disabled: e.Pending})
 			}
@@ -223,6 +281,9 @@ func (s *State) editorDialog(c *ui.Context) {
 				if e.host != before {
 					// A path belongs to the host it was chosen on.
 					e.Path, e.other = "", ""
+					if e.Project == nil && !s.hostCanClone(e.host) {
+						e.resetToLocal(false)
+					}
 					e.suggestName()
 				}
 			})
@@ -264,7 +325,7 @@ func (s *State) editorDialog(c *ui.Context) {
 				})
 			})
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
 			saveKey := "settings_save_preview"
 			switch {
@@ -285,6 +346,11 @@ func (s *State) editorDialog(c *ui.Context) {
 func (s *State) submit(c *ui.Context) {
 	e := &s.editor
 	if e.Pending {
+		return
+	}
+	if e.cloning() && !s.hostCanClone(e.host) {
+		e.resetToLocal(true)
+		e.suggestName()
 		return
 	}
 	if e.Project == nil && strings.TrimSpace(e.Name) == "" {

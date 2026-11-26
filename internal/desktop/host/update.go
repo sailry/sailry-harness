@@ -20,13 +20,11 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 	title := i18n.T(c, "host_update")
 	u := h.Update
 	kit.Dialog(c.Key("host-update"), &s.updating, func() {
-		// The header keeps clear of the close button.
-		ui.Column(c.Key("header")).Gap(4).PaddingEnd(32).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			if !h.plain(c) {
-				ui.Text(c, i18n.T(c, "update_preview")).FontSize(14).TextColor(p.MutedForeground)
-			}
-		})
+		subtitle := ""
+		if !h.plain(c) {
+			subtitle = i18n.T(c, "update_preview")
+		}
+		kit.DialogHeader(c, title, subtitle)
 		ui.Scroll(c.Key("status")).MaxHeight(min(max(wh-300, 80), 300)).Gap(12).Children(func() {
 			if u == nil {
 				ui.Text(c, i18n.T(c, "update_target_changed")).FontSize(14)
@@ -55,7 +53,7 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 				ui.Progress(c.Key("progress"), float64(min(u.Progress, 100))/100).FillWidth().Height(4).Label(title)
 			}
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { s.updating = false })
 			if u == nil {
 				return
@@ -78,7 +76,7 @@ func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 				})
 			}
 		})
-	}).Width(min(480, w-48)).Gap(20).Label(title)
+	}).Width(min(480, w-48)).Label(title)
 	if !h.Live && u != nil && u.Error != "" && s.failed != u.Error {
 		kit.Error(c, title, u.Error)
 	}

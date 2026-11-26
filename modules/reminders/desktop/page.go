@@ -282,153 +282,151 @@ func (ctrl *controller) renderEditorDialog(c *ui.Context, t Translate) {
 	if !open {
 		return
 	}
-	p := theme.Of(c)
 	disabled := busy || hasPending
 	title := t("reminders_create")
 	if ed.editing {
 		title = t("reminders_edit")
 	}
+	winW, _ := c.Size()
 
 	kit.Dialog(c.Key("reminder-editor-dialog"), &open, func() {
-		ui.Column(c).Width(editorDialogWidth - 2*kit.DialogInset).Gap(14).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground).PaddingEnd(28)
+		kit.DialogHeader(c, title)
 
-			ui.Column(c).FillWidth().Gap(12).Children(func() {
-				// 1. Title
-				kit.Field(c, "field-title", t("reminders_title"), "", func() {
-					ui.TextInput(c.Key("input"), &ed.title).Label(t("reminders_title")).
-						Placeholder(t("reminders_title_placeholder")).FillWidth().Disabled(disabled)
+		ui.Column(c).FillWidth().Gap(12).Children(func() {
+			// 1. Title
+			kit.Field(c, "field-title", t("reminders_title"), "", func() {
+				ui.TextInput(c.Key("input"), &ed.title).Label(t("reminders_title")).
+					Placeholder(t("reminders_title_placeholder")).FillWidth().Disabled(disabled)
+			})
+
+			// 2. Notes
+			kit.Field(c, "field-message", t("reminders_message"), "", func() {
+				ui.TextArea(c.Key("input"), &ed.message).Label(t("reminders_message")).
+					Placeholder(t("reminders_message_placeholder")).FillWidth().MinHeight(80).MaxHeight(160).Disabled(disabled)
+			})
+
+			// 3. Execution host (locked on edit)
+			kit.Field(c, "field-host", t("reminders_execution_host"), "", func() {
+				hostOpts := make([]kit.SelectOption, 0, len(nodes)+1)
+				selectedHost := ed.executionNode.String()
+				foundHost := false
+				for _, n := range nodes {
+					id := n.ID.String()
+					label := n.Label
+					if label == "" {
+						ctrl.mu.Lock()
+						label = ctrl.nodeLabelLocked(n.ID)
+						ctrl.mu.Unlock()
+					}
+					if !n.Connected {
+						label += " (" + t("reminders_execution_unavailable") + ")"
+					}
+					if id == selectedHost {
+						foundHost = true
+					}
+					hostOpts = append(hostOpts, kit.SelectOption{Value: id, Label: label, Disabled: !n.Connected})
+				}
+				if !foundHost {
+					label := t("reminders_execution_unavailable")
+					if ed.executionNode != (protocol.NodeID{}) {
+						ctrl.mu.Lock()
+						hostName := ctrl.nodeLabelLocked(ed.executionNode)
+						ctrl.mu.Unlock()
+						if hostName != "" {
+							label = hostName + " (" + label + ")"
+						}
+					}
+					hostOpts = append(hostOpts, kit.SelectOption{Value: selectedHost, Label: label, Disabled: true})
+				}
+				el, changed := kit.SelectField(c.Key("select"), "reminder-editor-host", &selectedHost, kit.SelectProps{
+					Label:    t("reminders_execution_host"),
+					Options:  hostOpts,
+					Disabled: disabled || ed.editing,
 				})
-
-				// 2. Notes
-				kit.Field(c, "field-message", t("reminders_message"), "", func() {
-					ui.TextArea(c.Key("input"), &ed.message).Label(t("reminders_message")).
-						Placeholder(t("reminders_message_placeholder")).FillWidth().MinHeight(80).MaxHeight(160).Disabled(disabled)
-				})
-
-				// 3. Execution host (locked on edit)
-				kit.Field(c, "field-host", t("reminders_execution_host"), "", func() {
-					hostOpts := make([]kit.SelectOption, 0, len(nodes)+1)
-					selectedHost := ed.executionNode.String()
-					foundHost := false
+				el.FillWidth()
+				if changed && !ed.editing {
 					for _, n := range nodes {
-						id := n.ID.String()
-						label := n.Label
-						if label == "" {
-							ctrl.mu.Lock()
-							label = ctrl.nodeLabelLocked(n.ID)
-							ctrl.mu.Unlock()
-						}
-						if !n.Connected {
-							label += " (" + t("reminders_execution_unavailable") + ")"
-						}
-						if id == selectedHost {
-							foundHost = true
-						}
-						hostOpts = append(hostOpts, kit.SelectOption{Value: id, Label: label, Disabled: !n.Connected})
-					}
-					if !foundHost {
-						label := t("reminders_execution_unavailable")
-						if ed.executionNode != (protocol.NodeID{}) {
-							ctrl.mu.Lock()
-							hostName := ctrl.nodeLabelLocked(ed.executionNode)
-							ctrl.mu.Unlock()
-							if hostName != "" {
-								label = hostName + " (" + label + ")"
-							}
-						}
-						hostOpts = append(hostOpts, kit.SelectOption{Value: selectedHost, Label: label, Disabled: true})
-					}
-					el, changed := kit.SelectField(c.Key("select"), "reminder-editor-host", &selectedHost, kit.SelectProps{
-						Label:    t("reminders_execution_host"),
-						Options:  hostOpts,
-						Disabled: disabled || ed.editing,
-					})
-					el.FillWidth()
-					if changed && !ed.editing {
-						for _, n := range nodes {
-							if n.ID.String() == selectedHost && n.Connected {
-								ed.executionNode = n.ID
-								ed.hasExecNode = true
-								// Clear project if it does not belong to the newly chosen host.
-								if ed.project != nil {
-									belongs := false
-									for _, pr := range projects {
-										if pr.Node == n.ID && pr.Project.ID == *ed.project {
-											belongs = true
-											break
-										}
-									}
-									if !belongs {
-										ed.project = nil
+						if n.ID.String() == selectedHost && n.Connected {
+							ed.executionNode = n.ID
+							ed.hasExecNode = true
+							// Clear project if it does not belong to the newly chosen host.
+							if ed.project != nil {
+								belongs := false
+								for _, pr := range projects {
+									if pr.Node == n.ID && pr.Project.ID == *ed.project {
+										belongs = true
+										break
 									}
 								}
-								break
+								if !belongs {
+									ed.project = nil
+								}
 							}
+							break
 						}
 					}
-				})
-
-				// 4. Project
-				kit.Field(c, "field-project", t("reminders_project"), "", func() {
-					projOpts := []kit.SelectOption{{Value: "none", Label: t("reminders_no_project")}}
-					selectedProj := "none"
-					if ed.project != nil {
-						selectedProj = ed.project.String()
-					}
-					foundProj := selectedProj == "none"
-					for _, pr := range projects {
-						if pr.Node != ed.executionNode {
-							continue
-						}
-						id := pr.Project.ID.String()
-						if id == selectedProj {
-							foundProj = true
-						}
-						projOpts = append(projOpts, kit.SelectOption{Value: id, Label: pr.Project.Name})
-					}
-					if !foundProj {
-						projOpts = append(projOpts, kit.SelectOption{Value: selectedProj, Label: t("reminders_unavailable_project")})
-					}
-					el, changed := kit.SelectField(c.Key("select"), "reminder-editor-project", &selectedProj, kit.SelectProps{
-						Label:       t("reminders_project"),
-						Placeholder: t("reminders_project_placeholder"),
-						Options:     projOpts,
-						Disabled:    disabled,
-					})
-					el.FillWidth()
-					if changed {
-						if selectedProj == "none" {
-							ed.project = nil
-						} else if parsed, err := protocol.ParseProjectID(selectedProj); err == nil {
-							ed.project = &parsed
-						}
-					}
-				})
-
-				// 5. Remind me checkbox + DateInput/TimeInput
-				ui.Checkbox(c.Key("timed"), &ed.timed, t("reminders_timed")).Disabled(disabled)
-				if ed.timed {
-					kit.Field(c, "field-time", t("reminders_time"), "", func() {
-						ui.Row(c).FillWidth().Gap(8).Children(func() {
-							ui.DateInput(c.Key("date"), &ed.dueDate).Grow(1).MinWidth(0).Disabled(disabled)
-							ui.TimeInput(c.Key("time"), &ed.dueTime).Label(t("reminders_time")).Width(136).Disabled(disabled)
-						})
-					})
 				}
 			})
 
-			// Footer.
-			ui.Row(c.Key("footer")).FillWidth().Justify(ui.End).Gap(8).Children(func() {
-				kit.Secondary(c.Key("cancel"), t("reminders_cancel")).Disabled(busy).OnClick(ctrl.closeEditor)
-				saveLabel := t("reminders_save")
-				if hasPending {
-					saveLabel = t("reminders_retry")
+			// 4. Project
+			kit.Field(c, "field-project", t("reminders_project"), "", func() {
+				projOpts := []kit.SelectOption{{Value: "none", Label: t("reminders_no_project")}}
+				selectedProj := "none"
+				if ed.project != nil {
+					selectedProj = ed.project.String()
 				}
-				kit.PrimaryBusy(c.Key("save"), saveLabel, false, busy).OnClick(ctrl.saveEditor)
+				foundProj := selectedProj == "none"
+				for _, pr := range projects {
+					if pr.Node != ed.executionNode {
+						continue
+					}
+					id := pr.Project.ID.String()
+					if id == selectedProj {
+						foundProj = true
+					}
+					projOpts = append(projOpts, kit.SelectOption{Value: id, Label: pr.Project.Name})
+				}
+				if !foundProj {
+					projOpts = append(projOpts, kit.SelectOption{Value: selectedProj, Label: t("reminders_unavailable_project")})
+				}
+				el, changed := kit.SelectField(c.Key("select"), "reminder-editor-project", &selectedProj, kit.SelectProps{
+					Label:       t("reminders_project"),
+					Placeholder: t("reminders_project_placeholder"),
+					Options:     projOpts,
+					Disabled:    disabled,
+				})
+				el.FillWidth()
+				if changed {
+					if selectedProj == "none" {
+						ed.project = nil
+					} else if parsed, err := protocol.ParseProjectID(selectedProj); err == nil {
+						ed.project = &parsed
+					}
+				}
 			})
+
+			// 5. Remind me checkbox + DateInput/TimeInput
+			ui.Checkbox(c.Key("timed"), &ed.timed, t("reminders_timed")).Disabled(disabled)
+			if ed.timed {
+				kit.Field(c, "field-time", t("reminders_time"), "", func() {
+					ui.Row(c).FillWidth().Gap(8).Children(func() {
+						ui.DateInput(c.Key("date"), &ed.dueDate).Grow(1).MinWidth(0).Disabled(disabled)
+						ui.TimeInput(c.Key("time"), &ed.dueTime).Label(t("reminders_time")).Width(136).Disabled(disabled)
+					})
+				})
+			}
 		})
-	})
+
+		// Footer.
+		kit.DialogFooter(c, func() {
+			kit.Secondary(c.Key("cancel"), t("reminders_cancel")).Disabled(busy).OnClick(ctrl.closeEditor)
+			saveLabel := t("reminders_save")
+			if hasPending {
+				saveLabel = t("reminders_retry")
+			}
+			kit.PrimaryBusy(c.Key("save"), saveLabel, false, busy).OnClick(ctrl.saveEditor)
+		})
+	}).Width(min(editorDialogWidth, max(winW-48, 280))).Label(title)
 
 	if !open && !busy {
 		ctrl.closeEditor()

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/egoist/mygo"
 	_ "github.com/egoist/mygo/locales/ja"
@@ -17,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/desktop/picker"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -478,9 +480,24 @@ func configureMyGo(app *mygo.Application, config Options) {
 	app.SetVersion(config.Identity.Version)
 }
 
+func defaultWelcomeMark(product identity.Desktop) string {
+	if mark := strings.TrimSpace(preferences.CleanWelcomeMark(product.WelcomeMark)); mark != "" {
+		return mark
+	}
+	switch product.ID {
+	case "harness":
+		return "SAILRY HARNESS"
+	case "code":
+		return "SAILRY CODE"
+	default:
+		return ""
+	}
+}
+
 func applyProduct(app *shell.App, product identity.Desktop, name string) {
 	app.Settings.ProductName, app.Settings.Version = name, product.Version
 	app.Website, app.Feedback = product.Website, product.Feedback
+	app.Messages.DefaultMark = defaultWelcomeMark(product)
 }
 
 func preferenceLocale(language *string) string {

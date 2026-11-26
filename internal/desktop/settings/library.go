@@ -299,7 +299,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 		resolved := !m.Live || x.Resolved
 		current := !m.Live || x.Current
 		kit.Dialog(c.Key("model-library-details"), &open, func() {
-			ui.Text(c, x.Name).FontSize(16).FontWeight(600)
+			kit.DialogHeader(c, x.Name)
 			rows := [][2]string{{t("model_library_source"), t(x.Source) + " · " + x.Repo}}
 			for _, row := range [][2]string{{t("settings_license"), x.License}, {t("knowledge_model_size"), x.Size}} {
 				// A live model's size and license show once the hub resolved it.
@@ -324,7 +324,7 @@ func libraryDialogs(c *ui.Context, m *Model) {
 					})
 				}
 			}
-			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.DialogFooter(c, func() {
 				kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() { e.info = "" })
 				label, installed := t("knowledge_install"), current && x.Status == preview.ModelInstalled
 				if installed {

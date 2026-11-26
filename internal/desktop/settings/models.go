@@ -233,7 +233,7 @@ func modelDetails(c *ui.Context, m *Model) {
 		status := map[preview.ModelStatus]string{preview.ModelMissing: "knowledge_missing",
 			preview.ModelDownloading: "knowledge_downloading", preview.ModelInstalled: "knowledge_installed"}[x.Status]
 		kit.Dialog(c.Key("model-details"), &open, func() {
-			ui.Text(c, d.name).FontSize(16).FontWeight(600)
+			kit.DialogHeader(c, d.name)
 			var rows [][2]string
 			for _, row := range [][2]string{{t("local_models_status"), t(status)}, {t("model_library_source"), x.Repo},
 				{t("model_library_version"), x.Version}, {t("settings_license"), x.License}, {t("knowledge_model_size"), x.Size}} {
@@ -248,7 +248,7 @@ func modelDetails(c *ui.Context, m *Model) {
 					ui.Textf(c, "%.0f%%", x.Percent).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 				})
 			}
-			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.DialogFooter(c, func() {
 				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { m.info = nil })
 				switch {
 				case x.Status == preview.ModelDownloading:

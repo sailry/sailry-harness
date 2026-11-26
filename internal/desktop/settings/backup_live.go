@@ -121,7 +121,7 @@ func recordsDialog(c *ui.Context, m *Model) {
 	t := func(k string) string { return i18n.T(c, k) }
 	title := t("backup_restore_storage")
 	kit.Dialog(c.Key("records"), &d.records, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		switch {
 		case len(a.Records) != 0:
 			ui.Scroll(c.Key("list")).Grow(1).Shrink(1).Dividers(1, p.Border).Children(func() {
@@ -146,7 +146,7 @@ func recordsDialog(c *ui.Context, m *Model) {
 		if a.Partial {
 			ui.Text(c, t("backup_partial")).FontSize(14).TextColor(p.MutedForeground)
 		}
-		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { d.records = false })
 		})
 	}).Width(min(640, width(c)-48)).Label(title)
@@ -164,7 +164,7 @@ func restoreDialog(c *ui.Context, m *Model) {
 	title := t("backup_restore")
 	x := &d.restore
 	kit.Dialog(c.Key("restore"), &d.restoring, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Column(c.Key("body")).Gap(16).Children(func() {
 			if a.Host != "" {
 				ui.Text(c, i18n.T(c, "backup_action_host", "name", a.Host)).FontSize(14).TextColor(p.MutedForeground)

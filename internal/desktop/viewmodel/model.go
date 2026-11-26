@@ -92,11 +92,14 @@ type Plugin struct {
 // Host is a computer running a Node: this one and a paired one
 // (local_host_name, remote_host_name in the reference's preview).
 type Host struct {
-	ID       string
-	Name     string // an i18n key for the preview hosts
-	Platform string
-	Local    bool
-	Update   bool // an update is available
+	ID             string
+	Name           string // an i18n key for the preview hosts
+	Platform       string
+	Local          bool
+	Update         bool // an update is available
+	ProjectSources []string
+	Tools          []protocol.HostTool
+	CanClone       bool
 }
 
 // Worktree is a checkout of a project: the main one, or one made for a

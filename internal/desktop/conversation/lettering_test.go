@@ -3,6 +3,9 @@ package conversation
 import (
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 func TestLetteringCoversPrintableASCII(t *testing.T) {
@@ -84,4 +87,79 @@ func TestLetteringWraps(t *testing.T) {
 			t.Fatalf("particle %v outside %v x %v", q, two.w, two.h)
 		}
 	}
+}
+
+func TestWelcomeDefaultMarkPrecedenceAndLayout(t *testing.T) {
+	t.Run("precedence between custom Mark, DefaultMark, and DefaultWordmark", func(t *testing.T) {
+		state := &State{}
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Dark)
+			Welcome(c, state, func() {}, func(string) {})
+		}, 900, 700)
+		tt.SetLocale("en")
+		tt.Frame()
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleImage, DefaultWordmark); !ok {
+			t.Fatalf("expected %q fallback when both Mark and DefaultMark are blank", DefaultWordmark)
+		}
+
+		state.DefaultMark = "SAILRY HARNESS"
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleImage, "SAILRY HARNESS"); !ok {
+			t.Fatalf("expected DefaultMark when Mark is blank")
+		}
+
+		state.Mark = "CUSTOM MARK"
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleImage, "CUSTOM MARK"); !ok {
+			t.Fatalf("expected custom Mark to override DefaultMark")
+		}
+
+		state.Mark = "   "
+		tt.Frame()
+		if _, ok := tt.AccessByRole(ui.RoleImage, "SAILRY HARNESS"); !ok {
+			t.Fatalf("expected clearing Mark to revert to DefaultMark")
+		}
+	})
+
+	t.Run("product default marks fit desktop and compact widths without overflow", func(t *testing.T) {
+		for _, tc := range []struct {
+			mark    string
+			width   int
+			wrapped bool
+		}{
+			{"SAILRY", 1100, false},
+			{"SAILRY", 360, false},
+			{"SAILRY HARNESS", 1100, false},
+			{"SAILRY HARNESS", 700, false},
+			{"SAILRY HARNESS", 360, true},
+			{"SAILRY HARNESS", 300, true},
+			{"SAILRY CODE", 1100, false},
+			{"SAILRY CODE", 700, false},
+			{"SAILRY CODE", 360, true},
+			{"SAILRY CODE", 300, false},
+		} {
+			state := &State{DefaultMark: tc.mark}
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Dark)
+				Welcome(c, state, func() {}, func(string) {})
+			}, tc.width, 700)
+			tt.SetLocale("en")
+			tt.Frame()
+			tt.Frame()
+			info, ok := tt.AccessByRole(ui.RoleImage, tc.mark)
+			if !ok {
+				t.Fatalf("%s @ %d: missing welcome lettering", tc.mark, tc.width)
+			}
+			r := info.Bounds
+			if r.X < 0 || r.X+r.W > float32(tc.width) || r.W <= 0 || r.H <= 0 {
+				t.Fatalf("%s @ %d: lettering bounds %+v overflow width", tc.mark, tc.width, r)
+			}
+			// Compare rendered line count via laid-out box height.
+			wrapped := state.letters.h > 8*letterLine
+			if wrapped != tc.wrapped {
+				t.Errorf("%s @ %d: wrapped = %v (box %v x %v), want %v", tc.mark, tc.width, wrapped, r.W, r.H, tc.wrapped)
+			}
+		}
+	})
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -115,10 +116,10 @@ func openAppearance(t *testing.T, r *Runtime, window *ui.Tester) {
 
 // The lettering typed in Settings › Appearance shows on the welcome, is saved
 // with its last character while the field keeps focus, survives reopening
-// the profile, and clearing it brings back the Sailry wordmark.
+// the profile, and clearing it brings back the default lettering.
 func TestWelcomeMarkEndToEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "desktop", "preferences.json")
-	sailry := i18n.In("en", "welcome_name")
+	sailry := conversation.DefaultWordmark
 	title := i18n.In("en", "appearance_welcome_mark")
 
 	r, window := welcomeMarkWindow(t, path)
@@ -162,4 +163,39 @@ func TestWelcomeMarkEndToEnd(t *testing.T) {
 
 	r, window = welcomeMarkWindow(t, path)
 	lettering(t, r, window, sailry)
+}
+
+func TestWelcomeDefaultMarkEndToEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop", "preferences.json")
+	title := i18n.In("en", "appearance_welcome_mark")
+
+	r, window := welcomeMarkWindow(t, path)
+	r.App.Messages.DefaultMark = "SAILRY HARNESS"
+	window.Frame()
+	lettering(t, r, window, "SAILRY HARNESS")
+	if got := storedMark(r, path); got != nil {
+		t.Fatalf("default mark was unexpectedly persisted as %q", *got)
+	}
+
+	openAppearance(t, r, window)
+	focusMarkField(t, window, title)
+	window.Type("MY TEAM")
+	window.Frame()
+	if got := storedMark(r, path); got == nil || *got != "MY TEAM" {
+		t.Fatalf("custom mark not saved: %v", got)
+	}
+	click(t, window, ui.RoleButton, i18n.In("en", "settings"))
+	lettering(t, r, window, "MY TEAM")
+
+	openAppearance(t, r, window)
+	focusMarkField(t, window, title)
+	for range len("MY TEAM") {
+		window.Key(0, ui.KeyBackspace)
+	}
+	window.Frame()
+	if got := storedMark(r, path); got != nil {
+		t.Fatalf("cleared mark persisted as %q", *got)
+	}
+	click(t, window, ui.RoleButton, i18n.In("en", "settings"))
+	lettering(t, r, window, "SAILRY HARNESS")
 }

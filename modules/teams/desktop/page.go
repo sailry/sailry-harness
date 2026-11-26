@@ -418,7 +418,7 @@ func teamDialog(c *ui.Context, m *page) {
 		title = t("team_new")
 	}
 	kit.Dialog(c.Key("team-editor"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Disabled(e.pending || e.locked).Children(func() {
 			if e.def {
 				ui.Text(c, t("team_default_description")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
@@ -473,7 +473,7 @@ func teamDialog(c *ui.Context, m *page) {
 				})
 			})
 		})
-		ui.Row(c.Key("footer")).Gap(8).Children(func() {
+		kit.DialogFooter(c, func() {
 			if !e.def && e.team.ID != "" {
 				kit.Secondary(c.Key("duplicate"), t("team_duplicate")).Disabled(e.pending || e.locked).OnClick(func() {
 					x := e.team
@@ -583,7 +583,7 @@ func roleDialog(c *ui.Context, m *page) {
 	}
 	locked := e.pending || e.locked
 	kit.Dialog(c.Key("role-editor"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			if e.role.ID == "" {
 				kit.Field(c, "presets", t("role_presets"), "", func() {
@@ -670,7 +670,7 @@ func roleDialog(c *ui.Context, m *page) {
 
 // teamFooter keeps uncertain drafts available for an explicit retry.
 func teamFooter(c *ui.Context, action string, pending, locked bool, cancel, save func()) {
-	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+	kit.DialogFooter(c, func() {
 		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(pending || locked).OnClick(cancel)
 		kit.PrimaryBusy(c.Key("ok"), action, false, pending).OnClick(save)
 	})

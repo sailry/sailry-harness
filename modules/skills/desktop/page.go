@@ -203,7 +203,7 @@ func (m *page) skillInstallDialog(c *ui.Context) {
 		})
 	}
 	kit.Dialog(c.Key("skill-install"), &e.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		kit.Segmented(c, "source", &e.source, settings.Labels(c, skillSources), kit.SegmentedProps{Block: true}).Label(t("skill_source_origin")).Disabled(e.pending)
 		switch e.source {
 		case 0:

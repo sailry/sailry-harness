@@ -140,7 +140,8 @@ type Data struct {
 	ViewZoom *uint16 `json:"view_zoom,omitempty"`
 	// WelcomeMark is the new session page's custom lettering, at most
 	// WelcomeMarkMax printable ASCII characters; nil or blank shows the
-	// Sailry wordmark. An optional Go presentation extension.
+	// product's default welcome lettering. An optional Go presentation
+	// extension.
 	WelcomeMark *string `json:"welcome_mark,omitempty"`
 	// Retained for preference round trips. Developer launch modes no longer
 	// restore or update these former UI switches.

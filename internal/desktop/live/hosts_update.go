@@ -174,7 +174,7 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 	width, _ := c.Size()
 	open := true
 	kit.Dialog(c.Key("host-update-credentials-"+state.view.ID), &open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, title)
 		ui.Text(c, i18n.T(c, "host_update_restart")).FontSize(14)
 		if pending {
 			stage := sshProgressKey(state.install.stage)
@@ -187,7 +187,7 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 			}
 			r.sshCredentialFields(c, &update.draft, saved)
 		}
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() {
 				update.form = false
 				if state.install != nil && state.install.active {

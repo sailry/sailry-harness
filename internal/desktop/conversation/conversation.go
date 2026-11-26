@@ -70,8 +70,12 @@ type State struct {
 	// no navigation rail.
 	Split bool
 	// Mark is the welcome page's custom lettering (Settings › Appearance);
-	// blank shows the Sailry wordmark.
+	// blank falls back to DefaultMark, or to DefaultWordmark ("SAILRY") when
+	// both are blank.
 	Mark string
+	// DefaultMark is the product's runtime default welcome lettering (never
+	// persisted to user preferences).
+	DefaultMark string
 	// Aside is the room Docked keeps clear at the transcript's end for what
 	// floats there (the session overview card): the turns, the dock and the
 	// rail center in what is left, while the list still fills the pane, so

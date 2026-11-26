@@ -240,177 +240,176 @@ func renderEditor(c *ui.Context, s *settings.State, st *pageState) {
 	locked := m.Loading || m.Pending || st.saving || st.retry
 
 	open := st.editorOpen
+	title := t("search_driver_" + st.driver)
 	kit.Dialog(c.Key("search-editor-"+st.driver), &open, func() {
 		p := theme.Of(c)
-		ui.Column(c).Width(480).Gap(16).Children(func() {
-			ui.Text(c, t("search_driver_"+st.driver)).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			if st.driver == "model" {
-				kit.Field(c, "model", t("search_model_name"), "", func() {
-					kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{
-						Label:       t("search_model_name"),
-						None:        t("search_model_follow"),
-						Models:      m.ModelOptions,
-						Model:       st.modelKey,
-						Unavailable: t("search_model_unavailable"),
-						Disabled:    locked,
-						OnChange: func(id, _ string) {
-							st.modelKey = id
-						},
-					}).FillWidth()
+		kit.DialogHeader(c, title)
+		if st.driver == "model" {
+			kit.Field(c, "model", t("search_model_name"), "", func() {
+				kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{
+					Label:       t("search_model_name"),
+					None:        t("search_model_follow"),
+					Models:      m.ModelOptions,
+					Model:       st.modelKey,
+					Unavailable: t("search_model_unavailable"),
+					Disabled:    locked,
+					OnChange: func(id, _ string) {
+						st.modelKey = id
+					},
+				}).FillWidth()
+			})
+		} else {
+			if st.driver == "searxng" {
+				kit.Field(c, "endpoint", t("search_endpoint"), "", func() {
+					ui.TextInput(c.Key("input"), &st.endpoint).Label(t("search_endpoint")).Disabled(locked).FillWidth()
 				})
-			} else {
-				if st.driver == "searxng" {
-					kit.Field(c, "endpoint", t("search_endpoint"), "", func() {
-						ui.TextInput(c.Key("input"), &st.endpoint).Label(t("search_endpoint")).Disabled(locked).FillWidth()
-					})
-				}
-				keyLabel := t("search_api_key")
-				if !cur.KeyRequired {
-					keyLabel = t("search_optional_key")
-				}
-				keyPlaceholder := keyLabel
-				if cur.KeyConfigured && !st.clearKey {
-					keyPlaceholder = t("search_configured")
-				}
-				kit.Field(c, "api-key", keyLabel, "", func() {
-					kit.SecretInput(c.Key("secret"), &st.apiKey, &st.apiKeyShown, kit.SecretInputProps{
-						Label:       keyLabel,
-						Placeholder: keyPlaceholder,
-						Disabled:    locked || st.clearKey,
-					})
-					if cur.KeyConfigured && st.apiKey == "" {
-						ui.Row(c.Key("clear-key")).AlignItems(ui.Center).Gap(8).Children(func() {
-							ui.Switch(c.Key("switch"), &st.clearKey).Label(t("search_remove_key")).Disabled(locked)
-							ui.Text(c, t("search_remove_key")).FontSize(13).TextColor(p.MutedForeground)
-						})
-					}
-				})
-				if st.driver == "searxng" {
-					userPlaceholder := t("search_username")
-					passPlaceholder := t("search_password")
-					if cur.BasicConfigured && !st.clearBasic {
-						userPlaceholder = t("search_configured")
-						passPlaceholder = t("search_configured")
-					}
-					kit.Field(c, "username", t("search_username"), "", func() {
-						kit.SecretInput(c.Key("secret"), &st.username, &st.usernameShown, kit.SecretInputProps{
-							Label:       t("search_username"),
-							Placeholder: userPlaceholder,
-							Disabled:    locked || st.clearBasic,
-						})
-					})
-					kit.Field(c, "password", t("search_password"), "", func() {
-						kit.SecretInput(c.Key("secret"), &st.password, &st.passwordShown, kit.SecretInputProps{
-							Label:       t("search_password"),
-							Placeholder: passPlaceholder,
-							Disabled:    locked || st.clearBasic,
-						})
-						if cur.BasicConfigured && st.username == "" && st.password == "" {
-							ui.Row(c.Key("clear-basic")).AlignItems(ui.Center).Gap(8).Children(func() {
-								ui.Switch(c.Key("switch"), &st.clearBasic).Label(t("search_remove_basic")).Disabled(locked)
-								ui.Text(c, t("search_remove_basic")).FontSize(13).TextColor(p.MutedForeground)
-							})
-						}
-					})
-				}
 			}
-
-			ui.Row(c.Key("footer")).Justify(ui.End).Gap(8).Children(func() {
-				if m.Revision != st.openedRevision {
-					kit.Secondary(c.Key("reload"), t("search_reload")).Disabled(locked).OnClick(func() {
-						openEditor(st, m, cur)
+			keyLabel := t("search_api_key")
+			if !cur.KeyRequired {
+				keyLabel = t("search_optional_key")
+			}
+			keyPlaceholder := keyLabel
+			if cur.KeyConfigured && !st.clearKey {
+				keyPlaceholder = t("search_configured")
+			}
+			kit.Field(c, "api-key", keyLabel, "", func() {
+				kit.SecretInput(c.Key("secret"), &st.apiKey, &st.apiKeyShown, kit.SecretInputProps{
+					Label:       keyLabel,
+					Placeholder: keyPlaceholder,
+					Disabled:    locked || st.clearKey,
+				})
+				if cur.KeyConfigured && st.apiKey == "" {
+					ui.Row(c.Key("clear-key")).AlignItems(ui.Center).Gap(8).Children(func() {
+						ui.Switch(c.Key("switch"), &st.clearKey).Label(t("search_remove_key")).Disabled(locked)
+						ui.Text(c, t("search_remove_key")).FontSize(13).TextColor(p.MutedForeground)
 					})
 				}
-				kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.saving).OnClick(func() {
-					if st.retry && act != nil && act.ForgetPending != nil {
-						act.ForgetPending()
-					}
-					st.CloseDialogs()
-				})
-				saveLabel := t("settings_save")
-				if st.retry {
-					saveLabel = t("search_retry")
+			})
+			if st.driver == "searxng" {
+				userPlaceholder := t("search_username")
+				passPlaceholder := t("search_password")
+				if cur.BasicConfigured && !st.clearBasic {
+					userPlaceholder = t("search_configured")
+					passPlaceholder = t("search_configured")
 				}
-				kit.PrimaryBusy(c.Key("save"), saveLabel, m.Loading || !m.Connected, st.saving).OnClick(func() {
-					if st.retry {
-						if act != nil && act.Retry != nil && act.Retry() {
-							st.saving = true
-						}
-						return
+				kit.Field(c, "username", t("search_username"), "", func() {
+					kit.SecretInput(c.Key("secret"), &st.username, &st.usernameShown, kit.SecretInputProps{
+						Label:       t("search_username"),
+						Placeholder: userPlaceholder,
+						Disabled:    locked || st.clearBasic,
+					})
+				})
+				kit.Field(c, "password", t("search_password"), "", func() {
+					kit.SecretInput(c.Key("secret"), &st.password, &st.passwordShown, kit.SecretInputProps{
+						Label:       t("search_password"),
+						Placeholder: passPlaceholder,
+						Disabled:    locked || st.clearBasic,
+					})
+					if cur.BasicConfigured && st.username == "" && st.password == "" {
+						ui.Row(c.Key("clear-basic")).AlignItems(ui.Center).Gap(8).Children(func() {
+							ui.Switch(c.Key("switch"), &st.clearBasic).Label(t("search_remove_basic")).Disabled(locked)
+							ui.Text(c, t("search_remove_basic")).FontSize(13).TextColor(p.MutedForeground)
+						})
 					}
-					draft := settings.SearchDriverDraft{
-						Driver:   st.driver,
-						Endpoint: strings.TrimSpace(st.endpoint),
-						Key:      settings.SearchCredentialUpdate{Action: "keep"},
-						Basic:    settings.SearchCredentialUpdate{Action: "keep"},
+				})
+			}
+		}
+
+		kit.DialogFooter(c, func() {
+			if m.Revision != st.openedRevision {
+				kit.Secondary(c.Key("reload"), t("search_reload")).Disabled(locked).OnClick(func() {
+					openEditor(st, m, cur)
+				})
+			}
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(st.saving).OnClick(func() {
+				if st.retry && act != nil && act.ForgetPending != nil {
+					act.ForgetPending()
+				}
+				st.CloseDialogs()
+			})
+			saveLabel := t("settings_save")
+			if st.retry {
+				saveLabel = t("search_retry")
+			}
+			kit.PrimaryBusy(c.Key("save"), saveLabel, m.Loading || !m.Connected, st.saving).OnClick(func() {
+				if st.retry {
+					if act != nil && act.Retry != nil && act.Retry() {
+						st.saving = true
 					}
-					if st.driver == "model" {
-						if st.modelKey != "" {
-							if !slices.ContainsFunc(m.ModelOptions, func(opt kit.ModelOption) bool { return opt.ID == st.modelKey }) {
-								kit.Toast(c, kit.Failed, t("search_model_unavailable"))
-								return
-							}
-							prov, mod, ok := strings.Cut(st.modelKey, "/")
-							if ok {
-								draft.ModelProvider, draft.ModelID = prov, mod
-							}
-						}
-					} else {
-						if st.apiKey != "" {
-							draft.Key = settings.SearchCredentialUpdate{Action: "set", Value: st.apiKey}
-						} else if st.clearKey {
-							draft.Key = settings.SearchCredentialUpdate{Action: "clear"}
-						}
-						if st.driver == "searxng" {
-							if (st.username != "") != (st.password != "") {
-								kit.Toast(c, kit.Failed, t("search_basic_invalid"))
-								return
-							}
-							if st.username != "" {
-								draft.Basic = settings.SearchCredentialUpdate{Action: "set", Username: st.username, Password: st.password}
-							} else if st.clearBasic {
-								draft.Basic = settings.SearchCredentialUpdate{Action: "clear"}
-							}
-						}
-					}
-					if !s.Live || act == nil || act.SaveDriver == nil {
-						for i := range m.Drivers {
-							if m.Drivers[i].ID == st.driver {
-								m.Drivers[i].Endpoint = draft.Endpoint
-								if draft.Key.Action == "set" {
-									m.Drivers[i].KeyConfigured = true
-								} else if draft.Key.Action == "clear" {
-									m.Drivers[i].KeyConfigured = false
-								}
-								if draft.Basic.Action == "set" {
-									m.Drivers[i].BasicConfigured = true
-								} else if draft.Basic.Action == "clear" {
-									m.Drivers[i].BasicConfigured = false
-								}
-								m.Drivers[i].ModelProvider = draft.ModelProvider
-								m.Drivers[i].ModelID = draft.ModelID
-							}
-						}
-						st.CloseDialogs()
-						kit.Toast(c, kit.Done, t("search_saved"))
-						return
-					}
-					st.saving = true
-					gen := st.generation
-					act.SaveDriver(draft, func(ok bool, retry bool) {
-						if st.generation != gen {
+					return
+				}
+				draft := settings.SearchDriverDraft{
+					Driver:   st.driver,
+					Endpoint: strings.TrimSpace(st.endpoint),
+					Key:      settings.SearchCredentialUpdate{Action: "keep"},
+					Basic:    settings.SearchCredentialUpdate{Action: "keep"},
+				}
+				if st.driver == "model" {
+					if st.modelKey != "" {
+						if !slices.ContainsFunc(m.ModelOptions, func(opt kit.ModelOption) bool { return opt.ID == st.modelKey }) {
+							kit.Toast(c, kit.Failed, t("search_model_unavailable"))
 							return
 						}
-						st.saving = false
-						st.retry = retry
+						prov, mod, ok := strings.Cut(st.modelKey, "/")
 						if ok {
-							st.CloseDialogs()
+							draft.ModelProvider, draft.ModelID = prov, mod
 						}
-					})
+					}
+				} else {
+					if st.apiKey != "" {
+						draft.Key = settings.SearchCredentialUpdate{Action: "set", Value: st.apiKey}
+					} else if st.clearKey {
+						draft.Key = settings.SearchCredentialUpdate{Action: "clear"}
+					}
+					if st.driver == "searxng" {
+						if (st.username != "") != (st.password != "") {
+							kit.Toast(c, kit.Failed, t("search_basic_invalid"))
+							return
+						}
+						if st.username != "" {
+							draft.Basic = settings.SearchCredentialUpdate{Action: "set", Username: st.username, Password: st.password}
+						} else if st.clearBasic {
+							draft.Basic = settings.SearchCredentialUpdate{Action: "clear"}
+						}
+					}
+				}
+				if !s.Live || act == nil || act.SaveDriver == nil {
+					for i := range m.Drivers {
+						if m.Drivers[i].ID == st.driver {
+							m.Drivers[i].Endpoint = draft.Endpoint
+							if draft.Key.Action == "set" {
+								m.Drivers[i].KeyConfigured = true
+							} else if draft.Key.Action == "clear" {
+								m.Drivers[i].KeyConfigured = false
+							}
+							if draft.Basic.Action == "set" {
+								m.Drivers[i].BasicConfigured = true
+							} else if draft.Basic.Action == "clear" {
+								m.Drivers[i].BasicConfigured = false
+							}
+							m.Drivers[i].ModelProvider = draft.ModelProvider
+							m.Drivers[i].ModelID = draft.ModelID
+						}
+					}
+					st.CloseDialogs()
+					kit.Toast(c, kit.Done, t("search_saved"))
+					return
+				}
+				st.saving = true
+				gen := st.generation
+				act.SaveDriver(draft, func(ok bool, retry bool) {
+					if st.generation != gen {
+						return
+					}
+					st.saving = false
+					st.retry = retry
+					if ok {
+						st.CloseDialogs()
+					}
 				})
 			})
 		})
-	})
+	}).Width(settings.DialogWidth(c, 480+2*kit.DialogInset)).Label(title)
 	if !open && st.editorOpen && !st.saving {
 		if st.retry && act != nil && act.ForgetPending != nil {
 			act.ForgetPending()

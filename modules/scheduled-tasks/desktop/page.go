@@ -278,332 +278,330 @@ func (ctrl *controller) renderEditorDialog(c *ui.Context, t Translate) {
 	if ed.editing {
 		title = t("scheduled_tasks_edit")
 	}
-	_, winH := c.Size()
+	winW, winH := c.Size()
 	maxBodyH := max(winH*0.65, 280)
 
 	kit.Dialog(c.Key("task-editor-dialog"), &open, func() {
-		ui.Column(c).Width(editorDialogWidth - 2*kit.DialogInset).Gap(14).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground).PaddingEnd(28)
+		kit.DialogHeader(c, title)
 
-			ui.Scroll(c.Key("editor-scroll")).FillWidth().MaxHeight(maxBodyH).Children(func() {
-				ui.Column(c).FillWidth().Gap(12).PaddingEnd(4).Children(func() {
-					// 1. Name
-					kit.Field(c, "field-name", t("scheduled_tasks_name"), "", func() {
-						ui.TextInput(c.Key("input"), &ed.name).Label(t("scheduled_tasks_name")).
-							Placeholder(t("scheduled_tasks_name_placeholder")).FillWidth().Disabled(disabled)
+		ui.Scroll(c.Key("editor-scroll")).FillWidth().MaxHeight(maxBodyH).Children(func() {
+			ui.Column(c).FillWidth().Gap(12).PaddingEnd(4).Children(func() {
+				// 1. Name
+				kit.Field(c, "field-name", t("scheduled_tasks_name"), "", func() {
+					ui.TextInput(c.Key("input"), &ed.name).Label(t("scheduled_tasks_name")).
+						Placeholder(t("scheduled_tasks_name_placeholder")).FillWidth().Disabled(disabled)
+				})
+
+				// 2. Prompt
+				kit.Field(c, "field-prompt", t("scheduled_tasks_prompt"), "", func() {
+					ui.TextArea(c.Key("input"), &ed.prompt).Label(t("scheduled_tasks_prompt")).
+						Placeholder(t("scheduled_tasks_prompt_placeholder")).FillWidth().MinHeight(84).MaxHeight(160).Disabled(disabled)
+				})
+
+				// 3. Execution host (locked on edit)
+				kit.Field(c, "field-host", t("scheduled_tasks_execution_host"), "", func() {
+					hostOpts := make([]kit.SelectOption, 0, len(nodes)+1)
+					selectedHost := ed.executionNode.String()
+					foundHost := false
+					for _, n := range nodes {
+						id := n.ID.String()
+						label := n.Label
+						if label == "" {
+							ctrl.mu.Lock()
+							label = ctrl.nodeLabelLocked(n.ID)
+							ctrl.mu.Unlock()
+						}
+						if !n.Connected {
+							label += " (" + t("scheduled_tasks_execution_unavailable") + ")"
+						}
+						if id == selectedHost {
+							foundHost = true
+						}
+						hostOpts = append(hostOpts, kit.SelectOption{Value: id, Label: label, Disabled: !n.Connected})
+					}
+					if !foundHost {
+						label := t("scheduled_tasks_execution_unavailable")
+						if ed.executionNode != (protocol.NodeID{}) {
+							ctrl.mu.Lock()
+							hostName := ctrl.nodeLabelLocked(ed.executionNode)
+							ctrl.mu.Unlock()
+							if hostName != "" {
+								label = hostName + " (" + label + ")"
+							}
+						}
+						hostOpts = append(hostOpts, kit.SelectOption{Value: selectedHost, Label: label, Disabled: true})
+					}
+					el, changed := kit.SelectField(c.Key("select"), "task-editor-host", &selectedHost, kit.SelectProps{
+						Label:    t("scheduled_tasks_execution_host"),
+						Options:  hostOpts,
+						Disabled: disabled || ed.editing,
 					})
-
-					// 2. Prompt
-					kit.Field(c, "field-prompt", t("scheduled_tasks_prompt"), "", func() {
-						ui.TextArea(c.Key("input"), &ed.prompt).Label(t("scheduled_tasks_prompt")).
-							Placeholder(t("scheduled_tasks_prompt_placeholder")).FillWidth().MinHeight(84).MaxHeight(160).Disabled(disabled)
-					})
-
-					// 3. Execution host (locked on edit)
-					kit.Field(c, "field-host", t("scheduled_tasks_execution_host"), "", func() {
-						hostOpts := make([]kit.SelectOption, 0, len(nodes)+1)
-						selectedHost := ed.executionNode.String()
-						foundHost := false
+					el.FillWidth()
+					if changed && !ed.editing {
 						for _, n := range nodes {
-							id := n.ID.String()
-							label := n.Label
-							if label == "" {
+							if n.ID.String() == selectedHost && n.Connected {
 								ctrl.mu.Lock()
-								label = ctrl.nodeLabelLocked(n.ID)
+								ed.executionNode = n.ID
+								ed.project = nil
+								ed.worktree = nil
+								ed.config = nil
+								ed.team = nil
+								ed.models = map[protocol.RoleID]protocol.RoleModel{}
+								ed.modelID = ""
+								ed.effort = ""
 								ctrl.mu.Unlock()
+								break
 							}
-							if !n.Connected {
-								label += " (" + t("scheduled_tasks_execution_unavailable") + ")"
-							}
-							if id == selectedHost {
-								foundHost = true
-							}
-							hostOpts = append(hostOpts, kit.SelectOption{Value: id, Label: label, Disabled: !n.Connected})
-						}
-						if !foundHost {
-							label := t("scheduled_tasks_execution_unavailable")
-							if ed.executionNode != (protocol.NodeID{}) {
-								ctrl.mu.Lock()
-								hostName := ctrl.nodeLabelLocked(ed.executionNode)
-								ctrl.mu.Unlock()
-								if hostName != "" {
-									label = hostName + " (" + label + ")"
-								}
-							}
-							hostOpts = append(hostOpts, kit.SelectOption{Value: selectedHost, Label: label, Disabled: true})
-						}
-						el, changed := kit.SelectField(c.Key("select"), "task-editor-host", &selectedHost, kit.SelectProps{
-							Label:    t("scheduled_tasks_execution_host"),
-							Options:  hostOpts,
-							Disabled: disabled || ed.editing,
-						})
-						el.FillWidth()
-						if changed && !ed.editing {
-							for _, n := range nodes {
-								if n.ID.String() == selectedHost && n.Connected {
-									ctrl.mu.Lock()
-									ed.executionNode = n.ID
-									ed.project = nil
-									ed.worktree = nil
-									ed.config = nil
-									ed.team = nil
-									ed.models = map[protocol.RoleID]protocol.RoleModel{}
-									ed.modelID = ""
-									ed.effort = ""
-									ctrl.mu.Unlock()
-									break
-								}
-							}
-						}
-					})
-
-					// 4. Schedule (Once / Repeat / Weekly)
-					kit.Field(c, "field-schedule", t("scheduled_tasks_schedule"), "", func() {
-						kinds := []string{"once", "every", "weekly"}
-						idx := max(slices.Index(kinds, ed.timingKind), 0)
-						labels := []string{t("scheduled_tasks_once"), t("scheduled_tasks_every"), t("scheduled_tasks_weekly")}
-						if kit.Segmented(c, "timing-kind", &idx, labels, kit.SegmentedProps{Block: true, Disabled: disabled}).
-							Label(t("scheduled_tasks_schedule")).Changed() {
-							ed.timingKind = kinds[idx]
-						}
-					})
-
-					if ed.timingKind == "weekly" {
-						kit.Field(c, "field-weekdays", t("scheduled_tasks_weekdays"), "", func() {
-							ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
-								for day := uint8(1); day <= 7; day++ {
-									day := day
-									active := slices.Contains(ed.weekdays, day)
-									label := t(fmt.Sprintf("scheduled_tasks_weekday_%d", day))
-									b := ui.ButtonBase(c.Key(day)).Label(label).Disabled(disabled).
-										Height(30).PaddingX(10).Radius(p.Radius).Center().Cursor(ui.CursorPointer)
-									if active {
-										b.Background(p.ButtonPrimary).TextColor(p.OnPrimary)
-									} else {
-										b.Border(1, p.Border).Background(p.Surface).TextColor(p.Foreground)
-									}
-									b.Children(func() {
-										ui.Text(c, label).FontSize(13).SingleLine()
-									}).OnClick(func() {
-										if active {
-											ed.weekdays = slices.DeleteFunc(ed.weekdays, func(v uint8) bool { return v == day })
-										} else {
-											ed.weekdays = append(ed.weekdays, day)
-											slices.Sort(ed.weekdays)
-										}
-									})
-								}
-							})
-						})
-						ui.Row(c.Key("weekly-fields")).FillWidth().Gap(10).Children(func() {
-							ui.Column(c).Width(140).Children(func() {
-								kit.Field(c, "field-walltime", t("scheduled_tasks_local_time"), "", func() {
-									ui.TextInput(c.Key("input"), &ed.wallTime).Label(t("scheduled_tasks_local_time")).
-										Placeholder(t("scheduled_tasks_time_placeholder")).FillWidth().Disabled(disabled)
-								})
-							})
-							ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-								kit.Field(c, "field-timezone", t("scheduled_tasks_timezone"), "", func() {
-									ui.TextInput(c.Key("input"), &ed.timezone).Label(t("scheduled_tasks_timezone")).
-										Placeholder(t("scheduled_tasks_timezone_placeholder")).FillWidth().Disabled(disabled)
-								})
-							})
-						})
-					} else {
-						kit.Field(c, "field-time", t("scheduled_tasks_time"), "", func() {
-							ui.Row(c).FillWidth().Gap(8).Children(func() {
-								ui.DateInput(c.Key("date"), &ed.startDate).Grow(1).MinWidth(0).Disabled(disabled)
-								ui.TimeInput(c.Key("time"), &ed.startTime).Label(t("scheduled_tasks_time")).Width(136).Disabled(disabled)
-							})
-						})
-						if ed.timingKind == "every" {
-							kit.Field(c, "field-interval", t("scheduled_tasks_interval"), "", func() {
-								ui.TextInput(c.Key("input"), &ed.intervalSec).Label(t("scheduled_tasks_interval")).
-									Placeholder(t("scheduled_tasks_interval_placeholder")).FillWidth().Disabled(disabled)
-							})
 						}
 					}
+				})
 
-					// 5. Project
-					kit.Field(c, "field-project", t("scheduled_tasks_project"), "", func() {
-						projOpts := []kit.SelectOption{{Value: "none", Label: t("scheduled_tasks_no_project")}}
-						selectedProj := "none"
-						if ed.project != nil {
-							selectedProj = ed.project.String()
+				// 4. Schedule (Once / Repeat / Weekly)
+				kit.Field(c, "field-schedule", t("scheduled_tasks_schedule"), "", func() {
+					kinds := []string{"once", "every", "weekly"}
+					idx := max(slices.Index(kinds, ed.timingKind), 0)
+					labels := []string{t("scheduled_tasks_once"), t("scheduled_tasks_every"), t("scheduled_tasks_weekly")}
+					if kit.Segmented(c, "timing-kind", &idx, labels, kit.SegmentedProps{Block: true, Disabled: disabled}).
+						Label(t("scheduled_tasks_schedule")).Changed() {
+						ed.timingKind = kinds[idx]
+					}
+				})
+
+				if ed.timingKind == "weekly" {
+					kit.Field(c, "field-weekdays", t("scheduled_tasks_weekdays"), "", func() {
+						ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+							for day := uint8(1); day <= 7; day++ {
+								day := day
+								active := slices.Contains(ed.weekdays, day)
+								label := t(fmt.Sprintf("scheduled_tasks_weekday_%d", day))
+								b := ui.ButtonBase(c.Key(day)).Label(label).Disabled(disabled).
+									Height(30).PaddingX(10).Radius(p.Radius).Center().Cursor(ui.CursorPointer)
+								if active {
+									b.Background(p.ButtonPrimary).TextColor(p.OnPrimary)
+								} else {
+									b.Border(1, p.Border).Background(p.Surface).TextColor(p.Foreground)
+								}
+								b.Children(func() {
+									ui.Text(c, label).FontSize(13).SingleLine()
+								}).OnClick(func() {
+									if active {
+										ed.weekdays = slices.DeleteFunc(ed.weekdays, func(v uint8) bool { return v == day })
+									} else {
+										ed.weekdays = append(ed.weekdays, day)
+										slices.Sort(ed.weekdays)
+									}
+								})
+							}
+						})
+					})
+					ui.Row(c.Key("weekly-fields")).FillWidth().Gap(10).Children(func() {
+						ui.Column(c).Width(140).Children(func() {
+							kit.Field(c, "field-walltime", t("scheduled_tasks_local_time"), "", func() {
+								ui.TextInput(c.Key("input"), &ed.wallTime).Label(t("scheduled_tasks_local_time")).
+									Placeholder(t("scheduled_tasks_time_placeholder")).FillWidth().Disabled(disabled)
+							})
+						})
+						ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+							kit.Field(c, "field-timezone", t("scheduled_tasks_timezone"), "", func() {
+								ui.TextInput(c.Key("input"), &ed.timezone).Label(t("scheduled_tasks_timezone")).
+									Placeholder(t("scheduled_tasks_timezone_placeholder")).FillWidth().Disabled(disabled)
+							})
+						})
+					})
+				} else {
+					kit.Field(c, "field-time", t("scheduled_tasks_time"), "", func() {
+						ui.Row(c).FillWidth().Gap(8).Children(func() {
+							ui.DateInput(c.Key("date"), &ed.startDate).Grow(1).MinWidth(0).Disabled(disabled)
+							ui.TimeInput(c.Key("time"), &ed.startTime).Label(t("scheduled_tasks_time")).Width(136).Disabled(disabled)
+						})
+					})
+					if ed.timingKind == "every" {
+						kit.Field(c, "field-interval", t("scheduled_tasks_interval"), "", func() {
+							ui.TextInput(c.Key("input"), &ed.intervalSec).Label(t("scheduled_tasks_interval")).
+								Placeholder(t("scheduled_tasks_interval_placeholder")).FillWidth().Disabled(disabled)
+						})
+					}
+				}
+
+				// 5. Project
+				kit.Field(c, "field-project", t("scheduled_tasks_project"), "", func() {
+					projOpts := []kit.SelectOption{{Value: "none", Label: t("scheduled_tasks_no_project")}}
+					selectedProj := "none"
+					if ed.project != nil {
+						selectedProj = ed.project.String()
+					}
+					foundProj := selectedProj == "none"
+					for _, pr := range projects {
+						if pr.Node != ed.executionNode {
+							continue
 						}
-						foundProj := selectedProj == "none"
-						for _, pr := range projects {
-							if pr.Node != ed.executionNode {
+						id := pr.Project.ID.String()
+						if id == selectedProj {
+							foundProj = true
+						}
+						projOpts = append(projOpts, kit.SelectOption{Value: id, Label: pr.Project.Name})
+					}
+					if !foundProj {
+						projOpts = append(projOpts, kit.SelectOption{Value: selectedProj, Label: t("scheduled_tasks_unavailable")})
+					}
+					el, changed := kit.SelectField(c.Key("select"), "task-editor-project", &selectedProj, kit.SelectProps{
+						Label:       t("scheduled_tasks_project"),
+						Placeholder: t("scheduled_tasks_project_placeholder"),
+						Options:     projOpts,
+						Disabled:    disabled,
+					})
+					el.FillWidth()
+					if changed {
+						if selectedProj == "none" {
+							ed.project = nil
+							ed.worktree = nil
+						} else if parsed, err := protocol.ParseProjectID(selectedProj); err == nil {
+							ed.project = &parsed
+							ed.worktree = nil
+						}
+					}
+				})
+
+				// 6. Worktree (when project selected)
+				if ed.project != nil {
+					kit.Field(c, "field-worktree", t("scheduled_tasks_worktree"), "", func() {
+						wtOpts := []kit.SelectOption{{Value: "main", Label: t("scheduled_tasks_main_worktree")}}
+						selectedWT := "main"
+						if ed.worktree != nil {
+							selectedWT = ed.worktree.String()
+						}
+						foundWT := selectedWT == "main"
+						for _, wt := range worktrees {
+							if wt.Node != ed.executionNode || wt.Worktree.Project == nil || *wt.Worktree.Project != *ed.project {
 								continue
 							}
-							id := pr.Project.ID.String()
-							if id == selectedProj {
-								foundProj = true
+							id := wt.Worktree.ID.String()
+							if id == selectedWT {
+								foundWT = true
 							}
-							projOpts = append(projOpts, kit.SelectOption{Value: id, Label: pr.Project.Name})
+							wtOpts = append(wtOpts, kit.SelectOption{Value: id, Label: wt.Worktree.Path})
 						}
-						if !foundProj {
-							projOpts = append(projOpts, kit.SelectOption{Value: selectedProj, Label: t("scheduled_tasks_unavailable")})
+						if !foundWT {
+							wtOpts = append(wtOpts, kit.SelectOption{Value: selectedWT, Label: t("scheduled_tasks_unavailable")})
 						}
-						el, changed := kit.SelectField(c.Key("select"), "task-editor-project", &selectedProj, kit.SelectProps{
-							Label:       t("scheduled_tasks_project"),
-							Placeholder: t("scheduled_tasks_project_placeholder"),
-							Options:     projOpts,
+						el, changed := kit.SelectField(c.Key("select"), "task-editor-worktree", &selectedWT, kit.SelectProps{
+							Label:       t("scheduled_tasks_worktree"),
+							Placeholder: t("scheduled_tasks_worktree_placeholder"),
+							Options:     wtOpts,
 							Disabled:    disabled,
 						})
 						el.FillWidth()
 						if changed {
-							if selectedProj == "none" {
-								ed.project = nil
+							if selectedWT == "main" {
 								ed.worktree = nil
-							} else if parsed, err := protocol.ParseProjectID(selectedProj); err == nil {
-								ed.project = &parsed
-								ed.worktree = nil
+							} else if parsed, err := protocol.ParseWorktreeID(selectedWT); err == nil {
+								ed.worktree = &parsed
 							}
 						}
 					})
+				}
 
-					// 6. Worktree (when project selected)
-					if ed.project != nil {
-						kit.Field(c, "field-worktree", t("scheduled_tasks_worktree"), "", func() {
-							wtOpts := []kit.SelectOption{{Value: "main", Label: t("scheduled_tasks_main_worktree")}}
-							selectedWT := "main"
-							if ed.worktree != nil {
-								selectedWT = ed.worktree.String()
-							}
-							foundWT := selectedWT == "main"
-							for _, wt := range worktrees {
-								if wt.Node != ed.executionNode || wt.Worktree.Project == nil || *wt.Worktree.Project != *ed.project {
-									continue
-								}
-								id := wt.Worktree.ID.String()
-								if id == selectedWT {
-									foundWT = true
-								}
-								wtOpts = append(wtOpts, kit.SelectOption{Value: id, Label: wt.Worktree.Path})
-							}
-							if !foundWT {
-								wtOpts = append(wtOpts, kit.SelectOption{Value: selectedWT, Label: t("scheduled_tasks_unavailable")})
-							}
-							el, changed := kit.SelectField(c.Key("select"), "task-editor-worktree", &selectedWT, kit.SelectProps{
-								Label:       t("scheduled_tasks_worktree"),
-								Placeholder: t("scheduled_tasks_worktree_placeholder"),
-								Options:     wtOpts,
-								Disabled:    disabled,
-							})
-							el.FillWidth()
-							if changed {
-								if selectedWT == "main" {
-									ed.worktree = nil
-								} else if parsed, err := protocol.ParseWorktreeID(selectedWT); err == nil {
-									ed.worktree = &parsed
-								}
-							}
-						})
+				// 7. Execution (Model / Team)
+				kit.Field(c, "field-execution", t("scheduled_tasks_execution"), "", func() {
+					execModes := []protocol.ConversationExecution{protocol.ConversationExecutionModel, protocol.ConversationExecutionTeam}
+					idx := max(slices.Index(execModes, ed.execution), 0)
+					labels := []string{t("scheduled_tasks_model"), t("scheduled_tasks_team")}
+					if kit.Segmented(c, "execution-mode", &idx, labels, kit.SegmentedProps{Block: true, Disabled: disabled}).
+						Label(t("scheduled_tasks_execution")).Changed() {
+						ctrl.mu.Lock()
+						ed.execution = execModes[idx]
+						ed.team = nil
+						ed.models = map[protocol.RoleID]protocol.RoleModel{}
+						ctrl.syncEditorLeadModelLocked(ed)
+						ctrl.mu.Unlock()
 					}
+				})
 
-					// 7. Execution (Model / Team)
-					kit.Field(c, "field-execution", t("scheduled_tasks_execution"), "", func() {
-						execModes := []protocol.ConversationExecution{protocol.ConversationExecutionModel, protocol.ConversationExecutionTeam}
-						idx := max(slices.Index(execModes, ed.execution), 0)
-						labels := []string{t("scheduled_tasks_model"), t("scheduled_tasks_team")}
-						if kit.Segmented(c, "execution-mode", &idx, labels, kit.SegmentedProps{Block: true, Disabled: disabled}).
-							Label(t("scheduled_tasks_execution")).Changed() {
+				// 8. Team (when Execution == Team)
+				if ed.execution == protocol.ConversationExecutionTeam {
+					kit.Field(c, "field-team", t("scheduled_tasks_team"), "", func() {
+						teamOpts := []kit.SelectOption{{Value: "default", Label: t("scheduled_tasks_default_team")}}
+						selectedTeam := "default"
+						if ed.team != nil {
+							selectedTeam = ed.team.ID.String()
+						}
+						foundTeam := selectedTeam == "default"
+						for _, tm := range teams {
+							id := tm.ID.String()
+							if id == selectedTeam {
+								foundTeam = true
+							}
+							teamOpts = append(teamOpts, kit.SelectOption{Value: id, Label: tm.Name})
+						}
+						if !foundTeam {
+							teamOpts = append(teamOpts, kit.SelectOption{Value: selectedTeam, Label: t("scheduled_tasks_unavailable")})
+						}
+						el, changed := kit.SelectField(c.Key("select"), "task-editor-team", &selectedTeam, kit.SelectProps{
+							Label:       t("scheduled_tasks_team"),
+							Placeholder: t("scheduled_tasks_team_placeholder"),
+							Options:     teamOpts,
+							Disabled:    disabled,
+						})
+						el.FillWidth()
+						if changed {
 							ctrl.mu.Lock()
-							ed.execution = execModes[idx]
-							ed.team = nil
+							if selectedTeam == "default" {
+								ed.team = nil
+							} else if parsed, err := protocol.ParseTeamID(selectedTeam); err == nil {
+								ed.team = &protocol.TeamSelection{ID: parsed, Revision: nil}
+							}
 							ed.models = map[protocol.RoleID]protocol.RoleModel{}
 							ctrl.syncEditorLeadModelLocked(ed)
 							ctrl.mu.Unlock()
 						}
 					})
+				}
 
-					// 8. Team (when Execution == Team)
-					if ed.execution == protocol.ConversationExecutionTeam {
-						kit.Field(c, "field-team", t("scheduled_tasks_team"), "", func() {
-							teamOpts := []kit.SelectOption{{Value: "default", Label: t("scheduled_tasks_default_team")}}
-							selectedTeam := "default"
-							if ed.team != nil {
-								selectedTeam = ed.team.ID.String()
-							}
-							foundTeam := selectedTeam == "default"
-							for _, tm := range teams {
-								id := tm.ID.String()
-								if id == selectedTeam {
-									foundTeam = true
-								}
-								teamOpts = append(teamOpts, kit.SelectOption{Value: id, Label: tm.Name})
-							}
-							if !foundTeam {
-								teamOpts = append(teamOpts, kit.SelectOption{Value: selectedTeam, Label: t("scheduled_tasks_unavailable")})
-							}
-							el, changed := kit.SelectField(c.Key("select"), "task-editor-team", &selectedTeam, kit.SelectProps{
-								Label:       t("scheduled_tasks_team"),
-								Placeholder: t("scheduled_tasks_team_placeholder"),
-								Options:     teamOpts,
-								Disabled:    disabled,
-							})
-							el.FillWidth()
-							if changed {
-								ctrl.mu.Lock()
-								if selectedTeam == "default" {
-									ed.team = nil
-								} else if parsed, err := protocol.ParseTeamID(selectedTeam); err == nil {
-									ed.team = &protocol.TeamSelection{ID: parsed, Revision: nil}
-								}
-								ed.models = map[protocol.RoleID]protocol.RoleModel{}
-								ctrl.syncEditorLeadModelLocked(ed)
-								ctrl.mu.Unlock()
-							}
-						})
-					}
-
-					// 9. Model (kit.ModelSelect)
-					kit.Field(c, "field-model", t("scheduled_tasks_model"), "", func() {
-						chosenModel := ed.modelID
-						chosenEffort := ed.effort
-						storedName := ""
-						if fixedLead != nil {
-							chosenModel = fixedLead.Provider.String() + "/" + fixedLead.Model
-							storedName = fixedLead.Model
-							if fixedLead.Effort != nil {
-								chosenEffort = effortString(*fixedLead.Effort)
-							}
-						} else if ed.config != nil {
-							storedName = ed.config.Model
+				// 9. Model (kit.ModelSelect)
+				kit.Field(c, "field-model", t("scheduled_tasks_model"), "", func() {
+					chosenModel := ed.modelID
+					chosenEffort := ed.effort
+					storedName := ""
+					if fixedLead != nil {
+						chosenModel = fixedLead.Provider.String() + "/" + fixedLead.Model
+						storedName = fixedLead.Model
+						if fixedLead.Effort != nil {
+							chosenEffort = effortString(*fixedLead.Effort)
 						}
-						kit.ModelSelect(c.Key("model-select"), kit.ModelSelectProps{
-							Label:       t("scheduled_tasks_model"),
-							Placeholder: t("scheduled_tasks_model_placeholder"),
-							Models:      modelOpts,
-							Model:       chosenModel,
-							Effort:      chosenEffort,
-							Stored:      storedName,
-							Disabled:    disabled || fixedLead != nil,
-							OnChange: func(model, effort string) {
-								ctrl.mu.Lock()
-								ok := ctrl.selectEditorModelLocked(ed, model, effort)
-								if !ok {
-									ctrl.pushToastLocked(kit.Failed, "scheduled_tasks_model_failed")
-								}
-								ctrl.mu.Unlock()
-							},
-						}).FillWidth()
-					})
+					} else if ed.config != nil {
+						storedName = ed.config.Model
+					}
+					kit.ModelSelect(c.Key("model-select"), kit.ModelSelectProps{
+						Label:       t("scheduled_tasks_model"),
+						Placeholder: t("scheduled_tasks_model_placeholder"),
+						Models:      modelOpts,
+						Model:       chosenModel,
+						Effort:      chosenEffort,
+						Stored:      storedName,
+						Disabled:    disabled || fixedLead != nil,
+						OnChange: func(model, effort string) {
+							ctrl.mu.Lock()
+							ok := ctrl.selectEditorModelLocked(ed, model, effort)
+							if !ok {
+								ctrl.pushToastLocked(kit.Failed, "scheduled_tasks_model_failed")
+							}
+							ctrl.mu.Unlock()
+						},
+					}).FillWidth()
 				})
 			})
-
-			// Footer buttons.
-			ui.Row(c.Key("footer")).FillWidth().Justify(ui.End).Gap(8).Children(func() {
-				kit.Secondary(c.Key("cancel"), t("scheduled_tasks_cancel")).Disabled(busy).OnClick(ctrl.closeEditor)
-				saveLabel := t("scheduled_tasks_save")
-				if hasPending {
-					saveLabel = t("scheduled_tasks_retry")
-				}
-				kit.PrimaryBusy(c.Key("save"), saveLabel, false, busy).OnClick(ctrl.saveEditor)
-			})
 		})
-	})
+
+		// Footer buttons.
+		kit.DialogFooter(c, func() {
+			kit.Secondary(c.Key("cancel"), t("scheduled_tasks_cancel")).Disabled(busy).OnClick(ctrl.closeEditor)
+			saveLabel := t("scheduled_tasks_save")
+			if hasPending {
+				saveLabel = t("scheduled_tasks_retry")
+			}
+			kit.PrimaryBusy(c.Key("save"), saveLabel, false, busy).OnClick(ctrl.saveEditor)
+		})
+	}).Width(min(editorDialogWidth, max(winW-48, 280))).Label(title)
 
 	if !open && !busy {
 		ctrl.closeEditor()

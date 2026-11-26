@@ -293,7 +293,7 @@ func (s *State) searchResult(c *ui.Context, id string) {
 		s.resultMD.Theme, s.resultMD.OnLink = options.Theme, options.OnLink
 	}
 	kit.Dialog(c, &open, func() {
-		ui.Text(c, i18n.T(c, "chat_search_result")).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, i18n.T(c, "chat_search_result"))
 		ui.Scroll(c.Key("search-answer")).Width(640).MaxWidthPercent(100).MaxHeight(480).Children(func() {
 			ui.Column(c).FillWidth().Gap(12).Children(func() {
 				if strings.TrimSpace(b.Text) != "" {

@@ -68,13 +68,60 @@ func Dialog(c *ui.Context, open *bool, fn func(), options ...DialogOptions) ui.E
 	return dialog(c, open, true, o, fn)
 }
 
-// dialogPadding is a Dialog's padding around its content.
-const dialogPadding = 20
+// dialogPadding is a Dialog's padding around its content, and dialogGap is the
+// vertical gap between its direct children (header, body, footer).
+const (
+	dialogPadding = 20
+	dialogGap     = 12
+	// dialogHeaderInset clears the top-right 28 DIP close button with breathing room.
+	dialogHeaderInset = 32
+	// dialogHeaderBottom adds to dialogGap (12) for 20 DIP effective header-to-body spacing.
+	dialogHeaderBottom = 8
+	// dialogFooterTop adds to dialogGap (12) for 24 DIP effective body-to-footer spacing.
+	dialogFooterTop = 12
+)
 
 // DialogInset is how far a Dialog's content sits from each side of the
 // panel: its padding and the panel's 1 DIP edge. A dialog sized to fit
 // content of a known width adds it on both sides.
 const DialogInset = dialogPadding + 1
+
+// DialogHeader renders a standard modal header with title and optional
+// non-empty subtitle lines, keeping clear of Dialog's top-right close button
+// and applying consistent bottom spacing before the modal body.
+func DialogHeader(c *ui.Context, title string, subtitle ...string) ui.Element {
+	p := theme.Of(c)
+	return ui.Column(c.Key("head")).FillWidth().Shrink(0).Gap(4).Padding(0, dialogHeaderInset, dialogHeaderBottom, 0).Children(func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
+		for _, line := range subtitle {
+			if line != "" {
+				ui.Text(c, line).FontSize(14).TextColor(p.MutedForeground)
+			}
+		}
+	})
+}
+
+// DialogHeaderRow renders a horizontal modal header (for a back button, icon,
+// or trailing badge) with the same close-button clearance and bottom spacing as
+// DialogHeader.
+func DialogHeaderRow(c *ui.Context, fn func()) ui.Element {
+	return ui.Row(c.Key("head")).FillWidth().Shrink(0).Gap(8).AlignItems(ui.Center).Padding(0, dialogHeaderInset, dialogHeaderBottom, 0).Children(func() {
+		if fn != nil {
+			fn()
+		}
+	})
+}
+
+// DialogFooter renders a standard modal action row with consistent top spacing
+// below the modal body. Callers needing left/right alignment can chain
+// .Justify(ui.SpaceBetween) or include ui.Spacer inside fn.
+func DialogFooter(c *ui.Context, fn func()) ui.Element {
+	return ui.Row(c.Key("footer")).FillWidth().Shrink(0).Gap(8).AlignItems(ui.Center).Justify(ui.End).Padding(dialogFooterTop, 0, 0, 0).Children(func() {
+		if fn != nil {
+			fn()
+		}
+	})
+}
 
 // DialogOptions change how Dialog frames its content.
 type DialogOptions struct {
@@ -141,7 +188,7 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 			panel.Padding(0).Gap(0).MaxWidth(w - 48).MaxHeight(h - 48).Clip()
 		} else {
 			back.Justify(ui.Start).Padding(h/10, 0, 0, 0)
-			panel.Padding(dialogPadding).Gap(12).MaxWidth(w - 40).MaxHeight(h*0.9 - 20)
+			panel.Padding(dialogPadding).Gap(dialogGap).MaxWidth(w - 40).MaxHeight(h*0.9 - 20)
 		}
 		Floating(c, panel).Scale(scale, scale).Opacity(shown)
 		fn()

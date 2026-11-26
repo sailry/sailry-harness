@@ -2,11 +2,9 @@ package conversation
 
 import "strings"
 
-// The welcome page's custom lettering: an original square-dot face for
-// printable ASCII in the wordmark's style. A glyph is a grid of cells, 7 of
-// cap height and 2 of descender; each cell is drawn as 2 x 2 of the
-// wordmark's particles, so the strokes are two particles thick like its
-// letters.
+// The welcome page's square-dot lettering face for printable ASCII. A glyph is
+// a grid of cells, 7 of cap height and 2 of descender; each cell is drawn as
+// 2 x 2 square particles so strokes are two particles thick.
 
 // glyphRows are a glyph's cell rows: caps and ascenders in rows 0-6, the
 // x-height in 2-6, descenders in 7-8.
@@ -218,7 +216,7 @@ func glyphOf(c byte) glyph {
 }
 
 // lettering is text laid out in lines of at most cols cells: its particles
-// on the wordmark's 8-unit grid and its box in those units.
+// on an 8-unit grid and its box in those units.
 type lettering struct {
 	text      string
 	cols      int

@@ -594,7 +594,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, catalog *i18n.
 	}
 	// Device and package names retain their source language; UI copy is Chinese.
 	// The location control read Chats while packages were mounted in English.
-	hostNames := []string{"Sailry", "SSH", "Git"}
+	hostNames := []string{"Sailry", "SAILRY", "SSH", "Git"}
 	for _, device := range r.App.Data.Hosts {
 		if device.Name != "" && device.Name != "local_host_name" {
 			hostNames = append(hostNames, device.Name)
@@ -811,10 +811,11 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, zh func(strin
 		t.Fatal(err)
 	}
 
-	// The editor: the appearance, then the folder through the picker.
+	// The editor: stock Harness exposes only local project creation (no Clone switcher),
+	// then the appearance and the folder through the picker.
 	press(zh("project_add"))
-	if !tester.HasText(zh("project_local")) || !tester.HasText(zh("project_clone")) {
-		t.Fatalf("the live editor does not offer Local and Clone: %q", tester.Texts())
+	if tester.HasText(zh("project_clone")) {
+		t.Fatalf("the Harness live editor unexpectedly offered Clone: %q", tester.Texts())
 	}
 	press(zh("project_appearance"))
 	press(zh("project_color_blue"))

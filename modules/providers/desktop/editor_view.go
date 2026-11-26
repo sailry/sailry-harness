@@ -32,7 +32,7 @@ func providerEditorDialog(c *ui.Context, m *Controller) {
 	}
 	w := map[providerStep]float32{stepBrand: 560, stepMethod: 540, stepConfigure: 640}[e.step]
 	kit.Dialog(c.Key("provider-editor"), &e.open, func() {
-		ui.Row(c.Key("heading")).Gap(8).Children(func() {
+		kit.DialogHeaderRow(c, func() {
 			if e.step != stepBrand && e.editing == "" {
 				kit.Action(c.Key("back"), icons.ChevronLeft, t("provider_step_back"), false).OnClick(e.back)
 			}

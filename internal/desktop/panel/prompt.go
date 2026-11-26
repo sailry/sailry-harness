@@ -111,7 +111,7 @@ func (pr *Project) ActionDialog(c *ui.Context) {
 	}
 	palette := theme.Of(c)
 	kit.Dialog(c.Key("workspace-form"), &form.open, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(palette.PopoverForeground)
+		kit.DialogHeader(c, title)
 		ui.Column(c.Key("body")).Gap(16).Children(func() {
 			if form.message != "" {
 				ui.Text(c, i18n.T(c, form.message)).FontSize(14).TextColor(palette.PopoverForeground)
@@ -134,7 +134,7 @@ func (pr *Project) ActionDialog(c *ui.Context) {
 				kit.Field(c, "detail", i18n.T(c, form.detailLabel), "", func() { ui.Text(c, form.detail) })
 			}
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(form.pending).OnClick(func() { form.open = false })
 			label := i18n.T(c, "settings_save")
 			if form.action != "" {

@@ -391,7 +391,7 @@ func serviceDetails(c *ui.Context, m *page) {
 	live := m.Live && m.ConnectorActions != nil
 	busy := live && m.ConnectorActions.Busy != nil && m.ConnectorActions.Busy(s.ID)
 	kit.Dialog(c.Key("connector-details"), &open, func() {
-		ui.Text(c, s.Name).FontSize(16).FontWeight(600)
+		kit.DialogHeader(c, s.Name)
 		st := settings.StatusOf(s)
 		summary := s.Description
 		switch {
@@ -436,7 +436,7 @@ func serviceDetails(c *ui.Context, m *page) {
 				})
 			}
 		})
-		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.DialogFooter(c, func() {
 			// A click is handled after this pass, so it closes through the
 			// model, not through this pass's open.
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { m.connDetails = "" })
