@@ -190,27 +190,41 @@ func (s Summary) nonEmpty() bool {
 // handoff block is preferred over any examples or quoted snippets above it.
 func fencedBlocks(text string) []string {
 	var blocks []string
-	for offset := 0; offset < len(text); {
-		idx := strings.Index(text[offset:], "```")
-		if idx < 0 {
-			break
+	var width, offset, start int
+	for line := range strings.SplitAfterSeq(text, "\n") {
+		next := markdownFence(line, width)
+		if next != width {
+			if width == 0 {
+				start = offset + len(line)
+			} else {
+				blocks = append(blocks, text[start:offset])
+			}
+			width = next
 		}
-		start := offset + idx + 3
-		newline := strings.IndexByte(text[start:], '\n')
-		if newline < 0 {
-			break
-		}
-		bodyStart := start + newline + 1
-		end := strings.Index(text[bodyStart:], "\n```")
-		if end < 0 {
-			blocks = append(blocks, text[bodyStart:])
-			break
-		}
-		blocks = append(blocks, text[bodyStart:bodyStart+end])
-		offset = bodyStart + end + 4
+		offset += len(line)
+	}
+	if width != 0 {
+		blocks = append(blocks, text[start:])
 	}
 	slices.Reverse(blocks)
 	return blocks
+}
+
+// A closer must be bare and at least as long as the opener. Shorter
+// delimiters may themselves be part of the captured code.
+func markdownFence(line string, width int) int {
+	line = strings.TrimSpace(line)
+	rest := strings.TrimLeft(line, "`")
+	size := len(line) - len(rest)
+	if size >= 3 {
+		if width == 0 {
+			return size
+		}
+		if size >= width && rest == "" {
+			return 0
+		}
+	}
+	return width
 }
 
 // xmlWrappedObject extracts a top-level JSON object wrapped in a single XML
@@ -276,7 +290,7 @@ func parseMarkdownHandoff(text string) (Summary, bool) {
 	subSection := ""
 	matchedHeadings := 0
 	var stateLines, nextLines []string
-	inFence := false
+	fenceWidth := 0
 	var codeLines []string
 	appendItem := func(target *[]string, line string) {
 		item := strings.TrimSpace(line)
@@ -300,17 +314,16 @@ func parseMarkdownHandoff(text string) (Summary, bool) {
 	}
 	for _, raw := range lines {
 		trimmed := strings.TrimSpace(raw)
-		if strings.HasPrefix(trimmed, "```") {
-			if inFence {
-				inFence = false
+		if next := markdownFence(trimmed, fenceWidth); next != fenceWidth {
+			fenceWidth = next
+			if fenceWidth == 0 {
 				flushCode()
 			} else {
-				inFence = true
 				codeLines = nil
 			}
 			continue
 		}
-		if inFence {
+		if fenceWidth != 0 {
 			if section == "essential" && len(summary.Files) > 0 {
 				codeLines = append(codeLines, raw)
 			}

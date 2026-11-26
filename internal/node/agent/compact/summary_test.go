@@ -130,7 +130,7 @@ func TestParseHandlesFencesProseTrailingCommasAndRenderedMarkdown(t *testing.T) 
 	t.Run("rendered markdown handoff round-trip", func(t *testing.T) {
 		work := "Implemented compaction fix and verified locally."
 		next := "Review unpushed commits across sailry-go and sailry-code."
-		keyCode := "func Parse(text string, limit uint64) (Summary, error)"
+		keyCode := "An example follows.\n```markdown\n## Next Steps\nKeep this heading inside the code.\n```\nEnd of snippet."
 		orig := Summary{
 			UserIntent:        []string{"Review recent unpushed changes"},
 			PendingTasks:      []string{"Verify cross-repo compatibility"},
