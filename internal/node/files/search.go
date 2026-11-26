@@ -3,13 +3,20 @@ package files
 import (
 	"context"
 	"errors"
-	"github.com/sailry/sailry-harness/internal/core"
-	"github.com/sailry/sailry-harness/internal/protocol"
+	"io"
 	"io/fs"
 	"os"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+const (
+	searchFileByteLimit = 64 << 20
+	searchLineByteLimit = 16 << 10
 )
 
 func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (protocol.SearchResults, error) {
@@ -18,20 +25,14 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 	if input.Query == "" || len(input.Query) > 1<<20 || input.Limit == 0 {
 		return out, invalid("invalid file search pattern or options")
 	}
-	pattern := input.Query
-	if !input.Regex {
-		pattern = regexp.QuoteMeta(pattern)
-	}
-	prefix := "(?m)"
-	if !input.CaseSensitive {
-		prefix += "(?i)"
-	}
-	if input.Multiline {
-		prefix += "(?s)"
-	}
-	matcher, e := regexp.Compile(prefix + pattern)
-	if e != nil {
-		return out, invalid("invalid file search pattern: " + e.Error())
+	useLiteral := canScanLiteral(input)
+	var matcher *regexp.Regexp
+	if !useLiteral {
+		var err error
+		matcher, err = searchPattern(input)
+		if err != nil {
+			return out, err
+		}
 	}
 	globs, e := core.CompileFileGlobs(input.Globs)
 	if e != nil {
@@ -57,33 +58,85 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 	limit := min(input.Limit, uint64(protocol.MAX_SEARCH_MATCHES))
 	position := uint64(0)
 	var scratch, data []byte
+	var literal *literalSearch
+	inPage := func() bool { return position >= input.Offset && position-input.Offset < limit }
+	finishFile := func(path string, matches uint64) (bool, error) {
+		if input.Mode != protocol.SearchModeContent && matches > 0 {
+			if inPage() {
+				if input.Mode == protocol.SearchModeFiles {
+					out.Paths = append(out.Paths, path)
+				} else {
+					out.Counts = append(out.Counts, protocol.SearchCount{Path: path, Count: matches})
+				}
+			}
+			position++
+		}
+		// Walk until an extra row confirms that another page exists.
+		return position <= input.Offset+limit, nil
+	}
 	report, e := files.VisitFiles(ctx, input.Path, globs, func(directory *os.Root, name, relative string, metadata fs.FileInfo) (bool, error) {
 		if fileTypes != nil && !fileTypes.Match(relative, "") {
 			return true, nil
 		}
 		out.ScannedFiles++
-		if metadata.Size() > 64*1024*1024 {
+		if metadata.Size() > searchFileByteLimit {
 			out.Skipped++
 			diagnoseSearch(&out, relative, "file exceeds the 64 MiB search limit; use a narrower path or segmented reads")
 			return true, nil
 		}
-		handle, e := files.Open(relative)
-		if e != nil {
+		skip := func(e error) (bool, error) {
 			out.Skipped++
 			out.Partial = out.Partial || searchPartial(e)
 			diagnoseSearch(&out, relative, e.Error())
 			return true, nil
+		}
+		handle, e := files.Open(relative)
+		if e != nil {
+			return skip(e)
+		}
+		defer handle.Close()
+		if useLiteral {
+			if literal == nil {
+				literal = newLiteralSearch(input)
+			}
+			initialPosition, initialRows := position, len(out.Matches)
+			matches, e := literal.scan(ctx, handle, func(line []byte, number uint64, matched, truncated bool) {
+				if inPage() {
+					out.Matches = append(out.Matches, protocol.SearchMatch{Path: relative, LineNumber: number, Line: string(line), Matched: matched, Truncated: truncated})
+				}
+				position++
+			})
+			if e == nil {
+				return finishFile(relative, matches)
+			}
+			// A later read may identify binary, non-UTF-8, or otherwise unsupported text.
+			clear(out.Matches[initialRows:])
+			out.Matches = out.Matches[:initialRows]
+			position = initialPosition
+			switch e {
+			case core.ErrBinaryText:
+				out.Skipped++
+				return true, nil
+			case errLiteralFallback:
+				if _, e := handle.Seek(0, io.SeekStart); e != nil {
+					return skip(e)
+				}
+			default:
+				return skip(e)
+			}
+			if matcher == nil {
+				matcher, e = searchPattern(input)
+				if e != nil {
+					return false, e
+				}
+			}
 		}
 		if scratch == nil {
 			scratch = make([]byte, boundedReadChunkSize)
 		}
-		data, e = readBoundedWithScratch(ctx, handle, 64*1024*1024, scratch, data)
-		handle.Close()
+		data, e = readBoundedWithScratch(ctx, handle, searchFileByteLimit, scratch, data)
 		if e != nil {
-			out.Skipped++
-			out.Partial = out.Partial || searchPartial(e)
-			diagnoseSearch(&out, relative, e.Error())
-			return true, nil
+			return skip(e)
 		}
 		text, e := core.DecodeText(data)
 		if e != nil || strings.ContainsRune(text, 0) {
@@ -115,9 +168,9 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 		pending := make([]row, 0, int(capacity))
 		head := 0
 		emit := func(value row) {
-			if position >= input.Offset && position-input.Offset < limit {
+			if inPage() {
 				line := strings.TrimSuffix(strings.TrimSuffix(text[value.start:value.end], "\n"), "\r")
-				end := min(len(line), 16<<10)
+				end := min(len(line), searchLineByteLimit)
 				for !utf8.ValidString(line[:end]) {
 					end--
 				}
@@ -192,21 +245,7 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 			}
 			start = end
 		}
-		if input.Mode != protocol.SearchModeContent && matches > 0 {
-			if position >= input.Offset && position-input.Offset < limit {
-				if input.Mode == protocol.SearchModeFiles {
-					out.Paths = append(out.Paths, relative)
-				} else {
-					out.Counts = append(out.Counts, protocol.SearchCount{Path: relative, Count: matches})
-				}
-			}
-			position++
-		}
-		// Stop walking once the page is filled and at least one extra hit confirms truncation.
-		if position > input.Offset+limit {
-			return false, nil
-		}
-		return true, nil
+		return finishFile(relative, matches)
 	})
 	if e != nil {
 		return out, e
@@ -235,6 +274,25 @@ func Search(ctx context.Context, files *core.Files, input protocol.FileSearch) (
 		out.Truncated = out.Truncated || row.Truncated
 	}
 	return out, nil
+}
+
+func searchPattern(input protocol.FileSearch) (*regexp.Regexp, error) {
+	pattern := input.Query
+	if !input.Regex {
+		pattern = regexp.QuoteMeta(pattern)
+	}
+	prefix := "(?m)"
+	if !input.CaseSensitive {
+		prefix += "(?i)"
+	}
+	if input.Multiline {
+		prefix += "(?s)"
+	}
+	matcher, err := regexp.Compile(prefix + pattern)
+	if err != nil {
+		return nil, invalid("invalid file search pattern: " + err.Error())
+	}
+	return matcher, nil
 }
 
 func diagnoseSearch(out *protocol.SearchResults, path, message string) {
