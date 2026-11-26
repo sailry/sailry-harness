@@ -27,6 +27,30 @@ import (
 	"lukechampine.com/blake3"
 )
 
+// The host scripts in testdata/plugins are identical to the official release
+// trees at sailry-plugins commit 82622995. Omitting desktop assets changes their
+// installation digests. Restore the persisted release capture for migration tests.
+func seedLegacyHandlerDigest(t *testing.T, owner *Node, ref protocol.PluginReference, handler, digest string) {
+	t.Helper()
+	err := owner.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		result, err := db.ExecContext(t.Context(), `UPDATE dispatch_user_handlers
+			SET reference=json_set(reference,'$.digest',?1)
+			WHERE package=?2 AND name=?3 AND user=(SELECT id FROM users WHERE local=1)
+			AND json_extract(reference,'$.digest')=?4`, digest, ref.Name, handler, ref.Digest)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err == nil && n != 1 {
+			return fmt.Errorf("expected one captured %s handler, got %d", ref.Name, n)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func startHarnessModuleNode(t *testing.T, clock clockwork.Clock, modelFn func(context.Context, model.Binding) (fantasy.LanguageModel, error)) *Node {
 	t.Helper()
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()})
@@ -501,6 +525,7 @@ func TestHarnessRemindersEndToEndAndLegacyContinuity(t *testing.T) {
 	if saveResp.Fault != nil {
 		t.Fatalf("legacy reminders save: %v", saveResp.Fault)
 	}
+	seedLegacyHandlerDigest(t, owner, legacyScope.Package, legacyID, "56ac1d486707a5e9d9976fc53f5720898eb1618c4304c2bae28240dc86b5ee23")
 	// Retire the legacy plugin.
 	commandFixture(t, owner, protocol.Command{
 		Kind: "remove_plugin",
@@ -777,6 +802,7 @@ func TestHarnessScheduledTasksEndToEndAndLegacyContinuity(t *testing.T) {
 	if resp := dispatchFixture(t, owner, owner.ID(), saveReq); resp.Fault != nil {
 		t.Fatalf("legacy scheduled-tasks save: %v", resp.Fault)
 	}
+	seedLegacyHandlerDigest(t, owner, legacyScope.Package, legacyTaskID, "3312de3c0b649796ec623df0bcb13f9919892d5063a6856a289ab03162ad02b9")
 	// Retire legacy plugin.
 	commandFixture(t, owner, protocol.Command{
 		Kind: "remove_plugin",
