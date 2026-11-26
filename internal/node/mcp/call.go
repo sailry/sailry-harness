@@ -141,6 +141,11 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 		err   error
 	}
 	completed := make(chan response, 1)
+	// Both sides must finish before another call enters. Cancellation can
+	// return before the transport stops, and a transport failure can finish
+	// before the caller marks the connection's write outcome uncertain.
+	classified := make(chan struct{})
+	defer close(classified)
 	released = true
 	go func() {
 		defer func() {
@@ -151,6 +156,7 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 		}()
 		value, err := connection.session.CallTool(operation, &sdk.CallToolParams{Name: name, Arguments: arguments})
 		completed <- response{value, err}
+		<-classified
 	}()
 	timer := lease.pool.clock.NewTimer(120 * time.Second)
 	defer timer.Stop()

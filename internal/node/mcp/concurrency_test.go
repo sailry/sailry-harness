@@ -34,6 +34,7 @@ type mcpCallFixture struct {
 	t       *testing.T
 	pool    *Pool
 	version string
+	sending sdk.Middleware
 	pending sync.Map
 	opened  atomic.Int32
 	active  atomic.Int32
@@ -117,6 +118,9 @@ func (fixture *mcpCallFixture) open(ctx context.Context, _ Launch, elicit func(c
 	fixture.servers = append(fixture.servers, session)
 	fixture.mu.Unlock()
 	client := sdk.NewClient(&sdk.Implementation{Name: "concurrency-client", Version: "1"}, &sdk.ClientOptions{ElicitationHandler: elicit})
+	if fixture.sending != nil {
+		client.AddSendingMiddleware(fixture.sending)
+	}
 	return client.Connect(ctx, clientWire, &sdk.ClientSessionOptions{ProtocolVersion: fixture.version})
 }
 
@@ -402,5 +406,51 @@ func TestMCPExclusiveLockHeldUntilCancelledWriteCompletes(t *testing.T) {
 		fixture.entered(secondCall, true)
 		secondCall.finish()
 		fixture.success(secondCall)
+	})
+}
+
+// Hold the caller inside error classification after the SDK has returned.
+type heldWriteFailure struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (*heldWriteFailure) Error() string { return "fixture transport error" }
+
+func (failure *heldWriteFailure) Unwrap() error {
+	close(failure.entered)
+	<-failure.release
+	return nil
+}
+
+func TestMCPExclusiveWriteWaitsForFailureClassification(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newMCPCallFixture(t, "2026-07-28")
+		failure := &heldWriteFailure{entered: make(chan struct{}), release: make(chan struct{})}
+		var calls atomic.Int32
+		fixture.sending = func(next sdk.MethodHandler) sdk.MethodHandler {
+			return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+				if method == "tools/call" && calls.Add(1) == 1 {
+					return nil, failure
+				}
+				return next(ctx, method, req)
+			}
+		}
+		config := fixture.config()
+		config.Options.Exclusive = true
+		lease := fixture.acquire(config)
+		first := fixture.start(t.Context(), lease, "uncertain", false)
+		<-failure.entered
+		second := fixture.start(t.Context(), lease, "queued", false)
+		synctest.Wait()
+		// Release both calls even when checking a broken implementation.
+		second.finish()
+		close(failure.release)
+		fixture.fault(first, protocol.ErrorCodeOutcomeUnknown)
+		fixture.fault(second, protocol.ErrorCodeUnavailable)
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("%d writes dispatched before retirement, want 1", got)
+		}
 	})
 }
