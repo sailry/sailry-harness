@@ -18,7 +18,7 @@
               "unrestricted"
             ],
             "default": "workspace",
-            "description": "Sandboxed workspace mode (macOS/Linux) needs no approval, confines writes to worktree/temp, protects Git metadata, and blocks network. Request unrestricted for Git writes, network, or external paths."
+            "description": "Sandboxed workspace mode (macOS/Linux) needs no approval, confines writes to worktree/temp, protects Git metadata, and blocks network. Ordinary external reads do not require unrestricted access. Request unrestricted for external writes or working directories, Git writes, or network access."
           },
           "description": {
             "type": [

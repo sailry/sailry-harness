@@ -41,6 +41,7 @@ var sandboxDeniedHomeReads = []string{
 	".docker",
 	".gitconfig",
 	".git-credentials",
+	".config/git/credentials",
 	".npmrc",
 	".netrc",
 	".pypirc",
@@ -190,7 +191,12 @@ func prepareSandbox(launch Launch, environment Environment, captureManaged func(
 	// Preserve read-only references to host toolchains/caches that would
 	// otherwise default under the isolated HOME.
 	if policy.home != "" {
-		if environment.values["RUSTUP_HOME"] == "" && regular(filepath.Join(policy.home, ".rustup/settings.toml")) {
+		if err := policy.configureToolchainState(state, environment); err != nil {
+			return policy, cleanup, sandboxFailure(err)
+		}
+		if environment.unrestricted["RUSTUP_HOME"] != "" && filepath.IsAbs(environment.unrestricted["RUSTUP_HOME"]) {
+			policy.variables["RUSTUP_HOME"] = environment.unrestricted["RUSTUP_HOME"]
+		} else if regular(filepath.Join(policy.home, ".rustup/settings.toml")) {
 			policy.variables["RUSTUP_HOME"] = filepath.Join(policy.home, ".rustup")
 		}
 		if environment.values["GOMODCACHE"] == "" && environment.values["GOPATH"] == "" {
@@ -208,6 +214,10 @@ func prepareSandbox(launch Launch, environment Environment, captureManaged func(
 		for _, relative := range sandboxDeniedHomeReads {
 			policy.denyRead(filepath.Join(policy.home, filepath.FromSlash(relative)))
 		}
+	}
+	// Git also uses the host's XDG configuration root when it is absolute.
+	if config := environment.unrestricted["XDG_CONFIG_HOME"]; filepath.IsAbs(config) {
+		policy.denyRead(filepath.Join(config, "git", "credentials"))
 	}
 	policy.captureRepositories(root)
 	if captureManaged == nil {

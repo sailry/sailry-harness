@@ -96,6 +96,13 @@ func TestNativeSandboxDefaultReadAndCredentialDeny(t *testing.T) {
 	if err := os.WriteFile(sshKey, []byte("PRIVATE-SSH-KEY"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	gitCredential := filepath.Join(home, ".config", "git", "credentials")
+	if err := os.MkdirAll(filepath.Dir(gitCredential), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gitCredential, []byte("git-test-fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	profileSecret := filepath.Join(profile, "node.db")
 	if err := os.WriteFile(profileSecret, []byte("SAILRY-PROFILE-SECRET"), 0o600); err != nil {
 		t.Fatal(err)
@@ -124,13 +131,15 @@ if printf hacked > %s 2>/dev/null; then exit 11; fi
 # User credentials and Sailry profile data are unreadable.
 if cat %s >/dev/null 2>&1; then exit 12; fi
 if cat %s >/dev/null 2>&1; then exit 13; fi
+# A masked credential file may appear empty, but must not expose its contents.
+test -z "$(cat %s 2>/dev/null || :)"
 # Existing .git metadata is protected from writes.
 if printf bad >> %s 2>/dev/null; then exit 14; fi
 # Workspace and TMPDIR remain writable.
 printf ok > "$TMPDIR/scratch.txt"
 test "$(cat "$TMPDIR/scratch.txt")" = "ok"
 printf ok > work.txt
-`, shellQuote(externalAsset), shellQuote(filepath.Join(external, "denied.txt")), shellQuote(sshKey), shellQuote(profileSecret), shellQuote(gitConfig))
+`, shellQuote(externalAsset), shellQuote(filepath.Join(external, "denied.txt")), shellQuote(sshKey), shellQuote(profileSecret), shellQuote(gitCredential), shellQuote(gitConfig))
 
 	result, err := service.Execute(ctx, Launch{
 		ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(),
