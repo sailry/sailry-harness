@@ -1135,6 +1135,12 @@ func (h nodeModuleHost) ReadProviderAccountHTTP(ctx context.Context, provider pr
 }
 
 func (h nodeModuleHost) ForwardModuleCommand(ctx context.Context, target protocol.NodeID, command protocol.Command) (protocol.Output, error) {
+	// Peers authenticate the outbound connection as this Node's controller.
+	user, verified := store.UserFromContext(ctx)
+	storage, captured := store.CapturedUserFromContext(ctx)
+	if !verified || !user.Local || captured && storage != user.ID {
+		return protocol.Output{}, permissionDenied()
+	}
 	request := protocol.NewRequest(target, command)
 	var accepted link.Admission
 	var err error

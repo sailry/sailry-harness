@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -25,6 +26,14 @@ func hasNativeDispatchNamespace(ctx context.Context, name string) bool {
 	}
 	namespaces, _ := ctx.Value(nativeDispatchKey{}).([]string)
 	return slices.Contains(namespaces, name)
+}
+
+// The retired package and native module share a namespace, but only their
+// own saved handlers and jobs can continue under the built-in declaration.
+func nativeDispatchCapture(ctx context.Context, name, digest string) bool {
+	ref, ok := NativeStorageReference(name)
+	return ok && hasNativeDispatchNamespace(ctx, name) &&
+		(digest == ref.Digest || plugins.IsLegacyNativeToolPackage(name, digest))
 }
 
 func nativeDispatchStorageInfo(ctx context.Context, name string) (protocol.PluginInfo, bool) {

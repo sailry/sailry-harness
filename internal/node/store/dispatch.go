@@ -126,8 +126,12 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		currentReference := dispatchReference(current.Summary)
 		event := protocol.DispatchEvent{ID: protocol.NewEventID(), Source: protocol.DispatchSource{Package: reference.Name, Topic: handler.Source.Topic}, Payload: input.Payload, TimestampMs: timestamp}
 		var sessionStart bool
-		if err := db.QueryRowContext(ctx, "SELECT coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", reference.Name, handler.Name, user).Scan(&sessionStart); err != nil {
+		var digest string
+		if err := db.QueryRowContext(ctx, "SELECT json_extract(reference,'$.digest'),coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", reference.Name, handler.Name, user).Scan(&digest, &sessionStart); err != nil {
 			return protocol.Output{}, nil, err
+		}
+		if IsNativeStorageReference(currentReference) && !nativeDispatchCapture(ctx, reference.Name, digest) {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "dispatch handler package is not installed")
 		}
 		output.Kind, changed = "job", true
 		output.Data, err = enqueueDispatch(ctx, db, &currentReference, handler, event, timestamp, sessionStart)

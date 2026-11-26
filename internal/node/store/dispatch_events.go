@@ -57,10 +57,9 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 			if err != nil {
 				return nil, nil, err
 			}
-			if info == nil {
-				if native, ok := nativeDispatchStorageInfo(ctx, reference.Name); ok {
-					info = &native
-				}
+			if info == nil && nativeDispatchCapture(ctx, reference.Name, reference.Digest) {
+				native, _ := NativeStorageInfo(reference.Name)
+				info = &native
 			}
 			if info == nil || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 				continue

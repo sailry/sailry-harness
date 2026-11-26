@@ -239,8 +239,12 @@ func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, 
 }
 
 func dispatchPackageVersion(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {
-	if _, err := dispatchCurrent(ctx, db, reference.Name); err != nil {
+	current, err := dispatchCurrent(ctx, db, reference.Name)
+	if err != nil {
 		return protocol.PluginInfo{}, err
+	}
+	if IsNativeStorageReference(dispatchReference(current.Summary)) && !nativeDispatchCapture(ctx, reference.Name, reference.Digest) {
+		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "dispatch plugin is not installed")
 	}
 	return ReadPluginVersion(ctx, db, reference)
 }

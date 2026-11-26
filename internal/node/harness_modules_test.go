@@ -880,3 +880,19 @@ func TestHarnessThirdPartyPluginNamespaceIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestModuleForwardRequiresEntryControllerAuthority(t *testing.T) {
+	host := nodeModuleHost{node: &Node{}}
+	local := protocol.User{ID: protocol.NewUserID(), Local: true}
+	guest := protocol.User{ID: protocol.NewUserID()}
+	localCtx := store.WithUser(t.Context(), local)
+	for _, ctx := range []context.Context{
+		t.Context(), store.WithUser(t.Context(), guest), store.WithCapturedUser(localCtx, guest.ID),
+	} {
+		_, err := host.ForwardModuleCommand(ctx, protocol.NodeID{2}, protocol.Command{Kind: "read_scheduled_task_history"})
+		var f *protocol.Fault
+		if !errors.As(err, &f) || f.Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("forward under another principal: %v", err)
+		}
+	}
+}

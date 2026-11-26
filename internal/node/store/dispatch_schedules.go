@@ -101,20 +101,28 @@ func putDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, 
 	return err
 }
 
+// Native tasks and reminders save a handler under the schedule's own ID.
+// Its immutable reference distinguishes migrated schedules from removed packages
+// that happened to use the same namespace.
+const scheduleHandlerJoin = ` FROM dispatch_user_schedules s LEFT JOIN dispatch_user_handlers h
+	ON h.user=s.user AND h.package=s.package AND h.name=s.id AND h.source=s.package
+	AND h.topic=json_extract(s.body,'$.topic') `
+
 func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([]string, error) {
 	user, userErr := pluginUserID(ctx, db)
 	if userErr != nil {
 		return nil, userErr
 	}
-	type record struct{ packageName, identity string }
-	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_user_schedules WHERE next_ms<=?1 AND user=?2 ORDER BY next_ms", timestamp, user)
+	type record struct{ packageName, identity, digest string }
+	rows, err := db.QueryContext(ctx, `SELECT s.package,s.id,coalesce(json_extract(h.reference,'$.digest'),'')`+scheduleHandlerJoin+
+		`WHERE s.next_ms<=?1 AND s.user=?2 ORDER BY s.next_ms`, timestamp, user)
 	if err != nil {
 		return nil, err
 	}
 	records := []record{}
 	for rows.Next() {
 		var item record
-		if err = rows.Scan(&item.packageName, &item.identity); err != nil {
+		if err = rows.Scan(&item.packageName, &item.identity, &item.digest); err != nil {
 			break
 		}
 		records = append(records, item)
@@ -145,7 +153,7 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 		if item.packageName == dispatchNativeOwner || enabled[item.packageName] {
 			return false
 		}
-		return installed[item.packageName] || !hasNativeDispatchNamespace(ctx, item.packageName)
+		return installed[item.packageName] || !nativeDispatchCapture(ctx, item.packageName, item.digest)
 	})
 	attempted := 0
 	for _, item := range records {
@@ -204,17 +212,18 @@ func nextDispatchSchedule(ctx context.Context, db *sql.Conn, timestamp int64) (*
 		return nil, userErr
 	}
 	type record struct {
-		packageName string
-		due         int64
+		packageName, digest string
+		due                 int64
 	}
-	rows, err := db.QueryContext(ctx, "SELECT package,min(next_ms) FROM dispatch_user_schedules WHERE next_ms IS NOT NULL AND user=?1 GROUP BY package", user)
+	rows, err := db.QueryContext(ctx, `SELECT s.package,coalesce(json_extract(h.reference,'$.digest'),'') AS digest,min(s.next_ms)`+scheduleHandlerJoin+
+		`WHERE s.next_ms IS NOT NULL AND s.user=?1 GROUP BY s.package,digest`, user)
 	if err != nil {
 		return nil, err
 	}
 	records := []record{}
 	for rows.Next() {
 		var item record
-		if err = rows.Scan(&item.packageName, &item.due); err != nil {
+		if err = rows.Scan(&item.packageName, &item.digest, &item.due); err != nil {
 			break
 		}
 		records = append(records, item)
@@ -232,7 +241,7 @@ func nextDispatchSchedule(ctx context.Context, db *sql.Conn, timestamp int64) (*
 				return nil, err
 			}
 			if info == nil {
-				if !hasNativeDispatchNamespace(ctx, item.packageName) {
+				if !nativeDispatchCapture(ctx, item.packageName, item.digest) {
 					continue
 				}
 			} else if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {

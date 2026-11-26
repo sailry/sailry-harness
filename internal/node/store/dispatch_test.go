@@ -17,6 +17,40 @@ import (
 // Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestDispatchContracts(test *testing.T) {
 	test.Parallel()
+	test.Run("native migration leaves other package captures dormant", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "dormant")
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			ref := NativeRemindersReference()
+			ref.Digest = fixture.reference.Digest
+			ctx = WithNativeDispatch(ctx, []string{ref.Name})
+			id := protocol.NewScheduleID()
+			handler := fixture.handler
+			handler.Revision, handler.Name = 0, id.String()
+			handler.Source = protocol.DispatchSource{Package: ref.Name, Topic: handler.Name}
+			if _, err := saveDispatchHandler(ctx, db, ref, handler); err != nil {
+				return err
+			}
+			schedule := protocol.DispatchSchedule{
+				ID: id, Enabled: true, Topic: handler.Name, Payload: json.RawMessage("null"),
+				Timing: protocol.DispatchTiming{Kind: "once", Data: protocol.DispatchTimingOncePayload{AtMs: 200}},
+			}
+			if _, err := saveDispatchSchedule(ctx, db, ref.Name, schedule, 100); err != nil {
+				return err
+			}
+			if next, err := nextDispatchSchedule(ctx, db, 100); err != nil || next != nil {
+				return fmt.Errorf("removed package has a scheduled wake: %v, %v", next, err)
+			}
+			if changed, err := dueDispatchSchedules(ctx, db, 200); err != nil || len(changed) != 0 {
+				return fmt.Errorf("removed package fired: %v, %v", changed, err)
+			}
+			event := fixture.event()
+			event.Source = handler.Source
+			if jobs, _, err := publishDispatch(ctx, db, event, 200); err != nil || len(jobs) != 0 {
+				return fmt.Errorf("removed handler admitted jobs: %v, %v", jobs, err)
+			}
+			return nil
+		})
+	})
 	test.Run("settlement preserves an already committed outcome", func(test *testing.T) {
 		fixture := newDispatchFixture(test, "settlement")
 		failure := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture callback failure"}
