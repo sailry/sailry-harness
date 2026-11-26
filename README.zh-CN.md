@@ -74,7 +74,7 @@ go mod init example.com/my-agent
 go get github.com/sailry/sailry-harness@main
 ```
 
-`@main` 使用当前预览版 SDK，Go 会将解析出的版本记录到项目的 `go.mod`。
+`@main` 使用当前预览版 SDK。使用已发布的 SDK 时，可改用 `@latest` 或固定到已发布的 SemVer 标签。Go 会将解析出的版本记录到项目的 `go.mod`。
 
 将下面的最小 Host 入口保存为 `main.go`。示例使用公共 SDK 和 Harness 内置模块装配。
 
@@ -137,7 +137,7 @@ just desktop
 - `just host` 启动无界面 Host；`just check` 运行项目检查。
 - 与 Code 联调时，在 Code 仓库的本地 `go.work` 中引用 Harness 工作树，不提交该文件。
 
-Harness API 仍处于早期预览阶段。[Harness 历史版本](https://github.com/sailry/sailry-harness/releases)仅用于修复等场景，新的终端用户安装包在 [Sailry Code](https://github.com/sailry/sailry-code/releases) 发布。
+Harness API 仍处于早期预览阶段。今后的 [Harness 发行版本](https://github.com/sailry/sailry-harness/releases)仅包含库的 SemVer 标签和发行说明，不提供 Desktop、Host、Android 或 iOS 二进制包，也不提供应用更新。[Sailry Code](https://github.com/sailry/sailry-code/releases) 是独立产品，有自己的下载和更新渠道。
 
 ## 下游产品与生态仓库
 

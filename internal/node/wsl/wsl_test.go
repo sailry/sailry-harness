@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode/utf16"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -272,11 +273,32 @@ func TestWSLDiscovery(t *testing.T) {
 			t.Fatalf("unreadable ticket: %v", err)
 		}
 	})
+	t.Run("Harness cannot build or execute a download without a configured release", func(t *testing.T) {
+		release := identity.DefaultDesktop().HostRelease
+		if release.Published() {
+			t.Fatal("default Harness exposes a Host download source")
+		}
+		if script, err := ReleaseScriptFor(release, "1.2.3", false, nil); script != "" || faultCode(err) != protocol.ErrorCodeUnavailable {
+			t.Fatalf("unconfigured Host bootstrap: %q, %v", script, err)
+		}
+		service := NewServiceForRelease(release)
+		caller := protocol.NodeID{1}
+		request := installRequest("Ubuntu")
+		installation, err := service.Begin(t.Context(), caller, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer installation.Close()
+		var fault *protocol.Fault
+		if _, err := installation.Execute(nil, nil, caller, nil, nil); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "WSL Host installation requires a published Host release" {
+			t.Fatalf("unconfigured WSL installation: %v", err)
+		}
+	})
 	t.Run("is unavailable outside Windows", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Windows discovery is covered by the integration test")
 		}
-		service := NewService()
+		service := NewServiceForRelease(identity.CodeHost())
 		unavailable := func(err error) bool {
 			var fault *protocol.Fault
 			return errors.As(err, &fault) && fault.Code == protocol.ErrorCodeUnavailable && fault.Message == "WSL Host installation requires Windows"

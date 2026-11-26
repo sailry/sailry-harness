@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	if err := desktopsdk.Run(os.Args[1:], desktopsdk.Options{Identity: identity.OfficialDesktop(), Assembly: desktop.Harness(), Host: hostassembly.Harness()}); err != nil {
+	if err := desktopsdk.Run(os.Args[1:], desktopsdk.Options{Identity: identity.DefaultDesktop(), Assembly: desktop.Harness(), Host: hostassembly.Harness()}); err != nil {
 		log.Fatal(err)
 	}
 }

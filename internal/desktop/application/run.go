@@ -147,7 +147,7 @@ func runInterface(ctx context.Context, cancel context.CancelFunc, config Options
 	// window's read-only frame before stopping the Node. Its successful
 	// handoff therefore needs no further exit prompt.
 	updates := backend.updates(product, func() { mygo.RunOnMain(guard.pass) })
-	if updates != nil {
+	if updates != nil && updates.Service != nil {
 		defer updates.Service.Close()
 	}
 	var restart *profileRestart
@@ -424,7 +424,7 @@ func runInterface(ctx context.Context, cancel context.CancelFunc, config Options
 				})
 			}
 		}
-		if updates != nil {
+		if updates != nil && updates.Service != nil {
 			updates.Service.Startup()
 		}
 		// Another launch of the default profile hands over to this one.

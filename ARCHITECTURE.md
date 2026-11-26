@@ -86,6 +86,9 @@ The Go module is `github.com/sailry/sailry-harness`.
 
 Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream product, not a fork. Its own entry points select the common Harness components through `sdk/*`, add its developer pages and Node modules (`code-index`, `files` workbench, `git`, `worktrees`, `terminal`, `databases`, `ssh`), and supply its version, package identity and release sources. Harness never imports downstream product code.
 
+Harness releases are SemVer library tags with release notes, not Desktop,
+Host, Android or iOS binaries or app update feeds.
+
 ### Product assembly and optional service hooks
 
 The contribution boundary applies to every module, including those selected in
@@ -125,7 +128,7 @@ its `lib/` feature. A module test registers the contributions it needs without
 importing a product assembly. Host tests exercise shared contracts; product
 assembly tests cover the selected modules and how they work together.
 
-Desktop and Host startup bind process-wide diagnostics to the configured product version; Mobile supplies the installed package version when opening its controller. Host checks resolve the same product release feed used by installation, without treating a lower version as an upgrade. Code Android distribution is independent of Desktop tags: `mobile-v<SemVer>+<store build>` releases must contain a completed, nonempty `Sailry-android-arm64.apk` asset. Updates preserve SemVer precedence and require an increasing Android build number. Harness retains its existing `v<SemVer>` mobile feed.
+Desktop and Host startup bind process-wide diagnostics to the configured product version; Mobile supplies the installed package version when opening its controller. For products that distribute Host packages, Host update checks resolve the same product release feed used by installation, without treating a lower version as an upgrade. Code Android distribution is independent of Desktop tags: `mobile-v<SemVer>+<store build>` releases must contain a completed, nonempty `Sailry-android-arm64.apk` asset. Updates preserve SemVer precedence and require an increasing Android build number.
 
 The principal dependency direction is:
 
@@ -1692,9 +1695,9 @@ commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logi
 
 Host starts with an explicit profile, network configuration and opt-in pairing.
 When an SSH module is assembled (such as in Sailry Code), Add Host also installs checksum-verified assets over Node-owned SSH, starts systemd or
-launchd and pairs through a private bootstrap ticket; stock Harness hides the SSH installation tab when no SSH module is present. Windows controllers deploy a
-Linux Host into WSL2. The installed `sailry` command offers an interactive menu;
-`link` selects the Host's network before publishing a pairing code. `share` remains
+launchd and pairs through a private bootstrap ticket; stock Harness hides the SSH installation tab when no SSH module is present. Products with a Host package source can deploy a Linux Host into WSL2.
+The installed `sailry` command offers an interactive menu; `link` selects the
+Host's network before publishing a pairing code. `share` remains
 an alias using the current network. Host's `link`, `share`, `submit`, `wait`,
 `users` and `devices` management commands use the running owner's private Unix
 socket and never create another storage owner.
@@ -1718,8 +1721,8 @@ unified host directory (`viewapi.NodeInfo` and `viewmodel.Host`) and shows the
 Add Project `Local | Clone` switcher only when the selected host supports
 `"clone"` and reports `git` available.
 
-The desktop product supplies its release-list URL, asset download base, package
-identity and trusted public keys in `product.Desktop.Release`. The Harness
+A packaged Desktop product configures its release-list URL, asset download base,
+package identity and trusted public keys in `product.Desktop.Release`. The shared
 Desktop updater discovers GitHub Releases-compatible entries (`update-v1.json`
 on macOS and `update-v1-windows.json` on Windows x64) and verifies signed
 catalogs and archives against those keys. Stable selects final versions; the experience channel includes

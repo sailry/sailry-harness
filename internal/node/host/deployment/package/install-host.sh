@@ -32,6 +32,10 @@ if test -z "$task_version" && test "$task_update" = 1 && test "$task_repository"
   task_select_update=1
 else
   task_version="${task_version:-$task_default_version}"
+  if test -z "$task_version" && test "$task_repository" = https://github.com/sailry/sailry-harness; then
+    echo 'Harness releases are source-only. Build the Host from source or specify a historical binary version with --version.' >&2
+    exit 1
+  fi
   if test -z "$task_version"; then
     task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
       "https://api.github.com/repos/${task_repository#https://github.com/}/releases?per_page=1" | \

@@ -390,6 +390,13 @@ func TestAddHostFromSettings(t *testing.T) {
 	if len(added) != 2 || added[1].Method != settings.ByWSL || added[1].Distribution != "Ubuntu" {
 		t.Fatalf("WSL install: %+v", added)
 	}
+	state.AddHost()
+	m.ConnectionForm().Method = settings.ByWSL
+	m.SetConnectionStatus(settings.ConnectionStatus{WSLUnavailable: true})
+	tt.Frame()
+	if tt.HasText(en("host_wsl")) || !tt.HasText(en("host_ssh_mode")) || m.ConnectionDraft().Method != settings.ByPairing || !tt.HasText(en("pairing_pin_hint")) {
+		t.Fatalf("without a Host feed, WSL should fall back to pairing and leave SSH available: %q", tt.Texts())
+	}
 
 	// Without an SSH module (stock Harness), Install via SSH is hidden and
 	// an SSH method draft falls back to pairing.

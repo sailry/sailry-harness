@@ -1,7 +1,6 @@
 name: CI
 
-# Checks and build verification only. release.yml owns distribution signing
-# and publishing, and calls this workflow on a version tag.
+# Checks and build verification only; CI does not publish app packages.
 on:
   pull_request:
   push:
@@ -13,36 +12,21 @@ on:
         type: boolean
         default: false
       integration_packages:
-        description: Packages for the integration run; empty selects the release set
+        description: Packages for the integration run; empty selects the default set
         type: string
         default: ''
-  workflow_call:
-    inputs:
-      integration:
-        type: boolean
-        default: false
-      integration_packages:
-        type: string
-        default: ''
-      skip_mobile_builds:
-        description: Release jobs build the signed mobile packages separately
-        type: boolean
-        default: false
-      reuse_go:
-        description: The release caller verified successful Go checks for this exact commit
-        type: boolean
-        default: false
-      reuse_mobile:
-        description: The release caller verified successful mobile checks for this exact commit
-        type: boolean
-        default: false
+      mobile_builds:
+        description: Mobile package builds to verify
+        type: choice
+        default: 'none'
+        options: ['none', 'android', 'ios', 'both']
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.ref_type == 'tag' && 'release' || github.event_name == 'workflow_dispatch' && (inputs.integration && 'manual-integration' || 'manual') || 'checks' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && (inputs.integration && 'manual-integration' || 'manual') || 'checks' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   GOTOOLCHAIN: go1.27.3
@@ -56,69 +40,45 @@ jobs:
       go: ${{ steps.scope.outputs.go }}
       native: ${{ steps.scope.outputs.native }}
       mobile: ${{ steps.scope.outputs.mobile }}
-      mobile_build: ${{ steps.scope.outputs.mobile_build }}
+      android: ${{ steps.scope.outputs.android }}
+      ios: ${{ steps.scope.outputs.ios }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        if: github.event_name == 'pull_request'
         with:
           fetch-depth: 2
+          persist-credentials: ${{ github.event_name == 'push' }}
       - name: Changed inputs
         id: scope
         env:
           BEFORE: ${{ github.event.before }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          MOBILE_BUILDS: ${{ inputs.mobile_builds }}
         run: |
           set -euo pipefail
-          # Releases and manual runs verify every build. Missing push bases or
-          # truncated API comparisons fall back to the full set.
-          go_checks=true
-          native=true
-          mobile=true
-          mobile_build=true
-          changed=
-          have_changed=false
-          case "$GITHUB_EVENT_NAME" in
-            pull_request)
-              changed=$(git diff --name-only HEAD^1 HEAD)
-              have_changed=true
-              ;;
-            push)
-              case "$GITHUB_REF" in
-                refs/tags/*) ;;
-                *)
-                  if [ -n "$BEFORE" ] && [ "$BEFORE" != '0000000000000000000000000000000000000000' ]; then
-                    if compare=$(gh api "repos/$GH_REPO/compare/$BEFORE...$GITHUB_SHA" 2>/dev/null); then
-                      # GitHub caps compare responses at 300 files; fall back if saturated.
-                      count=$(jq '.files | length' <<<"$compare")
-                      if [ "$count" -lt 300 ]; then
-                        changed=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<<"$compare" | sort -u)
-                        have_changed=true
-                      fi
-                    fi
-                  fi
-                  ;;
-              esac
-              ;;
-          esac
-          if [ "$have_changed" = true ] && [ -n "$changed" ]; then
-            non_go_paths='^(docs/|third_party_licenses/|apps/mobile/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|(README|CONTRIBUTING|ARCHITECTURE|AGENTS|CHANGELOG|SECURITY|LICENSE[^/]*)\.md$|LICENSE$)'
-            go_inputs=$(grep -Ev "$non_go_paths" <<<"$changed" || true)
-            if [ -z "$go_inputs" ]; then
-              go_checks=false
-            fi
-            grep -Eq '^native/(turso|capture|windows)/|^\.github/(workflows/ci\.yml$|actions/turso/)' <<<"$changed" || native=false
-            grep -Eq '^(apps/mobile|assets/catalogs|cmd/sailry-mobile|internal/(mobile|client|link|protocol|identity))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/(flutter|android|go-cache)/' <<<"$changed" || mobile=false
-            non_mobile_tests=$(grep -Ev '^apps/mobile/test/' <<<"$changed" || true)
-            if [ "$mobile" != true ] || ! grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol|identity))/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$|^\.github/actions/(flutter|android|go-cache)/' <<<"$non_mobile_tests"; then
-              mobile_build=false
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            bash .github/scripts/ci-scope.sh "${MOBILE_BUILDS:-none}" >> "$GITHUB_OUTPUT"
+            exit
+          fi
+
+          base=HEAD^1
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            base=$BEFORE
+            if [ -n "$base" ] && [ "$base" != '0000000000000000000000000000000000000000' ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$base" || true
             fi
           fi
-          printf 'go=%s\nnative=%s\nmobile=%s\nmobile_build=%s\n' "$go_checks" "$native" "$mobile" "$mobile_build" >> "$GITHUB_OUTPUT"
+
+          # Compare trees directly, including both paths of a rename.
+          paths="$RUNNER_TEMP/ci-changed-paths"
+          if [ -n "$base" ] && git diff --no-renames --name-only -z "$base" HEAD -- > "$paths"; then
+            bash .github/scripts/ci-scope.sh < "$paths" >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning::Could not determine changed paths; running checks without mobile package builds'
+            bash .github/scripts/ci-scope.sh none >> "$GITHUB_OUTPUT"
+          fi
 
   lint:
     needs: scope
-    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
+    if: needs.scope.outputs.go == 'true'
     runs-on: ubuntu-24.04
     env:
       GO_CACHE_ROLE: lint
@@ -128,9 +88,9 @@ jobs:
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Test lane routing
-        run: bash .github/scripts/test_test.sh
-      - name: Test release CI reuse
-        run: bash .github/scripts/reuse-ci_test.sh
+        run: |
+          bash .github/scripts/ci-scope_test.sh
+          bash .github/scripts/test_test.sh
       - name: Test release workflow boundaries
         run: python3 -B .github/scripts/test_release_workflows.py
       - name: Test Sentry intake and repair routing
@@ -186,7 +146,7 @@ jobs:
 
   test:
     needs: scope
-    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
+    if: needs.scope.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -226,7 +186,7 @@ jobs:
 
   race:
     needs: scope
-    if: ${{ !inputs.reuse_go && needs.scope.outputs.go == 'true' }}
+    if: needs.scope.outputs.go == 'true'
     runs-on: ubuntu-24.04
     env:
       GO_CACHE_ROLE: race
@@ -335,7 +295,7 @@ jobs:
   mobile:
     name: apps/mobile (Android)
     needs: scope
-    if: ${{ needs.scope.outputs.mobile == 'true' && !inputs.reuse_mobile }}
+    if: needs.scope.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: ''
@@ -347,17 +307,17 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - uses: ./.github/actions/go-cache
         id: go-cache
-        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
+        if: needs.scope.outputs.android == 'true'
         with:
           modules-scope: mobile
       - uses: ./.github/actions/flutter
       - uses: ./.github/actions/android
-        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
+        if: needs.scope.outputs.android == 'true'
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test --concurrency=4
       - name: Build ARM64 release APK
-        if: ${{ !inputs.skip_mobile_builds && needs.scope.outputs.mobile_build == 'true' }}
+        if: needs.scope.outputs.android == 'true'
         run: flutter build apk --release --no-pub --target-platform android-arm64
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
@@ -370,7 +330,7 @@ jobs:
   mobile-ios:
     name: apps/mobile (iOS)
     needs: scope
-    if: ${{ needs.scope.outputs.mobile_build == 'true' && !inputs.skip_mobile_builds && !inputs.reuse_mobile }}
+    if: needs.scope.outputs.ios == 'true'
     runs-on: macos-15
     env:
       CGO_ENABLED: ''
@@ -399,8 +359,7 @@ jobs:
           modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
-  # Integration tests never run on pull requests or main. A manual run chooses
-  # its packages; a release runs RELEASE_PACKAGES.
+  # Integration tests run only on manual request, with an optional package list.
   integration:
     needs: native
     if: inputs.integration
@@ -417,7 +376,7 @@ jobs:
         shell: bash
     env:
       GO_CACHE_ROLE: test
-      # The release set: packages whose integration tests build every fixture
+      # The default set: packages whose integration tests build every fixture
       # themselves (temporary directories, loopback listeners, in-process
       # servers, the runner's Git and shell) and the capture library from this
       # run's native artifact. Left out because a runner does not provide what
@@ -428,7 +387,7 @@ jobs:
       #   cmd/sailry-desktop: runs only beside a packaged executable
       # Select ./internal/desktop/application in integration_packages for the
       # legacy profile upgrade test.
-      RELEASE_PACKAGES: >-
+      DEFAULT_INTEGRATION_PACKAGES: >-
         ./internal/core
         ./internal/desktop/updater
         ./internal/link
@@ -476,13 +435,13 @@ jobs:
         run: |
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
-          # The release set already exercises libp2p direct and relay routes.
+          # The default set already exercises libp2p direct and relay routes.
           # Keep that local transport check when a manual run omits ./internal/link.
           if [ -n "$PACKAGES" ] && ! grep -Eq '(^|[[:space:]])\./internal/link([[:space:]]|$)' <<<"$PACKAGES"; then
             go test -tags integration ./internal/link -run '^TestLibp2pLink'
           fi
           # shellcheck disable=SC2086
-          bash .github/scripts/test.sh integration ${PACKAGES:-$RELEASE_PACKAGES}
+          bash .github/scripts/test.sh integration ${PACKAGES:-$DEFAULT_INTEGRATION_PACKAGES}
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:

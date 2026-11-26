@@ -23,9 +23,10 @@ reports the failure once for that Node process and asks again with the next work
 
 ## Before connecting
 
-You can always start `sailry-host` on a target machine (or open Desktop on a
-remote Windows/macOS machine) and pair via a six-digit pairing code ([Host CLI
-and pairing](../CONTRIBUTING.md#host-automation)).
+With Harness, [build and run `sailry-host` from source](../CONTRIBUTING.md#host-automation)
+on the target, or [run Desktop from source](../README.md#run-from-source) on a
+remote Windows/macOS machine. Then connect with a six-digit pairing code.
+Harness library releases do not provide Host or Desktop packages.
 
 One-click remote SSH installation (**Add host → Install and connect**) requires
 a product that assembles the SSH module, such as
@@ -36,9 +37,10 @@ hides the SSH installation tab and pairs over libp2p pairing codes):
   x64 for SSH installation. On Windows, install and open Desktop on the target
   machine, then add it using its pairing code. SSH installation does not install
   a native Windows Host; WSL remains a separate Linux installation.
-- The matching product release must include Host packages for the target machine.
-  **Add host** installs the Host version expected by your Desktop build; it
-  does not choose the latest stable or preview release or fall back to another version.
+- Sailry Code resolves a stable Host version from its own releases, independently
+  of the Desktop version and update channel. That release must include the
+  installer and Host archive for the target; installation does not fall back to
+  another repository if an asset is missing.
 - Have a reachable SSH server, its username, and a password or private key.
   The remote account needs permission to install and run the service.
 - The target needs `bash`, `curl` and `tar`, plus HTTPS access to GitHub downloads.
@@ -61,7 +63,8 @@ after installing native dependencies so its cached availability is checked again
 ## Install and pair
 
 - **Pair an existing Host or Desktop**: publish a six-digit pairing code on the
-  remote machine (`sailry link` on a Host or **Connections** in Desktop), then
+  remote machine (`sailry-host link --data-dir <profile>` for a source build,
+  `sailry link` for an installed Host, or **Connections** in Desktop). Then
   choose **Add host** and enter the code.
 - **Install and pair over SSH (Sailry Code)**:
   1. Choose **Add host**, open the SSH installation view, and enter the SSH host,
@@ -74,12 +77,11 @@ after installing native dependencies so its cached availability is checked again
 
 ## If installation fails
 
-If the matching version's Host archive or installer is missing from the release,
-installation fails. Check the published packages for your product
-([Sailry Code releases](https://github.com/sailry/sailry-code/releases) or
-historical [Sailry Harness releases](https://github.com/sailry/sailry-harness/releases))
-for that version and architecture; changing the Desktop update channel does not
-make a different Host version eligible.
+If the matching version's Host archive or installer is missing from the product
+release, installation fails. For Sailry Code, check the
+[Code releases](https://github.com/sailry/sailry-code/releases) for that version
+and architecture. Changing the Desktop update channel does not make a different
+Host version eligible.
 
 For authentication or host-key errors, verify the SSH account and fingerprint.
 For service errors, check systemd or launchd on the target. An unconfirmed result
@@ -139,9 +141,8 @@ A non-empty runtime environment value takes precedence over the value compiled
 into the build. Builds without a configured destination do not send that
 category.
 
-Official product repositories inherit the two delivery settings from selected-repository
-GitHub Actions organization secrets. Each sets its own `SAILRY_PRODUCT` repository
-variable (for example `harness` or `code`). Desktop and Host packages compile that
-ID into both reporting paths. Filter Sentry by `product:code`, or filter usage
-events by their `product` property; `application` still identifies Desktop or Host.
-Previously shipped builds do not acquire these tags retroactively.
+Products that package Desktop or Host can configure these destinations with
+protected secrets in their own workflows. `SAILRY_PRODUCT` sets the build's
+product ID for both reporting paths. Filter Sentry by `product:code`, or filter
+usage events by their `product` property; `application` still identifies Desktop
+or Host. Previously shipped builds do not acquire these tags retroactively.

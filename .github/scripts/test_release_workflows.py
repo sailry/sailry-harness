@@ -2,6 +2,8 @@ import re
 from pathlib import Path
 import unittest
 
+from library_release_notes import release_notes
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -12,25 +14,24 @@ class ReleaseWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 self.assertNotRegex(path.read_text(), r"(?m)^\s+submodules:\s*(?:recursive|true)\s*$")
 
-    def test_integration_release_packages_still_belong_to_harness(self):
+    def test_default_integration_packages_belong_to_harness(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        packages = workflow.split("      RELEASE_PACKAGES: >-\n", 1)[1].split("    steps:\n", 1)[0]
+        packages = workflow.split("      DEFAULT_INTEGRATION_PACKAGES: >-\n", 1)[1].split("    steps:\n", 1)[0]
         paths = re.findall(r"(?m)^        (\./\S+)\s*$", packages)
         self.assertTrue(paths)
         for path in paths:
             with self.subTest(package=path):
                 self.assertTrue(any((ROOT / path).glob("*.go")), f"Missing Harness package: {path}")
 
-    def test_historical_release_never_uploads_to_testflight_by_default(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertNotRegex(workflow, r"(?m)^  (push|pull_request|workflow_call):")
-        request = workflow.split("      upload_testflight:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("        type: boolean\n", request)
-        self.assertRegex(request, r"(?m)^        default: false$")
-        upload = workflow.split("      - name: Upload to TestFlight\n", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("        if: inputs.upload_testflight\n", upload)
-        self.assertIn("APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}", upload)
-        self.assertIn("xcrun altool --upload-", upload)
+    def test_library_notes_use_only_the_tagged_entry(self):
+        changelog = "## [1.2.3](url)\n\n- Stable release.\n\n## [1.2.3-rc.1](url)\n\n- Preview.\n"
+        self.assertEqual(release_notes("v1.2.3", changelog), "- Stable release.")
+        self.assertEqual(release_notes("v1.2.3-rc.1", changelog), "- Preview.")
+        for tag in ("v1.2.2", "1.2.3", "v1.02.3", "v1.2.3-rc..1", "v1.2.3-01", "v1.2.3+build"):
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                release_notes(tag, changelog)
+        with self.assertRaises(ValueError):
+            release_notes("v1.2.3", "## [1.2.3](url)\n\n## [1.2.2](url)\n- Older.\n")
 
 
 if __name__ == "__main__":

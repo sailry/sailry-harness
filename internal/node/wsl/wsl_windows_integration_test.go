@@ -171,7 +171,7 @@ func TestWSLWindowsIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		service := NewService()
+		service := NewServiceForRelease(identity.CodeHost())
 		request := protocol.NewRequest(address.ID, protocol.Command{Kind: "install_wsl_host", Data: &protocol.CommandInstallWslHostPayload{Distribution: distribution}})
 		installation, err := service.Begin(ctx, address.ID, request)
 		if err != nil {

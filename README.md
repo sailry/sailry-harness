@@ -72,7 +72,7 @@ go mod init example.com/my-agent
 go get github.com/sailry/sailry-harness@main
 ```
 
-`@main` selects the current preview SDK. Go records the resolved version in your `go.mod`.
+`@main` selects the current preview SDK. For a released SDK, use `@latest` or pin a published SemVer tag. Go records the resolved version in your `go.mod`.
 
 Save this minimal Host entry point as `main.go`. It uses the public SDK and the built-in Harness module assembly.
 
@@ -135,7 +135,7 @@ just desktop
 - `just host` starts a headless Host; `just check` runs the project checks.
 - To test Harness changes in Code, use a gitignored `go.work` in your Code checkout that references the local Harness checkout.
 
-Harness APIs are in early preview. [Historical Harness releases](https://github.com/sailry/sailry-harness/releases) remain available for repairs; new end-user packages are published through [Sailry Code](https://github.com/sailry/sailry-code/releases).
+Harness APIs are in early preview. New [Harness releases](https://github.com/sailry/sailry-harness/releases) consist of SemVer library tags and release notes, not Desktop, Host, Android or iOS binaries or app updates. [Sailry Code](https://github.com/sailry/sailry-code/releases) is a separate product with its own downloads and updates.
 
 ## Products and ecosystem
 

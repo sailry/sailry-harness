@@ -6,12 +6,14 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	cryptossh "golang.org/x/crypto/ssh"
 )
@@ -228,6 +230,10 @@ func TestSSHStagingGuidanceIsFixed(t *testing.T) {
 	}
 }
 
+type hostReleaseTransport func(*http.Request) (*http.Response, error)
+
+func (f hostReleaseTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestSSHInstallationFaults(t *testing.T) {
 	root := ArtifactRoot
 	ArtifactRoot = t.TempDir()
@@ -236,6 +242,36 @@ func TestSSHInstallationFaults(t *testing.T) {
 	const paths = "printf '%s\\n' \"$HOME\"; uname -s; id -u"
 	const installer = "sh -s"
 	const bootstrap = "cat '/home/fixture/.sailry-host/bootstrap.ticket' 2>/dev/null"
+	previous := http.DefaultTransport
+	http.DefaultTransport = hostReleaseTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://api.github.com/repos/sailry/sailry-code/releases?page=1&per_page=100" {
+			return nil, errors.New("unexpected Host release request: " + r.URL.String())
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`[{"tag_name":"v1.2.3"}]`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	t.Run("Harness does not fall back when artifacts are missing", func(t *testing.T) {
+		connection, commands := deploymentSSH(t, "SSH-2.0-fixture", func(command string) (string, string, uint32) {
+			switch command {
+			case platform:
+				return "Linux\nx86_64\n", "", 0
+			case paths:
+				return "/home/fixture\nLinux\n1000\n", "", 0
+			}
+			return "", "unexpected installer command", 1
+		})
+		owner := NewInstallations(DeploymentOptions{Release: identity.DefaultDesktop().HostRelease})
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		_, err := owner.Execute(ctx, connection, nil, protocol.NodeID{1}, protocol.RequestID{}, nil, nil)
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "locally built Host artifacts are unavailable for this target" {
+			t.Fatalf("missing local Host artifacts: %v", err)
+		}
+		if got := commands(); !slices.Equal(got, []string{platform, paths}) {
+			t.Fatalf("missing local artifacts sent commands %q", got)
+		}
+	})
 	for _, test := range []struct {
 		name, command string
 		reply         string
@@ -297,7 +333,10 @@ func TestSSHInstallationFaults(t *testing.T) {
 				case paths:
 					deploymentSSHResult(channel, "/home/fixture\nLinux\n1000\n", "", 0)
 				case installer:
-					_, _ = io.Copy(io.Discard, channel)
+					body, err := io.ReadAll(channel)
+					if err != nil || !strings.Contains(string(body), "install_downloads='"+identity.CodeHost().Downloads()+"'") {
+						t.Errorf("SSH bootstrap did not use the Code Host downloads: %v", err)
+					}
 					deploymentSSHResult(channel, "", "", 0)
 				}
 			})
@@ -305,7 +344,7 @@ func TestSSHInstallationFaults(t *testing.T) {
 			defer cancel()
 			caller := protocol.NodeID{1}
 			request := protocol.NewRequest(caller, protocol.Command{Kind: "install_host", Data: protocol.CommandInstallHostPayload{}})
-			outcome, err := NewInstallations(DeploymentOptions{}).Execute(ctx, connection, nil, caller, request.ID, nil, nil)
+			outcome, err := NewInstallations(DeploymentOptions{Release: identity.CodeHost()}).Execute(ctx, connection, nil, caller, request.ID, nil, nil)
 			var fault *protocol.Fault
 			if outcome.Kind != "" || !errors.As(err, &fault) || fault.Code != test.code || fault.SSHReason != test.reason {
 				t.Fatalf("install_host = %+v, fault = %+v, want %s/%s", outcome, fault, test.code, test.reason)

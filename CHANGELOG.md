@@ -3,6 +3,13 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.14](https://github.com/sailry/sailry-harness/releases/tag/v0.2.14)
+
+- Distribute Harness as a Go module. Harness tags provide source and release notes; downstream products own application packages and update feeds.
+- Preserve file revision checks when reapplying patches, and prevent stale child results from replacing newer workspace revisions.
+- Recheck project visibility before delivering a subscription's first snapshot. Deliver authorized terminal exit frames and keep conversation asset pages within the transport limit.
+- Retain child guidance when a turn exhausts its budget. Load installed theme images off the UI thread and stop rendering workspace panes after they close.
+
 ## [0.2.13](https://github.com/sailry/sailry-harness/releases/tag/v0.2.13) — 2026-11-25
 
 - Keep the Desktop responsive when a store write is slow, and save large tool results quickly.

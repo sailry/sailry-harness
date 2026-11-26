@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -165,18 +164,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 		return protocol.SshOutcome{}, installPreflightFailure(ctx, err)
 	}
 	version := link.ProductVersion
-	checkRelease := owner.options.Release.Published()
-	// Explicit official Host selection always uses its published repository.
-	var root string
-	published := checkRelease
-	if !published {
-		root, err = artifactDirectory(target)
-		if err != nil {
-			return protocol.SshOutcome{}, err
-		}
-		_, missing := os.Lstat(filepath.Join(root, "sailry-host"))
-		published = errors.Is(missing, fs.ErrNotExist)
-	}
+	published := owner.options.Release.Published()
 	if published {
 		version, err = wsl.ResolveRelease(ctx, owner.options.Release)
 		if err != nil {
@@ -184,6 +172,10 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 		}
 		err = owner.installRelease(ctx, connection, caller, request, expected, selection, version)
 	} else {
+		root, localErr := artifactDirectory(target)
+		if localErr != nil {
+			return protocol.SshOutcome{}, localErr
+		}
 		err = owner.installLocal(ctx, connection, caller, request, root, target, turso, paths, expected, selection)
 	}
 	if err != nil {
@@ -196,7 +188,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 		}
 		return protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: *expected}}, nil
 	}
-	if !checkRelease {
+	if !published {
 		version = ""
 	}
 	address, err := pairInstalled(ctx, connection, endpoint, paths.Profile, version)

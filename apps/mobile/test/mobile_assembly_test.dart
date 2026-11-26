@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/assembly/harness.dart';
 import 'package:sailry_mobile/assembly/lean.dart';
@@ -10,10 +13,15 @@ import 'package:sailry_mobile/features/resources/ports_contribution.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/terminal/project_resource.dart';
 import 'package:sailry_mobile/features/terminal/terminal_page.dart';
+import 'package:sailry_mobile/features/updates/presentation.dart';
+import 'package:sailry_mobile/features/updates/service.dart';
 import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/shell/assembly.dart';
+import 'package:sailry_mobile/shell/shell.dart';
 import 'package:sailry_mobile/ui/kit.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 HostConnection _fixtureHost(List<String> calls) => HostConnection.test(
   id: 'host',
@@ -61,6 +69,13 @@ List<String> _countCells(WidgetTester tester) => [
   ))
     (cell.key as ValueKey<String>).value,
 ];
+
+class _StartupPath extends PathProviderPlatform {
+  final path = Completer<String>();
+
+  @override
+  Future<String?> getApplicationSupportPath() => path.future;
+}
 
 void main() {
   test('resource link registration rejects duplicate routes', () {
@@ -289,6 +304,61 @@ void main() {
     expect(harnessAssembly.draftWorkspace, isNull);
     expect(harnessAssembly.conversationConfiguration, isNull);
     expect(harnessAssembly.resolveRoute('removed-route'), chatRoute);
+  });
+
+  testWidgets('mobile assemblies opt in to app updates', (tester) async {
+    final previous = SharedPreferencesAsyncPlatform.instance;
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
+    addTearDown(() => SharedPreferencesAsyncPlatform.instance = previous);
+
+    // Pause startup before it opens a profile or initializes native transport.
+    final previousPaths = PathProviderPlatform.instance;
+    final bootstrap = _StartupPath();
+    PathProviderPlatform.instance = bootstrap;
+    addTearDown(() => PathProviderPlatform.instance = previousPaths);
+
+    try {
+      for (final assembly in [harnessAssembly, leanAssembly]) {
+        await tester.pumpWidget(
+          SailryApp(key: ObjectKey(assembly), assembly: assembly),
+        );
+        expect(
+          tester.widget<MobileShell>(find.byType(MobileShell)).updates,
+          isNull,
+        );
+        expect(find.byType(UpdateDelivery), findsNothing);
+      }
+
+      var created = 0;
+      final product = MobileAssembly(
+        pages: harnessPages,
+        defaultRoute: chatRoute,
+        createUpdates: () {
+          created++;
+          return AppUpdates(
+            repository: 'sailry/sailry-code',
+            tagPrefix: 'mobile-v',
+            requireBuildNumber: true,
+          );
+        },
+      );
+      await tester.pumpWidget(
+        SailryApp(key: ObjectKey(product), assembly: product),
+      );
+      expect(created, 1);
+      final delivery = tester.widget<UpdateDelivery>(
+        find.byType(UpdateDelivery),
+      );
+      expect(
+        tester.widget<MobileShell>(find.byType(MobileShell)).updates,
+        same(delivery.updates),
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      bootstrap.path.complete('/unused');
+      await tester.pump();
+    }
   });
 
   testWidgets(

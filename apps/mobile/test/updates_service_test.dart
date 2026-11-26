@@ -127,36 +127,42 @@ void main() {
   });
 
   group('update checks', () {
-    test('Harness keeps its one MiB single-page release feed', () async {
-      final oversized = fixture.release('0.2.14')
-        ..['body'] = List.filled(1024 * 1024, 'a').join();
-      final limited = fixture.updates(releases: [oversized]);
-      addTearDown(limited.dispose);
-      await expectLater(limited.check(), throwsFormatException);
-      expect(limited.available, isNull);
+    test(
+      'an explicit historical feed keeps its one MiB single-page limit',
+      () async {
+        final oversized = fixture.release('0.2.14')
+          ..['body'] = List.filled(1024 * 1024, 'a').join();
+        final limited = fixture.updates(releases: [oversized]);
+        addTearDown(limited.dispose);
+        await expectLater(limited.check(), throwsFormatException);
+        expect(limited.available, isNull);
 
-      var requests = 0;
-      final firstOnly = fixture.updates(
-        request: (request) async {
-          requests++;
-          expect(request.url.host, 'api.github.com');
-          expect(request.url.path, '/repos/sailry/sailry-harness/releases');
-          expect(request.url.queryParameters['page'], isNull);
-          return http.Response(
-            jsonEncode(
-              List.generate(100, (_) => fixture.release('0.1.0-alpha.1')),
-            ),
-            200,
-            headers: {
-              'link': '<https://other.example/releases?page=2>; rel="next"',
-            },
-          );
-        },
-      );
-      addTearDown(firstOnly.dispose);
-      expect(await firstOnly.check(), UpdateResult.current);
-      expect(requests, 1);
-    });
+        final legacy = fixture.release('0.1.0', versioned: true);
+        var requests = 0;
+        final firstOnly = fixture.updates(
+          request: (request) async {
+            requests++;
+            expect(request.url.host, 'api.github.com');
+            expect(request.url.path, '/repos/sailry/sailry-harness/releases');
+            expect(request.url.queryParameters['page'], isNull);
+            return http.Response(
+              jsonEncode(List.filled(100, legacy)),
+              200,
+              headers: {
+                'link': '<https://other.example/releases?page=2>; rel="next"',
+              },
+            );
+          },
+        );
+        addTearDown(firstOnly.dispose);
+        expect(await firstOnly.check(), UpdateResult.available);
+        expect(requests, 1);
+        expect(
+          firstOnly.available?.download.path,
+          '/sailry/sailry-harness/releases/download/v0.1.0/Sailry-0.1.0-android-arm64.apk',
+        );
+      },
+    );
 
     test('a Code desktop version reset cannot downgrade mobile', () async {
       final row = fixture.release('0.1.0');
@@ -178,8 +184,9 @@ void main() {
     });
 
     test(
-      'reads the public index over HTTP without an execution Node',
+      'reads an explicit third-party index over HTTP without an execution Node',
       () async {
+        const repository = 'example/controller';
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
         final requests = <HttpRequest>[];
@@ -187,11 +194,14 @@ void main() {
           requests.add(request);
           request.response.headers.contentType = ContentType.json;
           request.response.write(
-            jsonEncode([fixture.release('0.1.0-alpha.2')]),
+            jsonEncode([
+              fixture.release('0.1.0-alpha.2', repository: repository),
+            ]),
           );
           await request.response.close();
         });
         final service = AppUpdates(
+          repository: repository,
           source: Uri.parse(
             'http://127.0.0.1:${server.port}/releases?per_page=100',
           ),
@@ -202,6 +212,10 @@ void main() {
         expect(await service.check(), UpdateResult.available);
         expect(service.version, '0.1.0-alpha.1');
         expect('${service.available!.version}', '0.1.0-alpha.2');
+        expect(
+          service.available!.download.path,
+          '/$repository/releases/download/v0.1.0-alpha.2/Sailry-android-arm64.apk',
+        );
         expect(requests.single.uri.queryParameters['per_page'], '100');
         expect(
           requests.single.headers.value('accept'),

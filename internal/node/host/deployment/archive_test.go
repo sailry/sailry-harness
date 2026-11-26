@@ -68,14 +68,16 @@ func TestPublishedInstallerDefaultVersion(t *testing.T) {
 					// boundaries are local fixtures, and HOME is isolated.
 					install := exec.CommandContext(t.Context(), "/bin/bash", append([]string{installer}, fixture.args...)...)
 					install.Env = append(slices.Clone(environment), "HOME="+home)
-					if output, err := install.CombinedOutput(); err != nil {
+					output, err := install.CombinedOutput()
+					if !code && len(fixture.args) == 0 {
+						assertNoHarnessReleaseDownload(t, directory, output, err)
+						return
+					}
+					if err != nil {
 						t.Fatalf("published installer: %v\n%s", err, output)
 					}
 					wantDownloads := repository + "/releases/download/v" + fixture.want + "/" + asset + "\n" +
 						repository + "/releases/download/v" + fixture.want + "/SHA256SUMS-" + triple + "\n"
-					if !code && len(fixture.args) == 0 {
-						wantDownloads = "https://api.github.com/repos/sailry/sailry-harness/releases?per_page=1\n" + wantDownloads
-					}
 					if downloads := string(readInstallerFixture(t, filepath.Join(directory, "downloads"))); downloads != wantDownloads {
 						t.Fatalf("downloads = %q, want %q", downloads, wantDownloads)
 					}
@@ -91,6 +93,16 @@ func TestPublishedInstallerDefaultVersion(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func assertNoHarnessReleaseDownload(t *testing.T, directory string, output []byte, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(string(output), "Harness releases are source-only") {
+		t.Fatalf("expected source-only guidance: %v\n%s", err, output)
+	}
+	if downloads, err := os.ReadFile(filepath.Join(directory, "downloads")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected downloads: %q, %v", downloads, err)
 	}
 }
 
@@ -227,7 +239,12 @@ func TestInstalledWrapperVersionCompatibility(t *testing.T) {
 			command := filepath.Join(home, ".local", "bin", "sailry")
 			update := exec.CommandContext(t.Context(), command, append([]string{"update"}, fixture.args...)...)
 			update.Env = environment
-			if output, err := update.CombinedOutput(); err != nil || !strings.Contains(string(output), "Host updated;") {
+			output, err := update.CombinedOutput()
+			if len(fixture.args) == 0 {
+				assertNoHarnessReleaseDownload(t, directory, output, err)
+				return
+			}
+			if err != nil || !strings.Contains(string(output), "Host updated;") {
 				t.Fatalf("wrapper update: %v\n%s", err, output)
 			}
 			version := exec.CommandContext(t.Context(), command, "version")
@@ -237,9 +254,6 @@ func TestInstalledWrapperVersionCompatibility(t *testing.T) {
 			}
 			wantDownloads := fixture.repository + "/releases/download/v0.1.1/sailry-host-x86_64-unknown-linux-gnu.tar.gz\n" +
 				fixture.repository + "/releases/download/v0.1.1/SHA256SUMS-x86_64-unknown-linux-gnu\n"
-			if len(fixture.args) == 0 {
-				wantDownloads = "https://api.github.com/repos/sailry/sailry-harness/releases?per_page=1\n" + wantDownloads
-			}
 			if downloads := string(readInstallerFixture(t, filepath.Join(directory, "downloads"))); downloads != wantDownloads {
 				t.Fatalf("compatibility downloads = %q, want %q", downloads, wantDownloads)
 			}

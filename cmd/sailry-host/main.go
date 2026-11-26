@@ -21,7 +21,7 @@ func main() {
 }
 
 func run(args []string) (int, error) {
-	product := identity.OfficialDesktop()
+	product := identity.DefaultDesktop()
 	product.Version = link.ProductVersion
 	return host.Run(args, host.Options{
 		Identity: product,

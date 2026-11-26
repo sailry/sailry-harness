@@ -27,6 +27,9 @@ type ConfigureNetwork func(ctx context.Context, endpoint *link.Link, address lin
 // it with the local endpoint. local is the controller's own Node identity.
 func (installation *Installation) Execute(environment []string, endpoint *link.Link, local protocol.NodeID, network *protocol.NetworkSelection, configure ConfigureNetwork) (protocol.HostInstallationOutcome, error) {
 	ctx := installation.ctx
+	if !installation.service.release.Published() {
+		return protocol.HostInstallationOutcome{}, unavailable("WSL Host installation requires a published Host release")
+	}
 	installation.stage("detecting")
 	found, err := discover(ctx, environment)
 	if err != nil {
@@ -173,11 +176,14 @@ func PreflightScript(release identity.HostRelease) string {
 }
 
 func ReleaseScript(version string, update bool, network *protocol.NetworkSelection) (string, error) {
-	return ReleaseScriptFor(identity.HostRelease{}, version, update, network)
+	return ReleaseScriptFor(identity.OfficialHost(), version, update, network)
 }
 
 // ReleaseScriptFor selects the build-owned feed for the shared SSH and WSL bootstrap.
 func ReleaseScriptFor(release identity.HostRelease, version string, update bool, network *protocol.NetworkSelection) (string, error) {
+	if !release.Published() {
+		return "", unavailable("Host release downloads are not configured")
+	}
 	if !validReleaseVersion(version) {
 		return "", invalid("invalid target Host version")
 	}

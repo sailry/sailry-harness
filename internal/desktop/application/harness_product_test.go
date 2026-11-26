@@ -17,7 +17,7 @@ func TestHarnessDesktopHostPreservesExplicitPluginChoices(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")
 	start := func() *desktopBackend {
 		t.Helper()
-		backend, err := openBackend(t.Context(), startupOptions{DataDir: profile}, identity.OfficialDesktop(), hostassembly.Harness())
+		backend, err := openBackend(t.Context(), startupOptions{DataDir: profile}, identity.DefaultDesktop(), hostassembly.Harness())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -30,7 +30,7 @@ import (
 func TestDesktopProductPreservesNativeOwnership(t *testing.T) {
 	native := new(mygo.Application)
 	previousName := native.Name()
-	configureMyGo(native, Options{Identity: identity.OfficialDesktop()})
+	configureMyGo(native, Options{Identity: identity.DefaultDesktop()})
 	if native.Name() != previousName || native.Version() != identity.OfficialVersion {
 		t.Fatalf("official launch changed its native owner: %q (previously %q), version %q", native.Name(), previousName, native.Version())
 	}
@@ -43,7 +43,10 @@ func TestDesktopProductPreservesNativeOwnership(t *testing.T) {
 func TestDesktopProductPresentation(t *testing.T) {
 	product := identity.Desktop{
 		Name: "ExampleDesktop", Version: "7.1.0-beta.2", Website: "https://example.test/desktop", Feedback: "https://example.test/issues",
-		Release: identity.DesktopRelease{Package: identity.DesktopPackage{Name: "ExampleBundle"}},
+		Release: identity.DesktopRelease{
+			Package: identity.DesktopPackage{Name: "ExampleBundle"},
+			Source:  "https://example.test/releases", Downloads: "https://example.test/download",
+		},
 	}
 	app := shell.NewWithAssembly(preview.Load(), shell.Assemble(providers.Register))
 	applyProduct(app, product, product.Name)
@@ -124,7 +127,7 @@ func TestDesktopProductDefaultWelcomeMark(t *testing.T) {
 		product identity.Desktop
 		want    string
 	}{
-		{name: "official harness", product: identity.OfficialDesktop(), want: "SAILRY HARNESS"},
+		{name: "default harness", product: identity.DefaultDesktop(), want: "SAILRY HARNESS"},
 		{name: "harness id fallback", product: identity.Desktop{ID: "harness"}, want: "SAILRY HARNESS"},
 		{name: "code id fallback", product: identity.Desktop{ID: "code"}, want: "SAILRY CODE"},
 		{name: "explicit override", product: identity.Desktop{ID: "code", WelcomeMark: "CUSTOM CODE"}, want: "CUSTOM CODE"},
@@ -168,6 +171,8 @@ func TestDesktopUpdaterUsesApplicationRelease(t *testing.T) {
 	}{
 		{name: "no release"},
 		{name: "no feed", release: identity.DesktopRelease{Package: fork.Package}},
+		{name: "download only", release: identity.DesktopRelease{Package: fork.Package, Downloads: fork.Downloads, PublicKeys: fork.PublicKeys}},
+		{name: "source only", release: identity.DesktopRelease{Package: fork.Package, Source: fork.Source, PublicKeys: fork.PublicKeys}},
 		{name: "fork release", release: fork},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,13 +181,19 @@ func TestDesktopUpdaterUsesApplicationRelease(t *testing.T) {
 			backend := &desktopBackend{Path: profile, Client: new(client.Client), Preferences: preferences.Open(filepath.Join(profile, "preferences.json"))}
 			synctest.Test(t, func(t *testing.T) {
 				updates := backend.updates(identity.Desktop{Version: "7.1.0", Release: tc.release}, nil)
+				if tc.release.Source == "" && tc.release.Downloads == "" {
+					if updates.Service != nil || len(requests) != 0 {
+						t.Fatalf("unconfigured product enabled updates: requests %v", requests)
+					}
+					return
+				}
 				defer updates.Service.Close()
 				updates.Service.Check()
 				synctest.Wait()
 				state, failure := updates.Service.Snapshot()
 				switch {
-				case tc.release.Source == "":
-					if failure == nil || failure.Key != "updates_source_unready" || len(requests) != 0 {
+				case tc.release.Source == "" || tc.release.Downloads == "":
+					if failure == nil || failure.Key != "updates_manifest_invalid" || len(requests) != 0 {
 						t.Fatalf("missing release tried another source: requests %v, failure %v", requests, failure)
 					}
 				case runtime.GOOS == "darwin" || runtime.GOOS == "windows" && runtime.GOARCH == "amd64":

@@ -58,15 +58,22 @@ type Desktop struct {
 	Feedback       string
 }
 
-func OfficialDesktop() Desktop {
+// DefaultDesktop is the source-built Harness application without binary feeds.
+func DefaultDesktop() Desktop {
 	return Desktop{
 		Release: DesktopRelease{
 			Package: DesktopPackage{Name: "Sailry", ID: "ai.sailry.desktop", Executable: "sailry-desktop"},
-			Source:  OfficialReleases, Downloads: OfficialDownloads, PublicKeys: officialUpdateKeys,
 		},
 		ID: "harness", Name: "Sailry", WelcomeMark: "SAILRY HARNESS", Version: OfficialVersion, DefaultProfile: HarnessProfile, DefaultEntry: "page:conversation",
 		Website: OfficialWebsite, Feedback: OfficialFeedback,
 	}
+}
+
+// OfficialDesktop retains the historical release inputs for explicit tooling.
+func OfficialDesktop() Desktop {
+	product := DefaultDesktop()
+	product.Release.Source, product.Release.Downloads, product.Release.PublicKeys = OfficialReleases, OfficialDownloads, officialUpdateKeys
+	return product
 }
 
 // DataDir resolves the default profile or an explicit command-line override.

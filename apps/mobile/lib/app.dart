@@ -61,9 +61,7 @@ class _SailryAppState extends State<SailryApp> {
     super.initState();
     _updates =
         widget.updates ??
-        (widget.session == null
-            ? (widget.assembly.createUpdates?.call() ?? AppUpdates())
-            : null);
+        (widget.session == null ? widget.assembly.createUpdates?.call() : null);
     _session = widget.session ?? AppSession();
     if (widget.session == null) unawaited(_session.start());
     _preferences.addListener(_refreshPreferences);

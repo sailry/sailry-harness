@@ -44,6 +44,7 @@ AppUpdates updates({
   List<Map<String, dynamic>> releases = const [],
   MockClientHandler? request,
 }) => AppUpdates(
+  repository: releaseRepository,
   client: MockClient(
     request ?? (_) async => http.Response(jsonEncode(releases), 200),
   ),

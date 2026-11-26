@@ -129,7 +129,7 @@ func releaseInputs(release identity.DesktopRelease) (Config, error) {
 
 func (c *Config) packageIdentity() identity.DesktopPackage {
 	if c.Package == (identity.DesktopPackage{}) {
-		return identity.OfficialDesktop().Release.Package
+		return identity.DefaultDesktop().Release.Package
 	}
 	return c.Package
 }

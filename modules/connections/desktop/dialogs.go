@@ -75,22 +75,22 @@ func addHost(c *ui.Context, m *settings.Model) {
 	locked := m.ConnectionPending || pr.Status.Recovery
 	var tabs float32
 	kit.Dialog(c.Key("add-host"), &pr.AddOpen, func() {
+		if pr.Status.WSLUnavailable && pr.Method == settings.ByWSL || pr.Status.SSHUnavailable && pr.Method.SSH() {
+			pr.Method = settings.ByPairing
+		}
 		hint := "host_pairing_hint"
 		if pr.Method != settings.ByPairing {
 			hint = "host_install_hint"
 		}
 		kit.DialogHeader(c, title, i18n.T(c, hint))
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
-			if pr.Status.SSHUnavailable && pr.Method.SSH() {
-				pr.Method = settings.ByPairing
-			}
 			modes := []settings.Method{settings.ByPairing}
 			names := []string{i18n.T(c, "host_pairing_mode")}
 			if !pr.Status.SSHUnavailable {
 				modes = append(modes, settings.ByPassword)
 				names = append(names, i18n.T(c, "host_ssh_mode"))
 			}
-			if hostOS == "windows" {
+			if hostOS == "windows" && !pr.Status.WSLUnavailable {
 				modes = append(modes, settings.ByWSL)
 				names = append(names, i18n.T(c, "host_wsl"))
 			}

@@ -121,8 +121,8 @@ func ghostIcon(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 	})
 }
 
-// about is the version, the build and the license, then the updater, whose
-// check reaches the network.
+// about shows the version, build and license, plus updates if configured or
+// simulated in preview.
 func about(c *ui.Context, m *Model) {
 	p := theme.Of(c)
 	text := func(s string) func() {
@@ -135,5 +135,7 @@ func about(c *ui.Context, m *Model) {
 			kit.Row(c, "license", i18n.T(c, "settings_license"), "", text("Apache-2.0"))
 		})
 	})
-	updates(c, m)
+	if !m.Live || m.UpdateActions != nil {
+		updates(c, m)
+	}
 }

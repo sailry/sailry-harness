@@ -48,6 +48,8 @@ type ConnectionStatus struct {
 	// SSHUnavailable hides SSH Host installation when the local product
 	// assembly does not ship an SSH module.
 	SSHUnavailable bool
+	// WSLUnavailable hides installation when the product has no Host feed.
+	WSLUnavailable bool
 	// Revoking are the devices whose pairing is being removed, by ID.
 	Revoking  map[string]bool
 	Narrowing map[string]bool

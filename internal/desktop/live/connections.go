@@ -115,7 +115,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	if !r.connectionsOpen() {
 		model.CloseConnectionDialogs()
 	}
-	if model.Adding() && model.ConnectionDraft().Method == settings.ByWSL {
+	if r.hostRelease().Published() && model.Adding() && model.ConnectionDraft().Method == settings.ByWSL {
 		if !state.wsl.loading && !state.wsl.loaded && !state.wsl.failed {
 			r.loadWSLDistributions()
 		}
@@ -186,6 +186,7 @@ func (r *Runtime) connectionStatus() settings.ConnectionStatus {
 	state := r.connections
 	status := settings.ConnectionStatus{
 		SSHUnavailable: r.App != nil && r.App.Settings.HasSection(settings.Connections) && !r.App.NativePageEnabled("page:ssh"),
+		WSLUnavailable: !r.hostRelease().Published(),
 		Revoking:       state.revoking, Narrowing: state.narrowing, Distributions: state.wsl.names,
 		DistributionsLoading: state.wsl.loading, DistributionsLoaded: state.wsl.loaded,
 	}

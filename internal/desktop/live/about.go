@@ -21,7 +21,8 @@ import (
 // Settings › About: the running build and the process's one updater, which
 // every window shows.
 
-// Updates is the process's update service as its windows share it.
+// Updates shares the build's update configuration across windows. Service is
+// nil if the product does not distribute desktop updates.
 type Updates struct {
 	Service     *updater.Service
 	version     string
@@ -48,6 +49,9 @@ type updateInstall struct {
 func NewUpdates(product identity.Desktop, prefs *preferences.Store, profile string, stop func() error, quit func()) *Updates {
 	updates := &Updates{version: product.Version, hostRelease: product.HostRelease}
 	updates.channel.Store(int32(updateChannel(prefs.Data.UpdateChannel, product.Version)))
+	if product.Release.Source == "" && product.Release.Downloads == "" {
+		return updates
+	}
 	updates.Service = updater.New(updater.Options{
 		Version: product.Version, Release: product.Release, Directory: filepath.Join(filepath.Dir(prefs.Path), "updater"), Profile: profile,
 		Channel: func() updater.Channel {
@@ -71,13 +75,26 @@ func (u *Updates) changed() {
 	}
 }
 
-// SetUpdates binds the window to the updater. focused reports whether this
-// window is the one that shows the updater's toasts.
+// SetUpdates binds the build and its optional updater to the window. focused
+// reports whether this window is the one that shows the updater's toasts.
 func (r *Runtime) SetUpdates(updates *Updates, focused func() bool, flush ...func() error) {
 	r.updates, r.updatesFocused = updates, focused
 	if len(flush) > 0 {
 		r.updatesFlush = flush[0]
 	}
+	m := r.App.Settings
+	m.Version, m.Build = updates.version, "settings_build_debug"
+	m.Channel = int(updates.channel.Load())
+	if telemetry.BuildRevision != "" {
+		m.Build = "settings_build_release"
+	}
+	service := updates.Service
+	if service == nil {
+		m.UpdateActions = nil
+		return
+	}
+	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: r.requestUpdateInstall, Restart: service.Restart}
+
 	updates.mu.Lock()
 	updates.windows = append(slices.DeleteFunc(updates.windows, func(window *Runtime) bool {
 		window.mu.Lock()
@@ -90,20 +107,12 @@ func (r *Runtime) SetUpdates(updates *Updates, focused func() bool, flush ...fun
 		// which MyGo builds even while hidden, joins the same lock request.
 		updates.install.windows[r] = 0
 	}
-	m := r.App.Settings
-	m.Version, m.Build = updates.version, "settings_build_debug"
-	m.Channel = int(updates.channel.Load())
-	if telemetry.BuildRevision != "" {
-		m.Build = "settings_build_release"
-	}
-	service := updates.Service
-	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: r.requestUpdateInstall, Restart: service.Restart}
 }
 
 func (r *Runtime) documentsLocked() bool {
 	root := r.localRuntime()
 	updates := root.updates
-	if updates == nil {
+	if updates == nil || updates.Service == nil {
 		return false
 	}
 	if pending := updates.install; pending != nil && pending.windows[root] > 0 {
@@ -305,7 +314,7 @@ func updateToast(notice updater.Notice, title string, timeout time.Duration) ui.
 // the focused window, its outcomes as toasts.
 func (r *Runtime) aboutFrame(c *ui.Context) {
 	updates := r.updates
-	if updates == nil {
+	if updates == nil || updates.Service == nil {
 		return
 	}
 	m := r.App.Settings
