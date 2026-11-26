@@ -312,11 +312,20 @@ func (r *Runtime) summarize(x *execution, binding model.Binding, route model.Rou
 	// current is the configuration the running attempt uses; its observations
 	// record the effort that was actually requested.
 	current := summaryBinding
+	var lastRetryRequest string
+	var visibleRetryStart bool
 	observe := func(attempt model.Attempt) error {
 		x.timeline.attempt(attempt)
+		if attempt.RequestID != lastRetryRequest {
+			lastRetryRequest = attempt.RequestID
+			visibleRetryStart = false
+		}
 		// An attempt that waits to be sent again shows as a main request's does.
 		if attempt.RetryDelay != nil {
-			return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &current.Provider, r.retryRecord(x, current, canonical.PurposeCompaction, attempt))
+			if attempt.Index == 0 && showFirstRetry(attempt) {
+				visibleRetryStart = true
+			}
+			return r.saveWithProvider(context.WithoutCancel(x.ctx), x.inv.Session.ID, &current.Provider, r.retryRecord(x, current, canonical.PurposeCompaction, attempt, visibleRetryStart))
 		}
 		stream.usage = attempt.Usage
 		attempts = append(attempts, compactionAttempt{attempt: attempt, binding: current})

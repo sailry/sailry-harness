@@ -259,7 +259,7 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 		}
 		if failed.Error != nil {
 			result.Notice.Summary = new(processPreview(failed.Error.Message, 512))
-			result.ErrorCode = &failed.Error.Code
+			result.ApplyFault(failed.Error)
 		}
 	}
 	return result, nil

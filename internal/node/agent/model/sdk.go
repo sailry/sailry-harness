@@ -146,6 +146,7 @@ const stallTimeout = 300 * time.Second
 
 type responseTransport struct {
 	base  http.RoundTripper
+	http1 http.RoundTripper
 	stall time.Duration
 }
 
@@ -191,8 +192,10 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 		request.ContentLength = int64(len(raw))
 		request.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(raw)), nil }
 	}
+	bodySize := request.ContentLength
 	if raw, ok := preparedRequestObservationBody(request); ok {
 		capturePrepared(request.Context(), raw, true)
+		bodySize = int64(len(raw))
 	} else if request.GetBody != nil {
 		body, err := request.GetBody()
 		if err != nil {
@@ -204,12 +207,18 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 			return nil, err
 		}
 		capturePrepared(request.Context(), raw, true)
+		bodySize = int64(len(raw))
 	}
 	owner, cancel := context.WithCancel(request.Context())
 	stalled := &atomic.Bool{}
 	timer := time.AfterFunc(transport.stall, func() { stalled.Store(true); cancel() })
+	wire := transport.base
+	if transport.http1 != nil && bodySize >= largeHTTP1BodyBytes && !largeHTTP1Skipped(owner) {
+		wire = transport.http1
+		markLargeHTTP1Used(owner)
+	}
 	captureDispatch(owner)
-	response, err := transport.base.RoundTrip(request.WithContext(owner))
+	response, err := wire.RoundTrip(request.WithContext(owner))
 	// Receiving headers ends the dispatch wait. Time spent by the consumer
 	// between reads is local work and does not indicate a silent peer.
 	headersInTime := timer.Stop()
@@ -248,6 +257,7 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 var modelTransport = sync.OnceValue(func() *http.Transport {
 	transport := netproxy.Transport().Clone()
 	transport.IdleConnTimeout = 30 * time.Second
+	transport.MaxIdleConnsPerHost = 16
 	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 10 * time.Second}
 	return transport
 })
@@ -258,7 +268,7 @@ func newSDK(_ context.Context, config transportConfig) (fantasy.LanguageModel, e
 	if config.Kind == "google" && config.Key == "" {
 		return nil, &Failure{Kind: NotConfigured, Message: "Gemini requires an explicitly configured API key"}
 	}
-	var transport http.RoundTripper = responseTransport{base: modelTransport(), stall: stallTimeout}
+	var transport http.RoundTripper = responseTransport{base: modelTransport(), http1: modelHTTP1Transport(), stall: stallTimeout}
 	if config.Kind == "anthropic" && config.OAuth {
 		transport = claudeTransport{base: transport}
 	}

@@ -66,6 +66,7 @@ type Failure struct {
 
 func (f *Failure) Error() string            { return f.Message }
 func (f *Failure) RequestObserved() bool    { return f.requestObserved }
+func (f *Failure) StreamStalled() bool      { return f != nil && f.streamIdle > 0 }
 func (f *Failure) ConcurrencyLimited() bool { return f != nil && f.concurrencyLimited }
 func (f *Failure) Retryable() bool {
 	return f.Kind == RateLimited || f.Kind == Quota || f.Kind == Network || f.Kind == Unavailable || f.truncated || f.Kind == Authentication && f.forbidden

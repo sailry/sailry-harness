@@ -181,7 +181,12 @@ func protocolResetServer(t *testing.T, success []byte, prefix string, firstHTTP1
 		}
 		framer := http2.NewFramer(connection, connection)
 		framer.ReadMetaHeaders = hpack.NewDecoder(4096, nil)
-		if err := framer.WriteSettings(); err != nil {
+		// The reset fixture reads the entire body, including large model requests.
+		if err := framer.WriteSettings(http2.Setting{ID: http2.SettingInitialWindowSize, Val: 2 * largeHTTP1BodyBytes}); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := framer.WriteWindowUpdate(0, 2*largeHTTP1BodyBytes); err != nil {
 			t.Error(err)
 			return
 		}
@@ -506,25 +511,41 @@ func TestSDKHTTP2ProtocolRecoveryIsModelScoped(t *testing.T) {
 	}
 }
 
-func TestSDKRechecksHTTP2AfterPreferredHTTP1Fails(t *testing.T) {
+func TestSDKRechecksHTTP2AfterHTTP1Fails(t *testing.T) {
 	t.Parallel()
-	server, requests, _ := protocolResetServer(t, nil, "", 0)
-	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sdk := language.(*sdkModel)
-	sdk.client.Transport = responseTransport{base: server.Client().Transport, stall: stallTimeout}
-	sdk.preferHTTP1.Store(true)
-	err = Run(t.Context(), sdk, requestCall(t, "responses"), Main, &policyClock{}, nil, nil, nil)
-	if failure := Classify(err); failure == nil || !failure.Exhausted || sdk.preferHTTP1.Load() || len(requests) != MainRetries+1 {
-		t.Fatalf("failed HTTP/1 route retained: attempts=%d error=%v", len(requests), err)
-	}
-	for index := range MainRetries + 1 {
-		request := <-requests
-		if index == 0 && request.major != 1 || index > 0 && request.major != 2 {
-			t.Fatalf("attempt %d used HTTP/%d", index+1, request.major)
-		}
+	for _, test := range []struct {
+		name      string
+		preferred bool
+		status    int
+	}{
+		{name: "preferred HTTP/1.1 fails", preferred: true},
+		{name: "large HTTP/1.1 rejected", status: http.StatusUpgradeRequired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server, requests, _ := protocolResetServer(t, nil, "", test.status)
+			language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sdk := language.(*sdkModel)
+			base := server.Client().Transport.(*http.Transport)
+			http1 := http1Transport(base)
+			t.Cleanup(http1.CloseIdleConnections)
+			sdk.client.Transport = responseTransport{base: base, http1: http1, stall: stallTimeout}
+			sdk.preferHTTP1.Store(test.preferred)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			err = Run(ctx, sdk, largeResponsesCall(t), Main, &policyClock{}, nil, nil, nil)
+			if failure := Classify(err); failure == nil || !failure.Exhausted || sdk.preferHTTP1.Load() || len(requests) != MainRetries+1 {
+				t.Fatalf("failed HTTP/1 route changed retry limits or remained preferred: attempts=%d error=%v", len(requests), err)
+			}
+			for index := range MainRetries + 1 {
+				request := <-requests
+				if index == 0 && request.major != 1 || index > 0 && request.major != 2 {
+					t.Fatalf("attempt %d used HTTP/%d", index+1, request.major)
+				}
+			}
+		})
 	}
 }
 
@@ -560,5 +581,197 @@ func TestSDKHTTP1ProbeRetriesProviderThrottle(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSDKHTTP1OriginPersistsAcrossFreshModelsAndExpires(t *testing.T) {
+	t.Parallel()
+	server, requests, _ := protocolResetServer(t, fixture(t, "responses-text.sse"), "", 0)
+	base := server.Client().Transport.(*http.Transport).Clone()
+	t.Cleanup(base.CloseIdleConnections)
+	origin := endpointOrigin(server.URL)
+	t.Cleanup(func() { defaultHTTP1Origins.forget(origin) })
+
+	newFresh := func() *sdkModel {
+		language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sdk := language.(*sdkModel)
+		sdk.client.Transport = responseTransport{base: base, stall: stallTimeout}
+		return sdk
+	}
+
+	clock := &policyClock{now: time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)}
+	// Turn 1 hits HTTP/2 PROTOCOL_ERROR, recovers on HTTP/1.1, and records the origin.
+	var firstAttempts []Attempt
+	if err := Run(t.Context(), newFresh(), requestCall(t, "responses"), Main, clock, func(a Attempt) error {
+		firstAttempts = append(firstAttempts, a)
+		return nil
+	}, nil, nil); err != nil {
+		t.Fatalf("first turn failed: %v", err)
+	}
+	if len(firstAttempts) != 2 {
+		t.Fatalf("first turn attempts = %d, want 2", len(firstAttempts))
+	}
+	if r0, r1 := <-requests, <-requests; r0.major != 2 || r1.major != 1 {
+		t.Fatalf("first turn protocols = HTTP/%d then HTTP/%d, want 2 then 1", r0.major, r1.major)
+	}
+
+	// Turn 2 creates a brand-new sdkModel (preferHTTP1 == false) and should
+	// immediately use HTTP/1.1 without re-hitting HTTP/2.
+	clock.now = clock.now.Add(5 * time.Minute)
+	var secondAttempts []Attempt
+	if err := Run(t.Context(), newFresh(), requestCall(t, "responses"), Main, clock, func(a Attempt) error {
+		secondAttempts = append(secondAttempts, a)
+		return nil
+	}, nil, nil); err != nil {
+		t.Fatalf("second turn failed: %v", err)
+	}
+	if len(secondAttempts) != 1 || secondAttempts[0].Failure != nil {
+		t.Fatalf("second turn repeated HTTP/2 failure: %+v", secondAttempts)
+	}
+	if r := <-requests; r.major != 1 {
+		t.Fatalf("second turn negotiated HTTP/%d, want HTTP/1", r.major)
+	}
+
+	// After the TTL elapses, a fresh model probes HTTP/2 again.
+	clock.now = clock.now.Add(http1OriginTTL + time.Minute)
+	var expiredAttempts []Attempt
+	if err := Run(t.Context(), newFresh(), requestCall(t, "responses"), Main, clock, func(a Attempt) error {
+		expiredAttempts = append(expiredAttempts, a)
+		return nil
+	}, nil, nil); err != nil {
+		t.Fatalf("post-expiry turn failed: %v", err)
+	}
+	if len(expiredAttempts) != 2 {
+		t.Fatalf("post-expiry attempts = %d, want 2 (re-probe HTTP/2 then recover HTTP/1.1)", len(expiredAttempts))
+	}
+	if r0, r1 := <-requests, <-requests; r0.major != 2 || r1.major != 1 {
+		t.Fatalf("post-expiry protocols = HTTP/%d then HTTP/%d, want 2 then 1", r0.major, r1.major)
+	}
+}
+
+func largeResponsesCall(t *testing.T) fantasy.Call {
+	t.Helper()
+	call := requestCall(t, "responses")
+	call.Prompt = fantasy.Prompt{{
+		Role:    fantasy.MessageRoleUser,
+		Content: []fantasy.MessagePart{fantasy.TextPart{Text: strings.Repeat("A", largeHTTP1BodyBytes+4096)}},
+	}}
+	return call
+}
+
+func TestSDKLargeBodyUsesHTTP1DirectlyAndFallsBackToHTTP2(t *testing.T) {
+	t.Parallel()
+	success := fixture(t, "responses-text.sse")
+	largeCall := largeResponsesCall(t)
+	for _, test := range []struct {
+		name         string
+		preference   string
+		http1Rejects []int
+		protocols    []int
+	}{
+		{name: "direct", protocols: []int{1}},
+		{name: "unavailable", http1Rejects: []int{http.StatusServiceUnavailable}, protocols: []int{1, 2}},
+		{name: "upgrade required", http1Rejects: []int{http.StatusUpgradeRequired}, protocols: []int{1, 2}},
+		{name: "upgrade required after HTTP resend", http1Rejects: []int{http.StatusBadRequest, http.StatusUpgradeRequired}, protocols: []int{1, 1, 2}},
+		{name: "preferred model receives upgrade required", preference: "model", http1Rejects: []int{http.StatusUpgradeRequired}, protocols: []int{1, 2}},
+		{name: "remembered origin receives version not supported", preference: "origin", http1Rejects: []int{http.StatusHTTPVersionNotSupported}, protocols: []int{1, 2}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := make(chan int, 2*(MainRetries+1))
+			var http1Calls atomic.Int32
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				requests <- r.ProtoMajor
+				if r.ProtoMajor == 1 && len(test.http1Rejects) > 0 {
+					index := min(int(http1Calls.Add(1))-1, len(test.http1Rejects)-1)
+					w.WriteHeader(test.http1Rejects[index])
+					_, _ = io.WriteString(w, "HTTP/1.1 request rejected")
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write(success)
+			}))
+			server.EnableHTTP2 = true
+			server.StartTLS()
+			t.Cleanup(server.Close)
+			base := server.Client().Transport.(*http.Transport)
+			http1 := http1Transport(base)
+			t.Cleanup(http1.CloseIdleConnections)
+
+			language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sdk := language.(*sdkModel)
+			sdk.client.Transport = responseTransport{base: base, http1: http1, stall: stallTimeout}
+			timer := &policyClock{now: time.Now()}
+			if test.preference == "model" {
+				sdk.preferHTTP1.Store(true)
+			}
+			if test.preference != "" {
+				defaultHTTP1Origins.remember(sdk.origin(), timer.Now())
+				t.Cleanup(func() { defaultHTTP1Origins.forget(sdk.origin()) })
+			}
+
+			var attempts []Attempt
+			err = Run(t.Context(), sdk, largeCall, Main, timer, func(a Attempt) error {
+				attempts = append(attempts, a)
+				return nil
+			}, nil, nil)
+			majors := make([]int, len(requests))
+			for index := range majors {
+				majors[index] = <-requests
+			}
+			if err != nil || len(attempts) != len(test.protocols) || !reflect.DeepEqual(majors, test.protocols) {
+				t.Fatalf("attempts=%d protocols=%v, want %v: %v", len(attempts), majors, test.protocols, err)
+			}
+			for index, status := range test.http1Rejects {
+				attempt := attempts[index]
+				if attempt.Status == nil || int(*attempt.Status) != status || attempt.Failure == nil || attempt.RetryDelay == nil || attempt.RequestID != attempts[index+1].RequestID {
+					t.Fatalf("rejected attempt lost its status or shared resend: %+v", attempt)
+				}
+			}
+			if test.preference != "" && (sdk.preferHTTP1.Load() || defaultHTTP1Origins.preferred(sdk.origin(), timer.Now())) {
+				t.Fatal("the origin or the model still prefers the rejected HTTP/1.1 route")
+			}
+		})
+	}
+}
+
+func TestSDKLargeHTTP1DoesNotReplayEscapedOutput(t *testing.T) {
+	t.Parallel()
+	language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: "https://large-output.invalid", Key: "fixture-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const chunk = "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"Answer\"}\n\n"
+	readErr := &net.OpError{Op: "read", Net: "tcp", Err: io.ErrClosedPipe}
+	language.(*sdkModel).client.Transport = responseTransport{
+		base: sdkFixtureRoundTripper(func(*http.Request) (*http.Response, error) {
+			t.Fatal("replayed already visible output")
+			return nil, readErr
+		}),
+		http1: sdkFixtureRoundTripper(func(r *http.Request) (*http.Response, error) {
+			_ = r.Body.Close()
+			return &http.Response{StatusCode: http.StatusOK, Request: r, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(io.MultiReader(strings.NewReader(chunk), iotest.ErrReader(readErr)))}, nil
+		}),
+		stall: stallTimeout,
+	}
+	var attempts []Attempt
+	var output string
+	err = Run(t.Context(), language, largeResponsesCall(t), Main, &policyClock{}, func(a Attempt) error {
+		attempts = append(attempts, a)
+		return nil
+	}, func(part fantasy.StreamPart) bool {
+		if part.Type == fantasy.StreamPartTypeTextDelta {
+			output += part.Delta
+		}
+		return true
+	}, nil)
+	if failure := Classify(err); failure == nil || failure.Kind != Network || len(attempts) != 1 || attempts[0].RetryDelay != nil || output != "Answer" {
+		t.Fatalf("partial outcome was replayed or lost: attempts=%+v output=%q error=%v", attempts, output, err)
 	}
 }

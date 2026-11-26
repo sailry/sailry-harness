@@ -216,7 +216,7 @@ func (r *Runtime) execute(x *execution) {
 		r.stopTurnCommands(run.Session, x)
 	}
 	recordTurnFailure(run, cause)
-	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
+	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil || x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil)
 	if successor != nil {
 		r.handoffChildGuidance(x, child, *successor)
 	} else {

@@ -46,7 +46,7 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 		result.Notice.Outcome = protocol.ConversationBackgroundOutcomeFailed
 		if child.Error != nil {
 			result.Notice.Summary = callbackPreview(&child.Error.Message, 512)
-			result.ErrorCode = &child.Error.Code
+			result.ApplyFault(child.Error)
 		}
 	}
 	_, err := r.commitCallback(x, func(db *sql.Conn) (*protocol.ConversationEntry, []protocol.Event, error) {

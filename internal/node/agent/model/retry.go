@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -101,8 +102,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	var observation requestObservation
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	sdk, _ := languageModel.(*sdkModel)
-	tryHTTP1 := sdk != nil && sdk.preferHTTP1.Load()
+	origin := sdk.origin()
+	tryHTTP1 := sdk != nil && (sdk.preferHTTP1.Load() || defaultHTTP1Origins.preferred(origin, requestStarted))
 	triedHTTP1 := false
+	skipHTTP1 := false
 	var secrets []protocol.Secret
 	if sdk != nil {
 		secrets = append(secrets, sdk.config.Protection...)
@@ -123,6 +126,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		owner, cancel := context.WithCancel(ctx)
 		firstOutputTimer := schedule.firstOutputTimer(attempt.Started, cancel)
 		owner, capture := captureAttempt(owner, call, timer, attempt.Started)
+		owner, largeHTTP1 := withLargeHTTP1State(owner, skipHTTP1)
 		nextModel := languageModel
 		var releaseHTTP1 func()
 		if tryHTTP1 {
@@ -189,13 +193,14 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			err, waitExhausted = ctx.Err(), false
 		}
 		cancel()
+		attempt.Finished = timer.Now()
 		if releaseHTTP1 != nil {
 			releaseHTTP1()
-			if err == nil {
+			if err == nil || streamed && errors.Is(err, context.Canceled) {
 				sdk.preferHTTP1.Store(true)
+				defaultHTTP1Origins.remember(origin, attempt.Finished)
 			}
 		}
-		attempt.Finished = timer.Now()
 		capture.apply(&attempt)
 		exhausted := false
 		if err != nil {
@@ -206,10 +211,18 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				}
 				waitExhausted = attempt.Failure.Retryable()
 			}
-			if releaseHTTP1 != nil {
-				if attempt.Failure.Kind == Network || attempt.Failure.Kind == Unavailable && !attempt.Failure.overloaded {
-					sdk.preferHTTP1.Store(false)
-				} else {
+			usedHTTP1 := releaseHTTP1 != nil || largeHTTP1.used.Load()
+			// Only a wire response on the selected transport can reject its HTTP version.
+			http1Rejected := usedHTTP1 && http1ProtocolRejected(attempt.Status)
+			if usedHTTP1 {
+				if http1Rejected || attempt.Failure.Kind == Network || attempt.Failure.Kind == Unavailable && !attempt.Failure.overloaded {
+					// Disable both the explicit probe and the automatic large-body route.
+					tryHTTP1, skipHTTP1 = false, true
+					if sdk != nil {
+						sdk.preferHTTP1.Store(false)
+						defaultHTTP1Origins.forget(origin)
+					}
+				} else if releaseHTTP1 != nil {
 					// A provider rejection reached its destination on HTTP/1.1.
 					tryHTTP1 = true
 				}
@@ -220,7 +233,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			committed := finished && !buffered && yield != nil
 			canReplay := !released && !committed && (!escaped || reset != nil)
 			sharedRetry := attempt.Failure.Retryable()
-			if !waitExhausted && canReplay && ctx.Err() == nil && (sharedRetry || schedule.takeHTTPRetry(attempt)) {
+			// A protocol rejection can switch routes once even if an earlier HTTP
+			// error used the ordinary resend. It still shares the attempt and wait budgets.
+			protocolRetry := http1Rejected && attempt.Failure.Kind != Cancelled && index < MainRetries
+			if !waitExhausted && canReplay && ctx.Err() == nil && (sharedRetry || schedule.takeHTTPRetry(attempt) || protocolRetry) {
 				attempt.RetryLimit = index + 1
 				if sharedRetry {
 					attempt.RetryLimit = schedule.limit(purpose, attempt, streamed)
@@ -290,7 +306,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			failure.requestObserved = observation.finish(ctx, true)
 			return &failure
 		}
-		if sdk != nil && !triedHTTP1 && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
+		if sdk != nil && !triedHTTP1 && !skipHTTP1 && attempt.Failure.Kind == Network && http2ProtocolFailure(err) {
 			tryHTTP1 = true
 		}
 	}

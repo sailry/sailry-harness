@@ -229,6 +229,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			streamCtx = model.WithRequestObserver(streamCtx, func(result model.RequestObservation) { diagnostic = result })
 		}
 		streamCtx = model.WithCooldown(streamCtx, r.cooldowns, model.CredentialCooldownKey(binding))
+		visibleRetryStart := false
 		err = model.Run(streamCtx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
 			requestAttempts++
 			if attempt.Failure != nil {
@@ -237,7 +238,10 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			r.observeModel(metric, binding, attempt)
 			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
-				record := r.retryRecord(x, binding, purpose, attempt)
+				if attempt.Index == 0 && showFirstRetry(attempt) {
+					visibleRetryStart = true
+				}
+				record := r.retryRecord(x, binding, purpose, attempt, visibleRetryStart)
 				// Committing this draft's ID clears provisional text on every
 				// controller before the next attempt, without persisting failed
 				// tool calls or repeating an already completed model step.
@@ -522,16 +526,34 @@ func successfulTool(records []canonical.Record) bool {
 	return found
 }
 
+// Fast transient failures keep the first retry quiet (Attempt 0) to avoid UI
+// jitter. Once an attempt already waited visibly—either a stream idle stall or
+// at least visibleFirstRetryElapsed—showing Attempt 1 immediately lets the user
+// see that recovery is underway instead of staring at a silent spinner.
+const visibleFirstRetryElapsed = 15 * time.Second
+
+func showFirstRetry(attempt model.Attempt) bool {
+	if attempt.Failure == nil {
+		return false
+	}
+	return attempt.Failure.StreamStalled() || attempt.Finished.Sub(attempt.Started) >= visibleFirstRetryElapsed
+}
+
 // retryRecord is the observation of an attempt that waits to be sent again,
 // which the conversation shows as the request's retry row. It is the attempt's
 // only record: its usage and timing are not observed a second time.
 //
-// The first retry is numbered 0, which shows no row regardless of its wait.
-// Rows count the retries after it; waiting and attempt budgets are unchanged.
-func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt) canonical.Record {
+// Fast failures number the first retry 0, which shows no row; slow failures
+// and stream stalls number retries from 1 so recovery is visible at once.
+func (r *Runtime) retryRecord(x *execution, binding model.Binding, purpose canonical.Purpose, attempt model.Attempt, visibleFirst bool) canonical.Record {
 	record := r.observationRecord(x, binding, purpose, attempt)
 	number, limit, delay := attempt.Index, attempt.RetryLimit, uint64(attempt.RetryDelay.Milliseconds())
-	limit = max(limit-min(limit, 1), number)
+	if visibleFirst {
+		number++
+		limit = max(limit, number)
+	} else {
+		limit = max(limit-min(limit, 1), number)
+	}
 	code := string(attempt.Failure.Kind)
 	message := attempt.Failure.Message
 	record.Metadata.Execution.Retry = &protocol.ConversationRecoveryRetry{Attempt: number, Limit: &limit, DelayMs: &delay, Status: attempt.Status, Code: &code, Error: &message}

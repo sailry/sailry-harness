@@ -32,6 +32,48 @@ type BackgroundResult struct {
 	SilenceMs          *uint64                               `json:"silence_ms,omitempty"`
 	ExitCode           *int32                                `json:"exit_code,omitempty"`
 	ErrorCode          *protocol.ErrorCode                   `json:"error_code,omitempty"`
+	ErrorReason        string                                `json:"error_reason,omitempty"`
+	Retryable          bool                                  `json:"retryable,omitempty"`
+}
+
+// ApplyFault copies structured failure classification from fault into r so
+// parent turns can distinguish transient retryable child failures from
+// permanent errors.
+func (r *BackgroundResult) ApplyFault(fault *protocol.Fault) {
+	if fault == nil {
+		return
+	}
+	r.ErrorCode = &fault.Code
+	if fault.Details == nil {
+		return
+	}
+	raw, err := json.Marshal(fault.Details.Data)
+	if err != nil {
+		return
+	}
+	switch fault.Details.Kind {
+	case "model_recovery":
+		var payload protocol.FaultDetailsModelRecoveryPayload
+		if json.Unmarshal(raw, &payload) == nil && payload.Reason != "" {
+			r.ErrorReason = string(payload.Reason)
+			switch payload.Reason {
+			case protocol.ConversationRecoveryStopAttemptsExhausted,
+				protocol.ConversationRecoveryStopWaitExhausted,
+				protocol.ConversationRecoveryStopRateLimited,
+				protocol.ConversationRecoveryStopServerOverloaded:
+				r.Retryable = true
+			}
+		}
+	case "model_request":
+		var payload protocol.FaultDetailsModelRequestPayload
+		if json.Unmarshal(raw, &payload) == nil && payload.Reason != "" {
+			r.ErrorReason = string(payload.Reason)
+			switch payload.Reason {
+			case protocol.ModelFailureRateLimited, protocol.ModelFailureTimeout:
+				r.Retryable = true
+			}
+		}
+	}
 }
 
 // ChildResponse keeps up to limit bytes of a child's answer, whose full

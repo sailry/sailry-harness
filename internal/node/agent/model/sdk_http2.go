@@ -1,13 +1,137 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"charm.land/fantasy"
 	"golang.org/x/net/http2"
 )
+
+// largeHTTP1BodyBytes is the request body size above which requests prefer
+// HTTP/1.1 directly to avoid HTTP/2 per-stream flow-control bottlenecks (such
+// as reverse proxies advertising a 64 KiB INITIAL_WINDOW_SIZE) on large posts.
+const largeHTTP1BodyBytes = 256 * 1024
+
+// http1OriginTTL bounds how long a confirmed HTTP/1.1 protocol recovery stays
+// active for an endpoint origin across turns, subagents, and compactions.
+const (
+	http1OriginTTL        = 30 * time.Minute
+	maxHTTP1OriginEntries = 256
+)
+
+type http1OriginMemory struct {
+	mu      sync.Mutex
+	entries map[string]time.Time
+}
+
+var defaultHTTP1Origins = &http1OriginMemory{}
+
+func endpointOrigin(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	return scheme + "://" + strings.ToLower(parsed.Host)
+}
+
+func (model *sdkModel) origin() string {
+	if model == nil {
+		return ""
+	}
+	return endpointOrigin(model.config.Endpoint)
+}
+
+func (memory *http1OriginMemory) preferred(origin string, now time.Time) bool {
+	if origin == "" {
+		return false
+	}
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+	expires, ok := memory.entries[origin]
+	if !ok {
+		return false
+	}
+	if !expires.After(now) {
+		delete(memory.entries, origin)
+		return false
+	}
+	return true
+}
+
+func (memory *http1OriginMemory) remember(origin string, now time.Time) {
+	if origin == "" {
+		return
+	}
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+	if memory.entries == nil {
+		memory.entries = map[string]time.Time{}
+	}
+	if len(memory.entries) >= maxHTTP1OriginEntries {
+		var oldestKey string
+		var oldestTime time.Time
+		for key, expires := range memory.entries {
+			if !expires.After(now) {
+				delete(memory.entries, key)
+				continue
+			}
+			if oldestKey == "" || expires.Before(oldestTime) {
+				oldestKey, oldestTime = key, expires
+			}
+		}
+		if len(memory.entries) >= maxHTTP1OriginEntries && oldestKey != "" {
+			delete(memory.entries, oldestKey)
+		}
+	}
+	memory.entries[origin] = now.Add(http1OriginTTL)
+}
+
+func (memory *http1OriginMemory) forget(origin string) {
+	if origin == "" {
+		return
+	}
+	memory.mu.Lock()
+	delete(memory.entries, origin)
+	memory.mu.Unlock()
+}
+
+type largeHTTP1State struct {
+	skip bool
+	used atomic.Bool
+}
+
+type largeHTTP1Key struct{}
+
+func withLargeHTTP1State(ctx context.Context, skip bool) (context.Context, *largeHTTP1State) {
+	state := &largeHTTP1State{skip: skip}
+	return context.WithValue(ctx, largeHTTP1Key{}, state), state
+}
+
+func largeHTTP1Skipped(ctx context.Context) bool {
+	state, ok := ctx.Value(largeHTTP1Key{}).(*largeHTTP1State)
+	return ok && state.skip
+}
+
+func markLargeHTTP1Used(ctx context.Context) {
+	if state, ok := ctx.Value(largeHTTP1Key{}).(*largeHTTP1State); ok {
+		state.used.Store(true)
+	}
+}
+
+func http1ProtocolRejected(status *uint16) bool {
+	return status != nil && (*status == http.StatusUpgradeRequired || *status == http.StatusHTTPVersionNotSupported)
+}
 
 func http2TransportCause(err error) error {
 	var provider *fantasy.ProviderError
@@ -83,6 +207,7 @@ func (model *sdkModel) http1Fallback() (*sdkModel, func()) {
 		release = fallback.CloseIdleConnections
 	}
 	response.base = fallback
+	response.http1 = nil
 	transport = response
 	if oauth {
 		claude.base = transport
