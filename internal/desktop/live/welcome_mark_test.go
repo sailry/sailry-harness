@@ -78,22 +78,9 @@ func click(t *testing.T, window *ui.Tester, role ui.Role, label string) ui.Acces
 	return field
 }
 
-// focusMarkField scrolls Settings › Appearance to its last group, as a user
-// does, and clicks the lettering's field there.
+// The lettering field is visible in the interface card on opening Appearance.
 func focusMarkField(t *testing.T, window *ui.Tester, title string) {
 	t.Helper()
-	for range 20 {
-		field, ok := window.AccessByRole(ui.RoleTextField, title)
-		if !ok {
-			t.Fatalf("no %q field in %q", title, window.Texts())
-		}
-		if field.Bounds.Y >= 0 && field.Bounds.Y+field.Bounds.H <= 820 {
-			break
-		}
-		window.Wheel(800, 400, 0, 400)
-		window.Advance(time.Second)
-		window.Frame()
-	}
 	click(t, window, ui.RoleTextField, title)
 	if field, _ := window.AccessByRole(ui.RoleTextField, title); !field.Focused {
 		t.Fatalf("the %q field did not take focus at %+v", title, field.Bounds)
@@ -178,6 +165,9 @@ func TestWelcomeDefaultMarkEndToEnd(t *testing.T) {
 	}
 
 	openAppearance(t, r, window)
+	if !window.HasText(i18n.In("en", "appearance_welcome_mark_detail", "mark", "SAILRY HARNESS")) {
+		t.Fatal("the lettering hint did not show the product default")
+	}
 	focusMarkField(t, window, title)
 	window.Type("MY TEAM")
 	window.Frame()

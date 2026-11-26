@@ -1,3 +1,2 @@
-appearance_welcome: "Welcome page"
 appearance_welcome_mark: "New session lettering"
-appearance_welcome_mark_detail: "English letters, digits and punctuation. Empty shows Sailry."
+appearance_welcome_mark_detail: "English letters, digits and punctuation. Empty shows %{mark}."

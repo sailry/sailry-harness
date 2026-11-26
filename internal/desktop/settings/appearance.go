@@ -61,6 +61,7 @@ func appearance(c *ui.Context, look Look, m *Model) {
 				ui.StepSlider(c.Key("slider"), &m.TextSize, MinTextSize, MaxTextSize, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
 			})
 			kit.SwitchRow(c, "effects", i18n.T(c, "appearance_effects"), "", look.Effects)
+			welcomeMark(c, look.Mark, look.DefaultMark)
 		})
 	})
 	transparency(c, look.Surfaces)
@@ -122,12 +123,8 @@ func appearance(c *ui.Context, look Look, m *Model) {
 			}
 		}
 	})
-	welcomeMark(c, look.Mark, look.DefaultMark)
 }
 
-// welcomeMark is the new session page's lettering, last on the page so the
-// groups above keep their places: a field that keeps only what the
-// lettering draws as it is typed.
 func welcomeMark(c *ui.Context, mark *string, fallback string) {
 	if mark == nil {
 		return
@@ -136,16 +133,12 @@ func welcomeMark(c *ui.Context, mark *string, fallback string) {
 	if placeholder == "" {
 		placeholder = i18n.T(c, "welcome_name")
 	}
-	kit.Group(c, "welcome", i18n.T(c, "appearance_welcome"), "", nil, func() {
-		kit.Card(c, func() {
-			title := i18n.T(c, "appearance_welcome_mark")
-			kit.WideRow(c, "welcome-mark", title, i18n.T(c, "appearance_welcome_mark_detail"), func() {
-				if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(placeholder).
-					MaxLength(preferences.WelcomeMarkMax).FillWidth().Changed() {
-					*mark = preferences.CleanWelcomeMark(*mark)
-				}
-			})
-		})
+	title := i18n.T(c, "appearance_welcome_mark")
+	kit.WideRow(c, "welcome-mark", title, i18n.T(c, "appearance_welcome_mark_detail", "mark", placeholder), func() {
+		if ui.TextInput(c.Key("input"), mark).Label(title).Placeholder(placeholder).
+			MaxLength(preferences.WelcomeMarkMax).FillWidth().Changed() {
+			*mark = preferences.CleanWelcomeMark(*mark)
+		}
 	})
 }
 

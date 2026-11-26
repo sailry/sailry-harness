@@ -1,3 +1,2 @@
-appearance_welcome: "Página de boas-vindas"
 appearance_welcome_mark: "Letreiro de novas sessões"
-appearance_welcome_mark_detail: "Letras em inglês, números e pontuação. Vazio mostra Sailry."
+appearance_welcome_mark_detail: "Letras em inglês, números e pontuação. Vazio mostra %{mark}."

@@ -80,7 +80,6 @@ appearance_information
 appearance_format_version
 appearance_author
 appearance_effects
-appearance_welcome
 appearance_welcome_mark
 appearance_welcome_mark_detail
 settings_interface

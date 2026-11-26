@@ -77,9 +77,8 @@ appearance_information: Information
 appearance_format_version: Format version
 appearance_author: Author
 appearance_effects: Theme animation
-appearance_welcome: Welcome page
 appearance_welcome_mark: New session lettering
-appearance_welcome_mark_detail: English letters, digits and punctuation. Empty shows Sailry.
+appearance_welcome_mark_detail: English letters, digits and punctuation. Empty shows %{mark}.
 settings_interface: Interface theme
 settings_theme_builtin: Default
 settings_version: Version
