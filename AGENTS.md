@@ -126,7 +126,7 @@ Official plugin and theme repositories have their own development guides.
 - Mobile uses Client, Link and the Dart FFI adapter. A Desktop test does not prove
   Flutter or device behavior.
 - Usage statistics cover Sailry sessions. Provider account status is a separate
-  model-plugin feature; do not collect other tools' histories or billing data.
+  native Harness module; do not collect other tools' histories or billing data.
 
 ## Data protection
 

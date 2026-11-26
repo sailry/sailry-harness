@@ -226,6 +226,9 @@ func dispatchCurrent(ctx context.Context, db *sql.Conn, name string) (protocol.P
 		return protocol.PluginInfo{}, err
 	}
 	if info == nil {
+		if native, ok := nativeDispatchStorageInfo(ctx, name); ok {
+			return native, nil
+		}
 		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotFound, "dispatch plugin is not installed")
 	}
 	if info.Summary.Compatibility.Kind != "compatible" {

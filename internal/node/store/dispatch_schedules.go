@@ -134,13 +134,18 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 		return nil, err
 	}
 	enabled := map[string]bool{}
+	installed := map[string]bool{}
 	for _, info := range plugins {
+		installed[info.Summary.Name] = true
 		if info.Summary.Enabled {
 			enabled[info.Summary.Name] = true
 		}
 	}
 	records = slices.DeleteFunc(records, func(item record) bool {
-		return item.packageName != dispatchNativeOwner && !enabled[item.packageName]
+		if item.packageName == dispatchNativeOwner || enabled[item.packageName] {
+			return false
+		}
+		return installed[item.packageName] || !hasNativeDispatchNamespace(ctx, item.packageName)
 	})
 	attempted := 0
 	for _, item := range records {
@@ -226,7 +231,11 @@ func nextDispatchSchedule(ctx context.Context, db *sql.Conn, timestamp int64) (*
 			if err != nil {
 				return nil, err
 			}
-			if info == nil || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
+			if info == nil {
+				if !hasNativeDispatchNamespace(ctx, item.packageName) {
+					continue
+				}
+			} else if !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" {
 				continue
 			}
 		}

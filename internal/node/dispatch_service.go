@@ -89,7 +89,7 @@ func (node *Node) dispatchTick(ctx context.Context, recovering bool) (dispatcher
 			next(state.retryMs)
 			continue
 		}
-		owner := store.WithUser(ctx, user)
+		owner := node.pluginContext(store.WithUser(ctx, user))
 		var current dispatcher.Batch
 		var events []protocol.Event
 		err := node.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
@@ -135,7 +135,7 @@ func (node *Node) finishDispatch(ctx context.Context, job protocol.JobID, result
 		if err != nil {
 			return err
 		}
-		ctx = owner
+		ctx = node.pluginContext(owner)
 		changes, err := store.FinishDispatch(ctx, db, job, result, node.dispatch.clock.Now().UnixMilli())
 		if err != nil {
 			return err
@@ -154,7 +154,22 @@ func (node *Node) executeDispatchCallback(ctx context.Context, work dispatcher.W
 	if work.User.ID == (protocol.UserID{}) || work.StorageUser == (protocol.UserID{}) {
 		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "scheduled operation has no user capture"}
 	}
-	ctx = store.WithCapturedUser(store.WithUser(ctx, work.User), work.StorageUser)
+	ctx = node.pluginContext(store.WithCapturedUser(store.WithUser(ctx, work.User), work.StorageUser))
+	// Existing reminder schedules created by the retired reminders plugin saved
+	// a call_plugin("notify") callback. Route those seamlessly to the native
+	// deliver_reminder handler when reminders runs natively.
+	if work.Request.Plugin != nil && work.Request.Plugin.Package.Name == store.NativeRemindersNamespace &&
+		work.Request.Command.Kind == "call_plugin" && node.modules.CommandHandlerFor("deliver_reminder") != nil {
+		if call, ok := dispatchPayload[protocol.CommandCallPluginPayload](work.Request.Command.Data); ok && call.Handler == "notify" {
+			if store.IsNativeStorageReference(work.Request.Plugin.Package) || node.hasReplacedPlugin(work.Request.Plugin.Package.Name, work.Request.Plugin.Package.Digest) {
+				work.Request.Command = protocol.Command{
+					Kind: "deliver_reminder",
+					Data: &protocol.CommandDeliverReminderPayload{Input: call.Input},
+				}
+				work.Request.Plugin = nil
+			}
+		}
+	}
 	output, err := node.dispatchCallbackResult(ctx, work.Request)
 	if err != nil || work.Completion == protocol.DispatchCompletionCommand {
 		return err

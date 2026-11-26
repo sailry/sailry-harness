@@ -187,7 +187,10 @@ type App struct {
 
 	nativePages          []NativePage
 	nativePageSync       []func()
+	windowBound          bool
 	nativeWindowBindings map[Page]WindowBinding
+	metricContributions  []MetricContribution
+	metricBindings       []MetricBinding
 	linkHandlers         linkHandlers
 	appActions           *appActionWindow
 	workspaceOverlay     workspaceOverlay

@@ -80,6 +80,44 @@ func CaptureProviderResource(ctx context.Context, db *sql.Conn, node protocol.No
 	return capture, nil
 }
 
+// CaptureNativeProviderResource resolves one fixed account-read endpoint on an
+// OAuth provider for a compile-time native module without requiring a plugin
+// package capture.
+func CaptureNativeProviderResource(ctx context.Context, db *sql.Conn, node protocol.NodeID, id protocol.ProviderID, revision uint64, resolve func(protocol.Authentication) (protocol.PluginModelAuthEndpoint, bool)) (ProviderResourceCapture, error) {
+	var capture ProviderResourceCapture
+	if err := checkProviderWrite(ctx, db, id); err != nil {
+		return capture, err
+	}
+	saved, err := currentProvider(ctx, db, id, &revision)
+	if err != nil {
+		return capture, err
+	}
+	provider, err := CaptureProvider(ctx, db, *saved.Provider)
+	if err != nil {
+		return capture, err
+	}
+	if !provider.Enabled || provider.Credential == nil {
+		return capture, fault(protocol.ErrorCodeNotConfigured, "provider authorization is unavailable")
+	}
+	if provider.Authentication == protocol.AuthenticationPlugin || provider.Authentication == protocol.AuthenticationApiKey {
+		return capture, fault(protocol.ErrorCodePermissionDenied, "native provider resources permit declared account reads only")
+	}
+	endpoint, found := resolve(provider.Authentication)
+	if !found {
+		return capture, fault(protocol.ErrorCodeNotConfigured, "provider resource is not declared")
+	}
+	if !providers.AccountResourceEndpoint(provider.Authentication, endpoint.Url) {
+		return capture, fault(protocol.ErrorCodePermissionDenied, "provider resource origin is not authorized")
+	}
+	secret, err := resolveProviderKey(ctx, db, node, *provider.Credential, provider.ID)
+	if err != nil {
+		return capture, err
+	}
+	capture = ProviderResourceCapture{Provider: provider, Endpoint: endpoint, Secret: *secret,
+		Credential: providerCredentialMetadata(provider.ID, provider.Credential.ID, saved.Authorizations[provider.Credential.ID])}
+	return capture, nil
+}
+
 func CheckProviderResource(ctx context.Context, db *sql.Conn, capture ProviderResourceCapture) error {
 	if err := checkProviderWrite(ctx, db, capture.Provider.ID); err != nil {
 		return err

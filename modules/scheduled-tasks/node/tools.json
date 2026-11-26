@@ -1,0 +1,328 @@
+{
+  "instructions": "Use the turn's UTC start time for relative times when available. Otherwise establish the current time before resolving a relative schedule. Ask for the schedule and timezone if missing. Once/every use UTC milliseconds; every is a fixed elapsed interval. Weekly uses an explicit IANA timezone, ISO weekdays (Monday=1 through Sunday=7), hour and minute. It runs once at the earlier instant of a repeated local time and skips a missing local time.",
+  "tools": [
+    {
+      "name": "scheduled_tasks",
+      "legacy_package": "scheduled-tasks",
+      "contexts": ["workspace", "plugin"],
+      "presentation": "summary",
+      "grouping": "sequence",
+      "description": "List, create, update or delete scheduled Agent tasks in the current project, or unassigned tasks in an unassigned session. These tasks run an Agent, unlike reminder notifications. Create requires name, prompt and timing; enabled defaults to true. Create inherits the admitted turn's project, worktree, model configuration and execution selection. Optional execution selects model or team; optional team selects a named team by id, or null for the default team. Named teams resolve their current revision at each run. Do not choose another project or change provider/model configuration. List returns IDs, latest revisions and an after cursor; use the latest revision for update or delete. Update changes only supplied fields and preserves model configuration and omitted execution selection. Changing execution or team clears inherited member model overrides. once uses at_ms; every uses anchor_ms and interval_ms, a fixed elapsed interval. Those times are UTC milliseconds and new or changed timing must start in the future. weekly uses timezone (explicit IANA name), weekdays (distinct ISO days 1=Monday through 7=Sunday), hour and minute; Node chooses the next future local occurrence. Repeated local times run once at the earlier instant; missing local times are skipped. Ask for the time and timezone if missing. The execution Node must remain running; no email or external delivery is configured by this tool.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "create", "update", "delete"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "after": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "timing": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "data"],
+                "properties": {
+                  "kind": { "const": "once" },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["at_ms"],
+                    "properties": {
+                      "at_ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "data"],
+                "properties": {
+                  "kind": { "const": "every" },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["anchor_ms", "interval_ms"],
+                    "properties": {
+                      "anchor_ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "interval_ms": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "data"],
+                "properties": {
+                  "kind": { "const": "weekly" },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["timezone", "weekdays", "hour", "minute"],
+                    "properties": {
+                      "timezone": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "weekdays": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 7,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 7
+                        }
+                      },
+                      "hour": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 23
+                      },
+                      "minute": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 59
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "execution": {
+            "type": "string",
+            "enum": ["model", "team"]
+          },
+          "team": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+              },
+              "revision": {
+                "type": ["string", "null"],
+                "pattern": "^[1-9][0-9]*$",
+                "default": null
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": { "const": "create" }
+              }
+            },
+            "then": {
+              "required": ["name", "prompt", "timing"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": { "enum": ["update", "delete"] }
+              }
+            },
+            "then": {
+              "required": ["id", "revision"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": { "const": "update" }
+              }
+            },
+            "then": {
+              "anyOf": [
+                { "required": ["name"] },
+                { "required": ["prompt"] },
+                { "required": ["timing"] },
+                { "required": ["enabled"] },
+                { "required": ["execution"] },
+                { "required": ["team"] }
+              ]
+            }
+          }
+        ]
+      },
+      "display": {
+        "label": "Scheduled tasks",
+        "locales": {
+          "zh-CN": "定时任务",
+          "zh-TW": "定時任務",
+          "ja": "定期タスク",
+          "ko": "예약 작업",
+          "fr": "Tâches planifiées",
+          "de": "Geplante Aufgaben",
+          "es": "Tareas programadas",
+          "pt-BR": "Tarefas agendadas",
+          "ru": "Запланированные задачи",
+          "en": "Scheduled tasks"
+        },
+        "icon": "reicon:time/calendar",
+        "input": {
+          "summary": {
+            "path": "/name"
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Create scheduled task %{name}",
+              "locales": {
+                "zh-CN": "创建定时任务 %{name}"
+              }
+            },
+            "values": {
+              "name": {
+                "source": "arguments",
+                "path": "/name"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "create"
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Update scheduled task %{name}",
+              "locales": {
+                "zh-CN": "更新定时任务 %{name}"
+              }
+            },
+            "values": {
+              "name": {
+                "source": "arguments",
+                "path": "/name"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "update"
+                },
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/name"
+                  },
+                  "equals": null,
+                  "negate": true
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Update scheduled task %{id}",
+              "locales": {
+                "zh-CN": "更新定时任务 %{id}"
+              }
+            },
+            "values": {
+              "id": {
+                "source": "arguments",
+                "path": "/id"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "update"
+                },
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/name"
+                  },
+                  "equals": null
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Delete scheduled task %{id}",
+              "locales": {
+                "zh-CN": "删除定时任务 %{id}"
+              }
+            },
+            "values": {
+              "id": {
+                "source": "arguments",
+                "path": "/id"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "delete"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

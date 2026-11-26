@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/fantasy"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -274,10 +275,12 @@ func (h nodeModuleHost) PluginInstalled(ctx context.Context, name string) (bool,
 		if current != nil && legacyNativeToolPackage(name, current.Summary.Digest) {
 			installed = true
 			enabled = current.Summary.Enabled
-		} else if current != nil && name == store.NativeMemoryNamespace {
-			// Memory cannot use its native schema while another package owns
-			// the same persisted namespace. Its capture will not match.
-			installed = true
+		} else if current != nil {
+			if _, isNative := store.NativeStorageReference(name); isNative {
+				// Native modules cannot borrow a persisted namespace occupied by
+				// a third-party package.
+				installed = true
+			}
 		}
 		return nil
 	})
@@ -1073,10 +1076,119 @@ func (h nodeModuleHost) legacyStorageReference(ctx context.Context, namespace st
 	if err != nil {
 		return protocol.PluginReference{}, err
 	}
-	if ref.Name == "" && namespace == store.NativeMemoryNamespace {
-		ref = store.NativeMemoryReference()
+	if ref.Name == "" {
+		if nativeRef, ok := store.NativeStorageReference(namespace); ok {
+			ref = nativeRef
+		}
 	}
 	return ref, nil
+}
+
+func (h nodeModuleHost) LocalNodeID() protocol.NodeID { return h.node.ID() }
+
+func (h nodeModuleHost) Now() time.Time {
+	if h.node.dispatch != nil && h.node.dispatch.clock != nil {
+		return h.node.dispatch.clock.Now()
+	}
+	return time.Now()
+}
+
+func (h nodeModuleHost) ReadProjectCatalog(ctx context.Context) (protocol.ProjectsCatalog, error) {
+	catalog := protocol.DefaultProjectsCatalog()
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		projects, err := store.ReadProjects(ctx, db)
+		if err != nil {
+			return err
+		}
+		worktrees, err := store.ReadWorktrees(ctx, db)
+		if err != nil {
+			return err
+		}
+		catalog.Projects, catalog.Worktrees = projects, worktrees
+		return nil
+	})
+	return catalog, err
+}
+
+func (h nodeModuleHost) ListTeams(ctx context.Context) ([]protocol.TeamProfile, error) {
+	var teams []protocol.TeamProfile
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		teams, err = store.ReadTeams(ctx, db)
+		return err
+	})
+	return teams, err
+}
+
+func (h nodeModuleHost) ResolveModel(ctx context.Context, model string, effort *protocol.Effort, config *protocol.SessionConfig) (protocol.SessionConfig, error) {
+	var resolved protocol.SessionConfig
+	err := h.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		_, resolved, err = store.ResolvePluginModel(ctx, db, model, effort, config)
+		return err
+	})
+	return resolved, err
+}
+
+func (h nodeModuleHost) ReadProviderAccountHTTP(ctx context.Context, provider protocol.ProviderID, expectedRevision uint64, namespace string, resolve func(protocol.Authentication) (protocol.PluginModelAuthEndpoint, bool)) (protocol.Authentication, protocol.PluginHttpResponse, error) {
+	return h.node.nativeProviderHTTP(ctx, provider, expectedRevision, namespace, resolve)
+}
+
+func (h nodeModuleHost) ForwardModuleCommand(ctx context.Context, target protocol.NodeID, command protocol.Command) (protocol.Output, error) {
+	request := protocol.NewRequest(target, command)
+	var accepted link.Admission
+	var err error
+	if remote := h.node.controllerClients()[target]; remote != nil {
+		if !remote.Connected() {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "target Node is unavailable"}
+		}
+		accepted, err = remote.Dispatch(ctx, request)
+	} else if h.node.network != nil {
+		relations, relErr := h.node.network.Relationships(ctx)
+		if relErr != nil {
+			return protocol.Output{}, nodeFault(relErr)
+		}
+		if !slices.ContainsFunc(relations, func(peer link.PeerRelationship) bool {
+			return peer.ID == target && peer.Direct && !peer.Removed && peer.DirectDirection.AllowsOutbound()
+		}) {
+			return protocol.Output{}, permissionDenied()
+		}
+		peers, peerErr := h.node.network.Peers(ctx)
+		if peerErr != nil {
+			return protocol.Output{}, nodeFault(peerErr)
+		}
+		found := false
+		for _, address := range peers {
+			if address.ID == target {
+				found = true
+				accepted, err = h.node.network.Remote(address).Dispatch(ctx, request)
+				break
+			}
+		}
+		if !found {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "target Node is unavailable"}
+		}
+	} else {
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "target Node is unavailable"}
+	}
+	if err != nil {
+		return protocol.Output{}, nodeFault(err)
+	}
+	select {
+	case res, ok := <-accepted.Completion:
+		if !ok {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote command outcome is unavailable"}
+		}
+		if res.Fault != nil {
+			return protocol.Output{}, res.Fault
+		}
+		return res.Output, nil
+	case <-ctx.Done():
+		if request.Command.Durable() {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote command outcome is unavailable"}
+		}
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "remote command cancelled"}
+	}
 }
 
 func (h nodeModuleHost) ProjectExists(ctx context.Context, id string) (bool, error) {
@@ -1142,12 +1254,52 @@ func (h nodeModuleHost) storageTransaction(ctx context.Context, scope protocol.P
 	return results, nil
 }
 
+func (h nodeModuleHost) storageListKeys(ctx context.Context, scope protocol.PluginContext, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error) {
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "list_plugin_keys", Data: &protocol.CommandListPluginKeysPayload{
+		Prefix: prefix, After: after, Limit: limit, Scope: protocol.PluginStorageScopeNode,
+	}})
+	request.Plugin = &scope
+	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "storage list cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "storage list unavailable"))
+	if err != nil {
+		return protocol.PluginStoragePage{}, err
+	}
+	page, ok := dispatchPayload[protocol.PluginStoragePage](output.Data)
+	if !ok {
+		return protocol.PluginStoragePage{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected storage key page result"}
+	}
+	return page, nil
+}
+
+func (h nodeModuleHost) storageDispatch(ctx context.Context, scope protocol.PluginContext, action protocol.DispatchCommand) (protocol.DispatchOutput, error) {
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "dispatch", Data: &protocol.CommandDispatchPayload{
+		Package: scope.Package, Action: action,
+	}})
+	request.Plugin = &scope
+	output, err := h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "dispatch command cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "dispatch command outcome is unavailable"))
+	if err != nil {
+		return protocol.DispatchOutput{}, err
+	}
+	result, ok := dispatchPayload[protocol.DispatchOutput](output.Data)
+	if !ok {
+		return protocol.DispatchOutput{}, &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "unexpected dispatch command result"}
+	}
+	return result, nil
+}
+
 func (h nodeModuleHost) StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error) {
 	scope, err := h.controllerStorageScope(ctx, namespace)
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
 	return h.storageGet(ctx, scope, key)
+}
+
+func (h nodeModuleHost) StorageListKeys(ctx context.Context, namespace, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.PluginStoragePage{}, err
+	}
+	return h.storageListKeys(ctx, scope, prefix, after, limit)
 }
 
 func (h nodeModuleHost) StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error) {
@@ -1164,6 +1316,27 @@ func (h nodeModuleHost) StorageTransaction(ctx context.Context, namespace string
 		return nil, err
 	}
 	return h.storageTransaction(ctx, scope, ops)
+}
+
+func (h nodeModuleHost) StorageDispatch(ctx context.Context, namespace string, action protocol.DispatchCommand) (protocol.DispatchOutput, error) {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return protocol.DispatchOutput{}, err
+	}
+	return h.storageDispatch(ctx, scope, action)
+}
+
+func (h nodeModuleHost) StopDispatchTurn(ctx context.Context, namespace string, job protocol.JobID) error {
+	scope, err := h.controllerStorageScope(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	request := protocol.NewRequest(h.node.ID(), protocol.Command{Kind: "stop_dispatch_turn", Data: &protocol.CommandStopDispatchTurnPayload{
+		Package: scope.Package, Job: job,
+	}})
+	request.Plugin = &scope
+	_, err = h.node.connectionDispatch(ctx, request, connectionFault(protocol.ErrorCodeCancelled, "dispatch stop cancelled"), connectionFault(protocol.ErrorCodeOutcomeUnknown, "dispatch stop outcome is unavailable"))
+	return err
 }
 
 func (node *Node) readNativeSkillDocument(source protocol.PluginSkillsDocumentSource) (protocol.PluginSkillsDocument, bool, error) {
@@ -1279,6 +1452,28 @@ func (h nodeModuleHost) PluginStorageSearch(ctx context.Context, inv *store.Agen
 		return protocol.PluginStorageSearchPage{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
 	}
 	return h.storageSearch(ctx, scope, query)
+}
+
+func (h nodeModuleHost) PluginStorageListKeys(ctx context.Context, inv *store.AgentInvocation, namespace, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error) {
+	ctx, scope, err := h.storageScope(ctx, inv, namespace)
+	if err != nil {
+		return protocol.PluginStoragePage{}, err
+	}
+	if scope.Package.Name == "" {
+		return protocol.PluginStoragePage{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
+	}
+	return h.storageListKeys(ctx, scope, prefix, after, limit)
+}
+
+func (h nodeModuleHost) PluginStorageDispatch(ctx context.Context, inv *store.AgentInvocation, namespace string, action protocol.DispatchCommand) (protocol.DispatchOutput, error) {
+	ctx, scope, err := h.storageScope(ctx, inv, namespace)
+	if err != nil {
+		return protocol.DispatchOutput{}, err
+	}
+	if scope.Package.Name == "" {
+		return protocol.DispatchOutput{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: namespace + " storage package is not installed"}
+	}
+	return h.storageDispatch(ctx, scope, action)
 }
 
 func (h nodeModuleHost) PluginStorageTransaction(ctx context.Context, inv *store.AgentInvocation, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error) {

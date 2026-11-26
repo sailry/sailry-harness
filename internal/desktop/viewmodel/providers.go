@@ -16,6 +16,7 @@ type ChannelModel struct {
 	Context, Output int
 	Efforts         []string
 	DefaultEffort   string
+	Score           float64
 	// The capability tags: what the model accepts (Inputs, ModelInputs'
 	// values; nil when unknown, where text and Vision stand for them), can do
 	// and generates through a media service. Outputs separately reports the

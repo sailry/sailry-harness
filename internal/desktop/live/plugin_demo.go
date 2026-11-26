@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -48,18 +49,30 @@ func (r *Runtime) demoPluginRegistry(cv *viewmodel.Conversation) *plugins.Regist
 	return root.pluginRegistry(scope, pluginDemoPresentation+cv.ID)
 }
 
-// demoConversation makes a demo conversation's figures the statistics
-// package's (shell.Hooks.DemoConversation), and notes the model its composer
-// is set to for the composer state its mount reads.
+// demoConversation makes a demo conversation's figures the native statistics
+// module's and any non-replaced statistics package's (shell.Hooks.DemoConversation),
+// and notes the model its composer is set to for the composer state its mount reads.
 func (r *Runtime) demoConversation(_ *ui.Context, cv *viewmodel.Conversation, comp *composer.State) {
 	root := r.localRuntime()
-	if registry := root.demoPluginRegistry(cv); registry != nil {
-		root.demoModels.Store(cv.ID, comp.Model)
-		root.projectPluginMetrics(comp, registry)
+	recorded := demoStatistics(cv, comp.Model)
+	if cv != nil && root.App.DemoConversation(cv.ID) == cv {
+		registry := root.demoPluginRegistry(cv)
+		if registry != nil {
+			root.demoModels.Store(cv.ID, comp.Model)
+		}
+		scope := shell.ComposerMetricScope{
+			Node:        root.controller.Target().String(),
+			Model:       comp.Model,
+			Connected:   true,
+			Demo:        true,
+			HasMessages: len(cv.Turns) > 0,
+			Statistics:  recorded,
+		}
+		root.projectComposerMetrics(comp, registry, scope)
 	}
 	// The context meter reads the statistics a session of the conversation
 	// records, as the package's figures do.
-	if recorded := demoStatistics(cv, comp.Model); recorded != nil {
+	if recorded != nil {
 		stats := contextStats(recorded, comp.Model, 0, false)
 		if record := recorded.LastCompaction; record != nil && stats.LastCompaction != nil {
 			stats.LastCompaction.Reveal = func() {

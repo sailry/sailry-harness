@@ -258,9 +258,13 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 		}
 		host := pk.Host
 		if host == "" {
-			host = "composer_host_local"
+			host = "local_host_name"
 		}
-		rows := [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), t(host)}}
+		hostLabel := host
+		if host == "local_host_name" || host == "composer_host_local" {
+			hostLabel = t("local_host_name")
+		}
+		rows := [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), hostLabel}}
 		if pk.Official && pk.Installed {
 			following := t("plugins_following_versions")
 			if pk.Pinned {

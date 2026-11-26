@@ -527,7 +527,7 @@ func (a *App) projectSwitcher(c *ui.Context, current *preview.Project) {
 		for _, project := range a.Data.Projects {
 			active := target.Node == project.Host && target.Project == project.ID
 			item := m.Item(project.Name).Checked(active)
-			hostName := project.Host[:min(len(project.Host), 10)]
+			hostName := project.Host[:min(len(project.Host), 8)]
 			for _, host := range a.Data.Hosts {
 				if host.ID == project.Host && host.Name != "" {
 					hostName = a.hostName(c, host.Name)

@@ -83,9 +83,11 @@ func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversa
 	// Indicators and figures report a running conversation: a draft has no
 	// usage yet.
 	comp.Metrics = nil
-	if registry != nil && scope.Session != nil {
-		context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
-		r.projectPluginMetrics(comp, registry)
+	if scope.Session != nil {
+		if registry != nil {
+			context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
+		}
+		r.projectComposerMetrics(comp, registry, r.composerMetricScope(cv, comp, *scope.Session))
 	}
 	r.projectPluginStatus(comp, context, scope, registry)
 	if registry == nil {
@@ -178,11 +180,69 @@ func (r *Runtime) invokePluginControl(registry *plugins.Registry, key plugins.Co
 	r.localRuntime().wake()
 }
 
+func (r *Runtime) composerMetricScope(cv *viewmodel.Conversation, comp *composer.State, sessionID protocol.SessionID) shell.ComposerMetricScope {
+	scope := shell.ComposerMetricScope{
+		Node:        r.controller.Target().String(),
+		Connected:   r.controller.Connected(),
+		HasMessages: cv != nil && len(cv.Turns) > 0,
+	}
+	var config protocol.SessionConfig
+	hasConfig := false
+	if session, exists := r.session(cv.ID); exists {
+		config = session.Config
+		hasConfig = true
+	} else if base, exists := r.composerBases[comp]; exists {
+		config = base
+		hasConfig = true
+	}
+	if comp != nil {
+		if selected, _, err := r.composerConfig(comp, composer.Message{
+			Model: comp.Model, Effort: comp.EffortName(nil, comp.Chosen(r.models())),
+			Features: comp.Features, Mode: comp.Mode, Permission: comp.Permission,
+		}); err == nil {
+			config = selected
+			hasConfig = true
+		}
+	}
+	if hasConfig {
+		scope.Model = config.Model
+		for _, provider := range r.snapshot().Providers {
+			if !provider.Enabled || provider.ID != config.Provider {
+				continue
+			}
+			scope.Provider = provider.ID.String()
+			scope.ProviderRev = provider.Revision
+			scope.Auth = provider.Authentication
+			if provider.Credential != nil {
+				if r.authorizations != nil && r.authorizations.credentialKey != "" {
+					if cred, exists := r.authorizations.credentials[provider.Credential.ID]; exists && cred.Provider == provider.ID && !cred.Revoked {
+						ref := *provider.Credential
+						scope.Credential = &ref
+						scope.CredRev = cred.Revision
+					}
+				} else {
+					ref := *provider.Credential
+					scope.Credential = &ref
+					scope.CredRev = r.controller.CredentialMetadataRevision()
+				}
+			}
+			break
+		}
+	}
+	if history, loaded := r.conversationState(sessionID); loaded {
+		scope.Statistics = history.Snapshot.Statistics
+		if len(history.Snapshot.Page.Runs) != 0 {
+			scope.HasMessages = true
+		}
+	}
+	return scope
+}
+
 // pluginIndicators are the composer slot's indicators as the toolbar's rings.
 func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indicator {
 	var rings []composer.Indicator
 	for _, entry := range registry.Entries(protocol.PluginUiSlotComposer) {
-		if entry.Declaration.Kind != "indicator" {
+		if entry.Declaration.Kind != "indicator" || r.legacyPluginControlReplaced(entry.Key.Package, entry.Declaration) {
 			continue
 		}
 		// An unknown indicator's ring is the track alone, with no tooltip

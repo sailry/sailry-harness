@@ -162,12 +162,9 @@ func (r *Runtime) openKnowledge(c *ui.Context, node string, source shell.Source)
 	}
 	root.readKnowledge(node, input, read, func(c *ui.Context) string {
 		if owner == root {
-			return i18n.T(c, "local_host_name")
+			return i18n.T(c, localHostNameKey)
 		}
-		if state := root.hostState(node); state != nil {
-			return state.view.Name
-		}
-		return node
+		return root.hostLabelByID(c, node)
 	})
 }
 

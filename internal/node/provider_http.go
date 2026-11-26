@@ -83,6 +83,46 @@ func (node *Node) providerHTTP(ctx context.Context, request protocol.Request) (p
 	return protocol.Output{Kind: "plugin_http", Data: value}, err
 }
 
+func (node *Node) nativeProviderHTTP(ctx context.Context, provider protocol.ProviderID, expected uint64, namespace string, resolve func(protocol.Authentication) (protocol.PluginModelAuthEndpoint, bool)) (protocol.Authentication, protocol.PluginHttpResponse, error) {
+	if err := node.renewProvider(ctx, provider); err != nil {
+		return "", protocol.PluginHttpResponse{}, err
+	}
+	var capture store.ProviderResourceCapture
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		capture, err = store.CaptureNativeProviderResource(ctx, db, node.ID(), provider, expected, resolve)
+		return err
+	})
+	if err != nil {
+		return "", protocol.PluginHttpResponse{}, err
+	}
+	prepared, err := prepareProviderHTTP(ctx, capture, nil)
+	if err != nil {
+		return "", protocol.PluginHttpResponse{}, err
+	}
+	fetch := func() (protocol.PluginHttpResponse, error) {
+		return plugins.ExecuteHTTP(ctx, prepared, authorization.HTTPClient())
+	}
+	var value protocol.PluginHttpResponse
+	if capture.Endpoint.CacheTtlMs != nil {
+		body, err := json.Marshal([]any{namespace, prepared.URL.String(), prepared.Method, prepared.Headers, prepared.Body, capture.Credential.ID, capture.Credential.Revision})
+		if err != nil {
+			return "", protocol.PluginHttpResponse{}, err
+		}
+		value, err = node.providerResourceCached(ctx, blake3.Sum256(body), time.Duration(*capture.Endpoint.CacheTtlMs)*time.Millisecond, fetch)
+		if err != nil {
+			return "", protocol.PluginHttpResponse{}, err
+		}
+	} else {
+		value, err = fetch()
+		if err != nil {
+			return "", protocol.PluginHttpResponse{}, err
+		}
+	}
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { return store.CheckProviderResource(ctx, db, capture) })
+	return capture.Provider.Authentication, value, err
+}
+
 func prepareProviderHTTP(ctx context.Context, capture store.ProviderResourceCapture, input map[string]string) (plugins.HTTPInput, error) {
 	endpoint := capture.Endpoint
 	if strings.ContainsAny(endpoint.Url, "{}") {

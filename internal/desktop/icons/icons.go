@@ -170,6 +170,17 @@ var (
 	SailryMark     = load("sailry-mark")
 	// A model that generates video (the media settings and capability marks).
 	Video = load("reicon-video-play")
+
+	// Native desktop module navigation and action glyphs.
+	Calendar    = load("calendar")
+	ChartBar    = load("chart-bar")
+	CalendarNav = load("reicon-time-calendar")
+	BellNav     = load("reicon-notifications-bell")
+	ChartBarNav = load("reicon-business-chart-bar")
+	ClockNav    = load("reicon-time-clock")
+	PlayNav     = load("reicon-video-play")
+	EditNav     = load("reicon-newicons-edit")
+	TrashNav    = load("reicon-ui-trash2")
 )
 
 // Capabilities are the marks of what a model understands and generates, by

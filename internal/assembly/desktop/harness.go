@@ -14,9 +14,13 @@ import (
 	media "github.com/sailry/sailry-harness/modules/media/desktop"
 	memory "github.com/sailry/sailry-harness/modules/memory/desktop"
 	ocr "github.com/sailry/sailry-harness/modules/ocr/desktop"
+	providerstatusdesktop "github.com/sailry/sailry-harness/modules/provider-status/desktop"
 	providers "github.com/sailry/sailry-harness/modules/providers/desktop"
+	remindersdesktop "github.com/sailry/sailry-harness/modules/reminders/desktop"
 	runtime "github.com/sailry/sailry-harness/modules/runtime/desktop"
+	scheduledtasksdesktop "github.com/sailry/sailry-harness/modules/scheduled-tasks/desktop"
 	skills "github.com/sailry/sailry-harness/modules/skills/desktop"
+	statisticsdesktop "github.com/sailry/sailry-harness/modules/statistics/desktop"
 	teams "github.com/sailry/sailry-harness/modules/teams/desktop"
 	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
@@ -24,7 +28,9 @@ import (
 // HarnessModules returns the ordered desktop modules shipped with Harness.
 func HarnessModules() []shell.Module {
 	return []shell.Module{
+		scheduledtasksdesktop.Register, remindersdesktop.Register, statisticsdesktop.Register,
 		market.Register,
+		providerstatusdesktop.Register,
 		providers.Register, connectors.Register, teams.Register, skills.Register,
 		knowledge.Register, memory.Register, media.Register, decision.Register,
 		websearch.Register, browser.Register, computer.Register,

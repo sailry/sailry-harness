@@ -34,6 +34,11 @@ func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Com
 			return protocol.Output{}, nil, err
 		}
 		if info == nil {
+			if native, ok := NativeStorageInfoForReference(input.Package); ok {
+				info = &native
+			}
+		}
+		if info == nil {
 			return protocol.Output{}, nil, fault(protocol.ErrorCodeNotFound, "notification plugin is unavailable")
 		}
 		summary := info.Summary

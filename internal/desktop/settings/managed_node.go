@@ -113,14 +113,16 @@ func managedNodeSelect(c *ui.Context, m *Model, target *string) bool {
 func (m *Model) ManagedNodeID() string { return m.managedNodeID() }
 
 // ProviderHostName is the host label shown in the settings target selector.
+// Local hosts resolve dynamically via local_host_name; remote peer hostnames
+// are shown verbatim so device names never collide with i18n keys.
 func ProviderHostName(c *ui.Context, host ProviderHost) string {
-	if host.Local {
-		return i18n.T(c, "composer_host_local")
+	if host.Local || host.Name == "local_host_name" || host.Name == "composer_host_local" {
+		return i18n.T(c, "local_host_name")
 	}
 	if host.Name != "" {
-		return i18n.T(c, host.Name)
+		return host.Name
 	}
-	return host.Node
+	return shortHostNodeID(host.Node)
 }
 
 // ProviderHostLabel is label with its host's name when several hosts are
@@ -138,5 +140,12 @@ func ProviderHostLabel(c *ui.Context, m *Model, node, label string) string {
 			return label + " (" + ProviderHostName(c, host) + ")"
 		}
 	}
-	return label + " (" + node + ")"
+	return label + " (" + shortHostNodeID(node) + ")"
+}
+
+func shortHostNodeID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }

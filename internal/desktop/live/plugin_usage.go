@@ -11,18 +11,17 @@ import (
 
 func (r *Runtime) pluginUsageSources() []plugins.UsageSource {
 	root := r.localRuntime()
-	sources := []plugins.UsageSource{{Client: root.controller, Label: root.controller.Target().String()}}
-	if root.network == nil {
-		return sources
-	}
-	for _, peer := range root.network.snapshot() {
-		if peer.controller != nil {
-			label := peer.address.ID.String()
-			if peer.info.Name != nil && *peer.info.Name != "" {
-				label = *peer.info.Name
-			}
-			sources = append(sources, plugins.UsageSource{Client: peer.controller, Label: label})
+	locale := root.packageLocale()
+	canonical := root.canonicalHosts()
+	sources := make([]plugins.UsageSource, 0, len(canonical))
+	for _, entry := range canonical {
+		if entry.Client == nil {
+			continue
 		}
+		sources = append(sources, plugins.UsageSource{
+			Client: entry.Client,
+			Label:  root.hostLabelInLocale(entry.ID, locale, nil),
+		})
 	}
 	return sources
 }

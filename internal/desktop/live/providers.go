@@ -633,7 +633,11 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 		}
 		ch.BrandName = r.providerBrands[ch.Brand]
 		for i, m := range p.Models {
-			ch.Models = append(ch.Models, channelModel(m))
+			cm := channelModel(m)
+			if score := r.measuredScore(modelKey(p.ID, m.ID), m.DefaultEffort); score != nil {
+				cm.Score = score.Overall
+			}
+			ch.Models = append(ch.Models, cm)
 			if m.ID == p.DefaultModel {
 				ch.Default = i
 			}

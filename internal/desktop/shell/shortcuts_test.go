@@ -220,7 +220,7 @@ func TestMenu(t *testing.T) {
 		"View": {{"Search", cmd(ui.Cmd, ui.KeyK)}, {"Find in Conversation", cmd(ui.Cmd, ui.KeyF)},
 			{"Toggle Sidebar", cmd(ui.Cmd, ui.KeyB)}, {"Toggle Details", cmd(ui.Cmd|ui.Alt, ui.KeyB)},
 			{"Toggle Full Screen", cmd(ui.Ctrl|ui.Super, ui.KeyF)},
-			{"Chats", ""}, {"Activity board", ""}, {"Files", ""}, {"Git", ""}, {"Market", ""}},
+			{"Chats", ""}, {"Activity board", ""}, {"Files", ""}, {"Git", ""}, {"Scheduled tasks", ""}, {"Reminders", ""}, {"Usage", ""}, {"Market", ""}},
 		"Window": {{"Minimize", cmd(ui.Super, ui.KeyM)}, {"Zoom", ""}, {"Bring All to Front", ""}},
 		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}, {"Welcome to Sailry", ""}},
 	}

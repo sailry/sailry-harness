@@ -54,7 +54,7 @@ func (r *Runtime) renderPluginSettings(view *ui.Context, entry pluginSettingsEnt
 	changed := false
 	header := func() {
 		if localPluginSettings(entry.info) {
-			ui.Text(view, i18n.T(view, "composer_host_local")).FontSize(13).TextColor(theme.Of(view).MutedForeground)
+			ui.Text(view, i18n.T(view, localHostNameKey)).FontSize(13).TextColor(theme.Of(view).MutedForeground)
 		} else {
 			changed = settings.ManagedNodeSelect(view, model)
 		}

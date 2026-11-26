@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
@@ -239,9 +240,24 @@ type Host interface {
 
 	// Controller-scoped storage helpers for native module commands (outside an agent turn).
 	StorageGet(ctx context.Context, namespace, key string) (protocol.PluginStorageEntry, error)
+	StorageListKeys(ctx context.Context, namespace, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error)
 	StorageSearch(ctx context.Context, namespace string, query protocol.PluginStorageSearch) (protocol.PluginStorageSearchPage, error)
 	StorageTransaction(ctx context.Context, namespace string, ops []protocol.PluginTransactionOperation) ([]protocol.Output, error)
+	StorageDispatch(ctx context.Context, namespace string, action protocol.DispatchCommand) (protocol.DispatchOutput, error)
+	StopDispatchTurn(ctx context.Context, namespace string, job protocol.JobID) error
+
+	// Turn-scoped list/dispatch helpers for native module agent tools.
+	PluginStorageListKeys(ctx context.Context, inv *store.AgentInvocation, namespace, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error)
+	PluginStorageDispatch(ctx context.Context, inv *store.AgentInvocation, namespace string, action protocol.DispatchCommand) (protocol.DispatchOutput, error)
+
+	LocalNodeID() protocol.NodeID
+	Now() time.Time
 	ProjectExists(ctx context.Context, id string) (bool, error)
+	ReadProjectCatalog(ctx context.Context) (protocol.ProjectsCatalog, error)
+	ListTeams(ctx context.Context) ([]protocol.TeamProfile, error)
+	ResolveModel(ctx context.Context, model string, effort *protocol.Effort, config *protocol.SessionConfig) (protocol.SessionConfig, error)
+	ReadProviderAccountHTTP(ctx context.Context, provider protocol.ProviderID, expectedRevision uint64, namespace string, resolve func(protocol.Authentication) (protocol.PluginModelAuthEndpoint, bool)) (protocol.Authentication, protocol.PluginHttpResponse, error)
+	ForwardModuleCommand(ctx context.Context, target protocol.NodeID, command protocol.Command) (protocol.Output, error)
 }
 
 // BuiltInSkill describes a compile-time skill bundled inside a native module.
@@ -262,6 +278,13 @@ type SkillProvider interface {
 type CommandHandler interface {
 	HandlesCommand(kind string) bool
 	ExecuteCommand(ctx context.Context, host Host, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error)
+}
+
+// DispatchProvider is optionally implemented by native modules that own a
+// persistent Node dispatch namespace (for example scheduled-tasks or reminders)
+// so existing schedules and jobs continue running after legacy plugins retire.
+type DispatchProvider interface {
+	NativeDispatchNamespace() string
 }
 
 // Module is one compile-time native Node feature module.

@@ -64,7 +64,7 @@ func pluginRequestPackage(ctx context.Context, db *sql.Conn, node, caller protoc
 		if scope.Package == (protocol.PluginReference{}) {
 			return protocol.PluginInfo{}, false, nil
 		}
-		if !slices.Contains(capture.Plugins, scope.Package) {
+		if !slices.Contains(capture.Plugins, scope.Package) && !IsNativeStorageReference(scope.Package) {
 			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "plugin does not belong to the captured turn")
 		}
 		info, err := ResolvePluginInfo(ctx, db, scope.Package)
@@ -78,6 +78,17 @@ func pluginRequestPackage(ctx context.Context, db *sql.Conn, node, caller protoc
 	if claimed != nil {
 		claimed.Summary.Enabled = true
 		return *claimed, sessionStart, nil
+	}
+	if info, ok := NativeStorageInfoForReference(scope.Package); ok {
+		if caller != node || scope.Invocation != nil {
+			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, "native module storage is internal to this Node")
+		}
+		if legacy, err := ReadPlugin(ctx, db, scope.Package.Name); err != nil {
+			return protocol.PluginInfo{}, false, err
+		} else if legacy != nil {
+			return protocol.PluginInfo{}, false, fault(protocol.ErrorCodePermissionDenied, scope.Package.Name+" storage is owned by the installed plugin")
+		}
+		return info, false, nil
 	}
 	current, err := ReadPlugin(ctx, db, scope.Package.Name)
 	if err != nil {
@@ -232,7 +243,7 @@ func checkPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return err
 		}
 	}
-	if !isNativeMemoryReference(scope.Package) && (scope.Turn != nil && (request.Command.Kind == "write_plugin_value" || request.Command.Kind == "write_indexed_plugin_value" || request.Command.Kind == "remove_plugin_value") || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value") {
+	if !IsNativeStorageReference(scope.Package) && (scope.Turn != nil && (request.Command.Kind == "write_plugin_value" || request.Command.Kind == "write_indexed_plugin_value" || request.Command.Kind == "remove_plugin_value") || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value") {
 		current, err := ReadPlugin(ctx, db, scope.Package.Name)
 		if err != nil {
 			return err
@@ -487,7 +498,7 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionReadStorage, true
 	case "write_plugin_value", "write_indexed_plugin_value", "remove_plugin_value", "write_plugin_conversation_value", "remove_plugin_conversation_value":
 		return protocol.PluginActionWriteStorage, true
-	case "dispatch", "stop_dispatch_turn":
+	case "dispatch", "stop_dispatch_turn", "deliver_reminder":
 		return protocol.PluginActionDispatch, true
 	case "publish_notification":
 		return protocol.PluginActionNotify, true

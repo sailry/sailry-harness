@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -22,11 +24,45 @@ type Assembly struct {
 	Permissions               []PermissionContribution
 	ProjectWorkflows          []ProjectWorkflow
 	PluginControlReplacements []PluginControlReplacement
+	MetricContributions       []MetricContribution
 	ProviderUI                func(*settings.State) ProviderUI
 	Locales                   []fs.FS
 	panelResources            []panelRegistration
 	linkHandlers              linkHandlers
 	appActions                appActionRegistry
+}
+
+// ComposerMetricScope describes the active conversation and selected model
+// channel when rendering composer context-bar metrics.
+type ComposerMetricScope struct {
+	Node        string
+	Provider    string
+	ProviderRev uint64
+	Model       string
+	Auth        protocol.Authentication
+	Credential  *protocol.CredentialRef
+	CredRev     uint64
+	Connected   bool
+	Demo        bool
+	HasMessages bool
+	Statistics  *protocol.ConversationStatistics
+}
+
+// MetricBinding belongs to one metric contributor in one window. Lead and
+// Statistics produce composer context-bar metrics; Provider supplies Settings
+// channel usage. Sync runs before layout; Close releases owned resources when
+// the window closes.
+type MetricBinding struct {
+	Lead       func(*ui.Context, ComposerMetricScope) []conversation.Metric
+	Statistics func(*ui.Context, ComposerMetricScope) []conversation.Metric
+	Provider   func(*ui.Context, string, string) *settings.ChannelUsage
+	Sync       func()
+	Close      func()
+}
+
+// MetricContribution registers a window-scoped metric contributor in Assembly.
+type MetricContribution struct {
+	Bind func(WindowContext) MetricBinding
 }
 
 // PluginControlReplacement identifies an old official control provided by a
@@ -65,6 +101,9 @@ type NativePage struct {
 	// BindWindow supplies the live window's instance of this page. Render and
 	// Workspace are the fallbacks when there is no live binding.
 	BindWindow func(WindowContext) WindowBinding
+	// SupportsDemo reports whether this page's WindowBinding handles Demo mode
+	// using sample data without contacting a Node.
+	SupportsDemo bool
 	// Workspace supplies the slots around Render before layout, for pages
 	// without a project Resource.
 	Workspace func(*App) WorkspaceSlots
@@ -152,6 +191,7 @@ func (a *App) syncNativeWorkspace() {
 func (a *App) installPages(assembly Assembly) {
 	a.installAppActions(assembly)
 	a.installLinkHandlers(assembly)
+	a.metricContributions = slices.Clone(assembly.MetricContributions)
 	a.translations = i18n.New(assembly.Locales...)
 	a.Settings.SetNativePages(assembly.SettingsPages)
 	a.Settings.ExecutionSettings = settings.BindExecutionSettings(assembly.ExecutionSettings, settings.ExecutionSettingHost{Preview: a.Preview})
@@ -221,7 +261,8 @@ func (a *App) ReplacesLegacyViews(packageName string) bool {
 }
 
 func (a *App) activeWindowBinding() WindowBinding {
-	if a.DemoOn() {
+	page := a.nativePage(a.Page)
+	if a.DemoOn() && (page == nil || !page.SupportsDemo) {
 		return WindowBinding{}
 	}
 	return a.nativeWindowBindings[a.Page]
@@ -230,9 +271,10 @@ func (a *App) activeWindowBinding() WindowBinding {
 // BindWindow supplies the live context after the window's services are ready.
 // Fixture windows never acquire live resources.
 func (a *App) BindWindow(ctx context.Context) {
-	if a.Preview || a.nativeWindowBindings != nil {
+	if a.Preview || a.windowBound {
 		return
 	}
+	a.windowBound = true
 	for _, page := range a.nativePages {
 		if page.BindWindow == nil {
 			continue
@@ -240,21 +282,37 @@ func (a *App) BindWindow(ctx context.Context) {
 		if a.nativeWindowBindings == nil {
 			a.nativeWindowBindings = make(map[Page]WindowBinding)
 		}
-		a.nativeWindowBindings[page.Page] = page.BindWindow(WindowContext{
+		supportsDemo := page.SupportsDemo
+		targetPage := page.Page
+		a.nativeWindowBindings[targetPage] = page.BindWindow(WindowContext{
 			Context: ctx,
 			Visible: func() bool {
-				return ctx.Err() == nil && a.nativeWindowBindings != nil && a.Page == page.Page && !a.DemoOn()
+				return ctx.Err() == nil && a.windowBound && a.Page == targetPage && (supportsDemo || !a.DemoOn())
 			},
 		})
+	}
+	for _, contribution := range a.metricContributions {
+		if contribution.Bind == nil {
+			continue
+		}
+		a.metricBindings = append(a.metricBindings, contribution.Bind(WindowContext{
+			Context: ctx,
+			Visible: func() bool {
+				return ctx.Err() == nil && a.windowBound && !a.DemoOn()
+			},
+		}))
 	}
 }
 
 // CloseWindowBindings releases the per-window callbacks registered by BindWindow.
 func (a *App) CloseWindowBindings() {
+	a.windowBound = false
 	a.closeAppActions()
 	a.closeWorkspaceOverlay()
 	bindings := a.nativeWindowBindings
 	a.nativeWindowBindings = nil
+	metrics := a.metricBindings
+	a.metricBindings = nil
 	a.linkHandlers = nil
 	a.nativeWorkspacePage, a.nativeWorkspace = "", WorkspaceSlots{}
 	for _, page := range a.nativePages {
@@ -262,21 +320,72 @@ func (a *App) CloseWindowBindings() {
 			close()
 		}
 	}
+	for _, binding := range metrics {
+		if binding.Close != nil {
+			binding.Close()
+		}
+	}
 }
 
-// SyncNativePages delivers shared live state to the installed page controllers.
+// SyncNativePages delivers shared live state to the installed page controllers
+// and metric contributors.
 func (a *App) SyncNativePages() {
 	for _, sync := range a.nativePageSync {
 		sync()
 	}
-	if len(a.nativeWindowBindings) == 0 {
-		return
-	}
-	for _, page := range a.nativePages {
-		if sync := a.nativeWindowBindings[page.Page].Sync; sync != nil {
-			sync()
+	if len(a.nativeWindowBindings) != 0 {
+		for _, page := range a.nativePages {
+			if sync := a.nativeWindowBindings[page.Page].Sync; sync != nil {
+				sync()
+			}
 		}
 	}
+	for _, binding := range a.metricBindings {
+		if binding.Sync != nil {
+			binding.Sync()
+		}
+	}
+}
+
+// MetricLead returns the context-bar lead metrics contributed by bound native
+// modules for the active composer scope.
+func (a *App) MetricLead(c *ui.Context, scope ComposerMetricScope) []conversation.Metric {
+	var metrics []conversation.Metric
+	for _, binding := range a.metricBindings {
+		if binding.Lead != nil {
+			metrics = append(metrics, binding.Lead(c, scope)...)
+		}
+	}
+	return metrics
+}
+
+// MetricStatistics returns the context-bar statistics metric groups contributed
+// by bound native modules for the active composer scope, one group per contributor.
+func (a *App) MetricStatistics(c *ui.Context, scope ComposerMetricScope) [][]conversation.Metric {
+	var groups [][]conversation.Metric
+	for _, binding := range a.metricBindings {
+		if binding.Statistics == nil {
+			continue
+		}
+		if group := binding.Statistics(c, scope); len(group) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	return groups
+}
+
+// ProviderUsage returns the first native channel usage summary contributed for
+// the given Node and provider ID, or nil when none applies.
+func (a *App) ProviderUsage(c *ui.Context, node, channel string) *settings.ChannelUsage {
+	for _, binding := range a.metricBindings {
+		if binding.Provider == nil {
+			continue
+		}
+		if usage := binding.Provider(c, node, channel); usage != nil {
+			return usage
+		}
+	}
+	return nil
 }
 
 // NativePageUsage returns the counter declared by the current native page.

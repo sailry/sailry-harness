@@ -10,33 +10,54 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// projectPluginMetrics makes the context bar's figures the packages': the
-// footer slot's first, a provider's account status, then the statistics
-// slot's, one group a package (conversation/live/context.rs context_bar,
-// conversation/live/contributions.rs registered_footer and
-// registered_statistics). The core draws them and their hover cards from
-// what each package published: its label, value and detail rows.
+// projectPluginMetrics makes the context bar's figures the packages' and
+// native metric contributions': lead figures first (provider account status),
+// then statistics figures grouped by contributor.
 func (r *Runtime) projectPluginMetrics(comp *composer.State, registry *plugins.Registry) {
+	r.projectComposerMetrics(comp, registry, shell.ComposerMetricScope{})
+}
+
+func (r *Runtime) projectComposerMetrics(comp *composer.State, registry *plugins.Registry, scope shell.ComposerMetricScope) {
+	root := r.localRuntime()
 	comp.Metrics = func(view *ui.Context, compact bool, open *bool) {
 		var lead []conversation.Metric
-		for _, group := range r.pluginMetrics(view, registry, protocol.PluginUiSlotFooter) {
-			lead = append(lead, group...)
+		if !scope.Demo && root.App != nil {
+			lead = append(lead, root.App.MetricLead(view, scope)...)
 		}
-		conversation.UsageBar(view, lead, r.pluginMetrics(view, registry, protocol.PluginUiSlotStatistics), compact, open)
+		if registry != nil {
+			for _, group := range r.pluginMetrics(view, registry, protocol.PluginUiSlotFooter) {
+				lead = append(lead, group...)
+			}
+		}
+		var groups [][]conversation.Metric
+		if root.App != nil {
+			groups = append(groups, root.App.MetricStatistics(view, scope)...)
+		}
+		if registry != nil {
+			groups = append(groups, r.pluginMetrics(view, registry, protocol.PluginUiSlotStatistics)...)
+		}
+		conversation.UsageBar(view, lead, groups, compact, open)
 	}
 }
 
 // pluginMetrics are a slot's published figures, one group a package, in the
 // registry's order (the declared order, then the package's name). A footer
-// figure shows only while its package's view runs and enables it.
+// figure shows only while its package's view runs and enables it. Controls
+// replaced by a native module are omitted so legacy plugins never duplicate
+// native metrics.
 func (r *Runtime) pluginMetrics(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot) [][]conversation.Metric {
+	if registry == nil {
+		return nil
+	}
 	var groups [][]conversation.Metric
 	index := map[string]int{}
 	for _, entry := range registry.Entries(slot) {
-		if entry.Retry || slot == protocol.PluginUiSlotFooter && !entry.State.Enabled {
+		if entry.Retry || slot == protocol.PluginUiSlotFooter && !entry.State.Enabled ||
+			r.legacyPluginControlReplaced(entry.Key.Package, entry.Declaration) {
 			continue
 		}
 		at, grouped := index[entry.Key.Package.Name]
@@ -57,7 +78,10 @@ func (r *Runtime) pluginMetrics(view *ui.Context, registry *plugins.Registry, sl
 func (r *Runtime) pluginMetric(view *ui.Context, entry plugins.ContributionEntry) conversation.Metric {
 	locale := view.Locale()
 	metric := conversation.Metric{
-		ID:    entry.Key.Package.Name + ":" + entry.Key.ID,
+		// Namespace plugin metric IDs distinctly from native module IDs so a
+		// third-party or fixture package sharing a package name and control ID
+		// never collides with native metrics in conversation.UsageBar.
+		ID:    "plugin:" + entry.Key.Package.Name + ":" + entry.Key.ID,
 		Order: int(entry.Declaration.Order),
 		Label: pluginLabel(entry.Declaration.Label, locale),
 		Value: i18n.T(view, "composer_metric_unknown"),

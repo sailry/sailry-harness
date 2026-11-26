@@ -31,11 +31,18 @@ func providerSlotShown(shown, owner *Runtime, demo bool) bool {
 }
 
 // providerUsage is what the provider slot holds for a channel of the Node
-// Settings holds (settings.ProviderActions.Usage).
+// Settings holds (settings.ProviderActions.Usage). Native metric contributors
+// take precedence; non-replaced legacy plugin entries remain supported.
 func (r *Runtime) providerUsage(view *ui.Context, node, channel string) *settings.ChannelUsage {
 	root := r.localRuntime()
 	owner := root.runtimeFor(node)
-	if owner == nil || !owner.controller.Connected() || root.App.Settings.DemoMode || owner.authorizations == nil {
+	if owner == nil || !owner.controller.Connected() || root.App.Settings.DemoMode || root.App.DemoOn() {
+		return nil
+	}
+	if usage := root.App.ProviderUsage(view, node, channel); usage != nil {
+		return usage
+	}
+	if owner.authorizations == nil {
 		return nil
 	}
 	registry := owner.pluginRegistry(protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "provider"}})
@@ -51,12 +58,15 @@ func (r *Runtime) providerUsage(view *ui.Context, node, channel string) *setting
 			return nil
 		}
 		entries := registry.ProviderEntries(scope)
-		if len(entries) == 0 {
-			return nil
+		figures := make([]conversation.Metric, 0, len(entries))
+		for _, entry := range entries {
+			if root.legacyPluginControlReplaced(entry.Key.Package, entry.Declaration) {
+				continue
+			}
+			figures = append(figures, root.pluginMetric(view, entry))
 		}
-		figures := make([]conversation.Metric, len(entries))
-		for index, entry := range entries {
-			figures[index] = root.pluginMetric(view, entry)
+		if len(figures) == 0 {
+			return nil
 		}
 		return &settings.ChannelUsage{
 			Lines: providerUsageLines(figures[0]), Icon: figures[0].Icon,

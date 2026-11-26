@@ -341,12 +341,9 @@ func (r *Runtime) projectPackages() {
 func (r *Runtime) packageHostLabel() string {
 	root := r.localRuntime()
 	if root == r {
-		return "composer_host_local"
+		return localHostNameKey
 	}
-	if host := root.hosts[r.controller.Target().String()]; host != nil && host.view.Name != "" {
-		return host.view.Name
-	}
-	return r.controller.Target().String()
+	return root.canonicalHostName(r.controller.Target(), nil)
 }
 
 // packageLocale is the locale package text is read in: the window's resolved

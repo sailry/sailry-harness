@@ -261,6 +261,9 @@ func (node *Node) prepareUserPlugins(ctx context.Context, user protocol.User, st
 	retired := plugins.RetiredBundled()
 	retiredNames := make(map[string]bool, len(retired))
 	for _, name := range retired {
+		if defaultNames[name] {
+			continue
+		}
 		retiredNames[name] = true
 		if current, hasCurrent := installed[name]; hasCurrent && current.Origin != nil && current.Origin.Kind == "bundled" {
 			plan.retirements = append(plan.retirements, name)
@@ -437,17 +440,12 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 	if request.Plugin == nil {
 		return nil
 	}
-	if request.Plugin.Package == store.NativeMemoryReference() {
+	if store.IsNativeStorageReference(request.Plugin.Package) {
 		if caller != node.ID() || request.Plugin.Invocation != nil {
-			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "native memory storage is internal to this Node"}
+			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "native module storage is internal to this Node"}
 		}
-		if legacy, err := store.ReadPlugin(ctx, db, store.NativeMemoryNamespace); err != nil {
-			return err
-		} else if legacy != nil {
-			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "memory storage is owned by the installed memory plugin"}
-		}
-		info := store.NativeMemoryStorageInfo()
-		return store.CheckPluginRequest(ctx, db, request, info)
+		_, err := store.AuthorizePluginRequest(ctx, db, node.ID(), caller, request, nil)
+		return err
 	}
 	if request.Plugin.Surface.Kind == "card" {
 		if err := store.CheckPluginCardRequest(ctx, db, node.ID(), caller, request); err != nil {

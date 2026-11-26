@@ -91,14 +91,14 @@ func (r *Runtime) composerProjects() []composer.Project {
 
 func (r *Runtime) composerHosts(c *ui.Context) []composer.Host {
 	root := r.localRuntime()
-	hosts := []composer.Host{{ID: root.controller.Target().String(), Name: i18n.T(c, "composer_host_local")}}
-	for _, host := range root.App.Data.Hosts {
-		if host.Local || host.ID == hosts[0].ID {
-			hosts[0].Platform = host.Platform
-			continue
+	canonical := root.canonicalHosts()
+	hosts := make([]composer.Host, 0, len(canonical))
+	for _, entry := range canonical {
+		name := entry.NameKey
+		if entry.Local || name == localHostNameKey {
+			name = i18n.T(c, localHostNameKey)
 		}
-		owner := root.runtimeFor(host.ID)
-		hosts = append(hosts, composer.Host{ID: host.ID, Name: host.Name, Platform: host.Platform, Offline: owner == nil || !owner.controller.Connected()})
+		hosts = append(hosts, composer.Host{ID: entry.IDString, Name: name, Platform: entry.Platform, Offline: !entry.Local && !entry.Connected})
 	}
 	return hosts
 }
@@ -363,17 +363,7 @@ func (r *Runtime) nameModelSources(c *ui.Context, id string, models []composer.M
 	if exists && session.Profile == nil || !exists && r.parent == nil {
 		return
 	}
-	host := ""
-	for _, h := range r.localRuntime().App.Data.Hosts {
-		if h.ID == r.controller.Target().String() {
-			host = h.Name
-		}
-	}
-	// The local host keeps its name key until its Node names it, as the
-	// shell's hostName shows it.
-	if host == "local_host_name" {
-		host = i18n.T(c, host)
-	}
+	host := r.hostLabel(c, r.controller.Target())
 	for i := range models {
 		provider, _, _ := strings.Cut(models[i].ID, "/")
 		switch {

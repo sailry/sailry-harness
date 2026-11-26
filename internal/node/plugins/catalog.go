@@ -32,7 +32,7 @@ func BundledDefaults() []DefaultPackage {
 // itself. Startup removes a bundled installation of one; the removal record
 // and the captured versions stay, so earlier turns still resolve.
 func RetiredBundled() []string {
-	return []string{"media", "progress", "code", "web-search", "external-browser", "browser", "computer", "memory"}
+	return []string{"media", "progress", "code", "web-search", "external-browser", "browser", "computer", "memory", "scheduled-tasks", "reminders", "provider-status", "statistics"}
 }
 
 func manifestCatalogEntry(manifest Manifest, runtimes ...Runtime) protocol.PluginCatalogEntry {

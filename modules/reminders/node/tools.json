@@ -1,0 +1,221 @@
+{
+  "tools": [
+    {
+      "name": "reminders",
+      "legacy_package": "reminders",
+      "contexts": ["workspace", "plugin"],
+      "presentation": "summary",
+      "grouping": "sequence",
+      "description": "List, create, update or delete saved reminders. Project sessions use their current project; conversations without a project use unassigned reminders. These reminders are separate from conversation progress, update_plan and scheduled agent tasks. List optionally filters by completed and returns IDs, revisions and an after cursor; pass the latest revision for update or delete. Create requires a title; notes, completion and due_ms (UTC milliseconds or null) are optional. Update changes only supplied fields. Project scope is fixed by the session.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "create", "update", "delete"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "after": {
+            "type": ["string", "null"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "due_ms": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": { "const": "create" }
+              }
+            },
+            "then": {
+              "required": ["title"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": { "enum": ["update", "delete"] }
+              }
+            },
+            "then": {
+              "required": ["id", "revision"]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": { "const": "update" }
+              }
+            },
+            "then": {
+              "anyOf": [
+                { "required": ["title"] },
+                { "required": ["message"] },
+                { "required": ["completed"] },
+                { "required": ["due_ms"] }
+              ]
+            }
+          }
+        ]
+      },
+      "display": {
+        "label": "Reminders",
+        "locales": {
+          "zh-CN": "待办提醒",
+          "zh-TW": "提醒",
+          "ja": "リマインダー",
+          "ko": "알림",
+          "fr": "Rappels",
+          "de": "Erinnerungen",
+          "es": "Recordatorios",
+          "pt-BR": "Lembretes",
+          "ru": "Напоминания",
+          "en": "Reminders"
+        },
+        "icon": "reicon:notifications/bell",
+        "input": {
+          "summary": {
+            "path": "/title"
+          }
+        },
+        "approval": [
+          {
+            "message": {
+              "label": "Create reminder %{title}",
+              "locales": {
+                "zh-CN": "创建提醒 %{title}"
+              }
+            },
+            "values": {
+              "title": {
+                "source": "arguments",
+                "path": "/title"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "create"
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Update reminder %{title}",
+              "locales": {
+                "zh-CN": "更新提醒 %{title}"
+              }
+            },
+            "values": {
+              "title": {
+                "source": "arguments",
+                "path": "/title"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "update"
+                },
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/title"
+                  },
+                  "equals": null,
+                  "negate": true
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Update reminder %{id}",
+              "locales": {
+                "zh-CN": "更新提醒 %{id}"
+              }
+            },
+            "values": {
+              "id": {
+                "source": "arguments",
+                "path": "/id"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "update"
+                },
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/title"
+                  },
+                  "equals": null
+                }
+              ]
+            }
+          },
+          {
+            "message": {
+              "label": "Delete reminder %{id}",
+              "locales": {
+                "zh-CN": "删除提醒 %{id}"
+              }
+            },
+            "values": {
+              "id": {
+                "source": "arguments",
+                "path": "/id"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/action"
+                  },
+                  "equals": "delete"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

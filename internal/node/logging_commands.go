@@ -79,7 +79,7 @@ var transientCommands = func() map[string]observation {
 			"decide", "read_local_model_settings", "read_local_models", "refresh_local_model", "list_shells", "read_plugin_secret",
 			"list_media_models", "read_media_settings", "synthesize_speech", "search_models", "read_model_versions", "resolve_model", "query_knowledge",
 			"read_knowledge_citation", "list_knowledge_collections", "read_resource_catalog", "inspect_terminal", "inspect_request", "list_credentials", "browse_database",
-			"test_database", "inspect_host", "read_host_metrics", "read_plugin_memory", "read_computer_permissions", "read_computer_settings", "read_external_browser_settings", "read_memory_catalog", "read_memory_entry", "browse_files",
+			"test_database", "inspect_host", "read_host_metrics", "read_plugin_memory", "read_computer_permissions", "read_computer_settings", "read_external_browser_settings", "read_memory_catalog", "read_memory_entry", "read_provider_account_usage", "list_scheduled_tasks", "read_scheduled_task", "read_scheduled_task_runtime", "read_scheduled_task_history", "list_reminders", "read_reminder", "read_reminder_history", "browse_files",
 			"read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "fetch_web",
 			"cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_code_index_settings", "read_hooks", "read_personal_instructions",
 			"read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "read_attachment",

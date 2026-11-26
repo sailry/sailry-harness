@@ -665,7 +665,7 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 		stale.Features = []string{"page:git", "page:gone", "page:conversation"}
 		b = NewWithAssembly(preview.Load(), TestHarnessAssembly())
 		b.SetPrefs(stale)
-		if want := []string{"page:conversation", "page:git", "page:gone", "page:activity", "page:files", "page:settings_plugins"}; !slices.Equal(b.features, want) {
+		if want := []string{"page:conversation", "page:git", "page:gone", "page:activity", "page:files", "page:scheduled_tasks", "page:reminders", "page:usage", "page:settings_plugins"}; !slices.Equal(b.features, want) {
 			t.Errorf("stale order merged to %v, want %v", b.features, want)
 		}
 
@@ -1031,7 +1031,7 @@ func testSearchRules(t *testing.T) {
 func TestMoreDragShowsInsertionLine(t *testing.T) {
 	a, tt := newTester(t)
 	// Off the rail, so their names are the popover's rows alone.
-	for _, id := range []string{"page:activity", "page:files", "page:git", "page:settings_plugins"} {
+	for _, id := range []string{"page:activity", "page:files", "page:git", "page:scheduled_tasks", "page:reminders", "page:usage", "page:settings_plugins"} {
 		a.unpinned[id] = true
 	}
 	a.more = true
@@ -1045,7 +1045,7 @@ func TestMoreDragShowsInsertionLine(t *testing.T) {
 		}
 		return r
 	}
-	activity, files, git, market := row("activity"), row("files"), row("git"), row("market_title")
+	activity, files, git, scheduled := row("activity"), row("files"), row("git"), row("scheduled_tasks_title")
 	center := func(r ui.Rect) float32 { return r.Y + r.H/2 }
 	gap := func(upper, lower ui.Rect) float32 { return (upper.Y + upper.H + lower.Y) / 2 }
 	x := files.X + 10 // over the row's start, left of the dragged copy
@@ -1072,13 +1072,13 @@ func TestMoreDragShowsInsertionLine(t *testing.T) {
 	if !dark(gap(files, git)) {
 		t.Error("no line between Files and Git")
 	}
-	if dark(gap(activity, files)) || dark(gap(git, market)) {
+	if dark(gap(activity, files)) || dark(gap(git, scheduled)) {
 		t.Error("a line shows away from the pointer")
 	}
 	tt.Release(px+160, center(files)+10)
 	tt.Frame()
 	tt.Frame()
-	want := []string{"page:conversation", "page:files", "page:activity", "page:git", "page:settings_plugins"}
+	want := []string{"page:conversation", "page:files", "page:activity", "page:git", "page:scheduled_tasks", "page:reminders", "page:usage", "page:settings_plugins"}
 	if !slices.Equal(a.features, want) {
 		t.Errorf("order %v, want %v", a.features, want)
 	}

@@ -135,7 +135,7 @@ func (r *Runtime) projectCatalogPluginRows(rows []viewmodel.Package) {
 			applyPackageUpdate(row, current, r.packages.updates[name], r.packageLocale())
 		}
 		if r.parent != nil && (desktopPlugin(info) || desktopPlugin(r.packages.infos[name])) {
-			row.Host = "composer_host_local"
+			row.Host = localHostNameKey
 			row.Installed, row.Installable, row.UpdateAvailable = false, false, false
 			row.Versions = nil
 		}

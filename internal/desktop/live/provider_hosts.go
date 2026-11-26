@@ -2,7 +2,6 @@ package live
 
 import (
 	"cmp"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -12,24 +11,18 @@ import (
 
 func (r *Runtime) providerHosts() []settings.ProviderHost {
 	root := r.localRuntime()
-	localNode := root.controller.Target().String()
-	hosts := make([]settings.ProviderHost, 0, len(root.App.Data.Hosts)+1)
-	seen := map[string]bool{}
-	for _, host := range root.App.Data.Hosts {
-		owner := root.runtimeFor(host.ID)
+	canonical := root.canonicalHosts()
+	hosts := make([]settings.ProviderHost, 0, len(canonical))
+	for _, entry := range canonical {
 		hosts = append(hosts, settings.ProviderHost{
-			Node: host.ID, Name: host.Name, Platform: host.Platform, Connected: owner != nil && owner.controller.Connected(), Local: host.ID == localNode,
+			Node: entry.IDString, Name: entry.NameKey, Platform: entry.Platform, Connected: entry.Connected, Local: entry.Local,
 		})
-		seen[host.ID] = true
-	}
-	if !seen[localNode] {
-		hosts = append(hosts, settings.ProviderHost{Node: localNode, Name: "local_host_name", Platform: runtime.GOOS, Connected: root.controller.Connected(), Local: true})
 	}
 	slices.SortFunc(hosts, func(a, b settings.ProviderHost) int {
-		if a.Node == localNode {
-			return -1
-		}
-		if b.Node == localNode {
+		if a.Local != b.Local {
+			if a.Local {
+				return -1
+			}
 			return 1
 		}
 		return strings.Compare(a.Name, b.Name)

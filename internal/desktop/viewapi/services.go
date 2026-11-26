@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -60,6 +61,107 @@ type Conversation struct {
 	Close  func()
 }
 
+// NodeInfo describes an execution Node visible to this window.
+type NodeInfo struct {
+	ID        protocol.NodeID
+	Label     string
+	Connected bool
+	Local     bool
+}
+
+// UsageSource identifies a Node included in usage reads and overviews.
+type UsageSource struct {
+	ID    protocol.NodeID
+	Label string
+	Local bool
+}
+
+// UsageNodeView is the current observation state of one Node in a usage overview.
+type UsageNodeView struct {
+	Report     *protocol.UsageReport
+	Connected  bool
+	Refreshing bool
+	Error      *protocol.Fault
+}
+
+// UsageNodeSource pairs a Node route with its observed usage view.
+type UsageNodeSource struct {
+	Node  protocol.NodeID
+	Entry protocol.NodeID
+	View  UsageNodeView
+}
+
+// UsageScopedGroup tags a usage breakdown group with the Node that reported it.
+type UsageScopedGroup struct {
+	Node  protocol.NodeID
+	Entry protocol.NodeID
+	Group protocol.UsageGroup
+}
+
+// UsageScopedRequest tags a usage request record with its entry Node.
+type UsageScopedRequest struct {
+	Request protocol.UsageRequest
+	Entry   protocol.NodeID
+}
+
+// UsageScopedPage is one cursor-paginated slice of merged usage requests.
+type UsageScopedPage struct {
+	Items   []UsageScopedRequest
+	HasMore bool
+}
+
+// UsageSummary aggregates totals, time buckets, breakdown groups and requests
+// across the Nodes observed by a usage overview.
+type UsageSummary struct {
+	Totals   protocol.UsageMetrics
+	Days     []protocol.UsagePoint
+	Recent   []protocol.UsagePoint
+	Groups   []UsageScopedGroup
+	Requests UsageScopedPage
+}
+
+// UsageOverview is one consistent snapshot produced by WatchOverview.
+type UsageOverview struct {
+	Sources  []UsageNodeSource
+	Summary  *UsageSummary
+	Complete bool
+	Error    *protocol.Fault
+}
+
+// UsageWatch owns a live or sample usage overview subscription.
+type UsageWatch struct {
+	Refresh func(context.Context) error
+	Close   func()
+}
+
+// UsageInventory holds the filter options available on one Node.
+type UsageInventory struct {
+	Node      protocol.NodeID
+	Label     string
+	Projects  []protocol.Project
+	Providers []protocol.ConversationProvider
+}
+
+// UsageSample serves in-memory Demo usage reports and filter inventory without
+// contacting any Node. Revision advances whenever the demo ledger changes.
+type UsageSample struct {
+	Revision  uint64
+	Report    func(protocol.NodeID, protocol.UsageQuery) (protocol.UsageReport, error)
+	Inventory func() ([]protocol.Project, []protocol.ConversationProvider)
+}
+
+// UsageServices exposes multi-node and Demo usage operations to native modules.
+type UsageServices struct {
+	Sources func() []UsageSource
+	// WatchOverview observes usage for target, or across all active Sources
+	// when target is the zero NodeID. onUpdate runs off the UI thread. Call
+	// Close to release the watch; closing the window also stops active watches.
+	WatchOverview func(context.Context, protocol.NodeID, protocol.UsageQuery, func(UsageOverview, error)) (UsageWatch, error)
+	ReadUsage     func(context.Context, protocol.NodeID, protocol.UsageQuery) (protocol.UsageReport, error)
+	Inventory     func(protocol.NodeID) (UsageInventory, bool)
+	Sample        func() (*UsageSample, bool)
+}
+
 // Services belong to one window and its local Node. They are for compiled
 // contributions, which expose only their scoped operations to a template.
 // Requests and local file paths must come from those native operations, not
@@ -77,6 +179,28 @@ type Services struct {
 	Settle  func(context.Context, protocol.Request) (protocol.Output, error)
 	Resolve func(context.Context, protocol.Request) (Receipt, error)
 	Outcome func(context.Context, protocol.Request) (protocol.RequestOutcome, error)
+
+	// Multi-node discovery, execution, snapshots and window-wide notifications.
+	Nodes func() []NodeInfo
+	// NodeLabel resolves the canonical localized display name for any Node ID:
+	// the local host name in the window's active locale, the peer's canonical
+	// name when known or remembered, or a consistent short ID fallback.
+	NodeLabel func(protocol.NodeID) string
+	// ModelOptions returns the canonical kit.ModelSelect options for enabled
+	// model channels on the given Node (zero NodeID selects the local Node),
+	// with Mark, Brand, BrandName, Efforts, DefaultEffort, and Score populated.
+	ModelOptions  func(protocol.NodeID) []kit.ModelOption
+	PrepareOn     func(protocol.NodeID, protocol.Command) (protocol.Request, error)
+	ExecuteOn     func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
+	SettleOn      func(context.Context, protocol.NodeID, protocol.Request) (protocol.Output, error)
+	ResolveOn     func(context.Context, protocol.NodeID, protocol.Request) (Receipt, error)
+	OutcomeOn     func(context.Context, protocol.NodeID, protocol.Request) (protocol.RequestOutcome, error)
+	Snapshot      func(protocol.NodeID) (*protocol.Snapshot, bool)
+	Credentials   func(protocol.NodeID) map[protocol.CredentialID]protocol.Credential
+	OpenSession   func(protocol.NodeID, protocol.SessionID)
+	RevealDetails func()
+	OnChange      func(func()) func()
+	Usage         *UsageServices
 
 	// Mounting and interacting with these elements run on the window's UI thread.
 	TerminalLaunch    func(*ui.Context) any

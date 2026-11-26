@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -15,12 +16,11 @@ func (m *Model) ChannelsAt(node string) []viewmodel.Channel {
 	return m.Channels
 }
 
-// ModelOptions returns the enabled channels' models as kit.ModelSelect offers
-// them: identified by channel/model and grouped by channel and brand.
-func (m *Model) ModelOptions(node string) []kit.ModelOption {
+// ModelOptionsFromChannels projects enabled channels into canonical
+// kit.ModelOption entries with Mark, Brand, BrandName, Efforts, DefaultEffort,
+// and Score populated consistently across settings, forms, and native modules.
+func ModelOptionsFromChannels(channels []viewmodel.Channel, brandNames map[string]string) []kit.ModelOption {
 	var out []kit.ModelOption
-	brandNames := m.modelBrandNames()
-	channels := m.ChannelsAt(node)
 	for _, ch := range channels {
 		if !ch.Enabled {
 			continue
@@ -29,12 +29,31 @@ func (m *Model) ModelOptions(node string) []kit.ModelOption {
 		if mark == nil {
 			mark = icons.Brand(ch.Brand)
 		}
+		brandName := brandNames[ch.Brand]
+		if brandName == "" {
+			brandName = ch.BrandName
+		}
 		for _, x := range ch.Models {
-			out = append(out, kit.ModelOption{ID: ch.ID + "/" + x.ID, Name: x.Name, Provider: ch.Name, Mark: mark,
-				Brand: ch.Brand, BrandName: brandNames[ch.Brand], Efforts: x.Efforts, DefaultEffort: x.DefaultEffort})
+			out = append(out, kit.ModelOption{
+				ID:            ch.ID + "/" + x.ID,
+				Name:          x.Name,
+				Provider:      ch.Name,
+				Mark:          mark,
+				Brand:         ch.Brand,
+				BrandName:     brandName,
+				Efforts:       slices.Clone(x.Efforts),
+				DefaultEffort: x.DefaultEffort,
+				Score:         x.Score,
+			})
 		}
 	}
 	return out
+}
+
+// ModelOptions returns the enabled channels' models as kit.ModelSelect offers
+// them: identified by channel/model and grouped by channel and brand.
+func (m *Model) ModelOptions(node string) []kit.ModelOption {
+	return ModelOptionsFromChannels(m.ChannelsAt(node), m.modelBrandNames())
 }
 
 func (m *Model) modelBrandNames() map[string]string {

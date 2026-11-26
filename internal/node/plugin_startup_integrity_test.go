@@ -167,7 +167,7 @@ func TestStartupRestoresExactBundledPackages(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	profile := filepath.Join(t.TempDir(), "profile")
-	const missing, changed, removed, olderName = "goals", "reminders", "brief", "files"
+	const missing, changed, removed, olderName = "goals", "task-notes", "brief", "files"
 	assembly := hostassembly.Harness()
 	assembly.BundledDefaults = []plugins.DefaultPackage{
 		{Name: missing, Enabled: true},

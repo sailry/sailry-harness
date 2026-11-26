@@ -10,6 +10,9 @@ import (
 	filesnode "github.com/sailry/sailry-harness/modules/files/node"
 	memorynode "github.com/sailry/sailry-harness/modules/memory/node"
 	ocrnode "github.com/sailry/sailry-harness/modules/ocr/node"
+	providerstatusnode "github.com/sailry/sailry-harness/modules/provider-status/node"
+	remindersnode "github.com/sailry/sailry-harness/modules/reminders/node"
+	scheduledtasksnode "github.com/sailry/sailry-harness/modules/scheduled-tasks/node"
 	websearchnode "github.com/sailry/sailry-harness/modules/web-search/node"
 )
 
@@ -25,6 +28,9 @@ func Harness() moduleapi.Assembly {
 			browsernode.Builtin(),
 			browsernode.External(),
 			computernode.Module(),
+			providerstatusnode.Module(),
+			scheduledtasksnode.Module(),
+			remindersnode.Module(),
 		},
 	}
 }

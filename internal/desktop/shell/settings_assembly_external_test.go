@@ -22,8 +22,11 @@ import (
 	memory "github.com/sailry/sailry-harness/modules/memory/desktop"
 	ocr "github.com/sailry/sailry-harness/modules/ocr/desktop"
 	providers "github.com/sailry/sailry-harness/modules/providers/desktop"
+	remindersdesktop "github.com/sailry/sailry-harness/modules/reminders/desktop"
 	runtime "github.com/sailry/sailry-harness/modules/runtime/desktop"
+	scheduledtasksdesktop "github.com/sailry/sailry-harness/modules/scheduled-tasks/desktop"
 	skills "github.com/sailry/sailry-harness/modules/skills/desktop"
+	statisticsdesktop "github.com/sailry/sailry-harness/modules/statistics/desktop"
 	teams "github.com/sailry/sailry-harness/modules/teams/desktop"
 	websearch "github.com/sailry/sailry-harness/modules/web-search/desktop"
 )
@@ -48,7 +51,7 @@ func TestNativeSettingsPageAssembly(t *testing.T) {
 	} {
 		t.Run(window.name, func(t *testing.T) {
 			full := desktop.Harness()
-			workspaceOnly := shell.Assemble(market.Register)
+			workspaceOnly := shell.Assemble(scheduledtasksdesktop.Register, remindersdesktop.Register, statisticsdesktop.Register, market.Register)
 			settingsOnly := shell.Assemble(providers.Register, connectors.Register, teams.Register, skills.Register,
 				knowledge.Module(), memory.Register, media.Register, decision.Register, websearch.Register,
 				browser.Register, computer.Register, connections.Register,

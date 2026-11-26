@@ -84,9 +84,9 @@ func (r *Runtime) ensureHost(id string, owner *Runtime, local bool) *liveHost {
 	if state == nil {
 		state = &liveHost{owner: owner, view: &host.Host{ID: id, Live: true, Local: local, Detail: "host_unknown", Runtime: host.Runtime{Uptime: -1, NodeUptime: -1}}}
 		if local {
-			state.view.Name = "local_host_name"
+			state.view.Name = localHostNameKey
 		} else {
-			state.view.Name = id
+			state.view.Name = shortNodeID(id)
 			state.view.Update = &host.Update{Phase: host.Idle, Progress: -1}
 			state.update = &hostUpdate{}
 		}

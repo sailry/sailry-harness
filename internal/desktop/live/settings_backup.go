@@ -178,15 +178,9 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 
 func (r *Runtime) backupHostName(c *ui.Context, owner *Runtime) string {
 	if owner == r {
-		return i18n.T(c, "local_host_name")
+		return i18n.T(c, localHostNameKey)
 	}
-	id := owner.controller.Target().String()
-	for _, host := range r.App.Data.Hosts {
-		if host.ID == id && host.Name != "" {
-			return host.Name
-		}
-	}
-	return id
+	return r.hostLabel(c, owner.controller.Target())
 }
 
 func (r *Runtime) showBackupWork(backup, archive string) {

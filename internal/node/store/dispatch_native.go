@@ -1,6 +1,38 @@
 package store
 
-import "github.com/sailry/sailry-harness/internal/protocol"
+import (
+	"context"
+	"slices"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+type nativeDispatchKey struct{}
+
+// WithNativeDispatch binds the namespaces owned by assembled native Node
+// modules (such as scheduled-tasks and reminders) so existing dispatch
+// schedules, handlers and jobs keep running when the legacy plugins are retired.
+func WithNativeDispatch(ctx context.Context, namespaces []string) context.Context {
+	if len(namespaces) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, nativeDispatchKey{}, slices.Clone(namespaces))
+}
+
+func hasNativeDispatchNamespace(ctx context.Context, name string) bool {
+	if name == "" {
+		return false
+	}
+	namespaces, _ := ctx.Value(nativeDispatchKey{}).([]string)
+	return slices.Contains(namespaces, name)
+}
+
+func nativeDispatchStorageInfo(ctx context.Context, name string) (protocol.PluginInfo, bool) {
+	if !hasNativeDispatchNamespace(ctx, name) {
+		return protocol.PluginInfo{}, false
+	}
+	return NativeStorageInfo(name)
+}
 
 func dispatchNativeHandler(handler protocol.DispatchHandler) error {
 	if handler.Name != "profile-backup" || handler.Source.Package != dispatchNativeOwner ||
