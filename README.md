@@ -1,12 +1,7 @@
-<p align="center">
-  <img src="assets/readme/hero.svg" width="100%" alt="Sailry: any computer becomes your AI workstation. A desktop and a phone connect to a MacBook, a Linux server and a GPU box over end-to-end encrypted peer-to-peer links.">
-</p>
+# Sailry Harness
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache-2.0 License"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/desktop-macOS%20·%20Windows-lightgrey?style=flat-square" alt="Desktop on macOS and Windows"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host on macOS and Linux"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="Mobile on Android and iOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
   <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://awesomemygo.dev/apps/sailry"><img src="https://awesomemygo.dev/badge.svg" alt="Listed on Awesome MyGo"></a>
@@ -14,155 +9,97 @@
 
 <p align="center">
   <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="https://sailry.dev/docs/hosts/">Hosts</a> ·
-  <a href="https://sailry.dev/docs/models/">Models</a> ·
-  <a href="https://sailry.dev/docs/projects/">Projects</a> ·
-  <a href="sdk/plugins.md">Plugin SDK</a>
+  <a href="ARCHITECTURE.md">Architecture</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="sdk/plugins.md">Plugin SDK</a> ·
+  <a href="AGENTS.md">Engineering Rules</a> ·
+  <a href="https://github.com/sailry/sailry-code">Sailry Code (Product)</a>
 </p>
 
-Sailry is an open-source AI harness: agent teams that run on your own Mac or Linux machines, next
-to your code and data, driven from the desktop app or your phone on the
-[models you choose](https://sailry.dev/docs/models/).
+**Sailry Harness** (`github.com/sailry/sailry-harness`) is the open-source AI agent runtime framework, public Go/Flutter/Plugin SDK, and runnable general-purpose base application. It provides the local and remote execution Node, end-to-end encrypted peer-to-peer Link v2 transport, Client state projection and recovery, native GPU Desktop shell and Kit ([MyGo](https://github.com/egoist/mygo)), Flutter Mobile controller core, and 21 general modules under [`modules/`](modules/).
 
-This repository contains the shared framework and a runnable base application.
-[Sailry Code](https://github.com/sailry/sailry-code) depends on it and owns the
-developer modules, product configuration and release entry points.
-
-Harness Desktop and foreground Host default to `~/.sailry-harness`; an explicit
-`--data-dir` selects another profile without moving existing data. Local
-`just desktop dev` runs use the separate `~/.sailry-harness-dev` profile.
+> [!TIP]
+> **Looking to install and use Sailry as an AI coding workstation?**
+> Download end-user Desktop, Host, and Mobile packages from **[Sailry Code](https://github.com/sailry/sailry-code)** ([Releases](https://github.com/sailry/sailry-code/releases)), the official downstream workstation built on Sailry Harness that adds native Files workbench, Git & worktrees, Terminals, Tree-sitter Code Graph, Databases, and SSH.
 
 > [!NOTE]
-> **Early preview.** Sailry changes quickly between releases. Back up important work before
-> agents edit it, and [report issues](https://github.com/sailry/sailry-harness/issues) — your
-> feedback shapes what comes next.
+> **Early preview.** Sailry Harness APIs and runtime internals evolve quickly between tags. Report framework bugs and SDK issues in [GitHub Issues](https://github.com/sailry/sailry-harness/issues).
+
+## Architecture
 
 <p align="center">
-  <img src="assets/readme/workspace.webp" width="100%" alt="Sailry desktop home: hosts, active sessions and projects in the sidebar, and a new conversation with quick starts in the center.">
+  <img src="assets/readme/architecture.svg" width="100%" alt="Desktop and mobile Clients control one or more Nodes over end-to-end encrypted libp2p Link v2 connections with Circuit Relay v2 fallback. Each Node owns execution, tools, approvals, credentials, and canonical history.">
 </p>
 
-## How it works
+- **Node (`internal/node/`)**: Owns the agent loop, tool execution, session permissions/approvals, model routing, credentials stored in the private profile, and canonical SQLite/Turso history. Runs embedded inside Desktop or headless via Host.
+- **Link v2 & Relays (`internal/link/`)**: End-to-end encrypted libp2p peer-to-peer transport with six-digit pairing codes and automatic Circuit Relay v2 fallback — no port forwarding, VPN, or cloud account required.
+- **Client (`internal/client/`)**: Projects streams and snapshots for local UI and remote devices, handles durable reconnect/recovery, and exposes uniform host/resource queries.
+- **Desktop Shell & Kit (`internal/desktop/`)**: Native GPU interface powered by [MyGo](https://github.com/egoist/mygo) (no Electron or bundled browser engine). Modules mount pages, workspace panels, conversation panels, and settings cleanly into shared shell slots.
+- **Mobile Core (`apps/mobile/`)**: Flutter controller packages (`sailry_mobile` + `sailry_bridge` via Dart FFI) extended by downstream products through `MobileAssembly`.
+- **General Modules (`modules/`)**: 21 reusable Desktop/Node feature modules compiled directly without JS runtime overhead unless explicitly packaged as plugins.
 
-<p align="center">
-  <img src="assets/readme/architecture.svg" width="100%" alt="The desktop app and the phone control one or more Hosts over peer-to-peer, end-to-end encrypted links with relay fallback. Each Host runs the agent loop and its tools next to your code and data, keeps credentials, and calls the model providers you choose.">
-</p>
+See [ARCHITECTURE.md](ARCHITECTURE.md) for full component dependency rules, ownership boundaries, storage/security invariants, and GUI resource lifecycle rules.
 
-- **Any computer becomes a Host.** Install Sailry Host on a laptop, a Linux box in the lab or a
-  rented GPU machine. It runs as a background service, so work keeps going when you close the
-  laptop.
-- **Reach it from anywhere.** No port forwarding, VPN or cloud account.
+## Products and ecosystem
 
-## Features
-
-### An agent beyond code
-
-- **Code** — three work modes (Standard; Plan, which plans without running code or writing
-  files; Collaborate, which runs an agent team), multi-file edits, Git and worktrees, terminals
-  and code review.
-- **Browse and operate** — a built-in browser the agent reads, clicks and screenshots; pick page
-  elements straight into the conversation; desktop computer use.
-- **Office work** — read Word, Excel, PowerPoint and PDF (with OCR), write documents and
-  interactive HTML previews, generate images and video, search the web and your knowledge base.
-- **Keep going** — long-term memory, searchable history, goals that run until they are done,
-  reminders and scheduled tasks.
-- **Connectors** — GitHub, Notion, Slack, Linear, Figma, Google Workspace, Microsoft 365, Feishu,
-  DingTalk, WeCom and [more](https://github.com/sailry/sailry-plugins).
-- **Local speech and OCR** — voice input and text recognition run on your own machine.
-
-### Agent teams, one model per seat
-
-Collaborate mode fans work out to parallel subagents, each on its own model — DeepSeek writes the
-code, Claude plans, Codex takes the hard problems — and every step stays visible in the
-conversation, where you approve actions as they run.
-
-### Coding tools in Sailry Code
-
-Code adds native developer modules to the base Node. Structured tools return
-the result the agent needs instead of raw shell output.
-
-- **Code graph** — symbol search, file outlines, callers and callees, change impact and a ranked
-  project map, so agents read the right code instead of searching the whole tree.
-- **Databases** — PostgreSQL, MySQL and SQLite through saved connections. Queries run read-only;
-  writes follow the session's permission policy. Agents use connections by ID and never see
-  passwords or private keys.
-- **SSH** — commands and SFTP transfers on saved servers, with pinned host keys.
-
-### Your phone is the remote control
-
-Pair the Android or iOS app with your desktop or any Host using a six-digit code. Pick up any
-session, send and queue messages, answer approvals and follow tools as they run. No account and
-no subscription.
-
-### Native, light and fast
-
-Written in Go and drawn on the GPU with [MyGo](https://github.com/egoist/mygo)'s native UI
-toolkit — no Electron and no bundled browser engine.
-It starts fast, stays responsive in long conversations and leaves your memory to your work.
-
-### Plugins and themes
-
-- **Open standards** — [agent-plugins](https://agent-plugins.org) packages, standard `SKILL.md`
-  skills and direct MCP servers.
-- **Native plugin UI** — pages, panels and settings written in JavaScript render with the same
-  components as the rest of the app.
-- **Themes** — colors, typography, surfaces and decorations come from one set of tokens, in light
-  and dark. Official themes live in [sailry-themes](https://github.com/sailry/sailry-themes).
-- Browse the official [plugins](https://github.com/sailry/sailry-plugins) or build your own with
-  the Apache-2.0 [SDK](sdk/plugins.md).
-
-## Privacy
-
-Sailry sends anonymous error reports (app version, device type and error codes) and anonymous
-feature counts by default. They never include conversations, files, credentials, paths or custom
-names. Turn either off in **Settings › Diagnostics and privacy**, or set `SAILRY_TELEMETRY=off` or
-`DO_NOT_TRACK=1` for the desktop app or a Host.
-
-Sailry downloads public model scores from [ModelDial](third_party_licenses/modeldial.md)
-and model metadata from models.dev without sending user data.
-
-## Install
-
-[Host deployment guide](https://sailry.dev/docs/hosts/#before-connecting) · [Changelog](CHANGELOG.md) · [Build from source](CONTRIBUTING.md#setup)
-
-| | Download | Requires |
+| Repository | Role | License |
 | --- | --- | --- |
-| **Desktop** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg)<br>Windows: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-pc-windows-msvc-setup.exe) | macOS 13+ · Windows 10+ (x64) · Linux planned |
-| **Host** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz)<br>Linux: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) | macOS 13+ · Linux with glibc 2.34+ · Windows planned |
-| **Mobile** | [Android APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) · [iOS TestFlight](https://testflight.apple.com/join/qaTnVrmQ) (beta) | Android 7.0+ · iOS 15+ |
+| **[Sailry Code](https://github.com/sailry/sailry-code)** | Official open-source AI developer workstation assembled on `sailry-harness`; owns 7 native developer modules (`code-index`, `files`, `git`, `worktrees`, `terminal`, `databases`, `ssh`), product identity (`~/.sailry-code`), and end-user releases | Apache-2.0 |
+| **[sailry-plugins](https://github.com/sailry/sailry-plugins)** | Official optional runtime plugins (zero plugins are preinstalled by default) | Apache-2.0 |
+| **[sailry-themes](https://github.com/sailry/sailry-themes)** | Official light/dark semantic UI themes | Apache-2.0 |
 
-Or install a Host from the terminal:
+## SDKs and extension points
+
+Downstream Go/Flutter products depend **one-way** on [`sdk/`](sdk/) and `apps/mobile/` packages (never `internal/*`, enforced in CI), and Harness keeps default profiles free of preinstalled plugins or themes:
+
+| Layer | Public Entry Points | What You Build |
+| --- | --- | --- |
+| **Go Desktop & Product Assembly** | `sdk/desktop`, `sdk/desktop/harness`, `sdk/desktop/native`, `sdk/desktop/controls`, `sdk/desktop/theme`, `sdk/desktop/view`, `sdk/desktop/settings`, `sdk/desktop/i18n`, `sdk/desktop/icons`, `sdk/desktop/testing`, `sdk/product`, `sdk/release` | Custom branded Desktop binaries, custom theme/identity/updater keys, and native MyGo views/settings |
+| **Go Node & Protocol** | `sdk/host`, `sdk/native/node`, `sdk/native/protocol`, `sdk/native/files`, `sdk/native/codeindex`, `sdk/native/link`, `sdk/native/memory`, `sdk/native/process`, `sdk/native/search`, `sdk/native/storage`, `sdk/sdktest` | Custom Host binaries, native Node agent tools, scoped workspace/resource services, and contract tests |
+| **Flutter Mobile Core** | `apps/mobile/` (`sailry_mobile`, `sailry_bridge`, `MobileAssembly`) | Domain-branded Android/iOS controllers adding custom project resource sheets |
+| **Runtime Plugins (`moejs` / MCP)** | [sdk/plugins.md](sdk/plugins.md), `sdk/desktop/*.d.ts`, `sdk/node/*.d.ts` | Cross-platform JS UI pages/panels + Node callbacks using [agent-plugins](https://agent-plugins.org), `SKILL.md`, and MCP |
+
+## Built-in general capabilities
+
+Out of the box (including when launched standalone as the base app), Sailry Harness includes:
+
+- **Work modes & parallel subagents**: Standard, Plan (read-only planning), and Collaborate (parallel child agents with optional role/model overrides), all visible with approval gating.
+- **Core workspace tools**: Sandboxed command execution (`run_command`, Linux Bubblewrap + OS confinement), path-confined file read/write/edit/patch, and file search.
+- **Browser & computer use**: Built-in headless/interactive browser (`browser`), external browser automation (`external-browser`), and desktop computer control (`computer`).
+- **Documents, search & media**: Word/Excel/PowerPoint/PDF reading with local OCR, interactive HTML artifact previews, image/video media generation (`media`), web search (`web-search`), and local knowledge collections.
+- **Continuity & local speech**: Long-term memory, searchable sessions, goals, reminders, scheduled tasks (`dispatch`), session usage statistics, provider account quota status, and local voice dictation.
+
+<a id="install"></a>
+## Quick start
+
+Follow [CONTRIBUTING.md](CONTRIBUTING.md#setup) to install prerequisites (**Go 1.27.3**, **Rust** for the local Turso library, **Flutter** for mobile work, and Linux **Bubblewrap** for command sandboxes), then build native assets and launch from source:
 
 ```sh
-curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
+just native
+just desktop        # opens base app against ~/.sailry-harness
+just desktop dev    # opens isolated dev profile ~/.sailry-harness-dev
+just host           # runs headless Host against .runtime/profiles/host
+just check          # checks formatting, builds, vets, and runs tests
 ```
 
-## Get started
+- **Co-developing with Sailry Code**: Create a gitignored root `go.work` inside your local [Sailry Code](https://github.com/sailry/sailry-code) checkout referencing `../sailry-go`; Code's `dev.sh` automatically tests your local Harness changes end-to-end.
+- **Releases**: Historical Harness binaries remain in [Sailry Harness Releases](https://github.com/sailry/sailry-harness/releases) for explicit repair builds only; new end-user installers ship exclusively from [Sailry Code Releases](https://github.com/sailry/sailry-code/releases).
 
-1. [Add a model provider](https://sailry.dev/docs/models/#add-a-provider) in **Settings → Models** with an
-   API key or a ChatGPT or Claude account.
-2. Add a folder or clone a repository as a project on **Local device** or a connected Host.
-3. Choose **Create session**, pick a model and describe your task.
-4. [Add a Host and pair your devices](https://sailry.dev/docs/hosts/#install-and-pair) to work from anywhere.
+## Documentation
 
-Guides: [Models](https://sailry.dev/docs/models/) · [Remote hosts](https://sailry.dev/docs/hosts/) · [Projects and sessions](https://sailry.dev/docs/projects/)
+- **Framework & engineering**: [Architecture](ARCHITECTURE.md) · [Contributing & CI](CONTRIBUTING.md) · [Engineering Rules](AGENTS.md) · [Plugin SDK v1](sdk/plugins.md) · [Security Policy](SECURITY.md)
+- **Shared runtime guides** (synced to `sailry.dev/docs/`): [Models](docs/models.md) · [Remote Hosts](docs/hosts.md) · [Projects & Sessions](docs/projects.md) · [Relays](docs/relays.md)
 
-## Community
+## Telemetry, community, and license
 
-Join the [Discord](https://discord.gg/MCDktmDey) or add the maintainer on WeChat for the group
-chat. Please use [GitHub Issues](https://github.com/sailry/sailry-harness/issues) for bug reports
-and feature requests, and [SECURITY.md](SECURITY.md) to report vulnerabilities privately.
-Want to contribute? Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+By default, running binaries send anonymous error reports and anonymous feature counts (never conversations, files, credentials, paths, or custom names); disable either in **Settings → General → Diagnostics and privacy** or via `SAILRY_TELEMETRY=off` / `DO_NOT_TRACK=1`. Public model benchmarks come from [ModelDial](third_party_licenses/modeldial.md).
+
+Join the [Discord](https://discord.gg/MCDktmDey) or scan the WeChat QR code below, and report bugs in [GitHub Issues](https://github.com/sailry/sailry-harness/issues).
 
 <p align="center">
   <img src="assets/readme/wechat.png" width="200" alt="WeChat QR code for the Sailry community">
 </p>
 
-## License
-
-Sailry is licensed under [Apache-2.0](LICENSE), as are the plugin SDK in [sdk/](sdk/) and the
-official [plugins](https://github.com/sailry/sailry-plugins) and
-[themes](https://github.com/sailry/sailry-themes). The license does not cover the Sailry name or
-logos; see [TRADEMARKS.md](TRADEMARKS.md). Third-party materials keep their own licenses; see
-[NOTICE](NOTICE) and [third-party notices](third_party_licenses/).
+Licensed under [Apache-2.0](LICENSE) (including [`sdk/`](sdk/), [sailry-plugins](https://github.com/sailry/sailry-plugins), and [sailry-themes](https://github.com/sailry/sailry-themes)). Sailry names and logos are covered separately by [TRADEMARKS.md](TRADEMARKS.md); third-party notices live in [NOTICE](NOTICE) and [third_party_licenses/](third_party_licenses/).
 
 [![Contributors](https://contrib.rocks/image?repo=sailry/sailry-harness)](https://github.com/sailry/sailry-harness/graphs/contributors)

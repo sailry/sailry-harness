@@ -7,12 +7,13 @@ already accepted by that Host. Its projects, models and credentials stay there.
 
 **Settings → General → Prevent sleep** controls the selected execution Node and
 is enabled by default. While enabled, that device stays awake for as long as
-work runs on it: a task, a command, an installation, knowledge indexing, a code
-index query or a backup. An idle device may sleep, and an open terminal or a
-schedule that has not fired yet does not keep it awake; a scheduled task or
-reminder that came due during sleep runs shortly after the device wakes.
-Turning the setting off or shutting down the Node releases the request.
-Disconnecting a controller does not change the Node's setting.
+work runs on it: a task, a command, an installation, knowledge indexing, a backup,
+or product-supplied work such as a code index query in Sailry Code. An idle
+device may sleep, and an open terminal or a schedule that has not fired yet does
+not keep it awake; a scheduled task or reminder that came due during sleep runs
+shortly after the device wakes. Turning the setting off or shutting down the
+Node releases the request. Disconnecting a controller does not change the Node's
+setting.
 
 This prevents idle system sleep on macOS and Windows, while allowing the display
 to turn off. It does not prevent locking, lid-close sleep, or explicit sleep.
@@ -22,11 +23,20 @@ reports the failure once for that Node process and asks again with the next work
 
 ## Before connecting
 
+You can always start `sailry-host` on a target machine (or open Desktop on a
+remote Windows/macOS machine) and pair via a six-digit pairing code ([Host CLI
+and pairing](../CONTRIBUTING.md#host-automation)).
+
+One-click remote SSH installation (**Add host → Install and connect**) requires
+a product that assembles the SSH module, such as
+[Sailry Code](https://github.com/sailry/sailry-code) (stock Sailry Harness
+hides the SSH installation tab and pairs over libp2p pairing codes):
+
 - Use macOS 13+ on Apple silicon or Intel, or Linux with glibc 2.34+ on ARM64 or
-  x64 for SSH installation. On Windows, install and open Sailry Desktop on the
-  target machine, then add it using its pairing code. SSH installation does not
-  install a native Windows Host; WSL remains a separate Linux installation.
-- The matching Sailry release must include Host packages for the target machine.
+  x64 for SSH installation. On Windows, install and open Desktop on the target
+  machine, then add it using its pairing code. SSH installation does not install
+  a native Windows Host; WSL remains a separate Linux installation.
+- The matching product release must include Host packages for the target machine.
   **Add host** installs the Host version expected by your Desktop build; it
   does not choose the latest stable or preview release or fall back to another version.
 - Have a reachable SSH server, its username, and a password or private key.
@@ -34,14 +44,14 @@ reports the failure once for that Node process and asks again with the next work
 - The target needs `bash`, `curl` and `tar`, plus HTTPS access to GitHub downloads.
   Linux needs systemd. Non-root installs require a working user service manager
   and permission to enable lingering. macOS needs a signed-in user's launchd GUI session.
-- Linux projects that use Git need the system Git and Bubblewrap packages.
-  Bubblewrap must support `--bind-fd` and `--ro-bind-fd` (0.10 or a
-  distribution backport) and be permitted to create user namespaces. The
-  kernel needs `openat2` (Linux 5.6 or later).
-  Use Git in a user-created terminal for remotes or signing that need the Host
+- Linux command sandboxes need Bubblewrap and permission to create user
+  namespaces. Sailry Code's Git sandbox also requires system Git, Bubblewrap
+  support for `--bind-fd` and `--ro-bind-fd` (0.10 or a distribution
+  backport), and kernel support for `openat2` (Linux 5.6 or later).
+  Use Git in a user terminal for remotes or signing that need the Host
   account's keys, SSH agent or credential helpers, and for custom global Git
-  commands. Built-in Git actions use the admitted workspace and any explicitly
-  selected clone source.
+  commands; Sailry Code's built-in Git actions use the admitted workspace and any
+  explicitly selected clone source.
 
 Local decisions also need OpenMP: `libgomp` on RHEL-compatible systems or
 `libgomp1` on Debian/Ubuntu. Decision inference requires glibc 2.34+ on x64 or
@@ -50,17 +60,24 @@ after installing native dependencies so its cached availability is checked again
 
 ## Install and pair
 
-1. Choose **Add host** and enter the SSH host, port, username and authentication.
-   Private keys can be pasted or loaded from a key file; supply its passphrase if needed.
-2. Choose **Install and connect**. Verify the SSH host-key fingerprint before
-   trusting a new host, especially if a previously saved key has changed.
-3. Wait for installation and pairing, then select the added host in the sidebar.
-   [Configure its model provider](models.md) and [add a project](projects.md) there.
+- **Pair an existing Host or Desktop**: publish a six-digit pairing code on the
+  remote machine (`sailry link` on a Host or **Connections** in Desktop), then
+  choose **Add host** and enter the code.
+- **Install and pair over SSH (Sailry Code)**:
+  1. Choose **Add host**, open the SSH installation view, and enter the SSH host,
+     port, username and authentication. Private keys can be pasted or loaded from
+     a key file; supply its passphrase if needed.
+  2. Choose **Install and connect**. Verify the SSH host-key fingerprint before
+     trusting a new host, especially if a previously saved key has changed.
+  3. Wait for installation and pairing, then select the added host in the sidebar.
+     [Configure its model provider](models.md) and [add a project](projects.md) there.
 
 ## If installation fails
 
 If the matching version's Host archive or installer is missing from the release,
-installation fails. Check the [published packages](https://github.com/sailry/sailry-harness/releases)
+installation fails. Check the published packages for your product
+([Sailry Code releases](https://github.com/sailry/sailry-code/releases) or
+historical [Sailry Harness releases](https://github.com/sailry/sailry-harness/releases))
 for that version and architecture; changing the Desktop update channel does not
 make a different Host version eligible.
 

@@ -61,6 +61,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/node/store` | Turso schema, transactions, durable requests, session records and event log |
 | `internal/node/program` | Package-declared executable lifecycle and process isolation |
 | `internal/core` | Profile ownership, paths, confined files and common faults |
+| `internal/memory` | Process-wide memory governor coordinating idle eviction and heap-pressure cache trimming across Node, Client and Desktop |
 | `internal/localmodels` | Model registry, verified installation and CPU inference scheduling |
 | `internal/office` | Document extraction. Product-specific external database drivers and SSH connections are owned by Code, not the framework. |
 | `internal/speech` | Controller-local speech recognition and capture |
@@ -72,17 +73,20 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/desktop/live` | Client projections, live actions and scoped plugin bindings |
 | `internal/desktop/preview` | Isolated fixture views and simulated actions |
 | `internal/acceptance`, `internal/desktop/acceptance` | Explicit conversation acceptance and recorded UI replay |
-| `cmd/sailry-desktop`, `internal/assembly/desktop` | Runnable Harness desktop and its default native pages |
-| `internal/assembly/host` | Default Harness Node assembly shared by Desktop and Host |
-| `sdk/desktop`, `sdk/host`, `sdk/native`, `sdk/product`, `sdk/release` | Go facades and contracts used by downstream product entry points, native modules, and release publishers |
+| `cmd/sailry-desktop`, `internal/assembly/desktop` | Runnable Harness Desktop and its 20 default native desktop modules |
+| `internal/assembly/host` | Default Harness Node assembly (10 core/general modules) shared by Desktop and Host |
+| `internal/identity` | Leaf product metadata, version constants (`FrameworkVersion`, `OfficialVersion`), profile defaults and embedded update public keys |
+| `sdk/desktop` (incl. `controls`, `harness`, `i18n`, `icons`, `native`, `settings`, `testing`, `theme`, `view`, `*.d.ts`), `sdk/host`, `sdk/native/*`, `sdk/product`, `sdk/release`, `sdk/sdktest`, `sdk/plugins.md`, `sdk/node/*.d.ts` | Public Go, Flutter/Mobile and JavaScript SDK facades and declarations consumed by downstream products and plugins |
 | `internal/desktop/application` | Window, local Node and shared Network lifecycle for the supplied assembly |
-| `modules/*/desktop` | Common native workspace and settings contributions selected by each product |
-| `modules/*/node` | Common native Node modules: files, OCR, web search, memory, browsers, computer use, scheduled tasks, reminders and provider status |
+| `modules/*/desktop` | Harness Desktop workspace and settings modules (`browser`, `computer`, `connections`, `connectors`, `decision`, `hooks`, `knowledge`, `market`, `media`, `memory`, `ocr`, `provider-status`, `providers`, `reminders`, `runtime`, `scheduled-tasks`, `skills`, `statistics`, `teams`, `web-search`) |
+| `modules/*/node` | Harness Node modules (`files`, `ocr`, `web-search`, `memory`, `browser` builtin + external, `computer`, `provider-status`, `scheduled-tasks`, `reminders`) |
 | `cmd/sailry-host`, `internal/hostctl` | Headless service and local management commands |
-| `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI and Flutter presentation |
+| `internal/mobile`, `cmd/sailry-mobile`, `apps/mobile` | Client handles, Dart C ABI (`cgo`) and Flutter controller |
 | [Relay pairing service](https://github.com/sailry/sailry-relay/tree/main/pairing) | Independently deployed expiring short-code ticket exchange |
 
-Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream module, not a fork. Its own entry points select the common components, add its developer pages and Node modules, and supply its version, package identity and release sources. The framework does not import the product. Product code cannot import its dependency's Go `internal` packages.
+Harness is both a framework and a runnable reference assembly. [Sailry Code](https://github.com/sailry/sailry-code) is a separate downstream product, not a fork. Its own entry points select the common Harness components through `sdk/*`, add its developer pages and Node modules (`code-index`, `files` workbench, `git`, `worktrees`, `terminal`, `databases`, `ssh`), and supply its version, package identity and release sources. Harness never imports downstream product code.
+
+### Product assembly and optional service hooks
 
 The contribution boundary applies to every module, including those selected in
 Harness by default. Only product assembly code selects concrete implementations.
@@ -106,6 +110,15 @@ registrations and reads without undoing committed work or deleting user data.
 Private widget interactions need no public action ID. The execution Node enforces
 permissions independently of UI availability.
 
+Stock Harness retains protocol, storage and optional service-provider hooks for
+developer capabilities (`codeindex_service.go`, `database_service.go`,
+`ssh_service.go`, `terminal_service.go`, and Git/Worktree workspace services) and
+fails closed (`moduleUnavailable`) when no assembled module supplies them. Without
+those modules, Node exposes `Snapshot.ProjectSources = ["local"]` and Desktop
+hides the SSH remote-installation tab and developer workbenches. Downstream
+products register native implementations through `sdk/native/node`, `sdk/desktop` and
+`apps/mobile/lib/assembly/`.
+
 Behavior tests and their dedicated fixtures live with the implementation they
 exercise: in the owning Go module or in the Flutter `test/` directory mirroring
 its `lib/` feature. A module test registers the contributions it needs without
@@ -125,11 +138,16 @@ Desktop and Host entry points → Node → agent / store / resource services
 Node and Link share Protocol contracts
 ```
 
-`internal/client` imports only Protocol and Link from this repository. Leaf service
-packages such as Core, local models, office and speech do not import
-Node. Desktop view and controller packages (`desktop/shell`, `desktop/live`, `desktop/settings`) do not start Node or import its root package;
+`internal/client` imports Protocol, Link and the shared memory governor from this repository. Leaf service
+packages such as Core, `internal/identity`, local models, office and speech do
+not import Node. Desktop view and controller packages (`desktop/shell`,
+`desktop/live`, `desktop/settings`) do not start Node or import its root package;
 `desktop/live` uses Node leaf value types and pure helpers from knowledge,
-logging, mcp, plugins, providers, telemetry, web and wsl, and depends on `internal/desktop/viewapi` rather than any `sdk/*` facade. Local Node startup belongs to `internal/desktop/application` and the Host/Desktop entry points.
+logging, mcp, plugins, providers, telemetry, web and wsl, and depends on
+`internal/desktop/viewapi` rather than any `sdk/*` facade. CI enforces that
+`internal/*` packages never import `sdk/*` (except `internal/desktop/testassembly`).
+Local Node startup belongs to `internal/desktop/application` and the Host/Desktop
+entry points.
 
 Node uses MyGo's proxy-aware HTTP and headless terminal implementation. Terminal
 appearance also uses MyGo color values; Node creates no application, window or
@@ -161,14 +179,15 @@ the resource. Clients, projections, subscriptions, notification namespaces and
 request recovery retain both. A resource reached through A and the same resource
 reached through another controller have distinct controller state. Resource
 identity below the target is project → worktree → session or terminal.
-Navigation does not change that scope. File and Git operations retain their
-captured worktree; SSH, database and plugin surfaces retain their Node and resource
-identity. Registered projects remain at their original filesystem paths.
+Navigation does not change that scope. Operations that act on files, worktrees
+or connections retain their captured scope; registered projects remain at their
+original filesystem paths.
 
-Machine paths carry their owner as `HostPath{node, path}`. File-backed database
-profiles and SSH key-file credentials preserve that location. SSH agents also
-retain their authentication Node. A different execution Node rejects the operation with a target fault
-instead of interpreting the path or `SSH_AUTH_SOCK` on its own machine. Legacy
+Machine paths in shared protocol records carry their owner as
+`HostPath{node, path}` (for example saved file-backed database or SSH key-file
+profiles used by products with those modules). SSH agent settings also retain
+their authentication Node. A Node rejects operations whose `HostPath` or
+`SSH_AUTH_SOCK` belongs to another Node instead of resolving them locally. Legacy
 file locations resolve against the Node that owns their saved definition.
 
 Usage statistics read each execution Node's accessible project and provider
@@ -257,8 +276,9 @@ protocol. GPT-6.2 Responses uses the first developer message for reusable
 instructions.
 
 Roles, teams, media assignments, plugin installs and settings, connectors,
-MCP, SSH and database profiles also belong to the authenticated user on the
-Node that uses them. Desktop settings share a host selection per window.
+MCP profiles and product-owned connection profiles (such as SSH and database
+connections when those modules are assembled) also belong to the authenticated
+user on the Node that uses them. Desktop settings share a host selection per window.
 Pages with host settings place that selection in their headers.
 Host-owned settings and package catalogs use that Node's Client and identity.
 Settings navigation and search list the selected host's installed plugins with
@@ -378,37 +398,15 @@ enables the same full-text index implementation as the Rust database.
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
-files and configuration are independent. Code Desktop and Host supply the
-code index module (backed by gotreesitter in `sailry-code`) to their Node at startup; the Harness assembly does not. A Node without the service
-reports code queries and index settings as unavailable, preserves saved
-settings, and offers plain file tools and file-only pipelines.
+files and configuration are independent. Downstream products such as Sailry Code
+may supply a `codeindexapi.Service` implementation (documented in
+`sailry-code`'s `ARCHITECTURE.md`); stock Harness does not assemble one, reports
+code queries and code-index settings as unavailable, preserves saved settings,
+and provides plain file tools and file-only pipelines.
 
-Code queries use live source by default. An outline parses one file. Search and
-graph queries select candidates by scope and lexical matches, and hold their
-parsed rows only for the query.
-The live scan bounds the number of files parsed, source bytes examined, result
-rows and elapsed scan time. Results report incomplete coverage when bounds or
-graph selection leave part of the worktree unchecked.
-
-A machine administrator can enable persistent search and graph indexes for the
-Node. Saved project-specific selections keep their existing scope until that
-switch is changed. The first such query opens the derived worktree index under
-`cache/code-index/<WorktreeId>/index.turso`. Version 2 keeps typed declaration
-fields and uses numeric file IDs for declaration, reference and import rows.
-Recognized version 1 caches are rebuilt on first persistent use. Data, lock,
-locale, vendored and minified files contribute file metadata only. Persistent
-queries reconcile worktree changes alongside watcher notifications, including
-changes whose notifications have yet to arrive. Index handles and watches close
-after two minutes without a persistent query, checked once a minute. Startup
-and hourly maintenance reclaim inactive derived indexes after fourteen days or
-when aggregate cache size exceeds 512 MiB, oldest first. Both query paths share
-one parser permit, bound per-file parser memory and drain idle parser arenas
-after high-allocation batches and queries.
-
-Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
-excluded through Git's `info/exclude`. Command, browser and transfer staging uses
-the profile's `tmp` directory, cleared after acquiring the profile lock at startup.
-Command output is bounded both per stream and across the Node.
+Command, browser and transfer staging uses the profile's `tmp` directory, cleared
+after acquiring the profile lock at startup. Command output is bounded both per
+stream and across the Node.
 
 ### Contract and storage versions
 
@@ -904,12 +902,13 @@ declarations. Session commands use the Node's process service and workspace
 permission rules, independently of interactive terminals. Code's native terminal
 module enables the project menu, project overview and conversation-panel terminal
 actions without an installed package. Harness does not assemble these actions.
-Command input is discoverable on demand. The first request exposes everyday
-file reads, discovery, search, writes, edits and patches, Git status and diff,
-and command run, read and stop. A native module can expose a composite tool
-through its catalog. Sailry Code exposes code_context for symbol lookups with
-source excerpts when the index is available. Other index tools, extra Git
-subcommands and web tools are discoverable on demand.
+Command input is discoverable on demand. On the first request, Harness exposes
+everyday file reads, discovery, search, writes, edits and patches, command run,
+read and stop, and progress tools. A product that assembles Git exposes status
+and diff. Native modules can expose composite tools through their catalogs.
+Sailry Code exposes code_context for symbol lookups with source excerpts when
+the index is available. Other index tools, extra Git subcommands and web tools
+are discoverable on demand.
 `tool_search` discovers other declared tools under the captured permission.
 Provider prompt caches key on the declared tools and system prompt before the
 history, so loading never changes either: a turn declares its initial tools,
@@ -928,12 +927,12 @@ stopping it or writing to it from the same session. Adjacent concurrent reads ca
 run together and retain call order in history. Eligible native reads can begin
 as soon as the model streams their complete arguments. The Node cancels those
 reads on a failed stream and writes their results only after the corresponding
-tool calls commit. A concurrent read that repeats an earlier call of the same
-reply, with arguments equal as JSON, does not run: its result names that call.
+tool calls commit. An identical read can reuse its earlier result within a
+reply until an intervening mutation invalidates it.
 In a batch of native coding tools, reads, searches, foreground commands
-and independent writes can run together. Writes queue by exact file path.
-An edit that consumes a revision from an earlier read of that file waits for
-its receipt. Independent calls can proceed while a same-file write is queued.
+and independent writes can run together. Reads of the same file can overlap.
+When two calls name the same file and either writes it, they run in request
+order. A command or search that depends on an edit belongs in a later batch.
 Approvals are presented one at a time and results retain request order.
 A textual patch matches the current files during preparation. Its approved
 preview captures the revisions used to apply the change.
@@ -1086,11 +1085,11 @@ approval for command input and stopping follows the live process identity.
 | Service | Implemented boundary |
 | --- | --- |
 | Commands | Workspace sandbox on macOS and Linux by default; private temporary files, read-only toolchains and no network; full permission grants the full environment |
-| Files and Git | Captured paths, ignore rules, bounded reads and revision-checked writes. Change sets stop at the first failure. Prepare resolves an omitted edit, delete or move revision from the conversation's last observation. An omitted whole-file write revision creates the file. Full-permission operations that name an outside path use its volume root, with symbolic links resolved in path ancestors. Mixed mutations keep the session worktree's lock and admission receipt and capture checkpoints for eligible files inside it. |
-| Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
+| Files | Captured paths, ignore rules, bounded reads and revision-checked writes. Change sets stop at the first failure. Prepare resolves an omitted edit, delete or move revision from the conversation's last observation. An omitted whole-file write revision creates the file. Full-permission operations that name an outside path use its volume root, with symbolic links resolved in path ancestors. Mixed mutations keep the session worktree's lock and admission receipt; when a product supplies a Git workspace provider, they also capture checkpoints for eligible files. |
+| Terminals | Node owns shared PTY and screen-mirror primitives (`internal/node/terminal`) that local and remote controllers can attach to; interactive project-terminal modules are optional and assembled by downstream products such as Sailry Code |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
-| Code index | Optional product-supplied `codeindexapi.Service` (implemented via on-demand gotreesitter queries and optional Node-wide persistence in Sailry Code) |
+| Code index | Optional product-supplied `codeindexapi.Service` (fail-closed `moduleUnavailable` in stock Harness; implemented via Tree-sitter in Sailry Code) |
 | Local models | Verified explicit installation, one CPU inference at a time, interactive priority and idle engine release |
 | Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
 | Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |
@@ -1098,15 +1097,9 @@ approval for command input and stopping follows the live process identity.
 | Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
-Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, shared PTY/terminal runtime, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (separately distributed packages installed at runtime). Common modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH, and the interactive terminal UI/service module) live in Code, with Harness providing the underlying shared PTY runtime and panel contracts when a product enables them. External Node modules bind through the public `sdk/native` packages; common modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`, `read_provider_account_usage`, scheduled-tasks commands `list/read/save/remove/run_scheduled_task`, `read_scheduled_task_runtime`, `read_scheduled_task_history`, `cancel/stop_scheduled_task_job`, and reminders commands `list/read/save/remove_reminder`, `read_reminder_history`, `deliver_reminder`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are fully native (`code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`, `scheduled-tasks`, `reminders`, `provider-status`, `statistics`) no longer require their historical packages (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and the optional `office` plugin provides Office skills (`excel`, `pdf`, `powerpoint`, `word`).
+Sailry separates capabilities into three layers: **Core** (Node execution runtime, agent loop, protocol/client/link, shared PTY/terminal runtime, and desktop shell/kit/conversation), **Modules** (compile-time features selected by each product's own Desktop and Node entry points), and **Plugins** (separately distributed packages installed at runtime). General modules live in Harness; developer modules (Git, worktrees, code index, external databases, SSH, and the interactive terminal UI/service module) live in Sailry Code, with Harness providing the underlying shared contracts when a product enables them. External Node modules bind through the public `sdk/native` packages; Harness modules bind to the same underlying `internal/node/moduleapi` contract. These modules execute directly in Go with zero JavaScript VM dispatch, provide native management commands (`read_memory_catalog`, `read_memory_entry`, `save_memory_entry`, `delete_memory_entry`, `save_memory_settings`, `read/save_computer_settings`, `read/save_external_browser_settings`, `read_provider_account_usage`, scheduled-tasks commands `list/read/save/remove/run_scheduled_task`, `read_scheduled_task_runtime`, `read_scheduled_task_history`, `cancel/stop_scheduled_task_job`, and reminders commands `list/read/save/remove_reminder`, `read_reminder_history`, `deliver_reminder`) and built-in skills (`web-search:research`), and preserve legacy tool aliases (`plugin_<hash>_<name>` and `mcp_<hash>_<server>_<name>`) for historical transcripts, roles, assistants and presentation lookup. Core-adjacent features whose UI and settings are now native (`media`, `progress`, `code`, `web-search`, `external-browser`, `browser`, `computer`, `memory`, `scheduled-tasks`, `reminders`, `provider-status`, `statistics`) no longer require their historical packages (`RetiredBundled()`), while companion panel packages (`files`, `git`, `worktrees`, `databases`, `ssh`, `commands`) retain their optional Desktop panels and status badges without duplicating Node tool handlers, and the optional `office` plugin provides Office skills (`excel`, `pdf`, `powerpoint`, `word`).
 
 The official plugin feed keeps its original version records readable by installed clients. A package-level `version_requirements` map carries product and module requirements for individual releases. The executing Node checks those requirements against its own product, available services and Harness capability version, including when it opens a captured package from an older turn.
-
-On-demand code relations validate candidate files under the current worktree
-access and ignore rules. A bounded memory cache reuses lexical tests and index
-rows for verified file versions, and small result pages for identical selected
-inputs. It retains neither source bodies nor open indexes and does not enable
-the persistent index.
 
 Hook commands receive one UTF-8 JSON object on standard input followed by EOF.
 The fields are `schema_version` (currently 1), `hook_event_name`, `node_id`,
@@ -1141,18 +1134,11 @@ controllers share the same entry Node. Routed mobile input uses the revision
 returned by its own creation or takeover.
 
 Agent file operations exclude managed-checkout descendants and protected Git
-metadata. Authenticated manual workflows can access registered managed worktrees
-through the scoped resource services. Linux anchors the ancestor mounts of
-protected paths discovered by the command sandbox. The Node also runs native
-Git and its helpers in Bubblewrap, including Git invoked on a newly initialized
-workspace. The workspace and verified linked-worktree metadata are mounted
-read-only for local reads and writable for admitted mutations. A linked
-worktree from a bare repository mounts that repository at its exact path.
-Local Git operations have a private network namespace. Explicit remote commands
-have network access for transfers. Git receives a private home with selected
-commit identity, signing and standard Git LFS settings. The Node account's
-credential helpers, SSH agent and private keys stay outside the Git sandbox.
-User-created terminals use their login-shell
+metadata. Linux anchors the ancestor mounts of protected paths discovered by the
+command sandbox. When a downstream product assembles Git or worktree modules,
+authenticated manual workflows access registered managed worktrees through the
+scoped workspace service (see Sailry Code's `ARCHITECTURE.md` for its Git
+sandboxing details). User-created terminals use their login-shell
 environment. Zsh starts from the Node account's home unless its launch specifies
 a startup directory; parent terminal hooks cannot replace that directory, and
 the user's `.zshenv` can select a custom one. Configured HTTP proxies are trusted
@@ -1222,24 +1208,22 @@ settings pages resolve from the selected owner's installations. The controller
 loads the exact declared view from that owner's package revision and binds its
 actions to the same Client. Desktop-only settings use the local installation
 and settings for a missing or unreachable remote installation show that state.
-Workspace content,
-navigation and details project into the shell's common columns; shell layout owns
-resizing, dividers and visibility. Code selects SSH and database workbenches
-that bind their views to the window's services. The shell owns the reusable
-editors, credential controls and window lifetime, not the connection workflows. The official assembly supplies fresh native
-workspace and settings contributions to each window. Settings navigation and
-search combine these pages with the selected Node's plugin pages. Each source
-updates its own entries. The composer reads model and team choices from the
-Node regardless of which management pages the product includes. Files and Git
-share the core panel editing state; their
-full-page resource lists use the shell's details column, width and fold toggle,
-while conversation tabs retain their compact adaptive layout. Files and Git
-share their own project and worktree selection per window. Their breadcrumb
-opens a project's main worktree. Follow current conversation uses the
-conversation's worktree. Replacement of a historical package contribution is
-scoped to the registered native feature and the verified package identity. Local terminal tabs also
-use the shared native terminal, which packages can embed. A package name does not
-grant a privileged renderer.
+Workspace content, navigation and details project into the shell's common
+columns; shell layout owns resizing, dividers and visibility. The shell owns
+reusable editors (`fileview`), panes (`panes`), credential controls and window
+lifetime, while product-assembled modules or plugins own feature pages and
+workflows (for example, Sailry Code's Files, Git, SSH, Database and Terminal
+workbenches). The product assembly supplies fresh native workspace and settings
+contributions to each window. Settings navigation and search combine these
+pages with the selected Node's plugin pages. Each source updates its own
+entries. The composer reads model and team choices from the Node regardless of
+which management pages the product includes. When Files and Git panels are
+assembled, they share core panel editing state, per-window project/worktree
+selection and the shell's details column, while conversation tabs retain their
+compact adaptive layout. Replacement of a historical package contribution is
+scoped to the registered native feature and the verified package identity.
+Local terminal tabs also use the shared native terminal widget, which packages
+and modules can embed. A package name does not grant a privileged renderer.
 
 `internal/desktop/plugins` maps JavaScript elements and SDK calls to MyGo and Kit.
 The public module names include `gpui-kit`; the implementation is the Go bridge.
@@ -1317,7 +1301,11 @@ Closing or replacing it releases its listeners, pending reads, decoded assets
 and native view handles. An asynchronous completion must still match its owner
 and resource revision before it can publish a result. The Node owns committed
 history and admitted work. The draft controller owns unsaved edits across
-navigation. A view can release its copy independently of either owner.
+navigation. A view can release its copy independently of either owner. Node,
+Client and Desktop register reclaimable caches with the process-wide memory
+governor (`internal/memory` and `sdk/native/memory`), using weak references or
+explicit unregister hooks so periodic idle and heap-pressure sweeps trim stale
+entries without retaining retired owners.
 
 Long lists render the visible rows and a bounded look-ahead. A scroll anchor,
 selection or history cursor can restore navigation after heavier row state is
@@ -1345,31 +1333,19 @@ detail-panel transitions the transcript is laid out at its destination width and
 translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
-Project-created terminals are independent main-workspace surfaces and may share
-split groups with conversations. Opening a conversation (a sidebar row, New
-session, `App.OpenConversation` from links, search or notifications) gives it a
-normal header tab until it is closed, one per target; one in a split shows its
-group. A selection the window falls back to after data changes adds no tab, and
-closing a tab leaves the session's tasks running. Main-workspace terminals keep
-passing and kept tabs; selecting a split-group tab restores its focused pane.
-An enlarged conversation retains its split slot and shares until restored.
-The right panel's tabs, shown tab and open state belong to the active pane:
-each conversation and each main terminal has its own, and a pane that never
-opened the panel shows it closed. A main terminal's panel shows the project and
-worktree its shell runs in, not the selected conversation's, and moving a
-panel's only terminal to the main workspace closes that panel. The sidebar
-selects a main terminal's row only while the conversation page shows it.
-Terminal tabs opened in the right panel stay
-with that pane and do not join splits. A terminal ID has one surface at a
-time; moving it keeps its Node attachment. Closing a main surface releases its
-observation while the Node process continues, available through terminal activity.
-Explicitly closing a right-panel terminal stops its shell. Project overview lists
-active and archived conversations separately, and the running terminals in the
-project's worktrees whichever controller started them; opening one attaches a
-main surface without starting another shell. Mobile's terminal page and a
-conversation's terminal sheet end a shell only through an explicit action;
-the sheet lists the terminals of the conversation's worktree, including the
-scratch worktree of a chat without a project.
+Shared pane and tab lifecycle applies to both conversations and optional
+product-supplied workspace surfaces (such as Sailry Code's main-workspace and
+right-panel terminals). Opening a conversation (a sidebar row, New session, or
+`App.OpenConversation` from links, search or notifications) gives it a normal
+header tab until it is closed, one per target; one in a split shows its group.
+A selection the window falls back to after data changes adds no tab, and closing
+a tab leaves the session's tasks running. An enlarged conversation retains its
+split slot and shares until restored. The right panel's tabs, shown tab and open
+state belong to the active pane, and a pane that never opened the panel shows it
+closed. When a product assembles interactive terminal surfaces, main-workspace
+terminals detach on tab close (keeping the Node process alive in terminal
+activity) while explicitly closing a right-panel terminal stops its shell; see
+Sailry Code's `ARCHITECTURE.md` for Code's workspace and mobile terminal layout.
 
 Client restores the previously loaded history range after a new authoritative
 conversation snapshot, preserving that target even if another reconnect
@@ -1733,7 +1709,8 @@ Add Project `Local | Clone` switcher only when the selected host supports
 
 The desktop product supplies its release-list URL, asset download base, package
 identity and trusted public keys in `product.Desktop.Release`. The Harness
-Desktop updater discovers GitHub Releases-compatible entries and verifies signed
+Desktop updater discovers GitHub Releases-compatible entries (`update-v1.json`
+on macOS and `update-v1-windows.json` on Windows x64) and verifies signed
 catalogs and archives against those keys. Stable selects final versions; the experience channel includes
 prereleases. The macOS updater keeps a backup and exchanges the local app
 bundle on the same volume. Windows x64 uses the signed portable package for
@@ -1835,9 +1812,11 @@ path confinement, private credentials, revision checks and explicit destructive
 actions. Public web reads reject private addresses; browser content and preview
 HTML are untrusted. Native permissions remain the operating system's responsibility.
 
-The checkout contains the Flutter controller (`apps/mobile`), native build inputs
-and locks (`native`), SDK and schemas (`sdk`, `schemas`), source locale catalogs
-(`locales`) and user guides (`docs`). The pairing service ships from the Relay repository. Product copy is generated
+The checkout contains the Flutter controller (`apps/mobile`), shared assets
+(`assets`), Harness native modules (`modules`), native build inputs and locks
+(`native`), SDK and schemas (`sdk`, `schemas`), source locale catalogs
+(`locales`) and user guides (`docs`). The pairing service ships from the Relay
+repository. Product copy is generated
 into `internal/desktop/i18n`. Imported code and resources retain their notices in
 source, `NOTICE` and `third_party_licenses`; the application license does not replace
 them. Profiles, credentials, runtime logs and build artifacts are not source.

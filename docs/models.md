@@ -5,7 +5,7 @@ to run tasks; a remote host does not automatically receive your local credential
 
 ## Add a provider
 
-1. Select the target host, then open **Settings → AI providers**.
+1. Select the target host, then open **Settings → Models**.
 2. Choose **Add provider** and the provider type.
 3. For an API provider, enter its **API endpoint** and **API Key**. Use the
    provider's documented endpoint and matching protocol. OpenAI-compatible

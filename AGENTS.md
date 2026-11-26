@@ -1,8 +1,9 @@
-# Sailry engineering rules
+# Sailry Harness engineering rules
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
 [CONTRIBUTING.md](CONTRIBUTING.md) for development and release commands.
-Official plugin and theme repositories have their own development guides.
+Downstream products such as [Sailry Code](https://github.com/sailry/sailry-code)
+and the official plugin/theme repositories have their own guides.
 
 ## Scope and source of truth
 
@@ -11,8 +12,14 @@ Official plugin and theme repositories have their own development guides.
 - Use current code, schemas and accepted behavior as the baseline. Historical
   implementations and internal plans explain provenance; they do not constrain a
   new implementation or authorize restoring removed UI.
-- The module is `github.com/sailry/sailry-harness`. This checkout contains its
-  locale sources and SDK declarations. It does not include official package catalogs.
+- The Go module is `github.com/sailry/sailry-harness`. It owns the core agent
+  runtime, Client/Link/Protocol, shared Desktop/Mobile shell, general Harness
+  modules under `modules/`, and public `sdk/*` facades. It does not import
+  downstream product code or bundle official plugin/theme catalogs.
+- Developer-specific workbenches and services (`code-index`, `files` workbench,
+  `git`, `worktrees`, `terminal` UI/service, `databases`, `ssh`) belong in
+  `sailry-code`, while Harness retains shared protocol/storage/runtime contracts
+  and fails closed when optional product modules are absent.
 - Keep architecture documentation consistent with code. Explain a non-obvious
   ownership decision where it applies, without copying plans into source comments.
 
@@ -22,6 +29,10 @@ Official plugin and theme repositories have their own development guides.
   owns projection and recovery. Controllers own presentation and drafts.
 - Organize code by feature. Keep entry points and shell routing thin;
   `internal/desktop/live` connects Client state and actions to the UI.
+- Modules register compile-time feature contributions through `internal/node/moduleapi`,
+  Desktop shell registration, or Mobile `MobileAssembly`, with concrete selection
+  isolated to `internal/assembly/*` and downstream `sdk/*` callers. `internal/*`
+  packages must not import `sdk/*` (except `internal/desktop/testassembly`).
 - Plugins own their feature workflows and UI; core provides shared scoped
   services. Native components belong at reusable framework or platform boundaries.
 - Use pinned libraries and existing infrastructure. Avoid speculative interfaces,
@@ -77,11 +88,11 @@ Official plugin and theme repositories have their own development guides.
   one for one.
 - Floating surfaces use Kit's frost. Right-click menus and confirmation-only
   dialogs are OS-native; forms and content dialogs remain Kit surfaces. Shared
-  terminal, editor, preview and conversation components retain their core behavior
-  when embedded by plugins.
+  file-view, pane, terminal-widget, preview and conversation components keep
+  their core behavior when embedded by modules or plugins.
 - Workspace navigation and details use the shell's columns, widths and toggles.
-  The package owns content; the shell owns layout. Closing a surface releases its
-  subscriptions without implicitly stopping admitted tasks.
+  The module or package owns content; the shell owns layout. Closing a surface
+  releases its subscriptions without implicitly stopping admitted tasks.
 - Explain a custom renderer's actual framework gap in its source comment. Verify
   existing components before replacing them, and preserve their functionality.
 - Keep copy short: clear labels and actions, no filler or repeated outcomes.
@@ -89,10 +100,12 @@ Official plugin and theme repositories have their own development guides.
   uncertain effects remain distinguishable. Destructive prompts name the target
   and consequence once.
 - Source, comments, logs, diagnostics and public docs are English; user reports
-  are Chinese. UI translations belong in stable i18n keys and locale catalogs.
-  Update `internal/desktop/i18n/keys.txt` and the root `locales/` sources, then
-  generate the embedded English and Simplified Chinese catalogs. Other Unicode
-  belongs only in intentional fixtures or localized resources.
+  are Chinese. Shared UI translations belong in stable i18n keys and locale
+  catalogs: update `internal/desktop/i18n/keys.txt` and root `locales/`, then
+  run `go generate ./internal/desktop/i18n` to generate all ten embedded catalogs
+  (`en`, `zh-CN`, `zh-TW`, `ja`, `ko`, `fr`, `de`, `es`, `pt-BR`, `ru`). Module
+  translations live in `modules/<name>/desktop/locales/`. Other Unicode belongs
+  only in intentional fixtures or localized resources.
 
 ## GUI resource lifetime and copying
 
@@ -117,8 +130,8 @@ Official plugin and theme repositories have their own development guides.
 - Node JavaScript callbacks have a 64 MiB allocation budget, a 60-second deadline,
   cancellation and the engine's recursion bound. Do not describe that bound as a
   physical stack-byte limit.
-- Dispatch is the Node's calendar on standard timers. Package schedules and
-  automatic backups use that service.
+- Dispatch is the Node's calendar on standard timers. Package schedules, module
+  schedules (scheduled tasks, reminders) and automatic backups use that service.
 - Package content changes need a newer SemVer version to offer an update.
   Same-version changes, build metadata and older precedence are not updates.
   Preserve installed configuration, enabled choices and removal records.

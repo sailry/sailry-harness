@@ -1,12 +1,7 @@
-<p align="center">
-  <img src="assets/readme/hero.zh-CN.svg" width="100%" alt="Sailry：任何一台电脑都能成为你的 AI 工作站。桌面端和手机通过端到端加密的 P2P 链路连接 MacBook、Linux 服务器和 GPU 主机。">
-</p>
+# Sailry Harness
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache-2.0 许可证"></a>
-  <a href="#安装"><img src="https://img.shields.io/badge/desktop-macOS%20·%20Windows-lightgrey?style=flat-square" alt="桌面端支持 macOS 和 Windows"></a>
-  <a href="#安装"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host 支持 macOS 和 Linux"></a>
-  <a href="#安装"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="移动端支持 Android 和 iOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
   <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://awesomemygo.dev/apps/sailry"><img src="https://awesomemygo.dev/badge.svg" alt="已被 Awesome MyGo 收录"></a>
@@ -14,111 +9,97 @@
 
 <p align="center">
   <a href="README.md">English</a> ·
-  <a href="https://sailry.dev/zh/docs/hosts/">主机</a> ·
-  <a href="https://sailry.dev/zh/docs/models/">模型</a> ·
-  <a href="https://sailry.dev/zh/docs/projects/">项目</a> ·
-  <a href="sdk/plugins.md">插件 SDK</a>
+  <a href="ARCHITECTURE.md">架构文档</a> ·
+  <a href="CONTRIBUTING.md">贡献指南</a> ·
+  <a href="sdk/plugins.md">插件 SDK</a> ·
+  <a href="AGENTS.md">工程规范</a> ·
+  <a href="https://github.com/sailry/sailry-code">Sailry Code（用户产品）</a>
 </p>
 
-Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 或 Linux 机器上，紧挨着你的代码和数据，用桌面端或手机来驱动，模型[由你选择](https://sailry.dev/zh/docs/models/)。
+**Sailry Harness**（`github.com/sailry/sailry-harness`）是开源的 AI 智能体运行时框架、Go / Flutter / 插件公共 SDK 以及可独立运行的通用基础应用。它提供本地与远程执行 Node、端到端加密的点对点 Link v2 传输层、Client 状态投影与断线恢复、基于 [MyGo](https://github.com/egoist/mygo) 的原生 GPU 桌面外壳与组件库、Flutter 移动端核心控制器，以及 [`modules/`](modules/) 下的 21 个通用功能模块。
 
-这个仓库提供公共框架和可独立运行的基础应用。[Sailry Code](https://github.com/sailry/sailry-code) 单向依赖它，在自己的仓库维护研发模块、产品配置和发布入口。
-
-Harness 桌面端和前台 Host 默认使用 `~/.sailry-harness`；可通过 `--data-dir` 显式选择其他目录，不会搬迁已有数据。本地 `just desktop dev` 使用独立的 `~/.sailry-harness-dev`。
+> [!TIP]
+> **如果你只是想下载使用 AI 编程工作站：**
+> 请直接前往 **[Sailry Code](https://github.com/sailry/sailry-code)**（[Releases 下载](https://github.com/sailry/sailry-code/releases)）。Sailry Code 是基于 Sailry Harness 组装的官方终端产品，集成了原生的文件工作台、Git 与 Worktree、终端、Tree-sitter 代码图谱、数据库与 SSH，并负责全部桌面端 / Host / 移动端安装包发布。
 
 > [!NOTE]
-> **早期预览版。** Sailry 版本之间变化较快。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
+> **早期预览版。** Sailry Harness 的内部实现与 SDK 接口仍在快速演进。框架缺陷与 SDK 问题请提交到 [GitHub Issues](https://github.com/sailry/sailry-harness/issues)。
+
+## 架构概览
 
 <p align="center">
-  <img src="assets/readme/workspace.webp" width="100%" alt="Sailry 桌面端首页：左侧是主机、进行中的会话和项目，中间是新会话和快捷入口。">
+  <img src="assets/readme/architecture.zh-CN.svg" width="100%" alt="桌面端和手机端 Client 通过端到端加密的 libp2p Link v2 连接（直连不通时回退到 Circuit Relay v2）控制一台或多台 Node。每台 Node 持有智能体执行循环、工具、审批、凭据与规范历史。">
 </p>
 
-## 工作方式
+- **Node（`internal/node/`）**：负责智能体执行循环、工具调用、会话权限审批、模型路由、保存在私有配置目录中的凭据以及 SQLite/Turso 规范历史存储，可内嵌于桌面端或通过 Host 无界面运行。
+- **Link v2 与中继（`internal/link/`）**：基于 libp2p 的端到端加密 P2P 传输，支持六位配对码配对与 Circuit Relay v2 自动回退，无需公网端口转发、VPN 或云账号。
+- **Client（`internal/client/`）**：为桌面端和移动端投影对话流与状态快照，承担断线重连与增量恢复，并统一代理跨主机资源查询。
+- **桌面外壳与组件库（`internal/desktop/`）**：使用 [MyGo](https://github.com/egoist/mygo) 在 GPU 上直接渲染原生界面（不嵌入 Electron 或浏览器内核）。业务模块通过公共槽位挂载页面、工作区面板、会话面板与设置项。
+- **移动端核心（`apps/mobile/`）**：提供 `sailry_mobile` 与基于 Dart FFI 的 `sailry_bridge`，供下游产品通过 `MobileAssembly` 装配专属项目视图。
+- **通用模块（`modules/`）**：21 个与产品形态解耦的通用桌面 / Node 模块，直接参与 Go 编译装配，无需为内置能力引入 JS 桥接开销。
 
-<p align="center">
-  <img src="assets/readme/architecture.zh-CN.svg" width="100%" alt="桌面端和手机通过端到端加密的 P2P 链路（直连不通时走中继）控制一台或多台 Host。每台 Host 在代码和数据旁边运行智能体循环和工具，保管凭据，并调用你选择的模型服务。">
-</p>
+完整的模块依赖表、所有权边界、安全/存储约束以及 GUI 资源生命周期规范请参阅 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-- **任何一台电脑都能成为 Host。** 在笔记本、实验室的 Linux 机器或租来的 GPU 机器上安装 Sailry Host。它作为后台服务运行，合上笔记本也照样继续跑。
-- **在哪都能连上。** 不用开端口、不用 VPN、不用云账号。
+## 下游产品与生态仓库
 
-## 功能
-
-### 不只写代码的智能体
-
-- **编程**：三种工作模式（标准；计划，只做规划、不运行代码也不写文件；协作，由智能体团队分工完成），多文件修改，Git 与 worktree、终端、代码审查。
-- **浏览与操作**：智能体能阅读、点击、截图的内置浏览器；页面元素一键选进对话；桌面电脑操作。
-- **办公**：读取 Word、Excel、PowerPoint 和 PDF（支持 OCR），撰写文档和可交互的 HTML 预览，生成图片和视频，搜索网络和知识库。
-- **持续推进**：长期记忆、可检索的历史会话、做完才停的目标、提醒和定时任务。
-- **连接器**：GitHub、Notion、Slack、Linear、Figma、Google Workspace、Microsoft 365、飞书、钉钉、企业微信等，[更多见插件仓库](https://github.com/sailry/sailry-plugins)。
-- **本地语音和 OCR**：语音输入和文字识别都在你自己的机器上完成。
-
-### 智能体团队，一个位置一个模型
-
-协作模式把任务分给并行的子智能体，每个子智能体用自己的模型——DeepSeek 写代码、Claude 出方案、Codex 攻难题。每一步都在会话里看得见，运行中随时审批。
-
-### Sailry Code 的编码工具
-
-Code 在基础 Node 上装配原生研发模块。结构化工具只返回智能体需要的结果，而不是一大段原始 shell 输出。
-
-- **代码图谱**：符号搜索、文件大纲、调用方与被调用方、改动影响分析，以及按引用排序的项目地图，智能体直接读到该读的代码，不用全仓库盲搜。
-- **数据库**：通过保存的连接访问 PostgreSQL、MySQL 和 SQLite。查询走只读连接；写操作遵循会话的权限策略。智能体通过 ID 使用连接，看不到密码和私钥。
-- **SSH**：在保存的服务器上执行命令、通过 SFTP 传输文件，并固定校验主机密钥。
-
-### 手机就是你的遥控器
-
-用六位配对码把 Android 或 iOS 应用连上桌面端或任意 Host。随时接手任何会话、发送和排队消息、处理审批、查看工具执行过程。不用账号，也没有订阅。
-
-### 原生、轻量、够快
-
-用 Go 编写，基于 [MyGo](https://github.com/egoist/mygo) 的原生 UI 工具包在 GPU 上绘制界面——没有 Electron，也没有内置浏览器内核。启动快，长会话依然流畅，内存留给真正的工作。
-
-### 插件与主题
-
-- **开放标准**：[agent-plugins](https://agent-plugins.org) 插件包、标准的 `SKILL.md` 技能，MCP 服务器可直接接入。
-- **原生插件界面**：用 JavaScript 编写的页面、面板和设置，和应用本身用同一套组件渲染。
-- **主题**：颜色、字体、表面和装饰都来自同一套设计令牌，支持亮色和暗色。官方主题维护在 [sailry-themes](https://github.com/sailry/sailry-themes)。
-- 浏览官方[插件](https://github.com/sailry/sailry-plugins)，或用 Apache-2.0 的 [SDK](sdk/plugins.md) 编写你自己的插件。
-
-## 隐私
-
-Sailry 默认发送匿名错误报告（应用版本、设备类型和错误代码）和匿名功能使用次数，不包含会话、文件、凭据、路径或自定义名称。可以在**设置 › 诊断与隐私**里分别关闭，也可以给桌面端或 Host 设置 `SAILRY_TELEMETRY=off` 或 `DO_NOT_TRACK=1`。
-
-## 安装
-
-[服务端部署指南（Host）](https://sailry.dev/zh/docs/hosts/#before-connecting) · [更新日志](CHANGELOG.md) · [从源码构建](CONTRIBUTING.md#setup)
-
-| | 下载 | 系统要求 |
+| 仓库 | 定位 | 许可证 |
 | --- | --- | --- |
-| **桌面端** | macOS：[Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg)<br>Windows：[x64](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-pc-windows-msvc-setup.exe) | macOS 13+ · Windows 10 及以上（x64）· Linux 计划中 |
-| **Host** | macOS：[Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz)<br>Linux：[x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) | macOS 13+ · Linux（glibc 2.34+）· Windows 计划中 |
-| **移动端** | [Android APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) · [iOS TestFlight](https://testflight.apple.com/join/qaTnVrmQ)（测试版） | Android 7.0+ · iOS 15+ |
+| **[Sailry Code](https://github.com/sailry/sailry-code)** | 基于 `sailry-harness` 构建的官方开源 AI 研发工作站；装配 7 个原生开发模块（`code-index`、`files`、`git`、`worktrees`、`terminal`、`databases`、`ssh`），独立维护产品标识（`~/.sailry-code`）与终端用户发布 | Apache-2.0 |
+| **[sailry-plugins](https://github.com/sailry/sailry-plugins)** | 官方可选运行时插件集合（默认不预装） | Apache-2.0 |
+| **[sailry-themes](https://github.com/sailry/sailry-themes)** | 官方亮色 / 暗色语义主题集合 | Apache-2.0 |
 
-也可以在终端里安装 Host：
+## SDK 与扩展方式
+
+下游 Go / Flutter 产品**单向依赖** [`sdk/`](sdk/) 与 `apps/mobile/` 公共包（禁止导入 `internal/*`，由 CI 强制校验），且新配置目录默认零预装插件和主题：
+
+| 扩展层面 | 公共入口 | 可构建内容 |
+| --- | --- | --- |
+| **Go 桌面端与产品装配** | `sdk/desktop`、`sdk/desktop/harness`、`sdk/desktop/native`、`sdk/desktop/controls`、`sdk/desktop/theme`、`sdk/desktop/view`、`sdk/desktop/settings`、`sdk/desktop/i18n`、`sdk/desktop/icons`、`sdk/desktop/testing`、`sdk/product`、`sdk/release` | 自定义产品桌面端、品牌标识、更新签名校验、原生 MyGo 视图与设置页 |
+| **Go Node 与协议** | `sdk/host`、`sdk/native/node`、`sdk/native/protocol`、`sdk/native/files`、`sdk/native/codeindex`、`sdk/native/link`、`sdk/native/memory`、`sdk/native/process`、`sdk/native/search`、`sdk/native/storage`、`sdk/sdktest` | 自定义无界面 Host、原生 Node 智能体工具、受作用域约束的工作区服务与契约测试 |
+| **Flutter 移动端核心** | `apps/mobile/`（`sailry_mobile`、`sailry_bridge`、`MobileAssembly`） | 定制 Android/iOS 移动端遥控器与专属项目资源视图 |
+| **运行时插件（`moejs` / MCP）** | [sdk/plugins.md](sdk/plugins.md)、`sdk/desktop/*.d.ts`、`sdk/node/*.d.ts` | 跨平台 JS 原生界面与 Node 回调，同时兼容 [agent-plugins](https://agent-plugins.org)、`SKILL.md` 与 MCP |
+
+## 内置通用能力
+
+作为可运行的通用基础应用，Sailry Harness 默认提供以下能力：
+
+- **工作模式与并行子智能体**：标准（Standard）、计划（Plan 只读规划）与协作（Collaborate 并行子智能体，支持按角色覆盖模型），全程可见执行步骤与审批。
+- **核心工作区工具**：沙箱命令执行（`run_command`，含 Linux Bubblewrap 与平台约束）、受路径边界保护的文件读写/编辑/补丁及检索。
+- **浏览器与桌面操作**：内置与外部浏览器自动化（`browser`、`external-browser`）及桌面电脑操作（`computer`）。
+- **办公、搜索与媒体**：读取 Word/Excel/PowerPoint/PDF（支持本地 OCR）、可交互 HTML 预览、图片与视频生成（`media`）、网络搜索（`web-search`）与本地知识库。
+- **持续推进与本地语音**：长期记忆、可检索会话历史、目标/提醒/定时任务、用量统计、服务商额度状态与本地语音听写。
+
+<a id="安装"></a>
+## 开发快速上手
+
+按 [CONTRIBUTING.md](CONTRIBUTING.md#setup) 配置前置依赖（**Go 1.27.3**、用于编译本地 Turso 动态库的 **Rust**、移动端所需的 **Flutter**，以及 Linux 沙箱所需的 **Bubblewrap**）后，从源码构建并运行：
 
 ```sh
-curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
+just native
+just desktop        # 启动通用基础应用（使用 ~/.sailry-harness）
+just desktop dev    # 使用隔离的开发配置目录 ~/.sailry-harness-dev
+just host           # 以 .runtime/profiles/host 启动无界面 Host
+just check          # 检查格式、构建、运行 vet 和测试
 ```
 
-## 开始使用
+- **与 Sailry Code 联调**：在本地 [Sailry Code](https://github.com/sailry/sailry-code) 仓库根目录创建不入库的 `go.work` 指向 `../sailry-go`，Code 的 `dev.sh` 即可直接使用你的本地 Harness 修改运行测试与桌面端。
+- **版本发布**：[Sailry Harness Releases](https://github.com/sailry/sailry-harness/releases) 仅保留历史修复版本；新的终端用户安装包统一由 [Sailry Code Releases](https://github.com/sailry/sailry-code/releases) 发布。
 
-1. 在**设置 › 模型**里[添加模型服务商](https://sailry.dev/zh/docs/models/#add-a-provider)，填 API 密钥或登录 ChatGPT、Claude 账号。
-2. 在**本机**或已连接的 Host 上，把现有文件夹或克隆的仓库添加为项目。
-3. 选择**创建会话**，选定模型，描述你的任务。
-4. [添加 Host 并配对设备](https://sailry.dev/zh/docs/hosts/#install-and-pair)，随时随地继续工作。
+## 文档索引
 
-使用指南（英文）：[模型配置](https://sailry.dev/zh/docs/models/) · [远程主机](https://sailry.dev/zh/docs/hosts/) · [项目与会话](https://sailry.dev/zh/docs/projects/)
+- **框架与工程文档**：[架构文档](ARCHITECTURE.md) · [贡献与 CI 指南](CONTRIBUTING.md) · [工程规范](AGENTS.md) · [插件 SDK v1](sdk/plugins.md) · [安全策略](SECURITY.md)
+- **共享运行时指南**（同步至 `sailry.dev/docs/`）：[模型配置](docs/models.md) · [远程主机](docs/hosts.md) · [项目与会话](docs/projects.md) · [中继部署](docs/relays.zh-CN.md)
 
-## 交流与合作
+## 遥测、社区与许可证
 
-加入 [Discord](https://discord.gg/MCDktmDey)，或加我微信进交流群。Bug 反馈和功能请求请使用[GitHub Issues](https://github.com/sailry/sailry-harness/issues)，更容易跟踪；安全漏洞请按 [SECURITY.md](SECURITY.md) 私下报告。想参与贡献，请先看 [CONTRIBUTING.md](CONTRIBUTING.md)。
+程序默认发送匿名错误报告和匿名功能计数（不包含对话、文件、凭据、路径或自定义名称），可在 **设置 › 通用 › 诊断与隐私** 中分别关闭，或设置环境变量 `SAILRY_TELEMETRY=off` / `DO_NOT_TRACK=1`。公开模型评分元数据源自 [ModelDial](third_party_licenses/modeldial.md)。
+
+欢迎加入 [Discord](https://discord.gg/MCDktmDey) 或扫描下方微信二维码进入交流群；Bug 与需求请提交到 [GitHub Issues](https://github.com/sailry/sailry-harness/issues)。
 
 <p align="center">
   <img src="assets/readme/wechat.png" width="200" alt="Sailry 交流群微信二维码">
 </p>
 
-## 许可证
-
-Sailry 采用 [Apache-2.0](LICENSE) 许可证，[sdk/](sdk/) 中的插件 SDK、官方[插件](https://github.com/sailry/sailry-plugins)与[主题](https://github.com/sailry/sailry-themes)同样采用 Apache-2.0。许可证不包含 Sailry 名称和 Logo 的使用权，详见 [TRADEMARKS.md](TRADEMARKS.md)。第三方材料保留各自的许可证，详见 [NOTICE](NOTICE) 和[第三方许可声明](third_party_licenses/)。
+本项目基于 [Apache-2.0](LICENSE) 开源（包括 [`sdk/`](sdk/)、[sailry-plugins](https://github.com/sailry/sailry-plugins) 与 [sailry-themes](https://github.com/sailry/sailry-themes)）。Sailry 名称和商标权益见 [TRADEMARKS.md](TRADEMARKS.md)；第三方许可声明见 [NOTICE](NOTICE) 与 [third_party_licenses/](third_party_licenses/)。
 
 [![贡献者](https://contrib.rocks/image?repo=sailry/sailry-harness)](https://github.com/sailry/sailry-harness/graphs/contributors)

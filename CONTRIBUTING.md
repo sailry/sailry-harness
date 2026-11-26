@@ -20,9 +20,10 @@ requested.
 Requirements:
 
 - Go 1.27.3 and Git.
-- Linux Git workflows use the system Bubblewrap with `--bind-fd` and
-  `--ro-bind-fd` support (0.10 or a distribution backport), and a kernel
-  with `openat2` (Linux 5.6 or later) and working user namespaces.
+- Linux command sandboxes use system Bubblewrap and working user namespaces.
+  Sailry Code's Git sandbox additionally needs `--bind-fd` and `--ro-bind-fd`
+  (Bubblewrap 0.10 or a distribution backport) and kernel support for `openat2`
+  (Linux 5.6 or later).
 - The MyGo and other module versions pinned in `go.mod`, with their platform
   runtime dependencies. Do not edit module-cache sources.
 - Native builds use the Rust toolchain and dependency locks under `native/`.
@@ -117,9 +118,12 @@ window bounds and `shell.Prefs` in its application-data folder. For implementer
 UI checks, isolate that folder with MyGo's path override in a disposable harness.
 
 With [just](https://just.systems) installed, `just --list` shows recipes for these
-commands with the same environment: `just preview`, `just desktop <name>` and
-`just host <name>` (profiles under `.runtime/profiles/<name>`), `just check` for
-the standard Go checks, and the test, plugin, pairing-service and Mobile recipes.
+commands with the same environment: `just tools` to verify pinned toolchains,
+`just preview`, `just demo`, `just desktop <name>` and `just host <name>`
+(profiles under `.runtime/profiles/<name>`), `just native` / `just native-fetch`
+for local libraries, `just check`, `just test-desktop` and `just test-backend`
+for Go checks, and the plugin, `just relay-build`, `just test-pairing-relay`,
+and `just mobile-*` / `just check-mobile` recipes.
 
 Implementer checks use `--data-dir .runtime/profiles/<fixed-name>` or
 `just desktop <fixed-name>`. The user-facing `just desktop` and `just desktop dev`
@@ -130,17 +134,21 @@ do not use them for routine automated checks. Tests use `t.TempDir()`.
 
 | Path | Responsibility |
 |---|---|
-| `cmd/sailry-desktop` | Official Desktop command and packaging |
+| `cmd/sailry-desktop` | Official Harness Desktop command and packaging |
+| `internal/assembly/{desktop,host}` | Harness's default Desktop and Node module assemblies |
+| `internal/identity` | Leaf Harness version, profile defaults (`~/.sailry-harness`) and update public keys |
+| `modules/<name>/{desktop,node}` | Common Harness workspace, settings and Node runtime modules |
 | `internal/desktop/application` | Reusable Desktop startup, shared local Node and explicit preview |
 | `internal/desktop/{shell,sidebar,conversation,composer,panel,panes,settings,host,transfers,onboarding}` | Accepted UI, state machines, view models and actions |
 | `internal/desktop/{kit,theme,i18n,icons,viewmodel}` | Shared UI components, themes, copy, icons and neutral presentation contracts |
 | `internal/desktop/{live,preferences,preview}` | Live action adapters, profile controller settings and isolated simulation |
 | `locales/` | Source catalogs for local i18n generation |
+| `assets/` | Shared branding icons, model catalogs and README media |
 | `docs/` | Public user guides linked from the README and published on the website |
 | `schemas/` | Published v1 plugin contract schemas and the Agent Plugins manifest schema |
 | `third_party_licenses/` | Index of third-party notices, shared license texts and the Go module list |
 | `justfile` | Local recipes for the commands in this document |
-| `sdk/` | The v1 plugin contract and its declarations |
+| `sdk/` | Public Go SDK (`sdk/desktop`, `sdk/host`, `sdk/native/*`, `sdk/product`, `sdk/release`, `sdk/sdktest`) and v1 plugin TypeScript declarations + `sdk/plugins.md` |
 | `internal/{protocol,link,client,core,node,...}` | Backend packages ([ARCHITECTURE.md](ARCHITECTURE.md#components-and-dependencies)) |
 | `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries |
 | `native/` | Pinned native libraries and their build inputs |
@@ -256,10 +264,14 @@ and full indexing.
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
 pull requests, on `main`, manually, and when `release.yml` calls it:
 
-- `lint`: Go formatting, concurrent `go vet -tags integration ./...` for Linux,
-  Windows and macOS, and `CGO_ENABLED=1 go vet ./cmd/sailry-mobile`. The tag
-  adds the integration files to the default ones, so integration tests that no
-  routine job runs are still compiled.
+- `lint`: Go formatting, the `Architecture boundaries` check (verifying no
+  `internal/*` package imports `sdk/*`, except `internal/desktop/testassembly`),
+  CI script fixtures (`test_test.sh`, `reuse-ci_test.sh`,
+  `test_release_workflows.py`, `test_sentry_intake.py`, `sentry_repair_test.py`,
+  `sentry-draft_test.sh`), concurrent `go vet -tags integration ./...` for
+  Linux, Windows and macOS, and `CGO_ENABLED=1 go vet ./cmd/sailry-mobile`. The
+  tag adds the integration files to the default ones, so integration tests that
+  no routine job runs are still compiled.
 - `test`: Linux runs the complete Go suite with cgo disabled on code changes
   (changes only to documentation, licenses or `apps/mobile` skip Go jobs). Four lanes, `linux-0` through
   `linux-3`, balance complete packages and the top-level tests, examples and
@@ -271,8 +283,7 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
   in `.github/scripts/platform-tests.tsv`. Tests in OS-suffixed or
   OS-build-constrained files compiled for that OS join automatically, including
   new cases. A suite entry naming a missing package or matching no test fails
-  the lane. The three-platform vet still checks the full test source. The
-  routing fixture runs in `lint` with a fake Go: `bash .github/scripts/test_test.sh`.
+  the lane. The three-platform vet still checks the full test source.
 - `race`: runs `CGO_ENABLED=1 go test -race` on concurrency-heavy backend, Link
   and Mobile adapter packages and saves its own `go-cache` role.
 - Go setup and cache handling share local actions. Full Go jobs and Mobile jobs
@@ -286,9 +297,10 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
   jobs install and cache the Flutter version named in
   `apps/mobile/.flutter-version`, Pub packages, Gradle dependencies and the
   Android toolchain through local actions.
-- `native`: stage the pinned Turso and capture libraries for supported targets,
-  plus the app-local C++ runtime on Windows. The `native-<goos>-<goarch>`
-  artifact includes `SHA256SUMS` and is read by `native/fetch -artifacts`.
+- `native`: stage the pinned Turso and capture libraries (including
+  `native/capture/miniaudio.lock.json`) for supported targets, plus the
+  app-local C++ runtime on Windows. The `native-<goos>-<goarch>` artifact
+  includes `SHA256SUMS` and is read by `native/fetch -artifacts`.
 - `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds
   for Mobile, shared Client/Link/Protocol/Identity or build-input changes
   (test-only Mobile edits skip the iOS/APK release builds); CI uses a disposable
@@ -308,8 +320,9 @@ integration checks and tag releases keep their own runs.
 
 New end-user releases belong to [Sailry Code](https://github.com/sailry/sailry-code). Harness runs upstream CI; a new Harness tag does not automatically publish applications. Existing Harness downloads and signatures remain valid. Switching products requires a manual first install, not an update signed by the old publisher. The following describes the historical Harness release workflow retained for explicit repairs. Every job has read-only repository access except `publish`:
 
-- `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
-  and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
+- `version`: the tag must equal `OfficialVersion` in `internal/identity/identity.go`,
+  the `mygo.json` version and the `pubspec.yaml` version, and `CHANGELOG.md` must
+  hold the entry.
 - `checks`: reuse a successful default-branch CI run for the exact source
   commit, then run integration tests. Go checks require a successful lint job,
   race job and all six test lanes; Flutter checks are reused only if that run
@@ -323,8 +336,9 @@ New end-user releases belong to [Sailry Code](https://github.com/sailry/sailry-c
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the
   libraries of the Windows native leg.
 - `host-linux` (x64 and arm64): `internal/node/host/deployment/archive.sh`.
-- `android`, `ios`: the signed APK and the App Store IPA; the IPA goes to
-  TestFlight and stays a workflow artifact.
+- `android`, `ios`: the signed APK and the App Store IPA stay workflow artifacts;
+  iOS uploads to TestFlight only when `upload_testflight: true` is supplied
+  (`false` by default).
 - `publish`: signs the Desktop update feed, writes the checksum files, takes
   the release notes from the tag's `CHANGELOG.md` entry and uploads to the
   tag's draft release only what it does not hold yet. An existing asset with
@@ -405,7 +419,7 @@ Signing credentials, profiles, binaries and native artifacts never enter Git.
 
 `go run ./native/fetch` stages one target's pinned native artifacts in
 `.runtime/native/<goos>-<goarch>/` after checking each download against the
-lock files (`native/*.lock.json` and
+lock files (`native/*.lock.json`, `native/capture/miniaudio.lock.json` and
 `internal/localmodels/decision/llama-runtime.lock.json`). Turso and capture
 come from their native build on the target or the CI native job with
 `-artifacts <dir>`; `-bundle <dir>` copies the shipped set and `-host`
@@ -649,11 +663,11 @@ these areas are a guide for choosing checks, not additional automated gates.
 | --- | --- |
 | Startup and shutdown | Open the intended profile, restore the window, reject a second profile owner and close with active work or unsaved drafts |
 | Conversation | Send, stream, stop, queue guidance, approve tools, answer questions and restore history; verify a split pane's independent draft and focus |
-| Resource workspaces | Navigate files, Git, SSH and database views; resize shell columns, switch resources and preserve drafts and captured scope |
+| Harness workspaces and pages | Navigate Market, Reminders, Scheduled tasks, Usage, the Browser panel and core Settings pages; resize shell columns, switch hosts and preserve drafts |
 | Plugin lifecycle | Open navigation and settings, leave and return, disable or update a package, and verify stale callbacks cannot act on a new view |
-| Files and terminals | Attach and preview a file, save with a revision conflict, type in a terminal, resize it and close its view without confusing detach with stop |
+| Files and attachments | Attach and preview a file in the shared viewer, run workspace file tools and verify path confinement |
 | Model transport | Use scripted failures for retry, cancellation and uncertain outcomes; account sign-in and real requests require explicit account acceptance |
-| Connections | Disconnect and reconnect a Host, recover observations and inspect an uncertain original request without repeating its effect |
+| Connections | Disconnect and reconnect a Host, pair via 6-digit code, recover observations and inspect an uncertain original request without repeating its effect |
 | Diagnostics | Check host metrics, physical-disk scope and plugin heap estimates; hidden diagnostics must stop their own polling |
 | Appearance | Check the changed surface in light/dark and English/Simplified Chinese, including focus, menus, translated labels and clipping |
 | Packaging | Launch the target artifact with isolated data, load its sealed native resources and exercise the affected packaged feature |
@@ -692,80 +706,14 @@ distinct relay identities. The updater retains an existing service's arguments;
 replace a retired HTTPS `--relay` argument with a libp2p multiaddr or `--internet`
 before upgrading. Old peer addresses need refreshing after both ends upgrade.
 
-Build the data relay and test the pairing service in the [Relay repository](https://github.com/sailry/sailry-relay).
-`just test-pairing-relay` runs against the adjacent Relay checkout. Pass the checkout path to test another revision.
-
-`sailry-relay start` runs in the foreground. It reads the file passed with
-`--config`, or `./relay.toml` if no path is passed. For a public TCP relay, use
-this configuration and replace the example `announce_ip` with the server's
-reachable IP address. A wildcard `listen_ip` requires a non-loopback announce IP:
-
-```toml
-mode = "public"
-listen_ip = "0.0.0.0"
-port = 4001
-announce_ip = "203.0.113.10"
-data_dir = "/var/lib/sailry-libp2p-relay"
-```
-
-Keep the absolute private `data_dir` across restarts and upgrades. The default
-TCP listener is `127.0.0.1:4001`. With TOML, `--port` is the only override: it
-sets both TCP ports for that run without changing the file. Without a TOML file,
-pass an absolute `--data-dir` and either `--public` or one or more
-`--allow <PeerID>` flags. Full TCP or QUIC-v1 `--listen` and `--announce`
-multiaddrs are supported without TOML; `--listen` cannot be combined with
-`--port`. Existing `serve` commands keep their flags and do not read TOML.
-
-Public mode accepts standard libp2p peers without enrollment. Private mode uses
-`mode = "private"` with `allowed_peers = ["<PeerID>", ...]` (or repeated `--allow`
-without a config file); both ends of a relayed circuit must be allowed. Neither
-mode changes the Host's PIN pairing or authorization. Token-based and multi-token
-relay admission are not implemented. Circuit Relay v2 bounds reservations per IP
-and globally, and each circuit's duration and traffic. `id --data-dir <directory>`
-prints the existing relay's public PeerID.
-
-On BaoTa, set one Go project's executable to the full path of the extracted
-`sailry-relay` and pass `start --config <absolute-config-path>` as arguments.
-Use the project's private, persistent state directory and let BaoTa supervise
-restarts and boot startup. Do not also install the relay's systemd unit. Make
-the TCP port reachable through any firewall or NAT in front of the relay; no
-relay command opens ports for you.
-
-On Linux with systemd and no other manager, run `sudo ./sailry-relay daemon
-install --config ./relay.toml` from the extracted package. Without `--config`,
-the installer uses `/etc/sailry-relay/relay.toml` if present, otherwise
-`./relay.toml`. It installs `/usr/local/bin/sailry-relay` and
-`/etc/systemd/system/sailry-relay.service` without taking over an existing
-service or replacing an existing managed config. The unit runs as `sailry-relay`,
-starts at boot, and restarts after an exit with a five-second delay.
-
-For a managed relay, choose an absolute `data_dir` such as
-`/var/lib/sailry-libp2p-relay`, not a managed file or its containing directory.
-The parent directories must already exist, be root-owned and be neither
-symlinks nor writable by group or other users. The installer creates the state
-directory if absent. A directory it reuses must be owned by the dedicated
-`sailry-relay` user and group with mode `0700`, and must be empty or contain
-only the existing private `link.key`.
-
-To change the managed configuration, edit `/etc/sailry-relay/relay.toml` in
-place and run `sudo /usr/local/bin/sailry-relay daemon restart`. The service
-reads the installed file, not a separate source copy supplied at install time.
-`daemon start`, `stop`, `restart` and `status` operate on the installed unit;
-only `status` can run without root. `stop` does not disable the service at the
-next boot.
-
-`sudo /usr/local/bin/sailry-relay daemon update` checks the Relay repository
-for a newer stable release and verifies its
-Linux architecture archive against the published SHA-256. It does not use
-GitHub tokens or support multi-token fallback. For an offline update, use
-`sudo sailry-relay daemon update <binary> --sha256 <digest>` with the SHA-256
-of the extracted executable, not the archive. If the online check finds no
-newer release, it leaves the service unchanged. Applying either update restarts
-a running relay or starts a stopped one, then authenticates its existing PeerID
-with a libp2p probe. If activation fails, the updater restores the previous
-binary and attempts to return the service to its prior running or stopped
-state. The update does not write the managed `relay.toml` or the relay's
-`link.key`.
+Build the data relay and test the pairing service in the
+[Relay repository](https://github.com/sailry/sailry-relay).
+`just test-pairing-relay` runs against the adjacent Relay checkout and
+`just relay-build` builds `sailry-libp2p-relay`; pass the checkout path to build
+or test another revision. Relay installation, configuration (`relay.toml`,
+public/private PeerID allowlists), systemd/BaoTa supervision and `daemon update`
+instructions live in [docs/relays.md](docs/relays.md) (and
+[docs/relays.zh-CN.md](docs/relays.zh-CN.md)).
 
 `sailry link --data-dir <profile>` selects direct connections or a relay, saves
 the selection with a revision check, and publishes a private six-digit pairing
