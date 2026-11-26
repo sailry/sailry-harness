@@ -2,15 +2,19 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	"errors"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/node/agent/clock"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
@@ -111,6 +115,17 @@ type Runtime struct {
 	statisticsChanges statisticsDependencies
 	statisticsOwners  sync.WaitGroup
 	statisticsStopped bool
+	stateMu           sync.Mutex
+	stateLRU          list.List
+	stateIndex        map[protocol.SessionID]*list.Element
+	stopMemory        func()
+}
+
+const maxCachedAgentStates = 8
+
+type cachedAgentState struct {
+	session protocol.SessionID
+	state   store.AgentState
 }
 
 // TurnCompletion splits a captured workflow's ordered settlement from normal
@@ -202,7 +217,15 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 	base = store.WithToolPresentation(base, options.ToolPresentation)
 	base = model.WithRequestObserver(base, options.RequestObserver)
 	ctx, cancel := context.WithCancel(base)
-	return &Runtime{systemPrompt: strings.TrimSpace(options.SystemPrompt), telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, cooldowns: options.Cooldowns, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, turnCompletion: options.TurnCompletion, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}}
+	r := &Runtime{systemPrompt: strings.TrimSpace(options.SystemPrompt), telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, maxModelSteps: maxSteps, nativeSkills: options.NativeSkills, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, cooldowns: options.Cooldowns, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, turnCompletion: options.TurnCompletion, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]statisticsFlight{}, stateIndex: map[protocol.SessionID]*list.Element{}}
+	weakRuntime := weak.Make(r)
+	r.stopMemory = memory.Default().Register("engine.agent_states", func(level memory.Level) {
+		if owner := weakRuntime.Value(); owner != nil {
+			owner.clearStateCache()
+		}
+	})
+	runtime.AddCleanup(r, func(stop func()) { stop() }, r.stopMemory)
+	return r
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
@@ -262,6 +285,10 @@ func (r *Runtime) run() {
 		r.statisticsStopped = true
 		r.statisticsMu.Unlock()
 		r.statisticsOwners.Wait()
+		r.clearStateCache()
+		if r.stopMemory != nil {
+			r.stopMemory()
+		}
 	}()
 	for {
 		select {

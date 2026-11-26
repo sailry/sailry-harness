@@ -117,6 +117,33 @@ func TestFramePlain(t *testing.T) {
 		}
 	})
 
+	t.Run("shrinks oversized payload buffer", func(t *testing.T) {
+		var largeStream bytes.Buffer
+		large := strings.Repeat("x", maxRetainedPayload+4096)
+		if err := Write(&largeStream, large, false); err != nil {
+			t.Fatal(err)
+		}
+		reader := NewReader(false)
+		var gotLarge string
+		if err := reader.Read(&largeStream, &gotLarge); err != nil || gotLarge != large {
+			t.Fatalf("read large = %v", err)
+		}
+		if reader.payload != nil || cap(reader.payload) != 0 {
+			t.Fatalf("retained oversized payload capacity %d > 0", cap(reader.payload))
+		}
+		var smallStream bytes.Buffer
+		if err := Write(&smallStream, "small", false); err != nil {
+			t.Fatal(err)
+		}
+		var gotSmall string
+		if err := reader.Read(&smallStream, &gotSmall); err != nil || gotSmall != "small" {
+			t.Fatalf("read small after shrink = %q, %v", gotSmall, err)
+		}
+		if cap(reader.payload) > maxRetainedPayload {
+			t.Fatalf("small read reallocated oversized buffer %d", cap(reader.payload))
+		}
+	})
+
 	t.Run("invalid wire objects", func(t *testing.T) {
 		for _, input := range []string{`{}`, `{"kind":"unknown"}`, `{"kind":"command"}`, `{"kind":"open_stream","data":null}`} {
 			var call Call

@@ -8,7 +8,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const payloadStep = 64 << 10
+const (
+	payloadStep        = 64 << 10
+	maxRetainedPayload = 256 * 1024
+)
 
 type Reader struct {
 	prefix      [4]byte
@@ -115,6 +118,9 @@ func (reader *Reader) raw(stream io.Reader, maximum int) (json.RawMessage, error
 	reader.prefixRead = 0
 	reader.payloadRead = 0
 	clear(reader.payload)
+	if cap(reader.payload) > maxRetainedPayload {
+		reader.payload = nil
+	}
 	return result, nil
 }
 

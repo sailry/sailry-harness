@@ -1,4 +1,4 @@
-package node
+package files
 
 import (
 	"strings"
@@ -35,3 +35,5 @@ func workspaceNameKey(parent, name string) string {
 	}
 	return name
 }
+
+func volumeKey(root string) string { return root }

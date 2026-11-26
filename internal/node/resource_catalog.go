@@ -555,6 +555,22 @@ func (node *Node) invalidateResourceProjection(source protocol.NodeID) {
 	})
 }
 
+func (node *Node) clearResourceProjections() {
+	resourceProjections.Range(func(key, value any) bool {
+		identity := key.(resourceProjectionKey)
+		if identity.owner != node {
+			return true
+		}
+		state := value.(*resourceProjection)
+		state.mu.Lock()
+		state.removed = true
+		state.source = protocol.ResourceSource{}
+		state.mu.Unlock()
+		resourceProjections.Delete(key)
+		return true
+	})
+}
+
 func (node *Node) resourceSourceCurrent(ctx context.Context, source protocol.NodeID, remote *client.Client) bool {
 	if node.controllerClients()[source] != remote {
 		return false

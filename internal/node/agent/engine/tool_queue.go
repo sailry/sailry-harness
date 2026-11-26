@@ -9,10 +9,9 @@ import (
 )
 
 type toolAccess struct {
-	parallel          bool
-	read              bool
-	needsReadRevision bool
-	paths             []string
+	parallel bool
+	read     bool
+	paths    []string
 }
 
 func parallelToolAccess(tool *Tool, call canonical.ToolRequest) toolAccess {
@@ -25,14 +24,7 @@ func parallelToolAccess(tool *Tool, call canonical.ToolRequest) toolAccess {
 	}
 	if tool.FilePaths != nil {
 		paths := tool.FilePaths(call)
-		access := toolAccess{parallel: len(paths) > 0, paths: paths, read: tool.ReadOnly}
-		if !tool.ReadOnly && tool.ObserveHistory != nil && op != protocol.ToolOperationWriteFile {
-			var args struct {
-				Expected json.RawMessage `json:"expected_revision"`
-			}
-			access.needsReadRevision = json.Unmarshal(call.Arguments, &args) == nil && len(args.Expected) == 0
-		}
-		return access
+		return toolAccess{parallel: len(paths) > 0, paths: paths, read: tool.ReadOnly}
 	}
 	switch op {
 	case protocol.ToolOperationFindFiles, protocol.ToolOperationListDirectory, protocol.ToolOperationSearchFiles:
@@ -47,9 +39,8 @@ func parallelToolAccess(tool *Tool, call canonical.ToolRequest) toolAccess {
 	}
 }
 
-// Writers follow earlier writes to the same files and, when they need a
-// revision, earlier reads of those files. Admission stays on the caller
-// goroutine so only one approval is pending. All launched effects drain.
+// Reads can overlap. Writes on the same file run in request order with both
+// reads and writes. Admission stays on the caller goroutine.
 func runQueuedTools(ctx context.Context, start int, access []toolAccess, admit func(int) error, execute, complete func(int)) error {
 	if len(access) == 1 {
 		if err := admit(start); err != nil {
@@ -71,19 +62,17 @@ func runQueuedTools(ctx context.Context, start int, access []toolAccess, admit f
 	}
 	for i, call := range access {
 		for _, file := range call.paths {
+			if prev, ok := last[file]; ok && prev != i {
+				after(i, prev)
+			}
 			if call.read {
 				readers[file] = append(readers[file], i)
 				continue
 			}
-			if prev, ok := last[file]; ok && prev != i {
-				after(i, prev)
+			for _, read := range readers[file] {
+				after(i, read)
 			}
-			if call.needsReadRevision {
-				for _, read := range readers[file] {
-					after(i, read)
-				}
-				delete(readers, file)
-			}
+			delete(readers, file)
 			last[file] = i
 		}
 		if pending[i] == 0 {

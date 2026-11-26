@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -210,6 +211,7 @@ func TestPatchMovesCaseVariantsAndHardLinks(t *testing.T) {
 		link                           bool
 	}{
 		{"nested rename", "new/dir/renamed", "", "original\n", false},
+		{"nested rename with edit", "new/dir/renamed", "@@\n-original\n+edited\n", "edited\n", false},
 		{"case rename", "foo", "", "original\n", false},
 		{"case rename with edit", "foo", "@@\n-original\n+edited\n", "edited\n", false},
 		{"move over hard link", "hardlink", "", "original\n", true},
@@ -252,12 +254,80 @@ func TestPatchMovesCaseVariantsAndHardLinks(t *testing.T) {
 			if got, err := os.ReadFile(destination); err != nil || string(got) != tt.want {
 				t.Fatalf("destination: %q %v", got, err)
 			}
+			if !tt.link && runtime.GOOS != "windows" {
+				info, err := os.Stat(destination)
+				if err != nil || info.Mode().Perm() != 0o700 {
+					t.Fatalf("rename changed executable permissions: %v, %v", info, err)
+				}
+			}
 			if tt.link {
 				if got, err := os.ReadFile(filepath.Join(root, "retained")); err != nil || string(got) != "original\n" {
 					t.Fatalf("retained hard link: %q %v", got, err)
 				}
 			}
 		})
+	}
+}
+
+func TestPatchReadsEarlierHunksThroughCaseAliases(t *testing.T) {
+	root, _ := filesFixture(t)
+	if err := os.WriteFile(filepath.Join(root, "Foo"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "foo")); os.IsNotExist(err) {
+		t.Skip("case-sensitive directory")
+	}
+	patch := `*** Begin Patch
+*** Delete File: Foo
+*** Add File: foo
++new
+*** Update File: FOO
+*** Move to: Other
+*** Update File: Other
+*** Move to: other
+@@
+-new
++edited
+*** End Patch`
+	p, err := PreparePatch(t.Context(), root, patch, protocol.WorktreeID{}, core.ManualFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Apply(t.Context(), root, p)
+	if err != nil || out.Data.(protocol.FileChanges).Status != protocol.ChangesStatusApplied {
+		t.Fatalf("apply: %+v, %v", out, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "other")); err != nil || string(got) != "edited\n" {
+		t.Fatalf("destination: %q, %v", got, err)
+	}
+}
+
+func TestPatchMovesAndEditsAboveWriteLimit(t *testing.T) {
+	root, _ := filesFixture(t)
+	unchanged := strings.Repeat("x", protocol.MAX_WRITE_BYTES) + "\n"
+	before, after := "old\n"+unchanged, "new\n"+unchanged
+	if err := os.WriteFile(filepath.Join(root, "source"), []byte(before), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	patch := "*** Begin Patch\n*** Update File: source\n*** Move to: nested/target\n@@\n-old\n+new\n*** End Patch"
+	prepared, err := PreparePatch(t.Context(), root, patch, protocol.WorktreeID{}, core.ManualFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for i, entry := range prepared.Changes {
+		total += patchTextBytes(entry, prepared.Changes[:i])
+	}
+	if total != len(before)+len(after) {
+		t.Fatalf("move and edit accounted for %d bytes, want %d", total, len(before)+len(after))
+	}
+	out, err := Apply(t.Context(), root, prepared)
+	if err != nil || out.Data.(protocol.FileChanges).Status != protocol.ChangesStatusApplied {
+		t.Fatalf("apply: %+v, %v", out, err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "nested", "target"))
+	if err != nil || string(got) != after {
+		t.Fatalf("moved file differs after edit (size %d): %v", len(got), err)
 	}
 }
 
@@ -272,7 +342,7 @@ func TestMoveCreatesPatchParentsOnlyAfterRevisionCheck(t *testing.T) {
 	if err := fs.MoveFile(ctx, "source", dst, revision([]byte("original\n")), false); err == nil {
 		t.Fatal("ordinary move created missing parent")
 	}
-	p, err := PreparePatch(ctx, root, "*** Begin Patch\n*** Update File: source\n*** Move to: "+dst+"\n*** End Patch", protocol.WorktreeID{}, core.ManualFiles)
+	p, err := PreparePatch(ctx, root, "*** Begin Patch\n*** Update File: source\n*** Move to: "+dst+"\n@@\n-original\n+edited\n*** End Patch", protocol.WorktreeID{}, core.ManualFiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,9 +361,15 @@ func TestMoveCreatesPatchParentsOnlyAfterRevisionCheck(t *testing.T) {
 func TestNotebookPreparation(t *testing.T) {
 	t.Parallel()
 	draft := `{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","metadata":{},"source":["old\n"],"outputs":[{"output_type":"stream","text":"cached"}],"execution_count":2}]}`
+	draft += "\n"
 	prepared, err := PrepareCreation("note.ipynb", draft)
 	if err != nil {
 		t.Fatal(err)
+	}
+	root, _ := filesFixture(t)
+	patch, err := PreparePatch(t.Context(), root, "*** Begin Patch\n*** Add File: note.ipynb\n+"+draft+"*** End Patch", protocol.WorktreeID{}, core.ManualFiles)
+	if err != nil || *patch.Changes[0].After != prepared {
+		t.Fatalf("patch notebook creation: %v, %v", patch, err)
 	}
 	stable, err := PrepareCreation("note.ipynb", draft)
 	if err != nil || stable != prepared {

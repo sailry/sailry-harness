@@ -7,6 +7,8 @@ import (
 	"cmp"
 	"encoding/json"
 	"reflect"
+	"unsafe"
+	"weak"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"lukechampine.com/blake3"
@@ -20,10 +22,12 @@ type Cache struct {
 	reads   fileReads
 }
 type entry struct {
-	identity identity
-	format   canonical.ToolFormat
-	value    json.RawMessage
-	slots    slotProjection
+	identity  identity
+	format    canonical.ToolFormat
+	value     json.RawMessage
+	sourcePtr weak.Pointer[byte]
+	sourceLen int
+	slots     slotProjection
 }
 type identity struct {
 	message, call, originalCall, revision, name string
@@ -151,7 +155,13 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 				key := identity{
 					message: record.ID, call: response.ID, originalCall: response.OriginalID, revision: response.Revision, name: response.Name,
 					visible: isVisible, hasSlots: len(response.Result.Assets) != 0,
-					digest: blake3.Sum256(response.Result.Value), format: response.Format, status: response.Status,
+					format: response.Format, status: response.Status,
+				}
+				idx := len(sources)
+				if idx < len(cache.entries) && cache.entries[idx].sameSource(key, response.Result.Value) {
+					key.digest = cache.entries[idx].identity.digest
+				} else {
+					key.digest = blake3.Sum256(response.Result.Value)
 				}
 				sources = append(sources, source{response: response, identity: key})
 			}
@@ -185,7 +195,7 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		slots := slotProjection{audience: filterResultAudience(source.response)}
 		projectResponse(source.response, source.identity.visible, &cache.reads, &slots)
 		slots.apply(source.response)
-		cached := entry{identity: source.identity, format: source.response.Format, slots: slots}
+		cached := entry{identity: source.identity, format: source.response.Format, sourcePtr: weak.Make(unsafe.SliceData(original)), sourceLen: len(original), slots: slots}
 		if cached.format != source.identity.format || !bytes.Equal(original, source.response.Result.Value) {
 			cached.value = bytes.Clone(source.response.Result.Value)
 		} else {
@@ -194,6 +204,14 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		cache.entries = append(cache.entries, cached)
 	}
 	return projected
+}
+
+func (e entry) sameSource(key identity, raw json.RawMessage) bool {
+	if e.identity.message == "" || e.identity.revision == "" {
+		return false
+	}
+	key.digest = e.identity.digest
+	return e.identity == key && len(raw) == e.sourceLen && unsafe.SliceData(raw) == e.sourcePtr.Value()
 }
 
 func resultSource(response *canonical.ToolResponse) map[string]any {

@@ -8,13 +8,16 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -69,6 +72,7 @@ type Transfers struct {
 	afterFunc   func(time.Duration, func()) func() bool
 	withTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 	thumbnails  thumbnailTransfers
+	stopMemory  func()
 }
 
 // transferPrefix names every staging file in the profile's tmp directory.
@@ -86,7 +90,18 @@ func NewTransfers(profile string) *Transfers {
 			}
 		}
 	}
-	return &Transfers{profile: profile, entries: map[protocol.StreamID]*transferEntry{}, now: time.Now, afterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }, withTimeout: context.WithTimeout, thumbnails: newThumbnailTransfers()}
+	transfers := &Transfers{profile: profile, entries: map[protocol.StreamID]*transferEntry{}, now: time.Now, afterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }, withTimeout: context.WithTimeout, thumbnails: newThumbnailTransfers()}
+	weakTransfers := weak.Make(transfers)
+	transfers.stopMemory = memory.Default().Register("files.thumbnails", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		if t := weakTransfers.Value(); t != nil {
+			t.clearThumbnails()
+		}
+	})
+	runtime.AddCleanup(transfers, func(stop func()) { stop() }, transfers.stopMemory)
+	return transfers
 }
 func transferMissing() error {
 	return &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "file transfer is unavailable"}
@@ -637,6 +652,9 @@ func (t *Transfers) Remove(root string) {
 	}
 }
 func (t *Transfers) Close() error {
+	if t.stopMemory != nil {
+		t.stopMemory()
+	}
 	t.mu.Lock()
 	t.closed = true
 	for key := range t.thumbnails.cache {

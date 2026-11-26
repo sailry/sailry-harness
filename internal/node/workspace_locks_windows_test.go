@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/node/files"
 	"golang.org/x/sys/windows"
 )
 
@@ -35,5 +36,15 @@ func TestWorkspaceFileKeyWindowsShortName(t *testing.T) {
 	}
 	if workspaceFileKey(root, name) != workspaceFileKey(root, alias) {
 		t.Fatal("short and long names reserved different files")
+	}
+}
+
+func TestWorkspaceFileKeyWindowsUnavailableDirectoryAndUNC(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "absent")
+	if files.LookupPathKey(root, "File") != files.LookupPathKey(root, "file") {
+		t.Fatal("missing directory metadata split a case-insensitive file key")
+	}
+	if files.LookupPathKey(`\\HOST\SHARE\`, "") != files.LookupPathKey(`\\host\share\`, "") {
+		t.Fatal("alternate UNC root spelling split the volume key")
 	}
 }

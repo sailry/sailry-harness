@@ -67,23 +67,26 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	if err != nil {
 		return report, err
 	}
-	// Rows are aggregated as they are read. SQLite runs the price lookups
-	// beside the open statement on the same connection.
+	// Rows are buffered in small chunks so unseen turn metadata is fetched in
+	// batches alongside the open cursor without retaining the full result set.
 	defer rows.Close()
-	var (
+	const usageRowBatch = 128
+	type usageScannedRow struct {
 		createdText       string
 		sequence          uint64
 		sessionID         string
 		turnText          string
-		usage             sql.RawBytes
-		sourceRaw         sql.RawBytes
+		usage             []byte
+		sourceRaw         []byte
 		elapsedRaw        sql.NullInt64
 		firstRaw          sql.NullInt64
 		mediaRaw          sql.NullString
 		reasoningStreamed bool
-		stored            canonical.Usage
-		usageScratch      usageDecodeScratch
-		scanned           int
+	}
+	var (
+		stored       canonical.Usage
+		usageScratch usageDecodeScratch
+		scanned      int
 	)
 	groups := map[string]*protocol.UsageGroup{}
 	resources := map[string]protocol.UsageKey{}
@@ -91,188 +94,232 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	turns := map[string]*usageTurnMeta{}
 	latest := usageLatest{items: []protocol.UsageRequest{}}
 	prices := &modelPrices{}
+	batch := make([]usageScannedRow, 0, usageRowBatch)
+	var missingTurns []string
+	seenMissing := map[string]struct{}{}
+	processBatch := func() error {
+		if len(missingTurns) > 0 {
+			if err := loadUsageTurnMetaBatch(ctx, db, lookups, turns, missingTurns); err != nil {
+				return err
+			}
+			missingTurns = missingTurns[:0]
+			clear(seenMissing)
+		}
+		for idx := range batch {
+			row := &batch[idx]
+			meta := turns[row.turnText]
+			if !meta.accessible {
+				continue
+			}
+			if len(projectFilter) > 0 {
+				if !meta.projectID.Valid {
+					continue
+				}
+				if _, ok := projectFilter[meta.projectID.String]; !ok {
+					continue
+				}
+			}
+			if len(worktreeFilter) > 0 {
+				if _, ok := worktreeFilter[meta.worktreeID]; !ok {
+					continue
+				}
+			}
+			resolved, err := resolveUsageProvider(ctx, db, lookups, meta, row.sessionID, row.mediaRaw, row.sourceRaw)
+			if err != nil {
+				return err
+			}
+			if len(providerFilter) > 0 {
+				if _, ok := providerFilter[resolved.providerID]; !ok {
+					continue
+				}
+			}
+			if len(modelFilter) > 0 {
+				if _, ok := modelFilter[resolved.model]; !ok {
+					continue
+				}
+			}
+			if scanned == 100000 {
+				return invalid("usage report exceeds the row limit; narrow the time range or filters")
+			}
+			scanned++
+			created, e := time.Parse(time.RFC3339Nano, row.createdText)
+			if e != nil {
+				return e
+			}
+			ms := created.UnixMilli()
+			if ms < query.StartMs || ms >= query.EndMs {
+				continue
+			}
+			scopeKey := usageScopeKey{
+				provider:  resolved.providerID,
+				model:     resolved.model,
+				worktree:  meta.worktreeID,
+				session:   row.sessionID,
+				project:   meta.projectID,
+				resource:  meta.resource,
+				assistant: meta.assistant,
+			}
+			scope := scopes[scopeKey]
+			if scope == nil {
+				if scope, e = newUsageScope(scopeKey); e != nil {
+					return e
+				}
+				scopes[scopeKey] = scope
+				for i, key := range scope.keys {
+					resources[scope.texts[i]] = key
+				}
+			}
+			keyText := scope.texts[index]
+			group := groups[keyText]
+			if group == nil {
+				g := protocol.DefaultUsageGroup()
+				g.Key = scope.keys[index]
+				group = &g
+				groups[keyText] = group
+			}
+			providerName := resolved.providerID
+			if resolved.providerName.Valid {
+				providerName = resolved.providerName.String
+			}
+			name := providerName
+			if index == 2 {
+				name = meta.scopeName
+			}
+			// The group is named after its latest response.
+			if index < 3 && name != "" && (group.Name == nil || *group.Name != name) {
+				v := name
+				group.Name = &v
+			}
+			if len(groups) > 4096 || len(resources) > 4096*4 {
+				return invalid("usage report exceeds the group or resource limit; narrow the filters")
+			}
+			// Decode into reusable scratch values to avoid per-row pointer allocations.
+			stored = canonical.Usage{}
+			if e = decodeUsageFast(row.usage, &stored, &usageScratch); e != nil {
+				return e
+			}
+			cost, e := readAgentCost(ctx, db, prices, row.mediaRaw.String, resolved.preset, resolved.api, resolved.model, stored)
+			if e != nil {
+				return e
+			}
+			tokens := agentUsageTokens(stored)
+			var complete *protocol.ConversationUsage
+			if stored.Input != nil && stored.Output != nil {
+				complete = &tokens
+			}
+			elapsed, elapsedKnown := usageMicros(row.elapsedRaw)
+			first, firstKnown := usageMicros(row.firstRaw)
+			var generation *protocol.UsageGeneration
+			if stored.Output != nil && elapsedKnown && firstKnown {
+				generation = tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
+			}
+			throughput := usageThroughput(stored.Output, row.elapsedRaw, row.firstRaw, row.mediaRaw)
+			if e = addUsageMetrics(&report.Totals, complete, cost, generation, throughput); e != nil {
+				return e
+			}
+			if e = addUsageMetrics(&group.Metrics, complete, cost, generation, throughput); e != nil {
+				return e
+			}
+			day := int((usageFloor(ms, 86400000, offset) - report.Days[0].StartMs) / 86400000)
+			if e = addUsageMetrics(&report.Days[day].Metrics, complete, cost, generation, throughput); e != nil {
+				return e
+			}
+			if complete != nil {
+				addUsageModel(&report.Days[day], resolved.model, tokens)
+			}
+			if ms >= recentStart {
+				bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
+				if e = addUsageMetrics(&report.Recent[bucket].Metrics, complete, cost, generation, throughput); e != nil {
+					return e
+				}
+				if complete != nil {
+					addUsageModel(&report.Recent[bucket], resolved.model, tokens)
+				}
+			}
+			position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: row.sequence}
+			if before := query.Before; before != nil && (ms > before.TimestampMs || ms == before.TimestampMs &&
+				(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && row.sequence >= before.Sequence)) {
+				continue
+			}
+			if !latest.admits(position) {
+				continue
+			}
+			request := protocol.DefaultUsageRequest()
+			request.Position = position
+			request.Session = scope.session
+			request.Turn = meta.turn
+			request.Project = scope.project
+			request.ScopeName = meta.scopeName
+			request.Worktree = scope.worktree
+			request.Provider = scope.provider
+			request.ProviderName = providerName
+			request.Model = resolved.model
+			request.Tokens = tokens
+			request.MissingInputTokens, request.MissingOutputTokens = stored.Input == nil, stored.Output == nil
+			request.CachedInputReported = stored.CacheRead != nil
+			if stored.CacheWrite != nil {
+				v := *stored.CacheWrite
+				request.CacheWrite = &v
+			}
+			// Copies escape only for the requests a page keeps.
+			if elapsedKnown {
+				v := elapsed
+				request.ElapsedUs = &v
+			}
+			if firstKnown && (!elapsedKnown || first <= elapsed) {
+				v := first
+				request.FirstTokenUs = &v
+			}
+			if cost != nil {
+				v := cost.UsdMicros
+				request.UsdMicros = &v
+			}
+			latest.add(request)
+		}
+		clear(batch)
+		batch = batch[:0]
+		return nil
+	}
 	for rows.Next() {
+		var (
+			createdText       string
+			sequence          uint64
+			sessionID         string
+			turnText          string
+			usage             sql.RawBytes
+			sourceRaw         sql.RawBytes
+			elapsedRaw        sql.NullInt64
+			firstRaw          sql.NullInt64
+			mediaRaw          sql.NullString
+			reasoningStreamed bool
+		)
 		if err = rows.Scan(&createdText, &sequence, &sessionID, &turnText, &usage, &sourceRaw, &elapsedRaw, &firstRaw, &mediaRaw, &reasoningStreamed); err != nil {
 			return report, err
 		}
-		meta := turns[turnText]
-		if meta == nil {
-			meta, err = loadUsageTurnMeta(ctx, db, lookups, turnText)
-			if err != nil {
+		if turns[turnText] == nil {
+			if _, dup := seenMissing[turnText]; !dup {
+				seenMissing[turnText] = struct{}{}
+				missingTurns = append(missingTurns, turnText)
+			}
+		}
+		batch = append(batch, usageScannedRow{
+			createdText: createdText, sequence: sequence, sessionID: sessionID, turnText: turnText,
+			usage: bytes.Clone(usage), sourceRaw: bytes.Clone(sourceRaw),
+			elapsedRaw: elapsedRaw, firstRaw: firstRaw, mediaRaw: mediaRaw, reasoningStreamed: reasoningStreamed,
+		})
+		if len(batch) == usageRowBatch {
+			if err = processBatch(); err != nil {
 				return report, err
 			}
-			turns[turnText] = meta
 		}
-		if !meta.accessible {
-			continue
-		}
-		if len(projectFilter) > 0 {
-			if !meta.projectID.Valid {
-				continue
-			}
-			if _, ok := projectFilter[meta.projectID.String]; !ok {
-				continue
-			}
-		}
-		if len(worktreeFilter) > 0 {
-			if _, ok := worktreeFilter[meta.worktreeID]; !ok {
-				continue
-			}
-		}
-		resolved, err := resolveUsageProvider(ctx, db, lookups, meta, sessionID, mediaRaw, sourceRaw)
-		if err != nil {
-			return report, err
-		}
-		if len(providerFilter) > 0 {
-			if _, ok := providerFilter[resolved.providerID]; !ok {
-				continue
-			}
-		}
-		if len(modelFilter) > 0 {
-			if _, ok := modelFilter[resolved.model]; !ok {
-				continue
-			}
-		}
-		if scanned == 100000 {
-			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
-		}
-		scanned++
-		created, e := time.Parse(time.RFC3339Nano, createdText)
-		if e != nil {
-			return report, e
-		}
-		ms := created.UnixMilli()
-		if ms < query.StartMs || ms >= query.EndMs {
-			continue
-		}
-		scopeKey := usageScopeKey{
-			provider:  resolved.providerID,
-			model:     resolved.model,
-			worktree:  meta.worktreeID,
-			session:   sessionID,
-			project:   meta.projectID,
-			resource:  meta.resource,
-			assistant: meta.assistant,
-		}
-		scope := scopes[scopeKey]
-		if scope == nil {
-			if scope, e = newUsageScope(scopeKey); e != nil {
-				return report, e
-			}
-			scopes[scopeKey] = scope
-			for i, key := range scope.keys {
-				resources[scope.texts[i]] = key
-			}
-		}
-		keyText := scope.texts[index]
-		group := groups[keyText]
-		if group == nil {
-			g := protocol.DefaultUsageGroup()
-			g.Key = scope.keys[index]
-			group = &g
-			groups[keyText] = group
-		}
-		providerName := resolved.providerID
-		if resolved.providerName.Valid {
-			providerName = resolved.providerName.String
-		}
-		name := providerName
-		if index == 2 {
-			name = meta.scopeName
-		}
-		// The group is named after its latest response.
-		if index < 3 && name != "" && (group.Name == nil || *group.Name != name) {
-			v := name
-			group.Name = &v
-		}
-		if len(groups) > 4096 || len(resources) > 4096*4 {
-			return report, invalid("usage report exceeds the group or resource limit; narrow the filters")
-		}
-		// Decode into reusable scratch values to avoid per-row pointer allocations.
-		stored = canonical.Usage{}
-		if e = decodeUsageFast(usage, &stored, &usageScratch); e != nil {
-			return report, e
-		}
-		cost, e := readAgentCost(ctx, db, prices, mediaRaw.String, resolved.preset, resolved.api, resolved.model, stored)
-		if e != nil {
-			return report, e
-		}
-		tokens := agentUsageTokens(stored)
-		var complete *protocol.ConversationUsage
-		if stored.Input != nil && stored.Output != nil {
-			complete = &tokens
-		}
-		elapsed, elapsedKnown := usageMicros(elapsedRaw)
-		first, firstKnown := usageMicros(firstRaw)
-		var generation *protocol.UsageGeneration
-		if stored.Output != nil && elapsedKnown && firstKnown {
-			generation = tokens.DecodeGeneration(&elapsed, &first, reasoningStreamed)
-		}
-		throughput := usageThroughput(stored.Output, elapsedRaw, firstRaw, mediaRaw)
-		if e = addUsageMetrics(&report.Totals, complete, cost, generation, throughput); e != nil {
-			return report, e
-		}
-		if e = addUsageMetrics(&group.Metrics, complete, cost, generation, throughput); e != nil {
-			return report, e
-		}
-		day := int((usageFloor(ms, 86400000, offset) - report.Days[0].StartMs) / 86400000)
-		if e = addUsageMetrics(&report.Days[day].Metrics, complete, cost, generation, throughput); e != nil {
-			return report, e
-		}
-		if complete != nil {
-			addUsageModel(&report.Days[day], resolved.model, tokens)
-		}
-		if ms >= recentStart {
-			bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
-			if e = addUsageMetrics(&report.Recent[bucket].Metrics, complete, cost, generation, throughput); e != nil {
-				return report, e
-			}
-			if complete != nil {
-				addUsageModel(&report.Recent[bucket], resolved.model, tokens)
-			}
-		}
-		position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: sequence}
-		if before := query.Before; before != nil && (ms > before.TimestampMs || ms == before.TimestampMs &&
-			(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && sequence >= before.Sequence)) {
-			continue
-		}
-		if !latest.admits(position) {
-			continue
-		}
-		request := protocol.DefaultUsageRequest()
-		request.Position = position
-		request.Session = scope.session
-		request.Turn = meta.turn
-		request.Project = scope.project
-		request.ScopeName = meta.scopeName
-		request.Worktree = scope.worktree
-		request.Provider = scope.provider
-		request.ProviderName = providerName
-		request.Model = resolved.model
-		request.Tokens = tokens
-		request.MissingInputTokens, request.MissingOutputTokens = stored.Input == nil, stored.Output == nil
-		request.CachedInputReported = stored.CacheRead != nil
-		if stored.CacheWrite != nil {
-			v := *stored.CacheWrite
-			request.CacheWrite = &v
-		}
-		// Copies escape only for the requests a page keeps.
-		if elapsedKnown {
-			v := elapsed
-			request.ElapsedUs = &v
-		}
-		if firstKnown && (!elapsedKnown || first <= elapsed) {
-			v := first
-			request.FirstTokenUs = &v
-		}
-		if cost != nil {
-			v := cost.UsdMicros
-			request.UsdMicros = &v
-		}
-		latest.add(request)
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return report, err
+	}
+	if len(batch) > 0 {
+		if err = processBatch(); err != nil {
+			return report, err
+		}
 	}
 	requests := latest.items
 	sort.Slice(requests, func(i, j int) bool { return usageNewer(requests[i].Position, requests[j].Position) })
@@ -489,18 +536,8 @@ type usageTurnMeta struct {
 	scopeName  string
 }
 
-func loadUsageTurnMeta(ctx context.Context, db *sql.Conn, lookups *usageLookups, turnText string) (*usageTurnMeta, error) {
+func buildUsageTurnMeta(lookups *usageLookups, turnText string, projectID, sessionOwner sql.NullString, worktreeID string, configRaw, capturedRaw []byte) (*usageTurnMeta, error) {
 	meta := &usageTurnMeta{}
-	var projectID, sessionOwner sql.NullString
-	var worktreeID string
-	var configRaw, capturedRaw []byte
-	err := db.QueryRowContext(ctx, agentUsageTurnMetaQuery, turnText).Scan(&projectID, &sessionOwner, &worktreeID, &configRaw, &capturedRaw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return meta, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	meta.projectID = projectID
 	meta.worktreeID = worktreeID
 	if !projectID.Valid {
@@ -537,14 +574,56 @@ func loadUsageTurnMeta(ctx context.Context, db *sql.Conn, lookups *usageLookups,
 		meta.assistant = sql.NullString{String: string(raw), Valid: true}
 	}
 	meta.captured = decodeUsageProviderMeta(capturedRaw)
-	if !projectID.Valid {
+	return meta, nil
+}
+
+func loadUsageTurnMetaBatch(ctx context.Context, db *sql.Conn, lookups *usageLookups, turns map[string]*usageTurnMeta, missing []string) error {
+	if len(missing) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(missing)
+	if err != nil {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, agentUsageTurnMetaBatchQuery, string(encoded))
+	if err != nil {
+		return err
+	}
+	var unresolved []*usageTurnMeta
+	for rows.Next() {
+		var turnText, worktreeID string
+		var projectID, sessionOwner sql.NullString
+		var configRaw, capturedRaw []byte
+		if err = rows.Scan(&turnText, &projectID, &sessionOwner, &worktreeID, &configRaw, &capturedRaw); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		meta, err := buildUsageTurnMeta(lookups, turnText, projectID, sessionOwner, worktreeID, configRaw, capturedRaw)
+		if err != nil {
+			_ = rows.Close()
+			return err
+		}
+		turns[turnText] = meta
+		if meta.accessible && !meta.projectID.Valid {
+			unresolved = append(unresolved, meta)
+		}
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, meta := range unresolved {
 		name, err := resolveUsageScopeName(ctx, db, lookups, meta.resource, meta.assistant)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		meta.scopeName = name
 	}
-	return meta, nil
+	for _, turnText := range missing {
+		if turns[turnText] == nil {
+			turns[turnText] = &usageTurnMeta{}
+		}
+	}
+	return nil
 }
 
 type usageDecodeScratch struct {

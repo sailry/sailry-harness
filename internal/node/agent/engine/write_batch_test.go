@@ -58,6 +58,25 @@ func writeBatchIDs(records []canonical.Record) []string {
 	return ids
 }
 
+func TestSameFileReadsAndWritesFollowRequestOrder(t *testing.T) {
+	write := toolAccess{parallel: true, paths: []string{"a"}}
+	read := toolAccess{parallel: true, read: true, paths: []string{"a"}}
+	batch := []toolAccess{write, read, read, write, read}
+	predecessors := [][]int{nil, {0}, {0}, {1, 2}, {3}}
+	done := make([]bool, len(batch))
+	err := runQueuedTools(t.Context(), 0, batch, func(i int) error {
+		for _, prior := range predecessors[i] {
+			if !done[prior] {
+				t.Errorf("admitted call %d before call %d completed", i, prior)
+			}
+		}
+		return nil
+	}, func(int) {}, func(i int) { done[i] = true })
+	if err != nil || slices.Contains(done, false) {
+		t.Fatalf("queue completion %v, %v", done, err)
+	}
+}
+
 func TestDisjointWriteBatchWaitsOnlyForTheSameFile(t *testing.T) {
 	t.Parallel()
 	// The second call targets the same file as the first. The third shares

@@ -1187,3 +1187,117 @@ func TestReadOnlyChildRoleRefusesMutatingToolWithRoleMessage(t *testing.T) {
 		t.Fatalf("unexpected read-only role fault: %+v", payload)
 	}
 }
+
+func TestSpawnSchemaAndRoleValidation(t *testing.T) {
+	t.Parallel()
+	decodeJSON := func(t *testing.T, raw string) any {
+		t.Helper()
+		var value any
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+
+	t.Run("model flagship turn without roles accepts null and normalizes blank role", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		x.inv.Turn.Config.Mode = protocol.WorkModeFlagship
+		x.inv.Turn.Roles.Execution = protocol.ConversationExecutionModel
+		x.inv.Turn.Roles.Profiles = nil
+		if err := f.r.captureTools(x); err != nil {
+			t.Fatal(err)
+		}
+		spawn := findTool(x.tools, "spawn_agent")
+		if spawn == nil {
+			t.Fatal("missing spawn_agent tool")
+		}
+		if !strings.Contains(spawn.Definition.Description, "No team roles are configured for this turn") {
+			t.Fatalf("unexpected description: %q", spawn.Definition.Description)
+		}
+		for _, args := range []string{`{"task":"Inspect logs"}`, `{"task":"Inspect logs","role":null}`, `{"task":"Inspect logs","role":"  "}`, `{"task":"Inspect logs","role":"coder"}`} {
+			if err := spawn.schema.Validate(decodeJSON(t, args)); err != nil {
+				t.Fatalf("schema rejected %s before role handling: %v", args, err)
+			}
+		}
+
+		unknownCall := saveDelegationCall(t, f, x, "unknown-role", true)
+		unknownResult := f.r.spawnChild(x, unknownCall, json.RawMessage(`{"task":"Inspect logs","role":"coder"}`))
+		if unknownResult.Failure == nil || !strings.Contains(unknownResult.Failure.Message, "no available roles") || !strings.Contains(unknownResult.Failure.Message, "omit role") {
+			t.Fatalf("unexpected unknown-role failure: %+v", unknownResult.Failure)
+		}
+
+		blankCall := saveDelegationCall(t, f, x, "blank-role", true)
+		blankResult := f.r.spawnChild(x, blankCall, json.RawMessage(`{"task":"Inspect logs","role":"  "}`))
+		if blankResult.Failure != nil {
+			t.Fatalf("blank role should normalize to omitted for new child: %+v", blankResult.Failure)
+		}
+	})
+
+	t.Run("team turn diagnoses missing or unknown roles", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		x.inv.Turn.Roles.Execution = protocol.ConversationExecutionTeam
+		x.inv.Turn.Roles.Profiles = []protocol.RoleProfile{
+			{ID: protocol.NewRoleID(), Revision: 1, Key: "explore", Name: "Explore", Description: "Read files"},
+			{ID: protocol.NewRoleID(), Revision: 1, Key: "reviewer", Name: "Reviewer", ReadOnly: true, Description: "Review diffs"},
+			{ID: protocol.NewRoleID(), Revision: 1, Key: "research", Name: "Research", Skills: []string{"web-search:research"}},
+		}
+		if err := f.r.captureTools(x); err != nil {
+			t.Fatal(err)
+		}
+		spawn := findTool(x.tools, "spawn_agent")
+		if spawn == nil {
+			t.Fatal("missing spawn_agent tool")
+		}
+		for _, valid := range []string{
+			`{"task":"Inspect repo","role":"explore"}`,
+			`{"task":"Review patch","role":"reviewer"}`,
+			`{"task":"Inherit model","role":null}`,
+			`{"task":"Omit role"}`,
+		} {
+			if err := spawn.schema.Validate(decodeJSON(t, valid)); err != nil {
+				t.Fatalf("schema rejected valid input %s: %v", valid, err)
+			}
+		}
+		for _, args := range []string{
+			`{"task":"Bad role","role":"unknown"}`,
+			`{"task":"Missing skill","role":"research"}`,
+			`{"task":"Empty role","role":""}`,
+		} {
+			if err := spawn.schema.Validate(decodeJSON(t, args)); err != nil {
+				t.Fatalf("schema intercepted role diagnosis for %s: %v", args, err)
+			}
+		}
+		roster := f.r.delegationRoster(x, store.AgentState{})
+		if !strings.Contains(roster, "Unavailable roles (missing required skills): research (missing: web-search:research)") {
+			t.Fatalf("roster did not explain missing-skill role: %s", roster)
+		}
+
+		missingSkillCall := saveDelegationCall(t, f, x, "missing-skill", true)
+		missingSkillResult := f.r.spawnChild(x, missingSkillCall, json.RawMessage(`{"task":"Search web","role":"research"}`))
+		if missingSkillResult.Failure == nil || !strings.Contains(missingSkillResult.Failure.Message, "required skills are missing: web-search:research") {
+			t.Fatalf("unexpected missing-skill failure: %+v", missingSkillResult.Failure)
+		}
+
+		unknownCall := saveDelegationCall(t, f, x, "unknown-team-role", true)
+		unknownResult := f.r.spawnChild(x, unknownCall, json.RawMessage(`{"task":"Review","role":"coder"}`))
+		if unknownResult.Failure == nil || !strings.Contains(unknownResult.Failure.Message, "available roles: explore, reviewer") {
+			t.Fatalf("unexpected unknown-role failure: %+v", unknownResult.Failure)
+		}
+	})
+
+	t.Run("continuing an idle child rejects blank role", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		spawn := saveDelegationCall(t, f, x, "initial-child", true)
+		admitted := f.r.spawnChild(x, spawn, spawn.Arguments)
+		if admitted.Failure != nil {
+			t.Fatal(admitted.Failure)
+		}
+		childID := admitted.Value.(map[string]any)["session"].(protocol.SessionID)
+		follow := saveDelegationCall(t, f, x, "continue-blank-role", true)
+		args, _ := json.Marshal(map[string]any{"session": childID, "role": "", "task": "Continue"})
+		res := f.r.spawnChild(x, follow, args)
+		if res.Failure == nil || !strings.Contains(res.Failure.Message, "omit role when continuing an existing child session") {
+			t.Fatalf("unexpected continue blank-role failure: %+v", res.Failure)
+		}
+	})
+}

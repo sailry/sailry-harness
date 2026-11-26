@@ -171,6 +171,26 @@ func TestReadConversationActivityMatchesPublishedHead(t *testing.T) {
 	}
 
 	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		// The session list ranks all runs, first messages and delegations in a
+		// batch. Each row must match an independent read of the same session.
+		sessions, err := ReadSessions(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, id := range []protocol.SessionID{session.ID, aged.Session.ID, visible.Session.ID} {
+			i := slices.IndexFunc(sessions, func(s protocol.Session) bool { return s.ID == id })
+			if i < 0 {
+				return fmt.Errorf("session list omitted %v", id)
+			}
+			want, err := ReadSession(ctx, db, id)
+			if err != nil {
+				return err
+			}
+			if !reflect.DeepEqual(sessions[i], want) {
+				return fmt.Errorf("batched session %+v differs from single session %+v", sessions[i], want)
+			}
+		}
+
 		got, err := compareConversationActivity(ctx, db, session.ID, visible.Run.Turn, aged.Run.Turn, aged.Run.Turn)
 		if err != nil {
 			return err

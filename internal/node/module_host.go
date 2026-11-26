@@ -386,11 +386,8 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		delete(preparedArgs, call.ID)
 		mu.Unlock()
 	}
-	observed := workspaceRevisions{worktreeID: inv.Run.Worktree}
+	observed := workspaceRevisions{worktreeID: inv.Run.Worktree, worktree: inv.Worktree.Path}
 	fullFiles := inv.Turn.Config.Permission == protocol.PermissionFull && externalFileOperation(op)
-	if fullFiles {
-		observed.worktree = inv.Worktree.Path
-	}
 	if observesRevisions(op) {
 		tool.ObserveHistory = observed.update
 	}

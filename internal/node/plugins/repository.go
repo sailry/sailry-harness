@@ -359,9 +359,24 @@ func (manager *Manager) InspectRepository(ctx context.Context, source protocol.P
 	}
 	setRepositoryOrigins(&info, resolved, selected.Path)
 	// Only the newest inspection is kept for its installation; an older selection is acquired again.
+	// Drop unconsumed inspection buffers after an idle timeout or memory pressure.
 	manager.repositoryMu.Lock()
 	clear(manager.repositories)
-	manager.repositories[resolved.Repository+"\x00"+resolved.Commit+"\x00"+selected.Path] = entries
+	if manager.repositoryTimer != nil {
+		manager.repositoryTimer.Stop()
+	}
+	key := resolved.Repository + "\x00" + resolved.Commit + "\x00" + selected.Path
+	manager.repositories[key] = entries
+	var timer *time.Timer
+	timer = time.AfterFunc(repositoryInspectionTTL, func() {
+		manager.repositoryMu.Lock()
+		if manager.repositoryTimer == timer {
+			clear(manager.repositories)
+			manager.repositoryTimer = nil
+		}
+		manager.repositoryMu.Unlock()
+	})
+	manager.repositoryTimer = timer
 	manager.repositoryMu.Unlock()
 	return protocol.PluginCatalogSelection{Source: resolved, Path: selected.Path, Info: info}, nil
 }
@@ -376,6 +391,10 @@ func (manager *Manager) InstallRepository(ctx context.Context, selection protoco
 	manager.repositoryMu.Lock()
 	entries, exists := manager.repositories[key]
 	delete(manager.repositories, key)
+	if len(manager.repositories) == 0 && manager.repositoryTimer != nil {
+		manager.repositoryTimer.Stop()
+		manager.repositoryTimer = nil
+	}
 	manager.repositoryMu.Unlock()
 	issues := []protocol.PluginIssue{}
 	if !exists {

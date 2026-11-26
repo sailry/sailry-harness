@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -637,8 +638,49 @@ func (r *Runtime) turn(x *execution) error {
 	}
 }
 
+func (r *Runtime) clearStateCache() {
+	r.stateMu.Lock()
+	clear(r.stateIndex)
+	r.stateLRU.Init()
+	r.stateMu.Unlock()
+}
+
+func (r *Runtime) cachedState(session protocol.SessionID) store.AgentState {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if elem, ok := r.stateIndex[session]; ok {
+		r.stateLRU.MoveToFront(elem)
+		return elem.Value.(cachedAgentState).state
+	}
+	return store.AgentState{}
+}
+
+func (r *Runtime) storeState(session protocol.SessionID, state store.AgentState) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.ctx.Err() != nil {
+		return
+	}
+	if r.stateIndex == nil {
+		r.stateIndex = map[protocol.SessionID]*list.Element{}
+	}
+	if elem, ok := r.stateIndex[session]; ok {
+		elem.Value = cachedAgentState{session: session, state: state}
+		r.stateLRU.MoveToFront(elem)
+		return
+	}
+	if len(r.stateIndex) >= maxCachedAgentStates {
+		if back := r.stateLRU.Back(); back != nil {
+			r.stateLRU.Remove(back)
+			delete(r.stateIndex, back.Value.(cachedAgentState).session)
+		}
+	}
+	elem := r.stateLRU.PushFront(cachedAgentState{session: session, state: state})
+	r.stateIndex[session] = elem
+}
+
 func (r *Runtime) load(ctx context.Context, session protocol.SessionID) (store.AgentState, error) {
-	return r.reload(ctx, session, store.AgentState{})
+	return r.reload(ctx, session, r.cachedState(session))
 }
 
 // reload decodes appended records without materializing their binary payloads.
@@ -650,6 +692,9 @@ func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previo
 		state, _, err = store.ExtendAgentState(ctx, db, session, previous)
 		return err
 	})
+	if err == nil {
+		r.storeState(session, state)
+	}
 	return state, err
 }
 

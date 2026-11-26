@@ -14,13 +14,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
+	"weak"
 
 	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -28,6 +32,7 @@ import (
 const MaxPackageEntries = 1024
 const MaxPackageBytes = 128 * 1024 * 1024
 const MaxPackageDepth = 32
+const repositoryInspectionTTL = 10 * time.Minute
 
 type Manager struct {
 	profile            string
@@ -40,6 +45,8 @@ type Manager struct {
 	bundled            fs.FS
 	repositoryMu       sync.Mutex
 	repositories       map[string][]packageEntry
+	repositoryTimer    *time.Timer
+	stopMemory         func()
 	skillPages         map[string]cachedSkillCatalog
 	skillPageUse       uint64
 	communityCatalog   communityCatalogCache
@@ -60,7 +67,38 @@ func NewManager(profile string, bundled ...fs.FS) *Manager {
 	if len(bundled) != 0 {
 		manager.bundled = bundled[0]
 	}
+	weakManager := weak.Make(manager)
+	manager.stopMemory = memory.Default().Register("plugins.repositories", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		if m := weakManager.Value(); m != nil {
+			m.clearRepositories()
+		}
+	})
+	runtime.AddCleanup(manager, func(stop func()) { stop() }, manager.stopMemory)
 	return manager
+}
+
+// Close releases retained inspection buffers and unregisters memory hooks.
+func (manager *Manager) Close() {
+	if manager == nil {
+		return
+	}
+	manager.clearRepositories()
+	if manager.stopMemory != nil {
+		manager.stopMemory()
+	}
+}
+
+func (manager *Manager) clearRepositories() {
+	manager.repositoryMu.Lock()
+	if manager.repositoryTimer != nil {
+		manager.repositoryTimer.Stop()
+		manager.repositoryTimer = nil
+	}
+	clear(manager.repositories)
+	manager.repositoryMu.Unlock()
 }
 
 func (manager *Manager) source(directory, workingDirectory string) (string, error) {

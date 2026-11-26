@@ -413,6 +413,7 @@ func (node *Node) closePlugins() error {
 	node.plugins.mu.Unlock()
 	err := node.plugins.mcp.Close()
 	node.plugins.programs.Close()
+	node.plugins.manager.Close()
 	node.computerOverlay.Shutdown()
 	return err
 }

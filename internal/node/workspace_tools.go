@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -139,7 +138,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			tool.SearchLabels = toolSearchLabels(*declaration.Display)
 		}
 		tool.ReleasePrepared = releasePrepared(&mu, calls)
-		observed := workspaceRevisions{worktreeID: inv.Run.Worktree}
+		observed := workspaceRevisions{worktreeID: inv.Run.Worktree, worktree: inv.Worktree.Path}
 		if observesRevisions(declaration.Operation) {
 			tool.ObserveHistory = observed.update
 		}
@@ -555,6 +554,17 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 		r.paths = map[string]string{}
 		r.count = 0
 	}
+	// Replaying receipts can revisit the same path many times. Cache its
+	// filesystem spelling for this replay, not across changes on disk.
+	keys := make(map[string]string)
+	key := func(path string) string {
+		if k, ok := keys[path]; ok {
+			return k
+		}
+		k := r.pathKey(path)
+		keys[path] = k
+		return k
+	}
 	for _, record := range records[r.count:] {
 		message := record.Message()
 		if message == nil || record.Provenance.Author != "tool" {
@@ -569,7 +579,7 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 					continue
 				}
 			}
-			r.observe(response)
+			r.observe(response, key)
 		}
 	}
 	r.count = len(records)
@@ -578,13 +588,13 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 	}
 }
 
-func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
+func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(string) string) {
 	if response.Status == canonical.ToolSuccess && response.Meta != nil {
 		if raw := (*response.Meta)[canonical.FileReadsKey(r.worktreeID)]; raw != nil {
 			var files map[string]string
 			if json.Unmarshal(raw, &files) == nil {
 				for path, revision := range files {
-					r.paths[r.pathKey(path)] = revision
+					r.paths[key(path)] = revision
 				}
 			}
 		}
@@ -606,7 +616,7 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 	data := value.Data
 	if value.Kind == "file_changes" {
 		for _, file := range data.Files {
-			file.Path, file.Destination = r.pathKey(file.Path), r.pathKey(file.Destination)
+			file.Path, file.Destination = key(file.Path), key(file.Destination)
 			switch file.Status {
 			case protocol.ChangeStatusUnknown:
 				delete(r.paths, file.Path)
@@ -634,14 +644,14 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
 	switch value.Kind {
 	case "file_content", "file_lines", "file_written", "notebook_page":
 		if data.Revision != "" {
-			r.paths[r.pathKey(data.Path)] = data.Revision
+			r.paths[key(data.Path)] = data.Revision
 		}
 	case "entry_trashed":
-		r.invalidateTree(r.pathKey(data.Path))
+		r.invalidateTree(key(data.Path))
 	case "entry_moved":
 		// Generic entry operations may move directories across roots.
-		r.invalidateTree(r.pathKey(data.From))
-		r.invalidateTree(r.pathKey(data.To))
+		r.invalidateTree(key(data.From))
+		r.invalidateTree(key(data.To))
 	}
 }
 
@@ -676,33 +686,26 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 	if json.Unmarshal(values["path"], &path) != nil {
 		return arguments, nil
 	}
-	revision, ok := r.paths[path]
-	if !ok && path != "" {
-		revision, ok = r.paths[r.pathKey(path)]
-	}
-	switch {
-	case operation == protocol.ToolOperationWriteFile:
+	if operation == protocol.ToolOperationWriteFile {
 		values["expected_revision"] = json.RawMessage("null")
-	case ok:
+	} else {
+		revision, ok := r.paths[r.pathKey(path)]
+		if !ok {
+			return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
+		}
 		values["expected_revision"], _ = json.Marshal(revision)
-	default:
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
 	}
 	return json.Marshal(values)
 }
 
 func (r *workspaceRevisions) pathKey(path string) string {
-	if filepath.IsAbs(path) {
-		path = filepath.Clean(path)
-		if r.worktree != "" {
-			path = localPath(r.worktree, path)
-		}
-		return filepath.ToSlash(path)
-	}
 	if path == "" {
 		return ""
 	}
-	return pathpkg.Clean(filepath.ToSlash(path))
+	if r.worktree == "" && !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	return workspaceFileKey(r.worktree, path)
 }
 
 func (r *workspaceRevisions) invalidateTree(path string) {

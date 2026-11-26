@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/identity"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
@@ -124,6 +125,7 @@ type Node struct {
 	workspaceRuntime      *moduleapi.WorkspaceRuntime
 	workspaceCapabilities moduleapi.ServiceCapabilities
 	registeredModules     []moduleapi.RegisteredModule
+	stopMemory            func()
 }
 
 // commandLane is one ordered queue of admitted jobs and its worker. Project
@@ -327,6 +329,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.agent.Start()
+	value.stopMemory = memory.Default().Start()
 	for index := range value.lanes {
 		go value.run(&value.lanes[index])
 	}
@@ -416,11 +419,12 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"port forwards", node.ports.Close},
 		// Supervised tasks may finish until the deadline and are then cancelled.
 		{"supervised tasks", func() error { return node.tasks.Close(deadline) }},
+		{"resource projections", quiet(node.clearResourceProjections)},
 		{"knowledge index", quiet(node.knowledge.Close)},
 		{"local models", quiet(node.closeLocalModels)},
 		{"external browsers", quiet(node.externalBrowser.Shutdown)},
-		{"plugins and MCP servers", node.closePlugins},
 		{"requests in flight", quiet(node.work.Wait)},
+		{"plugins and MCP servers", node.closePlugins},
 		// No request holds a package version or a settings revision any more.
 		{"plugin collection", quiet(func() { node.collectPlugins(context.Background()) })},
 		{"telemetry", quiet(func() {
@@ -431,6 +435,11 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"commands, transfers and watchers", node.closeWorkspace},
 		// Every transfer worker has ended and storage is still open.
 		{"attachment collection", quiet(func() { node.collectAttachments(context.Background()) })},
+		{"memory governor", quiet(func() {
+			if node.stopMemory != nil {
+				node.stopMemory()
+			}
+		})},
 		{"storage", node.profile.Close},
 	}
 	var reached atomic.Int32

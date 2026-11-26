@@ -111,7 +111,7 @@ func (t *Transfers) thumbnailFor(ctx context.Context, data []byte, digest string
 	}
 	t.dropThumbnailLocked(key)
 	cache := &t.thumbnails
-	for cache.bytes+cap(encoded) > thumbnailCacheBytes || len(cache.cache) >= thumbnailCacheEntries {
+	for len(cache.cache) > 0 && (cache.bytes+cap(encoded) > thumbnailCacheBytes || len(cache.cache) >= thumbnailCacheEntries) {
 		var oldest thumbnailCacheKey
 		var expires time.Time
 		for k, value := range cache.cache {
@@ -140,6 +140,14 @@ func (t *Transfers) dropThumbnailLocked(key thumbnailCacheKey) {
 		t.thumbnails.bytes -= cap(entry.data)
 		entry.stop()
 	}
+}
+
+func (t *Transfers) clearThumbnails() {
+	t.mu.Lock()
+	for key := range t.thumbnails.cache {
+		t.dropThumbnailLocked(key)
+	}
+	t.mu.Unlock()
 }
 
 type thumbnailReader struct {

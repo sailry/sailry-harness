@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"slices"
@@ -428,6 +429,7 @@ func (c *Control) post(ctx context.Context, client *http.Client, body []byte) in
 		}
 		return -1
 	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	_ = response.Body.Close()
 	return response.StatusCode
 }

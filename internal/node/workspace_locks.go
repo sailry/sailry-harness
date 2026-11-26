@@ -39,7 +39,7 @@ func workspaceFileKey(root, name string) string {
 	if !filepath.IsAbs(name) {
 		name = filepath.Join(root, filepath.FromSlash(name))
 	}
-	return filepath.ToSlash(workspacePathKey(resolvedPathParts(filepath.Clean(name))))
+	return filepath.ToSlash(files.LookupPathKey(resolvedPathParts(filepath.Clean(name))))
 }
 
 // Each file waits only for the preceding writer of that file and an operation

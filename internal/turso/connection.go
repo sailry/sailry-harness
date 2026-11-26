@@ -43,49 +43,65 @@ func (connection *connection) CheckNamedValue(argument *driver.NamedValue) error
 	return nil
 }
 
-// A watcher remains alive for a cursor, but interrupts only while that cursor
-// is executing. Leaving an operation joins any in-flight interrupt before the
-// connection is reused. Close joins the watcher before releasing native state.
+// Cancelled queries register an AfterFunc watcher lazily; non-cancelled queries
+// allocate no goroutine or signal channels. Leaving or closing an operation joins
+// any active cancel ticker before reusing the connection or releasing native state.
 type operation struct {
-	ctx     context.Context
-	pointer sdk.TursoConnection
-	mu      sync.Mutex
-	active  bool
-	stop    chan struct{}
-	done    chan struct{}
+	ctx       context.Context
+	pointer   sdk.TursoConnection
+	interrupt func(sdk.TursoConnection)
+	mu        sync.Mutex
+	active    bool
+	closed    bool
+	unreg     func() bool
+	stop      chan struct{}
+	done      chan struct{}
 }
 
 func newOperation(ctx context.Context, pointer sdk.TursoConnection) *operation {
-	op := &operation{ctx: ctx, pointer: pointer}
+	return newOperationWithInterrupt(ctx, pointer, bridge.interrupt)
+}
+
+func newOperationWithInterrupt(ctx context.Context, pointer sdk.TursoConnection, interrupt func(sdk.TursoConnection)) *operation {
+	op := &operation{ctx: ctx, pointer: pointer, interrupt: interrupt}
 	if ctx.Done() != nil {
-		op.stop, op.done = make(chan struct{}), make(chan struct{})
-		go op.watch()
+		op.unreg = context.AfterFunc(ctx, op.cancelled)
 	}
 	return op
 }
 
-func (op *operation) watch() {
-	defer close(op.done)
-	select {
-	case <-op.stop:
+func (op *operation) cancelled() {
+	op.mu.Lock()
+	if op.closed {
+		op.mu.Unlock()
 		return
-	case <-op.ctx.Done():
 	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	op.stop, op.done = stop, done
+	if op.active && op.interrupt != nil {
+		op.interrupt(op.pointer)
+	}
+	op.mu.Unlock()
+	defer close(done)
 	// The native interrupt ignores an idle connection. Reissue while the
 	// cancelled call is active to cover cancellation just before C enters.
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		op.mu.Lock()
-		if op.active {
-			bridge.interrupt(op.pointer)
-		}
-		op.mu.Unlock()
 		select {
-		case <-op.stop:
+		case <-stop:
 			return
 		case <-ticker.C:
 		}
+		op.mu.Lock()
+		if op.closed {
+			op.mu.Unlock()
+			return
+		}
+		if op.active && op.interrupt != nil {
+			op.interrupt(op.pointer)
+		}
+		op.mu.Unlock()
 	}
 }
 
@@ -106,11 +122,18 @@ func (op *operation) leave() {
 }
 
 func (op *operation) close() {
-	op.leave()
-	if op.stop != nil {
-		close(op.stop)
-		<-op.done
-		op.stop = nil
+	op.mu.Lock()
+	op.active = false
+	op.closed = true
+	unreg, stop, done := op.unreg, op.stop, op.done
+	op.unreg, op.stop, op.done = nil, nil, nil
+	op.mu.Unlock()
+	if unreg != nil {
+		unreg()
+	}
+	if stop != nil {
+		close(stop)
+		<-done
 	}
 }
 

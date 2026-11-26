@@ -321,6 +321,19 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 	return out.String(), nil
 }
 
+// A rename followed by an edit shares the captured source between the two
+// changes. Count that snapshot once against the patch's combined text budget.
+func patchTextBytes(entry PreparedChange, previous []PreparedChange) int {
+	size := 0
+	if entry.Before != nil && (len(previous) == 0 || previous[len(previous)-1].Before != entry.Before) {
+		size += len(*entry.Before)
+	}
+	if entry.After != nil {
+		size += len(*entry.After)
+	}
+	return size
+}
+
 // PreparePatch captures each file as it is matched so the approval preview
 // and the revision checked at execution describe the same contents.
 func PreparePatch(ctx context.Context, root, input string, worktree protocol.WorktreeID, access core.FileAccess) (*Prepared, error) {
@@ -340,12 +353,18 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 	p := &Prepared{Command: protocol.Command{Kind: "apply_changes", Data: command}, Access: access}
 	// A later hunk can refer to a path written by an earlier move.
 	contents := map[string]*string{}
+	keys := map[string]string{}
 	read := func(path string) (*string, error) {
-		if text, ok := contents[path]; ok {
-			return text, nil
+		key, ok := keys[path]
+		if !ok {
+			if err := f.ValidatePath(path, true); err != nil {
+				return nil, err
+			}
+			key = patchPathKey(root, path)
+			keys[path] = key
 		}
-		if err := f.ValidatePath(path, true); err != nil {
-			return nil, err
+		if text, ok := contents[key]; ok {
+			return text, nil
 		}
 		text, err := f.CompleteText(ctx, path)
 		if err != nil {
@@ -358,11 +377,8 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 	}
 	budget := 0
 	appendChange := func(entry PreparedChange, change protocol.FileChange) error {
-		if entry.Before != nil {
-			budget += len(*entry.Before)
-		}
+		budget += patchTextBytes(entry, p.Changes)
 		if entry.After != nil {
-			budget += len(*entry.After)
 			if !nonnull(*entry.After) || len(*entry.After) > protocol.MAX_EDIT_BYTES || entry.Before == nil && len(*entry.After) > protocol.MAX_WRITE_BYTES {
 				return invalid(entry.Path + ": file text exceeds the content limit or contains a NUL byte")
 			}
@@ -370,9 +386,9 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 		if budget > protocol.MAX_CHANGE_BYTES {
 			return invalid("patch exceeds the combined text limit")
 		}
-		contents[entry.Path] = entry.After
+		contents[keys[entry.Path]] = entry.After
 		if entry.Destination != nil {
-			contents[*entry.Destination] = entry.Before
+			contents[keys[*entry.Destination]] = entry.Before
 		}
 		command.Changes = append(command.Changes, change)
 		p.Changes = append(p.Changes, entry)
@@ -405,6 +421,12 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 			return nil, err
 		}
 		if hunk.Kind == "add" {
+			if before == nil {
+				hunk.Contents, err = PrepareCreation(hunk.Path, hunk.Contents)
+				if err != nil {
+					return nil, err
+				}
+			}
 			if err := record(hunk.Path, before, &hunk.Contents); err != nil {
 				return nil, err
 			}
@@ -432,15 +454,14 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 			if err != nil {
 				return nil, err
 			}
-			sameEntry := false
-			if current != nil {
+			sameEntry := keys[hunk.Path] == keys[dst]
+			if current != nil && !sameEntry {
 				sameEntry, err = f.SameFileEntry(hunk.Path, dst)
 				if err != nil {
 					return nil, err
 				}
 			}
-			if sameEntry || current == nil && after == *before {
-				// Rename an alias before writing through its new spelling.
+			if sameEntry || current == nil {
 				expected := revision([]byte(*before))
 				entry := PreparedChange{Operation: "move", Kind: protocol.ChangeKindRenamed, Path: hunk.Path, Destination: &dst, Before: before, ExpectedRevision: &expected, CreateParents: current == nil}
 				change := protocol.FileChange{Kind: "move", Data: protocol.FileChangeMovePayload{Path: hunk.Path, Destination: dst, ExpectedRevision: expected}}

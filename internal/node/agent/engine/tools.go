@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 
 	"charm.land/fantasy"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -211,7 +213,32 @@ func (r *Runtime) captureTools(x *execution) error {
 	return nil
 }
 
-var compiledToolSchemas sync.Map
+const maxCompiledToolSchemas = 512
+
+type compiledToolSchemaEntry struct {
+	key    [32]byte
+	schema *jsonschema.Schema
+}
+
+var compiledToolSchemas = struct {
+	mu      sync.Mutex
+	order   list.List
+	entries map[[32]byte]*list.Element
+}{
+	entries: map[[32]byte]*list.Element{},
+}
+
+func init() {
+	memory.Default().Register("engine.tool_schemas", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		compiledToolSchemas.mu.Lock()
+		clear(compiledToolSchemas.entries)
+		compiledToolSchemas.order.Init()
+		compiledToolSchemas.mu.Unlock()
+	})
+}
 
 func compileToolSchema(name string, raw json.RawMessage, inputSchema any) (*jsonschema.Schema, error) {
 	if len(raw) == 0 && inputSchema != nil {
@@ -223,9 +250,14 @@ func compileToolSchema(name string, raw json.RawMessage, inputSchema any) (*json
 	cacheable := len(raw) > 0
 	if cacheable {
 		key = blake3.Sum256(raw)
-		if cached, ok := compiledToolSchemas.Load(key); ok {
-			return cached.(*jsonschema.Schema), nil
+		compiledToolSchemas.mu.Lock()
+		if elem, ok := compiledToolSchemas.entries[key]; ok {
+			compiledToolSchemas.order.MoveToFront(elem)
+			schema := elem.Value.(compiledToolSchemaEntry).schema
+			compiledToolSchemas.mu.Unlock()
+			return schema, nil
 		}
+		compiledToolSchemas.mu.Unlock()
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.UseLoader(jsonschema.SchemeURLLoader{})
@@ -238,7 +270,18 @@ func compileToolSchema(name string, raw json.RawMessage, inputSchema any) (*json
 		return nil, err
 	}
 	if cacheable {
-		compiledToolSchemas.Store(key, schema)
+		compiledToolSchemas.mu.Lock()
+		if _, exists := compiledToolSchemas.entries[key]; !exists {
+			if len(compiledToolSchemas.entries) >= maxCompiledToolSchemas {
+				if back := compiledToolSchemas.order.Back(); back != nil {
+					compiledToolSchemas.order.Remove(back)
+					delete(compiledToolSchemas.entries, back.Value.(compiledToolSchemaEntry).key)
+				}
+			}
+			elem := compiledToolSchemas.order.PushFront(compiledToolSchemaEntry{key: key, schema: schema})
+			compiledToolSchemas.entries[key] = elem
+		}
+		compiledToolSchemas.mu.Unlock()
 	}
 	return schema, nil
 }

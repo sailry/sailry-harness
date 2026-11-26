@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -42,18 +43,51 @@ const backgroundBatchBytes = 128 * 1024
 const automaticLimit = 8
 const automaticLimitMax = 100
 
+const maxRefusedDeliveries = 512
+
 // refusedDeliveries remembers the reason last logged for each session so a
 // delivery that stays refused is reported once, not on every claim pass.
-var refusedDeliveries sync.Map
+var refusedDeliveries = struct {
+	mu      sync.Mutex
+	reasons map[protocol.SessionID]string
+}{
+	reasons: map[protocol.SessionID]string{},
+}
+
+func init() {
+	memory.Default().Register("store.refused_deliveries", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		refusedDeliveries.mu.Lock()
+		clear(refusedDeliveries.reasons)
+		refusedDeliveries.mu.Unlock()
+	})
+}
+
+// ClearRefusedDelivery drops any remembered delivery refusal reason for session.
+func ClearRefusedDelivery(session protocol.SessionID) {
+	refusedDeliveries.mu.Lock()
+	delete(refusedDeliveries.reasons, session)
+	refusedDeliveries.mu.Unlock()
+}
 
 func reportDelivery(session protocol.SessionID, reason string) {
 	if reason == "" {
-		refusedDeliveries.Delete(session)
+		ClearRefusedDelivery(session)
 		return
 	}
-	if last, ok := refusedDeliveries.Swap(session, reason); ok && last == reason {
+	refusedDeliveries.mu.Lock()
+	last, ok := refusedDeliveries.reasons[session]
+	if ok && last == reason {
+		refusedDeliveries.mu.Unlock()
 		return
 	}
+	if !ok && len(refusedDeliveries.reasons) >= maxRefusedDeliveries {
+		clear(refusedDeliveries.reasons)
+	}
+	refusedDeliveries.reasons[session] = reason
+	refusedDeliveries.mu.Unlock()
 	logging.Emit(slog.LevelWarn, slog.String("event", "node.background"), slog.String("operation", "deliver"), slog.String("status", "refused"), slog.String("session", session.String()), slog.String("reason", reason))
 }
 

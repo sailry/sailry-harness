@@ -141,20 +141,205 @@ func ReadSessions(ctx context.Context, db *sql.Conn) ([]protocol.Session, error)
 	if err != nil {
 		return nil, err
 	}
-	values := make([]protocol.Session, 0, len(ids))
-	for _, id := range ids {
-		if err := CheckSessionAccess(ctx, db, id); err != nil {
-			var denied *protocol.Fault
-			if errors.As(err, &denied) && denied.Code == protocol.ErrorCodePermissionDenied {
-				continue
-			}
+	if len(ids) == 0 {
+		return []protocol.Session{}, nil
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	idTexts := make([]string, len(ids))
+	for i, id := range ids {
+		idTexts[i] = id.String()
+	}
+	idsJSON, err := json.Marshal(idTexts)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT s.id,s.rowid,s.project,s.worktree,s.revision,s.state='archived',r.config,r.roles,r.profile,(`+sessionAccessPredicate+`)
+		FROM sessions s
+		JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision
+		LEFT JOIN projects p ON p.id=s.project
+		WHERE s.id IN (SELECT value FROM json_each(?1)) AND s.state!='removed'`, string(idsJSON), user.ID.String())
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(ids))
+	allowedByID := make(map[string]bool, len(ids))
+	sessionsByID := make(map[string]protocol.Session, len(ids))
+	for rows.Next() {
+		var idText, worktree string
+		var project sql.NullString
+		var config, roles, profile []byte
+		var allowed bool
+		value := protocol.DefaultSession()
+		if err = rows.Scan(&idText, &value.CreationOrder, &project, &worktree, &value.Revision, &value.Archived, &config, &roles, &profile, &allowed); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
-		value, err := ReadSession(ctx, db, id)
+		seen[idText] = true
+		if !allowed {
+			continue
+		}
+		parsedID, err := protocol.ParseSessionID(idText)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		value.ID = parsedID
+		if project.Valid {
+			parsedProject, err := protocol.ParseProjectID(project.String)
+			if err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			value.Project = &parsedProject
+		}
+		value.Worktree, err = protocol.ParseWorktreeID(worktree)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := json.Unmarshal(config, &value.Config); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := json.Unmarshal(roles, &value.Roles); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if len(profile) != 0 {
+			if err := json.Unmarshal(profile, &value.Profile); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+		}
+		allowedByID[idText] = true
+		sessionsByID[idText] = value
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+
+	allowedTexts := make([]string, 0, len(allowedByID))
+	for _, idText := range idTexts {
+		if allowedByID[idText] {
+			allowedTexts = append(allowedTexts, idText)
+		}
+	}
+	if len(allowedTexts) > 0 {
+		allowedJSON, err := json.Marshal(allowedTexts)
 		if err != nil {
 			return nil, err
 		}
-		values = append(values, value)
+		allowedArg := string(allowedJSON)
+		assocRows, err := db.QueryContext(ctx, "SELECT session,namespace,kind,identity FROM session_associations WHERE session IN (SELECT value FROM json_each(?1))", allowedArg)
+		if err != nil {
+			return nil, err
+		}
+		for assocRows.Next() {
+			var sessionText string
+			assoc := protocol.ConversationAssociation{}
+			if err = assocRows.Scan(&sessionText, &assoc.Namespace, &assoc.Kind, &assoc.ID); err != nil {
+				_ = assocRows.Close()
+				return nil, err
+			}
+			session := sessionsByID[sessionText]
+			session.Association = &assoc
+			sessionsByID[sessionText] = session
+		}
+		if err = errors.Join(assocRows.Err(), assocRows.Close()); err != nil {
+			return nil, err
+		}
+
+		forkRows, err := db.QueryContext(ctx, "SELECT session,source,through_turn FROM session_forks WHERE session IN (SELECT value FROM json_each(?1))", allowedArg)
+		if err != nil {
+			return nil, err
+		}
+		for forkRows.Next() {
+			var sessionText, source, through string
+			if err = forkRows.Scan(&sessionText, &source, &through); err != nil {
+				_ = forkRows.Close()
+				return nil, err
+			}
+			origin, err := protocol.ParseSessionID(source)
+			if err != nil {
+				_ = forkRows.Close()
+				return nil, err
+			}
+			turn, err := protocol.ParseTurnID(through)
+			if err != nil {
+				_ = forkRows.Close()
+				return nil, err
+			}
+			session := sessionsByID[sessionText]
+			session.Fork = &protocol.ConversationFork{Session: origin, Through: turn}
+			sessionsByID[sessionText] = session
+		}
+		if err = errors.Join(forkRows.Err(), forkRows.Close()); err != nil {
+			return nil, err
+		}
+
+		delRows, err := db.QueryContext(ctx, `SELECT session,body FROM (
+			SELECT t.session AS session,d.body AS body,ROW_NUMBER() OVER (PARTITION BY t.session ORDER BY t.rowid) AS rn
+			FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session IN (SELECT value FROM json_each(?1))
+		) WHERE rn=1`, allowedArg)
+		if err != nil {
+			return nil, err
+		}
+		for delRows.Next() {
+			var sessionText string
+			var body []byte
+			if err = delRows.Scan(&sessionText, &body); err != nil {
+				_ = delRows.Close()
+				return nil, err
+			}
+			delegation := new(protocol.Delegation)
+			if err = json.Unmarshal(body, delegation); err != nil {
+				_ = delRows.Close()
+				return nil, err
+			}
+			session := sessionsByID[sessionText]
+			session.Delegation = &delegation
+			sessionsByID[sessionText] = session
+		}
+		if err = errors.Join(delRows.Err(), delRows.Close()); err != nil {
+			return nil, err
+		}
+
+		activities, err := readActivitiesBatch(ctx, db, allowedTexts, allowedArg)
+		if err != nil {
+			return nil, err
+		}
+		for _, idText := range allowedTexts {
+			session := sessionsByID[idText]
+			session.Activity = activities[idText]
+			sessionsByID[idText] = session
+		}
+	}
+
+	values := make([]protocol.Session, 0, len(ids))
+	for i, id := range ids {
+		idText := idTexts[i]
+		if !seen[idText] {
+			if err := CheckSessionAccess(ctx, db, id); err != nil {
+				var denied *protocol.Fault
+				if errors.As(err, &denied) && denied.Code == protocol.ErrorCodePermissionDenied {
+					continue
+				}
+				return nil, err
+			}
+			value, err := ReadSession(ctx, db, id)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, value)
+			continue
+		}
+		if !allowedByID[idText] {
+			continue
+		}
+		values = append(values, sessionsByID[idText])
 	}
 	return values, nil
 }
@@ -503,6 +688,7 @@ func removeSessionTrees(ctx context.Context, db *sql.Conn, ids []protocol.Sessio
 		if _, err := db.ExecContext(ctx, "UPDATE sessions SET state='removed' WHERE id=?1", id.String()); err != nil {
 			return protocol.Output{}, nil, err
 		}
+		ClearRefusedDelivery(id)
 	}
 	if err := removePrivateProviders(ctx, db, private); err != nil {
 		return protocol.Output{}, nil, err

@@ -37,9 +37,9 @@ FROM agent_usage_records u
 WHERE u.created_sec>=?1 AND u.created_sec<=?2
 ORDER BY u.created_sec,u.sequence`
 
-const agentUsageTurnMetaQuery = `SELECT s.project,s.owner,r.worktree,r.config,a.provider
+const agentUsageTurnMetaBatchQuery = `SELECT t.id,s.project,s.owner,r.worktree,r.config,a.provider
 FROM turns t
 JOIN agent_runs a ON a.turn=t.id
 JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
 JOIN sessions s ON s.id=t.session
-WHERE t.id=?1`
+WHERE t.id IN (SELECT value FROM json_each(?1))`

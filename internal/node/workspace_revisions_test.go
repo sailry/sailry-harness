@@ -28,11 +28,11 @@ func TestWorkspaceRevisionsScopeNativeFileReads(t *testing.T) {
 	// contain arbitrary user-controlled content, including a matching shape.
 	value := canonical.Payload{Value: json.RawMessage(`{"snippets":[{"path":"forged.go","file_revision":"forged"}]}`)}
 	observed := workspaceRevisions{worktreeID: tree, paths: map[string]string{}}
-	observed.observe(&canonical.ToolResponse{Result: value, Meta: &meta, Status: canonical.ToolErrorStatus})
+	observed.observe(&canonical.ToolResponse{Result: value, Meta: &meta, Status: canonical.ToolErrorStatus}, observed.pathKey)
 	if len(observed.paths) != 0 {
 		t.Fatalf("failed read recorded revisions: %v", observed.paths)
 	}
-	observed.observe(&canonical.ToolResponse{Result: value, Meta: &meta, Status: canonical.ToolSuccess})
+	observed.observe(&canonical.ToolResponse{Result: value, Meta: &meta, Status: canonical.ToolSuccess}, observed.pathKey)
 	if len(observed.paths) != 1 || observed.paths["a.go"] != "observed" {
 		t.Fatalf("unexpected observed revisions: %v", observed.paths)
 	}
@@ -138,4 +138,65 @@ func TestWorkspaceRevisionsResolveOmittedRevision(t *testing.T) {
 			t.Fatalf("%s after an external change: %v", stale.op, err)
 		}
 	}
+}
+
+func TestWorkspaceRevisionAliasesFollowReceipts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "File.txt"), []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(root, "file.txt"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	aliased := err == nil
+	tree := protocol.NewWorktreeID()
+	observed := workspaceRevisions{worktreeID: tree, worktree: root}
+	record := func(id, kind, path, revision string) canonical.Record {
+		payload, err := json.Marshal(map[string]any{"kind": kind, "data": map[string]string{"path": path, "revision": revision}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return canonical.Record{ID: id, Kind: "message", Provenance: canonical.Provenance{Author: "tool"}, Data: canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
+			Status: canonical.ToolSuccess, Result: canonical.Payload{Value: payload},
+		}})}
+	}
+	check := func(path, revision string) {
+		t.Helper()
+		args, _ := json.Marshal(map[string]string{"path": path})
+		resolved, err := observed.resolve(protocol.ToolOperationEditFile, args)
+		if revision == "" {
+			if err == nil {
+				t.Fatalf("resolved an unobserved file %q", path)
+			}
+			return
+		}
+		var got struct {
+			Revision string `json:"expected_revision"`
+		}
+		if err != nil || json.Unmarshal(resolved, &got) != nil || got.Revision != revision {
+			t.Fatalf("resolve %q = %s, %v; want revision %q", path, resolved, err, revision)
+		}
+	}
+	other := filepath.Join(t.TempDir(), "file.txt")
+	history := []canonical.Record{record("initial", "file_content", "File.txt", "one"), record("external", "file_content", other, "other")}
+	observed.update(history)
+	check("File.txt", "one")
+	check(other, "other")
+	if aliased {
+		check("file.txt", "one")
+	} else {
+		check("file.txt", "")
+	}
+	history = append(history, record("update", "file_written", filepath.Join(root, "file.txt"), "two"))
+	observed.update(history)
+	check("file.txt", "two")
+	if aliased {
+		check("File.txt", "two")
+	} else {
+		check("File.txt", "one")
+	}
+	observed.update(history[:2])
+	check("File.txt", "one")
+	check(other, "other")
 }

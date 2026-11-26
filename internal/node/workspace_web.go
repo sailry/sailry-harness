@@ -3,9 +3,12 @@ package node
 import (
 	"context"
 	"database/sql"
+	"runtime"
 	"sync"
 	"time"
+	"weak"
 
+	"github.com/sailry/sailry-harness/internal/memory"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/web"
@@ -18,15 +21,31 @@ type webOperationKey struct {
 	search  bool
 }
 type workspaceWeb struct {
-	mu      sync.Mutex
-	active  map[webOperationKey]context.CancelFunc
-	fetch   *web.Fetcher
-	search  map[protocol.UserID]*web.Searcher
-	options web.SearchOptions
+	mu         sync.Mutex
+	active     map[webOperationKey]context.CancelFunc
+	fetch      *web.Fetcher
+	search     map[protocol.UserID]*web.Searcher
+	options    web.SearchOptions
+	stopMemory func()
 }
 
 func (node *Node) initWeb(ctx context.Context, options Options) error {
-	node.web = &workspaceWeb{active: map[webOperationKey]context.CancelFunc{}, fetch: web.NewFetcher(options.Fetch), search: map[protocol.UserID]*web.Searcher{}, options: options.Search}
+	ws := &workspaceWeb{active: map[webOperationKey]context.CancelFunc{}, fetch: web.NewFetcher(options.Fetch), search: map[protocol.UserID]*web.Searcher{}, options: options.Search}
+	weakWS := weak.Make(ws)
+	ws.stopMemory = memory.Default().Register("node.web_search", func(level memory.Level) {
+		if level != memory.Pressure {
+			return
+		}
+		if owner := weakWS.Value(); owner != nil {
+			owner.mu.Lock()
+			for _, searcher := range owner.search {
+				searcher.ClearResults()
+			}
+			owner.mu.Unlock()
+		}
+	})
+	runtime.AddCleanup(ws, func(stop func()) { stop() }, ws.stopMemory)
+	node.web = ws
 	return node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		settings, err := store.ReadSearchSettings(ctx, db)
 		if err != nil {

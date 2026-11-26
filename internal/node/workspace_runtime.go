@@ -108,7 +108,13 @@ func (node *Node) bindWorkspace(providers []moduleapi.WorkspaceBinder) error {
 
 func (node *Node) closeWorkspace() error {
 	if node.web != nil {
+		if node.web.stopMemory != nil {
+			node.web.stopMemory()
+		}
 		node.web.fetch.Close()
+		node.web.mu.Lock()
+		clear(node.web.search)
+		node.web.mu.Unlock()
 	}
 	node.closeCodeIndex()
 	return errors.Join(node.processes.Close(), node.transfers.Close(), node.watches.close(), node.workspaceRuntime.Close())
