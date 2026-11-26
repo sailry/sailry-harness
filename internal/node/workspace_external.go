@@ -325,14 +325,18 @@ func canonicalPath(path string) string {
 // resolvedPath resolves every symbolic link in an absolute path, through its
 // deepest existing directory.
 func resolvedPath(path string) string {
+	return filepath.Join(resolvedPathParts(path))
+}
+
+func resolvedPathParts(path string) (existing, missing string) {
 	current, rest := path, ""
 	for {
 		if resolved, err := filepath.EvalSymlinks(current); err == nil {
-			return filepath.Join(resolved, rest)
+			return resolved, rest
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
-			return path
+			return path, ""
 		}
 		rest = filepath.Join(filepath.Base(current), rest)
 		current = parent
