@@ -111,19 +111,13 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		}
 	}
 	for index := uint64(0); ; index++ {
-		if err := ctx.Err(); err != nil {
-			return Classify(err)
-		}
-		if cooldowns != nil && cooldownKey != "" {
-			ready, waitErr := schedule.waitCooldown(ctx, timer, cooldowns, cooldownKey)
-			if waitErr != nil {
-				return Classify(waitErr)
-			}
-			if !ready {
-				failure := &Failure{Kind: RateLimited, Message: "Rate limit cooldown exceeds remaining retry wait budget", WaitExhausted: true}
+		releaseSlot, waitErr := schedule.waitAttemptSlot(ctx, timer, cooldowns, cooldownKey)
+		if waitErr != nil {
+			failure := Classify(waitErr)
+			if failure.WaitExhausted {
 				failure.requestObserved = observation.finish(ctx, true)
-				return failure
 			}
+			return failure
 		}
 		attempt := Attempt{RequestID: requestID, RequestStarted: requestStarted, Index: index, Started: timer.Now(), RetryLimit: MainRetries}
 		owner, cancel := context.WithCancel(ctx)
@@ -242,17 +236,18 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 					}
 				}
 			}
-			if cooldowns != nil && cooldownKey != "" && attempt.Failure.Kind == RateLimited {
-				now := timer.Now()
-				delay := retryHint(attempt.Failure, now)
-				if attempt.RetryDelay != nil && *attempt.RetryDelay > delay {
-					delay = *attempt.RetryDelay
+			if cooldowns != nil && cooldownKey != "" && (attempt.Failure.Kind == RateLimited || attempt.Failure.Kind == Unavailable && attempt.Failure.overloaded) {
+				var retryDelay time.Duration
+				if attempt.RetryDelay != nil {
+					retryDelay = *attempt.RetryDelay
 				}
-				if delay > 0 {
-					cooldowns.Observe(cooldownKey, now.Add(delay), now)
-				}
+				cooldowns.ObserveThrottle(cooldownKey, attempt.Failure, timer.Now(), retryDelay)
 			}
+		} else if cooldowns != nil && cooldownKey != "" {
+			cooldowns.ObserveSuccess(cooldownKey, timer.Now())
 		}
+		// Publish a throttle before a queued sibling can acquire this slot.
+		releaseSlot()
 		observation.record(attempt)
 		if observe != nil {
 			if observationErr := observe(attempt); observationErr != nil {

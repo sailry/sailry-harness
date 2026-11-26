@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -12,13 +15,22 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func smallAttachmentPNG(t *testing.T) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
 func TestImageHistoryModelSwitch(t *testing.T) {
 	t.Parallel()
 	for _, current := range []bool{false, true} {
 		for _, textAdapter := range []bool{false, true} {
 			t.Run(fmt.Sprintf("current %v text adapter %v", current, textAdapter), func(t *testing.T) {
 				id, mime := protocol.NewAttachmentID(), "image/png"
-				pixels := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 64))
+				pixels := smallAttachmentPNG(t)
 				message := canonical.NewMessage(canonical.User,
 					canonical.Text(0, "keep this instruction"),
 					canonical.Block{Index: 1, Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Digest: "original", Mime: mime, Size: uint64(len(pixels))}}},
@@ -88,7 +100,7 @@ func TestOmittedImageAttachmentUsesCapturedInspection(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			id, mime := protocol.NewAttachmentID(), "application/octet-stream"
-			pixels := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 64))
+			pixels := smallAttachmentPNG(t)
 			file := canonical.FileRef{URI: attachmentPrefix + id.String(), Mime: &mime}
 			message := canonical.NewMessage(canonical.User, canonical.Text(0, "Describe my image"),
 				canonical.Block{Index: 1, Kind: "file", Data: &canonical.FileContent{File: file}})

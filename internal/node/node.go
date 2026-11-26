@@ -712,7 +712,7 @@ func externalCommand(command protocol.Command) bool {
 		return true
 	}
 	switch command.Kind {
-	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
+	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "retry_child_turn", "send_queued_turn", "replace_turn":
 		return true
 	case "create_project", "register_project", "update_project", "remove_project":
 		return true

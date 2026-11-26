@@ -59,10 +59,14 @@ type Failure struct {
 	// accounts answer 403 while they rotate to another account, so it uses
 	// the shared retry policy; a rejected key only gets the HTTP resend.
 	forbidden bool
+	// concurrencyLimited marks an upstream rejection caused by too many
+	// concurrent in-flight requests for the same credential.
+	concurrencyLimited bool
 }
 
-func (f *Failure) Error() string         { return f.Message }
-func (f *Failure) RequestObserved() bool { return f.requestObserved }
+func (f *Failure) Error() string            { return f.Message }
+func (f *Failure) RequestObserved() bool    { return f.requestObserved }
+func (f *Failure) ConcurrencyLimited() bool { return f != nil && f.concurrencyLimited }
 func (f *Failure) Retryable() bool {
 	return f.Kind == RateLimited || f.Kind == Quota || f.Kind == Network || f.Kind == Unavailable || f.truncated || f.Kind == Authentication && f.forbidden
 }
@@ -219,7 +223,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 		codes := []string{provider.ErrorType}
 		foundCode := false
 		for _, path := range [][]string{{"error", "code"}, {"error", "type"}, {"response", "error", "code"}, {"response", "error", "type"}, {"code"}, {"type"}} {
-			if value := jsonString(body, path...); value != "" {
+			if value := jsonCode(body, path...); value != "" {
 				overloaded = overloaded || overloadedCode(value)
 				overflow = overflow || contextOverflowCode(value)
 				usageMissing = usageMissing || containsCode(value, "upstream_usage_missing")
@@ -259,6 +263,8 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Message += ": " + cause
 		}
 		lower := strings.ToLower(string(provider.ResponseBody))
+		concurrencyLimit := anyCode(codes, concurrencyLimitCodes...) ||
+			concurrencyLimitMessage(message) || concurrencyLimitMessage(string(provider.ResponseBody))
 		switch {
 		case status >= 300 && status <= 399:
 			f.Kind = InvalidRequest
@@ -275,8 +281,9 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Authentication
 			// A 403 that names a credential failure is not an account rotation.
 			f.forbidden = status == 403 && !invalidKey && !anyCode(codes, "authentication_error", "unauthorized", "AccessDeniedException")
-		case status == 429 || anyCode(codes, rateLimitCodes...):
+		case status == 429 || anyCode(codes, rateLimitCodes...) || concurrencyLimit:
 			f.Kind = RateLimited
+			f.concurrencyLimited = concurrencyLimit
 		// Bedrock reports stream exceptions by type after a 200 response.
 		case status == 408 || status >= 500 && status <= 599 || overloaded || usageMissing || anyCode(codes, "upstream_bad_gateway", "upstream_unavailable", "upstream_timeout", "server_error", "internal_error", "internal_server_error", "bad_gateway", "gateway_timeout", "service_unavailable", "service_unavailable_error",
 			"serviceUnavailableException", "internalServerException", "modelStreamErrorException", "modelTimeoutException"):
@@ -317,9 +324,44 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 }
 
 var (
-	rateLimitCodes  = []string{"rate_limit_exceeded", "rate_limit_error", "too_many_requests", "throttlingException"}
+	concurrencyLimitCodes = []string{
+		"concurrency_limit_exceeded",
+		"concurrent_limit_exceeded",
+		"too_many_concurrent_requests",
+		"concurrent_requests_limit_exceeded",
+		"concurrency_limit",
+		"1302",
+	}
+	rateLimitCodes = []string{
+		"rate_limit_exceeded",
+		"rate_limit_error",
+		"too_many_requests",
+		"throttlingException",
+		"resource_exhausted",
+		"concurrency_limit_exceeded",
+		"concurrent_limit_exceeded",
+		"too_many_concurrent_requests",
+		"concurrent_requests_limit_exceeded",
+		"concurrency_limit",
+		"1302",
+	}
 	invalidKeyCodes = []string{"invalid_api_key", "invalid_authentication"}
 )
+
+func concurrencyLimitMessage(text string) bool {
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "concurrency limit") || strings.Contains(lower, "concurrent limit") ||
+		strings.Contains(lower, "too many concurrent") || strings.Contains(lower, "max concurrency") {
+		return true
+	}
+	if strings.Contains(lower, "concurrent request") && (strings.Contains(lower, "limit") || strings.Contains(lower, "exceeded") || strings.Contains(lower, "too many")) {
+		return true
+	}
+	return strings.Contains(text, "并发") && (strings.Contains(text, "限制") || strings.Contains(text, "超限") || strings.Contains(text, "上限"))
+}
 
 // anyCode reports whether any of the response's codes is one of codes.
 func anyCode(values []string, codes ...string) bool {
@@ -386,6 +428,28 @@ func jsonString(body map[string]any, path ...string) string {
 	}
 	result, _ := value.(string)
 	return result
+}
+
+func jsonCode(body map[string]any, path ...string) string {
+	var value any = body
+	for _, part := range path {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return ""
+		}
+		value = object[part]
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+	case json.Number:
+		return v.String()
+	}
+	return ""
 }
 func safeDiagnostic(message string, secrets []protocol.Secret) string {
 	values := make([]string, 0, len(secrets))

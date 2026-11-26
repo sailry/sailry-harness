@@ -132,17 +132,17 @@ func (node *Node) renderPDFPages(ctx context.Context, name string, data []byte, 
 		if err != nil {
 			return out, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("PDF: failed to render page %d: %v", page, err)}
 		}
-		facts, encoded, err := files.EncodePreparedImage(rendered)
+		mime, encoded, width, height, err := files.EncodePreparedImage(rendered)
 		if err != nil {
 			return out, err
 		}
 		out.InlineData = append(out.InlineData, protocol.InlineImage{
-			MimeType: facts.MimeType,
+			MimeType: mime,
 			Data:     base64.StdEncoding.EncodeToString(encoded),
 		})
 		out.Sections = append(out.Sections, protocol.OfficeSection{
 			Name: fmt.Sprintf("Page %d (image)", page),
-			Text: fmt.Sprintf("Rendered PDF page %d of %d as %s (%dx%d).", page, total, facts.MimeType, facts.Width, facts.Height),
+			Text: fmt.Sprintf("Rendered PDF page %d of %d as %s (%dx%d).", page, total, mime, width, height),
 		})
 	}
 	return out, nil

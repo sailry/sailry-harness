@@ -90,6 +90,15 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode child
 			if err != nil {
 				return err
 			}
+			if inv != nil {
+				encodedTools, encErr := encodeInheritedTools(x.delegationTools)
+				if encErr != nil {
+					return encErr
+				}
+				if err = store.SaveDelegatedTools(ctx, db, inv.Session.ID, encodedTools); err != nil {
+					return err
+				}
+			}
 			_, err = store.RecordEvents(ctx, db, r.node, events)
 			return err
 		})
@@ -219,7 +228,53 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 			return claimed, events, ended, nil
 		}
 	}
-	return nil, events, ended, nil
+	retried, changed, err := store.ClaimRetriedChild(ctx, db, r.clock.Now())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	events = append(events, changed...)
+	return retried, events, ended, nil
+}
+
+// startClaimedChild runs after the claim commits, under publication ownership.
+// A controller retry does not belong to an old turn's lifetime, but a Stop in
+// its parent session must still cancel it and wait for its settlement.
+func (r *Runtime) startClaimedChild(inv *store.AgentInvocation) (context.Context, inheritedTools) {
+	r.mu.Lock()
+	child := r.children[inv.Run.Turn]
+	if child != nil {
+		child.started = true
+	}
+	r.mu.Unlock()
+	if child != nil {
+		inv.ConnectionTargets = child.connections
+		return child.ctx, child.tools
+	}
+	if inv.Session.Delegation == nil || *inv.Session.Delegation == nil {
+		return r.ctx, nil
+	}
+	origin := *inv.Session.Delegation
+	var tools inheritedTools
+	var rawTools []byte
+	if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+		var err error
+		rawTools, err = store.ReadDelegatedTools(r.ctx, db, inv.Session.ID)
+		return err
+	}); err == nil && len(rawTools) > 0 {
+		if decoded, err := decodeInheritedTools(rawTools); err == nil {
+			tools = decoded
+		}
+	}
+	ctx, cancel := context.WithCancel(r.ctx)
+	child = &delegatedChild{
+		root: origin.Session, parent: origin.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence,
+		ctx: ctx, cancel: cancel, started: true, released: true, detached: true,
+		tools: tools, connections: inv.ConnectionTargets,
+	}
+	r.mu.Lock()
+	r.children[child.turn] = child
+	r.mu.Unlock()
+	return child.ctx, child.tools
 }
 
 // preflightChildWorkspace checks the worktree the child will run in before it

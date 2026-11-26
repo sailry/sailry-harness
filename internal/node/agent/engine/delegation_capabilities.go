@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"slices"
 
 	"github.com/sailry/sailry-harness/internal/node/mcp"
@@ -10,14 +11,26 @@ import (
 )
 
 type inheritedTool struct {
-	binding   *store.ApprovalBinding
-	authority mcp.AuthorityKey
-	schema    *jsonschema.Schema
-	flow      []protocol.ToolOperation
-	readOnly  bool
-	approval  bool
-	confirm   bool
-	deferred  bool
+	binding    *store.ApprovalBinding
+	authority  mcp.AuthorityKey
+	schema     *jsonschema.Schema
+	schemaJSON json.RawMessage
+	flow       []protocol.ToolOperation
+	readOnly   bool
+	approval   bool
+	confirm    bool
+	deferred   bool
+}
+
+type storedInheritedTool struct {
+	Binding    *store.ApprovalBinding   `json:"binding,omitempty"`
+	Authority  mcp.AuthorityKey         `json:"authority,omitempty"`
+	SchemaJSON json.RawMessage          `json:"schema_json,omitempty"`
+	Flow       []protocol.ToolOperation `json:"flow,omitempty"`
+	ReadOnly   bool                     `json:"read_only,omitempty"`
+	Approval   bool                     `json:"approval,omitempty"`
+	Confirm    bool                     `json:"confirm,omitempty"`
+	Deferred   bool                     `json:"deferred,omitempty"`
 }
 
 // Only the declarations are shared. A child captures its own executors,
@@ -32,13 +45,76 @@ func captureInheritedTools(tools []Tool) inheritedTools {
 		}
 		name := tool.Definition.Name
 		if _, exists := allowed[name]; !exists {
+			rawSchema := tool.SchemaJSON
+			if len(rawSchema) == 0 && tool.Definition.InputSchema != nil {
+				if encoded, err := json.Marshal(tool.Definition.InputSchema); err == nil {
+					rawSchema = encoded
+				}
+			}
 			allowed[name] = inheritedTool{
-				binding: tool.Binding, authority: tool.MCPAuthority, schema: tool.schema, flow: tool.Flow,
+				binding: tool.Binding, authority: tool.MCPAuthority, schema: tool.schema, schemaJSON: rawSchema, flow: tool.Flow,
 				readOnly: tool.ReadOnly, approval: tool.Approval, confirm: tool.Confirm != nil, deferred: tool.Deferred,
 			}
 		}
 	}
 	return allowed
+}
+
+func encodeInheritedTools(tools inheritedTools) ([]byte, error) {
+	if len(tools) == 0 {
+		return nil, nil
+	}
+	stored := make(map[string]storedInheritedTool, len(tools))
+	for name, tool := range tools {
+		stored[name] = storedInheritedTool{
+			Binding:    tool.binding,
+			Authority:  tool.authority,
+			SchemaJSON: tool.schemaJSON,
+			Flow:       tool.flow,
+			ReadOnly:   tool.readOnly,
+			Approval:   tool.approval,
+			Confirm:    tool.confirm,
+			Deferred:   tool.deferred,
+		}
+	}
+	return json.Marshal(stored)
+}
+
+func decodeInheritedTools(raw []byte) (inheritedTools, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var stored map[string]storedInheritedTool
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil, err
+	}
+	allowed := make(inheritedTools, len(stored))
+	for name, tool := range stored {
+		var compiled *jsonschema.Schema
+		if len(tool.SchemaJSON) > 0 {
+			var parsed any
+			if err := json.Unmarshal(tool.SchemaJSON, &parsed); err != nil {
+				return nil, err
+			}
+			var err error
+			compiled, err = compileToolSchema(name, tool.SchemaJSON, parsed)
+			if err != nil {
+				return nil, err
+			}
+		}
+		allowed[name] = inheritedTool{
+			binding:    tool.Binding,
+			authority:  tool.Authority,
+			schema:     compiled,
+			schemaJSON: tool.SchemaJSON,
+			flow:       tool.Flow,
+			readOnly:   tool.ReadOnly,
+			approval:   tool.Approval,
+			confirm:    tool.Confirm,
+			deferred:   tool.Deferred,
+		}
+	}
+	return allowed, nil
 }
 
 func (allowed inheritedTools) restrict(tools []Tool) []Tool {

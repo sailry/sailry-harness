@@ -59,7 +59,12 @@ func ReadImage(ctx context.Context, f *core.Files, path string) (protocol.FileIm
 const MaxCaptureBytes = 20 * 1024 * 1024
 
 // sentImageBytes is the largest image sent to a model or a conversation.
-const sentImageBytes = 3 * 1024 * 1024
+const sentImageBytes = 1024 * 1024
+
+// pngPreferMaxBytes is the threshold above which an opaque re-encoded image
+// compares JPEG against lossless PNG so screenshots with wallpapers or photos
+// do not inflate 5-10x when resized.
+const pngPreferMaxBytes = 192 * 1024
 
 // PrepareImage bounds an image a user or a file supplies. It returns the
 // source facts, the facts of the reduced image when one was made, and the
@@ -117,23 +122,8 @@ func prepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 	if e != nil {
 		return facts, nil, nil, invalid("image could not be decoded")
 	}
-	sent, encoded, e := encodePreparedImage(orientImage(decoded, orientation), format)
-	if e != nil {
-		return facts, nil, nil, e
-	}
-	return facts, &sent, encoded, nil
-}
-
-// EncodePreparedImage applies the existing model image bounds to rendered pixels.
-func EncodePreparedImage(source image.Image) (protocol.ImageFacts, []byte, error) {
-	return encodePreparedImage(source, "png")
-}
-
-func encodePreparedImage(source image.Image, format string) (protocol.ImageFacts, []byte, error) {
-	bounds := source.Bounds()
-	if bounds.Empty() {
-		return protocol.ImageFacts{}, nil, invalid("image dimensions are invalid")
-	}
+	decoded = orientImage(decoded, orientation)
+	bounds := decoded.Bounds()
 	// The longest side shrinks by a quarter while the encoding does not fit.
 	longest := max(bounds.Dx(), bounds.Dy())
 	for side := min(longest, protocol.MAX_IMAGE_SIDE); ; side = side * 3 / 4 {
@@ -143,30 +133,88 @@ func encodePreparedImage(source image.Image, format string) (protocol.ImageFacts
 		scale := float64(side) / float64(longest)
 		w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
 		resized := image.NewNRGBA(image.Rect(0, 0, w, h))
-		xdraw.BiLinear.Scale(resized, resized.Bounds(), source, bounds, draw.Src, nil)
-		var encoded bytes.Buffer
-		var e error
-		mime := "image/png"
-		if format != "jpeg" {
-			e = png.Encode(&encoded, resized)
-		}
-		if format == "jpeg" || e == nil && encoded.Len() > sentImageBytes {
-			encoded.Reset()
-			opaque := image.NewRGBA(resized.Bounds())
-			draw.Draw(opaque, opaque.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-			draw.Draw(opaque, opaque.Bounds(), resized, image.Point{}, draw.Over)
-			e = jpeg.Encode(&encoded, opaque, &jpeg.Options{Quality: 85})
-			mime = "image/jpeg"
-		}
+		xdraw.BiLinear.Scale(resized, resized.Bounds(), decoded, bounds, draw.Src, nil)
+		mime, encoded, e := encodePreparedImage(resized, format)
 		if e != nil {
-			return protocol.ImageFacts{}, nil, invalid("image could not be encoded")
+			return facts, nil, nil, invalid("image could not be encoded")
 		}
-		if encoded.Len() <= sentImageBytes {
-			sent := protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(encoded.Len())}
-			return sent, encoded.Bytes(), nil
+		if len(encoded) <= sentImageBytes {
+			sent := &protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(len(encoded))}
+			return facts, sent, encoded, nil
 		}
 	}
-	return protocol.ImageFacts{}, nil, invalid("image cannot be reduced below the model input limit")
+	return facts, nil, nil, invalid("image cannot be reduced below the model input limit")
+}
+
+// EncodePreparedImage scales source to fit the model image bounds and encodes
+// it cleanly, preferring compact JPEG for opaque images when lossless PNG
+// would bloat.
+func EncodePreparedImage(source image.Image) (string, []byte, uint32, uint32, error) {
+	bounds := source.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return "", nil, 0, 0, invalid("image dimensions are invalid")
+	}
+	longest := max(bounds.Dx(), bounds.Dy())
+	for side := min(longest, protocol.MAX_IMAGE_SIDE); ; side = side * 3 / 4 {
+		if side < minimumImageSide && side < min(longest, protocol.MAX_IMAGE_SIDE) {
+			break
+		}
+		scale := float64(side) / float64(longest)
+		w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
+		resized := image.NewNRGBA(image.Rect(0, 0, w, h))
+		if w == bounds.Dx() && h == bounds.Dy() {
+			draw.Draw(resized, resized.Bounds(), source, bounds.Min, draw.Src)
+		} else {
+			xdraw.BiLinear.Scale(resized, resized.Bounds(), source, bounds, draw.Src, nil)
+		}
+		mime, encoded, err := encodePreparedImage(resized, "png")
+		if err != nil {
+			return "", nil, 0, 0, invalid("image could not be encoded")
+		}
+		if len(encoded) <= sentImageBytes {
+			return mime, encoded, uint32(w), uint32(h), nil
+		}
+	}
+	return "", nil, 0, 0, invalid("image cannot be reduced below the model input limit")
+}
+
+func encodePreparedImage(resized *image.NRGBA, format string) (string, []byte, error) {
+	encodeJPEG := func() ([]byte, error) {
+		var buf bytes.Buffer
+		opaque := image.NewRGBA(resized.Bounds())
+		draw.Draw(opaque, opaque.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+		draw.Draw(opaque, opaque.Bounds(), resized, image.Point{}, draw.Over)
+		if err := jpeg.Encode(&buf, opaque, &jpeg.Options{Quality: 85}); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+	if format == "jpeg" {
+		data, err := encodeJPEG()
+		return "image/jpeg", data, err
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, resized); err != nil {
+		return "", nil, err
+	}
+	if pngBuf.Len() > sentImageBytes || !hasTransparentPixel(resized) && (format == "webp" || pngBuf.Len() > pngPreferMaxBytes) {
+		if jpegData, err := encodeJPEG(); err == nil {
+			if pngBuf.Len() > sentImageBytes || len(jpegData)*100 <= pngBuf.Len()*85 {
+				return "image/jpeg", jpegData, nil
+			}
+		}
+	}
+	return "image/png", pngBuf.Bytes(), nil
+}
+
+func hasTransparentPixel(img *image.NRGBA) bool {
+	pix := img.Pix
+	for i := 3; i < len(pix); i += 4 {
+		if pix[i] != 0xff {
+			return true
+		}
+	}
+	return false
 }
 
 // minimumImageSide is where reduction stops: a smaller image is not legible.

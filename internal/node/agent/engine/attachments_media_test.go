@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -162,5 +166,119 @@ func TestChatAttachmentInputs(t *testing.T) {
 	after, err := json.Marshal(records)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("attachment request changed canonical history: %v", err)
+	}
+}
+
+func TestUnpreparableImageAttachmentRemainsReferenceOnly(t *testing.T) {
+	t.Parallel()
+	// The PNG signature is detectable, but there is no image header to decode.
+	raw := []byte("\x89PNG\r\n\x1a\n")
+	id, mime := protocol.NewAttachmentID(), "image/png"
+	reads := 0
+	runtime := &Runtime{
+		attachment: func(_ context.Context, _ protocol.TurnID, got protocol.AttachmentID) (protocol.Attachment, bool, error) {
+			return protocol.Attachment{ID: got, Spec: protocol.AttachmentSpec{Name: "broken.png", MediaType: mime, Size: uint64(len(raw))}}, true, nil
+		},
+		attachmentBytes: func(context.Context, protocol.Attachment) ([]byte, error) {
+			reads++
+			return raw, nil
+		},
+	}
+	uri := attachmentPrefix + id.String()
+	file := &canonical.FileContent{File: canonical.FileRef{URI: uri, Mime: &mime}}
+	records := []canonical.Record{{ID: "image", Kind: "message", Data: canonical.NewMessage(canonical.User,
+		canonical.Block{Kind: "file", Data: file},
+	)}}
+	provider := protocol.DefaultConversationProvider()
+	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	provider.Models = []protocol.ConversationModel{{ID: "vision", Vision: true, Inputs: []string{"text", "image"}}}
+	x := &execution{ctx: t.Context(), inv: &store.AgentInvocation{Provider: &provider}}
+	x.inv.Turn.Config.Model = "vision"
+	for step := range 2 {
+		projected, assets, err := runtime.hydrateAttachments(x, records)
+		if err != nil || len(assets) != 0 {
+			t.Fatalf("step %d: expected no inline image, got %d assets, err=%v", step, len(assets), err)
+		}
+		blocks := projected[0].Message().Content
+		if len(blocks) != 1 || blocks[0].Kind != "text" {
+			t.Fatalf("step %d: expected just the attachment reference, got %+v", step, blocks)
+		}
+		note := blocks[0].Data.(*canonical.TextContent).Text
+		if !strings.Contains(note, `"id":"`+id.String()+`"`) || !strings.Contains(note, "could not be prepared") {
+			t.Fatalf("step %d: missing reference or reason: %s", step, note)
+		}
+	}
+	if reads != 1 || x.attachments[id].data != nil {
+		t.Fatalf("unpreparable image was read %d times or its bytes were retained", reads)
+	}
+	if original := records[0].Message().Content[0]; original.Kind != "file" || original.Data.(*canonical.FileContent).File.URI != uri {
+		t.Fatalf("canonical attachment was changed: %+v", original)
+	}
+}
+
+func TestOversizedUserImageAttachmentIsPreparedBeforeModelRequest(t *testing.T) {
+	t.Parallel()
+	photo := image.NewNRGBA(image.Rect(0, 0, 2000, 1400))
+	rng := rand.New(rand.NewPCG(11, 13))
+	for y := 0; y < 1400; y++ {
+		for x := 0; x < 2000; x++ {
+			jitter := int(rng.IntN(9)) - 4
+			photo.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(min(255, max(0, x*255/2000+jitter))),
+				G: uint8(min(255, max(0, y*255/1400+jitter))),
+				B: uint8(min(255, max(0, (x+y)*255/3400+jitter))),
+				A: 255,
+			})
+		}
+	}
+	var raw bytes.Buffer
+	if err := png.Encode(&raw, photo); err != nil {
+		t.Fatal(err)
+	}
+	id := protocol.NewAttachmentID()
+	declared := "image/png"
+	reads := 0
+	runtime := &Runtime{
+		attachment: func(_ context.Context, _ protocol.TurnID, got protocol.AttachmentID) (protocol.Attachment, bool, error) {
+			return protocol.Attachment{ID: got, Spec: protocol.AttachmentSpec{Name: "retina.png", MediaType: declared, Size: uint64(raw.Len())}}, true, nil
+		},
+		attachmentBytes: func(_ context.Context, _ protocol.Attachment) ([]byte, error) {
+			reads++
+			return raw.Bytes(), nil
+		},
+	}
+	records := []canonical.Record{{ID: "img-turn", Kind: "message", Data: canonical.NewMessage(canonical.User,
+		canonical.Text(0, "Inspect this screenshot"),
+		canonical.Block{Index: 1, Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: attachmentPrefix + id.String(), Mime: &declared}}},
+	)}}
+	provider := protocol.DefaultConversationProvider()
+	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	provider.Models = []protocol.ConversationModel{{ID: "vision", Vision: true, Inputs: []string{"text", "image"}}}
+	x := &execution{ctx: t.Context(), inv: &store.AgentInvocation{Provider: &provider}}
+	x.inv.Turn.Config.Model = "vision"
+
+	projected, assets, err := runtime.hydrateAttachments(x, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("got %d image assets, want 1", len(assets))
+	}
+	var sentBytes []byte
+	for _, data := range assets {
+		sentBytes = data
+	}
+	var assetBlock *canonical.AssetContent
+	for _, block := range projected[0].Message().Content {
+		if value, ok := block.Data.(*canonical.AssetContent); ok {
+			assetBlock = value
+		}
+	}
+	if assetBlock == nil || assetBlock.Asset.Mime != "image/jpeg" || len(sentBytes) >= raw.Len()/2 {
+		t.Fatalf("expected prepared compact JPEG for oversized user screenshot: block=%+v sent=%d raw=%d", assetBlock, len(sentBytes), raw.Len())
+	}
+	// Second step reuses cached prepared image without re-reading disk.
+	if _, assets2, err := runtime.hydrateAttachments(x, records); err != nil || len(assets2) != 1 || reads != 1 {
+		t.Fatalf("second step reads=%d assets=%d err=%v", reads, len(assets2), err)
 	}
 }

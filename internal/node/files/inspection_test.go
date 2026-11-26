@@ -221,4 +221,49 @@ func TestImagePreparation(t *testing.T) {
 			t.Fatal("an oversized capture was accepted")
 		}
 	})
+	t.Run("resized opaque photo prefers compact JPEG while transparent PNG stays PNG", func(t *testing.T) {
+		// Smooth photographic gradient + fine texture: encodes large as PNG (> 500 KiB),
+		// compact as JPEG (< 150 KiB).
+		photo := image.NewNRGBA(image.Rect(0, 0, 2000, 1400))
+		rng := rand.New(rand.NewPCG(7, 9))
+		for y := 0; y < 1400; y++ {
+			for x := 0; x < 2000; x++ {
+				jitter := int(rng.IntN(9)) - 4
+				r := uint8(min(255, max(0, x*255/2000+jitter)))
+				g := uint8(min(255, max(0, y*255/1400+jitter)))
+				b := uint8(min(255, max(0, (x+y)*255/3400+jitter)))
+				photo.SetNRGBA(x, y, color.NRGBA{R: r, G: g, B: b, A: 255})
+			}
+		}
+		var rawPhoto bytes.Buffer
+		if err := png.Encode(&rawPhoto, photo); err != nil {
+			t.Fatal(err)
+		}
+		_, sentPhoto, encodedPhoto, err := PrepareImage(rawPhoto.Bytes())
+		if err != nil || sentPhoto == nil {
+			t.Fatalf("opaque photo prepare failed: sent=%+v err=%v", sentPhoto, err)
+		}
+		if sentPhoto.MimeType != "image/jpeg" || len(encodedPhoto) > sentImageBytes || len(encodedPhoto) >= rawPhoto.Len()/2 {
+			t.Fatalf("expected compact JPEG for resized opaque photo: mime=%s bytes=%d source=%d", sentPhoto.MimeType, len(encodedPhoto), rawPhoto.Len())
+		}
+
+		// Transparent UI graphic exceeding MAX_IMAGE_SIDE but still small as PNG.
+		ui := image.NewNRGBA(image.Rect(0, 0, 1800, 1200))
+		for y := 100; y < 1100; y++ {
+			for x := 100; x < 1700; x++ {
+				ui.SetNRGBA(x, y, color.NRGBA{R: 32, G: 64, B: 128, A: 200})
+			}
+		}
+		var rawUI bytes.Buffer
+		if err := png.Encode(&rawUI, ui); err != nil {
+			t.Fatal(err)
+		}
+		_, sentUI, encodedUI, err := PrepareImage(rawUI.Bytes())
+		if err != nil || sentUI == nil {
+			t.Fatalf("transparent UI prepare failed: sent=%+v err=%v", sentUI, err)
+		}
+		if sentUI.MimeType != "image/png" || len(encodedUI) > sentImageBytes {
+			t.Fatalf("expected PNG to be preserved for transparent graphic: mime=%s bytes=%d", sentUI.MimeType, len(encodedUI))
+		}
+	})
 }

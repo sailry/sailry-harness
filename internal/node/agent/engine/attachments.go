@@ -12,6 +12,7 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -26,6 +27,7 @@ type attachmentMaterial struct {
 	err           error
 	mime          string
 	loaded        bool
+	prepared      bool
 	referenceOnly bool
 }
 
@@ -113,7 +115,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 			}
 			image := strings.HasPrefix(mime, "image/")
 			mayInclude := !entry.referenceOnly
-			if entry.mime != "" {
+			if mayInclude && entry.mime != "" {
 				switch {
 				case image:
 					mayInclude = vision
@@ -145,6 +147,21 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 				image = strings.HasPrefix(mime, "image/")
 				switch {
 				case image && vision:
+					if !entry.prepared {
+						source, sent, encoded, err := files.PrepareImage(entry.data)
+						if err != nil {
+							entry.referenceOnly = true
+							break
+						}
+						mime = source.MimeType
+						if sent != nil {
+							mime = sent.MimeType
+						}
+						entry.data, entry.mime, entry.prepared = encoded, mime, true
+					}
+					if uint64(len(entry.data)) > remaining {
+						break
+					}
 					digest := blake3.Sum256(entry.data)
 					key := hex.EncodeToString(digest[:])
 					assets[key] = entry.data
@@ -160,12 +177,16 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					included = true
 				}
 				if included {
-					remaining -= attachment.Spec.Size
+					if image {
+						remaining -= uint64(len(entry.data))
+					} else {
+						remaining -= attachment.Spec.Size
+					}
 					referenced[id] = true
 				} else {
-					entry.data, entry.loaded = nil, false
+					entry.data, entry.loaded, entry.prepared = nil, false, false
 					// A model change can make detected media eligible again.
-					entry.referenceOnly = !image && mime != "application/pdf" && !attachmentAudioVideo(mime)
+					entry.referenceOnly = entry.referenceOnly || !image && mime != "application/pdf" && !attachmentAudioVideo(mime)
 				}
 			}
 			descriptor, _ := json.Marshal(map[string]any{"id": id, "name": attachment.Spec.Name, "media_type": attachment.Spec.MediaType, "size": attachment.Spec.Size})
@@ -178,6 +199,8 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					note += "\nThe conversation model cannot directly read this attachment in this request; only its reference is included."
 				case !image:
 					note += "\n" + attachmentReadNote
+				case entry.referenceOnly:
+					note += "\nThe image could not be prepared for model input; only its reference is included."
 				case canInspect && attachment.Spec.Size <= protocol.MAX_IMAGE_BYTES:
 					note += "\nImage contents are omitted from this request. Use inspect_image with {\"attachment\":\"" + id.String() + "\",\"prompt\":\"<question about the image>\"}. If needed, load it with tool_search and query \"select:inspect_image\"."
 				case !vision:
@@ -214,7 +237,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 		if !present {
 			delete(x.attachments, id)
 		} else if !included && entry.err == nil && !entry.referenceOnly {
-			entry.data, entry.loaded = nil, false
+			entry.data, entry.loaded, entry.prepared = nil, false, false
 		}
 	}
 	return request, assets, nil

@@ -756,6 +756,9 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 		}
 		events = append(events, changed...)
 	}
+	if _, err = db.ExecContext(ctx, "DELETE FROM agent_state WHERE key LIKE ?1", retriedChildPrefix+"%"); err != nil {
+		return nil, err
+	}
 	automatic, e := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status')='queued' AND (coalesce(json_extract(a.body,'$.notice'),0)=1 OR EXISTS(SELECT 1 FROM agent_continuations c WHERE c.turn=a.turn))")
 	if e != nil {
 		return nil, e

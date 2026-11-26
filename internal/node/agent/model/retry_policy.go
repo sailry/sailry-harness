@@ -142,6 +142,42 @@ func (policy *retryPolicy) wait(ctx context.Context, timer clock.Clock, attempt 
 	return policy.fits(ctx, attempt, timer.Now(), 0), nil
 }
 
+// waitAttemptSlot checks Retry-After on both sides of the slot wait. A sibling
+// can publish a cooldown while the request is queued; in that case, give back
+// the slot before waiting out the new window.
+func (policy *retryPolicy) waitAttemptSlot(ctx context.Context, timer clock.Clock, cooldowns *Cooldowns, key string) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		ready, err := policy.waitCooldown(ctx, timer, cooldowns, key)
+		if err != nil {
+			return nil, err
+		}
+		if !ready {
+			return nil, &Failure{Kind: RateLimited, Message: "Rate limit cooldown exceeds remaining retry wait budget", WaitExhausted: true}
+		}
+		release, ready, err := policy.waitConcurrencySlot(ctx, timer, cooldowns, key)
+		if err != nil {
+			return nil, err
+		}
+		if !ready {
+			return nil, &Failure{Kind: RateLimited, Message: "Concurrency wait exceeds remaining retry wait budget", WaitExhausted: true}
+		}
+		if err := ctx.Err(); err != nil {
+			release()
+			return nil, err
+		}
+		if cooldowns == nil || key == "" {
+			return release, nil
+		}
+		if _, active := cooldowns.Until(key, timer.Now()); !active {
+			return release, nil
+		}
+		release()
+	}
+}
+
 // waitCooldown waits out an active credential-wide rate-limit cooldown before
 // sending an attempt so concurrent requests sharing the same credential do not
 // bypass an in-progress Retry-After window.
@@ -191,6 +227,33 @@ func (policy *retryPolicy) waitCooldown(ctx context.Context, timer clock.Clock, 
 		}
 		policy.waited += delay
 	}
+}
+
+// waitConcurrencySlot blocks until an adaptive in-flight slot opens for key,
+// bounded by the remaining retry wait budget and ctx deadline.
+func (policy *retryPolicy) waitConcurrencySlot(ctx context.Context, timer clock.Clock, cooldowns *Cooldowns, key string) (func(), bool, error) {
+	if cooldowns == nil || key == "" {
+		return func() {}, true, nil
+	}
+	started := timer.Now()
+	maxWait := retryWaitBudget - policy.waited
+	if deadline, bounded := ctx.Deadline(); bounded {
+		maxWait = min(maxWait, deadline.Sub(started))
+	}
+	if !policy.originDeadline.IsZero() {
+		maxWait = min(maxWait, policy.originDeadline.Sub(started))
+	}
+	release, ok, err := cooldowns.AcquireSlot(ctx, key, started, maxWait)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	if elapsed := timer.Now().Sub(started); elapsed > 0 {
+		policy.waited += elapsed
+	}
+	return release, true, nil
 }
 
 func retryHint(failure *Failure, now time.Time) time.Duration {
