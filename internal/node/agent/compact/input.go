@@ -14,7 +14,7 @@ import (
 //go:embed prompt.md
 var promptText string
 
-const Request = "Please summarize the conversation history provided in the system prompt."
+const Request = "Please summarize the conversation history provided in the system prompt. Output only the single ```json handoff code block matching the schema and nothing else."
 
 // Compaction has its own context budget. A model catalog can advertise a
 // larger window than a gateway serves, and a handoff does not need to replay

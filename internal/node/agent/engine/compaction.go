@@ -416,11 +416,27 @@ func (r *Runtime) summarize(x *execution, binding model.Binding, route model.Rou
 	if stream.limited {
 		return failed(protocol.ConversationCompactionStageSummary, protocol.ConversationCompactionReasonTruncatedSummary, fmt.Errorf("compaction summary reached its output limit"))
 	}
-	summary, err := handoff.Parse(stream.text.String(), cap)
+	rawSummary := stream.text.String()
+	summary, err := handoff.Parse(rawSummary, cap)
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonUnexpectedOutput
-		if strings.TrimSpace(stream.text.String()) == "" {
+		if strings.TrimSpace(rawSummary) == "" {
 			reason = protocol.ConversationCompactionReasonEmptySummary
+		} else {
+			logging.Emit(slog.LevelWarn,
+				slog.String("area", "agent"),
+				slog.String("operation", "compaction_summary"),
+				slog.String("phase", logging.Failed),
+				slog.String("session", x.inv.Session.ID.String()),
+				slog.String("turn", x.inv.Run.Turn.String()),
+				slog.String("provider", summaryBinding.Provider.ID.String()),
+				slog.String("model", summaryBinding.Config.Model),
+				slog.Int("output_bytes", len(rawSummary)),
+				slog.Int("output_lines", strings.Count(rawSummary, "\n")+1),
+				slog.Bool("has_fence", strings.Contains(rawSummary, "```")),
+				slog.Bool("has_brace", strings.Contains(rawSummary, "{")),
+				slog.Bool("has_heading", strings.Contains(rawSummary, "## ")),
+			)
 		}
 		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}

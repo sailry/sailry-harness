@@ -104,3 +104,67 @@ func TestBoundMatchesStepwiseTrim(t *testing.T) {
 		}
 	}
 }
+
+func TestParseHandlesFencesProseTrailingCommasAndRenderedMarkdown(t *testing.T) {
+	t.Run("uppercase JSON fence and trailing comma", func(t *testing.T) {
+		raw := "Here is the updated handoff:\n```JSON\n{\n  \"user_intent\": [\"Review unpushed commits\",],\n  \"current_work\": \"Ready to review\",\n}\n```\n"
+		s, err := Parse(raw, 4000)
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		if len(s.UserIntent) != 1 || s.UserIntent[0] != "Review unpushed commits" || s.CurrentWork == nil || *s.CurrentWork != "Ready to review" {
+			t.Fatalf("unexpected summary: %+v", s)
+		}
+	})
+	t.Run("unlabeled fence and XML wrapper", func(t *testing.T) {
+		for _, raw := range []string{
+			"Updated handoff:\n```\n{\"user_intent\":[\"Ship fix\"],\"next_step\":\"Run tests\"}\n```",
+			"<handoff>\n{\"user_intent\":[\"Ship fix\"],\"next_step\":\"Run tests\"}\n</handoff>",
+		} {
+			s, err := Parse(raw, 4000)
+			if err != nil || len(s.UserIntent) != 1 || s.NextStep == nil || *s.NextStep != "Run tests" {
+				t.Fatalf("Parse(%q) = (%+v, %v)", raw, s, err)
+			}
+		}
+	})
+	t.Run("rendered markdown handoff round-trip", func(t *testing.T) {
+		work := "Implemented compaction fix and verified locally."
+		next := "Review unpushed commits across sailry-go and sailry-code."
+		keyCode := "func Parse(text string, limit uint64) (Summary, error)"
+		orig := Summary{
+			UserIntent:        []string{"Review recent unpushed changes"},
+			PendingTasks:      []string{"Verify cross-repo compatibility"},
+			UserMessages:      []string{"Never push without asking"},
+			CurrentWork:       &work,
+			ProblemSolving:    []string{"Kept sdk/desktop minimal by adding sdk/desktop/harness"},
+			NextStep:          &next,
+			Files:             []File{{Path: "internal/node/agent/compact/summary.go", Summary: "Hardened handoff parser", KeyCode: &keyCode}},
+			TechnicalConcepts: []string{"commit 59ff234a6"},
+		}
+		rendered := orig.Render()
+		parsed, err := Parse(rendered, 4000)
+		if err != nil {
+			t.Fatalf("Parse(rendered markdown) failed: %v\nrendered:\n%s", err, rendered)
+		}
+		if len(parsed.UserIntent) != 1 || len(parsed.PendingTasks) != 1 || len(parsed.UserMessages) != 1 ||
+			parsed.CurrentWork == nil || len(parsed.ProblemSolving) != 1 || parsed.NextStep == nil ||
+			len(parsed.Files) != 1 || parsed.Files[0].Path != "internal/node/agent/compact/summary.go" ||
+			parsed.Files[0].KeyCode == nil || *parsed.Files[0].KeyCode != keyCode {
+			t.Fatalf("markdown round-trip lost fields: %+v", parsed)
+		}
+	})
+	t.Run("rejects malformed json and non-handoff prose", func(t *testing.T) {
+		for _, invalid := range []string{
+			`{"user_intent":["unfinished`,
+			`{}`,
+			` `,
+			`A quoted example {"user_intent":["Wrong"]} is not a handoff`,
+			"Sure, I can review your recent unpushed commits right now.",
+			"## Summary\nJust a regular single-heading reply without handoff structure.",
+		} {
+			if _, err := Parse(invalid, 4000); err == nil {
+				t.Fatalf("Parse(%q) unexpectedly succeeded", invalid)
+			}
+		}
+	})
+}

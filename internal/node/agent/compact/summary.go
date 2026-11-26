@@ -98,34 +98,42 @@ func Parse(text string, limit uint64) (Summary, error) {
 	if len(cuts) == 0 {
 		cuts = []int{0}
 	}
+	seen := map[string]struct{}{}
 	for i := len(cuts) - 1; i >= 0; i-- {
 		tail := text[cuts[i]:]
 		later := strings.Count(tail, "</analysis>")
 		appendCandidate := func(candidate string) {
-			if candidate != "" && strings.Count(candidate, "</analysis>") == later {
-				candidates = append(candidates, candidate)
+			if candidate == "" || strings.Count(candidate, "</analysis>") != later {
+				return
 			}
-		}
-		markers := []int{}
-		for offset := 0; ; {
-			index := strings.Index(tail[offset:], "```json")
-			if index < 0 {
-				break
+			if _, ok := seen[candidate]; ok {
+				return
 			}
-			offset += index + len("```json")
-			markers = append(markers, offset)
+			seen[candidate] = struct{}{}
+			candidates = append(candidates, candidate)
 		}
-		for j := len(markers) - 1; j >= 0; j-- {
-			appendCandidate(object(tail[markers[j]:]))
+		for _, block := range fencedBlocks(tail) {
+			appendCandidate(object(block))
 		}
 		appendCandidate(object(tail))
+		appendCandidate(xmlWrappedObject(tail))
 	}
 	if candidate := object(text); candidate != "" {
-		candidates = append(candidates, candidate)
+		if _, ok := seen[candidate]; !ok {
+			candidates = append(candidates, candidate)
+		}
 	}
 	for _, candidate := range candidates {
 		var fields map[string]any
-		variants := []string{candidate, repair(candidate), escape(candidate), repair(escape(candidate))}
+		stripped := stripTrailingCommas(candidate)
+		variants := []string{
+			candidate,
+			stripped,
+			repair(candidate),
+			escape(candidate),
+			stripTrailingCommas(escape(candidate)),
+			repair(escape(candidate)),
+		}
 		parsed := false
 		for _, variant := range variants {
 			decoder := json.NewDecoder(strings.NewReader(variant))
@@ -156,7 +164,7 @@ func Parse(text string, limit uint64) (Summary, error) {
 				summary.Files = append(summary.Files, value)
 			}
 		}
-		if len(summary.UserIntent)+len(summary.TechnicalConcepts)+len(summary.ErrorsAndFixes)+len(summary.ProblemSolving)+len(summary.UserMessages)+len(summary.PendingTasks)+len(summary.Files) == 0 && summary.CurrentWork == nil && summary.NextStep == nil {
+		if !summary.nonEmpty() {
 			continue
 		}
 		summary.Bound(limit)
@@ -165,7 +173,247 @@ func Parse(text string, limit uint64) (Summary, error) {
 		}
 		return summary, nil
 	}
+	if summary, ok := parseMarkdownHandoff(text[cuts[len(cuts)-1]:]); ok {
+		summary.Bound(limit)
+		if tokens.Text(summary.Render()) <= limit {
+			return summary, nil
+		}
+	}
 	return Summary{}, fmt.Errorf("compaction summary was not a structured handoff")
+}
+
+func (s Summary) nonEmpty() bool {
+	return len(s.UserIntent)+len(s.TechnicalConcepts)+len(s.ErrorsAndFixes)+len(s.ProblemSolving)+len(s.UserMessages)+len(s.PendingTasks)+len(s.Files) > 0 || s.CurrentWork != nil || s.NextStep != nil
+}
+
+// fencedBlocks returns fenced code block bodies in reverse order so the final
+// handoff block is preferred over any examples or quoted snippets above it.
+func fencedBlocks(text string) []string {
+	var blocks []string
+	for offset := 0; offset < len(text); {
+		idx := strings.Index(text[offset:], "```")
+		if idx < 0 {
+			break
+		}
+		start := offset + idx + 3
+		newline := strings.IndexByte(text[start:], '\n')
+		if newline < 0 {
+			break
+		}
+		bodyStart := start + newline + 1
+		end := strings.Index(text[bodyStart:], "\n```")
+		if end < 0 {
+			blocks = append(blocks, text[bodyStart:])
+			break
+		}
+		blocks = append(blocks, text[bodyStart:bodyStart+end])
+		offset = bodyStart + end + 4
+	}
+	slices.Reverse(blocks)
+	return blocks
+}
+
+// xmlWrappedObject extracts a top-level JSON object wrapped in a single XML
+// tag pair such as <handoff>{...}</handoff> or <summary>{...}</summary>.
+func xmlWrappedObject(text string) string {
+	trimmed := strings.TrimSpace(text)
+	for _, tag := range []string{"handoff", "summary", "json"} {
+		openTag, closeTag := "<"+tag+">", "</"+tag+">"
+		if strings.HasPrefix(strings.ToLower(trimmed), openTag) && strings.HasSuffix(strings.ToLower(trimmed), closeTag) {
+			inner := trimmed[len(openTag) : len(trimmed)-len(closeTag)]
+			return object(inner)
+		}
+	}
+	return ""
+}
+
+// stripTrailingCommas removes trailing commas before closing '}' or ']' tokens
+// outside JSON string literals.
+func stripTrailingCommas(text string) string {
+	var out strings.Builder
+	out.Grow(len(text))
+	quoted, escaped := false, false
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if quoted {
+			out.WriteByte(ch)
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == '"' {
+				quoted = false
+			}
+			continue
+		}
+		if ch == '"' {
+			quoted = true
+			out.WriteByte(ch)
+			continue
+		}
+		if ch == ',' {
+			j := i + 1
+			for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\r' || text[j] == '\n') {
+				j++
+			}
+			if j < len(text) && (text[j] == '}' || text[j] == ']') {
+				continue
+			}
+		}
+		out.WriteByte(ch)
+	}
+	return out.String()
+}
+
+// parseMarkdownHandoff recovers a structured handoff when a model continues the
+// rendered Markdown "# Handoff Summary" format of an earlier compaction instead
+// of emitting JSON. At least two recognized handoff section headings are required
+// so ordinary prose replies are still rejected.
+func parseMarkdownHandoff(text string) (Summary, bool) {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	summary := Summary{Files: []File{}}
+	section := ""
+	subSection := ""
+	matchedHeadings := 0
+	var stateLines, nextLines []string
+	inFence := false
+	var codeLines []string
+	appendItem := func(target *[]string, line string) {
+		item := strings.TrimSpace(line)
+		item = strings.TrimPrefix(item, "- ")
+		item = strings.TrimPrefix(item, "* ")
+		item = strings.TrimSpace(item)
+		if item != "" {
+			*target = append(*target, item)
+		}
+	}
+	flushCode := func() {
+		if len(codeLines) == 0 || len(summary.Files) == 0 {
+			codeLines = nil
+			return
+		}
+		code := strings.Join(codeLines, "\n")
+		if strings.TrimSpace(code) != "" {
+			summary.Files[len(summary.Files)-1].KeyCode = &code
+		}
+		codeLines = nil
+	}
+	for _, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") {
+			if inFence {
+				inFence = false
+				flushCode()
+			} else {
+				inFence = true
+				codeLines = nil
+			}
+			continue
+		}
+		if inFence {
+			if section == "essential" && len(summary.Files) > 0 {
+				codeLines = append(codeLines, raw)
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "## ") || strings.HasPrefix(trimmed, "### ") {
+			heading := strings.ToLower(strings.TrimSpace(strings.TrimLeft(trimmed, "#")))
+			subSection = ""
+			switch heading {
+			case "goal", "goals", "user intent":
+				section = "goal"
+				matchedHeadings++
+				continue
+			case "open tasks", "pending tasks":
+				section = "pending"
+				matchedHeadings++
+				continue
+			case "constraints", "user messages", "requirements":
+				section = "constraints"
+				matchedHeadings++
+				continue
+			case "state", "current work", "current state":
+				section = "state"
+				matchedHeadings++
+				continue
+			case "decisions", "problem solving":
+				section = "decisions"
+				matchedHeadings++
+				continue
+			case "next steps", "next step":
+				section = "next"
+				matchedHeadings++
+				continue
+			case "essential context", "files", "key files", "context":
+				section = "essential"
+				matchedHeadings++
+				continue
+			case "errors and fixes", "errors":
+				section = "errors"
+				matchedHeadings++
+				continue
+			default:
+				if strings.HasPrefix(trimmed, "## ") {
+					section = ""
+				}
+				continue
+			}
+		}
+		if section == "" || trimmed == "" || strings.HasPrefix(trimmed, "# ") {
+			continue
+		}
+		switch section {
+		case "goal":
+			if strings.EqualFold(trimmed, "open tasks:") || strings.EqualFold(trimmed, "pending tasks:") {
+				subSection = "pending"
+				continue
+			}
+			if subSection == "pending" {
+				appendItem(&summary.PendingTasks, trimmed)
+			} else {
+				appendItem(&summary.UserIntent, trimmed)
+			}
+		case "pending":
+			appendItem(&summary.PendingTasks, trimmed)
+		case "constraints":
+			appendItem(&summary.UserMessages, trimmed)
+		case "state":
+			stateLines = append(stateLines, trimmed)
+		case "decisions":
+			appendItem(&summary.ProblemSolving, trimmed)
+		case "next":
+			nextLines = append(nextLines, trimmed)
+		case "errors":
+			appendItem(&summary.ErrorsAndFixes, trimmed)
+		case "essential":
+			item := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* "))
+			if strings.HasPrefix(item, "`") {
+				if end := strings.IndexByte(item[1:], '`'); end > 0 {
+					path := strings.TrimSpace(item[1 : 1+end])
+					rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(item[2+end:]), ":"))
+					if path != "" {
+						summary.Files = append(summary.Files, File{Path: path, Summary: rest})
+						continue
+					}
+				}
+			}
+			if item != "" {
+				summary.TechnicalConcepts = append(summary.TechnicalConcepts, item)
+			}
+		}
+	}
+	if len(stateLines) > 0 {
+		joined := strings.Join(stateLines, "\n")
+		summary.CurrentWork = &joined
+	}
+	if len(nextLines) > 0 {
+		joined := strings.Join(nextLines, "\n")
+		summary.NextStep = &joined
+	}
+	if matchedHeadings < 2 || !summary.nonEmpty() {
+		return Summary{}, false
+	}
+	return summary, true
 }
 
 func object(text string) string {
