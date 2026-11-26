@@ -24,6 +24,7 @@ type Projection struct {
 	snapshot   *protocol.Snapshot
 	recovery   bool
 	changes    pluginChangeCursors
+	admissions map[chan protocol.TurnSummary]protocol.RequestID
 	resources  uint64
 	directory  uint64
 	credential uint64
@@ -274,6 +275,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 				break
 			}
 		}
+		pruneSessionTurns(snapshot, change.Session, *change.Activity)
 	case "task_started":
 		change, err := payload[protocol.EventTaskStartedPayload](event.Data)
 		if err != nil {
@@ -281,6 +283,12 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		}
 		if change.Session == nil {
 			return false, fault(protocol.ErrorCodeInvalidRequest, "task update is missing its session")
+		}
+		for result, request := range projection.admissions {
+			if request == change.Turn.Request {
+				result <- protocol.TurnSummary{Session: change.Turn.Session, ID: change.Turn.ID, Request: request}
+				delete(projection.admissions, result)
+			}
 		}
 		if !slices.ContainsFunc(snapshot.Worktrees, func(item protocol.Worktree) bool { return item.ID == change.Session.Worktree }) {
 			return true, nil
@@ -564,6 +572,27 @@ func updateSession(snapshot *protocol.Snapshot, session protocol.Session) {
 func updateTurn(snapshot *protocol.Snapshot, turn protocol.QueuedTurn) {
 	snapshot.Turns = slices.DeleteFunc(snapshot.Turns, func(item protocol.TurnSummary) bool { return item.ID == turn.ID })
 	snapshot.Turns = append(snapshot.Turns, protocol.TurnSummary{ID: turn.ID, Session: turn.Session, Request: turn.Request})
+}
+
+func pruneSessionTurns(snapshot *protocol.Snapshot, session protocol.SessionID, activity protocol.ActivitySummary) {
+	if activity.Queued > 0 || len(snapshot.Turns) == 0 {
+		return
+	}
+	activeTurn := protocol.TurnID{}
+	keepActive := false
+	if activity.Run != nil {
+		switch activity.Run.Status {
+		case protocol.ConversationStatusRunning, protocol.ConversationStatusStopping, protocol.ConversationStatusQueued:
+			activeTurn = activity.Run.Turn
+			keepActive = true
+		}
+	}
+	snapshot.Turns = slices.DeleteFunc(snapshot.Turns, func(item protocol.TurnSummary) bool {
+		if item.Session != session {
+			return false
+		}
+		return !keepActive || item.ID != activeTurn
+	})
 }
 
 func replaceTeam(snapshot *protocol.Snapshot, team protocol.TeamProfile) {

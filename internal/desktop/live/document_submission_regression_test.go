@@ -177,17 +177,20 @@ func TestDocumentSubmissionHistoryAcrossRevisions(t *testing.T) {
 		if !f.r.browser.sent[first]["decisions"] {
 			t.Fatal("first form was not accepted", f.node.commands)
 		}
-		for revision := uint32(4); revision < 66; revision++ {
+		for revision := uint32(4); revision < 260; revision++ {
 			f.r.browser.sent[documentDraftKey{first.artifact, revision}] = map[string]bool{"decisions": true}
 		}
 		pendingContent := documentFormContent()
 		pending := f.submit(pendingContent)
-		f.submit(documentFormContent()) // the 65th revision, before the 64th settles
+		f.submit(documentFormContent()) // another form before the pending submission settles
+		if len(f.r.browser.sent) != 259 {
+			t.Fatalf("expected all accepted and pending forms to remain, got %d", len(f.r.browser.sent))
+		}
 		if !f.r.browser.sent[first]["decisions"] {
-			t.Fatal("opening the 65th revision forgot an admitted form")
+			t.Fatal("opening another revision forgot an admitted form")
 		}
 		if accepted, exists := f.r.browser.sent[pending]["decisions"]; !exists || accepted {
-			t.Fatal("opening the 65th revision forgot or prematurely accepted an in-flight form")
+			t.Fatal("opening another revision forgot or prematurely accepted an in-flight form")
 		}
 		f.submit(pendingContent)
 		f.submit(f.content)

@@ -283,6 +283,18 @@ func TestPluginSettingsUnmountsOnSectionSwitch(t *testing.T) {
 	}
 }
 
+func TestPruneSessionsRetainsUnsettledRequestIDs(t *testing.T) {
+	r := &Runtime{uncertain: make(map[string]protocol.Request)}
+	for range 257 {
+		id := protocol.NewRequestID()
+		r.uncertain[id.String()] = protocol.Request{ID: id}
+	}
+	r.pruneSessions(protocol.DefaultSnapshot())
+	if len(r.uncertain) != 257 {
+		t.Fatalf("pruning left %d unsettled requests", len(r.uncertain))
+	}
+}
+
 func TestPruneClosedChildTabsAndSecondaryCaches(t *testing.T) {
 	nodeID := protocol.NodeID{1}
 	childID := protocol.SessionID{42}

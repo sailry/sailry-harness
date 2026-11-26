@@ -65,6 +65,49 @@ func TestCredentialMetadataRevision(t *testing.T) {
 	changed(3)
 }
 
+func TestTaskAdmissionSurvivesCompletionAndSnapshotReplacement(t *testing.T) {
+	t.Parallel()
+	snapshot := projectionSnapshot(0)
+	session := projectionSession(1, 1)
+	snapshot.Worktrees = []protocol.Worktree{{ID: session.Worktree}}
+	project := NewProjection(snapshot.Node, 1)
+	c := &Client{project: project}
+	mustApply(t, project, 1, protocol.Update{Kind: "snapshot", Data: snapshot}, Applied)
+
+	turn := protocol.QueuedTurn{ID: protocol.TurnID{1}, Session: session.ID, Request: protocol.RequestID{1}}
+	receipt, release := c.WatchTaskAdmission(turn.Request)
+	defer release()
+	unrelated, stop := c.WatchTaskAdmission(protocol.RequestID{2})
+	defer stop()
+	mustApply(t, project, 1, projectionEvent(1, "task_started", protocol.EventTaskStartedPayload{Session: &session, Turn: turn}), Applied)
+	mustApply(t, project, 1, projectionEvent(2, "conversation_changed", protocol.EventConversationChangedPayload{Session: session.ID, Activity: &session.Activity}), Applied)
+	if len(project.snapshot.Turns) != 0 {
+		t.Fatal("completed task remained in the live turn list")
+	}
+	if err := project.Reconnect(2); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Cursor, snapshot.Sessions = 3, []protocol.Session{session}
+	mustApply(t, project, 2, protocol.Update{Kind: "snapshot", Data: snapshot}, Applied)
+	select {
+	case got := <-receipt:
+		if got.Request != turn.Request || got.ID != turn.ID || got.Session != session.ID {
+			t.Fatalf("unexpected task admission: %+v", got)
+		}
+	default:
+		t.Fatal("lost the first-message admission before its owner read it")
+	}
+	select {
+	case <-unrelated:
+		t.Fatal("unrelated request received this admission")
+	default:
+	}
+	stop()
+	if len(project.admissions) != 0 {
+		t.Fatal("settled and released watches should be removed")
+	}
+}
+
 func TestProjectionOrder(t *testing.T) {
 	t.Parallel()
 	t.Run("conversation", testConversationProjectionOrder)

@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strconv"
 	"testing"
 
 	"github.com/egoist/mygo/transfer"
@@ -101,6 +102,24 @@ func TestPastedImageThumbnail(t *testing.T) {
 	state.remove(a, actions)
 	if len(state.Attachments) != 0 || backing[0] != nil || actions.discarded != a {
 		t.Fatal("removing the last attachment left its draft slot occupied")
+	}
+}
+
+func TestKeepFailedDraftRetainsAllUnsentMessages(t *testing.T) {
+	state := New("model")
+	state.Draft = "still editing"
+	for i := range 17 {
+		text := strconv.Itoa(i)
+		state.KeepFailedDraft(Message{Text: text, Attachments: []*Attachment{{ID: text}}}, true)
+	}
+	if state.Draft != "still editing" || len(state.recovery.drafts) != 17 {
+		t.Fatal("a newer draft or unsent message was lost")
+	}
+	for i, draft := range state.recovery.drafts {
+		text := strconv.Itoa(i)
+		if draft.text != text || len(draft.attachments) != 1 || draft.attachments[0].ID != text {
+			t.Fatalf("message %d lost its text or attachment", i)
+		}
 	}
 }
 

@@ -502,6 +502,9 @@ func (r *Runtime) Close() error {
 		r.backupSettings.scheduleTimer.Stop()
 		r.backupSettings.scheduleTimer = nil
 	}
+	for _, pending := range r.conversationCreations {
+		pending.releaseAdmission()
+	}
 	r.closeWorkspace()
 	r.cancel()
 	r.workers.Wait()

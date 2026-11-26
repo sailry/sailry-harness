@@ -248,6 +248,24 @@ func (client *Client) Err() error {
 	return client.err
 }
 
+// WatchTaskAdmission keeps the matching task_started receipt for the caller,
+// even if the task finishes or the projection is replaced before it is read.
+// Register before sending start_session and release when the draft closes.
+func (client *Client) WatchTaskAdmission(request protocol.RequestID) (<-chan protocol.TurnSummary, func()) {
+	result := make(chan protocol.TurnSummary, 1)
+	client.mu.Lock()
+	if client.project.admissions == nil {
+		client.project.admissions = make(map[chan protocol.TurnSummary]protocol.RequestID)
+	}
+	client.project.admissions[result] = request
+	client.mu.Unlock()
+	return result, func() {
+		client.mu.Lock()
+		delete(client.project.admissions, result)
+		client.mu.Unlock()
+	}
+}
+
 // OnChange callbacks schedule presentation updates; they run outside Client locks.
 func (client *Client) OnChange(callback func()) func() {
 	client.mu.Lock()

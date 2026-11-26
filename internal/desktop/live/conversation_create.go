@@ -14,15 +14,36 @@ import (
 )
 
 type conversationCreation struct {
-	actions     *conversationActions
-	request     protocol.Request
-	turn        protocol.QueuedTurn
-	team        string
-	transcript  bool
-	dispatched  bool
-	observeOnly bool
-	checking    bool
-	detached    *detachedCreationDraft
+	actions       *conversationActions
+	admission     <-chan protocol.TurnSummary
+	stopAdmission func()
+	request       protocol.Request
+	turn          protocol.QueuedTurn
+	team          string
+	transcript    bool
+	dispatched    bool
+	observeOnly   bool
+	checking      bool
+	detached      *detachedCreationDraft
+}
+
+func (p *conversationCreation) readAdmission() {
+	if p.turn.Session != (protocol.SessionID{}) {
+		return
+	}
+	select {
+	case turn := <-p.admission:
+		p.turn = protocol.QueuedTurn{ID: turn.ID, Session: turn.Session, Request: turn.Request}
+	default:
+	}
+}
+
+func (p *conversationCreation) releaseAdmission() {
+	if p.stopAdmission != nil {
+		p.stopAdmission()
+		p.readAdmission()
+		p.stopAdmission, p.admission = nil, nil
+	}
 }
 
 type detachedCreationDraft struct {
@@ -233,6 +254,7 @@ func (r *Runtime) guardedCreation(draft string) *conversationCreation {
 
 // The window retains the original request without retaining a closed binding or its callbacks.
 func (r *Runtime) detachCreation(draft string, pending *conversationCreation) {
+	pending.releaseAdmission()
 	delete(r.conversationCreations, draft)
 	delete(r.conversationCreating, draft)
 	r.discardOutgoing(draft)
@@ -342,6 +364,9 @@ func (p *conversationCreation) resume() {
 		p.readSession()
 		return
 	}
+	if p.admission == nil {
+		p.admission, p.stopAdmission = r.controller.WatchTaskAdmission(p.request.ID)
+	}
 	first := !p.dispatched
 	p.dispatched = true
 	request := p.request
@@ -389,6 +414,7 @@ func (p *conversationCreation) resume() {
 				}
 			}
 			if (!p.observeOnly || rejected) && !client.Retained(err) {
+				p.releaseAdmission()
 				delete(r.conversationCreations, before)
 			}
 			p.checking = false
@@ -415,6 +441,7 @@ func (p *conversationCreation) observe(snapshot protocol.Snapshot) bool {
 	if p.actions == nil || snapshot.Node != p.request.Target {
 		return false
 	}
+	p.readAdmission()
 	if p.turn.Session == (protocol.SessionID{}) {
 		for _, turn := range snapshot.Turns {
 			if turn.Request == p.request.ID && turn.ID != (protocol.TurnID{}) && turn.Session != (protocol.SessionID{}) {
@@ -456,6 +483,7 @@ func (p *conversationCreation) readSession() {
 			switch faultCode(err) {
 			case protocol.ErrorCodeNotFound, protocol.ErrorCodePermissionDenied:
 				if !p.observeOnly {
+					p.releaseAdmission()
 					// A known admission releases its draft even if the session cannot be opened.
 					delete(r.conversationCreations, before)
 					r.discardOutgoing(before)
@@ -472,6 +500,7 @@ func (p *conversationCreation) readSession() {
 }
 
 func (p *conversationCreation) adopt(session protocol.Session) {
+	p.releaseAdmission()
 	x := p.actions
 	r, before, after := x.r, x.cv.ID, session.ID.String()
 	if p.observeOnly {
