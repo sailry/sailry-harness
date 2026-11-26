@@ -22,11 +22,12 @@ type PreparedChange struct {
 	CreateParents    bool
 }
 type Prepared struct {
-	Command  protocol.Command
-	Access   core.FileAccess
-	Changes  []PreparedChange
-	Preview  protocol.ChangePreview
-	Rejected *protocol.FileChanges
+	Command   protocol.Command
+	Access    core.FileAccess
+	Changes   []PreparedChange
+	Preview   protocol.ChangePreview
+	Rejected  *protocol.FileChanges
+	patchKeys map[string]string
 }
 
 func Prepare(ctx context.Context, root string, command protocol.Command, access core.FileAccess) (*Prepared, error) {
@@ -267,26 +268,40 @@ func PreparedStale(ctx context.Context, root string, p *Prepared) (bool, error) 
 		return false, err
 	}
 	defer f.Close()
+	keyFor := func(path string) string {
+		if p.patchKeys != nil {
+			return p.patchKeys[path]
+		}
+		return strings.ToLower(path)
+	}
+	missing := func(err error) bool {
+		var fv *protocol.Fault
+		return errors.Is(err, fs.ErrNotExist) || errors.As(err, &fv) && fv.Code == protocol.ErrorCodeNotFound
+	}
+	exists := func(path string) (bool, error) {
+		handle, err := f.Open(path)
+		if err == nil {
+			handle.Close()
+			return true, nil
+		}
+		if missing(err) {
+			return false, nil
+		}
+		return false, err
+	}
 	checked := map[string]bool{}
 	for _, entry := range p.Changes {
-		key := strings.ToLower(entry.Path)
+		key := keyFor(entry.Path)
 		if !checked[key] {
 			checked[key] = true
 			if entry.ExpectedRevision == nil {
-				handle, err := f.Open(entry.Path)
-				if err == nil {
-					handle.Close()
-					return true, nil
-				}
-				var fv *protocol.Fault
-				if !errors.Is(err, fs.ErrNotExist) && (!errors.As(err, &fv) || fv.Code != protocol.ErrorCodeNotFound) {
-					return false, err
+				if present, err := exists(entry.Path); present || err != nil {
+					return present, err
 				}
 			} else {
 				handle, err := f.Open(entry.Path)
 				if err != nil {
-					var fv *protocol.Fault
-					if errors.Is(err, fs.ErrNotExist) || (errors.As(err, &fv) && fv.Code == protocol.ErrorCodeNotFound) {
+					if missing(err) {
 						return true, nil
 					}
 					return false, err
@@ -302,7 +317,22 @@ func PreparedStale(ctx context.Context, root string, p *Prepared) (bool, error) 
 			}
 		}
 		if entry.Destination != nil {
-			checked[strings.ToLower(*entry.Destination)] = true
+			dst := *entry.Destination
+			key := keyFor(dst)
+			if !checked[key] {
+				// A patch move either captured an absent destination or proved
+				// that the destination already named the source entry.
+				if p.patchKeys == nil || entry.CreateParents {
+					if present, err := exists(dst); present || err != nil {
+						return present, err
+					}
+				} else if same, err := f.SameFileEntry(entry.Path, dst); err != nil {
+					return false, err
+				} else if !same {
+					return true, nil
+				}
+				checked[key] = true
+			}
 		}
 	}
 	return false, nil

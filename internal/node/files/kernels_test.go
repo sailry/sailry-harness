@@ -205,6 +205,132 @@ func TestPatchOverwritesAndMovesInOrder(t *testing.T) {
 	}
 }
 
+func TestPatchReprepareRejectsChangedPreconditions(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, hunk     string
+		initial, drift map[string]string
+	}{
+		{"create became overwrite", "*** Add File: dst\n+patch\n", nil, map[string]string{"dst": "external\n"}},
+		{"overwrite drifted", "*** Add File: dst\n+patch\n", map[string]string{"dst": "original\n"}, map[string]string{"dst": "external\n"}},
+		{"overwrite became create", "*** Add File: dst\n+patch\n", map[string]string{"dst": "original\n"}, map[string]string{"dst": ""}},
+		{"delete drifted", "*** Delete File: src\n", map[string]string{"src": "original\n"}, map[string]string{"src": "external\n"}},
+		{"delete disappeared", "*** Delete File: src\n", map[string]string{"src": "original\n"}, map[string]string{"src": ""}},
+		{"move target appeared", "*** Update File: src\n*** Move to: dst\n", map[string]string{"src": "original\n"}, map[string]string{"dst": "external\n"}},
+		{"move overwrite target drifted", "*** Update File: src\n*** Move to: dst\n", map[string]string{"src": "original\n", "dst": "target\n"}, map[string]string{"dst": "external\n"}},
+		{"move overwrite target disappeared", "*** Update File: src\n*** Move to: dst\n", map[string]string{"src": "original\n", "dst": "target\n"}, map[string]string{"dst": ""}},
+		{"move and edit source drifted", "*** Update File: src\n*** Move to: dst\n@@\n-original\n+edited\n", map[string]string{"src": "original\n"}, map[string]string{"src": "original\nexternal\n"}},
+		{"edit context changed", "*** Update File: src\n@@\n-original\n+edited\n", map[string]string{"src": "original\n"}, map[string]string{"src": "external\n"}},
+		{"only fuzzy context remained", "*** Update File: src\n@@\n-original\n+edited\n", map[string]string{"src": "original\n"}, map[string]string{"src": " original\n"}},
+		{"edit context became ambiguous", "*** Update File: src\n@@\n-original\n+edited\n", map[string]string{"src": "original\n"}, map[string]string{"src": "original\nexternal\noriginal\n"}},
+		{"edit had ambiguous context", "*** Update File: src\n@@\n-original\n+edited\n", map[string]string{"src": "original\noriginal\n"}, map[string]string{"src": "external\noriginal\n"}},
+		{"append without matched context", "*** Update File: src\n@@ original\n+appended\n", map[string]string{"src": "original\n"}, map[string]string{"src": "original\nexternal\n"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root, _ := filesFixture(t)
+			write := func(name, text string) {
+				t.Helper()
+				path := filepath.Join(root, name)
+				if text == "" {
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("lead", "before\n")
+			for name, text := range tt.initial {
+				write(name, text)
+			}
+			patch := "*** Begin Patch\n*** Update File: lead\n@@\n-before\n+after\n" + tt.hunk + "*** End Patch"
+			original, err := PreparePatch(t.Context(), root, patch, protocol.NewWorktreeID(), core.RestrictedFiles)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, text := range tt.drift {
+				write(name, text)
+			}
+			if stale, err := PreparedStale(t.Context(), root, original); err != nil || !stale {
+				t.Fatalf("stale = %v, error = %v", stale, err)
+			}
+			if fresh, err := RepreparePatch(t.Context(), root, patch, original); fresh != nil || err == nil || fault(err).Code != protocol.ErrorCodeRevisionConflict {
+				t.Fatalf("reprepare = %+v, error = %v; want revision conflict", fresh, err)
+			}
+			if got, err := os.ReadFile(filepath.Join(root, "lead")); err != nil || string(got) != "before\n" {
+				t.Fatalf("earlier hunk had effects: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestPatchReprepareKeepsContextAndUnchangedActions(t *testing.T) {
+	t.Parallel()
+	root, _ := filesFixture(t)
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("edit", "context\nold\n")
+	write("replace", "overwrite me\n")
+	write("remove", "delete me\n")
+	write("src", "move me\n")
+	patch := `*** Begin Patch
+*** Update File: edit
+@@
+ context
+-old
++new
+*** Add File: replace
++replaced
+*** Add File: create
++created
+*** Delete File: remove
+*** Update File: src
+*** Move to: nested/dst
+@@
+-move me
++moved and edited
+*** End Patch`
+	original, err := PreparePatch(t.Context(), root, patch, protocol.NewWorktreeID(), core.RestrictedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := PreparedStale(t.Context(), root, original); err != nil || stale {
+		t.Fatalf("fresh patch stale = %v, error = %v", stale, err)
+	}
+	write("edit", "external\ncontext\nold\nunterminated tail")
+	fresh, err := RepreparePatch(t.Context(), root, patch, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if equalPatchValue(fresh.Changes[0].ExpectedRevision, original.Changes[0].ExpectedRevision) {
+		t.Fatal("edit did not capture the current revision")
+	}
+	for i, entry := range fresh.Changes[1:] {
+		prior := original.Changes[i+1]
+		if entry.Operation != prior.Operation || !equalPatchValue(entry.ExpectedRevision, prior.ExpectedRevision) {
+			t.Errorf("action or precondition changed: %+v, previously %+v", entry, prior)
+		}
+	}
+	out, err := Apply(t.Context(), root, fresh)
+	if err != nil || out.Data.(protocol.FileChanges).Status != protocol.ChangesStatusApplied {
+		t.Fatalf("apply: %+v, %v", out, err)
+	}
+	for name, want := range map[string]string{"edit": "external\ncontext\nnew\nunterminated tail", "replace": "replaced\n", "create": "created\n", "nested/dst": "moved and edited\n"} {
+		if got, err := os.ReadFile(filepath.Join(root, name)); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	for _, name := range []string{"remove", "src"} {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Errorf("%s still present: %v", name, err)
+		}
+	}
+}
+
 func TestPatchMovesCaseVariantsAndHardLinks(t *testing.T) {
 	for _, tt := range []struct {
 		name, destination, chunk, want string
@@ -237,6 +363,9 @@ func TestPatchMovesCaseVariantsAndHardLinks(t *testing.T) {
 			prepared, err := PreparePatch(ctx, root, patch, protocol.WorktreeID{}, core.ManualFiles)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if stale, err := PreparedStale(ctx, root, prepared); err != nil || stale {
+				t.Fatalf("fresh move stale = %v, error = %v", stale, err)
 			}
 			out, err := Apply(ctx, root, prepared)
 			if err != nil || out.Data.(protocol.FileChanges).Status != protocol.ChangesStatusApplied {

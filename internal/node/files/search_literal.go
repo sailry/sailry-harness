@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -41,15 +43,17 @@ func ascii(text string) bool {
 }
 
 type literalSearch struct {
-	input   io.LimitedReader
-	reader  *bufio.Reader
-	needle  []byte
-	fold    bool
-	mode    protocol.SearchMode
-	before  []literalContextLine
-	folded  []byte
-	joining []byte
-	prefix  []byte
+	input      io.LimitedReader
+	reader     *bufio.Reader
+	needle     []byte
+	fold       bool
+	matchWidth int // Maximum byte length of a match, including any wider folds.
+	unicodeRE  *regexp.Regexp
+	mode       protocol.SearchMode
+	before     []literalContextLine
+	folded     []byte
+	joining    []byte
+	prefix     []byte
 }
 
 type literalContextLine struct {
@@ -59,11 +63,18 @@ type literalContextLine struct {
 }
 
 func newLiteralSearch(input protocol.FileSearch) *literalSearch {
-	s := &literalSearch{needle: []byte(input.Query), fold: !input.CaseSensitive, mode: input.Mode}
+	s := &literalSearch{needle: []byte(input.Query), fold: !input.CaseSensitive, matchWidth: len(input.Query), mode: input.Mode}
 	s.reader = bufio.NewReaderSize(&s.input, boundedReadChunkSize)
 	if s.fold {
+		// Only ASCII folded queries enter this scanner. A matching rune can
+		// still be wider, for example Kelvin sign (U+212A) matching k.
 		for i, b := range s.needle {
 			s.needle[i] = lowerASCII(b)
+			width := 1
+			for r := unicode.SimpleFold(rune(b)); r != rune(b); r = unicode.SimpleFold(r) {
+				width = max(width, utf8.RuneLen(r))
+			}
+			s.matchWidth += width - 1
 		}
 	}
 	if input.Mode == protocol.SearchModeContent && input.Context > 0 {
@@ -107,10 +118,11 @@ func (s *literalSearch) scan(ctx context.Context, input io.Reader, emit func([]b
 			}
 		} else {
 			line = trimSearchLine(line)
-			if err := s.validate(line); err != nil {
+			nonASCIIEnd, err := validateLiteral(line)
+			if err != nil {
 				return 0, err
 			}
-			matched = needMatch && s.contains(line)
+			matched = needMatch && s.contains(line, nonASCIIEnd != 0)
 			line, truncated = searchLinePrefix(line)
 		}
 		if matched {
@@ -159,12 +171,12 @@ func (s *literalSearch) readLine(ctx context.Context) ([]byte, error) {
 // until the next read, when we can distinguish a line-ending CR from text.
 func (s *literalSearch) longLine(ctx context.Context, part []byte, needMatch bool) ([]byte, bool, bool, error) {
 	if s.joining == nil {
-		s.joining = make([]byte, boundedReadChunkSize+len(s.needle)+utf8.UTFMax)
+		s.joining = make([]byte, boundedReadChunkSize+s.matchWidth+utf8.UTFMax)
 		s.prefix = make([]byte, searchLineByteLimit)
 	}
 	prefix, _ := searchLinePrefix(part)
 	prefix = s.prefix[:copy(s.prefix[:], prefix)]
-	var carry, validated int
+	var carry, validated, nonASCIIEnd int
 	var matched bool
 	for readErr := bufio.ErrBufferFull; ; {
 		buf := s.joining[:carry+copy(s.joining[carry:], part)]
@@ -180,15 +192,26 @@ func (s *literalSearch) longLine(ctx context.Context, part []byte, needMatch boo
 		} else {
 			end = len(trimSearchLine(buf))
 		}
-		if err := s.validate(buf[validated:end]); err != nil {
+		wideEnd, err := validateLiteral(buf[validated:end])
+		if err != nil {
 			return nil, false, false, err
 		}
-		matched = matched || needMatch && s.contains(buf[:end])
+		if wideEnd != 0 {
+			nonASCIIEnd = validated + wideEnd
+		}
+		matched = matched || needMatch && s.contains(buf[:end], nonASCIIEnd != 0)
 		if readErr != bufio.ErrBufferFull {
 			return prefix, matched, true, nil
 		}
-		keep := max(0, end-len(s.needle)+1)
+		keep := max(0, end-s.matchWidth+1)
+		// No match can start inside a UTF-8 rune. Advancing to the next
+		// boundary keeps every possible start and feeds complete runes to the matcher.
+		for keep < end && !utf8.RuneStart(buf[keep]) {
+			keep++
+		}
 		validated = end - keep
+		// Only non-ASCII bytes still in the overlap affect the next match.
+		nonASCIIEnd = max(0, nonASCIIEnd-keep)
 		carry = copy(s.joining, buf[keep:])
 		part, readErr = s.readLine(ctx)
 		if readErr != nil && readErr != io.EOF && readErr != bufio.ErrBufferFull {
@@ -197,36 +220,42 @@ func (s *literalSearch) longLine(ctx context.Context, part []byte, needMatch boo
 	}
 }
 
-func (s *literalSearch) validate(line []byte) error {
+// validateLiteral returns the end offset of the last non-ASCII rune, or zero.
+func validateLiteral(line []byte) (nonASCIIEnd int, err error) {
 	for i := 0; i < len(line); i++ {
 		b := line[i]
 		switch {
 		case b < ' ' && b != '\t' && b != '\r' && b != '\f' || b == 0x7f:
-			return core.ErrBinaryText
+			return 0, core.ErrBinaryText
 		case b >= utf8.RuneSelf:
-			// Unicode case folding and GB18030 must use the decoded path.
-			if s.fold {
-				return errLiteralFallback
-			}
 			r, width := utf8.DecodeRune(line[i:])
 			// C1 bytes in non-UTF-8 files may decode differently as GB18030.
 			if r == utf8.RuneError && width == 1 || r <= 0x9f {
-				return errLiteralFallback
+				return 0, errLiteralFallback
 			}
+			nonASCIIEnd = i + width
 			i += width - 1
 		}
 	}
-	return nil
+	return nonASCIIEnd, nil
 }
 
-func (s *literalSearch) contains(line []byte) bool {
+func (s *literalSearch) contains(line []byte, nonASCII bool) bool {
 	if s.fold {
+		if nonASCII && s.matchWidth > len(s.needle) {
+			if s.unicodeRE == nil {
+				// The bounded, quoted ASCII literal uses the same simple-fold
+				// matching as the decoded path, without rereading the file.
+				s.unicodeRE = regexp.MustCompile("(?i)" + regexp.QuoteMeta(string(s.needle)))
+			}
+			return s.unicodeRE.Match(line)
+		}
 		for i, b := range line {
 			if lowerASCII(b) == b {
 				continue
 			}
 			if s.folded == nil {
-				s.folded = make([]byte, boundedReadChunkSize+len(s.needle)+utf8.UTFMax)
+				s.folded = make([]byte, boundedReadChunkSize+s.matchWidth+utf8.UTFMax)
 			}
 			folded := s.folded[:len(line)]
 			copy(folded, line[:i])

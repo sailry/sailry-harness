@@ -520,26 +520,9 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
 		scope := current.fileScope
-		if op == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull && current.prepared != nil && current.prepared.Rejected == nil && current.patchInput != "" {
-			if err := h.node.locks.waitFiles(ctx, current.patchRoot, preparedTargetPaths(current.prepared)); err != nil {
+		if op == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull {
+			if err := h.node.refreshWorkspacePatch(ctx, current, inv.Worktree.Path); err != nil {
 				return workspaceToolFault(err)
-			}
-			if stale, err := files.PreparedStale(ctx, current.patchRoot, current.prepared); err != nil {
-				return workspaceToolFault(err)
-			} else if stale {
-				fresh, err := files.PreparePatch(ctx, current.patchRoot, current.patchInput, inv.Run.Worktree, core.RestrictedFiles)
-				if err != nil {
-					return workspaceToolFault(err)
-				}
-				target := current.patchRoot
-				if scope.worktree != "" {
-					target = inv.Worktree.Path
-				}
-				if err := h.node.protectWorkspaceMutation(target, target, fresh.Command, fresh, scope); err != nil {
-					return workspaceToolFault(err)
-				}
-				current.prepared = fresh
-				current.request.Command = fresh.Command
 			}
 		}
 		request := current.request

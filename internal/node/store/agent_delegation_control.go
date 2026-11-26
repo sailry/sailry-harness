@@ -275,6 +275,10 @@ func ownedChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child
 	return run, nil
 }
 func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child protocol.SessionID, exact *protocol.TurnID) (ChildState, error) {
+	return readChildState(ctx, db, parent, child, exact, true)
+}
+
+func readChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child protocol.SessionID, exact *protocol.TurnID, withFileRevisions bool) (ChildState, error) {
 	state := ChildState{}
 	var err error
 	state.Run, err = ownedChild(ctx, db, parent, child, exact)
@@ -290,7 +294,7 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 			return state, err
 		}
 	}
-	if state.Run.Status != protocol.ConversationStatusQueued &&
+	if withFileRevisions && state.Run.Status != protocol.ConversationStatusQueued &&
 		state.Run.Status != protocol.ConversationStatusRunning &&
 		state.Run.Status != protocol.ConversationStatusStopping &&
 		(state.Run.Status != protocol.ConversationStatusCancelled || state.Run.FinishedMs != nil) {
@@ -493,7 +497,7 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	if err := protocol.DecodeObject(arguments, &args, []string{"session", "message"}, true); err != nil || args.Session == nil {
 		return ChildState{}, nil, nil, invalid("invalid child guidance arguments")
 	}
-	state, err := ReadChildState(ctx, db, parent, *args.Session, nil)
+	state, err := readChildState(ctx, db, parent, *args.Session, nil, false)
 	if err != nil {
 		return state, nil, nil, err
 	}

@@ -197,6 +197,10 @@ func normalizePatchLine(line string) string {
 }
 
 func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
+	return applyPatchChunks(before, chunks, false)
+}
+
+func applyPatchChunks(before string, chunks []PatchChunk, reapply bool) (string, error) {
 	lines, ending := patchLines(before)
 	type replacement struct {
 		start, count int
@@ -234,6 +238,19 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		if eof {
 			start = max(start, len(lines)-len(pattern))
 		}
+		if reapply {
+			// Do not let stale context pick a different fuzzy or ambiguous match.
+			found := -1
+			for at := start; at+len(pattern) <= len(lines); at++ {
+				if matchesMode(pattern, at, 0) {
+					if found >= 0 {
+						return -1
+					}
+					found = at
+				}
+			}
+			return found
+		}
 		for mode := uint8(0); mode <= 3; mode++ {
 			for at := start; at+len(pattern) <= len(lines); at++ {
 				if matchesMode(pattern, at, mode) {
@@ -253,6 +270,9 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		}
 		old, new := chunk.Old, chunk.New
 		if len(old) == 0 {
+			if reapply {
+				return "", invalid(fmt.Sprintf("hunk %d: appended lines have no matching context", index+1))
+			}
 			var inserted []patchLine
 			for _, text := range new {
 				inserted = append(inserted, patchLine{text, ending})
@@ -261,7 +281,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 			continue
 		}
 		at := seek(old, cursor, chunk.EndOfFile)
-		if at < 0 && len(old) > 0 && old[len(old)-1] == "" {
+		if at < 0 && !reapply && old[len(old)-1] == "" {
 			old = old[:len(old)-1]
 			if len(new) > 0 && new[len(new)-1] == "" {
 				new = new[:len(new)-1]
@@ -279,9 +299,10 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		for i, text := range new {
 			style := ending
 			if original, ok := kept[i]; ok && original < len(old) {
-				text = lines[at+original].text
-				if lines[at+original].ending != "" {
-					style = lines[at+original].ending
+				line := lines[at+original]
+				text = line.text
+				if line.ending != "" || reapply && at+original == len(lines)-1 && i == len(new)-1 {
+					style = line.ending
 				}
 			}
 			inserted = append(inserted, patchLine{text, style})
@@ -294,7 +315,7 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 	position := 0
 	appendLine := func(line patchLine) {
 		out.WriteString(line.text)
-		if line.ending == "" {
+		if line.ending == "" && !reapply {
 			out.WriteString(ending)
 		} else {
 			out.WriteString(line.ending)
@@ -337,6 +358,28 @@ func patchTextBytes(entry PreparedChange, previous []PreparedChange) int {
 // PreparePatch captures each file as it is matched so the approval preview
 // and the revision checked at execution describe the same contents.
 func PreparePatch(ctx context.Context, root, input string, worktree protocol.WorktreeID, access core.FileAccess) (*Prepared, error) {
+	return preparePatch(ctx, root, input, worktree, access, nil)
+}
+
+// RepreparePatch interprets the same input against the current files, allowing
+// stale in-place edits to rematch without renegotiating creates, replacements,
+// moves or deletions captured by PreparePatch.
+func RepreparePatch(ctx context.Context, root, input string, original *Prepared) (*Prepared, error) {
+	if original == nil || original.patchKeys == nil {
+		return nil, invalid("patch was not prepared")
+	}
+	return preparePatch(ctx, root, input, original.Command.Data.(*protocol.CommandApplyChangesPayload).Worktree, original.Access, original)
+}
+
+func stalePatch(path string) error {
+	return conflict(path + ": patch preconditions changed; read the current files before applying a new patch")
+}
+
+func equalPatchValue(a, b *string) bool {
+	return a == b || a != nil && b != nil && *a == *b
+}
+
+func preparePatch(ctx context.Context, root, input string, worktree protocol.WorktreeID, access core.FileAccess, original *Prepared) (*Prepared, error) {
 	hunks, err := ParsePatch(input)
 	if err != nil {
 		return nil, err
@@ -350,10 +393,10 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 	}
 	defer f.Close()
 	command := &protocol.CommandApplyChangesPayload{Worktree: worktree}
-	p := &Prepared{Command: protocol.Command{Kind: "apply_changes", Data: command}, Access: access}
 	// A later hunk can refer to a path written by an earlier move.
 	contents := map[string]*string{}
 	keys := map[string]string{}
+	p := &Prepared{Command: protocol.Command{Kind: "apply_changes", Data: command}, Access: access, patchKeys: keys}
 	read := func(path string) (*string, error) {
 		key, ok := keys[path]
 		if !ok {
@@ -376,7 +419,18 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 		return &text, nil
 	}
 	budget := 0
-	appendChange := func(entry PreparedChange, change protocol.FileChange) error {
+	appendChange := func(entry PreparedChange, change protocol.FileChange, reapplied bool) error {
+		if original != nil {
+			i := len(p.Changes)
+			if i >= len(original.Changes) {
+				return stalePatch(entry.Path)
+			}
+			prior := original.Changes[i]
+			if prior.Path != entry.Path || prior.Operation != entry.Operation || prior.CreateParents != entry.CreateParents ||
+				!equalPatchValue(prior.Destination, entry.Destination) || !reapplied && !equalPatchValue(prior.ExpectedRevision, entry.ExpectedRevision) {
+				return stalePatch(entry.Path)
+			}
+		}
 		budget += patchTextBytes(entry, p.Changes)
 		if entry.After != nil {
 			if !nonnull(*entry.After) || len(*entry.After) > protocol.MAX_EDIT_BYTES || entry.Before == nil && len(*entry.After) > protocol.MAX_WRITE_BYTES {
@@ -395,7 +449,7 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 		p.Preview.Files = append(p.Preview.Files, preview(entry))
 		return nil
 	}
-	record := func(path string, before, after *string) error {
+	record := func(path string, before, after *string, reapplied bool) error {
 		entry := PreparedChange{Path: path, Before: before, After: after}
 		var change protocol.FileChange
 		if before != nil {
@@ -413,7 +467,7 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 			entry.Operation, entry.Kind = "write", protocol.ChangeKindModified
 			change = protocol.FileChange{Kind: "write", Data: protocol.FileChangeWritePayload{Path: path, Text: *after, ExpectedRevision: *entry.ExpectedRevision}}
 		}
-		return appendChange(entry, change)
+		return appendChange(entry, change, reapplied)
 	}
 	for _, hunk := range hunks {
 		before, err := read(hunk.Path)
@@ -427,28 +481,45 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 					return nil, err
 				}
 			}
-			if err := record(hunk.Path, before, &hunk.Contents); err != nil {
+			if err := record(hunk.Path, before, &hunk.Contents, false); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		if before == nil {
+			if original != nil {
+				return nil, stalePatch(hunk.Path)
+			}
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: hunk.Path + ": file does not exist"}
 		}
 		if hunk.Kind == "delete" {
-			if err := record(hunk.Path, before, nil); err != nil {
+			if err := record(hunk.Path, before, nil, false); err != nil {
 				return nil, err
 			}
 			continue
 		}
 		after := *before
+		moving := hunk.Destination != nil && *hunk.Destination != hunk.Path
+		reapplied := false
 		if len(hunk.Chunks) > 0 {
-			after, err = ApplyPatchChunks(*before, hunk.Chunks)
+			if original != nil && !moving && len(p.Changes) < len(original.Changes) {
+				prior := original.Changes[len(p.Changes)]
+				if prior.Before != nil && *prior.Before != *before {
+					if _, err := applyPatchChunks(*prior.Before, hunk.Chunks, true); err != nil {
+						return nil, stalePatch(hunk.Path)
+					}
+					reapplied = true
+				}
+			}
+			after, err = applyPatchChunks(*before, hunk.Chunks, reapplied)
 			if err != nil {
+				if original != nil {
+					return nil, stalePatch(hunk.Path)
+				}
 				return nil, invalid(hunk.Path + ": " + fault(err).Message)
 			}
 		}
-		if hunk.Destination != nil && *hunk.Destination != hunk.Path {
+		if moving {
 			dst := *hunk.Destination
 			current, err := read(dst)
 			if err != nil {
@@ -465,25 +536,28 @@ func PreparePatch(ctx context.Context, root, input string, worktree protocol.Wor
 				expected := revision([]byte(*before))
 				entry := PreparedChange{Operation: "move", Kind: protocol.ChangeKindRenamed, Path: hunk.Path, Destination: &dst, Before: before, ExpectedRevision: &expected, CreateParents: current == nil}
 				change := protocol.FileChange{Kind: "move", Data: protocol.FileChangeMovePayload{Path: hunk.Path, Destination: dst, ExpectedRevision: expected}}
-				if err := appendChange(entry, change); err != nil {
+				if err := appendChange(entry, change, false); err != nil {
 					return nil, err
 				}
 				if after != *before {
-					if err := record(dst, before, &after); err != nil {
+					if err := record(dst, before, &after, false); err != nil {
 						return nil, err
 					}
 				}
 				continue
 			}
-			if err := record(dst, current, &after); err != nil {
+			if err := record(dst, current, &after, false); err != nil {
 				return nil, err
 			}
-			if err := record(hunk.Path, before, nil); err != nil {
+			if err := record(hunk.Path, before, nil, false); err != nil {
 				return nil, err
 			}
-		} else if err := record(hunk.Path, before, &after); err != nil {
+		} else if err := record(hunk.Path, before, &after, reapplied); err != nil {
 			return nil, err
 		}
+	}
+	if original != nil && len(p.Changes) < len(original.Changes) {
+		return nil, stalePatch(original.Changes[len(p.Changes)].Path)
 	}
 	return p, nil
 }

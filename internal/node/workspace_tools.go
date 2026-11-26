@@ -46,6 +46,32 @@ func extractPatchInput(op protocol.ToolOperation, args json.RawMessage) string {
 	return patch.Input
 }
 
+func (node *Node) refreshWorkspacePatch(ctx context.Context, call *workspaceToolCall, worktree string) error {
+	if call.patchInput == "" || call.prepared == nil || call.prepared.Rejected != nil {
+		return nil
+	}
+	if err := node.locks.waitFiles(ctx, call.patchRoot, preparedTargetPaths(call.prepared)); err != nil {
+		return err
+	}
+	stale, err := files.PreparedStale(ctx, call.patchRoot, call.prepared)
+	if err != nil || !stale {
+		return err
+	}
+	fresh, err := files.RepreparePatch(ctx, call.patchRoot, call.patchInput, call.prepared)
+	if err != nil {
+		return err
+	}
+	target := call.patchRoot
+	if call.fileScope.worktree != "" {
+		target = worktree
+	}
+	if err := node.protectWorkspaceMutation(target, target, fresh.Command, fresh, call.fileScope); err != nil {
+		return err
+	}
+	call.prepared, call.request.Command = fresh, fresh.Command
+	return nil
+}
+
 func prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation, op protocol.ToolOperation, args json.RawMessage, root string, sandbox bool) (protocol.Command, *files.Prepared, error) {
 	if op != protocol.ToolOperationApplyChanges {
 		command, err := operations.Command(op, args, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox && inv.Turn.Config.Permission != protocol.PermissionFull)
@@ -263,22 +289,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			if current == nil {
 				return workspaceToolFault(errors.New("native tool was not prepared"))
 			}
-			if declaration.Operation == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull && current.prepared != nil && current.prepared.Rejected == nil && current.patchInput != "" {
-				if err := node.locks.waitFiles(ctx, current.patchRoot, preparedTargetPaths(current.prepared)); err != nil {
+			if declaration.Operation == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull {
+				if err := node.refreshWorkspacePatch(ctx, current, inv.Worktree.Path); err != nil {
 					return workspaceToolFault(err)
-				}
-				if stale, err := files.PreparedStale(ctx, current.patchRoot, current.prepared); err != nil {
-					return workspaceToolFault(err)
-				} else if stale {
-					fresh, err := files.PreparePatch(ctx, current.patchRoot, current.patchInput, inv.Run.Worktree, core.RestrictedFiles)
-					if err != nil {
-						return workspaceToolFault(err)
-					}
-					if err := node.protectWorkspaceMutation(inv.Worktree.Path, inv.Worktree.Path, fresh.Command, fresh, externalFileScope{}); err != nil {
-						return workspaceToolFault(err)
-					}
-					current.prepared = fresh
-					current.request.Command = fresh.Command
 				}
 			}
 			request := current.request
@@ -580,16 +593,18 @@ func (node *Node) workspaceToolValue(session protocol.Session, request protocol.
 // workspaceRevisions follows the canonical history visible to this turn. Receipts
 // from a successful write are observations of its new revision, like reads.
 type workspaceRevisions struct {
-	paths      map[string]string
-	count      int
-	last       string
-	worktree   string
-	worktreeID protocol.WorktreeID
+	paths       map[string]string
+	invalidated map[string]struct{} // Unordered child evidence cannot refill these observations.
+	count       int
+	last        string
+	worktree    string
+	worktreeID  protocol.WorktreeID
 }
 
 func (r *workspaceRevisions) update(records []canonical.Record) {
 	if r.paths == nil || r.count > len(records) || r.count > 0 && records[r.count-1].ID != r.last {
 		r.paths = map[string]string{}
+		r.invalidated = nil
 		r.count = 0
 	}
 	// Replaying receipts can revisit the same path many times. Cache its
@@ -606,7 +621,9 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 	for _, record := range records[r.count:] {
 		if record.Kind == "background" {
 			if rt := record.Metadata.Runtime; rt != nil && rt.FileChanges != nil {
-				r.applyFileChanges(rt.FileChanges[r.worktreeID.String()], key)
+				if changes := rt.FileChanges[r.worktreeID.String()]; len(changes) != 0 {
+					r.observeChildChanges(changes, key, combinesChildChanges(record.Background()))
+				}
 			}
 			continue
 		}
@@ -632,7 +649,25 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 	}
 }
 
-func (r *workspaceRevisions) applyFileChanges(files map[string]string, key func(string) string) {
+// Batched background delivery flattens child receipts into one path map. A
+// value can already have overwritten a different revision for the same path.
+func combinesChildChanges(background *canonical.Background) bool {
+	if background == nil {
+		return false
+	}
+	seenChild := false
+	for _, result := range background.Results {
+		if result.Notice.Kind.Kind == "agent" {
+			if seenChild {
+				return true
+			}
+			seenChild = true
+		}
+	}
+	return false
+}
+
+func (r *workspaceRevisions) observeChildChanges(files map[string]string, key func(string) string, combined bool) {
 	for path, rev := range files {
 		k := key(path)
 		if k == "" {
@@ -640,9 +675,40 @@ func (r *workspaceRevisions) applyFileChanges(files map[string]string, key func(
 		}
 		if rev == "" {
 			r.invalidateTree(k)
-		} else {
+			continue
+		}
+		if combined {
+			r.invalidate(k)
+			continue
+		}
+		// Delivery order is not write order. Conflicting evidence invalidates
+		// the observation; a duplicate cannot revive it without a direct read
+		// or write. This also handles differently spelled aliases in old maps.
+		if known, ok := r.paths[k]; ok {
+			if known != rev {
+				r.invalidate(k)
+			}
+			continue
+		}
+		if !r.isInvalidated(k) {
 			r.paths[k] = rev
 		}
+	}
+}
+
+func (r *workspaceRevisions) isInvalidated(path string) bool {
+	if len(r.invalidated) == 0 {
+		return false
+	}
+	for {
+		if _, ok := r.invalidated[path]; ok {
+			return true
+		}
+		i := strings.LastIndexByte(path, '/')
+		if i <= 0 {
+			return false
+		}
+		path = path[:i]
 	}
 }
 
@@ -652,14 +718,14 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(
 			var files map[string]string
 			if json.Unmarshal(raw, &files) == nil {
 				for path, revision := range files {
-					r.paths[key(path)] = revision
+					r.observeRevision(key(path), revision)
 				}
 			}
 		}
 		if raw := (*response.Meta)[canonical.FileChangesKey(r.worktreeID)]; raw != nil {
 			var files map[string]string
 			if json.Unmarshal(raw, &files) == nil {
-				r.applyFileChanges(files, key)
+				r.observeChildChanges(files, key, false)
 			}
 		}
 	}
@@ -683,20 +749,16 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(
 			file.Path, file.Destination = key(file.Path), key(file.Destination)
 			switch file.Status {
 			case protocol.ChangeStatusUnknown:
-				delete(r.paths, file.Path)
-				delete(r.paths, file.Destination)
+				r.invalidate(file.Path)
+				r.invalidate(file.Destination)
 			case protocol.ChangeStatusApplied:
 				switch file.Kind {
 				case protocol.ChangeKindDeleted:
-					delete(r.paths, file.Path)
+					r.invalidate(file.Path)
 				case protocol.ChangeKindRenamed:
 					r.move(file.Path, file.Destination)
 				default:
-					if file.Revision != "" {
-						r.paths[file.Path] = file.Revision
-					} else {
-						delete(r.paths, file.Path)
-					}
+					r.observeRevision(file.Path, file.Revision)
 				}
 			}
 		}
@@ -708,7 +770,7 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(
 	switch value.Kind {
 	case "file_content", "file_lines", "file_written", "notebook_page":
 		if data.Revision != "" {
-			r.paths[key(data.Path)] = data.Revision
+			r.observeRevision(key(data.Path), data.Revision)
 		}
 	case "entry_trashed":
 		r.invalidateTree(key(data.Path))
@@ -753,9 +815,9 @@ func (r *workspaceRevisions) resolve(operation protocol.ToolOperation, arguments
 	if operation == protocol.ToolOperationWriteFile {
 		values["expected_revision"] = json.RawMessage("null")
 	} else {
-		revision, ok := r.paths[r.pathKey(path)]
-		if !ok {
-			return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has not been read in this conversation; read it first or pass expected_revision"}
+		revision := r.paths[r.pathKey(path)]
+		if revision == "" {
+			return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: path + " has no current observed revision; read it or pass expected_revision"}
 		}
 		values["expected_revision"], _ = json.Marshal(revision)
 	}
@@ -772,19 +834,45 @@ func (r *workspaceRevisions) pathKey(path string) string {
 	return workspaceFileKey(r.worktree, path)
 }
 
+func (r *workspaceRevisions) observeRevision(path, revision string) {
+	if path == "" {
+		return
+	}
+	if revision == "" {
+		r.invalidate(path)
+		return
+	}
+	r.paths[path] = revision
+	delete(r.invalidated, path)
+}
+
+func (r *workspaceRevisions) invalidate(path string) {
+	if path == "" {
+		return
+	}
+	delete(r.paths, path)
+	if r.invalidated == nil {
+		r.invalidated = map[string]struct{}{}
+	}
+	r.invalidated[path] = struct{}{}
+}
+
 func (r *workspaceRevisions) invalidateTree(path string) {
+	if path == "" {
+		return
+	}
+	r.invalidate(path)
+	prefix := path + "/"
 	for known := range r.paths {
-		if known == path || strings.HasPrefix(known, path+"/") {
+		if strings.HasPrefix(known, prefix) {
 			delete(r.paths, known)
 		}
 	}
 }
 
 func (r *workspaceRevisions) move(from, to string) {
-	revision, ok := r.paths[from]
-	delete(r.paths, from)
-	delete(r.paths, to)
-	if ok {
-		r.paths[to] = revision
+	if from != to {
+		r.observeRevision(to, r.paths[from])
+		r.invalidate(from)
 	}
 }
