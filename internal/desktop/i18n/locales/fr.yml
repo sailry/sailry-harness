@@ -1811,6 +1811,7 @@ updates_system_unavailable: Impossible de lire la version du système
 updates_system_old: La mise à jour nécessite un système plus récent
 updates_version_old: La mise à jour sélectionnée n'est pas plus récente
 updates_bundle_required: Installez une application %{app} emballée avant la mise à jour
+updates_windows_elevated: Relancez l’application sans droits d’administration pour installer la mise à jour.
 updates_io_failed: Impossible d'enregistrer la mise à jour
 updates_receipt_unread: Vérifiez la mise à jour précédente avant de réessayer
 updates_install_failed: La mise à jour n'a pas été terminée ; redémarrez %{app}

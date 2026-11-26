@@ -1811,6 +1811,7 @@ updates_system_unavailable: Не удалось прочитать версию 
 updates_system_old: Обновление требует более новой системы
 updates_version_old: Выбранное обновление не является более новым
 updates_bundle_required: Установка пакетированного приложения %{app} перед обновлением
+updates_windows_elevated: Перезапустите приложение без прав администратора, чтобы установить обновление.
 updates_io_failed: Не удалось сохранить обновление
 updates_receipt_unread: Просмотр предыдущего обновления перед повторением
 updates_install_failed: Обновление не завершено; перезагрузка %{app}

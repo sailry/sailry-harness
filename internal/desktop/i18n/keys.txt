@@ -1831,6 +1831,7 @@ updates_system_unavailable
 updates_system_old
 updates_version_old
 updates_bundle_required
+updates_windows_elevated
 updates_io_failed
 updates_receipt_unread
 updates_install_failed

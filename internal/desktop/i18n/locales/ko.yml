@@ -1811,6 +1811,7 @@ updates_system_unavailable: 시스템 버전을 읽을 수 없음
 updates_system_old: 업데이트에는 최신 시스템이 필요합니다
 updates_version_old: 선택한 업데이트가 최신이 아닙니다
 updates_bundle_required: 업데이트하기 전에 패키지된 %{app} 응용 프로그램 설치
+updates_windows_elevated: 업데이트를 설치하려면 관리자 권한 없이 앱을 다시 시작하세요.
 updates_io_failed: 업데이트를 저장할 수 없음
 updates_receipt_unread: 다시 시도하기 전에 이전 업데이트 검토
 updates_install_failed: 업데이트가 완료되지 않았습니다. 다시 시작합니다. %{app}

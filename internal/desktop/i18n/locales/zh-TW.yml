@@ -1811,6 +1811,7 @@ updates_system_unavailable: 無法讀取系統版本
 updates_system_old: 此更新需要更高的系統版本
 updates_version_old: 所選更新不比當前版本新
 updates_bundle_required: 請先安裝打包的 %{app} 應用
+updates_windows_elevated: 請以一般使用者身分重新開啟應用程式，再安裝更新。
 updates_io_failed: 無法儲存更新
 updates_receipt_unread: 請先檢查上次更新結果
 updates_install_failed: 更新未完成，請重啟 %{app}

@@ -1811,6 +1811,7 @@ updates_system_unavailable: Could not read the system version
 updates_system_old: The update requires a newer system
 updates_version_old: The selected update is not newer
 updates_bundle_required: Install a packaged %{app} application before updating
+updates_windows_elevated: Restart the app without administrator privileges to install the update.
 updates_io_failed: Could not save the update
 updates_receipt_unread: Review the previous update before retrying
 updates_install_failed: The update did not complete; restart %{app}
