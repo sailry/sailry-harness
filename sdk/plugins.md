@@ -380,6 +380,10 @@ does not infer them from the controller. The official catalog carries each
 immutable version's runtime constraints in the package-level
 `version_requirements[version]` map. An incompatible package cannot
 become a candidate merely because a different version supports this product.
+The official skill catalog also checks the parent package's current release.
+Previewing or installing an individual official skill checks the selected commit
+and parent manifest again. This does not restrict a user's standalone Markdown
+imports or change the contents of previously published packages.
 
 A declared but invalid or unsupported platform extension is incompatible; it is
 not treated as a package without an extension. Ordinary skill and MCP packages
