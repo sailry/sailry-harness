@@ -165,14 +165,6 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 		if err != nil || node.projectPluginMCP(ctx, &info) != nil {
 			continue
 		}
-		var names []string
-		for _, entry := range info.Mcp {
-			server, declared := configuration.Servers[entry.Name]
-			if declared && entry.Availability == protocol.PluginMcpAvailabilityAvailable && mcp.ServerOptions(server).Reuse {
-				names = append(names, entry.Name)
-			}
-		}
-		slices.Sort(names)
 		var accounts []string
 		for _, connection := range connections {
 			if connection.Package.Name == reference.Name {
@@ -181,17 +173,24 @@ func (node *Node) warmMCP(ctx context.Context, warmed map[string]string) {
 		}
 		slices.Sort(accounts)
 		signature := fmt.Sprint(reference, accounts)
-		for _, name := range names {
+		for _, entry := range info.Mcp {
+			name := entry.Name
+			server, declared := configuration.Servers[name]
+			if !declared || entry.Availability != protocol.PluginMcpAvailabilityAvailable || !mcp.ServerOptions(server).Reuse {
+				continue
+			}
 			key := reference.Name + "\x00" + name
 			current[key] = struct{}{}
-			if warmed[key] == signature {
+			// Disable and re-enable can share one wake. The pool retires the
+			// old runtime even when its package and accounts are unchanged.
+			if warmed[key] == signature && entry.Runtime != nil && entry.Runtime.State != protocol.PluginMcpRuntimeStateFailed {
 				continue
 			}
 			warmed[key] = signature
 			servers.Go(func() {
-				prepared, err := node.prepareMCPLaunch(ctx, info, settings, name, configuration.Servers[name])
+				prepared, err := node.prepareMCPLaunch(ctx, info, settings, name, server)
 				if err == nil {
-					node.startComputer(info, configuration.Servers[name], &prepared)
+					node.startComputer(info, server, &prepared)
 					var lease *mcp.Lease
 					if lease, err = node.plugins.mcp.Acquire(ctx, prepared); err == nil {
 						_, err = lease.List(ctx)

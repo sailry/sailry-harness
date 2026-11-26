@@ -80,11 +80,15 @@ func TestMCPWarm(t *testing.T) {
 			}
 		}
 	}
+	install := func(t *testing.T, target *Node) protocol.PluginInfo {
+		t.Helper()
+		return commandFixture(t, target, protocol.Command{Kind: "install_mcp", Data: protocol.CommandInstallMcpPayload{Name: name,
+			Definition: protocol.PluginMcpDefinition{Kind: "streamable-http", Data: &protocol.PluginMcpDefinitionStreamableHttpPayload{Url: "https://fixture.test/mcp", Headers: []string{}}}}}).Data.(protocol.PluginInfo)
+	}
 	subscription := start(t)
 	defer func() { _ = node.Stop(context.Background()) }()
 	t.Run("a server installed on a running Node connects and publishes its package", func(t *testing.T) {
-		commandFixture(t, node, protocol.Command{Kind: "install_mcp", Data: protocol.CommandInstallMcpPayload{Name: name,
-			Definition: protocol.PluginMcpDefinition{Kind: "streamable-http", Data: &protocol.PluginMcpDefinitionStreamableHttpPayload{Url: "https://fixture.test/mcp", Headers: []string{}}}}})
+		install(t, node)
 		// One event for the installation, one at least for the runtime.
 		connected(t, subscription, 2)
 		if opened.Load() != 1 {
@@ -135,6 +139,29 @@ func TestMCPWarm(t *testing.T) {
 		connected(t, subscription, 0)
 		if opened.Load() != 4 {
 			t.Fatalf("server opened %d times", opened.Load())
+		}
+	})
+	t.Run("disable and enable between warm passes", func(t *testing.T) {
+		manual := *options
+		manual.Warm = false
+		owner, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: &manual, Environment: &environment})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer owner.Stop(context.Background())
+		info := install(t, owner)
+		warmed := map[protocol.UserID]map[string]string{}
+		initial := opened.Load()
+		owner.warmUserMCP(t.Context(), warmed)
+		for _, enabled := range []bool{false, true} {
+			info = commandFixture(t, owner, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{
+				Name: name, ExpectedRevision: info.Summary.Revision, Enabled: enabled,
+			}}).Data.(protocol.PluginInfo)
+		}
+		owner.warmUserMCP(t.Context(), warmed)
+		owner.warmUserMCP(t.Context(), warmed)
+		if opened.Load() != initial+2 {
+			t.Fatalf("expected two opens across disable and re-enable, got %d", opened.Load()-initial)
 		}
 	})
 }
