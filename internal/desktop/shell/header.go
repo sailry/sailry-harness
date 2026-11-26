@@ -9,7 +9,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
@@ -106,7 +105,7 @@ func (a *App) header(c *ui.Context, f frame) {
 				// has them while the conversation shows alone, and each
 				// pane of a split has its own (paneHeader).
 				var cv *preview.Conversation
-				if a.panes.Displayed() == nil && a.panes.Active.Kind != panes.Terminal {
+				if a.panes.Displayed() == nil && !a.HasWorkspacePane(a.panes.Active.Kind) {
 					cv = a.SelectedConversation()
 				}
 				if hasActions(cv) {
@@ -479,7 +478,7 @@ func (a *App) trail(c *ui.Context) {
 		ui.Text(c, tabs[0].title).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
 		return
 	}
-	if a.panes.Active.Kind == panes.Terminal {
+	if a.HasWorkspacePane(a.panes.Active.Kind) {
 		ui.Text(c, a.paneTitle(c, a.panes.Active)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}

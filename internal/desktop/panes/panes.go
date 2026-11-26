@@ -68,14 +68,16 @@ func (p Placement) axis() Axis {
 	return Row
 }
 
-// Drag is the value dragged onto the workspace from a session row or a pane's
-// header: the target and the title its drag preview shows. Node is a session
-// row's host, which tells it from another host's row of the same ID; a pane's
-// drag has none, as its target is the ID alone.
+// Drag carries a workspace target from a project row, tab or pane header.
+// Node identifies the host selected by a conversation row.
 type Drag struct {
 	Target Target
-	Title  string
 	Node   string
+	// Open attaches a module surface from its project row when a drop lands.
+	Open func(string)
+	// TabKey identifies a drag from the window's header strip. A split
+	// group's tab carries only this key, since it can only be reordered.
+	TabKey any
 }
 
 // Node is a layout tree's node: a leaf holding a Target, or a split of

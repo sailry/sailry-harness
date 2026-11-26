@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 )
 
 const themeChat = "sailry-go/theme" // "Port the neutral theme tokens"
@@ -429,6 +430,7 @@ func dragTo(t *testing.T, tt *ui.Tester, from ui.AccessInfo, x, y float32, durin
 // the five drop zones each split a fresh App with the largest conversation.
 func TestPaneDrags(t *testing.T) {
 	t.Run("DragSessionSplits", testDragSessionSplits)
+	t.Run("DragProjectTerminal", testDragProjectTerminal)
 	t.Run("DragTerminalTab", testDragTerminalTab)
 	t.Run("DragPaneIntoEarlierPane", testDragPaneIntoEarlierPane)
 }
@@ -477,6 +479,68 @@ func testDragSessionSplits(t *testing.T) {
 	}
 }
 
+func testDragProjectTerminal(t *testing.T) {
+	for _, fixture := range []struct {
+		name      string
+		pane      panes.Kind
+		open      bool
+		wantOpens int
+	}{
+		{"reported", panes.Terminal, false, 1},
+		{"already open", panes.Terminal, true, 0},
+		{"no workspace pane", "", false, 0},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			a, tt := newFastTester(t)
+			project := a.Data.ProjectOf(preview.Big)
+			term := ProjectTerminal{ID: "reported-pty", Title: "Project shell", Updated: preview.Now}
+			opens := 0
+			a.Sidebar.Actions = &sidebar.Actions{
+				TerminalPane: fixture.pane,
+				Terminals: func(p *preview.Project) []ProjectTerminal {
+					if p == project {
+						return []ProjectTerminal{term}
+					}
+					return nil
+				},
+				OpenTerminal: func(id string) {
+					opens++
+					a.OpenWorkspaceTerminal(id, term.Title)
+					a.KeepWorkspaceTerminal(id)
+				},
+			}
+			if fixture.open {
+				a.OpenWorkspaceTerminal(term.ID, term.Title)
+				a.KeepWorkspaceTerminal(term.ID)
+				a.focusPane(session(preview.Big))
+			}
+			tt.Frame()
+			row := visibleSidebarRow(t, tt, term.Title)
+			dragTo(t, tt, row, 1150, 400, func() {
+				if opens != 0 || a.HasWorkspaceTerminal(term.ID) != fixture.open || a.panes.Active != session(preview.Big) {
+					t.Fatalf("drag-over changed the workspace: opens %d, active %v", opens, a.panes.Active)
+				}
+			})
+			target := panes.Target{Kind: panes.Terminal, ID: term.ID}
+			g := a.panes.Displayed()
+			if fixture.pane == "" {
+				if opens != 0 || g != nil {
+					t.Fatalf("dragging a row without pane support: opens %d, group %v", opens, g)
+				}
+				click(t, tt, term.Title)
+				tt.Frame()
+				if opens != 1 {
+					t.Fatalf("clicking the row opened it %d times", opens)
+				}
+				return
+			}
+			if opens != fixture.wantOpens || g == nil || g.Axis != panes.Row || !slices.Equal(g.Targets(), []panes.Target{session(preview.Big), target}) || a.panes.Active != target {
+				t.Fatalf("drop: opens %d, active %v, groups %v", opens, a.panes.Active, a.panes.Groups)
+			}
+		})
+	}
+}
+
 func testDragTerminalTab(t *testing.T) {
 	a, tt := newTester(t)
 	a.PanelOpen = true
@@ -493,7 +557,7 @@ func testDragTerminalTab(t *testing.T) {
 		snapshot(t, tt, "panes-drag-terminal")
 	})
 	terminal := panes.Target{Kind: panes.Terminal, ID: a.Panel.Active.ID}
-	if a.panes.Displayed() != nil || a.canDropPane(session(preview.Big), terminal, panes.Bottom) || a.HasWorkspaceTerminal(terminal.ID) {
+	if a.panes.Displayed() != nil || a.HasWorkspaceTerminal(terminal.ID) {
 		t.Fatalf("sidebar terminal joined the workspace: %+v", a.panes.Groups)
 	}
 	if a.Sidebar.Selected != preview.Big || !slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Terminal, ID: terminal.ID}) {
@@ -509,7 +573,7 @@ func TestPanesPersist(t *testing.T) {
 	if err := SavePrefs(dir, a.Prefs()); err != nil {
 		t.Fatal(err)
 	}
-	b := New(preview.Load())
+	b := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 	b.SetPrefs(LoadPrefs(dir))
 	tb := ui.NewTesterWith(b.View, 1280, 820, opaque)
 	tb.SetLocale("en")
@@ -522,7 +586,7 @@ func TestPanesPersist(t *testing.T) {
 	// A terminal whose independent surface is gone leaves its group.
 	p := LoadPrefs(dir)
 	p.WorkspaceTerminals = nil
-	c := New(preview.Load())
+	c := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 	c.SetPrefs(p)
 	if got := c.panes.Members(session(themeChat)); len(got) != 2 {
 		t.Fatalf("pruned: %v", got)
@@ -542,7 +606,7 @@ func TestPanesPersist(t *testing.T) {
 	if later == nil {
 		t.Fatal("no theme chat in the preview")
 	}
-	d := New(full)
+	d := NewWithAssembly(full, TestHarnessAssembly())
 	d.SetPrefs(LoadPrefs(dir))
 	td := ui.NewTesterWith(d.View, 1280, 820, opaque)
 	td.SetLocale("en")

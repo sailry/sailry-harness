@@ -31,6 +31,7 @@ func Full() shell.Assembly {
 }
 
 func RegisterTerminalFixture(assembly *shell.Assembly) {
+	assembly.RegisterWorkspacePane(native.TerminalWorkspacePane())
 	assembly.RegisterPanelResource(panel.Resource{
 		Kind: panel.Terminal, Label: "terminal", Icon: icons.Terminal, Order: 20,
 		Mods: ui.Ctrl, Key: ui.KeyBackquote, Numbered: true,

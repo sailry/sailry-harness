@@ -5,6 +5,7 @@ import (
 	"testing/synctest"
 
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/testassembly"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -27,7 +28,7 @@ func TestTerminalPanePanelUsesTerminalWorkspace(t *testing.T) {
 		info := terminalTabsTestInfo(3, protocol.WorktreeID{2}, "running")
 		info.Directory = new("/second/src")
 		snapshot.Terminals = []protocol.TerminalInfo{info}
-		root, _ := snapshotFixture(t, snapshot)
+		root, _ := snapshotFixture(t, snapshot, testassembly.RegisterTerminalFixture)
 
 		root.App.Sidebar.Selected = session.String()
 		root.workspaceFrame(nil)

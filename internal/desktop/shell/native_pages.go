@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -12,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -28,6 +30,7 @@ type Assembly struct {
 	ProviderUI                func(*settings.State) ProviderUI
 	Locales                   []fs.FS
 	panelResources            []panelRegistration
+	workspacePanes            map[panes.Kind]*WorkspacePane
 	linkHandlers              linkHandlers
 	appActions                appActionRegistry
 }
@@ -189,6 +192,7 @@ func (a *App) syncNativeWorkspace() {
 }
 
 func (a *App) installPages(assembly Assembly) {
+	a.workspacePanes = maps.Clone(assembly.workspacePanes)
 	a.installAppActions(assembly)
 	a.installLinkHandlers(assembly)
 	a.metricContributions = slices.Clone(assembly.MetricContributions)

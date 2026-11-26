@@ -66,7 +66,7 @@ func TestProjectMenu(t *testing.T) {
 	const interactionScale = 0.125
 	demo := func(t *testing.T) (*App, *ui.Tester) {
 		t.Helper()
-		a := New(preview.Load())
+		a := NewWithAssembly(preview.Load(), TestHarnessAssembly())
 		a.Settings.Model.DemoMode = true
 		options := opaque
 		options.Dark = true

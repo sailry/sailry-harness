@@ -185,7 +185,7 @@ func (a *App) closeFocused(c *ui.Context) {
 		a.closePageTab(c)
 	case c.FocusWithin(a.mainPane):
 		switch {
-		case a.Page == ConversationPage && (a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal):
+		case a.Page == ConversationPage && (a.panes.Displayed() != nil || a.HasWorkspacePane(a.panes.Active.Kind)):
 			a.closePane(c, a.panes.Active)
 		case a.tabClosable():
 			a.closeShownTab(c)

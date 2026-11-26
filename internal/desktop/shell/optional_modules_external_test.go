@@ -42,6 +42,10 @@ func TestOptionalPanelResourcesInPreview(t *testing.T) {
 			if app.Panel.BrowserActions != nil || app.Panel.TerminalActions != nil {
 				t.Fatal("preview ran the live panel bindings")
 			}
+			app.OpenWorkspaceTerminal("project-shell", "Project shell")
+			if got := app.HasWorkspaceTerminal("project-shell"); got != test.terminal {
+				t.Fatalf("workspace terminal opened = %v, want %v", got, test.terminal)
+			}
 		})
 	}
 }

@@ -186,6 +186,7 @@ type App struct {
 	clock time.Time
 
 	nativePages          []NativePage
+	workspacePanes       map[panes.Kind]*WorkspacePane
 	nativePageSync       []func()
 	windowBound          bool
 	nativeWindowBindings map[Page]WindowBinding
@@ -720,7 +721,8 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 // in the header and its content in the column are built.
 func (a *App) syncPanel() {
 	a.Panel.Paged = a.paged()
-	if a.ActiveTerminal() == "" {
+	switch target := a.ActiveWorkspacePane(); {
+	case target.Kind == "":
 		a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
 		a.Panel.Cwd = ""
 		selected := a.SelectedConversation()
@@ -730,7 +732,9 @@ func (a *App) syncPanel() {
 		if cv := selected; cv != nil && cv.WorktreePath != "" {
 			a.Panel.Cwd = cv.WorktreePath
 		}
-	} else if a.sampled() {
+	case target.Kind != panes.Terminal:
+		a.Panel.HasProject, a.Panel.Session, a.Panel.Worktree, a.Panel.Cwd = false, false, false, ""
+	case a.sampled():
 		// A live terminal pane's project and folder come from its Node with
 		// its workspace; a sample terminal names its own project.
 		pr := a.panelProject()

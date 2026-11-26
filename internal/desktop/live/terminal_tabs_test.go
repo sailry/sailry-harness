@@ -77,7 +77,7 @@ func terminalTabsFixture(t *testing.T, terminals ...protocol.TerminalInfo) (*Run
 
 // snapshotFixture is a started Runtime on a Node that delivers snapshot and
 // fails every command until the test sets its responses.
-func snapshotFixture(t *testing.T, snapshot protocol.Snapshot) (*Runtime, *terminalTabsTestNode) {
+func snapshotFixture(t *testing.T, snapshot protocol.Snapshot, modules ...shell.Module) (*Runtime, *terminalTabsTestNode) {
 	t.Helper()
 	source := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snapshot, updates: make(chan protocol.Update)}}
 	source.respond = func(request protocol.Request) link.Response {
@@ -92,7 +92,7 @@ func snapshotFixture(t *testing.T, snapshot protocol.Snapshot) (*Runtime, *termi
 	root := &Runtime{
 		ctx: ctx, cancel: cancel, controller: controller, packages: newPackageState(),
 		busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
-		App:         shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}),
+		App:         shell.NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}}, shell.Assemble(modules...)),
 		Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json")),
 	}
 	root.packages.terminals = map[string]*liveTerminal{}
@@ -591,7 +591,7 @@ func TestProjectOverviewListsNodeTerminals(t *testing.T) {
 			{ID: scratch, Path: "/scratch"},
 		}
 		snapshot.Terminals = []protocol.TerminalInfo{remote, exited, chat, tool}
-		root, source := snapshotFixture(t, snapshot)
+		root, source := snapshotFixture(t, snapshot, testassembly.RegisterTerminalFixture)
 		overview := &viewmodel.Project{ID: project.ID.String(), Host: root.controller.Target().String()}
 		listed := root.projectTerminals(overview)
 		want := []shell.ProjectTerminal{{ID: remote.ID.String(), Title: "zsh", Path: "/fixture", Created: 8, Updated: time.UnixMilli(2000)}}

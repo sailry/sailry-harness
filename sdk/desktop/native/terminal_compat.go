@@ -5,11 +5,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 )
 
-// RegisterTerminal installs the historical Terminal panel and project action.
+// RegisterTerminal installs the historical Terminal workspace pane, panel and project action.
 //
-// Deprecated: use RegisterPanelResource and bind the shared terminal service
-// from the product module that supplies those entry points.
+// Deprecated: register TerminalWorkspacePane and the panel resource in the
+// product module that supplies these entry points.
 func RegisterTerminal(assembly *Assembly) {
+	assembly.RegisterWorkspacePane(TerminalWorkspacePane())
 	assembly.RegisterPanelResource(PanelResource{
 		Kind: Terminal, Label: "terminal", Icon: icons.Terminal, Order: 20,
 		Mods: ui.Ctrl, Key: ui.KeyBackquote, Numbered: true,

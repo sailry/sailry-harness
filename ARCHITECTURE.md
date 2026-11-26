@@ -1336,9 +1336,12 @@ detail-panel transitions the transcript is laid out at its destination width and
 translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
-Shared pane and tab lifecycle applies to both conversations and optional
-product-supplied workspace surfaces (such as Sailry Code's main-workspace and
-right-panel terminals). Opening a conversation (a sidebar row, New session, or
+The shell owns split layout, focus, tab order and drop zones. A Desktop module
+registers its main-workspace content with `Assembly.RegisterWorkspacePane`,
+supplying its icon, title, renderer, surface lifetime and optional split action.
+A standalone header tab can be reordered or dropped into a pane. A project
+row may attach its surface on drop. Group tabs reorder as a whole. Right-panel
+tabs keep their own layout. Opening a conversation (a sidebar row, New session, or
 `App.OpenConversation` from links, search or notifications) gives it a normal
 header tab until it is closed, one per target; one in a split shows its group.
 A selection the window falls back to after data changes adds no tab, and closing

@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -208,7 +209,7 @@ func (a *App) demoProject(pr *viewmodel.Project) {
 }
 
 func (a *App) sampleTerminalAction(state *panel.State) func(*viewmodel.Project) {
-	if !state.Offers(panel.Terminal) {
+	if !state.Offers(panel.Terminal) || !a.HasWorkspacePane(panes.Terminal) {
 		return nil
 	}
 	return func(pr *viewmodel.Project) { a.sampleWorkspaceTerminal(pr.ID) }

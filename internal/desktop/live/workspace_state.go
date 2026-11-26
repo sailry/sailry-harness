@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -147,24 +148,25 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	r.projectWorkspaceLocations()
 	var session protocol.Session
 	ok := false
-	terminal := r.App.ActiveTerminal()
+	pane := r.App.ActiveWorkspacePane()
 	var info protocol.TerminalInfo
-	if terminal != "" {
-		// A main terminal pane's panel shows the worktree its shell runs in,
-		// with no session's checkpoints or documents.
-		r.App.Panel.Session, r.App.Panel.HasProject, r.App.Panel.Cwd = false, false, ""
-		var owner *Runtime
-		if owner, info, ok = r.liveTerminalInfo(terminal); ok && owner == r && info.Worktree != nil {
-			session.Worktree = *info.Worktree
-		} else {
-			ok = false
-		}
-	} else {
+	if pane.Kind == "" {
 		session, ok = r.session(r.App.Sidebar.Selected)
 		// An unsent draft has a worktree to show and no session.
 		r.App.Panel.Session = ok
 		if !ok {
 			session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
+		}
+	} else {
+		r.App.Panel.Session, r.App.Panel.HasProject, r.App.Panel.Cwd = false, false, ""
+		if pane.Kind == panes.Terminal {
+			// The terminal's worktree is independent of the selected conversation.
+			var owner *Runtime
+			owner, info, ok = r.liveTerminalInfo(pane.ID)
+			ok = ok && owner == r && info.Worktree != nil
+			if ok {
+				session.Worktree = *info.Worktree
+			}
 		}
 	}
 	if !ok {
@@ -174,7 +176,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		return
 	}
 	worktree, found := r.workspaceWorktree(session.Worktree)
-	if found && terminal != "" {
+	if found && pane.Kind == panes.Terminal {
 		session.Project = worktree.Project
 		r.App.Panel.Cwd = cmp.Or(workspaceString(info.Directory), worktree.Path)
 	}

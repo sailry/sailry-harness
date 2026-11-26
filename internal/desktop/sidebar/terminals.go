@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -84,6 +85,12 @@ func (s *State) terminal(c *ui.Context, t Terminal, title string) {
 		text = p.SidebarAccentForeground
 	case hovered:
 		text = p.SidebarForeground
+	}
+	if kind := s.Actions.TerminalPane; kind != "" && s.Actions.OpenTerminal != nil {
+		b.Drag(panes.Drag{Target: panes.Target{Kind: kind, ID: t.ID}, Open: s.Actions.OpenTerminal})
+		if kit.DragChip(c, b, title) {
+			return
+		}
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.terminalMenu(c, m, t, title) }).OnClick(func() { s.openTerminal(t.ID) })
 	b.TextColor(text).Children(func() {

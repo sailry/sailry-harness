@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
@@ -42,7 +43,9 @@ type Actions struct {
 	// Terminals lists a project's running Node terminals, whichever
 	// controller started them, as rows under its sessions. OpenTerminal
 	// shows one as a main surface; CloseTerminal ends its shell.
-	Terminals        func(*viewmodel.Project) []Terminal
+	Terminals func(*viewmodel.Project) []Terminal
+	// TerminalPane identifies the registered workspace pane for a row drop.
+	TerminalPane     panes.Kind
 	OpenTerminal     func(id string)
 	CloseTerminal    func(id string)
 	ProjectResources []ProjectResourceAction

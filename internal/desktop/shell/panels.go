@@ -40,19 +40,18 @@ type conversationPanels struct {
 	pendingCloses map[panel.Tab]string
 }
 
-// terminalPanelPrefix marks the panel owner of a main terminal pane. A
-// session ID never starts with it.
-const terminalPanelPrefix = "terminal-pane/"
+// Workspace panels retain the module kind in their owner key. This also
+// preserves the keys of previously saved terminal layouts.
+func panePanelKey(t panes.Target) string { return string(t.Kind) + "-pane/" + t.ID }
 
-// terminalPanel is the panel owner of main terminal pane id.
-func terminalPanel(id string) string { return terminalPanelPrefix + id }
+func panePanelTarget(key string) (panes.Target, bool) {
+	kind, id, ok := strings.Cut(key, "-pane/")
+	return panes.Target{Kind: panes.Kind(kind), ID: id}, ok
+}
 
-// panelOwner is the pane whose panel shows: the active main terminal pane's
-// own, or the selected conversation's. A terminal pane's column never borrows
-// the conversation selected before it.
 func (a *App) panelOwner() string {
-	if a.panes.Active.Kind == panes.Terminal {
-		return terminalPanel(a.panes.Active.ID)
+	if t := a.panes.Active; a.HasWorkspacePane(t.Kind) {
+		return panePanelKey(t)
 	}
 	return a.Sidebar.Selected
 }
@@ -174,12 +173,12 @@ func (a *App) renamePanel(before, after string) {
 func (a *App) PanelConversations() []string {
 	var ids []string
 	for id := range a.panels.parked {
-		if !strings.HasPrefix(id, terminalPanelPrefix) {
+		if _, pane := panePanelTarget(id); !pane {
 			ids = append(ids, id)
 		}
 	}
 	slices.Sort(ids)
-	if a.panels.mounted != "" && !strings.HasPrefix(a.panels.mounted, terminalPanelPrefix) {
+	if _, pane := panePanelTarget(a.panels.mounted); a.panels.mounted != "" && !pane {
 		ids = append([]string{a.panels.mounted}, ids...)
 	}
 	return ids
@@ -338,10 +337,10 @@ func (a *App) DropPanel(id string) {
 	}
 }
 
-// dropTerminalPanel forgets main terminal pane id's panel with its surface.
+// dropPanePanel forgets main terminal pane id's panel with its surface.
 // The processes of its terminal tabs stay in their Node's inventory.
-func (a *App) dropTerminalPanel(id string) {
-	owner := terminalPanel(id)
+func (a *App) dropPanePanel(t panes.Target) {
+	owner := panePanelKey(t)
 	a.DropPanel(owner)
 	if owner == a.panels.mounted {
 		a.PanelOpen = false
@@ -372,8 +371,8 @@ func (a *App) savedPanels() map[string]ConversationPanel {
 
 // keepsPanel reports whether a conversation's panel is saved.
 func (a *App) keepsPanel(id string) bool {
-	if terminal, ok := strings.CutPrefix(id, terminalPanelPrefix); ok {
-		return a.HasWorkspaceTerminal(terminal)
+	if t, ok := panePanelTarget(id); ok {
+		return a.paneExists(t)
 	}
 	return id != "" && (a.Preview || !strings.HasPrefix(id, "draft/"))
 }

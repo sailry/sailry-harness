@@ -249,7 +249,7 @@ func (a *App) SetPrefs(p Prefs) {
 	}
 	a.panes.terminals = nil
 	for _, terminal := range p.WorkspaceTerminals {
-		if terminal.ID != "" && a.Panel.ValidTab(panel.Tab{Kind: panel.Terminal, ID: terminal.ID}) && !a.HasWorkspaceTerminal(terminal.ID) {
+		if terminal.ID != "" && a.HasWorkspacePane(panes.Terminal) && !a.HasWorkspaceTerminal(terminal.ID) {
 			a.panes.terminals = append(a.panes.terminals, terminal)
 		}
 	}

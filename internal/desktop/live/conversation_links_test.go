@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -424,6 +425,44 @@ func TestConversationFileLinkRetiresWithScope(t *testing.T) {
 		if r.pendingFileLink != nil {
 			t.Fatal("a link read survived leaving its scope")
 		}
+	})
+}
+
+func TestModulePaneRetiresConversationWorkspace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var assembly shell.Assembly
+		assembly.RegisterWorkspacePane(shell.WorkspacePane{
+			Kind: "fixture", Icon: icons.FileText,
+			Exists: func(_ *shell.App, id string) bool { return id == "one" },
+			Title:  func(*shell.App, *ui.Context, string) string { return "Fixture" },
+			Render: func(*shell.App, *ui.Context, string) {},
+			Close:  func(*shell.App, string) {},
+		})
+		directory := conversationLinkFixtureDirectory(t)
+		snapshot, session, tree := conversationLinkSnapshot(1, directory)
+		r, source := conversationLinkRuntime(t, assembly, snapshot)
+		source.respond = conversationLinkLocalResponse(directory, tree.ID)
+		r.SetNativeFileActions(NativeFileActions{LocalNode: snapshot.Node, RevealLocal: func(path string) {
+			t.Errorf("a retired conversation revealed %s in a module pane", path)
+		}})
+		r.workspaceFrame(nil)
+		if r.selectedWorkspace() == nil {
+			t.Fatal("the conversation has no workspace")
+		}
+		_, run := conversationLinkWindow(t, r)
+		run(func(c *ui.Context) {
+			r.openChatLink(c, session.ID.String(), "README.md")
+			if r.pendingFileLink == nil || !r.App.OpenWorkspacePane("fixture", "one") {
+				t.Fatal("failed to open a module pane while the link read was pending")
+			}
+			if r.pendingFileLink.current() {
+				t.Fatal("the previous conversation still owns the pending link")
+			}
+			r.workspaceFrame(nil)
+			if r.selectedRuntime() != nil || r.selectedWorkspace() != nil || r.App.Panel.Actions != nil || r.App.Panel.Session || r.App.Panel.HasProject || r.App.Panel.Cwd != "" {
+				t.Fatal("the module pane inherited the previous conversation's host or workspace")
+			}
+		})
 	})
 }
 

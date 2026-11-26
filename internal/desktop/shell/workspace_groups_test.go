@@ -14,13 +14,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-func workspaceGroupsFixture(t *testing.T, width int) (*App, *ui.Tester) {
+func workspaceGroupsFixture(t *testing.T, width int, assembly Assembly) (*App, *ui.Tester) {
 	t.Helper()
 	data := &viewmodel.Data{Workspace: &viewmodel.Workspace{}}
 	for _, id := range []string{"a", "b", "c", "d", "e"} {
 		data.Unassigned = append(data.Unassigned, &viewmodel.Conversation{ID: id, Title: "Conversation " + id})
 	}
-	a := NewLive(data)
+	a := NewLiveWithAssembly(data, assembly)
 	a.Sidebar.Selected = "a"
 	a.focusPane(session("a"))
 	if !a.panes.Drop(session("a"), session("b"), panes.Right) ||
@@ -51,7 +51,7 @@ func pressWorkspaceGroup(t *testing.T, tt *ui.Tester, number int) {
 func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 	first := &viewmodel.Conversation{ID: "a", Title: "工具测试与问候"}
 	second := &viewmodel.Conversation{ID: "b", Title: "Another conversation"}
-	a := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{first, second}})
+	a := NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{first, second}}, TestHarnessAssembly())
 	a.focusPane(session(first.ID))
 	a.Composer(first.ID).Draft = "Preserved draft"
 	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
@@ -128,7 +128,7 @@ func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
 // Group tabs, named by their panes' titles, switch groups without rebuilding their trees or losing the
 // last focused pane. They also remain reachable from a standalone conversation.
 func TestWorkspaceGroupButtons(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, Assembly{})
 	first, second := a.panes.Groups[0], a.panes.Groups[1]
 	for _, number := range []int{1, 2} {
 		b, ok := headerButton(tt, i18n.In("en", "pane_group", "number", number))
@@ -190,7 +190,7 @@ func TestWorkspaceGroupButtons(t *testing.T) {
 }
 
 func TestWorkspaceGroupTerminalFocus(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, TestHarnessAssembly())
 	a.panes.Detach(session("c"))
 	a.OpenWorkspaceTerminal("term-a", "Terminal A")
 	a.OpenWorkspaceTerminal("term-b", "Terminal B")
@@ -214,7 +214,7 @@ func TestWorkspaceGroupTerminalFocus(t *testing.T) {
 }
 
 func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, Assembly{})
 	first := a.panes.Groups[0]
 	if !a.panes.Detach(session("d")) {
 		t.Fatal("cannot dissolve the second group")
@@ -253,7 +253,7 @@ func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
 }
 
 func TestWorkspaceGroupsScrollInNarrowHeader(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 640)
+	a, tt := workspaceGroupsFixture(t, 640, Assembly{})
 	for i := 3; i <= 8; i++ {
 		id := "group-" + strconv.Itoa(i)
 		for _, suffix := range []string{"-a", "-b"} {
@@ -524,7 +524,7 @@ func TestDraftTabBecomesSession(t *testing.T) {
 // shows its neighbour, a group's menu undoes the split, and the open tabs
 // are the window's preferences.
 func TestHeaderTabsOpen(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, Assembly{})
 	menu := func(title, item string) {
 		t.Helper()
 		b, ok := headerButton(tt, title)
@@ -606,7 +606,7 @@ func TestHeaderTabsOpen(t *testing.T) {
 // Dragging a header tab past another moves it there: the strip and the
 // saved order follow, and a plain click still shows a tab.
 func TestHeaderTabsDragToReorder(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, Assembly{})
 	a.Data.Unassigned = append(a.Data.Unassigned, &viewmodel.Conversation{ID: "f", Title: "Conversation f"})
 	for _, id := range []string{"e", "f"} {
 		a.OpenConversation(id)
@@ -675,6 +675,53 @@ func TestHeaderTabsDragToReorder(t *testing.T) {
 	}
 }
 
+func TestHeaderTabsDragToSplit(t *testing.T) {
+	a := NewLiveWithAssembly(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{
+		{ID: "a", Title: "Conversation a"}, {ID: "b", Title: "Conversation b"},
+	}}, TestHarnessAssembly())
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("en")
+	tt.SetScale(0.25)
+	frame := func() { tt.Frame(); tt.Frame() }
+	header := func(label string) ui.AccessInfo {
+		t.Helper()
+		tab, ok := headerButton(tt, label)
+		if !ok {
+			t.Fatalf("missing header tab %q", label)
+		}
+		return tab
+	}
+	term := panes.Target{Kind: panes.Terminal, ID: "terminal"}
+	a.OpenWorkspaceTerminal(term.ID, "Shell")
+	a.KeepWorkspaceTerminal(term.ID)
+	for _, id := range []string{"a", "b", "a"} {
+		a.OpenConversation(id)
+		frame()
+	}
+
+	order := slices.Clone(a.panes.order)
+	tab := header("Conversation a")
+	dragTo(t, tt, visibleSidebarRow(t, tt, "Conversation b"), tab.Bounds.X+tab.Bounds.W/4, tab.Bounds.Y+tab.Bounds.H/2, nil)
+	if !slices.Equal(a.panes.order, order) || a.panes.Active != session("a") {
+		t.Fatalf("sidebar drop on header changed order or focus: %v, %v", a.panes.order, a.panes.Active)
+	}
+	dragTo(t, tt, header("Conversation b"), 1150, 400, nil)
+	if got := a.panes.Members(session("a")); !slices.Equal(got, []panes.Target{session("a"), session("b")}) {
+		t.Fatalf("dropped conversation tab: %v", got)
+	}
+	a.OpenWorkspaceTerminal(term.ID, "Shell")
+	frame()
+	dragTo(t, tt, header(i18n.In("en", "pane_group", "number", 1)), 1150, 400, nil)
+	if a.panes.Group(term) >= 0 || len(a.panes.Groups) != 1 || a.panes.Active != term {
+		t.Fatalf("group tab dropped onto terminal: groups %v, active %v", a.panes.Groups, a.panes.Active)
+	}
+	pressWorkspaceGroup(t, tt, 1)
+	dragTo(t, tt, header("Shell"), 1150, 400, nil)
+	if got := a.panes.Members(term); !slices.Equal(got, []panes.Target{session("a"), session("b"), term}) || a.panes.Active != term {
+		t.Fatalf("dropped terminal tab: group %v, active %v", got, a.panes.Active)
+	}
+}
+
 // A session shown without a tab leaves ⌘W to the window, while its pane keys
 // still work. Closing its tab before that leaves the session as it was.
 func TestCloseWithoutTabKeepsPaneKeys(t *testing.T) {
@@ -717,7 +764,7 @@ func TestCloseWithoutTabKeepsPaneKeys(t *testing.T) {
 // A session that is only absent, as of a host offline, keeps its tab and its
 // place in a saved split; a confirmed deletion takes both.
 func TestForgetSessionOnlyOnDeletion(t *testing.T) {
-	a, tt := workspaceGroupsFixture(t, 1280)
+	a, tt := workspaceGroupsFixture(t, 1280, Assembly{})
 	a.OpenConversation("e")
 	tt.Frame()
 	a.Data.Unassigned = slices.DeleteFunc(a.Data.Unassigned, func(cv *viewmodel.Conversation) bool { return cv.ID == "e" || cv.ID == "b" })

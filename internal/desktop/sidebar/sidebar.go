@@ -508,7 +508,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		text = p.SidebarForeground
 	}
 	if !editing {
-		b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title, Node: cv.Node})
+		b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Node: cv.Node})
 		switch {
 		case kind == rowPinned:
 			s.reorder(c, b, cv, func(source *preview.Conversation) bool { return source.Pinned },
@@ -620,7 +620,7 @@ func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation, a
 // dragged returns the session a drag carries: a row's on its host, a pane's
 // by its ID as the pane itself resolves it.
 func (s *State) dragged(d panes.Drag) *preview.Conversation {
-	if d.Target.Kind != panes.Session {
+	if d.TabKey != nil || d.Target.Kind != panes.Session {
 		return nil
 	}
 	if d.Node != "" {

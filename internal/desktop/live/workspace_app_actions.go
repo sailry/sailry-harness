@@ -62,7 +62,7 @@ func (r *Runtime) openWorkspaceFileAction(_ *ui.Context, app *shell.App, source 
 			project = r.shownResourceWorkspace()
 		}
 	case hasSession:
-		if app.ActiveTerminal() == "" && app.Data.FindOn(node, sessionID) != nil {
+		if app.ActiveWorkspacePane().Kind == "" && app.Data.FindOn(node, sessionID) != nil {
 			project = owner.workspaceFor(tree)
 		}
 	case r.selectedRuntime() == owner:
@@ -90,7 +90,7 @@ func (r *Runtime) openWorkspaceFileAction(_ *ui.Context, app *shell.App, source 
 		if hasSession {
 			current, ok := owner.sessionWithID(source.Session)
 			cv := app.Data.FindOn(node, sessionID)
-			if !ok || current.Worktree != tree.ID || cv == nil || app.ActiveTerminal() != "" {
+			if !ok || current.Worktree != tree.ID || cv == nil || app.ActiveWorkspacePane().Kind != "" {
 				return
 			}
 			if app.SelectedConversation() != cv || owner.selectedWorkspace() != project {
@@ -115,7 +115,7 @@ func (r *Runtime) openWorkspaceFile(session protocol.SessionID, worktree protoco
 	generation := overview.generation
 	selected, node := app.Sidebar.Selected, app.Sidebar.SelectedNode()
 	source := app.BindAppActions(shell.AppActionScope{Node: r.controller.Target(), Worktree: worktree, Session: session}, func() bool {
-		return r.workflowWindowCurrent() && app.Page == shell.ConversationPage && app.ActiveTerminal() == "" &&
+		return r.workflowWindowCurrent() && app.Page == shell.ConversationPage && app.ActiveWorkspacePane().Kind == "" &&
 			app.Sidebar.Selected == selected && app.Sidebar.SelectedNode() == node && r.overviews[session] == overview &&
 			overview.open && overview.generation == generation
 	})

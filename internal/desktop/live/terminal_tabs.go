@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -82,6 +83,9 @@ func (r *Runtime) initTerminalActions() {
 	actions := r.App.Sidebar.Actions
 	actions.NewTerminal = func(project *viewmodel.Project) { r.newProjectTerminal(project, "") }
 	actions.Terminals = r.projectTerminals
+	if r.App.HasWorkspacePane(panes.Terminal) {
+		actions.TerminalPane = panes.Terminal
+	}
 	// A sidebar row opens its terminal as a session row does: a kept tab.
 	actions.OpenTerminal = func(id string) {
 		r.showWorkspaceTerminal(id)

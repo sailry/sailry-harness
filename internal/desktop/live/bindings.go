@@ -6,6 +6,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -96,9 +97,12 @@ func (r *Runtime) selectedRuntime() *Runtime {
 	if node, _, shown := root.App.ProjectOwner(); shown {
 		return root.runtimeFor(node)
 	}
-	if id := root.App.ActiveTerminal(); id != "" {
+	if pane := root.App.ActiveWorkspacePane(); pane.Kind != "" {
+		if pane.Kind != panes.Terminal {
+			return nil
+		}
 		// A main terminal pane's panel works on its terminal's Node.
-		if owner, _, _ := root.liveTerminalInfo(id); owner != nil {
+		if owner, _, _ := root.liveTerminalInfo(pane.ID); owner != nil {
 			return owner
 		}
 		return root

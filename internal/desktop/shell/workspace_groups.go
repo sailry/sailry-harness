@@ -86,9 +86,6 @@ func (a *App) tabPlace(t headerTab) int {
 	return slices.IndexFunc(a.panes.order, func(o panes.Target) bool { return slices.Contains(members, o) })
 }
 
-// headerTabDrag is the value a header tab drags: the tab's key.
-type headerTabDrag struct{ key any }
-
 // moveTab puts the tab keyed source before target, or after it, by moving
 // the source's entry in the tab order, which the window's preferences keep.
 func (a *App) moveTab(tabs []headerTab, source any, target headerTab, after bool) {
@@ -135,7 +132,7 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 	for _, t := range kept {
 		tabs = append(tabs, headerTab{alone: t, kept: true, shown: t == alone, title: a.paneTitle(c, t)})
 	}
-	if alone.Kind == panes.Terminal && !slices.Contains(kept, alone) {
+	if a.HasWorkspacePane(alone.Kind) && !slices.Contains(kept, alone) {
 		tabs = append(tabs, headerTab{alone: alone, shown: true, title: a.paneTitle(c, alone)})
 	}
 	active := w.Group(w.Active)
@@ -149,6 +146,25 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 	return tabs
 }
 
+// OpenWorkspacePane focuses an existing surface supplied by a module.
+func (a *App) OpenWorkspacePane(kind panes.Kind, id string) bool {
+	pane := a.workspacePane(kind)
+	if pane == nil || id == "" || !pane.Exists(a, id) {
+		return false
+	}
+	a.Navigate(ConversationPage)
+	a.panes.seen = a.Sidebar.Selected
+	a.focusPane(panes.Target{Kind: kind, ID: id})
+	return true
+}
+
+// KeepWorkspacePane retains the module surface's tab when another tab is selected.
+func (a *App) KeepWorkspacePane(kind panes.Kind, id string) {
+	if pane := a.workspacePane(kind); pane != nil && id != "" && pane.Exists(a, id) {
+		a.panes.Keep(panes.Target{Kind: kind, ID: id})
+	}
+}
+
 // OpenConversation opens session id as the user asked for it, from a sidebar
 // row, a link, search, a notification or another page: it shows on the
 // conversation page, in its split group when it is in one, and otherwise has
@@ -159,7 +175,12 @@ func (a *App) OpenConversation(id string) {
 	if a.Sidebar.Selected != id {
 		a.Sidebar.SelectOn("", id)
 	}
-	a.openTab(session(id))
+	target := session(id)
+	if a.panes.Active != target {
+		// Following the same sidebar selection can switch away from a module pane.
+		a.panes.seen = ""
+	}
+	a.openTab(target)
 }
 
 // openTab gives session t a tab of its own, once: a loaded session standing
@@ -294,16 +315,16 @@ func (a *App) workspaceGroups(c *ui.Context, width float32) {
 // goes before the tab it is dropped on, or after it past its middle, an
 // insertion line marking that edge while it is over the tab.
 func (a *App) tabReorder(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab) {
-	b.Drag(headerTabDrag{t.key()})
+	b.Drag(panes.Drag{Target: t.alone, TabKey: t.key()})
 	if b.Dragging() {
 		b.Opacity(0.5)
 	}
 	x, _, in := b.PointerPosition()
 	after := x >= b.Bounds().W/2
-	if v, ok := ui.Drop[headerTabDrag](b); ok && in {
-		a.moveTab(tabs, v.key, t, after)
+	if v, ok := ui.Drop[panes.Drag](b); ok && in && v.TabKey != nil {
+		a.moveTab(tabs, v.TabKey, t, after)
 	}
-	if v, ok := ui.DragOver[headerTabDrag](b); ok && in && v.key != t.key() {
+	if v, ok := ui.DragOver[panes.Drag](b); ok && in && v.TabKey != nil && v.TabKey != t.key() {
 		primary := theme.Of(c).Primary
 		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 			at := r.X
@@ -335,24 +356,25 @@ func (a *App) groupTab(c *ui.Context, b ui.Element, t headerTab, hovered bool) {
 // double click keeps it. Closing it closes the tab, never the session's task
 // or the terminal, and, while it shows, shows its neighbour.
 func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab, hovered bool) {
-	terminal := t.alone.Kind == panes.Terminal
-	if terminal && !t.kept {
+	resource := a.workspacePane(t.alone.Kind)
+	if resource != nil && !t.kept {
 		b.Italic()
 	}
 	close := func() { a.closeHeaderTab(c, t, tabs) }
-	// A session's tab leads with its status mark, as its sidebar row.
-	// A terminal's leads with its mark.
-	lead := func() { ui.Icon(c, icons.Terminal).FontSize(14).Shrink(0) }
-	if cv := a.paneSession(t.alone); t.alone.Kind == panes.Session && cv != nil {
-		lead = func() { sidebar.StatusMark(c, cv.Status) }
+	lead := func() {
+		if resource != nil {
+			ui.Icon(c, resource.Icon).FontSize(14).Shrink(0)
+		} else if cv := a.paneSession(t.alone); cv != nil {
+			sidebar.StatusMark(c, cv.Status)
+		}
 	}
 	kit.StripTabBodyWith(c, b, lead, t.title, t.shown, hovered, i18n.T(c, "close"), close)
 	kit.Tooltip(c, b, t.title)
-	if terminal && b.DoubleClicked() {
+	if resource != nil && b.DoubleClicked() {
 		a.panes.Keep(t.alone)
 	}
 	b.ContextMenu(func(m *ui.Menu) {
-		if terminal {
+		if resource != nil {
 			keep := "workspace_tab_keep"
 			if t.kept {
 				keep = "workspace_tab_release"
@@ -458,7 +480,11 @@ func (a *App) closeShownTab(c *ui.Context) {
 // session stays shown under the plain title; nothing opens it again until
 // the user does.
 func (a *App) closeHeaderTab(c *ui.Context, t headerTab, tabs []headerTab) {
-	a.panes.Release(t.alone)
+	if a.HasWorkspacePane(t.alone.Kind) {
+		a.CloseWorkspacePane(t.alone.Kind, t.alone.ID)
+	} else {
+		a.panes.Release(t.alone)
+	}
 	if !t.shown {
 		return
 	}

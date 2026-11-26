@@ -139,11 +139,11 @@ func (r *Runtime) routeFileLink(c *ui.Context, target shell.LinkTarget, tree pro
 	}
 	app := root.App
 	page, selected, resource := app.Page, app.Sidebar.Selected, app.ResourceTarget()
-	node, terminal := app.Sidebar.SelectedNode(), app.ActiveTerminal()
+	node, pane := app.Sidebar.SelectedNode(), app.ActiveWorkspacePane()
 	ctx, cancel := context.WithCancel(r.ctx)
 	request := &conversationFileLink{cancel: cancel, current: func() bool {
 		if ctx.Err() != nil || scoped && !r.controller.Connected() || app.DemoOn() || app.Page != page || app.Sidebar.Selected != selected ||
-			app.Sidebar.SelectedNode() != node || app.ResourceTarget() != resource || app.ActiveTerminal() != terminal {
+			app.Sidebar.SelectedNode() != node || app.ResourceTarget() != resource || app.ActiveWorkspacePane() != pane {
 			return false
 		}
 		if !r.ownsLinkConversation(target.Session) {
@@ -312,7 +312,7 @@ func (r *Runtime) openLinkWorkspaceFile(target shell.LinkTarget, tree protocol.W
 		selected, node := app.Sidebar.Selected, app.Sidebar.SelectedNode()
 		project.openFile(target.Path, target.Line, false, func(relative string, line int) {
 			if app.Page != shell.ConversationPage || app.Sidebar.Selected != selected || app.Sidebar.SelectedNode() != node ||
-				app.ActiveTerminal() != "" || root.selectedRuntime() != r || r.selectedWorkspace() != project {
+				app.ActiveWorkspacePane().Kind != "" || root.selectedRuntime() != r || r.selectedWorkspace() != project {
 				return
 			}
 			project.prepareFileEditor(relative, line)
@@ -414,7 +414,7 @@ func (r *Runtime) canOpenLinkInConversation(target shell.LinkTarget) bool {
 	if root.App.Data.FindOn(target.Node.String(), target.Session) != nil {
 		return true
 	}
-	if root.App.Page == shell.ConversationPage && root.App.ActiveTerminal() == "" && root.selectedRuntime() == r {
+	if root.App.Page == shell.ConversationPage && root.App.ActiveWorkspacePane().Kind == "" && root.selectedRuntime() == r {
 		project := r.selectedWorkspace()
 		return project != nil && project.owner.ID == target.Worktree
 	}
@@ -438,7 +438,7 @@ func (r *Runtime) selectLinkSession(target shell.LinkTarget) bool {
 	root := r.localRuntime()
 	app := root.App
 	if cv := app.Data.FindOn(target.Node.String(), target.Session); cv != nil {
-		if app.SelectedConversation() != cv || app.ActiveTerminal() != "" {
+		if app.SelectedConversation() != cv || app.ActiveWorkspacePane().Kind != "" {
 			app.Sidebar.SelectOn(cv.Node, cv.ID)
 			root.OpenSession(cv.ID)
 		}
