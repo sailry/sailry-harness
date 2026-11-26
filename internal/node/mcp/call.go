@@ -91,23 +91,29 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 	if poisoned {
 		return nil, unavailable()
 	}
-	if lease.config.Options.Exclusive && !readOnly {
+	exclusive := lease.config.Options.Exclusive && !readOnly
+	if exclusive {
 		if err := connection.lock(ctx, connection.exclusive.lock, 1); err != nil {
 			return nil, err
 		}
-		defer connection.exclusive.lock.Release(1)
 	}
 	weight := int64(maxCalls)
 	if readOnly {
 		weight = 1
 	}
 	if err := connection.lock(ctx, connection.calls, weight); err != nil {
+		if exclusive {
+			connection.exclusive.lock.Release(1)
+		}
 		return nil, err
 	}
 	released := false
 	defer func() {
 		if !released {
 			connection.calls.Release(weight)
+			if exclusive {
+				connection.exclusive.lock.Release(1)
+			}
 		}
 	}()
 	if ctx.Err() != nil || lease.pool.ctx.Err() != nil {
@@ -137,7 +143,12 @@ func (lease *Lease) Call(ctx context.Context, name string, arguments map[string]
 	completed := make(chan response, 1)
 	released = true
 	go func() {
-		defer connection.calls.Release(weight)
+		defer func() {
+			connection.calls.Release(weight)
+			if exclusive {
+				connection.exclusive.lock.Release(1)
+			}
+		}()
 		value, err := connection.session.CallTool(operation, &sdk.CallToolParams{Name: name, Arguments: arguments})
 		completed <- response{value, err}
 	}()

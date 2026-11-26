@@ -99,6 +99,12 @@ func (r *Runtime) startStreamRead(x *execution, reads *streamedReads, request *c
 	}
 	if key := repeatKey(call); key != "" {
 		if reads.keys[key] {
+			// Record repeated concurrent reads as skipped so adopt() does not
+			// break its prefix scan and cancel subsequent valid streamed reads.
+			if reads.skipped == nil {
+				reads.skipped = make(map[*canonical.ToolRequest]canonical.ToolRequest)
+			}
+			reads.skipped[request] = call
 			return
 		}
 		if reads.keys == nil {

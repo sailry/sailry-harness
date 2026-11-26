@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -258,5 +259,99 @@ func TestQuestionSurvivesRestart(t *testing.T) {
 	f.waitRun(turn, protocol.ConversationStatusInterrupted)
 	if m.count() != 1 {
 		t.Fatal("question request replayed")
+	}
+}
+
+func TestSequentialApprovalToolsObservePriorBatchResults(t *testing.T) {
+	t.Parallel()
+	// Reproduce two sequential approval-gated edits to the same path (plus a
+	// preceding read) in a single model batch. Each edit's ObserveHistory and
+	// Prepare must observe the revision committed by the prior call in the batch.
+	currentRev := "rev-0"
+	var observedRevs []string
+	var applied int
+
+	read := objectTool("read_doc", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: map[string]any{"kind": "file_content", "data": map[string]any{"path": "doc.txt", "revision": currentRev}}}
+	})
+	var seenRev string
+	edit := objectTool("edit_doc", false, false, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		applied++
+		currentRev = "rev-" + string(rune('0'+applied))
+		return ToolResult{Value: map[string]any{"kind": "file_written", "data": map[string]any{"path": "doc.txt", "revision": currentRev}}}
+	})
+	edit.Approval = true
+	edit.ObserveHistory = func(records []canonical.Record) {
+		seenRev = ""
+		for _, rec := range records {
+			msg := rec.Message()
+			if msg == nil || rec.Provenance.Author != "tool" {
+				continue
+			}
+			for _, block := range msg.Content {
+				resp, ok := block.Data.(*canonical.ToolResponse)
+				if !ok || resp.Status != canonical.ToolSuccess {
+					continue
+				}
+				var payload struct {
+					Data struct {
+						Revision string `json:"revision"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(resp.Result.Value, &payload) == nil && payload.Data.Revision != "" {
+					seenRev = payload.Data.Revision
+				}
+			}
+		}
+	}
+	edit.Prepare = func(context.Context, canonical.ToolRequest) error {
+		observedRevs = append(observedRevs, seenRev)
+		if seenRev != currentRev {
+			return &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "stale revision " + seenRev + " != " + currentRev}
+		}
+		return nil
+	}
+	m := &scriptedModel{scripts: []script{
+		response(
+			call("r1", "read_doc", `{}`),
+			call("e1", "edit_doc", `{"step":1}`),
+			call("e2", "edit_doc", `{"step":2}`),
+			finish(),
+		),
+		response(text("Both edits succeeded"), finish()),
+	}}
+	f := newFixture(t, m, read, edit)
+	f.start()
+	turn := f.submit("Read and edit twice in one batch")
+	for range 2 {
+		var approvalID protocol.ApprovalID
+		for {
+			var raw string
+			err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+				return db.QueryRowContext(f.ctx, "SELECT id FROM agent_approvals WHERE json_extract(body, '$.state')='pending' LIMIT 1").Scan(&raw)
+			})
+			if err == nil {
+				approvalID, err = protocol.ParseApprovalID(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				break
+			}
+			select {
+			case <-f.changed:
+			case <-f.ctx.Done():
+				t.Fatal("waiting for sequential approval")
+			}
+		}
+		f.command("resolve_approval", &protocol.CommandResolveApprovalPayload{
+			Session: f.session.ID, Approval: approvalID, Decision: protocol.ConversationDecision{Kind: "approve"},
+		})
+	}
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if applied != 2 {
+		t.Fatalf("applied edits = %d, want 2", applied)
+	}
+	if len(observedRevs) != 2 || observedRevs[0] != "rev-0" || observedRevs[1] != "rev-1" {
+		t.Fatalf("observed revisions during Prepare = %v, want [rev-0 rev-1]", observedRevs)
 	}
 }

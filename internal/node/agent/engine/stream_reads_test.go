@@ -372,3 +372,69 @@ func TestStreamReadsContinuePastConcurrentReadOnlyTool(t *testing.T) {
 		t.Fatalf("result order = %v, want [f1 r1]", ids)
 	}
 }
+
+func TestStreamReadsPreserveTrailingReadsAfterDuplicateRead(t *testing.T) {
+	t.Parallel()
+	started := make(chan string, 6)
+	finishStream := make(chan struct{})
+	var executions atomic.Int32
+	read := objectTool("read", true, true, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		executions.Add(1)
+		started <- call.ID
+		return ToolResult{Value: call.ID}
+	})
+	read.StreamRead = true
+	m := &scriptedModel{scripts: []script{
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			response(
+				call("a1", "read", `{"path":"a.go"}`),
+				call("a2", "read", `{"path":"a.go"}`),
+				call("b1", "read", `{"path":"b.go"}`),
+				call("c1", "read", `{"path":"c.go"}`),
+			)(ctx, request, yield)
+			select {
+			case <-finishStream:
+				response(text("Loaded"), finish())(ctx, request, yield)
+			case <-ctx.Done():
+			}
+		},
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, m, read)
+	f.start()
+	turn := f.submit("Read with a duplicate in the middle")
+	var early []string
+	for range 3 {
+		select {
+		case id := <-started:
+			early = append(early, id)
+		case <-f.ctx.Done():
+			t.Fatal("trailing streamed reads did not start past duplicate read")
+		}
+	}
+	slices.Sort(early)
+	if !slices.Equal(early, []string{"a1", "b1", "c1"}) {
+		t.Fatalf("early streamed reads = %v, want [a1 b1 c1]", early)
+	}
+	close(finishStream)
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if got := executions.Load(); got != 3 {
+		t.Fatalf("read executed %d times, want 3 (trailing reads must not be discarded and re-run)", got)
+	}
+	var ids []string
+	for _, record := range f.state().Records {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
+				if resp, ok := block.Data.(*canonical.ToolResponse); ok {
+					ids = append(ids, resp.ID)
+					if resp.ID == "a2" && resp.Status != canonical.ToolSuccess {
+						t.Fatalf("duplicate call a2 failed: %+v", resp)
+					}
+				}
+			}
+		}
+	}
+	if !slices.Equal(ids, []string{"a1", "a2", "b1", "c1"}) {
+		t.Fatalf("result order = %v, want [a1 a2 b1 c1]", ids)
+	}
+}

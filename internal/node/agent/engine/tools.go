@@ -552,6 +552,14 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			results[i] = repeatedCall(first)
 			continue
 		}
+		if tool.Approval && tool.ObserveHistory != nil {
+			// Defer ObserveHistory and Prepare for history-observing approval
+			// calls until earlier calls in this batch finish, so sequential
+			// reads and edits against the same file observe fresh revisions.
+			asks[i] = true
+			clear(firsts)
+			continue
+		}
 		if tool.ObserveHistory != nil {
 			tool.ObserveHistory(state.Records)
 		}
@@ -601,6 +609,27 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 	} else {
 		slots = make(chan struct{}, maxConcurrentTools)
 	}
+	batchHistory := state.Records
+	appendedBatch := 0
+	appendBatchHistory := func(upto int) {
+		for ; appendedBatch < upto; appendedBatch++ {
+			k := appendedBatch
+			if read := x.streamReads.read(calls[k].ID); read != nil {
+				<-read.done
+				results[k], startedCalls[k] = read.result, read.ran
+			}
+			if results[k].Value == nil && results[k].Failure == nil {
+				continue
+			}
+			if len(batchHistory) == len(state.Records) {
+				batchHistory = append(make([]canonical.Record, 0, len(state.Records)+len(calls)), state.Records...)
+			}
+			rec := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(uint64(k), calls[k], results[k])), r.clock.Now())
+			rec.ID = "batch:" + calls[k].ID
+			rec.Provenance.Author = "tool"
+			batchHistory = append(batchHistory, rec)
+		}
+	}
 	for start := 0; start < len(calls); {
 		if step.Err() != nil {
 			break
@@ -612,7 +641,22 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 			}
 		} else if asks[start] {
 			call := calls[start]
-			approved, err := r.approval(x, step, call, findTool(x.tools, call.Name))
+			tool := findTool(x.tools, call.Name)
+			if tool != nil && tool.Approval && tool.ObserveHistory != nil {
+				appendBatchHistory(start)
+				tool.ObserveHistory(batchHistory)
+				if tool.Prepare != nil {
+					if tool.ReleasePrepared != nil {
+						defer tool.ReleasePrepared(call)
+					}
+					if err := tool.Prepare(x.ctx, call); err != nil {
+						results[start] = toolFault(err)
+						start = end
+						continue
+					}
+				}
+			}
+			approved, err := r.approval(x, step, call, tool)
 			if err == errQueuedSteer {
 				break
 			}
@@ -647,18 +691,32 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 				call := calls[i]
 				metric, started := r.telemetry.Capture(), time.Now()
 				defer func() { observeTool(metric, x.ctx, x.tools, call.Name, results[i], started) }()
+				beforeRan := false
+				defer func() {
+					if beforeRan {
+						x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
+					}
+				}()
 				defer containToolPanic(x, call, &results[i])
 				if step.Err() != nil {
 					return
 				}
-				if err := x.hooks.Before(x.ctx, call.Name, call.ID); err != nil {
+				tool := findTool(x.tools, call.Name)
+				hookCtx := x.ctx
+				if tool != nil && tool.ReadOnly && !asks[i] && !tool.Delegation {
+					hookCtx = step
+				}
+				if err := x.hooks.Before(hookCtx, call.Name, call.ID); err != nil {
+					if step.Err() != nil {
+						return
+					}
 					results[i] = toolFault(err)
 					return
 				}
 				if step.Err() != nil {
 					return
 				}
-				tool := findTool(x.tools, call.Name)
+				beforeRan = true
 				ctx := toolContext
 				if tool.ReadOnly && !asks[i] && !tool.Delegation {
 					ctx = step
@@ -669,7 +727,6 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 					startedCalls[i] = true
 					results[i] = tool.Execute(ctx, call)
 				}()
-				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 			}(i)
 		}
 		workers.Wait()
@@ -690,7 +747,7 @@ func (r *Runtime) runToolBatch(x *execution, step context.Context, state store.A
 		if startedCalls[i] && (results[i].Failure != nil || results[i].ReturnedFailure != nil) {
 			recordToolFailure(step, findTool(x.tools, call.Name), results[i])
 		}
-		if (executable[i] || step.Err() != nil) && results[i].Value == nil && results[i].Failure == nil {
+		if (executable[i] || step.Err() != nil) && results[i].Value == nil && results[i].Failure == nil && (!results[i].Error || step.Err() != nil) {
 			results[i] = interruptedTool(startedCalls[i])
 			if !startedCalls[i] && Steered(step) {
 				results[i].Failure.Message = "Tool call did not start before queued guidance redirected the turn"

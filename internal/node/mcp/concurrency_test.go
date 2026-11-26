@@ -369,3 +369,38 @@ func TestMCPWriteCancellationRetiresWithoutReplay(t *testing.T) {
 		}
 	})
 }
+
+func TestMCPExclusiveLockHeldUntilCancelledWriteCompletes(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		fixture := newMCPCallFixture(t, "2026-07-28")
+		config := fixture.config()
+		config.Options.Reuse, config.Options.Exclusive = false, true
+		first, second := fixture.acquire(config), fixture.acquire(config)
+		if first.connection == second.connection {
+			t.Fatal("nonreusable leases shared a connection")
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		firstCall := fixture.start(ctx, first, "exclusive-cancelled", false)
+		fixture.entered(firstCall, true)
+
+		// While the first exclusive write is active, a second lease on a
+		// distinct connection must wait on the shared exclusive lock.
+		secondCall := fixture.start(t.Context(), second, "exclusive-next", false)
+		synctest.Wait()
+		fixture.entered(secondCall, false)
+		if fixture.peak.Load() != 1 {
+			t.Fatalf("exclusive writes overlapped while first call held lock: peak=%d", fixture.peak.Load())
+		}
+
+		// Cancelling the first write retires its connection and unblocks the
+		// second write once the first CallTool goroutine exits and releases
+		// the exclusive lock cleanly without leaking it.
+		cancel()
+		fixture.fault(firstCall, protocol.ErrorCodeOutcomeUnknown)
+		fixture.entered(secondCall, true)
+		secondCall.finish()
+		fixture.success(secondCall)
+	})
+}
