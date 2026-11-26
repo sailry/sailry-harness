@@ -250,6 +250,9 @@ func TestProviderFamilyFilterAndAddFlow(t *testing.T) {
 	}
 	configure()
 	click(ui.RoleButton, zh("provider_add_model"))
+	// Reveal the model fields in the scrollable body above the fixed footer.
+	view.Scroll(550, 450, 0, 250)
+	settle()
 	typeIn(zh("provider_model_id"), "gateway-model")
 	click(ui.RoleButton, "128K")
 	shot("provider-form-compatible-model")
