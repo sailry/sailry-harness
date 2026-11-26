@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -470,69 +469,6 @@ func TestMigrateLegacyProfileDoesNotWalkUserTrees(t *testing.T) {
 		}
 	}
 	fixture.assertMigrated(t)
-}
-
-func TestMigrateLegacyProfileRejectsRealLinkedGitWorktrees(t *testing.T) {
-	t.Parallel()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("Git executable unavailable")
-	}
-	for _, location := range []string{"managed", "registered project", "internal primary"} {
-		t.Run(location, func(t *testing.T) {
-			t.Parallel()
-			fixture := newLegacyMigrationFixture(t)
-			repository := filepath.Join(filepath.Dir(fixture.legacy), "repository")
-			if location == "internal primary" {
-				repository = filepath.Join(fixture.legacy, "projects", "inside")
-			}
-			run := func(args ...string) []byte {
-				t.Helper()
-				command := exec.CommandContext(t.Context(), git, args...)
-				command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-				body, err := command.CombinedOutput()
-				if err != nil {
-					t.Fatalf("git %v: %v: %s", args, err, body)
-				}
-				return body
-			}
-			run("init", "--initial-branch=main", repository)
-			run("-C", repository, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "Fixture")
-			checkout := filepath.Join(fixture.legacy, "worktrees", "linked")
-			if location == "registered project" {
-				checkout = filepath.Join(fixture.legacy, "projects", "inside")
-			} else if location == "internal primary" {
-				checkout = filepath.Join(fixture.outside, "linked")
-			}
-			run("-C", repository, "worktree", "add", "-b", "migration-fixture", checkout)
-			gitdir := filepath.Join(repository, ".git", "worktrees", filepath.Base(checkout), "gitdir")
-			before, err := os.ReadFile(gitdir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			pointers, err := os.ReadFile(filepath.Join(checkout, ".git"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			database, err := os.ReadFile(filepath.Join(fixture.legacy, "storage", "node.turso"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = MigrateLegacyProfile(t.Context(), fixture.legacy, fixture.target)
-			if err == nil || !strings.Contains(err.Error(), "linked Git checkout") || !strings.Contains(err.Error(), "outside the profile") {
-				t.Fatalf("unsafe linked-worktree migration: %v", err)
-			}
-			for path, expected := range map[string][]byte{gitdir: before, filepath.Join(checkout, ".git"): pointers, filepath.Join(fixture.legacy, "storage", "node.turso"): database} {
-				actual, err := os.ReadFile(path)
-				if err != nil || !bytes.Equal(actual, expected) {
-					t.Fatalf("refusal changed %s: %v", path, err)
-				}
-			}
-			if exists, err := legacyProfileExists(fixture.target); err != nil || exists {
-				t.Fatalf("linked-worktree refusal published target: %v", err)
-			}
-		})
-	}
 }
 
 func TestMigrateLegacyProfileOldNameIsIndependent(t *testing.T) {

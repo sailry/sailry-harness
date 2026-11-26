@@ -456,7 +456,10 @@ libraries to the package, without overriding the Harness identity. Harness does
 not migrate old profiles. A downstream product can declare `LegacyProfile` for
 its default Desktop and foreground Host startup; migration runs before logging
 or preferences create the new profile. Code adopts `~/.sailry` as `~/.sailry-code`
-without changing database engines. Explicit profile arguments, including those
+without changing database engines. When a managed or registered checkout links to
+an external Git repository, migration verifies the reciprocal worktree registration
+and updates its backlink after publishing the new profile. An interrupted startup
+resumes this step before opening the Node. Explicit profile arguments, including those
 of installed services (`~/.sailry-host`), bypass adoption. `just desktop dev` uses the separate
 `~/.sailry-harness-dev` profile. Development checks use isolated profiles as
 described in [CONTRIBUTING.md](CONTRIBUTING.md#setup).
