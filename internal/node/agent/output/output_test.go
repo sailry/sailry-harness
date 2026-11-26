@@ -248,6 +248,22 @@ func TestAudienceOwnsUnchangedToolOutput(t *testing.T) {
 	}
 }
 
+func TestSparseFilePreviewKeepsUnreadGaps(t *testing.T) {
+	var reads fileReads
+	preview := func(lines ...protocol.FileLine) string {
+		t.Helper()
+		text, ok := filePreview(map[string]any{"data": protocol.FileLines{Path: "test", Revision: "rev", Lines: lines}}, nil, &reads)
+		if !ok {
+			t.Fatal("file preview failed")
+		}
+		return text
+	}
+	sparse := preview(protocol.FileLine{Number: 2, Text: "two\n"}, protocol.FileLine{Number: 9, Text: "nine\n"})
+	if !strings.Contains(sparse, "Selected lines between 2 and 9") || !strings.Contains(preview(protocol.FileLine{Number: 6, Text: "six\n"}), "6\tsix") {
+		t.Fatal("selected lines were projected as a complete range")
+	}
+}
+
 func TestFilePreviewFitsUpTo48KiBAndPaginatesAbove(t *testing.T) {
 	makeFile := func(count int) canonical.Record {
 		lines := make([]protocol.FileLine, count)

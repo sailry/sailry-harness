@@ -14,6 +14,11 @@ import (
 const ExecutableKey = "sailry.executable"
 const ExternalDispatchKey = "sailry.external_dispatch"
 
+// FileReadsKey scopes native tool result metadata to the worktree whose source was read.
+func FileReadsKey(worktree protocol.WorktreeID) string {
+	return "sailry.file_reads." + worktree.String()
+}
+
 type Record struct {
 	ID         string          `json:"id"`
 	Created    time.Time       `json:"created"`

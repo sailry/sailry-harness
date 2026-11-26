@@ -74,7 +74,7 @@ func Inspect(ctx context.Context, root string, command protocol.Command, access 
 	case "read_file_lines":
 		v := command.Data.(*protocol.CommandReadFileLinesPayload)
 		kind = "file_lines"
-		value, err = fs.ReadLines(ctx, v.Path, v.Offset, v.Limit, v.ExpectedRevision)
+		value, err = fs.ReadLineRanges(ctx, v.Path, v.Offset, v.Limit, v.ExpectedRevision, v.Ranges)
 	case "find_files":
 		v := command.Data.(*protocol.CommandFindFilesPayload)
 		kind = "file_names"

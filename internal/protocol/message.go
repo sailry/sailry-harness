@@ -7043,11 +7043,12 @@ func (value CommandSaveCodeIndexSettingsPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandReadFileLinesPayload struct {
-	Worktree         WorktreeID `json:"worktree"`
-	Path             string     `json:"path"`
-	Offset           uint64     `json:"offset"`
-	Limit            uint64     `json:"limit"`
-	ExpectedRevision *string    `json:"expected_revision"`
+	Worktree         WorktreeID      `json:"worktree"`
+	Path             string          `json:"path"`
+	Offset           uint64          `json:"offset"`
+	Limit            uint64          `json:"limit"`
+	ExpectedRevision *string         `json:"expected_revision"`
+	Ranges           []FileLineRange `json:"ranges,omitempty"`
 }
 
 func DefaultCommandReadFileLinesPayload() CommandReadFileLinesPayload {

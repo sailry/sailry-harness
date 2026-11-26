@@ -121,7 +121,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			tool.SearchLabels = toolSearchLabels(*declaration.Display)
 		}
 		tool.ReleasePrepared = releasePrepared(&mu, calls)
-		var observed workspaceRevisions
+		observed := workspaceRevisions{worktreeID: inv.Run.Worktree}
 		if observesRevisions(declaration.Operation) {
 			tool.ObserveHistory = observed.update
 		}
@@ -539,10 +539,11 @@ func (node *Node) workspaceToolValue(session protocol.Session, request protocol.
 // workspaceRevisions follows the canonical history visible to this turn. Receipts
 // from a successful write are observations of its new revision, like reads.
 type workspaceRevisions struct {
-	paths    map[string]string
-	count    int
-	last     string
-	worktree string
+	paths      map[string]string
+	count      int
+	last       string
+	worktree   string
+	worktreeID protocol.WorktreeID
 }
 
 func (r *workspaceRevisions) update(records []canonical.Record) {
@@ -574,6 +575,16 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 }
 
 func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
+	if response.Status == canonical.ToolSuccess && response.Meta != nil {
+		if raw := (*response.Meta)[canonical.FileReadsKey(r.worktreeID)]; raw != nil {
+			var files map[string]string
+			if json.Unmarshal(raw, &files) == nil {
+				for path, revision := range files {
+					r.paths[r.pathKey(path)] = revision
+				}
+			}
+		}
+	}
 	var value struct {
 		Kind string
 		Data struct {

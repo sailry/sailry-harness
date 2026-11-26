@@ -14,9 +14,23 @@ import (
 )
 
 func (files *Files) ReadLines(ctx context.Context, relative string, offset, limit uint64, expected *string) (protocol.FileLines, error) {
+	return files.ReadLineRanges(ctx, relative, offset, limit, expected, nil)
+}
+
+// ReadLineRanges returns selected lines at or after offset. Empty ranges select
+// the entire file. Limit counts returned lines, and NextOffset is a file offset.
+func (files *Files) ReadLineRanges(ctx context.Context, relative string, offset, limit uint64, expected *string, ranges []protocol.FileLineRange) (protocol.FileLines, error) {
 	if limit == 0 {
 		return protocol.FileLines{}, fileFault(protocol.ErrorCodeInvalidRequest, "file line limit must be positive")
 	}
+	// A ranged page still validates and hashes the whole file once. Only the
+	// requested lines count toward its existing line and byte budgets.
+	for i, r := range ranges {
+		if r.Start >= r.End || i > 0 && ranges[i-1].End > r.Start {
+			return protocol.FileLines{}, fileFault(protocol.ErrorCodeInvalidRequest, "file line ranges must be ordered and non-overlapping")
+		}
+	}
+	selectedRanges := len(ranges) > 0
 	control := newFileControl(ctx)
 	if err := control.check(); err != nil {
 		return protocol.FileLines{}, err
@@ -79,8 +93,21 @@ func (files *Files) ReadLines(ctx context.Context, relative string, offset, limi
 			pending = copy(buffer[:], chunk[valid:])
 			continue
 		}
-		for _, fragment := range strings.SplitAfter(string(chunk[:valid]), "\n") {
+		for fragment := range strings.SplitAfterSeq(string(chunk[:valid]), "\n") {
 			if fragment == "" {
+				continue
+			}
+			for len(ranges) > 0 && index >= ranges[0].End {
+				ranges = ranges[1:]
+			}
+			if selectedRanges && len(ranges) == 0 {
+				collecting = false
+				break
+			}
+			if index < offset || len(ranges) > 0 && index < ranges[0].Start {
+				if strings.HasSuffix(fragment, "\n") {
+					index++
+				}
 				continue
 			}
 			if !collecting {
@@ -98,43 +125,39 @@ func (files *Files) ReadLines(ctx context.Context, relative string, offset, limi
 				}
 				continue
 			}
-			if index >= offset {
-				if uint64(len(page.Lines)) == min(limit, uint64(protocol.MAX_FILE_LINES)) {
-					next := index
-					page.NextOffset = &next
-					collecting = false
-					continue
-				}
-				if retained+len(line)+len(fragment) > protocol.MAX_FILE_BYTES {
-					if len(page.Lines) == 0 {
-						keep := protocol.MAX_FILE_BYTES - len(line)
-						for keep > 0 && keep < len(fragment) && !utf8.RuneStart(fragment[keep]) {
-							keep--
-						}
-						line += fragment[:keep]
-						page.Lines = append(page.Lines, protocol.FileLine{Number: index + 1, Text: line})
-						line = ""
-						page.Truncated = true
-						skippingLine = !strings.HasSuffix(fragment, "\n")
-						if !skippingLine {
-							index++
-						}
-					} else {
-						next := index
-						page.NextOffset = &next
-						line = ""
-					}
-					collecting = false
-					continue
-				}
-				line += fragment
+			if uint64(len(page.Lines)) == min(limit, uint64(protocol.MAX_FILE_LINES)) {
+				next := index
+				page.NextOffset = &next
+				collecting = false
+				continue
 			}
-			if strings.HasSuffix(fragment, "\n") {
-				if index >= offset {
-					retained += len(line)
+			if retained+len(line)+len(fragment) > protocol.MAX_FILE_BYTES {
+				if len(page.Lines) == 0 {
+					keep := protocol.MAX_FILE_BYTES - len(line)
+					for keep > 0 && keep < len(fragment) && !utf8.RuneStart(fragment[keep]) {
+						keep--
+					}
+					line += fragment[:keep]
 					page.Lines = append(page.Lines, protocol.FileLine{Number: index + 1, Text: line})
 					line = ""
+					page.Truncated = true
+					skippingLine = !strings.HasSuffix(fragment, "\n")
+					if !skippingLine {
+						index++
+					}
+				} else {
+					next := index
+					page.NextOffset = &next
+					line = ""
 				}
+				collecting = false
+				continue
+			}
+			line += fragment
+			if strings.HasSuffix(fragment, "\n") {
+				retained += len(line)
+				page.Lines = append(page.Lines, protocol.FileLine{Number: index + 1, Text: line})
+				line = ""
 				index++
 			}
 		}

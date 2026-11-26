@@ -533,6 +533,12 @@ func (value FileLine) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// FileLineRange selects zero-based lines in [Start, End).
+type FileLineRange struct {
+	Start uint64 `json:"start"`
+	End   uint64 `json:"end"`
+}
+
 type FileLines struct {
 	Path       string     `json:"path"`
 	Lines      []FileLine `json:"lines"`

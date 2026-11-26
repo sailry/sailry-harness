@@ -427,6 +427,37 @@ func TestTextDecodingFixtures(t *testing.T) {
 	})
 }
 
+func TestReadSelectedLineRanges(t *testing.T) {
+	files, dir := testFiles(t)
+	source := "one\r\n" + strings.Repeat("ignored", protocol.MAX_FILE_BYTES) + "\nthree\nfour"
+	putFileFixture(t, dir, "source", source)
+	revision := contentRevision([]byte(source))
+	ranges := []protocol.FileLineRange{{Start: 0, End: 1}, {Start: 2, End: 4}}
+	want := []protocol.FileLine{{Number: 1, Text: "one\r\n"}, {Number: 3, Text: "three\n"}, {Number: 4, Text: "four"}}
+	page, err := files.ReadLineRanges(t.Context(), "source", 0, 3, &revision, ranges)
+	if err != nil || !reflect.DeepEqual(page.Lines, want) || page.Truncated || page.NextOffset != nil || page.Size != uint64(len(source)) || page.Revision != revision {
+		t.Fatalf("selected page = %+v, %v", page, err)
+	}
+	page, err = files.ReadLineRanges(t.Context(), "source", 0, 1, nil, ranges)
+	if err != nil || !reflect.DeepEqual(page.Lines, want[:1]) || page.NextOffset == nil || *page.NextOffset != 2 {
+		t.Fatalf("limited page = %+v, %v", page, err)
+	}
+	page, err = files.ReadLineRanges(t.Context(), "source", 2, 2, nil, ranges)
+	if err != nil || !reflect.DeepEqual(page.Lines, want[1:]) || page.NextOffset != nil {
+		t.Fatalf("remaining page = %+v, %v", page, err)
+	}
+	putFileFixture(t, dir, "source", source+"\nchanged")
+	if _, err := files.ReadLineRanges(t.Context(), "source", 0, 3, &revision, ranges); !isFileFault(err, protocol.ErrorCodeRevisionConflict) {
+		t.Fatalf("stale revision = %v", err)
+	}
+	for _, source := range []string{"one\n\xff\nthree", "one\nclean\nthree\nend\n\x00"} {
+		putFileFixture(t, dir, "source", source)
+		if _, err := files.ReadLineRanges(t.Context(), "source", 0, 3, nil, ranges); !isFileFault(err, protocol.ErrorCodeInvalidRequest) {
+			t.Fatalf("invalid unselected text = %v", err)
+		}
+	}
+}
+
 func fileUint(value uint64) *uint64 { return &value }
 
 func TestSaveWriteLimit(t *testing.T) {

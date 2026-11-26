@@ -32,6 +32,7 @@ type (
 	DatabaseProfile                     = protocol.DatabaseProfile
 	ErrorCode                           = protocol.ErrorCode
 	Fault                               = protocol.Fault
+	FileLineRange                       = protocol.FileLineRange
 	FileLines                           = protocol.FileLines
 	NodeID                              = protocol.NodeID
 	Output                              = protocol.Output

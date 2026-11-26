@@ -11,7 +11,10 @@ import (
 const fileBytes = 48 * 1024
 const fileLineBytes = 2 * 1024
 
-type fileRange struct{ first, last uint64 }
+type fileRange struct {
+	first, last uint64
+	sparse      bool
+}
 type fileReads map[string][]fileRange
 
 func filePreview(original map[string]any, source map[string]any, reads *fileReads) (string, bool) {
@@ -51,7 +54,7 @@ func filePreview(original map[string]any, source map[string]any, reads *fileRead
 		row, omitted := fileRow(line, page.Truncated)
 		rowBytes := len(encoded(row)) - 2
 		rowLines := lineCount(row)
-		rangeValue := &fileRange{first: page.Lines[0].Number, last: line.Number}
+		rangeValue := &fileRange{first: page.Lines[0].Number, last: line.Number, sparse: line.Number-page.Lines[0].Number != uint64(index)}
 		metadata := renderFile(page, "", rangeValue, shortened || omitted, following, source)
 		if bytes+rowBytes+len(encoded(metadata)) > fileBytes || lines+rowLines+lineCount(metadata) > MaxLines {
 			break
@@ -70,7 +73,7 @@ func filePreview(original map[string]any, source map[string]any, reads *fileRead
 	if len(encoded(projected)) > fileBytes {
 		return "", false
 	}
-	if reads != nil && !shortened && !page.Truncated && shown != nil {
+	if reads != nil && !shortened && !page.Truncated && shown != nil && !shown.sparse {
 		if *reads == nil {
 			*reads = fileReads{}
 		}
@@ -101,7 +104,9 @@ func fileRow(line protocol.FileLine, truncated bool) (string, bool) {
 }
 func renderFile(page protocol.FileLines, body string, shown *fileRange, shortened bool, next *uint64, source map[string]any) string {
 	value := ""
-	if shown != nil {
+	if shown != nil && shown.sparse {
+		value = fmt.Sprintf("%s\nSelected lines between %d and %d; %d bytes; revision %s\n", page.Path, shown.first, shown.last, page.Size, page.Revision)
+	} else if shown != nil {
 		value = fmt.Sprintf("%s\nLines %d–%d; %d bytes; revision %s\n", page.Path, shown.first, shown.last, page.Size, page.Revision)
 	} else {
 		value = fmt.Sprintf("%s\nNo lines at offset=%d; %d bytes; revision %s\n", page.Path, page.Offset, page.Size, page.Revision)
