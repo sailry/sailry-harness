@@ -40,8 +40,8 @@ func SupportsRead(kind string) bool {
 }
 
 // Document inspects the bytes of a document or image file. The Node supplies
-// it so that images and scanned pages are read with its OCR model.
-type Document func(ctx context.Context, name string, data []byte, offset uint64) (protocol.OfficeInspection, error)
+// it to read text with OCR or render PDF pages on request.
+type Document func(ctx context.Context, name string, data []byte, options protocol.OfficeRead) (protocol.OfficeInspection, error)
 
 func Inspect(ctx context.Context, root string, command protocol.Command, access core.FileAccess, document Document) (protocol.Output, error) {
 	timeout := 5 * time.Second
@@ -114,7 +114,7 @@ func Inspect(ctx context.Context, root string, command protocol.Command, access 
 		if e != nil {
 			return protocol.Output{}, e
 		}
-		value, err = document(ctx, path, data, v.Options.Offset)
+		value, err = document(ctx, path, data, v.Options)
 	default:
 		return protocol.Output{}, invalid("invalid file inspection command")
 	}

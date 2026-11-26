@@ -109,6 +109,7 @@ func TestToolMedia(t *testing.T) {
 			remaining   int
 		}{
 			"typed output":       {`{"kind":"file_image","data":{"path":"a.png","inline_data":[{"mime_type":"image/png","data":null}]}}`, `{"data":{"path":"a.png"},"kind":"file_image"}`, []canonical.BinarySlot{slot("/data/inline_data/0/data", "a")}, []string{"a"}, 0},
+			"office pdf page":    {`{"kind":"office_content","data":{"path":"doc.pdf","inline_data":[{"mime_type":"image/jpeg","data":null}]}}`, `{"data":{"path":"doc.pdf"},"kind":"office_content"}`, []canonical.BinarySlot{slot("/data/inline_data/0/data", "a")}, []string{"a"}, 0},
 			"result root":        {`{"text":"ok","inline_data":[{"mime_type":"image/png","data":null},{"mime_type":"image/png","data":null}],"other":{"mime":"image/png","data":null}}`, `{"other":{"data":null,"mime":"image/png"},"text":"ok"}`, []canonical.BinarySlot{slot("/inline_data/0/data", "a"), slot("/inline_data/1/data", "b"), slot("/other/data", "c")}, []string{"a", "b"}, 1},
 			"user audience":      {`{"inline_data":[{"mime_type":"image/png","data":null,"annotations":{"audience":["user"]}},{"mime_type":"image/png","data":null,"annotations":{"audience":["user","assistant"]}}]}`, `{}`, []canonical.BinarySlot{slot("/inline_data/0/data", "a"), slot("/inline_data/1/data", "b")}, []string{"b"}, 0},
 			"untyped data stays": {`{"kind":"plugin_value","data":{"inline_data":[{"mime_type":"image/png","data":null}]}}`, "", []canonical.BinarySlot{slot("/data/inline_data/0/data", "a")}, nil, 1},

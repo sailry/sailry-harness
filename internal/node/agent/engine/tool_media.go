@@ -15,7 +15,7 @@ import (
 )
 
 // mediaOutputs are the Node outputs whose data object may declare inline_data.
-var mediaOutputs = []string{"computer", "browser", "external_browser", "file_image"}
+var mediaOutputs = []string{"computer", "browser", "external_browser", "file_image", "office_content"}
 
 // modelToolResult detaches the result's presentation metadata. Declared JSON
 // media becomes request-local attachment references; display-only attachments

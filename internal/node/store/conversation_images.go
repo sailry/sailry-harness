@@ -22,7 +22,7 @@ func agentImageAssets(response *canonical.ToolResponse) []canonical.AssetRef {
 	}
 	envelope := agentObject(agentJSON(response.Result.Value))
 	prefix := "/inline_data"
-	if _, ok := envelope["data"]; ok && (envelope["kind"] == "computer" || envelope["kind"] == "browser" || envelope["kind"] == "external_browser" || envelope["kind"] == "file_image") {
+	if _, ok := envelope["data"]; ok && (envelope["kind"] == "computer" || envelope["kind"] == "browser" || envelope["kind"] == "external_browser" || envelope["kind"] == "file_image" || envelope["kind"] == "office_content") {
 		envelope = agentObject(envelope["data"])
 		prefix = "/data/inline_data"
 	}

@@ -1228,7 +1228,7 @@
     {
       "name": "read_office",
       "legacy_package": "files",
-      "description": "Read DOCX/PDF text, XLSX cell values and formulas, or PPTX slide text and notes from a worktree path or an attachment visible in this conversation. Use source.kind \"path\" with a worktree-relative path, or \"attachment\" with its attachment ID. Earlier attachments must belong to completed, failed or cancelled turns still visible in this conversation; queued or running future inputs are unavailable. Images and scanned PDF pages use OCR when an OCR model is installed on the Node. File sources return the revision for edits. Follow next offsets to read every section, including continuations of long parts.",
+      "description": "Read DOCX text, XLSX cell values and formulas, or PPTX slide text and notes from a worktree path or an attachment visible in this conversation. Use source.kind \"path\" with a worktree-relative path, or \"attachment\" with its attachment ID. Earlier attachments must belong to completed, failed or cancelled turns still visible in this conversation; queued or running future inputs are unavailable. File sources return the revision for edits. Follow next offsets to read every section, including continuations of long parts. For PDF documents, use read_pdf.",
       "parameters": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Read",
@@ -1291,6 +1291,125 @@
         },
         "icon": {
           "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M12 7v14\" /><path d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\" /></svg>"
+        },
+        "input": {
+          "summary": {
+            "path": "/source/value",
+            "code": true,
+            "result_path": "/data/path"
+          }
+        },
+        "output": {
+          "preview": {
+            "parts": [
+              {
+                "rows": {
+                  "value": {
+                    "source": "result",
+                    "path": "/data/sections"
+                  },
+                  "text": {
+                    "parts": [
+                      {
+                        "value": {
+                          "source": "item",
+                          "path": "/text"
+                        }
+                      }
+                    ]
+                  },
+                  "separator": "\n\n"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "read_pdf",
+      "legacy_package": "files",
+      "description": "Read a PDF document from a worktree path or an attachment visible in this conversation. Use source.kind \"path\" with a worktree-relative path, or \"attachment\" with its attachment ID. Earlier attachments must belong to completed, failed or cancelled turns still visible in this conversation; queued or running future inputs are unavailable. Defaults to mode \"text\" for fast text extraction (scanned pages also use OCR when an OCR model is installed on the Node). Set mode to \"images\" to render PDF pages as compact images for inspecting charts, diagrams, visual layouts, or scanned pages without a text layer (up to 4 pages per call via pages, or the next 4 pages from offset when pages is omitted). Pass 1-based pages in either mode to target specific pages, or follow next offsets to continue.",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ReadPDF",
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "path",
+                  "attachment"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "Worktree-relative path or visible conversation attachment ID"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "text",
+              "images"
+            ],
+            "default": "text",
+            "description": "Reading mode: \"text\" (default) for fast text extraction, or \"images\" to render pages as compact images for charts, diagrams, layouts, or scanned pages."
+          },
+          "offset": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0,
+            "description": "Zero-based section offset in text mode, or zero-based starting page offset in images mode when pages is omitted.",
+            "default": 0
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1
+            },
+            "description": "Optional 1-based PDF page numbers to read. In images mode, at most 4 pages per call (omit to render up to 4 pages starting from offset+1). In text mode, omit to page through sections with offset."
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "operation": "office.read",
+      "action": "office",
+      "contexts": [
+        "plugin",
+        "workspace"
+      ],
+      "presentation": "summary",
+      "display": {
+        "label": "Read PDF",
+        "locales": {
+          "zh-CN": "读取 PDF",
+          "zh-TW": "讀取 PDF",
+          "ja": "PDF を読む",
+          "ko": "PDF 읽기",
+          "fr": "Lire le PDF",
+          "de": "PDF lesen",
+          "es": "Leer PDF",
+          "pt-BR": "Ler PDF",
+          "ru": "Прочитать PDF",
+          "en": "Read PDF"
+        },
+        "icon": {
+          "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\" /><path d=\"M14 2v4a2 2 0 0 0 2 2h4\" /><path d=\"M10 9H8\" /><path d=\"M16 13H8\" /><path d=\"M16 17H8\" /></svg>"
         },
         "input": {
           "summary": {
@@ -1565,5 +1684,5 @@
       }
     }
   ],
-  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. File revisions for edit_file, delete_file, move_file and edit_notebook are tracked automatically after reading; re-read a file if a shell command or another agent modified it on disk. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. File revisions for edit_file, delete_file, move_file and edit_notebook are tracked automatically after reading; re-read a file if a shell command or another agent modified it on disk. Read a worktree image with read_file when you need to see it; use read_pdf for PDF files (text by default, or mode \"images\" for visual/scanned pages) and read_office for Office documents (DOCX/XLSX/PPTX) and attachments."
 }

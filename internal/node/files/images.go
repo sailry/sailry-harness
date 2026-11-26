@@ -117,8 +117,23 @@ func prepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 	if e != nil {
 		return facts, nil, nil, invalid("image could not be decoded")
 	}
-	decoded = orientImage(decoded, orientation)
-	bounds := decoded.Bounds()
+	sent, encoded, e := encodePreparedImage(orientImage(decoded, orientation), format)
+	if e != nil {
+		return facts, nil, nil, e
+	}
+	return facts, &sent, encoded, nil
+}
+
+// EncodePreparedImage applies the existing model image bounds to rendered pixels.
+func EncodePreparedImage(source image.Image) (protocol.ImageFacts, []byte, error) {
+	return encodePreparedImage(source, "png")
+}
+
+func encodePreparedImage(source image.Image, format string) (protocol.ImageFacts, []byte, error) {
+	bounds := source.Bounds()
+	if bounds.Empty() {
+		return protocol.ImageFacts{}, nil, invalid("image dimensions are invalid")
+	}
 	// The longest side shrinks by a quarter while the encoding does not fit.
 	longest := max(bounds.Dx(), bounds.Dy())
 	for side := min(longest, protocol.MAX_IMAGE_SIDE); ; side = side * 3 / 4 {
@@ -128,9 +143,10 @@ func prepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 		scale := float64(side) / float64(longest)
 		w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
 		resized := image.NewNRGBA(image.Rect(0, 0, w, h))
-		xdraw.BiLinear.Scale(resized, resized.Bounds(), decoded, bounds, draw.Src, nil)
+		xdraw.BiLinear.Scale(resized, resized.Bounds(), source, bounds, draw.Src, nil)
 		var encoded bytes.Buffer
-		mime = "image/png"
+		var e error
+		mime := "image/png"
 		if format != "jpeg" {
 			e = png.Encode(&encoded, resized)
 		}
@@ -143,14 +159,14 @@ func prepareImage(data []byte) (protocol.ImageFacts, *protocol.ImageFacts, []byt
 			mime = "image/jpeg"
 		}
 		if e != nil {
-			return facts, nil, nil, invalid("image could not be encoded")
+			return protocol.ImageFacts{}, nil, invalid("image could not be encoded")
 		}
 		if encoded.Len() <= sentImageBytes {
-			sent := &protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(encoded.Len())}
-			return facts, sent, encoded.Bytes(), nil
+			sent := protocol.ImageFacts{MimeType: mime, Width: uint32(w), Height: uint32(h), Size: uint64(encoded.Len())}
+			return sent, encoded.Bytes(), nil
 		}
 	}
-	return facts, nil, nil, invalid("image cannot be reduced below the model input limit")
+	return protocol.ImageFacts{}, nil, invalid("image cannot be reduced below the model input limit")
 }
 
 // minimumImageSide is where reduction stops: a smaller image is not legible.

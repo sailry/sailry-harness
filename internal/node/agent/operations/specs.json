@@ -442,6 +442,23 @@
           "format": "uint",
           "minimum": 0,
           "default": 0
+        },
+        "mode": {
+          "description": "Optional PDF reading mode: \"text\" (default) or \"images\".",
+          "type": "string",
+          "enum": [
+            "text",
+            "images"
+          ]
+        },
+        "pages": {
+          "description": "Optional 1-based PDF page numbers to read.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 1
+          }
         }
       },
       "additionalProperties": false,

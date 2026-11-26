@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
+	_ "image/jpeg"
 	"image/png"
 	"path/filepath"
 	"reflect"
@@ -272,6 +274,59 @@ func TestLocalModelRuntime(t *testing.T) {
 		_, err := node.inspectDocument(t.Context(), "scan.png", picture.Bytes(), 0)
 		if code(err) != protocol.ErrorCodeNotConfigured || !strings.Contains(err.Error(), "OCR is disabled") {
 			t.Fatalf("inspectDocument error = %v", err)
+		}
+	})
+
+	t.Run("PDF text and image modes", func(t *testing.T) {
+		data := textPDF()
+		textOut, err := node.inspectDocumentOptions(t.Context(), "report.pdf", data, protocol.OfficeRead{Mode: "text", Pages: []uint32{1, 1}})
+		if err != nil {
+			t.Fatalf("PDF text mode page 1 failed: %v", err)
+		}
+		if textOut.TotalPages == nil || *textOut.TotalPages != 1 || len(textOut.Sections) != 1 || !strings.Contains(textOut.Sections[0].Text, "Hello") || len(textOut.InlineData) != 0 {
+			t.Fatalf("unexpected PDF text inspection: %+v", textOut)
+		}
+		defaultOut, err := node.inspectDocumentOptions(t.Context(), "report.pdf", data, protocol.OfficeRead{Pages: []uint32{1, 1}})
+		if err != nil || !reflect.DeepEqual(defaultOut, textOut) {
+			t.Fatalf("default page mode differs from explicit text: %+v, %v", defaultOut, err)
+		}
+		rendered, err := node.inspectDocumentOptions(t.Context(), "report.pdf", data, protocol.OfficeRead{Mode: "images", Pages: []uint32{1, 1}})
+		if err != nil {
+			t.Fatalf("render PDF page 1 failed: %v", err)
+		}
+		if rendered.TotalPages == nil || *rendered.TotalPages != 1 || len(rendered.InlineData) != 1 || len(rendered.Sections) != 1 {
+			t.Fatalf("unexpected rendered inspection: %+v", rendered)
+		}
+		raw, err := base64.StdEncoding.DecodeString(rendered.InlineData[0].Data)
+		if err != nil {
+			t.Fatalf("invalid base64 page image: %v", err)
+		}
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+			t.Fatalf("rendered PDF page is not a valid image: %+v %v", cfg, err)
+		}
+		// Image mode without explicit pages renders from offset.
+		byOffset, err := node.inspectDocumentOptions(t.Context(), "report.pdf", data, protocol.OfficeRead{Mode: "images", Offset: 0})
+		if err != nil || len(byOffset.InlineData) != 1 || byOffset.Next != nil {
+			t.Fatalf("render PDF images by offset failed: %+v %v", byOffset, err)
+		}
+		for _, bad := range []struct {
+			name string
+			file string
+			data []byte
+			opts protocol.OfficeRead
+		}{
+			{"non-pdf text mode", "notes.docx", []byte("not pdf"), protocol.OfficeRead{Mode: "text"}},
+			{"non-pdf image mode", "notes.docx", []byte("not pdf"), protocol.OfficeRead{Mode: "images", Pages: []uint32{1}}},
+			{"invalid mode", "report.pdf", data, protocol.OfficeRead{Mode: "raw"}},
+			{"zero page", "report.pdf", data, protocol.OfficeRead{Mode: "images", Pages: []uint32{0}}},
+			{"out of range page", "report.pdf", data, protocol.OfficeRead{Mode: "images", Pages: []uint32{2}}},
+			{"out of range offset", "report.pdf", data, protocol.OfficeRead{Mode: "images", Offset: 1}},
+			{"too many image pages", "report.pdf", data, protocol.OfficeRead{Mode: "images", Pages: []uint32{1, 2, 3, 4, 5}}},
+		} {
+			if _, err := node.inspectDocumentOptions(t.Context(), bad.file, bad.data, bad.opts); code(err) != protocol.ErrorCodeInvalidRequest {
+				t.Errorf("%s: got %v, want invalid_request", bad.name, err)
+			}
 		}
 	})
 }

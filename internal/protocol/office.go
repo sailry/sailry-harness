@@ -9,6 +9,8 @@ import (
 type OfficeRead struct {
 	Source OfficeSource `json:"source"`
 	Offset uint64       `json:"offset"`
+	Mode   string       `json:"mode,omitempty"`
+	Pages  []uint32     `json:"pages,omitempty"`
 }
 
 func DefaultOfficeRead() OfficeRead {
@@ -54,10 +56,12 @@ func (value *OfficeSource) UnmarshalJSON(data []byte) error {
 }
 
 type OfficeInspection struct {
-	Path     string          `json:"path"`
-	Revision string          `json:"revision"`
-	Sections []OfficeSection `json:"sections"`
-	Next     *uint64         `json:"next"`
+	Path       string          `json:"path"`
+	Revision   string          `json:"revision"`
+	Sections   []OfficeSection `json:"sections"`
+	Next       *uint64         `json:"next"`
+	TotalPages *uint32         `json:"total_pages,omitempty"`
+	InlineData []InlineImage   `json:"inline_data,omitempty"`
 }
 
 func DefaultOfficeInspection() OfficeInspection {

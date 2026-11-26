@@ -175,6 +175,8 @@ func prepareFor(name string) func(context.Context, json.RawMessage) (json.RawMes
 		return prepareSearch
 	case "read_office":
 		return prepareOffice
+	case "read_pdf":
+		return preparePDF
 	case "read_notebook":
 		return prepareNotebookRead
 	case "edit_notebook":
@@ -560,37 +562,89 @@ func prepareSearch(_ context.Context, raw json.RawMessage) (json.RawMessage, err
 	})
 }
 
-func prepareOffice(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	args, err := decodeObject(raw, []string{"source", "offset"}, "")
-	if err != nil {
-		return nil, err
-	}
+func decodeDocumentSource(args map[string]any) (string, string, int64, error) {
 	src, ok := args["source"].(map[string]any)
 	if !ok {
-		return nil, invalid("")
+		return "", "", 0, invalid("")
 	}
 	for k := range src {
 		if k != "kind" && k != "value" {
-			return nil, invalid("")
+			return "", "", 0, invalid("")
 		}
 	}
 	kind, ok := src["kind"].(string)
 	if !ok || (kind != "path" && kind != "attachment") {
-		return nil, invalid("")
+		return "", "", 0, invalid("")
 	}
 	val, ok := src["value"].(string)
 	if !ok || val == "" {
-		return nil, invalid("")
+		return "", "", 0, invalid("")
 	}
 	offset := int64(0)
 	if v, ok := args["offset"]; ok {
 		n, ok := safeInt(v)
 		if !ok || n < 0 {
-			return nil, invalid("")
+			return "", "", 0, invalid("")
 		}
 		offset = n
 	}
+	return kind, val, offset, nil
+}
+
+func prepareOffice(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	args, err := decodeObject(raw, []string{"source", "offset"}, "")
+	if err != nil {
+		return nil, err
+	}
+	kind, val, offset, err := decodeDocumentSource(args)
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(map[string]any{"source": map[string]any{"kind": kind, "value": val}, "offset": offset})
+}
+
+func preparePDF(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	args, err := decodeObject(raw, []string{"source", "mode", "offset", "pages"}, "")
+	if err != nil {
+		return nil, err
+	}
+	kind, val, offset, err := decodeDocumentSource(args)
+	if err != nil {
+		return nil, err
+	}
+	mode := "text"
+	if v, ok := args["mode"]; ok {
+		s, ok := v.(string)
+		if !ok || (s != "text" && s != "images") {
+			return nil, invalid("mode must be \"text\" or \"images\"")
+		}
+		mode = s
+	}
+	out := map[string]any{"source": map[string]any{"kind": kind, "value": val}, "mode": mode, "offset": offset}
+	if v, ok := args["pages"]; ok {
+		list, ok := v.([]any)
+		if !ok {
+			return nil, invalid("pages must be an array of 1-based positive integers")
+		}
+		if mode == "images" && len(list) > 4 {
+			return nil, invalid("pages must contain at most 4 page numbers in images mode")
+		}
+		if len(list) > 32 {
+			return nil, invalid("pages must contain at most 32 page numbers per request")
+		}
+		pages := make([]int64, 0, len(list))
+		for _, item := range list {
+			n, ok := safeInt(item)
+			if !ok || n < 1 || n > 1<<31-1 {
+				return nil, invalid("pages must be 1-based positive integers")
+			}
+			pages = append(pages, n)
+		}
+		if len(pages) > 0 {
+			out["pages"] = pages
+		}
+	}
+	return json.Marshal(out)
 }
 
 func prepareNotebookRead(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {

@@ -80,3 +80,61 @@ func TestModelSchemaHidesAutoTrackedRevision(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareOfficeAndPDF(t *testing.T) {
+	if _, err := prepareOffice(context.Background(), json.RawMessage(`{"source":{"kind":"path","value":"report.docx"},"offset":2}`)); err != nil {
+		t.Fatalf("valid office args rejected: %v", err)
+	}
+	for _, bad := range []string{
+		`{"source":{"kind":"path","value":"report.pdf"},"pages":[1]}`,
+		`{"source":{"kind":"path","value":"report.pdf"},"mode":"images"}`,
+	} {
+		if _, err := prepareOffice(context.Background(), json.RawMessage(bad)); err == nil {
+			t.Errorf("read_office should reject PDF-only args: %s", bad)
+		}
+	}
+
+	raw, err := preparePDF(context.Background(), json.RawMessage(`{"source":{"kind":"path","value":"report.pdf"}}`))
+	if err != nil {
+		t.Fatalf("default read_pdf args rejected: %v", err)
+	}
+	var def protocol.OfficeRead
+	if err := json.Unmarshal(raw, &def); err != nil {
+		t.Fatalf("unmarshal default read_pdf args: %v", err)
+	}
+	if def.Mode != "text" || len(def.Pages) != 0 {
+		t.Fatalf("default read_pdf = %+v, want mode=text pages=[]", def)
+	}
+
+	raw, err = preparePDF(context.Background(), json.RawMessage(`{"source":{"kind":"path","value":"report.pdf"},"mode":"images","pages":[1,3]}`))
+	if err != nil {
+		t.Fatalf("valid image mode pages rejected: %v", err)
+	}
+	var out protocol.OfficeRead
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal prepared pdf args: %v", err)
+	}
+	if out.Mode != "images" || !slices.Equal(out.Pages, []uint32{1, 3}) {
+		t.Fatalf("pdf = %+v, want mode=images pages=[1 3]", out)
+	}
+
+	// Text mode allows selecting more than 4 pages at once.
+	if _, err := preparePDF(context.Background(), json.RawMessage(`{"source":{"kind":"path","value":"report.pdf"},"mode":"text","pages":[1,2,3,4,5]}`)); err != nil {
+		t.Fatalf("text mode 5 pages rejected: %v", err)
+	}
+	// Images mode allows omitting pages (uses offset).
+	if _, err := preparePDF(context.Background(), json.RawMessage(`{"source":{"kind":"path","value":"report.pdf"},"mode":"images","offset":4}`)); err != nil {
+		t.Fatalf("images mode with offset rejected: %v", err)
+	}
+
+	for _, bad := range []string{
+		`{"source":{"kind":"path","value":"report.pdf"},"mode":"raw"}`,
+		`{"source":{"kind":"path","value":"report.pdf"},"mode":"images","pages":[0]}`,
+		`{"source":{"kind":"path","value":"report.pdf"},"mode":"images","pages":[1,2,3,4,5]}`,
+		`{"source":{"kind":"path","value":"report.pdf"},"pages":"1"}`,
+	} {
+		if _, err := preparePDF(context.Background(), json.RawMessage(bad)); err == nil {
+			t.Errorf("invalid read_pdf accepted: %s", bad)
+		}
+	}
+}
