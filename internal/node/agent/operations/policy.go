@@ -27,3 +27,12 @@ func Policy(operation protocol.ToolOperation) (readOnly, concurrent bool) {
 	spec, exists := policies[operation]
 	return exists && spec.ReadOnly, exists && spec.Concurrent
 }
+
+// Parameters returns the shared input schema for a built-in operation.
+func Parameters(operation protocol.ToolOperation) json.RawMessage {
+	specs, err := operationPolicies()
+	if err != nil {
+		return nil
+	}
+	return specs[operation].Parameters
+}

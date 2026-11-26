@@ -87,6 +87,48 @@ func TestArtifactVersionLoadFailure(t *testing.T) {
 	})
 }
 
+// A Brief document without its package renderer opens in the native panel,
+// switches revision and releases its preview when the tab closes.
+func TestArtifactPanelCloseReleasesDocument(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, settle := readRecoveryFixture(t)
+		artifact := protocol.DefaultArtifactSummary()
+		artifact.ID, artifact.Revision, artifact.Kind = protocol.ArtifactID{2}, 2, protocol.ArtifactKindDocument
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			if request.Command.Kind != "read_artifact" {
+				return link.Response{}, false
+			}
+			payload, _ := detail[protocol.CommandReadArtifactPayload](request.Command.Data)
+			summary := artifact
+			summary.Revision = *payload.Revision
+			content := protocol.ArtifactContent{Artifact: summary, LatestRevision: 2, Html: fmt.Sprintf(`<form data-name="pick"><fieldset data-name="q" data-required></fieldset></form><p>%d</p>`, summary.Revision)}
+			return link.Response{Output: protocol.Output{Kind: "artifact", Data: content}}, true
+		}
+		file := conversation.File{ID: "preview/brief", Path: "brief.html", Kind: conversation.MarkdownFile, Document: true}
+		tab := panel.Tab{Kind: panel.Artifact, ID: file.ID}
+		r.showCapturedPreview(file, attachmentDescriptor{artifact: &artifact})
+		settle()
+		if r.App.Panel.Active != tab || r.attachments.previewDocuments[file.ID] == nil {
+			t.Fatalf("document did not open in the panel: %v", r.App.Panel.Tabs)
+		}
+		if _, ok := documentFormDeclaration(r.attachments.previewContent[file.ID].Html, "pick"); !ok {
+			t.Fatal("opened document lost its form declaration")
+		}
+		r.showArtifactVersion(file, 1)
+		settle()
+		if shown, latest := r.artifactVersions(file); shown != 1 || latest != 2 {
+			t.Fatalf("shown/latest = %d/%d, want 1/2", shown, latest)
+		}
+		shown := r.attachments.previewDocuments[file.ID].shown
+		r.App.Panel.Close(tab)
+		r.pruneDocumentPreviews()
+		if shown.ctx.Err() == nil || r.attachments.previewDocuments[file.ID] != nil || r.artifactRuntime(file.ID) != nil ||
+			slices.Contains(r.App.Panel.Tabs, tab) {
+			t.Fatal("closing the artifact tab retained its document preview")
+		}
+	})
+}
+
 func TestDocumentPreviewTooLargeOnReload(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source, settle := readRecoveryFixture(t)

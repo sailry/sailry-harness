@@ -163,7 +163,9 @@ func (s ToolSpec) LegacyAlias() string {
 // WorkspaceToolConfig configures one native tool backed by a workspace operation.
 type WorkspaceToolConfig struct {
 	// FileWritePaths declares that preparation preserves the file targets in the operation arguments.
-	FileWritePaths  bool
+	FileWritePaths bool
+	// ArtifactPackage identifies the compile-time owner of a session artifact operation.
+	ArtifactPackage protocol.PluginReference
 	Spec            ToolSpec
 	Instruction     string
 	TurnInstruction prompt.Part

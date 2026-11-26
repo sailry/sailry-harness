@@ -5,6 +5,7 @@ package host
 import (
 	"github.com/sailry/sailry-harness/internal/node/moduleapi"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
+	briefnode "github.com/sailry/sailry-harness/modules/brief/node"
 	browsernode "github.com/sailry/sailry-harness/modules/browser/node"
 	computernode "github.com/sailry/sailry-harness/modules/computer/node"
 	filesnode "github.com/sailry/sailry-harness/modules/files/node"
@@ -22,6 +23,7 @@ func Harness() moduleapi.Assembly {
 		BundledDefaults: []plugins.DefaultPackage{},
 		Modules: []moduleapi.Module{
 			filesnode.Module(),
+			briefnode.Module(),
 			ocrnode.Module(),
 			websearchnode.Module(),
 			memorynode.Module(),

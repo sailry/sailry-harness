@@ -14,9 +14,10 @@ import (
 )
 
 type ApprovalBinding struct {
-	Owner     protocol.PluginReference `json:"owner"`
-	Tool      string                   `json:"tool"`
-	Operation *protocol.ToolOperation  `json:"operation"`
+	Owner           protocol.PluginReference  `json:"owner"`
+	Tool            string                    `json:"tool"`
+	Operation       *protocol.ToolOperation   `json:"operation"`
+	ArtifactPackage *protocol.PluginReference `json:"artifact_package,omitempty"`
 }
 
 func (v *ApprovalBinding) UnmarshalJSON(data []byte) error {

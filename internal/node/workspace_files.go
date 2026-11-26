@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
-	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/office"
@@ -63,11 +62,11 @@ func (node *Node) readWorkspaceArtifact(ctx context.Context, request protocol.Re
 		return protocol.Output{}, err
 	}
 	// A controller, or a package surface it mounts, composes a document's
-	// page from its package's renderer. Tool reads within a turn keep the
-	// fragment alone, so a model never receives renderer code. Without its
-	// captured package a document renders as the plain fragment.
+	// page from the renderer of its stored revision. Tool reads within a turn
+	// keep the fragment alone, so a model never receives renderer code. Without
+	// its renderer a document renders as the plain fragment.
 	if (request.Plugin == nil || request.Plugin.Turn == nil) && capture.Content.Artifact.Kind == protocol.ArtifactKindDocument {
-		if view, err := node.plugins.manager.ReadArtifactView(ctx, capture.Content.Artifact.Package); err == nil {
+		if view, err := node.readArtifactView(ctx, capture.Content.Artifact.Package); err == nil {
 			capture.Content.View = view
 		}
 	}
@@ -134,16 +133,12 @@ func (node *Node) applyWorkspaceHunk(ctx context.Context, request protocol.Reque
 }
 
 func (node *Node) writeWorkspaceArtifact(ctx context.Context, request protocol.Request, effect *workspaceCompletion) (protocol.Output, error) {
-	catalog, err := operations.Bundled()
-	if err != nil {
-		return protocol.Output{}, err
-	}
 	var classes []string
 	if request.Plugin != nil {
-		classes = catalog.ArtifactClasses[request.Plugin.Package.Name]
+		classes = node.artifactClasses(ctx, request.Plugin.Package)
 	}
 	var capture store.ArtifactWrite
-	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		capture, err = store.CaptureArtifactWrite(ctx, db, request, classes, time.Now())
 		return err

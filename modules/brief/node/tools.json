@@ -1,0 +1,73 @@
+{
+   "instructions" : "Create session-owned HTML documents, reports, diagrams, demos and interactive previews when the user requests or accepts HTML. An explicit HTML or HTML-preview request authorizes generation directly. Without a request, you may create one small kind=preview visual, such as a chart, diagram, UI mockup or interactive explainer, when it clearly helps the current answer more than text; keep the written answer complete without it, and skip it for simple facts, routine changes or when the user prefers text. For complex development, design or refactor plans, present the full ordinary plan in the conversation first, then end with exactly one concise offer to create an HTML version and wait for the user's choice. Do not repeat the offer for that plan. Do not offer HTML for pure questions or simple changes, and never generate a document or plan HTML version automatically without acceptance. HTML does not authorize execution or project writes. Load this package's brief skill before writing. For an explicitly requested worktree file path, create and verify that real file with available file or command tools and deliver it with present_files, or with its standalone Markdown link when that tool is unavailable; do not substitute write_brief or create an additional artifact unless separately requested. If writing is unavailable, report the limitation instead of claiming the file was saved. write_brief creates only a session-owned artifact, not a worktree file; its returned card already delivers it. Do not invent a file path or duplicate that card with a Markdown file link. A separately requested file copy must actually be created and verified. write_brief uses kind=document by default for a sanitized main-body fragment and kind=preview for self-contained HTML with inline CSS and local JavaScript in an isolated sandbox. Preview has no Node, tool, credential, filesystem or network bridge; do not rely on CDNs, imports or external images. In previews, keep the body background transparent, center the main element, use the host's --sailry-* theme variables with fallbacks and keep visuals modest in size. Only the main session can write. Read existing HTML before revising, preserve its kind, and pass the exact id and latest revision as expected_revision. Keep the card summary short; do not repeat the full HTML in the final answer. Forms are optional and only supported in document mode. Their answers arrive as ordinary user messages for that document and revision, not permission to execute; revise the document from them. Use ask_user for missing choices or information when needed.",
+   "tools" : [
+      {
+         "description" : "Create or revise session-owned HTML requested or accepted by the user, or one small preview visual that clearly helps the current answer. Load the brief skill. Supply title, optional short summary, html, and kind=document for a sanitized main-body fragment or kind=preview for a self-contained interactive HTML document with inline CSS and JavaScript. Preview runs offline without a host or tool bridge. Omit id and expected_revision to create; to revise, read the latest artifact and pass its exact id and revision. This creates only a session-owned artifact, not a worktree file, and does not authorize execution. For a specifically requested worktree file path, use available file or command tools to create and verify that real file instead. Returns a versioned artifact card and metadata; do not invent a filepath or duplicate it with a Markdown file link.",
+         "display" : {
+            "input" : {
+               "summary" : {
+                  "path" : "/title"
+               }
+            },
+            "label" : "Write HTML",
+            "locales" : {
+               "de" : "HTML schreiben",
+               "en" : "Write HTML",
+               "es" : "Escribir HTML",
+               "fr" : "Créer du HTML",
+               "ja" : "HTML を作成",
+               "ko" : "HTML 작성",
+               "pt-BR" : "Escrever HTML",
+               "ru" : "Создать HTML",
+               "zh-CN" : "生成 HTML",
+               "zh-TW" : "撰寫 HTML"
+            }
+         },
+         "name" : "write_brief",
+         "operation" : "artifacts.write",
+         "presentation" : "content"
+      },
+      {
+         "description" : "Read the HTML source, kind and metadata of an artifact in this main session. Supply id and optional revision; omitted revision reads the latest. Preserve its kind and use the latest revision as expected_revision when revising. Historic reads do not establish the current revision.",
+         "display" : {
+            "label" : "Read HTML",
+            "locales" : {
+               "de" : "HTML lesen",
+               "en" : "Read HTML",
+               "es" : "Leer HTML",
+               "fr" : "Lire du HTML",
+               "ja" : "HTML を読む",
+               "ko" : "HTML 읽기",
+               "pt-BR" : "Ler HTML",
+               "ru" : "Прочитать HTML",
+               "zh-CN" : "读取 HTML",
+               "zh-TW" : "讀取 HTML"
+            }
+         },
+         "name" : "read_brief",
+         "operation" : "artifacts.read",
+         "presentation" : "summary"
+      },
+      {
+         "description" : "List HTML artifacts in this session without reading their source. To request another bounded page, pass the returned next_after cursor as after. Omit after for the first page.",
+         "display" : {
+            "label" : "List HTML",
+            "locales" : {
+               "de" : "HTML auflisten",
+               "en" : "List HTML",
+               "es" : "Listar HTML",
+               "fr" : "Lister les documents HTML",
+               "ja" : "HTML 一覧",
+               "ko" : "HTML 목록",
+               "pt-BR" : "Listar HTML",
+               "ru" : "Список HTML",
+               "zh-CN" : "HTML 列表",
+               "zh-TW" : "列出 HTML"
+            }
+         },
+         "name" : "list_briefs",
+         "operation" : "artifacts.list",
+         "presentation" : "summary"
+      }
+   ]
+}

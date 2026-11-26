@@ -2,6 +2,8 @@ package plugins
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"slices"
 	"unicode/utf8"
 
@@ -24,26 +26,40 @@ func (manager *Manager) ReadArtifactView(ctx context.Context, reference protocol
 	if info.Extension == nil || info.Extension.ArtifactView == nil {
 		return nil, nil
 	}
-	declared := info.Extension.ArtifactView
 	files := make(map[string][]byte, len(entries))
 	for _, entry := range entries {
 		if !entry.directory {
 			files[entry.name] = entry.data
 		}
 	}
+	return ResolveArtifactView(ctx, *info.Extension.ArtifactView, func(name string) ([]byte, error) {
+		if content, exists := files[name]; exists {
+			return content, nil
+		}
+		return nil, fs.ErrNotExist
+	})
+}
+
+// ResolveArtifactView reads a declaration from a verified package capture or
+// the embedded files of a native module, enforcing the same resource budget.
+func ResolveArtifactView(ctx context.Context, declared protocol.ArtifactView, readFile func(string) ([]byte, error)) (*protocol.ArtifactViewContent, error) {
 	remaining := protocol.PluginDesktopMaxBytes
 	read := func(name string) (string, error) {
-		content, exists := files[name]
-		if !exists {
-			return "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "plugin artifact view resource is unavailable"}
+		content, err := readFile(name)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "artifact view resource is unavailable"}
+		}
+		if err != nil {
+			return "", err
 		}
 		if len(content) > remaining || !utf8.Valid(content) {
-			return "", packageFault("plugin artifact view resources are invalid or exceed limit")
+			return "", packageFault("artifact view resources are invalid or exceed limit")
 		}
 		remaining -= len(content)
 		return string(content), nil
 	}
 	view := protocol.DefaultArtifactViewContent()
+	var err error
 	if view.Template, err = read(declared.Template); err != nil {
 		return nil, err
 	}

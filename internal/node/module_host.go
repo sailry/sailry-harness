@@ -347,6 +347,17 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		readOnly, concurrent = operations.Policy(spec.Operation)
 	}
 	op := spec.Operation
+	binding := &store.ApprovalBinding{Tool: spec.Name, Operation: &op}
+	var artifactScope *protocol.PluginContext
+	if cfg.ArtifactPackage.Name != "" {
+		artifactScope = &protocol.PluginContext{
+			Package: cfg.ArtifactPackage, Session: &inv.Session.ID, Turn: &inv.Run.Turn,
+			Worktree: &inv.Run.Worktree, Surface: protocol.PluginDesktopSurface{Kind: "workspace"},
+		}
+		if op == protocol.ToolOperationWriteArtifact {
+			binding.ArtifactPackage = &artifactScope.Package
+		}
+	}
 	if op == protocol.ToolOperationRunCommand && inv.Turn.Config.Mode == protocol.WorkModePlan {
 		spec.Description = planRunCommandDescription
 	}
@@ -361,7 +372,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		StreamRead:      spec.StreamRead && inv.Worktree.Project != nil && readOnly && concurrent,
 		Deferred:        !spec.Initial,
 		Approval:        !readOnly,
-		Binding:         &store.ApprovalBinding{Tool: spec.Name, Operation: &op},
+		Binding:         binding,
 		LegacyPackage:   spec.LegacyPackage,
 		LegacyName:      spec.LegacyName,
 		Instruction:     strings.TrimSpace(cfg.Instruction),
@@ -463,6 +474,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		request := protocol.NewRequest(h.node.ID(), command)
+		request.Plugin = artifactScope
 		current := &workspaceToolCall{request: request, fileScope: scope, prepared: patchChanges, patchInput: extractPatchInput(op, args), patchRoot: root}
 		if current.prepared == nil && fileTextMutation(command.Kind) {
 			current.prepared, err = files.Prepare(ctx, root, command, core.RestrictedFiles)

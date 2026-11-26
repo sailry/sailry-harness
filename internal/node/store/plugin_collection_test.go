@@ -104,7 +104,21 @@ func testPluginCollection(t *testing.T) {
 		if err = errors.Join(version("stale", 'f'), settings("stale", 1)); err != nil {
 			return err
 		}
-		expected := []string{digest('1'), digest('a'), digest('b'), digest('c'), digest('e')}
+		// Only the first revision needs its old renderer, even after the artifact
+		// becomes a preview and the package is no longer otherwise referenced.
+		if err = errors.Join(version("document", '3'), version("preview", '4'), settings("document", 1)); err != nil {
+			return err
+		}
+		artifact := protocol.NewArtifactID().String()
+		document := `{"package":` + string(reference("document", '3', 1)) + `}` // Older documents omitted kind.
+		preview := `{"kind":"preview","package":` + string(reference("preview", '4', 0)) + `}`
+		if err = exec("INSERT INTO artifacts(id,session,body) VALUES(?1,?2,?3)", artifact, session.ID.String(), preview); err != nil {
+			return err
+		}
+		if err = exec("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,1,?2,?4,'[]'),(?1,2,?3,?4,'[]')", artifact, document, preview, digest('0')); err != nil {
+			return err
+		}
+		expected := []string{digest('1'), digest('3'), digest('a'), digest('b'), digest('c'), digest('e')}
 		for range 2 {
 			retained, err := CollectPlugins(ctx, db)
 			if err != nil {

@@ -1519,11 +1519,15 @@ Generated-image tool details retain status and parameters while the answer shows
 the image. Its preview attachment remains available to reply embeds; the output
 inventory identifies native generation by its workspace file, so publishing that
 file in the answer does not add another output.
+The standard Host assembly includes `modules/brief`: its session HTML tools and
+writing skill do not require the former Brief plugin. It uses the existing
+artifact store, approvals and controller panel, not a separate database or page.
 Session HTML uses a sandboxed MyGo WebView with no privileged bridge. The host
 inlines available document images as data URLs; the page receives neither a file
 base URL nor network access. For a controller read of a `document`, the Node
-attaches the captured package's `artifact_view` assets (model tool reads within a
-turn keep the fragment alone). Desktop composes the template, styles, pinned
+resolves the stored revision's native renderer or captured package resources.
+Historical document revisions retain their renderer. Model tool reads within
+a turn return only the fragment. Desktop composes the template, styles, pinned
 offline libraries and scripts into the opaque-origin frame. The frame posts
 strings to a relay in the wrapper page, which Desktop drains by evaluation; it
 can call nothing. Desktop accepts only form drafts, required and invalid notices,

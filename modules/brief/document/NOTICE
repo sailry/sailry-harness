@@ -1,0 +1,9 @@
+Sailry Brief plugin
+Copyright 2026 Sailry contributors
+
+The package owns its document template, workflows and writing instructions.
+Mermaid and ECharts are supplied by the controller's pinned offline visual
+assets; their upstream licenses and provenance remain with those assets.
+
+The imported Brief renderer remains licensed under Apache-2.0; see the
+repository LICENSE. MathJax is likewise supplied by the controller.

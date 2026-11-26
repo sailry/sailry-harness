@@ -6,6 +6,7 @@ released only after its entry is here.
 ## [0.3.0](https://github.com/sailry/sailry-harness/releases/tag/v0.3.0)
 
 - Distribute Harness as a Go module. Harness tags provide source and release notes; downstream products own application packages and update feeds.
+- Include session HTML documents and isolated interactive previews in the standard Host assembly. Existing Brief documents retain their revision history and original rendering resources; new documents do not require a plugin install.
 - Enforce read-only execution for Plan and delegated reviewers. Apply a package's product and module requirements to official skill discovery, preview and installation as well as whole-package installs.
 - Cancel recovered child runs with their parent, honor shared provider cooldowns, and keep unpreparable images as references. Verify that remote images still match the displayed content before opening, saving or copying them.
 - Preserve file revision checks when reapplying patches, and prevent stale child results from replacing newer workspace revisions.

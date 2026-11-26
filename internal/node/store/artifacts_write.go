@@ -46,9 +46,6 @@ func authorizeArtifactWrite(ctx context.Context, db *sql.Conn, request protocol.
 	if err != nil {
 		return draft, err
 	}
-	if !containsPlugin(turn.Plugins, captured.Package) {
-		return draft, fault(protocol.ErrorCodePermissionDenied, "artifact package is outside the captured tool catalog")
-	}
 	var body, bound []byte
 	err = db.QueryRowContext(ctx, "SELECT body,binding FROM agent_approvals WHERE request=?1 AND turn=?2 AND claimed=1", request.ID.String(), captured.Turn.String()).Scan(&body, &bound)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -65,8 +62,17 @@ func authorizeArtifactWrite(ctx context.Context, db *sql.Conn, request protocol.
 	if err = json.Unmarshal(bound, &binding); err != nil {
 		return draft, err
 	}
-	if approval.State != protocol.ConversationApprovalStateApproved || binding == nil || binding.Operation == nil || *binding.Operation != protocol.ToolOperationWriteArtifact || !containsPlugin([]protocol.PluginReference{binding.Owner}, captured.Package) {
+	if approval.State != protocol.ConversationApprovalStateApproved || binding == nil || binding.Operation == nil || *binding.Operation != protocol.ToolOperationWriteArtifact {
 		return draft, fault(protocol.ErrorCodePermissionDenied, "artifact write is outside its captured approval")
+	}
+	if binding.ArtifactPackage != nil {
+		// Only a native tool can bind an artifact identity without a plugin
+		// capture. The request cannot select the owner independently.
+		if binding.Owner != (protocol.PluginReference{}) || *binding.ArtifactPackage != captured.Package {
+			return draft, fault(protocol.ErrorCodePermissionDenied, "artifact write is outside its captured approval")
+		}
+	} else if !containsPlugin(turn.Plugins, captured.Package) || !containsPlugin([]protocol.PluginReference{binding.Owner}, captured.Package) {
+		return draft, fault(protocol.ErrorCodePermissionDenied, "artifact package is outside the captured tool catalog")
 	}
 	call, err := approvalRequest(ctx, db, approval)
 	if err != nil {

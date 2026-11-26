@@ -10,7 +10,7 @@ import (
 // views. The extra digests do not add loader requirements or native tool aliases.
 func IsLegacyDesktopPackage(name, digest string) bool {
 	return IsLegacyOfficialPackage(name, digest) ||
-		(name == "commands" || name == "scheduled-tasks" || name == "reminders") && IsLegacyNativeToolPackage(name, digest) ||
+		(name == "brief" || name == "commands" || name == "scheduled-tasks" || name == "reminders") && IsLegacyNativeToolPackage(name, digest) ||
 		slices.Contains(legacyDesktopDigests[name], digest)
 }
 

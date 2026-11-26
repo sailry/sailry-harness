@@ -23,11 +23,11 @@ UNION SELECT json_extract(item.value,'$.provider.binding.package') FROM session_
 UNION SELECT json_extract(config,'$.assistant.package') FROM session_revisions WHERE json_type(config,'$.assistant.package')='object'`
 
 // CollectPlugins deletes the package versions and settings revisions that no
-// installation, queued callback, admitted turn or bound provider or assistant
-// refers to, and returns the digests still in use so their directories can be
-// kept. A removed package keeps its latest settings revision: reinstalling it
-// restores that configuration. The caller runs this only while nothing can
-// install or capture a package.
+// installation, queued callback, admitted turn, bound provider or assistant,
+// or document revision refers to, and returns the digests still in use so their
+// directories can be kept. A removed package keeps its latest settings
+// revision: reinstalling it restores that configuration. The caller runs this
+// only while nothing can install or capture a package.
 func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, error) {
 	type revision struct {
 		user     string
@@ -59,7 +59,11 @@ func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, err
 	}
 	// A verified follow package can be pending reconciliation after transfer.
 	// Its cache record is an explicit holder until the source copy is applied.
-	rows, err = db.QueryContext(ctx, "SELECT digest FROM configuration_follow_packages")
+	// A document revision also holds its renderer, independently of the turn
+	// that wrote it. Rendering only needs the package, not its settings.
+	rows, err = db.QueryContext(ctx, `SELECT digest FROM configuration_follow_packages
+UNION SELECT json_extract(body,'$.package.digest') FROM artifact_revisions
+WHERE json_type(body,'$.package.digest')='text' AND coalesce(json_extract(body,'$.kind'),'document')='document'`)
 	if err != nil {
 		return nil, err
 	}
