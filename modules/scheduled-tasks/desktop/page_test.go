@@ -708,3 +708,37 @@ func TestCanonicalNodeLabelAndModelOptionsDelegation(t *testing.T) {
 	}
 	ctrl.mu.Unlock()
 }
+
+func TestDirectoryCopiesAndFailedReadsFollowVisibilityChanges(t *testing.T) {
+	var visible bool
+	var snapshots, loads int
+	ctrl := newController(t.Context(), viewapi.Services{
+		Node: protocol.NodeID{1},
+		Snapshot: func(protocol.NodeID) (*protocol.Snapshot, bool) {
+			snapshots++
+			return nil, false
+		},
+		Async: func(work func()) bool { work(); return true },
+		PrepareOn: func(protocol.NodeID, protocol.Command) (protocol.Request, error) {
+			loads++
+			return protocol.Request{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable}
+		},
+	}, func() bool { return visible })
+	defer ctrl.close()
+	ctrl.handleChange()
+	ctrl.sync()
+	if snapshots != 0 || loads != 0 {
+		t.Fatalf("hidden page took %d snapshots and started %d reads", snapshots, loads)
+	}
+	visible = true
+	for range 8 {
+		ctrl.sync()
+	}
+	if snapshots != 1 || loads != 1 {
+		t.Fatalf("unchanged frames took %d snapshots and started %d reads", snapshots, loads)
+	}
+	ctrl.handleChange()
+	if snapshots != 2 || loads != 2 {
+		t.Fatalf("state change did not refresh after failure: snapshots=%d reads=%d", snapshots, loads)
+	}
+}

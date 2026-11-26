@@ -169,6 +169,18 @@ func (client *Client) Snapshot() protocol.Snapshot {
 	return copyValue(*client.project.snapshot)
 }
 
+// HostCapabilities copies only the fields used to project a host's project sources
+// and installed tools, together with the revision they were read from.
+func (client *Client) HostCapabilities() ([]string, []protocol.HostTool, uint64) {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	snapshot := client.project.snapshot
+	if snapshot == nil {
+		return nil, nil, client.revision
+	}
+	return slices.Clone(snapshot.ProjectSources), copyValue(snapshot.HostTools), client.revision
+}
+
 // Revision counts changes to the value Snapshot returns. It starts at zero and
 // advances under the Snapshot lock whenever an update changes the Node
 // projection, so equal revisions mean equal snapshots; connection, error and

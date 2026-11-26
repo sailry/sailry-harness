@@ -388,7 +388,7 @@ func (r *Runtime) readHostInfo(state *liveHost) {
 	}
 	state.infoPending = true
 	owner := state.owner
-	snapTools := cloneHostTools(owner.controller.Snapshot().HostTools)
+	_, snapTools, _ := owner.controller.HostCapabilities()
 	r.async(func() {
 		output, err := owner.controller.Do(owner.ctx, protocol.Command{Kind: "inspect_host"})
 		info, ok := detail[protocol.HostInfo](output.Data)

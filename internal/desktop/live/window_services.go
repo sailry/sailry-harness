@@ -201,9 +201,9 @@ func (h *windowViewHost) syncState(initial bool) {
 			client:         entry.Client,
 			label:          label,
 			local:          entry.Local,
-			projectSources: slices.Clone(entry.ProjectSources),
-			tools:          cloneHostTools(entry.Tools),
-			snapTools:      cloneHostTools(entry.SnapTools),
+			projectSources: entry.ProjectSources,
+			tools:          entry.Tools,
+			snapTools:      entry.SnapTools,
 			canClone:       entry.CanClone,
 			snapRev:        entry.SnapRev,
 			hasSnap:        entry.HasSnap,
@@ -532,10 +532,10 @@ func (h *windowViewHost) nodes() []view.NodeInfo {
 		tools := cloneHostTools(entry.tools)
 		canClone := entry.canClone
 		if entry.client != nil && (!entry.hasSnap || entry.snapRev != entry.client.Revision()) {
-			snap := entry.client.Snapshot()
-			sources = slices.Clone(snap.ProjectSources)
-			if !entry.hasSnap || !hostToolsEqual(snap.HostTools, entry.snapTools) {
-				tools = cloneHostTools(snap.HostTools)
+			var snapTools []protocol.HostTool
+			sources, snapTools, _ = entry.client.HostCapabilities()
+			if !entry.hasSnap || !hostToolsEqual(snapTools, entry.snapTools) {
+				tools = snapTools
 			}
 			canClone = hostCanClone(sources, tools)
 		}

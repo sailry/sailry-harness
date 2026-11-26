@@ -98,7 +98,6 @@ type controller struct {
 	closed        bool
 	onChangeUnsub func()
 	tickTimer     *time.Timer
-	needReload    bool
 	wasVisible    bool
 
 	reloadGen   uint64
@@ -146,7 +145,9 @@ func newController(parent context.Context, services viewapi.Services, visible fu
 		teamsBy:      map[protocol.NodeID][]protocol.TeamProfile{},
 		providers:    map[protocol.NodeID][]protocol.ConversationProvider{},
 	}
-	c.refreshDirectoryLocked()
+	if c.isVisible() {
+		c.refreshDirectoryLocked()
+	}
 	if services.OnChange != nil {
 		c.onChangeUnsub = services.OnChange(c.handleChange)
 	}
@@ -200,15 +201,11 @@ func (ctrl *controller) sync() {
 		ctrl.mu.Unlock()
 		return
 	}
-	ctrl.refreshDirectoryLocked()
-	if ctrl.editor != nil {
-		ctrl.syncEditorLeadModelLocked(ctrl.editor)
-	}
 	vis := ctrl.isVisible()
-	shouldLoad := vis && (!ctrl.loaded && !ctrl.loading || ctrl.needReload || !ctrl.wasVisible && !ctrl.loading)
+	shouldLoad := vis && !ctrl.wasVisible
 	ctrl.wasVisible = vis
 	if shouldLoad {
-		ctrl.needReload = false
+		ctrl.refreshDirectoryLocked()
 	}
 	ctrl.updateTickerLocked(vis)
 	ctrl.mu.Unlock()
@@ -224,12 +221,11 @@ func (ctrl *controller) handleChange() {
 		ctrl.mu.Unlock()
 		return
 	}
-	ctrl.refreshDirectoryLocked()
 	if !ctrl.wasVisible {
-		ctrl.needReload = true
 		ctrl.mu.Unlock()
 		return
 	}
+	ctrl.refreshDirectoryLocked()
 	ctrl.mu.Unlock()
 	ctrl.reload()
 }
@@ -324,6 +320,9 @@ func (ctrl *controller) refreshDirectoryLocked() {
 	ctrl.worktrees = worktrees
 	ctrl.teamsBy = teamsBy
 	ctrl.providers = providers
+	if ctrl.editor != nil {
+		ctrl.syncEditorLeadModelLocked(ctrl.editor)
+	}
 }
 
 func (ctrl *controller) reload() {
@@ -476,7 +475,6 @@ func (ctrl *controller) reload() {
 				ctrl.mu.Unlock()
 				return
 			}
-			ctrl.refreshDirectoryLocked()
 			ctrl.items = items
 			ctrl.loaded = true
 			if ctrl.panel != nil && !slices.ContainsFunc(items, func(it TaskItem) bool { return it.Task.ID == ctrl.panel.taskID }) {

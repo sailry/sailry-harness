@@ -2,7 +2,10 @@ package client
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestCopyValueDetachesNestedProtocolData(t *testing.T) {
@@ -32,5 +35,21 @@ func BenchmarkCopyConversationSnapshot(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = copyValue(snapshot)
+	}
+}
+
+func BenchmarkHostCapabilities(b *testing.B) {
+	for _, sessions := range []int{0, 1000} {
+		b.Run(strconv.Itoa(sessions), func(b *testing.B) {
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Sessions = make([]protocol.Session, sessions)
+			snapshot.ProjectSources = []string{"local", "clone"}
+			snapshot.HostTools = []protocol.HostTool{{Name: "git", Available: true}}
+			c := &Client{project: &Projection{snapshot: &snapshot}}
+			b.ReportAllocs()
+			for b.Loop() {
+				c.HostCapabilities()
+			}
+		})
 	}
 }

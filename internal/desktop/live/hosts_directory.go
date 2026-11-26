@@ -105,12 +105,9 @@ func hostToolsEqual(left, right []protocol.HostTool) bool {
 func effectiveHostCapabilities(state *liveHost, c *client.Client) hostCapabilities {
 	var caps hostCapabilities
 	if c != nil {
-		caps.snapRev = c.Revision()
-		snap := c.Snapshot()
+		caps.projectSources, caps.snapTools, caps.snapRev = c.HostCapabilities()
 		caps.hasSnap = true
-		caps.projectSources = slices.Clone(snap.ProjectSources)
-		caps.snapTools = cloneHostTools(snap.HostTools)
-		caps.tools = cloneHostTools(snap.HostTools)
+		caps.tools = caps.snapTools
 	}
 	if state != nil && state.info != nil && len(state.info.Tools) > 0 && hostToolsEqual(caps.snapTools, state.infoSnapTools) {
 		caps.tools = cloneHostTools(state.info.Tools)
