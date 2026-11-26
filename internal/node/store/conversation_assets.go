@@ -75,65 +75,79 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 	if query.Before != nil {
 		boundary = *query.Before - 1
 	}
-	records, more, err := conversationAssetEvents(ctx, db, session, after, boundary)
+	oldest, more, err := conversationAssetBoundary(ctx, db, session, after, boundary)
 	if err != nil {
 		return page, err
 	}
-	locations := map[protocol.TurnID]assetLocation{}
 	var last uint64
-	for _, value := range records {
-		if len(page.Groups) == int(query.Limit) {
-			more = true
-			break
-		}
-		last = value.sequence
-		turn, err := protocol.ParseTurnID(value.turn)
+	if oldest != 0 {
+		rows, err := db.QueryContext(ctx, `SELECT h.sequence,e.turn,e.id,e.body`+conversationAssetMembers, session.String(), boundary, oldest-1)
 		if err != nil {
 			return page, err
 		}
-		var record canonical.Record
-		if err = json.Unmarshal(value.body, &record); err != nil {
-			return page, err
-		}
-		kind := protocol.ConversationAssetsKindArtifact
-		if record.Provenance.Author == "user" {
-			kind = protocol.ConversationAssetsKindResource
-		}
-		if query.Kind != nil && *query.Kind != kind {
-			continue
-		}
-		owner, ok := locations[turn]
-		if !ok {
-			owner, err = readAssetLocation(ctx, db, session, turn)
+		defer rows.Close()
+		locations := map[protocol.TurnID]assetLocation{}
+		for rows.Next() {
+			var turnText, eventID string
+			var body sql.RawBytes
+			if err = rows.Scan(&last, &turnText, &eventID, &body); err != nil {
+				return page, err
+			}
+			if entry.head == 0 {
+				entry.head, entry.headID = last, eventID
+			}
+			turn, err := protocol.ParseTurnID(turnText)
 			if err != nil {
 				return page, err
 			}
-			if deps.bounded() {
-				deps.turns[turn] = owner.fingerprint()
+			var record canonical.Record
+			if err = protocol.Decode(body, &record); err != nil {
+				return page, err
 			}
-			locations[turn] = owner
+			kind := protocol.ConversationAssetsKindArtifact
+			if record.Provenance.Author == "user" {
+				kind = protocol.ConversationAssetsKindResource
+			}
+			if query.Kind != nil && *query.Kind != kind {
+				continue
+			}
+			owner, ok := locations[turn]
+			if !ok {
+				owner, err = readAssetLocation(ctx, db, session, turn)
+				if err != nil {
+					return page, err
+				}
+				if deps.bounded() {
+					deps.turns[turn] = owner.fingerprint()
+				}
+				locations[turn] = owner
+			}
+			items, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root, deps)
+			if err != nil {
+				return page, err
+			}
+			if len(items) > 0 {
+				page.Groups = append(page.Groups, protocol.ConversationAssetsGroup{Sequence: last, Turn: turn, Worktree: owner.worktree, TimestampMs: record.Created.UnixMilli(), Kind: kind, Items: items})
+				if len(page.Groups) == int(query.Limit) {
+					more = more || last > oldest
+					break
+				}
+			}
 		}
-		items, err := conversationAssetItems(ctx, db, record, owner.worktree, owner.root, deps)
-		if err != nil {
+		if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 			return page, err
-		}
-		if len(items) > 0 {
-			page.Groups = append(page.Groups, protocol.ConversationAssetsGroup{Sequence: value.sequence, Turn: turn, Worktree: owner.worktree, TimestampMs: record.Created.UnixMilli(), Kind: kind, Items: items})
 		}
 	}
 	if more {
 		page.NextBefore = &last
 	}
 	if deps != nil {
-		if len(records) > 0 {
-			entry.head, entry.headID = records[0].sequence, records[0].id
-		}
 		if more {
 			entry.next = last
 		}
 		if prior != nil && (query.Before != nil || !more) {
 			entry.deps.merge(prior.deps)
-			if query.Before != nil || len(records) == 0 {
+			if query.Before != nil || entry.head == 0 {
 				entry.head, entry.headID = prior.head, prior.headID
 			}
 			if query.Before == nil {
@@ -146,17 +160,12 @@ func (reads *ConversationAssetReads) List(ctx context.Context, db *sql.Conn, ses
 	return page, nil
 }
 
-type conversationAssetEvent struct {
-	sequence uint64
-	turn, id string
-	body     []byte
-}
+const conversationAssetMembers = ` FROM conversation_events h CROSS JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence<=?2 AND h.sequence>?3 ORDER BY h.sequence DESC`
 
-func conversationAssetEvents(ctx context.Context, db *sql.Conn, session protocol.SessionID, after, through uint64) ([]conversationAssetEvent, bool, error) {
-	const members = ` FROM conversation_events h CROSS JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence<=?2 AND h.sequence>?3 ORDER BY h.sequence DESC`
-	rows, err := db.QueryContext(ctx, `SELECT h.sequence,`+historyStoredBytes+members+` LIMIT 257`, session.String(), through, after)
+func conversationAssetBoundary(ctx context.Context, db *sql.Conn, session protocol.SessionID, after, through uint64) (uint64, bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT h.sequence,`+historyStoredBytes+conversationAssetMembers+` LIMIT 257`, session.String(), through, after)
 	if err != nil {
-		return nil, false, err
+		return 0, false, err
 	}
 	var last uint64
 	var storedBytes int64
@@ -166,7 +175,7 @@ func conversationAssetEvents(ctx context.Context, db *sql.Conn, session protocol
 		var size int64
 		if err = rows.Scan(&seq, &size); err != nil {
 			rows.Close()
-			return nil, false, err
+			return 0, false, err
 		}
 		// One oversized event must advance on its own. Read only lengths up to
 		// the cutoff so a second body cannot cross the physical page budget.
@@ -178,23 +187,7 @@ func conversationAssetEvents(ctx context.Context, db *sql.Conn, session protocol
 		storedBytes += size
 		last = seq
 	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil || count == 0 {
-		return nil, false, err
-	}
-	rows, err = db.QueryContext(ctx, `SELECT h.sequence,e.turn,e.id,e.body`+members, session.String(), through, last-1)
-	if err != nil {
-		return nil, false, err
-	}
-	records := make([]conversationAssetEvent, 0, count)
-	for rows.Next() {
-		var value conversationAssetEvent
-		if err = rows.Scan(&value.sequence, &value.turn, &value.id, &value.body); err != nil {
-			rows.Close()
-			return nil, false, err
-		}
-		records = append(records, value)
-	}
-	return records, more, errors.Join(rows.Err(), rows.Close())
+	return last, more, errors.Join(rows.Err(), rows.Close())
 }
 
 type conversationAssetTargets struct {
