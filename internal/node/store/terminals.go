@@ -60,6 +60,16 @@ func SaveTerminal(ctx context.Context, db *sql.Conn, value protocol.TerminalInfo
 		if err := retainResourceAudience(ctx, db, "terminal", value.ID.String()); err != nil {
 			return nil, err
 		}
+		if stored {
+			// Event audiences capture who could see the removal. An attached
+			// screen stream instead needs the actual worktree for live checks.
+			_, err = db.ExecContext(ctx, `UPDATE removed_resource_audiences
+			SET audience=CAST(json_set(CAST(audience AS TEXT),'$.terminal_worktree',(SELECT worktree FROM terminals WHERE id=?1)) AS BLOB)
+			WHERE kind='terminal' AND id=?1`, value.ID.String())
+			if err != nil {
+				return nil, err
+			}
+		}
 		_, err = db.ExecContext(ctx, "DELETE FROM terminals WHERE id=?1", value.ID.String())
 	} else {
 		var worktree any

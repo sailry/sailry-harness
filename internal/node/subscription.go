@@ -103,6 +103,65 @@ func (stream *events) pinStart(ctx context.Context, withSnapshot bool) error {
 	}))
 }
 
+// refreshInitial checks the pinned scope at delivery. A normal write leaves
+// the original snapshot and its first unread delta alone. A lost project
+// requires reprojection, including its descendants, at a new cursor.
+func (stream *events) refreshInitial(ctx context.Context, caller protocol.NodeID, snapshot protocol.Snapshot) (protocol.Snapshot, error) {
+	stream.next.Lock()
+	defer stream.next.Unlock()
+	node := stream.node
+	if err := node.begin(); err != nil {
+		return protocol.Snapshot{}, err
+	}
+	defer node.work.Done()
+	ctx = store.WithUser(ctx, stream.user)
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		verified, err := node.authorizeTopicDB(ctx, db, caller, protocol.Topic{Kind: "node"}, true)
+		if err != nil {
+			return err
+		}
+		if snapshot.User != nil && snapshot.User.ID == userFromContext(verified).ID {
+			visible, err := snapshotProjectsVisible(verified, db, snapshot.Projects)
+			if err != nil || visible {
+				return err
+			}
+		}
+		verified = store.WithNativeSkills(node.pluginContext(verified), node.modules.NativeSkills)
+		current, err := store.Snapshot(verified, db, node.ID())
+		if err != nil {
+			return err
+		}
+		current.ProjectSources, current.HostTools = snapshot.ProjectSources, snapshot.HostTools
+		snapshot = current
+		return nil
+	})
+	if err != nil {
+		return protocol.Snapshot{}, nodeFault(err)
+	}
+	stream.user, stream.cursor = *snapshot.User, snapshot.Cursor
+	return snapshot, nil
+}
+
+func snapshotProjectsVisible(ctx context.Context, db *sql.Conn, cached []protocol.Project) (bool, error) {
+	if len(cached) == 0 {
+		return true, nil
+	}
+	current, err := store.ReadProjects(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	visible := make(map[protocol.ProjectID]struct{}, len(current))
+	for _, project := range current {
+		visible[project.ID] = struct{}{}
+	}
+	for _, project := range cached {
+		if _, ok := visible[project.ID]; !ok {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (stream *events) Close() error {
 	stream.close.Do(func() {
 		close(stream.closed)
@@ -114,9 +173,9 @@ func (stream *events) Close() error {
 }
 
 func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
-	ctx = store.WithUser(ctx, stream.user)
 	stream.next.Lock()
 	defer stream.next.Unlock()
+	ctx = store.WithUser(ctx, stream.user)
 	select {
 	case <-stream.closed:
 		return protocol.Update{}, unavailable()

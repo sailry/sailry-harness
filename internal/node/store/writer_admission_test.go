@@ -11,6 +11,38 @@ import (
 	turso "turso.tech/database/tursogo"
 )
 
+func TestWriteSequenceIsNotCacheableDuringCommit(t *testing.T) {
+	t.Parallel()
+	handle := &Handle{}
+	handle.writeSeq.Store(1)
+	before := handle.WriteSequence()
+	script := &readAdmissionScript{t: t, steps: []readAdmissionStep{
+		{query: "BEGIN IMMEDIATE"}, {query: "SAVEPOINT sailry_job"}, {query: "RELEASE sailry_job"},
+		{query: "COMMIT", before: func() {
+			if seq := handle.WriteSequence(); seq != 0 {
+				t.Errorf("cache generation during COMMIT = %d, want 0", seq)
+			}
+		}},
+	}}
+	database := sql.OpenDB(script)
+	defer database.Close()
+	ctx := t.Context()
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	writer := &writer{database: database, connection: connection, writeSeq: &handle.writeSeq}
+	job := &writeJob{context: ctx, done: make(chan error, 1), callback: func(*sql.Conn) error { return nil }}
+	writer.batch(job)
+	if err := <-job.done; err != nil {
+		t.Fatal(err)
+	}
+	if after := handle.WriteSequence(); before == 0 || after <= before {
+		t.Fatalf("commit did not advance a stable generation: before %d, after %d", before, after)
+	}
+}
+
 func TestWriteAdmission(t *testing.T) {
 	t.Parallel()
 	const effect = "INSERT INTO fixture VALUES(1,1)"

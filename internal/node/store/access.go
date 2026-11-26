@@ -62,28 +62,65 @@ func CheckSessionAccess(ctx context.Context, db *sql.Conn, id protocol.SessionID
 }
 
 func CheckWorktreeAccess(ctx context.Context, db *sql.Conn, id protocol.WorktreeID) error {
+	return checkWorktreeAccess(ctx, db, id, false)
+}
+
+func checkWorktreeAccess(ctx context.Context, db *sql.Conn, id protocol.WorktreeID, requirePresent bool) error {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err
 	}
+	query := `SELECT CASE WHEN w.project IS NULL THEN coalesce(w.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END FROM worktrees w LEFT JOIN projects p ON p.id=w.project WHERE w.id=?1`
+	if requirePresent {
+		query += ` AND NOT EXISTS(SELECT 1 FROM removed_worktrees WHERE worktree=w.id)
+		AND (w.project IS NULL OR p.id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM removed_projects WHERE project=p.id))`
+	}
 	var allowed bool
-	err = db.QueryRowContext(ctx, `SELECT CASE WHEN w.project IS NULL THEN coalesce(w.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END FROM worktrees w LEFT JOIN projects p ON p.id=w.project WHERE w.id=?1`, id.String(), user.ID.String()).Scan(&allowed)
+	err = db.QueryRowContext(ctx, query, id.String(), user.ID.String()).Scan(&allowed)
+	if requirePresent && errors.Is(err, sql.ErrNoRows) {
+		err = nil // An absent worktree cannot authorize a terminal subscription.
+	}
 	return accessResult(ctx, db, err, allowed)
 }
 
 func CheckTerminalAccess(ctx context.Context, db *sql.Conn, id protocol.TerminalID) error {
-	var worktree sql.NullString
-	var owner sql.NullString
-	err := db.QueryRowContext(ctx, "SELECT worktree,owner FROM terminals WHERE id=?1", id.String()).Scan(&worktree, &owner)
+	worktree, owner, err := readTerminalScope(ctx, db, id)
 	if err != nil {
 		return accessResult(ctx, db, err, false)
 	}
+	return checkTerminalScope(ctx, db, worktree, owner, false)
+}
+
+// CheckTerminalSubscriptionAccess permits only an already attached stream to
+// drain a finished terminal. The retained scope is not a retained grant.
+func CheckTerminalSubscriptionAccess(ctx context.Context, db *sql.Conn, id protocol.TerminalID, attached bool) error {
+	worktree, owner, err := readTerminalScope(ctx, db, id)
+	if attached && errors.Is(err, sql.ErrNoRows) {
+		err = db.QueryRowContext(ctx, `SELECT json_extract(audience,'$.terminal_worktree'),json_extract(audience,'$.owner')
+		FROM removed_resource_audiences WHERE kind='terminal' AND id=?1
+		AND json_type(audience,'$.terminal_worktree') IN ('null','text')`, id.String()).Scan(&worktree, &owner)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return accessResult(ctx, db, nil, false)
+	}
+	if err != nil {
+		return err
+	}
+	return checkTerminalScope(ctx, db, worktree, owner, true)
+}
+
+func readTerminalScope(ctx context.Context, db *sql.Conn, id protocol.TerminalID) (worktree, owner sql.NullString, err error) {
+	err = db.QueryRowContext(ctx, "SELECT worktree,owner FROM terminals WHERE id=?1", id.String()).Scan(&worktree, &owner)
+	return
+}
+
+func checkTerminalScope(ctx context.Context, db *sql.Conn, worktree, owner sql.NullString, requirePresent bool) error {
 	if worktree.Valid {
-		worktree, err := protocol.ParseWorktreeID(worktree.String)
+		id, err := protocol.ParseWorktreeID(worktree.String)
 		if err != nil {
 			return err
 		}
-		return CheckWorktreeAccess(ctx, db, worktree)
+		return checkWorktreeAccess(ctx, db, id, requirePresent)
 	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {

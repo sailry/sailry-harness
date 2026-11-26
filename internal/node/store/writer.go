@@ -147,10 +147,12 @@ func (writer *writer) batch(first *writeJob) {
 	if committing {
 		done := make(chan struct{})
 		writer.commitDone.Store(&done)
-		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
+		// COMMIT can make changes visible before returning to Go. Invalidate
+		// the previous cache generation and reserve the even value until done.
 		if writer.writeSeq != nil {
 			writer.writeSeq.Add(1)
 		}
+		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
 		close(done)
 		writer.commitDone.Store(nil)
 	}
@@ -171,6 +173,9 @@ func (writer *writer) batch(first *writeJob) {
 		if state != nil {
 			writer.recoverConnection(ctx)
 		}
+	}
+	if committing && writer.writeSeq != nil {
+		writer.writeSeq.Add(1)
 	}
 	for _, job := range completed {
 		if job.result == nil {

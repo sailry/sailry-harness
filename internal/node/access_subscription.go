@@ -38,23 +38,44 @@ func (node *Node) authenticate(ctx context.Context, caller protocol.NodeID) (con
 	return store.WithUser(ctx, user), nil
 }
 func (node *Node) authorizeTopic(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (context.Context, error) {
+	return node.authorizeSubscriptionTopic(ctx, caller, topic, false)
+}
+
+func (node *Node) authorizeSubscriptionTopic(ctx context.Context, caller protocol.NodeID, topic protocol.Topic, attached bool) (context.Context, error) {
 	var verified context.Context
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		user, err := node.authenticatedUser(ctx, db, caller)
-		if err != nil {
-			return err
-		}
-		policy, ok := topicPolicies[topic.Kind]
-		if !ok || user.State != "active" {
-			return permissionDenied()
-		}
-		if policy == accessMachine && !user.Administrator {
-			return permissionDenied()
-		}
-		verified = store.WithUser(ctx, user)
-		return authorizeResourceValue(verified, db, reflect.ValueOf(topic.Data))
+		var err error
+		verified, err = node.authorizeTopicDB(ctx, db, caller, topic, attached)
+		return err
 	})
 	return verified, nodeFault(err)
+}
+
+func (node *Node) authorizeTopicDB(ctx context.Context, db *sql.Conn, caller protocol.NodeID, topic protocol.Topic, attached bool) (context.Context, error) {
+	user, err := node.authenticatedUser(ctx, db, caller)
+	if err != nil {
+		return nil, err
+	}
+	policy, ok := topicPolicies[topic.Kind]
+	if !ok || user.State != "active" || policy == accessMachine && !user.Administrator {
+		return nil, permissionDenied()
+	}
+	verified := store.WithUser(ctx, user)
+	if topic.Kind == "terminal" {
+		id, err := terminalTopicID(topic)
+		if err != nil {
+			return nil, err
+		}
+		return verified, store.CheckTerminalSubscriptionAccess(verified, db, id, attached)
+	}
+	return verified, authorizeResourceValue(verified, db, reflect.ValueOf(topic.Data))
+}
+
+func (node *Node) accessSequence() uint64 {
+	if node.profile == nil || node.profile.Store == nil || node.profile.Store.Node == nil {
+		return 0
+	}
+	return node.profile.Store.Node.WriteSequence()
 }
 
 type accessObservation struct {
@@ -78,10 +99,7 @@ func (node *Node) observeAccess(check func(context.Context) error, release func(
 	return value
 }
 func (value *accessObservation) verify(ctx context.Context) error {
-	var seq uint64
-	if value.node != nil && value.node.profile != nil && value.node.profile.Store != nil && value.node.profile.Store.Node != nil {
-		seq = value.node.profile.Store.Node.WriteSequence()
-	}
+	seq := value.node.accessSequence()
 	if seq != 0 && value.verifiedSeq.Load() == seq {
 		return nil
 	}
@@ -120,14 +138,20 @@ func (node *Node) publishAccess() {
 type authorizedSubscription struct {
 	*accessObservation
 	source link.Subscription
+	caller protocol.NodeID
 	next   sync.Mutex
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
-	var seq uint64
-	if node.profile != nil && node.profile.Store != nil && node.profile.Store.Node != nil {
-		seq = node.profile.Store.Node.WriteSequence()
+	if topic.Kind == "terminal" {
+		// Admission, attachment and rechecks must all use the same terminal ID.
+		id, err := terminalTopicID(topic)
+		if err != nil {
+			return nil, err
+		}
+		topic.Data = id
 	}
+	seq := node.accessSequence()
 	verified, err := node.authorizeTopic(ctx, caller, topic)
 	if err != nil {
 		return nil, err
@@ -148,10 +172,10 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 func (node *Node) trackSubscription(verified context.Context, caller protocol.NodeID, topic protocol.Topic, source link.Subscription) link.Subscription {
 	user := userFromContext(verified)
 	check := func(next context.Context) error {
-		_, err := node.authorizeTopic(store.WithUser(next, user), caller, topic)
+		_, err := node.authorizeSubscriptionTopic(store.WithUser(next, user), caller, topic, true)
 		return err
 	}
-	return &authorizedSubscription{accessObservation: node.observeAccess(check, source.Close), source: source}
+	return &authorizedSubscription{accessObservation: node.observeAccess(check, source.Close), source: source, caller: caller}
 }
 func (value *authorizedSubscription) Next(ctx context.Context) (protocol.Update, error) {
 	value.next.Lock()
@@ -184,6 +208,14 @@ func (value *authorizedSubscription) Next(ctx context.Context) (protocol.Update,
 				return protocol.Update{}, err
 			}
 		case outcome := <-done:
+			if stream, ok := value.source.(*events); ok && outcome.err == nil && outcome.update.Kind == "snapshot" {
+				snapshot, err := stream.refreshInitial(ctx, value.caller, outcome.update.Data.(protocol.Snapshot))
+				if err != nil {
+					_ = value.Close()
+					return protocol.Update{}, err
+				}
+				return protocol.Update{Kind: "snapshot", Data: snapshot}, nil
+			}
 			if err := value.verify(ctx); err != nil {
 				_ = value.Close()
 				return protocol.Update{}, err

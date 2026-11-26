@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -434,6 +436,45 @@ func TestTerminalObserver(t *testing.T) {
 		}
 		if after(10*time.Second) != 4 {
 			t.Fatal("an ended observer subscribed again")
+		}
+	})
+}
+
+func TestTerminalObserverEndsOnFinalFrame(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		stream := newObserverTestStream()
+		transport := observerTestTransportWith(stream)
+		controller := New(transport)
+		id := protocol.NewTerminalID()
+		observer := controller.watchTerminalView(t.Context(), id)
+		defer func() { _ = observer.Close(); _ = controller.Close() }()
+		node := controller.Target()
+		stream.events <- terminalTestSnapshot(node, id, 1, 0, terminalTestStream(24, "before "))
+		synctest.Wait()
+		if view := nextView[terminalView](t, observer); !view.Connected || view.Error != nil {
+			t.Fatalf("running view = %+v", view)
+		}
+		update := terminalTestStreamFrame(node, id, 1, 24, "last bytes")
+		frame := update.Data.(protocol.TerminalFrame)
+		frame.Info.Status = protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: 0}}
+		frame.Info.Revision++
+		update.Data = frame
+		stream.events <- update
+		// The wire can report closure as unavailable after the final frame.
+		stream.events <- fault(protocol.ErrorCodeUnavailable, "subscription ended")
+		synctest.Wait()
+		view := nextView[terminalView](t, observer)
+		if view.Connected || view.Recovering || view.Error != nil || view.Snapshot == nil || view.Snapshot.Info.Status.Kind != "exited" ||
+			view.Snapshot.Screen.VT == nil || string(view.Snapshot.Screen.VT.Bytes) != "last bytes" {
+			t.Fatalf("final view = %+v", view)
+		}
+		if _, err := observer.Next(t.Context()); !errors.Is(err, io.EOF) {
+			t.Fatalf("finished observer = %v, want EOF", err)
+		}
+		time.Sleep(10 * time.Second)
+		synctest.Wait()
+		if transport.subscribed() != 1 {
+			t.Fatalf("finished terminal subscribed %d times", transport.subscribed())
 		}
 	})
 }

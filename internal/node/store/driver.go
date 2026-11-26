@@ -56,9 +56,16 @@ func OpenHandle(ctx context.Context, path string) (*Handle, error) {
 
 func (handle *Handle) Path() string { return handle.path }
 
-// WriteSequence returns a monotonic generation that advances whenever a
-// database write transaction commits or exclusive maintenance completes.
-func (handle *Handle) WriteSequence() uint64 { return handle.writeSeq.Load() }
+// WriteSequence returns the current cache generation, or zero while a commit
+// or exclusive maintenance is in progress. Both writers and exclusive leases
+// advance the sequence on entry and exit; only odd generations are stable.
+func (handle *Handle) WriteSequence() uint64 {
+	seq := handle.writeSeq.Load()
+	if seq%2 == 0 {
+		return 0
+	}
+	return seq
+}
 
 func (handle *Handle) Close() error {
 	if err := handle.leases.Acquire(context.Background(), allLeases); err != nil {

@@ -20,6 +20,7 @@ type readAdmissionStep struct {
 	err    error
 	rowErr error
 	cancel bool
+	before func()
 }
 
 type readAdmissionScript struct {
@@ -73,6 +74,9 @@ func (script *readAdmissionScript) take(ctx context.Context, query string) (read
 	}
 	if step.cancel {
 		script.cancel()
+	}
+	if step.before != nil {
+		step.before()
 	}
 	return step, nil
 }

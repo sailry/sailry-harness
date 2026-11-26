@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -22,8 +23,8 @@ type terminalView struct {
 }
 
 // watchTerminalView follows one terminal's screen. It subscribes again after
-// a gap or a transient loss and ends on any other failure. Recovery only
-// reads: it never claims input ownership or replays input.
+// a gap or a transient loss and ends on a final frame or a permanent failure.
+// Recovery only reads: it never claims input ownership or replays input.
 //
 // A reader that stops taking deliveries holds at most terminalMaxPending VT
 // bytes: past that they are dropped with the subscription, and the next one
@@ -59,7 +60,7 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 				}
 			}
 			stream, err := client.transport.Subscribe(scoped, protocol.Topic{Kind: "terminal", Data: terminal})
-			progressed := false
+			progressed, finished := false, false
 			for err == nil {
 				var update protocol.Update
 				if update, err = stream.Next(scoped); err != nil {
@@ -68,12 +69,13 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 				observer.mu.Lock()
 				applied, failure := projection.apply(update)
 				if applied == Applied {
-					state = terminalView{Connected: true}
+					finished = projection.snapshot.Info.Status.Kind != "running"
+					state = terminalView{Connected: !finished}
 				} else if projection.stalled && resume == nil {
 					resume = make(chan struct{})
 				}
 				observer.mu.Unlock()
-				if err = failure; err != nil || applied == Recover {
+				if err = failure; err != nil || applied == Recover || finished {
 					break
 				}
 				if applied == Applied {
@@ -83,6 +85,11 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 			}
 			if stream != nil {
 				_ = stream.Close()
+			}
+			if finished {
+				// Link may report the stream closing as unavailable. The applied
+				// terminal status already establishes that this was not a loss.
+				return true, io.EOF
 			}
 			if scoped.Err() == nil {
 				observer.mu.Lock()
