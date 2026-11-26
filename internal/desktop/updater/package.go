@@ -24,6 +24,7 @@ import (
 )
 
 const maxExtracted = 8 * 1024 * 1024 * 1024
+const windowsHelper = "sailry-update.exe"
 
 // signatureMagic opens a zipsign-signed archive: the ed25519ph signatures
 // precede the ZIP data they sign.
@@ -225,7 +226,11 @@ func (c *Config) validateBundle(root string, release Release) error {
 		return failure("updates_package_invalid", "the packaged build metadata differs from signed update metadata")
 	}
 	if !macos {
-		return nil
+		helper, err := confined(root, filepath.Join(root, windowsHelper))
+		if err != nil {
+			return err
+		}
+		return verifyExecutable(helper, release.Target)
 	}
 	if err := c.validatePlist(root, release); err != nil {
 		return err

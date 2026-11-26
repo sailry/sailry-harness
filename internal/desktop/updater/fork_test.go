@@ -160,7 +160,7 @@ func windowsBundleArchive(t *testing.T, name, version string) []byte {
 	for _, file := range []struct {
 		path string
 		data []byte
-	}{{name + ".exe", header}, {"build.json", metadata}} {
+	}{{name + ".exe", header}, {windowsHelper, header}, {"build.json", metadata}} {
 		entry, err := archive.Create(name + "/" + file.path)
 		if err != nil {
 			t.Fatal(err)
