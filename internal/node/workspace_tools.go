@@ -29,6 +29,21 @@ type workspaceToolCall struct {
 	approval       protocol.ApprovalID
 	commandControl *process.ControlTarget
 	fileScope      externalFileScope
+	patchInput     string
+	patchRoot      string
+}
+
+func extractPatchInput(op protocol.ToolOperation, args json.RawMessage) string {
+	if op != protocol.ToolOperationApplyChanges {
+		return ""
+	}
+	var patch struct {
+		Input string `json:"input"`
+	}
+	if json.Unmarshal(args, &patch) != nil {
+		return ""
+	}
+	return patch.Input
 }
 
 func prepareWorkspaceToolCommand(ctx context.Context, inv *store.AgentInvocation, op protocol.ToolOperation, args json.RawMessage, root string, sandbox bool) (protocol.Command, *files.Prepared, error) {
@@ -161,6 +176,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			if err != nil {
 				return err
 			}
+			if !declaration.ReadOnly {
+				if err := node.locks.waitFiles(ctx, inv.Worktree.Path, collectFileArgPaths(declaration.Operation, arguments)); err != nil {
+					return err
+				}
+			}
 			command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, declaration.Operation, arguments, inv.Worktree.Path, sandbox.Enabled)
 			if err != nil {
 				return err
@@ -188,7 +208,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			if packaged {
 				request.Plugin = &protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 			}
-			current := &workspaceToolCall{request: request, prepared: patchChanges}
+			current := &workspaceToolCall{request: request, prepared: patchChanges, patchInput: extractPatchInput(declaration.Operation, arguments), patchRoot: inv.Worktree.Path}
 			if current.prepared == nil && fileTextMutation(command.Kind) {
 				current.prepared, err = files.Prepare(ctx, inv.Worktree.Path, command, core.RestrictedFiles)
 				if err != nil {
@@ -242,6 +262,24 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			mu.Unlock()
 			if current == nil {
 				return workspaceToolFault(errors.New("native tool was not prepared"))
+			}
+			if declaration.Operation == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull && current.prepared != nil && current.prepared.Rejected == nil && current.patchInput != "" {
+				if err := node.locks.waitFiles(ctx, current.patchRoot, preparedTargetPaths(current.prepared)); err != nil {
+					return workspaceToolFault(err)
+				}
+				if stale, err := files.PreparedStale(ctx, current.patchRoot, current.prepared); err != nil {
+					return workspaceToolFault(err)
+				} else if stale {
+					fresh, err := files.PreparePatch(ctx, current.patchRoot, current.patchInput, inv.Run.Worktree, core.RestrictedFiles)
+					if err != nil {
+						return workspaceToolFault(err)
+					}
+					if err := node.protectWorkspaceMutation(inv.Worktree.Path, inv.Worktree.Path, fresh.Command, fresh, externalFileScope{}); err != nil {
+						return workspaceToolFault(err)
+					}
+					current.prepared = fresh
+					current.request.Command = fresh.Command
+				}
 			}
 			request := current.request
 			if !declaration.ReadOnly {
@@ -566,6 +604,12 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 		return k
 	}
 	for _, record := range records[r.count:] {
+		if record.Kind == "background" {
+			if rt := record.Metadata.Runtime; rt != nil && rt.FileChanges != nil {
+				r.applyFileChanges(rt.FileChanges[r.worktreeID.String()], key)
+			}
+			continue
+		}
 		message := record.Message()
 		if message == nil || record.Provenance.Author != "tool" {
 			continue
@@ -588,6 +632,20 @@ func (r *workspaceRevisions) update(records []canonical.Record) {
 	}
 }
 
+func (r *workspaceRevisions) applyFileChanges(files map[string]string, key func(string) string) {
+	for path, rev := range files {
+		k := key(path)
+		if k == "" {
+			continue
+		}
+		if rev == "" {
+			r.invalidateTree(k)
+		} else {
+			r.paths[k] = rev
+		}
+	}
+}
+
 func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(string) string) {
 	if response.Status == canonical.ToolSuccess && response.Meta != nil {
 		if raw := (*response.Meta)[canonical.FileReadsKey(r.worktreeID)]; raw != nil {
@@ -596,6 +654,12 @@ func (r *workspaceRevisions) observe(response *canonical.ToolResponse, key func(
 				for path, revision := range files {
 					r.paths[key(path)] = revision
 				}
+			}
+		}
+		if raw := (*response.Meta)[canonical.FileChangesKey(r.worktreeID)]; raw != nil {
+			var files map[string]string
+			if json.Unmarshal(raw, &files) == nil {
+				r.applyFileChanges(files, key)
 			}
 		}
 	}

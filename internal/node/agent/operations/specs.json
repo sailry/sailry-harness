@@ -180,7 +180,7 @@
         "expected_revision": {
           "type": "string",
           "pattern": "^[a-fA-F0-9]{64}$",
-          "description": "Optional; defaults to the revision last seen in this conversation"
+          "description": "Optional; omit to use the latest revision observed in this conversation automatically (avoid passing an older revision from earlier reads)"
         }
       },
       "required": [

@@ -200,3 +200,103 @@ func TestWorkspaceRevisionAliasesFollowReceipts(t *testing.T) {
 	check("File.txt", "one")
 	check(other, "other")
 }
+
+func TestWorkspaceRevisionsObserveChildFileChanges(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	tree := protocol.NewWorktreeID()
+	otherTree := protocol.NewWorktreeID()
+	observed := workspaceRevisions{worktreeID: tree, worktree: root}
+	readPayload, _ := json.Marshal(map[string]any{"kind": "file_lines", "data": map[string]string{"path": "a.go", "revision": "rev1"}})
+	waitMetaBytes, _ := json.Marshal(map[string]string{"a.go": "rev2", "b.go": "revB"})
+	otherMetaBytes, _ := json.Marshal(map[string]string{"a.go": "other-tree-rev"})
+	meta := map[string]json.RawMessage{
+		canonical.FileChangesKey(tree):      waitMetaBytes,
+		canonical.FileChangesKey(otherTree): otherMetaBytes,
+	}
+	records := []canonical.Record{
+		{
+			ID: "r1", Kind: "message", Provenance: canonical.Provenance{Author: "tool"},
+			Data: canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
+				Status: canonical.ToolSuccess, Result: canonical.Payload{Value: readPayload},
+			}}),
+		},
+		{
+			ID: "r2", Kind: "message", Provenance: canonical.Provenance{Author: "tool"},
+			Data: canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
+				Status: canonical.ToolSuccess, Result: canonical.Payload{Value: json.RawMessage(`{"status":"completed"}`)}, Meta: &meta,
+			}}),
+		},
+	}
+	observed.update(records)
+	if got := observed.paths[observed.pathKey("a.go")]; got != "rev2" {
+		t.Fatalf("wait_agent file change did not update a.go: got %q, want rev2", got)
+	}
+	if got := observed.paths[observed.pathKey("b.go")]; got != "revB" {
+		t.Fatalf("wait_agent file change did not record b.go: got %q, want revB", got)
+	}
+	records = append(records, canonical.Record{
+		ID: "r3", Kind: "background", Provenance: canonical.Provenance{Author: "system"},
+		Metadata: canonical.Metadata{Runtime: &canonical.Runtime{
+			AgentVisible: true,
+			FileChanges: map[string]map[string]string{
+				tree.String():      {"a.go": "rev3", "b.go": ""},
+				otherTree.String(): {"a.go": "ignored"},
+			},
+		}},
+		Data: &canonical.Background{},
+	})
+	observed.update(records)
+	if got := observed.paths[observed.pathKey("a.go")]; got != "rev3" {
+		t.Fatalf("background child delivery did not update a.go: got %q, want rev3", got)
+	}
+	if _, exists := observed.paths[observed.pathKey("b.go")]; exists {
+		t.Fatal("deleted file from child delivery should clear cached revision")
+	}
+}
+
+func TestPreparedStaleDetectsDiskDrift(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "sample.txt")
+	if err := os.WriteFile(file, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	patch := "*** Begin Patch\n*** Update File: sample.txt\n@@\n one\n-two\n+three\n*** End Patch"
+	prepared, err := files.PreparePatch(t.Context(), root, patch, protocol.NewWorktreeID(), core.RestrictedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := files.PreparedStale(t.Context(), root, prepared); err != nil || stale {
+		t.Fatalf("fresh prepared patch reported stale=%v err=%v", stale, err)
+	}
+	if err := os.WriteFile(file, []byte("zero\none\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := files.PreparedStale(t.Context(), root, prepared); err != nil || !stale {
+		t.Fatalf("drifted prepared patch reported stale=%v err=%v", stale, err)
+	}
+}
+
+func TestWorkspaceLocksWaitFilesDrainsActiveWrite(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	var locks workspaceLocks
+	release := locks.reserve([]string{workspaceFileKey(root, "a.go")}, false)
+	waited := make(chan error, 1)
+	go func() {
+		waited <- locks.waitFiles(t.Context(), root, []string{"a.go"})
+	}()
+	select {
+	case err := <-waited:
+		t.Fatalf("waitFiles returned while write lock was held: %v", err)
+	default:
+	}
+	release()
+	if err := <-waited; err != nil {
+		t.Fatalf("waitFiles after release = %v", err)
+	}
+}

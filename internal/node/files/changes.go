@@ -75,7 +75,7 @@ func Prepare(ctx context.Context, root string, command protocol.Command, access 
 			return nil, e
 		}
 		if revision([]byte(before)) != v.Edit.ExpectedRevision {
-			return nil, conflict("file changed before editing")
+			return nil, conflict("file changed on disk since the expected revision; call read_file to inspect the current content before editing")
 		}
 		p.Changes = []PreparedChange{{Operation: "edit", Kind: protocol.ChangeKindModified, Path: v.Edit.Path, Before: &before, After: &after, ExpectedRevision: &v.Edit.ExpectedRevision}}
 		p.Preview.Files = append(p.Preview.Files, preview(p.Changes[0]))
@@ -201,7 +201,7 @@ func prepareChange(ctx context.Context, f *core.Files, change protocol.FileChang
 			return p, e
 		}
 		if revision(data) != *p.ExpectedRevision {
-			return p, conflict("file changed before editing")
+			return p, conflict("file changed on disk since the expected revision; call read_file to inspect the current content before editing")
 		}
 		if p.Kind == protocol.ChangeKindRenamed {
 			target, e := f.Open(*p.Destination)
@@ -254,6 +254,58 @@ func prepareChange(ctx context.Context, f *core.Files, change protocol.FileChang
 		return p, invalid("change set exceeds the combined text limit")
 	}
 	return p, nil
+}
+
+// PreparedStale reports whether any initial target file in p changed on disk
+// since p was prepared.
+func PreparedStale(ctx context.Context, root string, p *Prepared) (bool, error) {
+	if p == nil || p.Rejected != nil || len(p.Changes) == 0 {
+		return false, nil
+	}
+	f, err := core.OpenFiles(root, p.Access)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	checked := map[string]bool{}
+	for _, entry := range p.Changes {
+		key := strings.ToLower(entry.Path)
+		if !checked[key] {
+			checked[key] = true
+			if entry.ExpectedRevision == nil {
+				handle, err := f.Open(entry.Path)
+				if err == nil {
+					handle.Close()
+					return true, nil
+				}
+				var fv *protocol.Fault
+				if !errors.Is(err, fs.ErrNotExist) && (!errors.As(err, &fv) || fv.Code != protocol.ErrorCodeNotFound) {
+					return false, err
+				}
+			} else {
+				handle, err := f.Open(entry.Path)
+				if err != nil {
+					var fv *protocol.Fault
+					if errors.Is(err, fs.ErrNotExist) || (errors.As(err, &fv) && fv.Code == protocol.ErrorCodeNotFound) {
+						return true, nil
+					}
+					return false, err
+				}
+				data, err := readBounded(ctx, handle, protocol.MAX_EDIT_BYTES)
+				handle.Close()
+				if err != nil {
+					return false, err
+				}
+				if revision(data) != *entry.ExpectedRevision {
+					return true, nil
+				}
+			}
+		}
+		if entry.Destination != nil {
+			checked[strings.ToLower(*entry.Destination)] = true
+		}
+	}
+	return false, nil
 }
 func Apply(ctx context.Context, root string, p *Prepared) (protocol.Output, error) {
 	if p.Rejected != nil {

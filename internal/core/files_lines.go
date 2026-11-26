@@ -244,7 +244,7 @@ func (files *Files) CaptureText(ctx context.Context, relative, expected string) 
 		return "", err
 	}
 	if contentRevision([]byte(text)) != expected {
-		return "", fileFault(protocol.ErrorCodeRevisionConflict, "file changed before checkpoint capture")
+		return "", fileFault(protocol.ErrorCodeRevisionConflict, "file changed on disk since the expected revision; call read_file to inspect the current content before editing")
 	}
 	return text, nil
 }

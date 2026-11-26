@@ -62,7 +62,11 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 		}
 		record := canonical.NewRecord(turn, "background", &canonical.Background{CompactSummary: true, Results: []canonical.BackgroundResult{result}}, r.clock.Now())
 		record.Provenance.Author = "system"
-		record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
+		runtimeMeta := &canonical.Runtime{AgentVisible: true}
+		if len(state.FileRevisions) > 0 {
+			runtimeMeta.FileChanges = map[string]map[string]string{child.Worktree.String(): state.FileRevisions}
+		}
+		record.Metadata.Runtime = runtimeMeta
 		entry, events, err := store.AppendCanonical(x.ctx, db, x.inv.Session.ID, record)
 		if err != nil {
 			return nil, nil, err

@@ -104,16 +104,17 @@ type Maintenance struct {
 	Failure           *protocol.ConversationCompactionFailure `json:"failure,omitempty"`
 }
 type Runtime struct {
-	Created            *int64          `json:"created,omitempty"`
-	After              *string         `json:"after,omitempty"`
-	UserVisible        bool            `json:"user_visible"`
-	AgentVisible       bool            `json:"agent_visible"`
-	OutputLimitReached bool            `json:"output_limit_reached"`
-	Steer              bool            `json:"steer"`
-	TurnContext        bool            `json:"turn_context"`
-	Inference          *Inference      `json:"inference,omitempty"`
-	Notes              *OperationNotes `json:"notes,omitempty"`
-	Logs               []string        `json:"logs,omitempty"`
+	Created            *int64                       `json:"created,omitempty"`
+	After              *string                      `json:"after,omitempty"`
+	UserVisible        bool                         `json:"user_visible"`
+	AgentVisible       bool                         `json:"agent_visible"`
+	OutputLimitReached bool                         `json:"output_limit_reached"`
+	Steer              bool                         `json:"steer"`
+	TurnContext        bool                         `json:"turn_context"`
+	Inference          *Inference                   `json:"inference,omitempty"`
+	Notes              *OperationNotes              `json:"notes,omitempty"`
+	Logs               []string                     `json:"logs,omitempty"`
+	FileChanges        map[string]map[string]string `json:"file_changes,omitempty"`
 }
 
 func DefaultRuntime() Runtime { return Runtime{UserVisible: true, AgentVisible: true} }

@@ -313,3 +313,53 @@ func TestDisjointWriteBatchStopKeepsCompletedWrite(t *testing.T) {
 		t.Fatalf("unexpected receipt for the unapproved write: %+v", got)
 	}
 }
+
+func TestPrecedingCommandOrdersFollowingFileEdit(t *testing.T) {
+	t.Parallel()
+	shellRelease := make(chan struct{})
+	shellStarted := make(chan struct{})
+	editStarted := make(chan struct{}, 1)
+	shell := objectTool("run_command", false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+		close(shellStarted)
+		select {
+		case <-shellRelease:
+		case <-ctx.Done():
+			return toolFault(ctx.Err())
+		}
+		return ToolResult{Value: "ran"}
+	})
+	shellOp := protocol.ToolOperationRunCommand
+	shell.Binding = &store.ApprovalBinding{Tool: "run_command", Operation: &shellOp}
+	shell.Approval = true
+
+	edit := objectTool("edit_file", false, false, func(_ context.Context, call canonical.ToolRequest) ToolResult {
+		editStarted <- struct{}{}
+		return ToolResult{Value: "edited"}
+	})
+	editOp := protocol.ToolOperationEditFile
+	edit.Binding = &store.ApprovalBinding{Tool: "edit_file", Operation: &editOp}
+	edit.Approval = true
+	edit.FilePaths = func(canonical.ToolRequest) []string { return []string{"a.go"} }
+
+	m := &scriptedModel{scripts: []script{
+		response(call("shell", "run_command", `{"command":"gofmt -w a.go"}`), call("edit", "edit_file", `{"path":"a.go","old_text":"old","new_text":"new"}`), finish()),
+		response(text("Done"), finish()),
+	}}
+	f := newFixture(t, m, shell, edit)
+	f.start()
+	turn := f.submit("Format then edit")
+	f.decideWrite("shell", "approve")
+	<-shellStarted
+	select {
+	case <-editStarted:
+		t.Fatal("edit started before preceding run_command completed")
+	default:
+	}
+	close(shellRelease)
+	f.decideWrite("edit", "approve")
+	<-editStarted
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if ids := writeBatchIDs(f.state().Records); !slices.Equal(ids, []string{"shell", "edit"}) {
+		t.Fatalf("batch order = %v, want [shell edit]", ids)
+	}
+}

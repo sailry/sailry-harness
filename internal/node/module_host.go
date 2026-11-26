@@ -441,6 +441,11 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 				return err
 			}
 		}
+		if !readOnly {
+			if err := h.node.locks.waitFiles(ctx, root, collectFileArgPaths(op, args)); err != nil {
+				return err
+			}
+		}
 		command, patchChanges, err := prepareWorkspaceToolCommand(ctx, inv, op, args, root, sandbox.Enabled)
 		if err != nil {
 			return err
@@ -465,7 +470,7 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 			}
 		}
 		request := protocol.NewRequest(h.node.ID(), command)
-		current := &workspaceToolCall{request: request, fileScope: scope, prepared: patchChanges}
+		current := &workspaceToolCall{request: request, fileScope: scope, prepared: patchChanges, patchInput: extractPatchInput(op, args), patchRoot: root}
 		if current.prepared == nil && fileTextMutation(command.Kind) {
 			current.prepared, err = files.Prepare(ctx, root, command, core.RestrictedFiles)
 			if err != nil {
@@ -514,8 +519,30 @@ func (h nodeModuleHost) WorkspaceTool(inv *store.AgentInvocation, cfg moduleapi.
 		if current == nil {
 			return workspaceToolFault(errors.New("native tool was not prepared"))
 		}
-		request := current.request
 		scope := current.fileScope
+		if op == protocol.ToolOperationApplyChanges && inv.Turn.Config.Permission == protocol.PermissionFull && current.prepared != nil && current.prepared.Rejected == nil && current.patchInput != "" {
+			if err := h.node.locks.waitFiles(ctx, current.patchRoot, preparedTargetPaths(current.prepared)); err != nil {
+				return workspaceToolFault(err)
+			}
+			if stale, err := files.PreparedStale(ctx, current.patchRoot, current.prepared); err != nil {
+				return workspaceToolFault(err)
+			} else if stale {
+				fresh, err := files.PreparePatch(ctx, current.patchRoot, current.patchInput, inv.Run.Worktree, core.RestrictedFiles)
+				if err != nil {
+					return workspaceToolFault(err)
+				}
+				target := current.patchRoot
+				if scope.worktree != "" {
+					target = inv.Worktree.Path
+				}
+				if err := h.node.protectWorkspaceMutation(target, target, fresh.Command, fresh, scope); err != nil {
+					return workspaceToolFault(err)
+				}
+				current.prepared = fresh
+				current.request.Command = fresh.Command
+			}
+		}
+		request := current.request
 		if scope.root != "" && scope.worktree == "" {
 			output, err := h.node.externalFileIO(ctx, inv.Caller, request, current.prepared, scope.root)
 			if err != nil {

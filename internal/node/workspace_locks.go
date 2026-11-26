@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -122,6 +123,58 @@ func preparedFileKeys(root string, prepared *files.Prepared) []string {
 		}
 	}
 	return keys
+}
+
+func preparedTargetPaths(prepared *files.Prepared) []string {
+	if prepared == nil || prepared.Rejected != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(prepared.Changes))
+	for _, change := range prepared.Changes {
+		paths = append(paths, change.Path)
+		if change.Destination != nil {
+			paths = append(paths, *change.Destination)
+		}
+	}
+	return paths
+}
+
+// waitFiles waits until every currently active write overlapping paths under
+// root has completed, without holding a lock past the return.
+func (locks *workspaceLocks) waitFiles(ctx context.Context, root string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	var wait []chan struct{}
+	locks.mu.Lock()
+	for _, path := range paths {
+		key := workspaceFileKey(root, path)
+		if key == "" {
+			continue
+		}
+		if prior := locks.held[workspacePath{name: key}]; prior != nil && !slices.Contains(wait, prior) {
+			wait = append(wait, prior)
+		}
+		for parent := key; ; {
+			if prior := locks.held[workspacePath{name: parent, root: true}]; prior != nil && !slices.Contains(wait, prior) {
+				wait = append(wait, prior)
+			}
+			dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(parent)))
+			if dir == parent {
+				break
+			}
+			parent = dir
+		}
+	}
+	locks.mu.Unlock()
+	for _, prior := range wait {
+		select {
+		case <-prior:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 func (locks *workspaceLocks) fileEffect(root string, prepared *files.Prepared) func() {

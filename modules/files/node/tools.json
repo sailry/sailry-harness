@@ -358,11 +358,6 @@
           "new_text": {
             "type": "string"
           },
-          "expected_revision": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Optional; defaults to the revision last seen in this conversation"
-          },
           "replace_all": {
             "type": "boolean",
             "default": false
@@ -720,11 +715,6 @@
           "path": {
             "type": "string",
             "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
-          },
-          "expected_revision": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Optional; defaults to the revision last seen in this conversation"
           }
         },
         "required": [
@@ -798,11 +788,6 @@
           "destination": {
             "type": "string",
             "description": "Relative to the session worktree, with forward slashes; with Full permission, an absolute path may name a file elsewhere"
-          },
-          "expected_revision": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Optional; defaults to the revision last seen in this conversation"
           }
         },
         "required": [
@@ -1404,11 +1389,6 @@
           "path": {
             "type": "string"
           },
-          "expected_revision": {
-            "type": "string",
-            "pattern": "^[0-9a-fA-F]{64}$",
-            "description": "Optional; defaults to the revision last seen in this conversation"
-          },
           "edits": {
             "type": "array",
             "minItems": 1,
@@ -1585,5 +1565,5 @@
       }
     }
   ],
-  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
+  "instructions": "Prefer find_files, search_files, read_file, edit_file and apply_patch over shell commands. File revisions for edit_file, delete_file, move_file and edit_notebook are tracked automatically after reading; re-read a file if a shell command or another agent modified it on disk. Read a worktree image with read_file when you need to see it; read_office extracts document text and reads conversation attachments."
 }

@@ -57,3 +57,26 @@ func TestCatalogGroupsEditsApart(t *testing.T) {
 		}
 	}
 }
+
+func TestModelSchemaHidesAutoTrackedRevision(t *testing.T) {
+	catalog, err := loadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden := map[string]bool{"edit_file": true, "delete_file": true, "move_file": true, "edit_notebook": true}
+	for _, spec := range catalog.Tools {
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+		}
+		if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
+			t.Fatalf("%s schema: %v", spec.Name, err)
+		}
+		_, hasRev := schema.Properties["expected_revision"]
+		if hidden[spec.Name] && hasRev {
+			t.Errorf("%s should omit expected_revision from the model-facing schema", spec.Name)
+		}
+		if spec.Name == "write_file" && !hasRev {
+			t.Error("write_file must keep expected_revision to distinguish create from replace")
+		}
+	}
+}

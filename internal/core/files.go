@@ -428,7 +428,7 @@ func missingFileFault(err error) error {
 }
 
 func fileConflict() error {
-	return fileFault(protocol.ErrorCodeRevisionConflict, "file changed outside this operation")
+	return fileFault(protocol.ErrorCodeRevisionConflict, "file changed on disk before the write completed; call read_file to inspect the current content before retrying")
 }
 
 func fileUnknown() error {

@@ -392,9 +392,40 @@ func deliverBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		events, err := activityEvent(ctx, db, run.Session)
 		return nil, append(released, events...), err
 	}
+	var fileChanges map[string]map[string]string
+	for _, bg := range records {
+		if bg.Task.Kind.Kind != "agent" {
+			continue
+		}
+		child, ok := processStatusData[protocol.ConversationBackgroundKindAgentPayload](bg.Task.Kind.Data)
+		if !ok {
+			continue
+		}
+		childRun, err := ReadAgentRun(ctx, db, child.Turn)
+		if err != nil {
+			continue
+		}
+		revs, err := childFileRevisions(ctx, db, child.Turn)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(revs) == 0 {
+			continue
+		}
+		if fileChanges == nil {
+			fileChanges = map[string]map[string]string{}
+		}
+		key := childRun.Worktree.String()
+		if fileChanges[key] == nil {
+			fileChanges[key] = map[string]string{}
+		}
+		for path, rev := range revs {
+			fileChanges[key][path] = rev
+		}
+	}
 	record := canonical.NewRecord(turn, "background", &canonical.Background{Initial: initialNotice, CompactSummary: true, Results: results}, now)
 	record.Provenance.Author = "system"
-	record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
+	record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, FileChanges: fileChanges}
 	entry, events, err := AppendCanonical(ctx, db, run.Session, record)
 	if err != nil {
 		return nil, nil, err

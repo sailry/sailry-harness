@@ -20,6 +20,9 @@ type ChildState struct {
 	Ready     bool
 	// TurnLimit reports that the child's role action limit ended the run.
 	TurnLimit bool
+	// FileRevisions records the latest revision of each file mutated by this
+	// child turn (empty string indicates deletion or unknown state).
+	FileRevisions map[string]string
 }
 
 func ReleaseChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, children []protocol.TurnID) ([]protocol.Event, error) {
@@ -287,6 +290,15 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 			return state, err
 		}
 	}
+	if state.Run.Status != protocol.ConversationStatusQueued &&
+		state.Run.Status != protocol.ConversationStatusRunning &&
+		state.Run.Status != protocol.ConversationStatusStopping &&
+		(state.Run.Status != protocol.ConversationStatusCancelled || state.Run.FinishedMs != nil) {
+		state.FileRevisions, err = childFileRevisions(ctx, db, state.Run.Turn)
+		if err != nil {
+			return state, err
+		}
+	}
 	if state.Run.Status == protocol.ConversationStatusQueued {
 		if err = db.QueryRowContext(ctx, "SELECT ready FROM agent_runs WHERE turn=?1", state.Run.Turn.String()).Scan(&state.Ready); err != nil {
 			return state, err
@@ -295,6 +307,105 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 	queue, err := ReadQueue(ctx, db, child)
 	state.Paused = queue.Paused
 	return state, err
+}
+
+// childFileRevisions collects the final revision of every file modified by a
+// child turn's committed tool receipts. An empty revision marks a deleted,
+// moved-away or uncertain path so the parent drops any stale cached revision.
+func childFileRevisions(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.kind')='message' AND json_extract(body,'$.provenance.author')='tool' ORDER BY sequence ASC", turn.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var changes map[string]string
+	set := func(path, rev string) {
+		if path == "" {
+			return
+		}
+		if changes == nil {
+			changes = map[string]string{}
+		}
+		changes[path] = rev
+	}
+	for rows.Next() {
+		var body sql.RawBytes
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		var record canonical.Record
+		if err := json.Unmarshal(body, &record); err != nil {
+			return nil, err
+		}
+		message := record.Message()
+		if message == nil {
+			continue
+		}
+		for _, block := range message.Content {
+			response, ok := block.Data.(*canonical.ToolResponse)
+			if !ok {
+				if v, ok := block.Data.(canonical.ToolResponse); ok {
+					response = &v
+				} else {
+					continue
+				}
+			}
+			var value struct {
+				Kind string
+				Data struct {
+					Path, Revision, From, To string
+					Files                    []struct {
+						Path, Destination, Revision string
+						Kind                        protocol.ChangeKind
+						Status                      protocol.ChangeStatus
+					}
+				}
+			}
+			if json.Unmarshal(response.Result.Value, &value) != nil {
+				continue
+			}
+			switch value.Kind {
+			case "file_changes":
+				for _, file := range value.Data.Files {
+					switch file.Status {
+					case protocol.ChangeStatusUnknown:
+						set(file.Path, "")
+						set(file.Destination, "")
+					case protocol.ChangeStatusApplied:
+						switch file.Kind {
+						case protocol.ChangeKindDeleted:
+							set(file.Path, "")
+						case protocol.ChangeKindRenamed:
+							if file.Destination != "" {
+								if prev, ok := changes[file.Path]; ok {
+									set(file.Destination, prev)
+								} else {
+									set(file.Destination, "")
+								}
+							}
+							set(file.Path, "")
+						default:
+							set(file.Path, file.Revision)
+						}
+					}
+				}
+			case "file_written":
+				if response.Status == canonical.ToolSuccess && value.Data.Revision != "" {
+					set(value.Data.Path, value.Data.Revision)
+				}
+			case "entry_trashed":
+				if response.Status == canonical.ToolSuccess {
+					set(value.Data.Path, "")
+				}
+			case "entry_moved":
+				if response.Status == canonical.ToolSuccess {
+					set(value.Data.From, "")
+					set(value.Data.To, "")
+				}
+			}
+		}
+	}
+	return changes, rows.Err()
 }
 
 // ChildTurnLimitSummary accompanies the potentially partial child response.

@@ -11,6 +11,7 @@ import (
 type toolAccess struct {
 	parallel bool
 	read     bool
+	command  bool
 	paths    []string
 }
 
@@ -33,7 +34,7 @@ func parallelToolAccess(tool *Tool, call canonical.ToolRequest) toolAccess {
 		var args struct {
 			Background bool `json:"background"`
 		}
-		return toolAccess{parallel: json.Unmarshal(call.Arguments, &args) == nil && !args.Background}
+		return toolAccess{parallel: json.Unmarshal(call.Arguments, &args) == nil && !args.Background, command: true}
 	default:
 		return toolAccess{}
 	}
@@ -56,11 +57,20 @@ func runQueuedTools(ctx context.Context, start int, access []toolAccess, admit f
 	next := make([][]int, len(access))
 	var ready []int
 	readers := make(map[string][]int)
+	var commands []int
 	after := func(i, prev int) {
 		next[prev] = append(next[prev], i)
 		pending[i]++
 	}
 	for i, call := range access {
+		// A shell command may mutate arbitrary workspace files, so following
+		// file reads/writes in the same batch wait for preceding commands to
+		// finish before preparing, while independent commands still overlap.
+		if len(call.paths) > 0 {
+			for _, cmd := range commands {
+				after(i, cmd)
+			}
+		}
 		for _, file := range call.paths {
 			if prev, ok := last[file]; ok && prev != i {
 				after(i, prev)
@@ -74,6 +84,9 @@ func runQueuedTools(ctx context.Context, start int, access []toolAccess, admit f
 			}
 			delete(readers, file)
 			last[file] = i
+		}
+		if call.command {
+			commands = append(commands, i)
 		}
 		if pending[i] == 0 {
 			ready = append(ready, i)
