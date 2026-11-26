@@ -89,12 +89,12 @@ func TestSearchChannelOrder(t *testing.T) {
 		if brave != 1 || tavily != 1 {
 			t.Fatal("normalized cache missed", brave, tavily)
 		}
-		input.Query = "second"
+		searcher.ClearResults()
 		if _, err := searcher.Search(context.Background(), plan, input); err != nil {
 			t.Fatal(err)
 		}
 		if brave != 1 || tavily != 2 {
-			t.Fatal("cooling channel was retried", brave, tavily)
+			t.Fatal("clearing results must evict the page and preserve the driver cooldown", brave, tavily)
 		}
 		settings.Revision++
 		searcher.Configure(settings)

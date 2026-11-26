@@ -68,6 +68,13 @@ func (searcher *Searcher) Configure(settings protocol.SearchSettings) {
 	}
 }
 
+// ClearResults releases cached pages while preserving driver cooldowns.
+func (searcher *Searcher) ClearResults() {
+	searcher.mu.Lock()
+	searcher.cache = nil
+	searcher.mu.Unlock()
+}
+
 func (searcher *Searcher) Search(ctx context.Context, plan SearchPlan, input protocol.SearchRequest) (protocol.SearchPage, error) {
 	return searcher.SearchFresh(ctx, plan, input, false)
 }

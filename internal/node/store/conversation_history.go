@@ -439,16 +439,60 @@ func readConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	for _, id := range trimmed {
 		missing[id] = true
 	}
-	// The turn-first scan stops at its first visible sequence. Drive the
-	// membership check by that index instead of walking the whole session.
-	const firstVisible = "SELECT (SELECT e.sequence FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND " + visibleCanonical + " ORDER BY e.sequence LIMIT 1)"
+	entrySeqs := make(map[uint64]struct{}, len(page.Entries))
+	for _, entry := range page.Entries {
+		entrySeqs[entry.Sequence] = struct{}{}
+	}
+	checkTurns := make([]string, 0, len(page.Runs))
+	seenTurns := make(map[protocol.TurnID]struct{}, len(page.Runs))
 	for _, r := range page.Runs {
-		var first sql.NullInt64
-		if err = db.QueryRowContext(ctx, firstVisible, session.String(), r.Turn.String()).Scan(&first); err != nil {
+		if missing[r.Turn] {
+			continue
+		}
+		if _, dup := seenTurns[r.Turn]; dup {
+			continue
+		}
+		seenTurns[r.Turn] = struct{}{}
+		checkTurns = append(checkTurns, r.Turn.String())
+	}
+	// The turn-first scan stops at its first visible sequence. Batch across
+	// all runs on the page instead of issuing one SQL query per run.
+	const firstVisibleBatch = `SELECT requested.value, (
+		SELECT e.sequence FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1
+		WHERE e.turn=requested.value AND ` + visibleCanonical + `
+		ORDER BY e.sequence LIMIT 1
+	) FROM json_each(?2) requested`
+	for start := 0; start < len(checkTurns); start += 200 {
+		end := min(len(checkTurns), start+200)
+		encoded, err := json.Marshal(checkTurns[start:end])
+		if err != nil {
 			return value, err
 		}
-		if first.Valid && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Sequence == uint64(first.Int64) }) {
-			missing[r.Turn] = true
+		rows, err := db.QueryContext(ctx, firstVisibleBatch, session.String(), string(encoded))
+		if err != nil {
+			return value, err
+		}
+		for rows.Next() {
+			var turnText string
+			var first sql.NullInt64
+			if err = rows.Scan(&turnText, &first); err != nil {
+				_ = rows.Close()
+				return value, err
+			}
+			if !first.Valid {
+				continue
+			}
+			turnID, err := protocol.ParseTurnID(turnText)
+			if err != nil {
+				_ = rows.Close()
+				return value, err
+			}
+			if _, ok := entrySeqs[uint64(first.Int64)]; !ok {
+				missing[turnID] = true
+			}
+		}
+		if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+			return value, err
 		}
 	}
 	value.Page = page
