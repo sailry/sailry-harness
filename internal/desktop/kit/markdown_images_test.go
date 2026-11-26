@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -72,6 +73,19 @@ func TestDocumentImageTextLinksReachOuterAnchor(t *testing.T) {
 					Markdown(c, source, MarkdownProps{Options: &options})
 				})
 			}, 400, 180, "")
+			// MyGo loads images on a goroutine the Tester does not wait for. The
+			// placeholder is taller than the 40:1 logo, so a load finishing between
+			// pointer down and up moves the links below it out from under the click.
+			for deadline := time.Now().Add(5 * time.Second); ; {
+				if image, ok := tester.AccessByRole(ui.RoleImage, "Logo"); ok && image.Bounds.H*10 < image.Bounds.W {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the logo did not load")
+				}
+				time.Sleep(time.Millisecond)
+				tester.Frame()
+			}
 			click := func(name string) {
 				t.Helper()
 				link, ok := tester.AccessByRole(ui.RoleLink, name)

@@ -17,15 +17,15 @@ var ErrCompletionStorageFull = errors.New("command completion storage is full")
 var ErrCompletionNotRegistered = errors.New("background command was not registered before execution")
 
 type Launch struct {
-	ID         protocol.RequestID
-	Session    protocol.SessionID
-	Turn       protocol.TurnID
-	Worktree   protocol.WorktreeID
-	Root       string
-	Profile    string
-	Command    string
-	Stdin      string // Foreground input, written verbatim and followed by EOF.
-	Access     protocol.ProcessAccess
+	ID       protocol.RequestID
+	Session  protocol.SessionID
+	Turn     protocol.TurnID
+	Worktree protocol.WorktreeID
+	Root     string
+	Profile  string
+	Command  string
+	Stdin    string // Foreground input, written verbatim and followed by EOF.
+	Access   protocol.ProcessAccess
 	// ReadOnly confines a sandboxed command's workspace root to read-only while
 	// keeping its private temporary scratch directory writable.
 	ReadOnly   bool
