@@ -57,9 +57,19 @@ type pluginViewState struct {
 	// remounts are the bundles of the usage pages the Demo mode switch
 	// disposed (demoChanged), which their next mounts take.
 	remounts map[pluginMountKey]protocol.PluginDesktopBundle
+	// demoBundles retains the immutable bundle of a statistics package read
+	// before Demo mode unmounts live conversation views, so Demo mode reuses
+	// it without sending read_plugin_view to the Node.
+	demoBundles map[pluginDemoBundleKey]protocol.PluginDesktopBundle
 	// sshDirectories caches recent SSH sidebar directory listings across
 	// navigation switches so returning to the SSH panel renders immediately.
 	sshDirectories *desktopplugins.SshDirectoryCache
+}
+
+type pluginDemoBundleKey struct {
+	owner   *Runtime
+	pkg     protocol.PluginReference
+	surface string
 }
 
 type pluginMountedView struct {
@@ -166,6 +176,11 @@ func (r *Runtime) closePluginViews() {
 			root.closePluginSchema(section, schema)
 		}
 	}
+	for key := range state.demoBundles {
+		if r.parent == nil || key.owner == r {
+			delete(state.demoBundles, key)
+		}
+	}
 }
 
 func (r *Runtime) pluginViewsFrame(view *ui.Context) {
@@ -197,6 +212,13 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 	}
 	if r.App.PluginFeature() == "" {
 		r.showPluginDetails(nil)
+	}
+	for key := range state.demoBundles {
+		if key.owner == nil || !slices.ContainsFunc(key.owner.snapshot().Plugins, func(summary protocol.PluginSummary) bool {
+			return packageReference(summary) == key.pkg
+		}) {
+			delete(state.demoBundles, key)
+		}
 	}
 	for key, mounted := range state.mounts {
 		mounted.seen = false
@@ -239,6 +261,11 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 func (r *Runtime) pluginViewsAfterFrame() {
 	if r.parent != nil || r.pluginViews == nil {
 		return
+	}
+	for _, owner := range r.pluginViews.registries {
+		if !owner.seen && owner.intents.Load() == 0 && owner.scope.Surface.Kind != "provider" {
+			r.closePluginRegistry(owner)
+		}
 	}
 	for _, mounted := range r.pluginViews.mounts {
 		visible := mounted.seen
@@ -412,6 +439,9 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 	// A demo conversation's mount takes the bundle another mount of the
 	// package read: the demo asks the Node nothing it has answered.
 	if strings.HasPrefix(key.scope.presentation, pluginDemoPresentation) {
+		if bundle, cached := root.pluginViews.demoBundles[pluginDemoBundleKey{owner: owner, pkg: scope.Package, surface: scope.Surface.Kind}]; cached && bundle.Package == scope.Package {
+			return remount(bundle)
+		}
 		for _, other := range root.pluginViews.mounts {
 			if other == mounted || other.bundle == nil || other.owner != owner || other.scope.Package != scope.Package ||
 				other.scope.Surface.Kind != scope.Surface.Kind {
@@ -450,6 +480,12 @@ func (r *Runtime) ensurePluginView(view *ui.Context, owner *Runtime, info protoc
 func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, bundle protocol.PluginDesktopBundle) {
 	root := r.localRuntime()
 	mounted.bundle = &bundle
+	if demoStatisticsContribution(mounted.info) {
+		if root.pluginViews.demoBundles == nil {
+			root.pluginViews.demoBundles = map[pluginDemoBundleKey]protocol.PluginDesktopBundle{}
+		}
+		root.pluginViews.demoBundles[pluginDemoBundleKey{owner: mounted.owner, pkg: mounted.scope.Package, surface: mounted.scope.Surface.Kind}] = bundle
+	}
 	if id, demo := strings.CutPrefix(mounted.key.scope.presentation, pluginDemoPresentation); demo {
 		if mounted.hooks.Publish == nil || !demoStatisticsContribution(mounted.info) {
 			root.failPluginView(view, mounted, errors.New("demo statistics requires read-only metric declarations"), "plugin_initialization_failed")

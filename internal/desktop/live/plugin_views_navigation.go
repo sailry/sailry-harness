@@ -228,13 +228,13 @@ func (r *Runtime) pluginSettingsTargetCurrent(entry pluginSettingsEntry) bool {
 }
 
 func (r *Runtime) pluginSettingsRetained(mounted *pluginMountedView) bool {
-	for _, entry := range r.localRuntime().pluginViews.settings {
-		if entry.owner == mounted.owner && r.pluginSettingsTargetCurrent(entry) && entry.info.Summary.Name == mounted.scope.Package.Name &&
-			pluginScopeIdentity(entry.owner.controller.Target(), entry.scope) == mounted.key.scope {
-			return true
-		}
+	root := r.localRuntime()
+	entry, exists := root.pluginViews.settings[root.App.Settings.Section]
+	if !exists {
+		return false
 	}
-	return false
+	return entry.owner == mounted.owner && r.pluginSettingsTargetCurrent(entry) && entry.info.Summary.Name == mounted.scope.Package.Name &&
+		pluginScopeIdentity(entry.owner.controller.Target(), entry.scope) == mounted.key.scope
 }
 
 func (r *Runtime) pluginNavigationRetained(mounted *pluginMountedView) bool {

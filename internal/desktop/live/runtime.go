@@ -690,6 +690,7 @@ func (r *Runtime) afterFrame() {
 	r.pluginViewsAfterFrame()
 	r.finishNativeWindowResources()
 	r.pruneDrafts()
+	r.pruneClosedChildTabs()
 	// Each conversation has its own search bar: one whose conversation is no
 	// longer shown closes alone.
 	for _, id := range r.App.Messages.SearchSessions() {
@@ -829,7 +830,11 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	}
 	if r.teams != nil {
 		maps.DeleteFunc(r.teams.childParents, func(id string, _ protocol.SessionID) bool { return gone(id) })
+		maps.DeleteFunc(r.teams.composers, func(id string, state *teamComposer) bool {
+			return state != nil && !state.saving && state.pending == nil && gone(id)
+		})
 	}
+	r.pruneProviderDraftBases(snapshot)
 }
 
 func (r *Runtime) prunePins(snapshot protocol.Snapshot) {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/core"
@@ -20,11 +21,12 @@ const allLeases = math.MaxInt64
 
 // Handle owns one file's writer and its independent read-only connection pool.
 type Handle struct {
-	path    string
-	leases  *semaphore.Weighted
-	mu      sync.Mutex
-	state   *connections
-	stopped bool
+	path     string
+	leases   *semaphore.Weighted
+	mu       sync.Mutex
+	state    *connections
+	stopped  bool
+	writeSeq atomic.Uint64
 }
 
 type connections struct {
@@ -41,14 +43,21 @@ func OpenHandle(ctx context.Context, path string) (*Handle, error) {
 	if err != nil {
 		return nil, err
 	}
-	state, err := openConnections(ctx, path)
+	handle := &Handle{path: path, leases: semaphore.NewWeighted(allLeases)}
+	handle.writeSeq.Store(1)
+	state, err := openConnections(ctx, path, &handle.writeSeq)
 	if err != nil {
 		return nil, err
 	}
-	return &Handle{path: path, leases: semaphore.NewWeighted(allLeases), state: state}, nil
+	handle.state = state
+	return handle, nil
 }
 
 func (handle *Handle) Path() string { return handle.path }
+
+// WriteSequence returns a monotonic generation that advances whenever a
+// database write transaction commits or exclusive maintenance completes.
+func (handle *Handle) WriteSequence() uint64 { return handle.writeSeq.Load() }
 
 func (handle *Handle) Close() error {
 	if err := handle.leases.Acquire(context.Background(), allLeases); err != nil {
@@ -96,7 +105,7 @@ func (handle *Handle) acquire(ctx context.Context) (*connections, error) {
 	return state, nil
 }
 
-func openConnections(ctx context.Context, path string) (_ *connections, result error) {
+func openConnections(ctx context.Context, path string, writeSeq *atomic.Uint64) (_ *connections, result error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -167,7 +176,7 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	}
 	state := &connections{
 		writeDB: writeDB, readDB: readDB,
-		writer: &writer{database: writeDB, connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{})},
+		writer: &writer{database: writeDB, connection: connection, jobs: make(chan *writeJob), stop: make(chan struct{}), done: make(chan struct{}), writeSeq: writeSeq},
 	}
 	go state.writer.run()
 	return state, nil

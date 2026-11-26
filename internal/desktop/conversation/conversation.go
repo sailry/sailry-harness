@@ -42,16 +42,18 @@ type State struct {
 	boundLists    []*transcriptList
 	anchors       map[string]transcriptAnchor
 	anchorOrder   uint64
-	open          map[string]bool    // the disclosures open
-	revealOpen    string             // disclosure opened on the last click, to scroll into view
-	revealWaiting bool               // true while revealOpen awaits an async detail load
-	work          map[string]bool    // work regions the user opened or closed
-	built         map[string]bool    // lists built once, so laid out
-	presses       map[string]*press  // the pointer's button over each conversation's transcript
-	spans         []textSpan         // the turn being built's text boxes, for its selection pill
-	area          map[string]ui.Rect // each conversation's list above its dock: what shows of it
-	docks         map[string]*dock   // what floats over each conversation's end (Docked)
-	md            markdown.Options   // the replies' (kit.Markdown fills the rest)
+	open          map[string]bool                // the disclosures open
+	openOwner     map[string]map[string]struct{} // open keys owned per session
+	revealOpen    string                         // disclosure opened on the last click, to scroll into view
+	revealWaiting bool                           // true while revealOpen awaits an async detail load
+	work          map[string]bool                // work regions the user opened or closed
+	workOwner     map[string]map[string]struct{} // work keys owned per session
+	built         map[string]bool                // lists built once, so laid out
+	presses       map[string]*press              // the pointer's button over each conversation's transcript
+	spans         []textSpan                     // the turn being built's text boxes, for its selection pill
+	area          map[string]ui.Rect             // each conversation's list above its dock: what shows of it
+	docks         map[string]*dock               // what floats over each conversation's end (Docked)
+	md            markdown.Options               // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
 	light         float32            // the welcome wordmark's beam, in window DIPs
@@ -129,6 +131,69 @@ func pathLink(path string) string {
 
 func New() *State {
 	return &State{lists: map[string]*transcriptList{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}, docks: map[string]*dock{}}
+}
+
+// Forget releases retained per-session transcript state after a session is
+// deleted or a local draft is discarded.
+func (s *State) Forget(id string) {
+	delete(s.anchors, id)
+	delete(s.edits, id)
+	delete(s.references, id)
+	if s.rewindOf == id {
+		s.rewind, s.rewindOf = "", ""
+	}
+	for key := range s.openOwner[id] {
+		delete(s.open, key)
+		if s.revealOpen == key {
+			s.revealOpen = ""
+			s.revealWaiting = false
+		}
+	}
+	delete(s.openOwner, id)
+	for key := range s.workOwner[id] {
+		delete(s.work, key)
+	}
+	delete(s.workOwner, id)
+}
+
+func (s *State) setOpen(session, key string, open bool) {
+	if open {
+		s.open[key] = true
+		if session != "" {
+			if s.openOwner == nil {
+				s.openOwner = map[string]map[string]struct{}{}
+			}
+			keys := s.openOwner[session]
+			if keys == nil {
+				keys = map[string]struct{}{}
+				s.openOwner[session] = keys
+			}
+			keys[key] = struct{}{}
+		}
+		return
+	}
+	delete(s.open, key)
+	if keys := s.openOwner[session]; keys != nil {
+		delete(keys, key)
+		if len(keys) == 0 {
+			delete(s.openOwner, session)
+		}
+	}
+}
+
+func (s *State) setWork(session, key string, open bool) {
+	s.work[key] = open
+	if session != "" {
+		if s.workOwner == nil {
+			s.workOwner = map[string]map[string]struct{}{}
+		}
+		keys := s.workOwner[session]
+		if keys == nil {
+			keys = map[string]struct{}{}
+			s.workOwner[session] = keys
+		}
+		keys[key] = struct{}{}
+	}
 }
 
 // Navigation builds the message navigation of the transcript View built
@@ -680,6 +745,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 					if b.Hovered() || b.FocusVisible() {
 						b.TextColor(p.MutedForeground)
 					}
+					session := s.renderSession
 					b.Children(func() {
 						status()
 						chevron := icons.ChevronRight
@@ -687,7 +753,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 							chevron = icons.ChevronDown
 						}
 						ui.Icon(c, chevron).FontSize(rowIcon(size) - 2).Shrink(0)
-					}).OnClick(func() { s.work[workKey] = !workOpen })
+					}).OnClick(func() { s.setWork(session, workKey, !workOpen) })
 				}
 				ui.Divider(c).Background(p.Border)
 				if parts.hasWork && workOpen {

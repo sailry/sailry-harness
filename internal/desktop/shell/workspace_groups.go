@@ -422,6 +422,9 @@ func (a *App) ForgetSession(id string) {
 	}
 	delete(w.focus, t)
 	delete(w.hosts, t)
+	if a.Messages != nil {
+		a.Messages.Forget(id)
+	}
 }
 
 // HasDraft reports whether the window currently retains the given composer state.

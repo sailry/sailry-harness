@@ -156,6 +156,7 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 		handle.leases.Release(allLeases)
 		return nil, writerUnavailable()
 	}
+	handle.writeSeq.Add(1)
 	return &Exclusive{handle: handle, writer: state.writer}, nil
 }
 
@@ -167,6 +168,7 @@ func (exclusive *Exclusive) Close() error {
 	defer exclusive.mu.Unlock()
 	if !exclusive.finished {
 		exclusive.finished = true
+		exclusive.handle.writeSeq.Add(1)
 		exclusive.handle.leases.Release(allLeases - exclusive.pinned)
 	}
 	return nil
@@ -233,11 +235,12 @@ func (closed *Closed) Reopen(ctx context.Context) error {
 	if closed.finished {
 		return core.ErrStopped
 	}
-	state, err := openConnections(ctx, closed.handle.path)
+	state, err := openConnections(ctx, closed.handle.path, &closed.handle.writeSeq)
 	closed.handle.mu.Lock()
 	closed.handle.state = state
 	closed.handle.stopped = err != nil
 	closed.handle.mu.Unlock()
+	closed.handle.writeSeq.Add(1)
 	closed.finished = true
 	closed.handle.leases.Release(allLeases)
 	return err

@@ -51,17 +51,18 @@ func (r *Runtime) projectContextMeter(cv *viewmodel.Conversation, comp *composer
 	}
 	stats := contextStats(history.Snapshot.Statistics, config.Model, limit, compacting)
 	if record := history.Snapshot.Statistics; record != nil && record.LastCompaction != nil && stats.LastCompaction != nil {
+		sessionID := cv.ID
 		target, revision := *record.LastCompaction, history.Snapshot.Page.Revision
 		stats.LastCompaction.Reveal = func() {
 			comp.Meter.Open = false
 			if r.App.Messages.Reveal == nil {
 				return
 			}
-			r.App.Messages.Reveal(cv.ID, conversation.Match{
+			r.App.Messages.Reveal(sessionID, conversation.Match{
 				Turn: -1, Target: target.Turn.String(), TurnSequence: target.TurnSequence, Entry: target.ID, Revision: revision,
 			}, func(index int, found bool) {
 				if found {
-					r.App.Messages.List(cv.ID).ScrollTo(index, ui.Center)
+					r.App.Messages.List(sessionID).ScrollTo(index, ui.Center)
 				}
 			})
 		}

@@ -36,9 +36,22 @@ func filterAudience(record *canonical.Record, filterResults bool) {
 	content := message.Content[:0]
 	for _, block := range message.Content {
 		if block.Kind == "image" {
-			var image canonical.AssetContent
-			raw, _ := json.Marshal(block.Data)
-			if json.Unmarshal(raw, &image) == nil && len(image.Asset.Annotations) > 0 && !permitted(decode(image.Asset.Annotations)) {
+			var annotations json.RawMessage
+			switch image := block.Data.(type) {
+			case *canonical.AssetContent:
+				if image != nil {
+					annotations = image.Asset.Annotations
+				}
+			case canonical.AssetContent:
+				annotations = image.Asset.Annotations
+			default:
+				var decoded canonical.AssetContent
+				raw, _ := json.Marshal(block.Data)
+				if json.Unmarshal(raw, &decoded) == nil {
+					annotations = decoded.Asset.Annotations
+				}
+			}
+			if len(annotations) > 0 && !permitted(decode(annotations)) {
 				continue
 			}
 		}

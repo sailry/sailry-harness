@@ -122,7 +122,12 @@ func (r *Runtime) BindProviderSettings() settings.WindowBinding {
 				},
 				Close: func() {
 					owner.modelCatalogEntered = false
-					r.forEachProviderSettingsNode(func(node *Runtime) { node.releaseProviderQuotaTimer() })
+					r.forEachProviderSettingsNode(func(node *Runtime) {
+						node.releaseProviderQuotaTimer()
+						for key := range node.providerDraftBases {
+							delete(node.providerDraftBases, key)
+						}
+					})
 					clear()
 				},
 			}

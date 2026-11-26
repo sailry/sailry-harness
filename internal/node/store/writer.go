@@ -39,6 +39,7 @@ type writer struct {
 	stop       chan struct{}
 	done       chan struct{}
 	commitDone atomic.Pointer[chan struct{}]
+	writeSeq   *atomic.Uint64
 	// failed is set while the connection could not be replaced after its
 	// transaction state became unknown; the next batch tries again.
 	failed error
@@ -147,6 +148,9 @@ func (writer *writer) batch(first *writeJob) {
 		done := make(chan struct{})
 		writer.commitDone.Store(&done)
 		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
+		if writer.writeSeq != nil {
+			writer.writeSeq.Add(1)
+		}
 		close(done)
 		writer.commitDone.Store(nil)
 	}

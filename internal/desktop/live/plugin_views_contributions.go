@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
@@ -19,6 +20,7 @@ type pluginContributionOwner struct {
 	draft    string
 	seen     bool
 	queued   bool
+	intents  atomic.Int32
 }
 
 func (r *Runtime) pluginComposerView(id string) *viewmodel.Conversation {
@@ -214,6 +216,19 @@ func (r *Runtime) closePluginRegistry(owner *pluginContributionOwner) {
 		if key.role == "contribution" && key.scope == owner.key {
 			root.dropPluginView(mounted, true)
 			delete(root.pluginViews.mounts, key)
+		}
+	}
+	if root.App != nil && owner.scope.Surface.Kind == "composer" {
+		id := owner.draft
+		if id == "" && owner.scope.Session != nil {
+			id = owner.scope.Session.String()
+		}
+		if id != "" && !strings.HasPrefix(id, pluginDemoPresentation) {
+			if comp := root.App.DraftComposer(id); comp != nil {
+				comp.Metrics = nil
+				comp.SetPluginControls(nil)
+				comp.SetPluginCommand(nil)
+			}
 		}
 	}
 	_ = owner.registry.Close()

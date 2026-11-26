@@ -25,6 +25,11 @@ func (r *Runtime) pluginIntent(ctx context.Context, scope protocol.PluginContext
 	root := r.localRuntime()
 	var captured *pluginContributionOwner
 	var draft string
+	defer func() {
+		if captured != nil {
+			captured.intents.Add(-1)
+		}
+	}()
 	clock := clockwork.NewRealClock()
 	deadline := clock.NewTimer(10 * time.Second)
 	defer deadline.Stop()
@@ -58,6 +63,7 @@ func (r *Runtime) pluginIntent(ctx context.Context, scope protocol.PluginContext
 			}
 			if captured == nil {
 				captured, draft = owner, owner.draft
+				captured.intents.Add(1)
 			} else if captured != owner || owner.draft != draft {
 				reply <- pluginIntentResult{err: errors.New("contribution context changed")}
 				return

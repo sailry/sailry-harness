@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"reflect"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -57,12 +58,13 @@ func (node *Node) authorizeTopic(ctx context.Context, caller protocol.NodeID, to
 }
 
 type accessObservation struct {
-	node    *Node
-	wake    chan struct{}
-	closed  chan struct{}
-	once    sync.Once
-	release func() error
-	check   func(context.Context) error
+	node        *Node
+	wake        chan struct{}
+	closed      chan struct{}
+	once        sync.Once
+	release     func() error
+	check       func(context.Context) error
+	verifiedSeq atomic.Uint64
 }
 
 func (node *Node) observeAccess(check func(context.Context) error, release func() error) *accessObservation {
@@ -74,6 +76,23 @@ func (node *Node) observeAccess(check func(context.Context) error, release func(
 	node.accessObservers[value] = struct{}{}
 	node.accessMu.Unlock()
 	return value
+}
+func (value *accessObservation) verify(ctx context.Context) error {
+	var seq uint64
+	if value.node != nil && value.node.profile != nil && value.node.profile.Store != nil && value.node.profile.Store.Node != nil {
+		seq = value.node.profile.Store.Node.WriteSequence()
+	}
+	if seq != 0 && value.verifiedSeq.Load() == seq {
+		return nil
+	}
+	if err := value.check(ctx); err != nil {
+		value.verifiedSeq.Store(0)
+		return err
+	}
+	if seq != 0 {
+		value.verifiedSeq.Store(seq)
+	}
+	return nil
 }
 func (value *accessObservation) Close() error {
 	var err error
@@ -90,6 +109,7 @@ func (node *Node) publishAccess() {
 	node.accessMu.Lock()
 	defer node.accessMu.Unlock()
 	for observer := range node.accessObservers {
+		observer.verifiedSeq.Store(0)
 		select {
 		case observer.wake <- struct{}{}:
 		default:
@@ -104,6 +124,10 @@ type authorizedSubscription struct {
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	var seq uint64
+	if node.profile != nil && node.profile.Store != nil && node.profile.Store.Node != nil {
+		seq = node.profile.Store.Node.WriteSequence()
+	}
 	verified, err := node.authorizeTopic(ctx, caller, topic)
 	if err != nil {
 		return nil, err
@@ -112,7 +136,13 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	if err != nil {
 		return nil, err
 	}
-	return node.trackSubscription(verified, caller, topic, source), nil
+	tracked := node.trackSubscription(verified, caller, topic, source)
+	if seq != 0 {
+		if guarded, ok := tracked.(*authorizedSubscription); ok {
+			guarded.verifiedSeq.Store(seq)
+		}
+	}
+	return tracked, nil
 }
 
 func (node *Node) trackSubscription(verified context.Context, caller protocol.NodeID, topic protocol.Topic, source link.Subscription) link.Subscription {
@@ -126,7 +156,7 @@ func (node *Node) trackSubscription(verified context.Context, caller protocol.No
 func (value *authorizedSubscription) Next(ctx context.Context) (protocol.Update, error) {
 	value.next.Lock()
 	defer value.next.Unlock()
-	if err := value.check(ctx); err != nil {
+	if err := value.verify(ctx); err != nil {
 		_ = value.Close()
 		return protocol.Update{}, err
 	}
@@ -148,12 +178,13 @@ func (value *authorizedSubscription) Next(ctx context.Context) (protocol.Update,
 			_ = value.Close()
 			return protocol.Update{}, unavailable()
 		case <-value.wake:
-			if err := value.check(ctx); err != nil {
+			value.verifiedSeq.Store(0)
+			if err := value.verify(ctx); err != nil {
 				_ = value.Close()
 				return protocol.Update{}, err
 			}
 		case outcome := <-done:
-			if err := value.check(ctx); err != nil {
+			if err := value.verify(ctx); err != nil {
 				_ = value.Close()
 				return protocol.Update{}, err
 			}

@@ -82,6 +82,62 @@ func TestSubscriptionReadsOnlyTheDeliveredCursorWithCurrentAccess(t *testing.T) 
 	}
 }
 
+func TestAuthorizedSubscriptionSkipsRedundantChecksUntilDatabaseWrites(t *testing.T) {
+	t.Parallel()
+	node := nodeFixture(t)
+	ctx := t.Context()
+	caller := protocol.NodeID{38}
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		return store.PairLinkPeer(ctx, db, caller, link.DirectionController)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	topic := protocol.Topic{Kind: "node"}
+	verified, err := node.authorizeTopic(ctx, caller, topic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checks int
+	rawCheck := func(next context.Context) error {
+		checks++
+		_, err := node.authorizeTopic(store.WithUser(next, userFromContext(verified)), caller, topic)
+		return err
+	}
+	delivered := 0
+	source := deliverySource(func(ctx context.Context) (protocol.Update, error) {
+		delivered++
+		if delivered == 4 {
+			if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+				return store.SetLinkTrust(ctx, db, caller, false)
+			}); err != nil {
+				return protocol.Update{}, err
+			}
+		}
+		return protocol.Update{Kind: "reset_required"}, nil
+	})
+	guarded := &authorizedSubscription{accessObservation: node.observeAccess(rawCheck, source.Close), source: source}
+	defer guarded.Close()
+
+	// Three deliveries with no intervening DB writes perform only the initial check.
+	for i := range 3 {
+		if _, err := guarded.Next(ctx); err != nil {
+			t.Fatalf("delivery %d failed: %v", i, err)
+		}
+	}
+	if checks != 1 {
+		t.Fatalf("unchanged DB ran %d access checks across 3 deliveries, want 1", checks)
+	}
+	// Direct DB revocation during the 4th delivery advances WriteSequence and
+	// forces an immediate re-check without publishAccess.
+	if _, err := guarded.Next(ctx); !pluginMessageFault(err, protocol.ErrorCodePermissionDenied) {
+		t.Fatalf("revoked delivery returned %v, want PermissionDenied", err)
+	}
+	if checks != 2 {
+		t.Fatalf("revocation ran %d total checks, want 2", checks)
+	}
+}
+
 type deliverySource func(context.Context) (protocol.Update, error)
 
 func (source deliverySource) Next(ctx context.Context) (protocol.Update, error) { return source(ctx) }

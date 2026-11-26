@@ -94,44 +94,6 @@ func resultEnvelope(response *canonical.ToolResponse) map[string]any {
 	return envelope
 }
 
-// Project borrows tool payloads until it selects the final output.
-func cloneRecord(record canonical.Record, borrowToolValues bool) canonical.Record {
-	msg := record.Message()
-	if msg == nil {
-		return clone(record)
-	}
-	shell := *msg
-	shell.Content = nil
-	record.Data = &shell
-	copied := clone(record)
-	out := copied.Message()
-	if len(msg.Content) != 0 || borrowToolValues && msg.Content != nil {
-		out.Content = make([]canonical.Block, len(msg.Content))
-	}
-	for i, block := range msg.Content {
-		tool := response(&block)
-		if tool == nil {
-			out.Content[i] = clone(block)
-			continue
-		}
-		fields := *tool
-		fields.Result.Value = nil
-		fields = clone(fields)
-		if borrowToolValues {
-			fields.Result.Value = tool.Result.Value
-			fields.OriginalID = tool.OriginalID
-		} else {
-			raw, err := json.Marshal(tool.Result.Value)
-			if err != nil {
-				panic(err)
-			}
-			fields.Result.Value = raw
-		}
-		block.Data = &fields
-		out.Content[i] = block
-	}
-	return copied
-}
 func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 	if records == nil {
 		*cache = Cache{}

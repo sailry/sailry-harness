@@ -290,6 +290,7 @@ func (r *Runtime) releaseDraftComposer(id string) {
 		delete(owner.composerCatalogs, id)
 		delete(owner.composerInitialized, id)
 		delete(owner.composerObserved, id)
+		delete(owner.composerRevisions, id)
 		owner.clearComposerBase(comp)
 		delete(owner.sessionBases, comp)
 		if owner.teams != nil {

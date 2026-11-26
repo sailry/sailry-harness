@@ -707,6 +707,12 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	key := fmt.Sprintf("%s/%d", d.Channel.ID, d.ExpectedRevision)
 	p, captured := r.providerDraftBases[key]
 	if !captured {
+		prefix := d.Channel.ID + "/"
+		for existing := range r.providerDraftBases {
+			if strings.HasPrefix(existing, prefix) {
+				delete(r.providerDraftBases, existing)
+			}
+		}
 		var exists bool
 		if d.ExpectedRevision != 0 {
 			p, exists = r.provider(d.Channel.ID)
@@ -903,4 +909,32 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 
 func presetRouteKey(route protocol.ConversationPresetsRoute) protocol.ConversationPresetsRouteKey {
 	return protocol.ConversationPresetsRouteKey{Protocol: route.Protocol, Region: route.Region, Product: route.Product}
+}
+
+func (r *Runtime) pruneProviderDraftBases(snapshot protocol.Snapshot) {
+	if len(r.providerDraftBases) == 0 {
+		return
+	}
+	root := r.localRuntime()
+	keepNew := root != nil && root.App != nil && (root.settingsSectionVisible(settings.Providers) || root.App.Welcome.Open)
+	current := make(map[string]uint64, len(snapshot.Providers))
+	for _, provider := range snapshot.Providers {
+		current[provider.ID.String()] = provider.Revision
+	}
+	for key, base := range r.providerDraftBases {
+		id, revText, ok := strings.Cut(key, "/")
+		if !ok {
+			delete(r.providerDraftBases, key)
+			continue
+		}
+		if revText == "0" {
+			if !keepNew {
+				delete(r.providerDraftBases, key)
+			}
+			continue
+		}
+		if rev, exists := current[id]; !exists || base.Revision != rev && !keepNew {
+			delete(r.providerDraftBases, key)
+		}
+	}
 }

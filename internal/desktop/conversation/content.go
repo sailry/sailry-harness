@@ -424,11 +424,12 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 		}
 		id := "compaction-" + t.ID
 		open := s.opened(id)
+		session := s.renderSession
 		ui.Column(c.Key(id)).FillWidth().Gap(4).Children(func() {
 			rule(func() {
 				ui.ButtonBase(c.Key("toggle")).Shrink(0).Expanded(open).Cursor(ui.CursorPointer).TextColor(p.Danger).Children(func() {
 					ui.Text(c, label).FontSize(size)
-				}).OnClick(func() { s.toggle(id) })
+				}).OnClick(func() { s.toggleFor(session, id) })
 			})
 			if open {
 				ui.Scroll(c).MaxHeight(160).Children(func() {
@@ -556,6 +557,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 			t := ui.ButtonBase(c.Key("more")).Label(label).Expanded(more).FillWidth().Height(40).PaddingX(12).Gap(8).
 				BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Background(p.Muted.Alpha(0.2)).Cursor(ui.CursorPointer).Justify(ui.Start)
 			hovered := t.Hovered()
+			session := s.renderSession
 			t.Children(func() {
 				ui.Text(c, label).FontSize(size).TextColor(p.MutedForeground)
 				chevron := icons.ChevronRight
@@ -566,7 +568,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 				if !hovered {
 					ch.Opacity(0)
 				}
-			}).OnClick(func() { s.toggle(moreKey) })
+			}).OnClick(func() { s.toggleFor(session, moreKey) })
 		}
 	})
 }

@@ -252,17 +252,35 @@ func (r *Runtime) openLiveChild(parent *viewmodel.Conversation, id string) {
 			if *tabs == nil {
 				*tabs = map[childTabKey]childTabScope{}
 			}
-			for k := range *tabs {
-				if !r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: k.id}) {
-					delete(*tabs, k)
-				}
-			}
+			r.localRuntime().pruneClosedChildTabs()
 			(*tabs)[key] = scope
 			r.App.RevealConversationPanel()
 			r.App.Panel.ShowChild(id, liveChildTitle(&fresh.Snapshot.Page, target, c.Locale()))
 		})
 	}) {
 		delete(r.busy, busy)
+	}
+}
+
+func (r *Runtime) pruneClosedChildTabs() {
+	if r.parent != nil || r.teams == nil {
+		return
+	}
+	tabs := r.teams.childScopes.tabs
+	if len(tabs) == 0 {
+		return
+	}
+	var removed []string
+	for k := range tabs {
+		if !r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: k.id}) {
+			delete(tabs, k)
+			removed = append(removed, k.id)
+		}
+	}
+	for _, id := range removed {
+		if !r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: id}) && r.App.Data.Find(id) == nil {
+			r.releaseDraftComposer(id)
+		}
 	}
 }
 

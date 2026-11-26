@@ -50,16 +50,16 @@ func railPad(size float32) float32    { return rowIcon(size)/2 + 7.5 }
 // through leave nothing behind.
 func (s *State) opened(key string) bool { return s.open[key] }
 
-// toggle opens a closed disclosure and closes an open one.
-func (s *State) toggle(key string) {
+// toggleFor opens a closed disclosure and closes an open one for session.
+func (s *State) toggleFor(session, key string) {
 	if s.open[key] {
-		delete(s.open, key)
+		s.setOpen(session, key, false)
 		if s.revealOpen == key {
 			s.revealOpen = ""
 			s.revealWaiting = false
 		}
 	} else {
-		s.open[key] = true
+		s.setOpen(session, key, true)
 		s.revealOpen = key
 		s.revealWaiting = false
 	}
@@ -239,7 +239,8 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
-		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
+		session := s.renderSession
+		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggleFor(session, key) })
 		sw.Frame(t)
 		if open {
 			revealing := s.revealOpen == key
@@ -438,7 +439,7 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 		if len(runs) == 1 {
 			// A newly appended tool may turn these flat rows into a subgroup.
 			if slices.ContainsFunc(calls, func(call Call) bool { return s.opened("tools-" + call.ID) }) {
-				s.open["tool-sub-"+calls[0].ID] = true
+				s.setOpen(s.renderSession, "tool-sub-"+calls[0].ID, true)
 			}
 			s.callRows(c, rail, calls)
 			return

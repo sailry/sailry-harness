@@ -68,6 +68,11 @@ type ConversationActions interface {
 	conversation.Actions
 }
 
+// DraftComposer returns the retained composer state for id without creating one.
+func (a *App) DraftComposer(id string) *composer.State {
+	return a.drafts[id]
+}
+
 // DropComposer forgets the input state of a draft that is gone and returns
 // it, nil when there was none.
 func (a *App) DropComposer(id string) *composer.State {

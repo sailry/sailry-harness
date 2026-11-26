@@ -46,6 +46,10 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 			return store.CheckWorktreeAccess(current, db, scope.Worktree)
 		})
 	}
+	var seq uint64
+	if node.profile != nil && node.profile.Store != nil && node.profile.Store.Node != nil {
+		seq = node.profile.Store.Node.WriteSequence()
+	}
 	if err = check(ctx); err != nil {
 		return nil, nodeFault(err)
 	}
@@ -55,6 +59,9 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 	}
 	value := &authorizedStream{source: stream}
 	value.accessObservation = node.observeAccess(check, stream.Close)
+	if seq != 0 {
+		value.verifiedSeq.Store(seq)
+	}
 	go func() {
 		for {
 			select {
@@ -64,7 +71,8 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 				_ = value.Close()
 				return
 			case <-value.wake:
-				if err := check(node.ctx); err != nil {
+				value.verifiedSeq.Store(0)
+				if err := value.verify(node.ctx); err != nil {
 					_ = value.Close()
 					return
 				}
@@ -74,14 +82,14 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 	return value, nil
 }
 func (value *authorizedStream) Read(data []byte) (int, error) {
-	if err := value.check(value.node.ctx); err != nil {
+	if err := value.verify(value.node.ctx); err != nil {
 		_ = value.Close()
 		return 0, err
 	}
 	return value.source.Read(data)
 }
 func (value *authorizedStream) Write(data []byte) (int, error) {
-	if err := value.check(value.node.ctx); err != nil {
+	if err := value.verify(value.node.ctx); err != nil {
 		_ = value.Close()
 		return 0, err
 	}

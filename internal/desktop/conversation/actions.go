@@ -268,11 +268,12 @@ func (s *State) userFooter(c *ui.Context, t *Turn, over bool, fold userFold, act
 			if fold.open {
 				label, chevron = i18n.T(c, "message_collapse"), icons.ChevronUp
 			}
+			session := s.renderSession
 			quiet(c, kit.GhostLook(c, ui.ButtonBase(c.Key("fold")).Label(label).Expanded(fold.open), false)).
 				Height(28).PaddingX(8).Gap(4).Children(func() {
 				ui.Text(c, label).FontSize(14).SingleLine()
 				ui.Icon(c, chevron).FontSize(14)
-			}).OnClick(func() { s.toggle(fold.key) })
+			}).OnClick(func() { s.toggleFor(session, fold.key) })
 		}
 		if t.User != "" {
 			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false)).OnClick(func() {

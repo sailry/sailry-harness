@@ -195,10 +195,18 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 		}
 		state.revision = session.Revision
 	}
+	sessionID := cv.ID
+	readonly := ctx.Readonly
 	comp.SelectTeam = func(id string) bool {
-		if ctx.Readonly || state.saving || state.pending != nil || r.composerSaving[cv.ID] {
+		if r.teams == nil {
 			return false
 		}
+		state := r.teams.composers[sessionID]
+		if readonly || state == nil || state.saving || state.pending != nil || r.composerSaving[sessionID] {
+			return false
+		}
+		snapshot := r.snapshot()
+		session, exists := r.session(sessionID)
 		changed := id != comp.Team || exists && teamCatalogChanged(id, snapshot, session.Roles)
 		if !changed {
 			return true
@@ -214,7 +222,11 @@ func (r *Runtime) projectTeamComposer(cv *viewmodel.Conversation, comp *composer
 				state.selection = &protocol.TeamSelection{ID: team.ID, Revision: &revision}
 			}
 			if !exists && team.Model != nil {
-				choice := memberChoice(comp, protocol.RoleProfile{Model: team.Model}, protocol.DefaultRoleSnapshot(), ctx.Models)
+				models := r.models()
+				if catalog := r.composerCatalogs[sessionID]; catalog != nil && len(catalog.models) > 0 {
+					models = catalog.models
+				}
+				choice := memberChoice(comp, protocol.RoleProfile{Model: team.Model}, protocol.DefaultRoleSnapshot(), models)
 				comp.Model, comp.Effort, comp.Features = choice.Model, choice.Effort, choice.Features
 			}
 			break
