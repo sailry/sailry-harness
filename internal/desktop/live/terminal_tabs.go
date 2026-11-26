@@ -2,6 +2,7 @@ package live
 
 import (
 	"strings"
+	"time"
 
 	myterminal "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/transfer"
@@ -300,7 +301,14 @@ func (r *Runtime) projectTerminals(project *viewmodel.Project) []shell.ProjectTe
 		if info.Directory != nil {
 			path = *info.Directory
 		}
-		terminals = append(terminals, shell.ProjectTerminal{ID: info.ID.String(), Title: workspaceString(info.Title), Path: path})
+		listed := shell.ProjectTerminal{ID: info.ID.String(), Title: workspaceString(info.Title), Path: path, Created: info.CreationOrder}
+		if info.UpdatedMs != 0 {
+			listed.Updated = time.UnixMilli(info.UpdatedMs)
+		} else {
+			// Older Nodes identify project shells by the originating launch request.
+			listed.Updated, _ = protocol.RequestID(info.ID).CreatedAt()
+		}
+		terminals = append(terminals, listed)
 	}
 	return terminals
 }

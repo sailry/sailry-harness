@@ -148,6 +148,11 @@ func Sorted(list []Entry, by Sort) []Entry {
 // share.
 func SortedFunc[T any](list []T, by Sort, entry func(T) Entry) []T {
 	out := slices.Clone(list)
+	sortEntries(out, by, entry)
+	return out
+}
+
+func sortEntries[T any](out []T, by Sort, entry func(T) Entry) {
 	switch by {
 	case SortUpdated:
 		slices.SortStableFunc(out, func(x, y T) int {
@@ -166,7 +171,6 @@ func SortedFunc[T any](list []T, by Sort, entry func(T) Entry) []T {
 			return strings.Compare(strings.ToLower(entry(x).Name), strings.ToLower(entry(y).Name))
 		})
 	}
-	return out
 }
 
 // Adjacent returns the conversation after selected in ids, or before it,

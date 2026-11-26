@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -25,13 +27,26 @@ func SaveTerminal(ctx context.Context, db *sql.Conn, value protocol.TerminalInfo
 			return nil, err
 		}
 	}
+	var previous protocol.TerminalInfo
 	if err == nil {
-		var previous protocol.TerminalInfo
 		if err := json.Unmarshal(body, &previous); err != nil {
 			return nil, err
 		}
 		if previous.Revision > value.Revision || previous.Revision == value.Revision && !event && !(stored && terminalFinished(value.Status.Kind)) || terminalFinished(previous.Status.Kind) && value.Status.Kind == "running" {
 			return nil, nil
+		}
+	}
+	value.CreationOrder, value.UpdatedMs = previous.CreationOrder, previous.UpdatedMs
+	if value.Worktree != nil && value.Ssh == nil && value.Tool == nil && value.Status.Kind == "running" {
+		if value.CreationOrder == 0 {
+			// The project sidebar compares this shell with sessions on the same Node.
+			value.CreationOrder, err = NextCounter(ctx, db, CounterSessions)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if value.UpdatedMs == 0 || !reflect.DeepEqual(previous.Activity, value.Activity) || !reflect.DeepEqual(previous.Title, value.Title) {
+			value.UpdatedMs = time.Now().UnixMilli()
 		}
 	}
 	next, err := json.Marshal(value)

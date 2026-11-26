@@ -902,6 +902,9 @@ declarations. Session commands use the Node's process service and workspace
 permission rules, independently of interactive terminals. Code's native terminal
 module enables the project menu, project overview and conversation-panel terminal
 actions without an installed package. Harness does not assemble these actions.
+In the Desktop sidebar, each project sorts and expands conversations and running
+shells as one list. Node assigns both a shared creation sequence and records the
+last title or activity change for project shells.
 Command input is discoverable on demand. On the first request, Harness exposes
 everyday file reads, discovery, search, writes, edits and patches, command run,
 read and stop, and progress tools. A product that assembles Git exposes status

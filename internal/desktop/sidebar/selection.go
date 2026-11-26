@@ -147,7 +147,13 @@ func (s *State) visibleSessionRows() []sessionRow {
 	if *s.opened("projects") {
 		for _, project := range s.projects() {
 			if *s.opened("project/" + project.ID) {
-				add(project.Host+"/"+project.ID, rowTree, s.sessions(project.Conversations))
+				group := s.projectRows(project)
+				n, _ := Window(len(group), s.more[project.Host+"/"+project.ID])
+				for _, row := range group[:n] {
+					if cv := row.conversation; cv != nil {
+						rows = append(rows, sessionRow{sessionPosition{selectionKey(cv), rowTree}, cv})
+					}
+				}
 			}
 		}
 	}

@@ -37,9 +37,10 @@ type State struct {
 	SelectedHost string
 	// Terminal is the project terminal the workspace shows, whose row is
 	// selected instead of a conversation's; the shell sets it.
-	Terminal string
-	Preview  bool
-	Archived bool // show archived sessions across the sidebar, without changing selection
+	Terminal     string
+	terminalName string // localized fallback used by display and range selection
+	Preview      bool
+	Archived     bool // show archived sessions across the sidebar, without changing selection
 	// Sort is the order of the projects and of the conversations in the
 	// chats and in each project, as a Sort: the session order preference,
 	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
@@ -220,6 +221,9 @@ func (s *State) Order() []string {
 // View builds the navigation column's content.
 func View(c *ui.Context, s *State) {
 	s.drawn = false
+	if s.Actions != nil && s.Actions.Terminals != nil {
+		s.terminalName = i18n.T(c, "terminal")
+	}
 	s.current = s.Current()
 	s.syncRows(s.rowCurrent())
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
@@ -245,7 +249,7 @@ func View(c *ui.Context, s *State) {
 		if pinned := s.pinned(); len(pinned) > 0 {
 			section(c, s, "pinned", i18n.T(c, "sidebar_pinned"), nil, func() {
 				ui.Column(c).Gap(rowGap).Children(func() {
-					s.limited(c, "pinned", pinned, func(cv *preview.Conversation) {
+					limited(c, s, "pinned", pinned, func(cv *preview.Conversation) {
 						s.conversation(c, cv, rowPinned)
 					})
 				})
@@ -253,7 +257,7 @@ func View(c *ui.Context, s *State) {
 		}
 		section(c, s, "unassigned", i18n.T(c, "sessions_unassigned"), &add{"workspace_new_session", s.NewChat}, func() {
 			ui.Column(c).Gap(rowGap).Children(func() {
-				s.limited(c, "unassigned", s.sessions(s.Data.Unassigned), func(cv *preview.Conversation) {
+				limited(c, s, "unassigned", s.sessions(s.Data.Unassigned), func(cv *preview.Conversation) {
 					s.conversation(c, cv, rowPlain)
 				})
 			})
@@ -379,9 +383,8 @@ func (s *State) sortMenu(c *ui.Context, color ui.Color) {
 	}, kit.MenuOptions{CheckRight: true})
 }
 
-// limited shows the first Initial conversations of a list and a toggle for
-// the rest.
-func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation, row func(cv *preview.Conversation)) {
+// limited applies one expansion toggle to the entire group.
+func limited[T any](c *ui.Context, s *State, key string, list []T, row func(T)) {
 	n, more := Window(len(list), s.more[key])
 	for i := range n {
 		row(list[i])
@@ -436,10 +439,14 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 		})
 		parts.Panel(func() {
 			ui.Column(c).Gap(rowGap).Children(func() {
-				s.limited(c, pr.Host+"/"+pr.ID, s.sessions(pr.Conversations), func(cv *preview.Conversation) {
-					s.conversation(c, cv, rowTree)
+				rows := s.projectRows(pr)
+				limited(c, s, pr.Host+"/"+pr.ID, rows, func(row projectRow) {
+					if row.conversation != nil {
+						s.conversation(c, row.conversation, rowTree)
+					} else {
+						s.terminal(c, *row.terminal, row.title)
+					}
 				})
-				s.terminals(c, pr)
 			})
 		})
 	})

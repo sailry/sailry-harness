@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -578,6 +579,7 @@ func TestProjectOverviewListsNodeTerminals(t *testing.T) {
 		main, scratch := protocol.WorktreeID{1}, protocol.WorktreeID{2}
 		remote := terminalTabsTestInfo(1, main, "running")
 		remote.Title, remote.Owner = new("zsh"), &protocol.NodeID{9}
+		remote.CreationOrder, remote.UpdatedMs = 8, 2000
 		exited := terminalTabsTestInfo(2, main, "exited")
 		chat := terminalTabsTestInfo(3, scratch, "running")
 		tool := terminalTabsTestInfo(4, main, "running")
@@ -592,7 +594,7 @@ func TestProjectOverviewListsNodeTerminals(t *testing.T) {
 		root, source := snapshotFixture(t, snapshot)
 		overview := &viewmodel.Project{ID: project.ID.String(), Host: root.controller.Target().String()}
 		listed := root.projectTerminals(overview)
-		want := []shell.ProjectTerminal{{ID: remote.ID.String(), Title: "zsh", Path: "/fixture"}}
+		want := []shell.ProjectTerminal{{ID: remote.ID.String(), Title: "zsh", Path: "/fixture", Created: 8, Updated: time.UnixMilli(2000)}}
 		if !slices.Equal(listed, want) {
 			t.Fatalf("project terminals = %+v, want %+v", listed, want)
 		}

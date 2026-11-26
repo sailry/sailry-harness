@@ -273,7 +273,7 @@ export function startSession(draft: {
 
 export type TerminalTool = "codex" | "claude" | "gemini" | "agy" | "grok" | "opencode" | "kimi";
 export type TerminalAccess = "workspace" | "unrestricted";
-export type TerminalInfo = {id: string; revision: number; worktree: string | null; title: string | null; directory: string | null; tool: TerminalTool | null; access: TerminalAccess | null; ssh: string | null; status: {kind: "running" | "closed" | "stopped"} | {kind:"exited"; data:{code:number}} | {kind:"failed"; data:{message:string}}};
+export type TerminalInfo = {id: string; revision: number; creation_order?: number; updated_ms?: number; worktree: string | null; title: string | null; directory: string | null; tool: TerminalTool | null; access: TerminalAccess | null; ssh: string | null; status: {kind: "running" | "closed" | "stopped"} | {kind:"exited"; data:{code:number}} | {kind:"failed"; data:{message:string}}};
 /** Reads only the worktree captured by this view; requires terminals.read. */
 export function listTerminals(): Promise<TerminalInfo[]>;
 export function listTerminalTools(): Promise<{tool: TerminalTool; available: boolean}[]>;

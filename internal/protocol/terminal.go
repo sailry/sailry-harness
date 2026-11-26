@@ -322,17 +322,21 @@ func (value TerminalActivityReport) MarshalJSON() ([]byte, error) {
 }
 
 type TerminalInfo struct {
-	ID        TerminalID              `json:"id"`
-	Worktree  *WorktreeID             `json:"worktree"`
-	Ssh       *SshID                  `json:"ssh"`
-	Tool      *TerminalToolsTool      `json:"tool"`
-	Access    *ProcessAccess          `json:"access"`
-	Status    TerminalStatus          `json:"status"`
-	Activity  *TerminalActivityReport `json:"activity"`
-	Title     *string                 `json:"title"`
-	Directory *string                 `json:"directory"`
-	Owner     *NodeID                 `json:"owner"`
-	Revision  uint64                  `json:"revision"`
+	// Project shell inventory shares creation order with sessions. Older
+	// Nodes and direct PTY responses can omit these inventory fields.
+	CreationOrder uint64                  `json:"creation_order,omitempty"`
+	UpdatedMs     int64                   `json:"updated_ms,omitempty"`
+	ID            TerminalID              `json:"id"`
+	Worktree      *WorktreeID             `json:"worktree"`
+	Ssh           *SshID                  `json:"ssh"`
+	Tool          *TerminalToolsTool      `json:"tool"`
+	Access        *ProcessAccess          `json:"access"`
+	Status        TerminalStatus          `json:"status"`
+	Activity      *TerminalActivityReport `json:"activity"`
+	Title         *string                 `json:"title"`
+	Directory     *string                 `json:"directory"`
+	Owner         *NodeID                 `json:"owner"`
+	Revision      uint64                  `json:"revision"`
 }
 
 func DefaultTerminalInfo() TerminalInfo {

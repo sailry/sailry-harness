@@ -1,7 +1,10 @@
 package sidebar
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -14,27 +17,63 @@ import (
 // Terminal is a running terminal in one of a project's worktrees.
 type Terminal struct {
 	ID, Title, Path string
+	Created         uint64
+	Updated         time.Time
 }
 
-// terminals are a project's terminal rows after its sessions, in the order
-// chosen. Terminals are never archived, so the archived view has none.
-func (s *State) terminals(c *ui.Context, pr *preview.Project) {
-	if s.Archived || s.Actions == nil || s.Actions.Terminals == nil {
-		return
+type projectRow struct {
+	conversation *preview.Conversation
+	terminal     *Terminal
+	title        string
+}
+
+func (row projectRow) entry() Entry {
+	if cv := row.conversation; cv != nil {
+		return Entry{Name: cv.Title, Updated: cv.Updated}
 	}
-	list := SortedFunc(s.Actions.Terminals(pr), s.sort(), func(t Terminal) Entry { return Entry{ID: t.ID, Name: terminalLabel(c, t)} })
-	for _, t := range list {
-		s.terminal(c, t)
+	return Entry{Name: row.title, Updated: row.terminal.Updated}
+}
+
+func (s *State) projectRows(pr *preview.Project) []projectRow {
+	var terminals []Terminal
+	if !s.Archived && s.Actions != nil && s.Actions.Terminals != nil {
+		terminals = s.Actions.Terminals(pr)
 	}
+	// The Node can also supply a manual session order. Merge terminals into
+	// that sequence without moving one session past another.
+	terminals = slices.Clone(terminals)
+	slices.SortStableFunc(terminals, func(a, b Terminal) int { return cmp.Compare(b.Created, a.Created) })
+	rows := make([]projectRow, 0, len(pr.Conversations)+len(terminals))
+	appendTerminal := func(t *Terminal) {
+		title := TerminalTitle(t.Title)
+		if title == "" {
+			title = s.terminalName
+		}
+		rows = append(rows, projectRow{terminal: t, title: title})
+	}
+	for _, cv := range pr.Conversations {
+		if cv.Archived != s.Archived {
+			continue
+		}
+		for len(terminals) > 0 && terminals[0].Created > uint64(cv.Created) {
+			appendTerminal(&terminals[0])
+			terminals = terminals[1:]
+		}
+		rows = append(rows, projectRow{conversation: cv})
+	}
+	for i := range terminals {
+		appendTerminal(&terminals[i])
+	}
+	sortEntries(rows, s.sort(), projectRow.entry)
+	return rows
 }
 
 // terminal is a terminal's row, a session row's look: its title without the
 // shell's user@host prefix, and the terminal's mark where a session shows its
 // age. It is selected while the workspace shows the terminal. Clicking it
 // opens the terminal's kept tab; its right-click menu is the system's.
-func (s *State) terminal(c *ui.Context, t Terminal) {
+func (s *State) terminal(c *ui.Context, t Terminal, title string) {
 	p := theme.Of(c)
-	title := terminalLabel(c, t)
 	b := ui.ButtonBase(c.Key("terminal/" + t.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered, selected := b.Hovered(), s.Terminal == t.ID
 	b.Background(p.SidebarItem(selected, hovered))
@@ -59,14 +98,6 @@ var shellPrompt = regexp.MustCompile(`^[^\s@:]+@[^\s:]+:\s*`)
 // TerminalTitle is a terminal's title without its shell's user@host prefix.
 func TerminalTitle(title string) string {
 	return shellPrompt.ReplaceAllString(title, "")
-}
-
-// terminalLabel is a terminal row's title, by which its rows sort by name.
-func terminalLabel(c *ui.Context, t Terminal) string {
-	if title := TerminalTitle(t.Title); title != "" {
-		return title
-	}
-	return i18n.T(c, "terminal")
 }
 
 func (s *State) openTerminal(id string) {
