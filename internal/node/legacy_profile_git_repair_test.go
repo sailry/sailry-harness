@@ -51,3 +51,22 @@ func TestLegacyGitRepairPreservesChangedRegistration(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyGitRefusesInitializedWorktreeSubmodules(t *testing.T) {
+	t.Parallel()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, module, legacy := filepath.Join(base, "repo"), filepath.Join(base, "child"), filepath.Join(base, "legacy")
+	initMigrationRepository(t, repo)
+	initMigrationRepository(t, module)
+	checkout := filepath.Join(legacy, "worktrees", "side")
+	migrationGit(t, "-C", repo, "worktree", "add", "-b", "side", checkout)
+	migrationGit(t, "-C", checkout, "-c", "protocol.file.allow=always", "submodule", "add", module, "child")
+	linked := map[string]string{}
+	if err := checkLegacyProfileWorktrees(legacy, linked); err == nil || len(linked) != 0 {
+		t.Fatalf("checkout with initialized submodule was registered for migration: %v %v", linked, err)
+	}
+	migrationGit(t, "-C", filepath.Join(checkout, "child"), "status", "--porcelain")
+}

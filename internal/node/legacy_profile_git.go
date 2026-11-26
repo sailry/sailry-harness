@@ -37,24 +37,26 @@ func checkLegacyProfileGit(root *os.Root, relative string, linked map[string]str
 	if !info.IsDir() {
 		return legacyProfileLinkedGit(filepath.Join(root.Name(), relative))
 	}
-	worktrees, err := root.Open(filepath.Join(relative, ".git", "worktrees"))
+	linkedPrimary, err := legacyGitDirectoryHasEntries(root, filepath.Join(relative, ".git", "worktrees"))
+	if err == nil && linkedPrimary {
+		return legacyProfileLinkedGit(filepath.Join(root.Name(), relative))
+	}
+	return err
+}
+
+func legacyGitDirectoryHasEntries(root *os.Root, name string) (bool, error) {
+	directory, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	entries, readErr := worktrees.ReadDir(1)
+	entries, readErr := directory.ReadDir(1)
 	if errors.Is(readErr, io.EOF) {
 		readErr = nil
 	}
-	if err := errors.Join(readErr, worktrees.Close()); err != nil {
-		return err
-	}
-	if len(entries) != 0 {
-		return legacyProfileLinkedGit(filepath.Join(root.Name(), relative))
-	}
-	return nil
+	return len(entries) != 0, errors.Join(readErr, directory.Close())
 }
 
 // Inspect only known managed roots and registered paths, never walk user trees
@@ -208,6 +210,12 @@ func visitLegacyProfileRegistration(root *os.Root, relative, legacy, expectedAdm
 		return "", err
 	}
 	defer directory.Close()
+	// Initialized submodules keep their own core.worktree paths under modules.
+	if nested, err := legacyGitDirectoryHasEntries(directory, "modules"); err != nil {
+		return "", err
+	} else if nested {
+		return "", errors.New("the checkout has initialized submodules; relocate it with its submodules before retrying")
+	}
 	shared, _, err := readLegacyGitLine(directory, "commondir")
 	if err != nil {
 		return "", err
@@ -282,7 +290,7 @@ func replaceLegacyGitBacklink(admin *os.Root, before string, info os.FileInfo, t
 	}
 	defer admin.Remove(name)
 	_, writeErr := file.WriteString(filepath.ToSlash(target) + "\n")
-	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
+	if err := errors.Join(writeErr, file.Chmod(info.Mode().Perm()), file.Sync(), file.Close()); err != nil {
 		return err
 	}
 	current, currentInfo, err := readLegacyGitLine(admin, "gitdir")
