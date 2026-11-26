@@ -215,7 +215,7 @@ func (c *Config) layout(target string) (bundle, executable string, err error) {
 	case "aarch64-apple-darwin", "x86_64-apple-darwin":
 		return product.Name + ".app", "Contents/MacOS/" + product.Executable, nil
 	case "aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc":
-		return product.Name, product.Executable + ".exe", nil
+		return product.Name, product.Name + ".exe", nil
 	}
 	return "", "", failure("updates_platform", "unsupported desktop update target")
 }

@@ -27,9 +27,9 @@ import (
 
 // Publish signs the update archives of one release and writes into
 // directory the files that release carries for the updater: each
-// Sailry-<target>.zip, its .update.json and the signed catalog
-// update-v1.json. unsigned maps each macOS target to the ZIP of its sealed,
-// signed application. seed is the trusted publisher key's 32-byte seed.
+// Sailry-<target>.zip, its .update.json and the signed platform catalogs.
+// The source ZIPs contain sealed macOS bundles or the portable Windows app.
+// seed is the trusted publisher key's 32-byte seed.
 func Publish(seed []byte, version, directory string, unsigned map[string]string) error {
 	return PublishRelease(identity.OfficialDesktop().Release, seed, version, directory, unsigned)
 }
@@ -55,19 +55,27 @@ func publish(key ed25519.PrivateKey, config *Config, version, directory string, 
 	}
 	// Discovery admits a macOS release only with both targets.
 	targets := slices.Sorted(maps.Keys(unsigned))
-	if !slices.Equal(targets, []string{"aarch64-apple-darwin", "x86_64-apple-darwin"}) {
-		return errors.New("a release needs the archives of both macOS targets")
+	expected := []string{"aarch64-apple-darwin", "x86_64-apple-darwin"}
+	if _, ok := unsigned["x86_64-pc-windows-msvc"]; ok {
+		expected = append(expected, "x86_64-pc-windows-msvc")
+	}
+	if !slices.Equal(targets, expected) {
+		return errors.New("expected both macOS archives and optionally the Windows x64 archive")
 	}
 	release := published{version: parsed, downloads: config.Downloads + "/v" + version}
-	var signed payload
+	catalogs := map[string][]Release{}
 	for _, target := range targets {
 		bundle, executable, err := config.layout(target)
 		if err != nil {
 			return err
 		}
-		minimum, err := minimumSystem(unsigned[target], bundle)
-		if err != nil {
-			return err
+		// The Go runtime requires Windows 10 / Windows Server 2016 or later.
+		minimum := "10.0"
+		if target != "x86_64-pc-windows-msvc" {
+			minimum, err = minimumSystem(unsigned[target], bundle)
+			if err != nil {
+				return err
+			}
 		}
 		name := config.packageIdentity().Name + "-" + target + ".zip"
 		path := filepath.Join(directory, name)
@@ -87,24 +95,6 @@ func publish(key ed25519.PrivateKey, config *Config, version, directory string, 
 		if err := writeNew(path+".update.json", append(metadata, '\n')); err != nil {
 			return err
 		}
-		signed.Releases = append(signed.Releases, entry)
-	}
-	body, err := json.Marshal(signed)
-	if err != nil {
-		return err
-	}
-	catalog, err := json.Marshal(envelope{Version: 1, Payload: body, Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(key, body))})
-	if err != nil {
-		return err
-	}
-	catalog = append(catalog, '\n')
-
-	// The updater's own checks must accept what was written.
-	if err := release.authenticate(catalog, config); err != nil {
-		return err
-	}
-	for _, entry := range signed.Releases {
-		path := filepath.Join(directory, entry.Name)
 		if err := verifyArchive(path, entry, config.Keys); err != nil {
 			return err
 		}
@@ -119,8 +109,26 @@ func publish(key ed25519.PrivateKey, config *Config, version, directory string, 
 		if err != nil {
 			return fmt.Errorf("%s: %w", entry.Name, err)
 		}
+		file := catalogName(target)
+		catalogs[file] = append(catalogs[file], entry)
 	}
-	return writeNew(filepath.Join(directory, "update-v1.json"), catalog)
+	for name, releases := range catalogs {
+		body, err := json.Marshal(payload{Releases: releases})
+		if err != nil {
+			return err
+		}
+		catalog, err := json.Marshal(envelope{Version: 1, Payload: body, Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(key, body))})
+		if err != nil {
+			return err
+		}
+		if err := release.authenticate(catalog, config); err != nil {
+			return err
+		}
+		if err := writeNew(filepath.Join(directory, name), append(catalog, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // signedCopy copies a ZIP behind the ed25519ph signature block the updater

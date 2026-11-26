@@ -41,6 +41,15 @@ type published struct {
 
 func invalid(message string) *Failure { return failure("updates_manifest_invalid", message) }
 
+// Existing macOS releases validate the layout of every entry in update-v1.json.
+// Keep their catalog readable while Windows publishes its actual PE filename.
+func catalogName(target string) string {
+	if strings.HasSuffix(target, "pc-windows-msvc") {
+		return "update-v1-windows.json"
+	}
+	return "update-v1.json"
+}
+
 // authenticate requires the signed catalog to describe exactly the version
 // and assets of the release that published it.
 func (p published) authenticate(data []byte, config *Config) error {
@@ -112,11 +121,12 @@ func (r listedRelease) published(config *Config) (*published, error) {
 		return nil, nil
 	}
 	downloads := config.Downloads + "/" + r.TagName
-	targets := []string{"aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"}
+	targets := []string{config.Target}
 	if strings.HasSuffix(config.Target, "apple-darwin") {
 		targets = []string{"aarch64-apple-darwin", "x86_64-apple-darwin"}
 	}
-	names := []string{"update-v1.json"}
+	catalog := catalogName(config.Target)
+	names := []string{catalog}
 	for _, target := range targets {
 		archive := config.packageIdentity().Name + "-" + target
 		names = append(names, archive+".zip", archive+".zip.update.json", "SHA256SUMS-desktop-"+target)
@@ -144,9 +154,9 @@ func (r listedRelease) published(config *Config) (*published, error) {
 		if asset.State != "uploaded" || asset.Size == 0 {
 			return nil, nil
 		}
-		if name == "update-v1.json" && asset.Size > maxManifest {
+		if name == catalog && asset.Size > maxManifest {
 			return nil, invalid("the published signed catalog exceeds its size limit")
 		}
 	}
-	return &published{version: version, catalog: downloads + "/update-v1.json", downloads: downloads}, nil
+	return &published{version: version, catalog: downloads + "/" + catalog, downloads: downloads}, nil
 }

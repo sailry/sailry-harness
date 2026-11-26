@@ -1,4 +1,4 @@
-// Package release builds signed macOS update feeds for downstream products.
+// Package release builds signed Desktop update feeds for downstream products.
 package release
 
 import (

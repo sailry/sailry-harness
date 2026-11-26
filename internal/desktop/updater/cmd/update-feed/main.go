@@ -2,11 +2,11 @@
 // its signed catalog. The release workflow runs it once per tag:
 //
 //	go run ./internal/desktop/updater/cmd/update-feed -version 0.1.6 -output <dir> \
-//	    aarch64-apple-darwin=<zip> x86_64-apple-darwin=<zip>
+//	    aarch64-apple-darwin=<zip> x86_64-apple-darwin=<zip> x86_64-pc-windows-msvc=<zip>
 //
-// Each ZIP holds the sealed, signed and notarized Sailry.app of its target.
+// The input ZIPs hold the signed, notarized Mac apps and the portable Windows app.
 // The output directory receives Sailry-<target>.zip, its .update.json and
-// update-v1.json; existing files are never replaced. The publisher key is
+// the macOS and Windows catalogs. The publisher key is
 // the base64 seed in SAILRY_UPDATE_SIGNING_KEY and must belong to
 // internal/identity/update-public-keys.txt.
 package main
