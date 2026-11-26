@@ -1707,8 +1707,10 @@ unified host directory (`viewapi.NodeInfo` and `viewmodel.Host`) and shows the
 Add Project `Local | Clone` switcher only when the selected host supports
 `"clone"` and reports `git` available.
 
-The updater verifies signed `update-v1` catalogs and archives against compiled
-publisher keys. Stable selects final versions; the experience channel includes
+The desktop product supplies its release-list URL, asset download base, package
+identity and trusted public keys in `product.Desktop.Release`. The Harness
+Desktop updater discovers GitHub Releases-compatible entries and verifies signed
+catalogs and archives against those keys. Stable selects final versions; the experience channel includes
 prereleases. The macOS updater keeps a backup and exchanges the local app
 bundle on the same volume. Windows x64 uses the signed portable package for
 both installed and portable copies. After the local Desktop exits, a helper

@@ -511,8 +511,11 @@ Product Desktop and Host commands select their profile explicitly with the publi
 fallback for Host callers that omit it (`~/.sailry-go` in source builds and
 the linked `core.Default` in packaged builds). Fork commands select their
 identity and release settings in Go and use matching native packaging metadata.
-Use `updater.PublishRelease` with
-the same `DesktopRelease` when signing a fork feed. Packaged builds set the
+Configure `product.Desktop.Release.Source` with a GitHub Releases-compatible
+HTTPS endpoint and `Downloads` with the HTTPS base for versioned assets.
+Pass the same release identity to `sdk/release.PublishDesktop` in the
+product's release job. The signing key stays in that job and `PublicKeys`
+ships with the client. Packaged builds set the
 existing release `core.Default` linker flag to the product's installed profile
 to keep native libraries confined to the package. The fork fixture selects the
 published official Host. SSH and WSL resolve its tag from the official release
